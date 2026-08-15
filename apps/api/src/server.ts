@@ -75,10 +75,7 @@ export function buildServer(): FastifyInstance {
     // 客户端自报的身份必须验归属，见 auth.ts
     await assertMembershipBelongsTo(userId, membershipId);
 
-    const ctx = await buildContext({
-      membershipId,
-      ip: req.ip,
-    });
+    const ctx = await buildContext({ userId, membershipId, ip: req.ip });
 
     const body = req.body as { input?: unknown; idempotencyKey?: string } | undefined;
     const idempotencyKey =

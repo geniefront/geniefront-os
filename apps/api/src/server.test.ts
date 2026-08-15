@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { SignJWT, generateKeyPair, exportJWK } from 'jose';
-import { closeDb, withTenant } from '@gf/db';
+import { closeDb, withTenant, loadMembershipBase, listMembershipsForUser } from '@gf/db';
 import { AppError } from '@gf/contracts';
 import { buildServer } from './server';
 
@@ -104,5 +104,45 @@ describe('membership 归属校验（最关键的一环）', () => {
     // 和上一个测试的结果必须一模一样 —— 能分辨就是一个枚举漏洞
     expect(err!.code).toBe('PERMISSION_DENIED');
     expect(err!.details['reason']).toBe('membership_not_owned');
+  });
+});
+
+describe('身份解析走用户维度 RLS，不绕过', () => {
+  it('⭐ 别人的 membership 直接【查不到】—— 归属校验是数据库事实，不是一句 if', async () => {
+    const [victim] = await withTenant(
+      { orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null },
+      (tx) => tx<{ membership_id: string; user_id: string }[]>`
+        select sp.membership_id, m.user_id
+        from staff_profiles sp join memberships m on m.id = sp.membership_id
+        limit 1`);
+
+    // 本人查得到
+    const mine = await loadMembershipBase(victim!.user_id, victim!.membership_id);
+    expect(mine).not.toBeNull();
+    expect(mine!.orgId).toBe(NAIL_ORG);
+
+    // 换个陌生 userId 查同一条 → null。
+    // 注意这里【没有】调用 assertMembershipBelongsTo —— 就算那道检查被删了，
+    // RLS 依然让它拿不到数据。
+    const stranger = await loadMembershipBase(
+      '00000000-0000-4000-8000-000000000000', victim!.membership_id);
+    expect(stranger).toBeNull();
+  });
+
+  it('陌生用户的选店器是空的', async () => {
+    const list = await listMembershipsForUser('00000000-0000-4000-8000-000000000000');
+    expect(list).toEqual([]);
+  });
+
+  it('⭐ 身份解析模式下看不到业务数据 —— 策略只放行「我自己的身份」', async () => {
+    const [victim] = await withTenant(
+      { orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null },
+      (tx) => tx<{ user_id: string }[]>`select user_id from memberships limit 1`);
+
+    const { withUser } = await import('@gf/db');
+    const rows = await withUser(victim!.user_id, (tx) =>
+      tx<{ n: number }[]>`select count(*)::int as n from customers`);
+    // 没设 org_id 就查客户表 → 0 行。身份解析不该成为读业务数据的后门。
+    expect(rows[0]!.n).toBe(0);
   });
 });

@@ -1,20 +1,17 @@
 /**
- * 身份解析 —— 唯一合法绕过 RLS 的读取路径。
+ * 身份解析 —— 走【用户维度】的 RLS，不绕过任何东西。
  *
- * 为什么必须绕过：登录后用户还没选店，我们不知道 org_id，
- * 而 RLS 策略读的就是 app.org_id。这是先有鸡还是先有蛋的问题，
- * 无法用租户上下文解决。
+ * 登录后用户还没选店，我们不知道 org_id。这曾经被当成「必须绕过 RLS」的理由，
+ * 但那是错的：缺的只是一个用户维度的上下文，不是权限。
  *
- * 所以这里把绕过收敛成**两个具名、窄口径的函数**，而不是给 apps/ 一条
- * 通用的 admin 连接。区别很实在：
- *   - 这两个函数的 SQL 是写死的，永远按 user_id / membership_id 过滤
- *   - 想加新的绕过查询，得改这个文件，review 时看得见
- *   - apps/ 仍然拿不到 adminSql，lint-guards 照常拦
+ * withUser() 设 app.user_id 且不设 app.org_id，0003 迁移里的 `identity_self`
+ * 策略恰好在这种模式下放行「我自己的身份」，全部 for select。
  *
- * 除了这两个函数，任何业务读写都必须走 client.ts 的 withTenant()。
+ * 结果是应用运行时**不需要任何能绕过 RLS 的凭据** —— 这也是部署时
+ * 生产 .env 里没有 MIGRATION_DATABASE_URL 却依然能跑通的原因。
  */
 
-import { adminSql } from './admin';
+import { withUser } from './client';
 
 export interface MembershipRow {
   membershipId: string;
@@ -29,7 +26,7 @@ export interface MembershipRow {
  * 只返回 active 身份 + 未停用门店；离职（status='left'）立刻消失。
  */
 export async function listMembershipsForUser(userId: string): Promise<MembershipRow[]> {
-  const rows = await adminSql<{
+  const rows = await withUser(userId, (tx) => tx<{
     membership_id: string; org_id: string; location_id: string;
     location_name: unknown; role_keys: string[] | null;
   }[]>`
@@ -44,7 +41,7 @@ export async function listMembershipsForUser(userId: string): Promise<Membership
       and m.status = 'active'
       and l.status not in ('closed','suspended')
     group by m.id, l.name
-    order by l.name->>'en'`;
+    order by l.name->>'en'`);
 
   return rows.map((r) => ({
     membershipId: r.membership_id,
@@ -66,9 +63,18 @@ export interface MembershipBase {
   userLocale: string | null;
 }
 
-/** 解析单条 membership 的租户归属。拿到之后一切读写都走 withTenant。 */
-export async function loadMembershipBase(membershipId: string): Promise<MembershipBase | null> {
-  const [row] = await adminSql<{
+/**
+ * 解析单条 membership 的租户归属。拿到之后一切读写都走 withTenant。
+ *
+ * 需要 userId：策略按用户维度放行，而且这天然带来一个好处 ——
+ * 传别人的 membershipId 进来会**查不到**，而不是查到之后再靠调用方去比对。
+ * 归属校验因此变成了数据库层面的事实，不是一句可以被忘记的 if。
+ */
+export async function loadMembershipBase(
+  userId: string,
+  membershipId: string,
+): Promise<MembershipBase | null> {
+  const [row] = await withUser(userId, (tx) => tx<{
     org_id: string; location_id: string; user_id: string;
     status: string; loc_status: string; timezone: string;
     default_locale: string; user_locale: string | null;
@@ -80,7 +86,7 @@ export async function loadMembershipBase(membershipId: string): Promise<Membersh
     join locations l on l.id = m.location_id
     join organizations o on o.id = m.org_id
     join users u on u.id = m.user_id
-    where m.id = ${membershipId}`;
+    where m.id = ${membershipId}`);
 
   if (!row) return null;
   return {

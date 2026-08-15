@@ -9,6 +9,17 @@ import { sql, withTenant, closeDb, listMembershipsForUser } from '@gf/db';
 import { AppError } from '@gf/contracts';
 import { dispatch } from './bus';
 import { buildContext } from './actor';
+
+/** 测试里从 membership 反查 userId —— 生产环境这个值来自已验签的 JWT */
+async function ctxFor(membershipId: string, extra: Record<string, unknown> = {}) {
+  const [r] = await withTenant(
+    { orgId: NAIL_ORG, locationId: null, membershipId: null },
+    (tx) => tx<{ user_id: string }[]>`select user_id from memberships where id = ${membershipId}`);
+  const [r2] = r ? [r] : await withTenant(
+    { orgId: SPA_ORG, locationId: null, membershipId: null },
+    (tx) => tx<{ user_id: string }[]>`select user_id from memberships where id = ${membershipId}`);
+  return buildContext({ userId: r2!.user_id, membershipId, ...extra });
+}
 import './handlers/appointment';
 
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -86,7 +97,7 @@ const create = (ctx: Awaited<ReturnType<typeof buildContext>>, input: unknown, k
 
 describe('Phase 0 验收：appointment.create', () => {
   it('前台建一个预约 → 成功，返回营业日与 item', async () => {
-    const ctx = await buildContext({ membershipId: mia });
+    const ctx = await ctxFor(mia);
     const { result, replayed, undoToken } = await create(ctx, {
       customerId: lisa,
       items: [{ serviceId: gelService, membershipId: linh, startsAt: at(14) }],
@@ -100,7 +111,7 @@ describe('Phase 0 验收：appointment.create', () => {
   });
 
   it('⭐ 产生了审计记录，且记的是操作人不是技师', async () => {
-    const ctx = await buildContext({ membershipId: mia });
+    const ctx = await ctxFor(mia);
     const { result } = await create(ctx, {
       customerId: lisa,
       items: [{ serviceId: gelService, membershipId: linh, startsAt: at(9) }],
@@ -117,7 +128,7 @@ describe('Phase 0 验收：appointment.create', () => {
   });
 
   it('⭐ 幂等：同一个 key 重试不会重复建单', async () => {
-    const ctx = await buildContext({ membershipId: mia });
+    const ctx = await ctxFor(mia);
     const key = randomUUID();
     const first = await create(ctx, {
       customerId: lisa, items: [{ serviceId: gelService, membershipId: linh, startsAt: at(11) }],
@@ -130,7 +141,7 @@ describe('Phase 0 验收：appointment.create', () => {
   });
 
   it('缺 idempotencyKey → 拒绝（这个命令声明了 required）', async () => {
-    const ctx = await buildContext({ membershipId: mia });
+    const ctx = await ctxFor(mia);
     await expect(
       dispatch('appointment.create', {
         customerId: lisa, items: [{ serviceId: gelService, startsAt: at(12) }],
@@ -141,7 +152,7 @@ describe('Phase 0 验收：appointment.create', () => {
 
 describe('权限（宪法第 6 条）', () => {
   it('⭐ 技师没有 appointment.write → 建单被拒', async () => {
-    const ctx = await buildContext({ membershipId: linh });
+    const ctx = await ctxFor(linh);
     expect(ctx.permissions.has('appointment.read')).toBe(true);
     expect(ctx.permissions.has('appointment.write')).toBe(false);
     await expect(
@@ -150,10 +161,8 @@ describe('权限（宪法第 6 条）', () => {
   });
 
   it('⭐ AI 的权限只能是操作人的子集，绝不提权', async () => {
-    const full = await buildContext({ membershipId: mia });
-    const ai = await buildContext({
-      membershipId: mia, actorKind: 'ai', restrictTo: ['appointment.read'],
-    });
+    const full = await ctxFor(mia);
+    const ai = await ctxFor(mia, { actorKind: 'ai', restrictTo: ['appointment.read'] });
     expect(full.permissions.has('appointment.write')).toBe(true);
     expect(ai.permissions.has('appointment.write')).toBe(false);
     await expect(
@@ -162,7 +171,7 @@ describe('权限（宪法第 6 条）', () => {
   });
 
   it('一人多角色：Amy 同时是店长和技师，权限取并集', async () => {
-    const ctx = await buildContext({ membershipId: amy });
+    const ctx = await ctxFor(amy);
     expect(ctx.permissions.has('appointment.write')).toBe(true);  // manager
     expect(ctx.permissions.has('payroll.view_own')).toBe(true);   // tech
     expect(ctx.permissions.has('rotation.override')).toBe(true);  // manager
@@ -171,9 +180,9 @@ describe('权限（宪法第 6 条）', () => {
 
 describe('容量三层（01 §7.1）', () => {
   it('⭐ 技师超并发 → 软告警，不带 reason 时拒绝', async () => {
-    const ctx = await buildContext({ membershipId: mia });
+    const ctx = await ctxFor(mia);
     // Kim 在足疗店 maxConcurrent=1
-    const spaCtx = await buildContext({ membershipId: kim });
+    const spaCtx = await ctxFor(kim);
     void spaCtx;
     // 先占满 Linh（maxConcurrent=2）
     await create(ctx, { customerId: lisa, items: [{ serviceId: gelService, membershipId: linh, startsAt: at(16) }] });
@@ -184,7 +193,7 @@ describe('容量三层（01 §7.1）', () => {
   });
 
   it('⭐ 带上 override reason → 放行，并标记 overbooked + 记原因', async () => {
-    const ctx = await buildContext({ membershipId: mia });
+    const ctx = await ctxFor(mia);
     const { result } = await create(ctx, {
       customerId: lisa,
       items: [{ serviceId: gelService, membershipId: linh, startsAt: at(16, 30) }],
@@ -201,7 +210,7 @@ describe('容量三层（01 §7.1）', () => {
   });
 
   it('⭐ 纯前台（is_bookable=false）不能被排单，带 reason 也不行', async () => {
-    const ctx = await buildContext({ membershipId: mia });
+    const ctx = await ctxFor(mia);
     await expect(
       create(ctx, {
         customerId: lisa,
@@ -216,7 +225,7 @@ describe('容量三层（01 §7.1）', () => {
       { orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null },
       (tx) => tx<{ membership_id: string }[]>`
         select membership_id from staff_profiles where display_name->>'en' = 'Owner'`);
-    const ctx = await buildContext({ membershipId: ownerRow[0]!.membership_id });
+    const ctx = await ctxFor(ownerRow[0]!.membership_id);
 
     await create(ctx, { customerId: null, walkInName: '客人A',
       items: [{ serviceId: spaService, membershipId: kim, resourceId: spaRoom, startsAt: at(19) }] });
@@ -246,7 +255,7 @@ describe('多店切换与租户隔离', () => {
   });
 
   it('⭐ 拿美甲店的上下文碰足疗店的项目 → 查不到，建单失败', async () => {
-    const ctx = await buildContext({ membershipId: mia }); // 美甲店前台
+    const ctx = await ctxFor(mia); // 美甲店前台
     await expect(
       create(ctx, { customerId: null, walkInName: 'x',
         items: [{ serviceId: spaService, startsAt: at(20) }] }),
@@ -254,7 +263,7 @@ describe('多店切换与租户隔离', () => {
   });
 
   it('⭐ 两家店的预约互不可见', async () => {
-    const nailCtx = await buildContext({ membershipId: mia });
+    const nailCtx = await ctxFor(mia);
     const seen = await withTenant(
       { orgId: nailCtx.orgId, locationId: nailCtx.locationId, membershipId: null },
       (tx) => tx<{ n: number }[]>`

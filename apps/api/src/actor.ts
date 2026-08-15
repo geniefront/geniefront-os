@@ -17,6 +17,8 @@ export type { MembershipRow } from '@gf/db';
 export const listMemberships = listMembershipsForUser;
 
 export interface BuildContextArgs {
+  /** 从已验签的 JWT 里来，不接受客户端自报 */
+  userId: string;
   membershipId: string;
   actorKind?: CommandContext['actorKind'];
   ip?: string;
@@ -32,9 +34,10 @@ export interface BuildContextArgs {
  * 否则「这个人不许打折」这种约束会被某个角色悄悄绕过。
  */
 export async function buildContext(args: BuildContextArgs): Promise<CommandContext> {
-  const { membershipId } = args;
+  const { userId, membershipId } = args;
 
-  const base = await loadMembershipBase(membershipId);
+  // 按用户维度查：membership 不属于这个人时直接查不到（不是查到再比对）
+  const base = await loadMembershipBase(userId, membershipId);
 
   if (!base) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { membershipId } });
   if (base.status !== 'active') throw new AppError(ERROR_CODES.MEMBERSHIP_INACTIVE);

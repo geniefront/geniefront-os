@@ -1,0 +1,39 @@
+# 生产编排。每台 VPS 各跑一份，两台之间不需要任何通信
+# —— 实时扇出在 Supabase 侧，状态全在托管层（宪法第 10 条）。
+
+services:
+  api:
+    image: geniefront/api:${TAG:-latest}
+    restart: unless-stopped
+    env_file: [/opt/geniefront/.env]
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    # ⚠️ 只绑回环。Docker 会把自己的规则插进 iptables 绕过 ufw，
+    # 写成 "3000:3000" 的话这个端口对整个互联网开放，而 ufw status 里看不出来。
+    ports: ["127.0.0.1:3000:3000"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    # 只有它对外。TLS 证书由 Cloudflare 到边缘那一段负责，
+    # 这里做 origin 侧的 HTTPS（Cloudflare 回源走 Full strict）。
+    ports: ["80:80", "443:443"]
+    volumes:
+      - /opt/geniefront/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api]
+
+volumes:
+  caddy_data:
+  caddy_config:

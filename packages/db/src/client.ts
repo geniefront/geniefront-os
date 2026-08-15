@@ -70,6 +70,30 @@ export async function withTenant<T>(
 }
 
 /**
+ * 身份解析模式：只设 app.user_id，【不设】app.org_id。
+ *
+ * 登录后用户还没选店，我们不知道 org_id —— 但这不需要绕过 RLS，
+ * 只需要一个用户维度的上下文。0003 迁移里那组 `identity_self` 策略
+ * 恰好让 app_user 看到「我自己的身份」，不多不少，而且全是 for select。
+ *
+ * 这样应用运行时**永远不需要能绕过 RLS 的凭据**。
+ */
+export async function withUser<T>(
+  userId: string,
+  fn: (tx: postgres.TransactionSql) => Promise<T>,
+): Promise<T> {
+  if (!UUID_RE.test(userId)) throw new Error(`withUser: userId 不是合法 UUID：${userId}`);
+  return sql.begin(async (tx) => {
+    await tx`select set_config('app.user_id', ${userId}, true)`;
+    // 显式清空 org_id：identity 策略只在「设了 user 没设 org」时生效，
+    // 万一连接复用带进来上一个请求的值，这里要盖掉
+    await tx`select set_config('app.org_id', '', true)`;
+    await tx`select set_config('app.location_id', '', true)`;
+    return fn(tx);
+  }) as Promise<T>;
+}
+
+/**
  * 仅供迁移与种子脚本使用 —— 不做租户隔离。
  * apps/** 里引用这个函数会被 scripts/lint-guards.sh 拦下。
  */

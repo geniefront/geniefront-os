@@ -58,9 +58,12 @@ export async function verifyAccessToken(authorizationHeader: string | undefined)
 /**
  * ⚠️ 客户端自报的 membershipId 必须验证归属。
  *
- * 少了这一步，任何登录用户都能拿别人的 membershipId 冒充成别家店的店长 ——
- * RLS 也拦不住，因为 RLS 信的就是我们设进去的 app.org_id。
- * 这是整个鉴权链条里最容易漏、后果最严重的一环。
+ * 现在这件事有两道防线，而且第二道是数据库层面的事实：
+ *   1. 这个函数显式检查（保留，因为它给出的错误信息更清楚）
+ *   2. `loadMembershipBase(userId, membershipId)` 走用户维度 RLS，
+ *      别人的 membership **根本查不到** —— 就算有人删了第 1 道，也冒充不了
+ *
+ * 之前只有第 1 道，那是「一句可以被忘记的 if」。
  */
 export async function assertMembershipBelongsTo(
   userId: string,
