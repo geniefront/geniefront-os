@@ -1,0 +1,25 @@
+{
+  "name": "geniefront-os",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.21.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint:guards": "bash scripts/lint-guards.sh",
+    "check:env": "bash scripts/check-env.sh",
+    "db:generate": "pnpm --filter @gf/db generate",
+    "db:migrate": "pnpm --filter @gf/db migrate",
+    "db:seed": "pnpm --filter @gf/db seed",
+    "verify": "pnpm lint:guards && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2",
+    "tsx": "^4.19.2",
+    "vitest": "^2.1.8",
+    "@types/node": "^22.10.2"
+  }
+}
