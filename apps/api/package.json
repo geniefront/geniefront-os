@@ -4,11 +4,16 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
-  "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
   "dependencies": {
     "@gf/contracts": "workspace:*",
     "@gf/db": "workspace:*",
     "@gf/scheduling": "workspace:*",
+    "fastify": "^5.12.0",
+    "jose": "^6.2.8",
     "postgres": "^3.4.5",
     "zod": "^3.24.1"
   }
