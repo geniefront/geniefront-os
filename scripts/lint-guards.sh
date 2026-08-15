@@ -30,6 +30,14 @@ hits=$(grep -rn $SRC 'SUPABASE_SERVICE_ROLE_KEY' apps/ 2>/dev/null || true)
   "把这段逻辑改走命令总线 + withTenant()，或挪进 packages/db。" \
   "$hits"
 
+# ── 1b. apps/ 不许碰 admin 连接（postgres 角色，不受 RLS） ───────────────────
+hits=$(grep -rn $SRC -E "from ['\"].*db/(src/)?admin|MIGRATION_DATABASE_URL|unsafeAdminQuery" apps/ 2>/dev/null || true)
+[[ -n "$hits" ]] && report \
+  "apps/ 里用了迁移专用的 admin 连接" \
+  "宪法第 5 条：业务读写一律走 withTenant()" \
+  "admin 连接用的是 postgres 角色，不受 RLS 约束 —— 那是给迁移和种子脚本的。" \
+  "$hits"
+
 # ── 2. 裸 SET 会泄漏到下一个租户的请求 ───────────────────────────────────────
 # Supavisor transaction mode 下连接是复用的：SET 是会话级，
 # 上一个请求设的 app.org_id 会被下一个请求继承 —— 静默串租户。

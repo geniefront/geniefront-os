@@ -127,6 +127,11 @@ else
     bad "DATABASE_URL 里还留着 [YOUR-PASSWORD] 占位符没换"
     hint "换成你的数据库真实密码（Database → Reset database password 可以重设）"
     db_ok=0
+  elif [[ "$DATABASE_URL" == *"://postgres."* ]]; then
+    bad "DATABASE_URL 用的是 postgres 角色"
+    hint "应用运行时必须用受限角色 app_user（没有 BYPASSRLS）"
+    hint "postgres 角色的连接串填到 MIGRATION_DATABASE_URL"
+    db_ok=0
   elif [[ ! "$DATABASE_URL" =~ ^postgres(ql)?:// ]]; then
     bad "DATABASE_URL 不是 postgresql:// 开头"
     db_ok=0
@@ -152,6 +157,15 @@ else
       fi
     fi
   fi
+fi
+
+if [[ -z "${MIGRATION_DATABASE_URL:-}" ]]; then
+  skip "MIGRATION_DATABASE_URL 未填（跑迁移时需要）"
+elif [[ "$MIGRATION_DATABASE_URL" != *"://postgres."* ]]; then
+  bad "MIGRATION_DATABASE_URL 不是 postgres 角色"
+  hint "迁移要建角色、开 RLS、装扩展，app_user 权限不够"
+else
+  ok "MIGRATION_DATABASE_URL  ${D}$(echo "$MIGRATION_DATABASE_URL" | sed -E 's#://([^:]+):[^@]+@#://\1:****@#')${N}"
 fi
 
 if [[ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then

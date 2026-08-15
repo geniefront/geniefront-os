@@ -1,3 +1,3 @@
-export * from './tenancy.js';
-export * from './identity.js';
-export * from './scheduling.js';
+export * from './tenancy';
+export * from './identity';
+export * from './scheduling';

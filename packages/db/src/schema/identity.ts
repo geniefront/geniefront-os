@@ -9,7 +9,7 @@ import {
   pgTable, uuid, text, jsonb, boolean, integer, timestamp, date, index, uniqueIndex, primaryKey,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { organizations, locations } from './tenancy.js';
+import { organizations, locations } from './tenancy';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
