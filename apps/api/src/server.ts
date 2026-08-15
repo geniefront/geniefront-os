@@ -374,11 +374,3 @@ export function buildServer(): FastifyInstance {
   return app;
 }
 
-// 直接 `tsx src/server.ts` 启动
-if (process.argv[1]?.endsWith('server.ts')) {
-  const app = buildServer();
-  const port = Number(process.env.PORT ?? 3000);
-  app.listen({ port, host: '0.0.0.0' })
-    .then(() => app.log.info(`listening on :${port}`))
-    .catch((e) => { app.log.error(e); process.exit(1); });
-}

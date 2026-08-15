@@ -1,0 +1,106 @@
+name: verify
+
+on:
+  push: { branches: [main] }
+  pull_request:
+
+# 同一分支只跑最新一次，省额度
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # 用本地 Postgres 而不是连生产库：
+    # 测试会建表、灌种子、删数据，绝不能碰真实门店的数据。
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+        ports: ['5432:5432']
+
+    env:
+      # 迁移用超级用户，应用用受限角色 —— 和生产同一套分工（宪法第 5 条）
+      MIGRATION_DATABASE_URL: postgresql://postgres:ci@localhost:5432/postgres
+      DATABASE_URL: postgresql://app_user:ci_app_pw@localhost:5432/postgres
+      APP_DB_PASSWORD: ci_app_pw
+      APP_JWT_SECRET: ci-only-not-a-real-secret-000000000000
+      NODE_ENV: test
+      SEED_SKIP_AUTH: '1'
+      # 不是密钥：SUPABASE_URL 和 anon key 本来就会打进前端包。
+      # JWKS 验签测试需要它们能解析到真实的 issuer。
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # ── 宪法检查放最前面：它最快，而且挡的是最贵的错 ──────────────────────
+      - name: 宪法检查（service_role / 裸 SET / 排他约束 / 浮点金额）
+        run: pnpm lint:guards
+
+      - run: pnpm typecheck
+
+      - name: 建库 + 种子
+        run: |
+          pnpm db:migrate
+          pnpm db:seed
+
+      - name: 测试
+        run: pnpm test
+
+      # ── 迁移必须是可重复执行的 ────────────────────────────────────────────
+      # 生产环境会反复跑同一批迁移（滚动部署、回滚重来），
+      # 不幂等的迁移会在最不该出问题的时候炸。
+      - name: 迁移幂等性
+        run: pnpm db:migrate
+
+      - name: 构建镜像
+        run: |
+          docker build --provenance=false -f deploy/Dockerfile -t gf/api:ci .
+          SIZE=$(docker image inspect gf/api:ci --format '{{.Size}}')
+          MB=$((SIZE / 1048576))
+          echo "镜像 ${MB}MB"
+          # 镜像体积会悄悄膨胀（多装一个包、忘了多阶段），设个上限盯着
+          if [ "$MB" -gt 200 ]; then
+            echo "::error::镜像 ${MB}MB 超过 200MB 上限"
+            exit 1
+          fi
+
+      - name: 容器能真的起来
+        run: |
+          docker run -d --name ci --network host \
+            -e PORT=3000 -e NODE_ENV=production \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e SUPABASE_URL="$SUPABASE_URL" \
+            -e SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+            -e APP_JWT_SECRET="$APP_JWT_SECRET" \
+            gf/api:ci
+          for i in $(seq 1 30); do
+            sleep 2
+            curl -sf http://127.0.0.1:3000/health && break
+            [ "$i" = 30 ] && { docker logs ci; exit 1; }
+          done
+          echo
+          # 未认证必须是 401 —— 镜像打包若丢了鉴权中间件，这里会变成 200
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/v1/me/locations)
+          [ "$CODE" = "401" ] || { echo "::error::未认证返回 $CODE，应为 401"; docker logs ci; exit 1; }
+          docker rm -f ci

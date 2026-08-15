@@ -25,26 +25,7 @@ end $$;
 grant select, insert, update, delete
   on location_reviews, location_review_stats, review_summaries to app_user;
 
--- ────────────────────────────────────────────────────────────────────────────
--- 兜底断言：任何带 org_id 却没开 RLS 的表，迁移直接失败
---
--- 这条比上面的循环重要 —— 循环要人记得改，断言不用。
--- 以后谁新建了业务表忘了开 RLS，跑迁移时就会被拦下，而不是等上线泄露数据。
--- ────────────────────────────────────────────────────────────────────────────
-
-do $$
-declare
-  missing text[];
-begin
-  select array_agg(c.relname order by c.relname) into missing
-  from pg_class c
-  join pg_namespace n on n.oid = c.relnamespace
-  join pg_attribute a on a.attrelid = c.oid and a.attname = 'org_id' and a.attnum > 0
-  where n.nspname = 'public'
-    and c.relkind = 'r'
-    and not (c.relrowsecurity and c.relforcerowsecurity);
-
-  if missing is not null then
-    raise exception '这些表有 org_id 但没开强制 RLS：%。补上 enable + force + tenant_isolation 策略。', missing;
-  end if;
-end $$;
+-- 「所有带 org_id 的表都开了 RLS」这条断言不放在这里：
+-- 它依赖「当下所有表都已建好」，而全新数据库是先建完所有表再跑守护 SQL 的，
+-- 那时后面迁移才加的表（tickets 等）已经存在但 RLS 还没轮到。
+-- 断言移到 migrate.ts，每次迁移【全部跑完之后】统一检查一次。

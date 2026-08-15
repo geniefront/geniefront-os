@@ -19,6 +19,9 @@ const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 export const DEV_PASSWORD = 'GenieDev!2026';
 
 async function upsertAuthUser(email: string, fullName: string): Promise<string> {
+  // CI 里不碰真实的 Supabase Auth —— 否则每跑一次流水线就往生产项目里
+  // 塞一批测试账号，而且 CI 也不该持有能建用户的凭据。
+  if (process.env.SEED_SKIP_AUTH === '1') return crypto.randomUUID();
   const h = {
     apikey: SB_KEY,
     Authorization: `Bearer ${SB_KEY}`,

@@ -81,6 +81,42 @@ async function grantAppUserLogin() {
   console.log('\n✓ app_user 已可登录（受 RLS 约束，无 BYPASSRLS）');
 }
 
+/**
+ * 所有迁移跑完之后统一检查：带 org_id 的表必须都开了强制 RLS。
+ *
+ * 放在这里而不是某条迁移里，是因为迁移是【逐条】跑的 ——
+ * 任何一条中间迁移看到的都是半成品状态，断言会误报。
+ * 而且这样每次迁移都会重新检查一遍，新加的表漏开 RLS 当场就挡下来。
+ */
+async function assertRlsCoverage() {
+  const missing = await adminSql<{ relname: string }[]>`
+    select c.relname from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    join pg_attribute a on a.attrelid = c.oid and a.attname = 'org_id' and a.attnum > 0
+    where n.nspname = 'public' and c.relkind = 'r'
+      and not (c.relrowsecurity and c.relforcerowsecurity)
+    order by c.relname`;
+  if (missing.length > 0) {
+    throw new Error(
+      `这些表有 org_id 但没开强制 RLS：${missing.map((m) => m.relname).join(', ')}\n` +
+      '补上 enable + force row level security 和 tenant_isolation 策略。',
+    );
+  }
+
+  const noPolicy = await adminSql<{ relname: string }[]>`
+    select c.relname from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    join pg_attribute a on a.attrelid = c.oid and a.attname = 'org_id' and a.attnum > 0
+    where n.nspname = 'public' and c.relkind = 'r'
+      and not exists (
+        select 1 from pg_policy p where p.polrelid = c.oid and p.polname = 'tenant_isolation')
+    order by c.relname`;
+  if (noPolicy.length > 0) {
+    throw new Error(`这些表开了 RLS 但没有 tenant_isolation 策略：${noPolicy.map((m) => m.relname).join(', ')}`);
+  }
+  console.log('✓ RLS 覆盖检查通过');
+}
+
 async function main() {
   console.log('\n═══ 迁移 ═══\n');
   const who = await adminSql<{ u: string; db: string }[]>`
@@ -97,6 +133,7 @@ async function main() {
   const b = await runDir(join(PKG, 'sql'), 'sql', done);
 
   await grantAppUserLogin();
+  await assertRlsCoverage();
 
   console.log(`\n完成：新应用 ${a + b} 个文件\n`);
   await adminSql.end({ timeout: 5 });
