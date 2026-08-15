@@ -1,0 +1,7 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "desk", "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@gf/desk", "dev"], "port": 5173 }
+  ]
+}

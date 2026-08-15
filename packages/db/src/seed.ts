@@ -8,6 +8,40 @@
 import { adminSql } from './admin';
 import { ROLE_PRESETS } from '@gf/contracts';
 
+/**
+ * 种子员工要同时存在于 Supabase Auth，且 id 与我们 users 表一致 ——
+ * 否则登录后 JWT 里的 sub 找不到对应 membership，选店器永远是空的。
+ *
+ * 让 Auth 做 id 的源头，我们跟着它走。开发期统一密码，生产走 Magic Link。
+ */
+const SB_URL = process.env.SUPABASE_URL!;
+const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+export const DEV_PASSWORD = 'GenieDev!2026';
+
+async function upsertAuthUser(email: string, fullName: string): Promise<string> {
+  const h = {
+    apikey: SB_KEY,
+    Authorization: `Bearer ${SB_KEY}`,
+    'Content-Type': 'application/json',
+  };
+  // 已存在就直接取（种子要可重复跑）
+  const found = await fetch(
+    `${SB_URL}/auth/v1/admin/users?filter=${encodeURIComponent(email)}`, { headers: h },
+  ).then((r) => r.json() as Promise<{ users?: Array<{ id: string; email: string }> }>);
+  const hit = found.users?.find((u) => u.email === email);
+  if (hit) return hit.id;
+
+  const created = await fetch(`${SB_URL}/auth/v1/admin/users`, {
+    method: 'POST', headers: h,
+    body: JSON.stringify({
+      email, password: DEV_PASSWORD, email_confirm: true,
+      user_metadata: { full_name: fullName },
+    }),
+  }).then((r) => r.json() as Promise<{ id?: string; msg?: string; message?: string }>);
+  if (!created.id) throw new Error(`建 Auth 用户失败 ${email}: ${created.msg ?? created.message}`);
+  return created.id;
+}
+
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const SPA_ORG  = '22222222-2222-4222-8222-222222222222';
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -251,9 +285,12 @@ async function main() {
     ];
 
     for (const p of staff) {
+      const email = `${p.name.toLowerCase()}@example.test`;
+      const authId = await upsertAuthUser(email, p.name);
       const [u] = await tx<{ id: string }[]>`
         insert into users (id, email, full_name, locale)
-        values (gen_random_uuid(), ${p.name.toLowerCase() + '@example.test'}, ${p.name}, 'zh-Hans')
+        values (${authId}, ${email}, ${p.name}, 'zh-Hans')
+        on conflict (id) do update set email = excluded.email, full_name = excluded.full_name
         returning id`;
       const [m] = await tx<{ id: string }[]>`
         insert into memberships (org_id, location_id, user_id, status)
@@ -293,6 +330,9 @@ async function main() {
     select count(*)::int as n from customers where phone_e164 = '+19175550188'`;
   console.log(`\n  同一手机号下 ${shared[0]!.n} 位客人（共号是允许的，前台走选择器）`);
 
+  console.log(`\n  开发登录：<名字小写>@example.test / ${DEV_PASSWORD}`);
+  console.log('    mia   前台（美甲店）      linh  技师');
+  console.log('    amy   店长兼技师          owner 老板（足疗店）');
   console.log('\n完成\n');
   await adminSql.end({ timeout: 5 });
 }

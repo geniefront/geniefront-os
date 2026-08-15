@@ -9,6 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fastify/cors": "^11.3.0",
     "@gf/contracts": "workspace:*",
     "@gf/db": "workspace:*",
     "@gf/scheduling": "workspace:*",

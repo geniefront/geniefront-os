@@ -1,0 +1,158 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   设计 token（宪法第 11 条）
+
+   使用者画像：英文不好、四十岁以上、戴着手套、店里很吵、一边做客人一边操作。
+   所以：按钮 ≥56px、正文 ≥16px、高对比、图标优先、一个任务一屏完成。
+
+   ⚠️ 不用颜色作为唯一信息载体（有色觉障碍的人 + 廉价 iPad 屏幕）——
+   所有靠颜色区分的状态，都同时有图标或文字。
+   ───────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* 触控尺寸：56 是下限，主操作用 64 */
+  --tap: 56px;
+  --tap-lg: 64px;
+
+  --text-sm: 15px;
+  --text: 17px;
+  --text-lg: 21px;
+  --text-xl: 28px;
+  --text-2xl: 38px;
+
+  --r: 14px;
+  --gap: 12px;
+
+  /* 高对比中性色。背景偏暖，长时间盯着不刺眼 */
+  --bg: #f6f5f3;
+  --surface: #ffffff;
+  --line: #ddd9d3;
+  --ink: #1a1917;
+  --ink-2: #57534e;
+  --ink-3: #8b857d;
+
+  --brand: #b8143c;
+  --brand-ink: #ffffff;
+  --brand-soft: #fdeaef;
+
+  --ok: #146b3a;
+  --ok-soft: #e6f4ea;
+  --warn: #9a5b00;
+  --warn-soft: #fdf1dc;
+  --danger: #a4161a;
+  --danger-soft: #fbeaea;
+
+  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.05);
+  font-synthesis-weight: none;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 var(--text)/1.45 -apple-system, "PingFang SC", "Microsoft YaHei",
+        "Hiragino Sans GB", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  /* 前台是长时间操作的设备，禁止双击缩放引起的误触 */
+  touch-action: manipulation;
+}
+
+button, input, select { font: inherit; color: inherit; }
+
+/* ── 按钮 ─────────────────────────────────────────────────────────────────── */
+
+.btn {
+  min-height: var(--tap);
+  padding: 0 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+  font-size: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: transform .06s, box-shadow .12s, background .12s;
+}
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+
+.btn-primary {
+  min-height: var(--tap-lg);
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--brand-ink);
+  font-size: var(--text-lg);
+  box-shadow: var(--shadow);
+}
+.btn-block { width: 100%; }
+.btn-ghost { background: transparent; border-color: transparent; }
+
+/* ── 表面 ─────────────────────────────────────────────────────────────────── */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+}
+
+.field {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0 16px;
+  border: 2px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+  font-size: var(--text-lg);
+}
+.field:focus { outline: none; border-color: var(--brand); }
+/* 手机号这类要逐位核对的，用等宽 */
+.field-mono { font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+
+/* ── 徽章：颜色 + 文字双通道 ──────────────────────────────────────────────── */
+
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: 999px;
+  font-size: var(--text-sm); font-weight: 700; white-space: nowrap;
+}
+.badge-ok     { background: var(--ok-soft);     color: var(--ok); }
+.badge-warn   { background: var(--warn-soft);   color: var(--warn); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); }
+.badge-soft   { background: var(--brand-soft);  color: var(--brand); }
+.badge-mute   { background: #efedea;            color: var(--ink-2); }
+
+/* ── 布局 ─────────────────────────────────────────────────────────────────── */
+
+.stack { display: flex; flex-direction: column; gap: var(--gap); }
+.row   { display: flex; align-items: center; gap: var(--gap); }
+.grow  { flex: 1; min-width: 0; }
+.center-page {
+  min-height: 100%;
+  display: grid; place-items: center;
+  padding: 24px;
+}
+.muted { color: var(--ink-2); }
+.tiny  { font-size: var(--text-sm); color: var(--ink-3); }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.spin {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 3px solid rgba(255,255,255,.35); border-top-color: #fff;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 键盘提示：Desk 端双轨（决策 18）。触屏用户看不见也不影响 */
+kbd {
+  font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #efedea; border: 1px solid var(--line); border-bottom-width: 2px;
+  border-radius: 6px; padding: 2px 7px; color: var(--ink-2);
+}
