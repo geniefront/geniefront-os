@@ -49,11 +49,13 @@ const clock = (iso: string) =>
     .toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 
 export function TurnBoard({
-  data, membershipId, canOverride, services, onChanged,
+  data, membershipId, canOverride, services, onChanged, readOnly = false,
 }: {
   data: RotationSnapshot;
   membershipId: string;
   canOverride: boolean;
+  /** 断网时只读：看得到，但按不动（宪法第 18 条） */
+  readOnly?: boolean;
   services: Array<{ id: string; name: string; durationMin: number; priceCents: number }>;
   onChanged: () => Promise<unknown>;
 }) {
@@ -164,17 +166,17 @@ export function TurnBoard({
 
                 {canOverride && (
                   <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
-                    <button className="btn" disabled={busy !== null}
+                    <button className="btn" disabled={busy !== null || readOnly}
                             onClick={() => { setMoving(e); setExpanded(null); }}>
                       ✋ 调到第一位
                     </button>
-                    <button className="btn" disabled={busy !== null}
+                    <button className="btn" disabled={busy !== null || readOnly}
                             onClick={() => void run('rotation.skip',
                               { membershipId: e.membershipId, kind: 'no_skill' },
                               `skip-${e.membershipId}`)}>
                       跳过（不会做）
                     </button>
-                    <button className="btn" disabled={busy !== null}
+                    <button className="btn" disabled={busy !== null || readOnly}
                             onClick={() => void run('rotation.setBreak',
                               { membershipId: e.membershipId, onBreak: e.state !== 'on_break' },
                               `brk-${e.membershipId}`)}>
@@ -188,11 +190,12 @@ export function TurnBoard({
             {/* 叫号：最高频的操作，放在最显眼处 */}
             {isNext && e.state === 'available' && (
               <div className="row" style={{ padding: '0 16px 14px', gap: 10 }}>
-                <button className="btn btn-primary grow" disabled={busy !== null}
+                <button className="btn btn-primary grow" disabled={busy !== null || readOnly}
+                        title={readOnly ? '网络恢复后可操作' : undefined}
                         onClick={() => setAssigning(e)}>
-                  派给他 · 开单
+                  {readOnly ? '断网中 · 只能查看' : '派给他 · 开单'}
                 </button>
-                <button className="btn" style={{ minHeight: 'var(--tap-lg)' }} disabled={busy !== null}
+                <button className="btn" style={{ minHeight: 'var(--tap-lg)' }} disabled={busy !== null || readOnly}
                         onClick={() => void run('rotation.assign',
                           { membershipId: e.membershipId, isRequest: true },
                           `rq-${e.membershipId}`)}>
@@ -234,7 +237,7 @@ export function TurnBoard({
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', gap: 10 }}>
               {services.map((sv) => (
-                <button key={sv.id} className="btn" disabled={busy !== null}
+                <button key={sv.id} className="btn" disabled={busy !== null || readOnly}
                         style={{ minHeight: 72, flexDirection: 'column', gap: 2 }}
                         onClick={async () => {
                           setBusy('assign'); setErr('');

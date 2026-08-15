@@ -21,6 +21,7 @@ interface CustomerRow {
 import './handlers/appointment';
 import './handlers/rotation';
 import './handlers/ticket';
+import './handlers/setup';
 import { loadDay } from './queries/day';
 import { currentBusinessDate, loadRotation, stripRank } from './handlers/rotation';
 import { computeStanding, explain, FULL_TURN } from '@gf/rotation';
@@ -282,6 +283,79 @@ export function buildServer(): FastifyInstance {
           map.set(r.ticket_id, t);
         }
         return { tickets: [...map.values()] };
+      });
+  });
+
+  // ── 查询：开店配置 ─────────────────────────────────────────────────────────
+  app.get('/v1/desk/settings', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage') && !ctx.permissions.has('staff.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+    }
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      async (tx) => {
+        const [loc] = await tx<{
+          name: unknown; timezone: string; business_hours: unknown;
+          business_type: string; cutoff: string;
+        }[]>`
+          select name, timezone, business_hours, business_type,
+                 business_day_cutoff::text as cutoff
+          from locations where id = ${ctx.locationId}`;
+
+        const services = await tx<{
+          id: string; name: unknown; duration_min: number; base_price_cents: number;
+          taxable: boolean; online_bookable: boolean; active: boolean;
+        }[]>`
+          select id, name, duration_min, base_price_cents, taxable, online_bookable, active
+          from services where location_id = ${ctx.locationId}
+          order by active desc, sort, name->>'en'`;
+
+        const date = businessDateOf(new Date(), loc!.timezone, loc!.cutoff);
+        const staff = await tx<{
+          membership_id: string; name: unknown; is_bookable: boolean;
+          max_concurrent: number; level_key: string | null; in_rotation: boolean | null;
+        }[]>`
+          select sp.membership_id, sp.display_name as name, sp.is_bookable,
+                 sp.max_concurrent_appointments as max_concurrent,
+                 sl.key as level_key, rp.in_rotation
+          from staff_profiles sp
+          join memberships m on m.id = sp.membership_id and m.status = 'active'
+          left join staff_levels sl on sl.id = sp.level_id
+          left join rotation_participants rp
+            on rp.membership_id = sp.membership_id and rp.business_date = ${date}
+          where sp.location_id = ${ctx.locationId}
+          order by sp.is_bookable desc, sp.display_name->>'en'`;
+
+        const levels = await tx<{ id: string; key: string; name: unknown }[]>`
+          select id, key, name from staff_levels
+          where location_id = ${ctx.locationId} order by sort`;
+
+        return {
+          location: {
+            name: pickText(loc!.name, ctx.locale),
+            timezone: loc!.timezone,
+            businessType: loc!.business_type,
+            businessHours: loc!.business_hours ?? {},
+          },
+          services: services.map((s) => ({
+            id: s.id, name: s.name as Record<string, string>,
+            displayName: pickText(s.name, ctx.locale),
+            durationMin: s.duration_min, basePriceCents: s.base_price_cents,
+            taxable: s.taxable, onlineBookable: s.online_bookable, active: s.active,
+          })),
+          staff: staff.map((s) => ({
+            membershipId: s.membership_id,
+            name: pickText(s.name, ctx.locale),
+            isBookable: s.is_bookable,
+            maxConcurrent: s.max_concurrent,
+            levelKey: s.level_key,
+            inRotation: s.in_rotation ?? s.is_bookable,
+          })),
+          levels: levels.map((l) => ({
+            id: l.id, key: l.key, name: pickText(l.name, ctx.locale),
+          })),
+        };
       });
   });
 

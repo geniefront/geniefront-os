@@ -69,11 +69,13 @@ function layout(items: DayItem[], tz: string): Array<{ it: DayItem; lane: number
 const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 export function DaySchedule({
-  day, t, onSlotClick,
+  day, t, onSlotClick, readOnly = false,
 }: {
   day: DaySnapshot;
   t: ReturnType<typeof makeT>;
   onSlotClick: (membershipId: string, startMin: number) => void;
+  /** 断网时只读：日程照常看，但点空白不再开单 */
+  readOnly?: boolean;
 }) {
   const cols = day.staff.filter((s) => s.isBookable);
   const scroller = useRef<HTMLDivElement>(null);
@@ -168,7 +170,7 @@ export function DaySchedule({
                 ))}
 
                 {/* 空白处点一下就开单 —— 半小时一格 */}
-                {hours.flatMap((m) => [m, m + 30]).map((m) => (
+                {!readOnly && hours.flatMap((m) => [m, m + 30]).map((m) => (
                   <button key={m} aria-label={`${s.name} ${hhmm(m)} 建单`}
                           onClick={() => onSlotClick(s.membershipId, m)}
                           style={{
@@ -226,7 +228,7 @@ export function DaySchedule({
       </div>
 
       <div className="row tiny" style={{ padding: '8px 12px', gap: 16, borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
-        <span>点空白处建单</span>
+        <span>{readOnly ? '断网中 · 只能查看' : '点空白处建单'}</span>
         <span>★ 点钟单</span>
         <span>⚠️ 虚线 = 超卖放行</span>
         <span>● 排轮牌 / ○ 只接点钟</span>

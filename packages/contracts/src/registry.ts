@@ -9,8 +9,9 @@ import type { AnyCommandDef } from './command.js';
 import { APPOINTMENT_COMMANDS } from './commands/appointment.js';
 import { ROTATION_COMMANDS } from './commands/rotation.js';
 import { TICKET_COMMANDS } from './commands/ticket.js';
+import { SETUP_COMMANDS } from './commands/setup.js';
 
-const ALL: readonly AnyCommandDef[] = [...APPOINTMENT_COMMANDS, ...ROTATION_COMMANDS, ...TICKET_COMMANDS];
+const ALL: readonly AnyCommandDef[] = [...APPOINTMENT_COMMANDS, ...ROTATION_COMMANDS, ...TICKET_COMMANDS, ...SETUP_COMMANDS];
 
 export const COMMAND_REGISTRY: ReadonlyMap<string, AnyCommandDef> = new Map(
   ALL.map((c) => [c.name, c]),

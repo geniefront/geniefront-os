@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
-import { ApiError, apiGet, type LocationMembership } from './lib/api';
+import { ApiError, apiGet, apiGetCached, API_BASE, type LocationMembership } from './lib/api';
+import { watchNetwork, type NetState } from './lib/offline';
+import { OfflineBanner } from './screens/OfflineBanner';
 import { makeT, LOCALE_LABEL, LOCALES, type Locale } from './i18n';
 import { Login } from './screens/Login';
 import { LocationPicker } from './screens/LocationPicker';
@@ -11,6 +13,7 @@ import { DaySchedule, type DaySnapshot } from './screens/DaySchedule';
 import { BookSheet } from './screens/BookSheet';
 import { TurnBoard, type RotationSnapshot } from './screens/TurnBoard';
 import { Checkout, type OpenTicket } from './screens/Checkout';
+import { Settings, type SettingsData } from './screens/Settings';
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
 
@@ -23,7 +26,27 @@ function Shell({ session }: { session: Session }) {
     () => (localStorage.getItem(LS_LOCALE) as Locale) ?? 'zh-Hans');
   const t = makeT(locale);
   const [picked, setPicked] = useState<LocationMembership | null>(null);
-  const [tab, setTab] = useState<'turn' | 'day' | 'ticket' | 'find'>('turn');
+  const [tab, setTab] = useState<'turn' | 'day' | 'ticket' | 'find' | 'setup'>('turn');
+  const [net, setNet] = useState<NetState>('online');
+  const [netSince, setNetSince] = useState(Date.now());
+  const [cached, setCached] = useState<{ rot: RotationSnapshot | null; day: DaySnapshot | null; at: number } | null>(null);
+
+  // 断网时把最后一次成功的快照读出来展示（宪法第 18 条）
+  useEffect(() => {
+    if (net === 'online' || !picked) { setCached(null); return; }
+    void (async () => {
+      const [r, d] = await Promise.all([
+        apiGetCached<RotationSnapshot>('/v1/desk/rotation', picked.membershipId),
+        apiGetCached<DaySnapshot>('/v1/desk/day', picked.membershipId),
+      ]);
+      setCached({
+        rot: r?.value ?? null, day: d?.value ?? null,
+        at: Math.max(r?.at ?? 0, d?.at ?? 0),
+      });
+    })();
+  }, [net, picked]);
+
+  useEffect(() => watchNetwork(API_BASE, (s, since) => { setNet(s); setNetSince(since); }), []);
   const [checkout, setCheckout] = useState<OpenTicket | null>(null);
   const [chosen, setChosen] = useState<CustomerHit | null | undefined>(undefined);
   const [slot, setSlot] = useState<{ staffId: string; startMin: number } | null>(null);
@@ -77,6 +100,13 @@ function Shell({ session }: { session: Session }) {
     queryKey: ['tickets', picked?.membershipId],
     enabled: Boolean(picked),
     queryFn: () => apiGet<{ tickets: OpenTicket[] }>('/v1/desk/tickets', picked!.membershipId),
+  });
+
+  const canManage = picked?.roleKeys.some((r) => ['owner', 'manager'].includes(r)) ?? false;
+  const setQ = useQuery({
+    queryKey: ['settings', picked?.membershipId],
+    enabled: Boolean(picked) && canManage,
+    queryFn: () => apiGet<SettingsData>('/v1/desk/settings', picked!.membershipId),
   });
 
   const signOut = () => { localStorage.removeItem(LS_LOC); void supabase.auth.signOut(); };
@@ -145,8 +175,10 @@ function Shell({ session }: { session: Session }) {
         </button>
       </header>
 
+      {net === 'offline' && <OfflineBanner since={netSince} cachedAt={cached?.at ?? null} />}
+
       <nav className="row" style={{ padding: '10px 16px', gap: 10 }}>
-        {(['turn', 'day', 'ticket', 'find'] as const).map((k) => (
+        {([...(['turn', 'day', 'ticket', 'find'] as const), ...(canManage ? ['setup'] as const : [])]).map((k) => (
           <button key={k} className="btn" onClick={() => setTab(k)}
                   style={{
                     borderWidth: 2,
@@ -155,6 +187,7 @@ function Shell({ session }: { session: Session }) {
                   }}>
             {k === 'turn' ? '轮牌板' : k === 'day' ? '今日日程'
               : k === 'ticket' ? `在做的单${tktQ.data?.tickets.length ? ` (${tktQ.data.tickets.length})` : ''}`
+              : k === 'setup' ? '⚙ 开店配置'
               : t('cust.title')}
           </button>
         ))}
@@ -169,8 +202,10 @@ function Shell({ session }: { session: Session }) {
       {tab === 'turn' ? (
         rotQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
         : rotQ.data ? (
-          <TurnBoard data={rotQ.data} membershipId={picked.membershipId}
-                     canOverride={picked.roleKeys.some((r) =>
+          <TurnBoard data={net === 'offline' && cached?.rot ? cached.rot : rotQ.data}
+                     membershipId={picked.membershipId}
+                     readOnly={net === 'offline'}
+                     canOverride={net === 'online' && picked.roleKeys.some((r) =>
                        ['owner', 'manager', 'front_desk'].includes(r))}
                      services={dayQ.data?.services ?? []}
                      onChanged={async () => {
@@ -209,14 +244,30 @@ function Shell({ session }: { session: Session }) {
             </button>
           ))}
         </div>
+      ) : tab === 'setup' ? (
+        setQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        : setQ.data ? (
+          <Settings data={setQ.data} membershipId={picked.membershipId}
+                    onChanged={async () => {
+                      await setQ.refetch(); await dayQ.refetch(); await rotQ.refetch();
+                    }} />
+        ) : (
+          <div className="card" style={{ margin: 16, padding: 20 }}>
+            <div className="row">
+              <span className="grow">{t('common.error')}</span>
+              <button className="btn" onClick={() => setQ.refetch()}>{t('common.retry')}</button>
+            </div>
+          </div>
+        )
       ) : tab === 'find' ? (
         <CustomerSearch membershipId={picked.membershipId} t={t}
                         onPick={(c) => { setChosen(c); setTab('day'); }}
                         onApiError={onApiError} />
       ) : dayQ.isPending ? (
         <div className="center-page muted">{t('common.loading')}</div>
-      ) : dayQ.data ? (
-        <DaySchedule day={dayQ.data} t={t}
+      ) : (net === 'offline' && cached?.day) || dayQ.data ? (
+        <DaySchedule day={(net === 'offline' && cached?.day ? cached.day : dayQ.data)!} t={t}
+                     readOnly={net === 'offline'}
                      onSlotClick={(staffId, startMin) => setSlot({ staffId, startMin })} />
       ) : (
         <div className="card" style={{ margin: 16, padding: 20 }}>
