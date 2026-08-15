@@ -10,7 +10,7 @@
 import type postgres from 'postgres';
 import {
   RotationAssign, RotationReorder, RotationSetBreak, RotationSkip,
-  AppError, ERROR_CODES, type CommandContext,
+  AppError, ERROR_CODES, type CommandContext, pickText
 } from '@gf/contracts';
 import {
   computeStanding, turnValueByAmount, FULL_TURN, HALF_TURN,
@@ -84,16 +84,10 @@ export async function loadRotation(
     where location_id = ${ctx.locationId} and business_date = ${businessDate}
     order by at`;
 
-  const nameOf = (v: unknown): string => {
-    if (typeof v === 'string') return v;
-    const o = (v ?? {}) as Record<string, string>;
-    return o[ctx.locale] ?? o['zh-Hans'] ?? o['en'] ?? '—';
-  };
-
   return {
     participants: rows.map((r) => ({
       membershipId: r.membership_id,
-      name: nameOf(r.name),
+      name: pickText(r.name, ctx.locale),
       inRotation: r.in_rotation ?? r.is_bookable,
       seedOrder: r.seed,
     })),

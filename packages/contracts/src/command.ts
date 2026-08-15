@@ -113,3 +113,38 @@ export interface CommandContext {
   timezone: string;
   ip?: string;
 }
+
+/**
+ * 取多语言文本。
+ *
+ * 抽出来是因为它曾经在三个地方各写了一遍，其中一处漏了 `en` 回退，
+ * 结果技师名在结账页显示成「—」。回退链只该有一份实现。
+ *
+ * 顺序：用户语言 → 简体中文 → 英文 → 任意一个有值的 → 占位符。
+ * **绝不返回空白** —— 门店里看到空白只会以为系统坏了。
+ */
+export function pickText(v: unknown, locale: string, fallback = '—'): string {
+  if (typeof v === 'string') return v;
+  const o = (v ?? {}) as Record<string, string>;
+  return o[locale] ?? o['zh-Hans'] ?? o['en'] ?? Object.values(o)[0] ?? fallback;
+}
+
+/**
+ * 把用户输入的美元金额转成整数分。
+ *
+ * **不要用 `Number(x) * 100`**：`Number("1.005") * 100` 得到 100.49999999999999，
+ * Math.round 之后是 100 而不是 101。金额差一分技师就会来问，
+ * 而这种错只在特定小数上出现，测不出来也查不到。
+ *
+ * 所以纯字符串解析：小数点后补齐/截断到两位，全程整数运算。
+ */
+export function dollarsToCents(input: string): number {
+  const cleaned = input.trim().replace(/[^\d.-]/g, '');
+  if (!cleaned || cleaned === '-' || cleaned === '.') return 0;
+
+  const neg = cleaned.startsWith('-');
+  const [whole = '0', frac = ''] = cleaned.replace('-', '').split('.');
+  // 第三位及以后直接截断，不进位 —— 收银场景多收一分比少收一分更糟
+  const cents = Number(whole || '0') * 100 + Number((frac + '00').slice(0, 2));
+  return Number.isFinite(cents) ? (neg ? -cents : cents) : 0;
+}

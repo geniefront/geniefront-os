@@ -6,7 +6,7 @@
 
 import type postgres from 'postgres';
 import { parseTs } from '@gf/db';
-import type { CommandContext } from '@gf/contracts';
+import { pickText, type CommandContext } from '@gf/contracts';
 
 export interface DayStaff {
   membershipId: string;
@@ -51,11 +51,6 @@ export interface DaySnapshot {
   items: DayItem[];
 }
 
-const i18n = (v: unknown, locale: string): string => {
-  if (typeof v === 'string') return v;
-  const o = (v ?? {}) as Record<string, string>;
-  return o[locale] ?? o['zh-Hans'] ?? o['en'] ?? Object.values(o)[0] ?? '—';
-};
 
 export async function loadDay(
   tx: postgres.TransactionSql,
@@ -128,7 +123,7 @@ export async function loadDay(
     closeMin: toMin(today.close, 20 * 60),
     staff: staffRows.map((s) => ({
       membershipId: s.membership_id,
-      name: i18n(s.display_name, ctx.locale),
+      name: pickText(s.display_name, ctx.locale),
       isBookable: s.is_bookable,
       // rotation_participants 没有当天记录时，默认「可接客的人参与轮牌」
       inRotation: s.in_rotation ?? s.is_bookable,
@@ -137,7 +132,7 @@ export async function loadDay(
     })),
     services: serviceRows.map((s) => ({
       id: s.id,
-      name: i18n(s.name, ctx.locale),
+      name: pickText(s.name, ctx.locale),
       durationMin: s.duration_min,
       priceCents: s.base_price_cents,
     })),
@@ -147,7 +142,7 @@ export async function loadDay(
       appointmentId: r.appointment_id,
       membershipId: r.membership_id,
       customerName: r.customer_name ?? r.walk_in_name ?? '临时客人',
-      serviceName: i18n(r.service_name, ctx.locale),
+      serviceName: pickText(r.service_name, ctx.locale),
       startsAt: parseTs(r.starts_at).toISOString(),
       endsAt: parseTs(r.ends_at).toISOString(),
       durationMin: r.duration_min,

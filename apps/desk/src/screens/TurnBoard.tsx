@@ -49,13 +49,15 @@ const clock = (iso: string) =>
     .toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 
 export function TurnBoard({
-  data, membershipId, canOverride, onChanged,
+  data, membershipId, canOverride, services, onChanged,
 }: {
   data: RotationSnapshot;
   membershipId: string;
   canOverride: boolean;
+  services: Array<{ id: string; name: string; durationMin: number; priceCents: number }>;
   onChanged: () => Promise<unknown>;
 }) {
+  const [assigning, setAssigning] = useState<TurnEntry | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [moving, setMoving] = useState<TurnEntry | null>(null);
@@ -187,16 +189,14 @@ export function TurnBoard({
             {isNext && e.state === 'available' && (
               <div className="row" style={{ padding: '0 16px 14px', gap: 10 }}>
                 <button className="btn btn-primary grow" disabled={busy !== null}
-                        onClick={() => void run('rotation.assign',
-                          { membershipId: e.membershipId, isRequest: false },
-                          `as-${e.membershipId}`)}>
-                  {busy === `as-${e.membershipId}` ? <span className="spin" /> : '派给他（消耗一轮）'}
+                        onClick={() => setAssigning(e)}>
+                  派给他 · 开单
                 </button>
                 <button className="btn" style={{ minHeight: 'var(--tap-lg)' }} disabled={busy !== null}
                         onClick={() => void run('rotation.assign',
                           { membershipId: e.membershipId, isRequest: true },
                           `rq-${e.membershipId}`)}>
-                  ★ 点钟单
+                  ★ 点钟（不消耗轮次）
                 </button>
               </div>
             )}
@@ -218,6 +218,51 @@ export function TurnBoard({
             </div>
           ))}
         </>
+      )}
+
+      {/* 派单 = 记轮次 + 开单，一步完成。前台不该为同一件事点两次 */}
+      {assigning && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(20,18,16,.45)',
+          display: 'grid', placeItems: 'end center', zIndex: 50,
+        }} onClick={() => setAssigning(null)}>
+          <div className="card stack" onClick={(ev) => ev.stopPropagation()}
+               style={{ width: 'min(600px,100%)', padding: 24, gap: 16,
+                        borderRadius: '18px 18px 0 0' }}>
+            <div style={{ fontSize: 'var(--text-xl)', fontWeight: 800 }}>
+              派给 {assigning.name} —— 做什么项目
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', gap: 10 }}>
+              {services.map((sv) => (
+                <button key={sv.id} className="btn" disabled={busy !== null}
+                        style={{ minHeight: 72, flexDirection: 'column', gap: 2 }}
+                        onClick={async () => {
+                          setBusy('assign'); setErr('');
+                          try {
+                            // 两条命令：记轮次（按金额折算半轮/整轮）+ 开单
+                            await runCommand('rotation.assign', {
+                              membershipId: assigning.membershipId,
+                              isRequest: false, amountCents: sv.priceCents,
+                              customerName: '临时客人',
+                            }, membershipId);
+                            await runCommand('ticket.open', {
+                              customerId: null, walkInName: '临时客人',
+                              items: [{ serviceId: sv.id, membershipId: assigning.membershipId }],
+                            }, membershipId);
+                            await onChanged();
+                            setAssigning(null);
+                          } catch (ex) {
+                            setErr(ex instanceof ApiError ? `派单失败（${ex.code}）` : '派单失败');
+                          } finally { setBusy(null); }
+                        }}>
+                  <span>{sv.name}</span>
+                  <span className="tiny">{sv.durationMin} 分钟 · ${(sv.priceCents / 100).toFixed(0)}</span>
+                </button>
+              ))}
+            </div>
+            <button className="btn btn-block" onClick={() => setAssigning(null)}>取消</button>
+          </div>
+        </div>
       )}
 
       {/* 调序：必须选原因才能提交（决策 12） */}

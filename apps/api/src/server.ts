@@ -8,7 +8,7 @@
 
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
-import { AppError, ERROR_CODES, httpStatusFor } from '@gf/contracts';
+import { AppError, ERROR_CODES, httpStatusFor , pickText} from '@gf/contracts';
 import { dispatch, registeredCommands } from './bus';
 import { buildContext } from './actor';
 import { verifyAccessToken } from './auth';
@@ -20,6 +20,7 @@ interface CustomerRow {
 }
 import './handlers/appointment';
 import './handlers/rotation';
+import './handlers/ticket';
 import { loadDay } from './queries/day';
 import { currentBusinessDate, loadRotation, stripRank } from './handlers/rotation';
 import { computeStanding, explain, FULL_TURN } from '@gf/rotation';
@@ -233,6 +234,54 @@ export function buildServer(): FastifyInstance {
             })),
           })),
         };
+      });
+  });
+
+  // ── 查询：今天开着的单 ─────────────────────────────────────────────────────
+  app.get('/v1/desk/tickets', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('ticket.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ticket.read' } });
+    }
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      async (tx) => {
+        const rows = await tx<{
+          ticket_id: string; customer_name: string | null; walk_in_name: string | null;
+          subtotal_cents: number; item_id: string; item_name: string; item_total: number;
+          duration_min: number; staff_name: unknown; membership_id: string;
+        }[]>`
+          select t.id as ticket_id, c.display_name as customer_name, t.walk_in_name,
+                 t.subtotal_cents, ti.id as item_id, ti.name_snapshot as item_name,
+                 ti.total_cents as item_total, ti.duration_min,
+                 sp.display_name as staff_name, tis.membership_id
+          from tickets t
+          left join customers c on c.id = t.customer_id
+          join ticket_items ti on ti.ticket_id = t.id
+          join ticket_item_staff tis on tis.ticket_item_id = ti.id
+          left join staff_profiles sp on sp.membership_id = tis.membership_id
+          where t.location_id = ${ctx.locationId}
+            and t.status in ('open','in_service','ready_to_pay')
+          order by t.opened_at, ti.seq`;
+
+        const map = new Map<string, {
+          ticketId: string; customerName: string; subtotalCents: number;
+          items: Array<Record<string, unknown>>;
+        }>();
+        for (const r of rows) {
+          const t = map.get(r.ticket_id) ?? {
+            ticketId: r.ticket_id,
+            customerName: r.customer_name ?? r.walk_in_name ?? '临时客人',
+            subtotalCents: r.subtotal_cents, items: [],
+          };
+          t.items.push({
+            ticketItemId: r.item_id, name: r.item_name, totalCents: r.item_total,
+            durationMin: r.duration_min, staffName: pickText(r.staff_name, ctx.locale),
+            membershipId: r.membership_id,
+          });
+          map.set(r.ticket_id, t);
+        }
+        return { tickets: [...map.values()] };
       });
   });
 

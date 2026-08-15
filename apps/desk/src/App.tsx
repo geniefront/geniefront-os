@@ -10,6 +10,7 @@ import { CustomerSearch, type CustomerHit } from './screens/CustomerSearch';
 import { DaySchedule, type DaySnapshot } from './screens/DaySchedule';
 import { BookSheet } from './screens/BookSheet';
 import { TurnBoard, type RotationSnapshot } from './screens/TurnBoard';
+import { Checkout, type OpenTicket } from './screens/Checkout';
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
 
@@ -22,7 +23,8 @@ function Shell({ session }: { session: Session }) {
     () => (localStorage.getItem(LS_LOCALE) as Locale) ?? 'zh-Hans');
   const t = makeT(locale);
   const [picked, setPicked] = useState<LocationMembership | null>(null);
-  const [tab, setTab] = useState<'turn' | 'day' | 'find'>('turn');
+  const [tab, setTab] = useState<'turn' | 'day' | 'ticket' | 'find'>('turn');
+  const [checkout, setCheckout] = useState<OpenTicket | null>(null);
   const [chosen, setChosen] = useState<CustomerHit | null | undefined>(undefined);
   const [slot, setSlot] = useState<{ staffId: string; startMin: number } | null>(null);
 
@@ -69,6 +71,12 @@ function Shell({ session }: { session: Session }) {
     queryFn: () => apiGet<RotationSnapshot>('/v1/desk/rotation', picked!.membershipId),
     // 轮牌板是墙上大屏，会一直开着 —— 定时刷新到 Phase 1c 换成 Realtime 推送
     refetchInterval: 20_000,
+  });
+
+  const tktQ = useQuery({
+    queryKey: ['tickets', picked?.membershipId],
+    enabled: Boolean(picked),
+    queryFn: () => apiGet<{ tickets: OpenTicket[] }>('/v1/desk/tickets', picked!.membershipId),
   });
 
   const signOut = () => { localStorage.removeItem(LS_LOC); void supabase.auth.signOut(); };
@@ -138,14 +146,16 @@ function Shell({ session }: { session: Session }) {
       </header>
 
       <nav className="row" style={{ padding: '10px 16px', gap: 10 }}>
-        {(['turn', 'day', 'find'] as const).map((k) => (
+        {(['turn', 'day', 'ticket', 'find'] as const).map((k) => (
           <button key={k} className="btn" onClick={() => setTab(k)}
                   style={{
                     borderWidth: 2,
                     borderColor: tab === k ? 'var(--brand)' : 'var(--line)',
                     background: tab === k ? 'var(--brand-soft)' : 'var(--surface)',
                   }}>
-            {k === 'turn' ? '轮牌板' : k === 'day' ? '今日日程' : t('cust.title')}
+            {k === 'turn' ? '轮牌板' : k === 'day' ? '今日日程'
+              : k === 'ticket' ? `在做的单${tktQ.data?.tickets.length ? ` (${tktQ.data.tickets.length})` : ''}`
+              : t('cust.title')}
           </button>
         ))}
         <span className="grow" />
@@ -162,7 +172,10 @@ function Shell({ session }: { session: Session }) {
           <TurnBoard data={rotQ.data} membershipId={picked.membershipId}
                      canOverride={picked.roleKeys.some((r) =>
                        ['owner', 'manager', 'front_desk'].includes(r))}
-                     onChanged={async () => { await rotQ.refetch(); await dayQ.refetch(); }} />
+                     services={dayQ.data?.services ?? []}
+                     onChanged={async () => {
+                       await rotQ.refetch(); await dayQ.refetch(); await tktQ.refetch();
+                     }} />
         ) : (
           <div className="card" style={{ margin: 16, padding: 20 }}>
             <div className="row">
@@ -171,6 +184,31 @@ function Shell({ session }: { session: Session }) {
             </div>
           </div>
         )
+      ) : tab === 'ticket' ? (
+        <div className="stack" style={{ padding: '0 16px 24px', gap: 12 }}>
+          {(tktQ.data?.tickets ?? []).length === 0 && (
+            <div className="card" style={{ padding: 28, textAlign: 'center' }}>
+              <div className="muted">现在没有在做的单</div>
+              <div className="tiny" style={{ marginTop: 6 }}>从轮牌板派单会自动开单</div>
+            </div>
+          )}
+          {(tktQ.data?.tickets ?? []).map((tk) => (
+            <button key={tk.ticketId} className="card row" onClick={() => setCheckout(tk)}
+                    style={{ padding: '16px 18px', gap: 14, textAlign: 'left', cursor: 'pointer' }}>
+              <div className="grow stack" style={{ gap: 4 }}>
+                <strong style={{ fontSize: 'var(--text-xl)' }}>{tk.customerName}</strong>
+                <div className="tiny truncate">
+                  {tk.items.map((i) => `${i.staffName} · ${i.name}`).join(' ／ ')}
+                </div>
+              </div>
+              <span style={{ fontSize: 'var(--text-xl)', fontWeight: 700,
+                             fontVariantNumeric: 'tabular-nums' }}>
+                ${(tk.subtotalCents / 100).toFixed(2)}
+              </span>
+              <span className="badge badge-soft">结账 ›</span>
+            </button>
+          ))}
+        </div>
       ) : tab === 'find' ? (
         <CustomerSearch membershipId={picked.membershipId} t={t}
                         onPick={(c) => { setChosen(c); setTab('day'); }}
@@ -187,6 +225,12 @@ function Shell({ session }: { session: Session }) {
             <button className="btn" onClick={() => dayQ.refetch()}>{t('common.retry')}</button>
           </div>
         </div>
+      )}
+
+      {checkout && (
+        <Checkout ticket={checkout} membershipId={picked.membershipId}
+                  onCancel={() => setCheckout(null)}
+                  onDone={async () => { await tktQ.refetch(); await rotQ.refetch(); }} />
       )}
 
       {slot && dayQ.data && (
