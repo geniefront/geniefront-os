@@ -12,6 +12,7 @@
     "@fastify/cors": "^11.3.0",
     "@gf/contracts": "workspace:*",
     "@gf/db": "workspace:*",
+    "@gf/rotation": "workspace:*",
     "@gf/scheduling": "workspace:*",
     "fastify": "^5.12.0",
     "jose": "^6.2.8",

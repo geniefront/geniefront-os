@@ -19,7 +19,10 @@ interface CustomerRow {
   no_show_count: number; tags: string[] | null; last_visit_on: string | null;
 }
 import './handlers/appointment';
+import './handlers/rotation';
 import { loadDay } from './queries/day';
+import { currentBusinessDate, loadRotation, stripRank } from './handlers/rotation';
+import { computeStanding, explain, FULL_TURN } from '@gf/rotation';
 import { businessDateOf } from '@gf/scheduling';
 
 export function buildServer(): FastifyInstance {
@@ -193,6 +196,44 @@ export function buildServer(): FastifyInstance {
     return withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
       (tx) => loadDay(tx, ctx, date));
+  });
+
+  // ── 查询：轮牌板 ───────────────────────────────────────────────────────────
+  //
+  // 顺序是**算出来的**不是存出来的：每个人都带 explain 和事件流水，
+  // 技师质疑时前台能一条条给他看（决策 12）。
+  app.get('/v1/desk/rotation', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('rotation.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'rotation.read' } });
+    }
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      async (tx) => {
+        const { date, policy } = await currentBusinessDate(tx, ctx.locationId);
+        const { participants, events } = await loadRotation(tx, ctx, date);
+        const st = computeStanding(participants, events, policy);
+        return {
+          businessDate: date,
+          policy,
+          nextUpMembershipId: st.nextUp?.membershipId ?? null,
+          entries: st.entries.map((e) => ({
+            membershipId: e.membershipId,
+            name: e.name,
+            turns: e.turnsBp / FULL_TURN,
+            owed: e.owed,
+            state: e.state,
+            position: e.position,
+            manualRank: e.manualRank,
+            why: explain(e, policy),
+            trail: e.trail.slice(0, 8).map((t) => ({
+              at: t.at, reason: t.reason,
+              turns: t.deltaBp / FULL_TURN,
+              note: stripRank(t.note),
+            })),
+          })),
+        };
+      });
   });
 
   // ── 命令目录 ───────────────────────────────────────────────────────────────

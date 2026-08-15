@@ -35,6 +35,9 @@ importers:
       '@gf/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@gf/rotation':
+        specifier: workspace:*
+        version: link:../../packages/rotation
       '@gf/scheduling':
         specifier: workspace:*
         version: link:../../packages/scheduling
@@ -106,6 +109,8 @@ importers:
       drizzle-kit:
         specifier: ^0.30.1
         version: 0.30.6
+
+  packages/rotation: {}
 
   packages/scheduling: {}
 

@@ -28,7 +28,7 @@ const SPA_LOC = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
 let amy: string;    // 店长兼技师，maxConcurrent=2，不参与轮牌
 let linh: string;   // 纯技师，maxConcurrent=2
 let mia: string;    // 纯前台，is_bookable=false
-let kim: string;    // 足疗店技师，maxConcurrent=1
+let kim: string;    // 足疗店技师 Yan，maxConcurrent=1
 let gelService: string;
 let spaService: string;
 let spaRoom: string;
@@ -70,7 +70,7 @@ beforeAll(async () => {
   amy = nail.find((s) => s.name === 'Amy')!.membership_id;
   linh = nail.find((s) => s.name === 'Linh')!.membership_id;
   mia = nail.find((s) => s.name === 'Mia')!.membership_id;
-  kim = spa.find((s) => s.name === 'Kim')!.membership_id;
+  kim = spa.find((s) => s.name === 'Yan')!.membership_id;
 
   const svcs = await withTenant({ orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null },
     (tx) => tx<{ id: string; n: string }[]>`select id, name->>'en' as n from services`);

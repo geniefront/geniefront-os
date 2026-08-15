@@ -291,8 +291,11 @@ async function main() {
     const staff = [
       { org: NAIL_ORG, loc: NAIL_LOC, name: 'Amy',  roles: ['manager', 'tech'], bookable: true,  maxConc: 2, inRotation: false },
       { org: NAIL_ORG, loc: NAIL_LOC, name: 'Linh', roles: ['tech'],            bookable: true,  maxConc: 2, inRotation: true  },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Kim',  roles: ['tech'],            bookable: true,  maxConc: 1, inRotation: true  },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Tran', roles: ['tech'],            bookable: true,  maxConc: 2, inRotation: true  },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Mai',  roles: ['senior_tech'],     bookable: true,  maxConc: 1, inRotation: true  },
       { org: NAIL_ORG, loc: NAIL_LOC, name: 'Mia',  roles: ['front_desk'],      bookable: false, maxConc: 1, inRotation: false },
-      { org: SPA_ORG,  loc: SPA_LOC,  name: 'Kim',  roles: ['tech'],            bookable: true,  maxConc: 1, inRotation: true  },
+      { org: SPA_ORG,  loc: SPA_LOC,  name: 'Yan',  roles: ['tech'],            bookable: true,  maxConc: 1, inRotation: true  },
       { org: SPA_ORG,  loc: SPA_LOC,  name: 'Owner',roles: ['owner'],           bookable: false, maxConc: 1, inRotation: false },
     ];
 
