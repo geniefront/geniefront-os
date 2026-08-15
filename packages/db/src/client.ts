@@ -61,10 +61,13 @@ export async function withTenant<T>(
   }
 
   return sql.begin(async (tx) => {
-    await tx`select set_config('app.org_id', ${ctx.orgId}, true)`;
-    await tx`select set_config('app.location_id', ${ctx.locationId ?? ''}, true)`;
-    await tx`select set_config('app.membership_id', ${ctx.membershipId ?? ''}, true)`;
-    await tx`select set_config('app.role_scope', ${ctx.roleScope ?? 'full'}, true)`;
+    // 一条语句设完四个，而不是四次往返。
+    // 实测跨区单次往返 ~59ms，拆成四次就是白扔 180ms —— 每个命令都要付一遍。
+    await tx`select
+      set_config('app.org_id',        ${ctx.orgId},                  true),
+      set_config('app.location_id',   ${ctx.locationId ?? ''},       true),
+      set_config('app.membership_id', ${ctx.membershipId ?? ''},     true),
+      set_config('app.role_scope',    ${ctx.roleScope ?? 'full'},    true)`;
     return fn(tx);
   }) as Promise<T>;
 }
@@ -84,11 +87,12 @@ export async function withUser<T>(
 ): Promise<T> {
   if (!UUID_RE.test(userId)) throw new Error(`withUser: userId 不是合法 UUID：${userId}`);
   return sql.begin(async (tx) => {
-    await tx`select set_config('app.user_id', ${userId}, true)`;
     // 显式清空 org_id：identity 策略只在「设了 user 没设 org」时生效，
     // 万一连接复用带进来上一个请求的值，这里要盖掉
-    await tx`select set_config('app.org_id', '', true)`;
-    await tx`select set_config('app.location_id', '', true)`;
+    await tx`select
+      set_config('app.user_id',     ${userId}, true),
+      set_config('app.org_id',      '',        true),
+      set_config('app.location_id', '',        true)`;
     return fn(tx);
   }) as Promise<T>;
 }

@@ -208,14 +208,26 @@ async function main() {
       (${SPA_ORG},  'Golden Foot Spa',   gen_random_uuid(), 'zh-Hans')`;
 
     await tx`insert into locations
-      (id, org_id, name, slug, timezone, business_type, public_key, business_day_cutoff, settings) values
+      (id, org_id, name, slug, timezone, business_type, public_key, business_day_cutoff,
+       business_hours, settings) values
       (${NAIL_LOC}, ${NAIL_ORG},
         ${J({ en: 'Lotus Nails & Spa', 'zh-Hans': '莲花美甲' })}, 'lotus-nails',
-        'America/New_York', 'nail', ${'pk_' + NAIL_LOC.slice(0, 8)}, '21:00',
+        -- ⚠️ cutoff 只对开到凌晨的店有意义：它表示「早于这个点算前一天」。
+        -- 正常营业到晚上 8 点的美甲店设 04:00，凌晨收尾的单还算当天。
+        -- 设成 21:00 会让白天所有的单都归到前一天，方向是反的。
+        'America/New_York', 'nail', ${'pk_' + NAIL_LOC.slice(0, 8)}, '04:00',
+        ${J({ mon:{open:'09:30',close:'19:30'}, tue:{open:'09:30',close:'19:30'},
+              wed:{open:'09:30',close:'19:30'}, thu:{open:'09:30',close:'19:30'},
+              fri:{open:'09:30',close:'20:00'}, sat:{open:'09:00',close:'20:00'},
+              sun:{open:'10:00',close:'18:00'} })},
         ${J({ capacity: { slot_minutes: 15, max_concurrent_per_slot: null, overbook: 'warn' } })}),
       (${SPA_LOC}, ${SPA_ORG},
         ${J({ en: 'Golden Foot Spa', 'zh-Hans': '金足足疗' })}, 'golden-foot',
         'America/Los_Angeles', 'foot_spa', ${'pk_' + SPA_LOC.slice(0, 8)}, '03:00',
+        ${J({ mon:{open:'10:00',close:'23:00'}, tue:{open:'10:00',close:'23:00'},
+              wed:{open:'10:00',close:'23:00'}, thu:{open:'10:00',close:'23:00'},
+              fri:{open:'10:00',close:'01:00'}, sat:{open:'10:00',close:'01:00'},
+              sun:{open:'10:00',close:'23:00'} })},
         ${J({ capacity: { slot_minutes: 15, max_concurrent_per_slot: null, overbook: 'warn' } })})`;
 
     // 足疗店：3 个房间 —— 资源硬约束天然把并发卡在 3
@@ -302,9 +314,14 @@ async function main() {
       await tx`insert into staff_profiles
         (membership_id, org_id, location_id, display_name, is_bookable, max_concurrent_appointments)
         values (${m!.id}, ${p.org}, ${p.loc}, ${J({ en: p.name })}, ${p.bookable}, ${p.maxConc})`;
-      await tx`insert into rotation_participants
-        (org_id, location_id, business_date, membership_id, in_rotation)
-        values (${p.org}, ${p.loc}, current_date, ${m!.id}, ${p.inRotation})`;
+      // 今天和明天都种：演示时不会因为跨营业日而落空
+      for (const d of ['current_date', "current_date + 1"]) {
+        await tx.unsafe(
+          `insert into rotation_participants (org_id, location_id, business_date, membership_id, in_rotation)
+           values ($1, $2, ${d}, $3, $4)`,
+          [p.org, p.loc, m!.id, p.inRotation] as never,
+        );
+      }
     }
 
     await tx`insert into customers (org_id, primary_location_id, display_name, phone_e164, source) values

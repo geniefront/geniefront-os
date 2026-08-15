@@ -9,7 +9,7 @@
 import {
   AppError, ERROR_CODES, isPermission, type CommandContext, type Locale, type Permission,
 } from '@gf/contracts';
-import { withTenant, listMembershipsForUser, loadMembershipBase } from '@gf/db';
+import { withUser, listMembershipsForUser, loadMembershipBase } from '@gf/db';
 
 export type { MembershipRow } from '@gf/db';
 
@@ -39,15 +39,22 @@ export async function buildContext(args: BuildContextArgs): Promise<CommandConte
   // 按用户维度查：membership 不属于这个人时直接查不到（不是查到再比对）
   const base = await loadMembershipBase(userId, membershipId);
 
-  if (!base) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { membershipId } });
+  // 查不到 = 这条 membership 不属于这个人（用户维度 RLS 保证），
+  // 或者根本不存在。两者返回同一个错误，防枚举。
+  if (!base) {
+    throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+      details: { reason: 'membership_not_owned' },
+    });
+  }
   if (base.status !== 'active') throw new AppError(ERROR_CODES.MEMBERSHIP_INACTIVE);
   if (['suspended', 'closed'].includes(base.locationStatus)) {
     throw new AppError(ERROR_CODES.LOCATION_SUSPENDED, { details: { status: base.locationStatus } });
   }
 
-  const granted = await withTenant(
-    { orgId: base.orgId, locationId: base.locationId, membershipId },
-    async (tx) => {
+  // 和 loadMembershipBase 一样走用户维度：0004 迁移把 role_permissions /
+  // permission_overrides 也纳入了 identity 策略，所以一个事务就能读完，
+  // 不用为了拿权限再开一个租户上下文事务。
+  const granted = await withUser(base.userId, async (tx) => {
       const fromRoles = await tx<{ permission: string }[]>`
         select rp.permission from membership_roles mr
         join role_permissions rp on rp.role_id = mr.role_id
@@ -55,9 +62,8 @@ export async function buildContext(args: BuildContextArgs): Promise<CommandConte
       const overrides = await tx<{ permission: string; allow: boolean }[]>`
         select permission, allow from permission_overrides
         where membership_id = ${membershipId}`;
-      return { fromRoles, overrides };
-    },
-  );
+    return { fromRoles, overrides };
+  });
 
   const set = new Set<Permission>();
   for (const r of granted.fromRoles) if (isPermission(r.permission)) set.add(r.permission);

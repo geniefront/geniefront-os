@@ -40,11 +40,13 @@ function daysAgo(iso: string | null): string | null {
 }
 
 export function CustomerSearch({
-  membershipId, t, onPick,
+  membershipId, t, onPick, onApiError,
 }: {
   membershipId: string;
   t: ReturnType<typeof makeT>;
   onPick: (c: CustomerHit | null) => void;
+  /** 返回 true 表示这个错误已被上层接管（例如身份失效已跳回选店器） */
+  onApiError?: (e: unknown) => boolean;
 }) {
   const [term, setTerm] = useState('');
   const [submitted, setSubmitted] = useState('');
@@ -71,6 +73,8 @@ export function CustomerSearch({
       apiGet<{ customers: CustomerHit[] }>(
         `/v1/customers/search?q=${encodeURIComponent(submitted.trim())}`, membershipId),
   });
+
+  useEffect(() => { if (q.error) onApiError?.(q.error); }, [q.error, onApiError]);
 
   const hits = q.data?.customers ?? [];
   // 同号多人：这是要高亮提示的情况，不是边缘案例

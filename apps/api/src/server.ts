@@ -11,7 +11,7 @@ import cors from '@fastify/cors';
 import { AppError, ERROR_CODES, httpStatusFor } from '@gf/contracts';
 import { dispatch, registeredCommands } from './bus';
 import { buildContext } from './actor';
-import { verifyAccessToken, assertMembershipBelongsTo } from './auth';
+import { verifyAccessToken } from './auth';
 import { listMembershipsForUser, withTenant } from '@gf/db';
 
 interface CustomerRow {
@@ -19,6 +19,8 @@ interface CustomerRow {
   no_show_count: number; tags: string[] | null; last_visit_on: string | null;
 }
 import './handlers/appointment';
+import { loadDay } from './queries/day';
+import { businessDateOf } from '@gf/scheduling';
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({
@@ -76,6 +78,21 @@ export function buildServer(): FastifyInstance {
     req.user = await verifyAccessToken(req.headers.authorization);
   });
 
+  /** 从请求头解析出命令上下文。客户端自报的 membershipId 必须验归属。 */
+  async function ctxFromHeaders(req: { user?: { userId: string }; headers: Record<string, unknown>; ip: string }) {
+    const userId = req.user!.userId;
+    const membershipId = req.headers['x-membership-id'];
+    if (typeof membershipId !== 'string' || !membershipId) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: '缺少 X-Membership-Id：先调 /v1/me/locations 选店' },
+      });
+    }
+    // 不再单独调 assertMembershipBelongsTo：buildContext 里的
+    // loadMembershipBase 走用户维度 RLS，别人的 membership 直接查不到，
+    // 同样抛 PERMISSION_DENIED。省掉热路径上的一次往返。
+    return buildContext({ userId, membershipId, ip: req.ip });
+  }
+
   // ── 店铺选择器 ─────────────────────────────────────────────────────────────
   // 登录后第一个调用。只有一条就直接进，多条出选择器（02 §2）。
   app.get('/v1/me/locations', async (req) => {
@@ -87,22 +104,11 @@ export function buildServer(): FastifyInstance {
   const commandNames = new Set(registeredCommands().map((c) => c.name));
 
   app.post<{ Params: { name: string } }>('/v1/commands/:name', async (req, reply) => {
-    const userId = req.user!.userId;
     const name = req.params.name;
     if (!commandNames.has(name)) {
       throw new AppError(ERROR_CODES.NOT_FOUND, { details: { command: name } });
     }
-
-    const membershipId = req.headers['x-membership-id'];
-    if (typeof membershipId !== 'string' || !membershipId) {
-      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-        details: { reason: '缺少 X-Membership-Id：先调 /v1/me/locations 选店' },
-      });
-    }
-    // 客户端自报的身份必须验归属，见 auth.ts
-    await assertMembershipBelongsTo(userId, membershipId);
-
-    const ctx = await buildContext({ userId, membershipId, ip: req.ip });
+    const ctx = await ctxFromHeaders(req);
 
     const body = req.body as { input?: unknown; idempotencyKey?: string } | undefined;
     const idempotencyKey =
@@ -121,15 +127,7 @@ export function buildServer(): FastifyInstance {
   // 决策 21：手机号不是唯一键。这个接口【可以】返回同号多人，
   // 前端负责让前台选 —— 后端绝不擅自"帮"前台挑一个。
   app.get<{ Querystring: { q?: string } }>('/v1/customers/search', async (req) => {
-    const userId = req.user!.userId;
-    const membershipId = req.headers['x-membership-id'];
-    if (typeof membershipId !== 'string' || !membershipId) {
-      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-        details: { reason: '缺少 X-Membership-Id' },
-      });
-    }
-    await assertMembershipBelongsTo(userId, membershipId);
-    const ctx = await buildContext({ userId, membershipId, ip: req.ip });
+    const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('customer.read')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'customer.read' } });
     }
@@ -143,7 +141,7 @@ export function buildServer(): FastifyInstance {
     const canSeeContact = ctx.permissions.has('customer.view_contact');
 
     const rows = await withTenant(
-      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId },
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
       (tx) => byPhone
         ? tx<CustomerRow[]>`
             select c.id, c.display_name, c.phone_e164, c.no_show_count, c.tags,
@@ -176,6 +174,25 @@ export function buildServer(): FastifyInstance {
         tags: r.tags ?? [],
       })),
     };
+  });
+
+  // ── 查询：当日现场 ─────────────────────────────────────────────────────────
+  app.get<{ Querystring: { date?: string } }>('/v1/desk/day', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('appointment.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'appointment.read' } });
+    }
+    // 不传日期就用门店此刻的营业日 —— 凌晨 1 点打开还应该看到「昨天」那一天
+    const [loc] = await withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => tx<{ tz: string; cutoff: string }[]>`
+        select timezone as tz, business_day_cutoff::text as cutoff
+        from locations where id = ${ctx.locationId}`);
+    const date = req.query.date ?? businessDateOf(new Date(), loc!.tz, loc!.cutoff);
+
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => loadDay(tx, ctx, date));
   });
 
   // ── 命令目录 ───────────────────────────────────────────────────────────────

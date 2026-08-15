@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
-import { apiGet, type LocationMembership } from './lib/api';
+import { ApiError, apiGet, type LocationMembership } from './lib/api';
 import { makeT, LOCALE_LABEL, LOCALES, type Locale } from './i18n';
 import { Login } from './screens/Login';
 import { LocationPicker } from './screens/LocationPicker';
 import { CustomerSearch, type CustomerHit } from './screens/CustomerSearch';
+import { DaySchedule, type DaySnapshot } from './screens/DaySchedule';
+import { BookSheet } from './screens/BookSheet';
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
 
@@ -19,12 +21,29 @@ function Shell({ session }: { session: Session }) {
     () => (localStorage.getItem(LS_LOCALE) as Locale) ?? 'zh-Hans');
   const t = makeT(locale);
   const [picked, setPicked] = useState<LocationMembership | null>(null);
+  const [tab, setTab] = useState<'day' | 'find'>('day');
   const [chosen, setChosen] = useState<CustomerHit | null | undefined>(undefined);
+  const [slot, setSlot] = useState<{ staffId: string; startMin: number } | null>(null);
 
   const locs = useQuery({
     queryKey: ['me-locations', session.user.id],
     queryFn: () => apiGet<{ locations: LocationMembership[] }>('/v1/me/locations'),
   });
+
+  /**
+   * 存下来的 membershipId 会失效：技师离职（membership.status = left）后
+   * 后端立刻拒绝，而前端还揣着旧 id —— 那会卡在一个出不去的错误页上。
+   * 遇到 membership_not_owned 就清掉重选，而不是让人只能清浏览器缓存。
+   */
+  const onApiError = (e: unknown) => {
+    if (e instanceof ApiError && e.details['reason'] === 'membership_not_owned') {
+      localStorage.removeItem(LS_LOC);
+      setPicked(null);
+      void locs.refetch();
+      return true;
+    }
+    return false;
+  };
 
   // 只有一家店就直接进；多店记住上次选择（02 §2 user_last_location 的前端侧）
   useEffect(() => {
@@ -34,7 +53,14 @@ function Shell({ session }: { session: Session }) {
     const last = localStorage.getItem(LS_LOC);
     const hit = list.find((m) => m.membershipId === last);
     if (hit) setPicked(hit);
+    else if (last) localStorage.removeItem(LS_LOC);  // 存的那家已经没身份了
   }, [locs.data, picked]);
+
+  const dayQ = useQuery({
+    queryKey: ['day', picked?.membershipId],
+    enabled: Boolean(picked),
+    queryFn: () => apiGet<DaySnapshot>('/v1/desk/day', picked!.membershipId),
+  });
 
   const signOut = () => { localStorage.removeItem(LS_LOC); void supabase.auth.signOut(); };
 
@@ -102,19 +128,57 @@ function Shell({ session }: { session: Session }) {
         </button>
       </header>
 
-      {chosen === undefined ? (
-        <CustomerSearch membershipId={picked.membershipId} t={t} onPick={setChosen} />
+      <nav className="row" style={{ padding: '10px 16px', gap: 10 }}>
+        {(['day', 'find'] as const).map((k) => (
+          <button key={k} className="btn" onClick={() => setTab(k)}
+                  style={{
+                    borderWidth: 2,
+                    borderColor: tab === k ? 'var(--brand)' : 'var(--line)',
+                    background: tab === k ? 'var(--brand-soft)' : 'var(--surface)',
+                  }}>
+            {k === 'day' ? '今日日程' : t('cust.title')}
+          </button>
+        ))}
+        <span className="grow" />
+        {chosen !== undefined && (
+          <span className="badge badge-soft">
+            已选：{chosen ? chosen.displayName : '临时客人'} · 点空白处排单
+          </span>
+        )}
+      </nav>
+
+      {tab === 'find' ? (
+        <CustomerSearch membershipId={picked.membershipId} t={t}
+                        onPick={(c) => { setChosen(c); setTab('day'); }}
+                        onApiError={onApiError} />
+      ) : dayQ.isPending ? (
+        <div className="center-page muted">{t('common.loading')}</div>
+      ) : dayQ.data ? (
+        <DaySchedule day={dayQ.data} t={t}
+                     onSlotClick={(staffId, startMin) => setSlot({ staffId, startMin })} />
       ) : (
-        <div className="stack" style={{ maxWidth: 760, margin: '0 auto', padding: 20 }}>
-          <div className="card stack" style={{ padding: 24, gap: 10 }}>
-            <div className="tiny">已选客人</div>
-            <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 800 }}>
-              {chosen ? chosen.displayName : '新客人 / Walk-in'}
-            </div>
-            <div className="muted">下一步：选项目 → 派技师 → 开单（建设中）</div>
+        <div className="card" style={{ margin: 16, padding: 20 }}>
+          <div className="row">
+            <span className="grow">{t('common.error')}</span>
+            <button className="btn" onClick={() => dayQ.refetch()}>{t('common.retry')}</button>
           </div>
-          <button className="btn" onClick={() => setChosen(undefined)}>‹ {t('common.back')}</button>
         </div>
+      )}
+
+      {slot && dayQ.data && (
+        <BookSheet
+          day={dayQ.data} membershipId={picked.membershipId}
+          staffId={slot.staffId} startMin={slot.startMin}
+          customer={chosen ? { id: chosen.id, displayName: chosen.displayName } : null}
+          t={t}
+          onCancel={() => setSlot(null)}
+          onDone={async () => {
+            setSlot(null); setChosen(undefined);
+            // ⚠️ 必须 await：不等刷新完就关弹窗，前台看到日程表上没有这一单，
+            // 会以为没开成而再开一次 —— 重复建单在门店里是实打实的事故。
+            await dayQ.refetch();
+          }}
+        />
       )}
     </div>
   );
