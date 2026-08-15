@@ -12,3 +12,4 @@ coverage/
 .DS_Store
 .idea/
 .vscode/
+deploy/certs/origin.key

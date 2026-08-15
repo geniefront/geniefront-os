@@ -1,14 +1,36 @@
-# origin 侧反代。Cloudflare 在前面，回源用 Full (strict)，
-# 所以这里需要一张真证书 —— Caddy 自动申请 Let's Encrypt。
+# origin 侧反代。Cloudflare 在前面。
+#
+# 证书用 Cloudflare Origin CA（有效期到 2041），不走 ACME：
+# 两台机器轮询同一个域名时会互抢 HTTP-01 challenge，证书容易反复失败。
+# Origin CA 证书两台共用一张，零协调。代价是它只被 Cloudflare 信任 ——
+# 对回源来说这正是想要的。
 
 {
-	email ops@geniefront.com
 	admin off
+	# 没有 ACME，关掉自动 HTTPS 的证书申请，只保留端口管理
+	auto_https disable_certs
 }
 
-api.geniefront.com {
-	# 真实客户端 IP 在 CF-Connecting-IP，Fastify 的 trustProxy 会读 X-Forwarded-For
+# ── LB 探针入口（HTTP:80，不跳转）──────────────────────────────────────────
+# Cloudflare 的健康探针打这里。故意用 HTTP 而不是 HTTPS：
+# Origin CA 证书不在公共信任链里，走 HTTPS 探针就得开 allow_insecure，
+# 那等于把探针的校验关掉，不如直接用明文探一个无敏感信息的端点。
+:80 {
+	handle /health {
+		reverse_proxy api:3000
+	}
+	handle {
+		redir https://{host}{uri} permanent
+	}
+}
+
+# ── 正式入口 ───────────────────────────────────────────────────────────────
+https://api.geniefront.com {
+	tls /etc/caddy/origin.pem /etc/caddy/origin.key
+
 	reverse_proxy api:3000 {
+		# 真实客户端 IP：Cloudflare 放在 CF-Connecting-IP，
+		# Fastify 的 trustProxy 读 X-Forwarded-For
 		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
 		health_uri /health
 		health_interval 10s
