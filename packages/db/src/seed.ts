@@ -6,6 +6,7 @@
  */
 
 import { adminSql } from './admin';
+import { ROLE_PRESETS } from '@gf/contracts';
 
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const SPA_ORG  = '22222222-2222-4222-8222-222222222222';
@@ -144,11 +145,15 @@ async function main() {
       'staff_profiles', 'staff_skills', 'skills', 'staff_levels',
       'device_tokens', 'membership_roles', 'permission_overrides',
       'memberships', 'role_permissions', 'roles',
+      '__users__',
       'location_features', 'location_subscriptions', 'usage_events',
       'locations',
     ]) {
       // 无 org_id 的连接表走父表推导
-      if (t === 'staff_skills' || t === 'membership_roles' || t === 'permission_overrides') {
+      if (t === '__users__') {
+        // users 是全局表，没有 org_id：只删这两家店造出来的测试账号
+        await tx`delete from users where email like '%@example.test'`;
+      } else if (t === 'staff_skills' || t === 'membership_roles' || t === 'permission_overrides') {
         await tx.unsafe(
           `delete from ${t} where membership_id in (select id from memberships where org_id = any($1))`,
           [orgs as never],
@@ -219,6 +224,52 @@ async function main() {
       }
     }
 
+    // ── 角色预设 ──────────────────────────────────────────────────────────
+    // 权限来自 packages/contracts 的 ROLE_PRESETS，不在这里重新抄一遍
+    const roleIds: Record<string, Record<string, string>> = {};
+    for (const [org, loc] of [[NAIL_ORG, NAIL_LOC], [SPA_ORG, SPA_LOC]] as const) {
+      roleIds[loc] = {};
+      for (const [key, perms] of Object.entries(ROLE_PRESETS)) {
+        const [r] = await tx<{ id: string }[]>`
+          insert into roles (org_id, location_id, key, name, is_preset)
+          values (${org}, ${loc}, ${key}, ${J({ en: key })}, true) returning id`;
+        roleIds[loc]![key] = r!.id;
+        for (const p of perms) {
+          await tx`insert into role_permissions (role_id, permission) values (${r!.id}, ${p})`;
+        }
+      }
+    }
+
+    // ── 员工 ─────────────────────────────────────────────────────────────
+    // 覆盖「一人多角色」：Amy 是店长兼技师 —— 可被排单，但不吃 walk-in 轮
+    const staff = [
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Amy',  roles: ['manager', 'tech'], bookable: true,  maxConc: 2, inRotation: false },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Linh', roles: ['tech'],            bookable: true,  maxConc: 2, inRotation: true  },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Mia',  roles: ['front_desk'],      bookable: false, maxConc: 1, inRotation: false },
+      { org: SPA_ORG,  loc: SPA_LOC,  name: 'Kim',  roles: ['tech'],            bookable: true,  maxConc: 1, inRotation: true  },
+      { org: SPA_ORG,  loc: SPA_LOC,  name: 'Owner',roles: ['owner'],           bookable: false, maxConc: 1, inRotation: false },
+    ];
+
+    for (const p of staff) {
+      const [u] = await tx<{ id: string }[]>`
+        insert into users (id, email, full_name, locale)
+        values (gen_random_uuid(), ${p.name.toLowerCase() + '@example.test'}, ${p.name}, 'zh-Hans')
+        returning id`;
+      const [m] = await tx<{ id: string }[]>`
+        insert into memberships (org_id, location_id, user_id, status)
+        values (${p.org}, ${p.loc}, ${u!.id}, 'active') returning id`;
+      for (const r of p.roles) {
+        await tx`insert into membership_roles (membership_id, role_id)
+                 values (${m!.id}, ${roleIds[p.loc]![r]!})`;
+      }
+      await tx`insert into staff_profiles
+        (membership_id, org_id, location_id, display_name, is_bookable, max_concurrent_appointments)
+        values (${m!.id}, ${p.org}, ${p.loc}, ${J({ en: p.name })}, ${p.bookable}, ${p.maxConc})`;
+      await tx`insert into rotation_participants
+        (org_id, location_id, business_date, membership_id, in_rotation)
+        values (${p.org}, ${p.loc}, current_date, ${m!.id}, ${p.inRotation})`;
+    }
+
     await tx`insert into customers (org_id, primary_location_id, display_name, phone_e164, source) values
       (${NAIL_ORG}, ${NAIL_LOC}, ${'Lisa Chen'},  '+19175550142', 'walkin'),
       (${NAIL_ORG}, ${NAIL_LOC}, ${'张女士'},      '+19175550188', 'walkin'),
@@ -232,7 +283,9 @@ async function main() {
     union all select 'services', count(*)::int from services
     union all select 'resources', count(*)::int from resources
     union all select 'service_option_defs', count(*)::int from service_option_defs
-    union all select 'customers', count(*)::int from customers`;
+    union all select 'customers', count(*)::int from customers
+    union all select 'memberships', count(*)::int from memberships
+    union all select 'roles', count(*)::int from roles`;
   for (const c of counts) console.log(`  ${c.t.padEnd(22)} ${c.n}`);
 
   // 同号多客户：张女士和张先生共用 +19175550188，是被允许的（宪法第 16 条）

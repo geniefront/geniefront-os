@@ -77,6 +77,55 @@ export async function unsafeAdminQuery<T>(fn: (s: postgres.Sql) => Promise<T>): 
   return fn(sql);
 }
 
+/**
+ * 时间参数一律用这个转成 ISO 字符串，SQL 里配 `::timestamptz` 显式转型。
+ *
+ * 为什么不直接传 Date：postgres.js 的 inferType 靠 `x instanceof Date` 判类型
+ * （见 postgres/src/types.js）。跨模块 realm 时这个检查会失败 —— vitest 把
+ * 依赖放在 Node 原生 realm、测试代码放在 vite-node 的 VM realm，两边的 Date
+ * 不是同一个构造函数，于是 Date 被当成未知类型原样写进字节流，报
+ * "The string argument must be of type string... Received an instance of Date"。
+ *
+ * 显式转字符串顺带还有个好处：Postgres 不用猜参数类型，查询计划更稳。
+ */
+export const ts = (d: Date | string): string =>
+  typeof d === 'string' ? d : d.toISOString();
+
+/**
+ * jsonb 参数同理，SQL 里配 `::jsonb`。
+ *
+ * 不能用 sql.json() —— 它返回 postgres.js 内部的 Parameter 实例，
+ * inferType 靠 `x instanceof Parameter` 识别，跨 realm 一样会失效，
+ * 报的是同一个错只是变成 "Received an instance of Object"。
+ *
+ * （packages/db 的 seed.ts 仍在用 sql.json：它只在 tsx 下跑，没有 realm 边界。
+ *   运行时代码一律用这个函数。）
+ */
+export const jsonb = (v: unknown): string => JSON.stringify(v ?? null);
+
+/**
+ * 读回来的 timestamptz 也要显式解析。
+ *
+ * 实测在 Supavisor transaction mode + prepare:false 下，时间列返回的是
+ * 字符串（形如 `2026-08-16 14:00:00+00`）而不是 Date 对象。
+ * 别指望驱动帮你转 —— 拿到就当字符串处理，需要 Date 就过这个函数。
+ *
+ * Postgres 的输出有两处不是合法 ISO 8601，都要补：
+ *   1. 日期和时间之间是空格，不是 'T'
+ *   2. 时区偏移写成 `+00` 而不是 `+00:00` —— `new Date()` 认后者不认前者
+ * 少补一处就是 Invalid Date。这里宁可抛错也不返回 NaN 日期：
+ * 排期算错时间比直接失败难查得多。
+ */
+export function parseTs(v: string | Date): Date {
+  if (typeof v !== 'string') return v;
+  const iso = v
+    .replace(' ', 'T')
+    .replace(/([+-]\d{2})$/, '$1:00');
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) throw new Error(`无法解析时间戳：${v}`);
+  return d;
+}
+
 export async function closeDb(): Promise<void> {
   await sql.end({ timeout: 5 });
 }

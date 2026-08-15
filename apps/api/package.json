@@ -1,0 +1,15 @@
+{
+  "name": "@gf/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run" },
+  "dependencies": {
+    "@gf/contracts": "workspace:*",
+    "@gf/db": "workspace:*",
+    "@gf/scheduling": "workspace:*",
+    "postgres": "^3.4.5",
+    "zod": "^3.24.1"
+  }
+}
