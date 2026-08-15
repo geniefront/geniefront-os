@@ -215,16 +215,24 @@ fi
 echo
 
 # ─────────────────────────────────────────────────────────── Cloudflare
+if check_format DEEPSEEK_API_KEY '^sk-[a-f0-9]{32}$' 'sk- 开头 + 32 位十六进制'; then
+  api_check "DeepSeek" -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" https://api.deepseek.com/models
+  echo "      ${D}↳ 纯文本模型；价目表拍照提取需要另配有视觉能力的模型${N}"
+fi
+echo
+
 echo "${B}A3 · Cloudflare${N}"
 if [[ "${CLOUDFLARE_API_TOKEN:-}" =~ ^[0-9a-f]{37}$ ]]; then
   bad "CLOUDFLARE_API_TOKEN 拿成了 Global API Key（37 位十六进制）"
   hint "要的是 API Token：My Profile → API Tokens → Create Token"
   hint "权限勾 Zone→DNS→Edit 和 Account→Cloudflare Pages→Edit"
-elif check_format CLOUDFLARE_API_TOKEN '^[A-Za-z0-9_-]{40}$' \
-  '40 个字符（字母数字 + _ -），无前缀' \
-  '别拿 Global API Key'; then
+elif check_format CLOUDFLARE_API_TOKEN '^(cfat_[A-Za-z0-9_-]{20,}|[A-Za-z0-9_-]{40})$' \
+  'cfat_ 开头的新格式，或 40 字符的旧格式' \
+  '别拿 Global API Key（37 位纯十六进制）'; then
+  # 用 zones 端点实测：/user/tokens/verify 不支持 cfat_ 这种账号级 token，
+  # 拿它去验会误报 Invalid API Token
   api_check "Cloudflare Token" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-    https://api.cloudflare.com/client/v4/user/tokens/verify
+    "https://api.cloudflare.com/client/v4/zones?per_page=1"
 fi
 
 check_format CLOUDFLARE_ACCOUNT_ID '^[0-9a-f]{32}$' '32 位十六进制' \
@@ -257,6 +265,23 @@ fi
 echo
 
 # ─────────────────────────────────────────────────────────── 后续阶段
+if [[ -n "${YELP_API_KEY:-}" ]]; then
+  api_check "Yelp Fusion" -H "Authorization: Bearer ${YELP_API_KEY}" \
+    "https://api.yelp.com/v3/businesses/search?term=nail&location=11354&limit=1" \
+    && ok "YELP_API_KEY  ${D}$(mask "$YELP_API_KEY")${N}"
+else
+  skip "YELP_API_KEY 未填（开店信息自动填充要用）"
+fi
+
+if [[ -n "${BRIGHT_DATA_API_KEY:-}" ]]; then
+  api_check "Bright Data" -H "Authorization: Bearer ${BRIGHT_DATA_API_KEY}" \
+    https://api.brightdata.com/datasets/list \
+    && ok "BRIGHT_DATA_API_KEY  ${D}$(mask "$BRIGHT_DATA_API_KEY")${N}"
+else
+  skip "BRIGHT_DATA_API_KEY 未填（Phase 3 抓 Google 评价）"
+fi
+echo
+
 echo "${B}B · Phase 1b（现在可留空）${N}"
 if [[ -n "${UPSTASH_REDIS_URL:-}" ]]; then
   if [[ "$UPSTASH_REDIS_URL" == https://* ]]; then
