@@ -215,9 +215,10 @@ fi
 echo
 
 # ─────────────────────────────────────────────────────────── Cloudflare
-if check_format DEEPSEEK_API_KEY '^sk-[a-f0-9]{32}$' 'sk- 开头 + 32 位十六进制'; then
-  api_check "DeepSeek" -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" https://api.deepseek.com/models
-  echo "      ${D}↳ 纯文本模型；价目表拍照提取需要另配有视觉能力的模型${N}"
+# DeepSeek 是可选备选，没填不算问题
+if [[ -n "${DEEPSEEK_API_KEY:-}" ]]; then
+  check_format DEEPSEEK_API_KEY '^sk-[a-f0-9]{32}$' 'sk- 开头 + 32 位十六进制' \
+    && api_check "DeepSeek" -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" https://api.deepseek.com/models
 fi
 echo
 

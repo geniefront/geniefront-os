@@ -94,6 +94,35 @@ describe('宪法第 17 条：audit_log append-only', () => {
   });
 });
 
+describe('宪法第 5 条：新表不许漏开 RLS', () => {
+  it('⭐ 所有带 org_id 的表都开了 enable + force RLS', async () => {
+    const rows = await sql<{ relname: string }[]>`
+      select c.relname from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      join pg_attribute a on a.attrelid = c.oid and a.attname = 'org_id' and a.attnum > 0
+      where n.nspname = 'public' and c.relkind = 'r'
+        and not (c.relrowsecurity and c.relforcerowsecurity)
+      order by c.relname`;
+    // 新建业务表默认没有 RLS。这条测试就是防「加了表忘了开」——
+    // 那种错在开发期毫无症状，直到线上串了租户数据才发现。
+    expect(rows.map((r) => r.relname)).toEqual([]);
+  });
+
+  it('⭐ 每张开了 RLS 的业务表都真的有 tenant_isolation 策略', async () => {
+    const rows = await sql<{ relname: string }[]>`
+      select c.relname from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      join pg_attribute a on a.attrelid = c.oid and a.attname = 'org_id' and a.attnum > 0
+      where n.nspname = 'public' and c.relkind = 'r'
+        and not exists (
+          select 1 from pg_policy p
+          where p.polrelid = c.oid and p.polname = 'tenant_isolation')
+      order by c.relname`;
+    // 开了 RLS 但没有策略 = 拒绝一切，比泄露安全但同样是 bug
+    expect(rows.map((r) => r.relname)).toEqual([]);
+  });
+});
+
 describe('宪法第 15 条：约束分层', () => {
   it('⭐ 技师并发【没有】数据库排他约束 —— 超卖靠应用层管', async () => {
     const [r] = await sql<{ n: number }[]>`

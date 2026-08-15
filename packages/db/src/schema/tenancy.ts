@@ -47,6 +47,12 @@ export const locations = pgTable('locations', {
   businessType: text('business_type').notNull(), // nail|massage|foot_spa|hair|lash|mixed
   publicKey: text('public_key').notNull(),
   /**
+   * 外部平台 id。开店向导用店名 + 邮编在 Yelp 搜到店时一并存下，
+   * 之后抓评价、拉营业时间都靠它，不用每次再搜一遍（搜索是有配额的）。
+   */
+  yelpBusinessId: text('yelp_business_id'),
+  googlePlaceId: text('google_place_id'),
+  /**
    * settings.capacity（01 §7.1）：
    *   { slot_minutes: 15, max_concurrent_per_slot: null, overbook: "warn" }
    *   max_concurrent_per_slot = null → 自动取该时段在岗且 is_bookable 的员工数
