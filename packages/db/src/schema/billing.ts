@@ -1,0 +1,153 @@
+/**
+ * 计费：固定套餐月费 + 预充值余额 + 自动续充（Phase 2，决策 8 / 04 §4.1）
+ *
+ * ## 为什么是「月费 + 预充值」两条腿
+ *
+ * 决策 8 定的是「门店月费 + AI 分离计费」。月费是 Stripe 订阅，稳定可预测；
+ * 而 AI 用量（副驾 / 电话分钟）成本差一个数量级，**必须分开卖**，
+ * 否则电话量大的店会把额度全用在最贵的地方。
+ *
+ * 预充值余额就是那个「分开卖」的载体：用多少扣多少，扣的是**真实成本**
+ * 折算出来的钱，而不是一个抽象的「次数」。
+ *
+ * ## 三条不能破的纪律
+ *
+ * 1. **金额只用整数分**（宪法第 4 条）。余额、充值、扣费全是 int。
+ * 2. **账本只追加，不修改**（宪法第 9 条）。冲一笔账要写一条反向记录，
+ *    不是把原来那条改掉 —— 否则「为什么少了 $12」永远查不清。
+ * 3. **余额是账本算出来的**，`billing_accounts.balance_cents` 只是缓存。
+ *    两者对不上时以账本为准，而且有测试盯着它们一致。
+ */
+
+import {
+  pgTable, uuid, text, integer, boolean, timestamp, jsonb, index, uniqueIndex,
+} from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { organizations, locations } from './tenancy';
+
+const id = () => uuid('id').primaryKey().defaultRandom();
+const orgCol = () => uuid('org_id').notNull().references(() => organizations.id);
+const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
+
+/**
+ * 一家店一个计费账户（决策 10：一店一订阅）。
+ *
+ * 为什么不做成 org 级：一个老板有三家店，其中一家生意差要降档 ——
+ * org 级的话他只能整体降。而且多店老板最想看的恰恰是
+ * 「哪家店在烧钱」，账挂在 org 上就再也拆不开。
+ */
+export const billingAccounts = pgTable('billing_accounts', {
+  id: id(),
+  orgId: orgCol(),
+  locationId: uuid('location_id').notNull().references(() => locations.id),
+
+  /** Stripe 的客户与订阅。null = 还没接上（试用期） */
+  stripeCustomerId: text('stripe_customer_id'),
+  stripeSubscriptionId: text('stripe_subscription_id'),
+  /** starter | pro */
+  plan: text('plan').notNull().default('starter'),
+  /** trialing | active | past_due | canceled */
+  subscriptionStatus: text('subscription_status').notNull().default('trialing'),
+  currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+
+  /**
+   * 自动续充要用的那张卡。
+   *
+   * ⚠️ 存的是 Stripe 的 payment_method id，**不是卡号**。
+   * 这个系统里永远不出现卡号、CVV、有效期 —— 那是 PCI 范围，
+   * 碰一下整个合规成本就是另一个量级（决策 3 的同一条精神）。
+   */
+  defaultPaymentMethodId: text('default_payment_method_id'),
+  /** 给人看的：`Visa ···· 4242`。只是显示，不参与任何逻辑 */
+  paymentMethodLabel: text('payment_method_label'),
+
+  /**
+   * 预充值余额，整数分。**这是账本的缓存**，不是事实来源。
+   * 事实在 credit_ledger 里，对不上以账本为准。
+   */
+  balanceCents: integer('balance_cents').notNull().default(0),
+
+  // ── 自动续充 ──────────────────────────────────────────────────────────
+  autoTopupEnabled: boolean('auto_topup_enabled').notNull().default(false),
+  /** 余额低于这个数就自动充。默认 $10 —— 太低会在半夜断服务 */
+  autoTopupThresholdCents: integer('auto_topup_threshold_cents').notNull().default(1000),
+  /** 每次充多少。三档：5000 / 10000 / 20000（$50 / $100 / $200） */
+  autoTopupAmountCents: integer('auto_topup_amount_cents').notNull().default(5000),
+  /**
+   * 上一次自动续充的时刻。
+   *
+   * ⭐ 用来防「续充风暴」：卡被拒 / 用量异常时，一晚上能触发几十次扣款尝试。
+   * 每次尝试都是一条 Stripe 记录，客户会在账单上看到一排失败扣款，
+   * 而银行会因此把卡冻了。所以两次自动续充之间有硬性冷却。
+   */
+  lastAutoTopupAt: timestamp('last_auto_topup_at', { withTimezone: true }),
+  /** 连续失败次数。连续失败到一定次数就自动关掉，别再骚扰那张卡 */
+  autoTopupFailures: integer('auto_topup_failures').notNull().default(0),
+
+  createdAt: createdAt(),
+}, (t) => [
+  uniqueIndex('billing_accounts_location_key').on(t.locationId),
+  index('billing_accounts_topup_idx').on(t.autoTopupEnabled, t.balanceCents),
+]);
+
+/**
+ * 余额账本 —— **只追加，永不修改**（宪法第 9 条）。
+ *
+ * 每一行都记下「这一笔之后余额是多少」。这样对账时不用把整张表加起来，
+ * 而且任何一行被改动都会立刻和相邻行对不上 —— 篡改是看得见的。
+ *
+ * 一条硬规则：**扣费永远走这里，不许直接 update 余额**。
+ * 直接改余额的那一刻，「钱去哪了」就变成了一个没有答案的问题。
+ */
+export const creditLedger = pgTable('credit_ledger', {
+  id: id(),
+  orgId: orgCol(),
+  locationId: uuid('location_id').notNull().references(() => locations.id),
+
+  /**
+   * topup        充值（+）
+   * usage        AI 用量扣费（−）
+   * refund       退款（+）
+   * adjustment   人工调整（±，必须写原因）
+   * reversal     冲销某一笔（±）
+   */
+  kind: text('kind').notNull(),
+  /** 有符号的整数分。充值为正，扣费为负 */
+  amountCents: integer('amount_cents').notNull(),
+  /** 这一笔之后的余额。对账靠它，不用把整张表加起来 */
+  balanceAfterCents: integer('balance_after_cents').notNull(),
+
+  /** ai_assist | ai_call_min | sms | email | manual | stripe */
+  source: text('source'),
+  /** 扣费对应的那条 usage_events，能一路查回「这 3 分钱是哪次调用」 */
+  usageEventId: uuid('usage_event_id'),
+
+  stripePaymentIntentId: text('stripe_payment_intent_id'),
+  /** 冲销指向被冲销的那一条 */
+  reversalOfId: uuid('reversal_of_id'),
+  /** adjustment / reversal 必填 —— 没有原因的调账是查不清的账 */
+  reason: text('reason'),
+  meta: jsonb('meta').notNull().default(sql`'{}'::jsonb`),
+
+  createdAt: createdAt(),
+}, (t) => [
+  index('credit_ledger_account_idx').on(t.locationId, t.createdAt),
+  index('credit_ledger_usage_idx').on(t.usageEventId),
+]);
+
+/**
+ * 处理过的 Stripe 事件。
+ *
+ * ⚠️ **Stripe 会重投 webhook**，而且明确说了「至少一次」投递。
+ * 不去重的话，一次 `payment_intent.succeeded` 会给客户充值两次 ——
+ * 这次是我们亏钱，反过来（扣费重复）就是多收客户的钱。两个方向都不能接受。
+ */
+export const stripeEvents = pgTable('stripe_events', {
+  /** Stripe 的 event id（`evt_...`）就是主键 —— 天然幂等 */
+  id: text('id').primaryKey(),
+  type: text('type').notNull(),
+  locationId: uuid('location_id').references(() => locations.id),
+  processedAt: createdAt(),
+  /** 处理时出的错。留着是为了能回头补处理，而不是让事件默默消失 */
+  error: text('error'),
+});
