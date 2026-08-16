@@ -1,0 +1,221 @@
+/*
+ * 门口端的样式。
+ *
+ * 和前台端不是一套尺寸：这一端前面站的是**客人**，而且常常是
+ * 四十岁以上、拿着包、隔着一米看屏幕的人。所以：
+ *   · 按钮最小 72px（前台是 56px）
+ *   · 正文 20px 起，主标题 40px+
+ *   · 一屏只做一件事，永远只有一个主按钮
+ *   · 点下去必须有明确反馈 —— 客人不确定有没有点到就会连点
+ */
+
+:root {
+  --tap: 72px;
+  --tap-lg: 96px;
+
+  --text-sm: 18px;
+  --text: 22px;
+  --text-lg: 28px;
+  --text-xl: 40px;
+  --text-2xl: 64px;
+  --text-huge: 120px;
+
+  --r: 20px;
+  --gap: 16px;
+
+  --bg: #f6f5f3;
+  --surface: #ffffff;
+  --line: #ddd9d3;
+  --ink: #1a1917;
+  --ink-2: #57534e;
+  --ink-3: #8b857d;
+
+  --brand: #b8143c;
+  --brand-ink: #ffffff;
+  --brand-soft: #fdeaef;
+
+  --ok: #146b3a;
+  --ok-soft: #e6f4ea;
+  --warn: #9a5b00;
+  --warn-soft: #fdf1dc;
+  --danger: #a4161a;
+
+  --shadow: 0 2px 4px rgba(0, 0, 0, .06), 0 8px 24px rgba(0, 0, 0, .08);
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', system-ui, sans-serif;
+  font-size: var(--text);
+  line-height: 1.5;
+  /* 客人误触长按会弹出「拷贝／查询」菜单，在门口那台机器上纯属干扰 */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 输入框要能选中，不然改不了字 */
+input, textarea { -webkit-user-select: text; user-select: text; }
+
+.screen {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 32px;
+  gap: var(--gap);
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.stack { display: flex; flex-direction: column; }
+.row { display: flex; align-items: center; }
+.grow { flex: 1 1 auto; min-width: 0; }
+.center { display: grid; place-items: center; text-align: center; }
+
+.title { font-size: var(--text-xl); font-weight: 800; line-height: 1.25; }
+.sub { font-size: var(--text); color: var(--ink-2); }
+.tiny { font-size: var(--text-sm); color: var(--ink-3); }
+
+.card {
+  background: var(--surface);
+  border: 2px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+}
+
+.btn {
+  min-height: var(--tap);
+  padding: 0 28px;
+  font-size: var(--text);
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 2px solid var(--line);
+  border-radius: var(--r);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  /* 点下去要有明确反馈：客人不确定有没有点到就会连点 */
+  transition: transform .06s ease, background .12s ease;
+}
+.btn:active:not(:disabled) { transform: scale(.97); background: var(--bg); }
+.btn:disabled { opacity: .45; cursor: default; }
+
+.btn-primary {
+  background: var(--brand);
+  color: var(--brand-ink);
+  border-color: var(--brand);
+  min-height: var(--tap-lg);
+  font-size: var(--text-lg);
+}
+.btn-primary:active:not(:disabled) { background: #9c1033; }
+
+.btn-block { width: 100%; }
+
+.btn-huge {
+  min-height: 140px;
+  font-size: var(--text-lg);
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field {
+  min-height: var(--tap);
+  padding: 0 20px;
+  font-size: var(--text-lg);
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 2px solid var(--line);
+  border-radius: var(--r);
+  width: 100%;
+}
+.field:focus { outline: 3px solid var(--brand); outline-offset: 1px; }
+
+/* 数字键盘：手机号是这一端唯一要输的东西，做成大方格 */
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.keypad .btn { min-height: 88px; font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
+
+.phone-display {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .04em;
+  min-height: 84px;
+  display: grid;
+  place-items: center;
+}
+
+/* 取号完成那一屏：号码要大到隔着一米看得见 */
+.ticket-number {
+  font-size: var(--text-huge);
+  font-weight: 900;
+  line-height: 1;
+  color: var(--brand);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 签名板 */
+.sign-pad {
+  width: 100%;
+  height: 220px;
+  background: var(--surface);
+  border: 2px dashed var(--line);
+  border-radius: var(--r);
+  touch-action: none;   /* 不然画到一半页面就滚走了 */
+}
+
+.lang-bar { display: flex; gap: 10px; flex-wrap: wrap; }
+.lang-btn {
+  min-height: 56px;
+  padding: 0 18px;
+  font-size: var(--text-sm);
+  border-radius: 999px;
+}
+.lang-btn[aria-pressed='true'] {
+  background: var(--brand-soft);
+  border-color: var(--brand);
+  font-weight: 700;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: var(--text-sm);
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+.badge-warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+.badge-ok { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
+
+.spin {
+  width: 28px; height: 28px;
+  border: 4px solid var(--line);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
