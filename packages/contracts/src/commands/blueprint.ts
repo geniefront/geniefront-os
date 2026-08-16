@@ -1,0 +1,206 @@
+/**
+ * AI 拍照开店的命令（Phase 2，05-AI-INTEGRATION §4）
+ *
+ * 整条链子只有一个目的：**让 AI 的产出必须经过人才能变成业务数据**。
+ *
+ *   createDraft   老板选了几张照片 → 建一份空草案
+ *   （提取）      服务端调 Claude Vision，结果通过 saveExtraction 落进草案
+ *   reviewItem    逐项看、改、勾
+ *   reviewAll     一键全勾 / 一键只勾看得清的那些
+ *   apply         勾中的变成真项目（走 catalog 那条一模一样的路）
+ *   discard       整份丢掉
+ *
+ * 提取本身**不是命令**：它是一次不写库的计算。写库的是 saveExtraction，
+ * 它才是命令。这样那次几十秒的模型调用不会占着一个数据库事务不放
+ * （总线里的每个命令都跑在事务内），而落库仍然有审计、有幂等、有 RLS。
+ */
+
+import { z } from 'zod';
+import { defineCommand, uuid, cents, i18nText } from '../command.js';
+
+/** 提取出来的一行。与 @gf/ai 的 DraftItem 同构 —— 那边是纯函数，这边是线上契约。 */
+const draftItem = z.object({
+  kind: z.enum(['service', 'addon', 'note', 'price_modifier']),
+  name: i18nText,
+  category: z.string().max(120).nullable(),
+  durationMin: z.number().int().min(1).max(600).nullable(),
+  priceCents: cents.min(0).max(500_000).nullable(),
+  priceIsFrom: z.boolean(),
+  variants: z.array(z.object({
+    label: z.string().min(1).max(60),
+    priceCents: cents.min(0).max(500_000),
+    durationMin: z.number().int().min(1).max(600).nullable(),
+  })).max(12),
+  /** 置信度也是百分比，所以也走 basis point（宪法第 4 条） */
+  confidenceBp: z.number().int().min(0).max(10000),
+  sourceSeq: z.number().int().min(0).nullable(),
+  /** [x1,y1,x2,y2] 像素坐标，与原图 1:1 */
+  bbox: z.tuple([z.number().int(), z.number().int(), z.number().int(), z.number().int()])
+    .nullable(),
+});
+
+export const CreateBlueprintDraft = defineCommand({
+  name: 'blueprint.createDraft',
+  input: z.object({
+    label: z.string().max(80).optional(),
+    /**
+     * 每张照片一条。`storagePath` 可以为空 —— 上传失败不该挡住提取，
+     * 只是确认页少了左边那张可点的原图（宪法第 14 条的同一条精神）。
+     */
+    sources: z.array(z.object({
+      seq: z.number().int().min(0).max(19),
+      storagePath: z.string().max(500).nullable(),
+      widthPx: z.number().int().positive().max(20000).nullable(),
+      heightPx: z.number().int().positive().max(20000).nullable(),
+    })).min(1).max(20),
+  }),
+  output: z.object({ blueprintId: uuid }),
+  permission: 'catalog.manage',
+  ai: {
+    description: '新建一份拍照开店草案。老板选好价目表照片之后调用。',
+    confirm: 'never',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+/**
+ * 把提取结果落进草案。
+ *
+ * `exposed: false` —— 这条不给 AI 用。它是**提取管线内部的最后一步**，
+ * 由服务端在模型返回之后自己调。暴露给副驾等于给了它一条
+ * 「我说提取出了什么就是什么」的路，那正好绕过了整条流水线的意义。
+ */
+export const SaveBlueprintExtraction = defineCommand({
+  name: 'blueprint.saveExtraction',
+  input: z.object({
+    blueprintId: uuid,
+    items: z.array(draftItem).max(300),
+    unresolved: z.array(z.object({
+      field: z.string().max(80),
+      question: z.string().max(300),
+    })).max(20),
+    /** 计量用（05 §7.3）。分开记 token 与毫分，出账单时用后者 */
+    usage: z.object({
+      tokens: z.number().int().min(0),
+      costMillicents: z.number().int().min(0),
+      imagesOk: z.number().int().min(0),
+      imagesFailed: z.number().int().min(0),
+    }),
+  }),
+  output: z.object({ blueprintId: uuid, itemCount: z.number().int() }),
+  permission: 'catalog.manage',
+  ai: {
+    description: '（内部）把价目表提取结果写进草案。',
+    confirm: 'never',
+    exposed: false,
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+/**
+ * 改一行 / 勾一行。
+ *
+ * 老板改过的行会打上 `editedAt` —— 落地时它的 `source` 标记与纯 AI 产物不同
+ * （宪法第 6 条：AI 产生的数据要有 source 标记，人改过的就不再算 AI 的）。
+ */
+export const ReviewBlueprintItem = defineCommand({
+  name: 'blueprint.reviewItem',
+  input: z.object({
+    itemId: uuid,
+    decision: z.enum(['pending', 'accepted', 'rejected']).optional(),
+    name: i18nText.optional(),
+    durationMin: z.number().int().min(1).max(600).nullable().optional(),
+    priceCents: cents.min(0).max(500_000).nullable().optional(),
+  }),
+  output: z.object({ itemId: uuid }),
+  permission: 'catalog.manage',
+  ai: {
+    description: '修改或勾选开店草案里的一个项目。价格用整数分。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+/**
+ * 一键勾选。
+ *
+ * 38 个项目逐个点是行不通的 —— 面向的是「英文不好、四十岁以上」的老板（宪法第 11 条）。
+ * 所以给两个动作：全勾，或者「只勾看得清的」（`minConfidenceBp`）。
+ * 后者才是默认按钮：把标黄的那几行留给他单独看。
+ */
+export const ReviewAllBlueprintItems = defineCommand({
+  name: 'blueprint.reviewAll',
+  input: z.object({
+    blueprintId: uuid,
+    decision: z.enum(['pending', 'accepted', 'rejected']),
+    /** 只对置信度 ≥ 这个值的行生效。不传 = 全部 */
+    minConfidenceBp: z.number().int().min(0).max(10000).optional(),
+    /** 只对这几类生效。默认只动 service —— 说明文字不该被一键建成项目 */
+    kinds: z.array(z.enum(['service', 'addon', 'note', 'price_modifier']))
+      .min(1).max(4).optional(),
+  }),
+  output: z.object({ blueprintId: uuid, affected: z.number().int() }),
+  permission: 'catalog.manage',
+  ai: {
+    description: '批量勾选开店草案里的项目，可按置信度或类型筛。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+/**
+ * 一键回填落地。
+ *
+ * 勾中的行逐条变成 `services`，走的是和手工建项目**完全同一段代码**。
+ * 落地之后草案封板（sql/0014 的触发器），只留作「当时提取成了什么」的凭证。
+ *
+ * 幂等 required：老板在网差的店里点两下「落地」，第二下必须什么都不做 ——
+ * 否则项目库里会出现两套一模一样的 38 个项目，而他分不清该删哪一套。
+ */
+export const ApplyBlueprint = defineCommand({
+  name: 'blueprint.apply',
+  input: z.object({
+    blueprintId: uuid,
+    /**
+     * 价目表没印时长时按这个建。默认 45 分钟。
+     * 一个能一键改的默认值，好过逼老板给 38 个项目逐个填。
+     */
+    fallbackDurationMin: z.number().int().min(5).max(600).default(45),
+  }),
+  output: z.object({
+    blueprintId: uuid,
+    createdServiceIds: z.array(uuid),
+    skipped: z.number().int(),
+  }),
+  permission: 'catalog.manage',
+  ai: {
+    description:
+      '把开店草案里勾中的项目正式建进项目库。这一步不可撤销地改变项目库，' +
+      '务必先确认老板已经逐项核对过。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'required',
+});
+
+export const DiscardBlueprint = defineCommand({
+  name: 'blueprint.discard',
+  input: z.object({ blueprintId: uuid }),
+  output: z.object({ blueprintId: uuid }),
+  permission: 'catalog.manage',
+  ai: {
+    description: '放弃一份开店草案。已经落地过的草案不能放弃。',
+    confirm: 'destructive',
+  },
+  reversible: false,
+  idempotency: 'optional',
+});
+
+export const BLUEPRINT_COMMANDS = [
+  CreateBlueprintDraft, SaveBlueprintExtraction, ReviewBlueprintItem,
+  ReviewAllBlueprintItems, ApplyBlueprint, DiscardBlueprint,
+] as const;
