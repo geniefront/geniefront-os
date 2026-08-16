@@ -10,6 +10,7 @@
 
 import { z } from 'zod';
 import type { Permission } from './permissions.js';
+import { AppError, ERROR_CODES } from './errors.js';
 
 /** AI 调用这个命令时是否需要人工确认 */
 export type ConfirmPolicy =
@@ -104,7 +105,17 @@ export interface CommandContext {
   orgId: string;
   locationId: string;
   userId: string;
-  membershipId: string;
+  /**
+   * ⚠️ 可以为 null：**AI 电话背后没有人**。
+   *
+   * webhook 打进来时没有会话、没有 membership —— 它是一个系统 actor
+   * （`actorKind: 'api'`）。硬塞一个假的 membershipId 会让审计流水
+   * 指向一个真实存在的人，而那个人什么都没做过。
+   *
+   * 需要「操作人是谁」的命令（打卡、代打卡、日结封账）自己断言非 null，
+   * 那正好把「这条命令必须有人在场」这件事写进了代码。
+   */
+  membershipId: string | null;
   permissions: ReadonlySet<Permission>;
   /** 'user' = 人在操作；'ai' = 副驾代操作（权限已收窄为操作人的子集） */
   actorKind: 'user' | 'ai' | 'system' | 'api';
@@ -112,6 +123,23 @@ export interface CommandContext {
   /** 门店时区，用于营业日边界计算 */
   timezone: string;
   ip?: string;
+}
+
+/**
+ * 断言这条命令背后有人。
+ *
+ * 「给自己打卡」「只看我自己的收入」这类命令，语义上要求一个具体的人 ——
+ * 系统 actor（AI 电话）调它们没有意义。与其在每处写 `ctx.membershipId!`
+ * 把类型糊过去，不如在这里断一次：**类型报错本身就是在提醒
+ * 「这条命令必须有人在场」**，糊掉就把这个信息丢了。
+ */
+export function actingMembership(ctx: CommandContext): string {
+  if (!ctx.membershipId) {
+    throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+      details: { reason: 'requires_human_actor', actorKind: ctx.actorKind },
+    });
+  }
+  return ctx.membershipId;
 }
 
 /**

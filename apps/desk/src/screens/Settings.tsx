@@ -36,13 +36,17 @@ const DAYS: Array<[string, string]> = [
 const money = (c: number) => (c / 100).toFixed(2).replace(/\.00$/, '');
 
 export function Settings({
-  data, membershipId, onChanged,
+  data, membershipId, onChanged, onPhotoSetup, onYelpFill,
 }: {
   data: SettingsData;
   membershipId: string;
   onChanged: () => Promise<unknown>;
+  /** 打开「拍价目表」。项目一个个敲太慢，这是 Phase 2 的主入口（05 §4） */
+  onPhotoSetup: () => void;
+  /** 打开「Yelp 一键填店」。店名 + 邮编两个字段把店建起来（05 §4.1） */
+  onYelpFill: () => void;
 }) {
-  const [pane, setPane] = useState<'service' | 'staff' | 'hours'>('service');
+  const [pane, setPane] = useState<'service' | 'staff' | 'hours' | 'device'>('service');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -59,7 +63,8 @@ export function Settings({
   return (
     <div className="stack" style={{ padding: '0 16px 24px', gap: 14 }}>
       <div className="row" style={{ gap: 10 }}>
-        {([['service', '项目'], ['staff', '员工'], ['hours', '营业时间']] as const).map(([k, l]) => (
+        {([['service', '项目'], ['staff', '员工'], ['hours', '营业时间'],
+           ['device', '门口 iPad']] as const).map(([k, l]) => (
           <button key={k} className="btn" onClick={() => setPane(k)}
                   style={{
                     borderWidth: 2,
@@ -71,18 +76,22 @@ export function Settings({
 
       {err && <div className="badge badge-danger" style={{ padding: '10px 14px' }}>✕ {err}</div>}
 
-      {pane === 'service' && <ServicePane data={data} busy={busy} run={run} />}
+      {pane === 'service' && (
+        <ServicePane data={data} busy={busy} run={run} onPhotoSetup={onPhotoSetup} />
+      )}
       {pane === 'staff' && <StaffPane data={data} busy={busy} run={run} />}
-      {pane === 'hours' && <HoursPane data={data} busy={busy} run={run} />}
+      {pane === 'hours' && <HoursPane data={data} busy={busy} run={run} onYelpFill={onYelpFill} />}
+      {pane === 'device' && <DevicePane membershipId={membershipId} />}
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────── 项目
 
-function ServicePane({ data, busy, run }: {
+function ServicePane({ data, busy, run, onPhotoSetup }: {
   data: SettingsData; busy: boolean;
   run: (n: string, i: unknown) => Promise<void>;
+  onPhotoSetup: () => void;
 }) {
   const [editing, setEditing] = useState<string | 'new' | null>(null);
   const [name, setName] = useState('');
@@ -109,6 +118,20 @@ function ServicePane({ data, busy, run }: {
 
   return (
     <div className="stack" style={{ gap: 12 }}>
+      {/* 一个个敲 38 个项目，老板会在第 5 个的时候放弃。拍照那条路放在最上面。 */}
+      <button className="btn btn-block" onClick={onPhotoSetup} disabled={busy}
+              style={{ minHeight: 'var(--tap-lg)', fontSize: 'var(--text-lg)',
+                       borderWidth: 2, borderColor: 'var(--brand)',
+                       background: 'var(--brand-soft)' }}>
+        📷 拍价目表，自动建项目
+      </button>
+      {data.services.length === 0 && (
+        <div className="tiny">
+          还一个项目都没有。拍一张墙上的价目表，比一个个敲快得多 ——
+          建之前你可以逐项核对。
+        </div>
+      )}
+
       {data.services.map((s) => (
         <div key={s.id} className="card row"
              style={{ padding: '14px 16px', gap: 12, opacity: s.active ? 1 : .5 }}>
@@ -277,9 +300,10 @@ function Toggle({ label, on, busy, hint, onChange }: {
 
 // ─────────────────────────────────────────────────────────────────── 营业时间
 
-function HoursPane({ data, busy, run }: {
+function HoursPane({ data, busy, run, onYelpFill }: {
   data: SettingsData; busy: boolean;
   run: (n: string, i: unknown) => Promise<void>;
+  onYelpFill: () => void;
 }) {
   const [hours, setHours] = useState<Record<string, { open: string; close: string } | null>>(
     () => {
@@ -302,6 +326,14 @@ function HoursPane({ data, busy, run }: {
 
   return (
     <div className="stack" style={{ gap: 12 }}>
+      {/* 七天一格格敲太慢。店名 + 邮编两个字段就能把地址电话营业时间一起填了 */}
+      <button className="btn btn-block" onClick={onYelpFill} disabled={busy}
+              style={{ minHeight: 'var(--tap-lg)', fontSize: 'var(--text-lg)',
+                       borderWidth: 2, borderColor: 'var(--brand)',
+                       background: 'var(--brand-soft)' }}>
+        🔎 输店名和邮编，自动填地址 · 电话 · 营业时间
+      </button>
+
       <div className="card stack" style={{ padding: 16, gap: 10 }}>
         {DAYS.map(([k, label]) => {
           const v = hours[k];
@@ -346,6 +378,88 @@ function HoursPane({ data, busy, run }: {
                 onClick={() => void run('location.saveHours', { hours })}>
           {busy ? <span className="spin" /> : '保存营业时间'}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────── 门口 iPad
+
+/**
+ * 配对门口那台 iPad。
+ *
+ * ⚠️ **配对码明文只出现这一次**。库里只有摘要，关掉这个框就再也拿不回来 ——
+ * 和密码一个道理。所以这一屏做得比别处啰嗦：明确告诉前台
+ * 「现在就贴到 iPad 上，关掉就没了」。
+ *
+ * ⚠️ 宪法第 14 条：**没有 iPad 也完全不影响开店**。这一页是可选的，
+ * 所以放在最后一个页签，而且第一句话就说清楚。
+ */
+function DevicePane({ membershipId }: { membershipId: string }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [label, setLabel] = useState('门口 iPad');
+  const [issued, setIssued] = useState<string | null>(null);
+
+  async function issue() {
+    setBusy(true); setErr('');
+    try {
+      const out = await runCommand<{ deviceId: string; token: string }>(
+        'device.issueToken', { label: label.trim() || '门口 iPad' }, membershipId);
+      setIssued(out.result.token);
+    } catch (e) {
+      setErr(e instanceof ApiError ? `生成失败（${e.code}）` : '生成失败');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="stack" style={{ gap: 14, maxWidth: 720 }}>
+      <div className="card stack" style={{ padding: 18, gap: 8 }}>
+        <strong style={{ fontSize: 'var(--text-lg)' }}>门口自助签到 iPad（可选）</strong>
+        <div className="tiny" style={{ lineHeight: 1.7 }}>
+          <strong>没有 iPad 完全不影响开店</strong> —— 取号、签免责书你都能在
+          「🎫 等位」那一页替客人做。这一页只是让客人自己动手，省你几步。
+        </div>
+      </div>
+
+      {err && <div className="badge badge-danger" style={{ padding: '10px 14px' }}>✕ {err}</div>}
+
+      <label className="stack" style={{ gap: 6 }}>
+        <span className="tiny">给这台设备起个名字（丢了要认得出是哪一台）</span>
+        <input className="field" value={label} onChange={(e) => setLabel(e.target.value)} />
+      </label>
+
+      <button className="btn btn-primary btn-block" disabled={busy}
+              style={{ minHeight: 'var(--tap)' }} onClick={() => void issue()}>
+        {busy ? <span className="spin" /> : '生成配对码'}
+      </button>
+
+      {issued && (
+        <div className="card stack" style={{ padding: 18, gap: 12,
+             borderColor: 'var(--brand)', background: 'var(--brand-soft)' }}>
+          <strong>⚠️ 现在就贴到 iPad 上 —— 关掉这个框就再也看不到了</strong>
+          <div className="tiny">
+            在那台 iPad 上打开门口签到页，把下面这一串粘进去。
+          </div>
+          <div className="field field-mono"
+               style={{ wordBreak: 'break-all', height: 'auto', padding: 14,
+                        lineHeight: 1.6, userSelect: 'all' }}>
+            {issued}
+          </div>
+          <div className="row" style={{ gap: 10 }}>
+            <button className="btn grow" onClick={() => void navigator.clipboard.writeText(issued)}>
+              复制
+            </button>
+            <button className="btn grow" onClick={() => setIssued(null)}>我贴好了</button>
+          </div>
+        </div>
+      )}
+
+      <div className="tiny" style={{ lineHeight: 1.7 }}>
+        iPad 丢了怎么办：回到这一页重新生成一个码给新设备，
+        丢的那台会在下一次连接时被拒。<br />
+        实际摆到门口之前，记得在 iPad 上开【引导式访问】（设置 → 辅助功能），
+        不然客人一个误触就退出到桌面了。
       </div>
     </div>
   );

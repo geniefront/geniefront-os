@@ -46,6 +46,14 @@ export const ERROR_CODES = {
   HOUSE_CUT_FORBIDDEN: 'HOUSE_CUT_FORBIDDEN',       // 雇主抽小费，FLSA 禁止
   PATCH_TEST_REQUIRED: 'PATCH_TEST_REQUIRED',       // 美睫胶水敏感未做斑贴测试
 
+  // AI 开店草案（Phase 2，05 §4）
+  /** 已经回填落地或已放弃的草案不能再改 —— 那时候该改的是项目库那边 */
+  BLUEPRINT_FROZEN: 'BLUEPRINT_FROZEN',
+  /** 一行都没勾就点了落地 */
+  BLUEPRINT_NOTHING_ACCEPTED: 'BLUEPRINT_NOTHING_ACCEPTED',
+  /** 每张照片都没认出来（全糊 / 全被拒）。让老板重拍，而不是给他一份空草案 */
+  EXTRACTION_FAILED: 'EXTRACTION_FAILED',
+
   // 系统
   INTERNAL: 'INTERNAL',
   UPSTREAM_UNAVAILABLE: 'UPSTREAM_UNAVAILABLE',
@@ -118,6 +126,10 @@ export const httpStatusFor: Record<ErrorCode, number> = {
   OPEN_TICKETS_REMAIN: 409,
   HOUSE_CUT_FORBIDDEN: 422,
   PATCH_TEST_REQUIRED: 422,
+  BLUEPRINT_FROZEN: 409,
+  BLUEPRINT_NOTHING_ACCEPTED: 400,
+  // 502：失败的是上游模型，不是我们 —— 分开才看得出「提取挂了」是不是在涨
+  EXTRACTION_FAILED: 502,
   INTERNAL: 500,
   UPSTREAM_UNAVAILABLE: 503,
 };

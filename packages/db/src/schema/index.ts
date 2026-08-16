@@ -6,3 +6,7 @@ export * from './tickets';
 export * from './money';
 export * from './roster';
 export * from './attendance';
+export * from './blueprint';
+export * from './phone';
+export * from './kiosk';
+export * from './billing';

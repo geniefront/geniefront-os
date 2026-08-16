@@ -8,7 +8,7 @@
 
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
-import { AppError, ERROR_CODES, httpStatusFor , pickText} from '@gf/contracts';
+import { AppError, ERROR_CODES, httpStatusFor, pickText, actingMembership } from '@gf/contracts';
 import { dispatch, registeredCommands } from './bus';
 import { buildContext } from './actor';
 import { verifyAccessToken } from './auth';
@@ -26,7 +26,19 @@ import './handlers/payroll';
 import './handlers/dayclose';
 import './handlers/shift';
 import './handlers/staff';
+import './handlers/blueprint';
+import './handlers/phone';
+import './handlers/yelp';
+import './handlers/kiosk';
 import { loadDay } from './queries/day';
+import { loadBlueprint, listBlueprints } from './queries/blueprint';
+import { loadCallDrafts } from './queries/callDrafts';
+import { registerTelnyxRoutes } from './telnyx/routes';
+import { registerKioskRoutes } from './kiosk/routes';
+import { loadQueue } from './queries/queue';
+import { searchBusinesses, getBusiness } from '@gf/yelp';
+import { extractPriceList, costMillicents, billableTokens, MAX_IMAGE_EDGE_PX,
+         type PriceListImage, type ImageMediaType } from '@gf/ai';
 import { resolveDate } from './handlers/dayclose';
 import {
   loadEarningsBoard, loadDayClose, loadReport, reportToCsv,
@@ -61,7 +73,13 @@ export function buildServer(): FastifyInstance {
       cb(null, ORIGINS.some((re) => re.test(origin)));
     },
     credentials: false,
-    allowedHeaders: ['Authorization', 'Content-Type', 'X-Membership-Id', 'Idempotency-Key'],
+    // ⚠️ 漏掉任何一个自定义头，浏览器会在预检之后**静默**掐掉真正的请求 ——
+    // 服务端日志里只看得到一个 204 的 OPTIONS，没有任何报错，
+    // 而前端拿到的是一句语焉不详的 TypeError。X-Device-Token 就这么漏过一次。
+    allowedHeaders: [
+      'Authorization', 'Content-Type', 'X-Membership-Id', 'Idempotency-Key',
+      'X-Device-Token',
+    ],
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     maxAge: 86400,
   });
@@ -89,7 +107,16 @@ export function buildServer(): FastifyInstance {
   const PUBLIC = new Set(['/health']);
 
   app.addHook('onRequest', async (req) => {
-    if (PUBLIC.has(req.url.split('?')[0] ?? '')) return;
+    const path = req.url.split('?')[0] ?? '';
+    if (PUBLIC.has(path)) return;
+    // Telnyx 的 webhook 不可能带我们的 Bearer token —— 它的身份证明是
+    // Ed25519 签名，在路由自己那一层验（telnyx/routes.ts）。
+    // 放进这里不等于放行：验签失败一样 401，而且验签比 JWT 更严
+    //（JWT 只证明「是某个登录用户」，签名证明「是 Telnyx 本人且 body 没被改过」）。
+    if (path.startsWith('/v1/telnyx/')) return;
+    // Kiosk 门口那台 iPad 没有登录用户 —— 它的身份是一个设备令牌，
+    // 在路由自己那一层验（kiosk/routes.ts）。权限窄到只有取号和交表两条。
+    if (path.startsWith('/v1/kiosk/')) return;
     req.user = await verifyAccessToken(req.headers.authorization);
   });
 
@@ -389,7 +416,7 @@ export function buildServer(): FastifyInstance {
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
       async (tx) => {
         const date = await resolveDate(tx, ctx.locationId, req.query.date);
-        return loadEarningsBoard(tx, ctx, date, all ? undefined : ctx.membershipId);
+        return loadEarningsBoard(tx, ctx, date, all ? undefined : actingMembership(ctx));
       });
   });
 
@@ -468,7 +495,7 @@ export function buildServer(): FastifyInstance {
     if (!ctx.permissions.has('appointment.read')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'appointment.read' } });
     }
-    const wanted = req.query.membershipId ?? ctx.membershipId;
+    const wanted = req.query.membershipId ?? actingMembership(ctx);
     if (wanted !== ctx.membershipId && !ctx.permissions.has('payroll.view_all')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
         details: { need: 'payroll.view_all', reason: '只能看自己的今日单' },
@@ -481,6 +508,226 @@ export function buildServer(): FastifyInstance {
         return loadStaffToday(tx, ctx, date, wanted);
       });
   });
+
+  // ── AI 拍照开店：提取（Phase 2，05 §5）────────────────────────────────────
+  //
+  // ⭐ 这条路由是**唯一**一个不走 /v1/commands 的写入入口，理由要写清楚：
+  //
+  //   提取本身是一次不写库的计算（图片 → 模型 → 候选行），
+  //   而总线里的每个命令都跑在一个数据库事务内。把一次三十秒的模型调用
+  //   塞进事务，等于让一个连接和一个快照被占住三十秒 ——
+  //   几家店同时开店就能把连接池吃干净。
+  //
+  //   所以：这里只做编排（校验 → 调模型 → 把结果交给命令），
+  //   真正的写库仍然是 blueprint.saveExtraction 这条命令，
+  //   有审计、有 RLS、有租户上下文。宪法第 1 条守住的是「写操作必须是命令」，
+  //   守住了。
+  //
+  // 图片走请求体而不是让 API 去 Storage 取：API 拿不到 service_role
+  //（宪法第 5 条，CI 会失败），而让它去 fetch 一个客户端给的 URL 就是 SSRF。
+  const MAX_IMAGES_PER_EXTRACT = 6;
+  const MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+  app.post<{ Params: { id: string } }>(
+    '/v1/blueprint/:id/extract',
+    // 2576px 长边的 JPEG 大约 1–2MB，base64 之后 ~2.7MB，六张 ~16MB。
+    // 全局 1MB 的限制是给命令用的，那些都是小 JSON。
+    { bodyLimit: 32_000_000 },
+    async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('catalog.manage')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'catalog.manage' } });
+      }
+      if (!ctx.permissions.has('ai.use')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
+      }
+
+      const apiKey = process.env['ANTHROPIC_API_KEY'];
+      if (!apiKey) {
+        req.log.error('ANTHROPIC_API_KEY 未配置，拍照开店不可用');
+        throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
+      }
+
+      const body = req.body as {
+        images?: Array<{
+          seq?: number; base64?: string; mediaType?: string;
+          widthPx?: number; heightPx?: number;
+        }>;
+        locale?: string;
+      } | undefined;
+
+      const raw = body?.images ?? [];
+      if (raw.length === 0 || raw.length > MAX_IMAGES_PER_EXTRACT) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+          details: { reason: `一次最多 ${MAX_IMAGES_PER_EXTRACT} 张照片`, got: raw.length },
+        });
+      }
+
+      const images: PriceListImage[] = raw.map((im, i) => {
+        if (typeof im.base64 !== 'string' || im.base64.length === 0
+            || typeof im.mediaType !== 'string' || !MEDIA_TYPES.has(im.mediaType)) {
+          throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+            details: { reason: '照片格式不对，只支持 JPEG / PNG / WebP', index: i },
+          });
+        }
+        // 超过 2576px 的图 API 会自己缩，缩完 bbox 就不再是原图坐标，
+        // 「点一下跳回原图那一行」这个功能会静默地指错位置。
+        // 所以在这里挡下来，让前端先缩 —— 缩了再传也省流量。
+        if ((im.widthPx ?? 0) > MAX_IMAGE_EDGE_PX || (im.heightPx ?? 0) > MAX_IMAGE_EDGE_PX) {
+          throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+            details: { reason: `照片长边不能超过 ${MAX_IMAGE_EDGE_PX}px`, index: i },
+          });
+        }
+        return {
+          seq: typeof im.seq === 'number' ? im.seq : i,
+          base64: im.base64,
+          mediaType: im.mediaType as ImageMediaType,
+          ...(im.widthPx ? { widthPx: im.widthPx } : {}),
+          ...(im.heightPx ? { heightPx: im.heightPx } : {}),
+        };
+      });
+
+      // 提取草案必须已经存在（且还是 draft）。先确认一次再花那几毛钱 ——
+      // 对着一份已经落地的草案跑模型，钱花了结果还写不进去。
+      const view = await withTenant(
+        { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+        (tx) => loadBlueprint(tx, ctx, req.params.id));
+      if (!view) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'blueprint' } });
+      if (view.status !== 'draft') {
+        throw new AppError(ERROR_CODES.BLUEPRINT_FROZEN, { details: { status: view.status } });
+      }
+
+      const result = await extractPriceList(images, {
+        apiKey,
+        ...(body?.locale ? { locale: body.locale } : {}),
+        log: req.log,
+      });
+
+      const ok = result.perImage.filter((p) => !p.error).length;
+      // 每一张都没认出来 = 别给老板一份空草案让他以为「我的价目表上什么都没有」。
+      // 502 而不是 500：挂的是上游模型，这两个数字要分得开才看得出趋势。
+      if (ok === 0) {
+        throw new AppError(ERROR_CODES.EXTRACTION_FAILED, {
+          details: { reasons: result.perImage.map((p) => ({ seq: p.seq, error: p.error })) },
+        });
+      }
+
+      const out = await dispatch<{ blueprintId: string; itemCount: number }>(
+        'blueprint.saveExtraction',
+        {
+          blueprintId: req.params.id,
+          items: result.items,
+          unresolved: result.unresolved,
+          usage: {
+            tokens: billableTokens(result.usage),
+            costMillicents: costMillicents(result.usage),
+            imagesOk: ok,
+            imagesFailed: result.perImage.length - ok,
+          },
+        },
+        ctx,
+      );
+
+      return {
+        ...out.result,
+        merged: result.merge.merged,
+        conflicts: result.merge.conflicts,
+        dropped: result.dropped,
+        failedImages: result.perImage
+          .filter((p) => p.error)
+          .map((p) => ({ seq: p.seq, error: p.error })),
+      };
+    });
+
+  // ── 查询：开店草案 ─────────────────────────────────────────────────────────
+  app.get<{ Params: { id: string } }>('/v1/desk/blueprint/:id', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('catalog.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'catalog.manage' } });
+    }
+    const view = await withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => loadBlueprint(tx, ctx, req.params.id));
+    if (!view) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'blueprint' } });
+    return view;
+  });
+
+  app.get('/v1/desk/blueprints', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('catalog.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'catalog.manage' } });
+    }
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      async (tx) => ({ blueprints: await listBlueprints(tx, ctx) }));
+  });
+
+  // ── 查询：来电待复核队列（决策 6 的「1 秒复核队列」）────────────────────
+  app.get<{ Querystring: { status?: string } }>('/v1/desk/call-drafts', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('appointment.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'appointment.read' } });
+    }
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => loadCallDrafts(tx, ctx, req.query.status ?? 'pending'));
+  });
+
+  // ── 查询：Yelp 搜店（05 §4.1，纯代码不过模型）──────────────────────────
+  //
+  // 老板输店名 + 邮编，我们直接映射 Yelp 的结构化返回。
+  // 命中多家【全部返回让他点一家】—— 同一条街上两家「Lucky Nails」
+  // 在美国太常见，替他挑第一个就等于把别人家的信息填进他的店。
+  app.get<{ Querystring: { term?: string; location?: string; id?: string } }>(
+    '/v1/desk/yelp/search', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+    }
+    const apiKey = process.env['YELP_API_KEY'];
+    if (!apiKey) {
+      throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'yelp' } });
+    }
+
+    // 点选之后要再拉一次详情：**营业时间只有详情接口有**，
+    // 搜索结果里没有 —— 而那正是「一键填充」里最省事的一项
+    if (req.query.id) {
+      return { business: await getBusiness(req.query.id, { apiKey }) };
+    }
+
+    const term = (req.query.term ?? '').trim();
+    const location = (req.query.location ?? '').trim();
+    if (term.length < 2 || location.length < 3) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: '要店名和邮编（或城市）才能搜' },
+      });
+    }
+    return { businesses: await searchBusinesses({ term, location }, { apiKey }) };
+  });
+
+  // ── 查询：走单队列（前台叫号那一屏）──────────────────────────────────────
+  app.get<{ Querystring: { date?: string } }>('/v1/desk/queue', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('queue.manage') && !ctx.permissions.has('appointment.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'queue.manage' } });
+    }
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      async (tx) => {
+        const date = await resolveDate(tx, ctx.locationId, req.query.date);
+        return loadQueue(tx, ctx, date);
+      });
+  });
+
+  // ── Kiosk 门口端（设备令牌鉴权）──────────────────────────────────────────
+  registerKioskRoutes(app);
+
+  // ── Telnyx：AI 工具 + 通话 webhook（09 §4.2）──────────────────────────────
+  //
+  // ⚠️ 这几条路由**没有登录用户**，身份全靠 Ed25519 签名。
+  // 所以它们要在 PUBLIC 白名单里（跳过 Bearer 校验），
+  // 而每一条的第一件事都是验签 —— 见 telnyx/routes.ts。
+  registerTelnyxRoutes(app);
 
   // ── 命令目录 ───────────────────────────────────────────────────────────────
   // 前端 SDK 和 AI 工具定义都从这里取，不用各自维护一份

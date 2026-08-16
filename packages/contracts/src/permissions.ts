@@ -60,6 +60,22 @@ export const PERMISSIONS = [
   // AI
   'ai.use',
   'ai.execute_without_confirm',
+  /**
+   * ⭐ AI 电话唯一拿到的写权限：只能往前台复核队列里放草案。
+   *
+   * 刻意**不给** appointment.write —— webhook 是没有 Bearer token 的入口，
+   * 身份全靠一个签名。给它排期表的写权限，等于把日程表挂在一个环境变量上。
+   * 前台点确认时走的是前台自己身份下的 appointment.create（09 §4.2）。
+   */
+  'call.draft',
+
+  // Kiosk 门口端（Phase 2）
+  /** 排队取号。**Kiosk 那台 iPad 拿到的两条权限之一** */
+  'queue.join',
+  /** 叫号 / 安排入座 / 标记离开 —— 前台的动作，客人不能把自己叫号 */
+  'queue.manage',
+  /** 交一份自己刚签的健康表。Kiosk 的另一条权限 */
+  'form.submit',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -84,6 +100,7 @@ export const ROLE_PRESETS = {
     'schedule.read', 'schedule.write',
     'timeclock.punch_self', 'timeclock.punch_others',
     'settings.manage', 'staff.manage', 'catalog.manage',
+    'queue.join', 'queue.manage', 'form.submit',
     'ai.use',
   ],
 
@@ -98,6 +115,8 @@ export const ROLE_PRESETS = {
     'customer.read', 'customer.write', 'customer.view_contact', 'customer.merge',
     'schedule.read',
     'timeclock.punch_self', 'timeclock.punch_others', // Desk-Only 模式要能代技师打卡
+    // 没有 iPad 的店，前台代客人取号、代签免责书（宪法第 14 条）
+    'queue.join', 'queue.manage', 'form.submit',
     'ai.use',
   ],
 

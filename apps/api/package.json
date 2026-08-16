@@ -10,11 +10,13 @@
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",
+    "@gf/ai": "workspace:*",
     "@gf/contracts": "workspace:*",
     "@gf/db": "workspace:*",
     "@gf/payroll": "workspace:*",
     "@gf/rotation": "workspace:*",
     "@gf/scheduling": "workspace:*",
+    "@gf/yelp": "workspace:*",
     "fastify": "^5.12.0",
     "jose": "^6.2.8",
     "postgres": "^3.4.5",

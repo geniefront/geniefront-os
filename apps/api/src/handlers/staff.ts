@@ -9,7 +9,7 @@ import type postgres from 'postgres';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import {
   TicketStartItem, TicketFinishItem, TimeclockPunch, SetMyLocale,
-  AppError, ERROR_CODES, type CommandContext,
+  AppError, ERROR_CODES, actingMembership, type CommandContext,
 } from '@gf/contracts';
 import { businessDateOf } from '@gf/scheduling';
 import { parseTs } from '@gf/db';
@@ -34,7 +34,8 @@ function targetOf(
   ctx: CommandContext, given: string | undefined, needPermission: 'timeclock.punch_others' | 'ticket.write',
 ): { membershipId: string; onBehalf: boolean } {
   if (!given || given === ctx.membershipId) {
-    return { membershipId: ctx.membershipId, onBehalf: false };
+    // 打卡必须有具体的人 —— 系统 actor 打卡是没有意义的
+    return { membershipId: actingMembership(ctx), onBehalf: false };
   }
   if (!ctx.permissions.has(needPermission)) {
     throw new AppError(ERROR_CODES.PERMISSION_DENIED, {

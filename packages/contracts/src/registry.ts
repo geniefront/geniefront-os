@@ -14,10 +14,15 @@ import { PAYROLL_COMMANDS } from './commands/payroll.js';
 import { DAYCLOSE_COMMANDS } from './commands/dayclose.js';
 import { SHIFT_COMMANDS } from './commands/shift.js';
 import { STAFF_COMMANDS } from './commands/staff.js';
+import { BLUEPRINT_COMMANDS } from './commands/blueprint.js';
+import { PHONE_COMMANDS } from './commands/phone.js';
+import { YELP_COMMANDS } from './commands/yelp.js';
+import { KIOSK_COMMANDS } from './commands/kiosk.js';
 
 const ALL: readonly AnyCommandDef[] = [
   ...APPOINTMENT_COMMANDS, ...ROTATION_COMMANDS, ...TICKET_COMMANDS, ...SETUP_COMMANDS,
   ...PAYROLL_COMMANDS, ...DAYCLOSE_COMMANDS, ...SHIFT_COMMANDS, ...STAFF_COMMANDS,
+  ...BLUEPRINT_COMMANDS, ...PHONE_COMMANDS, ...YELP_COMMANDS, ...KIOSK_COMMANDS,
 ];
 
 export const COMMAND_REGISTRY: ReadonlyMap<string, AnyCommandDef> = new Map(

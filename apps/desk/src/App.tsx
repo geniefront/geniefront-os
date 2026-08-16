@@ -21,6 +21,10 @@ import { Earnings, type EarningsBoard } from './screens/Earnings';
 import { DayClose, type DayCloseData } from './screens/DayClose';
 import { Roster, type RosterData } from './screens/Roster';
 import { Reports, type ReportData } from './screens/Reports';
+import { PhotoSetup } from './screens/PhotoSetup';
+import { CallQueue, type CallQueueData, type CallDraft } from './screens/CallQueue';
+import { YelpFill } from './screens/YelpFill';
+import { QueueBoard, type QueueData } from './screens/QueueBoard';
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
 
@@ -34,11 +38,15 @@ function Shell({ session }: { session: Session }) {
   const t = makeT(locale);
   const [picked, setPicked] = useState<LocationMembership | null>(null);
   const [tab, setTab] = useState<
-    'turn' | 'day' | 'ticket' | 'earn' | 'close' | 'roster' | 'report' | 'find' | 'setup'>('turn');
+    'turn' | 'day' | 'ticket' | 'earn' | 'close' | 'roster' | 'report' | 'find' | 'setup'
+    | 'calls' | 'queue'>('turn');
   const [rosterFrom, setRosterFrom] = useState<string | null>(null);
   const [grouping, setGrouping] = useState<string[]>([]);
   const [groupBusy, setGroupBusy] = useState(false);
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
+  const [photoSetup, setPhotoSetup] = useState(false);
+  const [yelpFill, setYelpFill] = useState(false);
+  const [callDraft, setCallDraft] = useState<CallDraft | null>(null);
   const [net, setNet] = useState<NetState>('online');
   const [online, setOnline] = useState<Set<string> | undefined>(undefined);
   const [rtState, setRtState] = useState<ConnState>('connecting');
@@ -134,6 +142,10 @@ function Shell({ session }: { session: Session }) {
         if (type.startsWith('ticket')) { void tktQ.refetch(); void rotQ.refetch(); }
         else if (type.startsWith('rotation')) void rotQ.refetch();
         else if (type.startsWith('appointment')) void dayQ.refetch();
+        // 客人还在电话里，前台这时候看到才有意义（决策 6 的「1 秒复核队列」）
+        else if (type.startsWith('call')) void callQ.refetch();
+        // 客人在门口签到，前台这块屏要当场跳
+        else if (type.startsWith('queue')) void queueQ.refetch();
       },
     });
     return h.close;
@@ -172,6 +184,32 @@ function Shell({ session }: { session: Session }) {
       `/v1/desk/reports${range ? `?from=${range.from}&to=${range.to}` : ''}`,
       picked!.membershipId),
   });
+  /**
+   * 来电待复核队列（决策 6）。
+   *
+   * 和别的页签不同，它**一直在拉** —— 角标要显示「有 N 条等着你」，
+   * 而前台不会主动去点一个看起来是空的页签。轮询兜底 30 秒，
+   * 实时推送到了就当场刷（下面的 onEvent）。
+   */
+  const callQ = useQuery({
+    queryKey: ['call-drafts', picked?.membershipId],
+    enabled: Boolean(picked),
+    queryFn: () => apiGet<CallQueueData>('/v1/desk/call-drafts', picked!.membershipId),
+    refetchInterval: 30_000,
+  });
+
+  /**
+   * 走单队列。和待复核队列一样**一直在拉** —— 角标要显示「几个人在等」，
+   * 而前台不会主动去点一个看起来是空的页签。
+   * 等位时长要跳，所以刷得比别的勤一点。
+   */
+  const queueQ = useQuery({
+    queryKey: ['queue', picked?.membershipId],
+    enabled: Boolean(picked),
+    queryFn: () => apiGet<QueueData>('/v1/desk/queue', picked!.membershipId),
+    refetchInterval: 20_000,
+  });
+
   const setQ = useQuery({
     queryKey: ['settings', picked?.membershipId],
     enabled: Boolean(picked) && canManage,
@@ -257,7 +295,7 @@ function Shell({ session }: { session: Session }) {
 
       <nav className="row" style={{ padding: '10px 16px', gap: 10 }}>
         {([
-          ...(['turn', 'day', 'ticket', 'earn'] as const),
+          ...(['turn', 'queue', 'day', 'ticket', 'calls', 'earn'] as const),
           ...(canDesk ? ['close'] as const : []),
           ...(['roster'] as const),
           ...(canReport ? ['report'] as const : []),
@@ -272,6 +310,8 @@ function Shell({ session }: { session: Session }) {
                   }}>
             {k === 'turn' ? '轮牌板' : k === 'day' ? '今日日程'
               : k === 'ticket' ? `在做的单${tktQ.data?.tickets.length ? ` (${tktQ.data.tickets.length})` : ''}`
+              : k === 'queue' ? `🎫 等位${queueQ.data?.summary.waiting ? ` (${queueQ.data.summary.waiting})` : ''}`
+              : k === 'calls' ? `☎️ 待复核${callQ.data?.pendingCount ? ` (${callQ.data.pendingCount})` : ''}`
               : k === 'earn' ? '💰 今日收入'
               : k === 'close' ? '🌙 打烊日结'
               : k === 'roster' ? '📅 排班'
@@ -376,6 +416,26 @@ function Shell({ session }: { session: Session }) {
             </div>
           ))}
         </div>
+      ) : tab === 'queue' ? (
+        queueQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        : queueQ.data ? (
+          <QueueBoard data={queueQ.data} membershipId={picked.membershipId}
+                      onChanged={async () => { await queueQ.refetch(); }} />
+        ) : <Retry onRetry={() => queueQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
+      ) : tab === 'calls' ? (
+        callQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        : callQ.data ? (
+          <CallQueue data={callQ.data} membershipId={picked.membershipId}
+                     onChanged={async () => { await callQ.refetch(); }}
+                     onBook={(d) => {
+                       // ⭐ 建单不在这一屏做：要走前台自己身份下的 appointment.create，
+                       // 容量检查、软约束放行一样不少（09 §4.2）。
+                       // 这里只是把草案的三要素带到日程表上，前台在那儿落最后一锤。
+                       setCallDraft(d);
+                       if (d.customer) setChosen({ id: d.customer.id!, displayName: d.customer.displayName ?? '' } as CustomerHit);
+                       setTab('day');
+                     }} />
+        ) : <Retry onRetry={() => callQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'earn' ? (
         earnQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
         : earnQ.data ? <Earnings data={earnQ.data} />
@@ -404,9 +464,30 @@ function Shell({ session }: { session: Session }) {
                    onRange={(from, to) => setRange({ from, to })} />
         ) : <Retry onRetry={() => reportQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'setup' ? (
+        yelpFill ? (
+          <YelpFill membershipId={picked.membershipId}
+                    onCancel={() => setYelpFill(false)}
+                    onDone={async () => {
+                      setYelpFill(false);
+                      // 时区可能刚被改过 —— 营业日边界跟着变，日程和轮牌都得重拉
+                      await setQ.refetch(); await dayQ.refetch(); await rotQ.refetch();
+                    }} />
+        ) :
+        photoSetup ? (
+          <PhotoSetup membershipId={picked.membershipId} locationId={picked.locationId}
+                      onCancel={() => setPhotoSetup(false)}
+                      onDone={async () => {
+                        setPhotoSetup(false);
+                        // 必须 await：不等刷新完就退回项目列表，老板看不到刚建的项目，
+                        // 会以为没建成而再跑一遍整个流程
+                        await setQ.refetch(); await dayQ.refetch();
+                      }} />
+        ) :
         setQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
         : setQ.data ? (
           <Settings data={setQ.data} membershipId={picked.membershipId}
+                    onPhotoSetup={() => setPhotoSetup(true)}
+                    onYelpFill={() => setYelpFill(true)}
                     onChanged={async () => {
                       await setQ.refetch(); await dayQ.refetch(); await rotQ.refetch();
                     }} />
@@ -454,8 +535,23 @@ function Shell({ session }: { session: Session }) {
           staffId={slot.staffId} startMin={slot.startMin}
           customer={chosen ? { id: chosen.id, displayName: chosen.displayName } : null}
           t={t}
+          fromCallDraft={callDraft ? {
+            draftId: callDraft.draftId,
+            serviceId: callDraft.service.matchedId,
+            serviceHeard: callDraft.service.heard,
+            timeHeard: callDraft.time.heard,
+          } : undefined}
           onCancel={() => setSlot(null)}
           onDone={async () => {
+            // 建成了就把那条来电草案标记掉，否则它会一直挂在待复核里，
+            // 前台第二天还会照着它再建一次
+            if (callDraft) {
+              await runCommand('call.reviewDraft',
+                { draftId: callDraft.draftId, decision: 'confirmed' },
+                picked.membershipId).catch(() => {});
+              setCallDraft(null);
+              await callQ.refetch();
+            }
             setSlot(null); setChosen(undefined);
             // ⚠️ 必须 await：不等刷新完就关弹窗，前台看到日程表上没有这一单，
             // 会以为没开成而再开一次 —— 重复建单在门店里是实打实的事故。

@@ -4,6 +4,8 @@
     { "name": "desk", "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@gf/desk", "dev"], "port": 5173 },
     { "name": "staff", "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@gf/staff", "dev"], "port": 5174 }
+      "runtimeArgs": ["--filter", "@gf/staff", "dev"], "port": 5174 },
+    { "name": "kiosk", "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@gf/kiosk", "dev"], "port": 5175 }
   ]
 }

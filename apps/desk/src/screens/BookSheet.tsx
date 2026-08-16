@@ -29,6 +29,7 @@ const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${St
 
 export function BookSheet({
   day, membershipId, staffId, startMin, customer, t, onDone, onCancel,
+  fromCallDraft,
 }: {
   day: DaySnapshot;
   membershipId: string;
@@ -38,9 +39,23 @@ export function BookSheet({
   t: ReturnType<typeof makeT>;
   onDone: () => void | Promise<void>;
   onCancel: () => void;
+  /**
+   * 从来电复核队列过来的（09 §4.2）。
+   *
+   * 建单这一步**故意**没有走捷径：AI 的草案只是把项目预选上、
+   * 把客人原话摆在眼前，最后落的还是同一条 `appointment.create`，
+   * 容量检查、超卖放行、审计一样不少。
+   */
+  fromCallDraft?: {
+    draftId: string;
+    serviceId: string | null;
+    serviceHeard: string | null;
+    timeHeard: string | null;
+  } | undefined;
 }) {
   const staff = day.staff.find((s) => s.membershipId === staffId);
-  const [serviceId, setServiceId] = useState<string>(day.services[0]?.id ?? '');
+  const [serviceId, setServiceId] = useState<string>(
+    fromCallDraft?.serviceId ?? day.services[0]?.id ?? '');
   const [busy, setBusy] = useState(false);
   const [issue, setIssue] = useState<ApiError | null>(null);
   const [reason, setReason] = useState<string>('');
@@ -112,6 +127,22 @@ export function BookSheet({
             {service ? ` · ${service.durationMin} 分钟` : ''}
           </div>
         </div>
+
+        {/* 从来电草案过来时，把客人的原话摆在眼前 ——
+            AI 匹配的项目可能是对的，也可能把 "gel removal" 听成了 "gel manicure"。
+            原话在这里，前台选项目时一眼能对上 */}
+        {fromCallDraft && (fromCallDraft.serviceHeard || fromCallDraft.timeHeard) && (
+          <div className="card stack" style={{ padding: 12, gap: 4,
+               background: 'var(--brand-soft)', borderColor: 'var(--brand)' }}>
+            <span className="tiny"><strong>☎️ 电话里客人说的：</strong></span>
+            {fromCallDraft.serviceHeard && (
+              <span className="tiny">项目：「{fromCallDraft.serviceHeard}」</span>
+            )}
+            {fromCallDraft.timeHeard && (
+              <span className="tiny">时间：「{fromCallDraft.timeHeard}」</span>
+            )}
+          </div>
+        )}
 
         {/* 项目：大按钮网格，不用下拉框 */}
         <div className="stack" style={{ gap: 8 }}>
