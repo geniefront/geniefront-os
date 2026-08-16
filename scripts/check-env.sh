@@ -299,20 +299,45 @@ fi
 echo
 
 echo "${B}C · Phase 2（现在可留空）${N}"
+
+# ── Telnyx：号码 + 语音 + AI Assistant + 短信（03 决策 28，docs/09-TELNYX.md）──
+if [[ -n "${TELNYX_API_KEY:-}" ]]; then
+  if [[ "$TELNYX_API_KEY" == KEY* ]]; then
+    api_check "Telnyx" -H "Authorization: Bearer ${TELNYX_API_KEY}" \
+      "https://api.telnyx.com/v2/phone_numbers?page[size]=1"
+  else
+    # 只提示不判死：Telnyx 的 key 前缀是它自己定的，将来可能变。
+    # 与其猜格式猜错把人挡在门外，不如直接打一次接口看能不能过
+    echo "  ${Y}!${N} TELNYX_API_KEY 不是 KEY 开头 —— 确认拿的是 API Key 而不是 Public Key"
+    api_check "Telnyx" -H "Authorization: Bearer ${TELNYX_API_KEY}" \
+      "https://api.telnyx.com/v2/phone_numbers?page[size]=1"
+  fi
+
+  # ⚠️ 这一条是整条链路上唯一的安全要害：没有 public key 就无法验证
+  # webhook 是不是真的来自 Telnyx，任何人都能伪造一条预约进复核队列
+  if [[ -z "${TELNYX_PUBLIC_KEY:-}" ]]; then
+    bad "TELNYX_API_KEY 填了但 TELNYX_PUBLIC_KEY 没填"
+    hint "它是 webhook 的 Ed25519 验签公钥，不是调 API 的。缺了 = webhook 可被伪造（09 §3）"
+  elif [[ "${TELNYX_PUBLIC_KEY}" == "${TELNYX_API_KEY}" ]]; then
+    bad "TELNYX_PUBLIC_KEY 和 TELNYX_API_KEY 填成了同一个"
+  fi
+
+  [[ -n "${TELNYX_PHONE_NUMBER:-}" ]] && \
+    check_format TELNYX_PHONE_NUMBER '^\+1[0-9]{10}$' 'E.164：+1 加 10 位数字' \
+      '不要带空格、括号、短横，例如 +15125550142'
+else
+  skip "Telnyx 未填（Phase 2 才需要，见 docs/09-TELNYX.md）"
+fi
+
+# ── Twilio / Vapi：旧方案，过渡期保留。填了就顺手验一下，没填不提醒 ──────────
 if [[ -n "${TWILIO_ACCOUNT_SID:-}" ]]; then
   if [[ "$TWILIO_ACCOUNT_SID" == SK* ]]; then
     bad "TWILIO_ACCOUNT_SID 拿成了 API Key SID（SK 开头）"; hint "要 AC 开头那个"
-  elif [[ "$TWILIO_ACCOUNT_SID" == MG* ]]; then
-    bad "TWILIO_ACCOUNT_SID 拿成了 Messaging Service SID（MG 开头）"; hint "要 AC 开头那个"
   elif check_format TWILIO_ACCOUNT_SID '^AC[0-9a-f]{32}$' 'AC + 32 位十六进制'; then
-    [[ -n "${TWILIO_AUTH_TOKEN:-}" ]] && api_check "Twilio" \
+    [[ -n "${TWILIO_AUTH_TOKEN:-}" ]] && api_check "Twilio（旧方案）" \
       -u "${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}" \
       "https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}.json"
   fi
-  check_format TWILIO_PHONE_NUMBER '^\+1[0-9]{10}$' 'E.164：+1 加 10 位数字' \
-    '不要带空格、括号、短横，例如 +15125550142'
-else
-  skip "Twilio 未填（Phase 2 才需要）"
 fi
 
 if [[ -n "${VAPI_API_KEY:-}" && -n "${VAPI_PUBLIC_KEY:-}" \
