@@ -25,12 +25,14 @@ import './handlers/setup';
 import './handlers/payroll';
 import './handlers/dayclose';
 import './handlers/shift';
+import './handlers/staff';
 import { loadDay } from './queries/day';
 import { resolveDate } from './handlers/dayclose';
 import {
   loadEarningsBoard, loadDayClose, loadReport, reportToCsv,
 } from './queries/money';
 import { loadRoster } from './queries/roster';
+import { loadStaffToday } from './queries/staff';
 import { currentBusinessDate, loadRotation, stripRank } from './handlers/rotation';
 import { computeStanding, explain, FULL_TURN } from '@gf/rotation';
 import { businessDateOf } from '@gf/scheduling';
@@ -450,6 +452,33 @@ export function buildServer(): FastifyInstance {
           ? req.query.from! : await resolveDate(tx, ctx.locationId);
         const days = Math.min(Math.max(Number(req.query.days ?? 7) || 7, 1), 31);
         return loadRoster(tx, ctx, from, days);
+      });
+  });
+
+  // ── 查询：技师端今日快照（Phase 1c）─────────────────────────────────────────
+  //
+  // 一次给全：今日单 + 下一位 + 收入 + 打卡状态 + 轮牌位次。
+  // 技师那台手机的网通常比前台还差，一次往返比五次可靠得多。
+  //
+  // ⚠️ `membershipId` 只接受**自己**，除非有 payroll.view_all ——
+  // 技师互相看对方的客人和收入是门店里最直接的矛盾来源。
+  app.get<{ Querystring: { date?: string; membershipId?: string } }>(
+    '/v1/staff/me/today', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('appointment.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'appointment.read' } });
+    }
+    const wanted = req.query.membershipId ?? ctx.membershipId;
+    if (wanted !== ctx.membershipId && !ctx.permissions.has('payroll.view_all')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+        details: { need: 'payroll.view_all', reason: '只能看自己的今日单' },
+      });
+    }
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      async (tx) => {
+        const date = await resolveDate(tx, ctx.locationId, req.query.date);
+        return loadStaffToday(tx, ctx, date, wanted);
       });
   });
 

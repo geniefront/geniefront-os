@@ -84,6 +84,17 @@ export const ticketItems = pgTable('ticket_items', {
   totalCents: integer('total_cents').notNull(),
   durationMin: integer('duration_min').notNull().default(0),
   seq: integer('seq').notNull().default(0),
+  /**
+   * ⭐ 技师点「开始 / 完成」的时刻（Phase 1c）。
+   *
+   * 不叫 status：一条 item 的状态就是这两个时间戳的函数
+   * （都没有 = 等着做，有 started 没 finished = 在做，都有 = 做完）。
+   * 多一个 status 列就多一处能和时间戳打架的地方。
+   *
+   * Desk-Only 的店由前台代点（宪法第 14 条），两条路走同一个命令。
+   */
+  startedAt: timestamp('started_at', { withTimezone: true }),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
   /** 落单要素快照：加钟改了力度、加了款式也在这（02 §3.1） */
   details: jsonb('details').notNull().default(sql`'{}'::jsonb`),
 }, (t) => [index('ticket_items_ticket_idx').on(t.ticketId)]);

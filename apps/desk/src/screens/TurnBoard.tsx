@@ -50,6 +50,7 @@ const clock = (iso: string) =>
 
 export function TurnBoard({
   data, membershipId, canOverride, services, onChanged, readOnly = false,
+  onlineStaff,
 }: {
   data: RotationSnapshot;
   membershipId: string;
@@ -57,6 +58,8 @@ export function TurnBoard({
   /** 断网时只读：看得到，但按不动（宪法第 18 条） */
   readOnly?: boolean;
   services: Array<{ id: string; name: string; durationMin: number; priceCents: number }>;
+  /** ⭐ 技师端在线的人（Realtime presence）。undefined = 还没连上，不显示点 */
+  onlineStaff?: Set<string> | undefined;
   onChanged: () => Promise<unknown>;
 }) {
   const [assigning, setAssigning] = useState<TurnEntry | null>(null);
@@ -120,6 +123,18 @@ export function TurnBoard({
               <div className="grow stack" style={{ gap: 4, minWidth: 0 }}>
                 <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
                   <strong style={{ fontSize: 'var(--text-xl)' }}>{e.name}</strong>
+                  {/* ⭐ 在线点回答的是「派给她，她手机会响吗」，
+                      不是「人在不在店里」—— 所以 title 里要把这句说清楚 */}
+                  {onlineStaff && (
+                    <span
+                      title={onlineStaff.has(e.membershipId)
+                        ? '技师端在线，派单会响铃'
+                        : '技师端不在线，派单不会响 —— 口头叫一声'}
+                      style={{
+                        width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
+                        background: onlineStaff.has(e.membershipId) ? 'var(--ok)' : '#c9c4bd',
+                      }} />
+                  )}
                   {isNext && <span className="badge badge-ok">★ 下一位</span>}
                   {e.state === 'on_break' && <span className="badge badge-warn">☕ 休息中</span>}
                   {e.manualRank !== null && <span className="badge badge-soft">✋ 前台调序</span>}

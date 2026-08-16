@@ -21,6 +21,7 @@ import {
   type AnyCommandDef, type CommandDef, type CommandContext, type Permission,
 } from '@gf/contracts';
 import { writeAudit, type AuditEntry } from './audit';
+import { emit, type DomainEvent } from './events';
 
 export interface HandlerArgs<TInput> {
   input: TInput;
@@ -28,6 +29,13 @@ export interface HandlerArgs<TInput> {
   tx: postgres.TransactionSql;
   /** handler 通过它登记审计；总线负责真正写入并做金额脱敏 */
   audit: (entry: Omit<AuditEntry, 'command' | 'redactPaths'>) => void;
+  /**
+   * 登记一条要广播的领域事件（01 §6）。
+   *
+   * 和审计一样写在总线里而不是各 handler 里，是为了让它**发在同一个事务内** ——
+   * 回滚就自动撤销，不会出现「技师手机响了但那张单不存在」。
+   */
+  emit: (event: DomainEvent) => void;
 }
 
 export type Handler<TInput, TOutput> = (args: HandlerArgs<TInput>) => Promise<TOutput>;
@@ -116,11 +124,13 @@ export async function dispatch<T = unknown>(
 
       // ── 4. 执行 ────────────────────────────────────────────────────────────
       const entries: Array<Omit<AuditEntry, 'command' | 'redactPaths'>> = [];
+      const events: DomainEvent[] = [];
       const result = await handler({
         input: parsed.data,
         ctx,
         tx,
         audit: (e) => entries.push(e),
+        emit: (e) => events.push(e),
       });
 
       // ── 5. 审计 ────────────────────────────────────────────────────────────
@@ -135,6 +145,9 @@ export async function dispatch<T = unknown>(
         });
         undoToken ??= id;
       }
+
+      // ── 5b. 广播领域事件（仍在事务内，见 events.ts）────────────────────────
+      for (const e of events) await emit(tx, ctx.locationId, e);
 
       // ── 6. 记幂等 ──────────────────────────────────────────────────────────
       if (key) {

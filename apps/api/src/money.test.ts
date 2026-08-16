@@ -38,11 +38,20 @@ const run = async <T>(name: string, input: unknown, ctx: Awaited<ReturnType<type
   (await dispatch<T>(name, input, ctx, { idempotencyKey: randomUUID() })).result;
 
 /** 今天的营业日 —— 与 handler 用的是同一套算法，直接问库 */
+/**
+ * 今天的营业日。
+ *
+ * ⚠️ 必须减掉 business_day_cutoff：足疗店开到凌晨，01:30 那一单算「昨天」。
+ * 直接用 `(now() at tz)::date` 的话，凌晨跑测试会拿到和 handler 不一样的日期，
+ * 然后所有按日期查的断言都会莫名其妙地查到 0 行 —— 而白天跑又是好的。
+ */
 async function today(): Promise<string> {
   const [r] = await withTenant(tenant, (tx) => tx<{ d: string }[]>`
-    select (now() at time zone (select timezone from locations where id = ${SPA_LOC}))::date::text as d`);
+    select (((now() at time zone l.timezone) - l.business_day_cutoff)::date)::text as d
+    from locations l where l.id = ${SPA_LOC}`);
   return r!.d;
 }
+
 
 /**
  * 把这家店「今天」的钱相关数据挪走，让每个用例从干净状态开始。

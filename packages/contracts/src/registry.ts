@@ -13,10 +13,11 @@ import { SETUP_COMMANDS } from './commands/setup.js';
 import { PAYROLL_COMMANDS } from './commands/payroll.js';
 import { DAYCLOSE_COMMANDS } from './commands/dayclose.js';
 import { SHIFT_COMMANDS } from './commands/shift.js';
+import { STAFF_COMMANDS } from './commands/staff.js';
 
 const ALL: readonly AnyCommandDef[] = [
   ...APPOINTMENT_COMMANDS, ...ROTATION_COMMANDS, ...TICKET_COMMANDS, ...SETUP_COMMANDS,
-  ...PAYROLL_COMMANDS, ...DAYCLOSE_COMMANDS, ...SHIFT_COMMANDS,
+  ...PAYROLL_COMMANDS, ...DAYCLOSE_COMMANDS, ...SHIFT_COMMANDS, ...STAFF_COMMANDS,
 ];
 
 export const COMMAND_REGISTRY: ReadonlyMap<string, AnyCommandDef> = new Map(

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      viewport-fit=cover + user-scalable=no：技师端是全屏大按钮界面，
+      双指缩放只会在戴手套操作时误触把界面搞乱。
+      ⚠️ 前台端【不】这么设 —— 那边有表格要看细节。
+    -->
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#b8143c" />
+    <!-- iOS 加到主屏后按 App 方式全屏运行 -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="GenieFront" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>GenieFront · 我的单</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

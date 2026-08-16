@@ -8,4 +8,5 @@ export * from './commands/setup.js';
 export * from './commands/payroll.js';
 export * from './commands/dayclose.js';
 export * from './commands/shift.js';
+export * from './commands/staff.js';
 export * from './registry.js';

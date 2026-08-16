@@ -1,0 +1,17 @@
+{
+  "name": "GenieFront 技师端",
+  "short_name": "GenieFront",
+  "description": "我的今日单、下一位客人、我的收入、打卡",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f5f3",
+  "theme_color": "#b8143c",
+  "lang": "zh-Hans",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -127,7 +127,7 @@ async function insertEvent(
 
 // ─────────────────────────────────────────────────────────────────── 手动调序
 
-registerHandler(RotationReorder, async ({ input, ctx, tx, audit }: HandlerArgs<
+registerHandler(RotationReorder, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof RotationReorder.input._type>) => {
   const { date } = await currentBusinessDate(tx, ctx.locationId);
   // 原因编码进 note，重放时解析回位次
@@ -139,12 +139,13 @@ registerHandler(RotationReorder, async ({ input, ctx, tx, audit }: HandlerArgs<
     entityType: 'rotation', entityId: input.membershipId,
     after: { toPosition: input.toPosition, reason: input.reason, note: input.note ?? null },
   });
+  emit({ type: 'rotation.changed', membershipId: input.membershipId, businessDate: date });
   return { eventId, membershipId: input.membershipId, toPosition: input.toPosition };
 });
 
 // ─────────────────────────────────────────────────────────────────── 跳过
 
-registerHandler(RotationSkip, async ({ input, ctx, tx, audit }: HandlerArgs<
+registerHandler(RotationSkip, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof RotationSkip.input._type>) => {
   const { date, policy } = await currentBusinessDate(tx, ctx.locationId);
   const reason = input.kind === 'no_skill' ? 'skipped_no_skill' : 'skipped_off';
@@ -160,12 +161,13 @@ registerHandler(RotationSkip, async ({ input, ctx, tx, audit }: HandlerArgs<
 
   audit({ entityType: 'rotation', entityId: input.membershipId,
           after: { kind: input.kind, owed: me?.owed ?? 0 } });
+  emit({ type: 'rotation.changed', membershipId: input.membershipId, businessDate: date });
   return { eventId, owed: me?.owed ?? 0 };
 });
 
 // ─────────────────────────────────────────────────────────────────── 休息
 
-registerHandler(RotationSetBreak, async ({ input, ctx, tx, audit }: HandlerArgs<
+registerHandler(RotationSetBreak, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof RotationSetBreak.input._type>) => {
   const { date } = await currentBusinessDate(tx, ctx.locationId);
   const eventId = await insertEvent(tx, ctx, date, input.membershipId,
@@ -173,12 +175,13 @@ registerHandler(RotationSetBreak, async ({ input, ctx, tx, audit }: HandlerArgs<
 
   audit({ entityType: 'rotation', entityId: input.membershipId,
           after: { onBreak: input.onBreak } });
+  emit({ type: 'rotation.changed', membershipId: input.membershipId, businessDate: date });
   return { eventId, onBreak: input.onBreak };
 });
 
 // ─────────────────────────────────────────────────────────────────── 派单
 
-registerHandler(RotationAssign, async ({ input, ctx, tx, audit }: HandlerArgs<
+registerHandler(RotationAssign, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof RotationAssign.input._type>) => {
   const { date, policy, tiers } = await currentBusinessDate(tx, ctx.locationId);
 
@@ -214,6 +217,8 @@ registerHandler(RotationAssign, async ({ input, ctx, tx, audit }: HandlerArgs<
       nextUp: afterStanding.nextUp?.membershipId ?? null,
     },
   });
+
+  emit({ type: 'rotation.changed', membershipId: input.membershipId, businessDate: date });
 
   return {
     eventId,

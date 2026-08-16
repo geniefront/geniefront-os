@@ -86,7 +86,7 @@ async function recalcTotals(
 
 // ─────────────────────────────────────────────────────────────────── 开单
 
-registerHandler(TicketOpen, async ({ input, ctx, tx, audit }: HandlerArgs<
+registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketOpen.input._type>) => {
   const date = await bizDate(tx, ctx.locationId);
   await assertDayOpen(tx, ctx.locationId, date);
@@ -128,12 +128,18 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit }: HandlerArgs<
   const subtotal = await recalcTotals(tx, ticket!.id);
   audit({ entityType: 'ticket', entityId: ticket!.id,
           after: { itemCount: input.items.length, businessDate: date } });
+
+  // ⭐ 这就是技师手机响铃的那一下（01 §6）。
+  // 一张单可能派给两个人（双技师/接力），各发各的 —— 技师端只对自己那条响。
+  for (const mid of new Set(input.items.map((i) => i.membershipId))) {
+    emit({ type: 'ticket.assigned', entityId: ticket!.id, membershipId: mid, businessDate: date });
+  }
   return { ticketId: ticket!.id, subtotalCents: subtotal };
 });
 
 // ─────────────────────────────────────────────────────────────────── 加钟/加项
 
-registerHandler(TicketAddItem, async ({ input, ctx, tx, audit }: HandlerArgs<
+registerHandler(TicketAddItem, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketAddItem.input._type>) => {
   const [t] = await tx<{ status: string }[]>`
     select status from tickets where id = ${input.ticketId}`;
@@ -169,6 +175,8 @@ registerHandler(TicketAddItem, async ({ input, ctx, tx, audit }: HandlerArgs<
   const subtotal = await recalcTotals(tx, input.ticketId);
   audit({ entityType: 'ticket', entityId: input.ticketId,
           after: { addedItemId: item!.id, kind: input.kind } });
+  // 加钟/加项对被加的那个技师来说也是一次派单（可能是另一个人来接手）
+  emit({ type: 'ticket.assigned', entityId: input.ticketId, membershipId: input.membershipId });
   return { ticketItemId: item!.id, subtotalCents: subtotal };
 });
 
@@ -351,7 +359,7 @@ async function closeOneTicket(args: {
   return { ticketId: ticket.id, totalCents: paidTotal, tipCents: totalTip, allocations: out, earnings };
 }
 
-registerHandler(TicketClose, async ({ input, ctx, tx, audit }: HandlerArgs<
+registerHandler(TicketClose, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketClose.input._type>) => {
   const ticket = await loadTicketForClose(tx, input.ticketId);
   await assertDayOpen(tx, ctx.locationId, ticket.businessDate);
@@ -372,6 +380,9 @@ registerHandler(TicketClose, async ({ input, ctx, tx, audit }: HandlerArgs<
       allocationCount: r.allocations.length,
     },
   });
+
+  // 技师的「今日收入」要跟着跳，前台的在做的单要消失
+  emit({ type: 'ticket.changed', entityId: input.ticketId, businessDate: ticket.businessDate });
 
   return {
     ticketId: r.ticketId, totalCents: r.totalCents,
@@ -431,7 +442,7 @@ registerHandler(TicketUngroup, async ({ input, ctx, tx, audit }: HandlerArgs<
  * 然后每张单照常走一遍单独结账的逻辑 —— 提成、小费分配、报表口径全不变。
  * 合并的只是「谁掏的钱」这一件事。
  */
-registerHandler(TicketCloseGroup, async ({ input, ctx, tx, audit }: HandlerArgs<
+registerHandler(TicketCloseGroup, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketCloseGroup.input._type>) => {
   const tickets: TicketForClose[] = [];
   for (const id of input.ticketIds) {
@@ -515,6 +526,10 @@ registerHandler(TicketCloseGroup, async ({ input, ctx, tx, audit }: HandlerArgs<
     },
   });
 
+  for (const r of results) {
+    emit({ type: 'ticket.changed', entityId: r.ticketId, businessDate: tickets[0]!.businessDate });
+  }
+
   return {
     groupId: input.groupId,
     tickets: results.map((r) => ({
@@ -526,7 +541,7 @@ registerHandler(TicketCloseGroup, async ({ input, ctx, tx, audit }: HandlerArgs<
 
 // ─────────────────────────────────────────────────────────────────── 作废
 
-registerHandler(TicketVoid, async ({ input, ctx, tx, audit }: HandlerArgs<
+registerHandler(TicketVoid, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketVoid.input._type>) => {
   const [t] = await tx<{ status: string; business_date: string }[]>`
     select status, business_date::text as business_date from tickets where id = ${input.ticketId}`;
@@ -558,5 +573,6 @@ registerHandler(TicketVoid, async ({ input, ctx, tx, audit }: HandlerArgs<
     before: { status: t.status },
     after: { status: 'voided', reason: input.reason, note: input.note ?? null },
   });
+  emit({ type: 'ticket.changed', entityId: input.ticketId, businessDate: t.business_date });
   return { ticketId: input.ticketId, status: 'voided' as const };
 });

@@ -6,6 +6,7 @@ import {
   ApiError, apiGet, apiGetCached, runCommand, API_BASE, type LocationMembership,
 } from './lib/api';
 import { watchNetwork, type NetState } from './lib/offline';
+import { watchLocation, type ConnState } from './lib/presence';
 import { OfflineBanner } from './screens/OfflineBanner';
 import { makeT, LOCALE_LABEL, LOCALES, type Locale } from './i18n';
 import { Login } from './screens/Login';
@@ -39,6 +40,8 @@ function Shell({ session }: { session: Session }) {
   const [groupBusy, setGroupBusy] = useState(false);
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [net, setNet] = useState<NetState>('online');
+  const [online, setOnline] = useState<Set<string> | undefined>(undefined);
+  const [rtState, setRtState] = useState<ConnState>('connecting');
   const [netSince, setNetSince] = useState(Date.now());
   const [cached, setCached] = useState<{ rot: RotationSnapshot | null; day: DaySnapshot | null; at: number } | null>(null);
 
@@ -112,6 +115,29 @@ function Shell({ session }: { session: Session }) {
     enabled: Boolean(picked),
     queryFn: () => apiGet<{ tickets: OpenTicket[] }>('/v1/desk/tickets', picked!.membershipId),
   });
+
+  /**
+   * ⭐ 实时长连接（Phase 1c）。前台这一端拿它做两件事：
+   *   1. 技师在线绿点 —— 回答「派给她，她手机会响吗」
+   *   2. 领域事件到达就刷新看板，不用等 20 秒的轮询
+   *
+   * ⚠️ 它挂了也只是退化：轮询还在，前台照样能把一天跑完（宪法第 14 条）。
+   */
+  useEffect(() => {
+    if (!picked || net === 'offline') return;
+    const h = watchLocation({
+      locationId: picked.locationId,
+      accessToken: session.access_token,
+      onPresence: setOnline,
+      onState: setRtState,
+      onEvent: (type) => {
+        if (type.startsWith('ticket')) { void tktQ.refetch(); void rotQ.refetch(); }
+        else if (type.startsWith('rotation')) void rotQ.refetch();
+        else if (type.startsWith('appointment')) void dayQ.refetch();
+      },
+    });
+    return h.close;
+  }, [picked?.locationId, net, session.access_token]);
 
   const canManage = picked?.roleKeys.some((r) => ['owner', 'manager'].includes(r)) ?? false;
   // 权限判断按角色近似（后端才是权威）：前台能日结、能发现金小费，
@@ -196,6 +222,15 @@ function Shell({ session }: { session: Session }) {
         {picked.roleKeys.map((r) => (
           <span key={r} className="badge badge-soft">{t(`role.${r}`)}</span>
         ))}
+        {/* 技师端能不能收到派单，前台得看得见 —— 不然会一直等一个不会响的铃 */}
+        {net === 'online' && (
+          <span className={`badge ${rtState === 'live' ? 'badge-ok' : 'badge-mute'}`}
+                title={rtState === 'live'
+                  ? '实时推送正常，派单会让技师手机响'
+                  : '实时推送未连接，派单不会响铃 —— 口头叫号'}>
+            {rtState === 'live' ? `● 实时 ${online?.size ?? 0} 人在线` : '○ 实时未连接'}
+          </span>
+        )}
         <span className="grow" />
         <select
           className="btn" style={{ minHeight: 44, padding: '0 12px' }}
@@ -258,6 +293,7 @@ function Shell({ session }: { session: Session }) {
         : rotQ.data ? (
           <TurnBoard data={net === 'offline' && cached?.rot ? cached.rot : rotQ.data}
                      membershipId={picked.membershipId}
+                     onlineStaff={rtState === 'live' ? online : undefined}
                      readOnly={net === 'offline'}
                      canOverride={net === 'online' && picked.roleKeys.some((r) =>
                        ['owner', 'manager', 'front_desk'].includes(r))}

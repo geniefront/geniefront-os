@@ -73,6 +73,18 @@ jobs:
       - name: 迁移幂等性
         run: pnpm db:migrate
 
+      # ── 前端也要能构建出来 ────────────────────────────────────────────────
+      # typecheck 过了不代表打得出包（比如某个 public 资源丢了、
+      # 或者 vite 的 define 少一个变量）。两个端都是要发到 Pages 的产物。
+      - name: 构建前端（desk + staff）
+        run: |
+          pnpm --filter @gf/desk build
+          pnpm --filter @gf/staff build
+          test -f apps/staff/dist/manifest.webmanifest || \
+            { echo "::error::技师端 PWA 缺 manifest，装不到主屏"; exit 1; }
+          test -f apps/staff/dist/icon-192.png || \
+            { echo "::error::技师端 PWA 缺图标"; exit 1; }
+
       - name: 构建镜像
         run: |
           docker build --provenance=false -f deploy/Dockerfile -t gf/api:ci .
