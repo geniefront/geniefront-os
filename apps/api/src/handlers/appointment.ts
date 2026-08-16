@@ -2,7 +2,7 @@
  * appointment.create —— Phase 0 的验收命令。
  *
  * 三层约束在这里汇合（01 §7.1）：
- *   资源  → 数据库排他约束，撞了就是 23P01，翻译成人话抛出，不给覆盖
+ *   资源  → 数据库硬约束（容量触发器），撞了翻译成人话抛出，不给覆盖
  *   技师  → packages/scheduling 的纯函数判，可带 reason 放行
  *   门店  → 同上
  */
@@ -15,8 +15,18 @@ import { registerHandler, type HandlerArgs } from '../bus';
 type Input = typeof AppointmentCreate.input._type;
 type Output = typeof AppointmentCreate.output._type;
 
-/** Postgres 排他约束冲突 */
-const EXCLUSION_VIOLATION = '23P01';
+/**
+ * 资源冲突的两种 SQLSTATE。
+ *
+ * 23P01 是排他约束（capacity = 1 的老写法，历史库里可能还有）；
+ * 23001 是 0008 那个容量触发器抛的 restrict_violation ——
+ * 一间房能同时服务多人之后，排他约束表达不了「最多 N 个」，
+ * 换成了计数触发器（约束强度没变，仍在数据库层）。
+ *
+ * 两个都要认：只认一个的话，改成多容量的那天前台会看到
+ * "23001 Room 2 这个时段已经满了" 这种半生不熟的原始报错。
+ */
+const RESOURCE_CONFLICT_CODES = new Set(['23P01', '23001']);
 
 registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs<Input>): Promise<Output> => {
   // ── 门店配置 ──────────────────────────────────────────────────────────────
@@ -199,7 +209,8 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
 });
 
 function isExclusionViolation(e: unknown): boolean {
-  return typeof e === 'object' && e !== null && 'code' in e && e.code === EXCLUSION_VIOLATION;
+  return typeof e === 'object' && e !== null && 'code' in e
+    && typeof e.code === 'string' && RESOURCE_CONFLICT_CODES.has(e.code);
 }
 
 // 让 hasBlocking 保持被引用：容量结果的语义检查在上面按 issue 逐条做，

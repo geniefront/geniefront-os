@@ -116,6 +116,23 @@ export const resources = pgTable('resources', {
   resourceTypeId: uuid('resource_type_id').notNull().references(() => resourceTypes.id),
   name: text('name').notNull(),
   status: text('status').notNull().default('available'),
+  /**
+   * ⭐ 同时能容纳几个服务。
+   *
+   * 一间房不等于一张床：足疗房里排 6 张躺椅、双人房两张床两个技师、
+   * 美甲区一个「区域」当资源用 —— 这些在真店里比「一房一客」更常见。
+   * capacity = 1 时行为与从前完全一致（互斥）。
+   *
+   * 硬约束仍在数据库（宪法第 15 条），只是从排他约束换成了
+   * 计数触发器 —— 排他约束表达不了「最多 N 个」。见 sql/0008。
+   */
+  capacity: integer('capacity').notNull().default(1),
+  /**
+   * 同一时刻这间房里允许几个**不同技师**。
+   * null = 不限（等于 capacity）。双人房常见 2，单人房设 1 可以挡住
+   * 「两个技师被排进同一间房」这种排班事故。
+   */
+  maxStaff: integer('max_staff'),
 }, (t) => [
   index('resources_location_idx').on(t.locationId, t.status),
 ]);

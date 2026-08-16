@@ -22,7 +22,15 @@ import './handlers/appointment';
 import './handlers/rotation';
 import './handlers/ticket';
 import './handlers/setup';
+import './handlers/payroll';
+import './handlers/dayclose';
+import './handlers/shift';
 import { loadDay } from './queries/day';
+import { resolveDate } from './handlers/dayclose';
+import {
+  loadEarningsBoard, loadDayClose, loadReport, reportToCsv,
+} from './queries/money';
+import { loadRoster } from './queries/roster';
 import { currentBusinessDate, loadRotation, stripRank } from './handlers/rotation';
 import { computeStanding, explain, FULL_TURN } from '@gf/rotation';
 import { businessDateOf } from '@gf/scheduling';
@@ -249,15 +257,18 @@ export function buildServer(): FastifyInstance {
       async (tx) => {
         const rows = await tx<{
           ticket_id: string; customer_name: string | null; walk_in_name: string | null;
+          group_id: string | null; group_label: string | null;
           subtotal_cents: number; item_id: string; item_name: string; item_total: number;
           duration_min: number; staff_name: unknown; membership_id: string;
         }[]>`
           select t.id as ticket_id, c.display_name as customer_name, t.walk_in_name,
+                 t.group_id, g.label as group_label,
                  t.subtotal_cents, ti.id as item_id, ti.name_snapshot as item_name,
                  ti.total_cents as item_total, ti.duration_min,
                  sp.display_name as staff_name, tis.membership_id
           from tickets t
           left join customers c on c.id = t.customer_id
+          left join ticket_groups g on g.id = t.group_id
           join ticket_items ti on ti.ticket_id = t.id
           join ticket_item_staff tis on tis.ticket_item_id = ti.id
           left join staff_profiles sp on sp.membership_id = tis.membership_id
@@ -267,13 +278,16 @@ export function buildServer(): FastifyInstance {
 
         const map = new Map<string, {
           ticketId: string; customerName: string; subtotalCents: number;
+          groupId: string | null; groupLabel: string | null;
           items: Array<Record<string, unknown>>;
         }>();
         for (const r of rows) {
           const t = map.get(r.ticket_id) ?? {
             ticketId: r.ticket_id,
             customerName: r.customer_name ?? r.walk_in_name ?? '临时客人',
-            subtotalCents: r.subtotal_cents, items: [],
+            subtotalCents: r.subtotal_cents,
+            groupId: r.group_id, groupLabel: r.group_label,
+            items: [],
           };
           t.items.push({
             ticketItemId: r.item_id, name: r.item_name, totalCents: r.item_total,
@@ -356,6 +370,86 @@ export function buildServer(): FastifyInstance {
             id: l.id, key: l.key, name: pickText(l.name, ctx.locale),
           })),
         };
+      });
+  });
+
+  // ── 查询：技师当日收入看板 ─────────────────────────────────────────────────
+  //
+  // 没有 payroll.view_all 的人只看得到自己那一行 —— 技师互相看收入
+  // 是门店里最直接的矛盾来源（00 §3.0）。
+  app.get<{ Querystring: { date?: string } }>('/v1/desk/earnings', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    const all = ctx.permissions.has('payroll.view_all');
+    if (!all && !ctx.permissions.has('payroll.view_own')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'payroll.view_own' } });
+    }
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      async (tx) => {
+        const date = await resolveDate(tx, ctx.locationId, req.query.date);
+        return loadEarningsBoard(tx, ctx, date, all ? undefined : ctx.membershipId);
+      });
+  });
+
+  // ── 查询：打烊日结 ─────────────────────────────────────────────────────────
+  app.get<{ Querystring: { date?: string } }>('/v1/desk/dayclose', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('dayclose.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'dayclose.manage' } });
+    }
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      async (tx) => {
+        const date = await resolveDate(tx, ctx.locationId, req.query.date);
+        return loadDayClose(tx, ctx, date);
+      });
+  });
+
+  // ── 查询：营业报表（含 CSV 导出）───────────────────────────────────────────
+  //
+  // CSV 在服务端生成而不是前端拼：BOM、公式注入转义、列顺序这三件事
+  // 只该有一份实现，而且导出的文件老板是要发给会计的。
+  app.get<{ Querystring: { from?: string; to?: string; format?: string } }>(
+    '/v1/desk/reports', async (req, reply) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('report.view')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
+    }
+    const DATE = /^\d{4}-\d{2}-\d{2}$/;
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      async (tx) => {
+        const today = await resolveDate(tx, ctx.locationId);
+        const from = DATE.test(req.query.from ?? '') ? req.query.from! : today;
+        const to = DATE.test(req.query.to ?? '') ? req.query.to! : today;
+        if (from > to) {
+          throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+            details: { reason: '起始日期不能晚于结束日期' },
+          });
+        }
+        const report = await loadReport(tx, ctx, from, to);
+        if (req.query.format !== 'csv') return report;
+        return reply
+          .header('Content-Type', 'text/csv; charset=utf-8')
+          .header('Content-Disposition',
+                  `attachment; filename="geniefront-${from}_${to}.csv"`)
+          .send(reportToCsv(report));
+      });
+  });
+
+  // ── 查询：排班表 ───────────────────────────────────────────────────────────
+  app.get<{ Querystring: { from?: string; days?: string } }>('/v1/desk/roster', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('schedule.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'schedule.read' } });
+    }
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      async (tx) => {
+        const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from ?? '')
+          ? req.query.from! : await resolveDate(tx, ctx.locationId);
+        const days = Math.min(Math.max(Number(req.query.days ?? 7) || 7, 1), 31);
+        return loadRoster(tx, ctx, from, days);
       });
   });
 

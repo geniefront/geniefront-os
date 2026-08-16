@@ -6,7 +6,7 @@
  * 所以第一个测试就是断言「当前连接身份是 app_user」。
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { sql, withTenant, closeDb } from './client';
 
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
@@ -133,13 +133,21 @@ describe('宪法第 15 条：约束分层', () => {
     expect(r?.n).toBe(0);
   });
 
-  it('资源【有】排他约束 —— 房间物理上不可能同时两人', async () => {
-    const [r] = await sql<{ n: number }[]>`
+  it('资源仍是数据库硬约束 —— 只是从排他约束换成了容量触发器', async () => {
+    // Phase 1b：一间房可以同时服务多人（足疗房排 6 张躺椅、双人房两张床），
+    // 排他约束表达不了「最多 N 个」，所以换成计数触发器。
+    // 约束**强度**没变：仍在数据库层，前台带 reason 也覆盖不了。
+    const [x] = await sql<{ n: number }[]>`
       select count(*)::int as n from pg_constraint
-      where conrelid = 'appointment_items'::regclass
-        and contype = 'x'
+      where conrelid = 'appointment_items'::regclass and contype = 'x'
         and pg_get_constraintdef(oid) ilike '%resource_id%'`;
-    expect(r?.n).toBe(1);
+    expect(x?.n).toBe(0);
+
+    const [t] = await sql<{ n: number }[]>`
+      select count(*)::int as n from pg_trigger
+      where tgrelid = 'appointment_items'::regclass
+        and tgname = 'resource_capacity_guard' and not tgisinternal`;
+    expect(t?.n).toBe(1);
   });
 
   it('超卖放行必须带原因', async () => {
@@ -164,5 +172,208 @@ describe('宪法第 16 条：手机号不是唯一键', () => {
         tx`insert into customers (org_id, display_name, phone_e164, source)
            values (${NAIL_ORG}, ${'张女士'}, '+19175550188', 'walkin')`),
     ).rejects.toThrow(/duplicate key|customers_no_exact_dup/i);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Phase 1b
+// ════════════════════════════════════════════════════════════════════════════
+
+const SPA_LOC = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+
+/** 在足疗店造一张预约，返回 appointment_items 的插入用参数 */
+async function bookInRoom(
+  tx: Parameters<Parameters<typeof withTenant>[1]>[0],
+  args: { resourceId: string; membershipId: string; startHour: number; hours?: number },
+) {
+  const [appt] = await tx<{ id: string }[]>`
+    insert into appointments (org_id, location_id, business_date, starts_at, ends_at)
+    values (${SPA_ORG}, ${SPA_LOC}, '2026-09-01',
+            ${`2026-09-01 ${String(args.startHour).padStart(2, '0')}:00:00+00`}::timestamptz,
+            ${`2026-09-01 ${String(args.startHour + (args.hours ?? 1)).padStart(2, '0')}:00:00+00`}::timestamptz)
+    returning id`;
+  const [svc] = await tx<{ id: string }[]>`
+    select id from services where location_id = ${SPA_LOC} limit 1`;
+  return tx`
+    insert into appointment_items
+      (org_id, location_id, appointment_id, service_id, membership_id, resource_id,
+       starts_at, ends_at, price_cents_snapshot, duration_min)
+    values (${SPA_ORG}, ${SPA_LOC}, ${appt!.id}, ${svc!.id}, ${args.membershipId},
+            ${args.resourceId},
+            ${`2026-09-01 ${String(args.startHour).padStart(2, '0')}:00:00+00`}::timestamptz,
+            ${`2026-09-01 ${String(args.startHour + (args.hours ?? 1)).padStart(2, '0')}:00:00+00`}::timestamptz,
+            4000, 60)`;
+}
+
+describe('⭐ 房间多容量（一间房同时服务多人多技师）', () => {
+  let roomId = '';
+  let staff: string[] = [];
+
+  beforeAll(async () => {
+    await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, async (tx) => {
+      const [r] = await tx<{ id: string }[]>`
+        select id from resources where location_id = ${SPA_LOC} order by name limit 1`;
+      roomId = r!.id;
+      const rows = await tx<{ membership_id: string }[]>`
+        select membership_id from staff_profiles where location_id = ${SPA_LOC} limit 3`;
+      staff = rows.map((x) => x.membership_id);
+    });
+  });
+
+  const clean = () => withTenant(
+    { orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null },
+    (tx) => tx`delete from appointments where business_date = '2026-09-01'`);
+
+  // 每个用例自己清一遍：容量测试之间互相污染的话，失败信息会指向错的那一条
+  beforeEach(async () => { await clean(); });
+
+  it('capacity = 1 时行为和从前一样：第二个人排不进去', async () => {
+    await clean();
+    await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, async (tx) => {
+      await tx`update resources set capacity = 1, max_staff = null where id = ${roomId}`;
+      await bookInRoom(tx, { resourceId: roomId, membershipId: staff[0]!, startHour: 10 });
+    });
+    await expect(
+      withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, (tx) =>
+        bookInRoom(tx, { resourceId: roomId, membershipId: staff[1]!, startHour: 10 })),
+    ).rejects.toThrow(/已经满了/);
+    await clean();
+  });
+
+  it('⭐ capacity = 3 时同一时段能排三位客人三个技师', async () => {
+    await clean();
+    await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, async (tx) => {
+      await tx`update resources set capacity = 3, max_staff = null where id = ${roomId}`;
+      for (let i = 0; i < 3; i++) {
+        await bookInRoom(tx, {
+          resourceId: roomId, membershipId: staff[i % staff.length]!, startHour: 10,
+        });
+      }
+      const [n] = await tx<{ n: number }[]>`
+        select count(*)::int as n from appointment_items ai
+        join appointments a on a.id = ai.appointment_id
+        where ai.resource_id = ${roomId} and a.business_date = '2026-09-01'`;
+      expect(n!.n).toBe(3);
+    });
+    // 第四个还是要被拦下 —— 容量是硬的，不是软告警
+    await expect(
+      withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, (tx) =>
+        bookInRoom(tx, { resourceId: roomId, membershipId: staff[0]!, startHour: 10 })),
+    ).rejects.toThrow(/已经满了/);
+    await clean();
+  });
+
+  it('错开时段不算占用', async () => {
+    await clean();
+    await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, async (tx) => {
+      await tx`update resources set capacity = 1, max_staff = null where id = ${roomId}`;
+      await bookInRoom(tx, { resourceId: roomId, membershipId: staff[0]!, startHour: 10 });
+      await bookInRoom(tx, { resourceId: roomId, membershipId: staff[0]!, startHour: 11 });
+      const [n] = await tx<{ n: number }[]>`
+        select count(*)::int as n from appointment_items ai
+        join appointments a on a.id = ai.appointment_id
+        where ai.resource_id = ${roomId} and a.business_date = '2026-09-01'`;
+      expect(n!.n).toBe(2);
+    });
+    await clean();
+  });
+
+  it('max_staff 能挡住「两个技师被排进同一间单人房」', async () => {
+    await clean();
+    await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, async (tx) => {
+      await tx`update resources set capacity = 4, max_staff = 1 where id = ${roomId}`;
+      await bookInRoom(tx, { resourceId: roomId, membershipId: staff[0]!, startHour: 10 });
+      // 同一个技师再加一位客人：可以（一人带两个躺椅）
+      await bookInRoom(tx, { resourceId: roomId, membershipId: staff[0]!, startHour: 10 });
+    });
+    await expect(
+      withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, (tx) =>
+        bookInRoom(tx, { resourceId: roomId, membershipId: staff[1]!, startHour: 10 })),
+    ).rejects.toThrow(/最多 1 位技师/);
+    await clean();
+    await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null },
+      (tx) => tx`update resources set capacity = 1, max_staff = null where id = ${roomId}`);
+  });
+});
+
+describe('⭐ 钱的守护约束（Phase 1b）', () => {
+  it('「不用找了」时不能同时有找零 —— 否则日结现金一定对不上', async () => {
+    const [t] = await withTenant(
+      { orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null },
+      (tx) => tx<{ id: string }[]>`
+        insert into tickets (org_id, location_id, business_date, status)
+        values (${SPA_ORG}, ${SPA_LOC}, '2026-09-02', 'in_service') returning id`);
+
+    await expect(
+      withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, (tx) =>
+        tx`insert into payments
+             (org_id, location_id, ticket_id, method, amount_cents, tip_cents,
+              tendered_cents, change_cents, keep_change)
+           values (${SPA_ORG}, ${SPA_LOC}, ${t!.id}, 'cash', 8500, 1500, 10000, 500, true)`),
+    ).rejects.toThrow(/payment_change_consistent/);
+  });
+
+  it('客人给的钱不够付这一单也拦下', async () => {
+    const [t] = await withTenant(
+      { orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null },
+      (tx) => tx<{ id: string }[]>`
+        insert into tickets (org_id, location_id, business_date, status)
+        values (${SPA_ORG}, ${SPA_LOC}, '2026-09-02', 'in_service') returning id`);
+    await expect(
+      withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, (tx) =>
+        tx`insert into payments
+             (org_id, location_id, ticket_id, method, amount_cents, tendered_cents, change_cents)
+           values (${SPA_ORG}, ${SPA_LOC}, ${t!.id}, 'cash', 10000, 5000, 0)`),
+    ).rejects.toThrow(/payment_change_consistent/);
+  });
+
+  it('小费发放的账必须自洽：应发 = 实发 + 结转', async () => {
+    const [m] = await withTenant(
+      { orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null },
+      (tx) => tx<{ membership_id: string }[]>`
+        select membership_id from staff_profiles where location_id = ${SPA_LOC} limit 1`);
+    await expect(
+      withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, (tx) =>
+        tx`insert into tip_payouts
+             (org_id, location_id, business_date, membership_id,
+              owed_cents, paid_cents, carry_out_cents)
+           values (${SPA_ORG}, ${SPA_LOC}, '2026-09-02', ${m!.membership_id}, 3760, 3700, 100)`),
+    ).rejects.toThrow(/tip_payout_balances/);
+  });
+
+  it('⭐ app_user 删不掉财务流水（宪法第 9 条）', async () => {
+    await expect(
+      withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, (tx) =>
+        tx`delete from earnings where location_id = ${SPA_LOC}`),
+    ).rejects.toThrow(/permission denied|不可删除/i);
+  });
+
+  it('提成方案不许存进离谱的费率 —— 只在 UI 挡不够', async () => {
+    await expect(
+      withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, (tx) =>
+        tx`insert into compensation_plans (org_id, location_id, version, config)
+           values (${SPA_ORG}, ${SPA_LOC}, 1,
+                   '{"kind":"commission","rateBp":20000}'::jsonb)`),
+    ).rejects.toThrow(/comp_plan_sane/);
+  });
+
+  it('班次跨夜要用大于 1440 表达，结束早于开始直接拒绝', async () => {
+    const [m] = await withTenant(
+      { orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null },
+      (tx) => tx<{ membership_id: string }[]>`
+        select membership_id from staff_profiles where location_id = ${SPA_LOC} limit 1`);
+    await expect(
+      withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, (tx) =>
+        tx`insert into shifts (org_id, location_id, membership_id, business_date,
+                               start_min, end_min, break_min)
+           values (${SPA_ORG}, ${SPA_LOC}, ${m!.membership_id}, '2026-09-02', 1080, 120, 0)`),
+    ).rejects.toThrow(/shift_bounds_valid/);
+
+    // 跨夜的正确写法能过
+    await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, (tx) =>
+      tx`insert into shifts (org_id, location_id, membership_id, business_date,
+                             start_min, end_min, break_min)
+         values (${SPA_ORG}, ${SPA_LOC}, ${m!.membership_id}, '2026-09-03', 1080, 1560, 0)
+         on conflict do nothing`);
   });
 });

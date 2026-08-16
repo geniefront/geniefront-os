@@ -27,6 +27,17 @@ export const PERMISSIONS = [
   'payroll.view_all',
   'payroll.configure',
 
+  // 钱柜与日结（Phase 1b）
+  /** 点钞、录现金进出、刷卡机对账、封账 */
+  'dayclose.manage',
+  /**
+   * 发现金小费。和 dayclose.manage 分开：有的店老板亲自发钱，
+   * 前台只负责数抽屉。但 Desk-Only 的店两个都给前台（宪法第 14 条）。
+   */
+  'tip.payout',
+  /** 历史营业报表与 CSV 导出。当日数字不需要这个权限 */
+  'report.view',
+
   // 顾客
   'customer.read',
   'customer.write',
@@ -67,7 +78,8 @@ export const ROLE_PRESETS = {
     'appointment.read', 'appointment.write', 'appointment.cancel', 'appointment.overbook',
     'ticket.read', 'ticket.write', 'ticket.discount', 'ticket.void',
     'rotation.read', 'rotation.override',
-    'payroll.view_own', 'payroll.view_all',
+    'payroll.view_own', 'payroll.view_all', 'payroll.configure',
+    'dayclose.manage', 'tip.payout', 'report.view',
     'customer.read', 'customer.write', 'customer.view_contact', 'customer.merge',
     'schedule.read', 'schedule.write',
     'timeclock.punch_self', 'timeclock.punch_others',
@@ -80,6 +92,9 @@ export const ROLE_PRESETS = {
     'ticket.read', 'ticket.write', 'ticket.discount',
     'rotation.read', 'rotation.override',
     'payroll.view_own',
+    // Desk-Only 的店，打烊数钱和发现金小费都是前台干的（宪法第 14 条）。
+    // 但历史营业报表不给 —— 那是老板的账（决策 19 极致隐私）。
+    'dayclose.manage', 'tip.payout',
     'customer.read', 'customer.write', 'customer.view_contact', 'customer.merge',
     'schedule.read',
     'timeclock.punch_self', 'timeclock.punch_others', // Desk-Only 模式要能代技师打卡

@@ -174,6 +174,13 @@ async function main() {
     // audit_log 不在列内：它 append-only，而且没有 FK 指向 organizations。
     const orgs = [NAIL_ORG, SPA_ORG];
     for (const t of [
+      // 财务流水排在最前：它们的外键钉着 memberships，不先清就删不掉员工。
+      // 这几张表在生产上是删不掉的（0009 的触发器），种子脚本用的是
+      // 迁移角色，所以能过 —— 这正是那条触发器只挡 app_user 的原因。
+      'earnings', 'tip_payouts', 'cash_movements', 'day_closes',
+      'tip_allocations', 'payments', 'ticket_item_staff', 'ticket_items',
+      'tickets', 'ticket_groups', 'tip_policies',
+      'shifts', 'shift_templates', 'compensation_plans',
       'appointment_item_blocks', 'appointment_items', 'appointments',
       'rotation_events', 'rotation_participants', 'rotation_policies',
       'customer_preferences', 'customers',
@@ -233,14 +240,19 @@ async function main() {
               sun:{open:'10:00',close:'23:00'} })},
         ${J({ capacity: { slot_minutes: 15, max_concurrent_per_slot: null, overbook: 'warn' } })})`;
 
-    // 足疗店：3 个房间 —— 资源硬约束天然把并发卡在 3
+    // 足疗店：两间单人房 + 一间大厅。
+    // ⭐ 大厅 capacity = 4：一间房同时躺四位客人是足疗店的常态，
+    // 「一房一客」反而是少数（Phase 1b 起资源容量可以大于 1）。
     const [roomType] = await tx<{ id: string }[]>`
       insert into resource_types (org_id, location_id, key, name)
       values (${SPA_ORG}, ${SPA_LOC}, 'room', ${J({ en: 'Room', 'zh-Hans': '房间' })})
       returning id`;
-    for (const n of ['1', '2', '3']) {
-      await tx`insert into resources (org_id, location_id, resource_type_id, name)
-        values (${SPA_ORG}, ${SPA_LOC}, ${roomType!.id}, ${'Room ' + n})`;
+    for (const [name, cap, maxStaff] of [
+      ['Room 1', 1, 1], ['Room 2', 1, 1], ['大厅 Hall', 4, null],
+    ] as const) {
+      await tx`insert into resources
+        (org_id, location_id, resource_type_id, name, capacity, max_staff)
+        values (${SPA_ORG}, ${SPA_LOC}, ${roomType!.id}, ${name}, ${cap}, ${maxStaff})`;
     }
 
     // 美甲店：pedicure 椅
@@ -259,6 +271,18 @@ async function main() {
       (${NAIL_ORG}, ${NAIL_LOC}, ${J({ en: 'Deluxe Pedicure', 'zh-Hans': '豪华修脚' })}, 60, 5500, true),
       (${SPA_ORG},  ${SPA_LOC},  ${J({ en: 'Foot Reflexology 60min', 'zh-Hans': '足底按摩 60 分钟' })}, 60, 4000, true),
       (${SPA_ORG},  ${SPA_LOC},  ${J({ en: 'Deep Tissue 60min', 'zh-Hans': '深层按摩 60 分钟' })}, 60, 7500, true)`;
+
+    // ⭐ 默认薪酬方案：两家店都是 40% 提成、按折后金额算。
+    // 不给默认方案的话，第一天结账就会用引擎的兜底值，
+    // 老板看到一个他没设过的数字，第一反应是系统在乱算。
+    for (const [org, loc] of [[NAIL_ORG, NAIL_LOC], [SPA_ORG, SPA_LOC]] as const) {
+      await tx`insert into compensation_plans (org_id, location_id, membership_id, version, config)
+        values (${org}, ${loc}, null, 1, ${J({
+          kind: 'commission', rateBp: 4000, categoryRateBp: {},
+          retailRateBp: 1000, hourlyRateCents: 0, base: 'net',
+          roleWeightBp: { primary: 10000, assistant: 3000 },
+        })})`;
+    }
 
     // 落单要素预设
     for (const [org, loc, opts] of [

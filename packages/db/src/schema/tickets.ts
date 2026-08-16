@@ -7,7 +7,7 @@
  */
 
 import {
-  pgTable, uuid, text, jsonb, integer, timestamp, date, index,
+  pgTable, uuid, text, jsonb, boolean, integer, timestamp, date, index,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { organizations, locations } from './tenancy';
@@ -18,11 +18,34 @@ const id = () => uuid('id').primaryKey().defaultRandom();
 const orgCol = () => uuid('org_id').notNull().references(() => organizations.id);
 const locCol = () => uuid('location_id').notNull().references(() => locations.id);
 
+/**
+ * ⭐ 一组一起来的客人（02 §8.1）。
+ *
+ * 为什么不是「一张单多个客人」：提成、小费、轮牌全部按**人次**算，
+ * 合成一张单之后就再也拆不回去了。所以每人各一张单，用 group 串起来，
+ * 结账时可以合并收钱，也可以各付各的 —— 这两种在真店里天天切换，
+ * 而且往往到掏钱那一刻才定（「我请客」是在结账台说的）。
+ */
+export const ticketGroups = pgTable('ticket_groups', {
+  id: id(),
+  orgId: orgCol(),
+  locationId: locCol(),
+  businessDate: date('business_date').notNull(),
+  /** 前台看得懂的名字：「Lisa 一行 4 位」 */
+  label: text('label'),
+  createdBy: uuid('created_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('ticket_groups_day_idx').on(t.locationId, t.businessDate),
+]);
+
 export const tickets = pgTable('tickets', {
   id: id(),
   orgId: orgCol(),
   locationId: locCol(),
   businessDate: date('business_date').notNull(),
+  /** null = 单独来的客人。绝大多数单都是 null */
+  groupId: uuid('group_id').references(() => ticketGroups.id),
   customerId: uuid('customer_id').references(() => customers.id),
   walkInName: text('walk_in_name'),
   appointmentId: uuid('appointment_id').references(() => appointments.id),
@@ -82,13 +105,34 @@ export const payments = pgTable('payments', {
   ticketId: uuid('ticket_id').notNull().references(() => tickets.id, { onDelete: 'cascade' }),
   /** 决策 19：只区分现金与刷卡，Zelle 按现金记 */
   method: text('method').notNull(),   // cash|card|external
+  /** ⚠️ 含小费的收款总额（刷卡机小票上的那个数）。服务净额 = amount − tip */
   amountCents: integer('amount_cents').notNull(),
   tipCents: integer('tip_cents').notNull().default(0),
+  /**
+   * ⭐ 客人递过来多少现金。刷卡时为 null。
+   * 记它是为了日结对得上：不记的话，「不用找了」的那几块钱会凭空出现在抽屉里。
+   */
+  tenderedCents: integer('tendered_cents'),
+  /** 实际找出去多少 */
+  changeCents: integer('change_cents').notNull().default(0),
+  /** ⭐ 客人说「不用找了」—— 找零转成小费。true 时 change 必为 0 */
+  keepChange: boolean('keep_change').notNull().default(false),
+  /**
+   * ⭐ 一笔钱付了一组单时，同一次收款在每张单上各留一行，共用这个 id。
+   * 保留 ticket_id 而不是让 payment 指向 group：这样报表、提成、日结
+   * 全都不用改口径，「谁付的」只是多一层引用。
+   */
+  groupPaymentId: uuid('group_payment_id'),
+  /** 组单里实际掏钱的那张单（= 掏钱那个人）。前台事后想问「谁付的」看这个 */
+  payerTicketId: uuid('payer_ticket_id'),
   processorRef: text('processor_ref'),
   terminalRef: text('terminal_ref'),
   takenBy: uuid('taken_by'),
   at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index('payments_day_idx').on(t.locationId, t.at),
+  index('payments_group_idx').on(t.groupPaymentId),
+]);
 
 export const tipAllocations = pgTable('tip_allocations', {
   id: id(),
@@ -102,6 +146,16 @@ export const tipAllocations = pgTable('tip_allocations', {
   /** 现金当天发，刷卡进工资，两者分开统计 */
   source: text('source').notNull(),   // cash|card
   policyVersion: integer('policy_version'),
+  /**
+   * ⭐ 作废单据时**冲销而不是删除**（宪法第 9 条）。
+   *
+   * 原来的实现是 `delete from tip_allocations` —— 两个问题：
+   * 财务记录不该消失，而且 0005 已经对 app_user 撤销了这张表的 DELETE 权限，
+   * 于是「作废一张已经分过小费的单」在生产上会直接报权限错。
+   * （作废通常发生在结账前，那时还没有分配行，所以一直没被撞见。）
+   */
+  reversedAt: timestamp('reversed_at', { withTimezone: true }),
+  reversedBy: uuid('reversed_by'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index('tip_allocations_staff_idx').on(t.locationId, t.membershipId, t.createdAt)]);
 

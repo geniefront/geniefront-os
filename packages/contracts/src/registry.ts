@@ -10,8 +10,14 @@ import { APPOINTMENT_COMMANDS } from './commands/appointment.js';
 import { ROTATION_COMMANDS } from './commands/rotation.js';
 import { TICKET_COMMANDS } from './commands/ticket.js';
 import { SETUP_COMMANDS } from './commands/setup.js';
+import { PAYROLL_COMMANDS } from './commands/payroll.js';
+import { DAYCLOSE_COMMANDS } from './commands/dayclose.js';
+import { SHIFT_COMMANDS } from './commands/shift.js';
 
-const ALL: readonly AnyCommandDef[] = [...APPOINTMENT_COMMANDS, ...ROTATION_COMMANDS, ...TICKET_COMMANDS, ...SETUP_COMMANDS];
+const ALL: readonly AnyCommandDef[] = [
+  ...APPOINTMENT_COMMANDS, ...ROTATION_COMMANDS, ...TICKET_COMMANDS, ...SETUP_COMMANDS,
+  ...PAYROLL_COMMANDS, ...DAYCLOSE_COMMANDS, ...SHIFT_COMMANDS,
+];
 
 export const COMMAND_REGISTRY: ReadonlyMap<string, AnyCommandDef> = new Map(
   ALL.map((c) => [c.name, c]),

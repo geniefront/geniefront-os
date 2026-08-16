@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
-import { ApiError, apiGet, apiGetCached, API_BASE, type LocationMembership } from './lib/api';
+import {
+  ApiError, apiGet, apiGetCached, runCommand, API_BASE, type LocationMembership,
+} from './lib/api';
 import { watchNetwork, type NetState } from './lib/offline';
 import { OfflineBanner } from './screens/OfflineBanner';
 import { makeT, LOCALE_LABEL, LOCALES, type Locale } from './i18n';
@@ -14,6 +16,10 @@ import { BookSheet } from './screens/BookSheet';
 import { TurnBoard, type RotationSnapshot } from './screens/TurnBoard';
 import { Checkout, type OpenTicket } from './screens/Checkout';
 import { Settings, type SettingsData } from './screens/Settings';
+import { Earnings, type EarningsBoard } from './screens/Earnings';
+import { DayClose, type DayCloseData } from './screens/DayClose';
+import { Roster, type RosterData } from './screens/Roster';
+import { Reports, type ReportData } from './screens/Reports';
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
 
@@ -26,7 +32,12 @@ function Shell({ session }: { session: Session }) {
     () => (localStorage.getItem(LS_LOCALE) as Locale) ?? 'zh-Hans');
   const t = makeT(locale);
   const [picked, setPicked] = useState<LocationMembership | null>(null);
-  const [tab, setTab] = useState<'turn' | 'day' | 'ticket' | 'find' | 'setup'>('turn');
+  const [tab, setTab] = useState<
+    'turn' | 'day' | 'ticket' | 'earn' | 'close' | 'roster' | 'report' | 'find' | 'setup'>('turn');
+  const [rosterFrom, setRosterFrom] = useState<string | null>(null);
+  const [grouping, setGrouping] = useState<string[]>([]);
+  const [groupBusy, setGroupBusy] = useState(false);
+  const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [net, setNet] = useState<NetState>('online');
   const [netSince, setNetSince] = useState(Date.now());
   const [cached, setCached] = useState<{ rot: RotationSnapshot | null; day: DaySnapshot | null; at: number } | null>(null);
@@ -103,6 +114,38 @@ function Shell({ session }: { session: Session }) {
   });
 
   const canManage = picked?.roleKeys.some((r) => ['owner', 'manager'].includes(r)) ?? false;
+  // 权限判断按角色近似（后端才是权威）：前台能日结、能发现金小费，
+  // 但历史营业报表只给老板和店长（决策 19 极致隐私）
+  const canDesk = picked?.roleKeys.some((r) =>
+    ['owner', 'manager', 'front_desk'].includes(r)) ?? false;
+  const canReport = canManage;
+
+  const earnQ = useQuery({
+    queryKey: ['earnings', picked?.membershipId],
+    enabled: Boolean(picked) && tab === 'earn',
+    queryFn: () => apiGet<EarningsBoard>('/v1/desk/earnings', picked!.membershipId),
+  });
+
+  const closeQ = useQuery({
+    queryKey: ['dayclose', picked?.membershipId],
+    enabled: Boolean(picked) && tab === 'close' && canDesk,
+    queryFn: () => apiGet<DayCloseData>('/v1/desk/dayclose', picked!.membershipId),
+  });
+
+  const rosterQ = useQuery({
+    queryKey: ['roster', picked?.membershipId, rosterFrom],
+    enabled: Boolean(picked) && tab === 'roster',
+    queryFn: () => apiGet<RosterData>(
+      `/v1/desk/roster?days=7${rosterFrom ? `&from=${rosterFrom}` : ''}`, picked!.membershipId),
+  });
+
+  const reportQ = useQuery({
+    queryKey: ['report', picked?.membershipId, range],
+    enabled: Boolean(picked) && tab === 'report' && canReport,
+    queryFn: () => apiGet<ReportData>(
+      `/v1/desk/reports${range ? `?from=${range.from}&to=${range.to}` : ''}`,
+      picked!.membershipId),
+  });
   const setQ = useQuery({
     queryKey: ['settings', picked?.membershipId],
     enabled: Boolean(picked) && canManage,
@@ -178,7 +221,14 @@ function Shell({ session }: { session: Session }) {
       {net === 'offline' && <OfflineBanner since={netSince} cachedAt={cached?.at ?? null} />}
 
       <nav className="row" style={{ padding: '10px 16px', gap: 10 }}>
-        {([...(['turn', 'day', 'ticket', 'find'] as const), ...(canManage ? ['setup'] as const : [])]).map((k) => (
+        {([
+          ...(['turn', 'day', 'ticket', 'earn'] as const),
+          ...(canDesk ? ['close'] as const : []),
+          ...(['roster'] as const),
+          ...(canReport ? ['report'] as const : []),
+          ...(['find'] as const),
+          ...(canManage ? ['setup'] as const : []),
+        ]).map((k) => (
           <button key={k} className="btn" onClick={() => setTab(k)}
                   style={{
                     borderWidth: 2,
@@ -187,6 +237,10 @@ function Shell({ session }: { session: Session }) {
                   }}>
             {k === 'turn' ? '轮牌板' : k === 'day' ? '今日日程'
               : k === 'ticket' ? `在做的单${tktQ.data?.tickets.length ? ` (${tktQ.data.tickets.length})` : ''}`
+              : k === 'earn' ? '💰 今日收入'
+              : k === 'close' ? '🌙 打烊日结'
+              : k === 'roster' ? '📅 排班'
+              : k === 'report' ? '📊 报表'
               : k === 'setup' ? '⚙ 开店配置'
               : t('cust.title')}
           </button>
@@ -227,23 +281,92 @@ function Shell({ session }: { session: Session }) {
               <div className="tiny" style={{ marginTop: 6 }}>从轮牌板派单会自动开单</div>
             </div>
           )}
+
+          {/* ⭐ 归组：一起来的客人。这个动作往往发生在结账台 ——
+              「我请客」是掏钱那一刻才说的，所以对已经开着的单也能用 */}
+          {grouping.length > 0 && (
+            <div className="card row" style={{
+              padding: '14px 18px', gap: 12, position: 'sticky', top: 64, zIndex: 5,
+              background: 'var(--brand-soft)', borderColor: 'var(--brand)' }}>
+              <strong className="grow">已选 {grouping.length} 张单</strong>
+              <button className="btn" onClick={() => setGrouping([])}>取消</button>
+              <button className="btn btn-primary" disabled={grouping.length < 2 || groupBusy}
+                      onClick={async () => {
+                        setGroupBusy(true);
+                        try {
+                          await runCommand('ticket.group', { ticketIds: grouping },
+                                           picked.membershipId);
+                          setGrouping([]);
+                          await tktQ.refetch();
+                        } finally { setGroupBusy(false); }
+                      }}>
+                {groupBusy ? <span className="spin" /> : '归为一组（可以一起付）'}
+              </button>
+            </div>
+          )}
+
           {(tktQ.data?.tickets ?? []).map((tk) => (
-            <button key={tk.ticketId} className="card row" onClick={() => setCheckout(tk)}
-                    style={{ padding: '16px 18px', gap: 14, textAlign: 'left', cursor: 'pointer' }}>
-              <div className="grow stack" style={{ gap: 4 }}>
-                <strong style={{ fontSize: 'var(--text-xl)' }}>{tk.customerName}</strong>
+            <div key={tk.ticketId} className="card row"
+                 style={{ padding: '16px 18px', gap: 14, textAlign: 'left' }}>
+              <button aria-label="选中"
+                      onClick={() => setGrouping(grouping.includes(tk.ticketId)
+                        ? grouping.filter((x) => x !== tk.ticketId)
+                        : [...grouping, tk.ticketId])}
+                      style={{ background: 'none', border: 0, cursor: 'pointer',
+                               fontSize: 'var(--text-xl)', padding: 0 }}>
+                {grouping.includes(tk.ticketId) ? '☑' : '☐'}
+              </button>
+              <button className="grow stack" onClick={() => setCheckout(tk)}
+                      style={{ gap: 4, background: 'none', border: 0, textAlign: 'left',
+                               cursor: 'pointer', padding: 0 }}>
+                <div className="row" style={{ gap: 8 }}>
+                  <strong style={{ fontSize: 'var(--text-xl)' }}>{tk.customerName}</strong>
+                  {tk.groupId && (
+                    <span className="badge badge-soft">
+                      {tk.groupLabel ?? '同组'}
+                    </span>
+                  )}
+                </div>
                 <div className="tiny truncate">
                   {tk.items.map((i) => `${i.staffName} · ${i.name}`).join(' ／ ')}
                 </div>
-              </div>
+              </button>
               <span style={{ fontSize: 'var(--text-xl)', fontWeight: 700,
                              fontVariantNumeric: 'tabular-nums' }}>
                 ${(tk.subtotalCents / 100).toFixed(2)}
               </span>
-              <span className="badge badge-soft">结账 ›</span>
-            </button>
+              <button className="badge badge-soft" onClick={() => setCheckout(tk)}
+                      style={{ border: 0, cursor: 'pointer' }}>结账 ›</button>
+            </div>
           ))}
         </div>
+      ) : tab === 'earn' ? (
+        earnQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        : earnQ.data ? <Earnings data={earnQ.data} />
+        : <Retry onRetry={() => earnQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
+      ) : tab === 'close' ? (
+        closeQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        : closeQ.data ? (
+          <DayClose data={closeQ.data} membershipId={picked.membershipId}
+                    canPayTips={canDesk}
+                    onChanged={async () => {
+                      await closeQ.refetch(); await earnQ.refetch(); await tktQ.refetch();
+                    }} />
+        ) : <Retry onRetry={() => closeQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
+      ) : tab === 'roster' ? (
+        rosterQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        : rosterQ.data ? (
+          <Roster data={rosterQ.data} membershipId={picked.membershipId}
+                  canWrite={canManage}
+                  onDateChange={setRosterFrom}
+                  onChanged={async () => { await rosterQ.refetch(); }} />
+        ) : <Retry onRetry={() => rosterQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
+      ) : tab === 'report' ? (
+        reportQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        : reportQ.data ? (
+          <Reports data={reportQ.data} membershipId={picked.membershipId}
+                   onRange={(from, to) => setRange({ from, to })} />
+        ) : <Retry onRetry={() => reportQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'setup' ? (
         setQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
         : setQ.data ? (
@@ -280,8 +403,13 @@ function Shell({ session }: { session: Session }) {
 
       {checkout && (
         <Checkout ticket={checkout} membershipId={picked.membershipId}
+                  groupTickets={checkout.groupId
+                    ? (tktQ.data?.tickets ?? []).filter((x) => x.groupId === checkout.groupId)
+                    : undefined}
                   onCancel={() => setCheckout(null)}
-                  onDone={async () => { await tktQ.refetch(); await rotQ.refetch(); }} />
+                  onDone={async () => {
+                    await tktQ.refetch(); await rotQ.refetch(); await earnQ.refetch();
+                  }} />
       )}
 
       {slot && dayQ.data && (
@@ -299,6 +427,20 @@ function Shell({ session }: { session: Session }) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** 查询失败时的统一重试块 —— 四个新页签都要用，写四遍会漂移 */
+function Retry({ onRetry, label, retry }: {
+  onRetry: () => void; label: string; retry: string;
+}) {
+  return (
+    <div className="card" style={{ margin: 16, padding: 20 }}>
+      <div className="row">
+        <span className="grow">{label}</span>
+        <button className="btn" onClick={onRetry}>{retry}</button>
+      </div>
     </div>
   );
 }
