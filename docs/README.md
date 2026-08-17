@@ -22,7 +22,7 @@
 | **Phase 1c** | ✅ **完成** —— 技师端 PWA、Realtime 长连接派单（实测 2 秒）、提示音+震动+翻转卡片、锁屏唤醒对齐、PIN 打卡、手机号服务端脱敏、前台在线指示点 |
 | **Phase 2** | 🚧 拍照开店 ✅、Yelp ✅、Kiosk ✅、Stripe 计费 ✅、AI 前台副驾 ✅、AI 电话（代码 ✅，卡开户） |
 | **生产环境** | `https://api.geniefront.com` 双实例 + Cloudflare LB，故障转移已演练 |
-| **测试** | **466 项**，12 个包，`pnpm verify` 全绿 |
+| **测试** | **476 项**，12 个包，`pnpm verify` 全绿 |
 | **CI** | GitHub Actions：宪法检查 + 空库迁移 + 测试 + 镜像 ≤200MB + 容器启动 |
 | **下一步** | 见 **[10-HANDOFF.md](10-HANDOFF.md)** —— 交接给下一个 session 的完整清单 |
 
@@ -157,7 +157,7 @@ pnpm install
 cp .env.example .env          # ⚠️ 真实凭据不在仓库里，见 07
 
 bash scripts/check-env.sh     # 所有凭据格式 + 实测联通性
-pnpm verify                   # 宪法检查 + typecheck + 466 项测试
+pnpm verify                   # 宪法检查 + typecheck + 476 项测试
 pnpm --filter @gf/desk dev    # 前台界面 → localhost:5173
 pnpm --filter @gf/staff dev   # 技师端 PWA → localhost:5174（手机浏览器可加到主屏）
 pnpm --filter @gf/kiosk dev   # 门口 iPad → localhost:5175

@@ -14,17 +14,43 @@
 import type postgres from 'postgres';
 import { parseTs } from '@gf/db';
 import type { CommandContext } from '@gf/contracts';
-import { findLedgerBreak, replayBalance, includedAssistsFor } from '@gf/payroll';
-import { includedRemaining } from '../billing/usage';
+import {
+  findLedgerBreak, replayBalance, includedFor, TOPUP_PRICE_CENTS, unitsPerTopup,
+  QUOTA_UNITS, type QuotaUnit,
+} from '@gf/payroll';
 
 export interface LedgerRow {
   id: string;
   kind: string;
-  amountCents: number;
-  balanceAfterCents: number;
+  unit: QuotaUnit;
+  /** 有符号的单位数 */
+  amount: number;
+  balanceAfter: number;
+  /** 充值时付了多少分。用量扣费为 null */
+  paidCents: number | null;
   source: string | null;
   reason: string | null;
   at: string;
+}
+
+/** 一种额度的完整状态。两种额度各一份，**互不相干** */
+export interface QuotaView {
+  unit: QuotaUnit;
+  /** 套餐内：本期已用 / 总共 / 还剩 */
+  included: { used: number; total: number; remaining: number };
+  /** 充值买来的余额（不过期）。**可以是负数** */
+  balance: number;
+  /** $50 能买多少个 */
+  unitsPerTopup: number;
+  autoTopup: {
+    enabled: boolean; thresholdUnits: number; failures: number; lastAt: string | null;
+  };
+  /** 本期用量（从 usage_events 统计） */
+  usedThisMonth: number;
+  /** 账本自洽性：第几行接不上。null = 对得上 */
+  ledgerBreakAt: number | null;
+  /** 余额缓存和账本对不对得上。null = 对得上 */
+  balanceMismatch: { cached: number; ledger: number } | null;
 }
 
 export interface BillingView {
@@ -33,48 +59,21 @@ export interface BillingView {
   currentPeriodEnd: string | null;
   hasSubscription: boolean;
 
-  balanceCents: number;
   hasPaymentMethod: boolean;
   paymentMethodLabel: string | null;
 
-  autoTopup: {
-    enabled: boolean;
-    thresholdCents: number;
-    amountCents: number;
-    failures: number;
-    lastAt: string | null;
-  };
+  /** 一次充值多少钱（固定 $50） */
+  topupPriceCents: number;
 
   /**
-   * 套餐内额度（先用套餐里的，用完了才扣余额）。
-   * `used`/`remaining` 按**订阅周期**算，不是自然月 —— 跟着 Stripe 的续期清零。
+   * 两种额度各一份。
+   *
+   * ⚠️ **不能互换**（决策 8）：一分钟电话的成本是一次副驾操作的 5.6 倍，
+   * 能换就会被套利。界面上也要分成两块显示，不要合成一个「总额度」。
    */
-  included: { used: number; total: number; remaining: number };
+  quotas: QuotaView[];
 
-  /** 本月按功能分的花费。qty 对 ai_assist 是次数，对 ai_call_min 是分钟 */
-  monthToDate: Array<{ kind: string; qty: number; chargedCents: number }>;
   recent: LedgerRow[];
-
-  /**
-   * ⭐ 账本**内部**自洽性：第几行的 balance_after 和前一行接不上。
-   * null = 对得上。不为 null 说明有账本行被就地改过。
-   */
-  ledgerBreakAt: number | null;
-
-  /**
-   * ⭐ 余额缓存和账本**对不对得上**。null = 对得上。
-   *
-   * ⚠️ 这一条和 `ledgerBreakAt` 查的**不是同一件事**，两条都要：
-   *   · `ledgerBreakAt` 抓的是「账本行被改过」
-   *   · 这一条抓的是「没碰账本，直接 update 了 billing_accounts.balance_cents」
-   *
-   * 后者才是更可能发生的那一种（一句手写的 SQL 就能干出来），而且
-   * 光看账本完全发现不了 —— 账本自己是自洽的，只是没人再看它了。
-   *
-   * 发现之后**不在界面上悄悄纠正**：账本是事实，缓存错了是事故，
-   * 要有人去查为什么（宪法第 9 条）。
-   */
-  balanceMismatch: { cachedCents: number; ledgerCents: number } | null;
 }
 
 const RECENT_LIMIT = 50;
@@ -83,121 +82,121 @@ export async function loadBilling(
   tx: postgres.TransactionSql,
   ctx: CommandContext,
 ): Promise<BillingView | null> {
-  const [acct] = await tx<{
-    plan: string; subscription_status: string;
-    current_period_end: string | Date | null;
-    stripe_subscription_id: string | null;
-    balance_cents: number;
-    default_payment_method_id: string | null; payment_method_label: string | null;
-    auto_topup_enabled: boolean; auto_topup_threshold_cents: number;
-    auto_topup_amount_cents: number; auto_topup_failures: number;
-    last_auto_topup_at: string | Date | null;
-    included_assists_used: number;
-  }[]>`
-    select plan, subscription_status, current_period_end, stripe_subscription_id,
-           balance_cents, default_payment_method_id, payment_method_label,
-           auto_topup_enabled, auto_topup_threshold_cents, auto_topup_amount_cents,
-           auto_topup_failures, last_auto_topup_at, included_assists_used
-    from billing_accounts where location_id = ${ctx.locationId}`;
+  const [acct] = await tx<Record<string, never>[]>`
+    select * from billing_accounts where location_id = ${ctx.locationId}`;
 
   // 还没有账户 = 这家店从没用过 AI 也没订过阅。给 null 让前端显示引导页，
-  // 而不是一屏「$0.00 / 0 条」的空表格 —— 那看起来像是坏了
+  // 而不是一屏「0 / 0」的空表格 —— 那看起来像是坏了
   if (!acct) return null;
+  const a = acct as unknown as AccountFields;
 
   /**
-   * 本月用量。按 `usage_events` 而不是账本分组：
-   * 账本上一条 usage 只知道扣了多少钱，而老板问的是「用了多少次」。
-   * 两张表都要，各回答一半问题。
-   */
-  const usage = await tx<{ kind: string; qty: string; charged: string | null }[]>`
-    select ue.kind,
-           sum(ue.qty) as qty,
-           -- 账本记的是负数（扣费），这里取绝对值给人看
-           coalesce(-sum(cl.amount_cents), 0) as charged
-    from usage_events ue
-    left join credit_ledger cl on cl.usage_event_id = ue.id
-    where ue.location_id = ${ctx.locationId}
-      and ue.at >= date_trunc('month', now())
-    group by ue.kind
-    order by ue.kind`;
-
-  const rows = await tx<{
-    id: string; kind: string; amount_cents: number; balance_after_cents: number;
-    source: string | null; reason: string | null; created_at: string | Date;
-  }[]>`
-    select id, kind, amount_cents, balance_after_cents, source, reason, created_at
-    from credit_ledger
-    where location_id = ${ctx.locationId}
-    order by seq desc
-    limit ${RECENT_LIMIT}`;
-
-  /**
-   * 账本自洽性检查。
+   * 全部流水，按 seq 排。
    *
    * ⚠️ 两条都不能省：
-   *
-   * 1. **只能拿全部流水检查**，不能拿上面那 50 条 —— 从中间截一段的话
-   *    起始余额是未知的，`findLedgerBreak` 会把第一行就报成断点。
-   *    条数多的店这一趟也就几百行，一天看一次的页面付得起。
+   * 1. **对账只能拿全部流水**，从中间截一段的话起始余额是未知的。
    * 2. **必须按 `seq` 排，不能按 `created_at`** —— `now()` 是事务开始时刻，
    *    并发扣费时它和 balance_after 的链条对不上，会报一个根本不存在的
    *    断点（迁移 0019 的长注释）。
    */
-  const all = await tx<{ amount_cents: number; balance_after_cents: number }[]>`
-    select amount_cents, balance_after_cents from credit_ledger
-    where location_id = ${ctx.locationId}
+  const all = await tx<{
+    unit: string; amount: number | null; balance_after: number | null;
+  }[]>`
+    select unit, amount, balance_after from credit_ledger
+    where location_id = ${ctx.locationId} and amount is not null
     order by seq`;
   const entries = all.map((r) => ({
-    amountCents: r.amount_cents, balanceAfterCents: r.balance_after_cents,
+    unit: r.unit as QuotaUnit, amount: r.amount!, balanceAfter: r.balance_after!,
   }));
 
-  const ledgerBreakAt = findLedgerBreak(entries);
-  // 账本是事实，balance_cents 只是缓存 —— 重算一遍看两者对不对得上
-  const ledgerCents = replayBalance(entries);
-  const balanceMismatch = ledgerCents === acct.balance_cents
-    ? null
-    : { cachedCents: acct.balance_cents, ledgerCents };
+  /** 本期用量。按 usage_events 分 —— 账本只知道扣了多少，不知道用了几次 */
+  const usage = await tx<{ kind: string; qty: string }[]>`
+    select kind, sum(qty) as qty from usage_events
+    where location_id = ${ctx.locationId} and at >= date_trunc('month', now())
+    group by kind`;
+  const usedBy = (k: string) => Number(usage.find((u) => u.kind === k)?.qty ?? 0);
+
+  const rows = await tx<{
+    id: string; kind: string; unit: string; amount: number | null;
+    balance_after: number | null; paid_cents: number | null;
+    source: string | null; reason: string | null; created_at: string | Date;
+  }[]>`
+    select id, kind, unit, amount, balance_after, paid_cents, source, reason, created_at
+    from credit_ledger
+    where location_id = ${ctx.locationId} and amount is not null
+    order by seq desc limit ${RECENT_LIMIT}`;
+
+  const quotaOf = (unit: QuotaUnit): QuotaView => {
+    const isCredit = unit === 'credit';
+    const used = isCredit ? a.included_credits_used : a.included_minutes_used;
+    const total = includedFor(a.plan, unit);
+    const cached = isCredit ? a.credit_balance : a.voice_minute_balance;
+    const ledger = replayBalance(entries, unit);
+
+    return {
+      unit,
+      included: { used, total, remaining: Math.max(0, total - used) },
+      balance: cached,
+      unitsPerTopup: unitsPerTopup(unit),
+      autoTopup: {
+        enabled: isCredit ? a.auto_topup_credits_enabled : a.auto_topup_minutes_enabled,
+        thresholdUnits: isCredit
+          ? a.auto_topup_credits_threshold : a.auto_topup_minutes_threshold,
+        failures: isCredit ? a.auto_topup_credits_failures : a.auto_topup_minutes_failures,
+        lastAt: (() => {
+          const v = isCredit ? a.auto_topup_credits_last_at : a.auto_topup_minutes_last_at;
+          return v ? parseTs(v).toISOString() : null;
+        })(),
+      },
+      usedThisMonth: usedBy(isCredit ? 'ai_assist' : 'ai_call_min'),
+      // 账本行被就地改过
+      ledgerBreakAt: findLedgerBreak(entries, unit),
+      /**
+       * ⚠️ 这一条和 `ledgerBreakAt` 查的**不是同一件事**，两条都要：
+       *   · ledgerBreakAt 抓的是「账本行被改过」
+       *   · 这一条抓的是「没碰账本，直接 update 了余额缓存」
+       * 后者更可能发生（一句手写 SQL 就能干出来），而且光看账本发现不了。
+       */
+      balanceMismatch: ledger === cached ? null : { cached, ledger },
+    };
+  };
 
   return {
-    plan: acct.plan,
-    subscriptionStatus: acct.subscription_status,
-    currentPeriodEnd: acct.current_period_end
-      ? parseTs(acct.current_period_end).toISOString() : null,
-    hasSubscription: Boolean(acct.stripe_subscription_id),
+    plan: a.plan,
+    subscriptionStatus: a.subscription_status,
+    currentPeriodEnd: a.current_period_end
+      ? parseTs(a.current_period_end).toISOString() : null,
+    hasSubscription: Boolean(a.stripe_subscription_id),
 
-    balanceCents: acct.balance_cents,
-    hasPaymentMethod: Boolean(acct.default_payment_method_id),
-    paymentMethodLabel: acct.payment_method_label,
+    hasPaymentMethod: Boolean(a.default_payment_method_id),
+    paymentMethodLabel: a.payment_method_label,
 
-    autoTopup: {
-      enabled: acct.auto_topup_enabled,
-      thresholdCents: acct.auto_topup_threshold_cents,
-      amountCents: acct.auto_topup_amount_cents,
-      failures: acct.auto_topup_failures,
-      lastAt: acct.last_auto_topup_at ? parseTs(acct.last_auto_topup_at).toISOString() : null,
-    },
+    topupPriceCents: TOPUP_PRICE_CENTS,
+    quotas: QUOTA_UNITS.map(quotaOf),
 
-    included: {
-      used: acct.included_assists_used,
-      total: includedAssistsFor(acct.plan),
-      remaining: includedRemaining(acct.plan, acct.included_assists_used),
-    },
-
-    monthToDate: usage.map((u) => ({
-      kind: u.kind,
-      qty: Number(u.qty),
-      chargedCents: Number(u.charged ?? 0),
-    })),
     recent: rows.map((r) => ({
       id: r.id,
       kind: r.kind,
-      amountCents: r.amount_cents,
-      balanceAfterCents: r.balance_after_cents,
+      unit: r.unit as QuotaUnit,
+      amount: r.amount!,
+      balanceAfter: r.balance_after!,
+      paidCents: r.paid_cents,
       source: r.source,
       reason: r.reason,
       at: parseTs(r.created_at).toISOString(),
     })),
-    ledgerBreakAt,
-    balanceMismatch,
   };
+}
+
+/** billing_accounts 里这个视图用得到的列 */
+interface AccountFields {
+  plan: string; subscription_status: string;
+  current_period_end: string | Date | null; stripe_subscription_id: string | null;
+  default_payment_method_id: string | null; payment_method_label: string | null;
+  credit_balance: number; voice_minute_balance: number;
+  included_credits_used: number; included_minutes_used: number;
+  auto_topup_credits_enabled: boolean; auto_topup_credits_threshold: number;
+  auto_topup_credits_failures: number; auto_topup_credits_last_at: string | Date | null;
+  auto_topup_minutes_enabled: boolean; auto_topup_minutes_threshold: number;
+  auto_topup_minutes_failures: number; auto_topup_minutes_last_at: string | Date | null;
 }

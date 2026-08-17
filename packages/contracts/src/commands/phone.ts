@@ -139,11 +139,10 @@ export const RecordCall = defineCommand({
   output: z.object({
     callId: uuid,
     billedMinutes: z.number().int(),
-    /**
-     * 这通电话从余额里扣了多少分。
-     * **现在恒为 0** —— Telnyx 的分钟单价还没实测（09 §6）。
-     */
-    chargedCents: z.number().int().min(0),
+    /** 走套餐内语音额度的分钟数 */
+    fromIncluded: z.number().int().min(0),
+    /** 走充值余额的分钟数 —— 只有这部分是老板买过的 */
+    fromBalance: z.number().int().min(0),
   }),
   permission: 'call.draft',
   ai: {

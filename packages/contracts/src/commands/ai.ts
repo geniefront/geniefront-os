@@ -12,7 +12,7 @@
  */
 
 import { z } from 'zod';
-import { defineCommand, cents } from '../command.js';
+import { defineCommand } from '../command.js';
 
 export const RecordAiAssist = defineCommand({
   name: 'ai.recordAssist',
@@ -35,10 +35,16 @@ export const RecordAiAssist = defineCommand({
   }),
   output: z.object({
     usageEventId: z.string().uuid(),
-    /** 从余额里扣了多少分。0 = 舍入后不足一分 */
-    chargedCents: cents.min(0),
-    /** 扣完之后的余额。**可以是负数**（见 @gf/payroll 的 credits.ts） */
-    balanceAfterCents: cents.nullable(),
+    /** 这次扣了几个积分（1 积分 = $0.01 真实成本，向上取整） */
+    credits: z.number().int().min(0),
+    /** 其中走套餐内额度的部分 */
+    fromIncluded: z.number().int().min(0),
+    /** 其中走充值余额的部分 —— 只有这部分是真花钱 */
+    fromBalance: z.number().int().min(0),
+    /** 套餐内还剩几个 */
+    includedRemaining: z.number().int().min(0),
+    /** 充值余额还剩几个。**可以是负数**（见 @gf/payroll 的 credits.ts） */
+    balanceAfter: z.number().int(),
   }),
   permission: 'ai.use',
   ai: {

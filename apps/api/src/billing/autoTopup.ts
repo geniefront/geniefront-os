@@ -37,6 +37,7 @@
  */
 
 import type { CommandContext } from '@gf/contracts';
+import type { QuotaUnit } from '@gf/payroll';
 import { dispatch } from '../bus';
 import { stripeClient, stripeConfigured, declineReason } from '../stripe/client';
 
@@ -46,18 +47,22 @@ interface Logger {
 }
 
 export interface AutoTopupOutcome {
+  unit: QuotaUnit;
   /** 有没有真的扣一笔 */
   charged: boolean;
-  amountCents?: number;
-  balanceAfterCents?: number;
-  /** 没扣的原因（disabled / above_threshold / cooling_down / …）或失败码 */
+  units?: number;
+  priceCents?: number;
+  balanceAfter?: number;
+  /** 没扣的原因（disabled / included_remaining / cooling_down / …）或失败码 */
   reason?: string;
 }
 
 interface ClaimResult {
   charge: boolean;
   reason: string | null;
-  amountCents: number | null;
+  unit: QuotaUnit;
+  units: number | null;
+  priceCents: number | null;
   stripeCustomerId: string | null;
   paymentMethodId: string | null;
   idempotencyKey: string | null;
@@ -65,25 +70,26 @@ interface ClaimResult {
 
 export async function maybeAutoTopup(
   ctx: CommandContext,
+  unit: QuotaUnit,
   log: Logger,
 ): Promise<AutoTopupOutcome> {
   // 没配 Stripe 就整条跳过。开发环境天天在这条路上跑，
   // 不该每次都往日志里刷一条报错
-  if (!stripeConfigured()) return { charged: false, reason: 'stripe_not_configured' };
+  if (!stripeConfigured()) return { unit, charged: false, reason: 'stripe_not_configured' };
 
   try {
     // ── 1. 认领（事务内：拿锁 → 判断 → 占位）─────────────────────────────
-    const claim = await dispatch<ClaimResult>('billing.claimAutoTopup', {}, ctx);
+    const claim = await dispatch<ClaimResult>('billing.claimAutoTopup', { unit }, ctx);
     if (!claim.result.charge) {
-      return { charged: false, reason: claim.result.reason ?? 'skipped' };
+      return { unit, charged: false, reason: claim.result.reason ?? 'skipped' };
     }
 
-    const { amountCents, stripeCustomerId, paymentMethodId, idempotencyKey } = claim.result;
-    if (!amountCents || !stripeCustomerId || !paymentMethodId) {
+    const { units, priceCents, stripeCustomerId, paymentMethodId, idempotencyKey } = claim.result;
+    if (!units || !priceCents || !stripeCustomerId || !paymentMethodId) {
       // 纯函数已经挡过 no_payment_method，走到这里说明账户上有卡但没有
       // Stripe 客户 —— 数据不一致，记一次失败让它进冷却，别反复试
-      await recordFailure(ctx, 'missing_stripe_customer', log);
-      return { charged: false, reason: 'missing_stripe_customer' };
+      await recordFailure(ctx, unit, 'missing_stripe_customer', log);
+      return { unit, charged: false, reason: 'missing_stripe_customer' };
     }
 
     // ── 2. 扣款（事务外）─────────────────────────────────────────────────
@@ -95,17 +101,22 @@ export async function maybeAutoTopup(
     let paymentIntentId: string;
     try {
       const pi = await stripe.paymentIntents.create({
-        amount: amountCents,
+        amount: priceCents,
         currency: 'usd',
         customer: stripeCustomerId,
         payment_method: paymentMethodId,
         off_session: true,
         confirm: true,
-        description: 'GenieFront 余额自动续充',
+        description: unit === 'credit'
+          ? 'GenieFront AI 积分自动续充' : 'GenieFront AI 语音分钟自动续充',
         metadata: {
           gf_location_id: ctx.locationId,
           gf_org_id: ctx.orgId,
           gf_kind: 'auto_topup',
+          // ⚠️ 单位必须写进 metadata：webhook 那条路只拿得到这个对象，
+          // 没有它就不知道该给哪一种额度入账（给错了是实打实的乱账）
+          gf_unit: unit,
+          gf_units: String(units),
         },
       }, idempotencyKey ? { idempotencyKey } : undefined);
       paymentIntentId = pi.id;
@@ -113,50 +124,51 @@ export async function maybeAutoTopup(
       // requires_action / processing 都**不算成功**。记成成功的话
       // 客户余额加了而钱可能永远到不了 —— 等 webhook 来确认
       if (pi.status !== 'succeeded') {
-        log.info({ locationId: ctx.locationId, status: pi.status },
+        log.info({ locationId: ctx.locationId, unit, status: pi.status },
                  'auto topup pending, waiting for webhook');
-        return { charged: false, reason: `pending_${pi.status}` };
+        return { unit, charged: false, reason: `pending_${pi.status}` };
       }
     } catch (e) {
       const reason = declineReason(e);
-      log.warn({ err: e, locationId: ctx.locationId, reason }, 'auto topup declined');
-      await recordFailure(ctx, reason, log);
-      return { charged: false, reason };
+      log.warn({ err: e, locationId: ctx.locationId, unit, reason }, 'auto topup declined');
+      await recordFailure(ctx, unit, reason, log);
+      return { unit, charged: false, reason };
     }
 
     // ── 3. 入账 ──────────────────────────────────────────────────────────
     //
     // 幂等键用 PaymentIntent id：这一步失败重试、以及随后到达的
     // `payment_intent.succeeded` webhook，都会落到同一条账本记录上
-    const rec = await dispatch<{ balanceAfterCents: number; alreadyRecorded: boolean }>(
+    const rec = await dispatch<{ balanceAfter: number; alreadyRecorded: boolean }>(
       'billing.recordTopup',
-      { amountCents, stripePaymentIntentId: paymentIntentId, trigger: 'auto' },
+      {
+        unit, units, paidCents: priceCents,
+        stripePaymentIntentId: paymentIntentId, trigger: 'auto',
+      },
       ctx,
       { idempotencyKey: `topup-${paymentIntentId}` },
     );
 
     log.info({
-      locationId: ctx.locationId, amountCents,
-      balanceAfterCents: rec.result.balanceAfterCents,
+      locationId: ctx.locationId, unit, units, priceCents,
+      balanceAfter: rec.result.balanceAfter,
     }, 'auto topup charged');
 
-    return {
-      charged: true,
-      amountCents,
-      balanceAfterCents: rec.result.balanceAfterCents,
-    };
+    return { unit, charged: true, units, priceCents, balanceAfter: rec.result.balanceAfter };
   } catch (e) {
     // ⚠️ 绝不往上抛。前台点「拍价目表」不该因为一张过期的卡而看到错误页
-    log.warn({ err: e, locationId: ctx.locationId }, 'auto topup failed');
-    return { charged: false, reason: 'error' };
+    log.warn({ err: e, locationId: ctx.locationId, unit }, 'auto topup failed');
+    return { unit, charged: false, reason: 'error' };
   }
 }
 
-async function recordFailure(ctx: CommandContext, reason: string, log: Logger): Promise<void> {
+async function recordFailure(
+  ctx: CommandContext, unit: QuotaUnit, reason: string, log: Logger,
+): Promise<void> {
   try {
-    await dispatch('billing.recordTopupFailure', { reason }, ctx);
+    await dispatch('billing.recordTopupFailure', { unit, reason }, ctx);
   } catch (e) {
-    log.warn({ err: e, locationId: ctx.locationId }, 'failed to record topup failure');
+    log.warn({ err: e, locationId: ctx.locationId, unit }, 'failed to record topup failure');
   }
 }
 

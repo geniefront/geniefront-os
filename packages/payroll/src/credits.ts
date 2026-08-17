@@ -1,66 +1,195 @@
 /**
- * 预充值余额的纯逻辑（Phase 2，决策 8）
+ * 额度与充值的纯逻辑（Phase 2，决策 8 / `04` §4.1）
  *
  * 放在 `@gf/payroll` 里是因为这里已经是「算钱的纯函数都在这一个包」的地方 ——
- * 小费、提成、日结都在这儿，余额没有理由另开一处（宪法第 2 条）。
+ * 小费、提成、日结都在这儿，额度没有理由另开一处（宪法第 2 条）。
  *
- * 全程整数分。不出现一次浮点。
+ * 全程整数。不出现一次浮点。
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ## 两种额度，各自独立，**不能互换**
+ *
+ *   · **AI 积分**（`credit`）—— 副驾、拍照开店，一切走模型的操作
+ *   · **AI 语音分钟**（`voice_minute`）—— AI 接电话
+ *
+ * ⚠️ **不提供任何换算**。这不是偷懒，是决策 8 的核心：
+ * 一分钟电话的成本是一次副驾的 5–6 倍，只要两者能换，客户就会把额度
+ * 全换成最贵的那种用 —— 而那恰恰是最忙、最该赚钱的客户。
+ * 想加「1 积分换 X 分钟」的时候，回来读这一句。
+ *
+ * ## 1 积分 = $0.01 的真实成本（向上取整）
+ *
+ * 不是拍脑袋定的：实测一次典型的副驾操作成本就是 ~$0.01
+ *（`05` §6.0），所以「平均一次操作扣 1 积分」自然成立。
+ * 而拍照开店走 Opus、一张 $0.08，按同一个尺子自动扣 8 积分 ——
+ * 不需要为它单独定一套规则，也不会有人拿它当免费午餐。
+ * ═══════════════════════════════════════════════════════════════════════════
  */
+
+// ─────────────────────────────────────────────────────────────── 额度单位
+
+/** 两种额度。**没有第三种，也没有互换** */
+export const QUOTA_UNITS = ['credit', 'voice_minute'] as const;
+export type QuotaUnit = (typeof QUOTA_UNITS)[number];
+
+export const isQuotaUnit = (v: unknown): v is QuotaUnit =>
+  typeof v === 'string' && (QUOTA_UNITS as readonly string[]).includes(v);
 
 /**
- * 手动充值的三档：$20 / $50 / $100。
+ * 1 积分对应多少毫分的**真实成本**。
  *
- * ## ⭐ 为什么卖「钱」而不是「分钟数」
- *
- * Telnyx 的分钟单价**还没实测**（`09` §6）。把「$100 = 200 分钟」写进
- * 产品名，等于在成本还没量出来之前就把毛利锁死了 —— 实测下来是
- * $0.25/分钟而不是 $0.15 的话，那 200 分钟就是亏本卖，
- * 而**改口比改价难十倍**（客户记得的是你答应过 200 分钟）。
- *
- * 卖「$100 余额」永远不会错：用多少扣多少，扣的是真实成本折算出来的钱。
- *
- * ## 为什么不分「语音包」和「副驾包」
- *
- * 决策 8 担心的是**次数**共用会被套利（一分钟电话的成本是一次副驾的
- * 10–16 倍，客户会把额度全用在最贵的地方）。而余额是**钱**，
- * 按实际成本 × 加价率扣，套利在数学上不成立。
- * 真正的分离杠杆是**加价率**（`MARKUP_BP`：副驾 3.0x、语音 1.5x），
- * 那一条已经分开了。
- *
- * 分成两个余额的代价是实打实的：两套自动续充、两个阈值，
- * 以及一句最难解释的话 ——「你语音包还剩 $30，但副驾停了」。
- *
- * ⚠️ **买了不会过期。** 用不完一直留着，所以没有到期作废的争议。
+ * $0.01 = 1 分 = 1000 毫分。实测一次典型副驾操作就是这个数（`05` §6.0）。
  */
-export const TOPUP_TIERS = [2000, 5000, 10000] as const;
-export type TopupTier = (typeof TOPUP_TIERS)[number];
-
-export const isTopupTier = (v: number): v is TopupTier =>
-  (TOPUP_TIERS as readonly number[]).includes(v);
+export const MILLICENTS_PER_CREDIT = 1000;
 
 /**
- * **自动续充只给大额两档**，和手动充值分开。
+ * 一次调用扣几个积分。**向上取整** —— 每次少收一点点，
+ * 累计起来就是我们在替客户付 AI 的钱。
  *
- * $20 那一档是留给「第一次买，先试试水」的 —— 用它做自动续充，
- * 一家 50 次/天的 Essential 店**一个月要触发 1.5 次**：
- *
- * | 档位 | Stripe 手续费 | 忙店能撑 |
- * |---|---|---|
- * | $20 | 4.4% | 0.7 个月 |
- * | $50 | 3.5% | 1.7 个月 |
- * | $100 | 3.2% | 3.3 个月 |
- *
- * 每一次自动扣款都是客户账单上的一条记录，和一通「怎么又扣我钱」的电话。
- * 自动续充要的恰恰是**别让人注意到它**。
+ * 成本为 0（缓存全命中、或者关键词直接答的）返回 0，调用方据此跳过扣费。
  */
-export const AUTO_TOPUP_TIERS = [5000, 10000] as const;
-export type AutoTopupTier = (typeof AUTO_TOPUP_TIERS)[number];
+export function creditsFor(costMillicents: number): number {
+  if (costMillicents <= 0) return 0;
+  return Math.ceil(costMillicents / MILLICENTS_PER_CREDIT);
+}
 
-export const isAutoTopupTier = (v: number): v is AutoTopupTier =>
-  (AUTO_TOPUP_TIERS as readonly number[]).includes(v);
+/** 一通电话扣几分钟。29 秒也算一分钟 —— 电话行业的通行口径 */
+export function minutesFor(durationSeconds: number): number {
+  if (durationSeconds <= 0) return 0;
+  return Math.ceil(durationSeconds / 60);
+}
 
-/** 自动续充的默认档。撑得最久、手续费占比最低 */
-export const DEFAULT_AUTO_TOPUP_CENTS = 10000;
+// ─────────────────────────────────────────────────────────────────── 套餐
+
+/** 套餐。和 Stripe 后台的产品名对齐（Essential $99 / Growth $199） */
+export const PLANS = ['essential', 'growth'] as const;
+export type Plan = (typeof PLANS)[number];
+
+export const isPlan = (v: unknown): v is Plan =>
+  typeof v === 'string' && (PLANS as readonly string[]).includes(v);
+
+export interface PlanQuota {
+  /** 每期含多少 AI 积分 */
+  credits: number;
+  /** 每期含多少 AI 语音分钟 */
+  voiceMinutes: number;
+}
+
+/**
+ * 套餐内含的额度（2026-08-17 定，算账过程见 `04` §4.1.1）。
+ *
+ * ⚠️ **Essential 的 60 分钟 ≈ 每天 1 通电话，是「尝鲜」不是「够用」。**
+ * 这是有意的：语音是成本大头（一分钟 $0.056，是一次副驾的 5.6 倍），
+ * Essential 给 200 分钟的话它自己的毛利会从 92% 掉到 84%，
+ * 而且**没人会升级到 Growth** —— 实测三种配法之后才定的这一刀。
+ *
+ * 销售时必须直说：开店时问一句「一天大概接几通电话」，
+ * 超过 2 通就直接推 Growth，别让老板自己撞上账单。
+ */
+export const PLAN_QUOTAS: Record<Plan, PlanQuota> = {
+  essential: { credits: 500, voiceMinutes: 60 },
+  growth: { credits: 1200, voiceMinutes: 500 },
+};
+
+/**
+ * 认不出的套餐按**最小的**给。
+ *
+ * 试用期、或者以后加了新档又回滚，都会走到这一支。给无限额度的话
+ * 试用期会被薅（`04` §4.2）。
+ */
+export function planQuota(plan: string): PlanQuota {
+  return isPlan(plan) ? PLAN_QUOTAS[plan] : PLAN_QUOTAS.essential;
+}
+
+export function includedFor(plan: string, unit: QuotaUnit): number {
+  const q = planQuota(plan);
+  return unit === 'credit' ? q.credits : q.voiceMinutes;
+}
+
+// ─────────────────────────────────────────────────────────────────── 充值
+
+/**
+ * 一次充值固定 **$50**，买到多少单位。
+ *
+ * 单价：积分 $0.05/个（成本 $0.01 → 80% 毛利）、
+ *       语音 $0.25/分钟（成本 $0.056 → 78% 毛利）。
+ *
+ * ⚠️ **只有一个金额档**。让客户填任意金额会引来拿被盗的卡试活的人
+ *（$0.53、$1.07 那种试探性小额是盗卡验证的标准手法）。
+ * 而且档位越少，「这次扣了我多少」越不会有歧义。
+ *
+ * ⚠️ 买了**不会过期** —— 用不完一直留着，所以没有到期作废的争议。
+ */
+export const TOPUP_PRICE_CENTS = 5000;
+
+export const TOPUP_UNITS: Record<QuotaUnit, number> = {
+  credit: 1000,
+  voice_minute: 200,
+};
+
+export function unitsPerTopup(unit: QuotaUnit): number {
+  return TOPUP_UNITS[unit];
+}
+
+// ─────────────────────────────────────────────────────── 先用套餐里的
+
+export type QuotaSource =
+  /** 走套餐内额度，不动充值余额 */
+  | 'included'
+  /** 套餐内用完了，扣充值买来的余额 */
+  | 'balance';
+
+export interface QuotaDecision {
+  source: QuotaSource;
+  /** 从套餐内额度扣掉几个 */
+  fromIncluded: number;
+  /** 从充值余额扣掉几个 */
+  fromBalance: number;
+  /** 扣完之后套餐内还剩几个 */
+  includedRemaining: number;
+  /** 扣完之后充值余额还剩几个。**可以是负数** */
+  balanceAfter: number;
+}
+
+/**
+ * 这一次该从哪儿扣。**先用套餐里的**。
+ *
+ * ⭐ 顺序反过来（先扣充值余额、月底再退套餐内的）在账单上完全说不清 ——
+ * 老板看到的是「我明明还有额度，为什么在扣我买的分钟」。
+ *
+ * ⚠️ **一次可以跨两边扣**：套餐内还剩 3 个而这次要扣 8 个，
+ * 就是 3 个走额度 + 5 个走余额。不做「不够就整笔走余额」——
+ * 那会让老板白白浪费掉最后那几个额度。
+ *
+ * ⚠️ **余额允许扣成负数**，这是有意的：AI 调用已经发生了、钱已经花出去了，
+ * 拒绝记账不会把那次调用变没，只会让账本和现实对不上。
+ * 欠着的部分下次充值时自动补上，而负余额会在老板端显红。
+ */
+export function allocateQuota(
+  amount: number,
+  opts: { plan: string; unit: QuotaUnit; includedUsed: number; balance: number },
+): QuotaDecision {
+  if (!Number.isInteger(amount) || amount < 0) {
+    throw new Error(`额度只用非负整数，收到：${amount}`);
+  }
+
+  const included = includedFor(opts.plan, opts.unit);
+  const includedLeft = Math.max(0, included - opts.includedUsed);
+
+  const fromIncluded = Math.min(amount, includedLeft);
+  const fromBalance = amount - fromIncluded;
+
+  return {
+    // 只要有一部分走了余额，这一次就算「扣钱了」—— 老板端要显示成扣费
+    source: fromBalance > 0 ? 'balance' : 'included',
+    fromIncluded,
+    fromBalance,
+    includedRemaining: includedLeft - fromIncluded,
+    balanceAfter: opts.balance - fromBalance,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────── 自动续充
 
 /**
  * 两次自动续充之间的冷却。
@@ -74,22 +203,36 @@ export const TOPUP_COOLDOWN_MS = 10 * 60_000;
 /** 连续失败几次就自动关掉自动续充，别再骚扰那张卡 */
 export const MAX_TOPUP_FAILURES = 3;
 
-export interface BillingAccountState {
-  balanceCents: number;
-  autoTopupEnabled: boolean;
-  autoTopupThresholdCents: number;
-  autoTopupAmountCents: number;
-  lastAutoTopupAt: Date | null;
-  autoTopupFailures: number;
+/**
+ * 自动续充的默认触发线。
+ *
+ * 定得太低会在半夜断服务（前台正忙着，副驾突然不能用了），
+ * 太高等于一直在充钱。按「大约还能撑半天」取的。
+ */
+export const DEFAULT_TOPUP_THRESHOLD: Record<QuotaUnit, number> = {
+  credit: 50,
+  voice_minute: 20,
+};
+
+export interface AutoTopupState {
+  /** 当前充值余额（该单位的） */
+  balance: number;
+  enabled: boolean;
+  thresholdUnits: number;
+  lastAt: Date | null;
+  failures: number;
   defaultPaymentMethodId: string | null;
   subscriptionStatus: string;
+  /** 套餐内还剩多少 —— 套餐内还有额度就不该急着充 */
+  includedRemaining: number;
 }
 
 export type TopupDecision =
   | { charge: false; reason:
       | 'disabled' | 'above_threshold' | 'no_payment_method'
-      | 'cooling_down' | 'too_many_failures' | 'subscription_inactive' }
-  | { charge: true; amountCents: AutoTopupTier | number };
+      | 'cooling_down' | 'too_many_failures' | 'subscription_inactive'
+      | 'included_remaining' }
+  | { charge: true; priceCents: number; units: number };
 
 /**
  * 该不该现在自动续充。
@@ -101,10 +244,11 @@ export type TopupDecision =
  * 「为什么那天没自动充上」，而不是耸肩。
  */
 export function shouldAutoTopup(
-  acct: BillingAccountState,
+  unit: QuotaUnit,
+  acct: AutoTopupState,
   now: Date = new Date(),
 ): TopupDecision {
-  if (!acct.autoTopupEnabled) return { charge: false, reason: 'disabled' };
+  if (!acct.enabled) return { charge: false, reason: 'disabled' };
 
   // 订阅都停了就别再往余额里充钱 —— 客户已经在走流失流程，
   // 这时候扣他一笔 $50 是最容易变成投诉和拒付的操作
@@ -113,165 +257,98 @@ export function shouldAutoTopup(
   }
 
   if (!acct.defaultPaymentMethodId) return { charge: false, reason: 'no_payment_method' };
-  if (acct.autoTopupFailures >= MAX_TOPUP_FAILURES) {
+  if (acct.failures >= MAX_TOPUP_FAILURES) {
     return { charge: false, reason: 'too_many_failures' };
   }
-  if (acct.balanceCents > acct.autoTopupThresholdCents) {
-    return { charge: false, reason: 'above_threshold' };
-  }
-  if (acct.lastAutoTopupAt
-      && now.getTime() - acct.lastAutoTopupAt.getTime() < TOPUP_COOLDOWN_MS) {
+
+  /**
+   * ⭐ 套餐内还有额度就不充。
+   *
+   * 少了这一条，一个刚续期、套餐额度满格的账户会因为「充值余额是 0」
+   * 而立刻被扣 $50 —— 而他这个月根本用不到充值余额。
+   */
+  if (acct.includedRemaining > 0) return { charge: false, reason: 'included_remaining' };
+
+  if (acct.balance > acct.thresholdUnits) return { charge: false, reason: 'above_threshold' };
+
+  if (acct.lastAt && now.getTime() - acct.lastAt.getTime() < TOPUP_COOLDOWN_MS) {
     return { charge: false, reason: 'cooling_down' };
   }
 
-  // 档位存坏了（人工改库、或者以后加了新档又回滚）不能就这么扣一笔怪金额。
-  // ⚠️ 兜底用**自动续充**那张表，不是手动充值那张 —— 兜到 $20 的话
-  // 忙店会一个月被扣三次，而那正是这一档不该用来自动续充的原因
-  const amount = acct.autoTopupAmountCents;
-  return isAutoTopupTier(amount)
-    ? { charge: true, amountCents: amount }
-    : { charge: true, amountCents: DEFAULT_AUTO_TOPUP_CENTS };
+  return { charge: true, priceCents: TOPUP_PRICE_CENTS, units: unitsPerTopup(unit) };
 }
+
+// ─────────────────────────────────────────────────────────────────── 账本
 
 export interface LedgerEntryInput {
   kind: 'topup' | 'usage' | 'refund' | 'adjustment' | 'reversal';
-  amountCents: number;
+  unit: QuotaUnit;
+  /** 有符号。充值为正，扣费为负 */
+  amount: number;
   reason?: string;
 }
 
 export interface LedgerEntry extends LedgerEntryInput {
-  balanceAfterCents: number;
+  balanceAfter: number;
 }
 
 /**
  * 记一笔账。返回这一笔之后的余额。
  *
- * ⚠️ **余额允许为负**。这是有意的：AI 调用已经发生了、钱已经花出去了，
- * 拒绝记账不会把那次调用变没，只会让账本和现实对不上。
- * 欠着的部分下次充值时自动补上，而余额为负会在老板端显红。
- *
- * 相反的做法（余额不足就拒绝扣费）会导致：用量照常发生、账上却看不到，
- * 到月底突然冒出一笔对不上的差额 —— 那时候谁也说不清是哪几次调用。
+ * ⚠️ **余额允许为负**（见 `allocateQuota` 的长注释）。
  */
-export function applyEntry(balanceCents: number, entry: LedgerEntryInput): LedgerEntry {
-  if (!Number.isInteger(entry.amountCents)) {
-    throw new Error(`余额只用整数分，收到：${entry.amountCents}`);
+export function applyEntry(balance: number, entry: LedgerEntryInput): LedgerEntry {
+  if (!Number.isInteger(entry.amount)) {
+    throw new Error(`额度只用整数，收到：${entry.amount}`);
+  }
+  if (!isQuotaUnit(entry.unit)) {
+    throw new Error(`未知的额度单位：${entry.unit}`);
   }
   // 调账和冲销必须写原因 —— 没有原因的调账是查不清的账
   if ((entry.kind === 'adjustment' || entry.kind === 'reversal') && !entry.reason?.trim()) {
     throw new Error(`${entry.kind} 必须写原因`);
   }
-  // 方向和类型要对得上，否则「充值 −$50」这种行会悄悄混进账本
-  if (entry.kind === 'topup' && entry.amountCents <= 0) {
-    throw new Error('充值金额必须为正');
+  // 方向和类型要对得上，否则「充值 −1000」这种行会悄悄混进账本
+  if (entry.kind === 'topup' && entry.amount <= 0) {
+    throw new Error('充值必须为正');
   }
-  if (entry.kind === 'usage' && entry.amountCents >= 0) {
+  if (entry.kind === 'usage' && entry.amount >= 0) {
     throw new Error('用量扣费必须为负');
   }
 
-  return { ...entry, balanceAfterCents: balanceCents + entry.amountCents };
+  return { ...entry, balanceAfter: balance + entry.amount };
 }
 
 /**
- * 拿账本重算余额，用来和缓存的 `balance_cents` 对账。
+ * 拿账本重算余额，用来和缓存的余额对账。
  *
- * 账本是事实，缓存只是为了不用每次都把整张表加起来。
- * 两者对不上说明有人绕过账本改了余额 —— 那是要当事故查的。
+ * ⚠️ **按单位分开算** —— 积分和分钟各有各的链条，混在一起加
+ * 得到的是一个没有意义的数。
  */
-export function replayBalance(entries: readonly { amountCents: number }[]): number {
-  return entries.reduce((sum, e) => sum + e.amountCents, 0);
+export function replayBalance(
+  entries: readonly { unit: QuotaUnit; amount: number }[],
+  unit: QuotaUnit,
+): number {
+  return entries.filter((e) => e.unit === unit)
+    .reduce((sum, e) => sum + e.amount, 0);
 }
 
 /**
- * 账本自洽性检查：每一行的 `balanceAfterCents` 必须等于前一行加上本行金额。
+ * 账本自洽性检查：每一行的 `balanceAfter` 必须等于**同单位**前一行加上本行。
  *
- * 任何一行被就地改过，这个检查都会指出**第一个**对不上的位置。
+ * 任何一行被就地改过，这个检查都会指出**第一个**对不上的位置
+ *（返回的是在该单位序列里的下标）。
  */
 export function findLedgerBreak(
-  entries: readonly { amountCents: number; balanceAfterCents: number }[],
+  entries: readonly { unit: QuotaUnit; amount: number; balanceAfter: number }[],
+  unit: QuotaUnit,
   startingBalance = 0,
 ): number | null {
   let running = startingBalance;
-  for (let i = 0; i < entries.length; i++) {
-    running += entries[i]!.amountCents;
-    if (running !== entries[i]!.balanceAfterCents) return i;
+  const own = entries.filter((e) => e.unit === unit);
+  for (let i = 0; i < own.length; i++) {
+    running += own[i]!.amount;
+    if (running !== own[i]!.balanceAfter) return i;
   }
   return null;
-}
-
-/**
- * 一次 AI 调用要从余额里扣多少。
- *
- * 传进来的是**成本**（毫分），乘上加价率就是卖价。
- * 加价率放在这里而不是散在各处：调价是一次改一个数的事。
- *
- * `04` §4.1：副驾成本极低，额度给得大方就是纯卖点；
- * 电话是真金白银，单独成包、单独计价。所以两者的加价率不同。
- */
-export const MARKUP_BP: Record<string, number> = {
-  ai_assist: 30000,     // 3.0x —— 成本 ~$0.012，卖 ~$0.036
-  ai_call_min: 15000,   // 1.5x —— 本来就贵，加太多没人用
-  sms: 20000,
-  email: 20000,
-};
-
-export function usageChargeCents(costMillicents: number, kind: string): number {
-  const bp = MARKUP_BP[kind] ?? 10000;
-  // 毫分 × bp / 10000 = 毫分；再 /1000 变成分。**向上取整** ——
-  // 每次少收一点点，累计起来就是我们在替客户付 AI 的钱
-  return Math.ceil((costMillicents * bp) / 10000 / 1000);
-}
-
-// ─────────────────────────────────────────────────── 套餐内额度（先用套餐里的）
-
-/** 套餐。和 Stripe 后台的产品名对齐（Essential $99 / Growth $199） */
-export const PLANS = ['essential', 'growth'] as const;
-export type Plan = (typeof PLANS)[number];
-
-export const isPlan = (v: unknown): v is Plan =>
-  typeof v === 'string' && (PLANS as readonly string[]).includes(v);
-
-/**
- * 每个套餐每期含多少次副驾（决策 8）。
- *
- * ⚠️ **只含副驾，不含电话分钟。** 两者成本差 10–16 倍，合成一个「额度」
- * 必被套利 —— 电话量大的店会把额度全用在最贵的地方，而那恰恰是最忙、
- * 最该赚钱的客户（`04` §4.1）。电话走单独的分钟包。
- *
- * 试用期按 essential 给：额度不能是无限的，否则试用期会被薅（`04` §4.2）。
- */
-export const PLAN_INCLUDED_ASSISTS: Record<Plan, number> = {
-  essential: 500,
-  growth: 2000,
-};
-
-export function includedAssistsFor(plan: string): number {
-  return isPlan(plan) ? PLAN_INCLUDED_ASSISTS[plan] : PLAN_INCLUDED_ASSISTS.essential;
-}
-
-export type IncludedDecision =
-  /** 这一次走套餐内额度，不扣余额 */
-  | { source: 'included'; usedAfter: number; remaining: number }
-  /** 套餐内额度用完了，扣余额 */
-  | { source: 'balance'; remaining: 0 };
-
-/**
- * 这一次该走套餐内额度还是扣余额。**先用套餐里的**。
- *
- * 纯函数，因为「这次为什么扣钱了」是客户会打电话来问的问题 ——
- * 它必须能被完整地测，而不是埋在一段 SQL 里。
- *
- * ⚠️ 只有 `ai_assist` 吃套餐额度。电话分钟和短信各有各的包，
- * 让它们共用一个计数就是决策 8 明确要避免的那种套利。
- */
-export function consumeIncluded(
-  kind: string, plan: string, usedThisPeriod: number,
-): IncludedDecision {
-  if (kind !== 'ai_assist') return { source: 'balance', remaining: 0 };
-
-  const included = includedAssistsFor(plan);
-  if (usedThisPeriod >= included) return { source: 'balance', remaining: 0 };
-
-  const usedAfter = usedThisPeriod + 1;
-  return { source: 'included', usedAfter, remaining: included - usedAfter };
 }

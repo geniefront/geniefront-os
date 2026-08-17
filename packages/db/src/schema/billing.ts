@@ -63,36 +63,47 @@ export const billingAccounts = pgTable('billing_accounts', {
   paymentMethodLabel: text('payment_method_label'),
 
   /**
-   * 预充值余额，整数分。**这是账本的缓存**，不是事实来源。
-   * 事实在 credit_ledger 里，对不上以账本为准。
+   * ⚠️ 上一版的「钱余额」。**列留着但不再写**（宪法第 9 条：财务数据不删）。
+   * 历史那几行是真实发生过的钱。从迁移 0023 起改成两种额度，见下面两列。
    */
   balanceCents: integer('balance_cents').notNull().default(0),
-
-  // ── 自动续充 ──────────────────────────────────────────────────────────
   autoTopupEnabled: boolean('auto_topup_enabled').notNull().default(false),
-  /** 余额低于这个数就自动充。默认 $10 —— 太低会在半夜断服务 */
   autoTopupThresholdCents: integer('auto_topup_threshold_cents').notNull().default(1000),
-  /** 每次充多少。**只有一档**：10000（$100 的 AI 分钟包，迁移 0021） */
   autoTopupAmountCents: integer('auto_topup_amount_cents').notNull().default(10000),
-  /**
-   * 上一次自动续充的时刻。
-   *
-   * ⭐ 用来防「续充风暴」：卡被拒 / 用量异常时，一晚上能触发几十次扣款尝试。
-   * 每次尝试都是一条 Stripe 记录，客户会在账单上看到一排失败扣款，
-   * 而银行会因此把卡冻了。所以两次自动续充之间有硬性冷却。
-   */
   lastAutoTopupAt: timestamp('last_auto_topup_at', { withTimezone: true }),
-  /** 连续失败次数。连续失败到一定次数就自动关掉，别再骚扰那张卡 */
   autoTopupFailures: integer('auto_topup_failures').notNull().default(0),
 
-  // ── 套餐内额度（先用套餐里的，用完了才扣余额）────────────────────────
-  /**
-   * 本期已经用掉的套餐内副驾次数。
-   *
-   * ⚠️ **只管副驾**。电话分钟单独成包 —— 两者成本差 10–16 倍，
-   * 合成一个「额度」必被套利（决策 8 / `04` §4.1）。
-   */
-  includedAssistsUsed: integer('included_assists_used').notNull().default(0),
+  // ── 充值买来的两种额度（迁移 0023）────────────────────────────────────
+  //
+  // ⚠️ **两种额度不能互换**。一分钟电话的成本是一次副驾操作的 5.6 倍，
+  // 只要能换，客户就会把额度全换成最贵的那种用 —— 而那恰恰是最忙、
+  // 最该赚钱的客户（决策 8）。代码里没有任何换算函数，别加。
+  //
+  // 这两个都是**账本的缓存**，事实在 credit_ledger 里。
+  /** AI 积分余额（充值买的，不过期）。1 积分 ≈ $0.01 的真实成本 */
+  creditBalance: integer('credit_balance').notNull().default(0),
+  /** AI 语音分钟余额（充值买的，不过期） */
+  voiceMinuteBalance: integer('voice_minute_balance').notNull().default(0),
+
+  // ── 套餐内额度（先用套餐里的，用完了才扣充值余额）──────────────────────
+  /** 本期已用的套餐内积分。跟着 Stripe 的续期清零 */
+  includedCreditsUsed: integer('included_credits_used').notNull().default(0),
+  /** 本期已用的套餐内语音分钟 */
+  includedMinutesUsed: integer('included_minutes_used').notNull().default(0),
+
+  // ── 自动续充：两种额度各一套，每次都是 $50 ────────────────────────────
+  //
+  // 没有「充多少」这个设置 —— 只有「低于多少就充」。少一个可调项
+  // 就少一处能填错的地方。`last_at` 用来防「续充风暴」：卡被拒时
+  // 一晚上能触发几十次扣款尝试，而银行看到连续失败会把卡冻了。
+  autoTopupCreditsEnabled: boolean('auto_topup_credits_enabled').notNull().default(false),
+  autoTopupCreditsThreshold: integer('auto_topup_credits_threshold').notNull().default(50),
+  autoTopupCreditsLastAt: timestamp('auto_topup_credits_last_at', { withTimezone: true }),
+  autoTopupCreditsFailures: integer('auto_topup_credits_failures').notNull().default(0),
+  autoTopupMinutesEnabled: boolean('auto_topup_minutes_enabled').notNull().default(false),
+  autoTopupMinutesThreshold: integer('auto_topup_minutes_threshold').notNull().default(20),
+  autoTopupMinutesLastAt: timestamp('auto_topup_minutes_last_at', { withTimezone: true }),
+  autoTopupMinutesFailures: integer('auto_topup_minutes_failures').notNull().default(0),
   /**
    * 本期从什么时候开始算。
    *
@@ -143,10 +154,21 @@ export const creditLedger = pgTable('credit_ledger', {
    * reversal     冲销某一笔（±）
    */
   kind: text('kind').notNull(),
-  /** 有符号的整数分。充值为正，扣费为负 */
-  amountCents: integer('amount_cents').notNull(),
-  /** 这一笔之后的余额。对账靠它，不用把整张表加起来 */
-  balanceAfterCents: integer('balance_after_cents').notNull(),
+  /**
+   * ⚠️ 上一版的「钱」两列。**留着不删**（宪法第 9 条），但从迁移 0023
+   * 起不再写入 —— 新的账目走下面的 unit / amount / balance_after。
+   */
+  amountCents: integer('amount_cents'),
+  balanceAfterCents: integer('balance_after_cents'),
+
+  /** credit | voice_minute。**两种额度各有各的链条，对账要分开算** */
+  unit: text('unit').notNull().default('credit'),
+  /** 有符号的单位数。充值为正，扣费为负 */
+  amount: integer('amount'),
+  /** 这一笔之后该单位的余额。对账靠它，不用把整张表加起来 */
+  balanceAfter: integer('balance_after'),
+  /** 充值时付了多少钱。用量扣费为 null —— 那一笔没有钱经手 */
+  paidCents: integer('paid_cents'),
 
   /** ai_assist | ai_call_min | sms | email | manual | stripe */
   source: text('source'),
@@ -166,6 +188,8 @@ export const creditLedger = pgTable('credit_ledger', {
   index('credit_ledger_usage_idx').on(t.usageEventId),
   // 对账与翻流水都按 seq，不按时间（见上面 seq 的长注释）
   index('credit_ledger_seq_idx').on(t.locationId, t.seq),
+  // 两种额度分开对账
+  index('credit_ledger_unit_idx').on(t.locationId, t.unit, t.seq),
 ]);
 
 /**

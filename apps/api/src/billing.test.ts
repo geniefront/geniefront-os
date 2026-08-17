@@ -15,11 +15,11 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { withTenant, closeDb } from '@gf/db';
-import { usageChargeCents, MAX_TOPUP_FAILURES } from '@gf/payroll';
+import { creditsFor, MAX_TOPUP_FAILURES, PLAN_QUOTAS, TOPUP_UNITS } from '@gf/payroll';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
 import { loadBilling } from './queries/billing';
-import { chargeUsage } from './billing/usage';
+import { chargeQuota } from './billing/usage';
 import { ensureAccount, appendLedger } from './handlers/billing';
 import './handlers/billing';
 
@@ -57,7 +57,12 @@ async function resetBilling(): Promise<void> {
                auto_topup_enabled = false, auto_topup_failures = 0,
                last_auto_topup_at = null, default_payment_method_id = null,
                payment_method_label = null, subscription_status = 'trialing',
-               plan = 'essential', included_assists_used = 0, stripe_customer_id = null, stripe_subscription_id = null
+               plan = 'essential', stripe_customer_id = null, stripe_subscription_id = null,
+               included_credits_used = 0, included_minutes_used = 0,
+               auto_topup_credits_enabled = false, auto_topup_credits_failures = 0,
+               auto_topup_credits_last_at = null,
+               auto_topup_minutes_enabled = false, auto_topup_minutes_failures = 0,
+               auto_topup_minutes_last_at = null
              where location_id = ${SPA_LOC}`;
 
     /**
@@ -70,21 +75,30 @@ async function resetBilling(): Promise<void> {
      *
      * 缓存错了的正确修法永远是「按账本改缓存」，不是「往账本里补一笔」。
      */
-    const [sum] = await tx<{ n: number }[]>`
-      select coalesce(sum(amount_cents), 0)::int as n from credit_ledger
-      where location_id = ${SPA_LOC}`;
-    await tx`update billing_accounts set balance_cents = ${sum!.n}
-             where location_id = ${SPA_LOC}`;
+    for (const unit of ['credit', 'voice_minute'] as const) {
+      const col = unit === 'credit' ? 'credit_balance' : 'voice_minute_balance';
+      const [sum] = await tx<{ n: number }[]>`
+        select coalesce(sum(amount), 0)::int as n from credit_ledger
+        where location_id = ${SPA_LOC} and unit = ${unit} and amount is not null`;
+      await tx`update billing_accounts set ${tx(col)} = ${sum!.n}
+               where location_id = ${SPA_LOC}`;
 
-    const acct = await ensureAccount(tx, tenant, { forUpdate: true });
-    if (acct.balance_cents !== 0) {
-      await appendLedger(tx, tenant, acct, {
-        kind: 'adjustment',
-        amountCents: -acct.balance_cents,
-        reason: '测试复位',   // adjustment 必须写原因，没有原因的调账是查不清的账
-      });
+      const acct = await ensureAccount(tx, tenant, { forUpdate: true });
+      const bal = unit === 'credit' ? acct.credit_balance : acct.voice_minute_balance;
+      if (bal !== 0) {
+        await appendLedger(tx, tenant, acct, {
+          kind: 'adjustment', unit, amount: -bal,
+          reason: '测试复位',  // adjustment 必须写原因，没有原因的调账是查不清的账
+        });
+      }
     }
   });
+}
+
+/** 从视图里取某一种额度 */
+async function quota(unit: 'credit' | 'voice_minute') {
+  const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
+  return view!.quotas.find((q) => q.unit === unit)!;
 }
 
 beforeAll(async () => {
@@ -98,7 +112,7 @@ beforeAll(async () => {
 
   // 账户不存在时第一条命令会自动建（试用期的店也会产生 AI 用量）
   await run('billing.setAutoTopup', {
-    enabled: false, thresholdCents: 1000, amountCents: 10000,
+    unit: 'credit', enabled: false, thresholdUnits: 50,
   });
   await resetBilling();
 });
@@ -118,104 +132,107 @@ describe('账户自动建立', () => {
     expect(view).not.toBeNull();
     expect(view!.plan).toBe('essential');
     expect(view!.subscriptionStatus).toBe('trialing');
+    // 两种额度各一份，**永远是两份** —— 合成一个「总额度」就会被套利
+    expect(view!.quotas.map((q) => q.unit)).toEqual(['credit', 'voice_minute']);
   });
 });
 
 // ─────────────────────────────────────────────────────────────── 用量扣费
 
 describe('用量扣费', () => {
-  it('⭐ 单位是毫分不是分 —— 传错一位数账单差 10 倍', async () => {
-    // $0.012 的一次副驾调用 = 1.2 分 = 1200 毫分。
-    // 加价 3.0x 之后是 3600 毫分 = 3.6 分，向上取整 4 分。
-    // 传成 12000 的话是 36 分 —— 数字看起来完全正常，这是最难发现的一类错
-    expect(usageChargeCents(1200, 'ai_assist')).toBe(4);
-    expect(usageChargeCents(12000, 'ai_assist')).toBe(36);
+  it('⭐ 1 积分 = $0.01 的真实成本，向上取整', () => {
+    // 实测（05 §6.0）：只读回答 $0.003、带工具 $0.010、复杂提案 $0.034
+    expect(creditsFor(292)).toBe(1);
+    expect(creditsFor(1020)).toBe(2);
+    // 拍照开店走 Opus，一张 $0.08 → 8 积分，不用为它单独定规则
+    expect(creditsFor(8000)).toBe(8);
   });
 
-  /** 把套餐内额度用满，之后的调用才会扣余额 */
-  async function exhaustIncluded(): Promise<void> {
+  /** 把某一种套餐内额度用满，之后的调用才会扣充值余额 */
+  async function exhaust(unit: 'credit' | 'voice_minute') {
+    const col = unit === 'credit' ? 'included_credits_used' : 'included_minutes_used';
     await withTenant(tenant, (tx) => tx`
-      update billing_accounts set included_assists_used = 99999
-      where location_id = ${SPA_LOC}`);
+      update billing_accounts set ${tx(col)} = 99999 where location_id = ${SPA_LOC}`);
   }
 
-  it('⭐ 先用套餐里的 —— 额度没用完不扣一分钱', async () => {
+  it('⭐ 先用套餐里的 —— 额度没用完，充值余额一个都不扣', async () => {
     await resetBilling();
-    const out = await withTenant(tenant, (tx) => chargeUsage(tx, ctx, {
-      kind: 'ai_assist', costMillicents: 2400,
+    const out = await withTenant(tenant, (tx) => chargeQuota(tx, ctx, {
+      unit: 'credit', amount: 4,
     }));
-    expect(out).toMatchObject({ source: 'included', chargedCents: 0, ledgerId: null });
+    expect(out).toMatchObject({ fromIncluded: 4, fromBalance: 0, ledgerId: null });
 
-    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    expect(view!.balanceCents).toBe(0);          // 一分钱没扣
-    expect(view!.included.used).toBe(1);
-    expect(view!.included.remaining).toBe(view!.included.total - 1);
+    const q = await quota('credit');
+    expect(q.balance).toBe(0);                       // 一个都没扣
+    expect(q.included.used).toBe(4);
+    expect(q.included.total).toBe(PLAN_QUOTAS.essential.credits);
   });
 
-  it('⭐ 电话分钟不吃副驾的额度（决策 8：合成一个额度必被套利）', async () => {
+  it('⭐ 一次可以跨两边扣 —— 别浪费掉最后那几个额度', async () => {
     await resetBilling();
-    // 单价还没实测，成本 0 → 直接跳过；关键是它没有去动 included 计数
-    const out = await withTenant(tenant, (tx) => chargeUsage(tx, ctx, {
-      kind: 'ai_call_min', costMillicents: 0,
+    // 套餐内剩 3 个，这次要 8 个 → 3 个走额度 + 5 个走余额
+    await withTenant(tenant, (tx) => tx`
+      update billing_accounts set included_credits_used = ${PLAN_QUOTAS.essential.credits - 3}
+      where location_id = ${SPA_LOC}`);
+
+    const out = await withTenant(tenant, (tx) => chargeQuota(tx, ctx, {
+      unit: 'credit', amount: 8,
     }));
-    expect(out).toBeNull();
-    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    expect(view!.included.used).toBe(0);
+    expect(out).toMatchObject({ fromIncluded: 3, fromBalance: 5 });
+    expect((await quota('credit')).balance).toBe(-5);
   });
 
-  it('扣费走账本，余额缓存跟着账本走', async () => {
+  it('⭐ 积分和分钟是两本独立的账 —— 扣积分不动分钟', async () => {
     await resetBilling();
-    await exhaustIncluded();
-    const out = await withTenant(tenant, (tx) => chargeUsage(tx, ctx, {
-      kind: 'ai_assist', costMillicents: 2400,
-    }));
-    expect(out).not.toBeNull();
-    expect(out!.chargedCents).toBe(usageChargeCents(2400, 'ai_assist'));
+    await exhaust('credit');
+    await withTenant(tenant, (tx) => chargeQuota(tx, ctx, { unit: 'credit', amount: 10 }));
 
-    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    // ⚠️ 余额是账本算出来的，billing_accounts.balance_cents 只是缓存。
-    // 两者对不上说明有人绕过账本改了余额 —— 那是要当事故查的
-    expect(view!.balanceCents).toBe(out!.balanceAfterCents);
-    expect(view!.balanceCents).toBe(-out!.chargedCents);
-    expect(view!.ledgerBreakAt).toBeNull();
+    expect((await quota('credit')).balance).toBe(-10);
+    // 决策 8：一分钟电话的成本是一次副驾的 5.6 倍，能换就会被套利
+    expect((await quota('voice_minute')).balance).toBe(0);
+    expect((await quota('voice_minute')).included.used).toBe(0);
+  });
+
+  it('语音走自己那本账', async () => {
+    await resetBilling();
+    const out = await withTenant(tenant, (tx) => chargeQuota(tx, ctx, {
+      unit: 'voice_minute', amount: 70,
+    }));
+    // Essential 含 60 分钟 → 60 走额度、10 走余额
+    expect(out).toMatchObject({ fromIncluded: 60, fromBalance: 10 });
+    expect((await quota('voice_minute')).balance).toBe(-10);
+    expect((await quota('credit')).balance).toBe(0);
   });
 
   it('⭐ 余额允许扣成负数 —— 调用已经发生了，拒绝记账不会把它变没', async () => {
     await resetBilling();
-    await exhaustIncluded();
-    // 相反的做法（余额不足就拒绝扣费）会导致用量照常发生、账上却看不到
+    await exhaust('credit');
     for (let i = 0; i < 3; i++) {
-      await withTenant(tenant, (tx) => chargeUsage(tx, ctx, {
-        kind: 'ai_assist', costMillicents: 100_000,
-      }));
+      await withTenant(tenant, (tx) => chargeQuota(tx, ctx, { unit: 'credit', amount: 100 }));
     }
-    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    expect(view!.balanceCents).toBeLessThan(0);
-    expect(view!.ledgerBreakAt).toBeNull();
+    const q = await quota('credit');
+    expect(q.balance).toBe(-300);
+    expect(q.ledgerBreakAt).toBeNull();
   });
 
-  it('⭐ 成本为 0 不记账本 —— 电话单价还没实测，别刷一堆 $0.00 流水', async () => {
-    // ai_call_min 现在的 cost_cents 恒为 0（09 §6）。记一堆 0 元流水
-    // 只会把老板要看的那几笔真扣费淹掉
-    const out = await withTenant(tenant, (tx) => chargeUsage(tx, ctx, {
-      kind: 'ai_call_min', costMillicents: 0,
+  it('扣 0 个不记账本', async () => {
+    const out = await withTenant(tenant, (tx) => chargeQuota(tx, ctx, {
+      unit: 'credit', amount: 0,
     }));
     expect(out).toBeNull();
   });
 
   it('⭐ 并发扣费不会在账本上留下断点', async () => {
     await resetBilling();
-    await exhaustIncluded();
+    await exhaust('credit');
     // 不加 for update 的话，两笔并发会各自读到同一个余额，
     // balance_after 就对不齐了 —— 而对账时这看起来像是有人篡改
     await Promise.all(Array.from({ length: 5 }, () =>
-      withTenant(tenant, (tx) => chargeUsage(tx, ctx, {
-        kind: 'ai_assist', costMillicents: 2400,
-      }))));
+      withTenant(tenant, (tx) => chargeQuota(tx, ctx, { unit: 'credit', amount: 3 }))));
 
-    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    expect(view!.ledgerBreakAt).toBeNull();
-    expect(view!.balanceCents).toBe(-5 * usageChargeCents(2400, 'ai_assist'));
+    const q = await quota('credit');
+    expect(q.ledgerBreakAt).toBeNull();
+    expect(q.balance).toBe(-15);
   });
 });
 
@@ -225,148 +242,176 @@ describe('充值入账', () => {
   it('⭐ 同一个 PaymentIntent 只入账一次 —— 路由和 webhook 都会来记这一笔', async () => {
     await resetBilling();
     const pi = `pi_test_${Date.now()}`;
+    const body = {
+      unit: 'credit', units: TOPUP_UNITS.credit, paidCents: 5000,
+      stripePaymentIntentId: pi, trigger: 'manual',
+    };
 
-    const a = await run<{ balanceAfterCents: number; alreadyRecorded: boolean }>(
-      'billing.recordTopup',
-      { amountCents: 5000, stripePaymentIntentId: pi, trigger: 'manual' },
-      `topup-${pi}`);
-    expect(a.alreadyRecorded).toBe(false);
-    expect(a.balanceAfterCents).toBe(5000);
+    const a = await run<{ balanceAfter: number; alreadyRecorded: boolean }>(
+      'billing.recordTopup', body, `topup-${pi}`);
+    expect(a).toMatchObject({ alreadyRecorded: false, balanceAfter: 1000 });
 
     // webhook 那条路会用一个不同的幂等键走同一条命令 ——
     // 总线的幂等挡不住它，所以命令自己按 PaymentIntent 再去一次重
-    const b = await run<{ balanceAfterCents: number; alreadyRecorded: boolean }>(
-      'billing.recordTopup',
-      { amountCents: 5000, stripePaymentIntentId: pi, trigger: 'manual' },
-      `webhook-${pi}`);
-    expect(b.alreadyRecorded).toBe(true);
-    expect(b.balanceAfterCents).toBe(5000);   // 没有变成 10000
+    const b = await run<{ balanceAfter: number; alreadyRecorded: boolean }>(
+      'billing.recordTopup', body, `webhook-${pi}`);
+    expect(b).toMatchObject({ alreadyRecorded: true, balanceAfter: 1000 });
 
-    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    expect(view!.balanceCents).toBe(5000);
+    expect((await quota('credit')).balance).toBe(1000);   // 没有变成 2000
   });
 
-  it('充值把失败计数清零 —— 这张卡现在是好的', async () => {
+  it('⭐ 充分钟不会加到积分上', async () => {
     await resetBilling();
-    await run('billing.recordTopupFailure', { reason: 'card_declined' });
-    const pi = `pi_ok_${Date.now()}`;
-    await run('billing.recordTopup',
-      { amountCents: 5000, stripePaymentIntentId: pi, trigger: 'auto' }, `topup-${pi}`);
+    const pi = `pi_min_${Date.now()}`;
+    await run('billing.recordTopup', {
+      unit: 'voice_minute', units: TOPUP_UNITS.voice_minute, paidCents: 5000,
+      stripePaymentIntentId: pi, trigger: 'manual',
+    }, `topup-${pi}`);
 
-    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    expect(view!.autoTopup.failures).toBe(0);
+    expect((await quota('voice_minute')).balance).toBe(200);
+    expect((await quota('credit')).balance).toBe(0);
   });
 
-  it('充值金额必须为正 —— 「充值 −$50」不能混进账本', async () => {
-    await expect(run('billing.recordTopup',
-      { amountCents: -5000, stripePaymentIntentId: null, trigger: 'manual' },
-      `bad-${Date.now()}`)).rejects.toThrow();
+  it('充值把那一种额度的失败计数清零 —— 这张卡现在是好的', async () => {
+    await resetBilling();
+    await run('billing.recordTopupFailure', { unit: 'credit', reason: 'card_declined' });
+    const pi = `pi_ok_${Date.now()}`;
+    await run('billing.recordTopup', {
+      unit: 'credit', units: 1000, paidCents: 5000,
+      stripePaymentIntentId: pi, trigger: 'auto',
+    }, `topup-${pi}`);
+    expect((await quota('credit')).autoTopup.failures).toBe(0);
+  });
+
+  it('充值数量必须为正 —— 「充值 −1000」不能混进账本', async () => {
+    await expect(run('billing.recordTopup', {
+      unit: 'credit', units: -1000, paidCents: 5000,
+      stripePaymentIntentId: null, trigger: 'manual',
+    }, `bad-${Date.now()}`)).rejects.toThrow();
   });
 });
 
 // ───────────────────────────────────────────────────────────────── 自动续充
 
 describe('自动续充', () => {
-  /** 把账户摆成「该充了」的样子 */
-  async function armAutoTopup(): Promise<void> {
+  /** 把某一种额度摆成「该充了」的样子：套餐内用完 + 余额低 + 有卡 */
+  async function arm(unit: 'credit' | 'voice_minute'): Promise<void> {
     await resetBilling();
     await run('billing.savePaymentMethod',
       { paymentMethodId: 'pm_test_4242', label: 'Visa ···· 4242' });
+    const col = unit === 'credit' ? 'included_credits_used' : 'included_minutes_used';
+    await withTenant(tenant, (tx) => tx`
+      update billing_accounts set stripe_customer_id = 'cus_test', ${tx(col)} = 99999
+      where location_id = ${SPA_LOC}`);
+    await run('billing.setAutoTopup', { unit, enabled: true, thresholdUnits: 50 });
+  }
+
+  it('该充的时候认领成功', async () => {
+    await arm('credit');
+    const claim = await run<{ charge: boolean; units: number | null; priceCents: number | null }>(
+      'billing.claimAutoTopup', { unit: 'credit' });
+    expect(claim).toMatchObject({ charge: true, units: 1000, priceCents: 5000 });
+  });
+
+  it('⭐ 套餐内还有额度就不充 —— 否则刚续期的账户会被白扣一笔 $50', async () => {
+    await resetBilling();
+    await run('billing.savePaymentMethod', { paymentMethodId: 'pm_x', label: 'Visa' });
     await withTenant(tenant, (tx) => tx`
       update billing_accounts set stripe_customer_id = 'cus_test'
       where location_id = ${SPA_LOC}`);
-    await run('billing.setAutoTopup',
-      { enabled: true, thresholdCents: 1000, amountCents: 10000 });
-  }
+    await run('billing.setAutoTopup', { unit: 'credit', enabled: true, thresholdUnits: 50 });
 
-  it('余额低于阈值 + 有卡 + 订阅正常 → 认领成功', async () => {
-    await armAutoTopup();
-    const claim = await run<{ charge: boolean; amountCents: number | null }>(
-      'billing.claimAutoTopup', {});
-    expect(claim.charge).toBe(true);
-    expect(claim.amountCents).toBe(10000);
+    const claim = await run<{ charge: boolean; reason: string | null }>(
+      'billing.claimAutoTopup', { unit: 'credit' });
+    expect(claim).toMatchObject({ charge: false, reason: 'included_remaining' });
   });
 
   it('⭐ 认领一次之后进冷却 —— 不然一晚上能触发几十次扣款尝试', async () => {
-    await armAutoTopup();
-    await run('billing.claimAutoTopup', {});
+    await arm('credit');
+    await run('billing.claimAutoTopup', { unit: 'credit' });
     const second = await run<{ charge: boolean; reason: string | null }>(
-      'billing.claimAutoTopup', {});
-    expect(second.charge).toBe(false);
-    expect(second.reason).toBe('cooling_down');
+      'billing.claimAutoTopup', { unit: 'credit' });
+    expect(second).toMatchObject({ charge: false, reason: 'cooling_down' });
   });
 
   it('⭐ 并发认领只有一个成功 —— 否则老板一分钟内被扣两次 $50', async () => {
-    await armAutoTopup();
+    await arm('credit');
     const results = await Promise.all(Array.from({ length: 4 }, () =>
-      run<{ charge: boolean }>('billing.claimAutoTopup', {})));
+      run<{ charge: boolean }>('billing.claimAutoTopup', { unit: 'credit' })));
     expect(results.filter((r) => r.charge)).toHaveLength(1);
+  });
+
+  it('⭐ 两种额度的冷却互不影响 —— 各充各的', async () => {
+    await arm('credit');
+    // 分钟那一边也摆好
+    await withTenant(tenant, (tx) => tx`
+      update billing_accounts set included_minutes_used = 99999
+      where location_id = ${SPA_LOC}`);
+    await run('billing.setAutoTopup',
+      { unit: 'voice_minute', enabled: true, thresholdUnits: 20 });
+
+    await run('billing.claimAutoTopup', { unit: 'credit' });      // 积分进冷却
+    const minutes = await run<{ charge: boolean; units: number | null }>(
+      'billing.claimAutoTopup', { unit: 'voice_minute' });
+    expect(minutes).toMatchObject({ charge: true, units: 200 });   // 分钟不受影响
   });
 
   it('没绑卡 → 不充，且说得出为什么', async () => {
     await resetBilling();
-    await run('billing.setAutoTopup',
-      { enabled: true, thresholdCents: 1000, amountCents: 10000 });
+    await withTenant(tenant, (tx) => tx`
+      update billing_accounts set included_credits_used = 99999
+      where location_id = ${SPA_LOC}`);
+    await run('billing.setAutoTopup', { unit: 'credit', enabled: true, thresholdUnits: 50 });
     const claim = await run<{ charge: boolean; reason: string | null }>(
-      'billing.claimAutoTopup', {});
+      'billing.claimAutoTopup', { unit: 'credit' });
     expect(claim).toMatchObject({ charge: false, reason: 'no_payment_method' });
   });
 
-  it('⭐ 订阅停了就不再往余额里充钱', async () => {
-    await armAutoTopup();
+  it('⭐ 订阅停了就不再充值', async () => {
+    await arm('credit');
     await run('billing.syncSubscription', { subscriptionStatus: 'canceled' });
     const claim = await run<{ charge: boolean; reason: string | null }>(
-      'billing.claimAutoTopup', {});
+      'billing.claimAutoTopup', { unit: 'credit' });
     // 客户已经在走流失流程，这时候扣他一笔 $50 是最容易变成投诉和拒付的操作
     expect(claim).toMatchObject({ charge: false, reason: 'subscription_inactive' });
   });
 
   it('⭐ 连续失败到上限就自动关掉 —— 银行看到连续被拒会把卡冻了', async () => {
-    await armAutoTopup();
+    await arm('credit');
     let last = { failures: 0, disabled: false };
     for (let i = 0; i < MAX_TOPUP_FAILURES; i++) {
-      last = await run('billing.recordTopupFailure', { reason: 'card_declined' });
+      last = await run('billing.recordTopupFailure', { unit: 'credit', reason: 'card_declined' });
     }
     expect(last.disabled).toBe(true);
-
-    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    expect(view!.autoTopup.enabled).toBe(false);
+    expect((await quota('credit')).autoTopup.enabled).toBe(false);
+    // 分钟那一边不受牵连
+    expect((await quota('voice_minute')).autoTopup.failures).toBe(0);
   });
 
   it('⭐ 重新打开时清零失败计数 —— 老板刚换了卡，不该还被旧卡的失败挡着', async () => {
-    await armAutoTopup();
+    await arm('credit');
     for (let i = 0; i < MAX_TOPUP_FAILURES; i++) {
-      await run('billing.recordTopupFailure', { reason: 'card_declined' });
+      await run('billing.recordTopupFailure', { unit: 'credit', reason: 'card_declined' });
     }
     const out = await run<{ failuresReset: boolean }>('billing.setAutoTopup',
-      { enabled: true, thresholdCents: 2000, amountCents: 10000 });
+      { unit: 'credit', enabled: true, thresholdUnits: 80 });
     expect(out.failuresReset).toBe(true);
-
-    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    expect(view!.autoTopup.failures).toBe(0);
+    expect((await quota('credit')).autoTopup.failures).toBe(0);
   });
 
-  it('换一张卡也清零失败计数', async () => {
-    await armAutoTopup();
-    await run('billing.recordTopupFailure', { reason: 'expired_card' });
+  it('换一张卡把两种额度的失败计数都清零', async () => {
+    await arm('credit');
+    await run('billing.recordTopupFailure', { unit: 'credit', reason: 'expired_card' });
+    await run('billing.recordTopupFailure', { unit: 'voice_minute', reason: 'expired_card' });
     await run('billing.savePaymentMethod',
       { paymentMethodId: 'pm_test_5555', label: 'Mastercard ···· 5555' });
-    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    expect(view!.autoTopup.failures).toBe(0);
+    expect((await quota('credit')).autoTopup.failures).toBe(0);
+    expect((await quota('voice_minute')).autoTopup.failures).toBe(0);
   });
 
-  it('⭐ 自动续充不接受 $20 那一档 —— 忙店一个月要被扣 1.5 次', async () => {
-    // $20 是留给「第一次买，先试试水」的手动充值。
-    // 拿它做自动续充，每次扣款都是客户账单上的一条记录
+  it('阈值超出范围直接拒 —— 任意值会引来拿被盗的卡试活的人', async () => {
     await expect(run('billing.setAutoTopup',
-      { enabled: true, thresholdCents: 1000, amountCents: 2000 })).rejects.toThrow();
-    // 任意金额更不行 —— 那会引来拿被盗的卡试活的人
-    await expect(run('billing.setAutoTopup',
-      { enabled: true, thresholdCents: 1000, amountCents: 777 })).rejects.toThrow();
-    // $50 可以
-    const ok = await run<{ amountCents: number }>('billing.setAutoTopup',
-      { enabled: true, thresholdCents: 1000, amountCents: 5000 });
-    expect(ok.amountCents).toBe(5000);
+      { unit: 'credit', enabled: true, thresholdUnits: 999999 })).rejects.toThrow();
   });
 });
 
@@ -393,7 +438,7 @@ describe('订阅同步', () => {
 
     // 用掉一些额度
     await withTenant(tenant, (tx) => tx`
-      update billing_accounts set included_assists_used = 123
+      update billing_accounts set included_credits_used = 123, included_minutes_used = 45
       where location_id = ${SPA_LOC}`);
 
     // 续期：period_end 往后走
@@ -401,9 +446,8 @@ describe('订阅同步', () => {
     await run('billing.syncSubscription',
       { subscriptionStatus: 'active', currentPeriodEnd: t1 });
 
-    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    expect(view!.included.used).toBe(0);
-    expect(view!.included.remaining).toBe(view!.included.total);
+    expect((await quota('credit')).included.used).toBe(0);
+    expect((await quota('voice_minute')).included.used).toBe(0);
   });
 
   it('⭐ 重投的旧事件不清零 —— 那等于白送客户一整期额度', async () => {
@@ -412,7 +456,7 @@ describe('订阅同步', () => {
     await run('billing.syncSubscription',
       { subscriptionStatus: 'active', currentPeriodEnd: late });
     await withTenant(tenant, (tx) => tx`
-      update billing_accounts set included_assists_used = 77
+      update billing_accounts set included_credits_used = 77
       where location_id = ${SPA_LOC}`);
 
     // Stripe 偶尔重投一条更早的事件。照着它清零就是白送一期
@@ -420,8 +464,7 @@ describe('订阅同步', () => {
     await run('billing.syncSubscription',
       { subscriptionStatus: 'active', currentPeriodEnd: early });
 
-    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    expect(view!.included.used).toBe(77);
+    expect((await quota('credit')).included.used).toBe(77);
   });
 
   it('⭐ 认不出的 price 传 null → 套餐保持不变，不会被静默降档', async () => {
@@ -442,12 +485,14 @@ describe('账本只追加（宪法第 9 条）', () => {
   it('⭐ app_user 改不动已经写下的账本行', async () => {
     await resetBilling();
     const pi = `pi_lock_${Date.now()}`;
-    await run('billing.recordTopup',
-      { amountCents: 5000, stripePaymentIntentId: pi, trigger: 'manual' }, `topup-${pi}`);
+    await run('billing.recordTopup', {
+      unit: 'credit', units: 1000, paidCents: 5000,
+      stripePaymentIntentId: pi, trigger: 'manual',
+    }, `topup-${pi}`);
 
-    // 「为什么少了 $12」这个问题，只有在账本不可改的前提下才答得出来
+    // 「为什么少了 200 积分」这个问题，只有在账本不可改的前提下才答得出来
     await expect(withTenant(tenant, (tx) => tx`
-      update credit_ledger set amount_cents = 999999
+      update credit_ledger set amount = 999999
       where location_id = ${SPA_LOC}`)).rejects.toThrow();
   });
 
@@ -456,37 +501,34 @@ describe('账本只追加（宪法第 9 条）', () => {
       delete from credit_ledger where location_id = ${SPA_LOC}`)).rejects.toThrow();
   });
 
-  it('⭐ 绕过账本直接改余额会被自洽性检查当场发现', async () => {
+  it('⭐ 绕过账本直接改余额缓存会被自洽性检查发现', async () => {
     // ⚠️ 这一条**必须放在最后**：它故意把余额缓存改坏，
     // 而后面任何一个断言余额的用例都会跟着一起红。
-    //
-    // 这不是假设出来的场景 —— 这一份测试的第一版就是靠
-    // `update billing_accounts set balance_cents = 0` 来做清理的，
-    // 而检查当场把它报成了断点。既然它连我们自己都拦得住，就说明它是活的。
-    const view0 = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    const good = view0!.balanceCents;
+    await resetBilling();
+    const good = (await quota('credit')).balance;
     await withTenant(tenant, (tx) => tx`
-      update billing_accounts set balance_cents = 999999
+      update billing_accounts set credit_balance = 999999
       where location_id = ${SPA_LOC}`);
 
     try {
-      const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-      expect(view!.balanceCents).toBe(999999);
+      const q = await quota('credit');
+      expect(q.balance).toBe(999999);
       // ⚠️ `ledgerBreakAt` **抓不到这一种** —— 账本一行没动，它自己是自洽的，
-      // 只是没人再看它了。这正是第一版漏掉的那个口子：
-      // 「绕过账本改余额」和「改账本行」是两件事，要两条检查
-      expect(view!.ledgerBreakAt).toBeNull();
-      expect(view!.balanceMismatch).toEqual({ cachedCents: 999999, ledgerCents: good });
+      // 只是没人再看它了。「绕过账本改余额」和「改账本行」是两件事，要两条检查
+      expect(q.ledgerBreakAt).toBeNull();
+      expect(q.balanceMismatch).toEqual({ cached: 999999, ledger: good });
+      // 分钟那本账不受牵连
+      expect((await quota('voice_minute')).balanceMismatch).toBeNull();
     } finally {
       // ⚠️ 必须在 finally 里修回去。断言失败时把 999999 留在库里的话，
       // 下一次 resetBilling 会对着它写调账，污染就进了账本 —— 而账本改不动
       await withTenant(tenant, (tx) => tx`
-        update billing_accounts set balance_cents = ${good}
+        update billing_accounts set credit_balance = ${good}
         where location_id = ${SPA_LOC}`);
     }
 
-    const fixed = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    expect(fixed!.ledgerBreakAt).toBeNull();
-    expect(fixed!.balanceMismatch).toBeNull();
+    const fixed = await quota('credit');
+    expect(fixed.ledgerBreakAt).toBeNull();
+    expect(fixed.balanceMismatch).toBeNull();
   });
 });

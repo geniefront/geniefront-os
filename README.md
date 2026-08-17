@@ -19,7 +19,7 @@
 | **Phase 1b** | ✅ 提成引擎 + 收入看板、打烊日结对账、现金小费发放、排班 + 报表 CSV |
 | **Phase 1c** | ✅ 技师端 PWA、Realtime 派单（实测 2 秒）、PIN 打卡 |
 | **Phase 2** | 🚧 拍照开店 ✅、Yelp ✅、Kiosk ✅、Stripe 计费 ✅、AI 前台副驾 ✅、AI 电话（代码 ✅ 卡开户） |
-| **测试** | **466 项**，12 个包，`pnpm verify` 全绿 |
+| **测试** | **476 项**，12 个包，`pnpm verify` 全绿 |
 
 ---
 
@@ -29,7 +29,7 @@
 pnpm install
 cp .env.example .env          # ⚠️ 真实凭据不在仓库里，见 docs/07-CREDENTIALS-CHECKLIST.md
 bash scripts/check-env.sh     # 凭据格式 + 实测联通性
-pnpm verify                   # 宪法检查 + typecheck + 466 项测试
+pnpm verify                   # 宪法检查 + typecheck + 476 项测试
 ```
 
 跑起来：

@@ -15,7 +15,8 @@ import {
 import { jsonb } from '@gf/db';
 import { toServiceDrafts, type DraftItem } from '@gf/ai';
 import { registerHandler, type HandlerArgs } from '../bus';
-import { chargeUsage } from '../billing/usage';
+import { chargeQuota } from '../billing/usage';
+import { creditsFor } from '@gf/payroll';
 import type postgres from 'postgres';
 
 /**
@@ -116,10 +117,14 @@ registerHandler(SaveBlueprintExtraction, async ({ input, ctx, tx, audit }: Handl
   // 和上面那条 usage_events **在同一个事务里**：分开的话中间挂掉就会留下
   // 「用量记了但没扣钱」或者反过来，而两种漂移都要到月底对账才发现。
   // 传的是**毫分**不是分（差 10 倍的那个坑，见 billing/usage.ts）。
-  const charge = await chargeUsage(tx, ctx, {
-    kind: 'ai_assist',
-    costMillicents: input.usage.costMillicents,
+  // 拍照开店走 Opus，一张 ~$0.08 → 自然扣 8 积分。
+  // 用和副驾同一把尺子量，就不需要为它单独定一套规则（`@gf/payroll`）
+  const credits = creditsFor(input.usage.costMillicents);
+  const charge = await chargeQuota(tx, ctx, {
+    unit: 'credit',
+    amount: credits,
     usageEventId: usageRow!.id,
+    source: 'price_list_vision',
   });
 
   audit({
@@ -128,14 +133,16 @@ registerHandler(SaveBlueprintExtraction, async ({ input, ctx, tx, audit }: Handl
       itemCount: input.items.length,
       imagesOk: input.usage.imagesOk,
       imagesFailed: input.usage.imagesFailed,
-      chargedCents: charge?.chargedCents ?? 0,
+      credits,
+      fromBalance: charge?.fromBalance ?? 0,
     },
   });
   return {
     blueprintId: input.blueprintId,
     itemCount: input.items.length,
-    chargedCents: charge?.chargedCents ?? 0,
-    balanceAfterCents: charge?.balanceAfterCents ?? null,
+    credits,
+    fromIncluded: charge?.fromIncluded ?? 0,
+    fromBalance: charge?.fromBalance ?? 0,
   };
 });
 

@@ -13,8 +13,8 @@
 cd <仓库根>                  # 本文档在仓库的 docs/ 下
 cp .env.example .env        # ⚠️ 真实凭据不在仓库里，见 07-CREDENTIALS-CHECKLIST.md
 bash scripts/check-env.sh   # 凭据格式 + 实测联通
-pnpm db:migrate             # ⚠️ 0019 是新的，不跑的话账本对账会误报断点
-pnpm verify                 # 宪法检查 + typecheck + 466 项测试，应当全绿
+pnpm db:migrate             # ⚠️ 0019–0024 都是新的，不跑的话计费整条起不来
+pnpm verify                 # 宪法检查 + typecheck + 476 项测试，应当全绿
 ```
 
 | | 状态 |
@@ -23,12 +23,12 @@ pnpm verify                 # 宪法检查 + typecheck + 466 项测试，应当�
 | **拍照开店**（AI 视觉建项目） | ✅ 完成，实测 17 行零漏行 |
 | **Yelp 一键填店** | ✅ 完成，实测 Austin 三家同名店 |
 | **Kiosk 门口端** | ✅ 完成，实测越南语走完整条路 |
-| **Stripe 订阅与预充值** | ✅ **接线完成**，等真 webhook 与 Price id（见 §3.A） |
+| **Stripe 订阅 + 两种 AI 额度** | ✅ **接线完成并用真事件实测过**（见 §3.A） |
 | **AI 前台副驾** | ✅ **完成**，实测提案带真 uuid、缓存命中 |
 | **AI 电话接单** | 🚧 **代码全完**，卡在 Telnyx 开户 + 口音实测 |
 
-**测试 466 项**，12 个包。分布：
-`api 199` · `payroll 85` · `ai 57` · `scheduling 51` · `db 26` · `rotation 24` · `yelp 20` · `contracts 4`
+**测试 476 项**，12 个包。分布：
+`api 203` · `payroll 91` · `ai 57` · `scheduling 51` · `db 26` · `rotation 24` · `yelp 20` · `contracts 4`
 
 ---
 
@@ -43,9 +43,9 @@ pnpm verify                 # 宪法检查 + typecheck + 466 项测试，应当�
 | `apps/kiosk` | 门口 iPad | 六语言、纯触屏、无快捷键 |
 | `packages/ai/src/copilot` | 前台副驾 | 快照格式化与意图路由是**纯函数**（31 项测试） |
 | `apps/api/src/stripe` | Stripe 验签 + 编排 | 验签手写（19 项离线测试），SDK 只用来调 API |
-| `apps/api/src/billing` | 扣费与自动续充 | `chargeUsage` 进业务事务；续充在事务外 |
+| `apps/api/src/billing` | 扣额度与自动续充 | `chargeQuota` 进业务事务；续充在事务外 |
 
-### 新增的表（迁移 0014–0018 已全部应用到 dev 库）
+### 新增的表与迁移（0014–0024 已全部应用到 dev 库）
 
 | 迁移 | 表 | 关键约束 |
 |---|---|---|
@@ -55,6 +55,10 @@ pnpm verify                 # 宪法检查 + typecheck + 466 项测试，应当�
 | `0017_phase2_permissions` | —— | 把新权限补给已有预设角色 |
 | `0018_billing` | `billing_accounts` `credit_ledger` `stripe_events` | 账本**连 UPDATE 都收回** |
 | `0019_ledger_order` | —— | 账本加 `seq bigserial`：**对账不能按 `created_at` 排**（见 §4.9） |
+| `0020_stripe_events_processed_at` | —— | 列名写死那个坑的第二次发作（§4.1 / §4.10） |
+| `0021_plans_and_included_quota` | —— | 套餐改名 essential / growth，对齐 Stripe 后台 |
+| `0023_credits_and_minutes` | —— | ⭐ 余额从「钱」改成**积分 + 语音分钟两种独立额度** |
+| `0024_retire_money_ledger_columns` | —— | 账本上「钱」那两列退休（写 null 不写 0，见 §4.14） |
 
 ### 新增的命令
 
@@ -105,11 +109,11 @@ pnpm verify                 # 宪法检查 + typecheck + 466 项测试，应当�
 | `apps/api/src/rawBody.ts` | 原始字节解析器。**Fastify 一个 content-type 只能注册一个** —— 加供应商是往 `RAW_BODY_PREFIXES` 里加一条 |
 | `apps/api/src/stripe/client.ts` | 薄客户端 + 套餐↔Price 映射。**没有业务逻辑** |
 | `apps/api/src/stripe/routes.ts` | 编排：订阅 Checkout / 绑卡（setup 模式）/ 手动充值 / webhook |
-| `packages/contracts/src/commands/billing.ts` | 六条命令，除 `setAutoTopup` 外全是 `exposed: false` |
+| `packages/contracts/src/commands/billing.ts` | 六条命令，除 `setAutoTopup` 外全是 `exposed: false`。**每条都带 `unit`** |
 | `apps/api/src/handlers/billing.ts` | 落库。`appendLedger()` 是**所有余额变动的唯一入口** |
-| `apps/api/src/billing/usage.ts` | `chargeUsage()` —— 和 `usage_events` 那条 insert **在同一个事务里** |
-| `apps/api/src/billing/autoTopup.ts` | 自动续充三步：认领（占位）→ 扣款 → 入账 |
-| `apps/desk/src/screens/Billing.tsx` | 老板端「💳 订阅与余额」页签 |
+| `apps/api/src/billing/usage.ts` | `chargeQuota()` —— 和 `usage_events` 那条 insert **在同一个事务里** |
+| `apps/api/src/billing/autoTopup.ts` | 自动续充三步：认领（占位）→ 扣款 → 入账。**按单位各跑一趟** |
+| `apps/desk/src/screens/Billing.tsx` | 老板端「💳 订阅与余额」。**两种额度分成两块，绝不合成一个总额度** |
 
 **几个当时想清楚了、别推翻的决定**：
 
@@ -124,6 +128,9 @@ pnpm verify                 # 宪法检查 + typecheck + 466 项测试，应当�
   拍照开店提取完、副驾回答完、电话挂断记完账、老板打开账单页。
 - **同一笔扣款两条路都会来记**（路由 + `payment_intent.succeeded` webhook），
   所以 `billing.recordTopup` 除了总线的幂等键，还按 PaymentIntent id 再去一次重。
+- **充值的 PaymentIntent 必须带 `gf_unit` / `gf_units` metadata。**
+  webhook 那条路只拿得到那个对象 —— 认不出单位就**不入账**（宁可漏也不猜），
+  因为猜错了客户会买了分钟拿到积分，而两者不能互换，只能人工冲账。
 - **认不出的 price 不写**（`plan` 传 null 保持原样）。把未知套餐写成 starter
   会让付 Pro 钱的客户被静默降档，账单上看不出来。
 
@@ -136,17 +143,37 @@ pnpm verify                 # 宪法检查 + typecheck + 466 项测试，应当�
 DB 的 check 约束、Stripe 后台的产品名。对不上的话，等到有人对着
 Stripe 后台查一笔账时谁也说不清哪个是哪个。迁移 0021 做了这次改名。
 
-⭐ **余额卖钱不卖分钟，而且只有一个余额**（2026-08-17，`04` §4.1.1 有完整算账）：
-Telnyx 单价还没实测，承诺「$100 = 200 分钟」等于在成本量出来之前锁死毛利。
-不分语音包/副驾包是因为决策 8 担心的套利在**钱**上不成立 ——
-真正的分离杠杆是加价率（副驾 3.0x、语音 1.5x），那一条已经分开了。
-手动三档 $20/$50/$100，**自动续充只给 $50/$100**：$20 那档在忙店
-一个月要触发 1.5 次，而自动续充要的恰恰是别让人注意到它。
+### ⭐⭐ 定价模型（2026-08-17 定稿，完整算账在 `04` §4.1）
 
-⭐ **额度先用套餐里的**：Essential 每期 500 次副驾、Growth 2000 次，
-用满了才扣预充值余额。清零跟着 Stripe 的续期走（`current_period_end`
-往后走了才清），**不自己数日子** —— 自己数一定会和账单周期漂开。
-⚠️ 只有 `ai_assist` 吃这个额度，电话分钟不吃（决策 8：合成一个额度必被套利）。
+|  | 月费 | AI 积分 | AI 语音 | 我们成本 | 毛利 |
+|---|---|---|---|---|---|
+| Essential | $99 | 500 | **60 分钟** | $8.36 | 92% |
+| Growth | $199 | 1200 | **500 分钟** | $40.00 | 80% |
+| 充值 | **$50** | 1000 积分 | **或** 200 分钟 | — | 80% / 78% |
+
+**四条不能破的**，每一条在代码里都有对应的守卫：
+
+1. **两种额度不能互换。** 语音成本 $0.056/分钟，是一次副驾操作的 **5.6 倍**。
+   能换就会被客户全换成最贵的那种用（决策 8）。
+   ⚠️ `@gf/payroll/credits` 有一条测试专门扫模块导出，
+   出现 `convert` / `exchange` / `toMinutes` 之类的名字就红。
+2. **1 积分 = $0.01 的真实成本，向上取整。** 所以拍照开店（Opus，$0.08/张）
+   自然扣 8 积分 —— 不用为它单独定规则，也不会有人拿它当免费午餐。
+3. **关键词直接答掉的不扣积分。** 那些**根本不会走到 `ai.recordAssist`** ——
+   副驾路由在本地答完就返回了。不是一段判断，是一条没有发生的调用。
+4. **先用套餐里的**，用完了才扣充值余额；**一次可以跨两边扣**
+   （套餐内剩 3 个而要扣 8 个 = 3 + 5），别浪费掉已经付过钱的那几个。
+   清零跟着 Stripe 的 `current_period_end` 走，**不自己数日子**。
+
+⚠️ **Essential 的 60 分钟 ≈ 每天 1 通电话，是「尝鲜」不是「够用」。**
+这是算过三种配法之后才定的一刀：给 200 分钟的话没人会升级到 Growth
+（`04` §4.1 有那张对照表）。**销售时必须直说** —— 开店时问一句
+「一天大概接几通电话」，超过 2 通就直接推 Growth。
+
+⏳ **两个还没定的数**：
+- `$0.056/分钟` 是不是全包（PSTN + STT + TTS + LLM）？LLM 另计的话整张表要重算。
+- 关键词路由能拦掉多少提问（现按 65% 估）。日志里已经记了
+  `source: local | model`，**上线后捞一周真实数据再定稿**。
 
 ### ⭐ A2. AI 前台副驾（**已完成**）
 
@@ -372,6 +399,31 @@ Zod 会拦下来，但**那次调用的钱已经花了**，而前台看到的是
 而账本删不掉改不动，那个断点会永远留在库里。这个坑我踩过一次，
 `billing.test.ts` 的 `resetBilling()` 里有完整的复盘。
 
+### 4.14 「不涉及钱」不能写 0，要写 null
+
+账本从「钱」改成「积分 / 分钟」时（迁移 0023），`amount_cents` 是 `not null`，
+于是新行只能写 0 —— 而 0 立刻撞上 0018 那条方向约束
+（`kind='topup'` 时 `amount_cents` 必须 > 0）。
+
+约束报错只是表象。**真正的问题是写 0 本身就是错的**：
+
+> `0` 的意思是「这笔金额是零」，而事实是「**这一笔跟钱没关系**」。
+
+这两件事在对账时会被读成完全不同的意思 —— 一个说「有一笔零元交易」，
+另一个说「这条记录不在钱的账本上」。迁移 0024 把两列改成可空，新行写 null。
+
+同一个道理的另一面：**历史行原样留着**（宪法第 9 条，财务数据不删）。
+它们记录的是真实发生过的钱。
+
+### 4.15 换计量单位时，测试的清理逻辑要跟着换
+
+`billing.test.ts` 的 `resetBilling()` 原本按「钱」清零。改成两种额度之后
+它必须**按单位各清一次** —— 漏掉一种的话，那一种的余额会跨用例累积，
+而报错会以一种完全无关的形式出现（「为什么这个用例算出来是 -15 而不是 -5」）。
+
+⚠️ 而清零本身必须**走账本写一条 adjustment**，不能 `update balance = 0`——
+那正是 §4.13 那条检查要抓的东西，而且一旦写进开发库就永远消不掉。
+
 ---
 
 ## 5. 这一轮定下来、以后别推翻的几个设计
@@ -428,9 +480,10 @@ RLS 挡的是**应用里的越权**；它挡不住**把整个库复制走的人*
 
 一条共同的理由：**静默的错误比明显的空白危险得多**。前者没人会发现。
 
-### 5.6 钱这条路上，**事实和缓存要分得很清**
+### 5.6 额度这条路上，**事实和缓存要分得很清**
 
-`credit_ledger` 是事实，`billing_accounts.balance_cents` 只是缓存。
+`credit_ledger` 是事实，`billing_accounts.credit_balance` /
+`voice_minute_balance` 只是缓存。
 这不是洁癖，它决定了三件事怎么做：
 
 | 场景 | 做法 |

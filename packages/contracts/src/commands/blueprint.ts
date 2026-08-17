@@ -91,10 +91,12 @@ export const SaveBlueprintExtraction = defineCommand({
   output: z.object({
     blueprintId: uuid,
     itemCount: z.number().int(),
-    /** 这次提取从余额里扣了多少分。0 = 还没接计费或者舍入后不足一分 */
-    chargedCents: z.number().int().min(0),
-    /** 扣完之后的余额。null = 这次没扣。**可以是负数**（见 credits.ts） */
-    balanceAfterCents: z.number().int().nullable(),
+    /** 这次提取扣了几个积分（1 积分 = $0.01 真实成本，向上取整） */
+    credits: z.number().int().min(0),
+    /** 其中走套餐内额度的部分 */
+    fromIncluded: z.number().int().min(0),
+    /** 其中走充值余额的部分 —— 只有这部分是真花钱 */
+    fromBalance: z.number().int().min(0),
   }),
   permission: 'catalog.manage',
   ai: {

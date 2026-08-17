@@ -156,7 +156,7 @@ export function registerCopilotRoutes(
     }, req.log);
 
     // 扣完费顺手看一眼要不要自动续充（事务外，失败只记日志）
-    void maybeAutoTopup(ctx, req.log);
+    void maybeAutoTopup(ctx, 'credit', req.log);
 
     return {
       answer: result.answer,

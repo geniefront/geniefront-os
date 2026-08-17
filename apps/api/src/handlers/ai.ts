@@ -12,7 +12,8 @@
 import { RecordAiAssist } from '@gf/contracts';
 import { jsonb } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
-import { chargeUsage } from '../billing/usage';
+import { chargeQuota } from '../billing/usage';
+import { creditsFor } from '@gf/payroll';
 
 registerHandler(RecordAiAssist, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof RecordAiAssist.input._type>) => {
@@ -33,10 +34,19 @@ registerHandler(RecordAiAssist, async ({ input, ctx, tx, audit }: HandlerArgs<
             })}::jsonb)
     returning id`;
 
-  const charge = await chargeUsage(tx, ctx, {
-    kind: 'ai_assist',
-    costMillicents: input.costMillicents,
+  /**
+   * 扣积分。**1 积分 = $0.01 的真实成本，向上取整**（`@gf/payroll` 的长注释）。
+   *
+   * ⚠️ 关键词直接答掉的那些**根本不会走到这里** —— 副驾路由在本地
+   * 答完就返回了，压根不调这条命令。所以「常用查询不算积分」
+   * 不是一段判断，是一条根本没有发生的调用。
+   */
+  const credits = creditsFor(input.costMillicents);
+  const charge = await chargeQuota(tx, ctx, {
+    unit: 'credit',
+    amount: credits,
     usageEventId: usageRow!.id,
+    source: input.feature,
   });
 
   audit({
@@ -47,13 +57,18 @@ registerHandler(RecordAiAssist, async ({ input, ctx, tx, audit }: HandlerArgs<
       tokens: input.tokens,
       rounds: input.rounds,
       hadProposal: input.hadProposal,
-      chargedCents: charge?.chargedCents ?? 0,
+      credits,
+      fromIncluded: charge?.fromIncluded ?? 0,
+      fromBalance: charge?.fromBalance ?? 0,
     },
   });
 
   return {
     usageEventId: usageRow!.id,
-    chargedCents: charge?.chargedCents ?? 0,
-    balanceAfterCents: charge?.balanceAfterCents ?? null,
+    credits,
+    fromIncluded: charge?.fromIncluded ?? 0,
+    fromBalance: charge?.fromBalance ?? 0,
+    includedRemaining: charge?.includedRemaining ?? 0,
+    balanceAfter: charge?.balanceAfter ?? 0,
   };
 });

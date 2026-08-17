@@ -31,7 +31,7 @@ import {
   type CommandContext, type Permission,
 } from '@gf/contracts';
 import { withTenant } from '@gf/db';
-import { isTopupTier, TOPUP_TIERS } from '@gf/payroll';
+import { unitsPerTopup, TOPUP_PRICE_CENTS, isQuotaUnit, type QuotaUnit } from '@gf/payroll';
 import { dispatch } from '../bus';
 import { rawBodyOf } from '../rawBody';
 import { verifyStripeSignature, STRIPE_SIGNATURE_HEADER } from './verify';
@@ -190,17 +190,23 @@ export function registerStripeRoutes(
 
   // ── 手动充值 ─────────────────────────────────────────────────────────────
   //
-  // 老板自己点的那一次。用已绑的卡 off-session 扣 —— 他人就在浏览器前面，
-  // 但走 off_session 是有意的：这条路和自动续充**用同一段扣款逻辑**，
-  // 两条路差异越小，「手动能充自动充不上」这种问题就越少。
-  app.post<{ Body: { amountCents?: number } }>('/v1/billing/topup', async (req) => {
+  // 老板自己点的那一次，固定 $50，买**一种**额度（积分 或 语音分钟）。
+  //
+  // ⚠️ **两种额度不能互换**（决策 8）。所以这里收的是 `unit` 而不是金额 ——
+  // 界面上是两个按钮，不是一个金额输入框。
+  //
+  // 用已绑的卡 off-session 扣：他人就在浏览器前面，但走 off_session 是有意的 ——
+  // 这条路和自动续充**用同一段扣款逻辑**，两条路差异越小，
+  //「手动能充自动充不上」这种问题就越少。
+  app.post<{ Body: { unit?: string } }>('/v1/billing/topup', async (req) => {
     const ctx = await ownerCtx(req);
-    const amountCents = req.body?.amountCents;
-    if (typeof amountCents !== 'number' || !isTopupTier(amountCents)) {
+    const unit = req.body?.unit;
+    if (!isQuotaUnit(unit)) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-        details: { reason: '充值只有三档', allowed: TOPUP_TIERS, got: amountCents },
+        details: { reason: '要说明充哪一种额度', allowed: ['credit', 'voice_minute'], got: unit },
       });
     }
+    const units = unitsPerTopup(unit);
 
     const [acct] = await withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
@@ -217,42 +223,44 @@ export function registerStripeRoutes(
     let paymentIntentId: string;
     try {
       const pi = await stripeClient().paymentIntents.create({
-        amount: amountCents,
+        amount: TOPUP_PRICE_CENTS,
         currency: 'usd',
         customer: acct.stripe_customer_id,
         payment_method: acct.default_payment_method_id,
         off_session: true,
         confirm: true,
-        description: 'GenieFront 余额充值',
+        description: unit === 'credit'
+          ? `GenieFront ${units} AI 积分` : `GenieFront ${units} AI 语音分钟`,
         metadata: {
           gf_location_id: ctx.locationId, gf_org_id: ctx.orgId, gf_kind: 'topup',
+          // ⚠️ 单位和数量必须写进 metadata：webhook 那条路只拿得到这个对象
+          gf_unit: unit, gf_units: String(units),
         },
       });
       paymentIntentId = pi.id;
       if (pi.status !== 'succeeded') {
-        // 还要 3DS 之类的后续动作。**不当成功** —— 记了账钱可能永远到不了。
+        // 还要 3DS 之类的后续动作。**不当成功** —— 记了账额度可能白送。
         // 等 payment_intent.succeeded webhook 来入账
         return { ok: false, pending: true, status: pi.status };
       }
     } catch (e) {
-      req.log.warn({ err: e, locationId: ctx.locationId }, 'manual topup declined');
+      req.log.warn({ err: e, locationId: ctx.locationId, unit }, 'manual topup declined');
       throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, {
         details: { service: 'stripe', reason: declineReason(e) },
       });
     }
 
-    const out = await dispatch<{ balanceAfterCents: number; alreadyRecorded: boolean }>(
+    const out = await dispatch<{ balanceAfter: number; alreadyRecorded: boolean }>(
       'billing.recordTopup',
-      { amountCents, stripePaymentIntentId: paymentIntentId, trigger: 'manual' },
+      {
+        unit, units, paidCents: TOPUP_PRICE_CENTS,
+        stripePaymentIntentId: paymentIntentId, trigger: 'manual',
+      },
       ctx,
       { idempotencyKey: `topup-${paymentIntentId}` },
     );
 
-    return {
-      ok: true,
-      amountCents,
-      balanceCents: out.result.balanceAfterCents,
-    };
+    return { ok: true, unit, units, balanceAfter: out.result.balanceAfter };
   });
 
   // ── webhook ──────────────────────────────────────────────────────────────
@@ -373,12 +381,22 @@ export function registerStripeRoutes(
       case 'payment_intent.succeeded': {
         const pi = event.data.object;
         const kind = pi.metadata?.['gf_kind'];
-        // 订阅的发票扣款也会发这个事件 —— 那笔钱不该进余额账本，
-        // 它是月费不是预充值。只认我们自己打了标记的那两种
+        // 订阅的发票扣款也会发这个事件 —— 那笔钱不该进额度账本，
+        // 它是月费不是充值。只认我们自己打了标记的那两种
         if (kind !== 'topup' && kind !== 'auto_topup') return 'ignored_kind';
 
+        const unit = pi.metadata?.['gf_unit'];
+        const units = Number(pi.metadata?.['gf_units'] ?? 0);
+        // ⚠️ 认不出单位就**不入账**。猜一个的话会给错额度 ——
+        // 客户买了分钟却拿到积分，而两者不能互换，只能人工冲账
+        if (!isQuotaUnit(unit) || !Number.isInteger(units) || units <= 0) {
+          app.log.warn({ pi: pi.id, unit, units }, 'topup without gf_unit metadata');
+          return 'ignored_missing_unit';
+        }
+
         await dispatch('billing.recordTopup', {
-          amountCents: pi.amount_received || pi.amount,
+          unit, units,
+          paidCents: pi.amount_received || pi.amount,
           stripePaymentIntentId: pi.id,
           trigger: kind === 'auto_topup' ? 'auto' : 'manual',
         }, ctx, { idempotencyKey: `topup-${pi.id}` });
@@ -388,7 +406,10 @@ export function registerStripeRoutes(
       case 'payment_intent.payment_failed': {
         const pi = event.data.object;
         if (pi.metadata?.['gf_kind'] !== 'auto_topup') return 'ignored_kind';
+        const unit = pi.metadata?.['gf_unit'];
+        if (!isQuotaUnit(unit)) return 'ignored_missing_unit';
         await dispatch('billing.recordTopupFailure', {
+          unit,
           reason: pi.last_payment_error?.decline_code
             ?? pi.last_payment_error?.code ?? 'payment_failed',
         }, ctx);
@@ -498,3 +519,4 @@ function safeReturnUrls(body: { successUrl?: string; cancelUrl?: string } | unde
 }
 
 export { maybeAutoTopup };
+export type { QuotaUnit };

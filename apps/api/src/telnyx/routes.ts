@@ -266,7 +266,8 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
     // ⭐ 电话也会烧余额，挂机记完账顺手看一眼要不要自动续充（事务外）。
     // ⚠️ 换一个上下文：电话那个 actor 的四条权限里**没有** billing.manage ——
     // 一个靠签名进来的入口不该有扣客户钱的权限（见 billing/autoTopup.ts）
-    void maybeAutoTopup(billingSystemContext(ctx), req.log);
+    // 电话烧的是**语音分钟**那本账，不是积分
+    void maybeAutoTopup(billingSystemContext(ctx), 'voice_minute', req.log);
 
     return { ok: true, billedMinutes: out.result.billedMinutes };
   });

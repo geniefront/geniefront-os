@@ -649,7 +649,7 @@ export function buildServer(): FastifyInstance {
       // ⭐ 扣完费顺手看一眼要不要自动续充。**在事务外**（`dispatch` 已经
       // 提交了）—— Stripe 调用不能进数据库事务，而且事务回滚不了扣款。
       // 失败只记日志：老板不该因为一张过期的卡而看不到刚提取出来的价目表
-      void maybeAutoTopup(ctx, req.log);
+      void maybeAutoTopup(ctx, 'credit', req.log);
 
       return {
         ...out.result,
@@ -757,7 +757,12 @@ export function buildServer(): FastifyInstance {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'billing.manage' } });
     }
 
-    const topup = await maybeAutoTopup(ctx, req.log);
+    // 两种额度各看一眼。**分开充** —— 积分和分钟不能互换（决策 8），
+    // 所以「余额低了」这件事也得分开判断
+    const topup = await Promise.all([
+      maybeAutoTopup(ctx, 'credit', req.log),
+      maybeAutoTopup(ctx, 'voice_minute', req.log),
+    ]);
 
     const view = await withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
