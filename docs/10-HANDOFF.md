@@ -1,6 +1,6 @@
 # 10 · 交接：Phase 2 剩下的活
 
-> **写给下一个 session 的 AI。** 2026-08-16 交接。
+> **写给下一个 session 的 AI。** 2026-08-16 交接（Stripe 接线 + 前台副驾那一轮更新）。
 >
 > 先读这一份，再按 §3 挑一件开工。
 > 动手前必读 **`03` §A 已定决策 + §D 项目宪法**，那 19 条是这个仓库的物理法则。
@@ -13,7 +13,8 @@
 cd <仓库根>                  # 本文档在仓库的 docs/ 下
 cp .env.example .env        # ⚠️ 真实凭据不在仓库里，见 07-CREDENTIALS-CHECKLIST.md
 bash scripts/check-env.sh   # 凭据格式 + 实测联通
-pnpm verify                 # 宪法检查 + typecheck + 384 项测试，应当全绿
+pnpm db:migrate             # ⚠️ 0019 是新的，不跑的话账本对账会误报断点
+pnpm verify                 # 宪法检查 + typecheck + 457 项测试，应当全绿
 ```
 
 | | 状态 |
@@ -22,14 +23,12 @@ pnpm verify                 # 宪法检查 + typecheck + 384 项测试，应当�
 | **拍照开店**（AI 视觉建项目） | ✅ 完成，实测 17 行零漏行 |
 | **Yelp 一键填店** | ✅ 完成，实测 Austin 三家同名店 |
 | **Kiosk 门口端** | ✅ 完成，实测越南语走完整条路 |
+| **Stripe 订阅与预充值** | ✅ **接线完成**，等真 webhook 与 Price id（见 §3.A） |
+| **AI 前台副驾** | ✅ **完成**，实测提案带真 uuid、缓存命中 |
 | **AI 电话接单** | 🚧 **代码全完**，卡在 Telnyx 开户 + 口音实测 |
-| **Stripe 计费** | 🚧 **地基全完**，测试密钥刚到位，**接线没做** |
 
-**测试 384 项**，12 个包。分布：
-`api 153` · `payroll 80` · `scheduling 51` · `ai 26` · `db 26` · `rotation 24` · `yelp 20` · `contracts 4`
-
-⚠️ **工作区有 69 个未提交的改动**（`git status`）。这一整轮 Phase 2 都没提交过 ——
-接手第一件事建议是读一遍 diff 然后分几个 commit 落下去，别在未提交的状态上继续堆。
+**测试 457 项**，12 个包。分布：
+`api 195` · `payroll 80` · `ai 57` · `scheduling 51` · `db 26` · `rotation 24` · `yelp 20` · `contracts 4`
 
 ---
 
@@ -42,6 +41,9 @@ pnpm verify                 # 宪法检查 + typecheck + 384 项测试，应当�
 | `packages/ai` | 价目表视觉提取 | strict tool use + 两层校验；纯函数归一化/去重有测试 |
 | `packages/yelp` | Yelp Fusion 映射 | **纯代码不过模型**；三个坑全有测试（见下） |
 | `apps/kiosk` | 门口 iPad | 六语言、纯触屏、无快捷键 |
+| `packages/ai/src/copilot` | 前台副驾 | 快照格式化与意图路由是**纯函数**（31 项测试） |
+| `apps/api/src/stripe` | Stripe 验签 + 编排 | 验签手写（19 项离线测试），SDK 只用来调 API |
+| `apps/api/src/billing` | 扣费与自动续充 | `chargeUsage` 进业务事务；续充在事务外 |
 
 ### 新增的表（迁移 0014–0018 已全部应用到 dev 库）
 
@@ -52,52 +54,118 @@ pnpm verify                 # 宪法检查 + typecheck + 384 项测试，应当�
 | `0016_kiosk` | `walkin_queue` `form_templates` `form_submissions` `form_access_log` | 健康表**不可删只可匿名化**；模板发布后不可改 |
 | `0017_phase2_permissions` | —— | 把新权限补给已有预设角色 |
 | `0018_billing` | `billing_accounts` `credit_ledger` `stripe_events` | 账本**连 UPDATE 都收回** |
+| `0019_ledger_order` | —— | 账本加 `seq bigserial`：**对账不能按 `created_at` 排**（见 §4.9） |
 
 ### 新增的命令
 
 `blueprint.*`（6）· `call.*`（3）· `location.savePhoneLine` · `location.applyYelp` ·
-`device.issueToken/revokeToken` · `queue.join/update` · `catalog.saveFormTemplate` · `form.submit`
+`device.issueToken/revokeToken` · `queue.join/update` · `catalog.saveFormTemplate` · `form.submit` ·
+`billing.*`（6，只有 `setAutoTopup` 对 AI 可见）· `ai.recordAssist`（内部）
+
+### 新增的路由（不走 `/v1/commands` 的那几条）
+
+| 路由 | 为什么不是命令 |
+|---|---|
+| `POST /v1/ai/copilot` | 模型调用要几秒，塞进事务会占住连接 |
+| `POST /v1/billing/checkout` `/payment-method` `/topup` | 调 Stripe 是外部 IO，而且**事务回滚不了扣款** |
+| `POST /v1/stripe/webhook` | 没有登录用户，身份是 HMAC 签名 |
+| `GET /v1/desk/billing` | 只读；顺带触发一次自动续充检查 |
 
 ---
 
 ## 3. 剩下的活，按建议顺序
 
-### ⭐ A. Stripe 接线（**测试密钥已就位，可立即开工**）
+### ⭐ A. Stripe：**代码全完，剩下三件要人去 Dashboard 做的**
 
-`.env` 现在是 `sk_test_51U5…` / `pk_test_51U5…`。
-**`STRIPE_WEBHOOK_SECRET` 还是空的** —— 本地开发用 `stripe listen --forward-to localhost:3000/v1/stripe/webhook`，
-它会打印 `whsec_…` 填进去。
+代码这一侧已经接完并跑通（`billing.test.ts` 23 项 + `stripe/verify.test.ts` 19 项）。
+剩下的三件都在 Stripe 控制台里，AI 做不了：
 
-**已经写好、不用重做的**：
+1. **建两个循环价格** —— Products → 各建一个 $99 / $149 的 monthly price，
+   把 `price_…` 填进 `.env` 的 `STRIPE_PRICE_STARTER` / `STRIPE_PRICE_PRO`。
+   ⚠️ 别复制成 `prod_` 开头的 Product id，建 Checkout 时会 400。
+2. **`STRIPE_WEBHOOK_SECRET`** —— 本地跑
+   `stripe listen --forward-to localhost:3000/v1/stripe/webhook`，它会打印 `whsec_…`。
+   生产在 Dashboard → Webhooks 建 endpoint，**那是另一个 secret，别混用**。
+3. **打一条真事件过一遍**（`stripe trigger checkout.session.completed`）。
+   验签那 19 项测试用的是我们自己造的签名 —— 造签名和验签名共用同一段拼法，
+   拼错了两边一起错而测试照样绿。**只有真事件能证明格式理解对了**。
 
-- `packages/db/src/schema/billing.ts` —— 三张表，注释里写清了每个字段为什么在那儿
-- `packages/payroll/src/credits.ts` —— **全部纯逻辑，24 项测试**：
-  `shouldAutoTopup()` / `applyEntry()` / `findLedgerBreak()` / `usageChargeCents()`
-- `packages/db/sql/0018_billing.sql` —— RLS + 账本只追加 + 值域约束
+**已经做好的**（顺着钱走一遍）：
 
-**要做的**（顺序有讲究）：
+| 在哪 | 是什么 |
+|---|---|
+| `apps/api/src/stripe/verify.ts` | HMAC-SHA256 验签，时间戳窗口 + 常数时间比较（19 项测试） |
+| `apps/api/src/rawBody.ts` | 原始字节解析器。**Fastify 一个 content-type 只能注册一个** —— 加供应商是往 `RAW_BODY_PREFIXES` 里加一条 |
+| `apps/api/src/stripe/client.ts` | 薄客户端 + 套餐↔Price 映射。**没有业务逻辑** |
+| `apps/api/src/stripe/routes.ts` | 编排：订阅 Checkout / 绑卡（setup 模式）/ 手动充值 / webhook |
+| `packages/contracts/src/commands/billing.ts` | 六条命令，除 `setAutoTopup` 外全是 `exposed: false` |
+| `apps/api/src/handlers/billing.ts` | 落库。`appendLedger()` 是**所有余额变动的唯一入口** |
+| `apps/api/src/billing/usage.ts` | `chargeUsage()` —— 和 `usage_events` 那条 insert **在同一个事务里** |
+| `apps/api/src/billing/autoTopup.ts` | 自动续充三步：认领（占位）→ 扣款 → 入账 |
+| `apps/desk/src/screens/Billing.tsx` | 老板端「💳 订阅与余额」页签 |
 
-1. **`packages/stripe`** 或 `apps/api/src/stripe/` —— 装 `stripe` SDK，薄客户端
-2. **webhook 验签路由** `/v1/stripe/webhook`
-   - ⚠️ 和 Telnyx 那条一样：**先验签再解析 body**，验的是**原始字节**
-   - 照抄 `apps/api/src/telnyx/routes.ts` 的 `addContentTypeParser` 那一段，
-     它已经把 `/v1/telnyx/` 前缀的路由留成原文了，加一个 `/v1/stripe/` 分支即可
-   - Stripe 用 HMAC-SHA256（不是 Ed25519），SDK 有 `stripe.webhooks.constructEvent()`
-   - **幂等靠 `stripe_events` 表**：event id 是主键，插入冲突就说明处理过了
-3. **命令**：`billing.createCheckout` / `billing.savePaymentMethod` /
-   `billing.topUp` / `billing.setAutoTopup` / `billing.syncSubscription`（内部）
-4. **扣费接线**：`usage_events` 落库的地方（`blueprint.saveExtraction`、`call.record`）
-   同时写一条 `credit_ledger` 的 `usage` 记录。
-   ⚠️ 用 `usageChargeCents(costMillicents, kind)`，**单位是毫分不是分**（见下面的坑）
-5. **自动续充的触发点**：**不要**放在扣费那个事务里（Stripe 调用是外部 IO，
-   不能进数据库事务）。做成一个查询 + 一条命令：
-   `GET 需要续充的账户` → `billing.chargeTopUp`，由 cron 或 webhook 后置调用
-6. **前台界面**：开店配置加一个「订阅与余额」页签
+**几个当时想清楚了、别推翻的决定**：
 
-**必须守的**：
-- 金额只用整数分（宪法第 4 条）
-- **绝不碰卡号/CVV** —— 只存 Stripe 的 `payment_method` id。碰一下 PCI 范围就是另一个量级的合规成本
-- 扣费**永远走 `credit_ledger`**，不许直接 `update billing_accounts.balance_cents`
+- **路由调 Stripe，命令落库。** 命令跑在数据库事务里，把几秒的外部 IO 塞进去
+  会占住连接和快照 —— 和 `/v1/blueprint/:id/extract` 躲开的是同一个坑。
+  每一次余额变动仍然是一条有审计、有幂等、有 RLS 的命令，宪法第 1 条没破。
+- **自动续充「先占位再扣钱」。** `billing.claimAutoTopup` 在事务里拿 advisory lock、
+  重判一次、**当场把 `last_auto_topup_at` 写成现在**。反过来（先扣钱再占位）
+  并发时会让老板一分钟内被扣两次 $50 —— 有测试盯着这一条。
+- **不做跨租户的定时扫描。** 那需要一个能看到所有店的连接，而 `apps/` 拿不到
+  （宪法第 5 条，CI 会失败）。余额只会因为用量而下降，所以触发点挂在用量后面：
+  拍照开店提取完、副驾回答完、电话挂断记完账、老板打开账单页。
+- **同一笔扣款两条路都会来记**（路由 + `payment_intent.succeeded` webhook），
+  所以 `billing.recordTopup` 除了总线的幂等键，还按 PaymentIntent id 再去一次重。
+- **认不出的 price 不写**（`plan` 传 null 保持原样）。把未知套餐写成 starter
+  会让付 Pro 钱的客户被静默降档，账单上看不出来。
+
+⏳ **这一项还差的**：AI 电话的分钟单价还没实测（`09` §6），所以 `ai_call_min`
+的成本恒为 0、不扣费。单价一到位就填 `.env` 的 `TELNYX_RATE_PER_MIN_MILLICENTS`，
+计费链路的其余部分已经接好，**不需要改任何别的地方**。
+
+### ⭐ A2. AI 前台副驾（**已完成**）
+
+一条口语 → 现场快照 → 提案卡片 → 前台确认 → 执行 → 60 秒撤销。
+
+| 在哪 | 是什么 |
+|---|---|
+| `packages/ai/src/copilot/snapshot.ts` | 现场快照压成行式文本（16 项测试）。实测一家夸张的忙店 < 1.5k token |
+| `packages/ai/src/copilot/route.ts` | **确定性意图路由**（15 项测试）—— 「几个人在等」根本不走模型 |
+| `packages/ai/src/copilot/prompt.ts` | 系统提示。**逐字节稳定**，不许插门店名/时间 |
+| `packages/ai/src/copilot/copilot.ts` | 模型调用 + 只读工具循环 + 提案 |
+| `packages/contracts/src/aiSchema.ts` | 把 Zod schema 压成一行给模型看的字段说明 |
+| `apps/api/src/queries/floorSnapshot.ts` | 取数（轮牌复用 desk 那一屏的同一段计算） |
+| `apps/api/src/copilot/routes.ts` | `POST /v1/ai/copilot` + 五个只读工具 |
+| `apps/desk/src/screens/Copilot.tsx` | 顶栏「🤖 副驾」抽屉 |
+
+**实测**（2026-08-16，`claude-sonnet-5`）：
+
+| | |
+|---|---|
+| 缓存段 | 7.1k token（系统提示 + 46 条命令目录），第二次调用起 `cacheRead` 命中 |
+| 快照 | 一家四人小店 64 token；构造的十二人忙店仍 < 1.5k |
+| 一次带工具往返的调用 | **~2 分**（比 `05` §7.1 估的 $0.012 高，因为多了一轮工具） |
+| 耗时 | 首次 ~18 秒（写缓存），之后 2–3 秒 |
+| 提案质量 | 「把 Kim 标记成休息中」→ `rotation.setBreak` + **真 uuid**，Zod 校验通过 |
+
+**几个想清楚了的决定**：
+
+- **命令目录是文本，不是 40 个 tool。** JSON Schema 展开要一万多 token，
+  压成文本 2.1k，而且整段在缓存断点之前。命令名仍然是 strict tool use 的
+  枚举 —— 模型编不出不存在的命令名，而那是最危险的那种幻觉。理由全在
+  `packages/contracts/src/aiSchema.ts` 顶部。
+- **`propose_command` 的入参是一个装着 JSON 的字符串**，不是 object。
+  不是随手写的，见 §4.10。
+- **确定性路由「宁可放过」。** 带动作词（挪/改/取消/move/cancel…）的一律走模型，
+  关键词还必须基本上就是整句话。误判的代价是「前台以为事情办了」，
+  比多花一分钱大得多。
+- **只读工具全部只读。** 模型可以随便调、不用确认 —— 这个性质是整个设计成立
+  的前提。想加一个「顺便帮她建一下」的工具时，回去读 `copilot.ts` 里那一句。
+- **撤销是一张白名单，不是通用引擎。** 只有反向操作能由提案入参 + 执行结果
+  完全推出来的才给撤销按钮（`appointment.create` / `rotation.setBreak` /
+  `staff.setRotation`）。推不出来的**明说撤不了**，见 §3.D。
+
 
 ### B. AI 电话：开户与口音实测（**要人做，AI 做不了**）
 
@@ -110,15 +178,23 @@ pnpm verify                 # 宪法检查 + typecheck + 384 项测试，应当�
 
 ⚠️ **口音实测的结果要写进 `09` §4.3 下面那张空表**，那是决定要不要把号码全搬过来的唯一依据。
 
-### C. AI 前台副驾（`05` §6，**不依赖任何外部开户，随时可做**）
+### C. 通用撤销（Phase 3，但现在就该知道缺口在哪）
 
-现成的地基：
-- `packages/contracts` 的 `aiToolDefinitions()` 已经能自动导出全部命令给模型
-- `usage_events` 的 `ai_assist` 计量已经在跑（拍照开店那条路验证过）
-- `packages/ai` 里的 Anthropic 调用样板可以直接抄
+宪法第 6 条要的是「一切可撤销」，而现在副驾的撤销是一张**白名单**
+（`apps/desk/src/screens/Copilot.tsx` 的 `inverseOf`），只覆盖三条：
+`appointment.create` / `rotation.setBreak` / `staff.setRotation`。
 
-要点全在 `05` §6：现场快照压到 1.5k token、系统提示与工具定义打缓存断点、
-命令提案卡片 + 人工确认 + 60 秒撤销。
+覆盖不了的那些，缺的都是同一样东西：**改动前是什么**。
+`appointment.reschedule` 要撤销得知道原来几点，`queue.update` 要知道原来什么状态 ——
+而提案里只有「改成什么」。
+
+正解是拿 `audit_log` 的 `before` 回放：总线已经在写 before/after 了
+（`audit.ts`），`undo_of_id` 那一列也留好了。要做的是一条
+`system.undo { auditId }` 命令 + 每条命令声明自己怎么被回放。
+
+⚠️ **在那之前，宁可不给按钮也别给一个猜出来的反向命令** ——
+前台点了「撤销」而它把单挪到了另一个错误的时间，比不能撤销糟得多。
+现在的界面在撤不了的时候会**明说撤不了**，那句话是有意写的。
 
 ### D. 零散的补完
 
@@ -196,6 +272,82 @@ vite-node 的 VM realm 和 Node 原生 realm 的 `Date` 不是同一个构造函
 **结果字段里的时间戳一律走 `parseTs()`**（`@gf/db` 导出），别直接 `.toISOString()`。
 症状是「测试里炸、生产里好」——最难查的那一类。
 
+### 4.9 ⭐ 账本按 `created_at` 排序，并发时会报一个**根本不存在的**篡改
+
+这条是被测试逼出来的，非常反直觉，而且它只在并发时出现。
+
+Postgres 的 `now()` 返回的是**事务开始时刻**，不是语句执行时刻。并发扣费时：
+
+```
+事务 A: 开始(t=10) → 拿行锁 → 写账本(balance_after=-4) → 提交
+事务 B: 开始(t=9)  → 等锁 …… → 写账本(balance_after=-8) → 提交
+```
+
+两行的 `balance_after` 是**按提交顺序**串好的（行锁保证了这一点），
+可是按 `created_at` 排出来 B 在前 A 在后 —— `findLedgerBreak()` 立刻报一个断点，
+而账本本身一点问题都没有。
+
+**症状极具迷惑性：并发越高越容易出，每次断点位置还都不一样**，
+看起来完全像是有人在篡改账本。
+
+修法不是放宽检查（那等于把唯一能发现篡改的手段关掉），
+而是给账本一个不依赖时钟的顺序：**`seq bigserial`**（迁移 0019）。
+序号在插入那一刻取，而插入必然在拿到行锁之后，所以它和 `balance_after` 严格一致。
+
+⚠️ **对账、翻流水一律 `order by seq`，别用 `created_at`。**
+
+### 4.10 strict tool use 里不能有「形状不定」的 object
+
+`strict: true` 要求 schema 里**每一个** `type: 'object'` 都显式写
+`additionalProperties: false`。而副驾的 `propose_command` 要传的命令入参
+每条命令都不一样，字段根本枚举不出来 —— 写成 object 会被 API 当场 400：
+
+```
+tools.0.custom: For 'object' type, 'additionalProperties' must be explicitly set to false
+```
+
+两条路：放弃 `strict`（丢掉命令名的枚举保证），或者把入参当**字符串**传。
+选了后者（`input_json`）：命令名那一条保证比入参形状重要得多 ——
+编错字段名的结果是一个 `VALIDATION_FAILED`，编错命令名则可能命中另一条真实
+存在的命令。而入参本来就要过 Zod（`bus.ts` 第 1 步），少一层 JSON Schema 不损失什么。
+
+⚠️ 解不出 JSON 时**不许「尽力修复」**：一个被猜着补全的入参可能正好是一条
+合法但错误的命令，而前台在卡片上只看得到那句 summary。
+
+### 4.11 快照里不给 id，就必须有一条「名字 → id」的工具
+
+第一版的只读工具里没有 `list_staff`。实测问「把 Kim 标记成休息中」，
+模型给出的是 `rotation.setBreak { membershipId: "Kim" }` —— 一个名字填在 uuid 上。
+Zod 会拦下来，但**那次调用的钱已经花了**，而前台看到的是「参数不对」。
+
+快照里刻意不带 uuid（省 token、也避免模型记错），
+所以**凡是命令要填的 id，都得有一条明确的查询工具**。加了之后同一句话
+两轮就给出了带真 uuid 的正确提案。
+
+### 4.12 `lint-guards.sh` 会误伤名字里带钱味儿的非金额字段
+
+`select count(*) … as total` 配上 `Number(rooms.total)` 会被
+「金额字段走了浮点解析」拦下（宪法第 4 条）。那条规则宁可误伤也不放过是对的，
+**改个列别名比给它开例外便宜** —— 房间数叫 `room_count` 就行。
+
+⚠️ 连注释里出现 `Number(...total...)` 都会被拦。别在解释里复述被拦的那个写法。
+
+### 4.13 余额缓存和账本对不上，`findLedgerBreak` 抓不到
+
+这两件事**要两条检查**，很容易只做一条：
+
+- `findLedgerBreak()` 抓的是「账本行被就地改过」
+- **缓存对不上**抓的是「没碰账本，直接 `update billing_accounts.balance_cents`」
+
+后者才是更可能发生的那一种（一句手写的 SQL 就能干出来），而且光看账本
+完全发现不了 —— 账本自己是自洽的，只是没人再看它了。
+`loadBilling()` 现在两条都查（`ledgerBreakAt` + `balanceMismatch`）。
+
+⚠️ 发现之后**不在界面上悄悄纠正**：账本是事实，缓存错了是事故，要有人去查。
+反过来更要命 —— 缓存错了却往账本里补一笔调账来抹平，等于**把污染写进事实**，
+而账本删不掉改不动，那个断点会永远留在库里。这个坑我踩过一次，
+`billing.test.ts` 的 `resetBilling()` 里有完整的复盘。
+
 ---
 
 ## 5. 这一轮定下来、以后别推翻的几个设计
@@ -252,9 +404,35 @@ RLS 挡的是**应用里的越权**；它挡不住**把整个库复制走的人*
 
 一条共同的理由：**静默的错误比明显的空白危险得多**。前者没人会发现。
 
+### 5.6 钱这条路上，**事实和缓存要分得很清**
+
+`credit_ledger` 是事实，`billing_accounts.balance_cents` 只是缓存。
+这不是洁癖，它决定了三件事怎么做：
+
+| 场景 | 做法 |
+|---|---|
+| 扣费 | 永远 `appendLedger()`，不许 `update balance_cents` |
+| 冲一笔账 | 写一条**反向记录**，不是把原来那条改掉 |
+| 缓存和账本对不上 | **按账本修缓存**，绝不往账本里补一笔来抹平 |
+
+最后一条最容易做反，而做反的代价是**把污染写进了事实** ——
+账本删不掉改不动，那个断点会永远留在库里（§4.13 有完整复盘）。
+
+### 5.7 副驾的边界：**它提议，前台执行**
+
+模型产出的是一个待确认对象，写入永远发生在前台点确认那一下，
+用的是**她自己的身份**。于是三件事是自动成立的，不需要在副驾这边再实现一遍：
+
+- 权限：她没权限的命令，执行时就是 `PERMISSION_DENIED`（没有后门）
+- 容量：超卖软约束照常拦，照常要她带原因放行
+- 审计：流水上记的是她，不是「AI」
+
+代价是副驾没法「一句话做三件事」。那是**故意的** ——
+一张卡片上让前台确认三件事，她会只看第一件。
+
 ---
 
-## 6. 试一遍三条新路（都不用外部开户）
+## 6. 试一遍五条新路（都不用外部开户）
 
 ```bash
 pnpm --filter @gf/desk dev     # 5173
@@ -270,6 +448,11 @@ set -a && . ./.env && set +a && npx tsx apps/api/src/main.ts
 | **拍照开店** | 开店配置 → 项目 → 📷 拍价目表 | ~$0.08/张（真调 Anthropic） |
 | **Yelp 填店** | 开店配置 → 营业时间 → 🔎 输店名和邮编 | $0（免费额度） |
 | **门口 Kiosk** | 开店配置 → 门口 iPad → 生成配对码 → 粘到 5175 | $0 |
+| **AI 副驾** | 顶栏 🤖 副驾 → 说一句话 | 问「几个人在等」$0（不走模型）；「把 Kim 标记成休息中」~2 分 |
+| **订阅与余额** | 顶栏 💳 订阅与余额（**只有老板看得到**） | $0（Price id 没填的话开通那一步会报 503） |
+
+⚠️ **副驾那一屏用 `mia@example.test` 登录看不到 💳 页签，这是对的** ——
+`billing.manage` 只在 owner 的预设里，而种子数据的 owner 在足疗店那家。
 
 ⚠️ 拍照开店和 Yelp 落地都会**真的改开发库的数据**。
 试完记得清理（我留了脚本思路在 §4.6）。
