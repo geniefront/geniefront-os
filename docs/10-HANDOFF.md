@@ -14,7 +14,7 @@ cd <仓库根>                  # 本文档在仓库的 docs/ 下
 cp .env.example .env        # ⚠️ 真实凭据不在仓库里，见 07-CREDENTIALS-CHECKLIST.md
 bash scripts/check-env.sh   # 凭据格式 + 实测联通
 pnpm db:migrate             # ⚠️ 0019 是新的，不跑的话账本对账会误报断点
-pnpm verify                 # 宪法检查 + typecheck + 457 项测试，应当全绿
+pnpm verify                 # 宪法检查 + typecheck + 466 项测试，应当全绿
 ```
 
 | | 状态 |
@@ -27,8 +27,8 @@ pnpm verify                 # 宪法检查 + typecheck + 457 项测试，应当�
 | **AI 前台副驾** | ✅ **完成**，实测提案带真 uuid、缓存命中 |
 | **AI 电话接单** | 🚧 **代码全完**，卡在 Telnyx 开户 + 口音实测 |
 
-**测试 457 项**，12 个包。分布：
-`api 195` · `payroll 80` · `ai 57` · `scheduling 51` · `db 26` · `rotation 24` · `yelp 20` · `contracts 4`
+**测试 466 项**，12 个包。分布：
+`api 199` · `payroll 85` · `ai 57` · `scheduling 51` · `db 26` · `rotation 24` · `yelp 20` · `contracts 4`
 
 ---
 
@@ -77,18 +77,25 @@ pnpm verify                 # 宪法检查 + typecheck + 457 项测试，应当�
 
 ### ⭐ A. Stripe：**代码全完，剩下三件要人去 Dashboard 做的**
 
-代码这一侧已经接完并跑通（`billing.test.ts` 23 项 + `stripe/verify.test.ts` 19 项）。
-剩下的三件都在 Stripe 控制台里，AI 做不了：
+代码这一侧已经接完并跑通（`billing.test.ts` 27 项 + `stripe/verify.test.ts` 19 项），
+**而且已经用真事件实测过**（2026-08-17，`stripe listen` + `stripe trigger`）：
 
-1. **建两个循环价格** —— Products → 各建一个 $99 / $149 的 monthly price，
-   把 `price_…` 填进 `.env` 的 `STRIPE_PRICE_STARTER` / `STRIPE_PRICE_PRO`。
-   ⚠️ 别复制成 `prod_` 开头的 Product id，建 Checkout 时会 400。
-2. **`STRIPE_WEBHOOK_SECRET`** —— 本地跑
-   `stripe listen --forward-to localhost:3000/v1/stripe/webhook`，它会打印 `whsec_…`。
-   生产在 Dashboard → Webhooks 建 endpoint，**那是另一个 secret，别混用**。
-3. **打一条真事件过一遍**（`stripe trigger checkout.session.completed`）。
-   验签那 19 项测试用的是我们自己造的签名 —— 造签名和验签名共用同一段拼法，
-   拼错了两边一起错而测试照样绿。**只有真事件能证明格式理解对了**。
+| 验的是什么 | 结果 |
+|---|---|
+| Stripe 真签名 | 200 |
+| 伪造签名 / 改 body 一个字节 / 不带签名头 | 一律 401 |
+| 带 `gf_` metadata 的 PaymentIntent 走完 webhook | 账本 +$100，余额对上 |
+| 同一个 event id 重投 | `duplicate: true`，余额不变 |
+| 换 event id、同一笔 PaymentIntent | 第二道按 pi 去重，余额不变 |
+| `/v1/billing/*` 与 `/v1/ai/copilot` 未登录 | 401（只有 webhook 是公开的） |
+
+⚠️ 为什么非要打真事件：验签那 19 项测试用的是**我们自己造的签名** ——
+造签名和验签名共用同一段字符串拼法，拼错了两边一起错而测试照样绿。
+只有真事件能证明我们对格式的理解是对的。
+
+**剩下要人做的只有一件**：生产环境在 Dashboard → Webhooks 建 endpoint，
+拿它自己的 `whsec_`（**和 `stripe listen` 给的不是同一个，混用的表现是
+「本地全通、上线全 401」**）。
 
 **已经做好的**（顺着钱走一遍）：
 
@@ -123,6 +130,16 @@ pnpm verify                 # 宪法检查 + typecheck + 457 项测试，应当�
 ⏳ **这一项还差的**：AI 电话的分钟单价还没实测（`09` §6），所以 `ai_call_min`
 的成本恒为 0、不扣费。单价一到位就填 `.env` 的 `TELNYX_RATE_PER_MIN_MILLICENTS`，
 计费链路的其余部分已经接好，**不需要改任何别的地方**。
+
+⭐ **套餐名以 Stripe 后台为准**（2026-08-17）：`essential` / `growth`，
+不是文档早期写的 starter / pro。三处必须一致 —— 代码的 plan 枚举、
+DB 的 check 约束、Stripe 后台的产品名。对不上的话，等到有人对着
+Stripe 后台查一笔账时谁也说不清哪个是哪个。迁移 0021 做了这次改名。
+
+⭐ **额度先用套餐里的**：Essential 每期 500 次副驾、Growth 2000 次，
+用满了才扣预充值余额。清零跟着 Stripe 的续期走（`current_period_end`
+往后走了才清），**不自己数日子** —— 自己数一定会和账单周期漂开。
+⚠️ 只有 `ai_assist` 吃这个额度，电话分钟不吃（决策 8：合成一个额度必被套利）。
 
 ### ⭐ A2. AI 前台副驾（**已完成**）
 

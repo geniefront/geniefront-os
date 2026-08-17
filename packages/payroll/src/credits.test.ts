@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import {
   shouldAutoTopup, applyEntry, replayBalance, findLedgerBreak,
   usageChargeCents, isTopupTier, TOPUP_TIERS, TOPUP_COOLDOWN_MS, MAX_TOPUP_FAILURES,
+  consumeIncluded, includedAssistsFor, PLAN_INCLUDED_ASSISTS,
   type BillingAccountState,
 } from './credits';
 
@@ -19,7 +20,7 @@ function acct(over: Partial<BillingAccountState> = {}): BillingAccountState {
     balanceCents: 500,                 // $5，低于默认 $10 的阈值
     autoTopupEnabled: true,
     autoTopupThresholdCents: 1000,
-    autoTopupAmountCents: 5000,
+    autoTopupAmountCents: 10000,
     lastAutoTopupAt: null,
     autoTopupFailures: 0,
     defaultPaymentMethodId: 'pm_123',
@@ -31,10 +32,10 @@ function acct(over: Partial<BillingAccountState> = {}): BillingAccountState {
 describe('自动续充三档', () => {
   it('只有 $50 / $100 / $200 三个值合法', () => {
     // 让客户填任意金额会引来试卡的人（拿被盗的卡刷 $0.5 试活）
-    expect(TOPUP_TIERS).toEqual([5000, 10000, 20000]);
-    expect(isTopupTier(5000)).toBe(true);
+    expect(TOPUP_TIERS).toEqual([10000]);
+    expect(isTopupTier(5000)).toBe(false);
     expect(isTopupTier(10000)).toBe(true);
-    expect(isTopupTier(20000)).toBe(true);
+    expect(isTopupTier(20000)).toBe(false);
     expect(isTopupTier(4999)).toBe(false);
     expect(isTopupTier(50)).toBe(false);
   });
@@ -42,11 +43,11 @@ describe('自动续充三档', () => {
 
 describe('该不该现在自动续充', () => {
   it('余额低于阈值、卡在、订阅正常 → 充', () => {
-    expect(shouldAutoTopup(acct(), NOW)).toEqual({ charge: true, amountCents: 5000 });
+    expect(shouldAutoTopup(acct(), NOW)).toEqual({ charge: true, amountCents: 10000 });
   });
 
   it('余额还够就不充', () => {
-    expect(shouldAutoTopup(acct({ balanceCents: 5000 }), NOW))
+    expect(shouldAutoTopup(acct({ balanceCents: 50000 }), NOW))
       .toEqual({ charge: false, reason: 'above_threshold' });
   });
 
@@ -95,7 +96,7 @@ describe('该不该现在自动续充', () => {
   it('档位存坏了不会扣出一个怪金额', () => {
     // 人工改过库、或者以后加了新档又回滚
     expect(shouldAutoTopup(acct({ autoTopupAmountCents: 7777 }), NOW))
-      .toEqual({ charge: true, amountCents: 5000 });
+      .toEqual({ charge: true, amountCents: 10000 });
   });
 
   it('每个不充的分支都有名字 —— 出账单纠纷时要能回答「为什么那天没充上」', () => {
@@ -195,5 +196,45 @@ describe('用量折价', () => {
     for (const m of [1, 7, 999, 12345]) {
       expect(Number.isInteger(usageChargeCents(m, 'ai_assist'))).toBe(true);
     }
+  });
+});
+
+// ────────────────────────────────────────────────── 套餐内额度（先用套餐里的）
+
+describe('先用套餐里的', () => {
+  it('套餐内还有额度时走额度，不扣余额', () => {
+    expect(consumeIncluded('ai_assist', 'essential', 0))
+      .toEqual({ source: 'included', usedAfter: 1, remaining: 499 });
+  });
+
+  it('Growth 的额度更大', () => {
+    expect(consumeIncluded('ai_assist', 'growth', 0))
+      .toEqual({ source: 'included', usedAfter: 1, remaining: 1999 });
+  });
+
+  it('⭐ 用满了才开始扣余额 —— 边界上不能差一次', () => {
+    // 第 500 次仍然走额度（用了 499 次，还剩 1 次）
+    expect(consumeIncluded('ai_assist', 'essential', 499))
+      .toEqual({ source: 'included', usedAfter: 500, remaining: 0 });
+    // 第 501 次开始扣钱
+    expect(consumeIncluded('ai_assist', 'essential', 500))
+      .toEqual({ source: 'balance', remaining: 0 });
+  });
+
+  it('⭐ 电话分钟不吃副驾的额度 —— 合成一个额度必被套利（决策 8）', () => {
+    // 一分钟电话的成本是一次副驾的 10–16 倍。让它们共用一个「次数」额度，
+    // 电话量大的店会把额度全用在最贵的地方，而那恰恰是最该赚钱的客户
+    expect(consumeIncluded('ai_call_min', 'growth', 0))
+      .toEqual({ source: 'balance', remaining: 0 });
+    expect(consumeIncluded('sms', 'growth', 0))
+      .toEqual({ source: 'balance', remaining: 0 });
+  });
+
+  it('认不出的套餐按最小的给 —— 不能因为数据脏就变成无限额度', () => {
+    // 试用期、或者以后加了新档又回滚，都会走到这一支。
+    // 给无限额度的话，试用期会被薅（04 §4.2）
+    expect(includedAssistsFor('trial_something')).toBe(PLAN_INCLUDED_ASSISTS.essential);
+    expect(consumeIncluded('ai_assist', '乱七八糟', 499).source).toBe('included');
+    expect(consumeIncluded('ai_assist', '乱七八糟', 500).source).toBe('balance');
   });
 });

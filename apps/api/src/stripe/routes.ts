@@ -176,6 +176,10 @@ export function registerStripeRoutes(
     const session = await stripeClient().checkout.sessions.create({
       mode: 'setup',
       customer: customerId,
+      // ⚠️ setup 模式**必须**给 currency，否则 Stripe 直接 400
+      // （`parameter_missing: currency`）。订阅模式不用，因为币种从 price 上带过来 ——
+      // 就是这个不对称让它很容易被漏掉，而漏掉了只有真调一次才发现
+      currency: 'usd',
       success_url: successUrl,
       cancel_url: cancelUrl,
       metadata: { gf_location_id: ctx.locationId, gf_org_id: ctx.orgId },

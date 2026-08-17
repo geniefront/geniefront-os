@@ -22,7 +22,7 @@
 | **Phase 1c** | ✅ **完成** —— 技师端 PWA、Realtime 长连接派单（实测 2 秒）、提示音+震动+翻转卡片、锁屏唤醒对齐、PIN 打卡、手机号服务端脱敏、前台在线指示点 |
 | **Phase 2** | 🚧 拍照开店 ✅、Yelp ✅、Kiosk ✅、Stripe 计费 ✅、AI 前台副驾 ✅、AI 电话（代码 ✅，卡开户） |
 | **生产环境** | `https://api.geniefront.com` 双实例 + Cloudflare LB，故障转移已演练 |
-| **测试** | **457 项**，12 个包，`pnpm verify` 全绿 |
+| **测试** | **466 项**，12 个包，`pnpm verify` 全绿 |
 | **CI** | GitHub Actions：宪法检查 + 空库迁移 + 测试 + 镜像 ≤200MB + 容器启动 |
 | **下一步** | 见 **[10-HANDOFF.md](10-HANDOFF.md)** —— 交接给下一个 session 的完整清单 |
 
@@ -80,7 +80,9 @@ iPad 自助签到 + **六语言**电子免责书签名 + 排队取号。**实测
 
 ### Phase 2 已完成：Stripe 订阅与预充值自动续充
 
-门店月费走 Stripe **托管 Checkout**，AI 用量走**预充值余额**，余额不够**自动续充**。
+门店月费走 Stripe **托管 Checkout**（Essential $99 / Growth $199），
+AI 用量**先用套餐里的额度**（500 / 2000 次副驾），用完了才扣**预充值余额**
+（$100 一档的 AI 分钟包，用不完一直留着），余额不够**自动续充**。
 `billing_accounts` / `credit_ledger` / `stripe_events` 三张表 + **账本只追加**
 （连 update 都收回，冲账要写反向记录）。
 
@@ -94,8 +96,10 @@ iPad 自助签到 + **六语言**电子免责书签名 + 排队取号。**实测
 - **账本按 `seq` 排不按时间。** `now()` 是事务开始时刻，并发扣费时按它排序
   会报一个根本不存在的篡改断点（迁移 0019）。
 
-⬜ **要人去 Stripe 控制台做的三件**：建两个循环价格、拿 `whsec_`、
-打一条真事件验一遍。步骤在 `10` §3.A。
+✅ **已用 `stripe listen` + 真事件实测通过**：真签名 200、伪造/改字节/无签名头
+一律 401、带 metadata 的 PaymentIntent 走完 webhook 入账、重投不会重复入账。
+
+⬜ **还要人做的**：生产环境的 webhook endpoint 和它自己的 `whsec_`。
 
 ### Phase 2 已完成：AI 前台副驾
 
@@ -153,7 +157,7 @@ pnpm install
 cp .env.example .env          # ⚠️ 真实凭据不在仓库里，见 07
 
 bash scripts/check-env.sh     # 所有凭据格式 + 实测联通性
-pnpm verify                   # 宪法检查 + typecheck + 457 项测试
+pnpm verify                   # 宪法检查 + typecheck + 466 项测试
 pnpm --filter @gf/desk dev    # 前台界面 → localhost:5173
 pnpm --filter @gf/staff dev   # 技师端 PWA → localhost:5174（手机浏览器可加到主屏）
 pnpm --filter @gf/kiosk dev   # 门口 iPad → localhost:5175
@@ -161,7 +165,7 @@ pnpm --filter @gf/kiosk dev   # 门口 iPad → localhost:5175
 
 **凭据在本地 `.env` 里已配好并实测通过**（该文件已 gitignore，不在仓库中）。
 Supabase / Anthropic / Cloudflare / Resend / Turnstile / Upstash / Yelp / Bright Data
-都是活的，不用重新申请。**Stripe 测试密钥也已配好**（还差 `STRIPE_PRICE_*` 与 `whsec_`）。
+都是活的，不用重新申请。**Stripe 测试密钥、Price id、`whsec_` 都已配好**（测试环境）。
 缺的只有 **Telnyx 的号码与 Assistant**（要先开户 + 口音实测，见 `09`）。
 
 ⚠️ **`FORM_ENCRYPTION_KEY` 丢了 = 所有已签的健康表永久解不开。**

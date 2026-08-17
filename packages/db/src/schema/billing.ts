@@ -45,8 +45,8 @@ export const billingAccounts = pgTable('billing_accounts', {
   /** Stripe 的客户与订阅。null = 还没接上（试用期） */
   stripeCustomerId: text('stripe_customer_id'),
   stripeSubscriptionId: text('stripe_subscription_id'),
-  /** starter | pro */
-  plan: text('plan').notNull().default('starter'),
+  /** essential | growth。**和 Stripe 后台的产品名对齐**（迁移 0021） */
+  plan: text('plan').notNull().default('essential'),
   /** trialing | active | past_due | canceled */
   subscriptionStatus: text('subscription_status').notNull().default('trialing'),
   currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
@@ -72,8 +72,8 @@ export const billingAccounts = pgTable('billing_accounts', {
   autoTopupEnabled: boolean('auto_topup_enabled').notNull().default(false),
   /** 余额低于这个数就自动充。默认 $10 —— 太低会在半夜断服务 */
   autoTopupThresholdCents: integer('auto_topup_threshold_cents').notNull().default(1000),
-  /** 每次充多少。三档：5000 / 10000 / 20000（$50 / $100 / $200） */
-  autoTopupAmountCents: integer('auto_topup_amount_cents').notNull().default(5000),
+  /** 每次充多少。**只有一档**：10000（$100 的 AI 分钟包，迁移 0021） */
+  autoTopupAmountCents: integer('auto_topup_amount_cents').notNull().default(10000),
   /**
    * 上一次自动续充的时刻。
    *
@@ -84,6 +84,24 @@ export const billingAccounts = pgTable('billing_accounts', {
   lastAutoTopupAt: timestamp('last_auto_topup_at', { withTimezone: true }),
   /** 连续失败次数。连续失败到一定次数就自动关掉，别再骚扰那张卡 */
   autoTopupFailures: integer('auto_topup_failures').notNull().default(0),
+
+  // ── 套餐内额度（先用套餐里的，用完了才扣余额）────────────────────────
+  /**
+   * 本期已经用掉的套餐内副驾次数。
+   *
+   * ⚠️ **只管副驾**。电话分钟单独成包 —— 两者成本差 10–16 倍，
+   * 合成一个「额度」必被套利（决策 8 / `04` §4.1）。
+   */
+  includedAssistsUsed: integer('included_assists_used').notNull().default(0),
+  /**
+   * 本期从什么时候开始算。
+   *
+   * 清零跟着 **Stripe 的续订**走（`customer.subscription.updated` 里
+   * current_period_end 变了就重置），不自己数日子 ——
+   * 自己数就一定会和 Stripe 的账单周期漂开，而漂开之后
+   * 「这个月到底还剩几次」谁也说不清。
+   */
+  includedPeriodStart: timestamp('included_period_start', { withTimezone: true }),
 
   createdAt: createdAt(),
 }, (t) => [

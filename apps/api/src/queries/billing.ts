@@ -14,7 +14,8 @@
 import type postgres from 'postgres';
 import { parseTs } from '@gf/db';
 import type { CommandContext } from '@gf/contracts';
-import { findLedgerBreak, replayBalance } from '@gf/payroll';
+import { findLedgerBreak, replayBalance, includedAssistsFor } from '@gf/payroll';
+import { includedRemaining } from '../billing/usage';
 
 export interface LedgerRow {
   id: string;
@@ -43,6 +44,12 @@ export interface BillingView {
     failures: number;
     lastAt: string | null;
   };
+
+  /**
+   * 套餐内额度（先用套餐里的，用完了才扣余额）。
+   * `used`/`remaining` 按**订阅周期**算，不是自然月 —— 跟着 Stripe 的续期清零。
+   */
+  included: { used: number; total: number; remaining: number };
 
   /** 本月按功能分的花费。qty 对 ai_assist 是次数，对 ai_call_min 是分钟 */
   monthToDate: Array<{ kind: string; qty: number; chargedCents: number }>;
@@ -85,11 +92,12 @@ export async function loadBilling(
     auto_topup_enabled: boolean; auto_topup_threshold_cents: number;
     auto_topup_amount_cents: number; auto_topup_failures: number;
     last_auto_topup_at: string | Date | null;
+    included_assists_used: number;
   }[]>`
     select plan, subscription_status, current_period_end, stripe_subscription_id,
            balance_cents, default_payment_method_id, payment_method_label,
            auto_topup_enabled, auto_topup_threshold_cents, auto_topup_amount_cents,
-           auto_topup_failures, last_auto_topup_at
+           auto_topup_failures, last_auto_topup_at, included_assists_used
     from billing_accounts where location_id = ${ctx.locationId}`;
 
   // 还没有账户 = 这家店从没用过 AI 也没订过阅。给 null 让前端显示引导页，
@@ -167,6 +175,12 @@ export async function loadBilling(
       amountCents: acct.auto_topup_amount_cents,
       failures: acct.auto_topup_failures,
       lastAt: acct.last_auto_topup_at ? parseTs(acct.last_auto_topup_at).toISOString() : null,
+    },
+
+    included: {
+      used: acct.included_assists_used,
+      total: includedAssistsFor(acct.plan),
+      remaining: includedRemaining(acct.plan, acct.included_assists_used),
     },
 
     monthToDate: usage.map((u) => ({

@@ -23,16 +23,17 @@ import { z } from 'zod';
 import { defineCommand, uuid, cents } from '../command.js';
 
 /**
- * 自动续充的三档。**只有这三个值合法**（DB 的 `billing_topup_tier` 约束兜底）。
+ * 充值只有**一档：$100**（Stripe 上那个 AI Minutes 包，DB 约束兜底）。
  *
  * 让客户填任意金额会引来拿被盗的卡试活的人：$0.53、$1.07 这种试探性小额
  * 是盗卡验证的标准手法，而我们这边看起来只是一笔正常充值。
+ *
+ * ⚠️ 买了**不会过期** —— 余额是钱不是次数，用不完一直留着。
  */
-export const topupTier = z.union([
-  z.literal(5000), z.literal(10000), z.literal(20000),
-]);
+export const topupTier = z.literal(10000);
 
-export const billingPlan = z.enum(['starter', 'pro']);
+/** 和 Stripe 后台的产品名对齐：Essential $99 / Growth $199（迁移 0021） */
+export const billingPlan = z.enum(['essential', 'growth']);
 export const subscriptionStatus = z.enum(['trialing', 'active', 'past_due', 'canceled']);
 
 // ─────────────────────────────────────────────────────────────── 老板可见
@@ -61,8 +62,8 @@ export const SetAutoTopup = defineCommand({
   permission: 'billing.manage',
   ai: {
     description:
-      '打开或关闭余额自动续充，并设置触发阈值与每次充值的档位' +
-      '（只能是 $50 / $100 / $200 三档之一）。这会影响什么时候从老板的卡上扣钱。',
+      '打开或关闭余额自动续充，并设置触发阈值。每次充值固定 $100。' +
+      '这会影响什么时候从老板的卡上扣钱。',
     confirm: 'always',
   },
   reversible: true,

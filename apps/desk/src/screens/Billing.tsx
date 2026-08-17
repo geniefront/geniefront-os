@@ -35,6 +35,8 @@ export interface BillingData {
     lastAt: string | null;
   };
 
+  /** 套餐内额度：先用套餐里的，用完了才扣余额 */
+  included: { used: number; total: number; remaining: number };
   monthToDate: Array<{ kind: string; qty: number; chargedCents: number }>;
   recent: Array<{
     id: string; kind: string; amountCents: number; balanceAfterCents: number;
@@ -53,7 +55,8 @@ export interface BillingResponse {
 const money = (c: number): string =>
   `${c < 0 ? '−' : ''}$${(Math.abs(c) / 100).toFixed(2)}`;
 
-const TOPUP_TIERS = [5000, 10000, 20000] as const;
+/** 充值只有一档 $100（Stripe 上那个 AI Minutes 包）。买了不会过期 */
+const TOPUP_TIERS = [10000] as const;
 
 const KIND_LABEL: Record<string, string> = {
   ai_assist: '前台副驾 / 拍照开店',
@@ -70,7 +73,7 @@ const LEDGER_LABEL: Record<string, string> = {
   reversal: '冲销',
 };
 
-const PLAN_LABEL: Record<string, string> = { starter: 'Starter', pro: 'Pro' };
+const PLAN_LABEL: Record<string, string> = { essential: 'Essential', growth: 'Growth' };
 
 const STATUS_LABEL: Record<string, string> = {
   trialing: '试用中',
@@ -131,8 +134,8 @@ export function Billing({
           <div className="muted">开通之后这里会显示余额、用量和账单。</div>
           <button className="btn btn-primary" style={{ minHeight: 56 }}
                   disabled={busy !== ''}
-                  onClick={() => toStripe('/v1/billing/checkout', { plan: 'starter' }, 'checkout')}>
-            {busy === 'checkout' ? <span className="spin" /> : '开通 Starter'}
+                  onClick={() => toStripe('/v1/billing/checkout', { plan: 'essential' }, 'checkout')}>
+            {busy === 'checkout' ? <span className="spin" /> : '开通 Essential'}
           </button>
         </div>
       </div>
@@ -172,7 +175,35 @@ export function Billing({
         </div>
       )}
 
-      {/* ── 1. 余额 ─────────────────────────────────────────────────────── */}
+      {/* ── 1. 套餐内额度 + 余额 ───────────────────────────────────────── */}
+      {/*
+        ⭐ 额度排在余额**前面**：老板打开这一屏最先要知道的是
+        「我这个月的额度还够不够」，而不是「我还有多少钱」。
+        钱是额度用完之后的事。
+      */}
+      <div className="card stack" style={{ padding: '18px 20px', gap: 10 }}>
+        <div className="row" style={{ gap: 12 }}>
+          <span className="muted">本期套餐内还剩</span>
+          <span className="grow" />
+          <strong style={{ fontSize: 'var(--text-xl)', fontVariantNumeric: 'tabular-nums' }}>
+            {data.included.remaining} / {data.included.total} 次
+          </strong>
+        </div>
+        <div style={{ height: 10, borderRadius: 5, background: 'var(--line)', overflow: 'hidden' }}>
+          <div style={{
+            height: '100%',
+            width: `${Math.min(100, (data.included.used / Math.max(1, data.included.total)) * 100)}%`,
+            background: data.included.remaining === 0 ? 'var(--danger)' : 'var(--brand)',
+          }} />
+        </div>
+        <div className="tiny muted">
+          {data.included.remaining > 0
+            ? '先用套餐里的，用完了才从下面的余额扣。'
+            : '套餐内额度已用完，现在从余额扣。'}
+          {data.currentPeriodEnd && ` 下次重置：${new Date(data.currentPeriodEnd).toLocaleDateString()}`}
+        </div>
+      </div>
+
       <div className="card stack" style={{ padding: '18px 20px', gap: 14 }}>
         <div className="row" style={{ gap: 12 }}>
           <span className="muted">预充值余额</span>
@@ -210,11 +241,12 @@ export function Billing({
                       } catch (e) { setErr(describe(e)); }
                       finally { setBusy(''); }
                     }}>
-              {busy === `topup-${t}` ? <span className="spin" /> : `充 ${money(t)}`}
+              {busy === `topup-${t}` ? <span className="spin" /> : `买 ${money(t)} AI 包`}
             </button>
           ))}
         </div>
 
+        <div className="tiny muted">买了不会过期，用不完一直留着。</div>
         {!data.hasPaymentMethod && (
           <div className="tiny">要先绑一张卡才能充值。卡号只在 Stripe 的页面上输入。</div>
         )}
@@ -262,7 +294,7 @@ export function Billing({
         )}
 
         <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-          {(['starter', 'pro'] as const).map((p) => (
+          {(['essential', 'growth'] as const).map((p) => (
             <button key={p} className="btn" style={{ minHeight: 56 }}
                     disabled={busy !== ''}
                     onClick={() => toStripe('/v1/billing/checkout', { plan: p }, `plan-${p}`)}>
@@ -328,7 +360,7 @@ export function Billing({
 /**
  * 自动续充的设置块。
  *
- * 三档写死（$50 / $100 / $200）—— 让客户填任意金额会引来拿被盗的卡试活的人，
+ * 金额只有一档 $100，写死 —— 让客户填任意金额会引来拿被盗的卡试活的人，
  * DB 那边也有 check 约束兜着。
  */
 function AutoTopupPane({ data, membershipId, onChanged, onError }: {
@@ -383,15 +415,10 @@ function AutoTopupPane({ data, membershipId, onChanged, onError }: {
             ))}
           </div>
 
-          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+          {/* 只有一档，不给选择器 —— 一个只有一个选项的按钮组是噪音 */}
+          <div className="row" style={{ gap: 10 }}>
             <span style={{ minWidth: 96 }}>每次充</span>
-            {TOPUP_TIERS.map((t) => (
-              <button key={t} className="btn" style={{
-                minHeight: 56, minWidth: 84, borderWidth: 2,
-                borderColor: amount === t ? 'var(--brand)' : 'var(--line)',
-                background: amount === t ? 'var(--brand-soft)' : 'var(--surface)' }}
-                onClick={() => setAmount(t)}>{money(t)}</button>
-            ))}
+            <strong>{money(amount)}</strong>
           </div>
 
           {!data.hasPaymentMethod && (

@@ -45,6 +45,8 @@ export interface AccountRow {
   auto_topup_amount_cents: number;
   last_auto_topup_at: string | Date | null;
   auto_topup_failures: number;
+  included_assists_used: number;
+  included_period_start: string | Date | null;
 }
 
 /**
@@ -223,13 +225,29 @@ registerHandler(SyncSubscription, async ({ input, ctx, tx, audit }: HandlerArgs<
     ? (acct.current_period_end === null ? null : ts(acct.current_period_end))
     : (input.currentPeriodEnd === null ? null : ts(new Date(input.currentPeriodEnd)));
 
+  /**
+   * ⭐ **续期就把套餐内额度清零。**
+   *
+   * 清零的时机跟着 Stripe 的 `current_period_end` 走，不自己数日子 ——
+   * 自己数就一定会和 Stripe 的账单周期漂开，而漂开之后
+   * 「这个月到底还剩几次」谁也说不清，客户和我们各算各的。
+   *
+   * ⚠️ 只有**往后走**才算续期。Stripe 偶尔会重投一条旧事件，
+   * 那条里的 period_end 比库里的早 —— 照着它清零等于白送客户一整期额度。
+   */
+  const prevEnd = acct.current_period_end ? new Date(ts(acct.current_period_end)).getTime() : 0;
+  const nextEnd = periodEnd ? new Date(periodEnd).getTime() : 0;
+  const renewed = nextEnd > prevEnd && prevEnd > 0;
+
   await tx`
     update billing_accounts set
       stripe_customer_id = ${customerId},
       stripe_subscription_id = ${subscriptionId},
       plan = ${plan},
       subscription_status = ${status},
-      current_period_end = ${periodEnd}::timestamptz
+      current_period_end = ${periodEnd}::timestamptz,
+      included_assists_used = ${renewed ? 0 : acct.included_assists_used},
+      included_period_start = ${renewed ? tx`now()` : tx`included_period_start`}
     where id = ${acct.id}`;
 
   audit({
@@ -240,6 +258,8 @@ registerHandler(SyncSubscription, async ({ input, ctx, tx, audit }: HandlerArgs<
       hasCustomer: Boolean(customerId),
       hasSubscription: Boolean(subscriptionId),
       sourceEventId: input.sourceEventId ?? null,
+      // 续期清零要留痕：「我的额度怎么突然满了/没了」是要能查的
+      includedReset: renewed,
     },
   });
 

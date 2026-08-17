@@ -7,8 +7,19 @@
  * 全程整数分。不出现一次浮点。
  */
 
-/** 自动续充的三档。**只有这三个值合法** —— 让客户填任意金额会引来试卡的人 */
-export const TOPUP_TIERS = [5000, 10000, 20000] as const;
+/**
+ * 充值只有**一档：$100**（AI 分钟包）。
+ *
+ * 原本是三档 $50/$100/$200。收窄成一档有两个理由：
+ *   · Stripe 那边就一个 `GenieFront AI Minutes (200 mins)` 的价格，
+ *     代码里摆三档而后台只有一个，迟早对不上
+ *   · 档位越少，「让客户填任意金额」这条路越远 —— 任意金额会引来
+ *     拿被盗的卡试活的人（$0.53、$1.07 那种试探性小额）
+ *
+ * ⚠️ **买了不会过期。** 余额是钱不是次数，用不完一直留着（决策 8 的
+ * 「预充值」本意）。所以不需要「有效期」这个概念，也就没有到期作废的争议。
+ */
+export const TOPUP_TIERS = [10000] as const;
 export type TopupTier = (typeof TOPUP_TIERS)[number];
 
 export const isTopupTier = (v: number): v is TopupTier =>
@@ -170,4 +181,58 @@ export function usageChargeCents(costMillicents: number, kind: string): number {
   // 毫分 × bp / 10000 = 毫分；再 /1000 变成分。**向上取整** ——
   // 每次少收一点点，累计起来就是我们在替客户付 AI 的钱
   return Math.ceil((costMillicents * bp) / 10000 / 1000);
+}
+
+// ─────────────────────────────────────────────────── 套餐内额度（先用套餐里的）
+
+/** 套餐。和 Stripe 后台的产品名对齐（Essential $99 / Growth $199） */
+export const PLANS = ['essential', 'growth'] as const;
+export type Plan = (typeof PLANS)[number];
+
+export const isPlan = (v: unknown): v is Plan =>
+  typeof v === 'string' && (PLANS as readonly string[]).includes(v);
+
+/**
+ * 每个套餐每期含多少次副驾（决策 8）。
+ *
+ * ⚠️ **只含副驾，不含电话分钟。** 两者成本差 10–16 倍，合成一个「额度」
+ * 必被套利 —— 电话量大的店会把额度全用在最贵的地方，而那恰恰是最忙、
+ * 最该赚钱的客户（`04` §4.1）。电话走单独的分钟包。
+ *
+ * 试用期按 essential 给：额度不能是无限的，否则试用期会被薅（`04` §4.2）。
+ */
+export const PLAN_INCLUDED_ASSISTS: Record<Plan, number> = {
+  essential: 500,
+  growth: 2000,
+};
+
+export function includedAssistsFor(plan: string): number {
+  return isPlan(plan) ? PLAN_INCLUDED_ASSISTS[plan] : PLAN_INCLUDED_ASSISTS.essential;
+}
+
+export type IncludedDecision =
+  /** 这一次走套餐内额度，不扣余额 */
+  | { source: 'included'; usedAfter: number; remaining: number }
+  /** 套餐内额度用完了，扣余额 */
+  | { source: 'balance'; remaining: 0 };
+
+/**
+ * 这一次该走套餐内额度还是扣余额。**先用套餐里的**。
+ *
+ * 纯函数，因为「这次为什么扣钱了」是客户会打电话来问的问题 ——
+ * 它必须能被完整地测，而不是埋在一段 SQL 里。
+ *
+ * ⚠️ 只有 `ai_assist` 吃套餐额度。电话分钟和短信各有各的包，
+ * 让它们共用一个计数就是决策 8 明确要避免的那种套利。
+ */
+export function consumeIncluded(
+  kind: string, plan: string, usedThisPeriod: number,
+): IncludedDecision {
+  if (kind !== 'ai_assist') return { source: 'balance', remaining: 0 };
+
+  const included = includedAssistsFor(plan);
+  if (usedThisPeriod >= included) return { source: 'balance', remaining: 0 };
+
+  const usedAfter = usedThisPeriod + 1;
+  return { source: 'included', usedAfter, remaining: included - usedAfter };
 }

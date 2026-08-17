@@ -57,7 +57,7 @@ async function resetBilling(): Promise<void> {
                auto_topup_enabled = false, auto_topup_failures = 0,
                last_auto_topup_at = null, default_payment_method_id = null,
                payment_method_label = null, subscription_status = 'trialing',
-               plan = 'starter', stripe_customer_id = null, stripe_subscription_id = null
+               plan = 'essential', included_assists_used = 0, stripe_customer_id = null, stripe_subscription_id = null
              where location_id = ${SPA_LOC}`;
 
     /**
@@ -98,7 +98,7 @@ beforeAll(async () => {
 
   // 账户不存在时第一条命令会自动建（试用期的店也会产生 AI 用量）
   await run('billing.setAutoTopup', {
-    enabled: false, thresholdCents: 1000, amountCents: 5000,
+    enabled: false, thresholdCents: 1000, amountCents: 10000,
   });
   await resetBilling();
 });
@@ -116,7 +116,7 @@ describe('账户自动建立', () => {
     // 到月底突然冒出一笔对不上的差额，那时候谁也说不清是哪几次调用
     const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
     expect(view).not.toBeNull();
-    expect(view!.plan).toBe('starter');
+    expect(view!.plan).toBe('essential');
     expect(view!.subscriptionStatus).toBe('trialing');
   });
 });
@@ -132,8 +132,40 @@ describe('用量扣费', () => {
     expect(usageChargeCents(12000, 'ai_assist')).toBe(36);
   });
 
+  /** 把套餐内额度用满，之后的调用才会扣余额 */
+  async function exhaustIncluded(): Promise<void> {
+    await withTenant(tenant, (tx) => tx`
+      update billing_accounts set included_assists_used = 99999
+      where location_id = ${SPA_LOC}`);
+  }
+
+  it('⭐ 先用套餐里的 —— 额度没用完不扣一分钱', async () => {
+    await resetBilling();
+    const out = await withTenant(tenant, (tx) => chargeUsage(tx, ctx, {
+      kind: 'ai_assist', costMillicents: 2400,
+    }));
+    expect(out).toMatchObject({ source: 'included', chargedCents: 0, ledgerId: null });
+
+    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
+    expect(view!.balanceCents).toBe(0);          // 一分钱没扣
+    expect(view!.included.used).toBe(1);
+    expect(view!.included.remaining).toBe(view!.included.total - 1);
+  });
+
+  it('⭐ 电话分钟不吃副驾的额度（决策 8：合成一个额度必被套利）', async () => {
+    await resetBilling();
+    // 单价还没实测，成本 0 → 直接跳过；关键是它没有去动 included 计数
+    const out = await withTenant(tenant, (tx) => chargeUsage(tx, ctx, {
+      kind: 'ai_call_min', costMillicents: 0,
+    }));
+    expect(out).toBeNull();
+    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
+    expect(view!.included.used).toBe(0);
+  });
+
   it('扣费走账本，余额缓存跟着账本走', async () => {
     await resetBilling();
+    await exhaustIncluded();
     const out = await withTenant(tenant, (tx) => chargeUsage(tx, ctx, {
       kind: 'ai_assist', costMillicents: 2400,
     }));
@@ -150,6 +182,7 @@ describe('用量扣费', () => {
 
   it('⭐ 余额允许扣成负数 —— 调用已经发生了，拒绝记账不会把它变没', async () => {
     await resetBilling();
+    await exhaustIncluded();
     // 相反的做法（余额不足就拒绝扣费）会导致用量照常发生、账上却看不到
     for (let i = 0; i < 3; i++) {
       await withTenant(tenant, (tx) => chargeUsage(tx, ctx, {
@@ -172,6 +205,7 @@ describe('用量扣费', () => {
 
   it('⭐ 并发扣费不会在账本上留下断点', async () => {
     await resetBilling();
+    await exhaustIncluded();
     // 不加 for update 的话，两笔并发会各自读到同一个余额，
     // balance_after 就对不齐了 —— 而对账时这看起来像是有人篡改
     await Promise.all(Array.from({ length: 5 }, () =>
@@ -242,7 +276,7 @@ describe('自动续充', () => {
       update billing_accounts set stripe_customer_id = 'cus_test'
       where location_id = ${SPA_LOC}`);
     await run('billing.setAutoTopup',
-      { enabled: true, thresholdCents: 1000, amountCents: 5000 });
+      { enabled: true, thresholdCents: 1000, amountCents: 10000 });
   }
 
   it('余额低于阈值 + 有卡 + 订阅正常 → 认领成功', async () => {
@@ -250,7 +284,7 @@ describe('自动续充', () => {
     const claim = await run<{ charge: boolean; amountCents: number | null }>(
       'billing.claimAutoTopup', {});
     expect(claim.charge).toBe(true);
-    expect(claim.amountCents).toBe(5000);
+    expect(claim.amountCents).toBe(10000);
   });
 
   it('⭐ 认领一次之后进冷却 —— 不然一晚上能触发几十次扣款尝试', async () => {
@@ -272,7 +306,7 @@ describe('自动续充', () => {
   it('没绑卡 → 不充，且说得出为什么', async () => {
     await resetBilling();
     await run('billing.setAutoTopup',
-      { enabled: true, thresholdCents: 1000, amountCents: 5000 });
+      { enabled: true, thresholdCents: 1000, amountCents: 10000 });
     const claim = await run<{ charge: boolean; reason: string | null }>(
       'billing.claimAutoTopup', {});
     expect(claim).toMatchObject({ charge: false, reason: 'no_payment_method' });
@@ -305,7 +339,7 @@ describe('自动续充', () => {
       await run('billing.recordTopupFailure', { reason: 'card_declined' });
     }
     const out = await run<{ failuresReset: boolean }>('billing.setAutoTopup',
-      { enabled: true, thresholdCents: 1000, amountCents: 10000 });
+      { enabled: true, thresholdCents: 2000, amountCents: 10000 });
     expect(out.failuresReset).toBe(true);
 
     const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
@@ -321,9 +355,12 @@ describe('自动续充', () => {
     expect(view!.autoTopup.failures).toBe(0);
   });
 
-  it('档位只有三档 —— 任意金额会引来拿被盗的卡试活的人', async () => {
+  it('档位只有 $100 一档 —— 任意金额会引来拿被盗的卡试活的人', async () => {
     await expect(run('billing.setAutoTopup',
       { enabled: true, thresholdCents: 1000, amountCents: 777 })).rejects.toThrow();
+    // 旧的三档也不再接受
+    await expect(run('billing.setAutoTopup',
+      { enabled: true, thresholdCents: 1000, amountCents: 5000 })).rejects.toThrow();
   });
 });
 
@@ -333,24 +370,63 @@ describe('订阅同步', () => {
   it('局部更新：这次不知道的字段不动', async () => {
     await resetBilling();
     await run('billing.syncSubscription',
-      { stripeCustomerId: 'cus_x', plan: 'pro', subscriptionStatus: 'active' });
+      { stripeCustomerId: 'cus_x', plan: 'growth', subscriptionStatus: 'active' });
     // 建 Checkout 时那次同步只带 customerId —— 不能把套餐和状态抹回默认值
     await run('billing.syncSubscription', { stripeCustomerId: 'cus_x' });
 
     const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    expect(view!.plan).toBe('pro');
+    expect(view!.plan).toBe('growth');
     expect(view!.subscriptionStatus).toBe('active');
+  });
+
+  it('⭐ 续期把套餐内额度清零 —— 时机跟着 Stripe 走，不自己数日子', async () => {
+    await resetBilling();
+    const t0 = new Date(Date.now() + 30 * 86400_000).toISOString();
+    await run('billing.syncSubscription',
+      { subscriptionStatus: 'active', currentPeriodEnd: t0 });
+
+    // 用掉一些额度
+    await withTenant(tenant, (tx) => tx`
+      update billing_accounts set included_assists_used = 123
+      where location_id = ${SPA_LOC}`);
+
+    // 续期：period_end 往后走
+    const t1 = new Date(Date.now() + 60 * 86400_000).toISOString();
+    await run('billing.syncSubscription',
+      { subscriptionStatus: 'active', currentPeriodEnd: t1 });
+
+    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
+    expect(view!.included.used).toBe(0);
+    expect(view!.included.remaining).toBe(view!.included.total);
+  });
+
+  it('⭐ 重投的旧事件不清零 —— 那等于白送客户一整期额度', async () => {
+    await resetBilling();
+    const late = new Date(Date.now() + 60 * 86400_000).toISOString();
+    await run('billing.syncSubscription',
+      { subscriptionStatus: 'active', currentPeriodEnd: late });
+    await withTenant(tenant, (tx) => tx`
+      update billing_accounts set included_assists_used = 77
+      where location_id = ${SPA_LOC}`);
+
+    // Stripe 偶尔重投一条更早的事件。照着它清零就是白送一期
+    const early = new Date(Date.now() + 30 * 86400_000).toISOString();
+    await run('billing.syncSubscription',
+      { subscriptionStatus: 'active', currentPeriodEnd: early });
+
+    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
+    expect(view!.included.used).toBe(77);
   });
 
   it('⭐ 认不出的 price 传 null → 套餐保持不变，不会被静默降档', async () => {
     await resetBilling();
-    await run('billing.syncSubscription', { plan: 'pro', subscriptionStatus: 'active' });
-    // planForPriceId 认不出来时返回 null。写成 starter 的话，
-    // 一个付 Pro 钱的客户会被降档，而账单上看不出来
+    await run('billing.syncSubscription', { plan: 'growth', subscriptionStatus: 'active' });
+    // planForPriceId 认不出来时返回 null。写成 essential 的话，
+    // 一个付 Growth 钱的客户会被降档，而账单上看不出来
     await run('billing.syncSubscription', { plan: null, subscriptionStatus: 'active' });
 
     const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
-    expect(view!.plan).toBe('pro');
+    expect(view!.plan).toBe('growth');
   });
 });
 

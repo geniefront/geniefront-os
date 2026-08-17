@@ -16,6 +16,7 @@
 
 import Stripe from 'stripe';
 import { AppError, ERROR_CODES } from '@gf/contracts';
+import type { Plan } from '@gf/payroll';
 
 let cached: Stripe | null = null;
 let cachedKey: string | null = null;
@@ -51,11 +52,8 @@ export function stripeConfigured(): boolean {
 
 // ─────────────────────────────────────────────────────────────── 套餐与价格
 
-export type Plan = 'starter' | 'pro';
-export const PLANS: readonly Plan[] = ['starter', 'pro'];
-
-export const isPlan = (v: unknown): v is Plan =>
-  typeof v === 'string' && (PLANS as readonly string[]).includes(v);
+export type { Plan } from '@gf/payroll';
+export { PLANS, isPlan } from '@gf/payroll';
 
 /**
  * 套餐 → Stripe Price id。
@@ -65,7 +63,7 @@ export const isPlan = (v: unknown): v is Plan =>
  * 这里只存「哪个套餐对应 Stripe 上的哪个 price」。
  */
 export function priceIdFor(plan: Plan): string {
-  const id = process.env[plan === 'pro' ? 'STRIPE_PRICE_PRO' : 'STRIPE_PRICE_STARTER'];
+  const id = process.env[plan === 'growth' ? 'STRIPE_PRICE_GROWTH' : 'STRIPE_PRICE_ESSENTIAL'];
   if (!id) {
     throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, {
       details: { service: 'stripe', reason: `${plan} 套餐的 STRIPE_PRICE_* 未配置` },
@@ -83,8 +81,8 @@ export function priceIdFor(plan: Plan): string {
  */
 export function planForPriceId(priceId: string | null | undefined): Plan | null {
   if (!priceId) return null;
-  if (priceId === process.env['STRIPE_PRICE_PRO']) return 'pro';
-  if (priceId === process.env['STRIPE_PRICE_STARTER']) return 'starter';
+  if (priceId === process.env['STRIPE_PRICE_GROWTH']) return 'growth';
+  if (priceId === process.env['STRIPE_PRICE_ESSENTIAL']) return 'essential';
   return null;
 }
 

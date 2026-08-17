@@ -18,7 +18,7 @@
  * 不叫 `cost`：让调用点自己把单位念出来。
  */
 
-import { usageChargeCents } from '@gf/payroll';
+import { usageChargeCents, consumeIncluded, includedAssistsFor } from '@gf/payroll';
 import type { CommandContext } from '@gf/contracts';
 import type postgres from 'postgres';
 import { ensureAccount, appendLedger } from '../handlers/billing';
@@ -33,9 +33,15 @@ export interface UsageChargeInput {
 }
 
 export interface UsageChargeResult {
+  /** 从余额里扣了多少分。走套餐内额度时是 0 */
   chargedCents: number;
   balanceAfterCents: number;
-  ledgerId: string;
+  /** 走套餐内额度时没有账本记录 */
+  ledgerId: string | null;
+  /** 这一次走的是套餐内额度还是预充值余额 */
+  source: 'included' | 'balance';
+  /** 套餐内还剩几次（只对 ai_assist 有意义） */
+  includedRemaining: number;
 }
 
 /**
@@ -54,8 +60,39 @@ export async function chargeUsage(
   if (chargedCents <= 0) return null;
 
   // for update：两笔并发扣费必须在这一行上排队，
-  // 否则各自读到同一个余额，账本上会留下一个对不齐的断点
+  // 否则各自读到同一个余额，账本上会留下一个对不齐的断点。
+  // 套餐内额度的计数也靠这把锁 —— 不锁的话两次并发都读到 499，
+  // 各自写 500，实际用了两次却只记了一次
   const acct = await ensureAccount(tx, ctx, { forUpdate: true });
+
+  /**
+   * ⭐ **先用套餐里的**（老板 2026-08-17 拍板）。
+   *
+   * Essential 每期含 500 次副驾、Growth 2000 次。用满了才开始扣预充值余额。
+   * 顺序反过来（先扣余额、月底再退套餐内的）在账单上完全说不清 ——
+   * 老板看到的是「我明明还有额度，为什么在扣我的钱」。
+   *
+   * ⚠️ 只有 `ai_assist` 吃这个额度。电话分钟单独成包 —— 两者成本差
+   * 10–16 倍，合成一个额度必被套利（决策 8）。
+   */
+  const decision = consumeIncluded(input.kind, acct.plan, acct.included_assists_used);
+  if (decision.source === 'included') {
+    await tx`
+      update billing_accounts set
+        included_assists_used = ${decision.usedAfter},
+        included_period_start = coalesce(included_period_start, now())
+      where id = ${acct.id}`;
+
+    // 走套餐内额度**不记账本** —— 账本记的是钱的进出，
+    // 而这一次没有钱动。用了多少次在 usage_events 里查得到
+    return {
+      chargedCents: 0,
+      balanceAfterCents: acct.balance_cents,
+      ledgerId: null,
+      source: 'included',
+      includedRemaining: decision.remaining,
+    };
+  }
 
   /**
    * ⚠️ **余额允许扣成负数**，这是有意的（`@gf/payroll/credits` 的长注释）。
@@ -71,5 +108,14 @@ export async function chargeUsage(
     usageEventId: input.usageEventId ?? null,
   });
 
-  return { chargedCents, balanceAfterCents, ledgerId };
+  return {
+    chargedCents, balanceAfterCents, ledgerId,
+    source: 'balance',
+    includedRemaining: 0,
+  };
+}
+
+/** 套餐内还剩几次。前台那一屏要显示「本期还剩 431 次」 */
+export function includedRemaining(plan: string, used: number): number {
+  return Math.max(0, includedAssistsFor(plan) - used);
 }
