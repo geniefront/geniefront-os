@@ -355,12 +355,18 @@ describe('自动续充', () => {
     expect(view!.autoTopup.failures).toBe(0);
   });
 
-  it('档位只有 $100 一档 —— 任意金额会引来拿被盗的卡试活的人', async () => {
+  it('⭐ 自动续充不接受 $20 那一档 —— 忙店一个月要被扣 1.5 次', async () => {
+    // $20 是留给「第一次买，先试试水」的手动充值。
+    // 拿它做自动续充，每次扣款都是客户账单上的一条记录
+    await expect(run('billing.setAutoTopup',
+      { enabled: true, thresholdCents: 1000, amountCents: 2000 })).rejects.toThrow();
+    // 任意金额更不行 —— 那会引来拿被盗的卡试活的人
     await expect(run('billing.setAutoTopup',
       { enabled: true, thresholdCents: 1000, amountCents: 777 })).rejects.toThrow();
-    // 旧的三档也不再接受
-    await expect(run('billing.setAutoTopup',
-      { enabled: true, thresholdCents: 1000, amountCents: 5000 })).rejects.toThrow();
+    // $50 可以
+    const ok = await run<{ amountCents: number }>('billing.setAutoTopup',
+      { enabled: true, thresholdCents: 1000, amountCents: 5000 });
+    expect(ok.amountCents).toBe(5000);
   });
 });
 

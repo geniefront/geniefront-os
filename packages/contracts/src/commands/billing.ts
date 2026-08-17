@@ -23,14 +23,26 @@ import { z } from 'zod';
 import { defineCommand, uuid, cents } from '../command.js';
 
 /**
- * 充值只有**一档：$100**（Stripe 上那个 AI Minutes 包，DB 约束兜底）。
+ * 手动充值的三档：$20 / $50 / $100。
  *
  * 让客户填任意金额会引来拿被盗的卡试活的人：$0.53、$1.07 这种试探性小额
  * 是盗卡验证的标准手法，而我们这边看起来只是一笔正常充值。
  *
- * ⚠️ 买了**不会过期** —— 余额是钱不是次数，用不完一直留着。
+ * ⚠️ 卖的是**钱不是分钟数**：Telnyx 单价还没实测，把「$100 = 200 分钟」
+ * 写进产品名等于在成本量出来之前就把毛利锁死（详见 @gf/payroll 的长注释）。
+ * 而且买了**不会过期** —— 用不完一直留着。
  */
-export const topupTier = z.literal(10000);
+export const topupTier = z.union([
+  z.literal(2000), z.literal(5000), z.literal(10000),
+]);
+
+/**
+ * **自动续充只给大额两档**（$50 / $100），和手动充值分开。
+ *
+ * $20 是给「先试试水」的。拿它做自动续充，一家忙店一个月要被扣 1.5 次 ——
+ * 而自动续充要的恰恰是别让人注意到它。
+ */
+export const autoTopupTier = z.union([z.literal(5000), z.literal(10000)]);
 
 /** 和 Stripe 后台的产品名对齐：Essential $99 / Growth $199（迁移 0021） */
 export const billingPlan = z.enum(['essential', 'growth']);
@@ -50,7 +62,8 @@ export const SetAutoTopup = defineCommand({
     enabled: z.boolean(),
     /** 余额低于这个数就自动充。0–$500，DB 约束兜底 */
     thresholdCents: cents.min(0).max(50_000),
-    amountCents: topupTier,
+    /** ⚠️ 自动续充只认 $50 / $100 —— $20 那一档只给手动充值 */
+    amountCents: autoTopupTier,
   }),
   output: z.object({
     enabled: z.boolean(),
@@ -62,8 +75,8 @@ export const SetAutoTopup = defineCommand({
   permission: 'billing.manage',
   ai: {
     description:
-      '打开或关闭余额自动续充，并设置触发阈值。每次充值固定 $100。' +
-      '这会影响什么时候从老板的卡上扣钱。',
+      '打开或关闭余额自动续充，并设置触发阈值与每次充多少' +
+      '（自动续充只能选 $50 或 $100）。这会影响什么时候从老板的卡上扣钱。',
     confirm: 'always',
   },
   reversible: true,

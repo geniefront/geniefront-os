@@ -55,8 +55,14 @@ export interface BillingResponse {
 const money = (c: number): string =>
   `${c < 0 ? '−' : ''}$${(Math.abs(c) / 100).toFixed(2)}`;
 
-/** 充值只有一档 $100（Stripe 上那个 AI Minutes 包）。买了不会过期 */
-const TOPUP_TIERS = [10000] as const;
+/**
+ * 手动充值三档。⚠️ 卖的是**钱不是分钟数** —— Telnyx 单价还没实测，
+ * 承诺「$100 = 200 分钟」等于在成本量出来之前锁死毛利，而改口比改价难十倍。
+ */
+const TOPUP_TIERS = [2000, 5000, 10000] as const;
+
+/** 自动续充只给大额两档：$20 那一档做自动续充，忙店一个月要被扣 1.5 次 */
+const AUTO_TOPUP_TIERS = [5000, 10000] as const;
 
 const KIND_LABEL: Record<string, string> = {
   ai_assist: '前台副驾 / 拍照开店',
@@ -241,12 +247,15 @@ export function Billing({
                       } catch (e) { setErr(describe(e)); }
                       finally { setBusy(''); }
                     }}>
-              {busy === `topup-${t}` ? <span className="spin" /> : `买 ${money(t)} AI 包`}
+              {busy === `topup-${t}` ? <span className="spin" /> : `充 ${money(t)}`}
             </button>
           ))}
         </div>
 
-        <div className="tiny muted">买了不会过期，用不完一直留着。</div>
+        <div className="tiny muted">
+          充进来的钱不会过期，用不完一直留着。副驾和 AI 电话共用这一个余额 ——
+          按实际用量扣，不用猜自己要买哪种包。
+        </div>
         {!data.hasPaymentMethod && (
           <div className="tiny">要先绑一张卡才能充值。卡号只在 Stripe 的页面上输入。</div>
         )}
@@ -360,8 +369,8 @@ export function Billing({
 /**
  * 自动续充的设置块。
  *
- * 金额只有一档 $100，写死 —— 让客户填任意金额会引来拿被盗的卡试活的人，
- * DB 那边也有 check 约束兜着。
+ * 档位写死（自动续充 $50 / $100）—— 让客户填任意金额会引来拿被盗的卡
+ * 试活的人，DB 那边也有 check 约束兜着。
  */
 function AutoTopupPane({ data, membershipId, onChanged, onError }: {
   data: BillingData;
@@ -415,10 +424,23 @@ function AutoTopupPane({ data, membershipId, onChanged, onError }: {
             ))}
           </div>
 
-          {/* 只有一档，不给选择器 —— 一个只有一个选项的按钮组是噪音 */}
-          <div className="row" style={{ gap: 10 }}>
+          {/*
+            ⚠️ 自动续充**只给 $50 / $100**，没有 $20 那一档。
+            $20 是留给「第一次买，先试试水」的 —— 拿它做自动续充，
+            一家忙店一个月要被扣 1.5 次，而自动续充要的恰恰是别让人注意到它。
+          */}
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
             <span style={{ minWidth: 96 }}>每次充</span>
-            <strong>{money(amount)}</strong>
+            {AUTO_TOPUP_TIERS.map((t) => (
+              <button key={t} className="btn" style={{
+                minHeight: 56, minWidth: 84, borderWidth: 2,
+                borderColor: amount === t ? 'var(--brand)' : 'var(--line)',
+                background: amount === t ? 'var(--brand-soft)' : 'var(--surface)' }}
+                onClick={() => setAmount(t)}>{money(t)}</button>
+            ))}
+          </div>
+          <div className="tiny muted">
+            自动续充不给 $20 那一档：太小的话一个月要扣好几次。
           </div>
 
           {!data.hasPaymentMethod && (

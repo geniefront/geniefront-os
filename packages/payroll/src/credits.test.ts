@@ -10,6 +10,7 @@ import {
   shouldAutoTopup, applyEntry, replayBalance, findLedgerBreak,
   usageChargeCents, isTopupTier, TOPUP_TIERS, TOPUP_COOLDOWN_MS, MAX_TOPUP_FAILURES,
   consumeIncluded, includedAssistsFor, PLAN_INCLUDED_ASSISTS,
+  AUTO_TOPUP_TIERS, isAutoTopupTier, DEFAULT_AUTO_TOPUP_CENTS,
   type BillingAccountState,
 } from './credits';
 
@@ -32,10 +33,17 @@ function acct(over: Partial<BillingAccountState> = {}): BillingAccountState {
 describe('自动续充三档', () => {
   it('只有 $50 / $100 / $200 三个值合法', () => {
     // 让客户填任意金额会引来试卡的人（拿被盗的卡刷 $0.5 试活）
-    expect(TOPUP_TIERS).toEqual([10000]);
-    expect(isTopupTier(5000)).toBe(false);
+    expect(TOPUP_TIERS).toEqual([2000, 5000, 10000]);
+    expect(isTopupTier(5000)).toBe(true);
     expect(isTopupTier(10000)).toBe(true);
     expect(isTopupTier(20000)).toBe(false);
+
+    // ⭐ 自动续充是**更窄的一张表**：$20 只给手动充值。
+    // 拿 $20 做自动续充，一家忙店一个月要被扣 1.5 次 ——
+    // 每次都是客户账单上的一条记录和一通「怎么又扣钱」的电话
+    expect(AUTO_TOPUP_TIERS).toEqual([5000, 10000]);
+    expect(isAutoTopupTier(2000)).toBe(false);
+    expect(isAutoTopupTier(10000)).toBe(true);
     expect(isTopupTier(4999)).toBe(false);
     expect(isTopupTier(50)).toBe(false);
   });
@@ -96,7 +104,15 @@ describe('该不该现在自动续充', () => {
   it('档位存坏了不会扣出一个怪金额', () => {
     // 人工改过库、或者以后加了新档又回滚
     expect(shouldAutoTopup(acct({ autoTopupAmountCents: 7777 }), NOW))
-      .toEqual({ charge: true, amountCents: 10000 });
+      .toEqual({ charge: true, amountCents: DEFAULT_AUTO_TOPUP_CENTS });
+  });
+
+  it('⭐ 兜底用的是自动续充的默认档，不是手动充值的最小档', () => {
+    // 兜到 $20 的话，一家忙店会一个月被扣三次 ——
+    // 而那正是 $20 这一档不该用来自动续充的原因
+    expect(shouldAutoTopup(acct({ autoTopupAmountCents: 2000 }), NOW))
+      .toEqual({ charge: true, amountCents: DEFAULT_AUTO_TOPUP_CENTS });
+    expect(DEFAULT_AUTO_TOPUP_CENTS).toBe(10000);
   });
 
   it('每个不充的分支都有名字 —— 出账单纠纷时要能回答「为什么那天没充上」', () => {

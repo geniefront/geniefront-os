@@ -8,22 +8,59 @@
  */
 
 /**
- * 充值只有**一档：$100**（AI 分钟包）。
+ * 手动充值的三档：$20 / $50 / $100。
  *
- * 原本是三档 $50/$100/$200。收窄成一档有两个理由：
- *   · Stripe 那边就一个 `GenieFront AI Minutes (200 mins)` 的价格，
- *     代码里摆三档而后台只有一个，迟早对不上
- *   · 档位越少，「让客户填任意金额」这条路越远 —— 任意金额会引来
- *     拿被盗的卡试活的人（$0.53、$1.07 那种试探性小额）
+ * ## ⭐ 为什么卖「钱」而不是「分钟数」
  *
- * ⚠️ **买了不会过期。** 余额是钱不是次数，用不完一直留着（决策 8 的
- * 「预充值」本意）。所以不需要「有效期」这个概念，也就没有到期作废的争议。
+ * Telnyx 的分钟单价**还没实测**（`09` §6）。把「$100 = 200 分钟」写进
+ * 产品名，等于在成本还没量出来之前就把毛利锁死了 —— 实测下来是
+ * $0.25/分钟而不是 $0.15 的话，那 200 分钟就是亏本卖，
+ * 而**改口比改价难十倍**（客户记得的是你答应过 200 分钟）。
+ *
+ * 卖「$100 余额」永远不会错：用多少扣多少，扣的是真实成本折算出来的钱。
+ *
+ * ## 为什么不分「语音包」和「副驾包」
+ *
+ * 决策 8 担心的是**次数**共用会被套利（一分钟电话的成本是一次副驾的
+ * 10–16 倍，客户会把额度全用在最贵的地方）。而余额是**钱**，
+ * 按实际成本 × 加价率扣，套利在数学上不成立。
+ * 真正的分离杠杆是**加价率**（`MARKUP_BP`：副驾 3.0x、语音 1.5x），
+ * 那一条已经分开了。
+ *
+ * 分成两个余额的代价是实打实的：两套自动续充、两个阈值，
+ * 以及一句最难解释的话 ——「你语音包还剩 $30，但副驾停了」。
+ *
+ * ⚠️ **买了不会过期。** 用不完一直留着，所以没有到期作废的争议。
  */
-export const TOPUP_TIERS = [10000] as const;
+export const TOPUP_TIERS = [2000, 5000, 10000] as const;
 export type TopupTier = (typeof TOPUP_TIERS)[number];
 
 export const isTopupTier = (v: number): v is TopupTier =>
   (TOPUP_TIERS as readonly number[]).includes(v);
+
+/**
+ * **自动续充只给大额两档**，和手动充值分开。
+ *
+ * $20 那一档是留给「第一次买，先试试水」的 —— 用它做自动续充，
+ * 一家 50 次/天的 Essential 店**一个月要触发 1.5 次**：
+ *
+ * | 档位 | Stripe 手续费 | 忙店能撑 |
+ * |---|---|---|
+ * | $20 | 4.4% | 0.7 个月 |
+ * | $50 | 3.5% | 1.7 个月 |
+ * | $100 | 3.2% | 3.3 个月 |
+ *
+ * 每一次自动扣款都是客户账单上的一条记录，和一通「怎么又扣我钱」的电话。
+ * 自动续充要的恰恰是**别让人注意到它**。
+ */
+export const AUTO_TOPUP_TIERS = [5000, 10000] as const;
+export type AutoTopupTier = (typeof AUTO_TOPUP_TIERS)[number];
+
+export const isAutoTopupTier = (v: number): v is AutoTopupTier =>
+  (AUTO_TOPUP_TIERS as readonly number[]).includes(v);
+
+/** 自动续充的默认档。撑得最久、手续费占比最低 */
+export const DEFAULT_AUTO_TOPUP_CENTS = 10000;
 
 /**
  * 两次自动续充之间的冷却。
@@ -52,7 +89,7 @@ export type TopupDecision =
   | { charge: false; reason:
       | 'disabled' | 'above_threshold' | 'no_payment_method'
       | 'cooling_down' | 'too_many_failures' | 'subscription_inactive' }
-  | { charge: true; amountCents: TopupTier };
+  | { charge: true; amountCents: AutoTopupTier | number };
 
 /**
  * 该不该现在自动续充。
@@ -87,11 +124,13 @@ export function shouldAutoTopup(
     return { charge: false, reason: 'cooling_down' };
   }
 
-  // 档位存坏了（人工改库、或者以后加了新档又回滚）不能就这么扣一笔怪金额
+  // 档位存坏了（人工改库、或者以后加了新档又回滚）不能就这么扣一笔怪金额。
+  // ⚠️ 兜底用**自动续充**那张表，不是手动充值那张 —— 兜到 $20 的话
+  // 忙店会一个月被扣三次，而那正是这一档不该用来自动续充的原因
   const amount = acct.autoTopupAmountCents;
-  return isTopupTier(amount)
+  return isAutoTopupTier(amount)
     ? { charge: true, amountCents: amount }
-    : { charge: true, amountCents: TOPUP_TIERS[0] };
+    : { charge: true, amountCents: DEFAULT_AUTO_TOPUP_CENTS };
 }
 
 export interface LedgerEntryInput {
