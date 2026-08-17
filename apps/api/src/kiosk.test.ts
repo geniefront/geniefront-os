@@ -15,6 +15,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { withTenant, closeDb } from '@gf/db';
+import { businessDateOf } from '@gf/scheduling';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
 import { buildServer } from './server';
@@ -390,8 +391,27 @@ describe('健康表', () => {
   });
 });
 
+/**
+ * 门店此刻的营业日。
+ *
+ * ⚠️ **必须用和生产同一个 `businessDateOf`**（宪法第 2 条：一份实现）。
+ *
+ * 上一版是自己拼的：
+ * ```ts
+ * new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
+ *   .toISOString().slice(0, 10)
+ * ```
+ * 它在**东部时间 20:00 之后就多算一天** —— `toISOString()` 把 ET 的晚上
+ * 换回 UTC，日期就翻了。于是「前台看得到队列」那两条用例
+ * **只在下午之前跑得过**，晚上跑或者 CI 排在晚上就红，
+ * 而报错是「队列是空的」，看起来完全像是取号那条路坏了。
+ *
+ * 时间的事只信 `@gf/scheduling`（宪法第 8 条）。
+ */
 function todayDate(): string {
-  // 测试库的门店在东部时间；营业日切换点是凌晨，白天跑就是当天
-  return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
-    .toISOString().slice(0, 10);
+  return businessDateOf(new Date(), STORE_TZ, STORE_CUTOFF);
 }
+
+/** 种子数据里两家店都在东部时间，营业日切换点凌晨四点（见 packages/db/src/seed.ts） */
+const STORE_TZ = 'America/New_York';
+const STORE_CUTOFF = '04:00:00';

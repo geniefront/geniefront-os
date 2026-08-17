@@ -162,7 +162,15 @@ export const stripeEvents = pgTable('stripe_events', {
   id: text('id').primaryKey(),
   type: text('type').notNull(),
   locationId: uuid('location_id').references(() => locations.id),
-  processedAt: createdAt(),
+  /**
+   * ⚠️ **不能用上面那个 `createdAt()` helper** —— 它把列名写死成 `created_at`。
+   *
+   * 写成 `processedAt: createdAt()` 的话，字段叫 processedAt、列却叫
+   * created_at，而且 typecheck、迁移、运行时全都不报错（插入时走默认值，
+   * 没人显式写这一列），一直到有人写 `where processed_at > …` 才炸。
+   * 这是 10-HANDOFF §4.1 那个坑的第二次发作；迁移 0020 把列名改回来了。
+   */
+  processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
   /** 处理时出的错。留着是为了能回头补处理，而不是让事件默默消失 */
   error: text('error'),
 });
