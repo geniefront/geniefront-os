@@ -31,12 +31,14 @@ import './handlers/phone';
 import './handlers/yelp';
 import './handlers/kiosk';
 import './handlers/billing';
+import './handlers/ai';
 import { loadDay } from './queries/day';
 import { loadBlueprint, listBlueprints } from './queries/blueprint';
 import { loadCallDrafts } from './queries/callDrafts';
 import { registerTelnyxRoutes } from './telnyx/routes';
 import { registerKioskRoutes } from './kiosk/routes';
 import { registerStripeRoutes } from './stripe/routes';
+import { registerCopilotRoutes } from './copilot/routes';
 import { registerRawBodyParser } from './rawBody';
 import { loadBilling } from './queries/billing';
 import { maybeAutoTopup } from './billing/autoTopup';
@@ -769,6 +771,13 @@ export function buildServer(): FastifyInstance {
   // ⚠️ 只有 `/v1/stripe/webhook` 没有登录用户（身份是 HMAC 签名）。
   // `/v1/billing/*` 那几条走正常的 Bearer + billing.manage。
   registerStripeRoutes(app, ctxFromHeaders);
+
+  // ── 前台 AI 副驾（05 §6）────────────────────────────────────────────────
+  //
+  // ⭐ 和拍照开店那条一样不走 /v1/commands：模型调用要几秒，
+  // 塞进事务会占住连接。这条路由只做编排，**提案不执行** ——
+  // 前台在卡片上点确认时才走 /v1/commands/:name，用她自己的身份。
+  registerCopilotRoutes(app, ctxFromHeaders);
 
   // ── Kiosk 门口端（设备令牌鉴权）──────────────────────────────────────────
   registerKioskRoutes(app);

@@ -14,4 +14,6 @@ export * from './commands/phone.js';
 export * from './commands/yelp.js';
 export * from './commands/kiosk.js';
 export * from './commands/billing.js';
+export * from './commands/ai.js';
+export * from './aiSchema.js';
 export * from './registry.js';

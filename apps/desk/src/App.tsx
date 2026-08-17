@@ -26,6 +26,7 @@ import { CallQueue, type CallQueueData, type CallDraft } from './screens/CallQue
 import { YelpFill } from './screens/YelpFill';
 import { QueueBoard, type QueueData } from './screens/QueueBoard';
 import { Billing, type BillingResponse } from './screens/Billing';
+import { Copilot } from './screens/Copilot';
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
 
@@ -45,6 +46,7 @@ function Shell({ session }: { session: Session }) {
   const [grouping, setGrouping] = useState<string[]>([]);
   const [groupBusy, setGroupBusy] = useState(false);
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
+  const [copilot, setCopilot] = useState(false);
   const [photoSetup, setPhotoSetup] = useState(false);
   const [yelpFill, setYelpFill] = useState(false);
   const [callDraft, setCallDraft] = useState<CallDraft | null>(null);
@@ -164,7 +166,9 @@ function Shell({ session }: { session: Session }) {
    * 让人点了看到「没有权限」。
    */
   const canBill = picked?.roleKeys.includes('owner') ?? false;
-
+  // 副驾要 ai.use。技师端没有 —— 它是前台的调度助手（后端才是权威）
+  const canUseAi = picked?.roleKeys.some((r) =>
+    ['owner', 'manager', 'front_desk'].includes(r)) ?? false;
 
   const earnQ = useQuery({
     queryKey: ['earnings', picked?.membershipId],
@@ -291,6 +295,15 @@ function Shell({ session }: { session: Session }) {
           </span>
         )}
         <span className="grow" />
+        {/*
+          ⭐ 副驾做成抽屉、按钮放在顶栏：它是「在别的屏上顺手问一句」的东西。
+          做成页签的话，前台正看着日程表说「把 Lisa 五点那单挪到六点」，
+          得先离开日程表 —— 而离开的那一刻她就看不到自己在说哪一单了。
+        */}
+        {canUseAi && (
+          <button className="btn" style={{ minHeight: 44 }} onClick={() => setCopilot(true)}
+                  title="用说话的方式让副驾帮你查和改">🤖 副驾</button>
+        )}
         <select
           className="btn" style={{ minHeight: 44, padding: '0 12px' }}
           value={locale}
@@ -557,6 +570,18 @@ function Shell({ session }: { session: Session }) {
                   onDone={async () => {
                     await tktQ.refetch(); await rotQ.refetch(); await earnQ.refetch();
                   }} />
+      )}
+
+      {copilot && (
+        <Copilot membershipId={picked.membershipId}
+                 onClose={() => setCopilot(false)}
+                 onExecuted={async () => {
+                   // 副驾执行完不知道动了什么，把几块看板都刷一遍 ——
+                   // 前台关掉抽屉时看到的必须已经是新的
+                   await Promise.all([
+                     dayQ.refetch(), rotQ.refetch(), tktQ.refetch(), queueQ.refetch(),
+                   ]);
+                 }} />
       )}
 
       {slot && dayQ.data && (

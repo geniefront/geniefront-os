@@ -6,6 +6,7 @@
  */
 
 import type { AnyCommandDef } from './command.js';
+import { describeInput } from './aiSchema.js';
 import { APPOINTMENT_COMMANDS } from './commands/appointment.js';
 import { ROTATION_COMMANDS } from './commands/rotation.js';
 import { TICKET_COMMANDS } from './commands/ticket.js';
@@ -19,12 +20,13 @@ import { PHONE_COMMANDS } from './commands/phone.js';
 import { YELP_COMMANDS } from './commands/yelp.js';
 import { KIOSK_COMMANDS } from './commands/kiosk.js';
 import { BILLING_COMMANDS } from './commands/billing.js';
+import { AI_COMMANDS } from './commands/ai.js';
 
 const ALL: readonly AnyCommandDef[] = [
   ...APPOINTMENT_COMMANDS, ...ROTATION_COMMANDS, ...TICKET_COMMANDS, ...SETUP_COMMANDS,
   ...PAYROLL_COMMANDS, ...DAYCLOSE_COMMANDS, ...SHIFT_COMMANDS, ...STAFF_COMMANDS,
   ...BLUEPRINT_COMMANDS, ...PHONE_COMMANDS, ...YELP_COMMANDS, ...KIOSK_COMMANDS,
-  ...BILLING_COMMANDS,
+  ...BILLING_COMMANDS, ...AI_COMMANDS,
 ];
 
 export const COMMAND_REGISTRY: ReadonlyMap<string, AnyCommandDef> = new Map(
@@ -54,6 +56,8 @@ export function aiToolDefinitions(): Array<{
   description: string;
   confirm: string;
   permission: string;
+  /** 入参的一行说明，由 Zod schema 自动压出来（见 aiSchema.ts 顶部的取舍） */
+  input: string;
 }> {
   return [...COMMAND_REGISTRY.values()]
     .filter((c) => c.ai.exposed !== false)
@@ -63,5 +67,22 @@ export function aiToolDefinitions(): Array<{
       description: c.ai.description,
       confirm: c.ai.confirm,
       permission: c.permission,
+      input: describeInput(c.input),
     }));
+}
+
+/**
+ * 命令目录，渲染成给模型看的文本。**这段进缓存断点之前。**
+ *
+ * ⚠️ 它必须**逐字节稳定**（05 §6.2）：不许按门店的功能开关增删命令，
+ * 也不许把权限过滤放在这里。每家店看到的目录都一样，缓存才有意义。
+ *
+ * 权限在**执行那一刻**由命令总线检查（bus.ts 第 2 步，AI 的权限
+ * 已经收窄成操作人的子集）。模型提议一条它没权限的命令，
+ * 结果是一个 PERMISSION_DENIED，不是一次越权写入。
+ */
+export function commandCatalogText(): string {
+  return aiToolDefinitions()
+    .map((c) => `${c.name} [${c.confirm}] ${c.input}\n  ${c.description}`)
+    .join('\n');
 }
