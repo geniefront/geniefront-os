@@ -15,6 +15,7 @@ import {
 import { jsonb } from '@gf/db';
 import { toServiceDrafts, type DraftItem } from '@gf/ai';
 import { registerHandler, type HandlerArgs } from '../bus';
+import { chargeUsage } from '../billing/usage';
 import type postgres from 'postgres';
 
 /**
@@ -95,7 +96,7 @@ registerHandler(SaveBlueprintExtraction, async ({ input, ctx, tx, audit }: Handl
   // cost_cents 存整数分（表结构如此），精确的毫分存进 meta ——
   // 一次提取两三分钱，四舍五入到分之后按月加总会漂出百分之几，
   // 而这是副驾额度包定价的计算基础（决策 8）。
-  await tx`
+  const [usageRow] = await tx<{ id: string }[]>`
     insert into usage_events (org_id, location_id, kind, qty, cost_cents, meta)
     values (${ctx.orgId}, ${ctx.locationId}, 'ai_assist',
             ${input.usage.tokens},
@@ -107,7 +108,19 @@ registerHandler(SaveBlueprintExtraction, async ({ input, ctx, tx, audit }: Handl
               imagesOk: input.usage.imagesOk,
               imagesFailed: input.usage.imagesFailed,
               blueprintId: input.blueprintId,
-            })}::jsonb)`;
+            })}::jsonb)
+    returning id`;
+
+  // ── 扣余额（Phase 2 计费接线）──────────────────────────────────────────
+  //
+  // 和上面那条 usage_events **在同一个事务里**：分开的话中间挂掉就会留下
+  // 「用量记了但没扣钱」或者反过来，而两种漂移都要到月底对账才发现。
+  // 传的是**毫分**不是分（差 10 倍的那个坑，见 billing/usage.ts）。
+  const charge = await chargeUsage(tx, ctx, {
+    kind: 'ai_assist',
+    costMillicents: input.usage.costMillicents,
+    usageEventId: usageRow!.id,
+  });
 
   audit({
     entityType: 'blueprint', entityId: input.blueprintId,
@@ -115,9 +128,15 @@ registerHandler(SaveBlueprintExtraction, async ({ input, ctx, tx, audit }: Handl
       itemCount: input.items.length,
       imagesOk: input.usage.imagesOk,
       imagesFailed: input.usage.imagesFailed,
+      chargedCents: charge?.chargedCents ?? 0,
     },
   });
-  return { blueprintId: input.blueprintId, itemCount: input.items.length };
+  return {
+    blueprintId: input.blueprintId,
+    itemCount: input.items.length,
+    chargedCents: charge?.chargedCents ?? 0,
+    balanceAfterCents: charge?.balanceAfterCents ?? null,
+  };
 });
 
 registerHandler(ReviewBlueprintItem, async ({ input, ctx, tx, audit }: HandlerArgs<

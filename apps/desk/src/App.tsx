@@ -25,6 +25,7 @@ import { PhotoSetup } from './screens/PhotoSetup';
 import { CallQueue, type CallQueueData, type CallDraft } from './screens/CallQueue';
 import { YelpFill } from './screens/YelpFill';
 import { QueueBoard, type QueueData } from './screens/QueueBoard';
+import { Billing, type BillingResponse } from './screens/Billing';
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
 
@@ -39,7 +40,7 @@ function Shell({ session }: { session: Session }) {
   const [picked, setPicked] = useState<LocationMembership | null>(null);
   const [tab, setTab] = useState<
     'turn' | 'day' | 'ticket' | 'earn' | 'close' | 'roster' | 'report' | 'find' | 'setup'
-    | 'calls' | 'queue'>('turn');
+    | 'calls' | 'queue' | 'billing'>('turn');
   const [rosterFrom, setRosterFrom] = useState<string | null>(null);
   const [grouping, setGrouping] = useState<string[]>([]);
   const [groupBusy, setGroupBusy] = useState(false);
@@ -157,6 +158,13 @@ function Shell({ session }: { session: Session }) {
   const canDesk = picked?.roleKeys.some((r) =>
     ['owner', 'manager', 'front_desk'].includes(r)) ?? false;
   const canReport = canManage;
+  /**
+   * ⭐ 账单只给老板 —— 店长都不给（决策 19 的极致隐私，后端才是权威：
+   * `billing.manage` 只在 owner 的预设里）。前端这一层只是别把页签摆出来
+   * 让人点了看到「没有权限」。
+   */
+  const canBill = picked?.roleKeys.includes('owner') ?? false;
+
 
   const earnQ = useQuery({
     queryKey: ['earnings', picked?.membershipId],
@@ -208,6 +216,19 @@ function Shell({ session }: { session: Session }) {
     enabled: Boolean(picked),
     queryFn: () => apiGet<QueueData>('/v1/desk/queue', picked!.membershipId),
     refetchInterval: 20_000,
+  });
+
+  /**
+   * 订阅与余额。
+   *
+   * ⚠️ **只在老板点开这个页签时才拉** —— 这条查询顺带会触发一次
+   * 自动续充检查（server.ts 的 /v1/desk/billing），而那可能真的从卡上扣钱。
+   * 挂成常驻轮询的话，一台开着不动的电脑会一直在敲这条路。
+   */
+  const billQ = useQuery({
+    queryKey: ['billing', picked?.membershipId],
+    enabled: Boolean(picked) && tab === 'billing' && canBill,
+    queryFn: () => apiGet<BillingResponse>('/v1/desk/billing', picked!.membershipId),
   });
 
   const setQ = useQuery({
@@ -301,6 +322,7 @@ function Shell({ session }: { session: Session }) {
           ...(canReport ? ['report'] as const : []),
           ...(['find'] as const),
           ...(canManage ? ['setup'] as const : []),
+          ...(canBill ? ['billing'] as const : []),
         ]).map((k) => (
           <button key={k} className="btn" onClick={() => setTab(k)}
                   style={{
@@ -317,6 +339,7 @@ function Shell({ session }: { session: Session }) {
               : k === 'roster' ? '📅 排班'
               : k === 'report' ? '📊 报表'
               : k === 'setup' ? '⚙ 开店配置'
+              : k === 'billing' ? '💳 订阅与余额'
               : t('cust.title')}
           </button>
         ))}
@@ -499,6 +522,13 @@ function Shell({ session }: { session: Session }) {
             </div>
           </div>
         )
+      ) : tab === 'billing' ? (
+        billQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        : billQ.data ? (
+          <Billing data={billQ.data.billing} autoTopup={billQ.data.autoTopup}
+                   membershipId={picked.membershipId}
+                   onChanged={async () => { await billQ.refetch(); }} />
+        ) : <Retry onRetry={() => billQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'find' ? (
         <CustomerSearch membershipId={picked.membershipId} t={t}
                         onPick={(c) => { setChosen(c); setTab('day'); }}

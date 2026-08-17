@@ -30,11 +30,16 @@ import './handlers/blueprint';
 import './handlers/phone';
 import './handlers/yelp';
 import './handlers/kiosk';
+import './handlers/billing';
 import { loadDay } from './queries/day';
 import { loadBlueprint, listBlueprints } from './queries/blueprint';
 import { loadCallDrafts } from './queries/callDrafts';
 import { registerTelnyxRoutes } from './telnyx/routes';
 import { registerKioskRoutes } from './kiosk/routes';
+import { registerStripeRoutes } from './stripe/routes';
+import { registerRawBodyParser } from './rawBody';
+import { loadBilling } from './queries/billing';
+import { maybeAutoTopup } from './billing/autoTopup';
 import { loadQueue } from './queries/queue';
 import { searchBusinesses, getBusiness } from '@gf/yelp';
 import { extractPriceList, costMillicents, billableTokens, MAX_IMAGE_EDGE_PX,
@@ -84,6 +89,13 @@ export function buildServer(): FastifyInstance {
     maxAge: 86400,
   });
 
+  // ── 原始字节（webhook 验签用）─────────────────────────────────────────────
+  //
+  // ⚠️ 必须在任何路由注册之前，而且**只能注册一次** ——
+  // Fastify 一个 content-type 只允许一个解析器。加新的 webhook 供应商
+  // 是往 RAW_BODY_PREFIXES 里加一条，不是再调一次这个函数。
+  registerRawBodyParser(app);
+
   // ── 健康探针 ───────────────────────────────────────────────────────────────
   // Cloudflare 负载均衡每 5 秒打一次。故意不查数据库：
   // DB 抖一下就把两台机器同时摘掉，比 DB 慢一点更糟。
@@ -117,6 +129,10 @@ export function buildServer(): FastifyInstance {
     // Kiosk 门口那台 iPad 没有登录用户 —— 它的身份是一个设备令牌，
     // 在路由自己那一层验（kiosk/routes.ts）。权限窄到只有取号和交表两条。
     if (path.startsWith('/v1/kiosk/')) return;
+    // Stripe 的 webhook 同理：身份是一个 HMAC 签名，在 stripe/routes.ts 里验。
+    // ⚠️ 只有 /v1/stripe/webhook 这一条是公开的 —— 老板端那几条
+    // （/v1/billing/*）走正常的 Bearer 校验，别把它们放进这个前缀
+    if (path === '/v1/stripe/webhook') return;
     req.user = await verifyAccessToken(req.headers.authorization);
   });
 
@@ -628,6 +644,11 @@ export function buildServer(): FastifyInstance {
         ctx,
       );
 
+      // ⭐ 扣完费顺手看一眼要不要自动续充。**在事务外**（`dispatch` 已经
+      // 提交了）—— Stripe 调用不能进数据库事务，而且事务回滚不了扣款。
+      // 失败只记日志：老板不该因为一张过期的卡而看不到刚提取出来的价目表
+      void maybeAutoTopup(ctx, req.log);
+
       return {
         ...out.result,
         merged: result.merge.merged,
@@ -718,6 +739,36 @@ export function buildServer(): FastifyInstance {
         return loadQueue(tx, ctx, date);
       });
   });
+
+  // ── 查询：订阅与余额（决策 8）────────────────────────────────────────────
+  //
+  // ⭐ 顺手触发一次自动续充检查。这是「余额低了自动充」的四个触发点之一
+  //（其余三个都挂在用量后面，见 billing/autoTopup.ts 顶部）——
+  // 不做跨租户的定时扫描，因为那需要一个能看到所有店的连接，
+  // 而 apps/ 拿不到那种凭据（宪法第 5 条）。
+  //
+  // 它**永远不该让这个查询失败**：老板打开账单页看到一个错误页，
+  // 只会以为系统坏了，而真正的问题只是他那张卡过期了。
+  app.get('/v1/desk/billing', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('billing.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'billing.manage' } });
+    }
+
+    const topup = await maybeAutoTopup(ctx, req.log);
+
+    const view = await withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => loadBilling(tx, ctx));
+
+    return { billing: view, autoTopup: topup };
+  });
+
+  // ── Stripe：订阅 Checkout / 绑卡 / 充值 / webhook ────────────────────────
+  //
+  // ⚠️ 只有 `/v1/stripe/webhook` 没有登录用户（身份是 HMAC 签名）。
+  // `/v1/billing/*` 那几条走正常的 Bearer + billing.manage。
+  registerStripeRoutes(app, ctxFromHeaders);
 
   // ── Kiosk 门口端（设备令牌鉴权）──────────────────────────────────────────
   registerKioskRoutes(app);

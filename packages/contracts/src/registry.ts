@@ -18,11 +18,13 @@ import { BLUEPRINT_COMMANDS } from './commands/blueprint.js';
 import { PHONE_COMMANDS } from './commands/phone.js';
 import { YELP_COMMANDS } from './commands/yelp.js';
 import { KIOSK_COMMANDS } from './commands/kiosk.js';
+import { BILLING_COMMANDS } from './commands/billing.js';
 
 const ALL: readonly AnyCommandDef[] = [
   ...APPOINTMENT_COMMANDS, ...ROTATION_COMMANDS, ...TICKET_COMMANDS, ...SETUP_COMMANDS,
   ...PAYROLL_COMMANDS, ...DAYCLOSE_COMMANDS, ...SHIFT_COMMANDS, ...STAFF_COMMANDS,
   ...BLUEPRINT_COMMANDS, ...PHONE_COMMANDS, ...YELP_COMMANDS, ...KIOSK_COMMANDS,
+  ...BILLING_COMMANDS,
 ];
 
 export const COMMAND_REGISTRY: ReadonlyMap<string, AnyCommandDef> = new Map(

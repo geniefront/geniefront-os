@@ -88,7 +88,14 @@ export const SaveBlueprintExtraction = defineCommand({
       imagesFailed: z.number().int().min(0),
     }),
   }),
-  output: z.object({ blueprintId: uuid, itemCount: z.number().int() }),
+  output: z.object({
+    blueprintId: uuid,
+    itemCount: z.number().int(),
+    /** 这次提取从余额里扣了多少分。0 = 还没接计费或者舍入后不足一分 */
+    chargedCents: z.number().int().min(0),
+    /** 扣完之后的余额。null = 这次没扣。**可以是负数**（见 credits.ts） */
+    balanceAfterCents: z.number().int().nullable(),
+  }),
   permission: 'catalog.manage',
   ai: {
     description: '（内部）把价目表提取结果写进草案。',

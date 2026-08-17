@@ -136,7 +136,15 @@ export const RecordCall = defineCommand({
     outcome: z.enum(['completed', 'no_answer', 'transferred_to_human', 'failed'])
       .default('completed'),
   }),
-  output: z.object({ callId: uuid, billedMinutes: z.number().int() }),
+  output: z.object({
+    callId: uuid,
+    billedMinutes: z.number().int(),
+    /**
+     * 这通电话从余额里扣了多少分。
+     * **现在恒为 0** —— Telnyx 的分钟单价还没实测（09 §6）。
+     */
+    chargedCents: z.number().int().min(0),
+  }),
   permission: 'call.draft',
   ai: {
     description: '（内部）记录一通 AI 电话的时长与结果。',

@@ -16,6 +16,22 @@ import {
 import { jsonb, ts } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
 import { loadSlotContext } from '../queries/slots';
+import { chargeUsage } from '../billing/usage';
+
+/**
+ * 一通电话的**成本**，单位毫分（1/1000 分）。
+ *
+ * ⚠️ **现在恒为 0，这是有意的。** Telnyx 的实测单价还没填（09 §6，
+ * 决策 28 要求先做口音实测再搬号码）。填一个估算值比留 0 更糟 ——
+ * 那会被当成真数字拿去算单位经济，而且没人记得它是估的。
+ *
+ * 单价一到位就把它填进 `TELNYX_RATE_PER_MIN_MILLICENTS`，
+ * 计费链路的其余部分已经接好了，不需要再改任何别的地方。
+ */
+function callCostMillicents(billedMinutes: number): number {
+  const rate = Number(process.env['TELNYX_RATE_PER_MIN_MILLICENTS'] ?? 0);
+  return Number.isFinite(rate) && rate > 0 ? Math.ceil(rate * billedMinutes) : 0;
+}
 
 registerHandler(SavePhoneLine, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof SavePhoneLine.input._type>) => {
@@ -228,7 +244,7 @@ registerHandler(RecordCall, async ({ input, ctx, tx, audit }: HandlerArgs<
   //
   // 幂等在命令总线那一层（idempotency: required），所以这里不会记两遍；
   // 记两遍的后果是直接给客户多收钱，而账单上只是一个稍微大一点的数字。
-  await tx`
+  const [usageRow] = await tx<{ id: string }[]>`
     insert into usage_events (org_id, location_id, kind, qty, cost_cents, meta)
     values (${ctx.orgId}, ${ctx.locationId}, 'ai_call_min', ${billedMinutes}, 0,
             ${jsonb({
@@ -239,13 +255,31 @@ registerHandler(RecordCall, async ({ input, ctx, tx, audit }: HandlerArgs<
               // cost_cents 先记 0：Telnyx 的实测单价还没填（09 §6）。
               // 填成一个估算值比留 0 更糟 —— 那会被当成真数字拿去算单位经济。
               unitPricePending: true,
-            })}::jsonb)`;
+            })}::jsonb)
+    returning id`;
+
+  /**
+   * 扣余额。**现在恒为 0** —— Telnyx 的分钟单价还没实测（09 §6），
+   * 成本是 0 毫分，`usageChargeCents` 算出来也是 0，`chargeUsage` 直接跳过。
+   *
+   * 代码先接上是有意的：单价填进 `TELNYX_RATE_*` 的那一天，
+   * 计费自然就开始跑，不需要有人记得回来改这里 ——
+   * 而「等以后再接」的东西，从来没有以后。
+   */
+  const charge = await chargeUsage(tx, ctx, {
+    kind: 'ai_call_min',
+    costMillicents: callCostMillicents(billedMinutes),
+    usageEventId: usageRow!.id,
+  });
 
   audit({
     entityType: 'phone_call', entityId: row!.id,
-    after: { billedMinutes, outcome: input.outcome, durationSeconds: input.durationSeconds },
+    after: {
+      billedMinutes, outcome: input.outcome, durationSeconds: input.durationSeconds,
+      chargedCents: charge?.chargedCents ?? 0,
+    },
   });
-  return { callId: row!.id, billedMinutes };
+  return { callId: row!.id, billedMinutes, chargedCents: charge?.chargedCents ?? 0 };
 });
 
 export { assertRealSlot };

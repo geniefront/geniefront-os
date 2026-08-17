@@ -21,6 +21,7 @@
 
 import {
   pgTable, uuid, text, integer, boolean, timestamp, jsonb, index, uniqueIndex,
+  bigserial,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { organizations, locations } from './tenancy';
@@ -101,6 +102,18 @@ export const billingAccounts = pgTable('billing_accounts', {
  */
 export const creditLedger = pgTable('credit_ledger', {
   id: id(),
+  /**
+   * ⭐ 账本顺序的**事实来源**（迁移 0019）。
+   *
+   * 不用 `created_at` 排序：Postgres 的 `now()` 返回的是**事务开始时刻**，
+   * 并发扣费时两行的 balance_after 按提交顺序串好了，按 created_at 排却是
+   * 反的 —— 对账当场报一个根本不存在的断点，而且每次位置都不一样，
+   * 看起来完全像是有人在篡改账本。
+   *
+   * bigserial 在插入那一刻取号，而插入必然在拿到行锁之后，
+   * 所以它和 balance_after 的链条严格一致。
+   */
+  seq: bigserial('seq', { mode: 'number' }).notNull(),
   orgId: orgCol(),
   locationId: uuid('location_id').notNull().references(() => locations.id),
 
@@ -133,6 +146,8 @@ export const creditLedger = pgTable('credit_ledger', {
 }, (t) => [
   index('credit_ledger_account_idx').on(t.locationId, t.createdAt),
   index('credit_ledger_usage_idx').on(t.usageEventId),
+  // 对账与翻流水都按 seq，不按时间（见上面 seq 的长注释）
+  index('credit_ledger_seq_idx').on(t.locationId, t.seq),
 ]);
 
 /**

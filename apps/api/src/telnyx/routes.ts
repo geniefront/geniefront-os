@@ -21,7 +21,10 @@ import { withTenant, tenantForPhoneNumber } from '@gf/db';
 import { dispatch } from '../bus';
 import { loadSlotContext, summariseSlots } from '../queries/slots';
 import { verifyTelnyxSignature, SIGNATURE_HEADER, TIMESTAMP_HEADER } from './verify';
+import { rawBodyOf } from '../rawBody';
+import { maybeAutoTopup, billingSystemContext } from '../billing/autoTopup';
 import '../handlers/phone';
+import '../handlers/billing';
 
 /**
  * AI 电话这个 actor 的全部权限。
@@ -65,28 +68,11 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
   const publicKey = process.env['TELNYX_PUBLIC_KEY'];
 
   /**
-   * 原始字节。
+   * 验签 + 解析 body。**顺序不能反**（09 §8）。
    *
-   * ⚠️ Fastify 默认会把 JSON 解析掉，而验签验的必须是**原始字节** ——
-   * 反序列化再序列化会改字节（空白、\uXXXX 转义），签名当场对不上。
-   * 所以这几条路由用 text 解析器留住原文，验完签自己 JSON.parse。
+   * 原始字节由 `registerRawBodyParser` 留住（`/v1/telnyx/` 在
+   * RAW_BODY_PREFIXES 里）—— 验的必须是原文，反序列化再序列化会改字节。
    */
-  app.addContentTypeParser(
-    'application/json',
-    { parseAs: 'string' },
-    (req, body, done) => {
-      if (req.url.startsWith('/v1/telnyx/')) {
-        done(null, { raw: body as string });
-        return;
-      }
-      try {
-        done(null, JSON.parse(body as string));
-      } catch (e) {
-        done(e as Error, undefined);
-      }
-    });
-
-  /** 验签 + 解析 body。**顺序不能反**（09 §8）。 */
   function verified(req: { headers: Record<string, unknown>; body: unknown }): Record<string, unknown> {
     if (!publicKey) {
       // 没配公钥就等于这道门没关。宁可整条路不可用，也不能放行。
@@ -94,7 +80,7 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
         details: { reason: 'TELNYX_PUBLIC_KEY 未配置' },
       });
     }
-    const raw = (req.body as { raw?: string } | undefined)?.raw ?? '';
+    const raw = rawBodyOf(req);
     verifyTelnyxSignature({
       rawBody: raw,
       signatureB64: req.headers[SIGNATURE_HEADER] as string | undefined,
@@ -276,6 +262,11 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
       ctx,
       { idempotencyKey: `telnyx-hangup-${callId}` },
     );
+
+    // ⭐ 电话也会烧余额，挂机记完账顺手看一眼要不要自动续充（事务外）。
+    // ⚠️ 换一个上下文：电话那个 actor 的四条权限里**没有** billing.manage ——
+    // 一个靠签名进来的入口不该有扣客户钱的权限（见 billing/autoTopup.ts）
+    void maybeAutoTopup(billingSystemContext(ctx), req.log);
 
     return { ok: true, billedMinutes: out.result.billedMinutes };
   });
