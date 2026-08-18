@@ -11,6 +11,18 @@ import { pickText, type CommandContext } from '@gf/contracts';
 import { parseTs } from '@gf/db';
 import { LOW_CONFIDENCE_BP } from '@gf/ai';
 
+/**
+ * `pickText` 用了哪个键。回退顺序必须和它**逐字一致** ——
+ * 两处分开写迟早会漂，而漂出来的症状是「改了名字但界面没变」。
+ */
+function pickLocale(v: unknown, locale: string): string {
+  const o = (v ?? {}) as Record<string, string>;
+  for (const k of [locale, 'zh-Hans', 'en']) {
+    if (typeof o[k] === 'string' && o[k] !== '') return k;
+  }
+  return Object.keys(o)[0] ?? locale;
+}
+
 export interface BlueprintItemView {
   itemId: string;
   /** 行号。对齐翻译结果用（05 §4.4）—— **不是数组下标** */
@@ -19,6 +31,14 @@ export interface BlueprintItemView {
   name: Record<string, string>;
   /** 哪几个语言格是机器补的。界面上要用淡色显示，让老板一眼看出哪些还没人核过 */
   nameAuto: string[];
+  /**
+   * `displayName` 实际取自哪个语言键（05 §4.4）。
+   *
+   * ⚠️ 没有这个字段的话，确认页改名字时不知道该往哪一格写 ——
+   * 原来的写法是 `{ 'zh-Hans': 新名字, en: 新名字 }` **两格一起盖**，
+   * 有了真翻译之后，老板改一次英文名就会把补好的中文覆盖掉。
+   */
+  displayLocale: string;
   displayName: string;
   category: string | null;
   durationMin: number | null;
@@ -97,6 +117,7 @@ export async function loadBlueprint(
     lowConfidence: r.confidence_bp < LOW_CONFIDENCE_BP,
     seq: r.seq,
     nameAuto: Array.isArray(r.name_auto) ? (r.name_auto as string[]) : [],
+    displayLocale: pickLocale(r.name, ctx.locale),
     sourceSeq: r.source_seq,
     bbox: (r.bbox as BlueprintItemView['bbox']) ?? null,
     decision: r.decision,

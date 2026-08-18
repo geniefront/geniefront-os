@@ -323,11 +323,12 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
   await loadDraft(tx, ctx.locationId, input.blueprintId);
 
   const rows = await tx<{
-    id: string; kind: string; name: unknown; duration_min: number | null;
+    id: string; kind: string; name: unknown; category: string | null;
+    duration_min: number | null;
     price_cents: number | null; price_is_from: boolean; variants: unknown;
     confidence_bp: number; source_seq: number | null; edited_at: Date | null;
   }[]>`
-    select id, kind, name, duration_min, price_cents, price_is_from, variants,
+    select id, kind, name, category, duration_min, price_cents, price_is_from, variants,
            confidence_bp, source_seq, edited_at
     from blueprint_items
     where blueprint_id = ${input.blueprintId} and decision = 'accepted'
@@ -346,11 +347,56 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
 
   const createdServiceIds: string[] = [];
 
+  /**
+   * 价目表上的分类标题（「MANICURE」「足疗」）落成 `service_categories`。
+   *
+   * 之前这里写死 `category: null` —— 分类只在确认页显示，一落地就丢了。
+   * 结果是开单页面上三十几个项目排成一长条，前台要滚半天才找到「Pedicure」。
+   *
+   * 三条规矩：
+   *   · **同名复用**，不重复建。老板可能已经手工建过「Manicure」了，
+   *     再建一个同名的，开单页面上会出现两个一模一样的分组
+   *   · 分类名存在**和项目名同一个语言键**下。分类是从同一张价目表上读的，
+   *     语言必然一致；存错键的话 pickText 会回退到别的语言，
+   *     显示成一半中文一半英文
+   *   · `sort` 按**在价目表上出现的先后**，不是字母序 ——
+   *     老板认的是墙上那张表的顺序
+   */
+  const categoryIds = new Map<string, string>();
+  let categorySort = 0;
+
+  async function ensureCategory(text: string, locale: string): Promise<string> {
+    const hit = categoryIds.get(text);
+    if (hit) return hit;
+
+    const [found] = await tx<{ id: string }[]>`
+      select id from service_categories
+      where location_id = ${ctx.locationId} and name->>${locale} = ${text}
+      limit 1`;
+    if (found) {
+      categoryIds.set(text, found.id);
+      return found.id;
+    }
+
+    const [made] = await tx<{ id: string }[]>`
+      insert into service_categories (org_id, location_id, name, sort)
+      values (${ctx.orgId}, ${ctx.locationId},
+              ${jsonb({ [locale]: text })}::jsonb, ${categorySort++})
+      returning id`;
+    categoryIds.set(text, made!.id);
+    return made!.id;
+  }
+
   for (const r of buildable) {
+    const nameMap = r.name as Record<string, string>;
+    const categoryId = r.category
+      ? await ensureCategory(r.category, Object.keys(nameMap)[0] ?? 'en')
+      : null;
+
     const item: DraftItem = {
       kind: r.kind as DraftItem['kind'],
-      name: r.name as Record<string, string>,
-      category: null,
+      name: nameMap,
+      category: r.category,
       durationMin: r.duration_min,
       priceCents: r.price_cents,
       priceIsFrom: r.price_is_from,
@@ -363,9 +409,10 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
     for (const draft of toServiceDrafts(item, input.fallbackDurationMin)) {
       const [svc] = await tx<{ id: string }[]>`
         insert into services
-          (org_id, location_id, name, duration_min, base_price_cents,
+          (org_id, location_id, category_id, name, duration_min, base_price_cents,
            taxable, online_bookable, active)
-        values (${ctx.orgId}, ${ctx.locationId}, ${jsonb(draft.name)}::jsonb,
+        values (${ctx.orgId}, ${ctx.locationId}, ${categoryId},
+                ${jsonb(draft.name)}::jsonb,
                 ${draft.durationMin}, ${draft.basePriceCents},
                 false, false, true)
         returning id`;

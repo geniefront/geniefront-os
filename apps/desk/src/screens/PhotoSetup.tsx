@@ -23,11 +23,21 @@ const MAX_EDGE_PX = 2576;
 const MAX_IMAGES = 6;
 const BUCKET = 'price-lists';
 
+/** 界面上给老板看的语言名。只用于「其它语言」那一块，不影响任何计算 */
+const LOCALE_LABEL: Record<string, string> = {
+  en: 'English', 'zh-Hans': '简体中文', 'zh-Hant': '繁體中文',
+  ko: '한국어', vi: 'Tiếng Việt', es: 'Español',
+};
+
 export interface BlueprintItemView {
   itemId: string;
   kind: 'service' | 'addon' | 'note' | 'price_modifier';
   name: Record<string, string>;
   displayName: string;
+  /** displayName 取自哪个语言键 —— 改名字时只改这一格，别的语言不动 */
+  displayLocale: string;
+  /** 哪几格是机器补的。淡色显示，让老板一眼看出哪些还没人核过 */
+  nameAuto: string[];
   category: string | null;
   durationMin: number | null;
   priceCents: number | null;
@@ -373,6 +383,7 @@ function ReviewPane({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [applied, setApplied] = useState<number | null>(null);
+  const [noteLocal, setNoteLocal] = useState('');
 
   const focusedItem = useMemo(
     () => view.items.find((i) => i.itemId === focused) ?? null, [view.items, focused]);
@@ -381,6 +392,45 @@ function ReviewPane({
   const shownSeq = focusedItem?.sourceSeq ?? view.sources[0]?.seq ?? 0;
   const shot = shots.find((s) => s.seq === shownSeq);
   const source = view.sources.find((s) => s.seq === shownSeq);
+
+  /**
+   * 把项目名补成六种语言（05 §4.4）。
+   *
+   * 客人在门口自助屏上看到的是自己的语言 —— 那正是那块屏存在的理由。
+   * 只补缺的，已经有的（尤其是照片上印的原文）一格都不碰。
+   */
+  async function translate() {
+    setBusy(true); setErr(''); setNoteLocal('');
+    try {
+      const { data } = await supabase.auth.getSession();
+      const res = await fetch(`${API_BASE}/v1/blueprint/${view.blueprintId}/translate`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${data.session!.access_token}`,
+          'Content-Type': 'application/json',
+          'X-Membership-Id': membershipId,
+        },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new ApiError(body.code ?? 'INTERNAL', body.details ?? {}, false, res.status);
+
+      if (body.rejected) {
+        // 整批被拒（对齐不可信）。**不含糊其辞** —— 说清楚是没补上，
+        // 而不是「补了 0 个」，否则老板会以为已经补过了不用再点
+        setErr('这次没补上，再点一次试试（翻译和项目对不上号，我们宁可不写）');
+      } else if (body.filledCells === 0) {
+        setNoteLocal('已经是齐的，没有需要补的');
+      } else {
+        setNoteLocal(`补齐了 ${body.filledItems} 个项目、${body.filledCells} 处名字。`
+          + '淡色的是机器补的，点「改」可以改。');
+      }
+      await onRefresh();
+    } catch (e) {
+      if (!(e instanceof ApiError) || !err) {
+        setErr(e instanceof ApiError ? `补齐失败（${e.code}）` : '补齐失败');
+      }
+    } finally { setBusy(false); }
+  }
 
   async function run(name: string, input: unknown, idem?: string) {
     setBusy(true); setErr('');
@@ -430,6 +480,10 @@ function ReviewPane({
         )}
         <span className="grow" />
         <button className="btn" style={{ minHeight: 44 }} disabled={busy}
+                onClick={() => void translate()}>
+          🌐 补齐多语言
+        </button>
+        <button className="btn" style={{ minHeight: 44 }} disabled={busy}
                 onClick={() => void run('blueprint.reviewAll',
                   { blueprintId: view.blueprintId, decision: 'accepted', kinds: ['service'] })}>
           全勾上
@@ -442,6 +496,9 @@ function ReviewPane({
       </div>
 
       {note && <div className="badge badge-soft" style={{ padding: '10px 14px' }}>ℹ {note}</div>}
+      {noteLocal && (
+        <div className="badge badge-soft" style={{ padding: '10px 14px' }}>🌐 {noteLocal}</div>
+      )}
       {err && <div className="badge badge-danger" style={{ padding: '10px 14px' }}>✕ {err}</div>}
 
       {view.unresolved.length > 0 && (
@@ -600,6 +657,12 @@ function ItemRow({
           {!buildable && <span className="badge badge-mute">{KIND_LABEL[item.kind]}</span>}
           {item.lowConfidence && <span className="badge badge-warn">⚠ 看不太清</span>}
           {item.edited && <span className="badge badge-soft">已改</span>}
+          {/* 淡色 = 机器补的、还没人核过。不用警告色 —— 它不是错误，只是「没人看过」 */}
+          {item.nameAuto.length > 0 && (
+            <span className="badge badge-mute" style={{ opacity: .75 }}>
+              🌐 补了 {item.nameAuto.length} 种
+            </span>
+          )}
         </div>
         <div className="tiny">
           {item.category && <span>{item.category} · </span>}
@@ -626,6 +689,13 @@ function EditSheet({
   onSave: (patch: Record<string, unknown>) => Promise<void>;
 }) {
   const [name, setName] = useState(item.displayName);
+  /** 其它语言。改哪一格就只写哪一格 —— 见下面 onSave 的注释 */
+  const [others, setOthers] = useState<Record<string, string>>(() => {
+    const o: Record<string, string> = {};
+    for (const [k, v] of Object.entries(item.name)) if (k !== item.displayLocale) o[k] = v;
+    return o;
+  });
+  const [showLangs, setShowLangs] = useState(false);
   const [price, setPrice] = useState(
     item.priceCents === null ? '' : (item.priceCents / 100).toFixed(2).replace(/\.00$/, ''));
   const [dur, setDur] = useState(item.durationMin ? String(item.durationMin) : '');
@@ -658,6 +728,34 @@ function EditSheet({
           </label>
         </div>
 
+        {Object.keys(others).length > 0 && (
+          <div className="stack" style={{ gap: 8 }}>
+            <button className="btn" style={{ minHeight: 40 }}
+                    onClick={() => setShowLangs((v) => !v)}>
+              🌐 其它语言（{Object.keys(others).length} 种）{showLangs ? '收起' : '展开'}
+            </button>
+            {showLangs && (
+              <div className="stack" style={{ gap: 8 }}>
+                <div className="tiny">
+                  <strong>淡色的是机器补的</strong>，客人在门口自助屏上看到的就是这些。
+                  改一处就不再是机器补的了。
+                </div>
+                {Object.entries(others).map(([loc, val]) => (
+                  <label key={loc} className="stack" style={{ gap: 4 }}>
+                    <span className="tiny">
+                      {LOCALE_LABEL[loc] ?? loc}
+                      {item.nameAuto.includes(loc) && ' · 机器补的'}
+                    </span>
+                    <input className="field" value={val}
+                           style={{ opacity: item.nameAuto.includes(loc) ? .65 : 1 }}
+                           onChange={(e) => setOthers((o) => ({ ...o, [loc]: e.target.value }))} />
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {item.variants.length > 0 && (
           <div className="tiny">
             这一项有 {item.variants.length} 个档位（
@@ -672,9 +770,18 @@ function EditSheet({
           <button className="btn btn-primary grow" disabled={busy || !name.trim()}
                   style={{ minHeight: 'var(--tap)' }}
                   onClick={() => void onSave({
-                    // 老板打什么语言就存什么，两个 key 都写一份 ——
-                    // 和手工建项目那边同一个做法，多语言由 §4.4 之后补
-                    name: { 'zh-Hans': name.trim(), en: name.trim() },
+                    /**
+                     * ⚠️ 只改**显示的那一格**，其余语言原样带回去。
+                     *
+                     * 原来这里写的是 `{ 'zh-Hans': 名字, en: 名字 }` 两格一起盖 ——
+                     * 在没有真翻译的时候无害，但补齐上线之后，老板改一次
+                     * 英文名就会把补好的中文覆盖成英文。
+                     */
+                    name: {
+                      ...item.name,
+                      ...others,
+                      [item.displayLocale]: name.trim(),
+                    },
                     priceCents: price.trim() === '' ? null : dollarsToCents(price),
                     durationMin: dur.trim() === '' ? null : Number(dur),
                     decision: 'accepted',

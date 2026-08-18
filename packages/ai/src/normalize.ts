@@ -209,13 +209,19 @@ export function toServiceDrafts(
   item: DraftItem,
   fallbackDurationMin: number,
 ): ServiceDraft[] {
-  const locale = Object.keys(item.name)[0] ?? 'en';
-  const base = item.name[locale] ?? '';
   const dur = (d: number | null) => d ?? item.durationMin ?? fallbackDurationMin;
 
   if (item.variants.length > 0) {
+    // ⚠️ **每一种语言都要带上档位后缀**，不能只留第一个语言。
+    //
+    // 原来这里是 `{ [第一个语言]: base + ' · ' + label }` —— 在还没有多语言
+    // 补齐的时候看不出问题，但补齐上线之后，凡是有档位的项目落地后
+    // 就只剩一种语言：越南客人在自助屏上看到「Gel Manicure · Long」，
+    // 而隔壁没有档位的项目却是越南语。同一屏上两种语言最让人confused。
     return item.variants.map((v) => ({
-      name: { [locale]: `${base} · ${v.label}` },
+      name: Object.fromEntries(
+        Object.entries(item.name).map(([loc, text]) => [loc, `${text} · ${v.label}`]),
+      ),
       durationMin: dur(v.durationMin),
       basePriceCents: v.priceCents,
     }));

@@ -191,6 +191,23 @@ describe('toServiceDrafts', () => {
     ]);
   });
 
+  it('⭐ 有档位时每一种语言都带上后缀，不能只剩一种', () => {
+    // 只留第一个语言的话，补齐上线之后会出现：有档位的项目在自助屏上
+    // 显示「Gel Manicure · Long」，而隔壁没档位的项目却是越南语 ——
+    // 同一屏上两种语言最让客人困惑
+    const out = toServiceDrafts({
+      ...base,
+      name: { en: 'Gel Manicure', 'zh-Hans': '光疗美甲', vi: 'sơn gel' },
+      variants: [{ label: 'Long', priceCents: 5500, durationMin: 60 }],
+    }, 30);
+
+    expect(out[0]!.name).toEqual({
+      en: 'Gel Manicure · Long',
+      'zh-Hans': '光疗美甲 · Long',
+      vi: 'sơn gel · Long',
+    });
+  });
+
   it('开放价按起步价建，不建成 $0', () => {
     // 建成 $0 会让日程表上一排单显示成免费，前台以为系统坏了
     const [out] = toServiceDrafts({ ...base, priceIsFrom: true, priceCents: 2500 }, 45);

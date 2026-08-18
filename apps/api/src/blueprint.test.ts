@@ -55,8 +55,22 @@ afterAll(async () => {
     await tx`delete from shop_blueprints where location_id = ${NAIL_LOC}`;
 
     if (ids.length > 0) {
-      await tx`delete from services
-               where id = any(${ids.map((r) => r.applied_service_id)}::uuid[])`;
+      const svcIds = ids.map((r) => r.applied_service_id);
+      // 分类要跟着清（回填现在会建 service_categories）。顺序同样被外键逼着：
+      // 先记下分类 id → 删 services → 再删**已经没人用的**那些分类。
+      // 直接按名字删会误伤老板手工建的同名分类。
+      const cats = await tx<{ category_id: string }[]>`
+        select distinct category_id from services
+        where id = any(${svcIds}::uuid[]) and category_id is not null`;
+
+      await tx`delete from services where id = any(${svcIds}::uuid[])`;
+
+      if (cats.length > 0) {
+        await tx`
+          delete from service_categories c
+          where c.id = any(${cats.map((r) => r.category_id)}::uuid[])
+            and not exists (select 1 from services s where s.category_id = c.id)`;
+      }
     }
   });
   await closeDb();
@@ -222,6 +236,54 @@ describe('回填落地', () => {
     expect(rows[0]!.duration_min).toBe(45);   // 价目表印了 45
     expect(rows[1]!.duration_min).toBe(60);   // 没印，用兜底值
     expect(rows[1]!.base_price_cents).toBe(5500);
+  });
+
+  it('价目表上的分类跟着落地，同名只建一个', async () => {
+    // 之前这里写死 category: null —— 分类只在确认页显示，一落地就丢了。
+    // 结果是开单页面上三十几个项目排成一长条，前台滚半天才找到 Pedicure。
+    const id = await freshDraft();
+    await run('blueprint.reviewAll',
+      { blueprintId: id, decision: 'accepted', minConfidenceBp: 8500 });
+    const out = await run<{ createdServiceIds: string[] }>(
+      'blueprint.apply', { blueprintId: id, fallbackDurationMin: 60 });
+
+    const rows = await withTenant(tenant, (tx) => tx<{
+      category_id: string | null; cat_name: unknown;
+    }[]>`
+      select s.category_id, c.name as cat_name
+      from services s left join service_categories c on c.id = s.category_id
+      where s.id = any(${out.createdServiceIds}::uuid[])`);
+
+    expect(rows.every((r) => r.category_id !== null)).toBe(true);
+    // 两个项目同属 MANICURE —— 建两个同名分类的话，开单页面会出现两个
+    // 一模一样的分组，而老板分不清该往哪个里加项目
+    expect(new Set(rows.map((r) => r.category_id)).size).toBe(1);
+    expect((rows[0]!.cat_name as Record<string, string>)['en']).toBe('MANICURE');
+  });
+
+  it('⭐ 已经有同名分类时复用它，绝不再建一个', async () => {
+    // 建两个同名分类的话，开单页面会出现两个一模一样的「MANICURE」分组，
+    // 而老板分不清该往哪个里加项目 —— 而且这个错发现得很晚：
+    // 要等他手工加第一个项目时才会看见两个分组。
+    const countCats = () => withTenant(tenant, (tx) => tx<{ n: number }[]>`
+      select count(*)::int as n from service_categories
+      where location_id = ${NAIL_LOC} and name->>'en' = 'MANICURE'`)
+      .then((r) => r[0]!.n);
+
+    const before = await countCats();
+    expect(before).toBeGreaterThan(0);   // 上一条用例已经建过
+
+    const id = await freshDraft();
+    await run('blueprint.reviewAll',
+      { blueprintId: id, decision: 'accepted', minConfidenceBp: 8500 });
+    const out = await run<{ createdServiceIds: string[] }>(
+      'blueprint.apply', { blueprintId: id, fallbackDurationMin: 60 });
+
+    expect(await countCats()).toBe(before);   // 一个都没多建
+
+    const rows = await withTenant(tenant, (tx) => tx<{ category_id: string | null }[]>`
+      select category_id from services where id = any(${out.createdServiceIds}::uuid[])`);
+    expect(rows.every((r) => r.category_id !== null)).toBe(true);
   });
 
   it('⭐ 幂等：网差的店里点两下「落地」，第二下什么都不做', async () => {
