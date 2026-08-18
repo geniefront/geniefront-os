@@ -347,14 +347,47 @@ describe('通话计费', () => {
     expect(evs).toHaveLength(1);
   });
 
-  it('单价未实测，cost_cents 记 0 而不是一个估算值', async () => {
-    // 填成估算值更糟：那会被当成真数字拿去算单位经济（09 §6）
+  /** 单价从环境读，所以这两条自己设/还原，不依赖跑测试时的 .env */
+  async function recordWithRate(rate: string | undefined, durationSeconds: number) {
+    const prev = process.env['TELNYX_RATE_PER_MIN_MILLICENTS'];
+    if (rate === undefined) delete process.env['TELNYX_RATE_PER_MIN_MILLICENTS'];
+    else process.env['TELNYX_RATE_PER_MIN_MILLICENTS'] = rate;
+    const callId = `rate-${randomUUID()}`;
+    try {
+      await runAsPhone('call.record', {
+        providerCallId: callId, durationSeconds, outcome: 'completed',
+      }, `rec-${callId}`);
+    } finally {
+      if (prev === undefined) delete process.env['TELNYX_RATE_PER_MIN_MILLICENTS'];
+      else process.env['TELNYX_RATE_PER_MIN_MILLICENTS'] = prev;
+    }
     const [ev] = await withTenant(tenant, (tx) => tx<{
       cost_cents: number; meta: Record<string, unknown>;
     }[]>`
       select cost_cents, meta from usage_events
-      where location_id = ${NAIL_LOC} and kind = 'ai_call_min' limit 1`);
-    expect(ev!.cost_cents).toBe(0);
-    expect(ev!.meta['unitPricePending']).toBe(true);
+      where location_id = ${NAIL_LOC} and meta->>'providerCallId' = ${callId}`);
+    return ev!;
+  }
+
+  it('单价配好之后，cost_cents 按毫分折算（口径与 ai_assist 一致）', async () => {
+    const ev = await recordWithRate('6200', 150);
+    // 150 秒 → 3 分钟 × 6200 毫分 = 18600 毫分 = 18.6 分 → 19 分
+    expect(ev.meta['costMillicents']).toBe(18600);
+    expect(ev.cost_cents).toBe(19);
+    expect(ev.meta['unitPricePending']).toBeUndefined();
+  });
+
+  it('⭐ 把当时用的单价一起记下来 —— 否则事后无法重算历史毛利', async () => {
+    // 单价会变（Telnyx 调价 / 换套餐 / 换供应商）。不记的话，
+    // 一行 19 分的账既可能是 6200×3 也可能是别的组合，谁也说不清。
+    const ev = await recordWithRate('6200', 60);
+    expect(ev.meta['ratePerMinMillicents']).toBe(6200);
+  });
+
+  it('单价没配时记 0 + unitPricePending，而不是一个估算值', async () => {
+    // 填成估算值更糟：那会被当成真数字拿去算单位经济（09 §6）
+    const ev = await recordWithRate(undefined, 60);
+    expect(ev.cost_cents).toBe(0);
+    expect(ev.meta['unitPricePending']).toBe(true);
   });
 });

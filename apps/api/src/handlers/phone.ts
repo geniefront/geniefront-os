@@ -18,6 +18,24 @@ import { registerHandler, type HandlerArgs } from '../bus';
 import { loadSlotContext } from '../queries/slots';
 import { chargeQuota } from '../billing/usage';
 
+/**
+ * 一分钟 AI 电话的**我们这一侧的成本**，单位毫分（1/1000 分）。
+ *
+ * ⚠️ 这是**成本**，不是向客户收的钱。客户买的是分钟本身
+ * （$50 = 200 分钟），扣费走 `chargeQuota({ unit: 'voice_minute' })`，
+ * **完全不需要知道单价**。这个数只影响毛利看板与单位经济。
+ *
+ * 没配 / 配了个不能解析的值 → 返回 0，`cost_cents` 记 0 并留
+ * `unitPricePending`。**宁可记 0 也不要塞一个估算值** ——
+ * 估算值会被当成真数字拿去算单位经济，而且没人记得它是估的。
+ */
+function ratePerMinMillicents(): number {
+  const raw = process.env.TELNYX_RATE_PER_MIN_MILLICENTS;
+  if (!raw) return 0;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : 0;
+}
+
 
 registerHandler(SavePhoneLine, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof SavePhoneLine.input._type>) => {
@@ -230,17 +248,29 @@ registerHandler(RecordCall, async ({ input, ctx, tx, audit }: HandlerArgs<
   //
   // 幂等在命令总线那一层（idempotency: required），所以这里不会记两遍；
   // 记两遍的后果是直接给客户多收钱，而账单上只是一个稍微大一点的数字。
+  // 我们这一侧的成本。单价没配就记 0 并留 unitPricePending（见上面的 helper）。
+  //
+  // cost_cents 存整数分（表结构如此），精确的毫分进 meta —— 和 ai_assist
+  // 那两条路同一个口径（handlers/ai.ts、handlers/blueprint.ts）。
+  // 一通电话几分钱，四舍五入到分之后按月加总会漂出百分之几。
+  const rate = ratePerMinMillicents();
+  const costMillicents = billedMinutes * rate;
+
   const [usageRow] = await tx<{ id: string }[]>`
     insert into usage_events (org_id, location_id, kind, qty, cost_cents, meta)
-    values (${ctx.orgId}, ${ctx.locationId}, 'ai_call_min', ${billedMinutes}, 0,
+    values (${ctx.orgId}, ${ctx.locationId}, 'ai_call_min', ${billedMinutes},
+            ${Math.round(costMillicents / 1000)},
             ${jsonb({
               provider: 'telnyx',
               providerCallId: input.providerCallId,
               durationSeconds: input.durationSeconds,
               outcome: input.outcome,
-              // cost_cents 先记 0：Telnyx 的实测单价还没填（09 §6）。
-              // 填成一个估算值比留 0 更糟 —— 那会被当成真数字拿去算单位经济。
-              unitPricePending: true,
+              costMillicents,
+              // ⭐ 把**当时用的单价**一起记下来。单价会变（Telnyx 调价、
+              // 换套餐、换供应商），不记的话事后没有任何办法判断某一行
+              // 是按 5500 还是 6200 算的 —— 而那正是重算历史毛利时要问的。
+              ratePerMinMillicents: rate,
+              ...(rate === 0 ? { unitPricePending: true } : {}),
             })}::jsonb)
     returning id`;
 
