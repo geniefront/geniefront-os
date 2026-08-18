@@ -46,6 +46,7 @@ import { loadQueue } from './queries/queue';
 import { searchBusinesses, getBusiness } from '@gf/yelp';
 import { extractPriceList, costMillicents, billableTokens, MAX_IMAGE_EDGE_PX,
          itemsNeedingTranslation, translateNames, TRANSLATE_MODEL, TRANSLATE_RATES,
+         planRegions, padRegion, shouldChunk, capRegions, REGION_MODEL, REGION_RATES,
          type PriceListImage, type ImageMediaType } from '@gf/ai';
 import { resolveDate } from './handlers/dayclose';
 import {
@@ -683,6 +684,72 @@ export function buildServer(): FastifyInstance {
           .map((p) => ({ seq: p.seq, error: p.error })),
       };
     });
+
+  // ── 大牌子分块：第一遍只看结构 ─────────────────────────────────────────────
+  //
+  // 一张 A3 的价目表可能有 80 行，一次性提取容易**漏行**。撑爆 max_tokens
+  // 会报 too_many_rows（老板知道出事了），漏三行则不报任何错 ——
+  // 老板要到三个月后有客人点了一个不存在的项目才发现。
+  //
+  // ⭐ **裁图在前端做**（canvas）。服务端裁要引图像库，而浏览器本来就在缩图；
+  // 裁出来的小块图像 token 更少、模型注意力更集中，比「发整张图但告诉它
+  // 只看某块」既便宜又准。裁好的块当成普通照片走现有的 /extract，
+  // mergeDrafts 会把重叠处的重复行合掉 —— 那条链路一行都不用改。
+  //
+  // 不带 blueprint id：这一步在建草案**之前**，什么都不写库。
+  app.post('/v1/blueprint/plan-regions', { bodyLimit: 8_000_000 }, async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('catalog.manage') || !ctx.permissions.has('ai.use')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'catalog.manage+ai.use' } });
+    }
+    const apiKey = process.env['ANTHROPIC_API_KEY'];
+    if (!apiKey) {
+      throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
+    }
+
+    const im = (req.body ?? {}) as {
+      base64?: string; mediaType?: string; widthPx?: number; heightPx?: number;
+    };
+    if (typeof im.base64 !== 'string' || !im.base64
+        || typeof im.mediaType !== 'string' || !MEDIA_TYPES.has(im.mediaType)
+        || !im.widthPx || !im.heightPx) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: '要一张带尺寸的照片' },
+      });
+    }
+
+    const r = await planRegions({
+      seq: 0, base64: im.base64, mediaType: im.mediaType as ImageMediaType,
+      widthPx: im.widthPx, heightPx: im.heightPx,
+    }, { apiKey });
+
+    // 钱已经花了，先记账再判断能不能用（和补齐那条路同一个道理）
+    await dispatch('ai.recordAssist', {
+      feature: 'price_list_regions',
+      model: REGION_MODEL,
+      tokens: billableTokens(r.usage),
+      costMillicents: costMillicents(r.usage, REGION_RATES),
+    }, ctx);
+    void maybeAutoTopup(ctx, 'credit', req.log);
+
+    // ⭐ 覆盖不全就**退回整张图提取**，不要自己补一块 ——
+    // 补出来的边界是猜的，裁歪了会把一行字劈成两半，两边都读不全。
+    const usable = !r.error && shouldChunk(r.regions) && r.coverage.ok;
+    // 超过 6 块就把相邻的并起来。只裁前 6 块会把后面几块整个丢掉 ——
+    // 那和漏分区是同一种灾难，而合并只是让某块大一点，一行都不会少。
+    const capped = usable ? capRegions(r.regions, MAX_IMAGES_PER_EXTRACT) : [];
+
+    return {
+      chunk: usable,
+      reason: r.error ?? (!shouldChunk(r.regions) ? 'single_region'
+        : !r.coverage.ok ? 'coverage_gap' : null),
+      coveredRatio: Math.round(r.coverage.covered * 100),
+      regions: capped.map((g) => ({
+        label: g.label,
+        crop: padRegion(g, im.widthPx!, im.heightPx!),
+      })),
+    };
+  });
 
   // ── 多语言补齐 ────────────────────────────────────────────────────────────
   //

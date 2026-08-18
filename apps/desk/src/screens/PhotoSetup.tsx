@@ -78,6 +78,8 @@ interface Shot {
   widthPx: number;
   heightPx: number;
   storagePath: string | null;
+  /** 分块来的块名（「MANICURE」）。整张图提取时是 undefined */
+  regionLabel?: string;
 }
 
 const money = (c: number | null) => (c === null ? '—' : `$${(c / 100).toFixed(2).replace(/\.00$/, '')}`);
@@ -127,6 +129,45 @@ async function prepareImage(file: File, seq: number): Promise<Shot> {
     widthPx: w,
     heightPx: h,
     storagePath: null,
+  };
+}
+
+/**
+ * 按分区把一张大牌子裁成几块（05 §5.2）。
+ *
+ * 裁出来的块**就是新的原图**：确认页左边显示的、bbox 对应的都是它。
+ * 这样「点一行跳回照片」照常成立，而且老板看到的是那一段的放大图 ——
+ * 比在一张 A3 全景上找一行小字好认得多。
+ */
+async function cropShot(
+  src: Shot, crop: [number, number, number, number], seq: number, label: string,
+): Promise<Shot> {
+  const bitmap = await createImageBitmap(src.file);
+  // src 是缩过的，crop 也是缩过之后的坐标 —— 要换算回原始文件的比例
+  const k = bitmap.width / src.widthPx;
+  const [x1, y1, x2, y2] = crop;
+  const w = Math.round((x2 - x1) * k);
+  const h = Math.round((y2 - y1) * k);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(x2 - x1); canvas.height = Math.round(y2 - y1);
+  canvas.getContext('2d')!.drawImage(
+    bitmap, Math.round(x1 * k), Math.round(y1 * k), w, h,
+    0, 0, canvas.width, canvas.height);
+  bitmap.close();
+
+  const blob = await new Promise<Blob>((res, rej) => {
+    canvas.toBlob((b) => (b ? res(b) : rej(new Error('裁切失败'))), 'image/jpeg', 0.92);
+  });
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+
+  return {
+    seq, file: src.file, objectUrl: URL.createObjectURL(blob),
+    base64: btoa(bin), mediaType: 'image/jpeg',
+    widthPx: canvas.width, heightPx: canvas.height, storagePath: null,
+    regionLabel: label,
   };
 }
 
@@ -188,11 +229,52 @@ export function PhotoSetup({
   async function run() {
     setBusy(true); setErr(''); setNote(''); setStep('working');
     try {
+      /**
+       * ⭐ 大牌子先分块（05 §5.2）。
+       *
+       * **只在老板只拍了一张时才试** —— 拍了好几张说明他已经自己分好块了，
+       * 那本来就是我们建议的拍法，再分一次是白花一次调用。
+       *
+       * 覆盖不全（模型漏看了一整块）时**退回整张图提取**，不自己补 ——
+       * 补出来的边界是猜的，裁歪了会把一行字劈成两半，两边都读不全。
+       */
+      let toExtract = shots;
+      if (shots.length === 1) {
+        try {
+          const one = shots[0]!;
+          const { data: sess } = await supabase.auth.getSession();
+          const rr = await fetch(`${API_BASE}/v1/blueprint/plan-regions`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${sess.session!.access_token}`,
+              'Content-Type': 'application/json',
+              'X-Membership-Id': membershipId,
+            },
+            body: JSON.stringify({
+              base64: one.base64, mediaType: one.mediaType,
+              widthPx: one.widthPx, heightPx: one.heightPx,
+            }),
+          });
+          const plan = await rr.json().catch(() => ({}));
+          if (rr.ok && plan.chunk && plan.regions?.length > 1) {
+            const crops = await Promise.all(plan.regions.map(
+              (g: { label: string; crop: [number, number, number, number] }, i: number) =>
+                cropShot(one, g.crop, i, g.label)));
+            createdUrls.current.push(...crops.map((c) => c.objectUrl));
+            toExtract = crops;
+            setNote(`这张牌子比较大，先分成 ${crops.length} 块再读（${
+              crops.map((c) => c.regionLabel).join('、')}）。`);
+          }
+        } catch {
+          // 分块只是增强项，失败就照常整张读（宪法第 14 条）
+        }
+      }
+
       // 一次拍照的所有图放同一个文件夹，方便日后整批清理。
       // 第一段必须是 locationId —— Storage 的 RLS 策略就按它判断归属（sql/0014）。
       const folder = crypto.randomUUID();
       const withPaths: Shot[] = [];
-      for (const s of shots) {
+      for (const s of toExtract) {
         const path = `${locationId}/${folder}/${s.seq}.jpg`;
         const { error } = await supabase.storage.from(BUCKET)
           .upload(path, await fetch(s.objectUrl).then((r) => r.blob()),
