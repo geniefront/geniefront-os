@@ -109,6 +109,49 @@ export const SaveBlueprintExtraction = defineCommand({
 });
 
 /**
+ * 把补齐的多语言写进草案（05 §4.4）。
+ *
+ * `exposed: false` —— 和 `saveExtraction` 同一个理由：它是补齐管线的最后一步，
+ * 由服务端在模型返回之后自己调。给 AI 一条「我说这些名字叫什么就叫什么」的路，
+ * 正好绕过了整条流水线。
+ *
+ * ⭐ **合并逻辑在 handler 里跑，不在路由里。** 路由拿到翻译到写库之间，
+ * 老板可能正好在确认页改了某一行的名字 —— 合并必须对着**事务内的当前行**做，
+ * 否则会把他刚写的名字覆盖掉（`mergeTranslations` 的「已有的不覆盖」
+ * 只有在读到最新数据时才成立）。
+ */
+export const SaveBlueprintTranslations = defineCommand({
+  name: 'blueprint.saveTranslations',
+  input: z.object({
+    blueprintId: uuid,
+    translations: z.array(z.object({
+      seq: z.number().int(),
+      names: z.record(z.string().max(20), z.string().max(200)),
+    })).max(300),
+    usage: z.object({
+      tokens: z.number().int().min(0),
+      costMillicents: z.number().int().min(0),
+    }),
+  }),
+  output: z.object({
+    blueprintId: uuid,
+    filledItems: z.number().int().min(0),
+    filledCells: z.number().int().min(0),
+    /** 整批被拒的原因。非空时一个字都没写（seq 对不上 = 对齐不可信） */
+    rejected: z.string().nullable(),
+    credits: z.number().int().min(0),
+  }),
+  permission: 'catalog.manage',
+  ai: {
+    description: '（内部）把补齐的多语言项目名写进草案。',
+    confirm: 'never',
+    exposed: false,
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+/**
  * 改一行 / 勾一行。
  *
  * 老板改过的行会打上 `editedAt` —— 落地时它的 `source` 标记与纯 AI 产物不同
@@ -119,6 +162,10 @@ export const ReviewBlueprintItem = defineCommand({
   input: z.object({
     itemId: uuid,
     decision: z.enum(['pending', 'accepted', 'rejected']).optional(),
+    /**
+     * 改名字。⭐ 被改到的那几个语言会**从 `name_auto` 里去掉** ——
+     * 不清的话老板亲手写的名字会一直显示成淡色，他会以为没保存成功。
+     */
     name: i18nText.optional(),
     durationMin: z.number().int().min(1).max(600).nullable().optional(),
     priceCents: cents.min(0).max(500_000).nullable().optional(),
@@ -210,6 +257,6 @@ export const DiscardBlueprint = defineCommand({
 });
 
 export const BLUEPRINT_COMMANDS = [
-  CreateBlueprintDraft, SaveBlueprintExtraction, ReviewBlueprintItem,
+  CreateBlueprintDraft, SaveBlueprintExtraction, SaveBlueprintTranslations, ReviewBlueprintItem,
   ReviewAllBlueprintItems, ApplyBlueprint, DiscardBlueprint,
 ] as const;

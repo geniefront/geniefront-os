@@ -13,8 +13,12 @@ import { LOW_CONFIDENCE_BP } from '@gf/ai';
 
 export interface BlueprintItemView {
   itemId: string;
+  /** 行号。对齐翻译结果用（05 §4.4）—— **不是数组下标** */
+  seq: number;
   kind: string;
   name: Record<string, string>;
+  /** 哪几个语言格是机器补的。界面上要用淡色显示，让老板一眼看出哪些还没人核过 */
+  nameAuto: string[];
   displayName: string;
   category: string | null;
   durationMin: number | null;
@@ -71,11 +75,12 @@ export async function loadBlueprint(
   const rows = await tx<{
     id: string; kind: string; name: unknown; category: string | null;
     duration_min: number | null; price_cents: number | null; price_is_from: boolean;
+    seq: number; name_auto: unknown;
     variants: unknown; confidence_bp: number; source_seq: number | null;
     bbox: unknown; decision: string; edited_at: Date | null;
   }[]>`
-    select id, kind, name, category, duration_min, price_cents, price_is_from,
-           variants, confidence_bp, source_seq, bbox, decision, edited_at
+    select id, seq, kind, name, name_auto, category, duration_min, price_cents,
+           price_is_from, variants, confidence_bp, source_seq, bbox, decision, edited_at
     from blueprint_items where blueprint_id = ${blueprintId} order by seq`;
 
   const items: BlueprintItemView[] = rows.map((r) => ({
@@ -90,6 +95,8 @@ export async function loadBlueprint(
     variants: (r.variants as BlueprintItemView['variants']) ?? [],
     confidenceBp: r.confidence_bp,
     lowConfidence: r.confidence_bp < LOW_CONFIDENCE_BP,
+    seq: r.seq,
+    nameAuto: Array.isArray(r.name_auto) ? (r.name_auto as string[]) : [],
     sourceSeq: r.source_seq,
     bbox: (r.bbox as BlueprintItemView['bbox']) ?? null,
     decision: r.decision,

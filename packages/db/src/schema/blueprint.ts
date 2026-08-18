@@ -104,8 +104,16 @@ export const blueprintItems = pgTable('blueprint_items', {
   seq: integer('seq').notNull(),
   /** service | addon | note | price_modifier（05 §5.3 的反面清单） */
   kind: text('kind').notNull().default('service'),
-  /** i18n。模型只认得出价目表上那一种语言，其余是自动补的（auto_translated） */
+  /** i18n。模型只认得出价目表上那一种语言，其余是自动补的（05 §4.4） */
   name: jsonb('name').notNull(),
+  /**
+   * 哪几个语言格是**机器补的**，如 `["zh-Hans","ko"]`（sql/0028）。
+   *
+   * 单独一列而不是塞进 `name` 里：`name` 被 `pickText` 当成纯粹的
+   * 「语言 → 文本」表读，混一个 `_auto` 键进去，任何一处忘了过滤
+   * 就会把它当成一种语言显示给客人。
+   */
+  nameAuto: jsonb('name_auto').notNull().default(sql`'[]'::jsonb`),
   /** 价目表上的分类标题，如 "Manicure" / "足疗"。不强制，很多小店没有分类 */
   category: text('category'),
   durationMin: integer('duration_min'),

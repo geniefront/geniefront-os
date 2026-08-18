@@ -45,6 +45,7 @@ import { maybeAutoTopup } from './billing/autoTopup';
 import { loadQueue } from './queries/queue';
 import { searchBusinesses, getBusiness } from '@gf/yelp';
 import { extractPriceList, costMillicents, billableTokens, MAX_IMAGE_EDGE_PX,
+         itemsNeedingTranslation, translateNames,
          type PriceListImage, type ImageMediaType } from '@gf/ai';
 import { resolveDate } from './handlers/dayclose';
 import {
@@ -681,6 +682,69 @@ export function buildServer(): FastifyInstance {
           .filter((p) => p.error)
           .map((p) => ({ seq: p.seq, error: p.error })),
       };
+    });
+
+  // ── 多语言补齐 ────────────────────────────────────────────────────────────
+  //
+  // 和 /extract 分开是必须的，不是为了整齐：
+  // 提取的系统提示第一条纪律是「照抄、不翻译」（老板要能在照片上找到那一行），
+  // 让同一次调用既照抄又翻译等于让模型同时守两条相反的规矩。
+  //
+  // 时机也不同：提取是**每张照片一次**，补齐是**整份草案一次**。
+  // 挂在 /extract 里的话，传三张照片就会把先补好的又重译一遍。
+  app.post<{ Params: { id: string } }>(
+    '/v1/blueprint/:id/translate',
+    async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('catalog.manage')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'catalog.manage' } });
+      }
+      if (!ctx.permissions.has('ai.use')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
+      }
+      const apiKey = process.env['ANTHROPIC_API_KEY'];
+      if (!apiKey) {
+        throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
+      }
+
+      const view = await withTenant(
+        { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+        (tx) => loadBlueprint(tx, ctx, req.params.id));
+      if (!view) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'blueprint' } });
+      if (view.status !== 'draft') {
+        throw new AppError(ERROR_CODES.BLUEPRINT_FROZEN, { details: { status: view.status } });
+      }
+
+      const candidates = itemsNeedingTranslation(view.items.map((it) => ({
+        seq: it.seq,
+        name: (it.name ?? {}) as Record<string, string>,
+        nameAuto: it.nameAuto ?? [],
+        kind: it.kind,
+      })));
+
+      // 已经齐了就别调模型。**这一条省的是真金白银** ——
+      // 老板在确认页多点两次「补齐」是很自然的行为。
+      if (candidates.length === 0) {
+        return { blueprintId: req.params.id, filledItems: 0, filledCells: 0, rejected: null, credits: 0 };
+      }
+
+      const t = await translateNames(candidates, { apiKey });
+      if (t.error) {
+        throw new AppError(ERROR_CODES.EXTRACTION_FAILED, { details: { stage: 'translate', reason: t.error } });
+      }
+
+      const out = await dispatch<{ filledCells: number }>(
+        'blueprint.saveTranslations',
+        {
+          blueprintId: req.params.id,
+          translations: t.translations,
+          usage: { tokens: billableTokens(t.usage), costMillicents: costMillicents(t.usage) },
+        },
+        ctx,
+      );
+
+      void maybeAutoTopup(ctx, 'credit', req.log);
+      return out.result;
     });
 
   // ── 查询：开店草案 ─────────────────────────────────────────────────────────

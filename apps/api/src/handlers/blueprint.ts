@@ -8,12 +8,16 @@
  */
 
 import {
-  CreateBlueprintDraft, SaveBlueprintExtraction, ReviewBlueprintItem,
+  CreateBlueprintDraft, SaveBlueprintExtraction, SaveBlueprintTranslations,
+  ReviewBlueprintItem,
   ReviewAllBlueprintItems, ApplyBlueprint, DiscardBlueprint,
   AppError, ERROR_CODES, pickText,
 } from '@gf/contracts';
 import { jsonb } from '@gf/db';
-import { toServiceDrafts, type DraftItem } from '@gf/ai';
+import {
+  toServiceDrafts, mergeTranslations, clearAutoFlag,
+  type DraftItem, type TranslatableItem,
+} from '@gf/ai';
 import { registerHandler, type HandlerArgs } from '../bus';
 import { chargeQuota } from '../billing/usage';
 import { creditsFor } from '@gf/payroll';
@@ -149,10 +153,10 @@ registerHandler(SaveBlueprintExtraction, async ({ input, ctx, tx, audit }: Handl
 registerHandler(ReviewBlueprintItem, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof ReviewBlueprintItem.input._type>) => {
   const [cur] = await tx<{
-    id: string; blueprint_id: string; name: unknown;
+    id: string; blueprint_id: string; name: unknown; name_auto: unknown;
     price_cents: number | null; duration_min: number | null; decision: string;
   }[]>`
-    select id, blueprint_id, name, price_cents, duration_min, decision
+    select id, blueprint_id, name, name_auto, price_cents, duration_min, decision
     from blueprint_items
     where id = ${input.itemId} and location_id = ${ctx.locationId}`;
   if (!cur) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'blueprint_item' } });
@@ -164,10 +168,27 @@ registerHandler(ReviewBlueprintItem, async ({ input, ctx, tx, audit }: HandlerAr
     || input.priceCents !== undefined
     || input.durationMin !== undefined;
 
+  /**
+   * ⭐ 老板**改动过**的语言格，从 `name_auto` 里去掉 —— 那一格不再是机器产物。
+   *
+   * 只清「值真的变了」的那几格，不是清掉提交上来的全部：
+   * 确认页会把整个 i18n map 一起提交（包括他没动过的自动翻译），
+   * 一律清掉的话，界面下一秒就不再把那些机器补的名字标成淡色，
+   * 老板便无从分辨哪些还是机器猜的。
+   */
+  const curName = (cur.name ?? {}) as Record<string, string>;
+  let nextAuto = Array.isArray(cur.name_auto) ? (cur.name_auto as string[]) : [];
+  if (input.name) {
+    for (const [locale, text] of Object.entries(input.name)) {
+      if (text !== curName[locale]) nextAuto = clearAutoFlag(nextAuto, locale);
+    }
+  }
+
   await tx`
     update blueprint_items set
       decision = coalesce(${input.decision ?? null}, decision),
       name = coalesce(${input.name ? jsonb(input.name) : null}::jsonb, name),
+      name_auto = ${input.name ? jsonb(nextAuto) : jsonb(nextAuto)}::jsonb,
       price_cents = ${input.priceCents === undefined ? tx`price_cents` : input.priceCents},
       duration_min = ${input.durationMin === undefined ? tx`duration_min` : input.durationMin},
       edited_at = ${edited ? tx`now()` : tx`edited_at`}
@@ -190,6 +211,88 @@ registerHandler(ReviewBlueprintItem, async ({ input, ctx, tx, audit }: HandlerAr
     },
   });
   return { itemId: input.itemId };
+});
+
+/**
+ * 把补齐的多语言写进草案（05 §4.4）。
+ *
+ * ⭐ **合并对着事务内的当前行做**，不是对着路由读到的那一份。
+ * 路由调模型要几秒，这几秒里老板完全可能在确认页改了某一行的名字 ——
+ * 拿旧快照合并会把他刚写的名字覆盖掉。`mergeTranslations` 的
+ * 「已有的不覆盖」只有在读到最新数据时才成立。
+ */
+registerHandler(SaveBlueprintTranslations, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SaveBlueprintTranslations.input._type>) => {
+  await loadDraft(tx, ctx.locationId, input.blueprintId);
+
+  const rows = await tx<{
+    id: string; seq: number; name: unknown; name_auto: unknown; kind: string;
+  }[]>`
+    select id, seq, name, name_auto, kind from blueprint_items
+    where blueprint_id = ${input.blueprintId} and location_id = ${ctx.locationId}
+    order by seq`;
+
+  const current: TranslatableItem[] = rows.map((r) => ({
+    seq: r.seq,
+    name: (r.name ?? {}) as Record<string, string>,
+    nameAuto: Array.isArray(r.name_auto) ? (r.name_auto as string[]) : [],
+    kind: r.kind,
+  }));
+
+  const merged = mergeTranslations(current, input.translations);
+
+  // 计量照记：**钱已经花掉了**，哪怕整批因为 seq 对不上而作废。
+  // 不记的话账本会和 Anthropic 的账单对不上，而那是查不出原因的那种对不上。
+  const [usageRow] = await tx<{ id: string }[]>`
+    insert into usage_events (org_id, location_id, kind, qty, cost_cents, meta)
+    values (${ctx.orgId}, ${ctx.locationId}, 'ai_assist', ${input.usage.tokens},
+            ${Math.round(input.usage.costMillicents / 1000)},
+            ${jsonb({
+              feature: 'name_translation',
+              model: 'claude-sonnet-5',
+              costMillicents: input.usage.costMillicents,
+              blueprintId: input.blueprintId,
+              filledCells: merged.filledCells,
+              ...(merged.rejected ? { rejected: merged.rejected } : {}),
+            })}::jsonb)
+    returning id`;
+
+  const credits = creditsFor(input.usage.costMillicents);
+  await chargeQuota(tx, ctx, {
+    unit: 'credit',
+    amount: credits,
+    usageEventId: usageRow!.id,
+    source: 'ai_assist',
+  });
+
+  if (!merged.rejected) {
+    const bySeq = new Map(merged.items.map((it) => [it.seq, it]));
+    for (const r of rows) {
+      const next = bySeq.get(r.seq);
+      if (!next) continue;
+      await tx`
+        update blueprint_items
+        set name = ${jsonb(next.name)}::jsonb, name_auto = ${jsonb(next.nameAuto)}::jsonb
+        where id = ${r.id}`;
+    }
+  }
+
+  audit({
+    entityType: 'blueprint', entityId: input.blueprintId,
+    after: {
+      filledItems: merged.filledItems,
+      filledCells: merged.filledCells,
+      rejected: merged.rejected ?? null,
+    },
+  });
+
+  return {
+    blueprintId: input.blueprintId,
+    filledItems: merged.filledItems,
+    filledCells: merged.filledCells,
+    rejected: merged.rejected ?? null,
+    credits,
+  };
 });
 
 registerHandler(ReviewAllBlueprintItems, async ({ input, ctx, tx, audit }: HandlerArgs<

@@ -7,3 +7,4 @@ export * from './copilot/snapshot';
 export * from './copilot/route';
 export * from './copilot/prompt';
 export * from './copilot/copilot';
+export * from './translate';
