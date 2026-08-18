@@ -195,14 +195,30 @@ export const RequestAiVoice = defineCommand({
   input: z.object({
     storefrontE164: phoneE164,
     transferTargetE164: phoneE164,
-  }).refine((v) => v.storefrontE164 !== v.transferTargetE164, {
-    // 对外号设了「无应答转 AI」，而 AI 转人工又转回同一个号 ——
-    // 没人接 → 转 AI → 转回来 → 还是没人接 → 再转 AI。**这是个环**，
-    // 而且它在店里最忙、最没人接电话的时候才会发作。
-    // 运营商不会帮你断这个环，所以必须在这里拦死。
-    message: '人工客服号不能和对外公布的号相同，否则转人工会转回自己形成死循环',
-    path: ['transferTargetE164'],
-  }),
+    /**
+     * 店家在**自己运营商**那儿设的转接方式。我们改不了它，
+     * 这里记的是「他说他设的是哪种」—— 但它决定了下面那条校验。
+     */
+    forwardingMode: z.enum(['all', 'busy_no_answer']).default('busy_no_answer'),
+  }).refine(
+    (v) => v.forwardingMode !== 'all'
+        || v.storefrontE164 !== v.transferTargetE164,
+    {
+      /**
+       * ⭐ 两个号相同**本身没问题** —— 一家店就一部电话是常态，
+       * 「转人工」就是打回店里，有人闲下来就接得到。
+       *
+       * 坏掉的只有一个组合：**全转 + 两号相同**。
+       * 转人工 → 打回对外号 → 那个号无条件又转给 AI → 转人工 → ……
+       * **人永远接不到，而且必然发生**（不像「无应答才转」那样
+       * 至少给了店里一次接起来的机会）。
+       *
+       * 所以按模式判，不是一刀切。
+       */
+      message: '「所有来电都转给 AI」时，人工客服号不能和对外号相同 —— '
+             + '转人工会被无条件转回 AI，客人永远等不到人',
+      path: ['transferTargetE164'],
+    }),
   output: z.object({
     locationId: uuid,
     storefrontE164: z.string(),

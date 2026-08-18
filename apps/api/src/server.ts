@@ -394,8 +394,10 @@ export function buildServer(): FastifyInstance {
 
         // AI 电话那三个号。开通是**人工**做的（`09` §2），所以这里没有任何
         // 状态列 —— 「开通了没有」就是「有没有 ai_voice 那一条」。
-        const lines = await tx<{ purpose: string; e164: string }[]>`
-          select purpose, e164 from phone_lines
+        const lines = await tx<{
+          purpose: string; e164: string; forwarding_mode: string | null;
+        }[]>`
+          select purpose, e164, forwarding_mode from phone_lines
           where location_id = ${ctx.locationId} and active
             and purpose in ('ai_voice','main','transfer_target')`;
         const lineOf = (p: string) => lines.find((l) => l.purpose === p)?.e164 ?? null;
@@ -431,6 +433,9 @@ export function buildServer(): FastifyInstance {
             transferTargetE164: lineOf('transfer_target'),
             /** 我们买的落地号。null = 还没开通 */
             aiVoiceE164: lineOf('ai_voice'),
+            /** 店家说他在运营商那儿设的转接方式（我们改不了，只记录） */
+            forwardingMode:
+              lines.find((l) => l.purpose === 'main')?.forwarding_mode ?? null,
           },
         };
       });

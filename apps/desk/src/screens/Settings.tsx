@@ -31,6 +31,8 @@ export interface SettingsData {
     transferTargetE164: string | null;
     /** 我们买的落地号。null = 还没开通 —— 这个状态是推导的，没有状态列 */
     aiVoiceE164: string | null;
+    /** 店家说他在运营商那儿设的转接方式。我们改不了，只记录 */
+    forwardingMode: 'all' | 'busy_no_answer' | null;
   };
 }
 
@@ -488,30 +490,52 @@ function PhonePane({ data, busy, run }: {
   data: SettingsData; busy: boolean;
   run: (n: string, i: unknown) => Promise<void>;
 }) {
-  const { storefrontE164, transferTargetE164, aiVoiceE164 } = data.phone;
+  const { storefrontE164, transferTargetE164, aiVoiceE164, forwardingMode } = data.phone;
   const [store, setStore] = useState(storefrontE164 ?? '');
   const [human, setHuman] = useState(transferTargetE164 ?? '');
+  const [mode, setMode] = useState<'all' | 'busy_no_answer'>(
+    forwardingMode ?? 'busy_no_answer');
 
   const submitted = Boolean(storefrontE164 && transferTargetE164);
   const live = Boolean(aiVoiceE164);
   const same = store.trim() !== '' && store.trim() === human.trim();
 
+  // ⭐ 两个号相同**本身没问题** —— 一家店就一部电话是常态。
+  // 坏掉的只有「全转 + 两号相同」：转人工打回对外号，那个号无条件
+  // 又转给 AI，人永远接不到。所以按模式判，不一刀切。
+  const deadLoop = same && mode === 'all';
+
   return (
     <div className="stack" style={{ gap: 14 }}>
       <div className="card" style={{ padding: 14 }}>
-        <div style={{ fontWeight: 600, marginBottom: 6 }}>AI 帮你接漏掉的电话</div>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>AI 帮你接电话</div>
         <div className="tiny" style={{ lineHeight: 1.7 }}>
-          <strong>你的号码不用换。</strong>你在自己的电话公司那里设一个
-          「响几声没人接就转接」，转到我们给你的号码上 ——
-          手上有客人、电话没人接的时候，AI 会替你接起来问清楚要做什么项目、
-          什么时候来，然后放到「待复核」等你确认。
-          <br />
-          <strong>你想自己接的时候照样自己接</strong>，AI 不抢电话。
+          <strong>你的号码不用换。</strong>你在自己的电话公司那里设个转接，
+          转到我们给你的号码上。AI 接起来问清楚要做什么项目、什么时候来，
+          放到「待复核」等你确认。
         </div>
       </div>
 
+      <div className="stack" style={{ gap: 6 }}>
+        <span className="tiny"><strong>① 什么时候让 AI 接</strong></span>
+        {([
+          ['busy_no_answer', '只在没人接或占线时', '推荐 —— 你有空照样自己接，AI 只接你接不了的'],
+          ['all', '所有来电都让 AI 接', '店里没人守电话时用。AI 会接每一通'],
+        ] as const).map(([k, label, hint]) => (
+          <button key={k} className="btn" onClick={() => setMode(k)}
+                  style={{
+                    textAlign: 'left', borderWidth: 2, padding: '10px 12px',
+                    borderColor: mode === k ? 'var(--brand)' : 'var(--line)',
+                    background: mode === k ? 'var(--brand-soft)' : 'var(--surface)',
+                  }}>
+            <div style={{ fontWeight: 600 }}>{mode === k ? '● ' : '○ '}{label}</div>
+            <div className="tiny" style={{ fontWeight: 400, marginTop: 2 }}>{hint}</div>
+          </button>
+        ))}
+      </div>
+
       <label className="stack" style={{ gap: 4 }}>
-        <span className="tiny"><strong>① 对外公布的电话</strong>（名片、Google、Yelp 上的那个）</span>
+        <span className="tiny"><strong>② 对外公布的电话</strong>（名片、Google、Yelp 上的那个）</span>
         <input className="input" value={store} inputMode="tel"
                placeholder="+1 512 555 0100"
                onChange={(e) => setStore(e.target.value)} />
@@ -519,26 +543,42 @@ function PhonePane({ data, busy, run }: {
 
       <label className="stack" style={{ gap: 4 }}>
         <span className="tiny">
-          <strong>② 转人工的电话</strong>（AI 答不上来时打给谁 —— 一般填你自己的手机）
+          <strong>③ 转人工的电话</strong>（AI 答不上来时打给谁）
         </span>
         <input className="input" value={human} inputMode="tel"
                placeholder="+1 512 555 0200"
                onChange={(e) => setHuman(e.target.value)} />
       </label>
 
-      {same && (
+      {deadLoop && (
         <div className="badge badge-danger" style={{ padding: '10px 14px', lineHeight: 1.6 }}>
-          ✕ 两个号码不能一样。<br />
-          <span className="tiny">
-            一样的话：没人接 → 转给 AI → AI 转人工 → 又转回这个号 → 还是没人接
-            …… 电话会一直转圈，客人永远等不到人。
-          </span>
+          ✕ 选了「所有来电都让 AI 接」时，这两个号不能一样。
+          <div className="tiny" style={{ marginTop: 4 }}>
+            AI 要转人工 → 打回这个号 → 这个号又把电话无条件转给 AI → 再转人工……
+            <strong>客人永远等不到人。</strong>
+            换成店里另一部电话或你的手机，或者上面改成「只在没人接时」。
+          </div>
         </div>
       )}
 
-      <button className="btn btn-primary" disabled={busy || same || !store || !human}
+      {same && !deadLoop && (
+        <div className="badge" style={{
+          padding: '10px 14px', lineHeight: 1.6,
+          background: 'var(--warn-soft, #fff8e1)', border: '1px solid var(--line)',
+        }}>
+          ⓘ 两个号一样 —— <strong>店里只有一部电话的话这样是对的</strong>。
+          <div className="tiny" style={{ marginTop: 4 }}>
+            AI 转人工时会打回这部电话。要是那会儿还是没人接，客人会再听一遍 AI。
+            想避免的话，这里填你的手机。
+          </div>
+        </div>
+      )}
+
+      <button className="btn btn-primary" disabled={busy || deadLoop || !store || !human}
               onClick={() => run('location.requestAiVoice', {
-                storefrontE164: store.trim(), transferTargetE164: human.trim(),
+                storefrontE164: store.trim(),
+                transferTargetE164: human.trim(),
+                forwardingMode: mode,
               })}>
         {submitted ? '保存修改' : '提交，申请开通'}
       </button>
@@ -553,7 +593,7 @@ function PhonePane({ data, busy, run }: {
         </div>
       )}
 
-      {live && <ForwardingGuide landing={aiVoiceE164!} />}
+      {live && <ForwardingGuide landing={aiVoiceE164!} mode={mode} />}
     </div>
   );
 }
@@ -568,7 +608,10 @@ function PhonePane({ data, busy, run }: {
  * 所以这里只说清「要达成什么效果」，具体按键让他问电话公司，
  * 再给一个「我们帮你设」的出口。宁可让人来问。
  */
-function ForwardingGuide({ landing }: { landing: string }) {
+function ForwardingGuide({ landing, mode }: {
+  landing: string; mode: 'all' | 'busy_no_answer';
+}) {
+  const all = mode === 'all';
   return (
     <div className="card" style={{ padding: 14 }}>
       <div style={{ fontWeight: 600 }}>✅ 已开通 —— 最后一步要你来做</div>
@@ -585,15 +628,22 @@ function ForwardingGuide({ landing }: { landing: string }) {
           margin: '8px 0', padding: 10, borderRadius: 8,
           background: 'var(--brand-soft)', fontWeight: 600,
         }}>
-          「响 4 声没人接，就把电话转到 {landing}」
+          {all
+            ? <>「把所有来电都转到 {landing}」</>
+            : <>「响 4 声没人接（或占线），就把电话转到 {landing}」</>}
           <div className="tiny" style={{ fontWeight: 400, marginTop: 4 }}>
-            英文叫 <em>Call Forwarding — No Answer</em>（也可能写成 Busy/No Answer）
+            英文叫 {all
+              ? <em>Call Forwarding — Always</em>
+              : <em>Call Forwarding — Busy / No Answer</em>}
           </div>
         </div>
 
-        ⚠️ <strong>不要选「所有来电都转接」</strong>（Call Forwarding Always）——
-        那样你自己就再也接不到电话了。要选<strong>没人接才转</strong>的那种。
-        <br /><br />
+        {all
+          ? <>⚠️ 你选的是<strong>全部转接</strong> —— 设好之后店里的电话
+              <strong>不会再响</strong>，所有来电都由 AI 接。
+              想自己接电话的时候，记得先把转接关掉。<br /><br /></>
+          : <>⚠️ <strong>别选成「所有来电都转接」</strong>（Call Forwarding Always）——
+              那样店里的电话就不响了。要选<strong>没人接才转</strong>的那种。<br /><br /></>}
         ⚠️ 有些电话公司转接是<strong>按分钟收费的，算在你自己的账单上</strong>。
         设之前先问一句多少钱，别等下个月账单来了才发现。
         <br /><br />

@@ -61,6 +61,18 @@ export const phoneLines = pgTable('phone_lines', {
   purpose: text('purpose').notNull().default('ai_voice'),
   /** Telnyx 那边的 assistant id。一家店一个，可以配不同开场白 */
   assistantId: text('assistant_id'),
+  /**
+   * 只对 `purpose='main'` 有意义：**店家在自己电话公司那儿设的转接方式**。
+   * `all` | `busy` | `no_answer` | `busy_no_answer`（sql/0026、0027）
+   *
+   * ⭐ 这一列不是给系统用的 —— 真正生效的开关在店家的运营商那边，我们改不了。
+   * 存它是因为两件事：
+   *   1. **`all` 时「人工客服号 = 对外号」是必然死循环**（电话永远不在店里响，
+   *      AI 转回去还是 AI）。其它三档电话会先响，人有机会接 —— 只提醒不拦。
+   *   2. **出账单时说得清**：选 `all` 的店 AI 分钟数是选 `no_answer` 的好几倍，
+   *      而老板不会记得自己当初选了哪个。
+   */
+  forwardingMode: text('forwarding_mode'),
   active: boolean('active').notNull().default(true),
   createdAt: createdAt(),
 }, (t) => [

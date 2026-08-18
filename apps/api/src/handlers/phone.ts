@@ -52,18 +52,24 @@ const isRoutable = (p: string): p is Routable =>
  */
 async function upsertLine(
   tx: HandlerArgs<unknown>['tx'], ctx: HandlerArgs<unknown>['ctx'],
-  line: { e164: string; purpose: string; provider?: string; assistantId?: string | null | undefined },
+  line: {
+    e164: string; purpose: string; provider?: string;
+    assistantId?: string | null | undefined;
+    forwardingMode?: string | null | undefined;
+  },
 ) {
   await tx`
     insert into phone_lines
-      (org_id, location_id, e164, provider, purpose, assistant_id, active)
+      (org_id, location_id, e164, provider, purpose, assistant_id,
+       forwarding_mode, active)
     values (${ctx.orgId}, ${ctx.locationId}, ${line.e164},
             ${line.provider ?? 'telnyx'}, ${line.purpose},
-            ${line.assistantId ?? null}, true)
+            ${line.assistantId ?? null}, ${line.forwardingMode ?? null}, true)
     on conflict (location_id, purpose) where active do update set
       e164 = excluded.e164,
       provider = excluded.provider,
-      assistant_id = excluded.assistant_id`;
+      assistant_id = excluded.assistant_id,
+      forwarding_mode = excluded.forwarding_mode`;
 }
 
 registerHandler(SavePhoneLine, async ({ input, ctx, tx, audit }: HandlerArgs<
@@ -126,7 +132,10 @@ registerHandler(RequestAiVoice, async ({ input, ctx, tx, audit }: HandlerArgs<
     });
   }
 
-  await upsertLine(tx, ctx, { e164: input.storefrontE164, purpose: 'main' });
+  await upsertLine(tx, ctx, {
+    e164: input.storefrontE164, purpose: 'main',
+    forwardingMode: input.forwardingMode,
+  });
   await upsertLine(tx, ctx, {
     e164: input.transferTargetE164, purpose: 'transfer_target',
   });
@@ -142,6 +151,7 @@ registerHandler(RequestAiVoice, async ({ input, ctx, tx, audit }: HandlerArgs<
     after: {
       storefrontE164: input.storefrontE164,
       transferTargetE164: input.transferTargetE164,
+      forwardingMode: input.forwardingMode,
       provisioned: Boolean(ai),
     },
   });

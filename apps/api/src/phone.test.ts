@@ -339,10 +339,34 @@ describe('店家的两个号码（09 §2 接入方式）', () => {
     expect(rows.map((r) => r.purpose)).toEqual(['main', 'transfer_target']);
   });
 
-  it('⭐ 两个号相同要拒绝 —— 否则转人工会转回自己形成死循环', async () => {
-    await expect(run('location.requestAiVoice',
-      { storefrontE164: STOREFRONT, transferTargetE164: STOREFRONT }))
-      .rejects.toThrow();
+  it('⭐ 两个号相同 + 只在没人接时转 → 允许（店里就一部电话是常态）', async () => {
+    const out = await run<{ transferTargetE164: string }>('location.requestAiVoice', {
+      storefrontE164: STOREFRONT, transferTargetE164: STOREFRONT,
+      forwardingMode: 'busy_no_answer',
+    });
+    // 转人工＝打回店里，有人闲下来就接得到。只有还是没人接才会再听一遍 AI
+    expect(out.transferTargetE164).toBe(STOREFRONT);
+  });
+
+  it('⭐ 两个号相同 + 全部转给 AI → 拒绝（人永远接不到）', async () => {
+    // 转人工 → 打回对外号 → 那个号无条件又转给 AI → 转人工 → ……
+    // 和上一条的区别：这个环**必然**发生，不像「无应答才转」
+    // 至少给了店里一次接起来的机会
+    await expect(run('location.requestAiVoice', {
+      storefrontE164: STOREFRONT, transferTargetE164: STOREFRONT,
+      forwardingMode: 'all',
+    })).rejects.toThrow();
+  });
+
+  it('转接方式存下来了 —— 校验和话术都靠它', async () => {
+    await run('location.requestAiVoice', {
+      storefrontE164: STOREFRONT, transferTargetE164: HUMAN_DESK,
+      forwardingMode: 'all',
+    });
+    const [row] = await withTenant(tenant, (tx) => tx<{ forwarding_mode: string }[]>`
+      select forwarding_mode from phone_lines
+      where location_id = ${NAIL_LOC} and purpose = 'main' and active`);
+    expect(row!.forwarding_mode).toBe('all');
   });
 
   it('⭐ 不许把我们的落地号填进去 —— 那是 AI 转给 AI', async () => {
