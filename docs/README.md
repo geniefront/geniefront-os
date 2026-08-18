@@ -142,6 +142,8 @@ AI 电话的开场录音告知与转人工；官网 URL 提取；
 | [08-SEED-STORE-TRIAL.md](08-SEED-STORE-TRIAL.md) | ⭐ **种子店试用指南**：测试账号、操作步骤、要问的关键问题 |
 | [09-TELNYX.md](09-TELNYX.md) | ⭐ **AI 电话与短信走 Telnyx**：迁移警告、落地方式、口音实测标准、下一步任务清单 |
 | [10-HANDOFF.md](10-HANDOFF.md) | ⭐⭐ **交接**：Phase 2 剩下的活、踩过的 13 个坑、定下来别推翻的设计 |
+| [11-WEBSITE-INTEGRATION.md](11-WEBSITE-INTEGRATION.md) | ⭐ **官网对接契约**：Stripe Checkout 的 metadata 是唯一接触面。给做官网的人看，读完就能开工 |
+| [12-SIGNUP-ACTIVATION.md](12-SIGNUP-ACTIVATION.md) | ⭐ **自助开户实现清单**：从付款到能用这条链路。含两个已定解法（建租户走 SECURITY DEFINER、发激活信用 signInWithOtp 而不是 service_role） |
 
 **接手先读 `10`**，它把「现在在哪、下一步做什么、哪些坑别再踩」压在一份里。
 
