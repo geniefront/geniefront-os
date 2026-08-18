@@ -117,14 +117,15 @@ FROM_EMAIL=noreply@mail.你的域名
 | 项 | 用途 | 变量 | 注意 |
 |---|---|---|---|
 | **Telnyx** ⭐ | 号码 + 语音 + **AI Assistant 对话** + （Phase 2.5）短信 | `TELNYX_API_KEY`<br>`TELNYX_PUBLIC_KEY`<br>`TELNYX_PHONE_NUMBER`<br>`TELNYX_ASSISTANT_ID`<br>`TELNYX_MESSAGING_PROFILE_ID` | ⚠️ **`TELNYX_PUBLIC_KEY` 最容易漏**：它不是调 API 的，是**验证打进来的 webhook 是不是真的来自 Telnyx**（Ed25519）。没有它，任何人都能伪造一条"客人预约了明天三点"进复核队列（`09` §3） |
-| ~~Twilio / Vapi~~ | 原 AI 电话方案 | `TWILIO_*` / `VAPI_*` | **过渡期保留、不要注销**：Telnyx 口音实测没通过要回退这条路；10DLC 也要等 Telnyx 批准后才注销 Twilio 的申请（`09` §1.1） |
+| ~~Twilio / Vapi~~ | 已否决 | —— | 语音回退路径**已作废**。⚠️ 但 **Twilio 的 10DLC 申请不要注销**，直到 Telnyx 批下来（`09` §1.1） |
 | **Stripe** | 向门店收订阅费 | `STRIPE_SECRET_KEY`<br>`STRIPE_PUBLISHABLE_KEY`<br>`STRIPE_WEBHOOK_SECRET` | ⚠️ **需要公司实体 + EIN 做业务认证**，见 D1。先用 test key 开发 |
 | **Cloudflare Turnstile** | 公开预约页防刷 | `TURNSTILE_SITE_KEY`<br>`TURNSTILE_SECRET_KEY` | 免费，在 Cloudflare 控制台建 |
 | **Google Maps**（可选） | 开店时自动填地址/营业时间 | `GOOGLE_MAPS_API_KEY` | Places API，记得限制 Referer |
 
 **Stripe 里要建的产品**（我可以给你确切配置，你在后台点）：
-- `Starter` $99/月 · `Pro` $149/月 · `AI Phone Pack` $69/月
-- 两个 metered 计量项：`ai_assist_overage` $0.05/次、`ai_call_overage` $0.35/分钟
+- `essential` $99/月 · `growth` $199/月（**名字要和后台、代码 plan 枚举、DB check 约束三处一致**，迁移 0021）
+- 预充值：**积分**与**语音分钟**两种独立商品，**绝不做成一个通用「额度」**
+- ⚠️ 确切档位与额度以 `04` §4.1 为准，别在这里再记一份数字
 
 ---
 

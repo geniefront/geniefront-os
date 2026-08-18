@@ -13,3 +13,12 @@ coverage/
 .idea/
 .vscode/
 deploy/certs/origin.key
+
+# 手工联调的临时产物（Telnyx/xAI assistant 配置、录音样本）
+/test_*.json
+/test_*.mp3
+/test_*.wav
+/test_*.aiff
+/create_assistant.json
+/update_assistant.json
+/assistant_response.json
