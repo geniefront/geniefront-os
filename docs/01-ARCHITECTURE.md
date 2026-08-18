@@ -19,7 +19,7 @@
 | **应用** | **Fastify (Node 22) + Docker**，生产 2 台实例，开发 1 台 | 100% 无状态，任意一台重启用户无感 |
 | **入口** | **Cloudflare**：DNS / TLS / WAF / Turnstile + **Load Balancing**（已上线） | 两台实例完全平级，无会话亲和性 |
 | **回源 TLS** | **Cloudflare Origin CA 证书**（至 2041），两台共用一张 | 不走 ACME：轮询 DNS 下两台会互抢 HTTP-01 challenge。Full (strict) 用 Configuration Rule **只作用于 api 子域**，zone 默认保持 `full`，否则会打断网页编辑器的源站 |
-| **队列** | **Phase 1a 不引入**。Phase 1b 需要定时邮件时接 **Upstash Redis + BullMQ** | 没有定时任务之前，队列是纯负债 |
+| **队列** | **仍未引入**（2026-08-18）。⭐ **事务性邮件不需要它** —— 预约确认走 `email_outbox` 表 + 事务提交后直接发（sql/0029）。队列留给**真正需要定时**的那些：提前 24 小时的到店提醒、报表导出、评价抓取 Cron。到那时接 **Upstash Redis + BullMQ**（托管，不自建主从 —— 宪法禁的是**自管**） | 没有定时任务之前，队列是纯负债 |
 | **对象存储** | **Supabase Storage**（电子签名、指甲照片、价目表原图） | 和 RLS 同一套权限模型 |
 
 ### 明确删掉的东西（早期方案里有，现在不做）
