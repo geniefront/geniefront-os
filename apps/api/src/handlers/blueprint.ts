@@ -249,7 +249,7 @@ registerHandler(SaveBlueprintTranslations, async ({ input, ctx, tx, audit }: Han
             ${Math.round(input.usage.costMillicents / 1000)},
             ${jsonb({
               feature: 'name_translation',
-              model: 'claude-sonnet-5',
+              model: 'claude-sonnet-5',  // TRANSLATE_MODEL
               costMillicents: input.usage.costMillicents,
               blueprintId: input.blueprintId,
               filledCells: merged.filledCells,

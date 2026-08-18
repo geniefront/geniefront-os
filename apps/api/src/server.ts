@@ -45,7 +45,7 @@ import { maybeAutoTopup } from './billing/autoTopup';
 import { loadQueue } from './queries/queue';
 import { searchBusinesses, getBusiness } from '@gf/yelp';
 import { extractPriceList, costMillicents, billableTokens, MAX_IMAGE_EDGE_PX,
-         itemsNeedingTranslation, translateNames,
+         itemsNeedingTranslation, translateNames, TRANSLATE_MODEL, TRANSLATE_RATES,
          type PriceListImage, type ImageMediaType } from '@gf/ai';
 import { resolveDate } from './handlers/dayclose';
 import {
@@ -738,7 +738,13 @@ export function buildServer(): FastifyInstance {
         {
           blueprintId: req.params.id,
           translations: t.translations,
-          usage: { tokens: billableTokens(t.usage), costMillicents: costMillicents(t.usage) },
+          // ⚠️ **必须传 Sonnet 的价**。costMillicents 的默认值是 Opus 费率，
+          // 而补齐走的是 Sonnet —— 用默认值会按三倍多扣客户的积分，
+          // 而账单上只是一个「看起来偏大但不离谱」的数字，没人会发现。
+          usage: {
+            tokens: billableTokens(t.usage),
+            costMillicents: costMillicents(t.usage, TRANSLATE_RATES),
+          },
         },
         ctx,
       );

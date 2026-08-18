@@ -17,7 +17,26 @@ import type { TokenUsage } from './cost';
 export const TRANSLATE_LOCALES = ['en', 'zh-Hans', 'zh-Hant', 'ko', 'vi', 'es'] as const;
 export type TranslateLocale = (typeof TRANSLATE_LOCALES)[number];
 
-const MODEL = 'claude-sonnet-5';
+/**
+ * 补齐走 Sonnet，不是 Opus。
+ *
+ * 和提取那条路不同：提取是「一辈子几次、错一个价格亏一年」，值得上 Opus；
+ * 补齐是照着一份术语表做行业用词映射，Sonnet 完全够，而且老板会反复点。
+ */
+export const TRANSLATE_MODEL = 'claude-sonnet-5';
+const MODEL = TRANSLATE_MODEL;
+
+/**
+ * ⚠️ **算成本时必须显式传这个**。`costMillicents` 的默认参数是 **Opus 费率**，
+ * 传漏了就按三倍多扣客户积分 —— 而账单上只是一个「偏大但不离谱」的数字，
+ * 没有任何人会发现。$3 / $15 每百万 token（05 §7 说了别按优惠价算）。
+ */
+export const TRANSLATE_RATES = {
+  inputPerMTok: 300_000,
+  outputPerMTok: 1_500_000,
+  cacheReadPerMTok: 30_000,
+  cacheWritePerMTok: 375_000,
+} as const;
 
 /** 名字的 i18n map：`{ en: 'Gel Manicure', 'zh-Hans': '光疗美甲' }` */
 export type NameMap = Record<string, string>;
