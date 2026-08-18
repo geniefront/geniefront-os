@@ -42,6 +42,7 @@ import { registerCopilotRoutes } from './copilot/routes';
 import { registerRawBodyParser } from './rawBody';
 import { loadBilling } from './queries/billing';
 import { maybeAutoTopup } from './billing/autoTopup';
+import { flushEmails } from './email/flush';
 import { loadQueue } from './queries/queue';
 import { searchBusinesses, getBusiness } from '@gf/yelp';
 import { extractPriceList, costMillicents, billableTokens, MAX_IMAGE_EDGE_PX,
@@ -165,6 +166,16 @@ export function buildServer(): FastifyInstance {
   // ── 命令入口 ───────────────────────────────────────────────────────────────
   const commandNames = new Set(registeredCommands().map((c) => c.name));
 
+  /**
+   * 哪些命令可能往发件箱里放东西。
+   *
+   * 用白名单而不是每条命令都扫一遍：`/v1/commands` 是最热的一条路，
+   * 给它无条件加一次带索引的查询是没必要的开销。
+   * 加新的邮件触发点时**记得往这里加一条** —— 漏了的表现是
+   * 「信躺在 outbox 里没人发」，直到这家店做了别的会触发的操作。
+   */
+  const ENQUEUES_EMAIL = new Set(['appointment.create']);
+
   app.post<{ Params: { name: string } }>('/v1/commands/:name', async (req, reply) => {
     const name = req.params.name;
     if (!commandNames.has(name)) {
@@ -179,6 +190,21 @@ export function buildServer(): FastifyInstance {
     const out = await dispatch(name, body?.input ?? {}, ctx, {
       ...(idempotencyKey ? { idempotencyKey } : {}),
     });
+
+    /**
+     * ⭐ **邮件在事务提交之后才发**（`email/flush.ts` 的长注释）。
+     * `dispatch` 已经返回 = 事务已经提交，这时候发才不会出现
+     * 「事务回滚了但客人已经收到确认信」。
+     *
+     * 只在**可能入过队**的命令后面触发，不是每条命令都扫一遍表。
+     * 不 await：一封信发不出去永远不该拖慢或拖垮一次成功的建单
+     *（宪法第 14 条，增强项永不成为阻断点）。
+     */
+    if (ENQUEUES_EMAIL.has(name)) {
+      void flushEmails(
+        { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+        req.log);
+    }
 
     // 重放的请求返回 200，新执行的返回 201 —— 客户端能分辨自己是不是重试成功了
     return reply.status(out.replayed ? 200 : 201).send(out);

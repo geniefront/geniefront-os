@@ -7,7 +7,8 @@
  *   门店  → 同上
  */
 
-import { AppointmentCreate, AppError, ERROR_CODES } from '@gf/contracts';
+import { AppointmentCreate, AppError, ERROR_CODES, pickText } from '@gf/contracts';
+import { renderConfirm, formatWhen } from '../email/render';
 import { checkCapacity, businessDateOf, hasBlocking, type Interval } from '@gf/scheduling';
 import { ts, jsonb, parseTs } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
@@ -192,6 +193,8 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
     }
   }
 
+  await enqueueConfirmEmail(tx, ctx, appt!.id, itemIds[0] ?? null);
+
   // 审计由总线统一落库并做金额脱敏
   audit({
     entityType: 'appointment',
@@ -216,3 +219,75 @@ function isExclusionViolation(e: unknown): boolean {
 // 让 hasBlocking 保持被引用：容量结果的语义检查在上面按 issue 逐条做，
 // 这里导出一个便捷判断给后续的 reschedule 复用。
 export const _hasBlocking = hasBlocking;
+
+
+/**
+ * 把预约确认信放进发件箱（**事务内**，和预约同生共死）。
+ *
+ * ⭐ 只是**入队**，不发。发在事务提交之后（`email/flush.ts`）——
+ * 在事务里发的话，事务回滚了但邮件已经飞出去了：客人收到
+ * 「您的预约已确认」而库里根本没有这条预约。邮件和扣款一样收不回来。
+ *
+ * ⚠️ **不看 `marketing_email_opt_in`。** 那是营销订阅开关，
+ * 而预约确认是**事务性邮件**（他自己刚订了这个预约，我们回执一封）——
+ * 两者在 CAN-SPAM 下也是分开的。把确认信卡在营销开关后面，
+ * 结果是「订了但没收到确认」，客人会打电话来问。
+ *
+ * ⚠️ 任何一步取不到就**安静跳过**。没邮箱的客人是常态（走进来的散客），
+ * 这不是错误；为它抛异常会让一个本来成功的建单失败。
+ */
+async function enqueueConfirmEmail(
+  tx: HandlerArgs<Input>['tx'], ctx: HandlerArgs<Input>['ctx'],
+  appointmentId: string, firstItemId: string | null,
+): Promise<void> {
+  if (!input_hasCustomerEmailSupport() || !firstItemId) return;
+
+  const [row] = await tx<{
+    email: string | null; customer_name: unknown;
+    service_name: unknown; staff_name: unknown;
+    starts_at: string; shop_name: unknown; timezone: string;
+  }[]>`
+    select c.email, c.display_name as customer_name,
+           s.name as service_name, sp.display_name as staff_name,
+           ai.starts_at::text as starts_at,
+           l.name as shop_name, l.timezone
+    from appointment_items ai
+    join appointments a on a.id = ai.appointment_id
+    join locations l on l.id = a.location_id
+    left join customers c on c.id = a.customer_id
+    left join services s on s.id = ai.service_id
+    left join staff_profiles sp on sp.membership_id = ai.membership_id
+    where ai.id = ${firstItemId} and a.location_id = ${ctx.locationId}`;
+
+  const to = row?.email?.trim();
+  if (!to) return;   // 散客没留邮箱 —— 常态，不是错误
+
+  const [line] = await tx<{ e164: string }[]>`
+    select e164 from phone_lines
+    where location_id = ${ctx.locationId} and purpose = 'main' and active limit 1`;
+
+  const msg = renderConfirm({
+    customerName: pickText(row!.customer_name, ctx.locale, '您'),
+    shopName: pickText(row!.shop_name, ctx.locale, ''),
+    serviceName: pickText(row!.service_name, ctx.locale, '预约'),
+    whenText: formatWhen(new Date(row!.starts_at).toISOString(), row!.timezone),
+    staffName: row!.staff_name ? pickText(row!.staff_name, ctx.locale) : null,
+    shopPhone: line?.e164 ?? null,
+  });
+
+  // 幂等键是 (entity_type, entity_id, kind) 上的唯一索引 ——
+  // 重投同一条命令不会发第二封。重复的确认信会让客人以为自己订了两次。
+  await tx`
+    insert into email_outbox
+      (org_id, location_id, kind, to_email, subject, body_html, body_text,
+       entity_type, entity_id)
+    values (${ctx.orgId}, ${ctx.locationId}, 'appointment_confirm', ${to},
+            ${msg.subject}, ${msg.html}, ${msg.text},
+            'appointment', ${appointmentId})
+    on conflict (entity_type, entity_id, kind) do nothing`;
+}
+
+/** 邮件没配好就整条路不走 —— 没必要往 outbox 里堆永远发不出去的行 */
+function input_hasCustomerEmailSupport(): boolean {
+  return Boolean(process.env['RESEND_API_KEY'] && process.env['FROM_EMAIL']);
+}
