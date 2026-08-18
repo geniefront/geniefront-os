@@ -15,6 +15,8 @@ import { CustomerSearch, type CustomerHit } from './screens/CustomerSearch';
 import { DaySchedule, type DaySnapshot, type DayItem } from './screens/DaySchedule';
 import { BookSheet } from './screens/BookSheet';
 import { EditBookingSheet } from './screens/EditBookingSheet';
+import { AddItemSheet } from './screens/AddItemSheet';
+import { PayrollPlans, type PayrollPlansData } from './screens/PayrollPlans';
 import { TurnBoard, type RotationSnapshot } from './screens/TurnBoard';
 import { Checkout, type OpenTicket } from './screens/Checkout';
 import { Settings, type SettingsData } from './screens/Settings';
@@ -42,7 +44,7 @@ function Shell({ session }: { session: Session }) {
   const [picked, setPicked] = useState<LocationMembership | null>(null);
   const [tab, setTab] = useState<
     'turn' | 'day' | 'ticket' | 'earn' | 'close' | 'roster' | 'report' | 'find' | 'setup'
-    | 'calls' | 'queue' | 'billing'>('turn');
+    | 'calls' | 'queue' | 'billing' | 'payroll'>('turn');
   const [rosterFrom, setRosterFrom] = useState<string | null>(null);
   const [grouping, setGrouping] = useState<string[]>([]);
   const [groupBusy, setGroupBusy] = useState(false);
@@ -78,6 +80,8 @@ function Shell({ session }: { session: Session }) {
   const [slot, setSlot] = useState<{ staffId: string; startMin: number } | null>(null);
   /** 点开的那一单（改时间 / 换人 / 取消） */
   const [editing, setEditing] = useState<DayItem | null>(null);
+  /** 要加项目的那一单（客人做到一半说「再加个 gel」） */
+  const [adding, setAdding] = useState<OpenTicket | null>(null);
 
   const locs = useQuery({
     queryKey: ['me-locations', session.user.id],
@@ -177,6 +181,13 @@ function Shell({ session }: { session: Session }) {
     queryKey: ['earnings', picked?.membershipId],
     enabled: Boolean(picked) && tab === 'earn',
     queryFn: () => apiGet<EarningsBoard>('/v1/desk/earnings', picked!.membershipId),
+  });
+
+  /** 提成方案。只有能配薪酬的人（owner/manager）才查 —— 后端才是权威 */
+  const planQ = useQuery({
+    queryKey: ['payrollPlans', picked?.membershipId],
+    enabled: Boolean(picked) && tab === 'payroll' && canManage,
+    queryFn: () => apiGet<PayrollPlansData>('/v1/desk/payroll/plans', picked!.membershipId),
   });
 
   const closeQ = useQuery({
@@ -337,7 +348,7 @@ function Shell({ session }: { session: Session }) {
           ...(['roster'] as const),
           ...(canReport ? ['report'] as const : []),
           ...(['find'] as const),
-          ...(canManage ? ['setup'] as const : []),
+          ...(canManage ? ['setup', 'payroll'] as const : []),
           ...(canBill ? ['billing'] as const : []),
         ]).map((k) => (
           <button key={k} className="btn" onClick={() => setTab(k)}
@@ -355,6 +366,7 @@ function Shell({ session }: { session: Session }) {
               : k === 'roster' ? '📅 排班'
               : k === 'report' ? '📊 报表'
               : k === 'setup' ? '⚙ 开店配置'
+              : k === 'payroll' ? '💵 提成方案'
               : k === 'billing' ? '💳 订阅与余额'
               : t('cust.title')}
           </button>
@@ -450,6 +462,8 @@ function Shell({ session }: { session: Session }) {
                              fontVariantNumeric: 'tabular-nums' }}>
                 ${(tk.subtotalCents / 100).toFixed(2)}
               </span>
+              <button className="badge badge-soft" onClick={() => setAdding(tk)}
+                      style={{ border: 0, cursor: 'pointer' }}>➕ 加项目</button>
               <button className="badge badge-soft" onClick={() => setCheckout(tk)}
                       style={{ border: 0, cursor: 'pointer' }}>结账 ›</button>
             </div>
@@ -538,6 +552,14 @@ function Shell({ session }: { session: Session }) {
             </div>
           </div>
         )
+      ) : tab === 'payroll' ? (
+        planQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        : planQ.data ? (
+          <div style={{ padding: '0 16px 24px' }}>
+            <PayrollPlans data={planQ.data} membershipId={picked.membershipId}
+                          onChanged={async () => { await planQ.refetch(); }} />
+          </div>
+        ) : <Retry onRetry={() => planQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'billing' ? (
         billQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
         : billQ.data ? (
@@ -586,6 +608,18 @@ function Shell({ session }: { session: Session }) {
                      dayQ.refetch(), rotQ.refetch(), tktQ.refetch(), queueQ.refetch(),
                    ]);
                  }} />
+      )}
+
+      {adding && dayQ.data && (
+        <AddItemSheet
+          ticket={adding} day={dayQ.data} membershipId={picked.membershipId}
+          onCancel={() => setAdding(null)}
+          onDone={async () => {
+            // 加项改了单的金额，也可能给另一位技师派了活 ——
+            // 单子、轮牌、今日收入三块都要刷
+            await Promise.all([tktQ.refetch(), rotQ.refetch(), earnQ.refetch()]);
+            setAdding(null);
+          }} />
       )}
 
       {editing && dayQ.data && (

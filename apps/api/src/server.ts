@@ -820,6 +820,59 @@ export function buildServer(): FastifyInstance {
       return out.result;
     });
 
+  // ── 查询：薪酬方案 ────────────────────────────────────────────────────────
+  //
+  // 提成引擎从 Phase 1b 就在算，但方案一直只能改数据库 —— 老板要调一个人的
+  // 提成率得找我们。这条查询是配套界面的前提。
+  //
+  // ⚠️ 只取**每个人当前生效的那一版**。方案是版本化的（改规则不影响
+  // 已经算过的单），历史版本对「现在给他多少」这个问题没有意义，
+  // 摆出来只会让老板以为可以改历史。
+  app.get('/v1/desk/payroll/plans', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('payroll.configure')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'payroll.configure' } });
+    }
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      async (tx) => {
+        const rows = await tx<{
+          membership_id: string | null; version: number; config: unknown;
+        }[]>`
+          select distinct on (membership_id) membership_id, version, config
+          from compensation_plans
+          where location_id = ${ctx.locationId}
+          order by membership_id, version desc`;
+
+        const staff = await tx<{ membership_id: string; name: unknown }[]>`
+          select sp.membership_id, sp.display_name as name
+          from staff_profiles sp
+          join memberships m on m.id = sp.membership_id and m.status = 'active'
+          where sp.location_id = ${ctx.locationId}
+          order by sp.is_bookable desc, sp.display_name->>'en'`;
+
+        const cats = await tx<{ id: string; name: unknown }[]>`
+          select id, name from service_categories
+          where location_id = ${ctx.locationId} order by sort`;
+
+        const byMember = new Map(rows.map((r) => [r.membership_id, r]));
+        const shape = (r: { version: number; config: unknown } | undefined) =>
+          r ? { version: r.version, ...(r.config as Record<string, unknown>) } : null;
+
+        return {
+          /** 门店默认方案（membership_id 为 null）。新人进来自动套用 */
+          defaultPlan: shape(byMember.get(null)),
+          staff: staff.map((sp) => ({
+            membershipId: sp.membership_id,
+            name: pickText(sp.name, ctx.locale),
+            /** null = 跟门店默认走，没有自己的方案 */
+            plan: shape(byMember.get(sp.membership_id)),
+          })),
+          categories: cats.map((c) => ({ id: c.id, name: pickText(c.name, ctx.locale) })),
+        };
+      });
+  });
+
   // ── 查询：开店草案 ─────────────────────────────────────────────────────────
   app.get<{ Params: { id: string } }>('/v1/desk/blueprint/:id', async (req) => {
     const ctx = await ctxFromHeaders(req);
