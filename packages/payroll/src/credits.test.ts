@@ -41,7 +41,7 @@ describe('额度单位', () => {
   });
 
   it('⭐ 没有任何「积分 ↔ 分钟」的换算函数', async () => {
-    // 一分钟电话的成本是一次副驾操作的 5.6 倍（$0.056 vs $0.01）。
+    // 一分钟电话的成本是一次副驾操作的 6.2 倍（$0.062 vs $0.01）。
     // 只要能换，客户就会把额度全换成最贵的那种用 —— 而那恰恰是最忙、
     // 最该赚钱的客户（决策 8）。这条测试是留给以后想加换算的人看的。
     const mod = await import('./credits');
@@ -113,7 +113,7 @@ describe('充值', () => {
     const creditPrice = TOPUP_PRICE_CENTS / TOPUP_UNITS.credit;      // 分
     const minutePrice = TOPUP_PRICE_CENTS / TOPUP_UNITS.voice_minute;
     expect(creditPrice).toBe(5);      // $0.05，成本 $0.01
-    expect(minutePrice).toBe(25);     // $0.25，成本 $0.056
+    expect(minutePrice).toBe(25);     // $0.25，成本 $0.062
   });
 });
 

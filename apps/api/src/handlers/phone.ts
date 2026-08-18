@@ -10,7 +10,7 @@
  */
 
 import {
-  DraftFromCall, ReviewCallDraft, RecordCall, SavePhoneLine,
+  DraftFromCall, ReviewCallDraft, RecordCall, SavePhoneLine, RequestAiVoice,
   AppError, ERROR_CODES,
 } from '@gf/contracts';
 import { jsonb, ts } from '@gf/db';
@@ -37,34 +37,121 @@ function ratePerMinMillicents(): number {
 }
 
 
-registerHandler(SavePhoneLine, async ({ input, ctx, tx, audit }: HandlerArgs<
-  typeof SavePhoneLine.input._type>) => {
-  // e164 全局唯一：同一个号码属于两家店的话，webhook 会随机落到其中一家 ——
-  // 那是一种无从复现的串店事故。冲突时明确报错，别 upsert 到别人店里去。
-  const [taken] = await tx<{ location_id: string }[]>`
-    select location_id from phone_lines where e164 = ${input.e164}`;
-  if (taken && taken.location_id !== ctx.locationId) {
-    throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, {
-      details: { e164: input.e164, reason: 'number_bound_to_another_location' },
-    });
-  }
+/** 会被 webhook 反查门店的 purpose —— 这几种必须全局唯一（sql/0025） */
+const ROUTABLE = ['ai_voice', 'sms'] as const;
+type Routable = (typeof ROUTABLE)[number];
+const isRoutable = (p: string): p is Routable =>
+  (ROUTABLE as readonly string[]).includes(p);
 
+/**
+ * 一家店一个 purpose 只留一条 active 记录，换号就是 update 那一条。
+ *
+ * ⚠️ 冲突目标是 `(location_id, purpose) where active`（sql/0025），
+ * **不是 e164** —— e164 的唯一索引现在是部分索引，只覆盖 ROUTABLE，
+ * 拿它当冲突目标会报 "no unique or exclusion constraint matching"。
+ */
+async function upsertLine(
+  tx: HandlerArgs<unknown>['tx'], ctx: HandlerArgs<unknown>['ctx'],
+  line: { e164: string; purpose: string; provider?: string; assistantId?: string | null | undefined },
+) {
   await tx`
     insert into phone_lines
       (org_id, location_id, e164, provider, purpose, assistant_id, active)
-    values (${ctx.orgId}, ${ctx.locationId}, ${input.e164}, ${input.provider},
-            ${input.purpose}, ${input.assistantId ?? null}, ${input.active})
-    on conflict (e164) do update set
-      purpose = excluded.purpose,
+    values (${ctx.orgId}, ${ctx.locationId}, ${line.e164},
+            ${line.provider ?? 'telnyx'}, ${line.purpose},
+            ${line.assistantId ?? null}, true)
+    on conflict (location_id, purpose) where active do update set
+      e164 = excluded.e164,
       provider = excluded.provider,
-      assistant_id = excluded.assistant_id,
-      active = excluded.active`;
+      assistant_id = excluded.assistant_id`;
+}
+
+registerHandler(SavePhoneLine, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SavePhoneLine.input._type>) => {
+  // 会被反查的号才需要查重：同一个号码属于两家店的话，webhook 会随机
+  // 落到其中一家 —— 无从复现的串店。不反查的号（main / transfer_target）
+  // 反而**不能**要求唯一：人工客服号常常是老板的手机，而一个老板开
+  // 两三家店在这行很普遍（sql/0025 的长注释）。
+  if (isRoutable(input.purpose)) {
+    const [taken] = await tx<{ location_id: string }[]>`
+      select location_id from phone_lines
+      where e164 = ${input.e164} and purpose in ('ai_voice','sms')`;
+    if (taken && taken.location_id !== ctx.locationId) {
+      throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, {
+        details: { e164: input.e164, reason: 'number_bound_to_another_location' },
+      });
+    }
+  }
+
+  if (input.active) {
+    await upsertLine(tx, ctx, input);
+  } else {
+    await tx`
+      update phone_lines set active = false
+      where location_id = ${ctx.locationId} and e164 = ${input.e164}`;
+  }
 
   audit({
     entityType: 'phone_line', entityId: ctx.locationId,
     after: { e164: input.e164, purpose: input.purpose, active: input.active },
   });
   return { e164: input.e164, locationId: ctx.locationId };
+});
+
+/**
+ * 店家确认两个号码，申请开通 AI 客服。开通本身是**人工**做的（`09` §2）。
+ *
+ * 这里只做三件事：拦死会成环的填法、把两条记录原子地存下来、
+ * 告诉前端有没有已经开通的落地号。
+ */
+registerHandler(RequestAiVoice, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof RequestAiVoice.input._type>) => {
+  // 「两个号不能相同」在 Zod 里已经拦了。这里拦的是另一种成环：
+  // 把**我们的落地号**填进去。落地号是转移的落点，转人工再转回它
+  // 就是 AI 转给 AI —— 客人会听见同一句开场白第二遍。
+  //
+  // ⚠️ 只查得到本 org 的号（RLS）。跨 org 的碰撞不查 ——
+  // 那需要一个能看到所有店的连接，而 apps/ 拿不到（宪法第 5 条）。
+  // 实际上也不会发生：别家店的落地号不会是这家店老板的手机。
+  const ours = await tx<{ e164: string }[]>`
+    select e164 from phone_lines
+    where purpose = 'ai_voice' and active
+      and e164 in (${input.storefrontE164}, ${input.transferTargetE164})`;
+  if (ours.length > 0) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: {
+        e164: ours[0]!.e164,
+        reason: 'cannot_use_our_ai_landing_number',
+      },
+    });
+  }
+
+  await upsertLine(tx, ctx, { e164: input.storefrontE164, purpose: 'main' });
+  await upsertLine(tx, ctx, {
+    e164: input.transferTargetE164, purpose: 'transfer_target',
+  });
+
+  // 已开通的落地号。为 null 就是「还没开通」—— 这个状态是**推导**的，
+  // 不存列：存了就要有人维护它，而它和记录本身随时会对不上（sql/0025）。
+  const [ai] = await tx<{ e164: string }[]>`
+    select e164 from phone_lines
+    where location_id = ${ctx.locationId} and purpose = 'ai_voice' and active`;
+
+  audit({
+    entityType: 'phone_line', entityId: ctx.locationId,
+    after: {
+      storefrontE164: input.storefrontE164,
+      transferTargetE164: input.transferTargetE164,
+      provisioned: Boolean(ai),
+    },
+  });
+
+  return {
+    locationId: ctx.locationId,
+    storefrontE164: input.storefrontE164,
+    transferTargetE164: input.transferTargetE164,
+    aiVoiceE164: ai?.e164 ?? null,
+  };
 });
 
 /**
@@ -279,7 +366,7 @@ registerHandler(RecordCall, async ({ input, ctx, tx, audit }: HandlerArgs<
    * 客户买的就是分钟（$50 = 200 分钟），所以这里不需要知道单价。
    *
    * ⚠️ 语音分钟和 AI 积分是**两本独立的账**，不能互换（决策 8）：
-   * 一分钟电话的成本是一次副驾操作的 5.6 倍，能换就会被套利。
+   * 一分钟电话的成本是一次副驾操作的 6.2 倍，能换就会被套利。
    */
   const charge = await chargeQuota(tx, ctx, {
     unit: 'voice_minute',

@@ -188,7 +188,7 @@ describe('用量扣费', () => {
     await withTenant(tenant, (tx) => chargeQuota(tx, ctx, { unit: 'credit', amount: 10 }));
 
     expect((await quota('credit')).balance).toBe(-10);
-    // 决策 8：一分钟电话的成本是一次副驾的 5.6 倍，能换就会被套利
+    // 决策 8：一分钟电话的成本是一次副驾的 6.2 倍，能换就会被套利
     expect((await quota('voice_minute')).balance).toBe(0);
     expect((await quota('voice_minute')).included.used).toBe(0);
   });

@@ -46,16 +46,26 @@ export const phoneLines = pgTable('phone_lines', {
   orgId: orgCol(),
   locationId: locCol(),
   e164: text('e164').notNull(),
-  /** telnyx | twilio —— 迁移期两边并存（09 §1.3 回退路径） */
+  /** telnyx —— twilio 是历史回退路径，已否决（09） */
   provider: text('provider').notNull().default('telnyx'),
-  /** ai_voice | main | sms */
+  /**
+   * ai_voice | main | sms | transfer_target
+   *
+   * 分两类，这个区分决定了约束和 RLS 策略（sql/0025）：
+   *   · **会被反查的**（`ai_voice` / `sms`）—— webhook 拿着被叫号码来问
+   *     「这是谁家的」。这类必须全局唯一，否则会串店。
+   *   · **不反查的**（`main` 店家对外公布的号 / `transfer_target` 人工客服号）——
+   *     店家自己的号，我们只记录。**不能要求全局唯一**：人工客服号常常
+   *     是老板的手机，而一个老板开两三家店在这行很普遍。
+   */
   purpose: text('purpose').notNull().default('ai_voice'),
   /** Telnyx 那边的 assistant id。一家店一个，可以配不同开场白 */
   assistantId: text('assistant_id'),
   active: boolean('active').notNull().default(true),
   createdAt: createdAt(),
 }, (t) => [
-  uniqueIndex('phone_lines_e164_key').on(t.e164),
+  // ⚠️ e164 的唯一性是**部分索引**，只覆盖会被反查的 purpose，
+  // 和「一店一用途只留一条」一起写在 sql/0025 里（drizzle 这里表达不了 where）。
   index('phone_lines_loc_idx').on(t.locationId, t.purpose),
 ]);
 

@@ -160,7 +160,7 @@ export const SavePhoneLine = defineCommand({
   input: z.object({
     e164: phoneE164,
     provider: z.enum(['telnyx', 'twilio']).default('telnyx'),
-    purpose: z.enum(['ai_voice', 'main', 'sms']).default('ai_voice'),
+    purpose: z.enum(['ai_voice', 'main', 'sms', 'transfer_target']).default('ai_voice'),
     assistantId: z.string().max(120).nullable().optional(),
     active: z.boolean().default(true),
   }),
@@ -174,6 +174,51 @@ export const SavePhoneLine = defineCommand({
   idempotency: 'optional',
 });
 
+/**
+ * 店家确认自己的两个号码，申请开通 AI 客服。
+ *
+ * **开通本身是人工做的**（我们去 Telnyx 买号、建 assistant、绑 tool、
+ * 设转人工，一个工作日内），所以系统这一侧不需要任何编排 —— 只需要把
+ * 这两个号确认下来。见 `09` §2。
+ *
+ *   · `storefrontE164`      对外公布的号。店家在**自己的运营商**那儿把它设成
+ *                           「无应答转移」到我们给的落地号。我们不碰这个号。
+ *   · `transferTargetE164`  人工客服号。AI 答不了时转给它。
+ *
+ * ⚠️ **两个号必须不同**，见下面 refine 里的理由。
+ *
+ * 一次事务写两条 `phone_lines` —— 分两次调 `savePhoneLine` 的话，
+ * 「两号不同」这条校验没有地方落，而且存了一个另一个失败会留下半套配置。
+ */
+export const RequestAiVoice = defineCommand({
+  name: 'location.requestAiVoice',
+  input: z.object({
+    storefrontE164: phoneE164,
+    transferTargetE164: phoneE164,
+  }).refine((v) => v.storefrontE164 !== v.transferTargetE164, {
+    // 对外号设了「无应答转 AI」，而 AI 转人工又转回同一个号 ——
+    // 没人接 → 转 AI → 转回来 → 还是没人接 → 再转 AI。**这是个环**，
+    // 而且它在店里最忙、最没人接电话的时候才会发作。
+    // 运营商不会帮你断这个环，所以必须在这里拦死。
+    message: '人工客服号不能和对外公布的号相同，否则转人工会转回自己形成死循环',
+    path: ['transferTargetE164'],
+  }),
+  output: z.object({
+    locationId: uuid,
+    storefrontE164: z.string(),
+    transferTargetE164: z.string(),
+    /** 我们的落地号。还没开通时是 null —— 前端据此显示「开通中」还是转移教程 */
+    aiVoiceE164: z.string().nullable(),
+  }),
+  permission: 'settings.manage',
+  ai: {
+    description: '登记本店对外公布的号码与人工客服号码，申请开通 AI 电话客服。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
 export const PHONE_COMMANDS = [
-  DraftFromCall, ReviewCallDraft, RecordCall, SavePhoneLine,
+  DraftFromCall, ReviewCallDraft, RecordCall, SavePhoneLine, RequestAiVoice,
 ] as const;

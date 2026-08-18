@@ -26,6 +26,12 @@ export interface SettingsData {
     maxConcurrent: number; levelKey: string | null; inRotation: boolean;
   }>;
   levels: Array<{ id: string; key: string; name: string }>;
+  phone: {
+    storefrontE164: string | null;
+    transferTargetE164: string | null;
+    /** 我们买的落地号。null = 还没开通 —— 这个状态是推导的，没有状态列 */
+    aiVoiceE164: string | null;
+  };
 }
 
 const DAYS: Array<[string, string]> = [
@@ -46,7 +52,8 @@ export function Settings({
   /** 打开「Yelp 一键填店」。店名 + 邮编两个字段把店建起来（05 §4.1） */
   onYelpFill: () => void;
 }) {
-  const [pane, setPane] = useState<'service' | 'staff' | 'hours' | 'device'>('service');
+  const [pane, setPane] = useState<
+    'service' | 'staff' | 'hours' | 'device' | 'phone'>('service');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -64,7 +71,7 @@ export function Settings({
     <div className="stack" style={{ padding: '0 16px 24px', gap: 14 }}>
       <div className="row" style={{ gap: 10 }}>
         {([['service', '项目'], ['staff', '员工'], ['hours', '营业时间'],
-           ['device', '门口 iPad']] as const).map(([k, l]) => (
+           ['device', '门口 iPad'], ['phone', '☎️ AI 接电话']] as const).map(([k, l]) => (
           <button key={k} className="btn" onClick={() => setPane(k)}
                   style={{
                     borderWidth: 2,
@@ -82,6 +89,7 @@ export function Settings({
       {pane === 'staff' && <StaffPane data={data} busy={busy} run={run} />}
       {pane === 'hours' && <HoursPane data={data} busy={busy} run={run} onYelpFill={onYelpFill} />}
       {pane === 'device' && <DevicePane membershipId={membershipId} />}
+      {pane === 'phone' && <PhonePane data={data} busy={busy} run={run} />}
     </div>
   );
 }
@@ -460,6 +468,138 @@ function DevicePane({ membershipId }: { membershipId: string }) {
         丢的那台会在下一次连接时被拒。<br />
         实际摆到门口之前，记得在 iPad 上开【引导式访问】（设置 → 辅助功能），
         不然客人一个误触就退出到桌面了。
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────── AI 接电话
+
+/**
+ * AI 接电话的配置。
+ *
+ * ⭐ **这一屏不做开通**。买号、建 AI、绑定、设转人工全是我们人工做的
+ * （`09` §2）——自动化那一套要五步外部调用，中间挂掉会留下没人知道的
+ * 孤儿号码，而这件事一家店只发生一次、几分钟就做完。
+ *
+ * 老板在这里只做一件事：**确认两个号码**。
+ */
+function PhonePane({ data, busy, run }: {
+  data: SettingsData; busy: boolean;
+  run: (n: string, i: unknown) => Promise<void>;
+}) {
+  const { storefrontE164, transferTargetE164, aiVoiceE164 } = data.phone;
+  const [store, setStore] = useState(storefrontE164 ?? '');
+  const [human, setHuman] = useState(transferTargetE164 ?? '');
+
+  const submitted = Boolean(storefrontE164 && transferTargetE164);
+  const live = Boolean(aiVoiceE164);
+  const same = store.trim() !== '' && store.trim() === human.trim();
+
+  return (
+    <div className="stack" style={{ gap: 14 }}>
+      <div className="card" style={{ padding: 14 }}>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>AI 帮你接漏掉的电话</div>
+        <div className="tiny" style={{ lineHeight: 1.7 }}>
+          <strong>你的号码不用换。</strong>你在自己的电话公司那里设一个
+          「响几声没人接就转接」，转到我们给你的号码上 ——
+          手上有客人、电话没人接的时候，AI 会替你接起来问清楚要做什么项目、
+          什么时候来，然后放到「待复核」等你确认。
+          <br />
+          <strong>你想自己接的时候照样自己接</strong>，AI 不抢电话。
+        </div>
+      </div>
+
+      <label className="stack" style={{ gap: 4 }}>
+        <span className="tiny"><strong>① 对外公布的电话</strong>（名片、Google、Yelp 上的那个）</span>
+        <input className="input" value={store} inputMode="tel"
+               placeholder="+1 512 555 0100"
+               onChange={(e) => setStore(e.target.value)} />
+      </label>
+
+      <label className="stack" style={{ gap: 4 }}>
+        <span className="tiny">
+          <strong>② 转人工的电话</strong>（AI 答不上来时打给谁 —— 一般填你自己的手机）
+        </span>
+        <input className="input" value={human} inputMode="tel"
+               placeholder="+1 512 555 0200"
+               onChange={(e) => setHuman(e.target.value)} />
+      </label>
+
+      {same && (
+        <div className="badge badge-danger" style={{ padding: '10px 14px', lineHeight: 1.6 }}>
+          ✕ 两个号码不能一样。<br />
+          <span className="tiny">
+            一样的话：没人接 → 转给 AI → AI 转人工 → 又转回这个号 → 还是没人接
+            …… 电话会一直转圈，客人永远等不到人。
+          </span>
+        </div>
+      )}
+
+      <button className="btn btn-primary" disabled={busy || same || !store || !human}
+              onClick={() => run('location.requestAiVoice', {
+                storefrontE164: store.trim(), transferTargetE164: human.trim(),
+              })}>
+        {submitted ? '保存修改' : '提交，申请开通'}
+      </button>
+
+      {submitted && !live && (
+        <div className="card" style={{ padding: 14 }}>
+          <div style={{ fontWeight: 600 }}>⏳ 我们正在给你开通</div>
+          <div className="tiny" style={{ marginTop: 6, lineHeight: 1.7 }}>
+            一个工作日之内会办好。办好之后这里会出现<strong>你的专属号码</strong>
+            和设置转接的说明。这期间店里一切照常，什么都不用改。
+          </div>
+        </div>
+      )}
+
+      {live && <ForwardingGuide landing={aiVoiceE164!} />}
+    </div>
+  );
+}
+
+/**
+ * 转接设置说明。
+ *
+ * ⚠️ **不要给死的星号码。** `*72`（无条件转接）/ `*92`（无应答转接）
+ * 是常见值，但**各家电话公司不一样**。给错了的后果是老板把电话转到一个
+ * 不存在的地方然后彻底失联 —— 比不给说明糟得多。
+ *
+ * 所以这里只说清「要达成什么效果」，具体按键让他问电话公司，
+ * 再给一个「我们帮你设」的出口。宁可让人来问。
+ */
+function ForwardingGuide({ landing }: { landing: string }) {
+  return (
+    <div className="card" style={{ padding: 14 }}>
+      <div style={{ fontWeight: 600 }}>✅ 已开通 —— 最后一步要你来做</div>
+
+      <div className="stack" style={{ gap: 4, margin: '10px 0' }}>
+        <span className="tiny">你的专属号码（把电话转接到这里）：</span>
+        <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: 1 }}>{landing}</div>
+      </div>
+
+      <div className="tiny" style={{ lineHeight: 1.8 }}>
+        打电话给<strong>你的电话公司</strong>（Verizon / AT&amp;T / Spectrum / Comcast…），
+        或者登录他们的网站/App，设置这一项：
+        <div style={{
+          margin: '8px 0', padding: 10, borderRadius: 8,
+          background: 'var(--brand-soft)', fontWeight: 600,
+        }}>
+          「响 4 声没人接，就把电话转到 {landing}」
+          <div className="tiny" style={{ fontWeight: 400, marginTop: 4 }}>
+            英文叫 <em>Call Forwarding — No Answer</em>（也可能写成 Busy/No Answer）
+          </div>
+        </div>
+
+        ⚠️ <strong>不要选「所有来电都转接」</strong>（Call Forwarding Always）——
+        那样你自己就再也接不到电话了。要选<strong>没人接才转</strong>的那种。
+        <br /><br />
+        ⚠️ 有些电话公司转接是<strong>按分钟收费的，算在你自己的账单上</strong>。
+        设之前先问一句多少钱，别等下个月账单来了才发现。
+        <br /><br />
+        网上能查到 <code>*72</code> / <code>*92</code> 之类的按键，但
+        <strong>每家公司不一样</strong>，按错了电话会转丢。
+        <strong>拿不准就让我们帮你设</strong> —— 把电话公司的名字告诉我们就行。
       </div>
     </div>
   );

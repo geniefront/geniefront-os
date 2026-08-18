@@ -27,8 +27,8 @@ pnpm verify                 # 宪法检查 + typecheck + 476 项测试，应当�
 | **AI 前台副驾** | ✅ **完成**，实测提案带真 uuid、缓存命中 |
 | **AI 电话接单** | 🚧 **代码全完**，卡在 Telnyx 开户 + 口音实测 |
 
-**测试 476 项**，12 个包。分布：
-`api 203` · `payroll 91` · `ai 57` · `scheduling 51` · `db 26` · `rotation 24` · `yelp 20` · `contracts 4`
+**测试 482 项**，12 个包。分布：
+`api 209` · `payroll 91` · `ai 57` · `scheduling 51` · `db 26` · `rotation 24` · `yelp 20` · `contracts 4`
 
 ---
 
@@ -59,10 +59,11 @@ pnpm verify                 # 宪法检查 + typecheck + 476 项测试，应当�
 | `0021_plans_and_included_quota` | —— | 套餐改名 essential / growth，对齐 Stripe 后台 |
 | `0023_credits_and_minutes` | —— | ⭐ 余额从「钱」改成**积分 + 语音分钟两种独立额度** |
 | `0024_retire_money_ledger_columns` | —— | 账本上「钱」那两列退休（写 null 不写 0，见 §4.14） |
+| `0025_store_contact_numbers` | —— | ⭐ 店家自己的两个号（`main` / `transfer_target`）。**e164 唯一约束收窄到会被反查的 purpose**，见 §4.16 |
 
 ### 新增的命令
 
-`blueprint.*`（6）· `call.*`（3）· `location.savePhoneLine` · `location.applyYelp` ·
+`blueprint.*`（6）· `call.*`（3）· `location.savePhoneLine` · **`location.requestAiVoice`** · `location.applyYelp` ·
 `device.issueToken/revokeToken` · `queue.join/update` · `catalog.saveFormTemplate` · `form.submit` ·
 `billing.*`（6，只有 `setAutoTopup` 对 AI 可见）· `ai.recordAssist`（内部）
 
@@ -434,6 +435,30 @@ Zod 会拦下来，但**那次调用的钱已经花了**，而前台看到的是
 
 同一个道理的另一面：**历史行原样留着**（宪法第 9 条，财务数据不删）。
 它们记录的是真实发生过的钱。
+
+### 4.16 ⭐ 「全局唯一」要问一句「唯一是为了谁」
+
+`phone_lines.e164` 本来是全局唯一，理由写得很清楚：同一个号码属于两家店的话，
+webhook 会随机落到其中一家 —— 无从复现的串店。
+
+那个理由是对的，但它**只对会被反查的号成立**（`ai_voice` / `sms` —— webhook
+拿着被叫号码来问「这是谁家的」）。店家自己的两个号（`main` 对外公布的号、
+`transfer_target` 人工客服号）我们**从来不反查**。
+
+而全局唯一在这两种上会造成一个很常见的误伤：
+
+> **人工客服号通常是老板的手机，而一个老板开两三家店在这行很普遍。**
+> 第二家店填同一个号就会撞约束，报一个看起来毫无道理的错。
+
+迁移 0025 把唯一索引收窄成部分索引（`where purpose in ('ai_voice','sms')`），
+`phone_line_lookup` 那条 RLS 策略也跟着加了同样的 purpose 过滤 ——
+不加的话，那条给「没有登录用户的 webhook」用的极窄策略会顺带把店家自己的
+号码也放进同一个查询面（`09` §5.2 的判断标准）。
+
+⚠️ **连带破坏**：`SavePhoneLine` 原来用 `on conflict (e164) do update`，
+索引一改就报 `no unique or exclusion constraint matching`。
+冲突目标改成了 `(location_id, purpose) where active` ——
+语义也更对：**一店一用途只留一条，换号是 update 那一条**。
 
 ### 4.15 换计量单位时，测试的清理逻辑要跟着换
 

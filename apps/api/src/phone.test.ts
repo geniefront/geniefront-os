@@ -319,6 +319,63 @@ describe('复核', () => {
   });
 });
 
+describe('店家的两个号码（09 §2 接入方式）', () => {
+  const STOREFRONT = '+15125550001';
+  const HUMAN_DESK = '+15125550002';
+
+  it('存下两个号，并告诉前端还没开通', async () => {
+    const out = await run<{ aiVoiceE164: string | null; storefrontE164: string }>(
+      'location.requestAiVoice',
+      { storefrontE164: STOREFRONT, transferTargetE164: HUMAN_DESK });
+
+    expect(out.storefrontE164).toBe(STOREFRONT);
+    // 这家店的 ai_voice 是 beforeAll 里绑好的，所以这里拿得到
+    expect(out.aiVoiceE164).toBe(AI_LINE);
+
+    const rows = await withTenant(tenant, (tx) => tx<{ purpose: string; e164: string }[]>`
+      select purpose, e164 from phone_lines
+      where location_id = ${NAIL_LOC} and purpose in ('main','transfer_target')
+      order by purpose`);
+    expect(rows.map((r) => r.purpose)).toEqual(['main', 'transfer_target']);
+  });
+
+  it('⭐ 两个号相同要拒绝 —— 否则转人工会转回自己形成死循环', async () => {
+    await expect(run('location.requestAiVoice',
+      { storefrontE164: STOREFRONT, transferTargetE164: STOREFRONT }))
+      .rejects.toThrow();
+  });
+
+  it('⭐ 不许把我们的落地号填进去 —— 那是 AI 转给 AI', async () => {
+    // 客人会听见同一句开场白第二遍，而前台永远等不到那通电话
+    await expect(run('location.requestAiVoice',
+      { storefrontE164: STOREFRONT, transferTargetE164: AI_LINE }))
+      .rejects.toThrow();
+  });
+
+  it('⭐ 同一个手机号可以在两家店都当人工客服号', async () => {
+    // 这正是把 e164 唯一约束收窄到「会被反查的 purpose」的理由（sql/0025）：
+    // 人工客服号常常是老板的手机，而一个老板开两三家店在这行很普遍。
+    // 全局唯一的话，第二家店会撞一个看起来毫无道理的约束错误。
+    const [other] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      select id from locations where id <> ${NAIL_LOC} and org_id = ${NAIL_ORG} limit 1`);
+    if (!other) return;   // 种子数据只有一家店时跳过
+
+    const otherCtx = { ...ctx, locationId: other.id };
+    await dispatch('location.requestAiVoice',
+      { storefrontE164: '+15125550003', transferTargetE164: HUMAN_DESK },
+      otherCtx, { idempotencyKey: randomUUID() });
+
+    const rows = await withTenant({ ...tenant, locationId: other.id },
+      (tx) => tx<{ n: number }[]>`
+        select count(*)::int as n from phone_lines
+        where e164 = ${HUMAN_DESK} and purpose = 'transfer_target'`);
+    expect(rows[0]!.n).toBe(2);
+
+    await withTenant({ ...tenant, locationId: other.id }, (tx) =>
+      tx`delete from phone_lines where location_id = ${other.id}`);
+  });
+});
+
 describe('通话计费', () => {
   it('分钟数向上取整，落进 ai_call_min（与 ai_assist 分开，决策 8）', async () => {
     const callId = `bill-${randomUUID()}`;
