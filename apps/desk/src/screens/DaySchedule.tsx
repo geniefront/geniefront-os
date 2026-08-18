@@ -69,12 +69,19 @@ function layout(items: DayItem[], tz: string): Array<{ it: DayItem; lane: number
 const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 export function DaySchedule({
-  day, t, onSlotClick, readOnly = false,
+  day, t, onSlotClick, onItemClick, readOnly = false,
 }: {
   day: DaySnapshot;
   t: ReturnType<typeof makeT>;
   onSlotClick: (membershipId: string, startMin: number) => void;
-  /** 断网时只读：日程照常看，但点空白不再开单 */
+  /**
+   * 点已有的单 → 改时间 / 换人 / 取消。
+   *
+   * 在这之前单子块是**完全不可点**的，前台改约只能取消重开 ——
+   * 而「客人打电话说晚半小时到」是每天都在发生的事。
+   */
+  onItemClick: (item: DayItem) => void;
+  /** 断网时只读：日程照常看，但点空白不再开单、点单子不再改 */
   readOnly?: boolean;
 }) {
   const cols = day.staff.filter((s) => s.isBookable);
@@ -186,8 +193,16 @@ export function DaySchedule({
                   const w = 100 / lanes;
                   return (
                     <div key={it.itemId} className="stack"
+                         role={readOnly ? undefined : 'button'}
+                         tabIndex={readOnly ? undefined : 0}
+                         aria-label={`${it.customerName} ${it.serviceName}，点开可改时间或取消`}
+                         onClick={readOnly ? undefined : () => onItemClick(it)}
+                         onKeyDown={readOnly ? undefined : (e) => {
+                           if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onItemClick(it); }
+                         }}
                          style={{
                            position: 'absolute', top, height: h,
+                           cursor: readOnly ? 'default' : 'pointer',
                            left: `calc(${lane * w}% + 4px)`,
                            width: `calc(${w}% - 6px)`,
                            padding: '6px 9px', gap: 2, overflow: 'hidden',
@@ -228,7 +243,7 @@ export function DaySchedule({
       </div>
 
       <div className="row tiny" style={{ padding: '8px 12px', gap: 16, borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
-        <span>{readOnly ? '断网中 · 只能查看' : '点空白处建单'}</span>
+        <span>{readOnly ? '断网中 · 只能查看' : '点空白处建单 · 点单子改时间或取消'}</span>
         <span>★ 点钟单</span>
         <span>⚠️ 虚线 = 超卖放行</span>
         <span>● 排轮牌 / ○ 只接点钟</span>

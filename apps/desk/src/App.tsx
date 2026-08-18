@@ -12,8 +12,9 @@ import { makeT, LOCALE_LABEL, LOCALES, type Locale } from './i18n';
 import { Login } from './screens/Login';
 import { LocationPicker } from './screens/LocationPicker';
 import { CustomerSearch, type CustomerHit } from './screens/CustomerSearch';
-import { DaySchedule, type DaySnapshot } from './screens/DaySchedule';
+import { DaySchedule, type DaySnapshot, type DayItem } from './screens/DaySchedule';
 import { BookSheet } from './screens/BookSheet';
+import { EditBookingSheet } from './screens/EditBookingSheet';
 import { TurnBoard, type RotationSnapshot } from './screens/TurnBoard';
 import { Checkout, type OpenTicket } from './screens/Checkout';
 import { Settings, type SettingsData } from './screens/Settings';
@@ -75,6 +76,8 @@ function Shell({ session }: { session: Session }) {
   const [checkout, setCheckout] = useState<OpenTicket | null>(null);
   const [chosen, setChosen] = useState<CustomerHit | null | undefined>(undefined);
   const [slot, setSlot] = useState<{ staffId: string; startMin: number } | null>(null);
+  /** 点开的那一单（改时间 / 换人 / 取消） */
+  const [editing, setEditing] = useState<DayItem | null>(null);
 
   const locs = useQuery({
     queryKey: ['me-locations', session.user.id],
@@ -551,7 +554,8 @@ function Shell({ session }: { session: Session }) {
       ) : (net === 'offline' && cached?.day) || dayQ.data ? (
         <DaySchedule day={(net === 'offline' && cached?.day ? cached.day : dayQ.data)!} t={t}
                      readOnly={net === 'offline'}
-                     onSlotClick={(staffId, startMin) => setSlot({ staffId, startMin })} />
+                     onSlotClick={(staffId, startMin) => setSlot({ staffId, startMin })}
+                     onItemClick={(it) => setEditing(it)} />
       ) : (
         <div className="card" style={{ margin: 16, padding: 20 }}>
           <div className="row">
@@ -582,6 +586,18 @@ function Shell({ session }: { session: Session }) {
                      dayQ.refetch(), rotQ.refetch(), tktQ.refetch(), queueQ.refetch(),
                    ]);
                  }} />
+      )}
+
+      {editing && dayQ.data && (
+        <EditBookingSheet
+          day={dayQ.data} item={editing} membershipId={picked.membershipId} t={t}
+          onCancel={() => setEditing(null)}
+          onDone={async () => {
+            // 改单会同时影响日程、轮牌和在做的单 —— 三块一起刷，
+            // 关掉抽屉时看到的必须已经是新的
+            await Promise.all([dayQ.refetch(), rotQ.refetch(), tktQ.refetch()]);
+            setEditing(null);
+          }} />
       )}
 
       {slot && dayQ.data && (
