@@ -102,8 +102,43 @@ export const staffProfiles = pgTable('staff_profiles', {
   maxConcurrentAppointments: integer('max_concurrent_appointments').notNull().default(1),
   bookableOnline: boolean('bookable_online').notNull().default(false),
   color: text('color'),
+  /**
+   * ⭐ 手机号：**店内唯一**（sql/0031）。手机验证码上机时靠它找人。
+   * 刻意不做全局唯一 —— 一个技师在两家店上班是这行的常态。
+   */
+  phoneE164: text('phone_e164'),
+  /** 这位技师自己的界面语言。手机上机的技师没有 users 行，语言存这里 */
+  locale: text('locale'),
+  /** 上机码的摘要。明文只在老板屏幕上出现一次 */
+  claimCodeHash: text('claim_code_hash'),
+  claimCodeExpiresAt: timestamp('claim_code_expires_at', { withTimezone: true }),
 }, (t) => [
   index('staff_profiles_location_idx').on(t.locationId, t.isBookable),
+]);
+
+/**
+ * 技师手机上的一次上机（sql/0031）。
+ *
+ * ⭐ 明文令牌只在签发那一刻给一次，库里只有 SHA-256 摘要 —— 和设备令牌
+ * 一模一样的纪律。**而且可以吊销**：手机丢了老板点一下「踢下线」就完事，
+ * 不用等任何东西过期。这正是这里不自签 JWT 的理由。
+ */
+export const staffSessions = pgTable('staff_sessions', {
+  id: id(),
+  orgId: uuid('org_id').notNull().references(() => organizations.id),
+  locationId: uuid('location_id').notNull().references(() => locations.id),
+  membershipId: uuid('membership_id').notNull()
+    .references(() => memberships.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull().unique(),
+  /** claim_code | phone_otp —— 事后要能回答「这台手机是怎么绑上的」 */
+  method: text('method').notNull(),
+  deviceLabel: text('device_label'),
+  createdAt: createdAt(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+}, (t) => [
+  index('staff_sessions_membership_idx').on(t.membershipId, t.revokedAt),
 ]);
 
 export const skills = pgTable('skills', {

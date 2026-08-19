@@ -11,6 +11,8 @@ import { OfflineBanner } from './screens/OfflineBanner';
 import { makeT, LOCALE_LABEL, LOCALES, type Locale } from './i18n';
 import { Login } from './screens/Login';
 import { LocationPicker } from './screens/LocationPicker';
+import { Activate } from './screens/Activate';
+import { SetupWizard } from './screens/SetupWizard';
 import { CustomerSearch, type CustomerHit } from './screens/CustomerSearch';
 import { DaySchedule, type DaySnapshot, type DayItem } from './screens/DaySchedule';
 import { BookSheet } from './screens/BookSheet';
@@ -46,6 +48,17 @@ function Shell({ session }: { session: Session }) {
     'turn' | 'day' | 'ticket' | 'earn' | 'close' | 'roster' | 'report' | 'find' | 'setup'
     | 'calls' | 'queue' | 'billing' | 'payroll'>('turn');
   const [rosterFrom, setRosterFrom] = useState<string | null>(null);
+  /**
+   * 「先进店看看，晚点再配」。
+   *
+   * 只活在这一次会话里 —— 刷新之后还没配完的话，向导会再出来一次。
+   * 存进 localStorage 的话，一个配到一半的老板会再也找不到那张清单，
+   * 而他要找的正是它（规矩 1 说的是「跳过不拦着他用」，不是「跳过就藏起来」）。
+   */
+  const [wizardSkipped, setWizardSkipped] = useState(false);
+  /** 从向导跳进「⚙ 开店配置」时要落在哪个页签 */
+  const [settingsPane, setSettingsPane] = useState<
+    'service' | 'staff' | 'hours' | 'device' | 'phone' | null>(null);
   const [grouping, setGrouping] = useState<string[]>([]);
   const [groupBusy, setGroupBusy] = useState(false);
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
@@ -255,6 +268,13 @@ function Shell({ session }: { session: Session }) {
     queryFn: () => apiGet<SettingsData>('/v1/desk/settings', picked!.membershipId),
   });
 
+  /**
+   * 新店进来先看开店清单。
+   *
+   * ⭐ 依据是**门店自己的状态**（`locations.status = 'setup'`），
+   * 不是浏览器里记的一个标记 —— 老板在家用手机看过一眼、第二天到店里
+   * 用前台电脑打开，看到的必须是同一件事（docs/12 §3 C 规矩 2）。
+   */
   const signOut = () => { localStorage.removeItem(LS_LOC); void supabase.auth.signOut(); };
 
   // ⚠️ data 未就绪时一律当「还在加载/失败」处理。
@@ -276,6 +296,36 @@ function Shell({ session }: { session: Session }) {
 
   const list = locs.data?.locations ?? [];
 
+  /**
+   * ⭐ 开通门店（docs/12 §3 B）。
+   *
+   * 两种情况走到这里：
+   *   · 老板点了激活邮件里的链接（落在 `/activate`）
+   *   · 他登录了，但名下一家店都没有 —— 多半是链接点过一次没成，
+   *     或者他先去登录页登进来了。**这时候不该给他一句
+   *    「你还没有任何门店的身份，请联系店主」** —— 他就是店主，
+   *     而且刚付过钱
+   */
+  const fromActivationLink = window.location.pathname.startsWith('/activate');
+  if (fromActivationLink || list.length === 0) {
+    return (
+      <Activate onClaimed={async (membershipId) => {
+        // 认领成功后把地址栏那一截去掉：刷新时不会再跑一遍认领
+        window.history.replaceState({}, '', '/');
+        const fresh = await locs.refetch();
+        /**
+         * ⭐ 直接进刚开通的那一家。
+         *
+         * 不这么做的话，一个在别的店已经有身份的人（比如多店老板）
+         * 会被 localStorage 里存的上一家店接管 —— 他刚开通完一家新店，
+         * 看到的却是旧店的轮牌板，而新店要自己去「切换门店」里找。
+         */
+        const hit = (fresh.data?.locations ?? []).find((m) => m.membershipId === membershipId);
+        if (hit) { localStorage.setItem(LS_LOC, hit.membershipId); setPicked(hit); }
+      }} />
+    );
+  }
+
   if (!picked) {
     return (
       <LocationPicker
@@ -286,8 +336,27 @@ function Shell({ session }: { session: Session }) {
     );
   }
 
-  const shopName = picked.locationName[locale] ?? picked.locationName['zh-Hans']
-    ?? picked.locationName['en'] ?? '—';
+  /**
+   * ⚠️ `picked` 是**选店那一刻的快照**。
+   *
+   * 店名被改了、门店状态从 `setup` 变成 `active` —— 这些只会更新
+   * `locs` 那一份。所以凡是要显示或要判断的，一律读列表里的最新那条：
+   * 不这么做的话，「配好了，开张」点完之后命令成功了、数据也刷新了，
+   * 而那张开店清单纹丝不动，他只能以为按钮坏了。
+   */
+  const current = list.find((m) => m.membershipId === picked.membershipId) ?? picked;
+
+  const setupPending = current.locationStatus === 'setup' && canManage;
+  /**
+   * 清单占的是**首页那一格**（轮牌板那个页签），不是一层盖住全屏的东西。
+   *
+   * 这样「跳去配项目」是真的跳走了，配完点回轮牌板又能看到清单 ——
+   * 而不需要在向导里再实现一遍项目、员工、营业时间那几屏。
+   */
+  const showWizard = setupPending && !wizardSkipped && tab === 'turn';
+
+  const shopName = current.locationName[locale] ?? current.locationName['zh-Hans']
+    ?? current.locationName['en'] ?? '—';
 
   return (
     <div style={{ minHeight: '100%' }}>
@@ -341,6 +410,23 @@ function Shell({ session }: { session: Session }) {
 
       {net === 'offline' && <OfflineBanner since={netSince} cachedAt={cached?.at ?? null} />}
 
+      {/*
+        配到一半跑去别的页签的时候，得有一条路回得来 ——
+        不然他配完项目会楞在那里想「刚才那张清单去哪了」。
+      */}
+      {setupPending && !showWizard && (
+        <button className="row" onClick={() => { setWizardSkipped(false); setSettingsPane(null); setTab('turn'); }}
+                style={{
+                  margin: '10px 16px 0', padding: '12px 16px', gap: 10, width: 'calc(100% - 32px)',
+                  minHeight: 'var(--tap)', textAlign: 'left', cursor: 'pointer',
+                  background: 'var(--warn-soft)', color: 'var(--warn)',
+                  border: '1px solid var(--warn)', borderRadius: 'var(--r)',
+                }}>
+          <span className="grow" style={{ fontWeight: 600 }}>○ 开店清单还没走完</span>
+          <span>回到清单 →</span>
+        </button>
+      )}
+
       <nav className="row" style={{ padding: '10px 16px', gap: 10 }}>
         {([
           ...(['turn', 'queue', 'day', 'ticket', 'calls', 'earn'] as const),
@@ -379,7 +465,34 @@ function Shell({ session }: { session: Session }) {
         )}
       </nav>
 
-      {tab === 'turn' ? (
+      {/*
+        ⭐ 新店进来先看这张清单（docs/12 §3 C）。
+        判断依据是 `locations.status`，不是本地记的一个标记 ——
+        换台设备登录看到的必须是同一件事。
+
+        ⚠️ 它盖在页签之上，但**没有拦住任何东西**：清单里那个
+        「先进店看看」按钮一点就进去了，上面的页签也照常能点。
+        一个出不去的向导比没有向导糟得多。
+      */}
+      {showWizard && setQ.data && (
+        <SetupWizard
+          data={setQ.data} membershipId={picked.membershipId}
+          onPhotoSetup={() => { setTab('setup'); setPhotoSetup(true); }}
+          onYelpFill={() => { setTab('setup'); setYelpFill(true); }}
+          onOpenSettings={(pane) => { setTab('setup'); setSettingsPane(pane); }}
+          onEnterShop={() => setWizardSkipped(true)}
+          onChanged={async () => {
+            // 门店状态可能刚从 setup 变成 active —— 选店器那一份也要跟着更新，
+            // 不然「开张」点完之后向导还在原地
+            await setQ.refetch(); await locs.refetch();
+            await dayQ.refetch(); await rotQ.refetch();
+          }} />
+      )}
+      {showWizard && setQ.isPending && (
+        <div className="center-page muted">{t('common.loading')}</div>
+      )}
+
+      {!showWizard && (tab === 'turn' ? (
         rotQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
         : rotQ.data ? (
           <TurnBoard data={net === 'offline' && cached?.rot ? cached.rot : rotQ.data}
@@ -539,6 +652,10 @@ function Shell({ session }: { session: Session }) {
         setQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
         : setQ.data ? (
           <Settings data={setQ.data} membershipId={picked.membershipId}
+                    // ⚠️ key 让它在页签变化时重新挂载 —— 不重挂的话，
+                    // 从向导第二次跳进来（比如先点员工再点项目）会停在上一个页签
+                    key={settingsPane ?? 'default'}
+                    initialPane={settingsPane}
                     onPhotoSetup={() => setPhotoSetup(true)}
                     onYelpFill={() => setYelpFill(true)}
                     onChanged={async () => {
@@ -585,7 +702,7 @@ function Shell({ session }: { session: Session }) {
             <button className="btn" onClick={() => dayQ.refetch()}>{t('common.retry')}</button>
           </div>
         </div>
-      )}
+      ))}
 
       {checkout && (
         <Checkout ticket={checkout} membershipId={picked.membershipId}

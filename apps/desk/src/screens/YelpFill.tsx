@@ -41,7 +41,11 @@ const DAYS: Array<[string, string]> = [
   ['fri', '周五'], ['sat', '周六'], ['sun', '周日'],
 ];
 
-const TZ_LABEL: Record<string, string> = {
+/**
+ * 美国这九个时区的中文说法。开店向导和这一屏共用一份 ——
+ * 抄两份的话，迟早有一份少一个「亚利桑那不调夏令时」。
+ */
+export const TZ_LABEL: Record<string, string> = {
   'America/New_York': '东部时间',
   'America/Chicago': '中部时间',
   'America/Denver': '山区时间',
@@ -50,7 +54,7 @@ const TZ_LABEL: Record<string, string> = {
   'America/Anchorage': '阿拉斯加',
   'Pacific/Honolulu': '夏威夷',
 };
-const TZ_CHOICES = Object.keys(TZ_LABEL);
+export const TZ_CHOICES = Object.keys(TZ_LABEL);
 
 export function YelpFill({
   membershipId, onDone, onCancel,

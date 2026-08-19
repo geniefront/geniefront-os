@@ -15,6 +15,12 @@ export interface SettingsData {
   location: {
     name: string; timezone: string; businessType: string;
     businessHours: Record<string, { open: string; close: string } | null>;
+    businessDayCutoff: string;
+    /** setup = 开店向导还没走完（sql/0030） */
+    status: string;
+    /** 开店向导的进度全部从真实数据推出来，没有「走到第几步」那种计数器 */
+    hasAddress: boolean;
+    profileConfirmedAt: string | null;
   };
   services: Array<{
     id: string; name: Record<string, string>; displayName: string;
@@ -24,6 +30,12 @@ export interface SettingsData {
   staff: Array<{
     membershipId: string; name: string; isBookable: boolean;
     maxConcurrent: number; levelKey: string | null; inRotation: boolean;
+    roleKeys: string[];
+    phoneE164: string | null;
+    /** 用邮箱登录过 */
+    hasAccount: boolean;
+    /** 手机上还活着几个上机会话。0 且没账号 = 他还没在自己手机上看过派单 */
+    liveSessions: number;
   }>;
   levels: Array<{ id: string; key: string; name: string }>;
   phone: {
@@ -44,18 +56,20 @@ const DAYS: Array<[string, string]> = [
 const money = (c: number) => (c / 100).toFixed(2).replace(/\.00$/, '');
 
 export function Settings({
-  data, membershipId, onChanged, onPhotoSetup, onYelpFill,
+  data, membershipId, onChanged, onPhotoSetup, onYelpFill, initialPane,
 }: {
   data: SettingsData;
   membershipId: string;
   onChanged: () => Promise<unknown>;
+  /** 从开店向导跳进来时，落在他刚点的那一项上（不落的话他得自己再找一次） */
+  initialPane?: 'service' | 'staff' | 'hours' | 'device' | 'phone' | null;
   /** 打开「拍价目表」。项目一个个敲太慢，这是 Phase 2 的主入口（05 §4） */
   onPhotoSetup: () => void;
   /** 打开「Yelp 一键填店」。店名 + 邮编两个字段把店建起来（05 §4.1） */
   onYelpFill: () => void;
 }) {
   const [pane, setPane] = useState<
-    'service' | 'staff' | 'hours' | 'device' | 'phone'>('service');
+    'service' | 'staff' | 'hours' | 'device' | 'phone'>(initialPane ?? 'service');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -88,7 +102,7 @@ export function Settings({
       {pane === 'service' && (
         <ServicePane data={data} busy={busy} run={run} onPhotoSetup={onPhotoSetup} />
       )}
-      {pane === 'staff' && <StaffPane data={data} busy={busy} run={run} />}
+      {pane === 'staff' && <StaffPane data={data} busy={busy} run={run} membershipId={membershipId} />}
       {pane === 'hours' && <HoursPane data={data} busy={busy} run={run} onYelpFill={onYelpFill} />}
       {pane === 'device' && <DevicePane membershipId={membershipId} />}
       {pane === 'phone' && <PhonePane data={data} busy={busy} run={run} />}
@@ -227,12 +241,32 @@ function ServicePane({ data, busy, run, onPhotoSetup }: {
 
 // ─────────────────────────────────────────────────────────────────── 员工
 
-function StaffPane({ data, busy, run }: {
+function StaffPane({ data, busy, run, membershipId }: {
   data: SettingsData; busy: boolean;
   run: (n: string, i: unknown) => Promise<void>;
+  membershipId: string;
 }) {
+  const [adding, setAdding] = useState(false);
+
   return (
     <div className="stack" style={{ gap: 12 }}>
+      {/*
+        ⭐ 「加员工」放在最上面。
+        开一家新店的第一件事就是这个 —— 而在此之前系统里根本没有这条路
+        （docs/12 §6.3）。加进来的是一条**没有账号的身份**：
+        他立刻就能被派单、能开单、能算提成，本人上机是后来的事。
+      */}
+      {!adding && (
+        <button className="btn btn-primary" style={{ minHeight: 'var(--tap)' }}
+                onClick={() => setAdding(true)}>
+          ＋ 加一个员工
+        </button>
+      )}
+      {adding && (
+        <AddStaffForm busy={busy} onCancel={() => setAdding(false)}
+                      onSave={async (input) => { await run('staff.add', input); setAdding(false); }} />
+      )}
+
       {data.staff.map((s) => (
         <div key={s.membershipId} className="card stack" style={{ padding: 16, gap: 12 }}>
           <div className="row" style={{ gap: 10 }}>
@@ -276,8 +310,161 @@ function StaffPane({ data, busy, run }: {
           {s.isBookable && s.maxConcurrent > 1 && (
             <div className="tiny">做手的时候脚在泡水，可以同时压 {s.maxConcurrent} 单</div>
           )}
+
+          <ClaimRow staff={s} busy={busy} run={run} membershipId={membershipId} />
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * 加员工。
+ *
+ * 字段少到不能再少：名字是必填，别的都有默认值（`04` §2：能给默认值
+ * 就别让他填）。手机号是**可选**的 —— 不填也能加人，只是这个人以后
+ * 只能用老板给的上机码登录。
+ */
+function AddStaffForm({ busy, onSave, onCancel }: {
+  busy: boolean;
+  onSave: (input: Record<string, unknown>) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [role, setRole] = useState<'tech' | 'senior_tech' | 'front_desk' | 'manager'>('tech');
+  const [bookable, setBookable] = useState(true);
+
+  // 老板会输 512-555-0142 这种写法，也会只输十位。统一拼成 E.164 ——
+  // 让四十岁的老板自己打 +1 是不现实的
+  const e164 = (): string | undefined => {
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length === 0) return undefined;
+    if (digits.length === 10) return `+1${digits}`;
+    if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+    return `+${digits}`;
+  };
+  const phoneOk = phone.trim() === '' || /^\+[1-9]\d{7,14}$/.test(e164() ?? '');
+
+  return (
+    <div className="card stack" style={{ padding: 16, gap: 14 }}>
+      <label className="stack" style={{ gap: 6 }}>
+        <span className="tiny">名字（技师端和轮牌板上显示的就是它）</span>
+        <input className="field" value={name} autoFocus
+               onChange={(e) => setName(e.target.value)} placeholder="Linh" />
+      </label>
+
+      <label className="stack" style={{ gap: 6 }}>
+        <span className="tiny">手机号（可不填。填了他就能自己用短信验证码上机）</span>
+        <input className="field" value={phone} inputMode="tel"
+               onChange={(e) => setPhone(e.target.value)} placeholder="512-555-0142" />
+        {!phoneOk && <span className="tiny" style={{ color: 'var(--danger)' }}>这个号码看起来不对</span>}
+      </label>
+
+      <div className="stack" style={{ gap: 6 }}>
+        <span className="tiny">他是做什么的</span>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          {([['tech', '技师'], ['senior_tech', '资深技师'],
+             ['front_desk', '前台'], ['manager', '店长']] as const).map(([k, l]) => (
+            <button key={k} className="btn" style={{
+              minHeight: 'var(--tap)', borderWidth: 2,
+              borderColor: role === k ? 'var(--brand)' : 'var(--line)',
+              background: role === k ? 'var(--brand-soft)' : 'var(--surface)',
+            }} onClick={() => { setRole(k); if (k === 'front_desk') setBookable(false); }}>{l}</button>
+          ))}
+        </div>
+        {/* ⚠️ 这里没有「老板」这一项，而且后端也不接受 —— 谁是老板只由付款那条链路决定 */}
+      </div>
+
+      <Toggle label="接客（出现在日程表和轮牌板里）" on={bookable} busy={busy}
+              onChange={setBookable} />
+
+      <div className="row" style={{ gap: 10 }}>
+        <button className="btn btn-primary grow" style={{ minHeight: 'var(--tap)' }}
+                disabled={busy || name.trim() === '' || !phoneOk}
+                onClick={() => void onSave({
+                  displayName: name.trim(),
+                  ...(e164() ? { phoneE164: e164() } : {}),
+                  roleKeys: [role],
+                  isBookable: bookable,
+                  inRotation: bookable,
+                })}>
+          {busy ? <span className="spin" /> : '加进来'}
+        </button>
+        <button className="btn" style={{ minHeight: 'var(--tap)' }} onClick={onCancel}>取消</button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 「他能不能在自己手机上看到派单」这一行。
+ *
+ * ⭐ 状态是**推导**出来的，没有「已上机」这样一个字段：
+ * 有账号 = 用邮箱登录过；有活着的会话 = 手机上机过。
+ * 存一个布尔的话，踢下线之后它就开始说谎。
+ */
+function ClaimRow({ staff, busy, run, membershipId }: {
+  staff: SettingsData['staff'][number];
+  busy: boolean;
+  run: (n: string, i: unknown) => Promise<void>;
+  membershipId: string;
+}) {
+  const [code, setCode] = useState<{ code: string; expiresAt: string } | null>(null);
+  const [working, setWorking] = useState(false);
+  const online = staff.hasAccount || staff.liveSessions > 0;
+
+  async function issue() {
+    setWorking(true);
+    try {
+      const out = await runCommand<{ code: string; expiresAt: string }>(
+        'staff.issueClaimCode', { membershipId: staff.membershipId }, membershipId);
+      setCode(out.result);
+    } catch { /* 错误由外层的 run 统一显示；这里失败只是没拿到码 */ }
+    finally { setWorking(false); }
+  }
+
+  return (
+    <div className="stack" style={{ gap: 8, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+        {/* 颜色 + 图标 + 文字三通道（很多老板分不清红绿） */}
+        <span className={`badge ${online ? 'badge-ok' : 'badge-mute'}`}
+              style={{ padding: '6px 10px' }}>
+          {online ? '● 手机上能看到派单' : '○ 还没在自己手机上登录'}
+        </span>
+        {staff.phoneE164 && <span className="tiny">{staff.phoneE164}</span>}
+        <span className="grow" />
+        <button className="btn" disabled={busy || working} style={{ minHeight: 44 }}
+                onClick={() => void issue()}>
+          {working ? <span className="spin" /> : '给他上机码'}
+        </button>
+        {staff.liveSessions > 0 && (
+          <button className="btn" disabled={busy} style={{ minHeight: 44 }}
+                  onClick={() => { setCode(null); void run('staff.revokeSessions', { membershipId: staff.membershipId }); }}>
+            踢下线
+          </button>
+        )}
+        <button className="btn btn-ghost" disabled={busy} style={{ minHeight: 44 }}
+                onClick={() => {
+                  if (confirm(`把 ${staff.name} 设为离职？他做过的单和提成都不会动。`)) {
+                    void run('staff.setEmployment',
+                      { membershipId: staff.membershipId, status: 'left' });
+                  }
+                }}>
+          离职
+        </button>
+      </div>
+
+      {code && (
+        <div className="card stack" style={{ padding: 14, gap: 6, background: 'var(--brand-soft)' }}>
+          <div className="tiny">念给他，让他在自己手机上打开技师端输进去</div>
+          <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 800, letterSpacing: 6 }}>
+            {code.code}
+          </div>
+          {/* 明文只出现这一次 —— 关掉就再也看不到了，要的话重新点一次 */}
+          <div className="tiny">15 分钟内有效，只能用一次</div>
+        </div>
+      )}
     </div>
   );
 }

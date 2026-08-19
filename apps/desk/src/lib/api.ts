@@ -90,5 +90,33 @@ export interface LocationMembership {
   orgId: string;
   locationId: string;
   locationName: Record<string, string>;
+  /** setup = 开店向导还没走完。进来先给他看向导，不是轮牌板 */
+  locationStatus: string;
   roleKeys: string[];
+}
+
+/**
+ * 认领门店 —— 自助开户的最后一步（docs/12 §3 B）。
+ *
+ * ⚠️ 这是唯一一条**不带 X-Membership-Id** 的写请求：调用它的人这一刻
+ * 还没有任何 membership，这条请求本身就是去造那一条。
+ *
+ * 身份边界不在这里，也不在浏览器里：后端拿的是 JWT 里的 user id，
+ * 去数据库里比对 auth.users 的邮箱和当初付款那个邮箱。
+ * 前端连一个可以传错的字段都没有。
+ */
+export async function claimLocation(): Promise<{
+  membershipId: string; locationId: string; orgId: string;
+}> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new ApiError('UNAUTHENTICATED', {}, false, 401);
+  const res = await fetch(`${API_BASE}/v1/setup/claim`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    // 这条命令不要参数，但**空 body 也得是合法 JSON** —— 少了这一行，
+    // 服务端的 JSON 解析器会抛 SyntaxError，前台看到的是 500
+    body: '{}',
+  });
+  return parse(res);
 }

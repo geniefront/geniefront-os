@@ -6,13 +6,14 @@
  */
 
 import type postgres from 'postgres';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import {
   TicketStartItem, TicketFinishItem, TimeclockPunch, SetMyLocale,
+  AddStaff, SetEmployment, IssueStaffClaimCode, RevokeStaffSessions,
   AppError, ERROR_CODES, actingMembership, type CommandContext,
 } from '@gf/contracts';
 import { businessDateOf } from '@gf/scheduling';
-import { parseTs } from '@gf/db';
+import { parseTs, ts, jsonb } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
 import { assertDayOpen } from '../money';
 
@@ -261,10 +262,232 @@ registerHandler(TimeclockPunch, async ({ input, ctx, tx, audit, emit }: HandlerA
 
 registerHandler(SetMyLocale, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof SetMyLocale.input._type>) => {
-  // users 是全局表（没有 org_id），这里只改自己那一行
-  await tx`update users set locale = ${input.locale} where id = ${ctx.userId}`;
-  audit({ entityType: 'user', entityId: ctx.userId, after: { locale: input.locale } });
+  /**
+   * 语言存在哪，取决于这个人有没有平台账号：
+   *
+   *   · 用邮箱登录的人 → `users.locale`（跨店跟着人走）
+   *   · **手机上机的技师** → `staff_profiles.locale`
+   *     他没有 users 行（Ghost Profile，sql/0031），而语言这件事
+   *     本来就该跟着「他在这家店的身份」走
+   *
+   * ⚠️ 不能退回「存 localStorage」：共享 iPad 上换个人就该换语言，
+   * 而那台设备只有一个 localStorage（`00` §2）。
+   */
+  if (ctx.userId) {
+    // users 是全局表（没有 org_id），这里只改自己那一行
+    await tx`update users set locale = ${input.locale} where id = ${ctx.userId}`;
+    audit({ entityType: 'user', entityId: ctx.userId, after: { locale: input.locale } });
+    return { locale: input.locale };
+  }
+
+  const membershipId = actingMembership(ctx);
+  await tx`update staff_profiles set locale = ${input.locale}
+           where membership_id = ${membershipId} and location_id = ${ctx.locationId}`;
+  audit({ entityType: 'staff', entityId: membershipId, after: { locale: input.locale } });
   return { locale: input.locale };
 });
 
 export { pinHash };
+
+// ─────────────────────────────────────────────────── 员工花名册（sql/0031）
+
+/** 上机码：6 位数字，几分钟有效。库里只存摘要 */
+const CLAIM_CODE_TTL_MIN = 15;
+
+function generateClaimCode(): string {
+  // ⚠️ 用 randomInt 而不是 Math.random：这串数字几分钟内等于一个身份，
+  // 而 Math.random 的序列是可以从几次输出反推出来的
+  return String(randomInt(0, 1_000_000)).padStart(6, '0');
+}
+
+/**
+ * 上机码的摘要。
+ *
+ * ⚠️ **刻意不按门店加盐**：输码的技师不知道自己在哪家店（他就是来上机的），
+ * 所以兑换那一侧没有门店可以拿来算摘要。两家店同时发出同一个 6 位数字
+ * 的风险由 sql/0031 那个唯一索引堵掉 —— 撞了就换一个再发。
+ */
+export function claimCodeHash(code: string): string {
+  return createHash('sha256').update(`gf-claim:${code}`).digest('hex');
+}
+
+registerHandler(AddStaff, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof AddStaff.input._type>) => {
+  /**
+   * ⭐ 建的是一条**没有账号的身份**（Ghost Profile）。
+   *
+   * `user_id` 留空 = 这个人还没在自己手机上上机过。他照样能被派单、
+   * 能开单、能算提成 —— 上机是后来的事（sql/0031 头部有完整论证）。
+   */
+  const [m] = await tx<{ id: string }[]>`
+    insert into memberships (org_id, location_id, user_id, status)
+    values (${ctx.orgId}, ${ctx.locationId}, null, 'active')
+    returning id`;
+
+  /**
+   * ⚠️ **加不出老板**：contracts 的 enum 已经把 `owner` 挡在外面，
+   * 这里再确认一次角色是这家店里真实存在的预设 —— 传一个别家店的
+   * role id 进来的话，membership_roles 的 RLS 会拒绝，但报出来的是
+   * 一个看不懂的约束错误，不如在这里说清楚。
+   */
+  const keys = input.roleKeys.length > 0 ? input.roleKeys : ['tech'];
+  const roles = await tx<{ id: string; key: string }[]>`
+    select id, key from roles
+    where location_id = ${ctx.locationId} and key = any(${keys as string[]})`;
+  if (roles.length === 0) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, {
+      details: { entity: 'role', wanted: keys },
+    });
+  }
+  for (const r of roles) {
+    await tx`insert into membership_roles (membership_id, role_id) values (${m!.id}, ${r.id})`;
+  }
+
+  const phone = input.phoneE164 ?? null;
+  try {
+    await tx`
+      insert into staff_profiles
+        (membership_id, org_id, location_id, display_name, is_bookable,
+         max_concurrent_appointments, level_id, phone_e164)
+      values (${m!.id}, ${ctx.orgId}, ${ctx.locationId},
+              ${jsonb({ en: input.displayName })}::jsonb, ${input.isBookable},
+              ${input.maxConcurrentAppointments}, ${input.levelId ?? null}, ${phone})`;
+  } catch (e) {
+    // 店内手机号唯一（sql/0031）。撞了要说人话：老板看到的应该是
+    //「这个号码已经是店里另一个人的」，而不是一个索引名
+    if ((e as { code?: string }).code === '23505') {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'phone_already_used_in_location', phone },
+      });
+    }
+    throw e;
+  }
+
+  if (input.inRotation && input.isBookable) {
+    const [loc] = await tx<{ tz: string; cutoff: string }[]>`
+      select timezone as tz, business_day_cutoff::text as cutoff
+      from locations where id = ${ctx.locationId}`;
+    const date = businessDateOf(new Date(), loc!.tz, loc!.cutoff);
+    await tx`
+      insert into rotation_participants (org_id, location_id, business_date, membership_id, in_rotation)
+      values (${ctx.orgId}, ${ctx.locationId}, ${date}, ${m!.id}, true)
+      on conflict (location_id, business_date, membership_id) do nothing`;
+  }
+
+  audit({
+    entityType: 'staff', entityId: m!.id,
+    after: {
+      displayName: input.displayName, roles: roles.map((r) => r.key),
+      isBookable: input.isBookable, hasPhone: Boolean(phone), ghost: true,
+    },
+  });
+  return { membershipId: m!.id, displayName: input.displayName };
+});
+
+registerHandler(SetEmployment, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SetEmployment.input._type>) => {
+  const [cur] = await tx<{ status: string }[]>`
+    select status from memberships
+    where id = ${input.membershipId} and location_id = ${ctx.locationId}`;
+  if (!cur) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff' } });
+
+  await tx`update memberships set status = ${input.status}
+           where id = ${input.membershipId}`;
+
+  /**
+   * 离职/停用要把他手机上的登录一起掐掉。
+   *
+   * 不掐的话，一个已经离职的技师手里还揣着一个能看店里单子的会话 ——
+   * 而「他已经不在花名册上了」和「他的手机还能刷出今天的单」
+   * 是两件不会有人主动去核对的事。
+   */
+  if (input.status !== 'active') {
+    await tx`update staff_sessions set revoked_at = now()
+             where membership_id = ${input.membershipId} and revoked_at is null`;
+  }
+
+  audit({
+    entityType: 'staff', entityId: input.membershipId,
+    before: { status: cur.status }, after: { status: input.status },
+  });
+  return { membershipId: input.membershipId, status: input.status };
+});
+
+registerHandler(IssueStaffClaimCode, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof IssueStaffClaimCode.input._type>) => {
+  const [row] = await tx<{ membership_id: string }[]>`
+    select membership_id from staff_profiles
+    where membership_id = ${input.membershipId} and location_id = ${ctx.locationId}`;
+  if (!row) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff' } });
+
+  const [m] = await tx<{ status: string }[]>`
+    select status from memberships where id = ${input.membershipId}`;
+  if (m!.status !== 'active') {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'staff_not_active', status: m!.status },
+    });
+  }
+
+  const expiresAt = new Date(Date.now() + CLAIM_CODE_TTL_MIN * 60_000);
+
+  /**
+   * 撞码就换一个。
+   *
+   * 全局同时只允许一个活码（sql/0031 的唯一索引）—— 活码总共只有几个，
+   * 所以这个循环实际上永远只跑一次。它存在的意义是：万一真撞上，
+   * 老板看到的是一个正常的码，而不是一句「唯一约束冲突」。
+   */
+  let code = '';
+  for (let attempt = 0; ; attempt++) {
+    code = generateClaimCode();
+    try {
+      await tx.savepoint(async (sp) => {
+        await sp`
+          update staff_profiles
+          set claim_code_hash = ${claimCodeHash(code)},
+              claim_code_expires_at = ${ts(expiresAt)}::timestamptz
+          where membership_id = ${input.membershipId}`;
+      });
+      break;
+    } catch (e) {
+      if ((e as { code?: string }).code !== '23505' || attempt >= 5) throw e;
+    }
+  }
+
+  // ⚠️ 审计里只留「给谁发过一张码」。码本身连摘要都不记 ——
+  // audit_log 是给人翻的，翻的人不该有机会看到任何和钥匙沾边的东西
+  audit({
+    entityType: 'staff', entityId: input.membershipId,
+    after: { issuedClaimCode: true, expiresAt: expiresAt.toISOString() },
+  });
+
+  // 明文只在这一次返回里存在
+  return {
+    membershipId: input.membershipId, code, expiresAt: expiresAt.toISOString(),
+  };
+});
+
+registerHandler(RevokeStaffSessions, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof RevokeStaffSessions.input._type>) => {
+  const [row] = await tx<{ membership_id: string }[]>`
+    select membership_id from staff_profiles
+    where membership_id = ${input.membershipId} and location_id = ${ctx.locationId}`;
+  if (!row) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff' } });
+
+  const revoked = await tx<{ id: string }[]>`
+    update staff_sessions set revoked_at = now()
+    where membership_id = ${input.membershipId} and revoked_at is null
+    returning id`;
+
+  // 顺手把还没用掉的上机码也作废：踢下线的场景（手机丢了）里，
+  // 那张码和那个会话是同一件事的两半
+  await tx`update staff_profiles
+           set claim_code_hash = null, claim_code_expires_at = null
+           where membership_id = ${input.membershipId}`;
+
+  audit({
+    entityType: 'staff', entityId: input.membershipId,
+    after: { revokedSessions: revoked.length },
+  });
+  return { membershipId: input.membershipId, revoked: revoked.length };
+});

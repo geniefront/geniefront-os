@@ -35,7 +35,10 @@
 - 门店数 ≥ 10 家 **且** 10DLC 批准，才启动 Phase 2.5
 - 在那之前，代码里**不写任何短信依赖**：通知走邮件 / Web Magic Link /
   页面实时通知 / 前台人工回呼
-- 手机号 OTP 登录同样等这条通道（`01` §5）
+- 手机号 OTP 登录：**代码已实现**（2026-08-18，Telnyx Verify API，`sql/0031`），
+  但它是技师上机的**第二条路** —— 第一条是老板念的 6 位「上机码」，
+  不经过任何运营商。**短信因此仍然不在依赖链上**：10DLC 没批下来，
+  技师照样能上机，只是要老板点一下
 
 ---
 
@@ -246,8 +249,40 @@ tool 打到命令总线是唯一一条路，AI 和 UI 走的是同一条 —— 
 | **托管架构** ⭐ | **GenieFront 一个 brand + 一个 campaign**（2026-08-18 定）。短信只用于**我们向客人发预约确认**，客人回复进 **GenieFront 客服**，不是店家。所以**不是每店一个 campaign** —— 原先估的「1000 店 × campaign 月费＝每月五位数」**不成立了**（`04` §4.2 待同步） |
 | **号码** | 确认短信从**我们自己的号**发，与店家的语音号是**两个号**，这是有意的（店家完全不碰短信）。要问 Telnyx 确认 campaign 类型与 TPS 吞吐，量大可能要配号码池 |
 | **TCPA 合规** | 同意记录、STOP / HELP 处理、时区静默时段拦截。这三条与供应商无关，是法律要求 |
-| **附带解锁** | 手机号 OTP 登录（可用 Telnyx Verify API） |
+| **附带解锁** | 手机号 OTP 登录 —— **已实现**（Telnyx Verify API，见下面「Verify」一节） |
 | **计量** | `usage_events(kind='sms')`，按 segment 记 —— 中文一条 70 字符就分段，不按条记会低估一倍以上 |
+
+### Verify API（技师手机上机，2026-08-18 已实现）
+
+技师第一次在自己手机上打开技师端时，两条路二选一：
+
+```
+① 上机码   老板点「给他上机码」→ 6 位数字 → 念给他 → 15 分钟内输一次
+           ⭐ 不经过任何运营商，10DLC 没批也能用
+② 手机验证码  Telnyx Verify 发码 → 他输 → Telnyx 验码 → 我们签一条会话
+```
+
+**代码**：`apps/api/src/auth/phoneOtp.ts`（两次 HTTP：`/v2/verifications/sms`
+与 `/v2/verifications/by_phone_number/{n}/actions/verify`）。
+
+⬜ **要人做的两件事**：
+
+1. 控制台 → Verify → 建一个 **Verify Profile**（SMS 类型，绑上 messaging profile），
+   id 填进 `.env` 的 `TELNYX_VERIFY_PROFILE_ID`
+2. 问 Telnyx 支持：**Verify 走哪种 campaign use-case**。多数 CSP 有专门的
+   `2FA/OTP` 类型，审核比 marketing 快，而且能和正在排队的那个 campaign 并行 ——
+   这条要是能单独批下来，②就能提前很久可用
+
+**没配 profile id 时的行为**：那条路明确报「短信通道还没开通」，
+**不会假装发了一条**。后者最糟 —— 技师在登录页反复点重发，而每一次都真的花钱。
+
+几条实现上的决定：
+
+- **只给花名册上的号码发**。不挡的话这就是一个「给任意号码发短信」的接口：
+  既是我们出钱，又能被拿去骚扰别人。但**回给客户端的东西一模一样** ——
+  否则输一串号码就能问出「这个人是不是在这家店上班」
+- **先验码，再查花名册**。反过来的话，「这个号码在不在」会从响应时间里漏出去
+- 一个技师在两家店上班 → 返回店铺列表让他点一家（和多店老板的选店器同一件事）
 
 ### ⭐ 10DLC 容量阶梯（决定短信能撑多少家店）
 
@@ -369,6 +404,7 @@ TELNYX_API_KEY              # 服务端调 API（控制台 → API Keys）
 TELNYX_PUBLIC_KEY           # ⭐ webhook Ed25519 验签用，和 API Key 不是一个东西
 TELNYX_PHONE_NUMBER         # E.164，测试号码
 TELNYX_MESSAGING_PROFILE_ID # Phase 2.5 才需要
+TELNYX_VERIFY_PROFILE_ID    # 手机验证码上机（没配 = 那条路不可用，上机码照常）
 TELNYX_ASSISTANT_ID         # AI Assistant 的 id
 ```
 

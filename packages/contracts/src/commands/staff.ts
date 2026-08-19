@@ -8,7 +8,7 @@
  */
 
 import { z } from 'zod';
-import { defineCommand, uuid } from '../command.js';
+import { defineCommand, uuid, phoneE164 } from '../command.js';
 
 /**
  * ⭐ 开始做这一项。
@@ -109,6 +109,125 @@ export const SetMyLocale = defineCommand({
   idempotency: 'optional',
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 员工花名册：加人 / 离职 / 上机（sql/0031）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ⭐ 加一个员工。
+ *
+ * 建出来的是一条**没有账号的身份**（Ghost Profile，`user_id is null`）：
+ * 老板一加进来他就能被派单、能开单、能算提成 —— **上机是后来的事**。
+ *
+ * 这个顺序是有意的：一家店最需要「把人加进来」的那一刻，是开店第一天，
+ * 而那天技师本人多半不在场，也未必有邮箱。要求「先注册账号才能排班」
+ * 等于把开店卡在一件和开店无关的事上。
+ *
+ * ⚠️ **加不出老板**：`roleKeys` 里不接受 `owner`。
+ * 「谁是老板」只由付款那条链路决定（`setup.claimLocation`）——
+ * 一个能加员工的店长顺手加出第二个老板，是这条命令最坏的用法。
+ */
+export const AddStaff = defineCommand({
+  name: 'staff.add',
+  input: z.object({
+    displayName: z.string().min(1).max(40),
+    /** 手机号：**店内唯一**。手机验证码上机靠它找人；不填也能加人 */
+    phoneE164: phoneE164.optional(),
+    /** 角色。不给就是纯技师 */
+    roleKeys: z.array(z.enum(['manager', 'front_desk', 'senior_tech', 'tech'])).default(['tech']),
+    /** 能不能被排单。老板自己加自己时常常是 false */
+    isBookable: z.boolean().default(true),
+    maxConcurrentAppointments: z.number().int().min(1).max(5).default(1),
+    levelId: uuid.optional(),
+    /** 今天要不要吃 walk-in 轮牌 */
+    inRotation: z.boolean().default(true),
+  }),
+  output: z.object({ membershipId: uuid, displayName: z.string() }),
+  permission: 'staff.manage',
+  ai: {
+    description: '新增一位员工（技师/前台/店长）。加进来就能被派单，本人上机是后面的事。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+/**
+ * 在岗 / 离职。
+ *
+ * ⚠️ **不是删除**：他做过的单、算过的提成、签过的字都还在，
+ * 删掉的话那些记录会变成没有主人的孤儿（宪法第 9 条的同一条精神）。
+ * 离职之后他从轮牌板、排班、可派单列表里消失，历史一行不动。
+ */
+export const SetEmployment = defineCommand({
+  name: 'staff.setEmployment',
+  input: z.object({
+    membershipId: uuid,
+    status: z.enum(['active', 'suspended', 'left']),
+  }),
+  output: z.object({ membershipId: uuid, status: z.string() }),
+  permission: 'staff.manage',
+  ai: {
+    description: '把某位员工设为在岗/停用/离职。离职不删除任何历史记录。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+/**
+ * ⭐ 生成上机码 —— 技师在自己手机上登录的**第一条路**。
+ *
+ * 老板点一下，屏幕上出现 6 位数字，念给技师，他在手机上输一次就绑定了。
+ *
+ * 为什么这条路排在手机验证码前面：**它不依赖短信**。
+ * 宪法第 13 条（短信不进依赖链）与 `09` §1.2（10DLC 没批之前不写短信依赖）
+ * 都还生效 —— 而美国 A2P 没批下来时，验证码大概率被运营商静默过滤，
+ * 那时候唯一能用的就是这一条。
+ *
+ * ⚠️ 码只有 6 位、几分钟有效、**一次性**，而且明文只在返回里出现一次。
+ */
+export const IssueStaffClaimCode = defineCommand({
+  name: 'staff.issueClaimCode',
+  input: z.object({ membershipId: uuid }),
+  output: z.object({
+    membershipId: uuid,
+    /** 明文只在这一次返回里存在。库里只有摘要 */
+    code: z.string(),
+    expiresAt: z.string(),
+  }),
+  permission: 'staff.manage',
+  ai: {
+    description: '给某位员工生成一个几分钟有效的上机码，用来在他自己手机上登录。',
+    confirm: 'always',
+    // ⛔ 不给 AI：这条命令的产出是一把能变成身份的钥匙
+    exposed: false,
+  },
+  reversible: false,
+  idempotency: 'optional',
+});
+
+/**
+ * 踢下线（手机丢了、人离职了）。
+ *
+ * ⭐ **这就是不自签 JWT 的理由**：会话是一行数据，撤销是一次 update，
+ * 立刻生效。自签令牌要么等它过期，要么再造一张吊销名单 —— 而那张名单
+ * 本身又是一处会忘记同步的状态。
+ */
+export const RevokeStaffSessions = defineCommand({
+  name: 'staff.revokeSessions',
+  input: z.object({ membershipId: uuid }),
+  output: z.object({ membershipId: uuid, revoked: z.number().int() }),
+  permission: 'staff.manage',
+  ai: {
+    description: '让某位员工手机上的登录立刻失效（手机丢了/离职）。',
+    confirm: 'always',
+  },
+  reversible: false,
+  idempotency: 'optional',
+});
+
 export const STAFF_COMMANDS = [
   TicketStartItem, TicketFinishItem, TimeclockPunch, SetMyLocale,
+  AddStaff, SetEmployment, IssueStaffClaimCode, RevokeStaffSessions,
 ] as const;

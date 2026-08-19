@@ -14,7 +14,7 @@ cd <仓库根>                  # 本文档在仓库的 docs/ 下
 cp .env.example .env        # ⚠️ 真实凭据不在仓库里，见 07-CREDENTIALS-CHECKLIST.md
 bash scripts/check-env.sh   # 凭据格式 + 实测联通
 pnpm db:migrate             # ⚠️ 0019–0024 都是新的，不跑的话计费整条起不来
-pnpm verify                 # 宪法检查 + typecheck + 476 项测试，应当全绿
+pnpm verify                 # 宪法检查 + typecheck + 547 项测试，应当全绿
 ```
 
 | | 状态 |
@@ -26,9 +26,10 @@ pnpm verify                 # 宪法检查 + typecheck + 476 项测试，应当�
 | **Stripe 订阅 + 两种 AI 额度** | ✅ **接线完成并用真事件实测过**（见 §3.A） |
 | **AI 前台副驾** | ✅ **完成**，实测提案带真 uuid、缓存命中 |
 | **AI 电话接单** | 🚧 **代码全完**，卡在 Telnyx 开户 + 口音实测 |
+| **自助开户（付款 → 能用）** | ✅ **完成**（2026-08-18）：建租户 + 激活信 + 认领门店 + 开店清单，见 `12` |
 
-**测试 482 项**，12 个包。分布：
-`api 209` · `payroll 91` · `ai 57` · `scheduling 51` · `db 26` · `rotation 24` · `yelp 20` · `contracts 4`
+**测试 547 项**，12 个包。分布：
+`api 248` · `payroll 91` · `ai 83` · `scheduling 51` · `db 26` · `rotation 24` · `yelp 20` · `contracts 4`
 
 ---
 
@@ -89,6 +90,44 @@ pnpm verify                 # 宪法检查 + typecheck + 476 项测试，应当�
 > ⚠️ **代价要认**：反馈来得更晚，而越晚发现的设计问题改起来越贵。
 > 所以**功能完成的判定要严**——「跑通了」不等于「做完了」，
 > 每一条都要能在 `08` 的流程里被真人走一遍不卡住。
+
+### ⭐ 0. 自助开户（2026-08-18 完成）—— 还剩两件
+
+整条链路已经通了：官网付款 → webhook 建租户（`gf_provision_tenant`，
+幂等靠 checkout session id）→ Supabase magic link 激活信 →
+`/activate` 自动认领 → 开店清单 → 「配好了，开张」置 `active`。
+代码见 `sql/0030`、`apps/api/src/signup/`、`apps/desk/src/screens/SetupWizard.tsx`，
+设计与三处与原计划不同的地方见 `12` §6。
+
+⬜ **还剩两件**：
+
+1. **Supabase 控制台两处配置**（要人做，AI 做不了）：
+   - Authentication → URL Configuration → Redirect URLs 里加
+     `https://desk.geniefront.com/activate`（本地调试再加
+     `http://localhost:5173/activate`）。**不加的话链接点开会跳回首页，
+     而且不报错** —— 症状是「点了没反应」
+   - Authentication → Email Templates → **Magic Link** 改成欢迎语。
+     ⚠️ 别用 Resend 另发一封「欢迎」：两封信里只有一封的链接是活的
+2. **和官网联调一次真事件**（`11` §7 那张表最后一行）：他们建一个测试
+   Checkout Session、用 4242 卡付掉，把 session id 发过来
+
+### ⭐ 0b. 占位符员工 + 技师上机（2026-08-18 完成）—— 还剩一件
+
+老板加技师建的是 ghost 身份（`user_id is null`，`sql/0031`）；技师上机
+两条路：**上机码**（老板念的 6 位，不经过运营商）和**手机验证码**
+（Telnyx Verify）。会话是一行可吊销的数据，不是自签 JWT ——
+手机丢了点一下「踢下线」就完事。
+
+⬜ **还剩一件（要人做）**：Telnyx 控制台建一个 **Verify Profile**，
+把 id 填进 `.env` 的 `TELNYX_VERIFY_PROFILE_ID`；顺便问支持
+「Verify 走哪种 campaign use-case」——`2FA/OTP` 那类通常比 marketing 先批。
+
+⚠️ **两条别推翻的**：
+1. **上机码排在手机验证码前面**。宪法第 13 条：短信不进依赖链。
+   10DLC 没批时上机码是唯一能用的那条
+2. **不要为了拿回实时推送去自签 Supabase 令牌**。上机会话没有 Realtime
+   是有意的代价（轮询 10 秒兜底）—— 服务端一旦持有 Supabase 的签名密钥，
+   爆炸半径是另一个量级（`auth.ts` 开头那段说明）
 
 ### ⭐ A. Stripe：**代码全完，剩下三件要人去 Dashboard 做的**
 

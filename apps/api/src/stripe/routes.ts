@@ -40,6 +40,10 @@ import {
   paymentMethodLabel, declineReason, isPlan, type Stripe,
 } from './client';
 import { maybeAutoTopup } from '../billing/autoTopup';
+import {
+  isSignupSession, provisionFromSession, backfillStripeMetadata, sendActivationOnce,
+  type SignupOutcome,
+} from '../signup/webhook';
 import '../handlers/billing';
 
 /**
@@ -137,7 +141,7 @@ export function registerStripeRoutes(
     const plan = req.body?.plan;
     if (!isPlan(plan)) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-        details: { reason: '套餐只能是 starter 或 pro', got: plan },
+        details: { reason: '套餐只能是 essential 或 growth', got: plan },
       });
     }
     const { successUrl, cancelUrl } = safeReturnUrls(req.body);
@@ -294,7 +298,30 @@ export function registerStripeRoutes(
       });
     }
 
-    const t = tenantFromEvent(event);
+    /**
+     * ⭐ 开户（docs/12 §3 A）：**这是唯一一条「事件到达时门店还不存在」的路。**
+     *
+     * 别的事件都靠 `gf_location_id` 定位门店 —— 那是我们自己写进 Stripe
+     * 对象里的。而新客还没有门店，官网也不可能知道一个还不存在的 id，
+     * 所以这里的顺序是反的：**先建店，再把 id 回写到 Stripe 上**，
+     * 让后续每一条事件（续费、退订、扣款失败）都认得出这家店。
+     *
+     * 建完之后就汇入主流程 —— 去重、syncSubscription 一步不少。
+     */
+    let signup: SignupOutcome | null = null;
+    if (event.type === 'checkout.session.completed' && isSignupSession(event.data.object)) {
+      const session = event.data.object;
+      signup = await provisionFromSession(session, req.log);
+      if (!signup) {
+        // 邮箱不一致 → 拒绝，一行都不写。照常 200：重投一百次答案也一样
+        return { ok: true, rejected: 'owner_email_mismatch' };
+      }
+      await backfillStripeMetadata(session, signup, req.log);
+    }
+
+    const t = signup
+      ? { orgId: signup.orgId, locationId: signup.locationId }
+      : tenantFromEvent(event);
     if (!t) {
       // 认不出门店就照常 200。返回 4xx 的话 Stripe 会一直重投 ——
       // 而一条我们本来就处理不了的事件，重投一百次还是处理不了
@@ -325,6 +352,18 @@ export function registerStripeRoutes(
 
     try {
       const handled = await handleEvent(event, ctx);
+
+      /**
+       * ⚠️ 激活信在**这里**发，不在建店那一步：
+       * 事务已经提交、订阅状态也落库了，这一刻门店确实是可用的。
+       * 反过来先发信的话，老板可能点进来看到一家还没接上订阅的店。
+       */
+      if (signup) {
+        const email = (event.data.object as Stripe.Checkout.Session)
+          .metadata?.['gf_owner_email'] ?? '';
+        if (email) await sendActivationOnce(signup, email, req.log);
+      }
+
       return { ok: true, handled };
     } catch (e) {
       /**

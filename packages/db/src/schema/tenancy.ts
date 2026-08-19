@@ -65,6 +65,34 @@ export const locations = pgTable('locations', {
   index('locations_org_idx').on(t.orgId),
 ]);
 
+/**
+ * 一次自助开户（sql/0030）。
+ *
+ * ⭐ `checkoutSessionId` 唯一 —— 这是整条链路的幂等依据。Stripe 的 webhook
+ * 是「至少一次」投递，重投必须返回**已经建好的那一家**：建出两家店的话，
+ * 老板会看到两个空店铺而只有一个能用，他分不出是哪个。
+ *
+ * ⭐ `ownerEmail` 是这条链路上唯一的身份边界：收到激活邮件的人就是老板。
+ * 比对在数据库函数里做（gf_signup_intent_for_user），比的是 auth.users 那一行。
+ */
+export const signupIntents = pgTable('signup_intents', {
+  id: id(),
+  checkoutSessionId: text('checkout_session_id').notNull().unique(),
+  orgId: uuid('org_id').notNull().references(() => organizations.id),
+  locationId: uuid('location_id').notNull().references(() => locations.id),
+  /** 全小写存。比对时不区分大小写 */
+  ownerEmail: text('owner_email').notNull(),
+  plan: text('plan').notNull(),
+  /** 官网传来的 metadata 原样留档，含我们回退掉的字段（时区/业态/语言认不出时） */
+  metadata: jsonb('metadata').notNull().default(sql`'{}'::jsonb`),
+  provisionedAt: timestamp('provisioned_at', { withTimezone: true }).notNull().defaultNow(),
+  /** 激活信只发一封。为空 = 从来没发出去过（客服可以人工补发） */
+  activationEmailSentAt: timestamp('activation_email_sent_at', { withTimezone: true }),
+  /** 一次性：认领过就不能再认领 */
+  claimedAt: timestamp('claimed_at', { withTimezone: true }),
+  claimedUserId: uuid('claimed_user_id'),
+});
+
 export const locationSubscriptions = pgTable('location_subscriptions', {
   id: id(),
   orgId: uuid('org_id').notNull().references(() => organizations.id),

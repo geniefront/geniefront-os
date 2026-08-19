@@ -38,8 +38,21 @@ export function registerRawBodyParser(app: FastifyInstance): void {
         done(null, { raw: body as string } satisfies RawBody);
         return;
       }
+      /**
+       * 空 body 当成 `{}`。
+       *
+       * 不带参数的 POST（`/v1/setup/claim` 就是一条）在浏览器里发出来是
+       * `Content-Type: application/json` + 零字节。直接 JSON.parse 会抛
+       * SyntaxError，而它不是 AppError —— 于是前台收到的是 **500 INTERNAL**，
+       * 一个「你的付款出问题了」的界面，实际上什么问题都没有。
+       *
+       * ⚠️ 验签那两条路径**不走这里**（上面就返回了），所以这一句
+       * 不会让一个空 body 的伪造 webhook 蒙混过关：它照样得过签名。
+       */
+      const text = (body as string).trim();
+      if (text === '') { done(null, {}); return; }
       try {
-        done(null, JSON.parse(body as string));
+        done(null, JSON.parse(text));
       } catch (e) {
         done(e as Error, undefined);
       }

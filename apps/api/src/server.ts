@@ -8,11 +8,14 @@
 
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
-import { AppError, ERROR_CODES, httpStatusFor, pickText, actingMembership } from '@gf/contracts';
+import {
+  AppError, ERROR_CODES, httpStatusFor, pickText, actingMembership,
+  type CommandContext, type Permission,
+} from '@gf/contracts';
 import { dispatch, registeredCommands } from './bus';
 import { buildContext } from './actor';
 import { verifyAccessToken } from './auth';
-import { listMembershipsForUser, withTenant } from '@gf/db';
+import { listMembershipsForUser, withTenant, claimableIntentFor } from '@gf/db';
 
 interface CustomerRow {
   id: string; display_name: string; phone_e164: string | null;
@@ -39,6 +42,8 @@ import { registerTelnyxRoutes } from './telnyx/routes';
 import { registerKioskRoutes } from './kiosk/routes';
 import { registerStripeRoutes } from './stripe/routes';
 import { registerCopilotRoutes } from './copilot/routes';
+import { registerAuthRoutes } from './auth/routes';
+import { staffContextFromToken, STAFF_TOKEN_HEADER } from './auth/staffSession';
 import { registerRawBodyParser } from './rawBody';
 import { loadBilling } from './queries/billing';
 import { maybeAutoTopup } from './billing/autoTopup';
@@ -88,7 +93,7 @@ export function buildServer(): FastifyInstance {
     // 而前端拿到的是一句语焉不详的 TypeError。X-Device-Token 就这么漏过一次。
     allowedHeaders: [
       'Authorization', 'Content-Type', 'X-Membership-Id', 'Idempotency-Key',
-      'X-Device-Token',
+      'X-Device-Token', 'X-Staff-Token',
     ],
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     maxAge: 86400,
@@ -138,11 +143,37 @@ export function buildServer(): FastifyInstance {
     // ⚠️ 只有 /v1/stripe/webhook 这一条是公开的 —— 老板端那几条
     // （/v1/billing/*）走正常的 Bearer 校验，别把它们放进这个前缀
     if (path === '/v1/stripe/webhook') return;
+    /**
+     * 技师上机那几条也在认证之前 —— 打进来的人这一刻还什么都不是
+     * （sql/0031）。它们各自的门在路由里：上机码是「一次性 + 限频 +
+     * 15 分钟」，手机验证码是 Telnyx Verify + 限频。
+     *
+     * ⚠️ `/v1/auth/staff/me` 是唯一一条要令牌的，它自己验 X-Staff-Token。
+     */
+    if (path.startsWith('/v1/auth/')) return;
+    /**
+     * ⭐ 技师手机上带的是会话令牌，不是 Supabase 的 Bearer。
+     * 有它就跳过 JWT 那一关 —— 归属与权限由 staffContextFromToken 解，
+     * 它走的是令牌摘要维度的 RLS（和门口 iPad 同一个套路）。
+     */
+    if (req.headers[STAFF_TOKEN_HEADER]) return;
     req.user = await verifyAccessToken(req.headers.authorization);
   });
 
   /** 从请求头解析出命令上下文。客户端自报的 membershipId 必须验归属。 */
   async function ctxFromHeaders(req: { user?: { userId: string }; headers: Record<string, unknown>; ip: string }) {
+    /**
+     * ⭐ 技师手机上机的那条路：身份是一条会话，不是一个平台账号。
+     *
+     * 放在最前面是因为这两种身份**互斥** —— 带了会话令牌就不该再去
+     * 读 X-Membership-Id（那是客户端自报的，而会话令牌里的 membership
+     * 是数据库给的）。允许两者混用等于给了一条「用技师令牌冒充别人」的路。
+     */
+    const staffToken = req.headers[STAFF_TOKEN_HEADER];
+    if (typeof staffToken === 'string' && staffToken) {
+      return staffContextFromToken(staffToken, req.ip);
+    }
+
     const userId = req.user!.userId;
     const membershipId = req.headers['x-membership-id'];
     if (typeof membershipId !== 'string' || !membershipId) {
@@ -159,8 +190,65 @@ export function buildServer(): FastifyInstance {
   // ── 店铺选择器 ─────────────────────────────────────────────────────────────
   // 登录后第一个调用。只有一条就直接进，多条出选择器（02 §2）。
   app.get('/v1/me/locations', async (req) => {
-    const list = await listMembershipsForUser(req.user!.userId);
+    // ⚠️ 这条路要的是**平台账号**。技师用手机上机时没有账号，
+    // 他的店是会话自己带的（/v1/auth/staff/me）—— 不挡的话
+    // `req.user!` 会在这里炸成一个 500，而真正的原因是「这条路不适用于他」
+    if (!req.user) throw new AppError(ERROR_CODES.UNAUTHENTICATED, {
+      details: { reason: 'requires_platform_account' } });
+    const list = await listMembershipsForUser(req.user.userId);
     return { locations: list };
+  });
+
+  /**
+   * ── 认领门店（自助开户的最后一步，docs/12 §3 B）────────────────────────
+   *
+   * 老板刚点开激活邮件里的链接，这一刻他在系统里除了一个 Supabase 账号
+   * 什么都没有 —— 所以这条路**不要 X-Membership-Id**，也没法用
+   * ctxFromHeaders：那个函数的第一句就是「先调 /v1/me/locations 选店」。
+   *
+   * ⭐ 身份边界在数据库里：`claimableIntentFor` 调的是
+   * `gf_signup_intent_for_user()`，它比对的是 **auth.users 里那一行的邮箱**。
+   * 应用这一侧只能传一个 user id，而那个 id 是从已验签的 JWT 解出来的 ——
+   * 于是「谁能成为这家店的老板」是一条数据库事实，不是一句能被忘记的 if。
+   *
+   * 一个邮箱买了两家店就调两次：每次认领最早的那一家。
+   */
+  app.post('/v1/setup/claim', async (req) => {
+    // 认领门店要的是付款那个邮箱背后的**平台账号**，技师会话在这里没有意义
+    if (!req.user) throw new AppError(ERROR_CODES.UNAUTHENTICATED, {
+      details: { reason: 'requires_platform_account' } });
+    const userId = req.user.userId;
+    const intent = await claimableIntentFor(userId);
+    if (!intent) {
+      // 不区分「没有这条 intent」和「不是你的」—— 否则可以拿它探测
+      // 别人的开户状态（和 assertMembershipBelongsTo 同一条纪律）
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { reason: 'no_claimable_signup' } });
+    }
+
+    /**
+     * 现组一个上下文。`membershipId: null` —— 他还没有 membership，
+     * 这条命令本身就是去造那一条。
+     *
+     * 权限只给 `settings.manage` 一条：伪造不了（intent 是数据库给的），
+     * 而且这个上下文只活到下面那一次 dispatch 为止。
+     */
+    const ctx: CommandContext = {
+      orgId: intent.orgId,
+      locationId: intent.locationId,
+      userId,
+      membershipId: null,
+      permissions: new Set<Permission>(['settings.manage']),
+      actorKind: 'user',
+      locale: 'en',
+      timezone: 'UTC',
+      ip: req.ip,
+    };
+
+    const out = await dispatch<{ membershipId: string; locationId: string; orgId: string }>(
+      'setup.claimLocation', { intentId: intent.intentId }, ctx,
+      { idempotencyKey: `claim-${intent.intentId}` },
+    );
+    return out.result;
   });
 
   // ── 命令入口 ───────────────────────────────────────────────────────────────
@@ -386,10 +474,13 @@ export function buildServer(): FastifyInstance {
       async (tx) => {
         const [loc] = await tx<{
           name: unknown; timezone: string; business_hours: unknown;
-          business_type: string; cutoff: string;
+          business_type: string; cutoff: string; status: string;
+          has_address: boolean; profile_confirmed_at: string | null;
         }[]>`
           select name, timezone, business_hours, business_type,
-                 business_day_cutoff::text as cutoff
+                 business_day_cutoff::text as cutoff, status,
+                 (address is not null or yelp_business_id is not null) as has_address,
+                 settings->>'profile_confirmed_at' as profile_confirmed_at
           from locations where id = ${ctx.locationId}`;
 
         const services = await tx<{
@@ -404,10 +495,22 @@ export function buildServer(): FastifyInstance {
         const staff = await tx<{
           membership_id: string; name: unknown; is_bookable: boolean;
           max_concurrent: number; level_key: string | null; in_rotation: boolean | null;
+          phone_e164: string | null; has_account: boolean; live_sessions: number;
+          role_keys: string[] | null;
         }[]>`
           select sp.membership_id, sp.display_name as name, sp.is_bookable,
                  sp.max_concurrent_appointments as max_concurrent,
-                 sl.key as level_key, rp.in_rotation
+                 sl.key as level_key, rp.in_rotation, sp.phone_e164,
+                 -- ⭐ 「他上过机没有」是推导出来的，没有状态列：
+                 -- user_id 有值 = 用邮箱登录过；有活着的会话 = 手机上机过。
+                 -- 存一个 has_logged_in 布尔的话，踢下线之后它就说谎了
+                 (m.user_id is not null) as has_account,
+                 (select count(*) from staff_sessions ss
+                   where ss.membership_id = sp.membership_id
+                     and ss.revoked_at is null and ss.expires_at > now())::int as live_sessions,
+                 (select array_remove(array_agg(r.key), null)
+                    from membership_roles mr join roles r on r.id = mr.role_id
+                   where mr.membership_id = sp.membership_id) as role_keys
           from staff_profiles sp
           join memberships m on m.id = sp.membership_id and m.status = 'active'
           left join staff_levels sl on sl.id = sp.level_id
@@ -436,6 +539,19 @@ export function buildServer(): FastifyInstance {
             timezone: loc!.timezone,
             businessType: loc!.business_type,
             businessHours: loc!.business_hours ?? {},
+            businessDayCutoff: loc!.cutoff.slice(0, 5),
+            /** setup = 开店向导还没走完（sql/0030） */
+            status: loc!.status,
+            /**
+             * ⭐ 开店向导的进度**全部是从真实数据推出来的**，
+             * 没有一个「走到第几步」的计数器（docs/12 §3 C 规矩 2）：
+             * 存步数的话，老板换台设备登录会被拉回一个假的进度。
+             *
+             * 于是「已完成」和「真的能用了」永远是同一件事 ——
+             * 他从别的入口把项目建好了，向导那一项自己就会变成 ✓。
+             */
+            hasAddress: loc!.has_address,
+            profileConfirmedAt: loc!.profile_confirmed_at,
           },
           services: services.map((s) => ({
             id: s.id, name: s.name as Record<string, string>,
@@ -450,6 +566,12 @@ export function buildServer(): FastifyInstance {
             maxConcurrent: s.max_concurrent,
             levelKey: s.level_key,
             inRotation: s.in_rotation ?? s.is_bookable,
+            roleKeys: s.role_keys ?? [],
+            /** 老板要照着这个打电话给技师，所以不脱敏 —— 他本来就有这个号 */
+            phoneE164: s.phone_e164,
+            /** 这三个一起回答「他能不能在自己手机上看到派单」 */
+            hasAccount: s.has_account,
+            liveSessions: s.live_sessions,
           })),
           levels: levels.map((l) => ({
             id: l.id, key: l.key, name: pickText(l.name, ctx.locale),
@@ -1020,6 +1142,13 @@ export function buildServer(): FastifyInstance {
   // 塞进事务会占住连接。这条路由只做编排，**提案不执行** ——
   // 前台在卡片上点确认时才走 /v1/commands/:name，用她自己的身份。
   registerCopilotRoutes(app, ctxFromHeaders);
+
+  // ── 技师上机：上机码 / 手机验证码（sql/0031、docs/09 §5）────────────────
+  //
+  // ⚠️ 这三条在认证之前 —— 打进来的人还什么都不是。
+  // 每一条自己回答「伪造这一次请求的人能拿到什么」，答案是
+  //「必须先说出一个 15 分钟内有效的一次性码，或者收得到那条短信」。
+  registerAuthRoutes(app);
 
   // ── Kiosk 门口端（设备令牌鉴权）──────────────────────────────────────────
   registerKioskRoutes(app);

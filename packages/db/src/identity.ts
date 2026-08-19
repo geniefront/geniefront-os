@@ -18,6 +18,12 @@ export interface MembershipRow {
   orgId: string;
   locationId: string;
   locationName: unknown;
+  /**
+   * 门店状态。前台要用它决定「进来先给他看开店向导还是轮牌板」——
+   * `setup` = 付了钱建出来了但还没配起来（sql/0030）。
+   * 判断放在这里而不是前端记一个本地标记：换台设备登录看到的必须是同一件事。
+   */
+  locationStatus: string;
   roleKeys: string[];
 }
 
@@ -28,10 +34,10 @@ export interface MembershipRow {
 export async function listMembershipsForUser(userId: string): Promise<MembershipRow[]> {
   const rows = await withUser(userId, (tx) => tx<{
     membership_id: string; org_id: string; location_id: string;
-    location_name: unknown; role_keys: string[] | null;
+    location_name: unknown; location_status: string; role_keys: string[] | null;
   }[]>`
     select m.id as membership_id, m.org_id, m.location_id,
-           l.name as location_name,
+           l.name as location_name, l.status as location_status,
            array_remove(array_agg(r.key), null) as role_keys
     from memberships m
     join locations l on l.id = m.location_id
@@ -40,7 +46,7 @@ export async function listMembershipsForUser(userId: string): Promise<Membership
     where m.user_id = ${userId}
       and m.status = 'active'
       and l.status not in ('closed','suspended')
-    group by m.id, l.name
+    group by m.id, l.name, l.status
     order by l.name->>'en'`);
 
   return rows.map((r) => ({
@@ -48,6 +54,7 @@ export async function listMembershipsForUser(userId: string): Promise<Membership
     orgId: r.org_id,
     locationId: r.location_id,
     locationName: r.location_name,
+    locationStatus: r.location_status,
     roleKeys: r.role_keys ?? [],
   }));
 }

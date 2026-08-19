@@ -104,7 +104,18 @@ export type OverrideReason = z.infer<typeof overrideReason>;
 export interface CommandContext {
   orgId: string;
   locationId: string;
-  userId: string;
+  /**
+   * ⚠️ 可以为 null，而且是**两种**情况：
+   *
+   *   · 系统 actor（Stripe / Telnyx 的 webhook、门口 iPad）—— 背后没有人
+   *   · **手机上机的技师** —— 背后有人，但他没有 Supabase 账号：
+   *     身份是那条 membership 本身（Ghost Profile，sql/0031）
+   *
+   * 需要「这个人的账号」的命令（改 users 表、认领门店）用 `actingUser()`
+   * 断言非 null。审计不受影响 —— `audit_log.actor_id` 记的一直是
+   * **membership**，不是 user。
+   */
+  userId: string | null;
   /**
    * ⚠️ 可以为 null：**AI 电话背后没有人**。
    *
@@ -133,6 +144,22 @@ export interface CommandContext {
  * 把类型糊过去，不如在这里断一次：**类型报错本身就是在提醒
  * 「这条命令必须有人在场」**，糊掉就把这个信息丢了。
  */
+/**
+ * 断言这条命令背后有一个**平台账号**（Supabase 用户）。
+ *
+ * 和 `actingMembership` 是两件事：手机上机的技师**有人在场但没有账号**。
+ * 只有真的要动 `users` 那张表、或者要把某个 auth 用户绑到什么东西上的命令，
+ * 才需要这一层 —— 其余一律用 membership 表示「谁做的」。
+ */
+export function actingUser(ctx: CommandContext): string {
+  if (!ctx.userId) {
+    throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+      details: { reason: 'requires_platform_account', actorKind: ctx.actorKind },
+    });
+  }
+  return ctx.userId;
+}
+
 export function actingMembership(ctx: CommandContext): string {
   if (!ctx.membershipId) {
     throw new AppError(ERROR_CODES.PERMISSION_DENIED, {

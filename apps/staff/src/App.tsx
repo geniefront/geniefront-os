@@ -13,7 +13,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
-import { ApiError, apiGet, runCommand, type LocationMembership } from './lib/api';
+import {
+  ApiError, apiGet, runCommand, claimByCode, phoneStart, phoneVerify,
+  staffMe, getStaffToken, setStaffToken,
+  type LocationMembership, type IssuedSession, type StaffMe,
+} from './lib/api';
 import { subscribeLocation, type ConnState, type DomainEvent } from './lib/realtime';
 import { unlockAudio, audioReady, alertAssigned, playTick } from './lib/alert';
 import { makeT, LOCALES, LOCALE_LABEL, type Locale } from './i18n';
@@ -44,7 +48,23 @@ interface StaffToday {
 
 const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 
-function Shell({ session }: { session: Session }) {
+/**
+ * 技师的身份有两种（sql/0031）：
+ *
+ *   · `supabase` —— 用邮箱登录的人（店长、老板，或者以前就有账号的技师）
+ *   · `staff` —— **上机码 / 手机验证码**上来的人，他没有平台账号，
+ *     身份就是「这家店的这条 membership」
+ *
+ * ⚠️ 两者最大的差别不在权限（那是一样的），而在**实时推送**：
+ * Supabase Realtime 的私有频道认的是 Supabase 的 JWT，
+ * 上机会话签不出那个东西 —— 详见下面轮询那一段。
+ */
+type Identity =
+  | { kind: 'supabase'; session: Session }
+  | { kind: 'staff'; membershipId: string; locationId: string; displayName: string };
+
+function Shell({ identity, onSignOut }: { identity: Identity; onSignOut: () => void }) {
+  const session = identity.kind === 'supabase' ? identity.session : null;
   const [locale, setLocale] = useState<Locale>(
     () => (localStorage.getItem(LS_LOCALE) as Locale) ?? 'zh-Hans');
   const t = makeT(locale);
@@ -58,26 +78,44 @@ function Shell({ session }: { session: Session }) {
   const [pin, setPin] = useState('');
 
   const locs = useQuery({
-    queryKey: ['me-locations', session.user.id],
+    queryKey: ['me-locations', session?.user.id ?? 'staff-token'],
+    // ⚠️ 上机会话不能调这条：那条路要的是平台账号，服务端会 401。
+    // 他的店是会话自己带的，不需要选
+    enabled: identity.kind === 'supabase',
     queryFn: () => apiGet<{ locations: LocationMembership[] }>('/v1/me/locations'),
   });
 
   useEffect(() => {
+    if (picked) return;
+    if (identity.kind === 'staff') {
+      setPicked({
+        membershipId: identity.membershipId, orgId: '', locationId: identity.locationId,
+        locationName: {}, roleKeys: [],
+      });
+      return;
+    }
     const list = locs.data?.locations;
-    if (!list || picked) return;
+    if (!list) return;
     if (list.length === 1) { setPicked(list[0]!); return; }
     const last = localStorage.getItem(LS_LOC);
     const hit = list.find((m) => m.membershipId === last);
     if (hit) setPicked(hit);
-  }, [locs.data, picked]);
+  }, [locs.data, picked, identity]);
 
   const todayQ = useQuery({
     queryKey: ['staff-today', picked?.membershipId],
     enabled: Boolean(picked),
     queryFn: () => apiGet<StaffToday>('/v1/staff/me/today', picked!.membershipId),
-    // 兜底轮询：Realtime 是主通道，这条是它断了之后的安全网。
-    // 60 秒不是性能考量 —— 是"就算长连接彻底坏了，技师也不会一直看着旧数据"
-    refetchInterval: 60_000,
+    /**
+     * 兜底轮询：Realtime 是主通道，这条是它断了之后的安全网。
+     * 60 秒不是性能考量 —— 是"就算长连接彻底坏了，技师也不会一直看着旧数据"。
+     *
+     * ⚠️ **上机会话没有实时推送**（Supabase Realtime 的私有频道认的是
+     * Supabase 的 JWT，而上机会话签不出那个东西），所以那种身份下
+     * 这条轮询就是**唯一**通道 —— 拉到 10 秒。
+     * 派单响铃因此会慢几秒，界面上那个「○ 实时未连接」如实显示。
+     */
+    refetchInterval: identity.kind === 'staff' ? 10_000 : 60_000,
   });
 
   /**
@@ -93,9 +131,11 @@ function Shell({ session }: { session: Session }) {
     void client.invalidateQueries({ queryKey: ['staff-today', membershipId] });
   }, [client, membershipId]);
 
-  // 界面语言按人：登录后跟随 users.locale（共享 iPad 上换人就换语言）
+  // 界面语言按人：登录后跟随 users.locale（共享 iPad 上换人就换语言）。
+  // 上机会话那种身份的语言存在 staff_profiles.locale，由服务端在
+  // /v1/auth/staff/me 里给出，登录那一屏已经设过了
   useEffect(() => {
-    const l = session.user.user_metadata?.['locale'] as Locale | undefined;
+    const l = session?.user.user_metadata?.['locale'] as Locale | undefined;
     if (l && LOCALES.includes(l)) setLocale(l);
   }, [session]);
 
@@ -104,12 +144,16 @@ function Shell({ session }: { session: Session }) {
   const myName = todayQ.data?.name ?? '';
   useEffect(() => {
     if (!picked || !myName) return;
+    // 没有 Supabase 会话 = 连不上私有频道（见上面轮询那段的说明）。
+    // 不 return 的话会一直重连一个注定失败的东西，界面上那个指示点
+    // 会在「连接中」和「断开」之间闪
+    if (!session) { setConn('down'); return; }
     const me = picked.membershipId;
     const handle = subscribeLocation({
       locationId: picked.locationId,
       membershipId: me,
       name: myName,
-      accessToken: session.access_token,
+      accessToken: session!.access_token,
       onState: setConn,
       onEvent: (e: DomainEvent) => {
         // 事件只带 id 和类型：这里只决定"要不要重新拉"和"要不要响铃"，
@@ -130,7 +174,7 @@ function Shell({ session }: { session: Session }) {
       },
     });
     return handle.close;
-  }, [picked?.locationId, picked?.membershipId, myName, session.access_token, refresh]);
+  }, [picked?.locationId, picked?.membershipId, myName, session?.access_token, refresh]);
 
   /**
    * ⭐ 锁屏唤醒后的静默增量对齐（`00` §2、`01` §6）。
@@ -172,14 +216,37 @@ function Shell({ session }: { session: Session }) {
     playTick();
   }
 
-  if (locs.isPending) return <div className="center-page muted">{t('common.loading')}</div>;
-  if (locs.isError || !locs.data) {
+  /**
+   * ⭐ 「现在能不能动手」和「有没有实时推送」是两件事。
+   *
+   * 上机会话**天生没有实时推送**（Supabase 私有频道认的是 Supabase 的 JWT），
+   * 但他的网好得很 —— 把这两件事混成一个 `conn === 'down'` 的话，
+   * 用上机码进来的技师会看到「连不上 · 写操作暂停」，
+   * 而打卡、开始、完成三个按钮全是灰的。**他整个用不了。**
+   *
+   * 所以这种身份下，「通不通」看那条 10 秒轮询 —— 它本来就是唯一的通道。
+   */
+  const offline = identity.kind === 'staff' ? todayQ.isError : conn === 'down';
+
+  /**
+   * ⚠️ 选店那一关**只对有平台账号的人成立**。
+   *
+   * 上机会话不调 `/v1/me/locations`（那条路要账号），于是那个查询
+   * 永远停在 `isPending` —— 不把这一关跳过去的话，用上机码进来的技师
+   * 会**永远卡在「加载中」**，而服务端那边一切正常、日志里全是 200。
+   */
+  const needsPicker = identity.kind === 'supabase';
+
+  if (needsPicker && locs.isPending) {
+    return <div className="center-page muted">{t('common.loading')}</div>;
+  }
+  if (needsPicker && (locs.isError || !locs.data)) {
     return (
       <div className="center-page">
         <div className="card stack" style={{ padding: 24, gap: 12 }}>
           <div>{t('common.error')}</div>
           <button className="btn" onClick={() => locs.refetch()}>{t('common.retry')}</button>
-          <button className="btn btn-ghost" onClick={() => void supabase.auth.signOut()}>
+          <button className="btn btn-ghost" onClick={onSignOut}>
             {t('auth.signOut')}
           </button>
         </div>
@@ -187,7 +254,7 @@ function Shell({ session }: { session: Session }) {
     );
   }
 
-  const list = locs.data.locations;
+  const list = locs.data?.locations ?? [];
   if (!picked) {
     return (
       <div className="center-page">
@@ -222,9 +289,17 @@ function Shell({ session }: { session: Session }) {
         <strong className="truncate" style={{ fontSize: 'var(--text-lg)' }}>
           {d?.name ?? '…'}
         </strong>
-        <span className={`badge ${conn === 'live' ? 'badge-ok' : conn === 'down' ? 'badge-danger' : 'badge-mute'}`}>
-          {conn === 'live' ? `● ${t('rt.live')}` : conn === 'down' ? `○ ${t('rt.down')}` : t('rt.connecting')}
-        </span>
+        {identity.kind === 'staff' ? (
+          // 上机会话没有长连接：如实说「每 10 秒刷新一次」，
+          // 而不是显示一个吓人的「连不上」—— 他的网好得很
+          <span className={`badge ${offline ? 'badge-danger' : 'badge-mute'}`}>
+            {offline ? `○ ${t('rt.down')}` : '● 每 10 秒刷新'}
+          </span>
+        ) : (
+          <span className={`badge ${conn === 'live' ? 'badge-ok' : conn === 'down' ? 'badge-danger' : 'badge-mute'}`}>
+            {conn === 'live' ? `● ${t('rt.live')}` : conn === 'down' ? `○ ${t('rt.down')}` : t('rt.connecting')}
+          </span>
+        )}
         <span className="grow" />
         <select className="btn" style={{ minHeight: 44, padding: '0 8px' }}
                 value={locale}
@@ -264,7 +339,7 @@ function Shell({ session }: { session: Session }) {
       ) : tab === 'today' ? (
         <>
           <NextCard task={d.current ?? d.next} t={t} busy={busy} flash={flash}
-                    disabled={conn === 'down'}
+                    disabled={offline}
                     onStart={(task) => void run('ticket.startItem', { ticketItemId: task.ticketItemId })}
                     onFinish={(task) => void run('ticket.finishItem', { ticketItemId: task.ticketItemId })} />
 
@@ -334,13 +409,13 @@ function Shell({ session }: { session: Session }) {
                           textAlign: 'center', letterSpacing: 8 }} />
 
           <div className="row" style={{ gap: 12 }}>
-            <button className="btn btn-primary grow" disabled={busy || d.onDuty || conn === 'down'}
+            <button className="btn btn-primary grow" disabled={busy || d.onDuty || offline}
                     style={{ minHeight: 80, fontSize: 'var(--text-lg)' }}
                     onClick={() => void run('timeclock.punch',
                       { kind: 'clock_in', ...(pin ? { pin } : {}) }).then(() => setPin(''))}>
               {t('clock.in')}
             </button>
-            <button className="btn grow" disabled={busy || !d.onDuty || conn === 'down'}
+            <button className="btn grow" disabled={busy || !d.onDuty || offline}
                     style={{ minHeight: 80, fontSize: 'var(--text-lg)' }}
                     onClick={() => void run('timeclock.punch',
                       { kind: 'clock_out', ...(pin ? { pin } : {}) }).then(() => setPin(''))}>
@@ -348,13 +423,13 @@ function Shell({ session }: { session: Session }) {
             </button>
           </div>
           <div className="row" style={{ gap: 12 }}>
-            <button className="btn grow" disabled={busy || !d.onDuty || conn === 'down'}
+            <button className="btn grow" disabled={busy || !d.onDuty || offline}
                     style={{ minHeight: 64 }}
                     onClick={() => void run('timeclock.punch',
                       { kind: 'break_start', ...(pin ? { pin } : {}) })}>
               ☕ {t('clock.breakStart')}
             </button>
-            <button className="btn grow" disabled={busy || !d.onDuty || conn === 'down'}
+            <button className="btn grow" disabled={busy || !d.onDuty || offline}
                     style={{ minHeight: 64 }}
                     onClick={() => void run('timeclock.punch',
                       { kind: 'break_end', ...(pin ? { pin } : {}) })}>
@@ -363,7 +438,7 @@ function Shell({ session }: { session: Session }) {
           </div>
 
           <button className="btn btn-ghost btn-block"
-                  onClick={() => { localStorage.removeItem(LS_LOC); void supabase.auth.signOut(); }}>
+                  onClick={() => { localStorage.removeItem(LS_LOC); onSignOut(); }}>
             {t('auth.signOut')}
           </button>
         </div>
@@ -408,45 +483,196 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: 'ok'
   );
 }
 
-function Login({ t }: { t: ReturnType<typeof makeT> }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+/**
+ * 上机（登录）。三条路，默认那条**不依赖短信**。
+ *
+ * 顺序是有意的：
+ *
+ *   ① **上机码** —— 老板在店里点一下、念给他，15 分钟内输一次就绑定。
+ *      不经过任何运营商，10DLC 还没批下来也能用（宪法第 13 条）
+ *   ② **手机验证码** —— 他自己来，不用麻烦老板。⚠️ 美国 A2P 没批之前
+ *      多半收不到，所以它不是默认那条
+ *   ③ **邮箱密码** —— 有平台账号的人（店长、老板）走这条
+ *
+ * 面向的是「四十岁以上、手上有水、店里光线杂」的人：大号输入框、
+ * 大按钮、每屏只问一件事（`00` §2、宪法第 11 条）。
+ */
+function Login({ t, onStaffSession }: {
+  t: ReturnType<typeof makeT>;
+  onStaffSession: (s: IssuedSession) => void;
+}) {
+  const [way, setWay] = useState<'code' | 'phone' | 'email'>('code');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
-  async function signIn() {
+  // ① 上机码
+  const [code, setCode] = useState('');
+  // ② 手机
+  const [phone, setPhone] = useState('');
+  const [sms, setSms] = useState('');
+  const [sent, setSent] = useState(false);
+  const [choices, setChoices] = useState<Array<{
+    membershipId: string; locationId: string; shopName: string; displayName: string;
+  }> | null>(null);
+  // ③ 邮箱
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  const e164 = (): string => {
+    const d = phone.replace(/\D/g, '');
+    if (d.length === 10) return `+1${d}`;
+    if (d.length === 11 && d.startsWith('1')) return `+${d}`;
+    return d ? `+${d}` : '';
+  };
+
+  async function guard(fn: () => Promise<void>): Promise<void> {
+    setBusy(true); setErr('');
+    try { await fn(); }
+    catch (e) {
+      const code2 = e instanceof ApiError ? (e.details['reason'] ?? e.code) : '';
+      setErr(
+        code2 === 'bad_claim_code' ? '这个码不对，或者已经过期了 —— 让老板再点一次'
+        : code2 === 'bad_code' ? '验证码不对'
+        : code2 === 'too_many_attempts' ? '试得太多了，等一分钟再来'
+        : code2 === 'not_on_any_roster' ? '这个号码不在任何一家店的花名册上'
+        : code2 === 'not_configured' ? '短信通道还没开通 —— 先用老板给的上机码'
+        : t('auth.failed'));
+    }
+    finally { setBusy(false); }
+  }
+
+  const label = navigator.userAgent.slice(0, 40);
+
+  return (
+    <div className="center-page">
+      <div className="card stack" style={{ padding: 24, gap: 16, minWidth: 320, maxWidth: 420 }}>
+        <strong style={{ fontSize: 'var(--text-xl)' }}>{t('auth.title')}</strong>
+
+        <div className="row" style={{ gap: 8 }}>
+          {([['code', '上机码'], ['phone', '手机号'], ['email', '邮箱']] as const).map(([k, l]) => (
+            <button key={k} className="btn grow" style={{
+              minHeight: 'var(--tap)', borderWidth: 2,
+              borderColor: way === k ? 'var(--brand)' : 'var(--line)',
+              background: way === k ? 'var(--brand-soft)' : 'var(--surface)',
+            }} onClick={() => { setWay(k); setErr(''); }}>{l}</button>
+          ))}
+        </div>
+
+        {way === 'code' && (
+          <div className="stack" style={{ gap: 12 }}>
+            <span className="tiny">让老板在前台点「给他上机码」，把那 6 个数字念给你</span>
+            <input className="field" inputMode="numeric" autoFocus placeholder="123456"
+                   value={code} maxLength={6}
+                   style={{ minHeight: 'var(--tap-lg)', fontSize: 'var(--text-xl)',
+                            letterSpacing: 8, textAlign: 'center' }}
+                   onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
+            <button className="btn btn-primary btn-block" disabled={busy || code.length !== 6}
+                    style={{ minHeight: 'var(--tap-lg)' }}
+                    onClick={() => void guard(async () => {
+                      onStaffSession(await claimByCode(code, label));
+                    })}>
+              {busy ? <span className="spin" /> : '进去'}
+            </button>
+          </div>
+        )}
+
+        {way === 'phone' && !choices && (
+          <div className="stack" style={{ gap: 12 }}>
+            <input className="field" inputMode="tel" placeholder="512-555-0142"
+                   value={phone} style={{ minHeight: 'var(--tap-lg)' }}
+                   onChange={(e) => { setPhone(e.target.value); setSent(false); }} />
+            {!sent && (
+              <button className="btn btn-primary btn-block" disabled={busy || e164().length < 9}
+                      style={{ minHeight: 'var(--tap-lg)' }}
+                      onClick={() => void guard(async () => {
+                        await phoneStart(e164()); setSent(true);
+                      })}>
+                {busy ? <span className="spin" /> : '给我发验证码'}
+              </button>
+            )}
+            {sent && (
+              <>
+                <span className="tiny">验证码发到 {e164()} 了</span>
+                <input className="field" inputMode="numeric" autoFocus placeholder="验证码"
+                       value={sms} style={{ minHeight: 'var(--tap-lg)', letterSpacing: 6,
+                                            textAlign: 'center' }}
+                       onChange={(e) => setSms(e.target.value.replace(/\D/g, ''))} />
+                <button className="btn btn-primary btn-block" disabled={busy || sms.length < 4}
+                        style={{ minHeight: 'var(--tap-lg)' }}
+                        onClick={() => void guard(async () => {
+                          const out = await phoneVerify(e164(), sms, undefined, label);
+                          // 在两家店上班的人要先点一家 —— 和多店老板的选店器同一件事
+                          if ('needsLocation' in out) setChoices(out.locations);
+                          else onStaffSession(out);
+                        })}>
+                  {busy ? <span className="spin" /> : '进去'}
+                </button>
+                <button className="btn btn-ghost btn-block" disabled={busy}
+                        onClick={() => void guard(async () => { await phoneStart(e164()); })}>
+                  没收到，重发一条
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {way === 'phone' && choices && (
+          <div className="stack" style={{ gap: 10 }}>
+            <span className="tiny">你在这几家店都有身份，进哪一家？</span>
+            {choices.map((c) => (
+              <button key={c.locationId} className="btn btn-block"
+                      style={{ minHeight: 'var(--tap-lg)' }} disabled={busy}
+                      onClick={() => void guard(async () => {
+                        const out = await phoneVerify(e164(), sms, c.locationId, label);
+                        if (!('needsLocation' in out)) onStaffSession(out);
+                      })}>
+                {c.shopName}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {way === 'email' && (
+          <div className="stack" style={{ gap: 12 }}>
+            <input className="field" type="email" autoComplete="username"
+                   placeholder={t('auth.email')} value={email}
+                   style={{ minHeight: 'var(--tap-lg)' }}
+                   onChange={(e) => setEmail(e.target.value)} />
+            <input className="field" type="password" autoComplete="current-password"
+                   placeholder={t('auth.password')} value={password}
+                   style={{ minHeight: 'var(--tap-lg)' }}
+                   onChange={(e) => setPassword(e.target.value)}
+                   onKeyDown={(e) => { if (e.key === 'Enter') void signInEmail(); }} />
+            <button className="btn btn-primary btn-block" disabled={busy || !email || !password}
+                    style={{ minHeight: 'var(--tap-lg)' }}
+                    onClick={() => void signInEmail()}>
+              {busy ? <span className="spin" /> : t('auth.signIn')}
+            </button>
+          </div>
+        )}
+
+        {err && <span style={{ color: 'var(--danger)', fontWeight: 700 }}>{err}</span>}
+      </div>
+    </div>
+  );
+
+  async function signInEmail(): Promise<void> {
     setBusy(true); setErr('');
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) setErr(t('auth.failed'));
     setBusy(false);
   }
-
-  return (
-    <div className="center-page">
-      <div className="card stack" style={{ padding: 24, gap: 14, minWidth: 300 }}>
-        <strong style={{ fontSize: 'var(--text-xl)' }}>{t('auth.title')}</strong>
-        <input className="field" type="email" autoComplete="username"
-               placeholder={t('auth.email')} value={email}
-               style={{ minHeight: 'var(--tap-lg)' }}
-               onChange={(e) => setEmail(e.target.value)} />
-        <input className="field" type="password" autoComplete="current-password"
-               placeholder={t('auth.password')} value={password}
-               style={{ minHeight: 'var(--tap-lg)' }}
-               onChange={(e) => setPassword(e.target.value)}
-               onKeyDown={(e) => { if (e.key === 'Enter') void signIn(); }} />
-        {err && <span style={{ color: 'var(--danger)', fontWeight: 700 }}>{err}</span>}
-        <button className="btn btn-primary btn-block" disabled={busy || !email || !password}
-                style={{ minHeight: 'var(--tap-lg)' }}
-                onClick={() => void signIn()}>
-          {busy ? <span className="spin" /> : t('auth.signIn')}
-        </button>
-      </div>
-    </div>
-  );
 }
 
 export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
+  /**
+   * 上机会话（sql/0031）。undefined = 还在问服务端「这个令牌还作数吗」。
+   *
+   * ⚠️ 每次启动都要问一次：老板可能已经把他踢下线了（手机丢了、人离职了），
+   * 而本地存着的那个字符串自己不会知道这件事。
+   */
+  const [staffMeState, setStaffMeState] = useState<StaffMe | null | undefined>(undefined);
   const locale = (localStorage.getItem(LS_LOCALE) as Locale) ?? 'zh-Hans';
 
   useEffect(() => {
@@ -455,11 +681,45 @@ export default function App() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  if (session === undefined) return <div className="center-page muted">…</div>;
+  useEffect(() => {
+    if (!getStaffToken()) { setStaffMeState(null); return; }
+    void staffMe()
+      .then((me) => setStaffMeState(me))
+      .catch(() => {
+        // 被踢下线 / 过期了 —— 清掉，让他重新上机。
+        // 留着的话每一次请求都会 401，而界面上看不出为什么
+        setStaffToken(null);
+        setStaffMeState(null);
+      });
+  }, []);
+
+  if (session === undefined || staffMeState === undefined) {
+    return <div className="center-page muted">…</div>;
+  }
+
+  const identity: Identity | null =
+    staffMeState
+      ? { kind: 'staff', membershipId: staffMeState.membershipId,
+          locationId: staffMeState.locationId, displayName: staffMeState.displayName }
+      : session ? { kind: 'supabase', session } : null;
+
+  const signOut = (): void => {
+    setStaffToken(null);
+    setStaffMeState(null);
+    void supabase.auth.signOut();
+  };
 
   return (
     <QueryClientProvider client={qc}>
-      {session ? <Shell session={session} /> : <Login t={makeT(locale)} />}
+      {identity
+        ? <Shell identity={identity} onSignOut={signOut} />
+        : <Login t={makeT(locale)} onStaffSession={(s) => {
+            setStaffToken(s.token);
+            setStaffMeState({
+              membershipId: s.membershipId, locationId: s.locationId,
+              displayName: s.displayName, locale, permissions: [],
+            });
+          }} />}
     </QueryClientProvider>
   );
 }
