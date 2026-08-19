@@ -35,7 +35,8 @@
 - 门店数 ≥ 10 家 **且** 10DLC 批准，才启动 Phase 2.5
 - 在那之前，代码里**不写任何短信依赖**：通知走邮件 / Web Magic Link /
   页面实时通知 / 前台人工回呼
-- 手机号 OTP 登录：**代码已实现**（2026-08-18，Telnyx Verify API，`sql/0031`），
+- 手机号 OTP 登录：**代码已实现**（2026-08-18；验证码短信 2026-08-19 改走
+  **Twilio Verify**，见下面「验证码短信」一节，`sql/0031`），
   但它是技师上机的**第二条路** —— 第一条是老板念的 6 位「上机码」，
   不经过任何运营商。**短信因此仍然不在依赖链上**：10DLC 没批下来，
   技师照样能上机，只是要老板点一下
@@ -249,32 +250,53 @@ tool 打到命令总线是唯一一条路，AI 和 UI 走的是同一条 —— 
 | **托管架构** ⭐ | **GenieFront 一个 brand + 一个 campaign**（2026-08-18 定）。短信只用于**我们向客人发预约确认**，客人回复进 **GenieFront 客服**，不是店家。所以**不是每店一个 campaign** —— 原先估的「1000 店 × campaign 月费＝每月五位数」**不成立了**（`04` §4.2 待同步） |
 | **号码** | 确认短信从**我们自己的号**发，与店家的语音号是**两个号**，这是有意的（店家完全不碰短信）。要问 Telnyx 确认 campaign 类型与 TPS 吞吐，量大可能要配号码池 |
 | **TCPA 合规** | 同意记录、STOP / HELP 处理、时区静默时段拦截。这三条与供应商无关，是法律要求 |
-| **附带解锁** | 手机号 OTP 登录 —— **已实现**（Telnyx Verify API，见下面「Verify」一节） |
+| **附带解锁** | 手机号 OTP 登录 —— **已实现**，但验证码短信临时走 Twilio Verify（见下节） |
 | **计量** | `usage_events(kind='sms')`，按 segment 记 —— 中文一条 70 字符就分段，不按条记会低估一倍以上 |
 
-### Verify API（技师手机上机，2026-08-18 已实现）
+### 验证码短信：⭐ **临时走 Twilio Verify**（2026-08-19 定）
 
 技师第一次在自己手机上打开技师端时，两条路二选一：
 
 ```
-① 上机码   老板点「给他上机码」→ 6 位数字 → 念给他 → 15 分钟内输一次
-           ⭐ 不经过任何运营商，10DLC 没批也能用
-② 手机验证码  Telnyx Verify 发码 → 他输 → Telnyx 验码 → 我们签一条会话
+① 上机码     老板点「给他上机码」→ 6 位数字 → 念给他 → 15 分钟内输一次
+             ⭐ 不经过任何运营商，10DLC 没批也能用，**默认这条**
+② 手机验证码  Twilio Verify 发码 → 他输 → Twilio 验码 → 我们签一条会话
 ```
 
-**代码**：`apps/api/src/auth/phoneOtp.ts`（两次 HTTP：`/v2/verifications/sms`
-与 `/v2/verifications/by_phone_number/{n}/actions/verify`）。
+**为什么验证码不走 Telnyx**：美国 A2P 10DLC 在 Telnyx 名下要重新排队（§1.1），
+批下来之前长号码发的验证码会被运营商**静默**过滤 —— 而「静默」是最糟的失败方式
+（发出去了、扣了钱、技师什么都没收到，日志里一切正常）。
+Twilio Verify 走它自己那套为 OTP 预注册的通道，绕开了这条排队。
 
-⬜ **要人做的两件事**：
+⚠️ **这不推翻本文档的结论**：`09` 定的是**语音与业务短信**走 Telnyx，
+那部分一个字没改。这里是登录验证码 —— 量小、和门店号码无关、随时能换回来。
 
-1. 控制台 → Verify → 建一个 **Verify Profile**（SMS 类型，绑上 messaging profile），
-   id 填进 `.env` 的 `TELNYX_VERIFY_PROFILE_ID`
-2. 问 Telnyx 支持：**Verify 走哪种 campaign use-case**。多数 CSP 有专门的
-   `2FA/OTP` 类型，审核比 marketing 快，而且能和正在排队的那个 campaign 并行 ——
-   这条要是能单独批下来，②就能提前很久可用
+**换回 Telnyx 是删一行环境变量的事，不用发版**：
+`phoneOtp.ts` 里的供应商由环境变量决定 ——
+配了 `TWILIO_VERIFY_SERVICE_SID` 走 Twilio，删掉它、配上
+`TELNYX_VERIFY_PROFILE_ID` 就走 Telnyx（那条分支的代码留着，有测试盯着切换逻辑）。
 
-**没配 profile id 时的行为**：那条路明确报「短信通道还没开通」，
+**凭据**（都在 `.env`，2026-08-19 实测可用）：
+
+```
+TWILIO_ACCOUNT_SID          # AC 开头
+TWILIO_AUTH_TOKEN
+TWILIO_VERIFY_SERVICE_SID   # VA 开头 —— 控制台 → Verify → Services
+```
+
+**已实测**（读接口，没发短信没花钱）：Verify Service `Geniefront` 存在、6 位码；
+Twilio 账号是 **Full**（不是试用账号，所以能发给任意号码）；
+无效号码 → 收敛成一句干净的 `21608`；没有进行中的验证时验码 → 返回 false 而不是抛错。
+
+⬜ **还没做的**：**真发一条到真手机上**。这是唯一还没验过的一步 ——
+上面那些验的都是「码到了我们这边之后怎么处理」。
+
+**没配任何供应商时的行为**：那条路明确报「短信通道还没开通」，
 **不会假装发了一条**。后者最糟 —— 技师在登录页反复点重发，而每一次都真的花钱。
+
+**一个值得单独说的细节**：短信用**技师手机上那个界面的语言**发
+（`zh-Hans → zh-CN`、`vi → vi`…）。他还没登录，所以语言只能由客户端告诉我们 ——
+这是这条链路上唯一一处「听客户端的」，而最坏后果只是收到一条英文短信。
 
 几条实现上的决定：
 
@@ -404,7 +426,10 @@ TELNYX_API_KEY              # 服务端调 API（控制台 → API Keys）
 TELNYX_PUBLIC_KEY           # ⭐ webhook Ed25519 验签用，和 API Key 不是一个东西
 TELNYX_PHONE_NUMBER         # E.164，测试号码
 TELNYX_MESSAGING_PROFILE_ID # Phase 2.5 才需要
-TELNYX_VERIFY_PROFILE_ID    # 手机验证码上机（没配 = 那条路不可用，上机码照常）
+TELNYX_VERIFY_PROFILE_ID    # 验证码短信改走 Twilio 了（见 §5），这条现在留空
+TWILIO_ACCOUNT_SID          # ⭐ 验证码短信实际用的是这三个
+TWILIO_AUTH_TOKEN
+TWILIO_VERIFY_SERVICE_SID
 TELNYX_ASSISTANT_ID         # AI Assistant 的 id
 ```
 

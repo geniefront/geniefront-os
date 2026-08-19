@@ -23,7 +23,7 @@ import { claimCodeHash } from './handlers/staff';
 import {
   issueStaffSession, staffContextFromToken, hashStaffToken,
 } from './auth/staffSession';
-import { verifyConfigured } from './auth/phoneOtp';
+import { verifyConfigured, otpProvider } from './auth/phoneOtp';
 import './handlers/staff';
 
 /** 美甲店：种子里的店长 Amy 有 staff.manage */
@@ -248,11 +248,37 @@ describe('手机号找人', () => {
     expect(await staffByPhone('+15125550000')).toEqual([]);
   });
 
-  it('没配 Verify Profile 时，整条短信路是「不可用」而不是「假装发了」', () => {
-    // ⚠️ 配了一半最糟：技师在登录页反复点重发，而每一次都真的花钱
-    expect(typeof verifyConfigured()).toBe('boolean');
-    if (!process.env['TELNYX_VERIFY_PROFILE_ID']) {
+  it('用哪家 Verify 由环境变量决定，不由代码决定', () => {
+    /**
+     * 语音走 Telnyx，**验证码短信走 Twilio**（`09` §5）——
+     * 因为 Telnyx 名下的美国 A2P 10DLC 还在排队，而排队期间
+     * 长号码发的验证码会被运营商**静默**过滤。
+     *
+     * 切回 Telnyx 是删一行环境变量的事，不用发版：
+     */
+    const before = { ...process.env };
+    try {
+      process.env['TWILIO_ACCOUNT_SID'] = 'AC0';
+      process.env['TWILIO_AUTH_TOKEN'] = 't';
+      process.env['TWILIO_VERIFY_SERVICE_SID'] = 'VA0';
+      process.env['TELNYX_API_KEY'] = 'k';
+      process.env['TELNYX_VERIFY_PROFILE_ID'] = 'p';
+      expect(otpProvider()).toBe('twilio');
+
+      delete process.env['TWILIO_VERIFY_SERVICE_SID'];
+      expect(otpProvider()).toBe('telnyx');
+
+      // ⚠️ 一家都没配时**整条路不可用**，而不是「假装发了」——
+      // 后者会让技师在登录页反复点重发，每一次都真的花钱
+      delete process.env['TELNYX_VERIFY_PROFILE_ID'];
+      expect(otpProvider()).toBeNull();
       expect(verifyConfigured()).toBe(false);
+    } finally {
+      for (const k of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_VERIFY_SERVICE_SID',
+                       'TELNYX_API_KEY', 'TELNYX_VERIFY_PROFILE_ID']) {
+        if (before[k] === undefined) delete process.env[k];
+        else process.env[k] = before[k];
+      }
     }
   });
 });

@@ -497,8 +497,10 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: 'ok'
  * 面向的是「四十岁以上、手上有水、店里光线杂」的人：大号输入框、
  * 大按钮、每屏只问一件事（`00` §2、宪法第 11 条）。
  */
-function Login({ t, onStaffSession }: {
+function Login({ t, locale, onStaffSession }: {
   t: ReturnType<typeof makeT>;
+  /** 发验证码短信时一起传给服务端 —— 他还没登录，语言只能从这里知道 */
+  locale: Locale;
   onStaffSession: (s: IssuedSession) => void;
 }) {
   const [way, setWay] = useState<'code' | 'phone' | 'email'>('code');
@@ -585,7 +587,7 @@ function Login({ t, onStaffSession }: {
               <button className="btn btn-primary btn-block" disabled={busy || e164().length < 9}
                       style={{ minHeight: 'var(--tap-lg)' }}
                       onClick={() => void guard(async () => {
-                        await phoneStart(e164()); setSent(true);
+                        await phoneStart(e164(), locale); setSent(true);
                       })}>
                 {busy ? <span className="spin" /> : '给我发验证码'}
               </button>
@@ -608,7 +610,7 @@ function Login({ t, onStaffSession }: {
                   {busy ? <span className="spin" /> : '进去'}
                 </button>
                 <button className="btn btn-ghost btn-block" disabled={busy}
-                        onClick={() => void guard(async () => { await phoneStart(e164()); })}>
+                        onClick={() => void guard(async () => { await phoneStart(e164(), locale); })}>
                   没收到，重发一条
                 </button>
               </>
@@ -713,7 +715,7 @@ export default function App() {
     <QueryClientProvider client={qc}>
       {identity
         ? <Shell identity={identity} onSignOut={signOut} />
-        : <Login t={makeT(locale)} onStaffSession={(s) => {
+        : <Login t={makeT(locale)} locale={locale} onStaffSession={(s) => {
             setStaffToken(s.token);
             setStaffMeState({
               membershipId: s.membershipId, locationId: s.locationId,

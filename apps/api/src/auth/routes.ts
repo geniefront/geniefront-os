@@ -20,7 +20,7 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { AppError, ERROR_CODES, pickText } from '@gf/contracts';
+import { AppError, ERROR_CODES, pickText, type Locale } from '@gf/contracts';
 import { redeemStaffClaimCode, staffByPhone, withTenant } from '@gf/db';
 import { claimCodeHash } from '../handlers/staff';
 import { issueStaffSession, staffContextFromToken, STAFF_TOKEN_HEADER } from './staffSession';
@@ -51,6 +51,10 @@ function limit(key: string, max: number, windowMs: number): void {
 
 /** E.164。前端已经拼过一次国号，这里再挡一道 —— 拼错的号码是要花钱发出去的 */
 const E164 = /^\+[1-9]\d{7,14}$/;
+
+const LOCALES = ['en', 'zh-Hans', 'zh-Hant', 'ko', 'vi', 'es'] as const;
+const asLocale = (v: unknown): Locale | undefined =>
+  (LOCALES as readonly string[]).includes(v as string) ? (v as Locale) : undefined;
 
 export function registerAuthRoutes(app: FastifyInstance): void {
 
@@ -88,7 +92,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   });
 
   // ── ② 发验证码 ───────────────────────────────────────────────────────────
-  app.post<{ Body: { phone?: string } }>('/v1/auth/phone/start', async (req) => {
+  app.post<{ Body: { phone?: string; locale?: string } }>('/v1/auth/phone/start', async (req) => {
     const phone = (req.body?.phone ?? '').trim();
     if (!E164.test(phone)) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'phone_format' } });
@@ -116,7 +120,14 @@ export function registerAuthRoutes(app: FastifyInstance): void {
      * 「这个人是不是在这家店上班」。
      */
     if (found.length > 0) {
-      await sendPhoneCode(phone);
+      /**
+       * ⭐ 短信用**他手机上那个界面的语言**发。
+       *
+       * 他还没登录，所以语言只能由客户端告诉我们 —— 这是这条链路上
+       * 唯一一处「听客户端的」，而它的最坏后果只是收到一条英文短信。
+       * 越南语技师收到越南语的验证码，这件事值得为它多传一个字段。
+       */
+      await sendPhoneCode(phone, asLocale(req.body?.locale));
     } else {
       req.log.info({ phone }, 'phone otp requested for unknown number');
     }

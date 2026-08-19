@@ -88,9 +88,14 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 export const claimByCode = (code: string, deviceLabel?: string): Promise<IssuedSession> =>
   post('/v1/auth/staff/claim-code', { code, deviceLabel });
 
-/** ② 手机验证码：发码 */
-export const phoneStart = (phone: string): Promise<{ ok: boolean }> =>
-  post('/v1/auth/phone/start', { phone });
+/**
+ * ② 手机验证码：发码。
+ *
+ * ⭐ 把当前界面语言一起传过去 —— 他还没登录，我们只能从这里知道
+ * 他看得懂哪种语言。越南语技师收到越南语的验证码短信。
+ */
+export const phoneStart = (phone: string, locale?: string): Promise<{ ok: boolean }> =>
+  post('/v1/auth/phone/start', { phone, locale });
 
 /**
  * ② 手机验证码：验码换会话。
