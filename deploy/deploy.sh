@@ -30,8 +30,24 @@ DENY='^(SUPABASE_SERVICE_ROLE_KEY|MIGRATION_DATABASE_URL|APP_DB_PASSWORD|DEEPSEE
 PROD_ENV="$(mktemp)"
 trap 'rm -f "$PROD_ENV"' EXIT
 grep -E '^[A-Z][A-Z0-9_]*=' .env | grep -vE "$DENY" > "$PROD_ENV"
-sed -i '' 's|^NODE_ENV=.*|NODE_ENV=production|; s|^APP_URL=.*|APP_URL=https://api.geniefront.com|; s|^LOG_LEVEL=.*|LOG_LEVEL=info|' "$PROD_ENV" 2>/dev/null \
-  || sed -i 's|^NODE_ENV=.*|NODE_ENV=production|; s|^APP_URL=.*|APP_URL=https://api.geniefront.com|; s|^LOG_LEVEL=.*|LOG_LEVEL=info|' "$PROD_ENV"
+#
+# ⚠️ **APP_BASE_URL 必须一起改。**
+#
+# 本地它是 http://localhost:5173（前台 dev server）。不改就上生产的后果
+# 不是「有个地址不好看」——它是**激活邮件里那个链接的域名**（sql/0030、docs/12）：
+# 老板付完钱收到信，点进去落在他自己电脑的 localhost，什么都没有。
+# Stripe 付款完的回跳（safeReturnUrls）也一样。
+# 这两条都只在真实客户身上才会暴露，而那时候钱已经收了。
+REWRITE='s|^NODE_ENV=.*|NODE_ENV=production|; s|^APP_URL=.*|APP_URL=https://api.geniefront.com|; s|^APP_BASE_URL=.*|APP_BASE_URL=https://desk.geniefront.com|; s|^LOG_LEVEL=.*|LOG_LEVEL=info|'
+sed -i '' "$REWRITE" "$PROD_ENV" 2>/dev/null || sed -i "$REWRITE" "$PROD_ENV"
+
+# 防呆：改漏了就别部署。localhost 上了生产是「看起来一切正常但客户进不来」那一类，
+# 而这一类只能靠在这里当场拦下
+if grep -qE '^(APP_URL|APP_BASE_URL)=.*(localhost|127\.0\.0\.1)' "$PROD_ENV"; then
+  echo "${R}✗ 生产 .env 里还有 localhost 地址（APP_URL / APP_BASE_URL），中止${N}"
+  grep -E '^(APP_URL|APP_BASE_URL)=' "$PROD_ENV" | sed 's/^/    /'
+  exit 1
+fi
 
 # 防呆：黑名单漏了就别部署
 if grep -qE "$DENY" "$PROD_ENV"; then

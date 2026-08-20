@@ -132,6 +132,35 @@ Telnyx 名下的 10DLC 还在排队，而排队期间验证码会被运营商**�
    是有意的代价（轮询 10 秒兜底）—— 服务端一旦持有 Supabase 的签名密钥，
    爆炸半径是另一个量级（`auth.ts` 开头那段说明）
 
+### 🔴 0c. 前端**根本没有部署路径**（2026-08-20 发现）
+
+`deploy/` 里只有 API 那一套（Docker + Caddy + compose）。**desk / staff / kiosk
+三个前端一个部署配置都没有**，而且：
+
+```bash
+dig +short desk.geniefront.com    # 空 —— 域名不解析
+dig +short staff.geniefront.com   # 空
+dig +short api.geniefront.com     # 有（VPS 那两台）
+```
+
+⚠️ **这是自助开户链路当前的第一阻塞**：老板付完钱收到的激活邮件，
+链接指向 `https://desk.geniefront.com/activate` —— 一个还不存在的域名。
+整条链路在生产环境是断的，而在本地一切正常。
+
+要做的（顺序不能反）：
+
+1. 三个 Vite 应用建站点（Cloudflare Pages 或同一台 VPS 由 Caddy 托静态文件）
+   ⚠️ **构建时要注入** `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `VITE_API_BASE`
+   —— 它们是 `vite.config.ts` 里的 `define`，不是运行时读的
+2. DNS：`desk` / `staff` / `kiosk` 三条
+3. Supabase → Redirect URLs 里那条 `https://desk.geniefront.com/activate`
+   在域名真的能解析之后才有意义
+
+✅ **顺手修掉的一个同类问题**（2026-08-20）：`deploy.sh` 生成生产 `.env` 时
+只改了 `APP_URL`，**没改 `APP_BASE_URL`** —— 也就是说生产环境里那个值
+一直是 `http://localhost:5173`，而它正是激活邮件和 Stripe 回跳用的域名。
+现在一起改，并且加了防呆：生产 `.env` 里还留着 localhost 就直接中止部署。
+
 ### ⭐ A. Stripe：**代码全完，剩下三件要人去 Dashboard 做的**
 
 代码这一侧已经接完并跑通（`billing.test.ts` 27 项 + `stripe/verify.test.ts` 19 项），
