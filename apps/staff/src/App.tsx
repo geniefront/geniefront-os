@@ -113,9 +113,20 @@ function Shell({ identity, onSignOut }: { identity: Identity; onSignOut: () => v
      * ⚠️ **上机会话没有实时推送**（Supabase Realtime 的私有频道认的是
      * Supabase 的 JWT，而上机会话签不出那个东西），所以那种身份下
      * 这条轮询就是**唯一**通道 —— 拉到 10 秒。
-     * 派单响铃因此会慢几秒，界面上那个「○ 实时未连接」如实显示。
      */
     refetchInterval: identity.kind === 'staff' ? 10_000 : 60_000,
+    /**
+     * ⭐ 页面不在前台时**也要继续拉**（只对上机会话）。
+     *
+     * React Query 默认在 `document.hidden` 时暂停轮询 —— 对有长连接的人
+     * 这没问题（WebSocket 还在，回到前台还有 visibilitychange 对齐）。
+     * 但对上机会话，轮询**就是唯一那条通道**：暂停 = 技师切出去看一眼微信
+     * 再回来之前，店里发生的一切他都不知道，而他手机上什么都不会响。
+     *
+     * ⚠️ 手机系统仍然可能挂起定时器（锁屏尤其），所以这条不能替代
+     * 下面那个 visibilitychange 对齐 —— 两条一起才覆盖得住。
+     */
+    refetchIntervalInBackground: identity.kind === 'staff',
   });
 
   /**
@@ -175,6 +186,30 @@ function Shell({ identity, onSignOut }: { identity: Identity; onSignOut: () => v
     });
     return handle.close;
   }, [picked?.locationId, picked?.membershipId, myName, session?.access_token, refresh]);
+
+  /**
+   * ⭐ 上机会话的响铃：**从轮询结果里认出「这是一单新派给我的」**。
+   *
+   * 有长连接的人靠 `ticket.assigned` 事件响铃（上面那段）。上机会话收不到
+   * 事件 —— 不补这一段的话，新单会**悄无声息**地出现在屏幕上，
+   * 而技师正低头做着上一单，根本不会发现。
+   *
+   * 判定只用一个事实：`next` 那一单的 id 变成了一个没见过的。
+   * 不比对列表长度 —— 做完一单之后长度也会变，那会响一次假的。
+   */
+  const knownNextId = useRef<string | null>(null);
+  const nextId = todayQ.data?.next?.ticketItemId ?? null;
+  useEffect(() => {
+    if (identity.kind !== 'staff') return;
+    const first = knownNextId.current === null && nextId !== null;
+    const changed = nextId !== null && knownNextId.current !== null && nextId !== knownNextId.current;
+    knownNextId.current = nextId;
+    // ⚠️ 第一次拿到数据不响 —— 那是他刚打开 app，不是刚被派了单
+    if (first || !changed) return;
+    alertAssigned();
+    setFlash(true);
+    setTimeout(() => setFlash(false), 3000);
+  }, [nextId, identity.kind]);
 
   /**
    * ⭐ 锁屏唤醒后的静默增量对齐（`00` §2、`01` §6）。
