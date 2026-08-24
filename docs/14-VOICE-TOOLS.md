@@ -143,7 +143,7 @@ const PHONE_AI_PERMISSIONS = [
 | 字段 | 作用 |
 |---|---|
 | `guidance` | 把「AI 该怎么办」写进**返回值**，不藏在 system prompt 里。返回里的指令比提示词里的可靠得多，且能随数据变化（例：同号多客户时才出现「请问清是哪一位」） |
-| `say` | 需要 AI **原样念出**的句子由服务端给定。不这么做模型会把「已记下，前台稍后回电」说成「已经帮您约好了」 |
+| `say` | 需要 AI **原样念出**的句子由服务端给定。不这么做模型会把「已记下，前台稍后回电」说成「已经帮您约好了」。⭐ **一律写英文**（2026-08-23 店主实测后定的）：`say` 和 `guidance` 里出现中文，英文客人那头就只能听模型现编。别的语言由模型照实翻，**确认码、日期、时间、人名原样保留**（instructions 里写死了）|
 
 ### 钱一律整数分
 
@@ -170,9 +170,9 @@ POST /v1/telnyx/tools/start_call
   "shop": { "locationId": "…", "name": "Lotus Nails & Spa", "timezone": "America/New_York" },
   "businessDate": "2026-08-23",
   "businessHours": { "mon": { "open": "09:30", "close": "19:30" }, "…": null },
-  "guidance": "这是这通电话的全部背景……⚠️ 但**时间必须调 find_slots**……",
+  "guidance": "Everything here is background for this call… When they ask what you offer, NAME a few services only — no prices and no durations… ⚠️ There are NO appointment times here on purpose…",
   "caller": {
-    "guidance": "这个号码下有多位客人，请在电话里问清是哪一位，不要替客人选。",
+    "guidance": "More than one customer is on this number. Ask who is speaking…",
     "customers": [ { "customerId": "…", "displayName": "李美玲",
                      "lastVisitOn": "2026-08-17", "lastService": "光疗甲" } ]
   },
@@ -236,7 +236,7 @@ POST /v1/telnyx/tools/lookup_customer
 
 ```jsonc
 {
-  "guidance": "这个号码下有多位客人，请在电话里问清是哪一位，不要替客人选。",  // 仅 >1 条时出现
+  "guidance": "More than one customer is on this number. Ask who is speaking…",  // 仅 >1 条时出现
   "customers": [
     { "customerId": "...", "displayName": "李美玲",
       "lastVisitOn": "2026-08-17", "lastService": "光疗甲" }
@@ -265,7 +265,7 @@ POST /v1/telnyx/tools/list_services
 
 ```jsonc
 {
-  "guidance": "只报下面列出的项目、时长和价格。不要自己推算折扣或套餐价；客人要求优惠时说「这个我得请前台看一下，稍后回电给您」。addons 里的是**加项**：只能加在主项目上，不能单独预约，报价时说「加 $X」而不是「$X 一次」。",
+  "guidance": "Name the services when asked what you offer — no prices or durations until the caller has picked one and said how long… Items in `addons` are ADD-ONS: they go on top of a main service and cannot be booked alone, so say \"plus $15\"…",
   "currency": "USD",
   "services": [
     { "serviceId": "...", "name": "Deep Tissue 60min", "description": null,
@@ -318,7 +318,7 @@ POST /v1/telnyx/tools/list_staff
 
 ```jsonc
 {
-  "guidance": "只在客人主动问起时提技师性别。不要念技师的电话或全名。客人指定的技师当天不在时，说清哪天在，或推荐同样擅长该项目的人。",
+  "guidance": "Mention a therapist's gender only if the caller raises it. Never read out a therapist's phone number or full name…",
   "therapists": [
     { "membershipId": "...", "displayName": "Yan", "gender": null,
       "skills": [], "onShift": false }
@@ -365,7 +365,7 @@ POST /v1/telnyx/tools/find_slots
     { "serviceId": "...", "name": "Gel Removal", "durationMin": 15,
       "priceCents": 1000, "isAddon": true }
   ],
-  "guidance": "只能从下面这些时间里选，不要自己推算别的时间。",
+  "guidance": "Offer only the times below. Never work out a time of your own.",
   "slots": [ { "startsAt": "2026-08-21T19:00:00.000Z",
                "staff": [ { "membershipId": "...", "name": "Mai" } ] } ]
 }
@@ -390,7 +390,7 @@ POST /v1/telnyx/tools/find_slots
 ```jsonc
 {
   "slots": [],
-  "guidance": "客人要的这一天没有空档。alternatives 里是**往后几天**的时间 —— 报之前必须先说明「那天已经满了」，再问「换 X 号可以吗」。绝对不要把它们当成客人要的那一天报出去。",
+  "guidance": "The day they asked for is full. The times in `alternatives` are on OTHER DAYS — say that day is full first, then offer the other day BY NAME…",
   "alternatives": [
     { "businessDate": "2026-08-25",
       "slots": [ { "startsAt": "2026-08-25T13:30:00.000Z", "staff": "Amy / Mai" } ] }
@@ -458,7 +458,7 @@ POST /v1/telnyx/tools/book_appointment
   "durationMin": 60,
   "services": [ { "name": "Gel Manicure", "isAddon": false },
                 { "name": "Gel Removal", "isAddon": true } ],
-  "say": "好的，已经帮您订好了。确认码是 G F - 4 K 2 P，短信马上发到您这个号码上。到时候见！"
+  "say": "You're all set. Your confirmation code is G F - 4 K 2 P. We'll text it to this number. See you then!"
 }
 ```
 
@@ -473,8 +473,8 @@ POST /v1/telnyx/tools/book_appointment
 {
   "ok": false,
   "missing": ["slot_starts_at", "caller_name"],
-  "say": "不好意思，还差一点信息我这边订不了。我记下来让前台马上给您回电，好吗？",
-  "guidance": "不要重试 book_appointment。改调 request_callback 把已知信息留给前台。"
+  "say": "I'm sorry, I'm missing something I need to book this. Let me take your details and have the front desk call you right back.",
+  "guidance": "Do not retry book_appointment. Call request_callback with whatever you already know."
 }
 ```
 
@@ -486,8 +486,8 @@ POST /v1/telnyx/tools/book_appointment
 {
   "ok": false,
   "error": "RESOURCE_CONFLICT",
-  "say": "不好意思，这个时间刚刚被订走了。我再帮您看看别的时间？",
-  "guidance": "重新调 find_slots 拿新的时间，再调一次 book_appointment。"
+  "say": "I'm sorry, that time was just taken. Let me find you another one.",
+  "guidance": "Call find_slots again for a fresh time, then book_appointment."
 }
 ```
 
@@ -525,7 +525,7 @@ POST /v1/telnyx/tools/draft_appointment   （旧名，等价）
 {
   "ok": true,
   "draftId": "...",
-  "say": "好的，我已经记下来了。前台确认之后会给您回电，通常几分钟内。"
+  "say": "I've taken that down. The front desk will call you back to confirm — usually within a few minutes."
 }
 ```
 

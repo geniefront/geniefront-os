@@ -267,7 +267,10 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
     return {
       // AI 拿到 >1 条时必须开口问，这句话直接写在返回里，比藏在 prompt 里可靠
       ...(rows.length > 1
-        ? { guidance: '这个号码下有多位客人，请在电话里问清是哪一位，不要替客人选。' }
+        ? {
+            guidance: 'More than one customer is on this number. Ask who is speaking — '
+              + 'never pick one for them.',
+          }
         : {}),
       customers: rows.map((r) => ({
         customerId: r.id,
@@ -396,16 +399,22 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
        * 写在返回里而不是 prompt 里的理由没变：它跟着数据一起到，
        * 而且能随数据变化（同号多客户那句只在真有多位时出现）。
        */
-      guidance: '这是这通电话的全部背景，下面列出来的东西可以直接说给客人听。'
-        + '⚠️ 但**时间必须调 find_slots**：空档会在通话过程中被前台或官网订走，'
-        + '这里没有、也不该有任何时段。'
-        + '只报下面列出的项目、时长和价格，不要自己推算折扣或套餐价；'
-        + '客人要求优惠时说「这个我得请前台看一下，稍后回电给您」。'
+      guidance: 'Everything here is background for this call and can be said to the caller. '
+        // ⭐ 店主 2026-08-23 实测后的要求：一上来别报价目表。
+        // 「有什么按摩」→ 先说有哪几样，等客人挑了、说了想做多久，再报那一个的价
+        + 'When they ask what you offer, NAME a few services only — no prices and no durations. '
+        + 'Then ask which one they want and how long, and quote the price for that one choice. '
+        + 'Do not read the list out like a menu. '
+        + 'Quote only what is listed here; never invent discounts or package prices — '
+        + 'if they push for a deal, say the front desk will look at it and call them back. '
         + (price.addons.length > 0
-          ? 'addons 里的是**加项**：只能加在主项目上，不能单独预约，'
-            + '报价时说「加 $X」而不是「$X 一次」。'
+          ? 'Items in `addons` are ADD-ONS: they go on top of a main service and cannot be '
+            + 'booked alone, so say "plus $15", never "$15 for a session". '
           : '')
-        + '只在客人主动问起时提技师性别。不要念技师的电话或全名。',
+        + 'Mention a therapist\'s gender only if the caller raises it, and never read out a '
+        + 'therapist\'s phone number or full name. '
+        + '⚠️ There are NO appointment times here on purpose — open slots get taken during the '
+        + 'call. Every time you say out loud must come from find_slots.',
       /** 来电号码下的客人。空数组 = 新客 */
       caller: callers,
       currency: 'USD',
@@ -582,7 +591,10 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
       draftId: out.result.draftId,
       // AI 要在电话里说的那句话 —— 措辞在这里定死，
       // 否则模型会说成「已经帮您约好了」，而它其实只是放进了待办
-      say: '好的，我已经记下来了。前台确认之后会给您回电，通常几分钟内。',
+      say: "I've taken that down. The front desk will call you back to confirm — "
+        + 'usually within a few minutes.',
+      guidance: 'This did NOT create an appointment. Say the front desk will call back; '
+        + 'never say it is booked.',
     };
   };
 
@@ -605,11 +617,13 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
        * 报价话术写死在返回里而不是 prompt 里 —— 模型很容易顺着客人
        * 「能便宜点吗」往下接，而折扣不是它能决定的事。
        */
-      guidance: '只报下面列出的项目、时长和价格。不要自己推算折扣或套餐价；'
-        + '客人要求优惠时说「这个我得请前台看一下，稍后回电给您」。'
+      guidance: 'Name the services when asked what you offer — no prices or durations until '
+        + 'the caller has picked one and said how long. Quote only what is listed here; '
+        + 'never invent discounts or package prices — if they push for a deal, say the front '
+        + 'desk will look at it and call them back. '
         + (addons.length > 0
-          ? 'addons 里的是**加项**：只能加在主项目上，不能单独预约，'
-            + '报价时说「加 $X」而不是「$X 一次」。'
+          ? 'Items in `addons` are ADD-ONS: they go on top of a main service and cannot be '
+            + 'booked alone, so say "plus $15", never "$15 for a session".'
           : ''),
       /** ⚠️ 价格是整数分（宪法第 4 条）。AI 自己格式化成 $45.00 */
       currency: 'USD',
@@ -637,8 +651,9 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
        * 「要女技师」在这一行是真实且高频的诉求，所以字段存在；
        * 但没被问到时提起技师性别，在部分司法辖区是有风险的。
        */
-      guidance: '只在客人主动问起时提技师性别。不要念技师的电话或全名。'
-        + '客人指定的技师当天不在时，说清哪天在，或推荐同样擅长该项目的人。',
+      guidance: 'Mention a therapist\'s gender only if the caller raises it. Never read out a '
+        + 'therapist\'s phone number or full name. If the person they asked for is not in that '
+        + 'day, say which day they are in, or offer someone else who does that service.',
       therapists,
     };
   });
@@ -688,11 +703,13 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
         ok: false,
         missing,
         say: addonOnly
-          ? `${addons[0]!.name} 是加在项目上的，请问主项目您想做什么？`
-          : '不好意思，还差一点信息我这边订不了。我记下来让前台马上给您回电，好吗？',
+          ? `${addons[0]!.name} goes on top of another service — what would you like to have done?`
+          : "I'm sorry, I'm missing something I need to book this. Let me take your details and "
+            + 'have the front desk call you right back.',
         guidance: addonOnly
-          ? '客人只说了加项。问清主项目，再调一次 find_slots 和 book_appointment。'
-          : '不要重试 book_appointment。改调 request_callback 把已知信息留给前台。',
+          ? 'They named only an add-on. Ask which main service they want, then call find_slots '
+            + 'and book_appointment again.'
+          : 'Do not retry book_appointment. Call request_callback with whatever you already know.',
       };
     }
 
@@ -720,8 +737,9 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
       return {
         ok: false,
         error: 'RESOURCE_CONFLICT',
-        say: `不好意思，这个时间凑不齐 ${partySize} 位技师了。我再帮您看看别的时间？`,
-        guidance: '重新调 find_slots（带上 party_size）拿新的时间，再调一次 book_appointment。',
+        say: `I'm sorry — we no longer have ${partySize} therapists free at that time. `
+          + 'Let me find you another time.',
+        guidance: 'Call find_slots again (with party_size), then book_appointment with the new time.',
       };
     }
 
@@ -814,8 +832,9 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
         durationMin: totalMin,
         services: matched.map((m) => ({ name: m.name, isAddon: m.isAddon })),
         // AI 要照念的话。措辞在服务端定死，否则模型会把确认码念漏
-        say: `好的，已经帮您订好了。确认码是 ${code.split('').join(' ')}，`
-          + '短信马上发到您这个号码上。到时候见！',
+        // ⚠️ 确认码逐字念（`G F - 4 K 2 P`）—— 连读的话客人记不下来
+        say: `You're all set. Your confirmation code is ${code.split('').join(' ')}. `
+          + "We'll text it to this number. See you then!",
       };
     } catch (e) {
       /*
@@ -829,11 +848,12 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
         ok: false,
         error: code,
         say: taken
-          ? '不好意思，这个时间刚刚被订走了。我再帮您看看别的时间？'
-          : '不好意思，系统这边出了点问题。我让前台马上给您回电，好吗？',
+          ? "I'm sorry, that time was just taken. Let me find you another one."
+          : "I'm sorry, something went wrong on our end. Let me have the front desk call you "
+            + 'right back.',
         guidance: taken
-          ? '重新调 find_slots 拿新的时间，再调一次 book_appointment。'
-          : '改调 request_callback，不要重试 book_appointment。',
+          ? 'Call find_slots again for a fresh time, then book_appointment.'
+          : 'Call request_callback. Do not retry book_appointment.',
       };
     }
   });
@@ -857,8 +877,17 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
     }
 
     // 只认挂机事件。别的事件（answered / speak.ended…）照常 200，
-    // 不然 Telnyx 会认为投递失败并一直重试
-    if (eventType !== 'call.hangup') return { ok: true, ignored: eventType };
+    // 不然 Telnyx 会认为投递失败并一直重试。
+    //
+    // ⚠️ 但要**记一行日志**：2026-08-23 第一通真实电话之后 `phone_calls`
+    // 是空的，而 webhook 明明收到了两条 —— 分不清是「Telnyx 把 call.hangup
+    // 发去了别处」还是「我们把它当成别的事件忽略了」。不记的话下一通电话
+    // 还是查不出来。
+    if (eventType !== 'call.hangup') {
+      req.log.info({ eventType, callId: str(payload['call_session_id']) },
+        'telnyx webhook ignored');
+      return { ok: true, ignored: eventType };
+    }
 
     const t = await tenantForNumber(str(payload['to']));
     const ctx = systemContext(t);
@@ -1043,26 +1072,31 @@ function slotsGuidance(args: {
   const parts: string[] = [];
 
   if (args.hasSlots) {
-    parts.push('只能从下面这些时间里选，不要自己推算别的时间。');
+    parts.push('Offer only the times below. Never work out a time of your own. ');
     if (args.partySize > 1) {
-      parts.push(`下面每个时间都已经确认有 ${args.partySize} 位技师同时有空。`);
+      parts.push(`Each time below already has ${args.partySize} therapists free at once. `);
     }
   } else if (args.alternatives.length > 0) {
     parts.push(
-      '客人要的这一天没有空档。alternatives 里是**往后几天**的时间 ——'
-      + '报之前必须先说明「那天已经满了」，再问「换 X 号可以吗」。'
-      + '绝对不要把它们当成客人要的那一天报出去。');
+      'The day they asked for is full. The times in `alternatives` are on OTHER DAYS — '
+      + 'say that day is full first, then offer the other day BY NAME '
+      + '("we are full Saturday, would Wednesday the 26th work?"). '
+      + 'Never read an alternative as if it were the day they wanted. ');
   } else {
-    parts.push('这一天没有空档。请告诉客人换一天，或者转前台。不要自己另报时间。');
+    parts.push(
+      'Nothing is open that day. Ask them to try another day, or offer to have the front desk '
+      + 'call them back. Do not offer a time of your own. ');
     if (args.genderPreference) {
-      parts.push('（这一天在班的技师里没有符合客人性别要求的，别改成推荐别人。）');
+      parts.push(
+        '(No therapist of the gender they asked for is working that day — say so; '
+        + 'do not quietly offer someone else instead.) ');
     }
   }
 
   if (args.unmatched.length > 0) {
     parts.push(
-      `「${args.unmatched.join('」「')}」没在项目表里找到，时长是估的。`
-      + '请先调 list_services 跟客人核对项目名，再报时间。');
+      `"${args.unmatched.join('", "')}" is not on the service list, so the duration is a guess. `
+      + 'Check the service name with the caller before you offer any time.');
   }
   return parts.join('');
 }

@@ -324,7 +324,7 @@ describe('tool：查空档', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.slots.length).toBeGreaterThan(0);
-    expect(body.guidance).toMatch(/不要自己推算/);
+    expect(body.guidance).toMatch(/Offer only the times below/);
     // 每个空档都必须带具体是谁有空 —— 「有空」而说不出是谁，前台没法派单
     for (const s of body.slots) expect(s.staff.length).toBeGreaterThan(0);
   });
@@ -454,6 +454,31 @@ describe('tool：接通那一下（start_call）', () => {
     expect(body.guidance).toMatch(/find_slots/);
   });
 
+  it('⭐ 给 AI 的话术全是英文 —— 中文写死在服务端，英文客人那头就只能听它现编', async () => {
+    /*
+     * 2026-08-23 第一通真实电话之后店主提的：接口里不要中文。
+     * `say` 是要 AI **照念**的句子，`guidance` 是给模型的指令 ——
+     * 两样都用英文，多语言由模型按客人说的语言翻（instructions 里写了，
+     * 确认码/日期/时间原样保留）。
+     */
+    const body = await start();
+    const chinese = /[\u4e00-\u9fff]/;
+    expect(body.guidance).not.toMatch(chinese);
+    expect(body.caller.guidance ?? '').not.toMatch(chinese);
+
+    for (const [url, payload] of [
+      ['/v1/telnyx/tools/find_slots', { to: AI_LINE }],
+      ['/v1/telnyx/tools/list_services', { to: AI_LINE }],
+      ['/v1/telnyx/tools/list_staff', { to: AI_LINE }],
+      ['/v1/telnyx/tools/request_callback',
+       { to: AI_LINE, from: '+15125551234', call_session_id: `zh-${randomUUID()}` }],
+    ] as const) {
+      const j = (await telnyxCall(url, payload)).json();
+      expect(j.guidance ?? '', url).not.toMatch(chinese);
+      expect(j.say ?? '', url).not.toMatch(chinese);
+    }
+  });
+
   it('技师的技能是人话，不是一坨多语言 jsonb', async () => {
     // 不转的话 AI 拿到的是 {"en":"Gel","zh-Hans":"甲油胶"} —— 它会照着念出来
     const body = await start();
@@ -466,7 +491,7 @@ describe('tool：接通那一下（start_call）', () => {
     // 种子里 +19175550188 下面挂着张先生和张女士（决策 21）
     const body = await start({ from: '+19175550188' });
     expect(body.caller.customers.length).toBeGreaterThan(1);
-    expect(body.caller.guidance).toMatch(/哪一位/);
+    expect(body.caller.guidance).toMatch(/who is speaking/);
   });
 
   it('和单独调那三个工具给的是同一份东西', async () => {
@@ -492,7 +517,7 @@ describe('tool：报项目（加项要分得出来）', () => {
     expect(body.addons.every((x: { isAddon: boolean }) => x.isAddon)).toBe(true);
     // 种子里美甲店有卸甲/彩绘/石蜡三个加项
     expect(body.addons.length).toBeGreaterThan(0);
-    expect(body.guidance).toMatch(/加项/);
+    expect(body.guidance).toMatch(/ADD-ONS/);
   });
 });
 
@@ -523,7 +548,7 @@ describe('tool：查空档（补齐的四个入参）', () => {
       around: noonAt(DAY_OPEN),
       services: ['那个什么来着，弄脚的那个'],
     });
-    expect(body.guidance).toMatch(/没在项目表里找到/);
+    expect(body.guidance).toMatch(/not on the service list/);
     expect(body.durationMin).toBe(45);   // 退回默认值，而不是 0 或 NaN
   });
 
@@ -553,7 +578,7 @@ describe('tool：查空档（补齐的四个入参）', () => {
     expect(body.partySize).toBe(2);
     expect(body.slots.length).toBeGreaterThan(0);
     for (const s of body.slots) expect(s.staff.length).toBeGreaterThanOrEqual(2);
-    expect(body.guidance).toMatch(/2 位技师/);
+    expect(body.guidance).toMatch(/2 therapists free at once/);
   });
 
   it('同行人数比在班技师还多 → 明说没有，不硬报一个时间', async () => {
@@ -569,7 +594,7 @@ describe('tool：查空档（补齐的四个入参）', () => {
     expect(body.alternatives.map((a: { businessDate: string }) => a.businessDate))
       .toContain(DAY_LATER);
     // 这句话是这条路的全部意义：不写明的话，客人会照着他要的那天来
-    expect(body.guidance).toMatch(/往后几天|改期|那天已经满了/);
+    expect(body.guidance).toMatch(/OTHER DAYS/);
     // 改期建议**不能**混进 slots —— 混进去就等于报了一个客人没要的日子
     expect(body.slots).not.toContainEqual(expect.objectContaining({ startsAt: expect.anything() }));
   });
@@ -602,7 +627,7 @@ describe('tool：真建预约', () => {
     expect(body.ok).toBe(false);
     expect(body.missing).toContain('service');
     // 「不好意思，信息不全」在电话里是死路 —— 客人不知道该补什么
-    expect(body.say).toMatch(/主项目/);
+    expect(body.say).toMatch(/goes on top of another service/);
   });
 
   it('⭐ 幂等重放：同一个 call id 不多建单，念的确认码也不变', async () => {
@@ -747,8 +772,8 @@ describe('tool：放进复核队列', () => {
       service_heard: 'manicure',
     });
     // 模型会倾向于说「已经帮您约好了」，而它其实只是放进了待办
-    expect(res.json().say).toMatch(/前台确认/);
-    expect(res.json().say).not.toMatch(/约好|预约成功/);
+    expect(res.json().say).toMatch(/front desk will call you back/);
+    expect(res.json().say).not.toMatch(/booked|all set/i);
   });
 
   it('听不出的项目名留空，但原话一定留着', async () => {
