@@ -111,6 +111,21 @@ export const phoneCalls = pgTable('phone_calls', {
   durationSeconds: integer('duration_seconds'),
   /** completed | no_answer | transferred_to_human | failed */
   outcome: text('outcome'),
+  /** ⭐ Telnyx AI conversation id（sql/0037）。对账任务靠它幂等 */
+  conversationId: text('conversation_id'),
+  /**
+   * ⭐ 逐句转录 `[{role,text,at}]`。
+   *
+   * 前台「来电复核」屏要能直接看到 AI 到底答应了客人什么 ——
+   * 那是 AI 说错话之后唯一的证据。⚠️ 里面有客人的个人信息，
+   * 跟着 phone_calls 的 org 隔离走，不该进任何跨租户统计。
+   */
+  transcript: jsonb('transcript'),
+  /** 这通电话调过哪些工具。一眼看出「查完就挂」还是「真订了单」 */
+  toolsUsed: text('tools_used').array(),
+  /** 录音 URL（Telnyx 侧开了才有）。⚠️ 加州 two-party consent，见 docs/09 §4.4 */
+  recordingUrl: text('recording_url'),
+  summary: text('summary'),
   createdAt: createdAt(),
 }, (t) => [
   uniqueIndex('phone_calls_provider_key').on(t.providerCallId),

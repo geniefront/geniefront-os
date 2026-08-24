@@ -382,6 +382,21 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
         select business_hours as hours, business_day_cutoff::text as cutoff
         from locations where id = ${t.locationId}`);
 
+    /*
+     * ⭐ 转人工的号（`phone_lines.purpose = 'transfer_target'`，docs/09 §2）。
+     *
+     * 店家在「开店配置 → 电话」里填的那个号 —— 多数时候是老板的手机。
+     * 没填就是 `available: false`：**这时候不许说「我帮您转接」**，
+     * 而要说「我让前台回电给您」（走 request_callback）。
+     * 说了转接却转不过去，客人听到的是一声忙音，然后这通电话就没了。
+     */
+    const [transferLine] = await withTenant(
+      { orgId: t.orgId, locationId: t.locationId, membershipId: null },
+      (tx) => tx<{ e164: string }[]>`
+        select e164 from phone_lines
+        where location_id = ${t.locationId} and purpose = 'transfer_target' and active
+        limit 1`);
+
     const businessDate = businessDateOf(new Date(), t.timezone, loc?.cutoff ?? '04:00');
     const [callers, price, staff] = await Promise.all([
       loadCallers(t, str(body['from'])),
@@ -413,6 +428,12 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
           : '')
         + 'Mention a therapist\'s gender only if the caller raises it, and never read out a '
         + 'therapist\'s phone number or full name. '
+        + (transferLine?.e164
+          ? 'If they ask for a person, or you cannot help, you may transfer the call. '
+          : 'There is no human line to transfer to — never say you will transfer. '
+            + 'Offer a call back from the front desk instead (request_callback). ')
+        + 'When the caller is done and has nothing else to ask, say goodbye and hang up — '
+        + 'do not sit on an open line. '
         + '⚠️ There are NO appointment times here on purpose — open slots get taken during the '
         + 'call. Every time you say out loud must come from find_slots.',
       /** 来电号码下的客人。空数组 = 新客 */
@@ -423,6 +444,17 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
       addons: price.addons,
       /** ⚠️ 只有显示名、性别、技能、今天在不在班 —— 没有手机号和全名 */
       staff,
+      /**
+       * ⭐ 转人工。Telnyx 的 `transfer` 是**内置工具**，号码配在 assistant 上；
+       * 这里返回它是为了让 AI 知道**能不能说「我帮您转接」**。
+       *
+       * `available: false` 时不许提转接 —— 说了转不过去，客人听到的是忙音。
+       * 那种情况走 `request_callback`（前台回电）。
+       */
+      transfer: {
+        available: Boolean(transferLine?.e164),
+        e164: transferLine?.e164 ?? null,
+      },
     };
   });
 
@@ -507,8 +539,11 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
           if (altTop.length > 0) {
             alternatives.push({
               businessDate: alt.businessDate,
+              /** 「换下周三行吗」—— 报得出日子，客人才知道是哪天 */
+              dateLabel: spokenDate(alt.businessDate, alt.timezone),
               slots: altTop.map((x) => ({
                 startsAt: x.startsAt.toISOString(),
+                ...spokenTime(x.startsAt, alt.timezone),
                 staff: x.staff.map((p) => p.name).join(' / '),
               })),
             });
@@ -537,7 +572,10 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
         unmatched,
       }),
       slots: found.top.map((s) => ({
+        /** ⚠️ 建单时原样回传给 `book_appointment`。**不要念它**，它是 UTC */
         startsAt: s.startsAt.toISOString(),
+        /** 念这个（门店当地时间） */
+        ...spokenTime(s.startsAt, found.timezone),
         staff: s.staff,
       })),
       // 有空档时不出现 —— 免得模型从这里挑一个时间报出去
@@ -832,8 +870,13 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
         durationMin: totalMin,
         services: matched.map((m) => ({ name: m.name, isAddon: m.isAddon })),
         // AI 要照念的话。措辞在服务端定死，否则模型会把确认码念漏
-        // ⚠️ 确认码逐字念（`G F - 4 K 2 P`）—— 连读的话客人记不下来
-        say: `You're all set. Your confirmation code is ${code.split('').join(' ')}. `
+        // ⚠️ 两件事写死在这句话里：
+        //   · 确认码逐字念（`G F - 4 K 2 P`）—— 连读的话客人记不下来
+        //   · **时间用门店当地时间复述一遍** —— 这是整通电话里最后一次
+        //     纠正「模型把 UTC 念成本地时间」的机会，而它必须和短信一致
+        say: `You're all set for ${matched[0]?.name ?? 'your appointment'} on `
+          + `${spokenTime(new Date(startsAt!), t.timezone).spokenAt}. `
+          + `Your confirmation code is ${code.split('').join(' ')}. `
           + "We'll text it to this number. See you then!",
       };
     } catch (e) {
@@ -1051,7 +1094,8 @@ interface CatalogItem {
 /** 那天没空档时给的改期建议。**不能**混进 `slots` 里 */
 interface Alternative {
   businessDate: string;
-  slots: Array<{ startsAt: string; staff: string }>;
+  dateLabel: string;
+  slots: Array<{ startsAt: string; label: string; spokenAt: string; staff: string }>;
 }
 
 /**
@@ -1072,16 +1116,23 @@ function slotsGuidance(args: {
   const parts: string[] = [];
 
   if (args.hasSlots) {
-    parts.push('Offer only the times below. Never work out a time of your own. ');
+    parts.push(
+      'Offer only the times below. Never work out a time of your own. '
+      // ⭐ 这一句是 2026-08-24 那通电话换来的：模型把 UTC 的 17:00 念成了 5 PM，
+      // 而那家店在洛杉矶（上午十点）。客人听到的和订下去的差七小时
+      + 'Say the `spokenAt` (or `label`) of a slot — they are already in the salon\'s local '
+      + 'time. NEVER read `startsAt`: it is UTC and will be hours off. '
+      + 'Pass `startsAt` back to book_appointment unchanged. ');
     if (args.partySize > 1) {
       parts.push(`Each time below already has ${args.partySize} therapists free at once. `);
     }
   } else if (args.alternatives.length > 0) {
     parts.push(
       'The day they asked for is full. The times in `alternatives` are on OTHER DAYS — '
-      + 'say that day is full first, then offer the other day BY NAME '
-      + '("we are full Saturday, would Wednesday the 26th work?"). '
-      + 'Never read an alternative as if it were the day they wanted. ');
+      + 'say that day is full first, then offer the other day BY NAME using its `dateLabel` '
+      + '("we are full Saturday — would Wednesday, August 26 work?"). '
+      + 'Never read an alternative as if it were the day they wanted. '
+      + 'Say `spokenAt` / `label`, never `startsAt`. ');
   } else {
     parts.push(
       'Nothing is open that day. Ask them to try another day, or offer to have the front desk '
@@ -1165,6 +1216,37 @@ function normGender(v: string | undefined): string | null {
   if (/\bf\b|female|woman|women|girl|lady|女/.test(s)) return 'female';
   if (/\bm\b|male|man|men|guy|男/.test(s)) return 'male';
   return null;
+}
+
+/**
+ * ⭐ 一个时刻 → 门店墙上时间的**人话**。
+ *
+ * 2026-08-24 第二通真实电话上暴露的问题：`find_slots` 返回的是
+ * `2026-08-26T17:00:00.000Z`（UTC ISO），旁边虽然给了 `timezone`，
+ * 但模型直接把 17:00 念成了 "5 PM" —— 而那家店在洛杉矶，实际是上午十点。
+ * **客人听到的时间和订下去的差七小时**，而短信里是对的，
+ * 所以这个错要到客人下午五点来敲门才会被发现。
+ *
+ * 结论不是「在 prompt 里叮嘱模型换算时区」——
+ * 是**后端根本不该把生的 UTC 丢给它**。这里直接给出可以照念的句子。
+ */
+function spokenTime(at: Date, timezone: string): { label: string; spokenAt: string } {
+  const time = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, hour: 'numeric', minute: '2-digit', hour12: true,
+  }).format(at);
+  const day = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, weekday: 'long', month: 'long', day: 'numeric',
+  }).format(at);
+  return { label: time, spokenAt: `${day} at ${time}` };
+}
+
+/** 营业日（YYYY-MM-DD）→ "Wednesday, August 26"。改期建议要报得出日子 */
+function spokenDate(businessDate: string, timezone: string): string {
+  // 正午作锚点：cutoff 最晚也就凌晨几点，正午永远落在同一个营业日
+  const at = wallMinuteToInstant(businessDate, timezone, 12 * 60);
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, weekday: 'long', month: 'long', day: 'numeric',
+  }).format(at);
 }
 
 /** 门店墙上时间的分钟数，用来把「客人说的时间」排到前面 */

@@ -365,14 +365,31 @@ POST /v1/telnyx/tools/find_slots
     { "serviceId": "...", "name": "Gel Removal", "durationMin": 15,
       "priceCents": 1000, "isAddon": true }
   ],
-  "guidance": "Offer only the times below. Never work out a time of your own.",
-  "slots": [ { "startsAt": "2026-08-21T19:00:00.000Z",
+  "guidance": "Offer only the times below… Say the `spokenAt` (or `label`) — they are already in the salon's local time. NEVER read `startsAt`: it is UTC and will be hours off.",
+  "slots": [ { "startsAt": "2026-08-21T19:00:00.000Z",   // ⚠️ 原样回传给建单，**不要念**
+               "label": "3:00 PM",                        // 念这个
+               "spokenAt": "Friday, August 21 at 3:00 PM",
                "staff": [ { "membershipId": "...", "name": "Mai" } ] } ]
 }
 ```
 
 > **这是最重要的一条护栏**：AI 在电话里报的每一个时间都必须来自这个接口。
 > 它接在排期引擎上，容量、班表、缓冲时间全算过。
+
+### ⚠️ 时间要给**能直接念的**，不能给 ISO
+
+2026-08-24 那通真实电话上暴露的：返回里只有 `2026-08-26T17:00:00.000Z`
+和一个 `timezone` 字段，模型就直接把 17:00 念成了 "5 PM" ——
+而那家店在洛杉矶，实际是**上午十点**。客人被告知的时间和订下去的**差七小时**，
+而确认短信里是对的，所以这个错要到客人下午五点来敲门才会被发现。
+
+结论不是「在 prompt 里叮嘱模型换算时区」，是**后端根本不该把生的 UTC
+丢给它**。所以每个时段都带 `label`（`10:00 AM`）和 `spokenAt`
+（`Wednesday, August 26 at 10:00 AM`），`alternatives` 里还有 `dateLabel`。
+`startsAt` 仍然返回，但它只有一个用途：**原样回传给 `book_appointment`**。
+
+建单成功那句 `say` 里也会把当地时间复述一遍 —— 那是整通电话里最后一次
+纠正这个错的机会，而它必须和短信写的一致。
 
 ### 四个入参各自防的是什么（2026-08-22 补齐）
 
@@ -570,7 +587,154 @@ POST /v1/telnyx/tools/draft_appointment   （旧名，等价）
 
 ---
 
-## 10. 本地怎么测（不打真电话）
+## 10. 通话记录：计量、转录、录音（`sql/0037`）
+
+> **这一节是后端，已经做完。** assistant 那边不用配任何东西 ——
+> 它不知道有这回事。
+
+### 10.1 为什么不能只靠挂机 webhook
+
+2026-08-23 第一通真实电话打完，`phone_calls` 是**空的** ——
+而 `/v1/telnyx/webhook` 明明收到了两条请求。挂机那条事件要么发去了别处
+（Telnyx 的 connection 上可以单独配 webhook 地址），要么用的是别的事件名。
+
+漏掉它的后果是**静默**的，这是关键：
+
+- 没记通话时长 → **没扣客户的语音分钟** → 月底账对不上，全程零报错
+- 没有转录 → AI 在电话里答应了客人什么，事后谁也说不清
+
+所以计量走**两条腿**：
+
+```
+挂机 webhook 到了  → 当场记（快，但可能永远不到）
+对账任务           → 从 Telnyx 拉回来补（慢几分钟，但一定准）
+```
+
+### 10.2 数据从哪来
+
+Telnyx 每通电话存一条 **AI conversation**，比 webhook 全得多：
+
+| 字段 | 用来做什么 |
+|---|---|
+| `metadata.to` / `from` | 定位门店（和电话工具同一条路：`tenantForPhoneNumber`） |
+| `metadata.call_session_id` | ⭐ **幂等键** —— 和 webhook 那条腿必须是同一个 |
+| `metadata.called_tools` | 这通电话调过哪些工具 |
+| `created_at` / `last_message_at` | 时长（Telnyx 不直接给秒数） |
+| `/messages` | **完整逐句转录**，连每次工具调用和它的返回都在 |
+
+实现：[`telnyx/conversations.ts`](../apps/api/src/telnyx/conversations.ts)（只取数、不写库）
++ [`telnyx/reconcile.ts`](../apps/api/src/telnyx/reconcile.ts)（走命令总线写库）。
+
+### 10.3 ⚠️ 为什么是两条命令
+
+这是这套东西里最容易做错的一处：
+
+```
+call.record           记时长 + 扣语音分钟   幂等键 telnyx-hangup-{call_session_id}
+call.attachTranscript 补转录/工具/录音       幂等键 telnyx-conv-{conversation_id}
+```
+
+**不能合成一条。** webhook 先记过之后，对账任务再用同一个幂等键
+dispatch `call.record` 会**命中缓存直接返回** —— 处理器根本不执行，
+转录永远写不进去。而换一个幂等键就会**再扣一次语音分钟**：
+那是直接给客户多收钱。
+
+所以：计费那条一通电话只记一次，补料那条随便补多少次都不碰钱
+（有测试钉着这两件事）。
+
+`call.attachTranscript` 找不到对应的通话时**什么都不做**，不凭空插一行 ——
+插了就会出现一条「有转录、没时长、没扣过分钟」的幽灵通话。
+
+### 10.4 怎么开
+
+```bash
+# API 里定时跑（默认关）。值是间隔分钟数
+TELNYX_RECONCILE_MINUTES=15
+
+# 手动补一段历史（分钟）
+pnpm exec tsx apps/api/src/ops/reconcileCalls.ts 4320
+```
+
+两台机器同时跑不会记两遍 —— 幂等键挡着（`telnyx/schedule.ts`）。
+
+### 10.5 前台看到什么
+
+```
+GET /v1/desk/calls?days=7&limit=50        权限：appointment.read
+```
+
+```jsonc
+{
+  "calls": [
+    { "callId": "…", "fromE164": "••••6667", "startedAt": "…",
+      "durationSeconds": 193, "outcome": "completed",
+      "toolsUsed": ["start_call", "find_slots", "book_appointment"],
+      "booked": true,                      // ⭐ 一眼看出这通电话有没有订上单
+      "recordingUrl": null,
+      "transcript": [ { "role": "assistant", "text": "You're all set…" } ] }
+  ],
+  "bookedCount": 2,
+  "totalMinutes": 9
+}
+```
+
+- **来电号码按 `customer.view_contact` 脱敏**（没这个权限只看到尾号）——
+  和来电复核屏同一个口径：看得见有这通电话，不等于能抄走客人的号码
+- **转录是 AI 说错话之后唯一的证据。** 决策 6 改成「AI 直接建单」之后，
+  前台不再逐单复核 —— 客人到店说「电话里明明说五点」时，只有这里能对质
+- 它同时是 `04` §9「AI 到底准不准」唯一诚实的度量来源
+
+### 10.6 录音
+
+`recording_url` 这一列**只负责存**。要不要录、录了传哪去，在 Telnyx 那边配。
+
+> ⚠️ **加州是 two-party consent**（`09` §4.4）。开录音必须在开场白里
+> 告知客人正在录音 —— 这是 assistant 那边的事，但后端这一列存在
+> 不等于合规已经做到。
+
+---
+
+## 11. 转接人工与自动挂断
+
+> **后端只做两件事：告诉 AI 能不能转、以及事后记下它转了。**
+> 转接和挂断本身是 Telnyx 的**内置工具**，配在 assistant 上。
+
+### 11.1 转接
+
+`start_call` 的返回里有：
+
+```jsonc
+"transfer": { "available": true, "e164": "+16175550199" }
+```
+
+来自 `phone_lines.purpose = 'transfer_target'` —— 店家在「开店配置 → 电话」
+里填的那个号，多数时候是老板的手机（`09` §2）。
+
+- `available: false` 时 `guidance` 里会写死**「never say you will transfer」**。
+  说了「我帮您转接」却转不过去，客人听到的是一声忙音，然后这通电话就没了 ——
+  那种情况要走 `request_callback`（前台回电）
+- assistant 侧：加 Telnyx 的内置 `transfer` 工具，号码填这个 `e164`
+- 转走的通话在 `call.record` 里记 `outcome: 'transferred_to_human'`
+  （对账任务目前一律记 `completed`，转接是不是该单独标出来，
+  取决于 Telnyx 给不给这个信号 —— **还没定，见下**）
+
+### 11.2 自动挂断
+
+Telnyx 的内置 `hangup` 工具，assistant 上**已经配好了**。
+后端这边只在 `start_call` 的 guidance 里加了一句「客人没别的事就道别挂断，
+不要挂着空线」—— 空线烧的是语音分钟，而那是按分钟卖给店家的。
+
+### 11.3 还没做的
+
+| 事项 | 卡在哪 |
+|---|---|
+| 转接结果分开记 | 对账任务现在一律记 `completed`。要区分得看 Telnyx 的 conversation 里有没有转接信号 —— 真转一次电话看一眼 metadata 就知道 |
+| 录音落我们自己的存储 | 现在只存 Telnyx 给的 URL。那个 URL 会不会过期没验证过 |
+| 通话统计进老板的报表 | `/v1/desk/calls` 已经给了 `bookedCount` / `totalMinutes`，但还没接进「经营报表」那一页 |
+
+---
+
+## 12. 本地怎么测（不打真电话）
 
 这六个接口没有登录用户，**少了签名一律 401**，所以 curl 试不动。
 仓库里有一把开发用的密钥和一个假电话脚本：
@@ -621,10 +785,11 @@ SEED_SPA_AI_LINE=+17579999968 SEED_SPA_TOOL_TOKEN=st_… pnpm db:seed
 
 ---
 
-## 11. 变更记录
+## 13. 变更记录
 
 | 日期 | 变更 |
 |---|---|
+| 2026-08-24 | 通话计量改成两条腿（挂机 webhook + 从 Telnyx conversation 对账，`sql/0037`）；转录、用过哪些工具、录音落库并开放给前台 `/v1/desk/calls`；`start_call` 带上转接号；短信署名从店名改成 GenieFront；⭐ **`find_slots` 改为返回可直接念的门店当地时间** —— 此前返回 UTC ISO，模型把 17:00 念成了 5 PM，而那家店在洛杉矶（上午十点） |
 | 2026-08-22 | 种子在冲掉真号的 AI 线之前会停下来（`SEED_FORCE=1` 才继续）；`phone.test.ts` 跑完会把种子店那两条线放回去 —— 之前跑一次测试本地就全 404 |
 | 2026-08-22 | `lookup_customer` / `list_services` / `list_staff` 合并成 `start_call`（接通时一次抓完，另给一周营业时间）；三条老路由保留但 assistant 里默认不配。**`find_slots` 刻意没合进去** —— 空档会在通话过程中被订走 |
 | 2026-08-22 | 每条 `ai_voice` 线一串工具 token（`sql/0036`，验签之后的第二道门，填进 assistant 配置；webhook 那条路不检查）；六个工具的返回都带上 `shop`（哪家店）；号码反查失败不再一律当成「没绑门店」—— 库挂了要报 `phone_lookup_failed` |

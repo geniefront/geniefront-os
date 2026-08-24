@@ -18,6 +18,7 @@ import { withTenant, closeDb, tenantForPhoneNumber } from '@gf/db';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
 import { loadCallDrafts } from './queries/callDrafts';
+import { loadCalls } from './queries/calls';
 import { buildServer } from './server';
 import './handlers/phone';
 
@@ -504,6 +505,109 @@ describe('tool：接通那一下（start_call）', () => {
       .toEqual(svc.services.map((x: { serviceId: string }) => x.serviceId));
     expect(body.staff.map((x: { membershipId: string }) => x.membershipId))
       .toEqual(stf.therapists.map((x: { membershipId: string }) => x.membershipId));
+  });
+});
+
+describe('通话记录：计量 / 转录 / 转接（sql/0037）', () => {
+  const callId = () => `rec-${randomUUID()}`;
+
+  it('⭐ 转录是另一条命令补的 —— 同一个幂等键会命中缓存，转录就永远写不进去', async () => {
+    /*
+     * 这是这套设计里最容易做错的一处：挂机 webhook 和对账任务写的是
+     * 同一通电话。用同一个幂等键 dispatch `call.record` 的话，第二次
+     * **命中缓存直接返回**（处理器根本不执行）；换一个键又会**再扣一次
+     * 语音分钟**。所以补料必须是不碰钱的另一条命令。
+     */
+    const id = callId();
+    await runAsPhone('call.record', {
+      providerCallId: id, durationSeconds: 90, outcome: 'completed',
+    }, `telnyx-hangup-${id}`);
+
+    const out = await runAsPhone<{ updated: boolean }>('call.attachTranscript', {
+      providerCallId: id,
+      conversationId: `conv-${id}`,
+      transcript: [
+        { role: 'assistant', text: 'Thanks for calling.' },
+        { role: 'user', text: 'Do you have anything Wednesday?' },
+        { role: 'tool', text: '{"ok":true}', tool: 'find_slots' },
+      ],
+      toolsUsed: ['start_call', 'find_slots', 'book_appointment'],
+    });
+    expect(out.updated).toBe(true);
+
+    const [row] = await withTenant(tenant, (tx) => tx<{
+      duration_seconds: number; tools_used: string[]; n: number;
+    }[]>`
+      select duration_seconds, tools_used,
+             jsonb_array_length(coalesce(transcript,'[]'::jsonb)) as n
+      from phone_calls where provider_call_id = ${id}`);
+
+    expect(row!.n).toBe(3);
+    expect(row!.tools_used).toContain('book_appointment');
+    // ⭐ 补料不能把已经记下的时长抹掉 —— 账是按它扣过的
+    expect(row!.duration_seconds).toBe(90);
+  });
+
+  it('补到一通不存在的电话上 → 什么都不做，不凭空插一行', async () => {
+    // 插了就会出现「有转录、没时长、没扣过分钟」的幽灵通话
+    const out = await runAsPhone<{ updated: boolean; callId: string | null }>(
+      'call.attachTranscript', { providerCallId: `ghost-${randomUUID()}` });
+    expect(out.updated).toBe(false);
+    expect(out.callId).toBeNull();
+  });
+
+  it('⭐ 语音分钟只扣一次 —— 补料这条不碰钱', async () => {
+    const id = callId();
+    const before = await withTenant(tenant, (tx) => tx<{ n: number }[]>`
+      select count(*)::int as n from usage_events
+      where location_id = ${NAIL_LOC} and kind = 'ai_call_min'`);
+
+    await runAsPhone('call.record', {
+      providerCallId: id, durationSeconds: 120, outcome: 'completed',
+    }, `telnyx-hangup-${id}`);
+    await runAsPhone('call.attachTranscript', {
+      providerCallId: id, transcript: [{ role: 'user', text: 'hi' }],
+    });
+
+    const after = await withTenant(tenant, (tx) => tx<{ n: number }[]>`
+      select count(*)::int as n from usage_events
+      where location_id = ${NAIL_LOC} and kind = 'ai_call_min'`);
+    expect(after[0]!.n).toBe(before[0]!.n + 1);
+  });
+
+  it('前台读得到转录，但来电号码按 customer.view_contact 脱敏', async () => {
+    const id = callId();
+    await runAsPhone('call.record', {
+      providerCallId: id, fromE164: '+16175551234',
+      durationSeconds: 60, outcome: 'completed',
+    }, `telnyx-hangup-${id}`);
+    await runAsPhone('call.attachTranscript', {
+      providerCallId: id,
+      transcript: [{ role: 'assistant', text: "You're all set." }],
+      toolsUsed: ['book_appointment'],
+    });
+
+    const seen = await withTenant(tenant, (tx) => loadCalls(tx, ctx, { days: 1 }));
+    const mine = seen.calls.find((c) => c.transcript.some((l) => l.text.includes('all set')));
+    expect(mine).toBeTruthy();
+    expect(mine!.booked).toBe(true);          // 列表上一眼看得出「真订上了」
+    expect(seen.totalMinutes).toBeGreaterThan(0);
+
+    // 店长有 view_contact，看得到完整号码；没有的身份看到的是尾号
+    const masked = await withTenant(tenant, (tx) => loadCalls(tx, {
+      ...ctx, permissions: new Set(['appointment.read']),
+    }, { days: 1 }));
+    const m = masked.calls.find((c) => c.callId === mine!.callId);
+    expect(m!.fromE164).toBe('••••1234');
+  });
+
+  it('⭐ 没配人工客服号时，start_call 明说不能转接', async () => {
+    // 说了「我帮您转接」却转不过去，客人听到的是一声忙音，这通电话就没了
+    const body = (await telnyxCall('/v1/telnyx/tools/start_call',
+      { to: AI_LINE, from: '+15125551234' })).json();
+    expect(body.transfer).toBeDefined();
+    expect(body.transfer.available).toBe(false);   // 种子店没填 transfer_target
+    expect(body.guidance).toMatch(/never say you will transfer/);
   });
 });
 

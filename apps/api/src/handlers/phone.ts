@@ -10,7 +10,7 @@
  */
 
 import {
-  DraftFromCall, ReviewCallDraft, RecordCall, SavePhoneLine, RequestAiVoice,
+  DraftFromCall, ReviewCallDraft, RecordCall, AttachCallTranscript, SavePhoneLine, RequestAiVoice,
   AppError, ERROR_CODES,
 } from '@gf/contracts';
 import { jsonb, ts } from '@gf/db';
@@ -348,25 +348,83 @@ registerHandler(ReviewCallDraft, async ({ input, ctx, tx, audit, emit }: Handler
   return { draftId: input.draftId, status: input.decision };
 });
 
+/**
+ * 把转录/录音补到已经记过的那通电话上。
+ *
+ * 找不到那一行就**什么都不做**（`updated: false`），不新建 —— 计费和
+ * 通话记录的入口只有 `call.record` 一个。这里凭空插一行的话，
+ * 就会出现一条「有转录、没时长、没扣过分钟」的幽灵通话。
+ */
+registerHandler(AttachCallTranscript, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof AttachCallTranscript.input._type>) => {
+  const rows = await tx<{ id: string }[]>`
+    update phone_calls set
+      conversation_id = coalesce(${input.conversationId ?? null}, conversation_id),
+      transcript      = coalesce(${input.transcript ? jsonb(input.transcript) : null}::jsonb, transcript),
+      tools_used      = coalesce(${input.toolsUsed ?? null}, tools_used),
+      recording_url   = coalesce(${input.recordingUrl ?? null}, recording_url),
+      summary         = coalesce(${input.summary ?? null}, summary)
+    where location_id = ${ctx.locationId} and provider_call_id = ${input.providerCallId}
+    returning id`;
+
+  const row = rows[0];
+  /*
+   * ⚠️ **没找到也要记审计**（宪法第 1 条：每条命令都留痕，总线会拦）。
+   * 而且这一条恰恰是最该留痕的：补不进去意味着有一通电话的转录**丢了**，
+   * 而漏账和漏转录一样是静默的。
+   *
+   * 记的是「补过料」，**不记转录内容** —— 那里面有客人说出口的全名、
+   * 生日、健康状况，而 audit_log 是给人翻的（同宪法第 17 条的道理）。
+   */
+  audit({
+    entityType: 'phone_call',
+    // 没匹配上就挂在门店上 —— 审计条目要有一个落点，而这件事本身要留痕
+    entityId: row?.id ?? ctx.locationId,
+    after: {
+      providerCallId: input.providerCallId,
+      matched: Boolean(row),
+      transcriptLines: input.transcript?.length ?? 0,
+      toolsUsed: input.toolsUsed ?? [],
+      hasRecording: Boolean(input.recordingUrl),
+    },
+  });
+  return { callId: row?.id ?? null, updated: Boolean(row) };
+});
+
 registerHandler(RecordCall, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof RecordCall.input._type>) => {
   // 计费按分钟**向上取整**：29 秒也是一分钟，这是电话行业的通行口径。
   // 存的是秒 —— 存分钟就再也算不回去了，而资费口径以后可能会变。
   const billedMinutes = Math.ceil(input.durationSeconds / 60);
 
+  /*
+   * ⚠️ 转录/录音这几列用 `coalesce(excluded, 现有)` 合并，不是直接覆盖。
+   *
+   * 这一行会被写两次：挂机 webhook 先到（有时长、没转录），对账任务后到
+   * （有转录）。直接覆盖的话，后到的那条要是没带时长，就会把已经记下的
+   * 通话长度抹成 null —— 而账已经按它扣过了。
+   */
   const [row] = await tx<{ id: string }[]>`
     insert into phone_calls
       (org_id, location_id, provider_call_id, from_e164, to_e164,
-       started_at, ended_at, duration_seconds, outcome)
+       started_at, ended_at, duration_seconds, outcome,
+       conversation_id, transcript, tools_used, recording_url)
     values (${ctx.orgId}, ${ctx.locationId}, ${input.providerCallId},
             ${input.fromE164 ?? null}, ${input.toE164 ?? null},
             ${input.startedAt ? ts(new Date(input.startedAt)) : null}::timestamptz,
             ${input.endedAt ? ts(new Date(input.endedAt)) : null}::timestamptz,
-            ${input.durationSeconds}, ${input.outcome})
+            ${input.durationSeconds}, ${input.outcome},
+            ${input.conversationId ?? null},
+            ${input.transcript ? jsonb(input.transcript) : null}::jsonb,
+            ${input.toolsUsed ?? null}, ${input.recordingUrl ?? null})
     on conflict (provider_call_id) do update set
-      ended_at = excluded.ended_at,
-      duration_seconds = excluded.duration_seconds,
-      outcome = excluded.outcome
+      ended_at         = coalesce(excluded.ended_at, phone_calls.ended_at),
+      duration_seconds = greatest(excluded.duration_seconds, phone_calls.duration_seconds),
+      outcome          = coalesce(excluded.outcome, phone_calls.outcome),
+      conversation_id  = coalesce(excluded.conversation_id, phone_calls.conversation_id),
+      transcript       = coalesce(excluded.transcript, phone_calls.transcript),
+      tools_used       = coalesce(excluded.tools_used, phone_calls.tools_used),
+      recording_url    = coalesce(excluded.recording_url, phone_calls.recording_url)
     returning id`;
 
   // ⚠️ `ai_call_min` 与 `ai_assist` 分开计（决策 8）。

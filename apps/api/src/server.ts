@@ -38,6 +38,7 @@ import './handlers/ai';
 import { loadDay } from './queries/day';
 import { loadBlueprint, listBlueprints } from './queries/blueprint';
 import { loadCallDrafts } from './queries/callDrafts';
+import { loadCalls } from './queries/calls';
 import { loadInboundSms } from './queries/smsInbound';
 import { registerTelnyxRoutes } from './telnyx/routes';
 import { registerKioskRoutes } from './kiosk/routes';
@@ -1192,6 +1193,24 @@ export function buildServer(): FastifyInstance {
     return withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
       (tx) => loadCallDrafts(tx, ctx, req.query.status ?? 'pending'));
+  });
+
+  // ── 查询：来电记录（转录 / 录音 / 计量，sql/0037）────────────────────────
+  //
+  // ⭐ 决策 6 改成「AI 直接建单」之后，前台不再逐单复核 —— 客人挂电话时
+  // 单子已经落地了。客人到店说「你们电话里明明说五点」的时候，
+  // **转录是唯一的证据**。
+  app.get<{ Querystring: { days?: string; limit?: string } }>('/v1/desk/calls', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('appointment.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'appointment.read' } });
+    }
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => loadCalls(tx, ctx, {
+        days: Number(req.query.days ?? '7') || 7,
+        limit: Number(req.query.limit ?? '50') || 50,
+      }));
   });
 
   // ── 查询：客人发进来的短信（docs/09 §5.3）────────────────────────────────

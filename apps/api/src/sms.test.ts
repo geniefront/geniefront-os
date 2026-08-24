@@ -142,7 +142,8 @@ describe('文案', () => {
 
   it('slug 回退进得了正文，而且照样是一段', () => {
     const body = renderConfirmSms({ ...base, shopName: { 'zh-Hans': '莲花美甲' }, shopSlug: 'lotus-nails' });
-    expect(body.startsWith('Lotus Nails:')).toBe(true);
+    expect(body.startsWith('GenieFront: ')).toBe(true);
+    expect(body).toContain('at Lotus Nails');
     expect(measure(body).segments).toBe(1);
   });
 
@@ -155,10 +156,24 @@ describe('文案', () => {
     expect(body).toContain('call');          // 改期一律引导打电话
   });
 
-  it('必须带退订说明和店名（CTIA）', () => {
+  it('⭐ 署名是 GenieFront，不是店名 —— 但店名要在正文里', () => {
+    /*
+     * 2026-08-24 店主定的。理由不只是品牌：发送号是**平台号**，
+     * 10DLC 注册的品牌也是 GenieFront。署名店名而号码是平台的，
+     * 在运营商眼里就是「发送者与注册品牌不符」—— 那一类最容易被判成
+     * 欺骗性流量，掐的是整条通道，不是这一条短信。
+     */
     const body = renderConfirmSms(base);
+    expect(body.startsWith('GenieFront: ')).toBe(true);
+    expect(body).toContain('at Lotus Nails');       // 客人照样知道是哪家店
     expect(body).toContain('Reply STOP to opt out');
-    expect(body.startsWith('Lotus Nails:')).toBe(true);
+  });
+
+  it('店名一个字都拼不出来时，宁可不写「at …」', () => {
+    // 「booked at Salon」看起来像模板没渲染出来，比不写更糟
+    const body = renderConfirmSms({ ...base, shopName: {}, shopSlug: null });
+    expect(body.startsWith('GenieFront: Booked ')).toBe(true);
+    expect(body).not.toContain(' at ');
   });
 
   it('确认码和电话都进正文，电话是能直接念的格式', () => {
@@ -185,7 +200,9 @@ describe('文案', () => {
     // 砍的是项目名
     expect(body).toContain('...');
     // 这两样一个字都不能少：认不出谁发的、或者打不了电话，这条短信就白发了
-    expect(body.startsWith('Golden Lotus Nails and D:')).toBe(true);
+    expect(body.startsWith('GenieFront: ')).toBe(true);
+    // 店名可以退让（身份锚点是 GenieFront 那个署名），但要留得住辨识度
+    expect(body).toContain('at Golden Lotus');
     expect(body).toContain('(617) 555-0142');
     expect(body).toContain('Reply STOP to opt out');
   });

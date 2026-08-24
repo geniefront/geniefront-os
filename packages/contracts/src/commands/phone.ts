@@ -124,6 +124,44 @@ export const ReviewCallDraft = defineCommand({
  * 不去重就把同一通电话的分钟数记两遍 —— 那是直接给客户多收钱，
  * 而且是最难被发现的那种错（账单上只是一个稍微大一点的数字）。
  */
+/**
+ * ⭐ 把转录/录音补到一通已经记过的电话上（sql/0037）。
+ *
+ * ## 为什么不塞进 `call.record`
+ *
+ * 因为幂等。`call.record` 的幂等键是 call_session_id，webhook 先到过的话，
+ * 对账任务再用同一个键 dispatch 会**命中缓存直接返回** —— 处理器根本不执行，
+ * 转录永远写不进去。而换一个键就会**再扣一次语音分钟**：那是直接给客户多收钱。
+ *
+ * 所以拆开：计费那条一通电话只记一次，补料这条随便补多少次都不碰钱。
+ */
+export const AttachCallTranscript = defineCommand({
+  name: 'call.attachTranscript',
+  input: z.object({
+    /** 和 `call.record` 同一个：Telnyx 的 call_session_id */
+    providerCallId: z.string().max(120),
+    conversationId: z.string().max(120).optional(),
+    transcript: z.array(z.object({
+      role: z.enum(['user', 'assistant', 'tool', 'system']),
+      text: z.string().max(4000),
+      at: z.string().optional(),
+      tool: z.string().max(60).optional(),
+    })).max(400).optional(),
+    toolsUsed: z.array(z.string().max(60)).max(40).optional(),
+    recordingUrl: z.string().url().max(1000).optional(),
+    summary: z.string().max(1000).optional(),
+  }),
+  output: z.object({ callId: uuid.nullable(), updated: z.boolean() }),
+  permission: 'call.draft',
+  ai: {
+    description: '（内部）把通话转录与录音补到通话记录上。',
+    confirm: 'never',
+    exposed: false,
+  },
+  reversible: false,
+  idempotency: 'optional',
+});
+
 export const RecordCall = defineCommand({
   name: 'call.record',
   input: z.object({
@@ -135,6 +173,24 @@ export const RecordCall = defineCommand({
     durationSeconds: z.number().int().min(0).max(24 * 3600),
     outcome: z.enum(['completed', 'no_answer', 'transferred_to_human', 'failed'])
       .default('completed'),
+    /**
+     * ⭐ 下面这几样来自 Telnyx 的 AI conversation（sql/0037）。
+     *
+     * 挂机 webhook 只带得动时长；转录、用过哪些工具、录音要另外拉。
+     * 两条腿写的是**同一条命令、同一个幂等键**，所以后到的那一条
+     * 只是把这几列补上去，不会重复计费。
+     */
+    conversationId: z.string().max(120).optional(),
+    /** 逐句转录。⚠️ 含客人个人信息 —— 不进审计，只进 phone_calls */
+    transcript: z.array(z.object({
+      role: z.enum(['user', 'assistant', 'tool', 'system']),
+      text: z.string().max(4000),
+      at: z.string().optional(),
+      /** tool 那几条带上是哪个工具，前台一眼看得出它做了什么 */
+      tool: z.string().max(60).optional(),
+    })).max(400).optional(),
+    toolsUsed: z.array(z.string().max(60)).max(40).optional(),
+    recordingUrl: z.string().url().max(1000).optional(),
   }),
   output: z.object({
     callId: uuid,
@@ -253,5 +309,5 @@ export const RequestAiVoice = defineCommand({
 });
 
 export const PHONE_COMMANDS = [
-  DraftFromCall, ReviewCallDraft, RecordCall, SavePhoneLine, RequestAiVoice,
+  DraftFromCall, ReviewCallDraft, RecordCall, AttachCallTranscript, SavePhoneLine, RequestAiVoice,
 ] as const;
