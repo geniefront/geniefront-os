@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; background: #f6f5f3; color: #1a1917;
+      font: 400 17px/1.45 -apple-system, "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased; }
+    a { color: #b8143c; } a:hover { color: #b8143c; }
+    .lbl { font-size: 13px; font-weight: 700; letter-spacing: .08em; color: #8b857d; }
+  </style>
+</helmet>
+
+<div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+  <div style="display:flex;align-items:baseline;gap:10px">
+    <span class="lbl">硬朗</span>
+    <span style="font-size:15px;color:#8b857d">技师端</span>
+  </div>
+
+  <div style="background:#ffffff;border:2px solid #1a1917;border-radius:10px;box-shadow:none;overflow:hidden;padding:20px;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;flex-direction:column;gap:6px;padding:14px;border-radius:8px;
+      background:#a4161a;color:#fff">
+      <strong style="font-size:21px">安全提示</strong>
+      <div style="font-size:21px;font-weight:700">左手无名指有伤口，避开</div>
+    </div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:6px;background:#b8143c;color:#ffffff;font-size:15px;font-weight:800;white-space:nowrap">下一位客人</span><span style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:6px;background:#9a5b00;color:#1a1917;font-size:15px;font-weight:800;white-space:nowrap"><span>★</span>点钟</span><span style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:6px;background:#1a1917;color:#fff;font-size:15px;font-weight:800;white-space:nowrap">座位 3 号</span>
+    </div>
+
+    <div style="font-size:38px;font-weight:800;line-height:1.15">临时客人</div>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:28px;font-weight:700">甲油胶美甲</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:6px;background:#1a1917;color:#fff;font-size:15px;font-weight:800;white-space:nowrap">45 min</span>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:8px;
+      background:#f6f5f3;
+      border:1px solid #1a1917;">
+      <div style="display:flex;gap:10px"><span style="min-width:96px;color:#57534e">力度</span><strong style="font-size:21px">重</strong></div>
+      <div style="display:flex;gap:10px"><span style="min-width:96px;color:#57534e">甲型</span><strong style="font-size:21px">方圆形</strong></div>
+    </div>
+
+    <button style="width:100%;min-height:88px;border-radius:10px;
+      border:2px solid #b8143c;
+      border-bottom-width:5px;background:#b8143c;color:#fff;
+      font-size:28px;font-weight:800;cursor:pointer;
+      display:inline-flex;align-items:center;justify-content:center;gap:10px;
+      "><span>▶</span> 开始</button>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

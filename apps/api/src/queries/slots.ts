@@ -34,13 +34,28 @@ const hhmmToMin = (v: string): number => {
  * `preferredMembershipId` 给了就只在那个人身上找 —— 客人点名要 Amy 时，
  * 报一堆「Linh 有空」在电话里是彻底的答非所问。
  */
+export interface SlotOptions {
+  limit?: number;
+  windowStartMin?: number;
+  windowEndMin?: number;
+  /**
+   * ⭐ 只找这个性别的技师（`male` / `female`）。
+   *
+   * 在 **SQL 这一层**就把班表收窄，而不是拿到空档再过滤 ——
+   * 后者会漏掉本可安排的时段（见 `findOpenSlots` 的 candidateMembershipIds）。
+   */
+  genderPreference?: string | null;
+  /** 同行几位客人。>1 时同一时刻要有这么多位技师同时有空 */
+  partySize?: number;
+}
+
 export async function loadSlotContext(
   tx: postgres.TransactionSql,
   locationId: string,
   around: Date,
   durationMin: number,
   preferredMembershipId: string | null,
-  opts: { limit?: number; windowStartMin?: number; windowEndMin?: number } = {},
+  opts: SlotOptions = {},
 ): Promise<SlotContext> {
   const [loc] = await tx<{
     tz: string; cutoff: string; hours: Record<string, { open: string; close: string } | null>;
@@ -71,10 +86,10 @@ export async function loadSlotContext(
   // 等于替技师答应了一个他还不知道的班。
   const staffRows = await tx<{
     membership_id: string; name: unknown; start_min: number; end_min: number;
-    max_concurrent: number;
+    max_concurrent: number; gender: string | null;
   }[]>`
     select s.membership_id, sp.display_name as name, s.start_min, s.end_min,
-           sp.max_concurrent_appointments as max_concurrent
+           sp.max_concurrent_appointments as max_concurrent, sp.gender
     from shifts s
     join staff_profiles sp on sp.membership_id = s.membership_id
     join memberships m on m.id = s.membership_id and m.status = 'active'
@@ -87,23 +102,28 @@ export async function loadSlotContext(
   if (staffRows.length === 0) return { businessDate, timezone: loc.tz, slots: [] };
 
   // ── 已经占着的时段 ──────────────────────────────────────────────────────
+  //
+  // ⚠️ 这里**不再**过滤 `membership_id is not null`：还没派技师的单
+  //    照样占着店里的位置，门店层容量要算上它们。
+  //    按人分组时再把 null 的那些跳过。
   const busyRows = await tx<{
-    membership_id: string; starts_at: string | Date; ends_at: string | Date;
+    membership_id: string | null; starts_at: string | Date; ends_at: string | Date;
   }[]>`
     select ai.membership_id, ai.starts_at, ai.ends_at
     from appointment_items ai
     join appointments a on a.id = ai.appointment_id
     where a.location_id = ${locationId}
       and a.business_date = ${businessDate}
-      and a.status <> 'cancelled'
-      and ai.membership_id is not null`;
+      and a.status <> 'cancelled'`;
 
   const busyBy = new Map<string, Array<{ startsAt: Date; endsAt: Date }>>();
+  const locationBusy: Array<{ startsAt: Date; endsAt: Date }> = [];
   for (const b of busyRows) {
+    const iv = { startsAt: new Date(b.starts_at), endsAt: new Date(b.ends_at) };
+    locationBusy.push(iv);
+    if (!b.membership_id) continue;
     if (!busyBy.has(b.membership_id)) busyBy.set(b.membership_id, []);
-    busyBy.get(b.membership_id)!.push({
-      startsAt: new Date(b.starts_at), endsAt: new Date(b.ends_at),
-    });
+    busyBy.get(b.membership_id)!.push(iv);
   }
 
   const staff: StaffAvailability[] = staffRows.map((r) => ({
@@ -120,8 +140,22 @@ export async function loadSlotContext(
   const todayHere = businessDateOf(new Date(), loc.tz, loc.cutoff);
   const nowMin = todayHere === businessDate ? minutesNowIn(loc.tz) : undefined;
 
-  const slotMinutes = Number(
-    (loc.settings as { capacity?: { slot_minutes?: number } })?.capacity?.slot_minutes ?? 15);
+  const capacity = (loc.settings as {
+    capacity?: { slot_minutes?: number; max_concurrent_per_slot?: number | null };
+  })?.capacity;
+  const slotMinutes = Number(capacity?.slot_minutes ?? 15);
+  const perSlot = capacity?.max_concurrent_per_slot;
+
+  /**
+   * 性别偏好 → 候选 membership 集。
+   *
+   * 匹配不上任何人时给一个**空数组**而不是 null：null 是「不限」，
+   * 空数组是「一个符合条件的都没有」。这两件事在电话里天差地别 ——
+   * 前者会让 AI 报出一堆男技师的时间，而客人要的是女技师。
+   */
+  const candidateMembershipIds = opts.genderPreference
+    ? staffRows.filter((r) => r.gender === opts.genderPreference).map((r) => r.membership_id)
+    : null;
 
   const slots = findOpenSlots({
     businessDate,
@@ -132,6 +166,12 @@ export async function loadSlotContext(
     staff,
     slotMinutes: Number.isFinite(slotMinutes) && slotMinutes > 0 ? slotMinutes : 15,
     preferredMembershipId,
+    candidateMembershipIds,
+    partySize: opts.partySize ?? 1,
+    location: {
+      maxConcurrentPerSlot: typeof perSlot === 'number' ? perSlot : null,
+      busy: locationBusy,
+    },
     limit: opts.limit ?? 20,
     toInstant: wallMinuteToInstant,
     ...(nowMin !== undefined ? { nowMin } : {}),

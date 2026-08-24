@@ -84,8 +84,15 @@ async function resetMoney() {
     }
     // 可能有不止一行要挪（上一次跑到一半失败会留下）。
     // 唯一索引在 (location, business_date) 上，所以每行各给一天。
+    // ⚠️ 停放时必须把断档补录那几列一起清掉（0032）。
+    // 不清的话，一个 summary_only 的天被改回 status='open' 会撞
+    // backfill_only_when_summary —— 那条约束防的正是「孤儿数字」：
+    // 改了状态却留着补录金额，报表只看 status，永远发现不了它们还在。
     await tx`
-      update day_closes d set business_date = (${parkDate}::date + (x.rn - 1)::int), status = 'open'
+      update day_closes d set business_date = (${parkDate}::date + (x.rn - 1)::int), status = 'open',
+             backfill_gross_cents = null, backfill_cash_cents = null,
+             backfill_card_cents = null, backfill_tip_cash_cents = null,
+             backfill_tip_card_cents = null, gap_note = null
       from (select id, row_number() over (order by business_date) as rn
               from day_closes
              where location_id = ${SPA_LOC} and business_date > '1999-01-01') x

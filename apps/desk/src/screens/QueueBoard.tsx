@@ -10,7 +10,17 @@
  */
 
 import { useState } from 'react';
+import {
+  Armchair, CircleAlert, Plus, TriangleAlert, Star, Tablet, CalendarCheck,
+} from 'lucide-react';
 import { ApiError, runCommand } from '../lib/api';
+import { Button } from '../ui/Button';
+import { Card } from '../ui/Card';
+import { Badge } from '../ui/Badge';
+import { Page, PageHeader, Empty } from '../ui/Page';
+import { Field } from '../ui/Field';
+import { Sheet } from '../ui/Overlay';
+import { cn } from '../ui/cn';
 
 export interface QueueEntry {
   queueId: string;
@@ -70,98 +80,133 @@ export function QueueBoard({
     } finally { setBusy(false); }
   }
 
+  const nothing = data.waiting.length === 0 && data.called.length === 0;
+
   return (
-    <div className="stack" style={{ padding: '0 16px 24px', gap: 12 }}>
-      {/* 汇总条 */}
-      <div className="card row" style={{ padding: '14px 18px', gap: 14, flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: 'var(--text-lg)' }}>🎫 等位 {data.summary.waiting}</strong>
-        {data.summary.called > 0 && (
-          <span className="badge badge-soft">已叫号 {data.summary.called}</span>
-        )}
-        {data.summary.longestWaitMin > 0 && (
-          <span className={`badge ${data.summary.longestWaitMin > 40 ? 'badge-warn' : 'badge-soft'}`}>
-            最久等了 {data.summary.longestWaitMin} 分钟
+    <Page>
+      <PageHeader
+        title="候客"
+        sub={
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span>等位 <span className="tnum">{data.summary.waiting}</span></span>
+            {data.summary.called > 0 && (
+              <span>· 已叫号 <span className="tnum">{data.summary.called}</span></span>
+            )}
+            {data.summary.longestWaitMin > 0 && (
+              <span className={cn(data.summary.longestWaitMin > 40 && 'font-semibold text-warn')}>
+                · 最长等待 <span className="tnum">{data.summary.longestWaitMin}</span> 分钟
+              </span>
+            )}
+            {/* 今天走掉几个 —— 这是老板最该看到的数，它直接对应流失 */}
+            {data.summary.leftToday > 0 && (
+              <span>· 今日离店 <span className="tnum">{data.summary.leftToday}</span> 位</span>
+            )}
           </span>
-        )}
-        {/* 今天走掉几个 —— 这是老板最该看到的数，它直接对应流失 */}
-        {data.summary.leftToday > 0 && (
-          <span className="badge badge-mute">今天走了 {data.summary.leftToday} 位</span>
-        )}
-        <span className="grow" />
-        <button className="btn btn-primary" style={{ minHeight: 48 }} disabled={busy}
-                onClick={() => setAdding(true)}>
-          ＋ 手工加一位
-        </button>
-      </div>
+        }
+        actions={
+          <Button variant="primary" disabled={busy} onClick={() => setAdding(true)}>
+            <Plus size={18} />手工取号
+          </Button>
+        }
+      />
 
-      {err && <div className="badge badge-danger" style={{ padding: '10px 14px' }}>✕ {err}</div>}
-
-      {data.waiting.length === 0 && data.called.length === 0 && (
-        <div className="card" style={{ padding: 28, textAlign: 'center' }}>
-          <div className="muted">现在没有人在等</div>
-          <div className="tiny" style={{ marginTop: 6 }}>
-            客人在门口 iPad 上签到会自动出现在这里；没有 iPad 就点上面「手工加一位」
-          </div>
+      {err && (
+        <div role="alert"
+             className="mb-4 flex items-center gap-2 rounded bg-danger-soft px-4 py-3 text-danger">
+          <CircleAlert size={17} /><span className="text-xs font-semibold">{err}</span>
         </div>
       )}
 
-      {data.called.length > 0 && (
-        <>
-          <div className="tiny">已叫号 —— 等他坐下就点「入座」</div>
-          {data.called.map((e) => (
-            <Row key={e.queueId} e={e} busy={busy}
-                 onSeat={() => void run('queue.update', { queueId: e.queueId, status: 'seated' })}
-                 onLeft={() => setLeaving(e)} />
-          ))}
-        </>
+      {nothing ? (
+        <Empty
+          icon={<Armchair size={34} />}
+          title="当前无人等位"
+          hint="客人在门口 iPad 自助签到后会自动出现在这里。没有 iPad 的门店可用「手工取号」。"
+        />
+      ) : (
+        <div className="flex flex-col gap-6">
+          {data.called.length > 0 && (
+            <section>
+              <div className="mb-2.5 text-2xs font-bold uppercase tracking-wider text-ink-3">
+                已叫号 · 待入座
+              </div>
+              <div className="flex flex-col gap-2.5">
+                {data.called.map((e) => (
+                  <Row key={e.queueId} e={e} busy={busy}
+                       onSeat={() => void run('queue.update', { queueId: e.queueId, status: 'seated' })}
+                       onLeft={() => setLeaving(e)} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {data.waiting.length > 0 && (
+            <section>
+              <div className="mb-2.5 text-2xs font-bold uppercase tracking-wider text-ink-3">
+                等位中
+              </div>
+              <div className="flex flex-col gap-2.5">
+                {data.waiting.map((e) => (
+                  <Row key={e.queueId} e={e} busy={busy}
+                       onCall={() => void run('queue.update', { queueId: e.queueId, status: 'called' })}
+                       onLeft={() => setLeaving(e)} />
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
       )}
 
-      {data.waiting.length > 0 && <div className="tiny">等位中</div>}
-      {data.waiting.map((e) => (
-        <Row key={e.queueId} e={e} busy={busy}
-             onCall={() => void run('queue.update', { queueId: e.queueId, status: 'called' })}
-             onLeft={() => setLeaving(e)} />
-      ))}
-
-      {/* 走了必须给原因 —— 「等太久走的」和「说了一声」是两回事，
-          而前者直接对应流失，不强制就没人会填 */}
-      {leaving && (
-        <Sheet title={`${leaving.ticketNumber} 号 · ${leaving.displayName} 为什么走了？`}
-               onClose={() => setLeaving(null)}>
+      {/*
+        离店必须给原因 —— 「等太久走的」和「说了一声先去别处」是两回事，
+        而前者直接对应流失。不强制就没人会填。
+      */}
+      <Sheet
+        open={leaving !== null}
+        onOpenChange={(v) => !v && setLeaving(null)}
+        title={leaving ? `${leaving.ticketNumber} 号 · ${leaving.displayName}` : ''}
+        description="记录离店原因。这个数据用于分析客流流失。"
+      >
+        <div className="flex flex-col gap-2">
           {LEFT_REASONS.map(([key, label]) => (
-            <button key={key} className="btn btn-block" disabled={busy}
-                    style={{ minHeight: 'var(--tap)', justifyContent: 'flex-start' }}
+            <Button key={key} block disabled={busy}
+                    className="justify-start"
                     onClick={async () => {
+                      if (!leaving) return;
                       await run('queue.update',
                         { queueId: leaving.queueId, status: 'left', leftReason: key });
                       setLeaving(null);
                     }}>
               {label}
-            </button>
+            </Button>
           ))}
-        </Sheet>
-      )}
+        </div>
+      </Sheet>
 
-      {adding && (
-        <Sheet title="手工加一位" onClose={() => { setAdding(false); setNewName(''); }}>
-          <div className="tiny">
-            没有 iPad 的店就用这个。取的号和客人自己在门口取的是同一套。
-          </div>
-          <input className="field" value={newName} autoFocus placeholder="客人称呼，例：陈女士"
-                 onChange={(e) => setNewName(e.target.value)} />
-          <button className="btn btn-primary btn-block" disabled={busy || !newName.trim()}
-                  style={{ minHeight: 'var(--tap)' }}
-                  onClick={async () => {
-                    await run('queue.join', {
-                      walkInName: newName.trim(), source: 'desk',
-                    });
-                    setAdding(false); setNewName('');
-                  }}>
-            {busy ? <span className="spin" /> : '取号'}
-          </button>
-        </Sheet>
-      )}
-    </div>
+      <Sheet
+        open={adding}
+        onOpenChange={(v) => { if (!v) { setAdding(false); setNewName(''); } }}
+        title="手工取号"
+        description="与客人在门口 iPad 自助取号共用同一套号码，不会重号。"
+        footer={
+          <>
+            <Button block onClick={() => { setAdding(false); setNewName(''); }}>取消</Button>
+            <Button variant="primary" block disabled={busy || !newName.trim()}
+                    onClick={async () => {
+                      await run('queue.join', { walkInName: newName.trim(), source: 'desk' });
+                      setAdding(false); setNewName('');
+                    }}>
+              {busy
+                ? <span className="size-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                : '取号'}
+            </Button>
+          </>
+        }
+      >
+        <Field value={newName} autoFocus placeholder="客人称呼，例：陈女士"
+               onChange={(e) => setNewName(e.target.value)} />
+      </Sheet>
+    </Page>
   );
 }
 
@@ -170,66 +215,49 @@ function Row({ e, busy, onCall, onSeat, onLeft }: {
   onCall?: () => void; onSeat?: () => void; onLeft: () => void;
 }) {
   return (
-    <div className="card row"
-         style={{
-           padding: '14px 16px', gap: 14,
-           borderWidth: 2,
-           borderColor: e.overdue ? 'var(--warn)' : 'var(--line)',
-           background: e.overdue ? 'var(--warn-soft)' : 'var(--surface)',
-         }}>
-      <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 800, minWidth: 64,
-                    textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+    <Card className={cn(
+      'flex items-center gap-4 p-4',
+      // 超过承诺时间的单独标出来 —— 这是最可能流失的那一位
+      e.overdue && 'ring-2 ring-warn/40 bg-warn-soft/50',
+    )}>
+      <div className={cn(
+        'grid size-14 shrink-0 place-items-center rounded-sm text-xl font-bold tnum',
+        e.overdue ? 'bg-warn text-white' : 'bg-sunken text-ink-2',
+      )}>
         {e.ticketNumber}
       </div>
 
-      <div className="grow stack" style={{ gap: 3, minWidth: 0 }}>
-        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-          <strong style={{ fontSize: 'var(--text-lg)' }}>{e.displayName}</strong>
-          {e.partySize > 1 && <span className="badge badge-soft">{e.partySize} 位</span>}
-          {e.appointmentId && <span className="badge badge-ok">有预约</span>}
-          {e.source === 'kiosk' && <span className="badge badge-soft">自助</span>}
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <strong className="text-lg font-bold tracking-tight">{e.displayName}</strong>
+          {e.partySize > 1 && <Badge tone="line">{e.partySize} 位</Badge>}
+          {e.appointmentId && <Badge tone="ok"><CalendarCheck size={12} />有预约</Badge>}
+          {e.source === 'kiosk' && <Badge tone="line"><Tablet size={12} />自助</Badge>}
           {/* 前台在叫号【之前】就该知道还差表没签 */}
           {e.pendingForms > 0 && (
-            <span className="badge badge-warn">⚠ 还差 {e.pendingForms} 份表没签</span>
+            <Badge tone="warn"><TriangleAlert size={12} />{e.pendingForms} 份表未签</Badge>
           )}
         </div>
-        <div className="tiny">
-          等了 {e.waitedMin} 分钟
-          {e.quotedWaitMin !== null && ` · 估的是 ${e.quotedWaitMin} 分钟`}
+        <div className="mt-0.5 truncate text-xs text-ink-3">
+          已等 <span className="tnum">{e.waitedMin}</span> 分钟
+          {e.quotedWaitMin !== null && <> · 承诺 <span className="tnum">{e.quotedWaitMin}</span> 分钟</>}
           {e.serviceName && ` · ${e.serviceName}`}
-          {e.staffName && ` · 指定 ${e.staffName}`}
-          {e.phoneDisplay && ` · ${e.phoneDisplay}`}
+          {e.staffName && <> · <Star size={11} className="inline -mt-0.5" /> 指定 {e.staffName}</>}
+          {e.phoneDisplay && <> · <span className="tnum">{e.phoneDisplay}</span></>}
         </div>
       </div>
 
       {onCall && (
-        <button className="btn btn-primary" style={{ minHeight: 'var(--tap)', minWidth: 120 }}
-                disabled={busy} onClick={onCall}>叫号</button>
+        <Button variant="primary" className="min-w-[7rem]" disabled={busy} onClick={onCall}>
+          叫号
+        </Button>
       )}
       {onSeat && (
-        <button className="btn btn-primary" style={{ minHeight: 'var(--tap)', minWidth: 120 }}
-                disabled={busy} onClick={onSeat}>入座</button>
+        <Button variant="primary" className="min-w-[7rem]" disabled={busy} onClick={onSeat}>
+          入座
+        </Button>
       )}
-      <button className="btn" style={{ minHeight: 'var(--tap)' }} disabled={busy}
-              onClick={onLeft}>走了</button>
-    </div>
-  );
-}
-
-function Sheet({ title, children, onClose }: {
-  title: string; children: React.ReactNode; onClose: () => void;
-}) {
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,18,16,.45)',
-                  display: 'grid', placeItems: 'end center', zIndex: 60 }}
-         onClick={onClose}>
-      <div className="card stack" onClick={(e) => e.stopPropagation()}
-           style={{ width: 'min(560px,100%)', padding: 24, gap: 12,
-                    borderRadius: '18px 18px 0 0' }}>
-        <div style={{ fontSize: 'var(--text-xl)', fontWeight: 800 }}>{title}</div>
-        {children}
-        <button className="btn btn-ghost" onClick={onClose}>取消</button>
-      </div>
-    </div>
+      <Button disabled={busy} onClick={onLeft}>离店</Button>
+    </Card>
   );
 }

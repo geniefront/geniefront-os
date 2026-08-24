@@ -187,6 +187,62 @@ export const ReopenDay = defineCommand({
   idempotency: 'optional',
 });
 
+/**
+ * ⭐ 标记一个断档的日子（2026-08-20 补）。
+ *
+ * 门店会有整天不用系统的时候 —— 前台请假、太忙、干脆用回纸本子。
+ * 这件事本身完全正常，系统不该阻止；但第二天回来的时候，
+ * 得有一条路把那天**说清楚**，否则报表会在没人察觉的情况下少一块。
+ *
+ * 三个终态，对应老板真正会说的三句话：
+ *
+ *   no_business   「那天没开门」   → 报表里是真实的 0
+ *   paper_only    「用纸记的，不补了」→ 报表里是空白，合计不含它
+ *   summary_only  「我把总数敲给你」 → 营业额对得上
+ *
+ * ⚠️ **summary_only 补得了营业额，补不了提成。** 系统不知道那天
+ * 哪一单是谁做的，所以 earnings 一条都不会生成。界面上必须当面说清楚，
+ * 不能让老板以为补上了，月底发工资才发现那天的提成是空的。
+ *
+ * ⚠️ 那天**已经有真实工单**的话，这个命令一律拒绝。真实数据比一句
+ * 事后的概括可信得多，用概括去盖住它是在销毁证据。
+ */
+export const MarkGapDay = defineCommand({
+  name: 'dayclose.markDay',
+  input: z.object({
+    /** 必填。这个命令天生是给历史用的，「默认今天」在这儿没有意义 */
+    businessDate,
+    mark: z.enum(['no_business', 'paper_only', 'summary_only']),
+    /** mark = summary_only 时必填。照着纸本子敲的总数 */
+    summary: z.object({
+      grossCents: cents.nonnegative(),
+      cashCents: cents.nonnegative().default(0),
+      cardCents: cents.nonnegative().default(0),
+      tipCashCents: cents.nonnegative().default(0),
+      tipCardCents: cents.nonnegative().default(0),
+    }).optional(),
+    /** 「Lily 请假，我用本子记的」「下雪关门」 */
+    note: z.string().max(300).optional(),
+  }),
+  output: z.object({
+    businessDate: z.string(),
+    status: z.enum(['no_business', 'paper_only', 'summary_only']),
+    /** ⭐ 提醒界面：这天的提成仍然是空的。true 时前端必须显式告知 */
+    earningsStillMissing: z.boolean(),
+  }),
+  permission: 'dayclose.manage',
+  ai: {
+    description:
+      '把一个没记的营业日标成「没营业」「用纸记的不补了」或「补个总数」。'
+      + '补总数只补营业额，那天的提成依然算不出来。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+  auditRedact: [...MONEY_PATHS, 'summary.grossCents', 'summary.cashCents',
+                'summary.cardCents', 'summary.tipCashCents', 'summary.tipCardCents'],
+});
+
 export const DAYCLOSE_COMMANDS = [
-  RecordCashMovement, SaveCashCount, PayCashTips, FinalizeDay, ReopenDay,
+  RecordCashMovement, SaveCashCount, PayCashTips, FinalizeDay, ReopenDay, MarkGapDay,
 ] as const;

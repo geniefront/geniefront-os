@@ -24,7 +24,8 @@ export interface DayItem {
 export interface DaySnapshot {
   businessDate: string; timezone: string; openMin: number; closeMin: number;
   staff: DayStaff[]; services: Array<{ id: string; name: string; durationMin: number; priceCents: number }>;
-  resources: Array<{ id: string; name: string }>; items: DayItem[];
+  resources: Array<{ id: string; name: string; capacity: number; maxStaff: number | null }>;
+  items: DayItem[];
 }
 
 const PX_PER_MIN = 1.5;

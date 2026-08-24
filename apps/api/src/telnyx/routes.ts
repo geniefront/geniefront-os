@@ -12,17 +12,25 @@
  * 这里只做：验签 → 定位门店 → 组一个系统上下文 → dispatch。
  */
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   AppError, ERROR_CODES, pickText,
   type CommandContext, type Permission,
 } from '@gf/contracts';
-import { withTenant, tenantForPhoneNumber } from '@gf/db';
+import {
+  withTenant, tenantForPhoneNumber,
+  setSmsConsent, recordInboundSms,
+} from '@gf/db';
 import { dispatch } from '../bus';
 import { loadSlotContext, summariseSlots } from '../queries/slots';
+import { addDays, wallMinuteToInstant, businessDateOf } from '@gf/scheduling';
 import { verifyTelnyxSignature, SIGNATURE_HEADER, TIMESTAMP_HEADER } from './verify';
+import { hashToolToken, sameDigest } from './toolToken';
 import { rawBodyOf } from '../rawBody';
 import { maybeAutoTopup, billingSystemContext } from '../billing/autoTopup';
+import { classify } from '../sms/keywords';
+import { flushSms } from '../sms/flush';
+import { generateConfirmationCode, generateManageToken } from '../public/bookingToken';
 import '../handlers/phone';
 import '../handlers/billing';
 
@@ -36,13 +44,59 @@ import '../handlers/billing';
  * 但不需要把完整号码念出来。少一个权限就少一条泄露路径。
  */
 const PHONE_AI_PERMISSIONS: readonly Permission[] = [
+  /**
+   * ⭐ 2026-08-22：加了 `appointment.write`。
+   *
+   * 在此之前 AI 只能写复核队列，建单必须前台点确认（原决策 6）。
+   * 店主明确改了这条：**AI 直接建单，客人挂电话就收到确认短信**，
+   * 前台在「来电记录」里知悉即可。
+   *
+   * 这是本模块唯一的安全面扩大，所以配套三条约束写在这里：
+   *
+   *   1. **只能建，不能改不能删。** 没有 `appointment.cancel`、
+   *      没有 `appointment.reschedule` —— 改期取消一律回前台。
+   *      建错一单可以补救，被静默改掉的单没人会发现。
+   *   2. **永不传 override。** 软约束放行需要一个知道店里现在什么情况的人，
+   *      电话那头没有这个人（同公开预约页的口径）。
+   *   3. **时间只能来自 find_slots。** AI 报的每一个时段都必须是引擎返回的，
+   *      book_appointment 会再校验一次 slot 是否仍然可用。
+   *
+   * 仍然**没有** `customer.view_contact`：AI 用号码查人，但念不出完整号码。
+   */
+  'appointment.write',
   'call.draft',
   'appointment.read',
   'customer.read',
   'schedule.read',
 ];
 
-interface Tenant { orgId: string; locationId: string; timezone: string; locale: string }
+interface Tenant {
+  orgId: string;
+  locationId: string;
+  name: string;
+  timezone: string;
+  locale: string;
+  /** 这条线的第二把钥匙（sql/0036）。null = 还没开这道门，照旧只验签名 */
+  toolTokenDigest: string | null;
+}
+
+/**
+ * ⭐ 每个工具的返回里都带上「这是哪家店」。
+ *
+ * 入参里**没有** location id，是有意的：这几条路由没有登录用户，
+ * 身份证明只有一个签名。一旦接受调用方给的门店 id，任何拿到（或伪造过）
+ * 一次签名的人就能点名查任意一家店的客户和排期 —— 而被叫号码做不到这件事，
+ * 它必须先在 `phone_lines` 里绑给某家店，且 `ai_voice` 的号全局唯一。
+ *
+ * 但「不接受」不等于「不告诉」：出参里说清楚落到了谁头上，
+ * 否则调用方和看日志的人没有任何办法确认这通电话没有串店。
+ * AI 也用得上 —— 它可以在电话里说出店名。
+ */
+const shopOf = (t: Tenant) => ({
+  locationId: t.locationId,
+  name: t.name,
+  timezone: t.timezone,
+});
 
 /**
  * 组一个系统上下文。
@@ -103,23 +157,94 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
    */
   async function tenantForNumber(e164: string | undefined): Promise<Tenant> {
     if (!e164) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { reason: 'missing_to_number' } });
-    const t = await tenantForPhoneNumber(e164).catch(() => null);
+
+    /*
+     * ⚠️ 只吞「这个号码不合法」，**不吞数据库出错**。
+     *
+     * 原来这里是 `.catch(() => null)` —— 一律当成「查不到」。
+     * 于是连不上库的时候，每个工具返回的都是
+     * `number_not_bound_to_any_location`：看起来像号码没绑对，
+     * 实际上是库挂了。真出这事的时候，人会先去翻 phone_lines 那张表。
+     */
+    const t = await tenantForPhoneNumber(e164).catch((e: unknown) => {
+      if (e instanceof Error && /withPhoneLine/.test(e.message)) return null;   // 不是 E.164
+      throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, {
+        details: { reason: 'phone_lookup_failed', e164 },
+        cause: e instanceof Error ? e : undefined,
+      });
+    });
     if (!t) {
       throw new AppError(ERROR_CODES.NOT_FOUND, {
         details: { reason: 'number_not_bound_to_any_location', e164 },
       });
     }
-    return { orgId: t.orgId, locationId: t.locationId, timezone: t.timezone, locale: t.locale };
+    return {
+      orgId: t.orgId,
+      locationId: t.locationId,
+      name: pickText(t.name, 'en'),
+      timezone: t.timezone,
+      locale: t.locale,
+      toolTokenDigest: t.toolTokenDigest,
+    };
   }
 
-  // ── tool 1：查老客（只读）────────────────────────────────────────────────
-  //
-  // 决策 21：同号多客户（夫妻/母女共号）必须返回列表让 AI 在电话里问
-  // 「请问是哪位」，**不许自动挑一个**。挑错了整通电话会挂到另一个人头上。
-  app.post('/v1/telnyx/tools/lookup_customer', async (req) => {
-    const body = verified(req);
+  /**
+   * 工具路由专用：号码定位门店 **+ 第二把钥匙**（sql/0036）。
+   *
+   * ## 为什么门店 id 不是入参，而这个是
+   *
+   * 两者看起来都是「调用方给一串东西指认自己」，区别在于**猜不猜得到**：
+   * 门店 id 或号码是公开信息（号码就印在店门口），一旦它能选定租户，
+   * 验签被绕过的那一刻，攻击者就能逐个号码点名查任意一家店。
+   * 这串 token 是 32 字节随机、只存摘要、只在生成时露一次面。
+   *
+   * ⚠️ 但它**不替代号码**：定位门店的仍然是 `to`。
+   * `call.hangup` / `message.received` 那条路是 webhook 不是工具调用，
+   * 带不了自定义参数 —— 所以那边只能靠号码，这个函数也不用在那儿。
+   *
+   * 没配 token 的线照旧只验签名：一次迁移不该让存量号码在半夜里停掉。
+   */
+  async function tenantForTool(body: Record<string, unknown>): Promise<Tenant> {
     const t = await tenantForNumber(str(body['to']));
-    const from = str(body['from']);
+    if (!t.toolTokenDigest) return t;
+
+    const given = str(body['shop_token']);
+    if (!given || !sameDigest(hashToolToken(given), t.toolTokenDigest)) {
+      /*
+       * 缺和错回同一个错。**但一定要写进日志** ——
+       * 这个 401 最可能的成因不是攻击，是「换了 token 忘了同步到
+       * Telnyx 的 assistant 配置」，而那家店的电话此刻是全哑的。
+       * 日志里没有这一行的话，排查要从「客人说打不通」开始。
+       */
+      app.log.warn(
+        { e164: str(body['to']), locationId: t.locationId, gaveToken: Boolean(given) },
+        'telnyx tool: shop_token 不匹配 —— assistant 配置可能没同步',
+      );
+      throw new AppError(ERROR_CODES.UNAUTHENTICATED, {
+        details: { reason: 'shop_token_invalid' },
+      });
+    }
+    return t;
+  }
+
+  // ── 三个只读查询：`start_call` 和它们各自的工具共用同一份实现 ──────────
+  //
+  // ⭐ 2026-08-22：这三样东西在一通电话里**是静态的**（客人是谁、店里卖什么、
+  // 谁在班），所以接通时一次抓完比分三次问快得多 —— 电话里每一次工具调用
+  // 都是一秒多的静默，客人会以为断线了。合并成 `start_call`。
+  //
+  // ⚠️ **空档不在其中**：它取决于客人说的项目、时长、人数、哪一天，
+  // 而且会在通话过程中被前台或官网订走。塞进开场那一坨里，模型会在
+  // 五分钟后照着念一个已经没了的时段 —— 那正是这套设计要防的事。
+
+  /** 来电号码 → 这个号下的客人（可能不止一位，决策 21） */
+  async function loadCallers(t: Tenant, from: string | undefined): Promise<{
+    guidance?: string;
+    customers: Array<{
+      customerId: string; displayName: string;
+      lastVisitOn: string | null; lastService: string | null;
+    }>;
+  }> {
     if (!from) return { customers: [] };
 
     const digits = from.replace(/\D/g, '');
@@ -141,9 +266,9 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
 
     return {
       // AI 拿到 >1 条时必须开口问，这句话直接写在返回里，比藏在 prompt 里可靠
-      guidance: rows.length > 1
-        ? '这个号码下有多位客人，请在电话里问清是哪一位，不要替客人选。'
-        : undefined,
+      ...(rows.length > 1
+        ? { guidance: '这个号码下有多位客人，请在电话里问清是哪一位，不要替客人选。' }
+        : {}),
       customers: rows.map((r) => ({
         customerId: r.id,
         displayName: r.display_name,
@@ -151,47 +276,280 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
         lastService: r.last_service,
       })),
     };
+  }
+
+  /** 价目表。主项目与加项分开（`is_addon`，sql/0035） */
+  async function loadPriceList(t: Tenant, category: string | undefined): Promise<{
+    services: PriceRow[]; addons: PriceRow[];
+  }> {
+    const rows = await withTenant(
+      { orgId: t.orgId, locationId: t.locationId, membershipId: null },
+      (tx) => tx<{
+        id: string; name: unknown; description: unknown;
+        duration_min: number; price_cents: number; category: unknown; is_addon: boolean;
+      }[]>`
+        select s.id, s.name, s.description, s.duration_min,
+               s.base_price_cents as price_cents, sc.name as category, s.is_addon
+        from services s
+        left join service_categories sc on sc.id = s.category_id
+        where s.location_id = ${t.locationId} and s.active = true
+        order by sc.sort, s.sort, s.name->>'en'`);
+
+    /*
+     * ⚠️ 分类过滤在应用层做，不在 SQL 里。
+     * `service_categories.name` 是多语言 jsonb，没有稳定的 key 列
+     * （查过 schema，确实没有），所以只能取出来按显示名模糊匹配。
+     * 匹配不上时**返回全部**而不是空列表 —— AI 拿到空列表会告诉客人
+     * 「我们没有这类项目」，而实际上只是分类名对不上。
+     */
+    const shaped: PriceRow[] = rows.map((r) => ({
+      serviceId: r.id,
+      name: pickText(r.name, 'en'),
+      description: r.description ? pickText(r.description, 'en') : null,
+      durationMin: r.duration_min,
+      priceCents: r.price_cents,
+      category: r.category ? pickText(r.category, 'en') : null,
+      isAddon: r.is_addon,
+    }));
+    const lower = category?.toLowerCase();
+    const filtered = lower
+      ? shaped.filter((x) => x.category?.toLowerCase().includes(lower))
+      : shaped;
+    const usable = filtered.length > 0 ? filtered : shaped;
+
+    return {
+      services: usable.filter((x) => !x.isAddon),
+      addons: usable.filter((x) => x.isAddon),
+    };
+  }
+
+  /** 可接客的技师。`onShift` 按给定日期算，不给就按今天 */
+  async function loadTherapists(t: Tenant, opts: { gender?: string; date?: string }): Promise<Array<{
+    membershipId: string; displayName: string; gender: string | null;
+    skills: string[]; onShift: boolean;
+  }>> {
+    const gender = opts.gender ?? null;
+    const onDate = opts.date ?? null;
+    const rows = await withTenant(
+      { orgId: t.orgId, locationId: t.locationId, membershipId: null },
+      // ⚠️ `skills` 聚合出来的是 jsonb（技能名是多语言的），不是字符串
+      (tx) => tx<{
+        membership_id: string; name: unknown; gender: string | null;
+        skills: unknown[] | null; on_shift: boolean;
+      }[]>`
+        select sp.membership_id, sp.display_name as name, sp.gender,
+               array_remove(array_agg(sk.name), null) as skills,
+               exists (
+                 select 1 from shifts sh
+                 where sh.membership_id = sp.membership_id
+                   and sh.business_date = coalesce(${onDate}::date, current_date)
+                   and sh.status <> 'off'
+               ) as on_shift
+        from staff_profiles sp
+        join memberships m on m.id = sp.membership_id and m.status = 'active'
+        left join staff_skills ss on ss.membership_id = sp.membership_id
+        left join skills sk on sk.id = ss.skill_id
+        where sp.location_id = ${t.locationId} and sp.is_bookable = true
+          and (${gender}::text is null or sp.gender = ${gender})
+        group by sp.membership_id, sp.display_name, sp.gender
+        order by sp.display_name`);
+
+    return rows.map((r) => ({
+      membershipId: r.membership_id,
+      displayName: pickText(r.name, 'en'),
+      gender: r.gender,
+      // 不转的话 AI 拿到的是 {"en":"Gel","zh-Hans":"甲油胶"} —— 它会照着念出来
+      skills: (r.skills ?? []).map((k) => pickText(k, 'en')),
+      onShift: r.on_shift,
+    }));
+  }
+
+  // ── tool 0：接通那一下，一次抓完 ⭐ ──────────────────────────────────────
+  //
+  // 客人是谁、店里卖什么、今天谁在班、几点关门 —— 这四样在一通电话里
+  // 都不会变，而分四次问就是四段静默。合并的另一个好处：
+  // 「你们几点关门」「有没有女技师」这类问题**一次工具都不用调**就答得上来。
+  app.post('/v1/telnyx/tools/start_call', async (req) => {
+    const body = verified(req);
+    const t = await tenantForTool(body);
+
+    const [loc] = await withTenant(
+      { orgId: t.orgId, locationId: t.locationId, membershipId: null },
+      (tx) => tx<{ hours: Record<string, { open: string; close: string } | null>; cutoff: string }[]>`
+        select business_hours as hours, business_day_cutoff::text as cutoff
+        from locations where id = ${t.locationId}`);
+
+    const businessDate = businessDateOf(new Date(), t.timezone, loc?.cutoff ?? '04:00');
+    const [callers, price, staff] = await Promise.all([
+      loadCallers(t, str(body['from'])),
+      loadPriceList(t, undefined),
+      loadTherapists(t, { date: businessDate }),
+    ]);
+
+    return {
+      shop: shopOf(t),
+      businessDate,
+      /** 一周的营业时间。「你们周日开吗」是电话里最高频的问题之一 */
+      businessHours: loc?.hours ?? null,
+      /**
+       * 这一坨 guidance 是四个工具那几句的合并版。
+       * 写在返回里而不是 prompt 里的理由没变：它跟着数据一起到，
+       * 而且能随数据变化（同号多客户那句只在真有多位时出现）。
+       */
+      guidance: '这是这通电话的全部背景，下面列出来的东西可以直接说给客人听。'
+        + '⚠️ 但**时间必须调 find_slots**：空档会在通话过程中被前台或官网订走，'
+        + '这里没有、也不该有任何时段。'
+        + '只报下面列出的项目、时长和价格，不要自己推算折扣或套餐价；'
+        + '客人要求优惠时说「这个我得请前台看一下，稍后回电给您」。'
+        + (price.addons.length > 0
+          ? 'addons 里的是**加项**：只能加在主项目上，不能单独预约，'
+            + '报价时说「加 $X」而不是「$X 一次」。'
+          : '')
+        + '只在客人主动问起时提技师性别。不要念技师的电话或全名。',
+      /** 来电号码下的客人。空数组 = 新客 */
+      caller: callers,
+      currency: 'USD',
+      /** ⚠️ 价格是整数分（宪法第 4 条）。AI 自己格式化成 $45.00 */
+      services: price.services,
+      addons: price.addons,
+      /** ⚠️ 只有显示名、性别、技能、今天在不在班 —— 没有手机号和全名 */
+      staff,
+    };
+  });
+
+  // ── tool 1：查老客（只读）────────────────────────────────────────────────
+  //
+  // 决策 21：同号多客户（夫妻/母女共号）必须返回列表让 AI 在电话里问
+  // 「请问是哪位」，**不许自动挑一个**。挑错了整通电话会挂到另一个人头上。
+  //
+  // ⚠️ `start_call` 已经把它包含在内了。这条路留着是因为 Telnyx 那边的
+  // 配置是人工推的 —— 一次合并不该让还没更新配置的店打不通电话。
+  app.post('/v1/telnyx/tools/lookup_customer', async (req) => {
+    const body = verified(req);
+    const t = await tenantForTool(body);
+    return { shop: shopOf(t), ...await loadCallers(t, str(body['from'])) };
   });
 
   // ── tool 2：查真实空档（只读）───────────────────────────────────────────
   //
   // ⭐ 这是 09 §8「不让 AI 自己算空档」那条护栏的正面实现。
   // AI 在电话里报的每一个时间都必须来自这个接口。
+  //
+  // 四个入参是 2026-08-22 补齐的（docs/14 §4 那张「尚未实现」表）：
+  //   party_size        几位一起来 —— 同一时刻要凑得齐这么多位技师
+  //   services[]        多项目连做 —— 时长是各项之和，先只支持同一技师连做
+  //   gender_preference 收窄成候选技师集**传给引擎**，不是拿到结果再过滤
+  //   alternatives      那天没空档时往后找三天，并在 guidance 里写明这是改期建议
   app.post('/v1/telnyx/tools/find_slots', async (req) => {
     const body = verified(req);
-    const t = await tenantForNumber(str(body['to']));
+    const t = await tenantForTool(body);
 
-    const durationMin = num(body['duration_min']) ?? 45;
     const around = str(body['around']) ? new Date(str(body['around'])!) : new Date();
     if (Number.isNaN(around.getTime())) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'bad_around' } });
     }
     const preferred = str(body['staff_membership_id']) ?? null;
 
-    const { businessDate, timezone, slots } = await withTenant(
-      { orgId: t.orgId, locationId: t.locationId, membershipId: null },
-      (tx) => loadSlotContext(tx, t.locationId, around, durationMin, preferred));
+    /*
+     * 时长以**库里的项目**为准，不以 AI 传的 duration_min 为准。
+     *
+     * 模型会把「洗剪吹」估成 30 分钟而店里那一项是 60。按它估的找空档，
+     * 找到的位置放不下这一单 —— 建单时不会报错（时长是建单时重新算的），
+     * 出事的是后面那位客人：他被排在一个已经被占掉的时间上。
+     *
+     * 一个项目都没匹配上时才退回 duration_min（再退到 45 分钟）。
+     */
+    const heard = strArray(body['services']) ?? listOf(str(body['service_heard']));
+    const { matched, unmatched } = heard.length > 0
+      ? await resolveHeardServices(t, heard)
+      : { matched: [] as CatalogItem[], unmatched: [] as string[] };
 
-    const top = summariseSlots(slots, minutesOf(around, timezone), 3);
+    const durationMin = matched.length > 0
+      ? matched.reduce((n, m) => n + m.durationMin, 0)
+      : num(body['duration_min']) ?? 45;
+
+    const partySize = clampInt(num(body['party_size']) ?? 1, 1, 20);
+    const genderPreference = normGender(str(body['gender_preference']));
+    const opts = { genderPreference, partySize };
+
+    const found = await withTenant(
+      { orgId: t.orgId, locationId: t.locationId, membershipId: null },
+      async (tx) => {
+        const day = await loadSlotContext(tx, t.locationId, around, durationMin, preferred, opts);
+        const top = summariseSlots(day.slots, minutesOf(around, day.timezone), 3);
+        if (top.length > 0 || !day.businessDate) {
+          return { ...day, top, alternatives: [] as Alternative[] };
+        }
+
+        /*
+         * 那一天没有空档 → 往后找三天。
+         *
+         * ⚠️ 这些时间**不是客人要的那一天**，所以它们不能出现在 `slots` 里。
+         * 混在一起报出去，客人听到的是「周六下午三点可以」，
+         * 而那是下周三 —— 他会照着周六来。分开放，并在 guidance 里写死措辞。
+         */
+        const alternatives: Alternative[] = [];
+        for (let i = 1; i <= 3; i++) {
+          const date = addDays(day.businessDate, i);
+          // 正午作锚点：cutoff 最晚也就凌晨几点，正午永远落在同一个营业日
+          const noon = wallMinuteToInstant(date, day.timezone, 12 * 60);
+          const alt = await loadSlotContext(tx, t.locationId, noon, durationMin, preferred, opts);
+          const altTop = summariseSlots(alt.slots, undefined, 2);
+          if (altTop.length > 0) {
+            alternatives.push({
+              businessDate: alt.businessDate,
+              slots: altTop.map((x) => ({
+                startsAt: x.startsAt.toISOString(),
+                staff: x.staff.map((p) => p.name).join(' / '),
+              })),
+            });
+          }
+        }
+        return { ...day, top, alternatives };
+      });
 
     return {
-      businessDate,
-      timezone,
-      // 一个都没有时给 AI 一句能直接说出口的话，而不是让它自己编
-      guidance: top.length === 0
-        ? '这一天没有空档。请告诉客人换一天，或者转前台。不要自己另报时间。'
-        : '只能从下面这些时间里选，不要自己推算别的时间。',
-      slots: top.map((s) => ({
+      shop: shopOf(t),
+      businessDate: found.businessDate,
+      timezone: found.timezone,
+      /** ⭐ 建单时把这个原样传回 `book_appointment`，两边的时长必须是同一个 */
+      durationMin,
+      partySize,
+      /** 匹配上的项目。AI 复述给客人听的应该是这里的名字，不是它自己听到的 */
+      services: matched.map((m) => ({
+        serviceId: m.id, name: m.name, durationMin: m.durationMin,
+        priceCents: m.priceCents, isAddon: m.isAddon,
+      })),
+      guidance: slotsGuidance({
+        hasSlots: found.top.length > 0,
+        alternatives: found.alternatives,
+        partySize,
+        genderPreference,
+        unmatched,
+      }),
+      slots: found.top.map((s) => ({
         startsAt: s.startsAt.toISOString(),
         staff: s.staff,
       })),
+      // 有空档时不出现 —— 免得模型从这里挑一个时间报出去
+      ...(found.alternatives.length > 0 ? { alternatives: found.alternatives } : {}),
     };
   });
 
   // ── tool 3：放进复核队列（写）───────────────────────────────────────────
-  app.post('/v1/telnyx/tools/draft_appointment', async (req) => {
+  /**
+   * ⭐ 2026-08-22 改名 draft_appointment → request_callback，职责也变了。
+   *
+   * 以前它是**唯一**出口：AI 只能留草案，前台确认后才建单。
+   * 现在 AI 直接建单（见 book_appointment），这条退化成**兜底** ——
+   * 信息不全、没空档、或 book 失败且不该重试时，把已知的留给前台回电。
+   *
+   * 旧路径保留：Telnyx 那边的 assistant 配置是人工同步的，
+   * 万一没改到，旧名还能工作。一次改名不该让电话打不通。
+   */
+  const requestCallback = async (req: FastifyRequest) => {
     const body = verified(req);
-    const t = await tenantForNumber(str(body['to']));
+    const t = await tenantForTool(body);
     const ctx = systemContext(t);
 
     // 幂等键用 Telnyx 的 call id：通话重连、webhook 重投都会重放，
@@ -220,11 +578,264 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
 
     return {
       ok: true,
+      shop: shopOf(t),
       draftId: out.result.draftId,
       // AI 要在电话里说的那句话 —— 措辞在这里定死，
       // 否则模型会说成「已经帮您约好了」，而它其实只是放进了待办
       say: '好的，我已经记下来了。前台确认之后会给您回电，通常几分钟内。',
     };
+  };
+
+  app.post('/v1/telnyx/tools/request_callback', requestCallback);
+  app.post('/v1/telnyx/tools/draft_appointment', requestCallback);
+
+  // ── tool 4：报项目和价格（只读）─────────────────────────────────────────
+  //
+  // ⚠️ `start_call` 已经把整张价目表给了。这条留着有两个用处：
+  //   · Telnyx 那边配置没更新的店（人工同步）
+  //   · 项目特别多的店：`category` 能只取一类，比整张表短得多
+  app.post('/v1/telnyx/tools/list_services', async (req) => {
+    const body = verified(req);
+    const t = await tenantForTool(body);
+    const { services, addons } = await loadPriceList(t, str(body['category']));
+
+    return {
+      shop: shopOf(t),
+      /*
+       * 报价话术写死在返回里而不是 prompt 里 —— 模型很容易顺着客人
+       * 「能便宜点吗」往下接，而折扣不是它能决定的事。
+       */
+      guidance: '只报下面列出的项目、时长和价格。不要自己推算折扣或套餐价；'
+        + '客人要求优惠时说「这个我得请前台看一下，稍后回电给您」。'
+        + (addons.length > 0
+          ? 'addons 里的是**加项**：只能加在主项目上，不能单独预约，'
+            + '报价时说「加 $X」而不是「$X 一次」。'
+          : ''),
+      /** ⚠️ 价格是整数分（宪法第 4 条）。AI 自己格式化成 $45.00 */
+      currency: 'USD',
+      services,
+      addons,
+    };
+  });
+
+  // ── tool 5：报技师（只读）───────────────────────────────────────────────
+  //
+  // 「你们有女技师吗」「Mai 今天在吗」这类问题。
+  // ⚠️ `start_call` 给的是**今天**的在班情况；问别的日子才需要这条。
+  app.post('/v1/telnyx/tools/list_staff', async (req) => {
+    const body = verified(req);
+    const t = await tenantForTool(body);
+    const therapists = await loadTherapists(t, {
+      ...(str(body['gender']) ? { gender: str(body['gender'])! } : {}),
+      ...(str(body['date']) ? { date: str(body['date'])! } : {}),
+    });
+
+    return {
+      shop: shopOf(t),
+      /*
+       * ⚠️ 性别只用于筛选，不主动播报。
+       * 「要女技师」在这一行是真实且高频的诉求，所以字段存在；
+       * 但没被问到时提起技师性别，在部分司法辖区是有风险的。
+       */
+      guidance: '只在客人主动问起时提技师性别。不要念技师的电话或全名。'
+        + '客人指定的技师当天不在时，说清哪天在，或推荐同样擅长该项目的人。',
+      therapists,
+    };
+  });
+
+  // ── tool 6：真建预约（写）⭐ ────────────────────────────────────────────
+  //
+  // 2026-08-22 前这里是 draft_appointment（只进复核队列）。店主改了决策：
+  // **AI 直接建单，客人挂电话就收到确认短信**，前台在来电记录里知悉。
+  //
+  // 三条约束（见 PHONE_AI_PERMISSIONS 上方那段）：只能建不能改删、
+  // 永不传 override、时间必须来自 find_slots。
+  app.post('/v1/telnyx/tools/book_appointment', async (req) => {
+    const body = verified(req);
+    const t = await tenantForTool(body);
+    const ctx = systemContext(t);
+
+    const startsAt = str(body['slot_starts_at']);
+    const callerName = str(body['caller_name'])?.trim();
+    const fromE164 = str(body['from']);
+
+    /*
+     * 项目：`services` 数组（多项目连做）优先，退回单个 `service_heard`。
+     * 加项从同一个数组里按 `is_addon` 分出来 —— 客人在电话里说
+     * 「六十分钟深层，加个热石」，这是一个主项目 + 一个加项，不是两个项目。
+     */
+    const heard = strArray(body['services']) ?? listOf(str(body['service_heard']));
+    const { matched } = heard.length > 0
+      ? await resolveHeardServices(t, heard)
+      : { matched: [] as CatalogItem[] };
+    const mains = matched.filter((m) => !m.isAddon);
+    const addons = matched.filter((m) => m.isAddon);
+
+    /*
+     * 缺件时**不建单**，退回一句 AI 能直接说出口的话。
+     * 让它自己编一个时间或名字，比不建单糟得多。
+     */
+    const missing: string[] = [];
+    if (mains.length === 0) missing.push('service');
+    if (!startsAt) missing.push('slot_starts_at');
+    if (!callerName) missing.push('caller_name');
+    if (!fromE164) missing.push('phone');
+    if (missing.length > 0) {
+      // 只听到加项是一种特别常见的缺件（「我要加个热石」），
+      // 值得给 AI 一句能直接问出口的话，而不是笼统的「信息不全」
+      const addonOnly = mains.length === 0 && addons.length > 0;
+      return {
+        ok: false,
+        missing,
+        say: addonOnly
+          ? `${addons[0]!.name} 是加在项目上的，请问主项目您想做什么？`
+          : '不好意思，还差一点信息我这边订不了。我记下来让前台马上给您回电，好吗？',
+        guidance: addonOnly
+          ? '客人只说了加项。问清主项目，再调一次 find_slots 和 book_appointment。'
+          : '不要重试 book_appointment。改调 request_callback 把已知信息留给前台。',
+      };
+    }
+
+    // 时长以库里的项目为准（同 find_slots），一个都没匹配上才用 AI 估的
+    const totalMin = matched.reduce((n, m) => n + m.durationMin, 0)
+      || num(body['duration_min']) || 45;
+    const partySize = clampInt(num(body['party_size']) ?? 1, 1, 20);
+    const staffId = await matchStaff(t, str(body['staff_heard']));
+
+    /*
+     * ⭐ 两位客人一起来 = 两条并排的单，各占一位技师。
+     *
+     * 只把 `party_size: 2` 记在预约头上、底下仍然只有一条 item 的话，
+     * 日程表上只占掉一个人 —— 前台看到的是「一位客人」，
+     * 到店来了两位，而第二位没有技师。这里在建单前把人凑齐。
+     */
+    const staffIds = partySize > 1
+      ? await pickPartyStaff(t, {
+          startsAt: startsAt!, durationMin: totalMin, partySize,
+          preferred: staffId, genderPreference: normGender(str(body['gender_preference'])),
+        })
+      : [staffId];
+
+    if (staffIds.length < partySize) {
+      return {
+        ok: false,
+        error: 'RESOURCE_CONFLICT',
+        say: `不好意思，这个时间凑不齐 ${partySize} 位技师了。我再帮您看看别的时间？`,
+        guidance: '重新调 find_slots（带上 party_size）拿新的时间，再调一次 book_appointment。',
+      };
+    }
+
+    // 幂等键用 Telnyx 的 call id：通话重连、webhook 重投都会重放。
+    // 不去重的话客人会收到两条确认短信，而店里多了一个不存在的预约
+    const callId = str(body['call_session_id']) ?? str(body['call_control_id']);
+
+    // 确认码前缀取店名首字母；这里拿不到店名，用固定前缀（码本身仍是店内唯一）
+    const confirmationCode = generateConfirmationCode('GF');
+    const manageToken = generateManageToken();
+
+    /*
+     * 多项目连做：同一位技师，一段接一段。
+     * （换人做是另一种排法 —— 那要让客人在电话里换两次房间，先不做。）
+     * 加项挂在第一段上：它们不是独立的活，时长并进那一段。
+     */
+    const addonMin = addons.reduce((n, a) => n + a.durationMin, 0);
+    const items = staffIds.flatMap((membershipId) => {
+      let cursor = new Date(startsAt!).getTime();
+      return mains.map((m, i) => {
+        const durationMin = m.durationMin + (i === 0 ? addonMin : 0);
+        const item = {
+          serviceId: m.id,
+          addonIds: i === 0 ? addons.map((a) => a.id) : [],
+          membershipId,
+          // 点钟只算客人真的报了名字的那一位；凑人数补上的不算点钟
+          isRequest: Boolean(staffId) && membershipId === staffId,
+          resourceId: null,
+          startsAt: new Date(cursor).toISOString(),
+          durationMin,
+          details: {},
+        };
+        cursor += durationMin * 60_000;
+        return item;
+      });
+    });
+
+    try {
+      const out = await dispatch<{
+        appointmentId: string; businessDate: string; itemIds: string[];
+      }>(
+        'appointment.create',
+        {
+          customerId: null,
+          items,
+          partySize,
+          notes: str(body['health_notes']) ?? str(body['notes']) ?? undefined,
+          source: 'phone_ai',
+          // ⚠️ override 永不传 —— 软约束放行需要一个知道店里现在什么情况的人
+          guest: {
+            confirmationCode,
+            manageToken,
+            customer: {
+              name: callerName!,
+              phoneE164: fromE164!,
+              // 预约确认短信是事务性的，不需要这个开关；这里管的是营销短信（TCPA）
+              smsOptIn: false,
+            },
+          },
+        },
+        ctx,
+        { idempotencyKey: callId ? `telnyx-book-${callId}` : crypto.randomUUID() },
+      );
+
+      // 确认短信在事务提交之后才发。不 await —— 一条短信发不出去
+      // 永远不该拖慢或推翻一次成功的建单（宪法第 14 条）
+      void flushSms({ orgId: t.orgId, locationId: t.locationId, membershipId: null }, req.log);
+
+      /*
+       * ⭐ 念出去的确认码从**库里读**，不用上面刚生成的那个。
+       *
+       * 幂等重放（通话重连、webhook 重投）走的是总线缓存的结果：
+       * 预约还是第一次那条，而这一次调用生成的是一个全新的码。
+       * 直接念它的话，客人手上的短信写着 GF-HCJR，AI 在电话里
+       * 念的是 GF-ZRY5 —— 到店报哪个都对不上。
+       */
+      const [saved] = await withTenant(
+        { orgId: t.orgId, locationId: t.locationId, membershipId: null },
+        (tx) => tx<{ code: string | null }[]>`
+          select confirmation_code as code from appointments
+          where id = ${out.result.appointmentId}`);
+      const code = saved?.code ?? confirmationCode;
+
+      return {
+        ok: true,
+        shop: shopOf(t),
+        appointmentId: out.result.appointmentId,
+        businessDate: out.result.businessDate,
+        confirmationCode: code,
+        durationMin: totalMin,
+        services: matched.map((m) => ({ name: m.name, isAddon: m.isAddon })),
+        // AI 要照念的话。措辞在服务端定死，否则模型会把确认码念漏
+        say: `好的，已经帮您订好了。确认码是 ${code.split('').join(' ')}，`
+          + '短信马上发到您这个号码上。到时候见！',
+      };
+    } catch (e) {
+      /*
+       * 时段被抢走是这条路上最常见的失败（客人在电话里犹豫的那一分钟，
+       * 前台或网站把它订走了）。这时**不能重试**，要回去重新报时间。
+       */
+      const code = e instanceof AppError ? e.code : 'UNKNOWN';
+      const taken = code === 'RESOURCE_CONFLICT' || code === 'OUTSIDE_BUSINESS_HOURS'
+        || code === 'STAFF_OVER_CAPACITY' || code === 'LOCATION_OVER_CAPACITY';
+      return {
+        ok: false,
+        error: code,
+        say: taken
+          ? '不好意思，这个时间刚刚被订走了。我再帮您看看别的时间？'
+          : '不好意思，系统这边出了点问题。我让前台马上给您回电，好吗？',
+        guidance: taken
+          ? '重新调 find_slots 拿新的时间，再调一次 book_appointment。'
+          : '改调 request_callback，不要重试 book_appointment。',
+      };
+    }
   });
 
   // ── webhook：通话事件 → 计费 ────────────────────────────────────────────
@@ -233,6 +844,17 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
     const data = (body['data'] ?? {}) as Record<string, unknown>;
     const payload = (data['payload'] ?? {}) as Record<string, unknown>;
     const eventType = str(data['event_type']);
+
+    /**
+     * ⭐ 入站短信 —— **必须在下面那句 tenantForNumber 之前处理**。
+     *
+     * 短信的 `to` 是**平台号**（TELNYX_SMS_FROM），它不属于任何一家店，
+     * 反查租户一定失败。同意状态本来也是平台级的（docs/09 §5.1、sql/0034）：
+     * 客人回 STOP 是对我们这个发送者说的，不是对某一家店。
+     */
+    if (eventType === 'message.received') {
+      return handleInboundSms(payload, req.log);
+    }
 
     // 只认挂机事件。别的事件（answered / speak.ended…）照常 200，
     // 不然 Telnyx 会认为投递失败并一直重试
@@ -277,14 +899,90 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
   // 匹配不上就返回 null，**原话照样存**（call_drafts 两个字段都留）。
   // 猜一个「最像的」项目比留空危险得多：前台屏幕上会写着一个看起来
   // 完全正常的项目名，而客人说的是另一个。
-  async function matchService(t: Tenant, heard: string | undefined): Promise<string | null> {
-    if (!heard) return null;
+
+  /** 项目表。找空档要时长，报价要价格，建单要区分主项目和加项 */
+  async function loadCatalog(t: Tenant): Promise<CatalogItem[]> {
     const rows = await withTenant(
       { orgId: t.orgId, locationId: t.locationId, membershipId: null },
-      (tx) => tx<{ id: string; name: unknown }[]>`
-        select id, name from services
+      (tx) => tx<{
+        id: string; name: unknown; duration_min: number;
+        price_cents: number; is_addon: boolean;
+      }[]>`
+        select id, name, duration_min, base_price_cents as price_cents, is_addon
+        from services
         where location_id = ${t.locationId} and active = true`);
-    return bestMatch(heard, rows.map((r) => ({ id: r.id, text: pickText(r.name, 'en') })));
+    return rows.map((r) => ({
+      id: r.id,
+      name: pickText(r.name, 'en'),
+      durationMin: r.duration_min,
+      priceCents: r.price_cents,
+      isAddon: r.is_addon,
+    }));
+  }
+
+  async function matchService(t: Tenant, heard: string | undefined): Promise<string | null> {
+    if (!heard) return null;
+    const catalog = await loadCatalog(t);
+    return bestMatch(heard, catalog.map((c) => ({ id: c.id, text: c.name })));
+  }
+
+  /**
+   * 一串听到的项目名 → 库里的项目。
+   *
+   * 匹配不上的**原样留在 `unmatched` 里**给 AI 去跟客人核对 ——
+   * 悄悄丢掉的话，客人说的「再加个热石」会凭空消失，
+   * 而他到店时以为已经加上了。
+   */
+  async function resolveHeardServices(
+    t: Tenant, heard: readonly string[],
+  ): Promise<{ matched: CatalogItem[]; unmatched: string[] }> {
+    const catalog = await loadCatalog(t);
+    const pool = catalog.map((c) => ({ id: c.id, text: c.name }));
+    const byId = new Map(catalog.map((c) => [c.id, c]));
+
+    const matched: CatalogItem[] = [];
+    const unmatched: string[] = [];
+    for (const h of heard) {
+      const id = bestMatch(h, pool);
+      if (id) matched.push(byId.get(id)!);
+      else unmatched.push(h);
+    }
+    return { matched, unmatched };
+  }
+
+  /**
+   * 一起来的几位客人，各配一位技师。
+   *
+   * ⚠️ 人选**不由模型决定**：它拿到的 slot 里有哪些人有空是三十秒前的事，
+   * 而这三十秒里前台可能已经把其中一位派出去了。这里在建单前
+   * 用同一个排期引擎重新算一遍那个时刻，凑不齐就不建单。
+   *
+   * 客人点名的那位排在最前 —— 她要是还在，就该是她。
+   */
+  async function pickPartyStaff(t: Tenant, args: {
+    startsAt: string; durationMin: number; partySize: number;
+    preferred: string | null; genderPreference: string | null;
+  }): Promise<Array<string | null>> {
+    const around = new Date(args.startsAt);
+    if (Number.isNaN(around.getTime())) return [];
+
+    const slots = await withTenant(
+      { orgId: t.orgId, locationId: t.locationId, membershipId: null },
+      // preferred 不传给引擎：传了就只剩她一个人，凑不齐第二位
+      (tx) => loadSlotContext(tx, t.locationId, around, args.durationMin, null, {
+        limit: 400,
+        partySize: args.partySize,
+        genderPreference: args.genderPreference,
+      }));
+
+    const wanted = around.getTime();
+    const free = slots.slots.filter((s) => s.startsAt.getTime() === wanted);
+    const ids = [...new Set(free.map((s) => s.membershipId))];
+    if (args.preferred && ids.includes(args.preferred)) {
+      ids.splice(ids.indexOf(args.preferred), 1);
+      ids.unshift(args.preferred);
+    }
+    return ids.slice(0, args.partySize);
   }
 
   async function matchStaff(t: Tenant, heard: string | undefined): Promise<string | null> {
@@ -298,6 +996,75 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
         where sp.location_id = ${t.locationId} and sp.is_bookable = true`);
     return bestMatch(heard, rows.map((r) => ({ id: r.membership_id, text: pickText(r.name, 'en') })));
   }
+}
+
+/** 报给客人听的一行价目 */
+interface PriceRow {
+  serviceId: string;
+  name: string;
+  description: string | null;
+  durationMin: number;
+  priceCents: number;
+  category: string | null;
+  isAddon: boolean;
+}
+
+/** 库里的一个项目（或加项）。听到的名字最终要落到这上面 */
+interface CatalogItem {
+  id: string;
+  name: string;
+  durationMin: number;
+  priceCents: number;
+  /** true = 加项，只能加在主项目上，不能单独预约 */
+  isAddon: boolean;
+}
+
+/** 那天没空档时给的改期建议。**不能**混进 `slots` 里 */
+interface Alternative {
+  businessDate: string;
+  slots: Array<{ startsAt: string; staff: string }>;
+}
+
+/**
+ * find_slots 的 `guidance` —— AI 该怎么办写在返回里，不藏在 prompt 里。
+ *
+ * 每一句都对应一种「不这么说会怎样」：
+ *   没空档又不说明是改期建议 → 客人照着周六来，而那是下周三
+ *   项目没匹配上却不提 → 时长是估的，位置放不下，坑的是后面那位客人
+ *   两位客人却按一位报时间 → 到店发现第二位没人接
+ */
+function slotsGuidance(args: {
+  hasSlots: boolean;
+  alternatives: readonly Alternative[];
+  partySize: number;
+  genderPreference: string | null;
+  unmatched: readonly string[];
+}): string {
+  const parts: string[] = [];
+
+  if (args.hasSlots) {
+    parts.push('只能从下面这些时间里选，不要自己推算别的时间。');
+    if (args.partySize > 1) {
+      parts.push(`下面每个时间都已经确认有 ${args.partySize} 位技师同时有空。`);
+    }
+  } else if (args.alternatives.length > 0) {
+    parts.push(
+      '客人要的这一天没有空档。alternatives 里是**往后几天**的时间 ——'
+      + '报之前必须先说明「那天已经满了」，再问「换 X 号可以吗」。'
+      + '绝对不要把它们当成客人要的那一天报出去。');
+  } else {
+    parts.push('这一天没有空档。请告诉客人换一天，或者转前台。不要自己另报时间。');
+    if (args.genderPreference) {
+      parts.push('（这一天在班的技师里没有符合客人性别要求的，别改成推荐别人。）');
+    }
+  }
+
+  if (args.unmatched.length > 0) {
+    parts.push(
+      `「${args.unmatched.join('」「')}」没在项目表里找到，时长是估的。`
+      + '请先调 list_services 跟客人核对项目名，再报时间。');
+  }
+  return parts.join('');
 }
 
 /**
@@ -330,6 +1097,42 @@ const str = (v: unknown): string | undefined =>
 const num = (v: unknown): number | undefined =>
   typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 
+/**
+ * `services` 这个入参。模型有时给数组，有时给一句
+ * 「Deep Tissue 60min, hot stone」——两种都收，空数组当没给（返回 null）。
+ */
+const strArray = (v: unknown): string[] | null => {
+  if (Array.isArray(v)) {
+    const out = v.map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean);
+    return out.length > 0 ? out : null;
+  }
+  if (typeof v === 'string' && v.trim()) {
+    const out = v.split(/[,、+]|\band\b/i).map((x) => x.trim()).filter(Boolean);
+    return out.length > 0 ? out : null;
+  }
+  return null;
+};
+
+const listOf = (v: string | undefined): string[] => (v ? [v] : []);
+
+const clampInt = (v: number, lo: number, hi: number): number =>
+  Math.min(hi, Math.max(lo, Math.floor(v)));
+
+/**
+ * 性别偏好。只认 male / female —— 别的一律当没提。
+ *
+ * 模型会传 "woman"、"f"、"female therapist" 这类东西，
+ * 直接拿去比 `staff_profiles.gender` 会一个人都匹配不上，
+ * 而那时候的表现是「这一天没有空档」，看起来像排班问题。
+ */
+function normGender(v: string | undefined): string | null {
+  if (!v) return null;
+  const s = v.toLowerCase();
+  if (/\bf\b|female|woman|women|girl|lady|女/.test(s)) return 'female';
+  if (/\bm\b|male|man|men|guy|男/.test(s)) return 'male';
+  return null;
+}
+
 /** 门店墙上时间的分钟数，用来把「客人说的时间」排到前面 */
 function minutesOf(d: Date, timezone: string): number {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -337,4 +1140,66 @@ function minutesOf(d: Date, timezone: string): number {
   }).formatToParts(d);
   return Number(parts.find((p) => p.type === 'hour')?.value ?? 0) * 60
     + Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+}
+
+/**
+ * 入站短信：认关键词、落库、该回的回。
+ *
+ * ## 四种意图,三种处理
+ *
+ * | 客人发的 | 我们做什么 |
+ * | :--- | :--- |
+ * | STOP / UNSUBSCRIBE / **CANCEL** / QUIT | 记 `opted_out`,**不回**（见下） |
+ * | START / YES | 记 `opted_in` |
+ * | HELP / INFO | **只留档** —— 回复由 Telnyx 那边自动发（见下） |
+ * | 别的 | 只留档。我们不做短信对话 |
+ *
+ * ## ⚠️ 退订之后为什么不回一条「已退订」
+ *
+ * 运营商在**网络层**就把这个号到他的短信掐了,我们再发只会被拒（还计一次费）。
+ * 而且 10DLC 的退订确认由运营商/Telnyx 自动发 —— 我们再发一条是**重复**。
+ *
+ * ## 🔴 CANCEL 的歧义:这里是它唯一能被记下来的地方
+ *
+ * 客人打 CANCEL 多半是想取消**预约**,而运营商规定这个词必须退订。
+ * 退订之后我们**再也发不了短信给他** —— 所以这条原话进 `sms_inbound`
+ * 是前台唯一的线索。docs/09 §5.3 里写了这件事该怎么跟店家交代。
+ */
+async function handleInboundSms(
+  payload: Record<string, unknown>,
+  log: { info: (o: unknown, m: string) => void },
+): Promise<{ ok: true; intent: string }> {
+  const from = str(((payload['from'] ?? {}) as Record<string, unknown>)['phone_number'])
+    ?? str(payload['from']) ?? '';
+  const toArr = (payload['to'] ?? []) as Array<Record<string, unknown>>;
+  const to = str(toArr[0]?.['phone_number']) ?? str(payload['to']) ?? '';
+  const text = str(payload['text']) ?? '';
+  const providerId = str(payload['id']) ?? null;
+
+  const intent = classify(text);
+  await recordInboundSms({ fromE164: from, toE164: to, body: text, intent, providerId });
+
+  if (intent === 'opt_out') {
+    await setSmsConsent(from, 'opted_out', text.trim().toUpperCase().slice(0, 32));
+    log.info({ from }, 'sms opt-out recorded');
+    return { ok: true, intent };
+  }
+
+  if (intent === 'opt_in') {
+    await setSmsConsent(from, 'opted_in', text.trim().toUpperCase().slice(0, 32));
+    return { ok: true, intent };
+  }
+
+  /**
+   * ⚠️ **HELP 不由我们回。**
+   *
+   * 三组关键词的自动回复配在 Telnyx 的 messaging profile 上
+   * （`autoresp_configs`，docs/09 §5.4）—— 我们再回一条就是**重复**：
+   * 客人问一句 HELP 收到两条一模一样的说明。
+   *
+   * 分工是清楚的：
+   *   Telnyx  回复 + 运营商层面的拦截（合规那一半，我们的服务挂了它照常работа）
+   *   我们    留档 + `sms_consent`（前台要看得到，发之前要拦得住）
+   */
+  return { ok: true, intent };
 }

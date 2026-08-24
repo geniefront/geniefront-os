@@ -25,7 +25,7 @@ export interface SettingsData {
   services: Array<{
     id: string; name: Record<string, string>; displayName: string;
     durationMin: number; basePriceCents: number;
-    taxable: boolean; onlineBookable: boolean; active: boolean;
+    taxable: boolean; onlineBookable: boolean; isAddon: boolean; active: boolean;
   }>;
   staff: Array<{
     membershipId: string; name: string; isBookable: boolean;
@@ -38,6 +38,22 @@ export interface SettingsData {
     liveSessions: number;
   }>;
   levels: Array<{ id: string; key: string; name: string }>;
+  /** 官网对接（docs/13）。老板把 publicKey 和域名交给做官网的人 */
+  web: {
+    /** ⚠️ 不是密钥 —— 它本来就要出现在官网的 JS 里 */
+    publicKey: string;
+    slug: string;
+    allowedOrigins: Array<{ id: string; origin: string; label: string | null }>;
+    onlineBooking: {
+      enabled: boolean;
+      maxDaysAhead: number;
+      minMinutesAhead: number;
+      requirePhoneVerification: boolean;
+      cancelCutoffHours: number;
+    };
+    /** 一个都没勾就打不开在线预约 */
+    onlineBookableCount: number;
+  };
   phone: {
     storefrontE164: string | null;
     transferTargetE164: string | null;
@@ -62,14 +78,14 @@ export function Settings({
   membershipId: string;
   onChanged: () => Promise<unknown>;
   /** 从开店向导跳进来时，落在他刚点的那一项上（不落的话他得自己再找一次） */
-  initialPane?: 'service' | 'staff' | 'hours' | 'device' | 'phone' | null;
+  initialPane?: 'service' | 'staff' | 'hours' | 'device' | 'phone' | 'web' | null;
   /** 打开「拍价目表」。项目一个个敲太慢，这是 Phase 2 的主入口（05 §4） */
   onPhotoSetup: () => void;
   /** 打开「Yelp 一键填店」。店名 + 邮编两个字段把店建起来（05 §4.1） */
   onYelpFill: () => void;
 }) {
   const [pane, setPane] = useState<
-    'service' | 'staff' | 'hours' | 'device' | 'phone'>(initialPane ?? 'service');
+    'service' | 'staff' | 'hours' | 'device' | 'phone' | 'web'>(initialPane ?? 'service');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -87,7 +103,8 @@ export function Settings({
     <div className="stack" style={{ padding: '0 16px 24px', gap: 14 }}>
       <div className="row" style={{ gap: 10 }}>
         {([['service', '项目'], ['staff', '员工'], ['hours', '营业时间'],
-           ['device', '门口 iPad'], ['phone', '☎️ AI 接电话']] as const).map(([k, l]) => (
+           ['device', '门口 iPad'], ['phone', '☎️ AI 接电话'],
+           ['web', '🌐 官网对接']] as const).map(([k, l]) => (
           <button key={k} className="btn" onClick={() => setPane(k)}
                   style={{
                     borderWidth: 2,
@@ -106,6 +123,7 @@ export function Settings({
       {pane === 'hours' && <HoursPane data={data} busy={busy} run={run} onYelpFill={onYelpFill} />}
       {pane === 'device' && <DevicePane membershipId={membershipId} />}
       {pane === 'phone' && <PhonePane data={data} busy={busy} run={run} />}
+      {pane === 'web' && <WebPane data={data} busy={busy} run={run} />}
     </div>
   );
 }
@@ -121,12 +139,27 @@ function ServicePane({ data, busy, run, onPhotoSetup }: {
   const [name, setName] = useState('');
   const [dur, setDur] = useState('45');
   const [price, setPrice] = useState('');
+  const [isAddon, setIsAddon] = useState(false);
+  /**
+   * ⚠️ 这一项在这个界面上没有开关，但**必须原样带回去**。
+   *
+   * `catalog.saveService` 的 Zod 给它们的默认值是 false：不传就等于关掉。
+   * 老板只是来改个价格，回头却发现这个项目从官网上消失了 ——
+   * 而他什么都没动过。
+   */
+  const [flags, setFlags] = useState({ taxable: false, onlineBookable: false, active: true });
 
   function startEdit(s?: SettingsData['services'][number]) {
     setEditing(s?.id ?? 'new');
     setName(s?.displayName ?? '');
     setDur(String(s?.durationMin ?? 45));
     setPrice(s ? money(s.basePriceCents) : '');
+    setIsAddon(s?.isAddon ?? false);
+    setFlags({
+      taxable: s?.taxable ?? false,
+      onlineBookable: s?.onlineBookable ?? false,
+      active: s?.active ?? true,
+    });
   }
 
   async function save() {
@@ -136,6 +169,8 @@ function ServicePane({ data, busy, run, onPhotoSetup }: {
       name: { 'zh-Hans': name, en: name },
       durationMin: Number(dur) || 45,
       basePriceCents: dollarsToCents(price),
+      isAddon,
+      ...flags,
     });
     setEditing(null);
   }
@@ -164,9 +199,12 @@ function ServicePane({ data, busy, run, onPhotoSetup }: {
               <strong className="truncate" style={{ fontSize: 'var(--text-lg)' }}>
                 {s.displayName}
               </strong>
+              {s.isAddon && <span className="badge">加项</span>}
               {!s.active && <span className="badge badge-mute">已下架</span>}
             </div>
-            <span className="tiny">{s.durationMin} 分钟 · ${money(s.basePriceCents)}</span>
+            <span className="tiny">
+              {s.durationMin} 分钟 · {s.isAddon ? '加' : ''}${money(s.basePriceCents)}
+            </span>
           </div>
           <button className="btn" style={{ minHeight: 44 }} disabled={busy}
                   onClick={() => startEdit(s)}>改</button>
@@ -215,6 +253,23 @@ function ServicePane({ data, busy, run, onPhotoSetup }: {
                        placeholder="45" onChange={(e) => setPrice(e.target.value)} />
               </label>
             </div>
+
+            {/*
+              * 加项这个勾直接影响电话 AI 怎么报价：勾上之后它会说
+              * 「加十五块」，不勾会说「十五块一次」。所以说明写在旁边，
+              * 而不是指望老板知道「加项」这个词在系统里意味着什么。
+              */}
+            <label className="row" style={{ gap: 10, alignItems: 'flex-start' }}>
+              <input type="checkbox" checked={isAddon} style={{ width: 22, height: 22 }}
+                     onChange={(e) => setIsAddon(e.target.checked)} />
+              <span className="stack" style={{ gap: 2 }}>
+                <span>这是加项（只能加在别的项目上）</span>
+                <span className="tiny">
+                  像「热石 +$15」「French +$10」。勾上以后，电话里的 AI 会说
+                  「加十五块」，不会当成一个单独的项目卖给客人。
+                </span>
+              </span>
+            </label>
 
             {/* 常用时长一键选，省得敲键盘 */}
             <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -838,6 +893,199 @@ function ForwardingGuide({ landing, mode }: {
         <strong>每家公司不一样</strong>，按错了电话会转丢。
         <strong>拿不准就让我们帮你设</strong> —— 把电话公司的名字告诉我们就行。
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────── 官网对接
+
+/**
+ * 把这家店接到它自己的官网上（docs/13）。
+ *
+ * 这一页的读者其实有两个：**老板**（他要打开开关、填自己网站的域名）
+ * 和**做官网的那个人**（他要那串 key 和一份文档）。所以它做成
+ * 「一句话说清楚 + 一键复制 + 一个开关」，而不是一堆技术参数。
+ *
+ * ⚠️ 那串 `pk_…` **不是密钥**。它会明文出现在官网的 HTML 里，谁都看得到。
+ * 界面上必须这么写 —— 不然老板会把它当密码，出于谨慎不敢交给做官网的人，
+ * 然后这件事就卡住了。
+ */
+function WebPane({ data, busy, run }: {
+  data: SettingsData; busy: boolean;
+  run: (n: string, i: unknown) => Promise<void>;
+}) {
+  const w = data.web;
+  const [origin, setOrigin] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const canEnable = w.onlineBookableCount > 0;
+
+  async function toggle(enabled: boolean) {
+    await run('location.saveOnlineBooking', { ...toInput(w.onlineBooking), enabled });
+  }
+
+  return (
+    <div className="stack" style={{ gap: 14, maxWidth: 720 }}>
+      <div className="card stack" style={{ padding: 18, gap: 8 }}>
+        <strong style={{ fontSize: 'var(--text-lg)' }}>官网在线预约（可选）</strong>
+        <div className="tiny" style={{ lineHeight: 1.7 }}>
+          让客人在<strong>你自己的官网</strong>上直接约。订单会实时出现在前台看板上，
+          标着「网站」来源。<strong>没有官网完全不影响开店</strong>。
+        </div>
+      </div>
+
+      {/* ── 开关 ─────────────────────────────────────────────────────── */}
+      <div className="card stack" style={{ padding: 18, gap: 12 }}>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="stack" style={{ gap: 4 }}>
+            <strong>在线预约</strong>
+            <span className="tiny">
+              {w.onlineBooking.enabled ? '开着 —— 官网上能订' : '关着 —— 官网上只显示电话'}
+            </span>
+          </div>
+          <button className={w.onlineBooking.enabled ? 'btn btn-primary' : 'btn'}
+                  disabled={busy || (!w.onlineBooking.enabled && !canEnable)}
+                  style={{ minHeight: 'var(--tap)', minWidth: 120 }}
+                  onClick={() => void toggle(!w.onlineBooking.enabled)}>
+            {w.onlineBooking.enabled ? '关掉' : '打开'}
+          </button>
+        </div>
+
+        {!canEnable && (
+          <div className="badge badge-warn" style={{ padding: '10px 14px', lineHeight: 1.6 }}>
+            还没有任何项目允许在线预约。先去「项目」那一页，
+            把想让客人自己约的项目勾上「可在线预约」。
+          </div>
+        )}
+      </div>
+
+      {/* ── 给做官网的人的两样东西 ───────────────────────────────────── */}
+      <div className="card stack" style={{ padding: 18, gap: 12 }}>
+        <strong>把这两样交给做官网的人</strong>
+
+        <label className="stack" style={{ gap: 6 }}>
+          <span className="tiny">
+            ① 本店标识（<strong>不是密码</strong> —— 它本来就要写在官网的网页里，
+            给谁看都没关系）
+          </span>
+          <div className="field field-mono"
+               style={{ wordBreak: 'break-all', height: 'auto', padding: 14, userSelect: 'all' }}>
+            {w.publicKey}
+          </div>
+        </label>
+
+        <button className="btn btn-block" style={{ minHeight: 'var(--tap)' }}
+                onClick={() => {
+                  void navigator.clipboard.writeText(w.publicKey);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }}>
+          {copied ? '✓ 已复制' : '复制这串标识'}
+        </button>
+
+        <div className="tiny" style={{ lineHeight: 1.7 }}>
+          ② 对接文档：仓库里的 <code className="field-mono">docs/13-PUBLIC-BOOKING-API.md</code>。
+          整份发给他，他读完就能开工。
+        </div>
+      </div>
+
+      {/* ── 域名白名单 ───────────────────────────────────────────────── */}
+      <div className="card stack" style={{ padding: 18, gap: 12 }}>
+        <strong>允许哪些网站调用</strong>
+        <div className="tiny" style={{ lineHeight: 1.7 }}>
+          填你自己官网的网址。<strong>不填的话官网那边会全部报错</strong> ——
+          这是有意的：不填就等于任何网站都能拿你的标识建单。
+          做官网的人如果有预览地址（<code className="field-mono">xxx.pages.dev</code>），
+          也要一起填。
+        </div>
+
+        {w.allowedOrigins.length === 0 && (
+          <div className="badge badge-warn" style={{ padding: '10px 14px' }}>
+            一条都还没填 —— 现在官网上还订不了
+          </div>
+        )}
+
+        <div className="stack" style={{ gap: 8 }}>
+          {w.allowedOrigins.map((o) => (
+            <div key={o.id} className="row"
+                 style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <span className="field-mono" style={{ wordBreak: 'break-all' }}>{o.origin}</span>
+              <button className="btn" disabled={busy}
+                      onClick={() => void run('location.removeWebOrigin', { id: o.id })}>
+                去掉
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="row" style={{ gap: 10 }}>
+          <input className="field grow" placeholder="lotusnails.com"
+                 value={origin} onChange={(e) => setOrigin(e.target.value)} />
+          <button className="btn btn-primary" disabled={busy || !origin.trim()}
+                  style={{ minHeight: 'var(--tap)' }}
+                  onClick={async () => {
+                    await run('location.addWebOrigin', { origin: origin.trim() });
+                    setOrigin('');
+                  }}>
+            加上
+          </button>
+        </div>
+      </div>
+
+      {/* ── 护栏 ─────────────────────────────────────────────────────── */}
+      <div className="card stack" style={{ padding: 18, gap: 12 }}>
+        <strong>护栏</strong>
+        <NumberRow label="最远能订多少天以后" suffix="天"
+                   value={w.onlineBooking.maxDaysAhead} busy={busy}
+                   hint="排班还没排到那么远的话，客人订了你也安排不了人"
+                   onSave={(v) => run('location.saveOnlineBooking',
+                     { ...toInput(w.onlineBooking), maxDaysAhead: v })} />
+        <NumberRow label="多久之内的不让网上订" suffix="分钟"
+                   value={w.onlineBooking.minMinutesAhead} busy={busy}
+                   hint="太急的单让客人打电话 —— 电话里你能当场说「现在过来要等一会儿」"
+                   onSave={(v) => run('location.saveOnlineBooking',
+                     { ...toInput(w.onlineBooking), minMinutesAhead: v })} />
+        <NumberRow label="开始前几小时不能自己取消" suffix="小时"
+                   value={w.onlineBooking.cancelCutoffHours} busy={busy}
+                   hint="过了这个点客人只能打电话 —— 那时候你还有机会挽留"
+                   onSave={(v) => run('location.saveOnlineBooking',
+                     { ...toInput(w.onlineBooking), cancelCutoffHours: v })} />
+      </div>
+    </div>
+  );
+}
+
+/** 命令要的是一整份配置，界面上只改其中一项 —— 这里把当前值补齐 */
+function toInput(ob: SettingsData['web']['onlineBooking']) {
+  return {
+    enabled: ob.enabled,
+    maxDaysAhead: ob.maxDaysAhead,
+    minMinutesAhead: ob.minMinutesAhead,
+    requirePhoneVerification: ob.requirePhoneVerification,
+    cancelCutoffHours: ob.cancelCutoffHours,
+  };
+}
+
+function NumberRow({ label, hint, suffix, value, busy, onSave }: {
+  label: string; hint: string; suffix: string; value: number; busy: boolean;
+  onSave: (v: number) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  const dirty = draft.trim() !== String(value);
+
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      <span className="tiny"><strong>{label}</strong></span>
+      <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+        <input className="field" style={{ width: 110 }} inputMode="numeric"
+               value={draft} onChange={(e) => setDraft(e.target.value.replace(/\D/g, ''))} />
+        <span className="tiny">{suffix}</span>
+        {dirty && (
+          <button className="btn btn-primary" disabled={busy}
+                  onClick={() => void onSave(Number(draft || '0'))}>存</button>
+        )}
+      </div>
+      <span className="tiny" style={{ opacity: 0.8 }}>{hint}</span>
     </div>
   );
 }

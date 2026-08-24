@@ -6,7 +6,7 @@
  * 加一个命令 = 自动有接口 + AI 自动会用（宪法第 1 条）。
  */
 
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import {
   AppError, ERROR_CODES, httpStatusFor, pickText, actingMembership,
@@ -15,7 +15,7 @@ import {
 import { dispatch, registeredCommands } from './bus';
 import { buildContext } from './actor';
 import { verifyAccessToken } from './auth';
-import { listMembershipsForUser, withTenant, claimableIntentFor } from '@gf/db';
+import { listMembershipsForUser, withTenant, claimableIntentFor, readOnlineBooking } from '@gf/db';
 
 interface CustomerRow {
   id: string; display_name: string; phone_e164: string | null;
@@ -38,8 +38,10 @@ import './handlers/ai';
 import { loadDay } from './queries/day';
 import { loadBlueprint, listBlueprints } from './queries/blueprint';
 import { loadCallDrafts } from './queries/callDrafts';
+import { loadInboundSms } from './queries/smsInbound';
 import { registerTelnyxRoutes } from './telnyx/routes';
 import { registerKioskRoutes } from './kiosk/routes';
+import { registerPublicRoutes } from './public/routes';
 import { registerStripeRoutes } from './stripe/routes';
 import { registerCopilotRoutes } from './copilot/routes';
 import { registerAuthRoutes } from './auth/routes';
@@ -48,6 +50,7 @@ import { registerRawBodyParser } from './rawBody';
 import { loadBilling } from './queries/billing';
 import { maybeAutoTopup } from './billing/autoTopup';
 import { flushEmails } from './email/flush';
+import { flushSms } from './sms/flush';
 import { loadQueue } from './queries/queue';
 import { searchBusinesses, getBusiness } from '@gf/yelp';
 import { extractPriceList, costMillicents, billableTokens, MAX_IMAGE_EDGE_PX,
@@ -56,7 +59,7 @@ import { extractPriceList, costMillicents, billableTokens, MAX_IMAGE_EDGE_PX,
          type PriceListImage, type ImageMediaType } from '@gf/ai';
 import { resolveDate } from './handlers/dayclose';
 import {
-  loadEarningsBoard, loadDayClose, loadReport, reportToCsv,
+  loadEarningsBoard, loadDayClose, loadReport, reportToCsv, eachDate,
 } from './queries/money';
 import { loadRoster } from './queries/roster';
 import { loadStaffToday } from './queries/staff';
@@ -81,22 +84,45 @@ export function buildServer(): FastifyInstance {
     /^https:\/\/([a-z0-9-]+\.)*geniefront\.com$/,
     /^https:\/\/[a-z0-9-]+\.pages\.dev$/,   // Pages 预览部署
   ];
-  void app.register(cors, {
-    origin(origin, cb) {
-      // 无 origin = 同源或非浏览器（curl、健康探针），放行
-      if (!origin) return cb(null, true);
-      cb(null, ORIGINS.some((re) => re.test(origin)));
-    },
+  const CORS_BASE = {
     credentials: false,
     // ⚠️ 漏掉任何一个自定义头，浏览器会在预检之后**静默**掐掉真正的请求 ——
     // 服务端日志里只看得到一个 204 的 OPTIONS，没有任何报错，
     // 而前端拿到的是一句语焉不详的 TypeError。X-Device-Token 就这么漏过一次。
     allowedHeaders: [
       'Authorization', 'Content-Type', 'X-Membership-Id', 'Idempotency-Key',
-      'X-Device-Token', 'X-Staff-Token',
+      'X-Device-Token', 'X-Staff-Token', 'X-GF-Public-Key',
     ],
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     maxAge: 86400,
+  };
+
+  /**
+   * ⭐ 公开预约（`/public/*`）走的是**每店白名单**，不是这里这份全局正则 ——
+   * 门店官网的域名一家一个（docs/13 §3）。
+   *
+   * 所以这一段对 `/public/*` **反射任意 Origin**，把真正的判断交给
+   * `publicAuth.assertOriginAllowed`。两个理由：
+   *
+   *   1. 白名单在库里，而 CORS 这一层不能 await 一次查询就为了决定回哪个头
+   *   2. **CORS 失败是个哑巴错误** —— 浏览器控制台一句红字，前端拿到的是
+   *      语焉不详的 TypeError。让请求进到路由里、回一个带 CORS 头的
+   *      `403 origin_not_allowed`，做官网的那个人才知道自己该去填白名单
+   *
+   * ⚠️ 反射 Origin 在这里是安全的，因为 `credentials: false` ——
+   * 浏览器不会带上任何 cookie，而这些接口的身份是请求头里那个公开 key。
+   */
+  void app.register(cors, {
+    delegator(req: FastifyRequest, cb) {
+      const path = (req.url ?? '').split('?')[0] ?? '';
+      if (path.startsWith('/public/')) {
+        return cb(null, { ...CORS_BASE, origin: true });
+      }
+      const origin = req.headers.origin;
+      // 无 origin = 同源或非浏览器（curl、健康探针），放行
+      const ok = !origin || ORIGINS.some((re) => re.test(origin));
+      cb(null, { ...CORS_BASE, origin: ok });
+    },
   });
 
   // ── 原始字节（webhook 验签用）─────────────────────────────────────────────
@@ -139,6 +165,15 @@ export function buildServer(): FastifyInstance {
     // Kiosk 门口那台 iPad 没有登录用户 —— 它的身份是一个设备令牌，
     // 在路由自己那一层验（kiosk/routes.ts）。权限窄到只有取号和交表两条。
     if (path.startsWith('/v1/kiosk/')) return;
+    /**
+     * ⭐ 门店官网的公开预约（docs/13）。身份是一个 `public_key`，
+     * 在 public/routes.ts 自己那一层解 —— 和门口 iPad 同一个套路。
+     *
+     * ⚠️ 放进这里**不等于放行**：那一层的上下文权限只有两条
+     * （appointment.write / appointment.cancel），而且每次 dispatch 的
+     * 入参都是路由自己拼的，官网说了不算（publicAuth.ts 文件头）。
+     */
+    if (path.startsWith('/public/')) return;
     // Stripe 的 webhook 同理：身份是一个 HMAC 签名，在 stripe/routes.ts 里验。
     // ⚠️ 只有 /v1/stripe/webhook 这一条是公开的 —— 老板端那几条
     // （/v1/billing/*）走正常的 Bearer 校验，别把它们放进这个前缀
@@ -262,7 +297,7 @@ export function buildServer(): FastifyInstance {
    * 加新的邮件触发点时**记得往这里加一条** —— 漏了的表现是
    * 「信躺在 outbox 里没人发」，直到这家店做了别的会触发的操作。
    */
-  const ENQUEUES_EMAIL = new Set(['appointment.create']);
+  const ENQUEUES_NOTIFICATIONS = new Set(['appointment.create']);
 
   app.post<{ Params: { name: string } }>('/v1/commands/:name', async (req, reply) => {
     const name = req.params.name;
@@ -285,13 +320,15 @@ export function buildServer(): FastifyInstance {
      * 「事务回滚了但客人已经收到确认信」。
      *
      * 只在**可能入过队**的命令后面触发，不是每条命令都扫一遍表。
+     * 邮件和短信各一条 outbox，各扫各的。
      * 不 await：一封信发不出去永远不该拖慢或拖垮一次成功的建单
      *（宪法第 14 条，增强项永不成为阻断点）。
      */
-    if (ENQUEUES_EMAIL.has(name)) {
-      void flushEmails(
-        { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
-        req.log);
+    if (ENQUEUES_NOTIFICATIONS.has(name)) {
+      const t = { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId };
+      void flushEmails(t, req.log);
+      // 短信同理：入队在事务里，发在事务外，失败不影响这次已经成功的建单
+      void flushSms(t, req.log);
     }
 
     // 重放的请求返回 200，新执行的返回 201 —— 客户端能分辨自己是不是重试成功了
@@ -420,12 +457,13 @@ export function buildServer(): FastifyInstance {
       async (tx) => {
         const rows = await tx<{
           ticket_id: string; customer_name: string | null; walk_in_name: string | null;
-          group_id: string | null; group_label: string | null;
+          group_id: string | null; group_label: string | null; business_date: string;
           subtotal_cents: number; item_id: string; item_name: string; item_total: number;
           duration_min: number; staff_name: unknown; membership_id: string;
         }[]>`
           select t.id as ticket_id, c.display_name as customer_name, t.walk_in_name,
                  t.group_id, g.label as group_label,
+                 t.business_date::text as business_date,
                  t.subtotal_cents, ti.id as item_id, ti.name_snapshot as item_name,
                  ti.total_cents as item_total, ti.duration_min,
                  sp.display_name as staff_name, tis.membership_id
@@ -437,19 +475,32 @@ export function buildServer(): FastifyInstance {
           left join staff_profiles sp on sp.membership_id = tis.membership_id
           where t.location_id = ${ctx.locationId}
             and t.status in ('open','in_service','ready_to_pay')
-          order by t.opened_at, ti.seq`;
+          order by t.business_date, t.opened_at, ti.seq`;
 
         const map = new Map<string, {
           ticketId: string; customerName: string; subtotalCents: number;
           groupId: string | null; groupLabel: string | null;
+          businessDate: string; daysAgo: number;
           items: Array<Record<string, unknown>>;
         }>();
+        // ⭐ 隔夜单（0032）。这条查询按 status 过滤而**不按营业日** ——
+        // 那是对的：昨天开的单今天照样要能结掉。错的是把它跟今天的单
+        // 混在一个列表里不作区分：前台看不出哪张是哪天的，而封账会以
+        // 「还有单没结」为由被拦下，老板不知道拦他的是三天前的一张幽灵单。
+        // 服务端直接算好 daysAgo，别让每个客户端各写一遍日期减法。
+        const today = await resolveDate(tx, ctx.locationId);
+        const todayMs = Date.parse(`${today}T00:00:00Z`);
+        const daysAgoOf = (d: string) =>
+          Math.max(0, Math.round((todayMs - Date.parse(`${d}T00:00:00Z`)) / 86_400_000));
+
         for (const r of rows) {
           const t = map.get(r.ticket_id) ?? {
             ticketId: r.ticket_id,
             customerName: r.customer_name ?? r.walk_in_name ?? '临时客人',
             subtotalCents: r.subtotal_cents,
             groupId: r.group_id, groupLabel: r.group_label,
+            businessDate: r.business_date,
+            daysAgo: daysAgoOf(r.business_date),
             items: [],
           };
           t.items.push({
@@ -459,7 +510,62 @@ export function buildServer(): FastifyInstance {
           });
           map.set(r.ticket_id, t);
         }
-        return { tickets: [...map.values()] };
+        const tickets = [...map.values()];
+        return {
+          businessDate: today,
+          tickets,
+          /** 前台一眼要知道「这堆里有几张不是今天的」，不用自己数 */
+          staleCount: tickets.filter((t) => t.daysAgo > 0).length,
+        };
+      });
+  });
+
+  // ── 查询：没记完的日子（0032）─────────────────────────────────────────────
+  //
+  // 开工时那条横幅要的数据。**它不拦任何东西** —— 前台可以一天不理它，
+  // 照样开单结账封账。挡路的提醒，前台学会的是无视所有提醒。
+  app.get<{ Querystring: { days?: string } }>('/v1/desk/gaps', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('dayclose.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'dayclose.manage' } });
+    }
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      async (tx) => {
+        const today = await resolveDate(tx, ctx.locationId);
+        // 往回看多远：默认两周。看太远会把一家店刚上线之前的日子全算成断档
+        const days = Math.min(Math.max(Number(req.query.days ?? 14) || 14, 1), 60);
+        const from = new Date(Date.parse(`${today}T00:00:00Z`) - days * 86_400_000)
+          .toISOString().slice(0, 10);
+        // 今天还没过完，不算断档 —— 拿昨天当上界
+        const to = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000)
+          .toISOString().slice(0, 10);
+
+        // ⚠️ 门店上线之前的日子不是断档。用最早的一条工单当起点，
+        //    否则一家昨天刚开通的店，一进来就看到「有 14 天没记完」
+        const [first] = await tx<{ d: string | null }[]>`
+          select min(business_date)::text as d from tickets
+          where location_id = ${ctx.locationId}`;
+        const start = first?.d && first.d > from ? first.d : from;
+        if (start > to) return { businessDate: today, days: [], unhandled: 0 };
+
+        const report = await loadReport(tx, ctx, start, to);
+        const gaps = report.byDay
+          .filter((d) => d.status !== 'ok' && d.status !== 'no_business')
+          .map((d) => ({
+            businessDate: d.key,
+            status: d.status,
+            ticketCount: d.ticketCount,
+            grossCents: d.grossCents,
+            hasEarnings: d.hasEarnings,
+            note: d.note,
+          }));
+        return {
+          businessDate: today,
+          days: gaps,
+          /** 还没人处理过的天数 —— 横幅上那个数字 */
+          unhandled: gaps.filter((d) => d.status === 'no_record').length,
+        };
       });
   });
 
@@ -476,18 +582,21 @@ export function buildServer(): FastifyInstance {
           name: unknown; timezone: string; business_hours: unknown;
           business_type: string; cutoff: string; status: string;
           has_address: boolean; profile_confirmed_at: string | null;
+          settings: unknown;
         }[]>`
           select name, timezone, business_hours, business_type,
                  business_day_cutoff::text as cutoff, status,
                  (address is not null or yelp_business_id is not null) as has_address,
-                 settings->>'profile_confirmed_at' as profile_confirmed_at
+                 settings->>'profile_confirmed_at' as profile_confirmed_at,
+                 settings
           from locations where id = ${ctx.locationId}`;
 
         const services = await tx<{
           id: string; name: unknown; duration_min: number; base_price_cents: number;
-          taxable: boolean; online_bookable: boolean; active: boolean;
+          taxable: boolean; online_bookable: boolean; is_addon: boolean; active: boolean;
         }[]>`
-          select id, name, duration_min, base_price_cents, taxable, online_bookable, active
+          select id, name, duration_min, base_price_cents, taxable, online_bookable,
+                 is_addon, active
           from services where location_id = ${ctx.locationId}
           order by active desc, sort, name->>'en'`;
 
@@ -523,6 +632,13 @@ export function buildServer(): FastifyInstance {
           select id, key, name from staff_levels
           where location_id = ${ctx.locationId} order by sort`;
 
+        // 官网对接那一页（docs/13）：公开 key + 域名白名单 + 在线预约配置
+        const [web] = await tx<{ public_key: string; slug: string }[]>`
+          select public_key, slug from locations where id = ${ctx.locationId}`;
+        const origins = await tx<{ id: string; origin: string; label: string | null }[]>`
+          select id, origin, label from location_allowed_origins
+          where location_id = ${ctx.locationId} order by origin`;
+
         // AI 电话那三个号。开通是**人工**做的（`09` §2），所以这里没有任何
         // 状态列 —— 「开通了没有」就是「有没有 ai_voice 那一条」。
         const lines = await tx<{
@@ -557,7 +673,8 @@ export function buildServer(): FastifyInstance {
             id: s.id, name: s.name as Record<string, string>,
             displayName: pickText(s.name, ctx.locale),
             durationMin: s.duration_min, basePriceCents: s.base_price_cents,
-            taxable: s.taxable, onlineBookable: s.online_bookable, active: s.active,
+            taxable: s.taxable, onlineBookable: s.online_bookable,
+            isAddon: s.is_addon, active: s.active,
           })),
           staff: staff.map((s) => ({
             membershipId: s.membership_id,
@@ -576,6 +693,19 @@ export function buildServer(): FastifyInstance {
           levels: levels.map((l) => ({
             id: l.id, key: l.key, name: pickText(l.name, ctx.locale),
           })),
+          guest: {
+            /**
+             * ⚠️ 这串**不是密钥**，它本来就要出现在老板官网的 JS 里
+             * （docs/13 §3）。放在这里是为了让他能一键复制给做官网的人。
+             */
+            publicKey: web!.public_key,
+            slug: web!.slug,
+            allowedOrigins: origins,
+            onlineBooking: readOnlineBooking(
+              (loc!.settings ?? {}) as Record<string, unknown>),
+            /** 一个都没勾就打不开在线预约（handlers/setup.ts 里拦着） */
+            onlineBookableCount: services.filter((x) => x.active && x.online_bookable).length,
+          },
           phone: {
             /** 店家对外公布的号。我们不碰它，只用来生成转移教程 */
             storefrontE164: lineOf('main'),
@@ -643,6 +773,15 @@ export function buildServer(): FastifyInstance {
         if (from > to) {
           throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
             details: { reason: '起始日期不能晚于结束日期' },
+          });
+        }
+        // ⭐ 0032 之后 byDay 是**按区间铺满**的（没记的那天也要回一行），
+        // 所以行数不再由数据量决定，而是由区间长度决定。
+        // 不封顶的话 `?from=2000-01-01` 就能让服务端生成上万行 —— 一年够用了。
+        const span = eachDate(from, to).length;
+        if (span > 366) {
+          throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+            details: { reason: '一次最多查一年', days: span },
           });
         }
         const report = await loadReport(tx, ctx, from, to);
@@ -1055,6 +1194,22 @@ export function buildServer(): FastifyInstance {
       (tx) => loadCallDrafts(tx, ctx, req.query.status ?? 'pending'));
   });
 
+  // ── 查询：客人发进来的短信（docs/09 §5.3）────────────────────────────────
+  //
+  // ⭐ 这一页的全部意义：运营商强制 CANCEL 是**退订**关键词，而客人打它
+  // 多半是想**取消预约**。他收到「已退订」以为办完了，店里那一格还占着 ——
+  // 而退订之后我们再也发不了短信给他。这张列表是前台唯一的线索。
+  app.get<{ Querystring: { days?: string } }>('/v1/desk/sms-inbound', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('customer.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'customer.read' } });
+    }
+    const days = Math.min(90, Math.max(1, Number(req.query.days ?? '14') || 14));
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => loadInboundSms(tx, ctx, days));
+  });
+
   // ── 查询：Yelp 搜店（05 §4.1，纯代码不过模型）──────────────────────────
   //
   // 老板输店名 + 邮编，我们直接映射 Yelp 的结构化返回。
@@ -1159,6 +1314,12 @@ export function buildServer(): FastifyInstance {
   // 所以它们要在 PUBLIC 白名单里（跳过 Bearer 校验），
   // 而每一条的第一件事都是验签 —— 见 telnyx/routes.ts。
   registerTelnyxRoutes(app);
+
+  // ── 门店官网的公开预约（docs/13）─────────────────────────────────────────
+  //
+  // ⚠️ 这是整个系统里**唯一一个不需要任何身份就能写库的入口**。
+  // 身份是一个公开 key，权限收窄发生在路由那一层 —— 见 public/publicAuth.ts。
+  registerPublicRoutes(app);
 
   // ── 命令目录 ───────────────────────────────────────────────────────────────
   // 前端 SDK 和 AI 工具定义都从这里取，不用各自维护一份

@@ -1,4 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  ListOrdered, Armchair, CalendarDays, DoorOpen, Receipt, PhoneCall, Users,
+  MessageSquareWarning,
+  Wallet, Moon, FileWarning, BarChart3, CalendarClock, Settings2, Percent,
+  CreditCard, AlertTriangle, Bot, LogOut, Menu, LayoutDashboard, type LucideIcon,
+} from 'lucide-react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
@@ -28,8 +34,12 @@ import { Roster, type RosterData } from './screens/Roster';
 import { Reports, type ReportData } from './screens/Reports';
 import { PhotoSetup } from './screens/PhotoSetup';
 import { CallQueue, type CallQueueData, type CallDraft } from './screens/CallQueue';
+import { SmsInbox, type SmsInboxData } from './screens/SmsInbox';
 import { YelpFill } from './screens/YelpFill';
 import { QueueBoard, type QueueData } from './screens/QueueBoard';
+import { FloorBoard } from './screens/FloorBoard';
+import { Overview } from './screens/Overview';
+import { GapDays, type GapsData } from './screens/GapDays';
 import { Billing, type BillingResponse } from './screens/Billing';
 import { Copilot } from './screens/Copilot';
 
@@ -44,9 +54,10 @@ function Shell({ session }: { session: Session }) {
     () => (localStorage.getItem(LS_LOCALE) as Locale) ?? 'zh-Hans');
   const t = makeT(locale);
   const [picked, setPicked] = useState<LocationMembership | null>(null);
-  const [tab, setTab] = useState<
-    'turn' | 'day' | 'ticket' | 'earn' | 'close' | 'roster' | 'report' | 'find' | 'setup'
-    | 'calls' | 'queue' | 'billing' | 'payroll'>('turn');
+  // 页签类型定义在下面的 Sidebar 那一节 —— 两处各写一份必然漂移
+  // ⭐ 默认落地在总览：开门第一眼要回答「现在店里什么情况」，
+  // 而不是「该谁接下一个客人」（那是轮牌板要回答的）
+  const [tab, setTab] = useState<Tab>('overview');
   const [rosterFrom, setRosterFrom] = useState<string | null>(null);
   /**
    * 「先进店看看，晚点再配」。
@@ -66,6 +77,22 @@ function Shell({ session }: { session: Session }) {
   const [photoSetup, setPhotoSetup] = useState(false);
   const [yelpFill, setYelpFill] = useState(false);
   const [callDraft, setCallDraft] = useState<CallDraft | null>(null);
+  /**
+   * 现在是门店本地时间的第几分钟。
+   * 房态看板拿它判断「此刻谁在房里」—— 按时间算而不是按 status 算，
+   * 因为技师忘了点「开始」是常事，而墙上的钟不会忘。
+   */
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  /** 「去封这一天的账」带过来的日期。null = 今天 */
+  const [closeDate, setCloseDate] = useState<string | null>(null);
+  /** 窄屏侧栏抽屉。宽屏常驻，这个状态不起作用 */
+  const [navOpen, setNavOpen] = useState(false);
+
   const [net, setNet] = useState<NetState>('online');
   const [online, setOnline] = useState<Set<string> | undefined>(undefined);
   const [rtState, setRtState] = useState<ConnState>('connecting');
@@ -141,10 +168,29 @@ function Shell({ session }: { session: Session }) {
     refetchInterval: 20_000,
   });
 
+  /**
+   * ⚠️ 「现在几点」必须按**门店时区**算，不能用浏览器的。
+   *
+   * 老板在加州用手机看纽约那家店，浏览器时区差三小时 ——
+   * 房态看板会告诉他「VIP1 现在空着」，而那间房其实正在做客人。
+   * 多店老板是这个产品的常见画像（决策 10），不是边缘情况。
+   */
+  const nowMin = useMemo(() => {
+    const tz = dayQ.data?.timezone;
+    const d = new Date(nowTick);
+    if (!tz) return d.getHours() * 60 + d.getMinutes();
+    const p = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(d);
+    const g = (k: string) => Number(p.find((x) => x.type === k)?.value ?? 0);
+    return g('hour') * 60 + g('minute');
+  }, [nowTick, dayQ.data?.timezone]);
+
   const tktQ = useQuery({
     queryKey: ['tickets', picked?.membershipId],
     enabled: Boolean(picked),
-    queryFn: () => apiGet<{ tickets: OpenTicket[] }>('/v1/desk/tickets', picked!.membershipId),
+    queryFn: () => apiGet<{ businessDate: string; tickets: OpenTicket[]; staleCount: number }>(
+      '/v1/desk/tickets', picked!.membershipId),
   });
 
   /**
@@ -204,9 +250,46 @@ function Shell({ session }: { session: Session }) {
   });
 
   const closeQ = useQuery({
-    queryKey: ['dayclose', picked?.membershipId],
+    // ⭐ closeDate 进 queryKey：从「没记完的日子」点「去封这一天的账」跳过来时，
+    // 不带日期的话会拉到今天那一份，然后人对着今天的数去封昨天的账
+    queryKey: ['dayclose', picked?.membershipId, closeDate],
     enabled: Boolean(picked) && tab === 'close' && canDesk,
-    queryFn: () => apiGet<DayCloseData>('/v1/desk/dayclose', picked!.membershipId),
+    queryFn: () => apiGet<DayCloseData>(
+      closeDate ? `/v1/desk/dayclose?date=${closeDate}` : '/v1/desk/dayclose',
+      picked!.membershipId),
+  });
+
+  /**
+   * ⭐ 没记完的日子（0032）。**它不拦任何东西** ——
+   * 前台可以一天不理它，照样开单结账封账。
+   * 只在真有断档时侧栏才出现这一项（见 Sidebar）：
+   * 一个常年挂着 0 的入口，前台第二周就不看了。
+   */
+  const gapQ = useQuery({
+    queryKey: ['gaps', picked?.membershipId],
+    enabled: Boolean(picked) && canDesk,
+    queryFn: () => apiGet<GapsData>('/v1/desk/gaps', picked!.membershipId),
+    // 断档说的是「昨天以前」，不用跟着今天的动作刷
+    staleTime: 5 * 60_000,
+  });
+
+  /**
+   * ⭐ 总览的同比。复用报表接口取最近 8 天，客户端挑出「今天」与「上周同一天」。
+   *
+   * 不新增接口：这份数据报表页本来就在拉，多一个端点就多一份会跟报表对不上的数。
+   * 对比对象是**上周同一星期几**而不是昨天 —— 门店生意按星期几波动，
+   * 拿周四跟周三比只会得出「今天生意差」这种没有信息量的结论。
+   */
+  const trendQ = useQuery({
+    queryKey: ['trend', picked?.membershipId, dayQ.data?.businessDate],
+    enabled: Boolean(picked) && tab === 'overview' && Boolean(dayQ.data),
+    queryFn: () => {
+      const to = dayQ.data!.businessDate;
+      const from = new Date(Date.parse(`${to}T00:00:00Z`) - 7 * 86_400_000)
+        .toISOString().slice(0, 10);
+      return apiGet<ReportData>(`/v1/desk/reports?from=${from}&to=${to}`, picked!.membershipId);
+    },
+    staleTime: 5 * 60_000,
   });
 
   const rosterQ = useQuery({
@@ -235,6 +318,20 @@ function Shell({ session }: { session: Session }) {
     enabled: Boolean(picked),
     queryFn: () => apiGet<CallQueueData>('/v1/desk/call-drafts', picked!.membershipId),
     refetchInterval: 30_000,
+  });
+
+  /**
+   * 客人发进来的短信（docs/09 §5.3）。
+   *
+   * 和来电复核一样**一直在拉** —— 角标要显示「有几个人可能以为自己取消了」。
+   * 刷得慢一点（2 分钟）：短信不像来电那样要秒级响应，
+   * 而这一页平时是空的，白刷没意义。
+   */
+  const smsQ = useQuery({
+    queryKey: ['sms-inbound', picked?.membershipId],
+    enabled: Boolean(picked),
+    queryFn: () => apiGet<SmsInboxData>('/v1/desk/sms-inbound', picked!.membershipId),
+    refetchInterval: 120_000,
   });
 
   /**
@@ -281,6 +378,43 @@ function Shell({ session }: { session: Session }) {
   // 绝不能让请求失败落到 LocationPicker 的空列表分支 ——
   // 那会显示「你还没有任何门店的身份，请联系店主」，
   // 前台会照着去找老板，而真正的问题是网络。
+  /*
+   * ⚠️ 这个 useMemo 必须待在**所有早退之前**。
+   *
+   * 第一版放在 `if (!picked) return <LocationPicker/>` 后面，结果是
+   * 「Rendered more hooks than during the previous render」——
+   * 没选店那一次渲染少调一个 hook，选完店多出一个，React 直接崩。
+   * 早退多的组件里，这类错误只在特定路径上出现，平时测不到。
+   */
+  const overviewTotals = useMemo(() => {
+    const today = dayQ.data?.businessDate;
+    const byDay = trendQ.data?.byDay ?? [];
+    const cur = byDay.find((d) => d.key === today);
+    const prev = today
+      ? byDay.find((d) => d.key === new Date(
+          Date.parse(`${today}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10))
+      : undefined;
+    // 上周那天没记录或没营业时不显示同比 —— 拿 0 当基数会算出「↑ 100%」这种假信号
+    const comparable = prev && prev.status !== 'no_record' && prev.status !== 'paper_only';
+
+    const gross = cur?.grossCents ?? 0;
+    const count = cur?.ticketCount ?? 0;
+    const openTickets = tktQ.data?.tickets ?? [];
+
+    return {
+      grossCents: gross,
+      ticketCount: count,
+      avgTicketCents: count > 0 ? Math.round(gross / count) : 0,
+      openTicketCount: openTickets.length,
+      openTicketCents: openTickets.reduce((sum, t) => sum + t.subtotalCents, 0),
+      grossDeltaBp: comparable && prev!.grossCents > 0
+        ? Math.round(((gross - prev!.grossCents) / prev!.grossCents) * 10_000) : null,
+      guestsDeltaCount: comparable ? count - prev!.ticketCount : null,
+      avgDeltaCents: comparable && prev!.ticketCount > 0 && count > 0
+        ? Math.round(gross / count) - Math.round(prev!.grossCents / prev!.ticketCount) : null,
+    };
+  }, [dayQ.data?.businessDate, trendQ.data, tktQ.data]);
+
   if (locs.isPending) return <div className="center-page muted">{t('common.loading')}</div>;
   if (locs.isError || !locs.data) {
     return (
@@ -353,42 +487,95 @@ function Shell({ session }: { session: Session }) {
    * 这样「跳去配项目」是真的跳走了，配完点回轮牌板又能看到清单 ——
    * 而不需要在向导里再实现一遍项目、员工、营业时间那几屏。
    */
-  const showWizard = setupPending && !wizardSkipped && tab === 'turn';
+  const showWizard = setupPending && !wizardSkipped && tab === 'overview';
 
   const shopName = current.locationName[locale] ?? current.locationName['zh-Hans']
     ?? current.locationName['en'] ?? '—';
 
+  /**
+   * 总览的四个指标。
+   *
+   * ⚠️ 客单价用**已结工单**算，不含在做的单 —— 在做的单还会加项目，
+   * 拿它算出来的客单价一整天都在跳，看不出趋势。
+   */
   return (
-    <div style={{ minHeight: '100%' }}>
-      <header className="row" style={{
-        padding: '10px 16px', background: 'var(--surface)',
-        borderBottom: '1px solid var(--line)', gap: 14, position: 'sticky', top: 0, zIndex: 10,
-      }}>
-        <strong className="truncate" style={{ fontSize: 'var(--text-lg)' }}>{shopName}</strong>
-        {picked.roleKeys.map((r) => (
-          <span key={r} className="badge badge-soft">{t(`role.${r}`)}</span>
-        ))}
-        {/* 技师端能不能收到派单，前台得看得见 —— 不然会一直等一个不会响的铃 */}
-        {net === 'online' && (
-          <span className={`badge ${rtState === 'live' ? 'badge-ok' : 'badge-mute'}`}
-                title={rtState === 'live'
+    <div className="shell">
+      {/*
+        ⭐ 分组侧边栏，换掉原来那排 13 个平铺页签。
+        平铺的问题不是难看，是没有层次：一天按几百次的「轮牌板」
+        和一天按一次的「打烊日结」在屏幕上一样大 —— 前台每次都得扫一遍全部。
+      */}
+      <Sidebar
+        open={navOpen}
+        onClose={() => setNavOpen(false)}
+        tab={tab}
+        setTab={(k) => {
+          // 换页签时把「去封哪一天」清掉 —— 不清的话，下次点「打烊日结」
+          // 还停在上次从断档跳过来的那一天，而他要封的是今天
+          if (k !== 'close') setCloseDate(null);
+          setTab(k);
+        }}
+        canDesk={canDesk} canReport={canReport} canManage={canManage} canBill={canBill}
+        counts={{
+          ticket: tktQ.data?.tickets.length ?? 0,
+          stale: tktQ.data?.staleCount ?? 0,
+          queue: queueQ.data?.summary.waiting ?? 0,
+          calls: callQ.data?.pendingCount ?? 0,
+          sms: smsQ.data?.needsAttention ?? 0,
+          gaps: gapQ.data?.unhandled ?? 0,
+        }}
+      />
+
+      <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      {/*
+        顶栏。原来是店名 + 角色徽章 + 实时徽章 + 四个按钮平铺一排 ——
+        七八个同等重量的元素挤在一起，这是「乱」的另一半。
+
+        现在只留两样东西：**你在哪家店**（左），**你能干什么**（右）。
+        角色和实时状态降级成一行灰色小字 —— 它们是要能查到的，
+        不是要一直喊的。
+      */}
+      <header className="topbar">
+        {/* 窄屏（iPad 竖向）下才出现。宽屏侧栏常驻，不需要它 */}
+        <button className="btn btn-sm btn-ghost btn-icon side-toggle"
+                onClick={() => setNavOpen(true)}
+                aria-label="打开导航" title="导航">
+          <Menu size={20} />
+        </button>
+        <div style={{ minWidth: 0 }}>
+          <div className="title truncate">{shopName}</div>
+          <div className="tiny truncate" style={{ marginTop: 1 }}>
+            {picked.roleKeys.map((r) => t(`role.${r}`)).join(' · ')}
+            {net === 'online' && (
+              <>
+                {' · '}
+                {/* 技师端能不能收到派单，前台得看得见 —— 不然会一直等一个不会响的铃 */}
+                <span title={rtState === 'live'
                   ? '实时推送正常，派单会让技师手机响'
-                  : '实时推送未连接，派单不会响铃 —— 口头叫号'}>
-            {rtState === 'live' ? `● 实时 ${online?.size ?? 0} 人在线` : '○ 实时未连接'}
-          </span>
-        )}
+                  : '实时推送未连接，派单不会响铃 —— 口头叫号'}
+                  style={{ color: rtState === 'live' ? 'var(--ok)' : 'var(--ink-3)' }}>
+                  {rtState === 'live' ? `实时 · ${online?.size ?? 0} 人在线` : '实时未连接'}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+
         <span className="grow" />
+
         {/*
           ⭐ 副驾做成抽屉、按钮放在顶栏：它是「在别的屏上顺手问一句」的东西。
           做成页签的话，前台正看着日程表说「把 Lisa 五点那单挪到六点」，
           得先离开日程表 —— 而离开的那一刻她就看不到自己在说哪一单了。
         */}
         {canUseAi && (
-          <button className="btn" style={{ minHeight: 44 }} onClick={() => setCopilot(true)}
-                  title="用说话的方式让副驾帮你查和改">🤖 副驾</button>
+          <button className="btn btn-sm" onClick={() => setCopilot(true)}
+                  title="用说话的方式让副驾帮你查和改">
+            <Bot size={17} /> 副驾
+          </button>
         )}
         <select
-          className="btn" style={{ minHeight: 44, padding: '0 12px' }}
+          className="btn btn-sm" style={{ padding: '0 10px' }}
           value={locale}
           onChange={(e) => {
             const v = e.target.value as Locale;
@@ -399,12 +586,11 @@ function Shell({ session }: { session: Session }) {
           {LOCALES.map((l) => <option key={l} value={l}>{LOCALE_LABEL[l]}</option>)}
         </select>
         {list.length > 1 && (
-          <button className="btn" style={{ minHeight: 44 }} onClick={() => setPicked(null)}>
-            {t('loc.switch')}
-          </button>
+          <button className="btn btn-sm" onClick={() => setPicked(null)}>{t('loc.switch')}</button>
         )}
-        <button className="btn btn-ghost" style={{ minHeight: 44 }} onClick={signOut}>
-          {t('auth.signOut')}
+        <button className="btn btn-sm btn-ghost btn-icon" onClick={signOut}
+                title={t('auth.signOut')} aria-label={t('auth.signOut')}>
+          <LogOut size={17} />
         </button>
       </header>
 
@@ -415,7 +601,7 @@ function Shell({ session }: { session: Session }) {
         不然他配完项目会楞在那里想「刚才那张清单去哪了」。
       */}
       {setupPending && !showWizard && (
-        <button className="row" onClick={() => { setWizardSkipped(false); setSettingsPane(null); setTab('turn'); }}
+        <button className="row" onClick={() => { setWizardSkipped(false); setSettingsPane(null); setTab('overview'); }}
                 style={{
                   margin: '10px 16px 0', padding: '12px 16px', gap: 10, width: 'calc(100% - 32px)',
                   minHeight: 'var(--tap)', textAlign: 'left', cursor: 'pointer',
@@ -427,43 +613,6 @@ function Shell({ session }: { session: Session }) {
         </button>
       )}
 
-      <nav className="row" style={{ padding: '10px 16px', gap: 10 }}>
-        {([
-          ...(['turn', 'queue', 'day', 'ticket', 'calls', 'earn'] as const),
-          ...(canDesk ? ['close'] as const : []),
-          ...(['roster'] as const),
-          ...(canReport ? ['report'] as const : []),
-          ...(['find'] as const),
-          ...(canManage ? ['setup', 'payroll'] as const : []),
-          ...(canBill ? ['billing'] as const : []),
-        ]).map((k) => (
-          <button key={k} className="btn" onClick={() => setTab(k)}
-                  style={{
-                    borderWidth: 2,
-                    borderColor: tab === k ? 'var(--brand)' : 'var(--line)',
-                    background: tab === k ? 'var(--brand-soft)' : 'var(--surface)',
-                  }}>
-            {k === 'turn' ? '轮牌板' : k === 'day' ? '今日日程'
-              : k === 'ticket' ? `在做的单${tktQ.data?.tickets.length ? ` (${tktQ.data.tickets.length})` : ''}`
-              : k === 'queue' ? `🎫 等位${queueQ.data?.summary.waiting ? ` (${queueQ.data.summary.waiting})` : ''}`
-              : k === 'calls' ? `☎️ 待复核${callQ.data?.pendingCount ? ` (${callQ.data.pendingCount})` : ''}`
-              : k === 'earn' ? '💰 今日收入'
-              : k === 'close' ? '🌙 打烊日结'
-              : k === 'roster' ? '📅 排班'
-              : k === 'report' ? '📊 报表'
-              : k === 'setup' ? '⚙ 开店配置'
-              : k === 'payroll' ? '💵 提成方案'
-              : k === 'billing' ? '💳 订阅与余额'
-              : t('cust.title')}
-          </button>
-        ))}
-        <span className="grow" />
-        {chosen !== undefined && (
-          <span className="badge badge-soft">
-            已选：{chosen ? chosen.displayName : '临时客人'} · 点空白处排单
-          </span>
-        )}
-      </nav>
 
       {/*
         ⭐ 新店进来先看这张清单（docs/12 §3 C）。
@@ -492,7 +641,27 @@ function Shell({ session }: { session: Session }) {
         <div className="center-page muted">{t('common.loading')}</div>
       )}
 
-      {!showWizard && (tab === 'turn' ? (
+      {!showWizard && (tab === 'overview' ? (
+        dayQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        : (net === 'offline' && cached?.day) || dayQ.data ? (
+          <Overview
+            day={(net === 'offline' && cached?.day ? cached.day : dayQ.data)!}
+            nowMin={nowMin}
+            totals={overviewTotals}
+            todo={{
+              calls: callQ.data?.pendingCount ?? 0,
+              waiting: queueQ.data?.summary.waiting ?? 0,
+              longestWaitMin: queueQ.data?.summary.longestWaitMin ?? 0,
+              stale: tktQ.data?.staleCount ?? 0,
+            }}
+            onGo={(w) => setTab(w)}
+            onCheckIn={(it) => setEditing(it)}
+            onEditBooking={(it) => setEditing(it)}
+            onAssign={() => setTab('turn')}
+            onToggleBreak={() => setTab('turn')}
+          />
+        ) : <Retry onRetry={() => dayQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
+      ) : tab === 'turn' ? (
         rotQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
         : rotQ.data ? (
           <TurnBoard data={net === 'offline' && cached?.rot ? cached.rot : rotQ.data}
@@ -545,9 +714,30 @@ function Shell({ session }: { session: Session }) {
             </div>
           )}
 
+          {/*
+            ⭐ 隔夜单单独成组（0032）。
+            以前它们混在今天的单里，前台看不出哪张是哪天的 —— 而封账会以
+            「还有单没结」为由被拦下，老板不知道拦他的是三天前的一张幽灵单。
+            放在最上面而不是最下面：它挡着今天的路，就得先看见它。
+          */}
+          {(tktQ.data?.staleCount ?? 0) > 0 && (
+            <div className="card stack" style={{
+              padding: '14px 18px', gap: 4,
+              background: 'var(--warn-soft)', borderColor: 'var(--warn)' }}>
+              <strong style={{ color: 'var(--warn)' }}>
+                ⚠️ 有 {tktQ.data!.staleCount} 张单不是今天的
+              </strong>
+              <span className="tiny" style={{ color: 'var(--warn)' }}>
+                下面标了日期的那几张是前几天开的。它们会挡住封账 ——
+                该结的结掉，结不了的作废（记录会留着，不算营业额）。
+              </span>
+            </div>
+          )}
+
           {(tktQ.data?.tickets ?? []).map((tk) => (
             <div key={tk.ticketId} className="card row"
-                 style={{ padding: '16px 18px', gap: 14, textAlign: 'left' }}>
+                 style={{ padding: '16px 18px', gap: 14, textAlign: 'left',
+                          borderColor: tk.daysAgo > 0 ? 'var(--warn)' : undefined }}>
               <button aria-label="选中"
                       onClick={() => setGrouping(grouping.includes(tk.ticketId)
                         ? grouping.filter((x) => x !== tk.ticketId)
@@ -564,6 +754,13 @@ function Shell({ session }: { session: Session }) {
                   {tk.groupId && (
                     <span className="badge badge-soft">
                       {tk.groupLabel ?? '同组'}
+                    </span>
+                  )}
+                  {/* 「几天前」比日期本身好用：前台不用心算今天几号 */}
+                  {tk.daysAgo > 0 && (
+                    <span className="badge badge-warn">
+                      ⚠️ {tk.daysAgo === 1 ? '昨天' : `${tk.daysAgo} 天前`}开的
+                      （{tk.businessDate}）
                     </span>
                   )}
                 </div>
@@ -588,6 +785,28 @@ function Shell({ session }: { session: Session }) {
           <QueueBoard data={queueQ.data} membershipId={picked.membershipId}
                       onChanged={async () => { await queueQ.refetch(); }} />
         ) : <Retry onRetry={() => queueQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
+      ) : tab === 'floor' ? (
+        // ⭐ 房态看板不发新请求：全部从已经在拉的 day 快照里算（见 FloorBoard 文件头）
+        dayQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        : (net === 'offline' && cached?.day) || dayQ.data ? (
+          <FloorBoard day={(net === 'offline' && cached?.day ? cached.day : dayQ.data)!}
+                      nowMin={nowMin} />
+        ) : <Retry onRetry={() => dayQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
+      ) : tab === 'gaps' ? (
+        gapQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        : gapQ.data ? (
+          <GapDays data={gapQ.data} membershipId={picked.membershipId}
+                   onOpenDayClose={(d) => { setCloseDate(d); setTab('close'); }}
+                   onChanged={async () => {
+                     // 补录会改报表和日结那两块的数，一起刷
+                     await Promise.all([gapQ.refetch(), reportQ.refetch(), closeQ.refetch()]);
+                   }} />
+        ) : <Retry onRetry={() => gapQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
+      ) : tab === 'sms' ? (
+        smsQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        : smsQ.data ? (
+          <SmsInbox data={smsQ.data} timezone={dayQ.data?.timezone ?? 'America/New_York'} />
+        ) : <Retry onRetry={() => smsQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'calls' ? (
         callQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
         : callQ.data ? (
@@ -781,7 +1000,149 @@ function Shell({ session }: { session: Session }) {
           }}
         />
       )}
+      </div>
     </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   侧边栏
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+type Tab =
+  | 'overview' | 'turn' | 'day' | 'ticket' | 'earn' | 'close' | 'roster' | 'report'
+  | 'find' | 'setup' | 'calls' | 'queue' | 'billing' | 'payroll' | 'floor' | 'gaps'
+  | 'sms';
+
+interface NavItem {
+  key: Tab;
+  /** lucide 组件。⚠️ 不用 emoji —— 见 styles.css 开头那段 */
+  Icon: LucideIcon;
+  label: string;
+  /** 角标取哪个数；undefined = 不显示角标 */
+  count?: number;
+  /** 角标用警示色（等着的客人、没记完的日子这类「再不管就出事」的） */
+  warn?: boolean;
+  show: boolean;
+}
+
+/**
+ * 四组，按**按的频率**分，不按功能分类分。
+ *
+ * 「当班」是一天按几百次的；「钱」是收工时按的；「管理」是一周按一次的；
+ * 「客人」单独一组因为它是随时会插进来的横向动作（电话进来查个人）。
+ *
+ * 这个分法的检验标准很简单：前台上午十点最忙的时候，
+ * 眼睛只需要在第一组里找 —— 后面三组那天可能一次都不点。
+ */
+function Sidebar({ tab, setTab, canDesk, canReport, canManage, canBill, counts, open, onClose }: {
+  tab: Tab;
+  setTab: (t: Tab) => void;
+  canDesk: boolean; canReport: boolean; canManage: boolean; canBill: boolean;
+  counts: { ticket: number; stale: number; queue: number; calls: number; gaps: number; sms: number };
+  /** 窄屏（iPad 竖向）下侧栏是抽屉。宽屏常驻，这两个参数不起作用 */
+  open: boolean;
+  onClose: () => void;
+}) {
+  const groups: Array<{ title: string; items: NavItem[] }> = [
+    {
+      title: '运营',
+      items: [
+        { key: 'overview', Icon: LayoutDashboard, label: '总览', show: true },
+        { key: 'turn',   Icon: ListOrdered,   label: '轮牌',     show: true },
+        { key: 'queue',  Icon: Armchair,      label: '候客',     count: counts.queue, warn: true, show: true },
+        { key: 'day',    Icon: CalendarDays,  label: '日程',     show: true },
+        { key: 'floor',  Icon: DoorOpen,      label: '房态',     show: true },
+        { key: 'ticket', Icon: Receipt,       label: '进行中工单', count: counts.ticket, show: true },
+        { key: 'calls',  Icon: PhoneCall,     label: '来电复核', count: counts.calls, warn: true, show: true },
+      ],
+    },
+    {
+      title: '客户',
+      items: [
+        { key: 'find', Icon: Users, label: '客户档案', show: true },
+        // ⚠️ 平时藏起来。这一页只在「有人回了 STOP/CANCEL 而预约还在」时
+        // 才有意义 —— 常驻一个永远是 0 的页签只会让侧边栏更长
+        { key: 'sms', Icon: MessageSquareWarning, label: '客人短信',
+          count: counts.sms, warn: true, show: counts.sms > 0 },
+      ],
+    },
+    {
+      title: '财务',
+      items: [
+        { key: 'earn',   Icon: Wallet, label: '今日营收', show: true },
+        { key: 'close',  Icon: Moon,   label: '日结对账', show: canDesk },
+        // ⭐ 断档补录（0032）。只在真有没记完的日子时才出现 ——
+        // 一个常年挂着 0 的入口，前台第二周就不看了
+        { key: 'gaps',   Icon: FileWarning, label: '待补录',  count: counts.gaps, warn: true, show: canDesk && counts.gaps > 0 },
+        { key: 'report', Icon: BarChart3,   label: '经营报表', show: canReport },
+      ],
+    },
+    {
+      title: '设置',
+      items: [
+        { key: 'roster',  Icon: CalendarClock, label: '排班',     show: true },
+        { key: 'setup',   Icon: Settings2,     label: '门店设置', show: canManage },
+        { key: 'payroll', Icon: Percent,       label: '薪酬方案', show: canManage },
+        { key: 'billing', Icon: CreditCard,    label: '订阅账户', show: canBill },
+      ],
+    },
+  ];
+
+  return (
+    <>
+      <div className={`side-scrim${open ? ' open' : ''}`} onClick={onClose} aria-hidden />
+      <aside className={`side${open ? ' open' : ''}`}>
+      <div className="side-brand">
+        <div className="mark">G</div>
+        <strong className="name" style={{ fontSize: 'var(--text-lg)', letterSpacing: '-.02em' }}>
+          GenieFront
+        </strong>
+      </div>
+
+      {groups.map((g) => {
+        const items = g.items.filter((i) => i.show);
+        if (items.length === 0) return null;
+        return (
+          <div key={g.title}>
+            <div className="side-group">{g.title}</div>
+            {items.map((i) => (
+              <button
+                key={i.key}
+                className={`side-item${tab === i.key ? ' on' : ''}`}
+                onClick={() => { setTab(i.key); onClose(); }}
+                title={i.label}
+                aria-current={tab === i.key ? 'page' : undefined}
+              >
+                <i.Icon size={22} aria-hidden />
+                <span className="lbl">{i.label}</span>
+                {/* 角标只在有数时出现。写死的角标处理完不会变，比没有更糟 */}
+                {!!i.count && (
+                  <span className={`n${i.warn ? ' n-warn' : ''}`}>{i.count}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        );
+      })}
+
+      {/* 隔夜单是「挡住封账的那个东西」，挂在「在做的单」下面说清楚 */}
+      {counts.stale > 0 && (
+        <div className="side-foot">
+          <button className="btn btn-sm btn-block" onClick={() => { setTab('ticket'); onClose(); }}
+                  title={`${counts.stale} 张跨日未结工单，会阻断日结`}
+                  style={{
+                    background: 'var(--warn-soft)', color: 'var(--warn)',
+                    borderColor: 'transparent', justifyContent: 'flex-start',
+                  }}>
+            <AlertTriangle size={17} aria-hidden />
+            <span className="lbl">{counts.stale} 张跨日未结</span>
+          </button>
+        </div>
+      )}
+      </aside>
+    </>
   );
 }
 

@@ -47,7 +47,7 @@ export interface DaySnapshot {
   closeMin: number;
   staff: DayStaff[];
   services: DayService[];
-  resources: Array<{ id: string; name: string }>;
+  resources: Array<{ id: string; name: string; capacity: number; maxStaff: number | null }>;
   items: DayItem[];
 }
 
@@ -81,8 +81,13 @@ export async function loadDay(
     where location_id = ${ctx.locationId} and active = true
     order by sort, name->>'en'`;
 
-  const resourceRows = await tx<{ id: string; name: string }[]>`
-    select id, name from resources
+  // ⭐ 带上 capacity：一间房不等于一张床（决策 25）。
+  // 足疗房排 6 张躺椅、双人房两张床 —— 房态看板要画「3/6 位」而不是「占用」，
+  // 只回 {id,name} 的话前台看到「占用」就不敢再往里排人了
+  const resourceRows = await tx<{
+    id: string; name: string; capacity: number; max_staff: number | null;
+  }[]>`
+    select id, name, capacity, max_staff from resources
     where location_id = ${ctx.locationId} and status <> 'out_of_service'
     order by name`;
 
@@ -136,7 +141,9 @@ export async function loadDay(
       durationMin: s.duration_min,
       priceCents: s.base_price_cents,
     })),
-    resources: resourceRows,
+    resources: resourceRows.map((r) => ({
+      id: r.id, name: r.name, capacity: r.capacity, maxStaff: r.max_staff,
+    })),
     items: itemRows.map((r) => ({
       itemId: r.item_id,
       appointmentId: r.appointment_id,

@@ -410,11 +410,13 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
       const [svc] = await tx<{ id: string }[]>`
         insert into services
           (org_id, location_id, category_id, name, duration_min, base_price_cents,
-           taxable, online_bookable, active)
+           taxable, online_bookable, is_addon, active)
         values (${ctx.orgId}, ${ctx.locationId}, ${categoryId},
                 ${jsonb(draft.name)}::jsonb,
                 ${draft.durationMin}, ${draft.basePriceCents},
-                false, false, true)
+                -- ⭐ 模型判断出来的「这是加项」（05 §5.3）一直到这里才有地方存。
+                -- 丢掉它，电话 AI 就会把「热石 +$15」当成一个完整项目报给客人
+                false, false, ${r.kind === 'addon'}, true)
         returning id`;
       createdServiceIds.push(svc!.id);
 

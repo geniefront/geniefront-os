@@ -15,6 +15,7 @@ import {
 } from '@gf/contracts';
 import { jsonb, ts } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
+import { generateToolToken, hashToolToken } from '../telnyx/toolToken';
 import { loadSlotContext } from '../queries/slots';
 import { chargeQuota } from '../billing/usage';
 
@@ -56,20 +57,26 @@ async function upsertLine(
     e164: string; purpose: string; provider?: string;
     assistantId?: string | null | undefined;
     forwardingMode?: string | null | undefined;
+    toolTokenDigest?: string | null | undefined;
   },
 ) {
   await tx`
     insert into phone_lines
       (org_id, location_id, e164, provider, purpose, assistant_id,
-       forwarding_mode, active)
+       forwarding_mode, tool_token_digest, active)
     values (${ctx.orgId}, ${ctx.locationId}, ${line.e164},
             ${line.provider ?? 'telnyx'}, ${line.purpose},
-            ${line.assistantId ?? null}, ${line.forwardingMode ?? null}, true)
+            ${line.assistantId ?? null}, ${line.forwardingMode ?? null},
+            ${line.toolTokenDigest ?? null}, true)
     on conflict (location_id, purpose) where active do update set
       e164 = excluded.e164,
       provider = excluded.provider,
       assistant_id = excluded.assistant_id,
-      forwarding_mode = excluded.forwarding_mode`;
+      forwarding_mode = excluded.forwarding_mode,
+      -- ⚠️ 没给新摘要就**保留旧的**。前台在设置里改一下转接方式，
+      -- 不该把这家店的电话 token 冲掉 —— 冲掉的表现是电话全部 401，
+      -- 而她刚才只是点了个下拉框
+      tool_token_digest = coalesce(excluded.tool_token_digest, phone_lines.tool_token_digest)`;
 }
 
 registerHandler(SavePhoneLine, async ({ input, ctx, tx, audit }: HandlerArgs<
@@ -89,8 +96,27 @@ registerHandler(SavePhoneLine, async ({ input, ctx, tx, audit }: HandlerArgs<
     }
   }
 
+  /*
+   * ⭐ 电话工具的第二把钥匙（sql/0036）。
+   *
+   * 只有 `ai_voice` 线需要 —— 别的线不会被工具调用反查。
+   * **第一次建就自动生成**：等人想起来要开这道门，一般是已经出过事了。
+   *
+   * 明文只在这次返回里出现一次，库里只有摘要。
+   */
+  let toolToken: string | null = null;
+  if (input.active && input.purpose === 'ai_voice') {
+    const [existing] = await tx<{ digest: string | null }[]>`
+      select tool_token_digest as digest from phone_lines
+      where location_id = ${ctx.locationId} and purpose = 'ai_voice' and active`;
+    if (input.rotateToolToken || !existing?.digest) toolToken = generateToolToken();
+  }
+
   if (input.active) {
-    await upsertLine(tx, ctx, input);
+    await upsertLine(tx, ctx, {
+      ...input,
+      ...(toolToken ? { toolTokenDigest: hashToolToken(toolToken) } : {}),
+    });
   } else {
     await tx`
       update phone_lines set active = false
@@ -99,9 +125,13 @@ registerHandler(SavePhoneLine, async ({ input, ctx, tx, audit }: HandlerArgs<
 
   audit({
     entityType: 'phone_line', entityId: ctx.locationId,
-    after: { e164: input.e164, purpose: input.purpose, active: input.active },
+    // ⚠️ 审计里只记「换过」，不记 token 本身 —— audit_log 是给人看的
+    after: {
+      e164: input.e164, purpose: input.purpose, active: input.active,
+      ...(toolToken ? { toolTokenRotated: true } : {}),
+    },
   });
-  return { e164: input.e164, locationId: ctx.locationId };
+  return { e164: input.e164, locationId: ctx.locationId, toolToken };
 });
 
 /**

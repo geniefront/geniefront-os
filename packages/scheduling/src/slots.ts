@@ -17,7 +17,7 @@
  * 少报只是让客人换个时间，多报是让他白跑一趟。
  */
 
-import type { Interval } from './capacity';
+import { checkCapacity, type Interval } from './capacity';
 
 export interface StaffAvailability {
   membershipId: string;
@@ -45,6 +45,34 @@ export interface FindSlotsArgs {
   slotMinutes?: number;
   /** 客人点名要谁。给了就只在这个人身上找 */
   preferredMembershipId?: string | null;
+  /**
+   * ⭐ 候选技师集（性别偏好等）。给了就只在这几个人身上找。
+   *
+   * 存在的理由是**顺序**：筛选必须发生在找空档**之前**。
+   * 先算出全店的空档、再按性别过滤，会漏掉本可安排的时段 ——
+   * 女技师十点有空、男技师十点也有空，limit 先被男技师占满，
+   * 过滤完就成了「十点没有女技师」，而实际上有。
+   */
+  candidateMembershipIds?: readonly string[] | null;
+  /**
+   * ⭐ 同行几位客人。>1 时**同一时刻必须有这么多位技师同时有空**。
+   *
+   * 刻意不拿 maxConcurrent 去凑数：并发 2 的美甲师是「做手的时候
+   * 另一只脚在泡水」，不是「同时伺候两位客人」。两位客人一起来，
+   * 就是要两个人。宁可少报（让客人换时间），不可多报（让两个人白跑）。
+   */
+  partySize?: number;
+  /**
+   * 门店层容量（软约束，01 §7.1）。不给就不查。
+   *
+   * 走 `checkCapacity` 而不是在这里另算一遍 —— 建单时拦人的是它，
+   * 找空档时报时间的也必须是它，否则 AI 报出来的时段建单时会被驳回。
+   */
+  location?: {
+    maxConcurrentPerSlot: number | null;
+    /** 全店当天已占用的时段（含未派技师的） */
+    busy: readonly Interval[];
+  } | null;
   /** 客人说的时间窗（营业日分钟）。不给就整天找 */
   windowStartMin?: number;
   windowEndMin?: number;
@@ -80,6 +108,7 @@ export function findOpenSlots(args: FindSlotsArgs): OpenSlot[] {
   const {
     businessDate, timezone, openMin, closeMin, durationMin, staff,
     slotMinutes = 15, preferredMembershipId = null,
+    candidateMembershipIds = null, partySize = 1, location = null,
     nowMin, limit = 5, toInstant,
   } = args;
 
@@ -91,9 +120,18 @@ export function findOpenSlots(args: FindSlotsArgs): OpenSlot[] {
   const until = Math.min(closeMin, args.windowEndMin ?? closeMin);
   if (from >= until) return [];
 
+  // 两层筛选都在这里、都在找空档**之前**：点名的那一位优先，
+  // 没点名则收窄到候选集（性别偏好等）
   const pool = preferredMembershipId
     ? staff.filter((s) => s.membershipId === preferredMembershipId)
-    : staff;
+    : candidateMembershipIds
+      ? staff.filter((s) => candidateMembershipIds.includes(s.membershipId))
+      : staff;
+  if (pool.length === 0) return [];
+
+  // 同行人数比候选技师还多，一个空档都不可能有 —— 早退出，别空转一整天的格子
+  const party = Math.max(1, Math.floor(partySize));
+  if (pool.length < party) return [];
 
   const out: OpenSlot[] = [];
 
@@ -107,14 +145,18 @@ export function findOpenSlots(args: FindSlotsArgs): OpenSlot[] {
     const endsAt = toInstant(businessDate, timezone, endMin);
     const candidate: Interval = { startsAt, endsAt };
 
-    for (const s of pool) {
+    const free = pool.filter((s) => {
       // 必须整段落在班次内。跨过下班时间的单意味着让技师加班 ——
       // 那是前台跟技师商量的事，不该由 AI 在电话里替他答应
-      if (startMin < s.shiftStartMin || endMin > s.shiftEndMin) continue;
+      if (startMin < s.shiftStartMin || endMin > s.shiftEndMin) return false;
+      return s.busy.filter((b) => overlaps(candidate, b)).length < s.maxConcurrent;
+    });
 
-      const conflicting = s.busy.filter((b) => overlaps(candidate, b)).length;
-      if (conflicting >= s.maxConcurrent) continue;
+    // 一起来的两位客人要两个人接。凑不齐就整个时刻都不报
+    if (free.length < party) continue;
+    if (location && !locationHasRoom(location, candidate, party, staff.length)) continue;
 
+    for (const s of free) {
       out.push({
         membershipId: s.membershipId,
         staffName: s.name,
@@ -127,6 +169,36 @@ export function findOpenSlots(args: FindSlotsArgs): OpenSlot[] {
   }
 
   return out;
+}
+
+/**
+ * 门店同时段能不能再塞下 `party` 位客人。
+ *
+ * 判断本身**不在这里** —— 转给 `checkCapacity`（同一个文件里那条建单时
+ * 用的软约束）。多一份实现就多一种「找空档说有、建单说超了」的可能。
+ *
+ * party 位客人是 party 条并发的单，所以除了被检查的那一条，
+ * 另外 party-1 条要先并进 existing 里一起求峰值。
+ */
+function locationHasRoom(
+  location: NonNullable<FindSlotsArgs['location']>,
+  proposed: Interval,
+  party: number,
+  onDutyBookableCount: number,
+): boolean {
+  const issues = checkCapacity({
+    proposed,
+    staff: null,
+    location: {
+      maxConcurrentPerSlot: location.maxConcurrentPerSlot,
+      onDutyBookableCount,
+      existing: [
+        ...location.busy,
+        ...Array.from({ length: party - 1 }, () => proposed),
+      ],
+    },
+  });
+  return !issues.some((i) => i.code === 'LOCATION_OVER_CAPACITY');
 }
 
 /**

@@ -45,6 +45,13 @@ export const locations = pgTable('locations', {
    */
   businessDayCutoff: time('business_day_cutoff').notNull().default('03:00'),
   businessType: text('business_type').notNull(), // nail|massage|foot_spa|hair|lash|mixed
+  /**
+   * 门店官网调公开预约 API 用的标识（docs/13 §3）。
+   *
+   * ⚠️ **不是密钥** —— 它明文躺在官网的 JS 里，谁都看得到。安全不建立在它上面。
+   * 形如 `pk_` + 24 位 hex，由 sql/0033 的触发器保证熵：短到能枚举时，
+   * 有人可以扫出「哪些 key 是活的」批量骚扰所有门店，而不必先找到每家店的官网。
+   */
   publicKey: text('public_key').notNull(),
   /**
    * 外部平台 id。开店向导用店名 + 邮编在 Yelp 搜到店时一并存下，
@@ -107,6 +114,23 @@ export const locationSubscriptions = pgTable('location_subscriptions', {
   cancelAt: timestamp('cancel_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
+});
+
+/**
+ * 门店官网的域名白名单（sql/0033、docs/13 §3）。
+ *
+ * ⚠️ **这不是鉴权。** 它挡的是「别人的网站嵌一个我们的预约表单」，挡不住 curl。
+ * 真正挡机器人的是 Turnstile + 限频 + 蜜罐。它的价值在于把一个
+ * 公开 key 的使用面收回到老板自己的站点上。
+ */
+export const locationAllowedOrigins = pgTable('location_allowed_origins', {
+  id: id(),
+  orgId: uuid('org_id').notNull().references(() => organizations.id),
+  locationId: uuid('location_id').notNull().references(() => locations.id),
+  /** 规范形式：小写、含协议、不带路径、不带尾斜杠。如 https://lotusnails.com */
+  origin: text('origin').notNull(),
+  label: text('label'),
+  createdAt: createdAt(),
 });
 
 export const locationFeatures = pgTable('location_features', {

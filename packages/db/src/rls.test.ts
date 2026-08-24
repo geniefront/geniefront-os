@@ -47,13 +47,33 @@ describe('租户隔离', () => {
     expect(rows.length).toBe(0);
   });
 
+  /**
+   * ⚠️ 这一条**不数条数**。
+   *
+   * 原先断言的是「nail 有 3 个客户、spa 有 1 个」—— 那是种子数据的形状，
+   * 不是隔离性质。公开预约上线后官网每建一单就多一个客户，
+   * 这条测试立刻红了，而 RLS 一点问题都没有：数字变了不等于隔离坏了。
+   *
+   * 现在断的是真正要保证的那件事：**看得见的每一行都属于当前租户，
+   * 而对面那家的行一行都看不见。**
+   */
   it('顾客数据不跨 org 泄露', async () => {
     const nail = await withTenant({ orgId: NAIL_ORG, locationId: null, membershipId: null },
-      (tx) => tx<{ n: number }[]>`select count(*)::int as n from customers`);
+      (tx) => tx<{ org_id: string }[]>`select org_id from customers`);
     const spa = await withTenant({ orgId: SPA_ORG, locationId: null, membershipId: null },
-      (tx) => tx<{ n: number }[]>`select count(*)::int as n from customers`);
-    expect(nail[0]!.n).toBe(3);
-    expect(spa[0]!.n).toBe(1);
+      (tx) => tx<{ org_id: string }[]>`select org_id from customers`);
+
+    expect(nail.length).toBeGreaterThan(0);
+    expect(spa.length).toBeGreaterThan(0);
+    expect(nail.every((r) => r.org_id === NAIL_ORG)).toBe(true);
+    expect(spa.every((r) => r.org_id === SPA_ORG)).toBe(true);
+
+    // 反向再确认一次：拿着对面的 id 单点也查不到
+    const spaIds = await withTenant({ orgId: SPA_ORG, locationId: null, membershipId: null },
+      (tx) => tx<{ id: string }[]>`select id from customers limit 1`);
+    const peek = await withTenant({ orgId: NAIL_ORG, locationId: null, membershipId: null },
+      (tx) => tx`select id from customers where id = ${spaIds[0]!.id}`);
+    expect(peek.length).toBe(0);
   });
 
   it('没有租户上下文时什么也查不到（而不是查到全部）', async () => {

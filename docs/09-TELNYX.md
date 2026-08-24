@@ -1,8 +1,17 @@
 # 09 · Telnyx：AI 电话与短信的承载通道
 
-> **现状（2026-08-18）**：AI 语音与 SMS 全部走 **Telnyx** —— 号码、语音信道、
+> **现状（2026-08-22）**：AI 语音与 SMS 全部走 **Telnyx** —— 号码、语音信道、
 > AI Assistant 对话编排、短信，一家全出。**已实测打通**（§4.3）。
-> 10DLC 仍在审核中 —— 这**不阻塞任何阶段**（`03` 决策 11 不变）。
+>
+> ✅ **10DLC 已批准**（2026-08-22）：brand `GenieFront` / TCR `BC024MG` VERIFIED，
+> campaign TCR `CFH5JPS` **ACTIVE**（use case `ACCOUNT_NOTIFICATION`，T-Mobile 已注册）。
+> 短信发送号 **+1 757 770 6256** 已挂上 messaging profile
+> `4001a029-e472-4e04-a2f9-7dd6acb4e2ac` 并绑定该 campaign（§5.1）。
+>
+> ✅ **发送链路已经做完**（2026-08-22）：预约确认短信随建单入 `sms_outbox`、
+> 事务提交后发出、按 segment 计量、STOP/START/HELP 入站处理全部落地（§5.2）。
+> 店主明确解除了宪法第 13 条「门店数 ≥ 10 家之前不写短信依赖」——
+> **但第 14 条没解除**：短信发不出去照样建单。
 >
 > 给下一个 session：先读 §1 的两条警告 + §2 的接入方式，
 > 再按 §7 的任务清单做。§8 是明确不做的事。
@@ -172,15 +181,20 @@ Telnyx（号码 · 语音 · AI Assistant · 短信）
 
 ## 4. AI 电话：落地方式
 
-### 4.1 目标没变：三要素提取
+### 4.1 目标：三要素提取 → **直接建单**（2026-08-22 改）
 
-`03` 决策 6 原样有效 —— AI 电话**不是**全自动前台，它只干一件事：
+从来电里提取 **项目 + 技师偏好 + 期望时间**（来电号码自带），
+匹配排期引擎给出的**真实空档**，建一条 `source=phone_ai` 的预约，
+客人挂电话就收到确认短信。
 
-> 从来电里提取 **项目 + 技师偏好 + 期望时间**（来电号码自带），
-> 匹配排期引擎给出的**真实空档**，生成 `source=phone_ai` 的预约草案，
-> **直推前台 1 秒复核队列**。
-
-任何"AI 直接确认预约不用人看"的想法，在门店数 < 100 之前都不要碰。
+> ⚠️ **这一段 2026-08-22 变过。** 原文是「生成预约草案，直推前台 1 秒复核队列」，
+> 并写着「任何『AI 直接确认预约不用人看』的想法，在门店数 < 100 之前都不要碰」。
+> 店主改了这条（`03` 决策 6）：客人在电话里已经听到「订好了」，
+> 让他再等前台回一遍电话，等于这通电话白打。
+>
+> 换来的边界写死在代码里，不靠自觉（`PHONE_AI_PERMISSIONS`，docs/14 §0）：
+> **只能建，不能改不能删**、**永不传 `override`**、**时间只能来自 `find_slots`**。
+> 复核队列还在，降为兜底 —— 信息不全或建单失败时走 `request_callback`。
 
 ### 4.2 三要素怎么拿回来
 
@@ -252,6 +266,175 @@ tool 打到命令总线是唯一一条路，AI 和 UI 走的是同一条 —— 
 | **TCPA 合规** | 同意记录、STOP / HELP 处理、时区静默时段拦截。这三条与供应商无关，是法律要求 |
 | **附带解锁** | 手机号 OTP 登录 —— **已实现**，但验证码短信临时走 Twilio Verify（见下节） |
 | **计量** | `usage_events(kind='sms')`，按 segment 记 —— 中文一条 70 字符就分段，不按条记会低估一倍以上 |
+
+### 5.1 ✅ 已配好的（2026-08-22）
+
+| | 值 |
+| :--- | :--- |
+| Brand | `GenieFront` · TCR `BC024MG` · **VERIFIED** |
+| Campaign | TCR `CFH5JPS` · **ACTIVE** · `ACCOUNT_NOTIFICATION` · T-Mobile 已注册 |
+| Messaging profile | `4001a029-e472-4e04-a2f9-7dd6acb4e2ac`（`TELNYX_MESSAGING_PROFILE_ID`） |
+| **短信发送号** | **+1 757 770 6256**（`TELNYX_SMS_FROM`） |
+| 允许发往 | **仅 US**（`whitelisted_destinations: ["US"]`） |
+| 号码映射 | **ASSIGNED** —— T-Mobile / AT&T / 其它运营商全部 `ADDED` |
+| 关键词自动回复 | ✅ 三组都配在 profile 的 `autoresp_configs` 上（§5.4） |
+| 每日封顶 | **$25/天**（`daily_spend_limit_enabled`）—— 出事时兜得住 |
+| Smart Encoding | ✅ 开着。弯引号一类字符自动换成 GSM 等价物，不然一个 `'` 就让成本翻倍 |
+| Webhook | `https://api.geniefront.com/v1/telnyx/webhook` |
+
+⭐ **短信号和语音号是两个号，这是有意的**（本节开头那条决定）：
+
+```
++1 757 999 9968   语音落地号（TELNYX_PHONE_NUMBER）—— 每店一个，AI 在这里接
++1 757 770 6256   短信发送号（TELNYX_SMS_FROM）    —— 平台统一一个，客人回复进我们客服
+```
+
+店家完全不碰短信，所以**不需要每店一个 campaign** —— 原先估的
+「1000 店 × campaign 月费」不成立。
+
+⚠️ **只开了 US。** 开成全球等于给盗用留一条发国际短信的路，
+那是最贵的一种滥用。
+
+⚠️ **webhook 指的是语音那条已有的路由**。它验 Ed25519 签名、认不出的事件
+照常 200 并标 ignored，所以短信事件打过去是安全的 —— 但**没人处理**：
+投递回执和 STOP 回复目前都落地即丢，见下面清单第 4 条。
+
+### 5.2 ✅ 发送链路（2026-08-22 完成）
+
+```
+appointment.create（事务内）
+   ├── email_outbox  ← 一直都有
+   └── sms_outbox    ← 新增。渲染好的正文 + segment 数一起落库
+        │
+        ▼ 事务提交之后（flushSms，不 await）
+   查 sms_consent → 退订的标 suppressed，不发
+        │
+        ▼ Telnyx /v2/messages
+   usage_events(kind='sms', qty=段数)
+```
+
+| 文件 | 干什么 |
+| :--- | :--- |
+| `sql/0034_sms.sql` | `sms_outbox` / `sms_consent` / `sms_inbound` 三张表 |
+| `apps/api/src/sms/segments.ts` | GSM-7 分段计数（**计费的唯一依据**） |
+| `apps/api/src/sms/render.ts` | 英文模板 + 压进一段的裁剪 |
+| `apps/api/src/sms/send.ts` | Telnyx HTTP。⚠️ `NODE_ENV=test` 下一条都不真发 |
+| `apps/api/src/sms/flush.ts` | 出队 + 退订拦截 + 按 segment 计量 |
+| `apps/api/src/sms/keywords.ts` | 入站关键词 |
+| `telnyx/routes.ts` | `message.received` → 落库 + 改同意状态 + HELP 回复 |
+
+**25 项单元测试 + 2 项集成测试**（`sms.test.ts`、`public.test.ts`）。
+
+✅ **真实发送已验证**（2026-08-22 19:16 UTC）：走完整链路
+（建单 → 入队 → flush → Telnyx）发到一个真实的 T-Mobile 号码，
+Telnyx 回执 **delivered**、**1 part / GSM-7**、无错误。
+正文就是模板那一条：
+
+```
+Lotus Nails & Spa: You're booked for Deluxe Pedicure on Sun, Aug 23,
+10:00 AM. Code LO-TEST. Call the salon to change. Reply STOP to opt out.
+```
+
+#### ⭐ 三条想清楚了的
+
+**① 全英文，不做多语言**（店主 2026-08-22 定）。不只是因为客群是美国人 ——
+**一个非 GSM 字符就把整条短信的容量从 160 掉到 70**，成本翻倍而客人
+看到的完全一样。所以店名强制取英文名（`莲花美甲` → 剥成 ASCII，
+剥空了用 `Salon`），项目名超长时砍项目名**不砍店名和电话**：
+认不出谁发的、或者打不了电话，这条短信就白发了。
+
+**②' 店名四级回退，最后一级是 slug。** 一家只填中文店名的店，
+署名会落到「Salon」—— 那看起来就是诈骗短信。`locations.slug` 一定是 ASCII
+（建店时从店名转的），`lotus-nails` 还原成「Lotus Nails」，同一家店永远同一个名字。
+
+**③ `sms_consent` 是平台级的，唯一一张没有 org_id 的业务表。**
+所有店共用一个发送号、一个 brand，客人回 STOP 是对**这个发送者**说的，
+运营商也是在网络层掐掉这个号到他的全部短信。按 org 存会造成
+「A 店收到 STOP、B 店照发」。RLS 仍然开着，策略是有意的 `using (true)`，
+在 `pg_policies` 里查得到。
+
+**④ 退订在 flush 那一层再查一次，不只在入队时查。**
+入队到发出之间隔着几秒到几分钟 —— 而这几秒恰恰是他看完上一条回 STOP 的窗口。
+
+#### ⚠️ flush 是**排空整条队列**，不是「发我刚才那条」
+
+2026-08-22 真踩到：为了测一条短信手工调了 `flushSms`，
+而那家店的队列里还压着测试造的一批待发 —— 结果先发出去的是**别人的**五条
+（都是 555 虚构号，全部 delivery_failed，没有真人收到）。
+
+这**不是 bug**，drain 就该这么工作。但它意味着两件事：
+
+1. 手工触发发送之前**先看一眼队列里有什么**
+2. `BATCH = 5`：队列深的时候一次只走五条，你刚入队的那条可能排在后面 ——
+   别以为调一次 flush 就一定发的是它
+
+### 5.4 关键词自动回复：**Telnyx 回，我们不回**
+
+三组关键词配在 messaging profile 的 `autoresp_configs` 上（控制台里那个
+「Keywords Management」页，也可以走 API）：
+
+| op | 关键词 | 回复 |
+| :--- | :--- | :--- |
+| `stop` | STOP / UNSUBSCRIBE / **CANCEL** / QUIT | 见下 ⭐ |
+| `start` | START / YES | 订阅确认 + 资费说明 |
+| `info` | HELP / INFO | 身份 + 用途 + 资费 + 怎么退订 |
+
+⚠️ **API 里 HELP 那一组的 `op` 叫 `info`，不叫 `help`** —— 传 `help` 会
+400 「not well-formed」，而错误信息完全不提是哪个字段。
+
+#### ⭐ STOP 的回复文案是 CANCEL 歧义的正解
+
+```
+You're unsubscribed from GenieFront texts. This does NOT cancel any
+appointment - please call the salon to change or cancel it.
+```
+
+客人打 CANCEL 想的是取消预约，这句话在**他还看得到消息的最后一刻**
+告诉他「预约还在，要取消请打电话」。比事后前台补救便宜得多。
+
+#### 分工：谁回、谁记
+
+```
+Telnyx   自动回复 + 运营商层面的拦截    ← 合规那一半，我们的服务挂了它照常работа
+我们     sms_inbound 留档 + sms_consent  ← 前台要看得到，发之前要拦得住
+```
+
+⚠️ **应用侧不再回 HELP。** 一开始两边都回，客人问一句会收到**两条**
+一模一样的说明。现在应用只留档、只维护自己那份 `sms_consent`。
+
+### 5.3 🔴 CANCEL 这个词在预约系统里是有歧义的
+
+店主在 Telnyx 登记的退订关键词是 **STOP / UNSUBSCRIBE / CANCEL / QUIT**。
+
+**CANCEL 是个雷**：客人打这六个字母，十有八九想的是「取消我的预约」，
+而运营商规定这个词必须触发**退订**。两边都不由我们做主 ——
+不认违规，认了他的预约还在，而且我们**再也发不了短信给他**。
+
+三条一起做，缺一不可：
+
+1. **照认**。合规不让步
+2. **我们发出去的短信里一个字都不提「回复 CANCEL」**
+   —— 改期一律引导打电话（有测试盯着这一条）
+3. **原话进 `sms_inbound` 留档**。退订之后短信这条路断了，
+   这行记录是前台唯一的线索：能看到「这个号 3 点 12 分发过 CANCEL」，
+   主动打个电话问一句
+
+✅ **前台看得到了**（2026-08-22）：`GET /v1/desk/sms-inbound` +
+前台侧边栏的「客人短信」页（`apps/desk/src/screens/SmsInbox.tsx`）。
+
+「**要处理**」的定义很窄：**退了订、而且名下还有没到的预约** ——
+那正是 CANCEL 这个坑的形状。单纯退订不算（那是他的权利），
+单纯问一句也不算（我们本来就不做短信对话）。有这种人时侧边栏才出现这一页
+并带角标，平时藏起来 —— 常驻一个永远是 0 的页签只会让侧边栏更长。
+
+⚠️ 这里有一条跨租户边界，是**绕开的不是无视的**：`sms_inbound` 是平台级的表，
+但查询先在**本店客户**里按号码找，再拿这些号码去查入站短信。
+于是一家店永远只看得到自己客人发来的那些，也不需要一条跨租户的连接
+（宪法第 5 条）。有测试盯着「别的店的客人查不到」。
+
+⬜ 静默时段（8am–9pm）目前**没做**。确认短信是客人自己几秒前触发的
+事务性短信，不在 TCPA 的限制范围内；等做提醒短信（`appointment_reminder`）
+时必须补上，那个是我们主动发的。
 
 ### 验证码短信：⭐ **临时走 Twilio Verify**（2026-08-19 定）
 
@@ -378,17 +561,31 @@ Growth `500×$0.062 + 1200×$0.01 = $43.00`（78%）。
 | A7 | `usage_events(kind='ai_call_min')` 落账 | 一通电话结束后能查到分钟数 | ✅ `call.record`，重投不会记两遍 |
 | A8 | 前台"待复核"队列界面 | 草案一眼可见、一键确认或改 | ✅ `apps/desk/src/screens/CallQueue.tsx` |
 
-#### A2 要在 Telnyx 控制台里配的三个 tool
+#### A2 要在 Telnyx 控制台里配的 tool
+
+> ⚠️ **这张表已经不全了（工具从三个长到六个）。**
+> 完整的入参、返回、护栏一律以 **[`docs/14-VOICE-TOOLS.md`](14-VOICE-TOOLS.md)**
+> 为准，仓库根的 `create_assistant.json` 就是可以直接推上去的那份配置。
 
 全部 `POST`，全部要开 webhook 签名。`{to}` 是被叫号码（我们靠它定位门店）：
 
-| tool | URL | 传什么 |
-| :--- | :--- | :--- |
-| `lookup_customer` | `/v1/telnyx/tools/lookup_customer` | `to`, `from` |
-| `find_slots` | `/v1/telnyx/tools/find_slots` | `to`, `duration_min`, `around`(ISO), `staff_membership_id?` |
-| `draft_appointment` | `/v1/telnyx/tools/draft_appointment` | `to`, `from`, `call_session_id`, `service_heard`, `staff_heard`, `time_heard`, `slot_starts_at`, `duration_min`, `caller_name`, `confidence_bp`, `notes` |
+| tool | URL |
+| :--- | :--- |
+| `lookup_customer` | `/v1/telnyx/tools/lookup_customer` |
+| `list_services` | `/v1/telnyx/tools/list_services` |
+| `list_staff` | `/v1/telnyx/tools/list_staff` |
+| `find_slots` | `/v1/telnyx/tools/find_slots` |
+| `book_appointment` | `/v1/telnyx/tools/book_appointment` |
+| `request_callback` | `/v1/telnyx/tools/request_callback`（旧名 `draft_appointment` 仍可用） |
 
-通话事件 webhook：`/v1/telnyx/webhook`（只处理 `call.hangup`，用来记分钟数）。
+⭐ **每个 tool 都要多配一个常量参数 `shop_token`**（`sql/0036`）：
+绑号码那条命令返回的 `st_…`，**只出现一次**。它是验签之后的第二道门 ——
+门店靠公开的号码定位，一旦验签被绕过，公开信息就足以点名查任意一家店。
+忘了填 = 那家店的电话全部 401（日志 `shop_token_invalid`）。边界见 `docs/14` §0。
+
+通话事件 webhook：`/v1/telnyx/webhook`（`call.hangup` 记分钟数、
+`message.received` 收入站短信）。**这条不检查 `shop_token`** ——
+webhook 不是工具调用，带不了自定义参数。
 
 > 三个接口的返回里都带一句 `guidance` —— 那是**直接写给模型看的约束**
 > （「只能从下面这些时间里选」「这个号码下有多位客人，请问清是哪一位」）。
@@ -418,7 +615,7 @@ Growth `500×$0.062 + 1200×$0.01 = $43.00`（78%）。
 ## 8. 明确**不做**的事（护栏）
 
 - ❌ **不自建媒体流 / SIP 长连接**。媒体在 Telnyx 侧终结，宪法第 10 条不为电话破例
-- ❌ **不让 AI 直接确认预约**。永远进前台复核队列（决策 6）
+- ⚠️ **AI 可以直接建预约**（2026-08-22 决策 6 变更，见 §4.1）——但**不能改、不能取消**，也永远不传 `override`。改期取消一律回前台
 - ❌ **不让 AI 自己算空档**。只能从排期引擎返回的真实空档里选（`04` §5）
 - ❌ **不在 10DLC 批准前写任何短信依赖**（决策 11、宪法第 13 条）
 - ❌ **不为了省事让 assistant 直连数据库**。所有写操作过命令总线（宪法第 1 条）

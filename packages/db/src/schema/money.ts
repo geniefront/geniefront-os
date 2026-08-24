@@ -79,17 +79,33 @@ export const earnings = pgTable('earnings', {
 // ─────────────────────────────────────────────────────────────── 打烊日结
 
 /**
- * 一天一条。status: open → counted → closed。
+ * 一天一条。正常路径：open → counted → closed。
  *
  * 决策 19 说不逼老板记零钱流水，所以这张表里除了「点了多少」之外
  * **所有字段都可以留空**：只想知道抽屉里对不对的店，填一个数就能收工。
+ *
+ * ⭐ 另外三个是**断档终态**（2026-08-20 补）。它们回答的是同一个问题：
+ * 「那天系统里什么都没有，是店没开，还是没人记？」
+ *
+ * 没有这三个状态的话，这三种情况在库里长得一模一样，而它们的含义天差地别：
+ *
+ *   no_business  —— 那天没营业。报表里是**真实的 0**，进平均值不失真。
+ *   paper_only   —— 那天开着门，用纸记的，不补了。报表里是**空白**，
+ *                   合计不含它。这不是错误，是一条诚实的记录。
+ *   summary_only —— 那天用纸记的，补了个总数进来（backfill* 那几列）。
+ *                   营业额对得上，**但提成和小费分配算不出来** ——
+ *                   系统不知道哪一单是谁做的，别假装知道。
+ *
+ * 三个都是**终态**：标完就不再进「没记完的日子」提醒。给「不补」一条
+ * 体面的出路，比让横幅一直挂着重要 —— 挂久了前台学会的是无视所有横幅。
  */
 export const dayCloses = pgTable('day_closes', {
   id: id(),
   orgId: orgCol(),
   locationId: locCol(),
   businessDate: date('business_date').notNull(),
-  status: text('status').notNull().default('open'), // open|counted|closed
+  /** open|counted|closed ｜ no_business|paper_only|summary_only */
+  status: text('status').notNull().default('open'),
 
   /** 早上抽屉里的备用金 */
   openingFloatCents: integer('opening_float_cents').notNull().default(0),
@@ -117,6 +133,23 @@ export const dayCloses = pgTable('day_closes', {
   taxCents: integer('tax_cents'),
   tipCashCents: integer('tip_cash_cents'),
   tipCardCents: integer('tip_card_cents'),
+
+  /**
+   * ⭐ 补录进来的总数（status = 'summary_only' 时才有值）。
+   *
+   * 故意跟上面那组 gross/net/tax 快照**分开存**，不共用列：
+   * 那一组是封账时从真实工单算出来的，这一组是人照着纸本子敲的。
+   * 混在一列里，第二年查账的人就再也分不清哪个数背后有单据。
+   */
+  backfillGrossCents: integer('backfill_gross_cents'),
+  backfillCashCents: integer('backfill_cash_cents'),
+  backfillCardCents: integer('backfill_card_cents'),
+  backfillTipCashCents: integer('backfill_tip_cash_cents'),
+  backfillTipCardCents: integer('backfill_tip_card_cents'),
+  /** 断档终态的说明：「Lily 请假，我用本子记的」「下雪关门」 */
+  gapNote: text('gap_note'),
+  markedBy: uuid('marked_by'),
+  markedAt: timestamp('marked_at', { withTimezone: true }),
 
   note: text('note'),
   countedBy: uuid('counted_by'),

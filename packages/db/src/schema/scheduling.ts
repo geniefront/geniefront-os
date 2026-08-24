@@ -95,6 +95,16 @@ export const services = pgTable('services', {
   staffCount: integer('staff_count').notNull().default(1), // 2 = 双技师项目
   turnValueBp: integer('turn_value_bp'), // null = 按轮牌策略算
   onlineBookable: boolean('online_bookable').notNull().default(false),
+  /**
+   * ⭐ 加项（sql/0035）。true = 只能加在别的项目上，不能单独预约。
+   *
+   * 加项在这个数据模型里就是普通的 services 行（`appointment_items.addon_ids`
+   * 引用它们），所以在此之前**没有任何一处能分辨**「热石 $15」是加项
+   * 还是一个完整项目 —— 电话 AI 会把它当成一次 $15 的服务报给客人。
+   * 拍价目表提取时模型本来就判断得出（blueprint_items.kind = 'addon'），
+   * 只是一直没地方存。
+   */
+  isAddon: boolean('is_addon').notNull().default(false),
   active: boolean('active').notNull().default(true),
   sort: integer('sort').notNull().default(0),
 }, (t) => [
@@ -183,6 +193,18 @@ export const appointments = pgTable('appointments', {
   cancelReason: text('cancel_reason'),
   cancelNote: text('cancel_note'),
   idempotencyKey: text('idempotency_key'),
+  /**
+   * 公开预约（官网）专用的两列，其它来源一律为空（sql/0033、docs/13）。
+   *
+   * `confirmationCode`   客人念得出来的短码，前台也能按它搜。明文存
+   * `manageTokenDigest`  ⭐ 自助取消的**唯一凭证**，只存 SHA-256 摘要。
+   *                      明文只在建单响应和确认信里出现过一次 ——
+   *                      和设备令牌、技师会话令牌同一个套路。
+   *                      预约 id 会出现在 URL、浏览器历史、转发的邮件里，
+   *                      只靠 id 就能取消等于谁都能取消别人的预约。
+   */
+  confirmationCode: text('confirmation_code'),
+  manageTokenDigest: text('manage_token_digest'),
   createdAt: createdAt(),
 }, (t) => [
   index('appointments_day_idx').on(t.orgId, t.locationId, t.businessDate, t.status),

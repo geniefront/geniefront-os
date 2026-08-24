@@ -22,3 +22,9 @@ deploy/certs/origin.key
 /create_assistant.json
 /update_assistant.json
 /assistant_response.json
+
+# 电话工具的本地测试密钥（scripts/voice-tool.mjs）
+.dev-telnyx-key.json
+
+# push-assistant.mjs 推之前的备份（含 Telnyx 上的原配置）
+.assistant-backups/

@@ -41,6 +41,11 @@ export const ERROR_CODES = {
   VARIANCE_REASON_REQUIRED: 'VARIANCE_REASON_REQUIRED',
   /** 还有单没结完就要封账 */
   OPEN_TICKETS_REMAIN: 'OPEN_TICKETS_REMAIN',
+  /**
+   * 想把一个**已经有真实工单**的日子标成断档（没营业 / 用纸记的 / 补总数）。
+   * 真实数据比一句事后的概括可信得多，用概括盖住它是在销毁证据。
+   */
+  DAY_HAS_REAL_RECORDS: 'DAY_HAS_REAL_RECORDS',
 
   // 合规硬锁（05 §2.4）
   HOUSE_CUT_FORBIDDEN: 'HOUSE_CUT_FORBIDDEN',       // 雇主抽小费，FLSA 禁止
@@ -124,6 +129,7 @@ export const httpStatusFor: Record<ErrorCode, number> = {
   DAY_ALREADY_CLOSED: 409,
   VARIANCE_REASON_REQUIRED: 400,
   OPEN_TICKETS_REMAIN: 409,
+  DAY_HAS_REAL_RECORDS: 409,
   HOUSE_CUT_FORBIDDEN: 422,
   PATCH_TEST_REQUIRED: 422,
   BLUEPRINT_FROZEN: 409,

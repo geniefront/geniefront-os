@@ -18,8 +18,8 @@
 | **Phase 1a** | ✅ 轮牌板、日程、开单、结账、小费、开店配置、断网看板 |
 | **Phase 1b** | ✅ 提成引擎 + 收入看板、打烊日结对账、现金小费发放、排班 + 报表 CSV |
 | **Phase 1c** | ✅ 技师端 PWA、Realtime 派单（实测 2 秒）、PIN 打卡 |
-| **Phase 2** | 🚧 拍照开店 ✅、Yelp ✅、Kiosk ✅、Stripe 计费 ✅、AI 前台副驾 ✅、AI 电话（代码 ✅ 卡开户） |
-| **测试** | **476 项**，12 个包，`pnpm verify` 全绿 |
+| **Phase 2** | 🚧 拍照开店 ✅、Yelp ✅、Kiosk ✅、Stripe 计费 ✅、AI 前台副驾 ✅、**官网在线预约 ✅（含现成的预约页）**、AI 电话（代码 ✅ 卡开户） |
+| **测试** | **670 项**，13 个包，`pnpm verify` 全绿 |
 
 ---
 
@@ -29,7 +29,7 @@
 pnpm install
 cp .env.example .env          # ⚠️ 真实凭据不在仓库里，见 docs/07-CREDENTIALS-CHECKLIST.md
 bash scripts/check-env.sh     # 凭据格式 + 实测联通性
-pnpm verify                   # 宪法检查 + typecheck + 476 项测试
+pnpm verify                   # 宪法检查 + typecheck + 670 项测试
 ```
 
 跑起来：
@@ -39,6 +39,7 @@ pnpm --filter @gf/api   dev   # API            → localhost:3000
 pnpm --filter @gf/desk  dev   # 前台            → localhost:5173
 pnpm --filter @gf/staff dev   # 技师端 PWA      → localhost:5174
 pnpm --filter @gf/kiosk dev   # 门口 iPad       → localhost:5175
+pnpm --filter @gf/booking dev # 官网预约页      → localhost:5176/?k=<门店的 pk_…>
 ```
 
 ---
@@ -47,10 +48,13 @@ pnpm --filter @gf/kiosk dev   # 门口 iPad       → localhost:5175
 
 ```
 apps/
-  api/        Fastify。命令总线、RLS 上下文、Telnyx webhook、Kiosk 设备认证
+  api/        Fastify。命令总线、RLS 上下文、Telnyx webhook、Kiosk 设备认证、
+              public/ = 门店官网的公开预约 API（唯一无身份写入口，docs/13）
   desk/       前台（桌面浏览器，键盘快捷键）
   staff/      技师端 PWA（手机，无快捷键）
   kiosk/      门口 iPad 自助端（六语言，无快捷键）
+  booking/    ⭐ 门店官网的在线预约页（默认黑白极简，外观由 URL 参数控制，
+              可嵌 iframe，docs/13 §10）
 packages/
   contracts/  命令 Zod schema + 权限 + 错误码 —— 前后端唯一真源
   db/         Drizzle schema + drizzle/ 自动迁移 + sql/ 手写 RLS 与触发器

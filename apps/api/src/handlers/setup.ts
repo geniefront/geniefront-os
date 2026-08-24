@@ -9,9 +9,11 @@ import {
   SaveService, ArchiveService, SaveStaffProfile,
   SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
+  SaveOnlineBooking, AddWebOrigin, RemoveWebOrigin,
   ROLE_PRESETS,
   AppError, ERROR_CODES, pickText,
 } from '@gf/contracts';
+import { normalizeOrigin } from '../public/origin';
 import { jsonb } from '@gf/db';
 import { businessDateOf } from '@gf/scheduling';
 import { registerHandler, type HandlerArgs } from '../bus';
@@ -29,6 +31,7 @@ registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
         base_price_cents = ${input.basePriceCents},
         taxable = ${input.taxable},
         online_bookable = ${input.onlineBookable},
+        is_addon = ${input.isAddon},
         active = ${input.active}
       where id = ${input.serviceId}`;
 
@@ -40,10 +43,10 @@ registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
   const [row] = await tx<{ id: string }[]>`
     insert into services
       (org_id, location_id, name, duration_min, base_price_cents,
-       taxable, online_bookable, active)
+       taxable, online_bookable, is_addon, active)
     values (${ctx.orgId}, ${ctx.locationId}, ${jsonb(input.name)}::jsonb,
             ${input.durationMin}, ${input.basePriceCents},
-            ${input.taxable}, ${input.onlineBookable}, ${input.active})
+            ${input.taxable}, ${input.onlineBookable}, ${input.isAddon}, ${input.active})
     returning id`;
 
   audit({ entityType: 'service', entityId: row!.id,
@@ -307,4 +310,93 @@ registerHandler(FinishSetup, async ({ ctx, tx, audit }: HandlerArgs<
   audit({ entityType: 'location', entityId: ctx.locationId,
           before: { status: 'setup' }, after: { status: 'active' } });
   return { locationId: ctx.locationId, status: row.status };
+});
+
+// ──────────────────────────────────────────────── 官网对接（docs/13）
+
+registerHandler(SaveOnlineBooking, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SaveOnlineBooking.input._type>) => {
+  const [cur] = await tx<{ settings: Record<string, unknown> }[]>`
+    select settings from locations where id = ${ctx.locationId}`;
+  if (!cur) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
+
+  const before = (cur.settings['online_booking'] ?? {}) as Record<string, unknown>;
+
+  /**
+   * ⚠️ 打开在线预约前先看一眼**有没有可订的项目**。
+   *
+   * 一个项目都没勾 `online_bookable` 就把开关打开，官网上是一个空列表 ——
+   * 客人看到的是「这家店什么都不能订」，而老板以为自己开通了。
+   * 这比报个错难查得多，所以当场拦下并说清楚该去哪勾。
+   */
+  if (input.enabled) {
+    const [n] = await tx<{ n: number }[]>`
+      select count(*)::int as n from services
+      where location_id = ${ctx.locationId} and active = true and online_bookable = true`;
+    if ((n?.n ?? 0) === 0) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'no_online_bookable_services' },
+      });
+    }
+  }
+
+  await tx`update locations set
+      settings = jsonb_set(settings, '{online_booking}', ${jsonb({
+        enabled: input.enabled,
+        max_days_ahead: input.maxDaysAhead,
+        min_minutes_ahead: input.minMinutesAhead,
+        require_phone_verification: input.requirePhoneVerification,
+        cancel_cutoff_hours: input.cancelCutoffHours,
+      })}::jsonb, true),
+      updated_at = now()
+    where id = ${ctx.locationId}`;
+
+  audit({
+    entityType: 'location', entityId: ctx.locationId,
+    before: { onlineBooking: before },
+    after: { onlineBooking: { enabled: input.enabled, maxDaysAhead: input.maxDaysAhead,
+                              minMinutesAhead: input.minMinutesAhead,
+                              requirePhoneVerification: input.requirePhoneVerification,
+                              cancelCutoffHours: input.cancelCutoffHours } },
+  });
+  return { locationId: ctx.locationId, enabled: input.enabled };
+});
+
+registerHandler(AddWebOrigin, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof AddWebOrigin.input._type>) => {
+  // 老板会粘各种东西进来（带路径的、带 www 的、不带协议的）。
+  // 让他自己弄对是不现实的 —— 全部收敛掉（04 §2）
+  const origin = normalizeOrigin(input.origin);
+  if (!origin) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'bad_origin', got: input.origin },
+    });
+  }
+
+  const [row] = await tx<{ id: string }[]>`
+    insert into location_allowed_origins (org_id, location_id, origin, label)
+    values (${ctx.orgId}, ${ctx.locationId}, ${origin}, ${input.label ?? null})
+    on conflict (location_id, origin) do update set label = excluded.label
+    returning id`;
+
+  audit({
+    entityType: 'location_allowed_origin', entityId: row!.id,
+    after: { origin },
+  });
+  return { id: row!.id, origin };
+});
+
+registerHandler(RemoveWebOrigin, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof RemoveWebOrigin.input._type>) => {
+  const [row] = await tx<{ id: string; origin: string }[]>`
+    delete from location_allowed_origins
+    where id = ${input.id} and location_id = ${ctx.locationId}
+    returning id, origin`;
+  if (!row) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'origin' } });
+
+  audit({
+    entityType: 'location_allowed_origin', entityId: row.id,
+    before: { origin: row.origin }, after: null,
+  });
+  return { id: row.id };
 });

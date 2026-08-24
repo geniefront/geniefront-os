@@ -115,6 +115,75 @@ describe('findOpenSlots', () => {
     expect(findOpenSlots({ ...base, staff: [staff()], durationMin: 0 })).toEqual([]);
   });
 
+  it('⭐ 候选集在找空档之前收窄 —— 不是先算完再按性别过滤', () => {
+    // Amy 全天在班，Linh 下午才上班。只要女技师（这里 = linh）时，
+    // 报出来的第一个时间必须是 13:00，而不是「上午没有女技师」
+    const out = findOpenSlots({
+      ...base, limit: 10, candidateMembershipIds: ['linh'],
+      staff: [staff(), staff({ membershipId: 'linh', name: 'Linh', shiftStartMin: 13 * 60 })],
+    });
+    expect(out.every((s) => s.membershipId === 'linh')).toBe(true);
+    expect(out[0]!.startMin).toBe(13 * 60);
+  });
+
+  it('候选集为空 → 一个都不报（而不是退回全店）', () => {
+    expect(findOpenSlots({
+      ...base, staff: [staff()], candidateMembershipIds: [],
+    })).toEqual([]);
+  });
+
+  it('点名优先于候选集 —— 客人指名了就以指名为准', () => {
+    const out = findOpenSlots({
+      ...base, limit: 3, preferredMembershipId: 'amy', candidateMembershipIds: ['linh'],
+      staff: [staff(), staff({ membershipId: 'linh', name: 'Linh' })],
+    });
+    expect(out.every((s) => s.membershipId === 'amy')).toBe(true);
+  });
+
+  it('⭐ 两位客人一起来 = 同一时刻要两位技师，凑不齐整个时刻都不报', () => {
+    // Linh 10:00–11:00 有单，那一段只剩 Amy 一个人 —— 两位客人排不下
+    const out = findOpenSlots({
+      ...base, limit: 50, partySize: 2,
+      staff: [
+        staff(),
+        staff({ membershipId: 'linh', name: 'Linh', busy: [{ startsAt: at(540), endsAt: at(660) }] }),
+      ],
+    });
+    const starts = new Set(out.map((s) => s.startMin));
+    expect(starts.has(540)).toBe(false);   // 09:00 起做 60 分钟会撞上 Linh 的单
+    expect(starts.has(660)).toBe(true);    // 11:00 两人都空
+    // 报出来的时刻，两个人都在
+    expect(out.filter((s) => s.startMin === 660).map((s) => s.membershipId).sort())
+      .toEqual(['amy', 'linh']);
+  });
+
+  it('同行人数比在班技师还多 → 直接空，不空转一整天', () => {
+    expect(findOpenSlots({ ...base, staff: [staff()], partySize: 3 })).toEqual([]);
+  });
+
+  it('⭐ 门店时段容量满了就不报 —— 找空档和建单用的是同一套软约束', () => {
+    // 上限 1，而 09:00–10:00 全店已经有一单：那一格不能再报
+    const out = findOpenSlots({
+      ...base, limit: 50,
+      staff: [staff(), staff({ membershipId: 'linh', name: 'Linh' })],
+      location: { maxConcurrentPerSlot: 1, busy: [{ startsAt: at(540), endsAt: at(600) }] },
+    });
+    const starts = new Set(out.map((s) => s.startMin));
+    expect(starts.has(540)).toBe(false);
+    expect(starts.has(600)).toBe(true);
+  });
+
+  it('门店上限没设（null）时按在岗可接客人数算', () => {
+    // 两位技师在岗 = 上限 2；已有一单，两位客人一起来就超了
+    const busyOne = [{ startsAt: at(540), endsAt: at(600) }];
+    const out = findOpenSlots({
+      ...base, limit: 50, partySize: 2,
+      staff: [staff({ membershipId: 'a', name: 'A' }), staff({ membershipId: 'b', name: 'B' })],
+      location: { maxConcurrentPerSlot: null, busy: busyOne },
+    });
+    expect(out.some((s) => s.startMin === 540)).toBe(false);
+  });
+
   it('同一时刻多个技师有空 → 每人各一条，上层自己决定要不要合并', () => {
     const out = findOpenSlots({
       ...base, limit: 2,

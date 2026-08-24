@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; background: #f6f5f3; color: #1a1917;
+      font: 400 17px/1.45 -apple-system, "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased; }
+    a { color: #9e1236; } a:hover { color: #9e1236; }
+    .lbl { font-size: 13px; font-weight: 700; letter-spacing: .08em; color: #8b857d; }
+  </style>
+</helmet>
+
+<div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+  <div style="display:flex;align-items:baseline;gap:10px">
+    <span class="lbl">精致</span>
+    <span style="font-size:15px;color:#8b857d">技师端</span>
+  </div>
+
+  <div style="background:#ffffff;border:1px solid #e6e2dc;border-radius:12px;box-shadow:none;overflow:hidden;padding:20px;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;flex-direction:column;gap:6px;padding:14px;border-radius:10px;
+      background:#a4161a;color:#fff">
+      <strong style="font-size:21px">安全提示</strong>
+      <div style="font-size:21px;font-weight:700">左手无名指有伤口，避开</div>
+    </div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;border:1px solid #9e1236;color:#9e1236;font-size:15px;font-weight:600;white-space:nowrap">下一位客人</span><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;border:1px solid #7c4a02;color:#7c4a02;font-size:15px;font-weight:600;white-space:nowrap"><span style="display:inline-flex;align-items:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></span>点钟</span><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;border:1px solid #57534e;color:#57534e;font-size:15px;font-weight:600;white-space:nowrap">座位 3 号</span>
+    </div>
+
+    <div style="font-size:38px;font-weight:800;line-height:1.15">临时客人</div>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:28px;font-weight:700">甲油胶美甲</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;border:1px solid #57534e;color:#57534e;font-size:15px;font-weight:600;white-space:nowrap">45 min</span>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:10px;
+      background:#faf9f7;
+      ">
+      <div style="display:flex;gap:10px"><span style="min-width:96px;color:#57534e">力度</span><strong style="font-size:21px">重</strong></div>
+      <div style="display:flex;gap:10px"><span style="min-width:96px;color:#57534e">甲型</span><strong style="font-size:21px">方圆形</strong></div>
+    </div>
+
+    <button style="width:100%;min-height:88px;border-radius:12px;
+      border:1px solid #9e1236;
+      background:#9e1236;color:#fff;
+      font-size:28px;font-weight:600;cursor:pointer;
+      display:inline-flex;align-items:center;justify-content:center;gap:10px;
+      "><span style="display:inline-flex;align-items:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></span> 开始</button>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

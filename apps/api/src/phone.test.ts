@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { randomUUID, generateKeyPairSync, sign as edSign } from 'node:crypto';
+import { randomUUID, generateKeyPairSync, sign as edSign, createHash } from 'node:crypto';
 import { withTenant, closeDb, tenantForPhoneNumber } from '@gf/db';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
@@ -29,6 +29,22 @@ const AI_LINE = '+15125550199';
 
 let ctx: Awaited<ReturnType<typeof buildContext>>;
 let app: ReturnType<typeof buildServer>;
+let shopToken = '';
+let bookable: Array<{ id: string; gender: string | null }> = [];
+let catalog: Array<{ id: string; name: string; duration_min: number; is_addon: boolean }> = [];
+
+/** 三周后的三天：排班 / 不排班 / 再排班（改期建议那条路要用） */
+const dayAfter = (n: number): string => {
+  const d = new Date();
+  d.setUTCHours(12, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+const DAY_OPEN = dayAfter(21);
+const DAY_SHUT = dayAfter(22);
+const DAY_LATER = dayAfter(23);
+/** 门店墙上时间的正午。纽约夏令时 = 16:00Z，冬令时 17:00Z —— 都落在营业时间内 */
+const noonAt = (date: string) => `${date}T16:30:00.000Z`;
 
 /** 冒充 Telnyx 需要它的私钥；测试里我们自己生成一对，公钥喂给服务端 */
 const { publicKey, privateKey } = generateKeyPairSync('ed25519');
@@ -46,7 +62,53 @@ beforeAll(async () => {
       and r.key in ('owner','manager') limit 1`);
   ctx = await buildContext({ userId: m!.user_id, membershipId: m!.id });
 
-  await run('location.savePhoneLine', { e164: AI_LINE, purpose: 'ai_voice' });
+  /*
+   * ⭐ 建 AI 线时会自动生成一串工具 token（sql/0036）——
+   * 明文**只有这一次**拿得到，库里只有摘要。
+   * 拿不到它，下面每一个工具调用都会 401。
+   */
+  const line = await run<{ toolToken: string | null }>(
+    'location.savePhoneLine',
+    // ⚠️ 一定要 rotate：上一次跑挂在半路的话这条线还在，
+    // 而**已经有 token 的线不会再返回明文** —— 那样这一整个文件会在
+    // beforeAll 里死掉，报错却指向一个和真正原因无关的地方
+    { e164: AI_LINE, purpose: 'ai_voice', rotateToolToken: true });
+  shopToken = line.toolToken!;
+  expect(shopToken).toMatch(/^st_/);
+
+  /*
+   * ⭐ 自己排一段班，不蹭种子里那几天。
+   *
+   * 空档是算出来的：没有 published 的班，`find_slots` 永远返回空数组 ——
+   * 而那个表现和「今天真的约满了」一模一样，测试会以为自己在验一件事，
+   * 其实什么都没验到。用三周后的固定日期，也就不受「跑测试的时候
+   * 店里已经打烊了」影响。
+   *
+   * DAY_OPEN 排班、DAY_SHUT 不排、DAY_LATER 再排 —— 后两个是留给
+   * 「那天没空档 → 往后找三天」那条路的。
+   */
+  bookable = await withTenant(tenant, (tx) => tx<{ id: string; gender: string | null }[]>`
+    select sp.membership_id as id, sp.gender
+    from staff_profiles sp
+    join memberships m on m.id = sp.membership_id and m.status = 'active'
+    where sp.location_id = ${NAIL_LOC} and sp.is_bookable = true
+    order by sp.display_name->>'en'`);
+
+  for (const date of [DAY_OPEN, DAY_LATER]) {
+    for (const st of bookable) {
+      await run('shift.set', {
+        membershipId: st.id, businessDate: date, action: 'work',
+        startMin: 10 * 60, endMin: 18 * 60,
+      });
+    }
+  }
+  await run('shift.publish', { fromDate: DAY_OPEN, toDate: DAY_LATER });
+
+  catalog = await withTenant(tenant, (tx) => tx<{
+    id: string; name: string; duration_min: number; is_addon: boolean;
+  }[]>`
+    select id, name->>'en' as name, duration_min, is_addon
+    from services where location_id = ${NAIL_LOC} and active = true`);
 
   app = buildServer();
   await app.ready();
@@ -57,7 +119,45 @@ afterAll(async () => {
   await app?.close();
   await withTenant(tenant, async (tx) => {
     await tx`delete from call_drafts where location_id = ${NAIL_LOC}`;
+    /*
+     * ⚠️ 只删这个测试自己建的那一条，**不要**按门店整片删。
+     *
+     * 种子里给两家店各绑了一个 AI 号（不绑的话六个电话工具全是 404）。
+     * 按 location_id 删会把种子那条一起带走，于是「跑完测试，
+     * 电话工具就全 404 了」，而下一个人只会以为是自己刚改的代码坏了。
+     */
+    await tx`delete from phone_lines where location_id = ${NAIL_LOC} and e164 = ${AI_LINE}`;
+    // 这个测试自己建的单和自己排的班，走的时候带走
+    await tx`delete from appointment_items where appointment_id in (
+               select id from appointments
+               where location_id = ${NAIL_LOC} and business_date in (${DAY_OPEN}, ${DAY_LATER}))`;
+    await tx`delete from appointments
+             where location_id = ${NAIL_LOC} and business_date in (${DAY_OPEN}, ${DAY_LATER})`;
+    await tx`delete from shifts
+             where location_id = ${NAIL_LOC} and business_date in (${DAY_OPEN}, ${DAY_LATER})`;
+    await tx`delete from customers
+             where primary_location_id = ${NAIL_LOC} and display_name = ${'电话测试'}`;
+
+    /*
+     * ⭐ 把种子店那两条线原样放回去。
+     *
+     * 一家店只有**一条** active 的 `ai_voice` 线（upsert 的冲突键是
+     * location + purpose），所以上面 `savePhoneLine` 建测试号的那一下，
+     * 把种子里的 `+12125550123` 顶掉了；「店家的两个号码」那几条用例
+     * 又把 `main` 换成了别的号。
+     *
+     * 不放回去的表现是：**跑完一次测试，本地那个假电话脚本就全 404** ——
+     * 而这个因果关系隔一天就没人想得起来了。
+     *
+     * 摘要按种子那套算法重算（`st_dev_<locationId 去掉横线>`），
+     * 否则号码回来了、token 对不上，401 比 404 更难查。
+     */
     await tx`delete from phone_lines where location_id = ${NAIL_LOC}`;
+    const seedDigest = createHash('sha256')
+      .update(`st_dev_${NAIL_LOC.replace(/-/g, '')}`, 'utf8').digest('hex');
+    await tx`insert into phone_lines (org_id, location_id, e164, purpose, tool_token_digest)
+             values (${NAIL_ORG}, ${NAIL_LOC}, ${'+12125550123'}, 'ai_voice', ${seedDigest}),
+                    (${NAIL_ORG}, ${NAIL_LOC}, ${'+12125550100'}, 'main', null)`;
   });
   await closeDb();
 });
@@ -77,7 +177,13 @@ const sysCtx = (): typeof ctx => ({
   ...ctx,
   membershipId: null,
   actorKind: 'api',
-  permissions: new Set(['call.draft', 'appointment.read', 'customer.read', 'schedule.read']),
+  // ⚠️ 必须和 telnyx/routes.ts 的 PHONE_AI_PERMISSIONS 一字不差。
+  // 少写一条这里就成了「测了一个比真实更窄的身份」——
+  // 真实身份能干而这里干不了的事，永远测不出来
+  permissions: new Set([
+    'appointment.write', 'call.draft',
+    'appointment.read', 'customer.read', 'schedule.read',
+  ]),
 });
 
 const runAsPhone = async <T>(name: string, input: unknown, key: string = randomUUID()) =>
@@ -85,7 +191,12 @@ const runAsPhone = async <T>(name: string, input: unknown, key: string = randomU
 
 /** 造一条带合法签名的 Telnyx 请求 */
 function telnyxCall(url: string, payload: unknown, opts: { badSig?: boolean; skewSec?: number } = {}) {
-  const raw = JSON.stringify(payload);
+  // 工具路由的第二把钥匙（sql/0036）。用例自己传了就以它为准 ——
+  // 「token 不对会怎样」那几条要的就是覆盖它
+  const withToken = payload && typeof payload === 'object'
+    ? { shop_token: shopToken, ...payload as Record<string, unknown> }
+    : payload;
+  const raw = JSON.stringify(withToken);
   const tsSec = Math.floor(Date.now() / 1000) + (opts.skewSec ?? 0);
   const sig = opts.badSig
     ? Buffer.from('forged-signature-that-looks-plausible').toString('base64')
@@ -112,6 +223,26 @@ describe('号码 → 门店', () => {
     const t = await tenantForPhoneNumber(AI_LINE);
     expect(t?.locationId).toBe(NAIL_LOC);
     expect(t?.orgId).toBe(NAIL_ORG);
+    expect(t?.name).toBeTruthy();     // 店名要跟着回来，工具的返回里要报出来
+  });
+
+  it('⭐ 每个工具的返回都说清是哪家店 —— 入参里没有门店 id，出参里必须有', async () => {
+    /*
+     * 门店 id 不能当入参（签名是唯一的身份证明，接受 id 等于让任何一次
+     * 签名都能点名查任意一家店）。但不告诉调用方落到了谁头上，
+     * 「串店」就成了一类没人发现得了的故障。
+     */
+    for (const [url, payload] of [
+      ['/v1/telnyx/tools/lookup_customer', { to: AI_LINE, from: '+15125551234' }],
+      ['/v1/telnyx/tools/list_services', { to: AI_LINE }],
+      ['/v1/telnyx/tools/list_staff', { to: AI_LINE }],
+      ['/v1/telnyx/tools/find_slots', { to: AI_LINE }],
+    ] as const) {
+      const body = (await telnyxCall(url, payload)).json();
+      expect(body.shop.locationId, url).toBe(NAIL_LOC);
+      expect(body.shop.name, url).toBeTruthy();
+      expect(body.shop.timezone, url).toBe('America/New_York');
+    }
   });
 
   it('⭐ 没绑过的号码解析不出来 —— 别把电话落到一个猜出来的租户上', async () => {
@@ -182,15 +313,357 @@ describe('验签：这条链路唯一的安全要害', () => {
 
 describe('tool：查空档', () => {
   it('返回的是排期引擎算出来的真空档，并附一句「不许自己推算」', async () => {
+    /*
+     * ⚠️ 必须钉一个**排过班的日子**（DAY_OPEN），不能不传 around 就查今天。
+     * 查今天的话，晚上八点跑测试拿到的是「今天没空档了」——
+     * 断言时灵时不灵，而失败信息看起来像是排期引擎坏了。
+     */
     const res = await telnyxCall('/v1/telnyx/tools/find_slots', {
-      to: AI_LINE, duration_min: 45,
+      to: AI_LINE, duration_min: 45, around: noonAt(DAY_OPEN),
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body).toHaveProperty('slots');
-    expect(body.guidance).toMatch(/不要自己推算|不要自己另报/);
+    expect(body.slots.length).toBeGreaterThan(0);
+    expect(body.guidance).toMatch(/不要自己推算/);
     // 每个空档都必须带具体是谁有空 —— 「有空」而说不出是谁，前台没法派单
     for (const s of body.slots) expect(s.staff.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * docs/14 §4 那张「尚未实现」表上的五项，2026-08-22 补齐。
+ *
+ * 每一条问的还是同一个问题：**这一行检查没有的话，电话里会说错什么？**
+ */
+describe('第二把钥匙：每条 AI 线一串不可猜的 token（sql/0036）', () => {
+  /*
+   * 为什么要有它：门店靠**公开的**被叫号码定位（号码就印在店门口）。
+   * 验签一旦被绕过，攻击者可以逐个号码点名查任意一家店。
+   * 这串 32 字节随机、只存摘要的东西是那道门后面的第二道。
+   *
+   * ⚠️ 它**不是门店 id**，也不替代号码 —— 挂机计费那条 webhook
+   * 不是工具调用，带不了自定义参数，所以下面第三条盯着「webhook 不要它」。
+   */
+  it('⭐ 不带 token → 401，而且不告诉你是缺了还是错了', async () => {
+    const res = await telnyxCall('/v1/telnyx/tools/list_services',
+      { to: AI_LINE, shop_token: undefined });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().details.reason).toBe('shop_token_invalid');
+  });
+
+  it('⭐ token 错 → 401（签名是真的也不行）', async () => {
+    const res = await telnyxCall('/v1/telnyx/tools/lookup_customer',
+      { to: AI_LINE, from: '+15125551234', shop_token: 'st_not_the_right_one' });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('⭐ 挂机 webhook 不要 token —— 那条路带不了自定义参数，要了电话就不计费了', async () => {
+    const res = await telnyxCall('/v1/telnyx/webhook', {
+      data: {
+        event_type: 'call.hangup',
+        payload: {
+          call_session_id: `no-token-${randomUUID()}`,
+          to: AI_LINE, from: '+15125551234',
+          start_time: new Date(Date.now() - 60_000).toISOString(),
+          end_time: new Date().toISOString(),
+          hangup_cause: 'normal_clearing',
+        },
+      },
+      shop_token: undefined,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('库里只有摘要 —— 明文再也拿不出来', async () => {
+    const [row] = await withTenant(tenant, (tx) => tx<{ digest: string | null }[]>`
+      select tool_token_digest as digest from phone_lines
+      where location_id = ${NAIL_LOC} and e164 = ${AI_LINE}`);
+    expect(row!.digest).toMatch(/^[0-9a-f]{64}$/);      // SHA-256 hex
+    expect(row!.digest).not.toContain(shopToken);
+  });
+
+  it('前台改别的设置不会把 token 冲掉 —— 冲掉的表现是电话全哑', async () => {
+    // 只是重新保存一次同一条线（比如改转接方式）
+    const again = await run<{ toolToken: string | null }>(
+      'location.savePhoneLine', { e164: AI_LINE, purpose: 'ai_voice' });
+    expect(again.toolToken).toBeNull();                 // 没换新的
+
+    const res = await telnyxCall('/v1/telnyx/tools/list_services', { to: AI_LINE });
+    expect(res.statusCode).toBe(200);                   // 旧 token 照样能用
+  });
+
+  it('轮换之后旧 token 立刻失效', async () => {
+    const rotated = await run<{ toolToken: string | null }>(
+      'location.savePhoneLine',
+      { e164: AI_LINE, purpose: 'ai_voice', rotateToolToken: true });
+    expect(rotated.toolToken).toMatch(/^st_/);
+    expect(rotated.toolToken).not.toBe(shopToken);
+
+    const old = await telnyxCall('/v1/telnyx/tools/list_services',
+      { to: AI_LINE, shop_token: shopToken });
+    expect(old.statusCode).toBe(401);
+
+    // 换成新的，后面的用例照常跑
+    shopToken = rotated.toolToken!;
+    const now = await telnyxCall('/v1/telnyx/tools/list_services', { to: AI_LINE });
+    expect(now.statusCode).toBe(200);
+  });
+});
+
+describe('tool：接通那一下（start_call）', () => {
+  /*
+   * 四个只读工具里有三个在一通电话里是**静态的**（客人是谁、卖什么、谁在班），
+   * 合并成一次调用省掉两段静默 —— 电话里每一次工具调用都是一秒多的沉默，
+   * 客人会以为断线了。
+   *
+   * ⚠️ 空档**不在其中**，下面第二条就是钉这件事的。
+   */
+  const start = async (over: Record<string, unknown> = {}) => {
+    const res = await telnyxCall('/v1/telnyx/tools/start_call',
+      { to: AI_LINE, from: '+15125551234', ...over });
+    expect(res.statusCode).toBe(200);
+    return res.json();
+  };
+
+  it('一次给齐：门店、营业时间、来电客人、价目表、今天谁在班', async () => {
+    const body = await start();
+
+    expect(body.shop.locationId).toBe(NAIL_LOC);
+    expect(body.businessDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // 「你们周日开吗」是电话里最高频的问题之一，以前 AI 根本答不上来
+    expect(body.businessHours.sun ?? body.businessHours.mon).toBeTruthy();
+    expect(body.services.length).toBeGreaterThan(0);
+    expect(body.services.every((s: { isAddon: boolean }) => !s.isAddon)).toBe(true);
+    expect(body.addons.every((s: { isAddon: boolean }) => s.isAddon)).toBe(true);
+    expect(body.staff.length).toBeGreaterThan(0);
+    expect(body.caller.customers).toBeDefined();
+  });
+
+  it('⭐ 里面一个时段都没有 —— 时间只能来自 find_slots', async () => {
+    /*
+     * 这是这次合并唯一的风险：把空档一起塞进开场那一坨，模型会在
+     * 五分钟后照着念一个已经被前台订走的时段。所以宁可多一次调用。
+     */
+    const body = await start();
+    const json = JSON.stringify(body);
+
+    expect(body.slots).toBeUndefined();
+    expect(body.alternatives).toBeUndefined();
+    expect(json).not.toMatch(/startsAt/);
+    // 而且要在 guidance 里明说，别让模型自己悟
+    expect(body.guidance).toMatch(/find_slots/);
+  });
+
+  it('技师的技能是人话，不是一坨多语言 jsonb', async () => {
+    // 不转的话 AI 拿到的是 {"en":"Gel","zh-Hans":"甲油胶"} —— 它会照着念出来
+    const body = await start();
+    for (const st of body.staff) {
+      for (const k of st.skills) expect(typeof k).toBe('string');
+    }
+  });
+
+  it('同号多客户时，「请问是哪位」那句跟着 caller 一起回来', async () => {
+    // 种子里 +19175550188 下面挂着张先生和张女士（决策 21）
+    const body = await start({ from: '+19175550188' });
+    expect(body.caller.customers.length).toBeGreaterThan(1);
+    expect(body.caller.guidance).toMatch(/哪一位/);
+  });
+
+  it('和单独调那三个工具给的是同一份东西', async () => {
+    // 合并不是重写：两条路走的是同一份实现，不然迟早各说各的
+    const body = await start();
+    const svc = (await telnyxCall('/v1/telnyx/tools/list_services', { to: AI_LINE })).json();
+    const stf = (await telnyxCall('/v1/telnyx/tools/list_staff', { to: AI_LINE })).json();
+
+    expect(body.services.map((x: { serviceId: string }) => x.serviceId))
+      .toEqual(svc.services.map((x: { serviceId: string }) => x.serviceId));
+    expect(body.staff.map((x: { membershipId: string }) => x.membershipId))
+      .toEqual(stf.therapists.map((x: { membershipId: string }) => x.membershipId));
+  });
+});
+
+describe('tool：报项目（加项要分得出来）', () => {
+  it('⭐ 加项单独放在 addons 里 —— 混在一起模型会把「热石 $15」当成一次服务卖', async () => {
+    const res = await telnyxCall('/v1/telnyx/tools/list_services', { to: AI_LINE });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+
+    expect(body.services.every((x: { isAddon: boolean }) => !x.isAddon)).toBe(true);
+    expect(body.addons.every((x: { isAddon: boolean }) => x.isAddon)).toBe(true);
+    // 种子里美甲店有卸甲/彩绘/石蜡三个加项
+    expect(body.addons.length).toBeGreaterThan(0);
+    expect(body.guidance).toMatch(/加项/);
+  });
+});
+
+describe('tool：查空档（补齐的四个入参）', () => {
+  const slotsOf = async (payload: Record<string, unknown>) => {
+    const res = await telnyxCall('/v1/telnyx/tools/find_slots', { to: AI_LINE, ...payload });
+    expect(res.statusCode).toBe(200);
+    return res.json();
+  };
+
+  it('⭐ 多项目连做：时长是各项之和，不是模型估的那个数', async () => {
+    const main = catalog.find((c) => !c.is_addon)!;
+    const addon = catalog.find((c) => c.is_addon)!;
+
+    const body = await slotsOf({
+      around: noonAt(DAY_OPEN),
+      services: [main.name, addon.name],
+      // 模型给了一个错的估计值；库里的时长必须赢
+      duration_min: 20,
+    });
+
+    expect(body.durationMin).toBe(main.duration_min + addon.duration_min);
+    expect(body.services.map((x: { name: string }) => x.name)).toContain(addon.name);
+  });
+
+  it('项目名听不出来时照样报时间，但 guidance 会让 AI 先去核对', async () => {
+    const body = await slotsOf({
+      around: noonAt(DAY_OPEN),
+      services: ['那个什么来着，弄脚的那个'],
+    });
+    expect(body.guidance).toMatch(/没在项目表里找到/);
+    expect(body.durationMin).toBe(45);   // 退回默认值，而不是 0 或 NaN
+  });
+
+  it('⭐ 只要女技师 → 报出来的每一个人都是女技师', async () => {
+    const female = new Set(bookable.filter((b) => b.gender === 'female').map((b) => b.id));
+    const male = bookable.filter((b) => b.gender === 'male');
+    expect(female.size).toBeGreaterThan(0);
+    expect(male.length).toBeGreaterThan(0);   // 种子里得有男技师，否则这条测了个寂寞
+
+    const body = await slotsOf({ around: noonAt(DAY_OPEN), gender_preference: 'female' });
+    expect(body.slots.length).toBeGreaterThan(0);
+    for (const s of body.slots) {
+      for (const p of s.staff) expect(female.has(p.membershipId)).toBe(true);
+    }
+  });
+
+  it('性别筛选发生在找空档之前 —— 男技师占满 limit 不该把女技师挤掉', async () => {
+    // 全店一起找时，前几个时刻的候选里男女都有；只要女技师时
+    // 报出来的时刻数量不该因此变少（先算后过滤就会变少）
+    const all = await slotsOf({ around: noonAt(DAY_OPEN) });
+    const onlyFemale = await slotsOf({ around: noonAt(DAY_OPEN), gender_preference: 'female' });
+    expect(onlyFemale.slots.length).toBe(all.slots.length);
+  });
+
+  it('⭐ 两位客人一起来 → 每个报出去的时刻都凑得齐两位技师', async () => {
+    const body = await slotsOf({ around: noonAt(DAY_OPEN), party_size: 2 });
+    expect(body.partySize).toBe(2);
+    expect(body.slots.length).toBeGreaterThan(0);
+    for (const s of body.slots) expect(s.staff.length).toBeGreaterThanOrEqual(2);
+    expect(body.guidance).toMatch(/2 位技师/);
+  });
+
+  it('同行人数比在班技师还多 → 明说没有，不硬报一个时间', async () => {
+    const body = await slotsOf({ around: noonAt(DAY_OPEN), party_size: bookable.length + 1 });
+    expect(body.slots).toEqual([]);
+  });
+
+  it('⭐ 那天没空档 → 往后找三天，且 guidance 写明这是改期建议', async () => {
+    const body = await slotsOf({ around: noonAt(DAY_SHUT) });
+
+    expect(body.slots).toEqual([]);
+    expect(body.alternatives.length).toBeGreaterThan(0);
+    expect(body.alternatives.map((a: { businessDate: string }) => a.businessDate))
+      .toContain(DAY_LATER);
+    // 这句话是这条路的全部意义：不写明的话，客人会照着他要的那天来
+    expect(body.guidance).toMatch(/往后几天|改期|那天已经满了/);
+    // 改期建议**不能**混进 slots —— 混进去就等于报了一个客人没要的日子
+    expect(body.slots).not.toContainEqual(expect.objectContaining({ startsAt: expect.anything() }));
+  });
+});
+
+describe('tool：真建预约', () => {
+  const bookAt = async (payload: Record<string, unknown>) => {
+    const res = await telnyxCall('/v1/telnyx/tools/book_appointment', {
+      to: AI_LINE, from: '+15125551234', caller_name: '电话测试', ...payload,
+    });
+    expect(res.statusCode).toBe(200);
+    return res.json();
+  };
+
+  const firstSlot = async (payload: Record<string, unknown> = {}) => {
+    const res = await telnyxCall('/v1/telnyx/tools/find_slots', {
+      to: AI_LINE, around: noonAt(DAY_OPEN), ...payload,
+    });
+    return res.json().slots[0]!.startsAt as string;
+  };
+
+  it('⭐ 只听到加项 → 不建单，回一句能直接问出口的话', async () => {
+    const addon = catalog.find((c) => c.is_addon)!;
+    const body = await bookAt({
+      call_session_id: `addon-${randomUUID()}`,
+      services: [addon.name],
+      slot_starts_at: await firstSlot(),
+    });
+
+    expect(body.ok).toBe(false);
+    expect(body.missing).toContain('service');
+    // 「不好意思，信息不全」在电话里是死路 —— 客人不知道该补什么
+    expect(body.say).toMatch(/主项目/);
+  });
+
+  it('⭐ 幂等重放：同一个 call id 不多建单，念的确认码也不变', async () => {
+    const callId = `book-${randomUUID()}`;
+    const main = catalog.find((c) => !c.is_addon)!;
+    const payload = {
+      call_session_id: callId, services: [main.name],
+      slot_starts_at: await firstSlot(),
+    };
+
+    const a = await bookAt(payload);
+    const b = await bookAt(payload);
+
+    expect(a.ok).toBe(true);
+    expect(b.appointmentId).toBe(a.appointmentId);
+    /*
+     * 确认码也必须一样。重放时路由会**再生成一个**新码，
+     * 直接念它的话：客人手机上的短信写着 GF-HCJR，
+     * AI 在电话里念的是 GF-ZRY5 —— 到店报哪个都对不上。
+     */
+    expect(b.confirmationCode).toBe(a.confirmationCode);
+    expect(b.say).toContain(a.confirmationCode.split('').join(' '));
+  });
+
+  it('⭐ 两位客人 → 建出两条并排的 item，各占一位技师', async () => {
+    const main = catalog.find((c) => !c.is_addon)!;
+    const startsAt = await firstSlot({ party_size: 2 });
+    const body = await bookAt({
+      call_session_id: `party-${randomUUID()}`,
+      services: [main.name], party_size: 2, slot_starts_at: startsAt,
+    });
+    expect(body.ok).toBe(true);
+
+    const items = await withTenant(tenant, (tx) => tx<{ membership_id: string | null }[]>`
+      select membership_id from appointment_items
+      where appointment_id = ${body.appointmentId}`);
+    // 只记 party_size: 2 而底下一条 item 的话，日程表上只占掉一个人 ——
+    // 到店来了两位，第二位没有技师
+    expect(items).toHaveLength(2);
+    expect(new Set(items.map((i) => i.membership_id)).size).toBe(2);
+  });
+
+  it('加项挂在主项目上，时长并进去（不是另起一条单）', async () => {
+    const main = catalog.find((c) => !c.is_addon)!;
+    const addon = catalog.find((c) => c.is_addon)!;
+    const body = await bookAt({
+      call_session_id: `addon-ok-${randomUUID()}`,
+      services: [main.name, addon.name],
+      slot_starts_at: await firstSlot({ services: [main.name, addon.name] }),
+    });
+    expect(body.ok).toBe(true);
+    expect(body.durationMin).toBe(main.duration_min + addon.duration_min);
+
+    const items = await withTenant(tenant, (tx) => tx<{
+      addon_ids: string[]; duration_min: number;
+    }[]>`
+      select addon_ids, duration_min from appointment_items
+      where appointment_id = ${body.appointmentId}`);
+    expect(items).toHaveLength(1);
+    expect(items[0]!.addon_ids).toContain(addon.id);
+    expect(items[0]!.duration_min).toBe(main.duration_min + addon.duration_min);
   });
 });
 
@@ -213,15 +686,22 @@ describe('tool：放进复核队列', () => {
     expect((await drafts()).drafts.length).toBeGreaterThan(0);
   });
 
-  it('⭐ AI 的权限里根本没有 appointment.write', async () => {
-    // 就算验签被绕过，攻击面也只到「往待办里塞垃圾」为止。
-    //
-    // ⚠️ 入参必须是**形状合法**的：总线是先校验 Zod 再查权限，
-    // 传 `items: []` 会先撞上 VALIDATION_FAILED，那就没验到权限这一步 ——
-    // 一个看起来通过、其实什么都没证明的测试。
-    await expect(dispatch('appointment.create', {
-      customerId: null,
-      items: [{ serviceId: randomUUID(), startsAt: new Date().toISOString() }],
+  it('⭐ AI 能建单，但改不了也取消不了（2026-08-22 决策变更后的边界）', async () => {
+    /*
+     * 店主 2026-08-22 把决策 6 改成「AI 直接建单」，于是
+     * `appointment.write` 进了权限集 —— 这是这条链路上唯一一次扩权。
+     * 配套的边界必须钉住：**能建，不能改，不能删**。
+     * 建错一单前台看得见、补得回；被静默改掉的单没有人会发现。
+     *
+     * ⚠️ 入参必须是**形状合法**的：总线是先校验 Zod 再查权限，
+     * 传一个缺字段的载荷会先撞上 VALIDATION_FAILED，那就没验到权限这一步 ——
+     * 一个看起来通过、其实什么都没证明的测试。
+     */
+    expect(sysCtx().permissions.has('appointment.write')).toBe(true);
+    expect(sysCtx().permissions.has('appointment.cancel')).toBe(false);
+
+    await expect(dispatch('appointment.cancel', {
+      appointmentId: randomUUID(), reason: 'guest_changed_mind', keepStaffTurn: false,
     }, sysCtx(), { idempotencyKey: randomUUID() }))
       .rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
   });

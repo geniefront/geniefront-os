@@ -25,7 +25,7 @@ pnpm verify                 # 宪法检查 + typecheck + 547 项测试，应当�
 | **Kiosk 门口端** | ✅ 完成，实测越南语走完整条路 |
 | **Stripe 订阅 + 两种 AI 额度** | ✅ **接线完成并用真事件实测过**（见 §3.A） |
 | **AI 前台副驾** | ✅ **完成**，实测提案带真 uuid、缓存命中 |
-| **AI 电话接单** | 🚧 **代码全完**，卡在 Telnyx 开户 + 口音实测 |
+| **AI 电话接单** | 🚧 代码全完、assistant 已配（`assistant-b694392a`，号码 `+17579999968` → 金足足疗）。**卡在部署**：生产上跑的还是 8-20 那版，只有老三个工具 |
 | **自助开户（付款 → 能用）** | ✅ **完成**（2026-08-18）：建租户 + 激活信 + 认领门店 + 开店清单，见 `12` |
 
 **测试 547 项**，12 个包。分布：
@@ -315,9 +315,24 @@ Stripe 后台查一笔账时谁也说不清哪个是哪个。迁移 0021 做了�
 `09-TELNYX.md` §7 线 A 有完整清单。A5–A8 的代码全写完了，
 卡的是 **A1–A4**：开户、买号码、建 Assistant、**真打电话测口音**。
 
-三个 tool 的 URL 和参数在 `09` §7 的表里，照着填进 Telnyx 控制台即可。
-号码一到位 → `.env` 填 `TELNYX_PHONE_NUMBER` / `TELNYX_ASSISTANT_ID` →
+**六个** tool 的 URL 和参数在 `docs/14` 里（仓库根的 `create_assistant.json`
+就是那份 assistant 配置，直接推上去）。号码一到位 → `.env` 填
+`TELNYX_PHONE_NUMBER` / `TELNYX_ASSISTANT_ID` →
 前台「开店配置」里绑号码（命令 `location.savePhoneLine`）→ 就通了。
+
+两条命令（细节见 `docs/14` 开头）：
+
+```bash
+pnpm exec tsx apps/api/src/ops/bindAiLine.ts +1757… pk_… --rotate   # 绑号码 + 拿 token
+node scripts/push-assistant.mjs assistant-… --token st_…            # 推 assistant 配置
+```
+
+⚠️ **绑号码那一步会返回一串 `toolToken`（`st_…`），它只出现这一次**
+（`sql/0036`：库里只有摘要）。把它填进那家店 assistant 的每个 tool 参数
+`shop_token` 的常量值里 —— **忘了填，那家店的电话全部 401**
+（服务端日志里是 `shop_token_invalid`，带号码和 locationId）。
+丢了就重来一次：`location.savePhoneLine` 带 `rotateToolToken: true`，
+然后同步到 Telnyx。理由和边界见 `docs/14` §0。
 
 ⚠️ **口音实测的结果要写进 `09` §4.3 下面那张空表**，那是决定要不要把号码全搬过来的唯一依据。
 

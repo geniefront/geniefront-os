@@ -62,6 +62,14 @@ export const phoneLines = pgTable('phone_lines', {
   /** Telnyx 那边的 assistant id。一家店一个，可以配不同开场白 */
   assistantId: text('assistant_id'),
   /**
+   * ⭐ 电话工具的第二把钥匙（sql/0036）。**只存摘要**，明文只在
+   * `location.savePhoneLine` 的返回里出现一次。
+   *
+   * 非空 = 这条线的每次工具调用都必须带上匹配的 `shop_token`。
+   * 它不是门店 id：定位门店的仍然是被叫号码（webhook 那条路带不了参数）。
+   */
+  toolTokenDigest: text('tool_token_digest'),
+  /**
    * 只对 `purpose='main'` 有意义：**店家在自己电话公司那儿设的转接方式**。
    * `all` | `busy` | `no_answer` | `busy_no_answer`（sql/0026、0027）
    *

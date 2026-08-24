@@ -1,11 +1,45 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "desk", "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@gf/desk", "dev"], "port": 5173 },
-    { "name": "staff", "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@gf/staff", "dev"], "port": 5174 },
-    { "name": "kiosk", "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@gf/kiosk", "dev"], "port": 5175 }
+    {
+      "name": "desk",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@gf/desk",
+        "dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "staff",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@gf/staff",
+        "dev"
+      ],
+      "port": 5174
+    },
+    {
+      "name": "kiosk",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@gf/kiosk",
+        "dev"
+      ],
+      "port": 5175
+    },
+    {
+      "name": "booking",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@gf/booking",
+        "dev"
+      ],
+      "port": 5176
+    }
   ]
 }

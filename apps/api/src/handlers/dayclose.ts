@@ -9,7 +9,7 @@
 
 import type postgres from 'postgres';
 import {
-  RecordCashMovement, SaveCashCount, PayCashTips, FinalizeDay, ReopenDay,
+  RecordCashMovement, SaveCashCount, PayCashTips, FinalizeDay, ReopenDay, MarkGapDay,
   AppError, ERROR_CODES, pickText, type CommandContext,
 } from '@gf/contracts';
 import {
@@ -469,4 +469,100 @@ registerHandler(ReopenDay, async ({ input, ctx, tx, audit }: HandlerArgs<
     after: { businessDate: input.businessDate, status: 'counted', reason: input.reason },
   });
   return { businessDate: input.businessDate, status: 'counted' as const };
+});
+
+// ────────────────────────────────────────────────────────── 断档的日子（0032）
+
+/**
+ * 把一个没记的营业日说清楚。
+ *
+ * 这个命令服务的是一件很朴素的事：**门店会有整天不用系统的时候**，
+ * 而第二天回来的时候，那一天不能就那么空着 ——
+ * 空着的那天会在报表里静默消失，把周合计拉低而没人看得出来。
+ *
+ * 三条 guard，每一条都拦着一种「把假数据写进历史」的路：
+ *
+ *   1. 那天已经有真实工单 → 拒。真实数据比事后的概括可信得多。
+ *   2. 那天已经封账       → 拒。要改先 reopen，留痕。
+ *   3. 日期在未来         → 拒。「明天没营业」不是记录，是计划。
+ */
+registerHandler(MarkGapDay, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof MarkGapDay.input._type>) => {
+  const today = await resolveDate(tx, ctx.locationId);
+  if (input.businessDate > today) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: {
+        businessDate: input.businessDate,
+        reason: '不能标记还没到的日子 —— 那是计划，不是记录',
+      },
+    });
+  }
+
+  // ⭐ 有真实工单就不许盖。哪怕只有一张作废单也算 ——
+  // 那天有人操作过系统，「没营业」这句话就是假的。
+  const [real] = await tx<{ n: number }[]>`
+    select count(*)::int as n from tickets
+    where location_id = ${ctx.locationId} and business_date = ${input.businessDate}`;
+  if ((real?.n ?? 0) > 0) {
+    throw new AppError(ERROR_CODES.DAY_HAS_REAL_RECORDS, {
+      details: {
+        businessDate: input.businessDate, ticketCount: real!.n,
+        hint: '这天系统里有单。要么把它正常封账，要么先把那些单作废',
+      },
+    });
+  }
+
+  const dc = await ensureDayClose(tx, ctx, input.businessDate);
+  assertNotClosed(dc.status, input.businessDate);
+
+  if (input.mark === 'summary_only' && !input.summary) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: {
+        businessDate: input.businessDate,
+        reason: '补总数就得真的给个数，不然这条记录比空白更坏',
+      },
+    });
+  }
+
+  const s = input.mark === 'summary_only' ? input.summary! : null;
+  if (s && s.cashCents + s.cardCents > s.grossCents) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: {
+        businessDate: input.businessDate,
+        reason: '现金加刷卡超过了总额，八成是敲错了一位',
+      },
+    });
+  }
+
+  await tx`update day_closes set
+      status                  = ${input.mark},
+      backfill_gross_cents    = ${s?.grossCents ?? null},
+      backfill_cash_cents     = ${s?.cashCents ?? null},
+      backfill_card_cents     = ${s?.cardCents ?? null},
+      backfill_tip_cash_cents = ${s?.tipCashCents ?? null},
+      backfill_tip_card_cents = ${s?.tipCardCents ?? null},
+      gap_note                = ${input.note ?? null},
+      marked_by               = ${ctx.membershipId},
+      marked_at               = now()
+    where location_id = ${ctx.locationId} and business_date = ${input.businessDate}`;
+
+  // 审计留动作不留金额（宪法第 17 条）：谁标的、标成什么、几点标的
+  audit({
+    entityType: 'day_close', entityId: dc.id,
+    before: { status: dc.status },
+    after: {
+      businessDate: input.businessDate, status: input.mark,
+      note: input.note ?? null,
+      // ⭐ 留一条痕：这天的提成永远是空的。以后有人问「八月那周工资怎么算的」，
+      //    答案得在审计里找得到，而不是靠人回忆
+      earningsStillMissing: input.mark !== 'no_business',
+    },
+  });
+
+  return {
+    businessDate: input.businessDate,
+    status: input.mark,
+    // 没营业的天本来就没有提成可算，那不叫「缺」；另外两种是真的缺
+    earningsStillMissing: input.mark !== 'no_business',
+  };
 });

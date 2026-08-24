@@ -163,8 +163,25 @@ export const SavePhoneLine = defineCommand({
     purpose: z.enum(['ai_voice', 'main', 'sms', 'transfer_target']).default('ai_voice'),
     assistantId: z.string().max(120).nullable().optional(),
     active: z.boolean().default(true),
+    /**
+     * ⭐ 换一串新的电话工具 token（sql/0036）。
+     *
+     * `ai_voice` 线**第一次建**的时候自动生成一串，不用传这个；
+     * 传 true 是为了轮换（怀疑泄露、或者忘了当初那串是什么）。
+     * 轮换之后**必须同步填进 Telnyx 的 assistant 配置**，
+     * 否则那家店的电话当场全 401。
+     */
+    rotateToolToken: z.boolean().default(false),
   }),
-  output: z.object({ e164: z.string(), locationId: uuid }),
+  output: z.object({
+    e164: z.string(),
+    locationId: uuid,
+    /**
+     * ⭐ token 明文。**只在刚生成的那一次返回，之后永远拿不到** ——
+     * 库里只有 SHA-256 摘要。没生成新的就是 null。
+     */
+    toolToken: z.string().nullable(),
+  }),
   permission: 'settings.manage',
   ai: {
     description: '把一个电话号码绑定到本店（AI 接听线 / 主线 / 短信线）。',

@@ -293,11 +293,68 @@ export interface ReportRow {
   ticketCount: number;
 }
 
+/**
+ * ⭐ 一天的记录状况（0032）。
+ *
+ * 报表里最危险的一件事是**把「那天做了 0 块」和「那天没人记」画成同一根柱子**。
+ * 前者是经营事实，后者是数据缺口 —— 混在一起，老板会拿一个残的数去做决定，
+ * 而且看不出它是残的。所以 byDay 的每一行都必须自己说清楚它是哪一种。
+ */
+export type DayStatus =
+  /** 有单，已封账。唯一可以完全信任的一档 */
+  | 'ok'
+  /** 有单，但那天没人按封账。数都在，只是没盖章 */
+  | 'unclosed'
+  /** 那天用纸记的，补了个总数进来。营业额可信，**提成是空的** */
+  | 'summary_only'
+  /** 那天没营业。这是**真实的 0**，进平均值不失真 */
+  | 'no_business'
+  /** 那天开着门用纸记的，明确决定不补。报表里是空白，不是 0 */
+  | 'paper_only'
+  /** 什么都没有，也没人说过这天是怎么回事 */
+  | 'no_record';
+
+/** 这一行的钱能不能算进合计 */
+const COUNTS_TOWARD_TOTAL: Record<DayStatus, boolean> = {
+  ok: true, unclosed: true, summary_only: true,
+  no_business: true,        // 真实的 0，加进去不改变任何数，但要占一天
+  paper_only: false,        // 有生意，但数不在系统里 —— 加进去等于编造
+  no_record: false,
+};
+
+export interface DayReportRow extends ReportRow {
+  status: DayStatus;
+  /** 那天有没有技师提成明细。summary_only / paper_only / no_record 都没有 */
+  hasEarnings: boolean;
+  /** 断档时人填的说明：「Lily 请假，我用本子记的」 */
+  note: string | null;
+}
+
+/**
+ * 区间的完整程度。**这个对象存在的唯一理由**是让界面有办法在合计旁边
+ * 说一句「这个数不是全周的」—— 没有它，界面只能默默显示一个残数。
+ */
+export interface ReportCoverage {
+  daysInRange: number;
+  /** 数完整可信的天数（ok + unclosed + no_business） */
+  daysComplete: number;
+  /** 只有总数、没有提成明细的天数 */
+  daysSummaryOnly: number;
+  /** 数根本不在系统里的天数（paper_only + no_record） */
+  daysMissing: number;
+  /** 还没人处理过的天数 —— 界面拿它决定要不要提醒去补 */
+  daysUnhandled: number;
+  /** daysMissing === 0 && daysSummaryOnly === 0 时才为 true */
+  complete: boolean;
+}
+
 export interface Report {
   fromDate: string;
   toDate: string;
   summary: ReportRow;
-  byDay: ReportRow[];
+  /** ⭐ 区间完整度。界面必须在合计旁边把 daysMissing 说出来 */
+  coverage: ReportCoverage;
+  byDay: DayReportRow[];
   byStaff: Array<{
     key: string; label: string;
     serviceRevenueCents: number; commissionCents: number;
@@ -311,6 +368,25 @@ const EMPTY = (key: string, label: string): ReportRow => ({
   key, label, grossCents: 0, discountCents: 0, netCents: 0, taxCents: 0,
   tipCents: 0, totalCents: 0, cashCents: 0, cardCents: 0, ticketCount: 0,
 });
+
+/**
+ * 区间里的每一天，含首尾。
+ *
+ * 用 UTC 推进而不是本地时区：营业日在库里是一个纯 `date`，没有时刻也没有时区，
+ * 拿本地时间去加一天，在夏令时切换的那两天会少一天或多一天 ——
+ * 而那正好是一年里最不该出错的两天（老板会拿它跟去年同期比）。
+ */
+export function eachDate(fromDate: string, toDate: string): string[] {
+  const out: string[] = [];
+  const end = Date.parse(`${toDate}T00:00:00Z`);
+  let cur = Date.parse(`${fromDate}T00:00:00Z`);
+  if (Number.isNaN(cur) || Number.isNaN(end)) return out;
+  while (cur <= end) {
+    out.push(new Date(cur).toISOString().slice(0, 10));
+    cur += 86_400_000;
+  }
+  return out;
+}
 
 export async function loadReport(
   tx: postgres.TransactionSql,
@@ -351,28 +427,109 @@ export async function loadReport(
     group by t.business_date`;
   const payBy = new Map(paysByDay.map((p) => [p.d, p]));
 
-  const byDay = days.map((r) => ({
-    key: r.d, label: r.d,
-    grossCents: r.gross, discountCents: r.discount,
-    netCents: r.gross - r.discount, taxCents: r.tax,
-    tipCents: r.tip, totalCents: r.total,
-    cashCents: payBy.get(r.d)?.cash ?? 0,
-    cardCents: payBy.get(r.d)?.card ?? 0,
-    ticketCount: r.tickets,
-  }));
+  // ⭐ 那天被人怎么标过（0032）。没有这一查，「没记」就会伪装成「0」
+  const marks = await tx<{
+    d: string; status: string; note: string | null;
+    b_gross: number | null; b_cash: number | null; b_card: number | null;
+    b_tip_cash: number | null; b_tip_card: number | null;
+  }[]>`
+    select business_date::text as d, status, gap_note as note,
+           backfill_gross_cents    as b_gross,
+           backfill_cash_cents     as b_cash,
+           backfill_card_cents     as b_card,
+           backfill_tip_cash_cents as b_tip_cash,
+           backfill_tip_card_cents as b_tip_card
+    from day_closes
+    where location_id = ${ctx.locationId}
+      and business_date between ${fromDate} and ${toDate}`;
+  const markBy = new Map(marks.map((m) => [m.d, m]));
+  const dayBy = new Map(days.map((r) => [r.d, r]));
 
-  const summary = byDay.reduce((acc, r) => ({
-    ...acc,
-    grossCents: acc.grossCents + r.grossCents,
-    discountCents: acc.discountCents + r.discountCents,
-    netCents: acc.netCents + r.netCents,
-    taxCents: acc.taxCents + r.taxCents,
-    tipCents: acc.tipCents + r.tipCents,
-    totalCents: acc.totalCents + r.totalCents,
-    cashCents: acc.cashCents + r.cashCents,
-    cardCents: acc.cardCents + r.cardCents,
-    ticketCount: acc.ticketCount + r.ticketCount,
-  }), EMPTY('summary', `${fromDate} ~ ${toDate}`));
+  /**
+   * ⭐ 把区间**铺满**，而不是只回有数据的天。
+   *
+   * 改这一行之前，`group by business_date` 让没记的那天根本不出现在结果里 ——
+   * 前端拿到的数组里它就是不存在，合计静默偏低，而且看不出来。
+   * 断档本身不致命，**因断档而失去信任才致命**：老板哪天发现周报是错的，
+   * 从那一刻起他不再信这个系统里的任何数字。
+   */
+  const byDay: DayReportRow[] = eachDate(fromDate, toDate).map((d) => {
+    const r = dayBy.get(d);
+    const m = markBy.get(d);
+    const note = m?.note ?? null;
+
+    // 有真实工单：数据是真的，只看盖没盖章
+    if (r) {
+      return {
+        key: d, label: d,
+        grossCents: r.gross, discountCents: r.discount,
+        netCents: r.gross - r.discount, taxCents: r.tax,
+        tipCents: r.tip, totalCents: r.total,
+        cashCents: payBy.get(d)?.cash ?? 0,
+        cardCents: payBy.get(d)?.card ?? 0,
+        ticketCount: r.tickets,
+        status: m?.status === 'closed' ? 'ok' : 'unclosed',
+        hasEarnings: true,
+        note,
+      };
+    }
+
+    // 没有工单：这天是什么，完全取决于有没有人说过话
+    if (m?.status === 'summary_only') {
+      const gross = m.b_gross ?? 0;
+      return {
+        ...EMPTY(d, d),
+        grossCents: gross,
+        netCents: gross,                       // 补录不拆折扣，原价即净额
+        tipCents: (m.b_tip_cash ?? 0) + (m.b_tip_card ?? 0),
+        totalCents: gross + (m.b_tip_cash ?? 0) + (m.b_tip_card ?? 0),
+        cashCents: m.b_cash ?? 0,
+        cardCents: m.b_card ?? 0,
+        status: 'summary_only' as const,
+        // ⚠️ 补了总数**不等于**补了提成。系统不知道那天哪一单是谁做的，
+        //    所以 earnings 一条都没有 —— 这个 false 是要一路传到界面上的
+        hasEarnings: false,
+        note,
+      };
+    }
+    if (m?.status === 'no_business') {
+      return { ...EMPTY(d, d), status: 'no_business' as const, hasEarnings: false, note };
+    }
+    if (m?.status === 'paper_only') {
+      return { ...EMPTY(d, d), status: 'paper_only' as const, hasEarnings: false, note };
+    }
+    return { ...EMPTY(d, d), status: 'no_record' as const, hasEarnings: false, note };
+  });
+
+  // 合计只加「钱在系统里」的天。paper_only / no_record 加进去等于编造收入
+  const summary = byDay
+    .filter((r) => COUNTS_TOWARD_TOTAL[r.status])
+    .reduce((acc, r) => ({
+      ...acc,
+      grossCents: acc.grossCents + r.grossCents,
+      discountCents: acc.discountCents + r.discountCents,
+      netCents: acc.netCents + r.netCents,
+      taxCents: acc.taxCents + r.taxCents,
+      tipCents: acc.tipCents + r.tipCents,
+      totalCents: acc.totalCents + r.totalCents,
+      cashCents: acc.cashCents + r.cashCents,
+      cardCents: acc.cardCents + r.cardCents,
+      ticketCount: acc.ticketCount + r.ticketCount,
+    }), EMPTY('summary', `${fromDate} ~ ${toDate}`));
+
+  const coverage: ReportCoverage = {
+    daysInRange: byDay.length,
+    daysComplete: byDay.filter((r) =>
+      r.status === 'ok' || r.status === 'unclosed' || r.status === 'no_business').length,
+    daysSummaryOnly: byDay.filter((r) => r.status === 'summary_only').length,
+    daysMissing: byDay.filter((r) =>
+      r.status === 'paper_only' || r.status === 'no_record').length,
+    // 「还没人处理过」只算 no_record —— paper_only 是有人明确决定过的，
+    // 再去提醒他补，就是在惩罚一个已经做过的决定
+    daysUnhandled: byDay.filter((r) => r.status === 'no_record').length,
+    complete: false,
+  };
+  coverage.complete = coverage.daysMissing === 0 && coverage.daysSummaryOnly === 0;
 
   const staffRows = await tx<{
     membership_id: string; name: unknown; kind: string; amount: number; base: number; tickets: number;
@@ -421,7 +578,7 @@ export async function loadReport(
       and business_date between ${fromDate} and ${toDate} and status = 'voided'`;
 
   return {
-    fromDate, toDate, summary, byDay,
+    fromDate, toDate, summary, coverage, byDay,
     byStaff: [...staffMap.values()].sort((a, b) => b.serviceRevenueCents - a.serviceRevenueCents),
     byService: services.map((s) => ({
       key: s.name, label: s.name, count: s.n, grossCents: s.gross,
@@ -433,6 +590,16 @@ export async function loadReport(
 // ─────────────────────────────────────────────────────────────── CSV
 
 const money = (c: number) => (c / 100).toFixed(2);
+
+/** CSV 里那一列人话。会计看的是这一列，不是 status 那个英文枚举 */
+const DAY_STATUS_CN: Record<DayStatus, string> = {
+  ok: '',
+  unclosed: '有单未封账',
+  summary_only: '只补了总数（无提成明细）',
+  no_business: '没营业',
+  paper_only: '用纸记的，未补录',
+  no_record: '没有记录',
+};
 
 /**
  * CSV 转义。
@@ -463,12 +630,32 @@ export function reportToCsv(r: Report): string {
       r.summary.ticketCount, r.voidedCount);
   lines.push('');
 
+  // ⭐ 完整度紧跟在汇总下面，而不是塞在文件末尾。
+  //    会计打开这个文件看的第一眼就是汇总那几个数 ——
+  //    「这个数是残的」必须出现在同一屏里，否则等于没说
+  row('记录完整度');
+  if (r.coverage.complete) {
+    row(`这 ${r.coverage.daysInRange} 天全部记完，上面的汇总是完整的`);
+  } else {
+    row(`区间共 ${r.coverage.daysInRange} 天`,
+        `完整 ${r.coverage.daysComplete} 天`,
+        `只有总数 ${r.coverage.daysSummaryOnly} 天`,
+        `没有数据 ${r.coverage.daysMissing} 天`);
+    row('⚠️ 上面的汇总不含「没有数据」那几天，拿它跟别的区间比会得出错的结论');
+  }
+  lines.push('');
+
   row('按天');
-  row('日期', '原价', '折扣', '净额', '税', '小费', '实收', '现金', '刷卡', '单数');
+  row('日期', '原价', '折扣', '净额', '税', '小费', '实收', '现金', '刷卡', '单数', '记录情况');
   for (const d of r.byDay) {
-    row(d.key, money(d.grossCents), money(d.discountCents), money(d.netCents),
-        money(d.taxCents), money(d.tipCents), money(d.totalCents),
-        money(d.cashCents), money(d.cardCents), d.ticketCount);
+    // ⭐ 没记的那天在 CSV 里也必须是空格而不是 0.00 —— 这个文件是发给会计的，
+    //    一列 0.00 会被当成「那天真的没做生意」记进账，而且再也纠不回来
+    const blank = d.status === 'no_record' || d.status === 'paper_only';
+    const cell = (c: number) => (blank ? '' : money(c));
+    row(d.key, cell(d.grossCents), cell(d.discountCents), cell(d.netCents),
+        cell(d.taxCents), cell(d.tipCents), cell(d.totalCents),
+        cell(d.cashCents), cell(d.cardCents), blank ? '' : d.ticketCount,
+        DAY_STATUS_CN[d.status]);
   }
   lines.push('');
 

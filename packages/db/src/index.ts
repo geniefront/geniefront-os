@@ -4,4 +4,6 @@ export * from './identity';
 export * from './signup';
 export * from './phone';
 export * from './device';
+export * from './publicBooking';
+export * from './sms';
 export * from './staffSession';

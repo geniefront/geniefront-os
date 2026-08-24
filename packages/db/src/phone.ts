@@ -41,19 +41,32 @@ export async function withPhoneLine<T>(
 export interface PhoneLineTenant {
   orgId: string;
   locationId: string;
+  /**
+   * ⭐ 门店名（多语言 jsonb 原样返回，用 `pickText` 取）。
+   *
+   * 电话工具的返回里要带上它 —— 入参只有一个号码，出参不说是哪家店的话，
+   * 调用方（和看日志的人）**没有任何办法确认这通电话落到了谁头上**。
+   * 反查本来就要 join locations 拿时区，多带一列不多一次查询。
+   */
+  name: unknown;
   timezone: string;
   locale: string;
   assistantId: string | null;
+  /**
+   * ⭐ 电话工具 token 的摘要（sql/0036）。非空 = 这条线的每次工具调用
+   * 都必须带上匹配的 `shop_token`。**摘要**出得来，明文出不来。
+   */
+  toolTokenDigest: string | null;
 }
 
 /** 被叫号码 → 门店。停用的线不算数（换号期间旧号码要能立刻断掉）。 */
 export async function tenantForPhoneNumber(e164: string): Promise<PhoneLineTenant | null> {
   const rows = await withPhoneLine(e164, (tx) => tx<{
-    org_id: string; location_id: string; tz: string;
-    locale: string; assistant_id: string | null;
+    org_id: string; location_id: string; name: unknown; tz: string;
+    locale: string; assistant_id: string | null; tool_token_digest: string | null;
   }[]>`
-    select p.org_id, p.location_id, l.timezone as tz,
-           o.default_locale as locale, p.assistant_id
+    select p.org_id, p.location_id, l.name, l.timezone as tz,
+           o.default_locale as locale, p.assistant_id, p.tool_token_digest
     from phone_lines p
     join locations l on l.id = p.location_id
     join organizations o on o.id = p.org_id
@@ -63,8 +76,10 @@ export async function tenantForPhoneNumber(e164: string): Promise<PhoneLineTenan
   return r ? {
     orgId: r.org_id,
     locationId: r.location_id,
+    name: r.name,
     timezone: r.tz,
     locale: r.locale,
     assistantId: r.assistant_id,
+    toolTokenDigest: r.tool_token_digest,
   } : null;
 }

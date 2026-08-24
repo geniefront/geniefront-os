@@ -22,11 +22,27 @@ export interface ReportRow {
   ticketCount: number;
 }
 
+/** 见 apps/api/src/queries/money.ts 的 DayStatus */
+export type DayStatus =
+  'ok' | 'unclosed' | 'summary_only' | 'no_business' | 'paper_only' | 'no_record';
+
+export interface DayReportRow extends ReportRow {
+  status: DayStatus;
+  hasEarnings: boolean;
+  note: string | null;
+}
+
+export interface ReportCoverage {
+  daysInRange: number; daysComplete: number; daysSummaryOnly: number;
+  daysMissing: number; daysUnhandled: number; complete: boolean;
+}
+
 export interface ReportData {
   fromDate: string;
   toDate: string;
   summary: ReportRow;
-  byDay: ReportRow[];
+  coverage: ReportCoverage;
+  byDay: DayReportRow[];
   byStaff: Array<{
     key: string; label: string;
     serviceRevenueCents: number; commissionCents: number;
@@ -106,6 +122,33 @@ export function Reports({
         </div>
       )}
 
+      {/*
+        ⭐ 完整度必须在汇总**上面**，不能在下面。
+        老板看这一屏的第一眼就是那几个大数字 —— 「这个数是残的」
+        要是出现在下面，等于没说：他已经拿着那个数下判断了。
+      */}
+      {!data.coverage.complete && (
+        <div className="card stack" role="status" style={{
+          padding: 16, gap: 6,
+          background: 'var(--warn-soft)', borderColor: 'var(--warn)' }}>
+          <strong style={{ color: 'var(--warn)' }}>
+            ⚠️ 这个数不是这段时间的全部
+          </strong>
+          <span className="tiny" style={{ color: 'var(--warn)' }}>
+            {data.coverage.daysInRange} 天里，
+            {data.coverage.daysMissing > 0 && (
+              <> <b>{data.coverage.daysMissing} 天的数不在系统里</b>（下面标了「没有记录」的那几天，
+                 合计不含它们）</>
+            )}
+            {data.coverage.daysMissing > 0 && data.coverage.daysSummaryOnly > 0 && '；'}
+            {data.coverage.daysSummaryOnly > 0 && (
+              <> {data.coverage.daysSummaryOnly} 天只补了总数，<b>没有技师提成明细</b></>
+            )}
+            。拿它跟别的时间段比会得出错的结论。
+          </span>
+        </div>
+      )}
+
       <div className="card" style={{ padding: 18 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(140px,1fr))', gap: 14 }}>
           <Stat label="原价 Gross" value={money(s.grossCents)} />
@@ -121,12 +164,7 @@ export function Reports({
         </div>
       </div>
 
-      <Table title="按天"
-             head={['日期', '净额', '小费', '实收', '现金', '刷卡', '单数']}
-             rows={data.byDay.map((d) => [
-               d.key, money(d.netCents), money(d.tipCents), money(d.totalCents),
-               money(d.cashCents), money(d.cardCents), String(d.ticketCount),
-             ])} />
+      <DayTable rows={data.byDay} />
 
       <Table title="按技师"
              head={['技师', '认到营业额', '提成', '现金小费', '刷卡小费', '单数']}
@@ -180,6 +218,76 @@ function Table({ title, head, rows }: { title: string; head: string[]; rows: str
               }}>{c}</td>
             ))}</tr>
           ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * 按天 —— 断档的那几天在这里必须**长得跟 0 不一样**（0032）。
+ *
+ * 改这一块之前，没记的那天压根不出现在 byDay 里。老板翻这张表
+ * 只会觉得「那周好像少了一天」，而不会意识到系统在瞒着他一段空白。
+ *
+ * 现在每一天都有一行，空白那几行不写 $0.00 而是写「没有记录」：
+ * **$0.00 是一句关于生意的陈述，空白是一句关于记录的陈述**，两者不能互换。
+ */
+const DAY_LABEL: Record<DayStatus, { text: string; cls: string } | null> = {
+  ok: null,
+  unclosed: { text: '有单未封账', cls: 'badge-warn' },
+  summary_only: { text: '只补了总数', cls: 'badge-warn' },
+  no_business: { text: '没营业', cls: 'badge-mute' },
+  paper_only: { text: '用纸记的', cls: 'badge-mute' },
+  no_record: { text: '没有记录', cls: 'badge-mute' },
+};
+
+function DayTable({ rows }: { rows: DayReportRow[] }) {
+  if (rows.length === 0) return null;
+  const head = ['日期', '净额', '小费', '实收', '现金', '刷卡', '单数', ''];
+  return (
+    <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
+      <div style={{ padding: '14px 18px 0' }}><strong>按天</strong></div>
+      <table style={{ borderCollapse: 'collapse', width: '100%', marginTop: 10 }}>
+        <thead>
+          <tr>{head.map((h, i) => (
+            <th key={i} style={{
+              padding: '8px 14px', borderBottom: '2px solid var(--line)',
+              textAlign: i === 0 || i === head.length - 1 ? 'left' : 'right',
+              fontSize: 'var(--text-sm)',
+            }}>{h}</th>
+          ))}</tr>
+        </thead>
+        <tbody>
+          {rows.map((d) => {
+            // 空白 ≠ 零。这两种在同一张表里必须一眼分得出来
+            const blank = d.status === 'no_record' || d.status === 'paper_only';
+            const tag = DAY_LABEL[d.status];
+            const cell = (v: string) => (blank ? '—' : v);
+            return (
+              <tr key={d.key} style={blank ? { background: '#faf9f7' } : undefined}>
+                <td style={{
+                  padding: '8px 14px', borderBottom: '1px solid var(--line)',
+                  color: blank ? 'var(--ink-3)' : undefined,
+                }}>{d.key}</td>
+                {[money(d.netCents), money(d.tipCents), money(d.totalCents),
+                  money(d.cashCents), money(d.cardCents), String(d.ticketCount),
+                ].map((v, ci) => (
+                  <td key={ci} style={{
+                    padding: '8px 14px', borderBottom: '1px solid var(--line)',
+                    textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                    color: blank ? 'var(--ink-3)' : undefined,
+                  }}>{cell(v)}</td>
+                ))}
+                <td style={{ padding: '8px 14px', borderBottom: '1px solid var(--line)' }}>
+                  {tag && <span className={`badge ${tag.cls}`}>{tag.text}</span>}
+                  {d.note && (
+                    <span className="tiny" style={{ marginLeft: 8 }}>{d.note}</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

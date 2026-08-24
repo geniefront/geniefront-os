@@ -33,6 +33,10 @@ export interface OpenTicket {
     durationMin: number; staffName: string; membershipId: string;
   }>;
   subtotalCents: number;
+  /** 这张单是哪个营业日开的（0032） */
+  businessDate: string;
+  /** 距今几天。0 = 今天开的。>0 的是隔夜单，要单独成组 */
+  daysAgo: number;
 }
 
 interface Allocation {
