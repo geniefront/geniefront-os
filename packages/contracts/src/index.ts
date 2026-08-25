@@ -10,6 +10,7 @@ export * from './commands/dayclose.js';
 export * from './commands/shift.js';
 export * from './commands/staff.js';
 export * from './commands/blueprint.js';
+export * from './customerProfile.js';
 export * from './commands/phone.js';
 export * from './commands/giftcard.js';
 export * from './commands/yelp.js';

@@ -15,6 +15,7 @@ import {
 import { dispatch, registeredCommands } from './bus';
 import { buildContext } from './actor';
 import { loadOrgSummary } from './queries/orgSummary';
+import { loadCustomerDetail, loadCustomerList } from './queries/customer';
 import { verifyAccessToken } from './auth';
 import { listMembershipsForUser, withTenant, claimableIntentFor, readOnlineBooking } from '@gf/db';
 
@@ -513,6 +514,51 @@ export function buildServer(): FastifyInstance {
   });
 
   // ── 查询：今天开着的单 ─────────────────────────────────────────────────────
+  /**
+   * ── 客户档案（批 6）───────────────────────────────────────────────────
+   *
+   * ⭐ **一个请求返回一整页**，不让前端拼七个。客户详情要的东西散在
+   * 七张表上，并发七个请求在弱网下会有几个失败 —— 页面上一半有数据
+   * 一半转圈，前台看到的是「系统坏了」。
+   *
+   * ⚠️ **脱敏在服务端按角色做**，不是返回全量让前端隐藏。没有
+   * `customer.view_contact` 的人拿到的 payload 里就没有完整号码；
+   * 没有 `report.view` 的人拿不到任何金额。
+   */
+  app.get<{ Params: { id: string } }>('/v1/desk/customers/:id', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('customer.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'customer.read' } });
+    }
+    const detail = await withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => loadCustomerDetail(tx, ctx, req.params.id));
+    if (!detail) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'customer' } });
+    return detail;
+  });
+
+  app.get<{ Querystring: {
+    q?: string; vip?: string; sleeping?: string; limit?: string; offset?: string;
+  } }>('/v1/desk/customers', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('customer.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'customer.read' } });
+    }
+    const int = (v: string | undefined) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
+    };
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => loadCustomerList(tx, ctx, {
+        ...(req.query.q ? { q: req.query.q } : {}),
+        vipOnly: req.query.vip === '1',
+        ...(int(req.query.sleeping) ? { sleepingDays: int(req.query.sleeping)! } : {}),
+        ...(int(req.query.limit) ? { limit: int(req.query.limit)! } : {}),
+        ...(int(req.query.offset) ? { offset: int(req.query.offset)! } : {}),
+      }));
+  });
+
   app.get('/v1/desk/tickets', async (req) => {
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('ticket.read')) {
