@@ -14,6 +14,7 @@ import {
 } from '@gf/contracts';
 import { dispatch, registeredCommands } from './bus';
 import { buildContext } from './actor';
+import { loadOrgSummary } from './queries/orgSummary';
 import { verifyAccessToken } from './auth';
 import { listMembershipsForUser, withTenant, claimableIntentFor, readOnlineBooking } from '@gf/db';
 
@@ -248,6 +249,54 @@ export function buildServer(): FastifyInstance {
       details: { reason: 'requires_platform_account' } });
     const list = await listMembershipsForUser(req.user.userId);
     return { locations: list };
+  });
+
+  /**
+   * ── 跨店汇总（批 4）────────────────────────────────────────────────────
+   *
+   * 多店老板现在要一家家切进去看。这条给他一屏。
+   *
+   * ⚠️ **门店范围由 `listMembershipsForUser` 决定，不接受入参。**
+   * 接受 locationIds 入参的话，「拿到别人的 location id 就能查他的营收」——
+   * 而 location id 会出现在 URL 里。`scope=<id>` 只是个**过滤器**，
+   * 它只能在「我有权限的那些店」里再挑一个，挑不出集合以外的东西。
+   *
+   * 权限：`report.view`（店长也有）。⚠️ 但看得见的**只有他自己有
+   * membership 的那些店** —— A 店的店长看不到 B 店，哪怕两家是同一个 org。
+   */
+  app.get<{ Querystring: { from?: string; to?: string; scope?: string } }>(
+    '/v1/me/summary', async (req) => {
+    if (!req.user) throw new AppError(ERROR_CODES.UNAUTHENTICATED, {
+      details: { reason: 'requires_platform_account' } });
+
+    const DATE = /^\d{4}-\d{2}-\d{2}$/;
+    const to = DATE.test(req.query.to ?? '') ? req.query.to! : todayIso();
+    const from = DATE.test(req.query.from ?? '') ? req.query.from! : addDaysIso(to, -6);
+    if (from > to) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'bad_range' } });
+    }
+
+    const all = await listMembershipsForUser(req.user.userId);
+    const scoped = req.query.scope && req.query.scope !== 'all'
+      ? all.filter((m) => m.locationId === req.query.scope)
+      : all;
+
+    /*
+     * ⚠️ 只汇总他**有报表权限**的店。
+     *
+     * 一个人可能在 A 店是老板、在 B 店只是技师（这行真实存在：
+     * 老板去朋友店里兼职接客）。把 B 店的营收也加进他的合计里，
+     * 等于让技师看到了店里的钱。
+     */
+    const allowed: Array<{ orgId: string; locationId: string; membershipId: string }> = [];
+    for (const m of scoped) {
+      const ctx = await buildContext({ userId: req.user.userId, membershipId: m.membershipId });
+      if (ctx.permissions.has('report.view')) {
+        allowed.push({ orgId: m.orgId, locationId: m.locationId, membershipId: m.membershipId });
+      }
+    }
+
+    return loadOrgSummary(allowed, from, to);
   });
 
   /**
@@ -1418,3 +1467,14 @@ export function buildServer(): FastifyInstance {
   return app;
 }
 
+
+
+/** 今天（UTC 日期）。跨店汇总的默认区间用它兜底，各店的营业日在查询里各算各的 */
+function todayIso(): string { return new Date().toISOString().slice(0, 10); }
+
+/** `YYYY-MM-DD` ± n 天。纯日期算术，不碰时区 */
+function addDaysIso(date: string, days: number): string {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}

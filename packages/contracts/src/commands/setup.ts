@@ -297,8 +297,57 @@ export const RemoveWebOrigin = defineCommand({
   idempotency: 'optional',
 });
 
+
+
+/**
+ * ⭐ 已登录的老板在**同一个 org 内**再开一家店（批 4）。
+ *
+ * ## 为什么需要这条命令
+ *
+ * 在此之前，门店只有一条出生路径：`gf_provision_tenant()` ——
+ * 付款 → webhook → 建 org + 建店。一个 org 一家店。
+ * 而「一人多店」在这行是常态（一个老板开三家足疗店），
+ * 他不该为第二家店重新走一遍付款、重新收一封激活邮件、
+ * 重新记一套登录账号。
+ *
+ * ## 权限：用 `billing.manage` 当「org 级老板」的代理
+ *
+ * ⚠️ 现有的权限**全是门店级的**，没有 org 级这个维度。
+ * 硬造一套 org 权限体系是件大事（角色表、继承、UI），
+ * 而这里真正要回答的问题只有一个：「这个人是不是这个 org 的老板」。
+ *
+ * `billing.manage` 恰好只有 owner 有（店长都没有，决策 19 的极致隐私）。
+ * 所以「在本 org 某家店持有 `billing.manage`」≈「是这个 org 的老板」，
+ * 够用而且不引入新概念。新店建在**调用方当前门店的同一个 org 下** ——
+ * org id 不接受入参，避免「知道别人 org id 就能往里塞店」。
+ */
+export const CreateLocation = defineCommand({
+  name: 'location.create',
+  input: z.object({
+    name: z.string().min(1).max(80),
+    timezone: z.string().min(3).max(60),
+    businessType: z.enum(['nail', 'massage', 'foot_spa', 'lash', 'scalp']).default('nail'),
+    /** 不填就跟着当前门店 */
+    locale: z.enum(['en', 'zh-Hans', 'zh-Hant', 'ko', 'vi', 'es']).optional(),
+    phone: z.string().max(32).optional(),
+  }),
+  output: z.object({
+    locationId: uuid,
+    orgId: uuid,
+    membershipId: uuid,
+    slug: z.string(),
+  }),
+  permission: 'billing.manage',
+  ai: {
+    description: '在同一个组织下再开一家门店。',
+    confirm: 'always',
+  },
+  reversible: false,
+  idempotency: 'required',
+});
+
 export const SETUP_COMMANDS = [
   SaveService, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
-  SaveOnlineBooking, AddWebOrigin, RemoveWebOrigin,
+  SaveOnlineBooking, AddWebOrigin, RemoveWebOrigin, CreateLocation,
 ] as const;

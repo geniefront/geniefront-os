@@ -206,6 +206,118 @@ export function registerStripeRoutes(
     return { url: session.url, sessionId: session.id };
   });
 
+  /**
+   * ── 第二家店：往同一张订阅上加一个 item（批 4）────────────────────────
+   *
+   * ⭐ **不是新建一个 subscription。** 一个老板一张卡、一张账单、
+   * 一个计费周期 —— 三家店三个订阅的话，他会收到三封账单、换卡要换三次，
+   * 而 Stripe 后台上看不出这三家是一个人的。多店折扣就是这个 item
+   * 用一个不同的 price id。
+   *
+   * ⚠️ **顺序是「先建店，后计费」。** 反过来的话，Stripe 加完 item
+   * 而建店失败 = 扣了钱没有店，那是投诉；现在这个顺序失败的结果是
+   * 「一家能用但还没计费的店」，补一次就行。
+   *
+   * ⚠️ 加 item 会产生**按比例计费的中期账单**。金额在返回里给出来，
+   * 前端必须在确认页上显示 —— 不能让老板事后在信用卡账单上发现。
+   */
+  app.post<{ Body: {
+    name?: string; timezone?: string; businessType?: string;
+    locale?: string; plan?: string;
+  } }>('/v1/billing/add-store', async (req) => {
+    const ctx = await ownerCtx(req);
+    const plan = req.body?.plan ?? 'essential';
+    if (!isPlan(plan)) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: '套餐只能是 essential 或 growth', got: plan },
+      });
+    }
+
+    // ① 建店（命令：有审计、有幂等、有 RLS）
+    const created = await dispatch<{
+      locationId: string; orgId: string; membershipId: string; slug: string;
+    }>('location.create', {
+      name: req.body?.name,
+      timezone: req.body?.timezone,
+      businessType: req.body?.businessType ?? 'nail',
+      ...(req.body?.locale ? { locale: req.body.locale } : {}),
+    }, ctx, { idempotencyKey: `add-store-${req.body?.name}-${req.body?.timezone}` });
+
+    const newLoc = created.result.locationId;
+
+    // ② 找到这个 org 现有的订阅。没有就说清楚 —— 第一家店都还没订阅，
+    //    第二家店的计费无处可加
+    const [existing] = await withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => tx<{ sub: string | null; cust: string | null }[]>`
+        select stripe_subscription_id as sub, stripe_customer_id as cust
+        from billing_accounts
+        where org_id = ${ctx.orgId} and stripe_subscription_id is not null
+        limit 1`);
+
+    if (!existing?.sub) {
+      return {
+        ...created.result,
+        billing: 'not_linked',
+        note: '门店已建好，但这个组织还没有生效的订阅 —— 先给第一家店订阅，再回来加计费。',
+      };
+    }
+
+    // ③ 往那条订阅上加一个 item
+    const item = await stripeClient().subscriptionItems.create({
+      subscription: existing.sub,
+      price: priceIdFor(plan),
+      quantity: 1,
+      // ⚠️ metadata 必须带 —— 后续每一条 subscription.updated 靠它定位门店
+      metadata: { gf_location_id: newLoc, gf_org_id: ctx.orgId },
+      proration_behavior: 'create_prorations',
+    });
+
+    // ④ 把订阅信息落到新店的账户上。**同一个 subscription id** ——
+    //    续期、欠费、取消这些事件对两家店同时生效，本来就该是同一条
+    const newCtx: CommandContext = { ...ctx, locationId: newLoc, membershipId: null };
+    await dispatch('billing.syncSubscription', {
+      stripeCustomerId: existing.cust,
+      stripeSubscriptionId: existing.sub,
+      plan,
+      subscriptionStatus: 'active',
+    }, newCtx);
+
+    await withTenant(
+      { orgId: ctx.orgId, locationId: newLoc, membershipId: null },
+      (tx) => tx`
+        insert into location_subscriptions
+          (org_id, location_id, plan, status, stripe_subscription_item_id)
+        values (${ctx.orgId}, ${newLoc}, ${plan}, 'active', ${item.id})
+        on conflict do nothing`);
+
+    /*
+     * ⑤ 这次会当场扣多少。
+     *
+     * 拿 upcoming invoice 而不是自己按天算 —— 自己算一定会和 Stripe
+     * 差几分钱（他们按秒摊、还要算税），而老板对不上那几分钱时
+     * 会怀疑的是我们整套账。
+     */
+    let prorationCents: number | null = null;
+    try {
+      const upcoming = await stripeClient().invoices.createPreview({
+        subscription: existing.sub,
+      });
+      prorationCents = upcoming.amount_due;
+    } catch (e) {
+      req.log.warn({ err: e }, 'add-store: 预览账单失败，前端就别显示金额了');
+    }
+
+    return {
+      ...created.result,
+      billing: 'linked',
+      subscriptionItemId: item.id,
+      plan,
+      /** ⚠️ null = 没取到，前端要显示「以账单为准」而不是显示 $0 */
+      prorationCents,
+    };
+  });
+
   // ── 绑卡：Checkout 的 setup 模式（底下就是一个 SetupIntent）─────────────
   //
   // 自己做 SetupIntent + Elements 也可以，但那要在前端引 Stripe.js、
