@@ -235,6 +235,8 @@ AI 电话的开场录音告知与转人工；官网 URL 提取；
 | [13-PUBLIC-BOOKING-API.md](13-PUBLIC-BOOKING-API.md) | ⭐ **公开预约 API**：门店自己的官网怎么接在线预约。给做门店官网的人看，读完就能开工。含防机器人/防恶意占位的七层方案。**接口已实现**（30 项测试） |
 | [14-VOICE-TOOLS.md](14-VOICE-TOOLS.md) | ⭐ **AI 电话工具接口**：Telnyx assistant 调的那几个 webhook、Telnyx 侧四个坑、通话计量与转录（`sql/0037`） |
 | [15-HEALTH-FORMS.md](15-HEALTH-FORMS.md) | ⭐ **健康表全链路**：模板库（三份 × 六语言）、加密存储与**读也留痕**、禁忌回填客户档案、二维码/邮件分享一次性填表链接（`sql/0038`，27 项测试） |
+| [16-FRONTEND-CONTRACT.md](16-FRONTEND-CONTRACT.md) | ⭐ **前端契约**：给重做前端的那个 session 看 —— 命令总线怎么调、`X-Membership-Id` 从哪来、幂等键怎么用、错误码怎么翻成人话、五条不要做的事 |
+| [17-STOREFRONT-BRIEF.md](17-STOREFRONT-BRIEF.md) | **建站工单**（批 8）：不做网站编辑器，定制官网走结构化需求单 → AI 出三版 → 人工精修。含状态机与两节竞品没问的（客群 / 客人最常问的三件事） |
 
 **接手先读 `10`**，它把「现在在哪、下一步做什么、哪些坑别再踩」压在一份里。
 

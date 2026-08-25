@@ -43,6 +43,10 @@
 官网传的 metadata、我们数据库的 check 约束。
 文档早期出现过的 `Starter` / `Pro` / 「AI 电话包 $69」**全部作废**，看到就是旧的。
 
+**两个套餐都带 7 天免费试用**（2026-08-25）。试用期**照样绑卡**，
+第 8 天自动扣第一笔。定价页可以写「7 天免费试用，随时取消」，
+但**不能写「不需要信用卡」** —— 那是假的，结账页会要卡，写了会被骂。
+
 > **销售话术里必须直说的一条**：Essential 的 60 分钟 ≈ **每天 1 通电话**，
 > 是「尝鲜」不是「够用」。开店时问一句「一天大概接几通电话」，
 > 超过 2 通就直接推 Growth —— 别让老板自己撞上账单。
@@ -57,6 +61,11 @@
 const session = await stripe.checkout.sessions.create({
   mode: 'subscription',
   line_items: [{ price: process.env.STRIPE_PRICE_ESSENTIAL, quantity: 1 }],
+
+  // ⭐ 七天免费试用（2026-08-25）。**仍然要绑卡** —— 卡在 Stripe 那边，我们碰不到。
+  // 试用期不扣款，第 8 天自动扣。竞品同样绑卡，这行接受这个门槛，
+  // 而且绑了卡的试用用户质量高一个量级。
+  subscription_data: { trial_period_days: 7, metadata: { gf_signup: '1' } },
 
   // ⭐ 必填。激活邮件发到这里，而**收到激活邮件的人就是这家店的老板**
   customer_email: form.email,
@@ -75,7 +84,6 @@ const session = await stripe.checkout.sessions.create({
     gf_phone: form.phone ?? '',           // 可选，店里对外的电话
   },
 
-  subscription_data: { metadata: { gf_signup: '1' } },   // 续费事件也认得出来源
 });
 ```
 
@@ -120,13 +128,18 @@ const session = await stripe.checkout.sessions.create({
 ## 5. 付款成功页要写什么
 
 ```
-✅ 付款成功
+✅ 试用已开始 —— 前 7 天免费，2026-09-01 之前不扣款
 
 我们已经把开通链接发到 你的邮箱@example.com
 
 请查收邮件并点击里面的链接来开通你的店铺。
 几分钟还没收到？看一下垃圾邮件，或者联系 support@geniefront.com
 ```
+
+⚠️ **不要写「付款成功」** —— 试用期一分钱都没扣，写「付款成功」会让老板
+以为已经扣了钱，然后第 8 天真扣的时候来投诉重复收费。
+写「试用已开始」，并且**把首次扣款日期算出来写在上面**
+（`session.subscription.trial_end`，或者简单地 today + 7 天）。
 
 ⚠️ **不要写「立即登录」或给登录链接** —— 那一刻账号还不存在，
 点进去只会看到登录页，然后用户开始怀疑自己是不是买错了。

@@ -104,7 +104,7 @@ export const locationSubscriptions = pgTable('location_subscriptions', {
   id: id(),
   orgId: uuid('org_id').notNull().references(() => organizations.id),
   locationId: uuid('location_id').notNull().references(() => locations.id),
-  plan: text('plan').notNull(),   // starter|pro
+  plan: text('plan').notNull(),   // essential|growth（docs/11 §2 为准）
   status: text('status').notNull(),
   stripeSubscriptionItemId: text('stripe_subscription_item_id'),
   /** AI 电话是独立加购包，不含在 plan 里（04 §4.1：两种 AI 成本差 10–16 倍） */
