@@ -17,8 +17,13 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { Check, CircleAlert } from 'lucide-react';
 import { ApiError, claimLocation } from '../lib/api';
 import { supabase } from '../lib/supabase';
+import { Button } from '../ui/Button';
+import { Card } from '../ui/Card';
+import { Badge } from '../ui/Badge';
+
 
 type State =
   | { k: 'working' }
@@ -56,25 +61,24 @@ export function Activate({ onClaimed }: {
   }, [onClaimed]);
 
   return (
-    <div className="center-page">
-      <div className="card stack" style={{ width: 'min(520px, 100%)', padding: 32, gap: 18 }}>
-        <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 800 }}>
+    <div className="grid min-h-full place-items-center p-6">
+      <Card className="flex w-[min(520px,100%)] flex-col gap-5 p-8">
+        <div className="text-2xl font-extrabold tracking-[-0.03em]">
           {st.k === 'working' ? '正在开通你的店铺…' : st.k === 'done' ? '开通完成 🎉' : '开通没能完成'}
         </div>
 
         {st.k === 'working' && (
-          <div className="row" style={{ gap: 12 }}>
-            <span className="spin" />
-            <span className="muted">正在把你的账号和付款的那家店绑定，几秒钟就好。</span>
+          <div className="text-xs text-ink-2">
+            正在把你的账号和付款的那家店绑定，几秒钟就好。
           </div>
         )}
 
         {st.k === 'done' && (
-          <div className="stack" style={{ gap: 10 }}>
-            <div className="badge badge-ok" style={{ padding: '10px 14px', fontSize: 'var(--text)' }}>
-              ✓ 你已经是这家店的老板了
+          <div className="flex flex-col gap-2.5">
+            <div className="flex items-center gap-2 rounded bg-ok-soft px-3.5 py-2.5 text-ok">
+              <Check size={17} /><span className="text-sm font-semibold">你已经是这家店的老板了</span>
             </div>
-            <div className="muted">接下来我们用几分钟把店配起来。</div>
+            <div className="text-xs text-ink-2">接下来我们用几分钟把店配起来。</div>
           </div>
         )}
 
@@ -83,36 +87,35 @@ export function Activate({ onClaimed }: {
           「下一步该干什么」和一个能联系上人的地址，不是一个错误码。
         */}
         {st.k === 'nothing' && (
-          <div className="stack" style={{ gap: 12 }}>
-            <div>这个邮箱名下没有等待开通的店铺。</div>
-            <ul className="muted" style={{ margin: 0, paddingLeft: 20, lineHeight: 1.9 }}>
+          <div className="flex flex-col gap-3">
+            <div className="text-sm">这个邮箱名下没有等待开通的店铺。</div>
+            <ul className="list-disc pl-5 text-xs leading-loose text-ink-2">
               <li>如果你刚付完款，等一两分钟再点一次邮件里的链接</li>
               <li>如果店已经开通过了，直接<b>登录</b>就行</li>
               <li>如果你用了另一个邮箱付款，请用<b>付款那个邮箱</b>打开链接</li>
             </ul>
-            <div className="muted">还是不行：support@geniefront.com</div>
+            <div className="text-xs text-ink-2">还是不行：support@geniefront.com</div>
           </div>
         )}
 
         {st.k === 'failed' && (
-          <div className="stack" style={{ gap: 12 }}>
-            <div>我们这边出了点问题，你的付款没有丢。</div>
-            <div className="muted">
-              把这一行发给我们就能查到：<code>{st.code}</code><br />
-              support@geniefront.com
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 text-danger">
+              <CircleAlert size={17} />
+              <span className="text-sm font-semibold">我们这边出了点问题，你的付款没有丢。</span>
             </div>
-            <button className="btn btn-primary" onClick={() => window.location.reload()}>
-              再试一次
-            </button>
+            <div className="text-xs leading-relaxed text-ink-2">
+              把这一行发给我们就能查到：<Badge tone="line"><code className="font-mono">{st.code}</code></Badge>
+              <br />support@geniefront.com
+            </div>
+            <Button variant="primary" onClick={() => window.location.reload()}>再试一次</Button>
           </div>
         )}
 
         {(st.k === 'nothing' || st.k === 'failed') && (
-          <button className="btn" onClick={() => void supabase.auth.signOut()}>
-            换一个账号登录
-          </button>
+          <Button onClick={() => void supabase.auth.signOut()}>换一个账号登录</Button>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

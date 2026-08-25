@@ -21,6 +21,11 @@ import { useState } from 'react';
 import { ApiError, runCommand } from '../lib/api';
 import type { makeT } from '../i18n';
 import type { DaySnapshot, DayItem } from './DaySchedule';
+import { Button } from '../ui/Button';
+import { Field } from '../ui/Field';
+import { Alert } from '../ui/Alert';
+import { Card } from '../ui/Card';
+import { Spinner } from '../ui/Spinner';
 
 /** 与后端 overrideReason 枚举一一对应（和开单那屏同一份） */
 const OVERRIDE_REASONS: Array<{ v: string; label: string; hint: string }> = [
@@ -137,44 +142,38 @@ export function EditBookingSheet({
       position: 'fixed', inset: 0, background: 'rgba(20,18,16,.45)',
       display: 'grid', placeItems: 'end center', zIndex: 50,
     }} onClick={onCancel}>
-      <div className="card stack" onClick={(e) => e.stopPropagation()}
+      <Card className="flex flex-col gap-3" onClick={(e) => e.stopPropagation()}
            style={{ width: 'min(620px,100%)', maxHeight: '92vh', overflow: 'auto',
                     padding: 24, gap: 18, borderRadius: '18px 18px 0 0' }}>
 
-        <div className="stack" style={{ gap: 2 }}>
-          <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 800 }}>{item.customerName}</div>
-          <div className="muted">
+        <div className="flex flex-col gap-0.5">
+          <div className="text-2xl font-extrabold">{item.customerName}</div>
+          <div className="text-ink-2">
             {item.serviceName} · {hhmm(origMin)} · {item.durationMin} 分钟
             {item.isRequest && ' · ★ 点钟'}
           </div>
         </div>
 
-        <div className="row" style={{ gap: 10 }}>
+        <div className="flex items-center gap-2.5">
           {([['move', '改时间 / 换人'], ['cancel', '取消这一单']] as const).map(([k, l]) => (
-            <button key={k} className="btn grow" style={{
-              minHeight: 'var(--tap)', borderWidth: 2,
-              borderColor: mode === k ? 'var(--brand)' : 'var(--line)',
-              background: mode === k ? 'var(--brand-soft)' : 'var(--surface)',
-            }} onClick={() => { setMode(k); setIssue(null); setHardError(''); }}>{l}</button>
+            <Button className="min-w-0 flex-1" key={k} style={{ minHeight: 'var(--tap)', borderWidth: 2, borderColor: mode === k ? 'var(--brand)' : 'var(--line)', background: mode === k ? 'var(--brand-soft)' : 'var(--surface)', }} onClick={() => { setMode(k); setIssue(null); setHardError(''); }}>{l}</Button>
           ))}
         </div>
 
         {hardError && (
-          <div className="badge badge-danger" style={{ padding: '10px 14px' }}>✕ {hardError}</div>
+          <Alert tone="danger">{hardError}</Alert>
         )}
 
         {mode === 'move' && !issue && (
           <>
             {started && (
-              <div className="badge badge-warn" style={{ padding: '10px 14px', lineHeight: 1.6 }}>
-                ⚠ 这一单已经开始做了。改时间不会把已经做的部分抹掉，
-                但技师那边看到的时间会变 —— 确认过再改。
-              </div>
+              <Alert tone="warn">这一单已经开始做了。改时间不会把已经做的部分抹掉，
+                但技师那边看到的时间会变 —— 确认过再改。</Alert>
             )}
 
-            <label className="stack" style={{ gap: 6 }}>
-              <span className="tiny">改到几点</span>
-              <input className="field field-mono" type="time" step={300}
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs text-ink-3">改到几点</span>
+              <Field mono  type="time" step={300}
                      value={hhmm(startMin)}
                      onChange={(e) => {
                        const [h, m] = e.target.value.split(':').map(Number);
@@ -182,30 +181,27 @@ export function EditBookingSheet({
                      }} />
             </label>
 
-            <div className="stack" style={{ gap: 6 }}>
-              <span className="tiny">换人做（不换就别动）</span>
-              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-ink-3">换人做（不换就别动）</span>
+              <div className="flex items-center gap-2 flex-wrap">
                 {bookable.map((s) => (
-                  <button key={s.membershipId} className="btn"
-                          onClick={() => setStaffId(s.membershipId)}
+                  <Button key={s.membershipId} onClick={() => setStaffId(s.membershipId)}
                           style={{
                             minHeight: 44, borderWidth: 2,
                             borderColor: staffId === s.membershipId ? 'var(--brand)' : 'var(--line)',
                             background: staffId === s.membershipId ? 'var(--brand-soft)' : 'var(--surface)',
                           }}>
                     {s.inRotation ? '● ' : '○ '}{s.name}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
 
-            <div className="row" style={{ gap: 10 }}>
-              <button className="btn grow" style={{ minHeight: 'var(--tap)' }}
-                      onClick={onCancel}>先不改</button>
-              <button className="btn btn-primary grow" disabled={busy || !changed}
-                      style={{ minHeight: 'var(--tap)' }} onClick={() => void move(false)}>
-                {busy ? <span className="spin" /> : '改到这个时间'}
-              </button>
+            <div className="flex items-center gap-2.5">
+              <Button className="min-w-0 flex-1" style={{ minHeight: 'var(--tap)' }} onClick={onCancel}>先不改</Button>
+              <Button variant="primary" className="min-w-0 flex-1" disabled={busy || !changed} style={{ minHeight: 'var(--tap)' }} onClick={() => void move(false)}>
+                {busy ? <Spinner /> : '改到这个时间'}
+              </Button>
             </div>
           </>
         )}
@@ -217,51 +213,46 @@ export function EditBookingSheet({
               和开单那一屏一模一样。改单不该有更松的口子：对技师来说，
               「被改过来一单」和「被开一单」占的是同一段时间。
             */}
-            <div className="badge badge-warn" style={{ padding: '12px 14px', lineHeight: 1.7 }}>
-              ⚠ {issue.code === 'STAFF_OVER_CAPACITY'
+            <Alert tone="warn">{issue.code === 'STAFF_OVER_CAPACITY'
                 ? '这位技师那个时段已经排满了。要放行的话，写一句为什么 —— 技师看得到这条流水。'
-                : '那个时段店里已经排满了。要放行的话，写一句为什么。'}
-            </div>
-            <div className="stack" style={{ gap: 8 }}>
+                : '那个时段店里已经排满了。要放行的话，写一句为什么。'}</Alert>
+            <div className="flex flex-col gap-2">
               {OVERRIDE_REASONS.map((r) => (
-                <button key={r.v} className="btn" onClick={() => setReason(r.v)}
+                <Button key={r.v} onClick={() => setReason(r.v)}
                         style={{
                           minHeight: 'var(--tap)', textAlign: 'left', borderWidth: 2,
                           borderColor: reason === r.v ? 'var(--brand)' : 'var(--line)',
                           background: reason === r.v ? 'var(--brand-soft)' : 'var(--surface)',
                         }}>
-                  <strong>{r.label}</strong> <span className="tiny">· {r.hint}</span>
-                </button>
+                  <strong>{r.label}</strong> <span className="text-xs text-ink-3">· {r.hint}</span>
+                </Button>
               ))}
             </div>
             {reason === 'other' && (
-              <input className="field" placeholder="写清楚原因" value={note}
+              <Field  placeholder="写清楚原因" value={note}
                      onChange={(e) => setNote(e.target.value)} />
             )}
-            <div className="row" style={{ gap: 10 }}>
-              <button className="btn grow" style={{ minHeight: 'var(--tap)' }}
-                      onClick={() => setIssue(null)}>返回</button>
-              <button className="btn btn-primary grow"
-                      disabled={busy || (reason === 'other' && !note.trim())}
-                      style={{ minHeight: 'var(--tap)' }} onClick={() => void move(true)}>
-                {busy ? <span className="spin" /> : '说明原因并放行'}
-              </button>
+            <div className="flex items-center gap-2.5">
+              <Button className="min-w-0 flex-1" style={{ minHeight: 'var(--tap)' }} onClick={() => setIssue(null)}>返回</Button>
+              <Button variant="primary" className="min-w-0 flex-1" disabled={busy || (reason === 'other' && !note.trim())} style={{ minHeight: 'var(--tap)' }} onClick={() => void move(true)}>
+                {busy ? <Spinner /> : '说明原因并放行'}
+              </Button>
             </div>
           </>
         )}
 
         {mode === 'cancel' && (
           <>
-            <div className="stack" style={{ gap: 6 }}>
-              <span className="tiny">为什么取消</span>
-              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-ink-3">为什么取消</span>
+              <div className="flex items-center gap-2 flex-wrap">
                 {CANCEL_REASONS.map((r) => (
-                  <button key={r.v} className="btn" onClick={() => setCancelReason(r.v)}
+                  <Button key={r.v} onClick={() => setCancelReason(r.v)}
                           style={{
                             minHeight: 44, borderWidth: 2,
                             borderColor: cancelReason === r.v ? 'var(--brand)' : 'var(--line)',
                             background: cancelReason === r.v ? 'var(--brand-soft)' : 'var(--surface)',
-                          }}>{r.label}</button>
+                          }}>{r.label}</Button>
                 ))}
               </div>
             </div>
@@ -272,48 +263,40 @@ export function EditBookingSheet({
               而技师可能已经做了二十分钟。门店排班会因此大乱，
               而且技师只会看到「我的轮次没了」，不知道是怎么没的。
             */}
-            <div className="card stack" style={{ padding: 14, gap: 10,
-                 background: 'var(--warn-soft)', borderColor: 'var(--warn)' }}>
+            <Card className="flex flex-col gap-2.5" style={{ padding: 14,  background: 'var(--warn-soft)', borderColor: 'var(--warn)' }}>
               <strong>技师的轮次要不要保留？</strong>
-              <div className="tiny" style={{ lineHeight: 1.6 }}>
+              <div className="text-xs text-ink-3" style={{ lineHeight: 1.6 }}>
                 他已经开始做了、或者已经为这一单空出了时间 → 选<strong>保留</strong>，
                 他的排队位置不变。<br />
                 客人根本没来、他也没耽误 → 选<strong>不保留</strong>，他回到队列里继续接下一个。
               </div>
-              <div className="row" style={{ gap: 10 }}>
+              <div className="flex items-center gap-2.5">
                 {([[true, '保留他的轮次'], [false, '不保留，他继续排队']] as const).map(([v, l]) => (
-                  <button key={String(v)} className="btn grow" onClick={() => setKeepTurn(v)}
+                  <Button className="min-w-0 flex-1" key={String(v)} onClick={() => setKeepTurn(v)}
                           style={{
                             minHeight: 'var(--tap)', borderWidth: 2,
                             borderColor: keepTurn === v ? 'var(--brand)' : 'var(--line)',
                             background: keepTurn === v ? 'var(--brand-soft)' : 'var(--surface)',
-                          }}>{l}</button>
+                          }}>{l}</Button>
                 ))}
               </div>
-            </div>
+            </Card>
 
             {cancelReason === 'other' && (
-              <input className="field" placeholder="写清楚原因" value={note}
+              <Field  placeholder="写清楚原因" value={note}
                      onChange={(e) => setNote(e.target.value)} />
             )}
 
-            <div className="row" style={{ gap: 10 }}>
-              <button className="btn grow" style={{ minHeight: 'var(--tap)' }}
-                      onClick={onCancel}>先不取消</button>
-              <button className="btn grow"
-                      disabled={busy || keepTurn === null || (cancelReason === 'other' && !note.trim())}
-                      style={{
-                        minHeight: 'var(--tap)', borderColor: 'var(--danger)',
-                        color: keepTurn === null ? undefined : 'var(--danger)', borderWidth: 2,
-                      }}
-                      onClick={() => void drop()}>
-                {busy ? <span className="spin" />
+            <div className="flex items-center gap-2.5">
+              <Button className="min-w-0 flex-1" style={{ minHeight: 'var(--tap)' }} onClick={onCancel}>先不取消</Button>
+              <Button className="min-w-0 flex-1" disabled={busy || keepTurn === null || (cancelReason === 'other' && !note.trim())} style={{ minHeight: 'var(--tap)', borderColor: 'var(--danger)', color: keepTurn === null ? undefined : 'var(--danger)', borderWidth: 2, }} onClick={() => void drop()}>
+                {busy ? <Spinner />
                   : keepTurn === null ? '先回答上面那一问' : '确认取消'}
-              </button>
+              </Button>
             </div>
           </>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

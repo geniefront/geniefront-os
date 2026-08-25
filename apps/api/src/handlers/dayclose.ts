@@ -88,10 +88,13 @@ export async function loadDayMoney(
     cash: number; card: number; tip_cash: number; tip_card: number;
   }[]>`
     select
+      -- ⚠️ **礼品卡既不是现金也不是刷卡**（批 8 收尾）。
+      -- 算进刷卡的话，晚上和刷卡机的 batch total 就永远差出这一笔 ——
+      -- 而那正是日结要发现的那种差额。external 保持原样归在刷卡侧。
       coalesce(sum(p.amount_cents) filter (where p.method = 'cash'), 0)::int as cash,
-      coalesce(sum(p.amount_cents) filter (where p.method <> 'cash'), 0)::int as card,
+      coalesce(sum(p.amount_cents) filter (where p.method not in ('cash','gift_card')), 0)::int as card,
       coalesce(sum(p.tip_cents)    filter (where p.method = 'cash'), 0)::int as tip_cash,
-      coalesce(sum(p.tip_cents)    filter (where p.method <> 'cash'), 0)::int as tip_card
+      coalesce(sum(p.tip_cents)    filter (where p.method not in ('cash','gift_card')), 0)::int as tip_card
     from payments p
     join tickets t on t.id = p.ticket_id
     where p.location_id = ${locationId}
@@ -417,10 +420,35 @@ registerHandler(FinalizeDay, async ({ input, ctx, tx, audit }: HandlerArgs<
     });
   }
 
+  /*
+   * ⭐ 礼品卡的两笔（sql/0043，批 5）。**必须分开记，不能合成一个数。**
+   *
+   *   售出 —— 钱进了但服务没做，是**负债**，不进当日营收
+   *   核销 —— 服务做了、卡上的钱转成收入，这一笔**才是**营收
+   *
+   * 合成一笔的话，一家卖了一万块卡的店会以为自己今天赚了一万，
+   * 而那一万里有一部分是明年才要付出的服务。
+   *
+   * ⚠️ 按 `location_id` 取，不是按卡的售出门店 —— org 范围的卡
+   * 在 A 店卖 B 店核销时，A 记负债、B 记收入，各算各的。
+   */
+  const [gc] = await tx<{ sold: number; redeemed: number }[]>`
+    select
+      -- ⚠️ meta->> 返回 **text**，sum(text) 直接报错。先转型再求和；
+      -- 老行没有这个 key 时 nullif 挡住空串，否则 ''::int 也会炸
+      coalesce(sum(case when entry = 'issue'
+                        then nullif(meta->>'salePriceCents', '')::int end), 0)::int as sold,
+      coalesce(-sum(case when entry = 'redeem' then amount_cents else 0 end), 0)::int as redeemed
+    from customer_credit_ledger
+    where location_id = ${ctx.locationId} and kind = 'gift_card'
+      and created_at >= ${date}::date and created_at < (${date}::date + 1)`;
+
   await tx`update day_closes set
       status = 'closed',
       expected_cash_cents = ${cash.expectedCents},
       cash_variance_cents = ${cash.varianceCents},
+      gift_card_sold_cents = ${gc?.sold ?? 0},
+      gift_card_redeemed_cents = ${gc?.redeemed ?? 0},
       gross_cents = ${money.grossCents},
       discount_cents = ${money.discountCents},
       net_cents = ${money.netCents},

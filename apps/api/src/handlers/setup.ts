@@ -5,11 +5,12 @@
  * 开单时项目名和价格已经快照进 ticket_items，改价改名都不会污染历史（02 §8）。
  */
 
+import { randomUUID } from 'node:crypto';
 import {
   SaveService, ArchiveService, SaveStaffProfile,
   SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
-  SaveOnlineBooking, AddWebOrigin, RemoveWebOrigin,
+  SaveOnlineBooking, AddWebOrigin, RemoveWebOrigin, CreateLocation,
   ROLE_PRESETS,
   AppError, ERROR_CODES, pickText,
 } from '@gf/contracts';
@@ -340,24 +341,30 @@ registerHandler(SaveOnlineBooking, async ({ input, ctx, tx, audit }: HandlerArgs
     }
   }
 
+  // 不传就跟着取消截止走 —— 两个数字对老板来说是同一件事的两面，
+  // 让他填两遍只会填出一个自相矛盾的组合（能改不能取消，或者反过来）
+  const rescheduleCutoff = input.rescheduleCutoffHours ?? input.cancelCutoffHours;
+
+  const next = {
+    enabled: input.enabled,
+    max_days_ahead: input.maxDaysAhead,
+    min_minutes_ahead: input.minMinutesAhead,
+    require_phone_verification: input.requirePhoneVerification,
+    cancel_cutoff_hours: input.cancelCutoffHours,
+    reschedule_enabled: input.rescheduleEnabled,
+    reschedule_cutoff_hours: rescheduleCutoff,
+    self_reschedule_max: input.selfRescheduleMax,
+  };
+
   await tx`update locations set
-      settings = jsonb_set(settings, '{online_booking}', ${jsonb({
-        enabled: input.enabled,
-        max_days_ahead: input.maxDaysAhead,
-        min_minutes_ahead: input.minMinutesAhead,
-        require_phone_verification: input.requirePhoneVerification,
-        cancel_cutoff_hours: input.cancelCutoffHours,
-      })}::jsonb, true),
+      settings = jsonb_set(settings, '{online_booking}', ${jsonb(next)}::jsonb, true),
       updated_at = now()
     where id = ${ctx.locationId}`;
 
   audit({
     entityType: 'location', entityId: ctx.locationId,
     before: { onlineBooking: before },
-    after: { onlineBooking: { enabled: input.enabled, maxDaysAhead: input.maxDaysAhead,
-                              minMinutesAhead: input.minMinutesAhead,
-                              requirePhoneVerification: input.requirePhoneVerification,
-                              cancelCutoffHours: input.cancelCutoffHours } },
+    after: { onlineBooking: next },
   });
   return { locationId: ctx.locationId, enabled: input.enabled };
 });
@@ -399,4 +406,118 @@ registerHandler(RemoveWebOrigin, async ({ input, ctx, tx, audit }: HandlerArgs<
     before: { origin: row.origin }, after: null,
   });
   return { id: row.id };
+});
+
+// ─────────────────────────────────────────── 同一个 org 下再开一家店（批 4）
+
+/**
+ * `location.create` —— 已登录的老板自助开第二家店。
+ *
+ * ## 和 `gf_provision_tenant()` 的分工
+ *
+ * 那个函数管**第一家店**：付款 → webhook → 建 org + 建店 + 发激活邮件。
+ * 这一条管**第二家起**：org 已经有了、老板已经登录了、卡已经绑了 ——
+ * 三样都不用再来一遍。
+ *
+ * ## ⚠️ org id 不接受入参
+ *
+ * 新店建在**调用方当前门店的同一个 org 下**（`ctx.orgId`）。
+ * 接受 org id 入参的话，「知道别人的 org id 就能往他家里塞一家店」——
+ * 而 org id 会出现在日志、支持工单、URL 里。
+ *
+ * ## 计费不在这里
+ *
+ * 这条命令**不碰 Stripe** —— 调外部 IO 会把一个数据库事务占住几秒
+ * （同 blueprint/extract 躲开的坑）。它只建出 `billing_accounts` 的
+ * 空壳，Stripe 那一步在 `POST /v1/billing/add-store` 里做。
+ * 于是「建了店但 Stripe 挂了」的结果是**一家能用但没计费的店**，
+ * 而不是「扣了钱但没店」—— 前者可以补，后者是投诉。
+ */
+registerHandler(CreateLocation, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof CreateLocation.input._type>) => {
+  const userId = ctx.userId;
+  if (!userId) {
+    throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+      details: { reason: 'requires_platform_account' },
+    });
+  }
+
+  const [cur] = await tx<{ locale: string }[]>`
+    select default_locale as locale from organizations where id = ${ctx.orgId}`;
+  const locale = input.locale ?? cur?.locale ?? 'en';
+
+  /*
+   * slug 和建第一家店时同一套：可读的前缀 + 六位随机。
+   *
+   * ⚠️ 随机后缀不能省。两家「Lotus Spa」是这行的常态（同一个老板
+   * 在两条街上各开一家，名字一模一样），纯按名字生成必然撞。
+   */
+  const base = input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const slug = `${(base || 'shop').slice(0, 40)}-${randomUUID().replace(/-/g, '').slice(0, 6)}`;
+
+  const [loc] = await tx<{ id: string }[]>`
+    insert into locations (org_id, name, slug, timezone, business_type, status, settings)
+    values (${ctx.orgId}, ${jsonb({ en: input.name })}::jsonb, ${slug},
+            ${input.timezone}, ${input.businessType}, 'setup', '{}'::jsonb)
+    returning id`;
+  const locationId = loc!.id;
+
+  // 角色预设。事实源是 ROLE_PRESETS，和认领第一家店走同一条路 ——
+  // 抄第二遍就会有一天两边不一致，而不一致的那一半是权限
+  const roleIds: Record<string, string> = {};
+  for (const [key, perms] of Object.entries(ROLE_PRESETS)) {
+    const [r] = await tx<{ id: string }[]>`
+      insert into roles (org_id, location_id, key, name, is_preset)
+      values (${ctx.orgId}, ${locationId}, ${key}, ${jsonb({ en: key })}::jsonb, true)
+      returning id`;
+    roleIds[key] = r!.id;
+    for (const p of perms) {
+      await tx`insert into role_permissions (role_id, permission) values (${r!.id}, ${p})`;
+    }
+  }
+
+  const [m] = await tx<{ id: string }[]>`
+    insert into memberships (org_id, location_id, user_id, status)
+    values (${ctx.orgId}, ${locationId}, ${userId}, 'active')
+    returning id`;
+  await tx`insert into membership_roles (membership_id, role_id)
+           values (${m!.id}, ${roleIds['owner']!})`;
+
+  // 老板的 staff_profile：`is_bookable = false`，理由同认领那一处 ——
+  // 默认打开的话他一进来轮牌板上就多了一个不该在的人
+  const [u] = await tx<{ full_name: string | null; email: string | null }[]>`
+    select full_name, email from users where id = ${userId}`;
+  const displayName = u?.full_name?.trim() || (u?.email ?? 'owner').split('@')[0]!;
+  await tx`
+    insert into staff_profiles
+      (membership_id, org_id, location_id, display_name, is_bookable, max_concurrent_appointments)
+    values (${m!.id}, ${ctx.orgId}, ${locationId}, ${jsonb({ en: displayName })}::jsonb, false, 1)`;
+
+  /*
+   * 计费壳子。
+   *
+   * ⭐ **沿用同一个 Stripe 客户** —— 一个老板一张卡一张账单。
+   * 每家店各建一个 customer 的话，他会收到三封独立的账单、
+   * 换卡要换三次，而 Stripe 后台上看不出这三家是一个人的。
+   *
+   * subscription id 先留空：这一刻还没往订阅上加 item。
+   * 补上它是 `/v1/billing/add-store` 的事。
+   */
+  const [sibling] = await tx<{ cust: string | null }[]>`
+    select stripe_customer_id as cust from billing_accounts
+    where org_id = ${ctx.orgId} and stripe_customer_id is not null limit 1`;
+  await tx`
+    insert into billing_accounts (org_id, location_id, stripe_customer_id, subscription_status)
+    values (${ctx.orgId}, ${locationId}, ${sibling?.cust ?? null}, 'trialing')
+    on conflict (location_id) do nothing`;
+
+  audit({
+    entityType: 'location', entityId: locationId,
+    after: {
+      name: input.name, slug, timezone: input.timezone,
+      businessType: input.businessType, createdBy: userId, membershipId: m!.id,
+    },
+  });
+
+  return { locationId, orgId: ctx.orgId, membershipId: m!.id, slug };
 });

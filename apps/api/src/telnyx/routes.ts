@@ -51,24 +51,58 @@ const PHONE_AI_PERMISSIONS: readonly Permission[] = [
    * 店主明确改了这条：**AI 直接建单，客人挂电话就收到确认短信**，
    * 前台在「来电记录」里知悉即可。
    *
-   * 这是本模块唯一的安全面扩大，所以配套三条约束写在这里：
+   * 这是本模块的第一次安全面扩大，配套约束见下面第 2、3 条。
    *
-   *   1. **只能建，不能改不能删。** 没有 `appointment.cancel`、
-   *      没有 `appointment.reschedule` —— 改期取消一律回前台。
-   *      建错一单可以补救，被静默改掉的单没人会发现。
+   * ⭐ **2026-08-25（批 3）：又加了 `appointment.cancel`。**
+   *
+   * 此前这里写的是「**只能建，不能改不能删**…建错一单可以补救，
+   * 被静默改掉的单没人会发现」。店主明确要求 AI 能在电话里改期和取消，
+   * 所以那一条被推翻了。但**那句顾虑本身是对的**，所以下面第 4 条是
+   * 专门冲着它去的 —— 不是把它划掉了事。
+   *
+   *   1. **改期 / 取消受一整组老板可配的闸门约束**，见 §aiChangeGate。
+   *      `locations.settings.ai_change.enabled` **默认 false** ——
+   *      没进过那一页的店，AI 一律只能往复核队列里提请求。
    *   2. **永不传 override。** 软约束放行需要一个知道店里现在什么情况的人，
    *      电话那头没有这个人（同公开预约页的口径）。
    *   3. **时间只能来自 find_slots。** AI 报的每一个时段都必须是引擎返回的，
    *      book_appointment 会再校验一次 slot 是否仍然可用。
+   *   4. ⭐ **「静默」那一半靠这三样堵**：每一次变更都是一条命令 →
+   *      有审计（谁、什么时候、从哪个时间改到哪个时间）；前台的
+   *      「☎️ 待复核」里能看到被拦下的请求和拦它的理由；
+   *      而**客人侧的变更通知**留到批 7（通知模板）——
+   *      ⚠️ 在批 7 落地之前，AI 改期/取消是**不会**通知客人的，
+   *      给店家开这个开关时要说清楚这一点。
    *
    * 仍然**没有** `customer.view_contact`：AI 用号码查人，但念不出完整号码。
    */
   'appointment.write',
+  'appointment.cancel',
   'call.draft',
   'appointment.read',
   'customer.read',
   'schedule.read',
 ];
+
+/**
+ * 开场白模板渲染。**纯字符串替换，不调模型。**
+ *
+ * `{{caller_name}}` 在这里**渲染不掉** —— 接起电话那一刻我们还不知道
+ * 来电者叫什么（`lookup_customer` 是之后才跑的）。原样留给 Telnyx 那边，
+ * 它拿得到通话上下文。留着比替换成空字符串好：至少 AI 看得出这里
+ * 本该有个名字，而不是收到一句语法不通的话。
+ */
+function renderGreeting(
+  template: string | null, storeName: string, assistantName: string | null,
+): string {
+  const dflt = assistantName
+    ? `Thank you for calling ${storeName}! This is ${assistantName}, how can I help you today?`
+    : `Thank you for calling ${storeName}! How can I help you today?`;
+  if (!template) return dflt;
+  return template
+    .replaceAll('{{store_name}}', storeName)
+    .replaceAll('{{assistant_name}}', assistantName ?? '');
+}
 
 interface Tenant {
   orgId: string;
@@ -398,6 +432,26 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
         limit 1`);
 
     const businessDate = businessDateOf(new Date(), t.timezone, loc?.cutoff ?? '04:00');
+
+    /*
+     * ⭐ 开场白（批 3）。老板在后台配三样东西：助手名、开场白、
+     * 以及「让不让 AI 自己生成欢迎语」。
+     *
+     * ⚠️ **这里不调模型。** 生成欢迎语交给 Telnyx 那边的 assistant ——
+     * 我们只把「原料」和「怎么用」告诉它。理由是这段话要在客人
+     * 拿起电话的**第一秒**说出口，多一次我们这边的模型往返就是
+     * 一秒半的静默，而静默的那一秒客人会以为没接通。
+     */
+    const [line] = await withTenant(
+      { orgId: t.orgId, locationId: t.locationId, membershipId: null },
+      (tx) => tx<{
+        assistant_name: string | null; greeting_template: string | null;
+        greeting_ai_generated: boolean; ai_answer: boolean;
+      }[]>`
+        select assistant_name, greeting_template, greeting_ai_generated, ai_answer
+        from phone_lines
+        where location_id = ${t.locationId} and purpose = 'ai_voice' and active
+        limit 1`);
     const [callers, price, staff] = await Promise.all([
       loadCallers(t, str(body['from'])),
       loadPriceList(t, undefined),
@@ -454,6 +508,27 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
       transfer: {
         available: Boolean(transferLine?.e164),
         e164: transferLine?.e164 ?? null,
+      },
+      /**
+       * 开场白（批 3）。三种情况，AI 按 `mode` 决定怎么用 `text`：
+       *
+       *   `verbatim`  —— 老板写了逐字稿，**一字不改地念**
+       *   `generate`  —— 老板开了「AI 生成」，`text` 是**语气参考**：
+       *                  按这个调子自己组织，可以带上时段和「是不是老客」
+       *   `default`   —— 老板什么都没配，用下面这句
+       *
+       * ⚠️ `aiAnswer = false` 时整个 AI 应答该关掉 —— 这是老板的
+       * 日常开关（今天人手够 / AI 说错话了先关掉），和「这号不属于本店」
+       * （`active = false`）不是一回事。
+       */
+      greeting: {
+        aiAnswer: line?.ai_answer ?? true,
+        assistantName: line?.assistant_name || null,
+        mode: line?.greeting_ai_generated
+          ? 'generate'
+          : (line?.greeting_template ? 'verbatim' : 'default'),
+        text: renderGreeting(
+          line?.greeting_template || null, t.name, line?.assistant_name || null),
       },
     };
   });
@@ -635,6 +710,279 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
         + 'never say it is booked.',
     };
   };
+
+  // ─────────────────────────── 改期 / 取消（批 3，docs/09 §5）────────────
+  //
+  // ## ⭐ 为什么这三条的闸门比建单严得多
+  //
+  // AI 建错单只是「往前台的待办里塞垃圾」—— 前台看一眼就删了。
+  // AI **取消**错单是**把真实的生意删掉**：那一格没人用、钱收不到、
+  // 技师白等，而客人下午照常出现在门口。两件事不能用同一套宽松度。
+  //
+  // ## 条件全部由老板设，代码里不写死
+  //
+  // 一家两个技师的小店和一家二十人的店，对「AI 自作主张取消一单」的
+  // 容忍度差一个数量级。判据读 `locations.settings.ai_change`
+  // （`location.saveAiChangePolicy` 写），**默认 enabled = false** ——
+  // 没进过那一页的店，AI 一律只能提请求。
+
+  interface AiChangePolicy {
+    enabled: boolean;
+    allowReschedule: boolean;
+    allowCancel: boolean;
+    requireExactCaller: boolean;
+    requireSingleUpcoming: boolean;
+    minHoursAhead: number;
+    blockGroup: boolean;
+    blockSameDay: boolean;
+  }
+
+  /** 读策略。缺字段一律按**最保守**的那一边兜底 */
+  async function aiChangePolicy(t: Tenant): Promise<AiChangePolicy> {
+    const [loc] = await withTenant(
+      { orgId: t.orgId, locationId: t.locationId, membershipId: null },
+      (tx) => tx<{ settings: Record<string, unknown> }[]>`
+        select settings from locations where id = ${t.locationId}`);
+    const raw = ((loc?.settings ?? {})['ai_change'] ?? {}) as Record<string, unknown>;
+    const bool = (v: unknown, dflt: boolean) => (typeof v === 'boolean' ? v : dflt);
+    const int = (v: unknown, dflt: number) =>
+      (typeof v === 'number' && Number.isFinite(v) ? v : dflt);
+    return {
+      enabled: bool(raw['enabled'], false),
+      allowReschedule: bool(raw['allow_reschedule'], true),
+      allowCancel: bool(raw['allow_cancel'], false),
+      requireExactCaller: bool(raw['require_exact_caller'], true),
+      requireSingleUpcoming: bool(raw['require_single_upcoming'], true),
+      minHoursAhead: int(raw['min_hours_ahead'], 24),
+      blockGroup: bool(raw['block_group'], true),
+      blockSameDay: bool(raw['block_same_day'], true),
+    };
+  }
+
+  interface UpcomingRow {
+    id: string; starts_at: string; business_date: string;
+    phone: string | null; group_id: string | null;
+    service_name: unknown; staff_name: unknown;
+  }
+
+  /** 这个来电号码名下、将来还没开始的单（最早的在前） */
+  async function upcomingFor(t: Tenant, fromE164: string): Promise<UpcomingRow[]> {
+    return withTenant(
+      { orgId: t.orgId, locationId: t.locationId, membershipId: null },
+      (tx) => tx<UpcomingRow[]>`
+        select distinct on (a.id)
+               a.id, a.starts_at::text as starts_at, a.business_date::text as business_date,
+               c.phone_e164 as phone, tg.id as group_id,
+               s.name as service_name, sp.display_name as staff_name
+        from appointments a
+        join customers c on c.id = a.customer_id
+        left join appointment_items ai on ai.appointment_id = a.id and ai.status <> 'cancelled'
+        left join services s on s.id = ai.service_id
+        left join staff_profiles sp on sp.membership_id = ai.membership_id
+        left join tickets tk on tk.appointment_id = a.id and tk.status <> 'voided'
+        left join ticket_groups tg on tg.id = tk.group_id
+        where a.location_id = ${t.locationId}
+          and c.phone_e164 = ${fromE164}
+          and a.status not in ('cancelled', 'completed')
+          and a.starts_at > now()
+        order by a.id, a.starts_at`);
+  }
+
+  /**
+   * 判断这次能不能让 AI 直接动手。
+   *
+   * 返回 `null` = 放行；返回一个字符串 = 拦下的原因，调用方据此落队列。
+   * **顺序是从"最不可能放行"到"最可能"**，这样 gate_reason 报的是
+   * 最根本的那条原因，而不是碰巧先撞上的那条。
+   */
+  function aiChangeGate(
+    p: AiChangePolicy, kind: 'reschedule' | 'cancel',
+    appt: UpcomingRow, upcomingCount: number, fromE164: string, todayBusinessDate: string,
+  ): string | null {
+    if (!p.enabled) return 'disabled';
+    if (kind === 'reschedule' && !p.allowReschedule) return 'not_allowed';
+    if (kind === 'cancel' && !p.allowCancel) return 'not_allowed';
+
+    // ⚠️ 不做模糊匹配、不做姓名匹配。号码不等就是不等 ——
+    // 「听起来像本人」不是身份证明
+    if (p.requireExactCaller && appt.phone !== fromE164) return 'caller_mismatch';
+    if (p.requireSingleUpcoming && upcomingCount > 1) return 'multiple_upcoming';
+    if (p.blockSameDay && appt.business_date === todayBusinessDate) return 'same_day';
+    if (p.blockGroup && appt.group_id) return 'group_ticket';
+
+    if (p.minHoursAhead > 0) {
+      const hours = (new Date(appt.starts_at).getTime() - Date.now()) / 3600_000;
+      if (hours < p.minHoursAhead) return 'too_soon';
+    }
+    return null;
+  }
+
+  /** 落一条变更请求进复核队列，并给 AI 一句能直接说出口的话 */
+  async function queueChange(
+    t: Tenant, ctx: CommandContext, body: Record<string, unknown>,
+    kind: 'reschedule' | 'cancel', targetId: string | null, gateReason: string,
+  ) {
+    const callId = str(body['call_session_id']) ?? str(body['call_control_id']);
+    const out = await dispatch<{ draftId: string }>('call.draftAppointment', {
+      providerCallId: callId,
+      fromE164: str(body['from']),
+      kind,
+      targetAppointmentId: targetId,
+      requestedText: str(body['requested_text']) ?? str(body['time_heard']) ?? null,
+      timeHeard: str(body['time_heard']),
+      slotStartsAt: str(body['slot_starts_at']) ?? null,
+      callerNameHeard: str(body['caller_name']),
+      gateReason,
+      notes: str(body['notes']),
+      confidenceBp: num(body['confidence_bp']) ?? 10000,
+    }, ctx, {
+      idempotencyKey: callId
+        ? `telnyx-${kind}-${callId}` : crypto.randomUUID(),
+    });
+
+    return {
+      ok: true,
+      applied: false,
+      draftId: out.result.draftId,
+      gateReason,
+      // ⚠️ 措辞在这里定死。让模型自己组织的话，它会说成
+      // 「已经帮您取消了」—— 而那一单还好好地在日程表上
+      say: kind === 'cancel'
+        ? "I've passed that on to the front desk. They'll call you right back to confirm the "
+          + "cancellation — your appointment is still on until they do."
+        : "I've passed that on to the front desk. They'll call you right back to confirm the new "
+          + 'time — your original appointment is still on until they do.',
+      guidance: 'This did NOT change anything. Say the front desk will call back to confirm; '
+        + 'never say it is cancelled or moved.',
+    };
+  }
+
+  // ── tool：找到「你的那一单」（只读）─────────────────────────────────────
+  app.post('/v1/telnyx/tools/find_my_appointment', async (req) => {
+    const body = verified(req);
+    const t = await tenantForTool(body);
+    const from = str(body['from']);
+    if (!from) {
+      return {
+        ok: false, appointments: [],
+        say: "I couldn't see the number you're calling from. Let me have the front desk call you back.",
+        guidance: 'Call request_callback.',
+      };
+    }
+
+    const rows = await upcomingFor(t, from);
+    return {
+      ok: true,
+      shop: shopOf(t),
+      appointments: rows.map((r) => ({
+        appointmentId: r.id,
+        startsAt: r.starts_at,
+        serviceName: r.service_name ? pickText(r.service_name, 'en') : null,
+        staffName: r.staff_name ? pickText(r.staff_name, 'en') : null,
+      })),
+      /**
+       * ⚠️ 名下多于一单时**必须让 AI 在电话里问是哪一个**。
+       * 替他挑一个的后果是改错单 —— 而客人要到当天才发现。
+       */
+      guidance: rows.length > 1
+        ? 'They have more than one upcoming appointment. Read them back and ask which one '
+          + 'before calling reschedule_appointment or cancel_appointment.'
+        : rows.length === 1
+          ? 'Exactly one upcoming appointment. Confirm it back to them before changing anything.'
+          : 'No upcoming appointment on this number. Do not guess — offer to book a new one.',
+    };
+  });
+
+  // ── tool：改期 ──────────────────────────────────────────────────────────
+  app.post('/v1/telnyx/tools/reschedule_appointment', async (req) => {
+    const body = verified(req);
+    const t = await tenantForTool(body);
+    const ctx = systemContext(t);
+    return changeTool(t, ctx, body, 'reschedule');
+  });
+
+  // ── tool：取消 ──────────────────────────────────────────────────────────
+  app.post('/v1/telnyx/tools/cancel_appointment', async (req) => {
+    const body = verified(req);
+    const t = await tenantForTool(body);
+    const ctx = systemContext(t);
+    return changeTool(t, ctx, body, 'cancel');
+  });
+
+  async function changeTool(
+    t: Tenant, ctx: CommandContext, body: Record<string, unknown>,
+    kind: 'reschedule' | 'cancel',
+  ) {
+    const from = str(body['from']);
+    const targetId = str(body['appointment_id']) ?? null;
+    const newStart = str(body['slot_starts_at']);
+
+    if (!from) return queueChange(t, ctx, body, kind, targetId, 'caller_mismatch');
+    if (kind === 'reschedule' && !newStart) {
+      return {
+        ok: false, applied: false,
+        say: 'What day and time would work better for you?',
+        guidance: 'Call find_slots first, then reschedule_appointment with slot_starts_at.',
+      };
+    }
+
+    const upcoming = await upcomingFor(t, from);
+    // AI 给了 id 就用它，没给且名下只有一单就用那一单 ——
+    // ⚠️ 名下多于一单且没给 id 时**绝不替他挑**，直接落队列
+    const appt = targetId
+      ? upcoming.find((r) => r.id === targetId) ?? null
+      : (upcoming.length === 1 ? upcoming[0]! : null);
+
+    if (!appt) {
+      return queueChange(t, ctx, body, kind, targetId,
+        upcoming.length > 1 ? 'multiple_upcoming' : 'not_found');
+    }
+
+    const p = await aiChangePolicy(t);
+    const [loc] = await withTenant(
+      { orgId: t.orgId, locationId: t.locationId, membershipId: null },
+      (tx) => tx<{ tz: string; cutoff: string }[]>`
+        select timezone as tz, business_day_cutoff::text as cutoff
+        from locations where id = ${t.locationId}`);
+    const today = businessDateOf(new Date(), loc?.tz ?? 'UTC', loc?.cutoff ?? '04:00');
+
+    const blocked = aiChangeGate(p, kind, appt, upcoming.length, from, today);
+    if (blocked) return queueChange(t, ctx, body, kind, appt.id, blocked);
+
+    // ── 闸门全过 → 真的执行 ────────────────────────────────────────────
+    try {
+      if (kind === 'cancel') {
+        await dispatch('appointment.cancel', {
+          appointmentId: appt.id,
+          reason: 'guest_changed_mind',
+          // 离开始还有 minHoursAhead 小时，技师根本没碰这一单（同公开入口）
+          keepStaffTurn: false,
+        }, ctx);
+        return {
+          ok: true, applied: true, appointmentId: appt.id,
+          say: "All set — I've cancelled that for you. You'll get a confirmation shortly.",
+          guidance: 'The appointment IS cancelled. Do not also call request_callback.',
+        };
+      }
+
+      await dispatch('appointment.reschedule', {
+        appointmentId: appt.id, startsAt: newStart!,
+      }, ctx);
+      return {
+        ok: true, applied: true, appointmentId: appt.id, startsAt: newStart,
+        say: "All set — I've moved your appointment. You'll get a confirmation shortly.",
+        guidance: 'The appointment IS moved. Do not also call request_callback.',
+      };
+    } catch (e) {
+      /*
+       * ⚠️ 执行失败**不要把错误抛给模型** —— 它会在电话里说
+       * 「系统出错了」，客人听到的是这家店不靠谱。
+       * 落一条队列，让前台回电，AI 说的还是那句「已转前台」。
+       */
+      app.log.warn({ err: e, kind, appointmentId: appt.id }, 'ai change failed, queued instead');
+      return queueChange(t, ctx, body, kind, appt.id, 'execute_failed');
+    }
+  }
 
   app.post('/v1/telnyx/tools/request_callback', requestCallback);
   app.post('/v1/telnyx/tools/draft_appointment', requestCallback);

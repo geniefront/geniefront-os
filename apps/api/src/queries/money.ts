@@ -417,8 +417,11 @@ export async function loadReport(
   // 的金额按收款行数翻倍，而且翻得毫无规律
   const paysByDay = await tx<{ d: string; cash: number; card: number }[]>`
     select t.business_date::text as d,
-           coalesce(sum(p.amount_cents) filter (where p.method = 'cash'), 0)::int as cash,
-           coalesce(sum(p.amount_cents) filter (where p.method <> 'cash'), 0)::int as card
+           -- ⚠️ **礼品卡既不是现金也不是刷卡**（批 8 收尾）。
+      -- 算进刷卡的话，晚上和刷卡机的 batch total 就永远差出这一笔 ——
+      -- 而那正是日结要发现的那种差额。external 保持原样归在刷卡侧。
+      coalesce(sum(p.amount_cents) filter (where p.method = 'cash'), 0)::int as cash,
+           coalesce(sum(p.amount_cents) filter (where p.method not in ('cash','gift_card')), 0)::int as card
     from payments p
     join tickets t on t.id = p.ticket_id
     where t.location_id = ${ctx.locationId}

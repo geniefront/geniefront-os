@@ -4,6 +4,10 @@
  * 一个人可以在多家店、甚至不同老板的店有身份。只有一条就直接进，
  * 多条才出这一屏 —— 单店老板永远看不到「组织」这个概念。
  */
+import { ChevronRight } from 'lucide-react';
+import { Button } from '../ui/Button';
+import { Card } from '../ui/Card';
+import { Badge } from '../ui/Badge';
 import type { LocationMembership } from '../lib/api';
 import type { makeT, Locale } from '../i18n';
 
@@ -19,38 +23,38 @@ export function LocationPicker({
   const name = (n: Record<string, string>) => n[locale] ?? n['zh-Hans'] ?? n['en'] ?? '—';
 
   return (
-    <div className="center-page">
-      <div className="stack" style={{ width: 'min(560px, 100%)', gap: 18 }}>
-        <div className="stack" style={{ gap: 4 }}>
-          <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 800 }}>{t('loc.title')}</div>
-          <div className="muted">{t('loc.subtitle')}</div>
+    <div className="grid min-h-full place-items-center p-6">
+      <div className="flex w-[min(560px,100%)] flex-col gap-5">
+        <div className="flex flex-col gap-1">
+          <div className="text-2xl font-extrabold tracking-[-0.03em]">{t('loc.title')}</div>
+          <div className="text-xs text-ink-2">{t('loc.subtitle')}</div>
         </div>
 
         {locations.length === 0 && (
-          <div className="card" style={{ padding: 24 }}>{t('loc.none')}</div>
+          <Card className="p-6 text-sm">{t('loc.none')}</Card>
         )}
 
-        <div className="stack">
+        <div className="flex flex-col gap-3">
           {locations.map((m) => (
-            <button key={m.membershipId} className="card row" onClick={() => onPick(m)}
-                    style={{ minHeight: 88, padding: '16px 20px', textAlign: 'left',
-                             cursor: 'pointer', gap: 16 }}>
-              <div className="grow stack" style={{ gap: 6 }}>
-                <span style={{ fontSize: 'var(--text-xl)', fontWeight: 700 }}>
-                  {name(m.locationName)}
-                </span>
-                <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                  {m.roleKeys.map((r) => (
-                    <span key={r} className="badge badge-soft">{t(`role.${r}`)}</span>
-                  ))}
+            // 整张卡可点 —— 看起来能点的区域和真的能点的区域必须一样大
+            <Card key={m.membershipId} asChild>
+              <button type="button" onClick={() => onPick(m)}
+                      className="flex min-h-[88px] w-full cursor-pointer items-center gap-4 px-5 py-4 text-left hoverable:hover:border-ink-3/40">
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <span className="text-xl font-bold tracking-[-0.02em]">{name(m.locationName)}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {m.roleKeys.map((r) => (
+                      <Badge key={r} tone="brand">{t(`role.${r}`)}</Badge>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <span className="badge badge-mute">{t('loc.enter')} ›</span>
-            </button>
+                <Badge tone="mute">{t('loc.enter')}<ChevronRight size={13} /></Badge>
+              </button>
+            </Card>
           ))}
         </div>
 
-        <button className="btn btn-ghost" onClick={onSignOut}>{t('auth.signOut')}</button>
+        <Button variant="ghost" onClick={onSignOut}>{t('auth.signOut')}</Button>
       </div>
     </div>
   );

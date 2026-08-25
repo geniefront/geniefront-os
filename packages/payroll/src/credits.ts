@@ -101,8 +101,30 @@ export function planQuota(plan: string): PlanQuota {
   return isPlan(plan) ? PLAN_QUOTAS[plan] : PLAN_QUOTAS.essential;
 }
 
-export function includedFor(plan: string, unit: QuotaUnit): number {
-  const q = planQuota(plan);
+/**
+ * ⭐ **试用期额度是单独一档，不是套餐额度按天折算。**
+ *
+ * 七天给 Essential 一整期的额度，等于白送一个月的量给一个还没付钱的人 ——
+ * 而 AI 语音一分钟 $0.062，这是可以被薅的（`04` §4.2）。
+ * 按天折算（500/30×7 ≈ 117）也不对：那是个会随套餐定价漂动的隐式公式，
+ * 改一次套餐额度就会顺带改掉试用成本，而没有人会想到去看。
+ *
+ * 所以写死两个数，理由各自说清楚：
+ *   · **150 积分** —— 副驾一次 1 积分，够他把前台的活真的过一遍
+ *   · **20 分钟** —— AI 电话一通约 3 分钟，够接六七通。
+ *     少于这个数他试不出「AI 到底能不能接住我的电话」，
+ *     多于这个数就够一家小店白用一周
+ *
+ * 试用期**超额直接拒绝，不自动续充**（见 `chargeQuota` 的 trialing 分支）：
+ * 一个还没付过一分钱的账户不该能触发自动扣款。
+ */
+export const TRIAL_QUOTA: PlanQuota = { credits: 150, voiceMinutes: 20 };
+
+/** 试用期天数。改这个数要同步改 Stripe Checkout 的 trial_period_days */
+export const TRIAL_DAYS = 7;
+
+export function includedFor(plan: string, unit: QuotaUnit, trialing = false): number {
+  const q = trialing ? TRIAL_QUOTA : planQuota(plan);
   return unit === 'credit' ? q.credits : q.voiceMinutes;
 }
 

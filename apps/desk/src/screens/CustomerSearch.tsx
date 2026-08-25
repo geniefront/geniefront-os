@@ -9,7 +9,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Search, TriangleAlert, ChevronRight, Star, UserPlus } from 'lucide-react';
 import { apiGet } from '../lib/api';
+import { Button } from '../ui/Button';
+import { Field } from '../ui/Field';
+import { Card } from '../ui/Card';
+import { Badge } from '../ui/Badge';
+import { Page, PageHeader, Empty } from '../ui/Page';
 import type { makeT } from '../i18n';
 
 export interface CustomerHit {
@@ -83,113 +89,103 @@ export function CustomerSearch({
     && hits.every((h) => h.phoneE164 === hits[0]!.phoneE164);
 
   return (
-    <div className="stack" style={{ maxWidth: 760, margin: '0 auto', padding: '20px 16px 40px' }}>
-      <h1 style={{ fontSize: 'var(--text-2xl)', margin: '4px 0 0' }}>{t('cust.title')}</h1>
+    <Page className="mx-auto max-w-[760px]">
+      <PageHeader
+        title={t('cust.title')}
+        sub={<span className="flex items-center gap-1.5">
+          <kbd className="rounded-sm border border-line-2 bg-sunken px-1.5 py-0.5 font-mono text-2xs">/</kbd>
+          回到搜索框
+          <kbd className="ml-1.5 rounded-sm border border-line-2 bg-sunken px-1.5 py-0.5 font-mono text-2xs">Enter</kbd>
+          搜索
+        </span>}
+      />
 
-      <form
-        className="row"
-        onSubmit={(e) => { e.preventDefault(); setSubmitted(term); }}
-      >
-        <input
-          ref={inputRef}
-          className="field field-mono grow"
-          inputMode="tel"
-          autoComplete="off"
-          placeholder={t('cust.searchHint')}
-          value={term}
-          onChange={(e) => setTerm(e.target.value)}
-          aria-label={t('cust.searchHint')}
-        />
-        <button className="btn btn-primary" type="submit" disabled={term.trim().length < 2}>
-          {q.isFetching ? <span className="spin" /> : t('cust.search')}
-        </button>
+      <form className="flex items-center gap-3"
+            onSubmit={(e) => { e.preventDefault(); setSubmitted(term); }}>
+        <div className="relative flex-1">
+          <Search size={17}
+                  className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3" />
+          <Field
+            ref={inputRef}
+            mono
+            className="pl-11"
+            inputMode="tel"
+            autoComplete="off"
+            placeholder={t('cust.searchHint')}
+            value={term}
+            onChange={(e) => setTerm(e.target.value)}
+            aria-label={t('cust.searchHint')}
+          />
+        </div>
+        <Button type="submit" variant="primary" disabled={term.trim().length < 2}>
+          {q.isFetching ? '…' : t('cust.search')}
+        </Button>
       </form>
 
-      <div className="tiny row" style={{ gap: 8, marginTop: -4 }}>
-        <kbd>/</kbd> 回到搜索框 · <kbd>Enter</kbd> 搜索
-      </div>
-
-      {/* ⚠️ 同号多人：颜色 + 图标 + 文字三重提示，不只靠颜色 */}
+      {/* ⚠️ 同号多人：颜色 + 图标 + 文字三重提示，不只靠颜色（宪法第 11 条） */}
       {samePhone && (
-        <div
-          className="card"
-          style={{ background: 'var(--warn-soft)', borderColor: 'var(--warn)', padding: 16 }}
-          role="status"
-        >
-          <div className="row" style={{ alignItems: 'flex-start', gap: 12 }}>
-            <span aria-hidden style={{ fontSize: 26, lineHeight: 1 }}>⚠️</span>
-            <div className="grow">
-              <div style={{ fontWeight: 800, color: 'var(--warn)', fontSize: 'var(--text-lg)' }}>
-                {t('cust.multiWarn', { n: hits.length })}
-              </div>
-              <div className="tiny" style={{ color: 'var(--warn)', marginTop: 2 }}>
-                {t('cust.multiHelp')}
-              </div>
+        <div role="status"
+             className="mt-4 flex items-start gap-3 rounded-lg border border-warn bg-warn-soft p-4">
+          <TriangleAlert size={22} className="mt-0.5 shrink-0 text-warn" />
+          <div className="min-w-0 flex-1">
+            <div className="text-lg font-extrabold text-warn">
+              {t('cust.multiWarn', { n: hits.length })}
             </div>
+            <div className="mt-0.5 text-xs text-warn">{t('cust.multiHelp')}</div>
           </div>
         </div>
       )}
 
       {q.isError && (
-        <div className="card" style={{ padding: 16, borderColor: 'var(--danger)' }}>
-          <div className="row">
-            <span className="grow">{t('common.error')}</span>
-            <button className="btn" onClick={() => q.refetch()}>{t('common.retry')}</button>
-          </div>
-        </div>
+        <Card className="mt-4 flex items-center gap-3 border-danger p-4">
+          <span className="flex-1 text-sm">{t('common.error')}</span>
+          <Button size="sm" onClick={() => q.refetch()}>{t('common.retry')}</Button>
+        </Card>
       )}
 
-      <div className="stack">
+      <div className="mt-4 flex flex-col gap-2.5">
         {hits.map((c) => (
-          <button
-            key={c.id}
-            className="card row"
-            onClick={() => onPick(c)}
-            style={{
-              minHeight: 88, padding: '14px 18px', textAlign: 'left',
-              cursor: 'pointer', border: '1px solid var(--line)', gap: 16,
-            }}
-          >
-            <div className="grow stack" style={{ gap: 4 }}>
-              <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 'var(--text-xl)', fontWeight: 700 }}>{c.displayName}</span>
-                {c.noShowCount >= 2 && (
-                  // 高亮但不阻断（00 §1.9）——由前台决定是否接待
-                  <span className="badge badge-danger">🔴 {t('cust.noShow', { n: c.noShowCount })}</span>
-                )}
-                {c.tags.includes('vip') && <span className="badge badge-soft">★ VIP</span>}
+          // 整张卡可点 —— 看起来能点的区域和真的能点的区域必须一样大
+          <Card key={c.id} asChild>
+            <button type="button" onClick={() => onPick(c)}
+                    className="flex min-h-[88px] w-full cursor-pointer items-center gap-4 px-5 py-3.5 text-left hoverable:hover:border-ink-3/40">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <span className="text-xl font-bold tracking-[-0.02em]">{c.displayName}</span>
+                  {c.noShowCount >= 2 && (
+                    // 高亮但不阻断（00 §1.9）—— 由前台决定是否接待
+                    <Badge tone="danger">{t('cust.noShow', { n: c.noShowCount })}</Badge>
+                  )}
+                  {c.tags.includes('vip') && <Badge tone="brand"><Star size={11} />VIP</Badge>}
+                </div>
+                <div className="flex flex-wrap items-center gap-3.5 text-xs text-ink-2">
+                  <span className="tnum font-semibold">{prettyPhone(c.phoneE164)}</span>
+                  <span>
+                    {c.lastVisitOn
+                      ? `${t('cust.lastVisit')} ${daysAgo(c.lastVisitOn)}${c.lastStaffName ? ` · ${c.lastStaffName}` : ''}`
+                      : t('cust.never')}
+                  </span>
+                </div>
               </div>
-              <div className="row muted" style={{ gap: 14, fontSize: 'var(--text-sm)' }}>
-                <span className="field-mono" style={{ fontWeight: 600 }}>{prettyPhone(c.phoneE164)}</span>
-                <span>
-                  {c.lastVisitOn
-                    ? `${t('cust.lastVisit')} ${daysAgo(c.lastVisitOn)}${c.lastStaffName ? ` · ${c.lastStaffName}` : ''}`
-                    : t('cust.never')}
-                </span>
-              </div>
-            </div>
-            <span className="badge badge-mute">{t('cust.select')} ›</span>
-          </button>
+              <Badge tone="mute">{t('cust.select')}<ChevronRight size={13} /></Badge>
+            </button>
+          </Card>
         ))}
 
         {submitted && !q.isFetching && hits.length === 0 && (
-          <div className="card" style={{ padding: 20, textAlign: 'center' }}>
-            <div className="muted">{t('cust.noResult')}</div>
-          </div>
+          <Empty icon={<Search size={30} />} title={t('cust.noResult')} />
         )}
       </div>
 
       {/* 新建 / 匿名 walk-in 永远在手边：找不到人时不该让前台卡住 */}
       {submitted.trim().length >= 2 && !q.isFetching && (
-        <div className="row" style={{ gap: 12 }}>
-          <button className="btn btn-primary grow" onClick={() => onPick(null)}>
-            ＋ {t('cust.new')}
-          </button>
-          <button className="btn grow" onClick={() => onPick(null)}>
-            {t('cust.anonymous')}
-          </button>
+        <div className="mt-4 flex items-center gap-3">
+          <Button variant="primary" className="flex-1" onClick={() => onPick(null)}>
+            <UserPlus size={17} />{t('cust.new')}
+          </Button>
+          <Button className="flex-1" onClick={() => onPick(null)}>{t('cust.anonymous')}</Button>
         </div>
       )}
-    </div>
+    </Page>
   );
 }

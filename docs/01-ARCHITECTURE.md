@@ -453,20 +453,22 @@ turn_events: (location, business_date, staff_id, delta, reason, ticket_id, actor
 
 ---
 
-## 13. 与网站编辑器的契约
+## 13. 门店官网：只有两层，没有编辑器
 
-网站编辑器是独立产品，只通过**公开预约 API** 集成，不共享数据库连接：
+**2026-08-25 决策：不做网站编辑器。** 不做模板、不做拖拽、不做实时预览、不做发布回滚、
+不做自定义域名。那是个无底洞，而且做完店主还是做不出好看的东西。
 
-```
-GET  /public/v1/locations/:slug/services         项目与价格
-GET  /public/v1/locations/:slug/availability     ← 调用同一个 scheduling 包
-POST /public/v1/bookings                         创建预约（带 idempotency key）
-POST /public/v1/bookings/:id/cancel
-```
+取而代之的是两层，中间那层**故意留空**：
 
-- 通过 `location.public_key` 鉴权 + 域名白名单 + 速率限制 + 机器人防护（Turnstile）
-- 编辑器侧只需一个 `<script>` 嵌入组件或跳转托管预约页
-- 预约创建后走同一个命令 → 同一套确认短信/邮件 → 前台实时看到
+| 层 | 有没有 | 是什么 |
+| :--- | :--- | :--- |
+| **默认层** | ✅ 已完成 | `apps/booking` —— 黑白 / 毛玻璃两套外观，URL 参数可调，可嵌 iframe 也可独立打开。开箱即用，不需要店主做任何设计动作 |
+| **配置层** | ⛔ **故意不做** | 店主不能自己调颜色、改排版、拖组件 |
+| **定制层** | 🚧 批 8 | **建站工单**（`storefront_briefs`）—— 店主填一张结构化需求单，AI 出三版，人工精修后上线。见 `docs/17` |
+
+第三方官网（`lotusnails.com` 这种）仍然通过**公开预约 API** 集成，契约见
+[`13-PUBLIC-BOOKING-API.md`](13-PUBLIC-BOOKING-API.md)。那一份没有变化 ——
+变的只是「我们自己不提供编辑器」。
 
 ---
 

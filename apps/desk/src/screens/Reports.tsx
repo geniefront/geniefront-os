@@ -10,8 +10,16 @@
  */
 
 import { useState } from 'react';
+import { Download, CircleAlert, TriangleAlert } from 'lucide-react';
 import { API_BASE } from '../lib/api';
 import { supabase } from '../lib/supabase';
+import { Button } from '../ui/Button';
+import { Card } from '../ui/Card';
+import { Badge } from '../ui/Badge';
+import { Table, Row } from '../ui/Table';
+import { Page, PageHeader, Section, Label } from '../ui/Page';
+import { Segmented } from '../ui/Segmented';
+import { cn } from '../ui/cn';
 
 const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 
@@ -73,6 +81,19 @@ export function Reports({
   };
 
   /**
+   * 现在选的是哪一档。
+   *
+   * ⚠️ 不能让这一组按钮「一个都没选中」—— 它在读屏软件里是一个
+   * radiogroup，全空等于告诉使用者「当前没有时间范围」，
+   * 而屏幕上明明正显示着某一段的数。日期是从服务端回来的，
+   * 所以这里反推：区间跨了几天就是哪一档。
+   */
+  const spanDays = Math.round(
+    (Date.parse(`${data.toDate}T00:00:00Z`) - Date.parse(`${data.fromDate}T00:00:00Z`))
+    / 86_400_000) + 1;
+  const activePreset = [1, 7, 30].includes(spanDays) ? String(spanDays) : 'custom';
+
+  /**
    * 导出。带着 Authorization 头 fetch 再造 blob，而不是直接开一个链接 ——
    * 接口要令牌，`<a href>` 带不上头。
    */
@@ -102,23 +123,36 @@ export function Reports({
   const s = data.summary;
 
   return (
-    <div className="stack" style={{ padding: '0 16px 24px', gap: 14 }}>
-      <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: 'var(--text-xl)' }}>营业报表</strong>
-        <span className="badge badge-soft">{data.fromDate} ~ {data.toDate}</span>
-        <span className="grow" />
-        {([['今天', 1], ['最近 7 天', 7], ['最近 30 天', 30]] as const).map(([l, d]) => (
-          <button key={d} className="btn" onClick={() => preset(d)}>{l}</button>
-        ))}
-        <button className="btn btn-primary" disabled={downloading} onClick={() => void download()}>
-          {downloading ? <span className="spin" /> : '⬇ 导出 CSV'}
-        </button>
-      </div>
+    <Page>
+      <PageHeader
+        title="营业报表"
+        sub={<Badge tone="brand">{data.fromDate} ~ {data.toDate}</Badge>}
+        actions={
+          <>
+            <Segmented
+              ariaLabel="时间范围"
+              value={activePreset}
+              onChange={(v) => v !== 'custom' && preset(Number(v))}
+              options={[
+                { value: '1', label: '今天' },
+                { value: '7', label: '最近 7 天' },
+                { value: '30', label: '最近 30 天' },
+                // 从「待补录」跳过来时区间是别处定的，那一档要有个落脚点
+                ...(activePreset === 'custom'
+                  ? [{ value: 'custom', label: `${spanDays} 天` }] : []),
+              ]}
+            />
+            <Button variant="primary" disabled={downloading} onClick={() => void download()}>
+              <Download size={17} />{downloading ? '导出中…' : '导出 CSV'}
+            </Button>
+          </>
+        }
+      />
 
       {err && (
-        <div className="card" role="alert" style={{
-          padding: 14, background: 'var(--danger-soft)', borderColor: 'var(--danger)' }}>
-          <span style={{ color: 'var(--danger)', fontWeight: 700 }}>✕ {err}</span>
+        <div role="alert"
+             className="mb-4 flex items-center gap-2 rounded bg-danger-soft px-4 py-3 text-danger">
+          <CircleAlert size={17} /><span className="text-xs font-semibold">{err}</span>
         </div>
       )}
 
@@ -128,13 +162,12 @@ export function Reports({
         要是出现在下面，等于没说：他已经拿着那个数下判断了。
       */}
       {!data.coverage.complete && (
-        <div className="card stack" role="status" style={{
-          padding: 16, gap: 6,
-          background: 'var(--warn-soft)', borderColor: 'var(--warn)' }}>
-          <strong style={{ color: 'var(--warn)' }}>
-            ⚠️ 这个数不是这段时间的全部
+        <div role="status"
+             className="mb-4 flex flex-col gap-1.5 rounded-lg border border-warn bg-warn-soft p-4">
+          <strong className="flex items-center gap-2 text-sm text-warn">
+            <TriangleAlert size={16} />这个数不是这段时间的全部
           </strong>
-          <span className="tiny" style={{ color: 'var(--warn)' }}>
+          <span className="text-xs leading-relaxed text-warn">
             {data.coverage.daysInRange} 天里，
             {data.coverage.daysMissing > 0 && (
               <> <b>{data.coverage.daysMissing} 天的数不在系统里</b>（下面标了「没有记录」的那几天，
@@ -149,77 +182,74 @@ export function Reports({
         </div>
       )}
 
-      <div className="card" style={{ padding: 18 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(140px,1fr))', gap: 14 }}>
-          <Stat label="原价 Gross" value={money(s.grossCents)} />
-          <Stat label="折扣 Discount" value={money(s.discountCents)} />
-          <Stat label="净额 Net" value={money(s.netCents)} big />
-          <Stat label="税 Tax" value={money(s.taxCents)} />
-          <Stat label="小费 Tips" value={money(s.tipCents)} />
-          <Stat label="实收 Total" value={money(s.totalCents)} big />
-          <Stat label="现金 Cash" value={money(s.cashCents)} />
-          <Stat label="刷卡 Card" value={money(s.cardCents)} />
-          <Stat label="单数" value={String(s.ticketCount)} />
-          <Stat label="作废" value={String(data.voidedCount)} />
-        </div>
-      </div>
+      <Card className="grid gap-4 p-5 [grid-template-columns:repeat(auto-fill,minmax(140px,1fr))]">
+        <Stat label="原价 Gross" value={money(s.grossCents)} />
+        <Stat label="折扣 Discount" value={money(s.discountCents)} />
+        <Stat label="净额 Net" value={money(s.netCents)} big />
+        <Stat label="税 Tax" value={money(s.taxCents)} />
+        <Stat label="小费 Tips" value={money(s.tipCents)} />
+        <Stat label="实收 Total" value={money(s.totalCents)} big />
+        <Stat label="现金 Cash" value={money(s.cashCents)} />
+        <Stat label="刷卡 Card" value={money(s.cardCents)} />
+        <Stat label="单数" value={String(s.ticketCount)} />
+        <Stat label="作废" value={String(data.voidedCount)} />
+      </Card>
 
-      <DayTable rows={data.byDay} />
+      <Section className="mt-5"><DayTable rows={data.byDay} /></Section>
 
-      <Table title="按技师"
-             head={['技师', '认到营业额', '提成', '现金小费', '刷卡小费', '单数']}
-             rows={data.byStaff.map((x) => [
-               x.label, money(x.serviceRevenueCents), money(x.commissionCents),
-               money(x.tipCashCents), money(x.tipCardCents), String(x.ticketCount),
-             ])} />
+      {data.byStaff.length > 0 && (
+        <Section className="mt-5">
+          <Table title="按技师" columns={STAFF_COLS}>
+            {data.byStaff.map((x) => (
+              <Row key={x.key} columns={STAFF_COLS} cells={[
+                x.label, money(x.serviceRevenueCents), money(x.commissionCents),
+                money(x.tipCashCents), money(x.tipCardCents), String(x.ticketCount),
+              ]} />
+            ))}
+          </Table>
+        </Section>
+      )}
 
-      <Table title="按项目"
-             head={['项目', '次数', '营业额']}
-             rows={data.byService.slice(0, 20).map((x) => [
-               x.label, String(x.count), money(x.grossCents),
-             ])} />
-    </div>
+      {data.byService.length > 0 && (
+        <Section className="mt-5">
+          <Table title="按项目" columns={SERVICE_COLS}
+                 extra={data.byService.length > 20 ? '只显示前 20 项' : undefined}>
+            {data.byService.slice(0, 20).map((x) => (
+              <Row key={x.key} columns={SERVICE_COLS}
+                   cells={[x.label, String(x.count), money(x.grossCents)]} />
+            ))}
+          </Table>
+        </Section>
+      )}
+    </Page>
   );
 }
+
+const STAFF_COLS = [
+  { key: 'name', header: '技师' }, { key: 'rev', header: '认到营业额' },
+  { key: 'comm', header: '提成' }, { key: 'cash', header: '现金小费' },
+  { key: 'card', header: '刷卡小费' }, { key: 'n', header: '单数' },
+];
+
+const SERVICE_COLS = [
+  { key: 'name', header: '项目' }, { key: 'n', header: '次数' }, { key: 'gross', header: '营业额' },
+];
+
+const DAY_COLS = [
+  { key: 'date', header: '日期' }, { key: 'net', header: '净额' },
+  { key: 'tip', header: '小费' }, { key: 'total', header: '实收' },
+  { key: 'cash', header: '现金' }, { key: 'card', header: '刷卡' },
+  { key: 'n', header: '单数' },
+  { key: 'tag', header: '', align: 'left' as const },
+];
 
 function Stat({ label, value, big }: { label: string; value: string; big?: boolean }) {
   return (
-    <div className="stack" style={{ gap: 2 }}>
-      <span className="tiny">{label}</span>
-      <strong style={{
-        fontSize: big ? 'var(--text-xl)' : 'var(--text-lg)',
-        fontVariantNumeric: 'tabular-nums',
-      }}>{value}</strong>
-    </div>
-  );
-}
-
-function Table({ title, head, rows }: { title: string; head: string[]; rows: string[][] }) {
-  if (rows.length === 0) return null;
-  return (
-    <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
-      <div style={{ padding: '14px 18px 0' }}><strong>{title}</strong></div>
-      <table style={{ borderCollapse: 'collapse', width: '100%', marginTop: 10 }}>
-        <thead>
-          <tr>{head.map((h, i) => (
-            <th key={h} style={{
-              padding: '8px 14px', borderBottom: '2px solid var(--line)',
-              textAlign: i === 0 ? 'left' : 'right', fontSize: 'var(--text-sm)',
-            }}>{h}</th>
-          ))}</tr>
-        </thead>
-        <tbody>
-          {rows.map((r, ri) => (
-            <tr key={ri}>{r.map((c, ci) => (
-              <td key={ci} style={{
-                padding: '8px 14px', borderBottom: '1px solid var(--line)',
-                textAlign: ci === 0 ? 'left' : 'right',
-                fontVariantNumeric: ci === 0 ? undefined : 'tabular-nums',
-              }}>{c}</td>
-            ))}</tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="flex flex-col gap-0.5">
+      <Label>{label}</Label>
+      <strong className={cn('tnum tracking-[-0.02em]', big ? 'text-xl font-bold' : 'text-lg font-semibold')}>
+        {value}
+      </strong>
     </div>
   );
 }
@@ -230,66 +260,39 @@ function Table({ title, head, rows }: { title: string; head: string[]; rows: str
  * 改这一块之前，没记的那天压根不出现在 byDay 里。老板翻这张表
  * 只会觉得「那周好像少了一天」，而不会意识到系统在瞒着他一段空白。
  *
- * 现在每一天都有一行，空白那几行不写 $0.00 而是写「没有记录」：
- * **$0.00 是一句关于生意的陈述，空白是一句关于记录的陈述**，两者不能互换。
+ * 现在每一天都有一行，空白那几行不写 $0.00 而是写「—」：
+ * **$0.00 是一句关于生意的陈述，「—」是一句关于记录的陈述**，两者不能互换。
  */
-const DAY_LABEL: Record<DayStatus, { text: string; cls: string } | null> = {
+const DAY_LABEL: Record<DayStatus, { text: string; tone: 'warn' | 'mute' } | null> = {
   ok: null,
-  unclosed: { text: '有单未封账', cls: 'badge-warn' },
-  summary_only: { text: '只补了总数', cls: 'badge-warn' },
-  no_business: { text: '没营业', cls: 'badge-mute' },
-  paper_only: { text: '用纸记的', cls: 'badge-mute' },
-  no_record: { text: '没有记录', cls: 'badge-mute' },
+  unclosed: { text: '有单未封账', tone: 'warn' },
+  summary_only: { text: '只补了总数', tone: 'warn' },
+  no_business: { text: '没营业', tone: 'mute' },
+  paper_only: { text: '用纸记的', tone: 'mute' },
+  no_record: { text: '没有记录', tone: 'mute' },
 };
 
 function DayTable({ rows }: { rows: DayReportRow[] }) {
   if (rows.length === 0) return null;
-  const head = ['日期', '净额', '小费', '实收', '现金', '刷卡', '单数', ''];
   return (
-    <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
-      <div style={{ padding: '14px 18px 0' }}><strong>按天</strong></div>
-      <table style={{ borderCollapse: 'collapse', width: '100%', marginTop: 10 }}>
-        <thead>
-          <tr>{head.map((h, i) => (
-            <th key={i} style={{
-              padding: '8px 14px', borderBottom: '2px solid var(--line)',
-              textAlign: i === 0 || i === head.length - 1 ? 'left' : 'right',
-              fontSize: 'var(--text-sm)',
-            }}>{h}</th>
-          ))}</tr>
-        </thead>
-        <tbody>
-          {rows.map((d) => {
-            // 空白 ≠ 零。这两种在同一张表里必须一眼分得出来
-            const blank = d.status === 'no_record' || d.status === 'paper_only';
-            const tag = DAY_LABEL[d.status];
-            const cell = (v: string) => (blank ? '—' : v);
-            return (
-              <tr key={d.key} style={blank ? { background: '#faf9f7' } : undefined}>
-                <td style={{
-                  padding: '8px 14px', borderBottom: '1px solid var(--line)',
-                  color: blank ? 'var(--ink-3)' : undefined,
-                }}>{d.key}</td>
-                {[money(d.netCents), money(d.tipCents), money(d.totalCents),
-                  money(d.cashCents), money(d.cardCents), String(d.ticketCount),
-                ].map((v, ci) => (
-                  <td key={ci} style={{
-                    padding: '8px 14px', borderBottom: '1px solid var(--line)',
-                    textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                    color: blank ? 'var(--ink-3)' : undefined,
-                  }}>{cell(v)}</td>
-                ))}
-                <td style={{ padding: '8px 14px', borderBottom: '1px solid var(--line)' }}>
-                  {tag && <span className={`badge ${tag.cls}`}>{tag.text}</span>}
-                  {d.note && (
-                    <span className="tiny" style={{ marginLeft: 8 }}>{d.note}</span>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <Table title="按天" columns={DAY_COLS}>
+      {rows.map((d) => {
+        // 空白 ≠ 零。这两种在同一张表里必须一眼分得出来
+        const blank = d.status === 'no_record' || d.status === 'paper_only';
+        const tag = DAY_LABEL[d.status];
+        const cell = (v: string) => (blank ? '—' : v);
+        return (
+          <Row key={d.key} columns={DAY_COLS} muted={blank} cells={[
+            d.key,
+            cell(money(d.netCents)), cell(money(d.tipCents)), cell(money(d.totalCents)),
+            cell(money(d.cashCents)), cell(money(d.cardCents)), cell(String(d.ticketCount)),
+            <span key="tag" className="flex items-center gap-2">
+              {tag && <Badge tone={tag.tone}>{tag.text}</Badge>}
+              {d.note && <span className="text-2xs text-ink-3">{d.note}</span>}
+            </span>,
+          ]} />
+        );
+      })}
+    </Table>
   );
 }

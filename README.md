@@ -18,8 +18,9 @@
 | **Phase 1a** | ✅ 轮牌板、日程、开单、结账、小费、开店配置、断网看板 |
 | **Phase 1b** | ✅ 提成引擎 + 收入看板、打烊日结对账、现金小费发放、排班 + 报表 CSV |
 | **Phase 1c** | ✅ 技师端 PWA、Realtime 派单（实测 2 秒）、PIN 打卡 |
-| **Phase 2** | 🚧 拍照开店 ✅、Yelp ✅、Kiosk ✅、Stripe 计费 ✅、AI 前台副驾 ✅、**官网在线预约 ✅（含现成的预约页）**、AI 电话（代码 ✅ 卡开户） |
-| **测试** | **677 项**，13 个包，`pnpm verify` 全绿 |
+| **Phase 2** | 🚧 拍照开店 ✅、Yelp ✅、Kiosk ✅、Stripe 计费 ✅、AI 前台副驾 ✅、**官网在线预约 ✅（含现成的预约页）**、AI 电话（代码 ✅ 卡开户）、**健康表全链路 ✅**（生成/存储/同步/分享，docs/15） |
+| **前台界面** | ✅ 30 个屏全部走同一套组件（`apps/desk/src/ui/`）—— 老的 `.btn`/`.card`/`.badge` 那套 CSS 已经退役 |
+| **测试** | **704 项**，13 个包，`pnpm verify` 全绿 |
 
 ---
 
@@ -29,7 +30,7 @@
 pnpm install
 cp .env.example .env          # ⚠️ 真实凭据不在仓库里，见 docs/07-CREDENTIALS-CHECKLIST.md
 bash scripts/check-env.sh     # 凭据格式 + 实测联通性
-pnpm verify                   # 宪法检查 + typecheck + 677 项测试
+pnpm verify                   # 宪法检查 + typecheck + 704 项测试
 ```
 
 跑起来：
@@ -39,6 +40,7 @@ pnpm --filter @gf/api   dev   # API            → localhost:3000
 pnpm --filter @gf/desk  dev   # 前台            → localhost:5173
 pnpm --filter @gf/staff dev   # 技师端 PWA      → localhost:5174
 pnpm --filter @gf/kiosk dev   # 门口 iPad       → localhost:5175
+                              #   ⭐ 带 ?t=fs_… 打开时是「客人自己填健康表」那一页（docs/15）
 pnpm --filter @gf/booking dev # 官网预约页      → localhost:5176/?k=<门店的 pk_…>
 ```
 
@@ -52,7 +54,8 @@ apps/
               public/ = 门店官网的公开预约 API（唯一无身份写入口，docs/13）
   desk/       前台（桌面浏览器，键盘快捷键）
   staff/      技师端 PWA（手机，无快捷键）
-  kiosk/      门口 iPad 自助端（六语言，无快捷键）
+  kiosk/      门口 iPad 自助端（六语言，无快捷键）。
+              带 ?t= 时切成客人手机上的填表页 —— 和门口共用同一份表（docs/15 §4.4）
   booking/    ⭐ 门店官网的在线预约页（默认黑白极简，外观由 URL 参数控制，
               可嵌 iframe，docs/13 §10）
 packages/
@@ -90,6 +93,8 @@ docs/         ⭐ 全部设计文档与交接
 - **健康表答案是 AES-256-GCM 应用层加密的**（`FORM_ENCRYPTION_KEY`），
   进数据库之前就已是密文 —— RLS 挡不住整库被复制走。
   ⚠️ **这把密钥丢了 = 所有已签的健康表永久解不开。**
+- **看一眼健康表的内容会留一条痕**（`form_access_log`：谁、什么时候、
+  因为什么、从哪个 IP）。要权限 `customer.view_health_form`，技师没有。
 - 生产环境的 service_role key 与加密密钥只进 GitHub Actions Secret，不落任何 `.env`。
 
 ---

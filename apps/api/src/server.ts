@@ -14,8 +14,12 @@ import {
 } from '@gf/contracts';
 import { dispatch, registeredCommands } from './bus';
 import { buildContext } from './actor';
+import { loadOrgSummary } from './queries/orgSummary';
+import { loadCustomerDetail, loadCustomerList } from './queries/customer';
 import { verifyAccessToken } from './auth';
-import { listMembershipsForUser, withTenant, claimableIntentFor, readOnlineBooking } from '@gf/db';
+import {
+  listMembershipsForUser, withTenant, claimableIntentFor, readOnlineBooking, jsonb,
+} from '@gf/db';
 
 interface CustomerRow {
   id: string; display_name: string; phone_e164: string | null;
@@ -31,6 +35,9 @@ import './handlers/shift';
 import './handlers/staff';
 import './handlers/blueprint';
 import './handlers/phone';
+import './handlers/giftcard';
+import './handlers/notify';
+import './handlers/storefront';
 import './handlers/yelp';
 import './handlers/kiosk';
 import './handlers/billing';
@@ -39,10 +46,12 @@ import { loadDay } from './queries/day';
 import { loadBlueprint, listBlueprints } from './queries/blueprint';
 import { loadCallDrafts } from './queries/callDrafts';
 import { loadCalls } from './queries/calls';
+import { loadForms, readSubmission } from './queries/forms';
 import { loadInboundSms } from './queries/smsInbound';
 import { registerTelnyxRoutes } from './telnyx/routes';
 import { registerKioskRoutes } from './kiosk/routes';
 import { registerPublicRoutes } from './public/routes';
+import { registerFormLinkRoutes } from './public/formRoutes';
 import { registerStripeRoutes } from './stripe/routes';
 import { registerCopilotRoutes } from './copilot/routes';
 import { registerAuthRoutes } from './auth/routes';
@@ -57,6 +66,7 @@ import { searchBusinesses, getBusiness } from '@gf/yelp';
 import { extractPriceList, costMillicents, billableTokens, MAX_IMAGE_EDGE_PX,
          itemsNeedingTranslation, translateNames, TRANSLATE_MODEL, TRANSLATE_RATES,
          planRegions, padRegion, shouldChunk, capRegions, REGION_MODEL, REGION_RATES,
+         generateStorefrontDrafts,
          type PriceListImage, type ImageMediaType } from '@gf/ai';
 import { resolveDate } from './handlers/dayclose';
 import {
@@ -67,6 +77,19 @@ import { loadStaffToday } from './queries/staff';
 import { currentBusinessDate, loadRotation, stripRank } from './handlers/rotation';
 import { computeStanding, explain, FULL_TURN } from '@gf/rotation';
 import { businessDateOf } from '@gf/scheduling';
+
+/**
+ * 为什么要看健康表 —— 白名单，前台在下拉框里选一个（`docs/15` §5）。
+ *
+ * ⚠️ 不接受自由文本：那样每条日志都会变成「查看」两个字，
+ * 而这张表存在的意义就在于事后能回答「凭什么翻她的表」。
+ */
+const FORM_ACCESS_REASONS = new Set([
+  'service_prep',      // 马上要给他做，先看一眼禁忌 —— 九成是这条
+  'incident_review',   // 出事了，回头查
+  'customer_request',  // 客人自己要一份
+  'export',            // 打印 / 导出 PDF
+]);
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({
@@ -92,7 +115,7 @@ export function buildServer(): FastifyInstance {
     // 而前端拿到的是一句语焉不详的 TypeError。X-Device-Token 就这么漏过一次。
     allowedHeaders: [
       'Authorization', 'Content-Type', 'X-Membership-Id', 'Idempotency-Key',
-      'X-Device-Token', 'X-Staff-Token', 'X-GF-Public-Key',
+      'X-Device-Token', 'X-Staff-Token', 'X-GF-Public-Key', 'X-GF-Form-Token',
     ],
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     maxAge: 86400,
@@ -233,6 +256,54 @@ export function buildServer(): FastifyInstance {
       details: { reason: 'requires_platform_account' } });
     const list = await listMembershipsForUser(req.user.userId);
     return { locations: list };
+  });
+
+  /**
+   * ── 跨店汇总（批 4）────────────────────────────────────────────────────
+   *
+   * 多店老板现在要一家家切进去看。这条给他一屏。
+   *
+   * ⚠️ **门店范围由 `listMembershipsForUser` 决定，不接受入参。**
+   * 接受 locationIds 入参的话，「拿到别人的 location id 就能查他的营收」——
+   * 而 location id 会出现在 URL 里。`scope=<id>` 只是个**过滤器**，
+   * 它只能在「我有权限的那些店」里再挑一个，挑不出集合以外的东西。
+   *
+   * 权限：`report.view`（店长也有）。⚠️ 但看得见的**只有他自己有
+   * membership 的那些店** —— A 店的店长看不到 B 店，哪怕两家是同一个 org。
+   */
+  app.get<{ Querystring: { from?: string; to?: string; scope?: string } }>(
+    '/v1/me/summary', async (req) => {
+    if (!req.user) throw new AppError(ERROR_CODES.UNAUTHENTICATED, {
+      details: { reason: 'requires_platform_account' } });
+
+    const DATE = /^\d{4}-\d{2}-\d{2}$/;
+    const to = DATE.test(req.query.to ?? '') ? req.query.to! : todayIso();
+    const from = DATE.test(req.query.from ?? '') ? req.query.from! : addDaysIso(to, -6);
+    if (from > to) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'bad_range' } });
+    }
+
+    const all = await listMembershipsForUser(req.user.userId);
+    const scoped = req.query.scope && req.query.scope !== 'all'
+      ? all.filter((m) => m.locationId === req.query.scope)
+      : all;
+
+    /*
+     * ⚠️ 只汇总他**有报表权限**的店。
+     *
+     * 一个人可能在 A 店是老板、在 B 店只是技师（这行真实存在：
+     * 老板去朋友店里兼职接客）。把 B 店的营收也加进他的合计里，
+     * 等于让技师看到了店里的钱。
+     */
+    const allowed: Array<{ orgId: string; locationId: string; membershipId: string }> = [];
+    for (const m of scoped) {
+      const ctx = await buildContext({ userId: req.user.userId, membershipId: m.membershipId });
+      if (ctx.permissions.has('report.view')) {
+        allowed.push({ orgId: m.orgId, locationId: m.locationId, membershipId: m.membershipId });
+      }
+    }
+
+    return loadOrgSummary(allowed, from, to);
   });
 
   /**
@@ -448,6 +519,51 @@ export function buildServer(): FastifyInstance {
   });
 
   // ── 查询：今天开着的单 ─────────────────────────────────────────────────────
+  /**
+   * ── 客户档案（批 6）───────────────────────────────────────────────────
+   *
+   * ⭐ **一个请求返回一整页**，不让前端拼七个。客户详情要的东西散在
+   * 七张表上，并发七个请求在弱网下会有几个失败 —— 页面上一半有数据
+   * 一半转圈，前台看到的是「系统坏了」。
+   *
+   * ⚠️ **脱敏在服务端按角色做**，不是返回全量让前端隐藏。没有
+   * `customer.view_contact` 的人拿到的 payload 里就没有完整号码；
+   * 没有 `report.view` 的人拿不到任何金额。
+   */
+  app.get<{ Params: { id: string } }>('/v1/desk/customers/:id', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('customer.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'customer.read' } });
+    }
+    const detail = await withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => loadCustomerDetail(tx, ctx, req.params.id));
+    if (!detail) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'customer' } });
+    return detail;
+  });
+
+  app.get<{ Querystring: {
+    q?: string; vip?: string; sleeping?: string; limit?: string; offset?: string;
+  } }>('/v1/desk/customers', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('customer.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'customer.read' } });
+    }
+    const int = (v: string | undefined) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
+    };
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => loadCustomerList(tx, ctx, {
+        ...(req.query.q ? { q: req.query.q } : {}),
+        vipOnly: req.query.vip === '1',
+        ...(int(req.query.sleeping) ? { sleepingDays: int(req.query.sleeping)! } : {}),
+        ...(int(req.query.limit) ? { limit: int(req.query.limit)! } : {}),
+        ...(int(req.query.offset) ? { offset: int(req.query.offset)! } : {}),
+      }));
+  });
+
   app.get('/v1/desk/tickets', async (req) => {
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('ticket.read')) {
@@ -854,6 +970,129 @@ export function buildServer(): FastifyInstance {
   //
   // 图片走请求体而不是让 API 去 Storage 取：API 拿不到 service_role
   //（宪法第 5 条，CI 会失败），而让它去 fetch 一个客户端给的 URL 就是 SSRF。
+  /**
+   * ── 建站工单：AI 出三版（批 8 收尾，docs/17 §6）─────────────────────────
+   *
+   * ⚠️ **这是第二条不走命令总线的路由**（第一条是 blueprint/extract）。
+   * 理由一样：模型调用要几十秒，塞进数据库事务会占住一个连接和一个快照
+   * 那么久。这里只做编排 —— 校验 → 调模型 → 把结果交给一条写库语句。
+   *
+   * ⭐ 出**三版**不是一版：给一版的话老板只能说「不喜欢」而说不出
+   * 哪里不喜欢，然后我们只能猜。三版风格拉开，他一定选得出一个，
+   * 而他的选择本身就是最精确的反馈。
+   */
+  app.post<{ Params: { id: string } }>('/v1/storefront/:id/generate', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+    }
+    if (!ctx.permissions.has('ai.use')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
+    }
+    const apiKey = process.env['ANTHROPIC_API_KEY'];
+    if (!apiKey) {
+      req.log.error('ANTHROPIC_API_KEY 未配置，建站工单生成不可用');
+      throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
+    }
+
+    const tenant = { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId };
+
+    /*
+     * 先确认工单已提交再花那几毛钱。
+     *
+     * ⚠️ 只有 submitted 能生成 —— draft 还在改，chosen / live 已经定了。
+     * 对着一份还在改的工单跑模型，钱花了而老板下一分钟又改了需求。
+     */
+    const brief = await withTenant(tenant, (tx) => tx<{
+      id: string; status: string; shop_name: unknown; business_type: string;
+      voice: string | null; brand_primary: string | null; brand_accent: string | null;
+      pain_points: string[]; pain_free_text: string | null;
+      audience: string[]; top_questions: string[]; sections: string[];
+      usp: string | null; tone: string | null; reference_sites: string[];
+    }[]>`
+      select b.id, b.status, l.name as shop_name, l.business_type,
+             b.voice, b.brand_primary, b.brand_accent,
+             b.pain_points, b.pain_free_text, b.audience, b.top_questions,
+             b.sections, b.usp, b.tone, b.reference_sites
+      from storefront_briefs b
+      join locations l on l.id = b.location_id
+      where b.id = ${req.params.id} and b.location_id = ${ctx.locationId}`);
+
+    const row = brief[0];
+    if (!row) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'storefront_brief' } });
+    if (row.status !== 'submitted') {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'brief_not_submitted', status: row.status },
+      });
+    }
+
+    // ⚠️ 项目名和价格要给模型真的 —— system prompt 里明令「不许编」，
+    // 但不给它真数据的话它只能编
+    const services = await withTenant(tenant, (tx) => tx<{
+      name: unknown; price: number; minutes: number;
+    }[]>`
+      select name, base_price_cents as price, duration_min as minutes
+      from services
+      where location_id = ${ctx.locationId} and active = true and is_addon = false
+      order by sort, base_price_cents limit 40`);
+
+    const result = await generateStorefrontDrafts({
+      shopName: pickText(row.shop_name, ctx.locale, ''),
+      businessType: row.business_type,
+      voice: row.voice,
+      brandPrimary: row.brand_primary,
+      brandAccent: row.brand_accent,
+      painPoints: row.pain_points ?? [],
+      painFreeText: row.pain_free_text,
+      audience: row.audience ?? [],
+      topQuestions: row.top_questions ?? [],
+      sections: row.sections ?? [],
+      usp: row.usp,
+      tone: row.tone,
+      referenceSites: row.reference_sites ?? [],
+      services: services.map((s) => ({
+        name: pickText(s.name, ctx.locale, ''),
+        priceCents: s.price, durationMin: s.minutes,
+      })),
+    }, { apiKey });
+
+    /*
+     * 一版都没出来 = 别把工单推到 drafted 让老板看一个空列表。
+     * 502 而不是 500：挂的是上游模型，两个数字要分得开才看得出趋势。
+     */
+    if (result.drafts.length === 0) {
+      throw new AppError(ERROR_CODES.EXTRACTION_FAILED, {
+        details: { reason: 'no_drafts_generated', model: result.model },
+      });
+    }
+
+    const cost = costMillicents(result.usage);
+    await withTenant(tenant, async (tx) => {
+      // 重跑就换一批 —— 老板点「重新生成」时不该看到六版
+      await tx`delete from storefront_drafts where brief_id = ${row.id}`;
+      for (const d of result.drafts) {
+        await tx`
+          insert into storefront_drafts
+            (org_id, location_id, brief_id, variant, content,
+             model, input_tokens, output_tokens, cost_millicents)
+          values (${ctx.orgId}, ${ctx.locationId}, ${row.id}, ${d.variant},
+                  ${jsonb(d.content)}::jsonb, ${result.model},
+                  ${result.usage.inputTokens}, ${result.usage.outputTokens}, ${cost})`;
+      }
+      await tx`
+        update storefront_briefs set status = 'drafted', drafted_at = now(), updated_at = now()
+        where id = ${row.id}`;
+    });
+
+    return {
+      briefId: row.id,
+      status: 'drafted',
+      drafts: result.drafts,
+      model: result.model,
+      costMillicents: cost,
+    };
+  });
+
   const MAX_IMAGES_PER_EXTRACT = 6;
   const MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
@@ -1213,6 +1452,51 @@ export function buildServer(): FastifyInstance {
       }));
   });
 
+  // ── 查询：健康表（模板 / 已签 / 发出去的链接，docs/15 §5）───────────────
+  //
+  // 列表用 `customer.read`：前台要知道「这位客人还得签一份」，
+  // 而知道这件事不需要看内容。**内容是另一条路**（下面那条），
+  // 要 `customer.view_health_form`，而且看一眼就往 form_access_log 写一行。
+  app.get<{ Querystring: { days?: string; limit?: string; customerId?: string } }>(
+    '/v1/desk/forms', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('customer.read')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'customer.read' } });
+      }
+      return withTenant(
+        { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+        (tx) => loadForms(tx, ctx, {
+          days: Number(req.query.days ?? '30') || 30,
+          limit: Number(req.query.limit ?? '100') || 100,
+          ...(req.query.customerId ? { customerId: req.query.customerId } : {}),
+        }));
+    });
+
+  /**
+   * ⭐ 打开一份已签的健康表。**这条路每走一次就留一条痕。**
+   *
+   * `reason` 必填且是枚举 —— 一条只写「某某周二下午看过」的日志在纠纷里
+   * 几乎没有用，而带理由的那一条能回答「你们凭什么翻她的健康表」。
+   *
+   * ⚠️ 它是 GET 却有副作用（写 form_access_log）。这是**有意的**：
+   * 把它改成 POST 会让「读」看起来像「写」，而真正的问题不在动词 ——
+   * 在于**读这件事必须留痕**。浏览器不会自己预取一条要带 membership
+   * 头的接口，所以不存在「预取导致假日志」。
+   */
+  app.get<{ Params: { id: string }; Querystring: { reason?: string } }>(
+    '/v1/desk/forms/submissions/:id', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      const reason = req.query.reason ?? 'service_prep';
+      if (!FORM_ACCESS_REASONS.has(reason)) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+          details: { reason: 'bad_access_reason', allowed: [...FORM_ACCESS_REASONS] },
+        });
+      }
+      return withTenant(
+        { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+        (tx) => readSubmission(tx, ctx, req.params.id, reason));
+    });
+
   // ── 查询：客人发进来的短信（docs/09 §5.3）────────────────────────────────
   //
   // ⭐ 这一页的全部意义：运营商强制 CANCEL 是**退订**关键词，而客人打它
@@ -1339,6 +1623,9 @@ export function buildServer(): FastifyInstance {
   // ⚠️ 这是整个系统里**唯一一个不需要任何身份就能写库的入口**。
   // 身份是一个公开 key，权限收窄发生在路由那一层 —— 见 public/publicAuth.ts。
   registerPublicRoutes(app);
+  // 客人自己填健康表的那条公开路（docs/15）。身份是一次性令牌，
+  // 和门店官网那条互不相干 —— 它不认 pk_，也不受域名白名单约束
+  registerFormLinkRoutes(app);
 
   // ── 命令目录 ───────────────────────────────────────────────────────────────
   // 前端 SDK 和 AI 工具定义都从这里取，不用各自维护一份
@@ -1355,3 +1642,14 @@ export function buildServer(): FastifyInstance {
   return app;
 }
 
+
+
+/** 今天（UTC 日期）。跨店汇总的默认区间用它兜底，各店的营业日在查询里各算各的 */
+function todayIso(): string { return new Date().toISOString().slice(0, 10); }
+
+/** `YYYY-MM-DD` ± n 天。纯日期算术，不碰时区 */
+function addDaysIso(date: string, days: number): string {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}

@@ -114,6 +114,17 @@ export const billingAccounts = pgTable('billing_accounts', {
    */
   includedPeriodStart: timestamp('included_period_start', { withTimezone: true }),
 
+  /**
+   * 七天免费试用（sql/0039）。**两列都是 Stripe 的镜像，不是我们自己算的。**
+   *
+   * 试用走 Stripe 的 `trial_period_days`，卡在他们那儿，我们碰不到。
+   * 所以「还剩几天」永远以 `trial_ends_at` 为准，不要在代码里数日子 ——
+   * 自己数就一定会和 Stripe 的账单周期漂开。
+   */
+  trialEndsAt: timestamp('trial_ends_at', { withTimezone: true }),
+  /** 到期前提醒信发过没有。Stripe 的 trial_will_end 会重投，靠它去重 */
+  trialWillEndNotifiedAt: timestamp('trial_will_end_notified_at', { withTimezone: true }),
+
   createdAt: createdAt(),
 }, (t) => [
   uniqueIndex('billing_accounts_location_key').on(t.locationId),

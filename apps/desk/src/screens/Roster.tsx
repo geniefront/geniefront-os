@@ -11,6 +11,11 @@
 
 import { useState } from 'react';
 import { ApiError, runCommand } from '../lib/api';
+import { Button } from '../ui/Button';
+import { Field } from '../ui/Field';
+import { Badge } from '../ui/Badge';
+import { Card } from '../ui/Card';
+import { Spinner } from '../ui/Spinner';
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
@@ -78,47 +83,44 @@ export function Roster({
   }
 
   return (
-    <div className="stack" style={{ padding: '0 16px 24px', gap: 14 }}>
-      <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: 'var(--text-xl)' }}>排班</strong>
-        <span className="badge badge-soft">{data.fromDate} ~ {data.toDate}</span>
-        {data.hasUnpublished && <span className="badge badge-warn">有未发布的班</span>}
-        <span className="grow" />
-        <button className="btn" onClick={() => onDateChange(shiftDate(data.fromDate, -7))}>← 上周</button>
-        <button className="btn" onClick={() => onDateChange(shiftDate(data.fromDate, 7))}>下周 →</button>
+    <div className="flex flex-col gap-3.5 px-4 pb-6">
+      <div className="flex items-center gap-2.5 flex-wrap">
+        <strong className="text-xl">排班</strong>
+        <Badge tone="brand" >{data.fromDate} ~ {data.toDate}</Badge>
+        {data.hasUnpublished && <Badge tone="warn" >有未发布的班</Badge>}
+        <span className="min-w-0 flex-1" />
+        <Button onClick={() => onDateChange(shiftDate(data.fromDate, -7))}>← 上周</Button>
+        <Button onClick={() => onDateChange(shiftDate(data.fromDate, 7))}>下周 →</Button>
       </div>
 
       {err && (
-        <div className="card" role="alert" style={{
+        <Card role="alert" style={{
           padding: 14, background: 'var(--danger-soft)', borderColor: 'var(--danger)' }}>
-          <span style={{ color: 'var(--danger)', fontWeight: 700 }}>✕ {err}</span>
-        </div>
+          <span className="text-danger font-bold">✕ {err}</span>
+        </Card>
       )}
 
       {canWrite && (
-        <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-          <button className="btn" disabled={busy === 'apply'}
-                  onClick={() => void run('shift.applyTemplate',
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <Button disabled={busy === 'apply'} onClick={() => void run('shift.applyTemplate',
                     { fromDate: data.fromDate, days: 7, skipExisting: true }, 'apply')}>
-            {busy === 'apply' ? <span className="spin" /> : '按模板铺开这一周'}
-          </button>
-          <button className="btn" disabled={busy === 'apply2'}
-                  onClick={() => void run('shift.applyTemplate',
+            {busy === 'apply' ? <Spinner /> : '按模板铺开这一周'}
+          </Button>
+          <Button disabled={busy === 'apply2'} onClick={() => void run('shift.applyTemplate',
                     { fromDate: data.fromDate, days: 14, skipExisting: true }, 'apply2')}>
             铺开两周
-          </button>
-          <button className="btn btn-primary" disabled={busy === 'pub' || !data.hasUnpublished}
-                  onClick={() => void run('shift.publish',
+          </Button>
+          <Button variant="primary" disabled={busy === 'pub' || !data.hasUnpublished} onClick={() => void run('shift.publish',
                     { fromDate: data.fromDate, toDate: data.toDate }, 'pub')}>
-            {busy === 'pub' ? <span className="spin" /> : '发布给技师'}
-          </button>
+            {busy === 'pub' ? <Spinner /> : '发布给技师'}
+          </Button>
           {/* 这句话是这个按钮敢被点的全部理由 */}
-          <span className="tiny">铺开只填空白的日子，不会冲掉手工调过的班</span>
+          <span className="text-xs text-ink-3">铺开只填空白的日子，不会冲掉手工调过的班</span>
         </div>
       )}
 
       {/* ── 周表格 ───────────────────────────────────────────────────────── */}
-      <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
+      <Card style={{ padding: 0, overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 720 }}>
           <thead>
             <tr>
@@ -126,7 +128,7 @@ export function Roster({
               {data.dates.map((d) => (
                 <th key={d} style={th}>
                   <div>{WEEKDAYS[new Date(`${d}T12:00:00Z`).getUTCDay()]}</div>
-                  <div className="tiny">{d.slice(5)}</div>
+                  <div className="text-xs text-ink-3">{d.slice(5)}</div>
                 </th>
               ))}
               <th style={th}>工时</th>
@@ -136,10 +138,10 @@ export function Roster({
             {data.staff.map((s) => (
               <tr key={s.membershipId}>
                 <td style={{ ...td, position: 'sticky', left: 0, background: 'var(--surface)' }}>
-                  <div className="stack" style={{ gap: 2 }}>
+                  <div className="flex flex-col gap-0.5">
                     <strong>{s.name}</strong>
                     {canWrite && (
-                      <button className="tiny" style={linkBtn}
+                      <button className="text-xs text-ink-3" style={linkBtn}
                               onClick={() => setTplFor(tplFor === s.membershipId ? null : s.membershipId)}>
                         每周固定班 ▾
                       </button>
@@ -163,11 +165,11 @@ export function Roster({
                             : sh.status === 'off' ? 'var(--warn)'
                             : sh.status === 'published' ? 'var(--ok)' : 'var(--brand)',
                         }}>
-                        {!sh ? <span className="tiny muted">—</span>
+                        {!sh ? <span className="text-xs text-ink-3 text-ink-2">—</span>
                           : sh.status === 'off'
-                            ? <span className="tiny">休 {sh.offReason === 'sick' ? '病' : ''}</span>
+                            ? <span className="text-xs text-ink-3">休 {sh.offReason === 'sick' ? '病' : ''}</span>
                             : (
-                              <span className="tiny" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <span className="text-xs text-ink-3 tnum">
                                 {hhmm(sh.startMin)}<br />{hhmm(sh.endMin)}
                               </span>
                             )}
@@ -182,7 +184,7 @@ export function Roster({
             ))}
           </tbody>
         </table>
-      </div>
+      </Card>
 
       {tplFor && (
         <TemplateEditor
@@ -237,37 +239,33 @@ function TemplateEditor({ staffName, entries, busy, onSave, onCancel }: {
 
   return (
     <Sheet title={`${staffName} 的每周固定班`} onCancel={onCancel}>
-      <div className="stack" style={{ gap: 8 }}>
+      <div className="flex flex-col gap-2">
         {rows.map((r, wd) => (
-          <div key={wd} className="row" style={{ gap: 8 }}>
-            <button className="btn" style={{ width: 76, minHeight: 52, borderWidth: 2,
-                                             borderColor: r.on ? 'var(--brand)' : 'var(--line)',
-                                             background: r.on ? 'var(--brand-soft)' : 'var(--surface)' }}
-                    onClick={() => setRows((prev) => prev.map((x, i) => i === wd ? { ...x, on: !x.on } : x))}>
+          <div key={wd} className="flex items-center gap-2">
+            <Button style={{ width: 76, minHeight: 52, borderWidth: 2, borderColor: r.on ? 'var(--brand)' : 'var(--line)', background: r.on ? 'var(--brand-soft)' : 'var(--surface)' }} onClick={() => setRows((prev) => prev.map((x, i) => i === wd ? { ...x, on: !x.on } : x))}>
               {WEEKDAYS[wd]}
-            </button>
-            <input className="field field-mono" style={{ width: 90 }} disabled={!r.on}
+            </Button>
+            <Field mono  style={{ width: 90 }} disabled={!r.on}
                    value={r.start}
                    onChange={(e) => setRows((prev) => prev.map((x, i) => i === wd ? { ...x, start: e.target.value } : x))} />
-            <span className="muted">–</span>
-            <input className="field field-mono" style={{ width: 90 }} disabled={!r.on}
+            <span className="text-ink-2">–</span>
+            <Field mono  style={{ width: 90 }} disabled={!r.on}
                    value={r.end}
                    onChange={(e) => setRows((prev) => prev.map((x, i) => i === wd ? { ...x, end: e.target.value } : x))} />
-            <label className="row tiny" style={{ gap: 4 }}>
+            <label className="flex items-center text-xs text-ink-3 gap-1">
               <input type="checkbox" checked={r.overnight} disabled={!r.on}
                      onChange={(e) => setRows((prev) => prev.map((x, i) => i === wd ? { ...x, overnight: e.target.checked } : x))} />
               跨夜
             </label>
-            <input className="field field-mono" style={{ width: 70 }} disabled={!r.on}
+            <Field mono  style={{ width: 70 }} disabled={!r.on}
                    inputMode="numeric" value={r.breakMin} placeholder="休息"
                    onChange={(e) => setRows((prev) => prev.map((x, i) => i === wd ? { ...x, breakMin: e.target.value.replace(/\D/g, '') } : x))} />
           </div>
         ))}
-        <div className="tiny">
+        <div className="text-xs text-ink-3">
           跨夜勾上表示做到第二天（足疗店 18:00 到次日 02:00）。休息填的是无薪餐休分钟数。
         </div>
-        <button className="btn btn-primary btn-block" disabled={busy}
-                onClick={() => onSave(rows.flatMap((r, wd) => {
+        <Button variant="primary" block disabled={busy} onClick={() => onSave(rows.flatMap((r, wd) => {
                   if (!r.on) return [];
                   const s = toMin(r.start); const e = toMin(r.end);
                   if (s === null || e === null) return [];
@@ -277,8 +275,8 @@ function TemplateEditor({ staffName, entries, busy, onSave, onCancel }: {
                     breakMin: Number(r.breakMin) || 0,
                   }];
                 }))}>
-          {busy ? <span className="spin" /> : '保存模板'}
-        </button>
+          {busy ? <Spinner /> : '保存模板'}
+        </Button>
       </div>
     </Sheet>
   );
@@ -299,25 +297,24 @@ function ShiftEditor({ staffName, date, current, busy, onSave, onCancel }: {
 
   return (
     <Sheet title={`${staffName} · ${date}`} onCancel={onCancel}>
-      <div className="stack" style={{ gap: 12 }}>
-        <div className="row" style={{ gap: 8 }}>
-          <input className="field field-mono" style={{ width: 100 }} value={start}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <Field mono  style={{ width: 100 }} value={start}
                  onChange={(e) => setStart(e.target.value)} />
-          <span className="muted">–</span>
-          <input className="field field-mono" style={{ width: 100 }} value={end}
+          <span className="text-ink-2">–</span>
+          <Field mono  style={{ width: 100 }} value={end}
                  onChange={(e) => setEnd(e.target.value)} />
-          <label className="row tiny" style={{ gap: 4 }}>
+          <label className="flex items-center text-xs text-ink-3 gap-1">
             <input type="checkbox" checked={overnight}
                    onChange={(e) => setOvernight(e.target.checked)} />
             跨夜
           </label>
-          <input className="field field-mono" style={{ width: 80 }} inputMode="numeric"
+          <Field mono  style={{ width: 80 }} inputMode="numeric"
                  value={breakMin} placeholder="休息"
                  onChange={(e) => setBreakMin(e.target.value.replace(/\D/g, ''))} />
         </div>
 
-        <button className="btn btn-primary btn-block" disabled={busy}
-                onClick={() => {
+        <Button variant="primary" block disabled={busy} onClick={() => {
                   const s = toMin(start); const e = toMin(end);
                   if (s === null || e === null) return;
                   onSave({
@@ -326,22 +323,20 @@ function ShiftEditor({ staffName, date, current, busy, onSave, onCancel }: {
                     breakMin: Number(breakMin) || 0,
                   });
                 }}>
-          {busy ? <span className="spin" /> : '保存这天的班'}
-        </button>
+          {busy ? <Spinner /> : '保存这天的班'}
+        </Button>
 
-        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <div className="flex items-center gap-2 flex-wrap">
           {([['sick', '病假'], ['vacation', '休假'], ['personal', '事假'],
              ['store_closed', '店休']] as const).map(([r, l]) => (
-            <button key={r} className="btn grow" disabled={busy}
-                    onClick={() => onSave({ action: 'off', offReason: r })}>
+            <Button className="min-w-0 flex-1" key={r} disabled={busy} onClick={() => onSave({ action: 'off', offReason: r })}>
               标为{l}
-            </button>
+            </Button>
           ))}
         </div>
-        <button className="btn btn-ghost btn-block" disabled={busy}
-                onClick={() => onSave({ action: 'delete' })}>
+        <Button variant="ghost" block disabled={busy} onClick={() => onSave({ action: 'delete' })}>
           这天不排班
-        </button>
+        </Button>
       </div>
     </Sheet>
   );
@@ -355,15 +350,15 @@ function Sheet({ title, children, onCancel }: {
       position: 'fixed', inset: 0, background: 'rgba(20,18,16,.45)',
       display: 'grid', placeItems: 'end center', zIndex: 50,
     }} onClick={onCancel}>
-      <div className="card stack" onClick={(e) => e.stopPropagation()}
+      <Card className="flex flex-col gap-3" onClick={(e) => e.stopPropagation()}
            style={{ width: 'min(660px,100%)', maxHeight: '94vh', overflow: 'auto',
                     padding: 24, gap: 16, borderRadius: '18px 18px 0 0' }}>
-        <div className="row">
-          <strong className="grow" style={{ fontSize: 'var(--text-xl)' }}>{title}</strong>
-          <button className="btn btn-ghost" onClick={onCancel}>关闭</button>
+        <div className="flex items-center gap-3">
+          <strong className="min-w-0 flex-1 text-xl">{title}</strong>
+          <Button variant="ghost" onClick={onCancel}>关闭</Button>
         </div>
         {children}
-      </div>
+      </Card>
     </div>
   );
 }

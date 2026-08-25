@@ -5,5 +5,6 @@ export * from './signup';
 export * from './phone';
 export * from './device';
 export * from './publicBooking';
+export * from './formShare';
 export * from './sms';
 export * from './staffSession';

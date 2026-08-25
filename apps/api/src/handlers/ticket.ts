@@ -19,6 +19,7 @@ import {
 import { businessDateOf, } from '@gf/scheduling';
 import { jsonb } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
+import { redeemForTicket } from './giftcard';
 import {
   loadPlans, writeCommissionEarnings, writeTipEarning, assertDayOpen,
   type LoadedPlans, type TicketRevenueRow,
@@ -211,12 +212,15 @@ async function loadTicketForClose(
 
 /** 结账用到的收款行。amountCents 含小费 —— 与刷卡机小票上的数一致 */
 interface PaymentIn {
-  method: 'cash' | 'card' | 'external';
+  method: 'cash' | 'card' | 'external' | 'gift_card';
   amountCents: number;
   tipCents: number;
   tenderedCents?: number | undefined;
   changeCents: number;
   keepChange: boolean;
+  /** `method = 'gift_card'` 时二选一（批 8 收尾） */
+  giftCardId?: string | undefined;
+  giftCardCode?: string | undefined;
 }
 
 export interface CloseOutcome {
@@ -328,11 +332,41 @@ async function closeOneTicket(args: {
     throw e;
   }
 
+  /*
+   * ── 礼品卡先核销（批 8 收尾）────────────────────────────────────────
+   *
+   * ⚠️ **在写 payments 之前做，而且在同一个事务里。**
+   * 反过来的话，「payments 记了但卡没扣」会让一张卡被无限次使用 ——
+   * 而账本上一条记录都没有，对账时也发现不了。
+   *
+   * 核销失败（卡空了、过期了、是别家店的）就整笔结账回滚：
+   * 让前台改成实际能扣的金额重来，而不是悄悄少扣 —— 后者会让
+   * 单据金额和实收金额对不上，那正是日结要发现的东西。
+   */
+  let giftCardCommissionCut = 0;
+  for (const p of payments) {
+    if (p.method !== 'gift_card') continue;
+    const r = await redeemForTicket(tx, ctx, {
+      ticketId: ticket.id, dueCents: p.amountCents,
+      ...(p.giftCardId ? { giftCardId: p.giftCardId } : {}),
+      ...(p.giftCardCode ? { code: p.giftCardCode } : {}),
+    });
+    /*
+     * ⭐ 提成基数按老板设的口径打折。
+     *
+     * `commission_basis = 'sale'` 时店家只收到售价那部分，
+     * 差额在提成上的效果**和一笔折扣完全一样** —— 所以直接并进
+     * `ticketDiscountCents`，复用引擎已经写好的「整单折扣按项摊」逻辑，
+     * 不在提成引擎里再开一个礼品卡分支。
+     */
+    giftCardCommissionCut += r.appliedCents - r.commissionBaseCents;
+  }
+
   // ── 提成落账 ──────────────────────────────────────────────────────────────
   const earnings = await writeCommissionEarnings({
     tx, ctx, ticketId: ticket.id, businessDate: ticket.businessDate,
     rows: lines as unknown as TicketRevenueRow[],
-    ticketDiscountCents: discountCents,
+    ticketDiscountCents: discountCents + giftCardCommissionCut,
     loaded,
   });
 

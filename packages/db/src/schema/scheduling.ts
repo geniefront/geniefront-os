@@ -205,6 +205,14 @@ export const appointments = pgTable('appointments', {
    */
   confirmationCode: text('confirmation_code'),
   manageTokenDigest: text('manage_token_digest'),
+  /**
+   * 客人自己在网上改过几次期（sql/0040，批 2）。
+   *
+   * 到达 `settings.online_booking.self_reschedule_max` 之后只能打电话。
+   * 无限次自助改期等于把日程表交给客人随便拖，而每一次拖动都可能
+   * 把别人挤掉一格。**前台代改不计数** —— 那是店里自己的决定。
+   */
+  selfRescheduleCount: integer('self_reschedule_count').notNull().default(0),
   createdAt: createdAt(),
 }, (t) => [
   index('appointments_day_idx').on(t.orgId, t.locationId, t.businessDate, t.status),
@@ -333,3 +341,22 @@ export const commandIdempotency = pgTable('command_idempotency', {
 }, (t) => [
   primaryKey({ columns: [t.locationId, t.key] }),
 ]);
+
+/**
+ * 自助管理页「手机后四位」的失败计数（sql/0040，批 2）。
+ *
+ * ⭐ **按预约维度锁，不按 IP。** 按 IP 锁会让同一个 WiFi 下的第二位客人
+ * 被前一位连累（一家店的客人常常连的是同一个 WiFi）；而攻击者要猜的是
+ * 「某一条特定预约」的后四位，按预约锁正好卡住他 —— 一万种可能里
+ * 连猜三次就锁 15 分钟，穷举要几十年。
+ */
+export const bookingManageAttempts = pgTable('booking_manage_attempts', {
+  appointmentId: uuid('appointment_id').primaryKey()
+    .references(() => appointments.id, { onDelete: 'cascade' }),
+  orgId: orgCol(),
+  locationId: locCol(),
+  failedCount: integer('failed_count').notNull().default(0),
+  lockedUntil: timestamp('locked_until', { withTimezone: true }),
+  lastFailedAt: timestamp('last_failed_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

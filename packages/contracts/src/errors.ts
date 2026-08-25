@@ -12,6 +12,14 @@ export const ERROR_CODES = {
   PERMISSION_DENIED: 'PERMISSION_DENIED',
   MEMBERSHIP_INACTIVE: 'MEMBERSHIP_INACTIVE',
   LOCATION_SUSPENDED: 'LOCATION_SUSPENDED',
+  /**
+   * 订阅欠费/已取消 → **写操作冻结，读操作照常**（批 1）。
+   *
+   * ⚠️ 和 `LOCATION_SUSPENDED` 不是一回事：那一条是门店被平台停用，
+   * 连登录都进不来。这一条只冻结写，老板照样能看数据、导出、查日结 ——
+   * 他的经营数据是他的，欠费不是没收数据的理由。
+   */
+  SUBSCRIPTION_PAST_DUE: 'SUBSCRIPTION_PAST_DUE',
 
   // 输入
   VALIDATION_FAILED: 'VALIDATION_FAILED',
@@ -112,6 +120,7 @@ export const httpStatusFor: Record<ErrorCode, number> = {
   PERMISSION_DENIED: 403,
   MEMBERSHIP_INACTIVE: 403,
   LOCATION_SUSPENDED: 403,
+  SUBSCRIPTION_PAST_DUE: 402,
   VALIDATION_FAILED: 400,
   NOT_FOUND: 404,
   IDEMPOTENCY_KEY_REUSED: 409,

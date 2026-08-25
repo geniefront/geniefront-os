@@ -17,7 +17,7 @@ import { apiPost, type RequiredForm } from '../lib/api';
 import { pick, type Locale } from '../i18n';
 
 export function FormSheet({
-  form, locale, t, defaultName, onDone, onCancel,
+  form, locale, t, defaultName, onDone, onCancel, submit: submitVia,
 }: {
   form: RequiredForm;
   locale: Locale;
@@ -25,6 +25,16 @@ export function FormSheet({
   defaultName: string;
   onDone: () => void | Promise<void>;
   onCancel: () => void;
+  /**
+   * 交到哪儿去。
+   *
+   * ⚠️ **这一屏不认识身份。** 门口 iPad 带设备令牌走 `/v1/kiosk/forms/submit`，
+   * 客人自己手机上带填表令牌走 `/public/v1/forms/submit` —— 两条路的凭证、
+   * 权限、失效方式都不一样，但**客人看到的那张表必须一模一样**：
+   * 同一份题目、同一块签名板、同一套多语言。所以交表这一步由外面传进来，
+   * 而不是在这里 if 一下。
+   */
+  submit?: (payload: Record<string, unknown>) => Promise<unknown>;
 }) {
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [signerName, setSignerName] = useState(defaultName);
@@ -46,7 +56,7 @@ export function FormSheet({
   async function submit() {
     setBusy(true); setErr('');
     try {
-      await apiPost('/v1/kiosk/forms/submit', {
+      const payload = {
         templateId: form.templateId,
         answers,
         ...(form.requiresSignature
@@ -56,7 +66,10 @@ export function FormSheet({
         signerRelation: guardian ? 'guardian' : 'self',
         // ⭐ 存下他**当时看的是哪种语言**
         locale,
-      });
+      };
+      await (submitVia
+        ? submitVia(payload)
+        : apiPost('/v1/kiosk/forms/submit', payload));
       await onDone();
     } catch {
       setErr(t('err.generic'));

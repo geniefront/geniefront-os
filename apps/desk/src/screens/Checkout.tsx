@@ -22,6 +22,11 @@
 import { useMemo, useState } from 'react';
 import { dollarsToCents } from '@gf/contracts';
 import { ApiError, runCommand } from '../lib/api';
+import { Button } from '../ui/Button';
+import { Field } from '../ui/Field';
+import { Badge } from '../ui/Badge';
+import { Card } from '../ui/Card';
+import { Spinner } from '../ui/Spinner';
 
 export interface OpenTicket {
   ticketId: string;
@@ -183,99 +188,101 @@ export function Checkout({
       position: 'fixed', inset: 0, background: 'rgba(20,18,16,.45)',
       display: 'grid', placeItems: 'end center', zIndex: 50,
     }} onClick={done ? undefined : onCancel}>
-      <div className="card stack" onClick={(e) => e.stopPropagation()}
+      <Card className="flex flex-col gap-3" onClick={(e) => e.stopPropagation()}
            style={{ width: 'min(660px,100%)', maxHeight: '94vh', overflow: 'auto',
                     padding: 24, gap: 16, borderRadius: '18px 18px 0 0' }}>
 
-        <div className="row">
-          <div className="grow stack" style={{ gap: 2 }}>
-            <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 800 }}>
+        <div className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <div className="text-2xl font-extrabold">
               {done ? '已结账' : '结账'}
             </div>
-            <div className="muted">
+            <div className="text-ink-2">
               {payAll ? paying.map((t) => t.customerName).join('、') : ticket.customerName}
             </div>
           </div>
-          <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 800,
-                        fontVariantNumeric: 'tabular-nums' }}>
+          <div className="text-2xl font-extrabold tnum">
             {money(done ? subtotal + done.tipCents : total)}
           </div>
         </div>
 
         {/* ⭐ 一起付：同组还有别人没结时才出现 */}
         {!done && others.length > 0 && (
-          <button className="card row" onClick={() => setPayAll(!payAll)}
-                  style={{
-                    padding: '14px 16px', gap: 12, cursor: 'pointer', textAlign: 'left',
-                    borderWidth: 2,
-                    borderColor: payAll ? 'var(--brand)' : 'var(--line)',
-                    background: payAll ? 'var(--brand-soft)' : 'var(--surface)',
-                  }}>
-            <span style={{ fontSize: 'var(--text-xl)' }}>{payAll ? '☑' : '☐'}</span>
-            <div className="grow stack" style={{ gap: 2 }}>
+          <Card asChild>
+            <button
+              type="button"
+              onClick={() => setPayAll(!payAll)}
+              aria-pressed={payAll}
+              className="flex w-full cursor-pointer items-center gap-3 border-2 px-4 py-3.5 text-left"
+              style={{
+                borderColor: payAll ? 'var(--brand)' : 'var(--line)',
+                background: payAll ? 'var(--brand-soft)' : 'var(--surface)',
+              }}>
+            <span className="text-xl">{payAll ? '☑' : '☐'}</span>
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
               <strong>这一位付全组（{others.length + 1} 人）</strong>
-              <span className="tiny">
+              <span className="text-xs text-ink-3">
                 不勾就是各付各的 · 同组还有 {others.map((t) => t.customerName).join('、')}
               </span>
             </div>
-            <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+            <span className="tnum font-bold">
               {money(others.reduce((s, t) => s + t.subtotalCents, 0) + ticket.subtotalCents)}
             </span>
-          </button>
+            </button>
+          </Card>
         )}
 
         {/* 项目明细 */}
-        <div className="card stack" style={{ padding: 14, gap: 8, background: 'var(--bg)' }}>
+        <Card className="flex flex-col gap-2 bg-ground p-3.5">
           {paying.flatMap((t) =>
             t.items.map((i) => (
-              <div key={i.ticketItemId} className="row" style={{ gap: 10 }}>
-                <span className="badge badge-mute">{i.staffName}</span>
-                <span className="grow truncate">
+              <div key={i.ticketItemId} className="flex items-center gap-2.5">
+                <Badge tone="mute" >{i.staffName}</Badge>
+                <span className="min-w-0 flex-1 truncate">
                   {i.name}
-                  {payAll && <span className="tiny"> · {t.customerName}</span>}
+                  {payAll && <span className="text-xs text-ink-3"> · {t.customerName}</span>}
                 </span>
-                <span className="tiny">{i.durationMin}min</span>
-                <span style={{ fontVariantNumeric: 'tabular-nums' }}>{money(i.totalCents)}</span>
+                <span className="text-xs text-ink-3">{i.durationMin}min</span>
+                <span className="tnum">{money(i.totalCents)}</span>
               </div>
             )))}
-        </div>
+        </Card>
 
         {!done && (
           <>
             {/* 支付方式：只有两种（决策 19） */}
-            <div className="stack" style={{ gap: 8 }}>
-              <div className="tiny">怎么付</div>
-              <div className="row" style={{ gap: 10 }}>
+            <div className="flex flex-col gap-2">
+              <div className="text-xs text-ink-3">怎么付</div>
+              <div className="flex items-center gap-2.5">
                 {([['cash', '💵 现金'], ['card', '💳 刷卡']] as const).map(([m, label]) => (
-                  <button key={m} className="btn grow"
-                          onClick={() => { setMethod(m); setTendered(''); }}
+                  <Button className="min-w-0 flex-1" key={m} onClick={() => { setMethod(m); setTendered(''); }}
                           style={{
                             minHeight: 'var(--tap-lg)', borderWidth: 2,
                             borderColor: method === m ? 'var(--brand)' : 'var(--line)',
                             background: method === m ? 'var(--brand-soft)' : 'var(--surface)',
-                          }}>{label}</button>
+                          }}>{label}</Button>
                 ))}
               </div>
-              <div className="tiny">Zelle、微信转账都按现金记</div>
+              <div className="text-xs text-ink-3">Zelle、微信转账都按现金记</div>
             </div>
 
             {/* 小费 */}
-            <div className="stack" style={{ gap: 8 }}>
-              <div className="tiny">小费</div>
-              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <div className="flex flex-col gap-2">
+              <div className="text-xs text-ink-3">小费</div>
+              <div className="flex items-center gap-2 flex-wrap">
                 {TIP_PRESETS.map((p) => (
-                  <button key={p} className="btn grow" onClick={() => { setTipPct(p); setTipCustom(''); }}
+                  <Button className="min-w-0 flex-1" key={p} onClick={() => { setTipPct(p); setTipCustom(''); }}
                           style={{
                             minHeight: 56, borderWidth: 2, flexDirection: 'column', gap: 0,
                             borderColor: tipPct === p ? 'var(--brand)' : 'var(--line)',
                             background: tipPct === p ? 'var(--brand-soft)' : 'var(--surface)',
                           }}>
                     <span>{p === 0 ? '无' : `${p}%`}</span>
-                    {p > 0 && <span className="tiny">
+                    {p > 0 && <span className="text-xs text-ink-3">
                       {money(Math.round((subtotal * p) / 100))}</span>}
-                  </button>
+                  </Button>
                 ))}
-                <input className="field field-mono" style={{ width: 120 }} inputMode="decimal"
+                <Field mono  style={{ width: 120 }} inputMode="decimal"
                        placeholder="自定义" value={tipCustom}
                        onChange={(e) => { setTipCustom(e.target.value); setTipPct(null); }} />
               </div>
@@ -283,101 +290,95 @@ export function Checkout({
 
             {/* ⭐ 现金实收与找零 */}
             {method === 'cash' && (
-              <div className="stack" style={{ gap: 8 }}>
-                <div className="tiny">客人给了多少（不填就是刚好付清）</div>
-                <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <div className="flex flex-col gap-2">
+                <div className="text-xs text-ink-3">客人给了多少（不填就是刚好付清）</div>
+                <div className="flex items-center gap-2 flex-wrap">
                   {QUICK_TENDER.filter((q) => q >= total).slice(0, 3).map((q) => (
-                    <button key={q} className="btn" onClick={() => setTendered((q / 100).toFixed(2))}
+                    <Button key={q} onClick={() => setTendered((q / 100).toFixed(2))}
                             style={{
                               minHeight: 56, borderWidth: 2,
                               borderColor: tenderedCents === q ? 'var(--brand)' : 'var(--line)',
                               background: tenderedCents === q ? 'var(--brand-soft)' : 'var(--surface)',
-                            }}>{money(q)}</button>
+                            }}>{money(q)}</Button>
                   ))}
-                  <button className="btn" onClick={() => setTendered((total / 100).toFixed(2))}
-                          style={{ minHeight: 56 }}>刚好 {money(total)}</button>
-                  <input className="field field-mono" style={{ width: 130 }} inputMode="decimal"
+                  <Button onClick={() => setTendered((total / 100).toFixed(2))}
+                          style={{ minHeight: 56 }}>刚好 {money(total)}</Button>
+                  <Field mono  style={{ width: 130 }} inputMode="decimal"
                          placeholder="实收金额" value={tendered}
                          onChange={(e) => setTendered(e.target.value)} />
                 </div>
 
                 {tenderedCents > 0 && changeCents < 0 && (
-                  <div className="card" style={{
+                  <Card style={{
                     padding: 12, background: 'var(--warn-soft)', borderColor: 'var(--warn)' }}>
-                    <span style={{ color: 'var(--warn)', fontWeight: 700 }}>
+                    <span className="text-warn font-bold">
                       还差 {money(-changeCents)}
                     </span>
-                  </div>
+                  </Card>
                 )}
 
                 {canKeepChange && (
-                  <div className="card stack" style={{
-                    padding: 14, gap: 10, background: 'var(--ok-soft)', borderColor: 'var(--ok)' }}>
-                    <div className="row">
-                      <strong className="grow" style={{ color: 'var(--ok)' }}>
+                  <Card className="flex flex-col gap-2.5" style={{ padding: 14,  background: 'var(--ok-soft)', borderColor: 'var(--ok)' }}>
+                    <div className="flex items-center gap-3">
+                      <strong className="min-w-0 flex-1 text-ok">
                         要找 {money(changeCents)}
                       </strong>
                     </div>
                     {/* 「不用找了」必须是一次点击就完成的动作 ——
                         客人正站在柜台前等着，前台没工夫心算小费该改成多少 */}
-                    <button className="btn btn-block" onClick={keepTheChange}
-                            style={{ minHeight: 'var(--tap-lg)', borderWidth: 2,
-                                     borderColor: 'var(--ok)' }}>
+                    <Button block onClick={keepTheChange} style={{ minHeight: 'var(--tap-lg)', borderWidth: 2, borderColor: 'var(--ok)' }}>
                       客人说不用找了 → 记成小费 {money(changeCents)}
-                    </button>
-                    <div className="tiny">
+                    </Button>
+                    <div className="text-xs text-ink-3">
                       不记的话，晚上点钞会平白多出 {money(changeCents)}，账对不上
                     </div>
-                  </div>
+                  </Card>
                 )}
               </div>
             )}
 
             {err && (
-              <div className="card" role="alert" style={{
+              <Card role="alert" style={{
                 padding: 14, background: 'var(--danger-soft)', borderColor: 'var(--danger)' }}>
-                <span style={{ color: 'var(--danger)', fontWeight: 700 }}>✕ {err}</span>
-              </div>
+                <span className="text-danger font-bold">✕ {err}</span>
+              </Card>
             )}
 
             {voiding ? (
-              <div className="card stack" style={{
-                padding: 16, gap: 12, background: 'var(--warn-soft)', borderColor: 'var(--warn)' }}>
-                <div style={{ fontWeight: 800, color: 'var(--warn)' }}>作废这一单</div>
-                <div className="tiny" style={{ color: 'var(--warn)' }}>
+              <Card className="flex flex-col gap-3" style={{ padding: 16,  background: 'var(--warn-soft)', borderColor: 'var(--warn)' }}>
+                <div className="font-extrabold text-warn">作废这一单</div>
+                <div className="text-xs text-ink-3 text-warn">
                   记录会保留但不计入营业额。必须选原因。
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 8 }}>
                   {([['duplicate_booking', '重复开单'], ['walk_out', '客人走单'],
                     ['guest_changed_mind', '客人改主意'], ['input_error', '录入错误'],
                     ['paid_externally', '外部已结'], ['other', '其他']] as const).map(([v, l]) => (
-                    <button key={v} className="btn" onClick={() => setVoidReason(v)}
+                    <Button key={v} onClick={() => setVoidReason(v)}
                             style={{
                               minHeight: 52, borderWidth: 2,
                               borderColor: voidReason === v ? 'var(--warn)' : 'var(--line)',
                               background: voidReason === v ? '#fff' : 'transparent',
-                            }}>{l}</button>
+                            }}>{l}</Button>
                   ))}
                 </div>
-                <div className="row" style={{ gap: 10 }}>
-                  <button className="btn grow" onClick={() => setVoiding(false)}>返回</button>
-                  <button className="btn btn-primary grow" disabled={!voidReason || busy}
-                          onClick={() => void doVoid()}>
-                    {busy ? <span className="spin" /> : '确认作废'}
-                  </button>
+                <div className="flex items-center gap-2.5">
+                  <Button className="min-w-0 flex-1" onClick={() => setVoiding(false)}>返回</Button>
+                  <Button variant="primary" className="min-w-0 flex-1" disabled={!voidReason || busy} onClick={() => void doVoid()}>
+                    {busy ? <Spinner /> : '确认作废'}
+                  </Button>
                 </div>
-              </div>
+              </Card>
             ) : (
-              <div className="row" style={{ gap: 10 }}>
-                <button className="btn" onClick={() => setVoiding(true)} disabled={busy}>作废</button>
-                <button className="btn grow" onClick={onCancel} disabled={busy}>稍后</button>
-                <button className="btn btn-primary grow"
-                        disabled={busy || (tenderedCents > 0 && changeCents < 0)}
+              <div className="flex items-center gap-2.5">
+                <Button onClick={() => setVoiding(true)} disabled={busy}>作废</Button>
+                <Button className="min-w-0 flex-1" onClick={onCancel} disabled={busy}>稍后</Button>
+                <Button variant="primary" className="min-w-0 flex-1" disabled={busy || (tenderedCents > 0 && changeCents < 0)}
                         onClick={() => void close()}>
-                  {busy ? <span className="spin" />
+                  {busy ? <Spinner />
                     : changeCents > 0 ? `收 ${money(total)} · 找 ${money(changeCents)}`
                     : `收 ${money(total)}`}
-                </button>
+                </Button>
               </div>
             )}
           </>
@@ -386,42 +387,41 @@ export function Checkout({
         {/* 结完之后：分配明细 + 微信复制 */}
         {done && (
           <>
-            <div className="card stack" style={{
-              padding: 16, gap: 10, background: 'var(--ok-soft)', borderColor: 'var(--ok)' }}>
-              <div className="row">
-                <strong className="grow" style={{ color: 'var(--ok)' }}>小费分配</strong>
-                <span className="badge badge-ok">共 {money(done.tipCents)}</span>
+            <Card className="flex flex-col gap-2.5" style={{ padding: 16,  background: 'var(--ok-soft)', borderColor: 'var(--ok)' }}>
+              <div className="flex items-center gap-3">
+                <strong className="min-w-0 flex-1 text-ok">小费分配</strong>
+                <Badge tone="ok" >共 {money(done.tipCents)}</Badge>
               </div>
-              {done.allocations.length === 0 && <div className="tiny">这一单没有小费</div>}
+              {done.allocations.length === 0 && <div className="text-xs text-ink-3">这一单没有小费</div>}
               {done.allocations.map((a, i) => (
-                <div key={i} className="stack" style={{ gap: 2 }}>
-                  <div className="row">
-                    <strong className="grow">{a.name}</strong>
-                    <span className="badge badge-mute">
+                <div key={i} className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-3">
+                    <strong className="min-w-0 flex-1">{a.name}</strong>
+                    <Badge tone="mute" >
                       {a.source === 'cash' ? '现金·当天发' : '刷卡·进工资'}
-                    </span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+                    </Badge>
+                    <span className="tnum font-bold">
                       {money(a.amountCents)}
                     </span>
                   </div>
                   {/* 技师下班能看懂自己为什么分这么多 */}
-                  <div className="tiny">{a.explain}</div>
+                  <div className="text-xs text-ink-3">{a.explain}</div>
                 </div>
               ))}
-            </div>
+            </Card>
 
-            <button className="btn btn-primary btn-block" onClick={() => void copyWechat()}>
+            <Button variant="primary" block onClick={() => void copyWechat()}>
               {copied ? '✓ 已复制' : '📋 复制分配明细（微信格式）'}
-            </button>
-            <pre className="card tiny" style={{
+            </Button>
+            <pre className="rounded border border-line bg-sunken text-xs text-ink-3" style={{
               padding: 12, margin: 0, whiteSpace: 'pre-wrap', background: 'var(--bg)',
               fontFamily: 'inherit', lineHeight: 1.6,
             }}>{wechatText}</pre>
 
-            <button className="btn btn-block" onClick={onCancel}>完成</button>
+            <Button block onClick={onCancel}>完成</Button>
           </>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

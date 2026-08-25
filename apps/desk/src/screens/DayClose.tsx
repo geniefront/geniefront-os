@@ -17,6 +17,11 @@
 import { useMemo, useState } from 'react';
 import { dollarsToCents } from '@gf/contracts';
 import { ApiError, runCommand } from '../lib/api';
+import { Button } from '../ui/Button';
+import { Field } from '../ui/Field';
+import { Badge } from '../ui/Badge';
+import { Card } from '../ui/Card';
+import { Spinner } from '../ui/Spinner';
 
 const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 const signed = (c: number) => `${c < 0 ? '−' : '+'}${money(Math.abs(c))}`;
@@ -135,26 +140,26 @@ export function DayClose({
   }, 'count');
 
   return (
-    <div className="stack" style={{ padding: '0 16px 24px', gap: 14 }}>
-      <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: 'var(--text-xl)' }}>打烊日结 · {data.businessDate}</strong>
-        <span className={`badge ${closed ? 'badge-ok' : data.status === 'counted' ? 'badge-warn' : 'badge-soft'}`}>
+    <div className="flex flex-col gap-3.5 px-4 pb-6">
+      <div className="flex flex-wrap items-center gap-2.5">
+        <strong className="text-xl font-bold tracking-[-0.02em]">打烊日结 · {data.businessDate}</strong>
+        <Badge tone={closed ? 'ok' : data.status === 'counted' ? 'warn' : 'brand'}>
           {closed ? '已封账' : data.status === 'counted' ? '已点钞' : '未开始'}
-        </span>
+        </Badge>
         {data.openTicketCount > 0 && (
-          <span className="badge badge-warn">还有 {data.openTicketCount} 单没结</span>
+          <Badge tone="warn" >还有 {data.openTicketCount} 单没结</Badge>
         )}
       </div>
 
       {err && (
-        <div className="card" role="alert" style={{
+        <Card role="alert" style={{
           padding: 14, background: 'var(--danger-soft)', borderColor: 'var(--danger)' }}>
-          <span style={{ color: 'var(--danger)', fontWeight: 700 }}>✕ {err}</span>
-        </div>
+          <span className="text-danger font-bold">✕ {err}</span>
+        </Card>
       )}
 
       {/* ── 今日营业 ─────────────────────────────────────────────────────── */}
-      <div className="card stack" style={{ padding: 18, gap: 10 }}>
+      <Card className="flex flex-col p-4.5 gap-2.5">
         <strong>今日营业</strong>
         <Line label="服务原价" value={data.money.grossCents} />
         <Line label="折扣" value={-data.money.discountCents} />
@@ -164,21 +169,21 @@ export function DayClose({
         <Line label="刷卡收款（含小费）" value={data.money.cardTakeCents} />
         <Line label="其中现金小费" value={data.money.tipCashCents} muted />
         <Line label="其中刷卡小费" value={data.money.tipCardCents} muted />
-      </div>
+      </Card>
 
       {/* ── 现金进出 ─────────────────────────────────────────────────────── */}
-      <div className="card stack" style={{ padding: 18, gap: 12 }}>
-        <div className="row">
-          <strong className="grow">现金进出</strong>
-          <span className="tiny">可以一条都不填</span>
+      <Card className="flex flex-col p-4.5 gap-3">
+        <div className="flex items-center gap-3">
+          <strong className="min-w-0 flex-1">现金进出</strong>
+          <span className="text-xs text-ink-3">可以一条都不填</span>
         </div>
         {data.movements.length === 0 && (
-          <div className="tiny muted">今天没有记录任何现金进出</div>
+          <div className="text-xs text-ink-3 text-ink-2">今天没有记录任何现金进出</div>
         )}
         {data.movements.map((m) => (
-          <div key={m.id} className="row" style={{ gap: 10 }}>
-            <span className="badge badge-mute">{MOVEMENT_LABEL[m.kind] ?? m.kind}</span>
-            <span className="grow truncate tiny">{m.note ?? ''}</span>
+          <div key={m.id} className="flex items-center gap-2.5">
+            <Badge tone="mute" >{MOVEMENT_LABEL[m.kind] ?? m.kind}</Badge>
+            <span className="min-w-0 flex-1 truncate text-xs text-ink-3">{m.note ?? ''}</span>
             <span style={{ fontVariantNumeric: 'tabular-nums',
                            color: m.amountCents < 0 ? 'var(--danger)' : 'var(--ok)' }}>
               {signed(m.amountCents)}
@@ -187,25 +192,24 @@ export function DayClose({
         ))}
 
         {!closed && (
-          <div className="stack" style={{ gap: 8, paddingTop: 6, borderTop: '1px dashed var(--line)' }}>
-            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <div className="flex flex-col gap-2" style={{ paddingTop: 6, borderTop: '1px dashed var(--line)' }}>
+            <div className="flex items-center gap-2 flex-wrap">
               {(['supply_purchase', 'cash_drop', 'payout_owner', 'opening_float', 'other'] as const).map((k) => (
-                <button key={k} className="btn" onClick={() => setMvKind(k)}
+                <Button key={k} onClick={() => setMvKind(k)}
                         style={{
                           minHeight: 52, borderWidth: 2,
                           borderColor: mvKind === k ? 'var(--brand)' : 'var(--line)',
                           background: mvKind === k ? 'var(--brand-soft)' : 'var(--surface)',
-                        }}>{MOVEMENT_LABEL[k]}</button>
+                        }}>{MOVEMENT_LABEL[k]}</Button>
               ))}
             </div>
-            <div className="row" style={{ gap: 8 }}>
-              <input className="field field-mono" style={{ width: 140 }} inputMode="decimal"
+            <div className="flex items-center gap-2">
+              <Field mono  style={{ width: 140 }} inputMode="decimal"
                      placeholder="金额" value={mvAmount}
                      onChange={(e) => setMvAmount(e.target.value)} />
-              <input className="field grow" placeholder="备注（买了什么、谁拿的）"
+              <Field className="min-w-0 flex-1"  placeholder="备注（买了什么、谁拿的）"
                      value={mvNote} onChange={(e) => setMvNote(e.target.value)} />
-              <button className="btn" disabled={!mvAmount || busy === 'mv'}
-                      onClick={() => {
+              <Button disabled={!mvAmount || busy === 'mv'} onClick={() => {
                         // 备用金是进抽屉，其余默认出抽屉 —— 前台不用记正负号
                         const abs = Math.abs(dollarsToCents(mvAmount));
                         void run('dayclose.recordCash', {
@@ -215,38 +219,37 @@ export function DayClose({
                           ...(mvNote ? { note: mvNote } : {}),
                         }, 'mv').then(() => { setMvAmount(''); setMvNote(''); });
                       }}>
-                {busy === 'mv' ? <span className="spin" /> : '记一笔'}
-              </button>
+                {busy === 'mv' ? <Spinner /> : '记一笔'}
+              </Button>
             </div>
-            <div className="tiny">
+            <div className="text-xs text-ink-3">
               买东西 / 取现存银行 / 老板拿走都记成出账，备用金记成进账
             </div>
           </div>
         )}
-      </div>
+      </Card>
 
       {/* ── 现金小费发放 ─────────────────────────────────────────────────── */}
       {data.tipPayouts.length > 0 && (
-        <div className="card stack" style={{
-          padding: 18, gap: 12, borderColor: 'var(--ok)', background: 'var(--ok-soft)' }}>
-          <div className="row">
-            <strong className="grow" style={{ color: 'var(--ok)' }}>今晚发现金小费</strong>
-            <span className="badge badge-ok">共 {money(owedTotal)}</span>
+        <Card className="flex flex-col gap-3" style={{ padding: 18,  borderColor: 'var(--ok)', background: 'var(--ok-soft)' }}>
+          <div className="flex items-center gap-3">
+            <strong className="min-w-0 flex-1 text-ok">今晚发现金小费</strong>
+            <Badge tone="ok" >共 {money(owedTotal)}</Badge>
           </div>
 
           {data.tipPayouts.map((p) => (
-            <div key={p.membershipId} className="stack" style={{ gap: 4 }}>
-              <div className="row">
-                <strong className="grow">{p.name}</strong>
+            <div key={p.membershipId} className="flex flex-col gap-1">
+              <div className="flex items-center gap-3">
+                <strong className="min-w-0 flex-1">{p.name}</strong>
                 {p.alreadyPaidCents > 0 && (
-                  <span className="badge badge-mute">已发 {money(p.alreadyPaidCents)}</span>
+                  <Badge tone="mute" >已发 {money(p.alreadyPaidCents)}</Badge>
                 )}
-                <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+                <span className="tnum font-bold">
                   {money(p.payCents)}
                 </span>
               </div>
               {/* 老板照着这一行数钞票 */}
-              <div className="tiny">
+              <div className="text-xs text-ink-3">
                 {Object.entries(p.bills).length > 0
                   ? Object.entries(p.bills)
                       .sort((a, b) => Number(b[0]) - Number(a[0]))
@@ -258,33 +261,32 @@ export function DayClose({
           ))}
 
           {!closed && canPayTips && (
-            <button className="btn btn-primary btn-block" disabled={busy === 'tips' || owedTotal === 0}
-                    onClick={() => void run('dayclose.payTips',
+            <Button variant="primary" block disabled={busy === 'tips' || owedTotal === 0} onClick={() => void run('dayclose.payTips',
                       { businessDate: data.businessDate, roundToCents: 100 }, 'tips')}>
-              {busy === 'tips' ? <span className="spin" /> : `✓ 已数清并发放 ${money(owedTotal)}`}
-            </button>
+              {busy === 'tips' ? <Spinner /> : `✓ 已数清并发放 ${money(owedTotal)}`}
+            </Button>
           )}
           {!closed && !canPayTips && (
-            <div className="tiny">你没有发放现金小费的权限，让老板或店长来点这一步</div>
+            <div className="text-xs text-ink-3">你没有发放现金小费的权限，让老板或店长来点这一步</div>
           )}
-          <div className="tiny">
+          <div className="text-xs text-ink-3">
             发放会自动记一笔现金出账，点钞时就对得上了。零头自动结转到明天。
           </div>
-        </div>
+        </Card>
       )}
 
       {/* ── 点钞 ─────────────────────────────────────────────────────────── */}
-      <div className="card stack" style={{ padding: 18, gap: 12 }}>
-        <div className="row">
-          <strong className="grow">点钞</strong>
-          <span className="tiny">按面额填张数</span>
+      <Card className="flex flex-col p-4.5 gap-3">
+        <div className="flex items-center gap-3">
+          <strong className="min-w-0 flex-1">点钞</strong>
+          <span className="text-xs text-ink-3">按面额填张数</span>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: 8 }}>
           {DENOMS.map((d) => (
-            <label key={d} className="row" style={{ gap: 8 }}>
+            <label key={d} className="flex items-center gap-2">
               <span style={{ width: 44, fontWeight: 700 }}>{denomLabel(d)}</span>
-              <input className="field field-mono grow" inputMode="numeric" disabled={closed}
+              <Field mono className="min-w-0 flex-1"  inputMode="numeric" disabled={closed}
                      style={{ minWidth: 0 }}
                      value={bills[d] ?? ''} placeholder="0"
                      onChange={(e) => setBills({ ...bills, [d]: e.target.value.replace(/\D/g, '') })} />
@@ -292,15 +294,15 @@ export function DayClose({
           ))}
         </div>
 
-        <div className="row" style={{ paddingTop: 8, borderTop: '1px solid var(--line)' }}>
-          <span className="grow">点出来</span>
-          <strong style={{ fontSize: 'var(--text-xl)', fontVariantNumeric: 'tabular-nums' }}>
+        <div className="flex items-center gap-3" style={{ paddingTop: 8, borderTop: '1px solid var(--line)' }}>
+          <span className="min-w-0 flex-1">点出来</span>
+          <strong className="text-xl tnum">
             {money(liveCounted)}
           </strong>
         </div>
         <Line label="系统认为应该有" value={data.expectedCashCents} />
-        <div className="row">
-          <span className="grow">差异</span>
+        <div className="flex items-center gap-3">
+          <span className="min-w-0 flex-1">差异</span>
           <strong style={{
             fontSize: 'var(--text-xl)', fontVariantNumeric: 'tabular-nums',
             color: liveVariance === 0 ? 'var(--ok)'
@@ -311,47 +313,47 @@ export function DayClose({
         </div>
 
         {needsCashReason && !closed && (
-          <div className="stack" style={{ gap: 6 }}>
-            <div className="tiny" style={{ color: 'var(--danger)' }}>
+          <div className="flex flex-col gap-1.5">
+            <div className="text-xs text-ink-3 text-danger">
               差得比 {money(data.varianceThresholdCents)} 多，封账前必须写清楚原因
             </div>
-            <input className="field" placeholder="例：中午找错钱给了客人 / 有一单收了现金忘了开单"
+            <Field  placeholder="例：中午找错钱给了客人 / 有一单收了现金忘了开单"
                    value={cashReason} onChange={(e) => setCashReason(e.target.value)} />
           </div>
         )}
 
-        <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-          <label className="row tiny" style={{ gap: 6 }}>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <label className="flex items-center text-xs text-ink-3 gap-1.5">
             留给明天的备用金
-            <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <span className="tnum">
               {money(data.closingFloatCents)}
             </span>
           </label>
-          <span className="grow" />
+          <span className="min-w-0 flex-1" />
           {!closed && (
-            <button className="btn" disabled={busy === 'count'} onClick={() => void saveCount()}>
-              {busy === 'count' ? <span className="spin" /> : '保存点钞'}
-            </button>
+            <Button disabled={busy === 'count'} onClick={() => void saveCount()}>
+              {busy === 'count' ? <Spinner /> : '保存点钞'}
+            </Button>
           )}
         </div>
-      </div>
+      </Card>
 
       {/* ── 刷卡机物理对账 ───────────────────────────────────────────────── */}
-      <div className="card stack" style={{ padding: 18, gap: 12 }}>
-        <div className="row">
-          <strong className="grow">刷卡机对账</strong>
-          <span className="tiny">照着终端打出的小票敲</span>
+      <Card className="flex flex-col p-4.5 gap-3">
+        <div className="flex items-center gap-3">
+          <strong className="min-w-0 flex-1">刷卡机对账</strong>
+          <span className="text-xs text-ink-3">照着终端打出的小票敲</span>
         </div>
         <Line label="系统刷卡收款（含小费）" value={data.cardExpectedCents} />
-        <div className="row" style={{ gap: 8 }}>
-          <span className="grow">刷卡机 batch total</span>
-          <input className="field field-mono" style={{ width: 160 }} inputMode="decimal"
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1">刷卡机 batch total</span>
+          <Field mono  style={{ width: 160 }} inputMode="decimal"
                  disabled={closed} placeholder="0.00" value={terminal}
                  onChange={(e) => setTerminal(e.target.value)} />
         </div>
         {terminal !== '' && (
-          <div className="row">
-            <span className="grow">差异</span>
+          <div className="flex items-center gap-3">
+            <span className="min-w-0 flex-1">差异</span>
             <strong style={{
               fontVariantNumeric: 'tabular-nums',
               color: cardVariance === 0 ? 'var(--ok)' : 'var(--danger)',
@@ -361,45 +363,41 @@ export function DayClose({
           </div>
         )}
         {terminal !== '' && cardVariance !== 0 && !closed && (
-          <div className="stack" style={{ gap: 6 }}>
+          <div className="flex flex-col gap-1.5">
             {/* 刷卡不该有磨损，差一分就是漏单或重复刷 */}
-            <div className="tiny" style={{ color: 'var(--danger)' }}>
+            <div className="text-xs text-ink-3 text-danger">
               刷卡不该有磨损。差了就是漏单、重复刷、或者有一笔退款没记 —— 必须写原因
             </div>
-            <input className="field" placeholder="例：有一单刷了两次，已经找银行冲掉"
+            <Field  placeholder="例：有一单刷了两次，已经找银行冲掉"
                    value={cardReason} onChange={(e) => setCardReason(e.target.value)} />
           </div>
         )}
-      </div>
+      </Card>
 
       {/* ── 封账 ─────────────────────────────────────────────────────────── */}
       {!closed ? (
-        <button className="btn btn-primary btn-block" style={{ minHeight: 'var(--tap-lg)' }}
-                disabled={busy === 'final' || data.countedCashCents === null}
-                onClick={() => void run('dayclose.finalize', {
+        <Button variant="primary" block style={{ minHeight: 'var(--tap-lg)' }} disabled={busy === 'final' || data.countedCashCents === null} onClick={() => void run('dayclose.finalize', {
                   businessDate: data.businessDate,
                   force: data.openTicketCount > 0,
                 }, 'final')}>
-          {busy === 'final' ? <span className="spin" />
+          {busy === 'final' ? <Spinner />
             : data.countedCashCents === null ? '先保存点钞才能封账'
             : data.openTicketCount > 0 ? `封账（${data.openTicketCount} 单未结会留到明天）`
             : '封账'}
-        </button>
+        </Button>
       ) : (
-        <div className="card row" style={{
-          padding: 18, gap: 10, background: 'var(--ok-soft)', borderColor: 'var(--ok)' }}>
-          <strong className="grow" style={{ color: 'var(--ok)' }}>
+        <Card className="flex items-center gap-2.5" style={{ padding: 18,  background: 'var(--ok-soft)', borderColor: 'var(--ok)' }}>
+          <strong className="min-w-0 flex-1 text-ok">
             ✓ 这一天已封账，单据不能再改
           </strong>
-          <button className="btn" disabled={busy === 'reopen'}
-                  onClick={() => {
+          <Button disabled={busy === 'reopen'} onClick={() => {
                     const reason = window.prompt('重新打开这一天的原因？（会记进流水）');
                     if (reason) void run('dayclose.reopen',
                       { businessDate: data.businessDate, reason }, 'reopen');
                   }}>
             重新打开
-          </button>
-        </div>
+          </Button>
+        </Card>
       )}
     </div>
   );
@@ -409,8 +407,8 @@ function Line({ label, value, bold, muted }: {
   label: string; value: number; bold?: boolean; muted?: boolean;
 }) {
   return (
-    <div className="row">
-      <span className={`grow ${muted ? 'tiny' : ''}`}>{label}</span>
+    <div className="flex items-center gap-3">
+      <span className={muted ? 'min-w-0 flex-1 text-xs text-ink-3' : 'min-w-0 flex-1'}>{label}</span>
       <span style={{
         fontVariantNumeric: 'tabular-nums',
         fontWeight: bold ? 700 : 400,

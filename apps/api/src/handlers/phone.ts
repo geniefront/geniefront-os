@@ -11,6 +11,7 @@
 
 import {
   DraftFromCall, ReviewCallDraft, RecordCall, AttachCallTranscript, SavePhoneLine, RequestAiVoice,
+  SaveAiChangePolicy,
   AppError, ERROR_CODES,
 } from '@gf/contracts';
 import { jsonb, ts } from '@gf/db';
@@ -58,21 +59,36 @@ async function upsertLine(
     assistantId?: string | null | undefined;
     forwardingMode?: string | null | undefined;
     toolTokenDigest?: string | null | undefined;
+    assistantName?: string | null | undefined;
+    greetingTemplate?: string | null | undefined;
+    greetingAiGenerated?: boolean | undefined;
+    aiAnswer?: boolean | undefined;
   },
 ) {
   await tx`
     insert into phone_lines
       (org_id, location_id, e164, provider, purpose, assistant_id,
-       forwarding_mode, tool_token_digest, active)
+       forwarding_mode, tool_token_digest, active,
+       assistant_name, greeting_template, greeting_ai_generated, ai_answer)
     values (${ctx.orgId}, ${ctx.locationId}, ${line.e164},
             ${line.provider ?? 'telnyx'}, ${line.purpose},
             ${line.assistantId ?? null}, ${line.forwardingMode ?? null},
-            ${line.toolTokenDigest ?? null}, true)
+            ${line.toolTokenDigest ?? null}, true,
+            ${line.assistantName ?? null}, ${line.greetingTemplate ?? null},
+            ${line.greetingAiGenerated ?? false}, ${line.aiAnswer ?? true})
     on conflict (location_id, purpose) where active do update set
       e164 = excluded.e164,
       provider = excluded.provider,
       assistant_id = excluded.assistant_id,
       forwarding_mode = excluded.forwarding_mode,
+      -- ⚠️ 话术这四个是**没传就不动**（和 tool_token_digest 同一个道理）。
+      -- 前台在设置里改个转接方式，不该把老板精心调过的开场白清空。
+      -- undefined 走 coalesce 保留旧值；要清空得**显式传 null**，
+      -- 那时下面 SavePhoneLine 会把它翻译成空字符串再落库
+      assistant_name = coalesce(excluded.assistant_name, phone_lines.assistant_name),
+      greeting_template = coalesce(excluded.greeting_template, phone_lines.greeting_template),
+      greeting_ai_generated = excluded.greeting_ai_generated,
+      ai_answer = excluded.ai_answer,
       -- ⚠️ 没给新摘要就**保留旧的**。前台在设置里改一下转接方式，
       -- 不该把这家店的电话 token 冲掉 —— 冲掉的表现是电话全部 401，
       -- 而她刚才只是点了个下拉框
@@ -113,8 +129,23 @@ registerHandler(SavePhoneLine, async ({ input, ctx, tx, audit }: HandlerArgs<
   }
 
   if (input.active) {
+    /*
+     * ⚠️ **显式的 null 要变成空字符串再落库。**
+     *
+     * 上面那条 upsert 用 `coalesce(excluded.x, phone_lines.x)` 实现
+     * 「没传就不动」—— 而 SQL 里分不清「没传」和「传了 null」，两者
+     * 到了 `excluded` 里都是 NULL。于是「老板想清空开场白」会变成
+     * 「什么都没发生」，他会以为界面坏了。
+     *
+     * 空字符串在读取侧和 null 等价（都回退到系统默认，见 telnyx/routes.ts）。
+     */
+    const blankIfNull = <T extends string>(v: T | null | undefined): T | '' | undefined =>
+      v === null ? '' : v;
+
     await upsertLine(tx, ctx, {
       ...input,
+      assistantName: blankIfNull(input.assistantName),
+      greetingTemplate: blankIfNull(input.greetingTemplate),
       ...(toolToken ? { toolTokenDigest: hashToolToken(toolToken) } : {}),
     });
   } else {
@@ -267,7 +298,8 @@ registerHandler(DraftFromCall, async ({ input, ctx, tx, audit, emit }: HandlerAr
        service_name_heard, service_id, staff_name_heard, staff_membership_id,
        time_heard, slot_starts_at, duration_min,
        customer_id, customer_candidates, caller_name_heard,
-       confidence_bp, notes)
+       confidence_bp, notes,
+       kind, target_appointment_id, requested_text, gate_reason)
     values (${ctx.orgId}, ${ctx.locationId}, ${call?.id ?? null}, ${input.fromE164 ?? null},
             ${input.serviceNameHeard ?? null}, ${input.serviceId ?? null},
             ${input.staffNameHeard ?? null}, ${input.staffMembershipId ?? null},
@@ -278,12 +310,17 @@ registerHandler(DraftFromCall, async ({ input, ctx, tx, audit, emit }: HandlerAr
             ${slotRejected ? Math.min(input.confidenceBp, 5000) : input.confidenceBp},
             ${slotRejected
               ? `${input.notes ?? ''}\n⚠️ AI 报的时间在排期表上并不空闲，已清空，请前台重排。`.trim()
-              : (input.notes ?? null)})
+              : (input.notes ?? null)},
+            ${input.kind}, ${input.targetAppointmentId ?? null},
+            ${input.requestedText ?? null}, ${input.gateReason ?? null})
     returning id, created_at`;
 
   audit({
     entityType: 'call_draft', entityId: row!.id,
     after: {
+      kind: input.kind,
+      targetAppointmentId: input.targetAppointmentId ?? null,
+      gateReason: input.gateReason ?? null,
       fromE164: input.fromE164 ?? null,
       serviceHeard: input.serviceNameHeard ?? null,
       staffHeard: input.staffNameHeard ?? null,
@@ -489,3 +526,42 @@ registerHandler(RecordCall, async ({ input, ctx, tx, audit }: HandlerArgs<
 });
 
 export { assertRealSlot };
+
+// ───────────────────────────────────────────── AI 电话变更策略（批 3）
+
+/**
+ * 存 `locations.settings.ai_change`。
+ *
+ * ⭐ 和 `online_booking` 一样放 settings 而不是建表：它是一组阈值，
+ * 不是实体。为八个布尔值建张表只会多出一处「两边不一致」的可能。
+ */
+registerHandler(SaveAiChangePolicy, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SaveAiChangePolicy.input._type>) => {
+  const [cur] = await tx<{ settings: Record<string, unknown> }[]>`
+    select settings from locations where id = ${ctx.locationId}`;
+  if (!cur) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
+
+  const before = (cur.settings['ai_change'] ?? {}) as Record<string, unknown>;
+  const next = {
+    enabled: input.enabled,
+    allow_reschedule: input.allowReschedule,
+    allow_cancel: input.allowCancel,
+    require_exact_caller: input.requireExactCaller,
+    require_single_upcoming: input.requireSingleUpcoming,
+    min_hours_ahead: input.minHoursAhead,
+    block_group: input.blockGroup,
+    block_same_day: input.blockSameDay,
+  };
+
+  await tx`update locations set
+      settings = jsonb_set(settings, '{ai_change}', ${jsonb(next)}::jsonb, true),
+      updated_at = now()
+    where id = ${ctx.locationId}`;
+
+  audit({
+    entityType: 'location', entityId: ctx.locationId,
+    before: { aiChange: before },
+    after: { aiChange: next },
+  });
+  return { locationId: ctx.locationId, enabled: input.enabled };
+});

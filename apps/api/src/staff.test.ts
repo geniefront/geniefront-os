@@ -15,7 +15,7 @@ import { withTenant, closeDb } from '@gf/db';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
 import { replayPunches } from './handlers/staff';
-import { maskPhone, loadStaffToday } from './queries/staff';
+import { maskPhone, loadStaffToday, buildTask, type TaskRow } from './queries/staff';
 import './handlers/ticket';
 import './handlers/staff';
 
@@ -134,6 +134,45 @@ describe('⭐ 手机号脱敏（决策 16 防挖客）', () => {
 });
 
 // ────────────────────────────────────────────────────────── 开始 / 完成
+
+describe('⭐ 技师在床边先看到哪一句', () => {
+  /** 一行最小的任务数据。只填 buildTask 真正读的那几个字段 */
+  const row = (over: Partial<TaskRow> = {}): TaskRow => ({
+    ticket_id: 't', item_id: 'i',
+    customer_name: '李丽', walk_in_name: null, phone: '+15125550142',
+    customer_locale: null, service_name: '深层按摩 90 分钟', duration_min: 90,
+    started_at: null, finished_at: null, resource_name: '3 号房',
+    is_request: false, details: null, prefs: null, cust_notes: null, allergies: null,
+    ...over,
+  });
+
+  it('健康表里有禁忌时，那一句排在最前面', () => {
+    const t = buildTask(row({
+      prefs: { health_flag: true, avoid_areas: ['lower_back'] },
+    }), new Map(), true);
+    // ⚠️ 顺序要紧：技师先看到的应该是「这位有事，去问一句」，
+    // 而不是排在偏好后面的第四行
+    expect(t.alerts[0]).toContain('禁忌');
+    expect(t.alerts.some((a) => a.includes('长期避开'))).toBe(true);
+  });
+
+  it('⭐ 技师看得到「有禁忌」，但看不到任何明细', () => {
+    const t = buildTask(row({
+      prefs: { health_flag: true },
+      // 就算有人往 profile 里塞了明细，技师这一层也不该把它读出来
+      details: null,
+    }), new Map(), true);
+    const all = JSON.stringify(t);
+    expect(all).toContain('禁忌');
+    expect(all).not.toContain('怀孕');
+    expect(all).not.toContain('血栓');
+  });
+
+  it('没有禁忌的客人不出这一句 —— 满屏警示等于没有警示', () => {
+    const t = buildTask(row({ prefs: { health_flag: false } }), new Map(), true);
+    expect(t.alerts.some((a) => a.includes('禁忌'))).toBe(false);
+  });
+});
 
 describe('开始 / 完成', () => {
   it('开始 → 完成，算出实际工时，全部做完后单据转为待结账', async () => {

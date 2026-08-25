@@ -8,7 +8,7 @@
  * 宪法第 11 条：状态不能只靠颜色表达（色觉障碍 + 廉价 iPad 屏）。
  */
 import { cva, type VariantProps } from 'class-variance-authority';
-import type { HTMLAttributes } from 'react';
+import type { CSSProperties, HTMLAttributes } from 'react';
 import { cn } from './cn';
 
 const badge = cva(
@@ -36,7 +36,16 @@ export const Badge = ({ className, tone, ...p }: BadgeProps) => (
   <span className={cn(badge({ tone }), className)} {...p} />
 );
 
-/** 状态点。只跟文字一起用，不单独承载信息 */
-export const Dot = ({ className }: { className?: string }) => (
-  <span className={cn('size-1.5 rounded-full bg-current shrink-0', className)} aria-hidden />
+/**
+ * 状态点。只跟文字一起用，不单独承载信息（宪法第 11 条）。
+ *
+ * ⚠️ 颜色默认取 `currentColor` —— 让它跟着外面那句文字走。
+ * 房态那种要点出自己颜色的地方传 `style={{ color: … }}`。
+ */
+export const Dot = ({ className, style }: {
+  className?: string;
+  style?: CSSProperties;
+}) => (
+  <span className={cn('size-1.5 shrink-0 rounded-full bg-current', className)}
+        style={style} aria-hidden />
 );

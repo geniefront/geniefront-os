@@ -8,7 +8,10 @@
  */
 
 import { createHash } from 'node:crypto';
-import { AppointmentCreate, AppointmentCancel, AppError, ERROR_CODES, pickText } from '@gf/contracts';
+import {
+  AppointmentCreate, AppointmentCancel, AppointmentReschedule,
+  AppError, ERROR_CODES, pickText,
+} from '@gf/contracts';
 import { renderConfirm, formatWhen } from '../email/render';
 import { renderConfirmSms } from '../sms/render';
 import { segmentsOf } from '../sms/segments';
@@ -16,6 +19,7 @@ import { smsConfigured, smsFrom } from '../sms/send';
 import { checkCapacity, businessDateOf, hasBlocking, type Interval } from '@gf/scheduling';
 import { ts, jsonb, parseTs } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
+import { notifyEvent } from '../notify/dispatch';
 
 type Input = typeof AppointmentCreate.input._type;
 type Output = typeof AppointmentCreate.output._type;
@@ -205,7 +209,8 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
     }
   }
 
-  await enqueueConfirmEmail(tx, ctx, appt!.id, itemIds[0] ?? null);
+  await enqueueConfirmEmail(tx, ctx, appt!.id, itemIds[0] ?? null,
+    input.guest?.manageToken ?? null);
   await enqueueConfirmSms(tx, ctx, appt!.id, itemIds[0] ?? null, input.guest?.confirmationCode ?? null);
 
   // 审计由总线统一落库并做金额脱敏
@@ -316,15 +321,16 @@ export const _hasBlocking = hasBlocking;
 async function enqueueConfirmEmail(
   tx: HandlerArgs<Input>['tx'], ctx: HandlerArgs<Input>['ctx'],
   appointmentId: string, firstItemId: string | null,
+  manageToken: string | null,
 ): Promise<void> {
   if (!input_hasCustomerEmailSupport() || !firstItemId) return;
 
   const [row] = await tx<{
-    email: string | null; customer_name: unknown;
+    email: string | null; customer_name: unknown; phone: string | null;
     service_name: unknown; staff_name: unknown;
     starts_at: string; shop_name: unknown; timezone: string;
   }[]>`
-    select c.email, c.display_name as customer_name,
+    select c.email, c.display_name as customer_name, c.phone_e164 as phone,
            s.name as service_name, sp.display_name as staff_name,
            ai.starts_at::text as starts_at,
            l.name as shop_name, l.timezone
@@ -343,6 +349,21 @@ async function enqueueConfirmEmail(
     select e164 from phone_lines
     where location_id = ${ctx.locationId} and purpose = 'main' and active limit 1`;
 
+  /**
+   * ⭐ 自助管理链接（批 2，docs/13 §4.6）。初版**刻意不放**，理由是
+   * 「一封会被转发、会被同事看到的邮件不该自带一个能改动预约的凭证」。
+   *
+   * 现在放了，因为那个凭证不再是单因素：打开链接之后还要输**手机后四位**
+   * 才动得了（`public/routes.ts` §assertLast4）。捡到链接的同事没有那四位数。
+   *
+   * ⚠️ **没留手机号的单不放链接。** 那种单验不了后四位，令牌就又变回单因素了 ——
+   * 那条路只留给官网（建单响应里返回过一次令牌），不进邮件。
+   */
+  const manageUrl = manageToken && row!.phone
+    ? `${(process.env['APP_BASE_URL'] ?? 'http://localhost:5173').replace(/\/+$/, '')}`
+      + `/b/${appointmentId}?t=${encodeURIComponent(manageToken)}`
+    : null;
+
   const msg = renderConfirm({
     customerName: pickText(row!.customer_name, ctx.locale, '您'),
     shopName: pickText(row!.shop_name, ctx.locale, ''),
@@ -350,6 +371,7 @@ async function enqueueConfirmEmail(
     whenText: formatWhen(new Date(row!.starts_at).toISOString(), row!.timezone),
     staffName: row!.staff_name ? pickText(row!.staff_name, ctx.locale) : null,
     shopPhone: line?.e164 ?? null,
+    manageUrl,
   });
 
   // 幂等键是 (entity_type, entity_id, kind) 上的唯一索引 ——
@@ -518,6 +540,14 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit }: HandlerArgs
   await tx`update appointment_items set status = 'cancelled'
     where appointment_id = ${appt.id} and status <> 'cancelled'`;
 
+  await notifyAppointmentChange(tx, ctx, {
+    appointmentId: appt.id,
+    event: 'appointment_cancelled',
+    staffEvent: 'staff_cancelled',
+    oldStartsAt: null,
+    newStartsAt: null,
+  });
+
   audit({
     entityType: 'appointment', entityId: appt.id,
     before: { status: appt.status },
@@ -533,3 +563,326 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit }: HandlerArgs
   // 如实返回调用方问的那件事有没有发生，而不是回一个好看的 true
   return { appointmentId: appt.id, turnKept: false };
 });
+
+// ─────────────────────────────────────────────────────────────────── 改期
+
+/**
+ * `appointment.reschedule` —— 把一单挪到新时间（批 2 补实现）。
+ *
+ * ## ⭐ 为什么这条命令的存在本身就是需求
+ *
+ * `docs/13` 初版拒绝自助改期，理由是「改期在公开页面上会变成
+ * **取消 + 重订**两步，中间那一格可能被人订走，客人两头落空」。
+ *
+ * 那个顾虑成立 —— 但它成立的前提是「改期由两条命令拼出来」。
+ * 这一条命令**在同一个事务里**先把 item 挪到新时间，让容量触发器
+ * 在新位置上判一次；撞了就整体回滚，原单一个字节都没动。
+ * 于是没有中间态：要么改成功，要么原样还在。
+ *
+ * ## 三条实现约束
+ *
+ * 1. **`update` 而不是 `delete + insert`。** 后者会换掉 item id，
+ *    而 `ticket_items` / `earnings` / 审计流水都是按 id 引的。
+ * 2. **整单平移时保持各 item 的相对间隔。** 一单两个项目
+ *    （60 分钟按摩 + 30 分钟修脚）挪动之后仍然是前后相接，
+ *    而不是两个都压到同一个新起点上。
+ * 3. **已经开过单的不让改。** 有 ticket 说明人已经到店、技师已经开工，
+ *    这时候「改期」是运营动作不是客人动作 —— 让前台去处理。
+ */
+registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof AppointmentReschedule.input._type>
+): Promise<typeof AppointmentReschedule.output._type> => {
+  const [loc] = await tx<{ timezone: string; cutoff: string; settings: Record<string, unknown> }[]>`
+    select timezone, business_day_cutoff::text as cutoff, settings
+    from locations where id = ${ctx.locationId}`;
+  if (!loc) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
+
+  const capacityCfg = (loc.settings['capacity'] ?? {}) as {
+    max_concurrent_per_slot?: number | null;
+    overbook?: 'warn' | 'block';
+  };
+
+  const [appt] = await tx<{ id: string; status: string; starts_at: string }[]>`
+    select id, status, starts_at::text as starts_at from appointments
+    where id = ${input.appointmentId} and location_id = ${ctx.locationId}`;
+  if (!appt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
+  if (appt.status === 'cancelled') {
+    throw new AppError(ERROR_CODES.ALREADY_CANCELLED, { details: { appointmentId: appt.id } });
+  }
+
+  // 开过单就不是「改期」了 —— 人已经在店里，让前台处理
+  const [ticket] = await tx<{ id: string; status: string }[]>`
+    select id, status from tickets
+    where appointment_id = ${appt.id} and status <> 'voided' limit 1`;
+  if (ticket) {
+    throw new AppError(ERROR_CODES.TICKET_ALREADY_CLOSED, {
+      details: { reason: 'ticket_exists', ticketId: ticket.id, ticketStatus: ticket.status },
+    });
+  }
+
+  const itemRows = await tx<{
+    id: string; membership_id: string | null; starts_at: string; ends_at: string;
+  }[]>`
+    select id, membership_id, starts_at::text as starts_at, ends_at::text as ends_at
+    from appointment_items
+    where appointment_id = ${appt.id} and status <> 'cancelled'
+    order by starts_at`;
+  if (itemRows.length === 0) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment_items' } });
+  }
+
+  const targets = input.itemId
+    ? itemRows.filter((r) => r.id === input.itemId)
+    : itemRows;
+  if (targets.length === 0) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, { details: { itemId: input.itemId } });
+  }
+
+  /**
+   * 平移量 = 新起点 − 这次要动的那批 item 里最早的那个。
+   *
+   * ⚠️ 用**减去锚点再加回去**而不是「都设成 newStart」：
+   * 一单两个项目要保持前后相接，否则 60 分钟按摩和 30 分钟修脚
+   * 会被压到同一个起点上，变成两个技师同时伺候一个人。
+   */
+  const newStart = new Date(input.startsAt);
+  const anchor = Math.min(...targets.map((t) => parseTs(t.starts_at).getTime()));
+  const deltaMs = newStart.getTime() - anchor;
+
+  const moved = targets.map((t) => ({
+    id: t.id,
+    membershipId: input.membershipId === undefined ? t.membership_id : input.membershipId,
+    startsAt: new Date(parseTs(t.starts_at).getTime() + deltaMs),
+    endsAt: new Date(parseTs(t.ends_at).getTime() + deltaMs),
+  }));
+
+  const windowStart = new Date(Math.min(...moved.map((m) => m.startsAt.getTime())));
+  const windowEnd = new Date(Math.max(...moved.map((m) => m.endsAt.getTime())));
+  const businessDate = businessDateOf(windowStart, loc.timezone, loc.cutoff);
+
+  /**
+   * 新窗口里已经有谁。
+   *
+   * ⚠️ **要排除本单自己的 item** —— 不排除的话，「原地往后延 15 分钟」
+   * 这种最常见的改法会和自己撞车，永远改不成。
+   */
+  const existingRows = await tx<{ membership_id: string | null; starts_at: string; ends_at: string }[]>`
+    select ai.membership_id, ai.starts_at, ai.ends_at from appointment_items ai
+    where ai.location_id = ${ctx.locationId}
+      and ai.status in ('booked','in_service')
+      and ai.appointment_id <> ${appt.id}
+      and ai.starts_at < ${ts(windowEnd)}::timestamptz
+      and ai.ends_at   > ${ts(windowStart)}::timestamptz`;
+  const existing = existingRows.map((e) => ({
+    membershipId: e.membership_id,
+    startsAt: parseTs(e.starts_at),
+    endsAt: parseTs(e.ends_at),
+  }));
+
+  const staffIds = [...new Set(moved.map((m) => m.membershipId).filter((x): x is string => !!x))];
+  const staffRows = staffIds.length
+    ? await tx<{ membership_id: string; is_bookable: boolean; max_concurrent: number }[]>`
+        select membership_id, is_bookable, max_concurrent_appointments as max_concurrent
+        from staff_profiles where membership_id = any(${staffIds})`
+    : [];
+  const staffById = new Map(staffRows.map((s) => [s.membership_id, s]));
+
+  const [onDuty] = await tx<{ n: number }[]>`
+    select count(*)::int as n from staff_profiles
+    where location_id = ${ctx.locationId} and is_bookable = true`;
+
+  // ── 容量：和建单走同一个纯函数（宪法第 2 条：唯一实现）──────────────────
+  let overbooked = false;
+  for (const m of moved) {
+    const staff = m.membershipId ? staffById.get(m.membershipId) : undefined;
+    if (m.membershipId && !staff) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { membershipId: m.membershipId } });
+    }
+    const proposed: Interval = { startsAt: m.startsAt, endsAt: m.endsAt };
+    const issues = checkCapacity({
+      proposed,
+      staff: staff
+        ? {
+            membershipId: staff.membership_id,
+            maxConcurrent: staff.max_concurrent,
+            isBookable: staff.is_bookable,
+            existing: existing.filter((e) => e.membershipId === staff.membership_id),
+          }
+        : null,
+      location: {
+        maxConcurrentPerSlot: capacityCfg.max_concurrent_per_slot ?? null,
+        onDutyBookableCount: onDuty?.n ?? 0,
+        existing,
+      },
+    });
+    if (issues.length === 0) continue;
+
+    if (hasBlocking(issues)) {
+      const blocking = issues.find((i) => !i.overridable)!;
+      throw new AppError(ERROR_CODES.STAFF_NOT_BOOKABLE, { details: { itemId: m.id, ...blocking } });
+    }
+    if (capacityCfg.overbook === 'block' || !input.override) {
+      const first = issues[0]!;
+      throw new AppError(
+        first.code === 'STAFF_OVER_CAPACITY'
+          ? ERROR_CODES.STAFF_OVER_CAPACITY
+          : ERROR_CODES.LOCATION_OVER_CAPACITY,
+        { details: { itemId: m.id, issues } },
+      );
+    }
+    overbooked = true;
+  }
+
+  // ── 写库 ─────────────────────────────────────────────────────────────────
+  //
+  // ⚠️ update 而不是 delete+insert：换掉 item id 会让 ticket_items、
+  // earnings、审计流水全部指向一个不存在的行。
+  //
+  // 资源（房间）的硬约束由数据库触发器兜底 —— 撞了会抛 23001/23P01，
+  // 整个事务回滚，原单原封不动。这正是「原子改期」那句话的兑现处。
+  for (const m of moved) {
+    try {
+      await tx`
+        update appointment_items set
+          starts_at = ${ts(m.startsAt)}::timestamptz,
+          ends_at   = ${ts(m.endsAt)}::timestamptz,
+          membership_id = ${m.membershipId},
+          resource_id = ${input.resourceId === undefined ? tx`resource_id` : input.resourceId}
+        where id = ${m.id}`;
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code && RESOURCE_CONFLICT_CODES.has(code)) {
+        throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, {
+          details: { itemId: m.id, startsAt: m.startsAt.toISOString() },
+          cause: e,
+        });
+      }
+      throw e;
+    }
+  }
+
+  // 父行的窗口要跟着重算 —— 只改 item 的话，日程表上那一条还画在旧位置
+  const [span] = await tx<{ s: string; e: string }[]>`
+    select min(starts_at)::text as s, max(ends_at)::text as e
+    from appointment_items
+    where appointment_id = ${appt.id} and status <> 'cancelled'`;
+  await tx`
+    update appointments set
+      starts_at = ${span!.s}::timestamptz,
+      ends_at   = ${span!.e}::timestamptz,
+      business_date = ${businessDate}
+    where id = ${appt.id}`;
+
+  /*
+   * ⭐ 通知客人和技师（批 8 收尾，补上批 3 留的口子）。
+   *
+   * 在此之前 AI 在电话里改期是**静默**的 —— 客人挂了电话不会收到任何
+   * 确认，而 telnyx/routes.ts 的权限注释里明写了这个缺口。现在补上。
+   *
+   * ⚠️ `notifyEvent` **不抛错**：规则关着、模板没配、客人没留手机号
+   * 都返回 0。一条改期因为「模板没配」而整个失败，是最不能接受的失败方式
+   * （宪法第 13/14 条：短信永不成为阻断点）。
+   */
+  await notifyAppointmentChange(tx, ctx, {
+    appointmentId: appt.id,
+    event: 'appointment_changed',
+    staffEvent: 'staff_changed',
+    oldStartsAt: appt.starts_at,
+    newStartsAt: newStart.toISOString(),
+  });
+
+  audit({
+    entityType: 'appointment', entityId: appt.id,
+    before: { startsAt: appt.starts_at },
+    after: {
+      startsAt: newStart.toISOString(),
+      itemIds: moved.map((m) => m.id),
+      wholeAppointment: !input.itemId,
+      overbooked,
+    },
+  });
+
+  return { appointmentId: appt.id, overbooked };
+});
+
+/**
+ * 改期 / 取消之后通知客人与技师（批 8 收尾）。
+ *
+ * ⚠️ **两条都发**：客人要知道自己的单动了，技师要知道自己的班动了。
+ * 只发客人的话，技师会按旧时间来上班；只发技师的话，客人会按旧时间来。
+ *
+ * ⚠️ 整个函数**不抛错**。这是有意的 —— 通知失败绝不该让一条已经
+ * 生效的改期回滚（那会变成「客人以为改好了，其实没改」，比不通知糟得多）。
+ */
+async function notifyAppointmentChange(
+  tx: HandlerArgs<unknown>['tx'],
+  ctx: HandlerArgs<unknown>['ctx'],
+  args: {
+    appointmentId: string;
+    event: 'appointment_changed' | 'appointment_cancelled';
+    staffEvent: 'staff_changed' | 'staff_cancelled';
+    oldStartsAt: string | null;
+    newStartsAt: string | null;
+  },
+): Promise<void> {
+  const [row] = await tx<{
+    email: string | null; phone: string | null; customer_name: unknown;
+    locale: string | null; shop_name: unknown; timezone: string;
+    service_name: unknown; staff_name: unknown; staff_phone: string | null;
+    starts_at: string;
+  }[]>`
+    select c.email, c.phone_e164 as phone, c.display_name as customer_name, c.locale,
+           l.name as shop_name, l.timezone,
+           s.name as service_name, sp.display_name as staff_name,
+           u.phone as staff_phone,
+           ai.starts_at::text as starts_at
+    from appointments a
+    join locations l on l.id = a.location_id
+    left join appointment_items ai on ai.appointment_id = a.id and ai.status <> 'cancelled'
+    left join customers c on c.id = a.customer_id
+    left join services s on s.id = ai.service_id
+    left join staff_profiles sp on sp.membership_id = ai.membership_id
+    left join memberships m on m.id = ai.membership_id
+    left join users u on u.id = m.user_id
+    where a.id = ${args.appointmentId}
+    limit 1`;
+  if (!row) return;
+
+  const [line] = await tx<{ e164: string }[]>`
+    select e164 from phone_lines
+    where location_id = ${ctx.locationId} and purpose = 'main' and active limit 1`;
+
+  const when = formatWhen(
+    new Date(args.newStartsAt ?? row.starts_at).toISOString(), row.timezone);
+  const vars = {
+    customer_name: pickText(row.customer_name, ctx.locale, ''),
+    shop_name: pickText(row.shop_name, ctx.locale, ''),
+    service_name: pickText(row.service_name, ctx.locale, ''),
+    staff_name: row.staff_name ? pickText(row.staff_name, ctx.locale, '') : '',
+    when,
+    old_when: args.oldStartsAt
+      ? formatWhen(new Date(args.oldStartsAt).toISOString(), row.timezone) : '',
+    shop_phone: line?.e164 ?? '',
+  };
+
+  await notifyEvent(tx, ctx, {
+    event: args.event,
+    entityType: 'appointment', entityId: args.appointmentId,
+    vars, toEmail: row.email, toPhone: row.phone,
+    locale: row.locale,
+  });
+
+  /*
+   * 技师侧走**另一个 entity_type**（`appointment_staff`）。
+   *
+   * outbox 的幂等键是 (entity_type, entity_id, kind)，两条都用
+   * `appointment` 的话，后写的那条会被 `on conflict do nothing` 吞掉 ——
+   * 表现是「客人收到了，技师没收到」，而日志里看不出任何异常。
+   */
+  await notifyEvent(tx, ctx, {
+    event: args.staffEvent,
+    entityType: 'appointment_staff', entityId: args.appointmentId,
+    vars, toEmail: null, toPhone: row.staff_phone,
+    locale: row.locale,
+  });
+}

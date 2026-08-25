@@ -136,6 +136,22 @@ export const SaveFormTemplate = defineCommand({
       label: i18nText,
       options: z.array(z.object({ value: z.string().max(40), label: i18nText })).max(20).optional(),
       required: z.boolean().default(false),
+      /**
+       * ⭐ 这一题要不要**回填客户档案**（02 §5 那条「双向关联」）。
+       *
+       * 只有两个去处，而且**都不搬明细**：
+       *
+       *   · `avoid_areas`   选中的部位并进 `customer_preferences.profile.avoid_areas`。
+       *                     那是**操作信息**（这块别按），不是诊断
+       *   · `health_flag`   答了「有」就把 `profile.health_flag` 置真。
+       *                     **只有一个布尔**，前台和技师看到的永远是
+       *                     「有禁忌，见前台」——「怀孕 28 周」「血栓史」这些字
+       *                     一个都不出 `form_submissions`（那张表是加密的）
+       *
+       * 换句话说：健康表的**明细**只有拿到 `customer.view_health_form`
+       * 的人才看得到，而且看一眼就留一条痕。回填出去的只是够做事的那一点点。
+       */
+      sync: z.enum(['avoid_areas', 'health_flag']).optional(),
     })).min(1).max(40),
     requiresSignature: z.boolean().default(true),
     /** 有效期。到期重签 —— 「三年前签过一次」在法律上站不住 */
@@ -175,7 +191,16 @@ export const SubmitForm = defineCommand({
     signerRelation: z.enum(['self', 'guardian']).default('self'),
     /** 他看的是哪种语言的版本。「我看不懂英文」是最常见的抗辩 */
     locale: localeSchema.default('en'),
-    source: z.enum(['kiosk', 'desk']).default('kiosk'),
+    /** `link` = 客人扫码 / 点邮件里的链接，在自己手机上填的（`docs/15`） */
+    source: z.enum(['kiosk', 'desk', 'link']).default('kiosk'),
+    /**
+     * 从哪条填表链接签进来的。
+     *
+     * ⚠️ **由路由拼，不由客户端说了算**（`public/formRoutes.ts`）——
+     * 和 `customerId` 同一条道理：让请求体决定的话，一条链接就能把
+     * 自己的签名挂到别的链接名下。
+     */
+    shareLinkId: uuid.nullable().optional(),
   }),
   output: z.object({
     submissionId: uuid,
@@ -194,8 +219,91 @@ export const SubmitForm = defineCommand({
   auditRedact: ['answers', 'signatureDataUrl'],
 });
 
+// ───────────────────────────────────────────────── 把表发给客人（`docs/15`）
+
+/**
+ * 生成一条**一次性的填表链接**。
+ *
+ * ## 为什么要有这条路
+ *
+ * 门口那台 iPad 只解决「已经站在店里的人」。而健康表最该在**到店之前**填完：
+ * 客人站在柜台前用一台公用 iPad 回答「有没有血栓史」，后面还排着队 ——
+ * 那种情况下他会一路点「否」，而这张表的全部意义就在他答的是不是真话。
+ *
+ * ## ⚠️ 只走二维码和邮件，**不发短信**
+ *
+ * 短信里的网页链接在美国运营商眼里是高风险流量（`09` §5）：平台号 + 陌生短链
+ * 是钓鱼短信最常见的形状，掐的是整条 10DLC 通道 —— 一旦被掐，
+ * 受影响的是所有店的预约确认短信，不只是这一条。
+ * 所以到店前的分享只有两条：**当面扫码**、**发邮件**。
+ *
+ * ## 令牌
+ *
+ * 明文 `fs_…` **只在这次返回里出现**，库里只存 SHA-256 摘要 ——
+ * 和设备令牌（0016）、自助取消令牌（0033）同一个套路。
+ * 链接过期或用过之后立刻失效，捡到旧链接的人什么也拿不到。
+ */
+export const ShareForm = defineCommand({
+  name: 'form.share',
+  input: z.object({
+    /** 要他签哪几份。空 = 按门店当前在用的全部必签表 */
+    templateIds: z.array(uuid).max(10).default([]),
+    /** 认得出是谁签的。没有客户档案也能发（他到店再合并，决策 21） */
+    customerId: uuid.nullable().optional(),
+    appointmentId: uuid.nullable().optional(),
+    /**
+     * `qr` = 前台屏上出个码给客人当面扫；`email` = 发到他邮箱。
+     * ⚠️ **没有 sms** —— 理由见上面
+     */
+    channel: z.enum(['qr', 'email']).default('qr'),
+    /** channel = email 时必填 */
+    email: z.string().email().max(200).optional(),
+    /** 链接活多久。默认 72 小时 —— 够他晚上想起来再填，又不会留一年 */
+    expiresInHours: z.number().int().min(1).max(720).default(72),
+    /** 客人看到的语言。发邮件时也用它 */
+    locale: localeSchema.default('en'),
+  }),
+  output: z.object({
+    shareId: uuid,
+    /** 明文令牌。**只有这一次**能拿到 */
+    token: z.string(),
+    url: z.string(),
+    /** 内联 SVG 二维码（服务端生成，不引外部图床）*/
+    qrSvg: z.string(),
+    expiresAt: z.string(),
+    /** channel = email 时，邮件是否已入队 */
+    emailQueued: z.boolean(),
+  }),
+  permission: 'form.submit',
+  ai: {
+    description: '生成一条给客人的填表链接（二维码或邮件）。不发短信。',
+    confirm: 'always',
+    // 副驾不替人往外发东西 —— 发到哪个邮箱这件事必须是人点的
+    exposed: false,
+  },
+  reversible: true,
+  idempotency: 'optional',
+  // 邮箱是个人信息，审计里留「发过一条」就够了
+  auditRedact: ['email'],
+});
+
+/** 发错人了、或者客人说链接被同事看到了 —— 立刻失效。 */
+export const RevokeFormShare = defineCommand({
+  name: 'form.revokeShare',
+  input: z.object({ shareId: uuid }),
+  output: z.object({ shareId: uuid }),
+  permission: 'form.submit',
+  ai: {
+    description: '让一条填表链接立刻失效。',
+    confirm: 'destructive',
+    exposed: false,
+  },
+  reversible: false,
+  idempotency: 'optional',
+});
+
 export const KIOSK_COMMANDS = [
   IssueDeviceToken, RevokeDeviceToken,
   JoinQueue, UpdateQueueEntry,
-  SaveFormTemplate, SubmitForm,
+  SaveFormTemplate, SubmitForm, ShareForm, RevokeFormShare,
 ] as const;

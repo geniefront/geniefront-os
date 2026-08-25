@@ -42,6 +42,15 @@ export const PERMISSIONS = [
   'customer.read',
   'customer.write',
   'customer.view_contact', // 看完整手机号（技师默认没有 → 防挖客）
+  /**
+   * 看健康表的**内容**（他到底勾了什么）。⭐ 看一眼就往 `form_access_log`
+   * 写一行 —— 02 §5「读也要审计」在这条权限上是硬要求。
+   *
+   * ⚠️ **技师没有，而且不该有**：床边需要知道的是「避开右膝」，
+   * 那一条在客人交表时已经回填进客户档案了（`form.submit` 的 syncToProfile）。
+   * 技师看到的永远是「有禁忌，见前台」——「怀孕 28 周」「血栓史」
+   * 只留在加密的 `form_submissions` 里。
+   */
   'customer.view_health_form',
   'customer.merge',
 
@@ -97,6 +106,9 @@ export const ROLE_PRESETS = {
     'payroll.view_own', 'payroll.view_all', 'payroll.configure',
     'dayclose.manage', 'tip.payout', 'report.view',
     'customer.read', 'customer.write', 'customer.view_contact', 'customer.merge',
+    // 店长是店里对客人安全负责的那个人：客人躺上床之前要有人看过
+    // 那张表（`readSubmission` 的 service_prep 就是这个场景，占九成）
+    'customer.view_health_form',
     'schedule.read', 'schedule.write',
     'timeclock.punch_self', 'timeclock.punch_others',
     'settings.manage', 'staff.manage', 'catalog.manage',
@@ -113,6 +125,14 @@ export const ROLE_PRESETS = {
     // 但历史营业报表不给 —— 那是老板的账（决策 19 极致隐私）。
     'dayclose.manage', 'tip.payout',
     'customer.read', 'customer.write', 'customer.view_contact', 'customer.merge',
+    /**
+     * ⭐ 前台也要有 —— 02 §3.1 给技师看的那句话是**「有禁忌，见前台」**。
+     * 前台看不到内容的话，这句话把技师指向了一个同样看不见的人，
+     * 而客人已经躺在床上了。Desk-Only 的店尤其如此（宪法第 14 条，
+     * 同「打烊数钱和发现金小费都是前台干的」那两条）。
+     * ⚠️ 代价认了：看一眼就留一条痕，这条权限本身就是靠留痕约束的。
+     */
+    'customer.view_health_form',
     'schedule.read',
     'timeclock.punch_self', 'timeclock.punch_others', // Desk-Only 模式要能代技师打卡
     // 没有 iPad 的店，前台代客人取号、代签免责书（宪法第 14 条）

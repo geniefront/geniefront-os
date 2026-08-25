@@ -17,6 +17,9 @@ import { useMemo } from 'react';
 import { DoorOpen, Star, TriangleAlert } from 'lucide-react';
 import { InfoDot } from '../ui/Info';
 import type { DaySnapshot, DayItem } from './DaySchedule';
+import { Badge, Dot } from '../ui/Badge';
+import { Card } from '../ui/Card';
+import { Page } from '../ui/Page';
 
 /** 当天第几分钟（门店本地墙上时间）。与 DaySchedule 同一套算法 */
 function localMin(iso: string, tz: string): number {
@@ -92,39 +95,39 @@ export function FloorBoard({ day, nowMin }: { day: DaySnapshot; nowMin: number }
 
   if (day.resources.length === 0) {
     return (
-      <div className="page">
-        <div className="card" style={{ padding: 48, textAlign: 'center' }}>
-          <DoorOpen size={36} style={{ color: 'var(--ink-3)' }} />
-          <div className="title" style={{ marginTop: 14 }}>尚未配置资源</div>
-          <div className="tiny row" style={{ marginTop: 8, justifyContent: 'center', gap: 6 }}>
+      <Page>
+        <Card className="p-12 text-center">
+          <DoorOpen size={36} className="text-ink-3" />
+          <div className="text-lg font-bold tracking-[-0.02em] mt-3.5">尚未配置资源</div>
+          <div className="flex items-center text-xs text-ink-3 mt-2 justify-center gap-1.5">
             在「门店设置 → 房间与设备」中添加
             <InfoDot text="资源配置后，系统会在排单时按容量校验，阻止同一房间超额占用。未配置时不做校验。" />
           </div>
-        </div>
-      </div>
+        </Card>
+      </Page>
     );
   }
 
   return (
-    <div className="page">
-      <div className="page-hd">
-        <div className="grow">
-          <h1 className="display">房态</h1>
-          <div className="tiny sub row" style={{ gap: 6 }}>
+    <Page>
+      <div className="mb-5 flex min-h-tap-sm items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl font-bold tracking-[-0.025em]">房态</h1>
+          <div className="flex items-center text-xs text-ink-2 gap-1.5">
             <span>
-              空闲 <span className="num">{freeCount}</span>
-              {fullCount > 0 && <> · 满位 <span className="num">{fullCount}</span></>}
-              {' · '}截至 <span className="num">{hhmm(nowMin)}</span>
+              空闲 <span className="tnum">{freeCount}</span>
+              {fullCount > 0 && <> · 满位 <span className="tnum">{fullCount}</span></>}
+              {' · '}截至 <span className="tnum">{hhmm(nowMin)}</span>
             </span>
             <InfoDot text="占用情况按预约的起止时间判断，不依赖技师是否点了「开始服务」。" />
           </div>
         </div>
       </div>
 
-      <div className="grid-cards">
+      <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
         {rooms.map((r) => <RoomCard key={r.id} room={r} nowMin={nowMin} />)}
       </div>
-    </div>
+    </Page>
   );
 }
 
@@ -141,50 +144,50 @@ function RoomCard({ room, nowMin }: { room: RoomState; nowMin: number }) {
    * 卡片本身保持几乎无边，让阴影和底色去分层。
    */
   const tone = free
-    ? { label: '空闲',   cls: 'badge-mute', fg: 'var(--ink-3)' }
+    ? { label: '空闲',   tone: 'mute' as const, fg: 'var(--ink-3)' }
     : full
-      ? { label: '满位',   cls: 'badge-warn', fg: 'var(--warn)' }
-      : { label: '有空位', cls: 'badge-ok',   fg: 'var(--ok)' };
+      ? { label: '满位',   tone: 'warn' as const, fg: 'var(--warn)' }
+      : { label: '有空位', tone: 'ok' as const,   fg: 'var(--ok)' };
 
   /** 双人房只剩一个技师位的话，能进人但**不能进第二个技师** —— 这条得说出来 */
   const staffFull = room.maxStaff !== null && room.staffCount >= room.maxStaff;
 
   return (
-    <div className="card stack" style={{ padding: 18, gap: 14 }}>
-      <div className="row" style={{ gap: 10 }}>
-        <strong className="title grow truncate">{room.name}</strong>
+    <Card className="flex flex-col p-4.5 gap-3.5">
+      <div className="flex items-center gap-2.5">
+        <strong className="min-w-0 flex-1 truncate text-lg font-bold tracking-[-0.02em]">{room.name}</strong>
         {/* ⭐ 容量画成 3/6 而不是「占用」—— 见文件头那段 */}
         {room.capacity > 1 && (
-          <span className="num" style={{ color: 'var(--ink-3)', fontWeight: 600 }}>
+          <span className="tnum text-ink-3 font-semibold">
             {used}/{room.capacity}
           </span>
         )}
         {/* 状态点 + 文字。点不单独承载信息，文字才是（宪法第 11 条） */}
-        <span className={`badge ${tone.cls}`}>
-          <span className="dot" style={{ color: tone.fg }} />{tone.label}
-        </span>
+        <Badge tone={tone.tone}>
+          <Dot className="mr-1" style={{ color: tone.fg }} />{tone.label}
+        </Badge>
       </div>
-      <div className="stack" style={{ gap: 14 }}>
+      <div className="flex flex-col gap-3.5">
         {room.now.length === 0 ? (
-          <div className="tiny">当前无占用</div>
+          <div className="text-xs text-ink-3">当前无占用</div>
         ) : (
           room.now.map((s) => (
-            <div key={s.item.itemId} className="stack" style={{ gap: 3 }}>
-              <div className="row" style={{ gap: 7 }}>
+            <div key={s.item.itemId} className="flex flex-col gap-[3px]">
+              <div className="flex items-center gap-1.75">
                 <strong className="truncate">{s.item.customerName}</strong>
                 {s.item.isRequest && (
-                  <span className="badge badge-line" title="点钟：客人指定技师">
+                  <Badge tone="line" title="点钟：客人指定技师">
                     <Star size={12} /> 点钟
-                  </span>
+                  </Badge>
                 )}
                 {s.item.overbooked && (
-                  <span className="badge badge-warn" title="超出容量，前台已确认放行">
+                  <Badge tone="warn" title="超出容量，前台已确认放行">
                     <TriangleAlert size={12} /> 超排
-                  </span>
+                  </Badge>
                 )}
               </div>
-              <div className="tiny truncate">{s.staffName} · {s.item.serviceName}</div>
-              <div className="tiny num" style={{ color: 'var(--ink-2)', fontWeight: 600 }}>
+              <div className="truncate text-xs text-ink-3">{s.staffName} · {s.item.serviceName}</div>
+              <div className="tnum text-xs text-ink-3 text-ink-2 font-semibold">
                 {hhmm(s.startMin)}–{hhmm(s.endMin)} · {leftLabel(s.endMin, nowMin)}
               </div>
             </div>
@@ -192,7 +195,7 @@ function RoomCard({ room, nowMin }: { room: RoomState; nowMin: number }) {
         )}
 
         {staffFull && !full && (
-          <div className="tiny row" style={{ color: 'var(--warn)', fontWeight: 500, gap: 5 }}>
+          <div className="flex items-center text-xs text-ink-3 text-warn font-medium gap-1.25">
             <TriangleAlert size={14} />
             技师位已满（上限 {room.maxStaff}）
             <InfoDot text={`该资源仍有空位，但同时进入的技师数已达上限 ${room.maxStaff} 人。可继续安排由现有技师服务的客人。`} />
@@ -201,15 +204,15 @@ function RoomCard({ room, nowMin }: { room: RoomState; nowMin: number }) {
 
         {/* 下一单：回答「这间房什么时候能腾出来」*/}
         {room.upcoming.length > 0 && (
-          <div className="tiny" style={{
+          <div className="text-xs text-ink-3" style={{
             borderTop: '1px solid var(--line)', paddingTop: 12,
           }}>
-            下一位 <span className="num">{hhmm(room.upcoming[0]!.startMin)}</span>
+            下一位 <span className="tnum">{hhmm(room.upcoming[0]!.startMin)}</span>
             {' · '}{room.upcoming[0]!.item.customerName}
             {room.upcoming.length > 1 && ` · 今日另有 ${room.upcoming.length - 1} 单`}
           </div>
         )}
       </div>
-    </div>
+    </Card>
   );
 }

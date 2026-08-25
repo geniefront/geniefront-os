@@ -15,17 +15,30 @@
 
 import { useEffect, useState } from 'react';
 import {
-  apiGet, apiPost, getToken, setToken, KioskError,
+  apiGet, apiPost, getToken, setToken, formToken, KioskError,
   type Hello, type LookupResult, type QueueTicket, type RequiredForm,
 } from './lib/api';
 import { makeT, pick, LOCALES, LOCALE_LABEL, type Locale } from './i18n';
 import { FormSheet } from './screens/FormSheet';
+import { LinkFlow } from './screens/LinkFlow';
 
 type Step = 'setup' | 'welcome' | 'home' | 'phone' | 'pick' | 'walkin' | 'form' | 'done';
 
 const LS_LOCALE = 'gf.kiosk.locale';
 
 export default function App() {
+  /**
+   * ⭐ 地址里带 `?t=fs_…` 就是**客人自己手机上的填表链接**，不是门口那台 iPad
+   * （`docs/15` §4）。这一岔要在最前面分掉：下面整条流程的第一步是
+   * 「这台设备配好了没有」，而客人手机上永远没有设备令牌 ——
+   * 不分岔的话他看到的是一句「请找前台粘贴配对码」。
+   *
+   * ⚠️ 用同一个应用而不是新开一个：客人填的那张表必须和门口 iPad 上
+   * 一模一样（同一份 FormSheet、同一套六语言、同一块签名板）。
+   * 两份实现迟早会分叉，而分叉那天两边签出来的证据就不是同一个东西了。
+   */
+  if (formToken()) return <LinkFlow />;
+
   const [locale, setLocale] = useState<Locale>(
     () => (localStorage.getItem(LS_LOCALE) as Locale) ?? 'zh-Hans');
   const t = makeT(locale);

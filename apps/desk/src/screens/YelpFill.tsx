@@ -15,6 +15,12 @@
 
 import { useState } from 'react';
 import { ApiError, apiGet, runCommand } from '../lib/api';
+import { Button } from '../ui/Button';
+import { Field } from '../ui/Field';
+import { Badge } from '../ui/Badge';
+import { Alert } from '../ui/Alert';
+import { Card } from '../ui/Card';
+import { Spinner } from '../ui/Spinner';
 
 interface YelpBiz {
   yelpBusinessId: string;
@@ -131,69 +137,67 @@ export function YelpFill({
   // ── 搜索 ────────────────────────────────────────────────────────────────
   if (!picked) {
     return (
-      <div className="stack" style={{ padding: '0 16px 24px', gap: 16, maxWidth: 760 }}>
-        <div className="card stack" style={{ padding: 20, gap: 10 }}>
-          <div style={{ fontSize: 'var(--text-xl)', fontWeight: 800 }}>
+      <div className="flex max-w-[760px] flex-col gap-4 px-4 pb-6">
+        <Card className="flex flex-col p-5 gap-2.5">
+          <div className="text-xl font-extrabold">
             🔎 输店名和邮编，自动填店铺信息
           </div>
-          <div className="tiny" style={{ lineHeight: 1.7 }}>
+          <div className="text-xs text-ink-3" style={{ lineHeight: 1.7 }}>
             从 Yelp 上把地址、电话、营业时间一次填好。
             <strong>填之前你可以逐项勾选</strong>，不想要的不填。
           </div>
-        </div>
+        </Card>
 
-        <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
-          <label className="stack grow" style={{ gap: 6, minWidth: 200 }}>
-            <span className="tiny">店名</span>
-            <input className="field" value={term} autoFocus placeholder="例：Lotus Nails"
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className="flex min-w-0 flex-1 flex-col gap-1.5" style={{ minWidth: 200 }}>
+            <span className="text-xs text-ink-3">店名</span>
+            <Field  value={term} autoFocus placeholder="例：Lotus Nails"
                    onChange={(e) => setTerm(e.target.value)}
                    onKeyDown={(e) => { if (e.key === 'Enter' && term && zip) void search(); }} />
           </label>
-          <label className="stack" style={{ gap: 6, width: 180 }}>
-            <span className="tiny">邮编（或城市）</span>
-            <input className="field field-mono" value={zip} placeholder="78704"
+          <label className="flex flex-col gap-1.5" style={{ width: 180 }}>
+            <span className="text-xs text-ink-3">邮编（或城市）</span>
+            <Field mono  value={zip} placeholder="78704"
                    onChange={(e) => setZip(e.target.value)}
                    onKeyDown={(e) => { if (e.key === 'Enter' && term && zip) void search(); }} />
           </label>
         </div>
 
-        {err && <div className="badge badge-warn" style={{ padding: '12px 16px' }}>⚠ {err}</div>}
+        {err && <Alert tone="warn">{err}</Alert>}
 
-        <div className="row" style={{ gap: 12 }}>
-          <button className="btn grow" style={{ minHeight: 'var(--tap)' }} onClick={onCancel}>
+        <div className="flex items-center gap-3">
+          <Button className="min-w-0 flex-1" style={{ minHeight: 'var(--tap)' }} onClick={onCancel}>
             返回
-          </button>
-          <button className="btn btn-primary grow" disabled={busy || !term.trim() || !zip.trim()}
-                  style={{ minHeight: 'var(--tap-lg)', fontSize: 'var(--text-lg)' }}
-                  onClick={() => void search()}>
-            {busy ? <span className="spin" /> : '搜索 →'}
-          </button>
+          </Button>
+          <Button variant="primary" className="min-w-0 flex-1" disabled={busy || !term.trim() || !zip.trim()} style={{ minHeight: 'var(--tap-lg)', fontSize: 'var(--text-lg)' }} onClick={() => void search()}>
+            {busy ? <Spinner /> : '搜索 →'}
+          </Button>
         </div>
 
         {/* 命中多家一定让他点一家 —— 带地址和评价数，一眼能认出自己的店 */}
         {hits && hits.length > 0 && (
-          <div className="stack" style={{ gap: 10 }}>
-            <div className="tiny">
+          <div className="flex flex-col gap-2.5">
+            <div className="text-xs text-ink-3">
               找到 {hits.length} 家。<strong>点一下你自己的那家</strong>：
             </div>
             {hits.map((b) => (
-              <button key={b.yelpBusinessId} className="card row" disabled={busy}
+              <button key={b.yelpBusinessId} className="flex items-center gap-3 rounded-lg border border-line bg-surface shadow-card" disabled={busy}
                       onClick={() => void pick(b)}
                       style={{ padding: '14px 16px', gap: 12, textAlign: 'left',
                                cursor: 'pointer', borderWidth: 2, width: '100%' }}>
-                <div className="grow stack" style={{ gap: 3, minWidth: 0 }}>
-                  <div className="row" style={{ gap: 8 }}>
-                    <strong style={{ fontSize: 'var(--text-lg)' }}>{b.name}</strong>
-                    {b.isClosed && <span className="badge badge-danger">已歇业</span>}
+                <div className="flex min-w-0 flex-1 flex-col gap-[3px]" style={{ minWidth: 0 }}>
+                  <div className="flex items-center gap-2">
+                    <strong className="text-lg">{b.name}</strong>
+                    {b.isClosed && <Badge tone="danger" >已歇业</Badge>}
                   </div>
-                  <span className="tiny truncate">{b.address.display.join(' · ')}</span>
-                  <span className="tiny">
+                  <span className="truncate text-xs text-ink-3">{b.address.display.join(' · ')}</span>
+                  <span className="text-xs text-ink-3">
                     {b.rating !== null && `★ ${b.rating}`}
                     {b.reviewCount !== null && ` · ${b.reviewCount} 条评价`}
                     {b.displayPhone && ` · ${b.displayPhone}`}
                   </span>
                 </div>
-                <span className="badge badge-soft">选这家 ›</span>
+                <Badge tone="brand" >选这家 ›</Badge>
               </button>
             ))}
           </div>
@@ -206,23 +210,21 @@ export function YelpFill({
   const hoursCount = Object.keys(picked.businessHours).length;
 
   return (
-    <div className="stack" style={{ padding: '0 16px 24px', gap: 14, maxWidth: 760 }}>
-      <div className="card stack" style={{ padding: 20, gap: 6 }}>
-        <div style={{ fontSize: 'var(--text-xl)', fontWeight: 800 }}>{picked.name}</div>
-        <div className="tiny">{picked.address.display.join(' · ')}</div>
+    <div className="flex flex-col gap-3.5" style={{ maxWidth: 760 }}>
+      <Card className="flex flex-col p-5 gap-1.5">
+        <div className="text-xl font-extrabold">{picked.name}</div>
+        <div className="text-xs text-ink-3">{picked.address.display.join(' · ')}</div>
         {picked.rating !== null && (
-          <div className="tiny">★ {picked.rating} · {picked.reviewCount} 条评价</div>
+          <div className="text-xs text-ink-3">★ {picked.rating} · {picked.reviewCount} 条评价</div>
         )}
         {picked.isClosed && (
-          <div className="badge badge-danger" style={{ padding: '8px 12px', alignSelf: 'flex-start' }}>
-            ⚠ Yelp 上标着「已歇业」—— 确认一下是不是选错了那一家
-          </div>
+          <Alert tone="danger">Yelp 上标着「已歇业」—— 确认一下是不是选错了那一家</Alert>
         )}
-      </div>
+      </Card>
 
-      {err && <div className="badge badge-warn" style={{ padding: '10px 14px' }}>⚠ {err}</div>}
+      {err && <Alert tone="warn">{err}</Alert>}
 
-      <div className="tiny">要填哪些？不勾的不会动你现在的设置。</div>
+      <div className="text-xs text-ink-3">要填哪些？不勾的不会动你现在的设置。</div>
 
       <Row on={take.name} onToggle={() => setTake({ ...take, name: !take.name })}
            label="店名" value={picked.name} />
@@ -237,74 +239,66 @@ export function YelpFill({
            disabled={hoursCount === 0} />
 
       {take.hours && hoursCount > 0 && (
-        <div className="card stack" style={{ padding: 14, gap: 6 }}>
+        <Card className="flex flex-col p-3.5 gap-1.5">
           {DAYS.map(([k, label]) => {
             const v = picked.businessHours[k];
             return (
-              <div key={k} className="row" style={{ gap: 10 }}>
+              <div key={k} className="flex items-center gap-2.5">
                 <span style={{ width: 46, fontWeight: 600 }}>{label}</span>
-                <span className="field-mono tiny">
+                <span className="tnum text-xs text-ink-3">
                   {v ? `${v.open} – ${v.close}` : '休息'}
                 </span>
               </div>
             );
           })}
-          <div className="tiny">填完还能在「营业时间」那一页改。</div>
-        </div>
+          <div className="text-xs text-ink-3">填完还能在「营业时间」那一页改。</div>
+        </Card>
       )}
 
       {/* ⭐ 时区单独摆出来，而且跨时区的州强制他看一眼 ——
           时区错了整家店的日结、提成、报表全部错一天 */}
-      <div className="card stack" style={{
-        padding: 14, gap: 10,
-        borderColor: picked.timezoneConfidence === 'needs_confirm' ? 'var(--warn)' : 'var(--line)',
-        background: picked.timezoneConfidence === 'needs_confirm' ? 'var(--warn-soft)' : 'var(--surface)',
-      }}>
-        <div className="row" style={{ gap: 10 }}>
+      <Card className="flex flex-col gap-2.5" style={{ padding: 14,  borderColor: picked.timezoneConfidence === 'needs_confirm' ? 'var(--warn)' : 'var(--line)', background: picked.timezoneConfidence === 'needs_confirm' ? 'var(--warn-soft)' : 'var(--surface)' }}>
+        <div className="flex items-center gap-2.5">
           <button aria-label="要不要填时区"
                   onClick={() => setTake({ ...take, timezone: !take.timezone })}
                   style={{ background: 'none', border: 0, fontSize: 24, padding: 0,
                            cursor: 'pointer', lineHeight: 1 }}>
             {take.timezone ? '☑' : '☐'}
           </button>
-          <strong className="grow">时区</strong>
+          <strong className="min-w-0 flex-1">时区</strong>
           {picked.timezoneConfidence === 'needs_confirm' && (
-            <span className="badge badge-warn">⚠ 这个州横跨两个时区，请确认</span>
+            <Badge tone="warn" >⚠ 这个州横跨两个时区，请确认</Badge>
           )}
         </div>
         {take.timezone && (
           <>
-            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <div className="flex items-center gap-2 flex-wrap">
               {TZ_CHOICES.map((z) => (
-                <button key={z} className="btn"
-                        onClick={() => setTz(z)}
+                <Button key={z} onClick={() => setTz(z)}
                         style={{
                           minHeight: 48, borderWidth: 2,
                           borderColor: tz === z ? 'var(--brand)' : 'var(--line)',
                           background: tz === z ? 'var(--brand-soft)' : 'var(--surface)',
                         }}>
                   {TZ_LABEL[z]}
-                </button>
+                </Button>
               ))}
             </div>
-            <div className="tiny">
+            <div className="text-xs text-ink-3">
               选错了打烊日结和提成会整体错一天 —— 花三秒确认一下。
             </div>
           </>
         )}
-      </div>
+      </Card>
 
-      <div className="row" style={{ gap: 12 }}>
-        <button className="btn" style={{ minHeight: 'var(--tap)' }} disabled={busy}
-                onClick={() => { setPicked(null); setErr(''); }}>
+      <div className="flex items-center gap-3">
+        <Button style={{ minHeight: 'var(--tap)' }} disabled={busy} onClick={() => { setPicked(null); setErr(''); }}>
           换一家
-        </button>
-        <span className="grow" />
-        <button className="btn btn-primary" disabled={busy}
-                style={{ minHeight: 'var(--tap-lg)', fontSize: 'var(--text-lg)', minWidth: 220 }}
-                onClick={() => void apply()}>
-          {busy ? <span className="spin" /> : '✓ 填进我的店'}
-        </button>
+        </Button>
+        <span className="min-w-0 flex-1" />
+        <Button variant="primary" disabled={busy} style={{ minHeight: 'var(--tap-lg)', fontSize: 'var(--text-lg)', minWidth: 220 }} onClick={() => void apply()}>
+          {busy ? <Spinner /> : '✓ 填进我的店'}
+        </Button>
       </div>
     </div>
   );
@@ -314,14 +308,14 @@ function Row({ on, onToggle, label, value, disabled }: {
   on: boolean; onToggle: () => void; label: string; value: string; disabled?: boolean;
 }) {
   return (
-    <div className="card row" style={{ padding: '12px 16px', gap: 12, opacity: disabled ? .5 : 1 }}>
+    <Card className="flex items-center gap-3" style={{ padding: '12px 16px',  opacity: disabled ? .5 : 1 }}>
       <button aria-label={`要不要填${label}`} disabled={disabled} onClick={onToggle}
               style={{ background: 'none', border: 0, fontSize: 24, padding: 0,
                        cursor: disabled ? 'default' : 'pointer', lineHeight: 1 }}>
         {on && !disabled ? '☑' : '☐'}
       </button>
       <span style={{ width: 66, fontWeight: 600 }}>{label}</span>
-      <span className="grow truncate tiny">{value}</span>
-    </div>
+      <span className="min-w-0 flex-1 truncate text-xs text-ink-3">{value}</span>
+    </Card>
   );
 }

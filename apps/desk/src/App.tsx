@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ListOrdered, Armchair, CalendarDays, DoorOpen, Receipt, PhoneCall, Users,
-  MessageSquareWarning,
+  MessageSquareWarning, AudioLines, ClipboardList,
   Wallet, Moon, FileWarning, BarChart3, CalendarClock, Settings2, Percent,
-  CreditCard, AlertTriangle, Bot, LogOut, Menu, LayoutDashboard, type LucideIcon,
+  CreditCard, AlertTriangle, Bot, LogOut, Menu, LayoutDashboard, Plus, ChevronRight,
+  type LucideIcon,
 } from 'lucide-react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import type { Session } from '@supabase/supabase-js';
@@ -14,6 +15,7 @@ import {
 import { watchNetwork, type NetState } from './lib/offline';
 import { watchLocation, type ConnState } from './lib/presence';
 import { OfflineBanner } from './screens/OfflineBanner';
+import { Loading } from './ui/Loading';
 import { makeT, LOCALE_LABEL, LOCALES, type Locale } from './i18n';
 import { Login } from './screens/Login';
 import { LocationPicker } from './screens/LocationPicker';
@@ -35,6 +37,8 @@ import { Reports, type ReportData } from './screens/Reports';
 import { PhotoSetup } from './screens/PhotoSetup';
 import { CallQueue, type CallQueueData, type CallDraft } from './screens/CallQueue';
 import { SmsInbox, type SmsInboxData } from './screens/SmsInbox';
+import { CallLog, type CallLogData, type CallRange } from './screens/CallLog';
+import { HealthForms, type HealthFormsData } from './screens/HealthForms';
 import { YelpFill } from './screens/YelpFill';
 import { QueueBoard, type QueueData } from './screens/QueueBoard';
 import { FloorBoard } from './screens/FloorBoard';
@@ -42,6 +46,10 @@ import { Overview } from './screens/Overview';
 import { GapDays, type GapsData } from './screens/GapDays';
 import { Billing, type BillingResponse } from './screens/Billing';
 import { Copilot } from './screens/Copilot';
+import { Button } from './ui/Button';
+import { Badge } from './ui/Badge';
+import { Card } from './ui/Card';
+import { Spinner } from './ui/Spinner';
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
 
@@ -77,6 +85,8 @@ function Shell({ session }: { session: Session }) {
   const [photoSetup, setPhotoSetup] = useState(false);
   const [yelpFill, setYelpFill] = useState(false);
   const [callDraft, setCallDraft] = useState<CallDraft | null>(null);
+  /** 通话记录看多久。默认 7 天 —— 前台翻它多半是为了「今天上午那通」 */
+  const [callRange, setCallRange] = useState<CallRange>('7');
   /**
    * 现在是门店本地时间的第几分钟。
    * 房态看板拿它判断「此刻谁在房里」—— 按时间算而不是按 status 算，
@@ -321,6 +331,31 @@ function Shell({ session }: { session: Session }) {
   });
 
   /**
+   * 通话记录（docs/14 §10）。
+   *
+   * ⚠️ 和上面那条待复核队列**刚好相反：只在点开时才拉，而且不轮询**。
+   * 它带着完整转录，一通电话几十 KB —— 挂成常驻轮询的话，
+   * 一台开着不动的前台电脑一天要白拉几百次几 MB 的对话内容。
+   * 这一页也没有「等着你处理」的东西，晚几秒看到没有任何代价。
+   */
+  const callLogQ = useQuery({
+    queryKey: ['calls', picked?.membershipId, callRange],
+    enabled: Boolean(picked) && tab === 'calllog',
+    queryFn: () => apiGet<CallLogData>(
+      `/v1/desk/calls?days=${callRange}&limit=200`, picked!.membershipId),
+  });
+
+  /**
+   * 健康表（docs/15）。只在点开时拉 —— 它没有「等着你处理」的东西，
+   * 而列表里带着模板全文（六种语言的题目），不是该常驻轮询的东西。
+   */
+  const formsQ = useQuery({
+    queryKey: ['forms', picked?.membershipId],
+    enabled: Boolean(picked) && tab === 'forms',
+    queryFn: () => apiGet<HealthFormsData>('/v1/desk/forms', picked!.membershipId),
+  });
+
+  /**
    * 客人发进来的短信（docs/09 §5.3）。
    *
    * 和来电复核一样**一直在拉** —— 角标要显示「有几个人可能以为自己取消了」。
@@ -415,15 +450,15 @@ function Shell({ session }: { session: Session }) {
     };
   }, [dayQ.data?.businessDate, trendQ.data, tktQ.data]);
 
-  if (locs.isPending) return <div className="center-page muted">{t('common.loading')}</div>;
+  if (locs.isPending) return <Loading label={t('common.loading')} />;
   if (locs.isError || !locs.data) {
     return (
-      <div className="center-page">
-        <div className="card stack" style={{ padding: 24, gap: 12 }}>
+      <div className="grid min-h-full place-items-center p-6">
+        <Card className="flex flex-col p-6 gap-3">
           <div>{t('common.error')}</div>
-          <button className="btn" onClick={() => locs.refetch()}>{t('common.retry')}</button>
-          <button className="btn btn-ghost" onClick={signOut}>{t('auth.signOut')}</button>
-        </div>
+          <Button onClick={() => locs.refetch()}>{t('common.retry')}</Button>
+          <Button variant="ghost" onClick={signOut}>{t('auth.signOut')}</Button>
+        </Card>
       </div>
     );
   }
@@ -537,14 +572,13 @@ function Shell({ session }: { session: Session }) {
       */}
       <header className="topbar">
         {/* 窄屏（iPad 竖向）下才出现。宽屏侧栏常驻，不需要它 */}
-        <button className="btn btn-sm btn-ghost btn-icon side-toggle"
-                onClick={() => setNavOpen(true)}
+        <Button variant="ghost" size="icon" className="side-toggle" onClick={() => setNavOpen(true)}
                 aria-label="打开导航" title="导航">
           <Menu size={20} />
-        </button>
+        </Button>
         <div style={{ minWidth: 0 }}>
-          <div className="title truncate">{shopName}</div>
-          <div className="tiny truncate" style={{ marginTop: 1 }}>
+          <div className="text-lg font-bold tracking-[-0.02em] truncate">{shopName}</div>
+          <div className="truncate text-xs text-ink-3" style={{ marginTop: 1 }}>
             {picked.roleKeys.map((r) => t(`role.${r}`)).join(' · ')}
             {net === 'online' && (
               <>
@@ -561,7 +595,7 @@ function Shell({ session }: { session: Session }) {
           </div>
         </div>
 
-        <span className="grow" />
+        <span className="min-w-0 flex-1" />
 
         {/*
           ⭐ 副驾做成抽屉、按钮放在顶栏：它是「在别的屏上顺手问一句」的东西。
@@ -569,13 +603,13 @@ function Shell({ session }: { session: Session }) {
           得先离开日程表 —— 而离开的那一刻她就看不到自己在说哪一单了。
         */}
         {canUseAi && (
-          <button className="btn btn-sm" onClick={() => setCopilot(true)}
+          <Button size="sm" onClick={() => setCopilot(true)}
                   title="用说话的方式让副驾帮你查和改">
             <Bot size={17} /> 副驾
-          </button>
+          </Button>
         )}
         <select
-          className="btn btn-sm" style={{ padding: '0 10px' }}
+          className="min-h-tap-sm cursor-pointer rounded-sm border border-line-2 bg-surface px-2.5 text-xs font-semibold text-ink"
           value={locale}
           onChange={(e) => {
             const v = e.target.value as Locale;
@@ -586,12 +620,11 @@ function Shell({ session }: { session: Session }) {
           {LOCALES.map((l) => <option key={l} value={l}>{LOCALE_LABEL[l]}</option>)}
         </select>
         {list.length > 1 && (
-          <button className="btn btn-sm" onClick={() => setPicked(null)}>{t('loc.switch')}</button>
+          <Button size="sm" onClick={() => setPicked(null)}>{t('loc.switch')}</Button>
         )}
-        <button className="btn btn-sm btn-ghost btn-icon" onClick={signOut}
-                title={t('auth.signOut')} aria-label={t('auth.signOut')}>
+        <Button variant="ghost" size="icon" onClick={signOut} title={t('auth.signOut')} aria-label={t('auth.signOut')}>
           <LogOut size={17} />
-        </button>
+        </Button>
       </header>
 
       {net === 'offline' && <OfflineBanner since={netSince} cachedAt={cached?.at ?? null} />}
@@ -601,14 +634,14 @@ function Shell({ session }: { session: Session }) {
         不然他配完项目会楞在那里想「刚才那张清单去哪了」。
       */}
       {setupPending && !showWizard && (
-        <button className="row" onClick={() => { setWizardSkipped(false); setSettingsPane(null); setTab('overview'); }}
+        <button className="flex items-center gap-3" onClick={() => { setWizardSkipped(false); setSettingsPane(null); setTab('overview'); }}
                 style={{
                   margin: '10px 16px 0', padding: '12px 16px', gap: 10, width: 'calc(100% - 32px)',
                   minHeight: 'var(--tap)', textAlign: 'left', cursor: 'pointer',
                   background: 'var(--warn-soft)', color: 'var(--warn)',
                   border: '1px solid var(--warn)', borderRadius: 'var(--r)',
                 }}>
-          <span className="grow" style={{ fontWeight: 600 }}>○ 开店清单还没走完</span>
+          <span className="min-w-0 flex-1 font-semibold">○ 开店清单还没走完</span>
           <span>回到清单 →</span>
         </button>
       )}
@@ -638,11 +671,11 @@ function Shell({ session }: { session: Session }) {
           }} />
       )}
       {showWizard && setQ.isPending && (
-        <div className="center-page muted">{t('common.loading')}</div>
+        <Loading label={t('common.loading')} />
       )}
 
       {!showWizard && (tab === 'overview' ? (
-        dayQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        dayQ.isPending ? <Loading label={t('common.loading')} />
         : (net === 'offline' && cached?.day) || dayQ.data ? (
           <Overview
             day={(net === 'offline' && cached?.day ? cached.day : dayQ.data)!}
@@ -662,7 +695,7 @@ function Shell({ session }: { session: Session }) {
           />
         ) : <Retry onRetry={() => dayQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'turn' ? (
-        rotQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        rotQ.isPending ? <Loading label={t('common.loading')} />
         : rotQ.data ? (
           <TurnBoard data={net === 'offline' && cached?.rot ? cached.rot : rotQ.data}
                      membershipId={picked.membershipId}
@@ -675,32 +708,29 @@ function Shell({ session }: { session: Session }) {
                        await rotQ.refetch(); await dayQ.refetch(); await tktQ.refetch();
                      }} />
         ) : (
-          <div className="card" style={{ margin: 16, padding: 20 }}>
-            <div className="row">
-              <span className="grow">{t('common.error')}</span>
-              <button className="btn" onClick={() => rotQ.refetch()}>{t('common.retry')}</button>
+          <div data-card style={{ margin: 16, padding: 20 }}>
+            <div className="flex items-center gap-3">
+              <span className="min-w-0 flex-1">{t('common.error')}</span>
+              <Button onClick={() => rotQ.refetch()}>{t('common.retry')}</Button>
             </div>
           </div>
         )
       ) : tab === 'ticket' ? (
-        <div className="stack" style={{ padding: '0 16px 24px', gap: 12 }}>
+        <div className="flex flex-col gap-3" style={{ padding: '0 16px 24px' }}>
           {(tktQ.data?.tickets ?? []).length === 0 && (
-            <div className="card" style={{ padding: 28, textAlign: 'center' }}>
-              <div className="muted">现在没有在做的单</div>
-              <div className="tiny" style={{ marginTop: 6 }}>从轮牌板派单会自动开单</div>
+            <div data-card className="p-7 text-center">
+              <div className="text-ink-2">现在没有在做的单</div>
+              <div className="text-xs text-ink-3 mt-1.5">从轮牌板派单会自动开单</div>
             </div>
           )}
 
           {/* ⭐ 归组：一起来的客人。这个动作往往发生在结账台 ——
               「我请客」是掏钱那一刻才说的，所以对已经开着的单也能用 */}
           {grouping.length > 0 && (
-            <div className="card row" style={{
-              padding: '14px 18px', gap: 12, position: 'sticky', top: 64, zIndex: 5,
-              background: 'var(--brand-soft)', borderColor: 'var(--brand)' }}>
-              <strong className="grow">已选 {grouping.length} 张单</strong>
-              <button className="btn" onClick={() => setGrouping([])}>取消</button>
-              <button className="btn btn-primary" disabled={grouping.length < 2 || groupBusy}
-                      onClick={async () => {
+            <Card className="flex items-center gap-3" style={{ padding: '14px 18px',  position: 'sticky', top: 64, zIndex: 5, background: 'var(--brand-soft)', borderColor: 'var(--brand)' }}>
+              <strong className="min-w-0 flex-1">已选 {grouping.length} 张单</strong>
+              <Button onClick={() => setGrouping([])}>取消</Button>
+              <Button variant="primary" disabled={grouping.length < 2 || groupBusy} onClick={async () => {
                         setGroupBusy(true);
                         try {
                           await runCommand('ticket.group', { ticketIds: grouping },
@@ -709,9 +739,9 @@ function Shell({ session }: { session: Session }) {
                           await tktQ.refetch();
                         } finally { setGroupBusy(false); }
                       }}>
-                {groupBusy ? <span className="spin" /> : '归为一组（可以一起付）'}
-              </button>
-            </div>
+                {groupBusy ? <Spinner /> : '归为一组（可以一起付）'}
+              </Button>
+            </Card>
           )}
 
           {/*
@@ -721,23 +751,19 @@ function Shell({ session }: { session: Session }) {
             放在最上面而不是最下面：它挡着今天的路，就得先看见它。
           */}
           {(tktQ.data?.staleCount ?? 0) > 0 && (
-            <div className="card stack" style={{
-              padding: '14px 18px', gap: 4,
-              background: 'var(--warn-soft)', borderColor: 'var(--warn)' }}>
-              <strong style={{ color: 'var(--warn)' }}>
+            <Card className="flex flex-col gap-1" style={{ padding: '14px 18px',  background: 'var(--warn-soft)', borderColor: 'var(--warn)' }}>
+              <strong className="text-warn">
                 ⚠️ 有 {tktQ.data!.staleCount} 张单不是今天的
               </strong>
-              <span className="tiny" style={{ color: 'var(--warn)' }}>
+              <span className="text-xs text-ink-3 text-warn">
                 下面标了日期的那几张是前几天开的。它们会挡住封账 ——
                 该结的结掉，结不了的作废（记录会留着，不算营业额）。
               </span>
-            </div>
+            </Card>
           )}
 
           {(tktQ.data?.tickets ?? []).map((tk) => (
-            <div key={tk.ticketId} className="card row"
-                 style={{ padding: '16px 18px', gap: 14, textAlign: 'left',
-                          borderColor: tk.daysAgo > 0 ? 'var(--warn)' : undefined }}>
+            <Card key={tk.ticketId} className="flex items-center gap-3.5" style={{ padding: '16px 18px',  textAlign: 'left', borderColor: tk.daysAgo > 0 ? 'var(--warn)' : undefined }}>
               <button aria-label="选中"
                       onClick={() => setGrouping(grouping.includes(tk.ticketId)
                         ? grouping.filter((x) => x !== tk.ticketId)
@@ -746,54 +772,55 @@ function Shell({ session }: { session: Session }) {
                                fontSize: 'var(--text-xl)', padding: 0 }}>
                 {grouping.includes(tk.ticketId) ? '☑' : '☐'}
               </button>
-              <button className="grow stack" onClick={() => setCheckout(tk)}
+              <button className="flex min-w-0 flex-1 flex-col gap-3" onClick={() => setCheckout(tk)}
                       style={{ gap: 4, background: 'none', border: 0, textAlign: 'left',
                                cursor: 'pointer', padding: 0 }}>
-                <div className="row" style={{ gap: 8 }}>
-                  <strong style={{ fontSize: 'var(--text-xl)' }}>{tk.customerName}</strong>
+                <div className="flex items-center gap-2">
+                  <strong className="text-xl">{tk.customerName}</strong>
                   {tk.groupId && (
-                    <span className="badge badge-soft">
+                    <Badge tone="brand" >
                       {tk.groupLabel ?? '同组'}
-                    </span>
+                    </Badge>
                   )}
                   {/* 「几天前」比日期本身好用：前台不用心算今天几号 */}
                   {tk.daysAgo > 0 && (
-                    <span className="badge badge-warn">
+                    <Badge tone="warn" >
                       ⚠️ {tk.daysAgo === 1 ? '昨天' : `${tk.daysAgo} 天前`}开的
                       （{tk.businessDate}）
-                    </span>
+                    </Badge>
                   )}
                 </div>
-                <div className="tiny truncate">
+                <div className="truncate text-xs text-ink-3">
                   {tk.items.map((i) => `${i.staffName} · ${i.name}`).join(' ／ ')}
                 </div>
               </button>
-              <span style={{ fontSize: 'var(--text-xl)', fontWeight: 700,
-                             fontVariantNumeric: 'tabular-nums' }}>
+              <span className="text-xl font-bold tnum">
                 ${(tk.subtotalCents / 100).toFixed(2)}
               </span>
-              <button className="badge badge-soft" onClick={() => setAdding(tk)}
-                      style={{ border: 0, cursor: 'pointer' }}>➕ 加项目</button>
-              <button className="badge badge-soft" onClick={() => setCheckout(tk)}
-                      style={{ border: 0, cursor: 'pointer' }}>结账 ›</button>
-            </div>
+              <Button size="sm" onClick={() => setAdding(tk)}>
+                <Plus size={15} />加项目
+              </Button>
+              <Button size="sm" variant="primary" onClick={() => setCheckout(tk)}>
+                结账<ChevronRight size={15} />
+              </Button>
+            </Card>
           ))}
         </div>
       ) : tab === 'queue' ? (
-        queueQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        queueQ.isPending ? <Loading label={t('common.loading')} />
         : queueQ.data ? (
           <QueueBoard data={queueQ.data} membershipId={picked.membershipId}
                       onChanged={async () => { await queueQ.refetch(); }} />
         ) : <Retry onRetry={() => queueQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'floor' ? (
         // ⭐ 房态看板不发新请求：全部从已经在拉的 day 快照里算（见 FloorBoard 文件头）
-        dayQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        dayQ.isPending ? <Loading label={t('common.loading')} />
         : (net === 'offline' && cached?.day) || dayQ.data ? (
           <FloorBoard day={(net === 'offline' && cached?.day ? cached.day : dayQ.data)!}
                       nowMin={nowMin} />
         ) : <Retry onRetry={() => dayQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'gaps' ? (
-        gapQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        gapQ.isPending ? <Loading label={t('common.loading')} />
         : gapQ.data ? (
           <GapDays data={gapQ.data} membershipId={picked.membershipId}
                    onOpenDayClose={(d) => { setCloseDate(d); setTab('close'); }}
@@ -803,12 +830,12 @@ function Shell({ session }: { session: Session }) {
                    }} />
         ) : <Retry onRetry={() => gapQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'sms' ? (
-        smsQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        smsQ.isPending ? <Loading label={t('common.loading')} />
         : smsQ.data ? (
           <SmsInbox data={smsQ.data} timezone={dayQ.data?.timezone ?? 'America/New_York'} />
         ) : <Retry onRetry={() => smsQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'calls' ? (
-        callQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        callQ.isPending ? <Loading label={t('common.loading')} />
         : callQ.data ? (
           <CallQueue data={callQ.data} membershipId={picked.membershipId}
                      onChanged={async () => { await callQ.refetch(); }}
@@ -821,12 +848,26 @@ function Shell({ session }: { session: Session }) {
                        setTab('day');
                      }} />
         ) : <Retry onRetry={() => callQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
+      ) : tab === 'forms' ? (
+        formsQ.isPending ? <Loading label={t('common.loading')} />
+        : formsQ.data ? (
+          <HealthForms data={formsQ.data} membershipId={picked.membershipId}
+                       locale={locale} timezone={dayQ.data?.timezone ?? 'America/New_York'}
+                       canManage={canManage}
+                       onChanged={async () => { await formsQ.refetch(); }} />
+        ) : <Retry onRetry={() => formsQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
+      ) : tab === 'calllog' ? (
+        callLogQ.isPending ? <Loading label={t('common.loading')} />
+        : callLogQ.data ? (
+          <CallLog data={callLogQ.data} range={callRange} onRangeChange={setCallRange}
+                   timezone={dayQ.data?.timezone ?? 'America/New_York'} />
+        ) : <Retry onRetry={() => callLogQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'earn' ? (
-        earnQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        earnQ.isPending ? <Loading label={t('common.loading')} />
         : earnQ.data ? <Earnings data={earnQ.data} />
         : <Retry onRetry={() => earnQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'close' ? (
-        closeQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        closeQ.isPending ? <Loading label={t('common.loading')} />
         : closeQ.data ? (
           <DayClose data={closeQ.data} membershipId={picked.membershipId}
                     canPayTips={canDesk}
@@ -835,7 +876,7 @@ function Shell({ session }: { session: Session }) {
                     }} />
         ) : <Retry onRetry={() => closeQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'roster' ? (
-        rosterQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        rosterQ.isPending ? <Loading label={t('common.loading')} />
         : rosterQ.data ? (
           <Roster data={rosterQ.data} membershipId={picked.membershipId}
                   canWrite={canManage}
@@ -843,7 +884,7 @@ function Shell({ session }: { session: Session }) {
                   onChanged={async () => { await rosterQ.refetch(); }} />
         ) : <Retry onRetry={() => rosterQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'report' ? (
-        reportQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        reportQ.isPending ? <Loading label={t('common.loading')} />
         : reportQ.data ? (
           <Reports data={reportQ.data} membershipId={picked.membershipId}
                    onRange={(from, to) => setRange({ from, to })} />
@@ -868,7 +909,7 @@ function Shell({ session }: { session: Session }) {
                         await setQ.refetch(); await dayQ.refetch();
                       }} />
         ) :
-        setQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        setQ.isPending ? <Loading label={t('common.loading')} />
         : setQ.data ? (
           <Settings data={setQ.data} membershipId={picked.membershipId}
                     // ⚠️ key 让它在页签变化时重新挂载 —— 不重挂的话，
@@ -881,15 +922,15 @@ function Shell({ session }: { session: Session }) {
                       await setQ.refetch(); await dayQ.refetch(); await rotQ.refetch();
                     }} />
         ) : (
-          <div className="card" style={{ margin: 16, padding: 20 }}>
-            <div className="row">
-              <span className="grow">{t('common.error')}</span>
-              <button className="btn" onClick={() => setQ.refetch()}>{t('common.retry')}</button>
+          <div data-card style={{ margin: 16, padding: 20 }}>
+            <div className="flex items-center gap-3">
+              <span className="min-w-0 flex-1">{t('common.error')}</span>
+              <Button onClick={() => setQ.refetch()}>{t('common.retry')}</Button>
             </div>
           </div>
         )
       ) : tab === 'payroll' ? (
-        planQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        planQ.isPending ? <Loading label={t('common.loading')} />
         : planQ.data ? (
           <div style={{ padding: '0 16px 24px' }}>
             <PayrollPlans data={planQ.data} membershipId={picked.membershipId}
@@ -897,7 +938,7 @@ function Shell({ session }: { session: Session }) {
           </div>
         ) : <Retry onRetry={() => planQ.refetch()} label={t('common.error')} retry={t('common.retry')} />
       ) : tab === 'billing' ? (
-        billQ.isPending ? <div className="center-page muted">{t('common.loading')}</div>
+        billQ.isPending ? <Loading label={t('common.loading')} />
         : billQ.data ? (
           <Billing data={billQ.data.billing} autoTopup={billQ.data.autoTopup}
                    membershipId={picked.membershipId}
@@ -908,17 +949,17 @@ function Shell({ session }: { session: Session }) {
                         onPick={(c) => { setChosen(c); setTab('day'); }}
                         onApiError={onApiError} />
       ) : dayQ.isPending ? (
-        <div className="center-page muted">{t('common.loading')}</div>
+        <Loading label={t('common.loading')} />
       ) : (net === 'offline' && cached?.day) || dayQ.data ? (
         <DaySchedule day={(net === 'offline' && cached?.day ? cached.day : dayQ.data)!} t={t}
                      readOnly={net === 'offline'}
                      onSlotClick={(staffId, startMin) => setSlot({ staffId, startMin })}
                      onItemClick={(it) => setEditing(it)} />
       ) : (
-        <div className="card" style={{ margin: 16, padding: 20 }}>
-          <div className="row">
-            <span className="grow">{t('common.error')}</span>
-            <button className="btn" onClick={() => dayQ.refetch()}>{t('common.retry')}</button>
+        <div data-card style={{ margin: 16, padding: 20 }}>
+          <div className="flex items-center gap-3">
+            <span className="min-w-0 flex-1">{t('common.error')}</span>
+            <Button onClick={() => dayQ.refetch()}>{t('common.retry')}</Button>
           </div>
         </div>
       ))}
@@ -1013,7 +1054,7 @@ function Shell({ session }: { session: Session }) {
 type Tab =
   | 'overview' | 'turn' | 'day' | 'ticket' | 'earn' | 'close' | 'roster' | 'report'
   | 'find' | 'setup' | 'calls' | 'queue' | 'billing' | 'payroll' | 'floor' | 'gaps'
-  | 'sms';
+  | 'sms' | 'calllog' | 'forms';
 
 interface NavItem {
   key: Tab;
@@ -1056,12 +1097,18 @@ function Sidebar({ tab, setTab, canDesk, canReport, canManage, canBill, counts, 
         { key: 'floor',  Icon: DoorOpen,      label: '房态',     show: true },
         { key: 'ticket', Icon: Receipt,       label: '进行中工单', count: counts.ticket, show: true },
         { key: 'calls',  Icon: PhoneCall,     label: '来电复核', count: counts.calls, warn: true, show: true },
+        // ⚠️ 通话记录**刻意不带角标**：它不是「等着你处理」的东西，是事后翻的账。
+        // 挂个角标会让它和上面那条抢注意力，而前台在忙的时候只该看见要处理的
+        { key: 'calllog', Icon: AudioLines,    label: '通话记录', show: true },
       ],
     },
     {
       title: '客户',
       items: [
         { key: 'find', Icon: Users, label: '客户档案', show: true },
+        // 健康表放「客户」组而不是「设置」组：它是挂在**人**身上的东西。
+        // 建模板一年一次，但「这位客人签过没有」是天天要查的
+        { key: 'forms', Icon: ClipboardList, label: '健康表', show: true },
         // ⚠️ 平时藏起来。这一页只在「有人回了 STOP/CANCEL 而预约还在」时
         // 才有意义 —— 常驻一个永远是 0 的页签只会让侧边栏更长
         { key: 'sms', Icon: MessageSquareWarning, label: '客人短信',
@@ -1130,7 +1177,7 @@ function Sidebar({ tab, setTab, canDesk, canReport, canManage, canBill, counts, 
       {/* 隔夜单是「挡住封账的那个东西」，挂在「在做的单」下面说清楚 */}
       {counts.stale > 0 && (
         <div className="side-foot">
-          <button className="btn btn-sm btn-block" onClick={() => { setTab('ticket'); onClose(); }}
+          <Button size="sm" block onClick={() => { setTab('ticket'); onClose(); }}
                   title={`${counts.stale} 张跨日未结工单，会阻断日结`}
                   style={{
                     background: 'var(--warn-soft)', color: 'var(--warn)',
@@ -1138,7 +1185,7 @@ function Sidebar({ tab, setTab, canDesk, canReport, canManage, canBill, counts, 
                   }}>
             <AlertTriangle size={17} aria-hidden />
             <span className="lbl">{counts.stale} 张跨日未结</span>
-          </button>
+          </Button>
         </div>
       )}
       </aside>
@@ -1151,10 +1198,10 @@ function Retry({ onRetry, label, retry }: {
   onRetry: () => void; label: string; retry: string;
 }) {
   return (
-    <div className="card" style={{ margin: 16, padding: 20 }}>
-      <div className="row">
-        <span className="grow">{label}</span>
-        <button className="btn" onClick={onRetry}>{retry}</button>
+    <div data-card style={{ margin: 16, padding: 20 }}>
+      <div className="flex items-center gap-3">
+        <span className="min-w-0 flex-1">{label}</span>
+        <Button onClick={onRetry}>{retry}</Button>
       </div>
     </div>
   );
@@ -1170,7 +1217,7 @@ export default function App() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  if (session === undefined) return <div className="center-page muted">…</div>;
+  if (session === undefined) return <Loading label="…" />;
 
   return (
     <QueryClientProvider client={qc}>

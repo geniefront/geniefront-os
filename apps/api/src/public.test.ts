@@ -56,13 +56,18 @@ let shopTz = '';
  * 每天发五格、连发七天，够这一份用。
  */
 let slotSeq = 0;
-const PER_DAY = 5;
+// ⚠️ 要更多空档时**加密度，不要加天数**。
+// 这个文件的班表夹具会给 bookDate 起 DAYS 天全部灌上 published 班 ——
+// 而 phone.test.ts 靠「第 22 天没人排班」来测「那天没空档 → 往后找三天」。
+// 我把 DAYS 从 14 拉到 40 那次，正好盖住了它，表现是一个完全无关的文件红了。
+const PER_DAY = 8;
 const DAYS = 14;
 function nextSlot(): string {
   const i = slotSeq++;
   if (i >= PER_DAY * DAYS) throw new Error('测试用的空档发完了 —— 调大 DAYS');
   const day = addDays(bookDate, Math.floor(i / PER_DAY));
-  const minute = 10 * 60 + (i % PER_DAY) * 90;   // 10:00 / 11:30 / 13:00 / 14:30 / 16:00
+  // 9:30 起每小时一格，到 16:30 —— 全部落在夹具排的 9:00–19:00 班内
+  const minute = 9 * 60 + 30 + (i % PER_DAY) * 60;
   return wallMinuteToInstant(day, shopTz, minute).toISOString();
 }
 
@@ -102,11 +107,23 @@ function get(url: string, headers: Record<string, string> = {}): Promise<Injecte
 }
 
 /** 一份能过校验的建单 body。用例只改自己关心的那一两个字段 */
+/**
+ * 最近一次 `bookingPayload()` 用的手机号。
+ *
+ * 批 2 之后取消和改期都要**手机后四位**，而号码是随机生成的 ——
+ * 测试得知道自己刚才用的是哪一个。写成模块级变量而不是让每个用例
+ * 自己造号码：造号码那一步一旦散开，迟早有人写成固定号码，
+ * 然后「同号不同名 → 两个客户」那条用例就会跟着漂。
+ */
+let lastPhone = '';
+const last4 = () => lastPhone.slice(-4);
+
 function bookingPayload(over: Record<string, unknown> = {}) {
+  lastPhone = `+1617555${String(Math.floor(Math.random() * 9000) + 1000)}`;
   return {
     turnstileToken: `tk_${randomUUID()}`,
     locale: 'en',
-    customer: { name: 'Amy Chen', phone: `+1617555${String(Math.floor(Math.random() * 9000) + 1000)}`, smsOptIn: false },
+    customer: { name: 'Amy Chen', phone: lastPhone, smsOptIn: false },
     items: [{ serviceId, addonIds: [], staffId: null, startsAt: nextSlot() }],
     partySize: 1,
     website: '',
@@ -188,6 +205,20 @@ beforeAll(async () => {
     delete from appointments
     where location_id = ${NAIL_LOC} and source = 'web'
       and business_date >= ${bookDate}`);
+  /**
+   * ⚠️ 还有一条**不是 web 的**要清：「没留手机号也照样能订」那个用例
+   * 走的是 `appointment.create` + `source='desk'`（公开入口必填手机号，
+   * 测不了无号单）。上面那条 `source='web'` 的清理漏了它。
+   *
+   * 后果是隐性的：每跑一次就在同一格多压一张单，跑到第六次
+   * （门店容量 = 在班可预约技师数）那个用例开始报 LOCATION_OVER_CAPACITY，
+   * 而报错的位置和真正的原因隔了好几个用例。按 walk_in_name 精确删，
+   * 碰不到任何手工建的数据。
+   */
+  await withTenant(tenant, (tx) => tx`
+    delete from appointments
+    where location_id = ${NAIL_LOC} and source = 'desk'
+      and walk_in_name = '无号散客' and business_date >= ${bookDate}`);
   /**
    * ⚠️ 班表是**夹具**，用一条批量 SQL 灌，不是 84 次 `shift.set`。
    *
@@ -702,7 +733,8 @@ describe('自助取消', () => {
       { 'idempotency-key': randomUUID() });
     const { bookingId, manageToken } = made.json();
 
-    const res = await post(`/public/v1/bookings/${bookingId}/cancel`, { manageToken });
+    const res = await post(`/public/v1/bookings/${bookingId}/cancel`,
+      { manageToken, last4: last4() });
     expect(res.statusCode).toBe(200);
     expect(res.json().status).toBe('cancelled');
 
@@ -716,7 +748,10 @@ describe('自助取消', () => {
     const made = await post('/public/v1/bookings', bookingPayload(),
       { 'idempotency-key': randomUUID() });
     const { bookingId, manageToken } = made.json();
-    await post(`/public/v1/bookings/${bookingId}/cancel`, { manageToken });
+    const l4 = last4();
+    await post(`/public/v1/bookings/${bookingId}/cancel`, { manageToken, last4: l4 });
+    // ⚠️ 第二次**故意不带 last4** —— 已经取消的单不该再验，
+    // 否则幂等重试会白白消耗锁定计数
     const again = await post(`/public/v1/bookings/${bookingId}/cancel`, { manageToken });
     expect(again.statusCode).toBe(200);
     expect(again.json().status).toBe('cancelled');
@@ -739,12 +774,212 @@ describe('自助取消', () => {
 
 // ─────────────────────────────────────────────────────────────── 权限边界
 
+// ────────────────────────────────────────────────── 后四位与自助改期（批 2）
+
+describe('手机后四位是第二道闸', () => {
+  it('⭐ 不带后四位取消不掉 —— 光有令牌不够了', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const { bookingId, manageToken } = made.json();
+
+    const res = await post(`/public/v1/bookings/${bookingId}/cancel`, { manageToken });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().details.reason).toBe('last4_mismatch');
+
+    const [row] = await withTenant(tenant, (tx) => tx<{ status: string }[]>`
+      select status from appointments where id = ${bookingId}`);
+    expect(row!.status).not.toBe('cancelled');
+  });
+
+  it('⭐ 连错三次锁 15 分钟，而且对的那个也进不去', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const { bookingId, manageToken } = made.json();
+    const right = last4();
+    const wrong = right === '0000' ? '1111' : '0000';
+
+    for (let i = 1; i <= 3; i++) {
+      const r = await post(`/public/v1/bookings/${bookingId}/cancel`,
+        { manageToken, last4: wrong });
+      expect(r.statusCode).toBe(403);
+      expect(r.json().details.attemptsLeft).toBe(3 - i);
+    }
+
+    // 锁上之后连正确答案都不认 —— 否则锁定形同虚设
+    const locked = await post(`/public/v1/bookings/${bookingId}/cancel`,
+      { manageToken, last4: right });
+    expect(locked.statusCode).toBe(403);
+    expect(locked.json().details.reason).toBe('last4_locked');
+    expect(locked.json().details.retryAfterSec).toBeGreaterThan(0);
+  });
+
+  it('⭐ 锁定按预约维度，不按 IP —— 隔壁那单不受连累', async () => {
+    __resetRateLimit();
+    const a = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const aId = a.json().bookingId; const aToken = a.json().manageToken;
+
+    const b = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const bId = b.json().bookingId; const bToken = b.json().manageToken;
+    const bLast4 = last4();
+
+    // 把 A 那单锁死（同一个 IP，测试里全是 127.0.0.1）
+    for (let i = 0; i < 3; i++) {
+      await post(`/public/v1/bookings/${aId}/cancel`, { manageToken: aToken, last4: '0000' });
+    }
+
+    // B 那单照常能取消。按 IP 锁的话这里会 403 ——
+    // 而一家店的客人常常连的是同一个 WiFi
+    const ok = await post(`/public/v1/bookings/${bId}/cancel`,
+      { manageToken: bToken, last4: bLast4 });
+    expect(ok.statusCode).toBe(200);
+  });
+
+  it('猜对了就把失败计数清掉，下次不带着旧账', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const { bookingId, manageToken } = made.json();
+    const right = last4();
+
+    await post(`/public/v1/bookings/${bookingId}/cancel`, { manageToken, last4: '0000' });
+    await post(`/public/v1/bookings/${bookingId}/reschedule`,
+      { manageToken, last4: right, startsAt: nextSlot() });
+
+    const [row] = await withTenant(tenant, (tx) => tx<{ n: number }[]>`
+      select count(*)::int as n from booking_manage_attempts
+      where appointment_id = ${bookingId}`);
+    expect(row!.n).toBe(0);
+  });
+});
+
+describe('自助改期（批 2）', () => {
+  it('⭐ 原子改期：改成功之后原单还是那一条，只是时间变了', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const { bookingId, manageToken } = made.json();
+    const target = nextSlot();
+
+    const res = await post(`/public/v1/bookings/${bookingId}/reschedule`,
+      { manageToken, last4: last4(), startsAt: target });
+    expect(res.statusCode).toBe(200);
+
+    // ⭐ 不是「取消 + 重订」—— 还是同一条单，status 没变成 cancelled
+    const [row] = await withTenant(tenant, (tx) => tx<{ status: string; n: number }[]>`
+      select status, self_reschedule_count as n from appointments where id = ${bookingId}`);
+    expect(row!.status).not.toBe('cancelled');
+    expect(row!.n).toBe(1);
+  });
+
+  it('⭐ 改够次数之后只能打电话', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const { bookingId, manageToken } = made.json();
+    const l4 = last4();
+
+    // 默认上限 2
+    for (let i = 0; i < 2; i++) {
+      const r = await post(`/public/v1/bookings/${bookingId}/reschedule`,
+        { manageToken, last4: l4, startsAt: nextSlot() });
+      expect(r.statusCode).toBe(200);
+    }
+
+    const third = await post(`/public/v1/bookings/${bookingId}/reschedule`,
+      { manageToken, last4: l4, startsAt: nextSlot() });
+    expect(third.statusCode).toBe(403);
+    expect(third.json().details.reason).toBe('reschedule_limit_reached');
+  });
+
+  it('⭐ 撞了容量不消耗改期次数 —— 失败的尝试不该扣配额', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const { bookingId, manageToken } = made.json();
+
+    // 太急的时间会被前置校验挡下，走不到 reschedule 命令
+    const bad = await post(`/public/v1/bookings/${bookingId}/reschedule`,
+      { manageToken, last4: last4(), startsAt: new Date(Date.now() + 10 * 60_000).toISOString() });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().details.reason).toBe('too_soon');
+
+    const [row] = await withTenant(tenant, (tx) => tx<{ n: number }[]>`
+      select self_reschedule_count as n from appointments where id = ${bookingId}`);
+    expect(row!.n).toBe(0);
+  });
+
+  it('已经取消的单改不了', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const { bookingId, manageToken } = made.json();
+    const l4 = last4();
+    await post(`/public/v1/bookings/${bookingId}/cancel`, { manageToken, last4: l4 });
+
+    const res = await post(`/public/v1/bookings/${bookingId}/reschedule`,
+      { manageToken, last4: l4, startsAt: nextSlot() });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it('老板关掉改期开关之后这条路就没了（取消不受影响）', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const { bookingId, manageToken } = made.json();
+    const l4 = last4();
+
+    await run('location.saveOnlineBooking', {
+      enabled: true, maxDaysAhead: 60, minMinutesAhead: 120,
+      requirePhoneVerification: false, cancelCutoffHours: 4,
+      rescheduleEnabled: false, selfRescheduleMax: 2,
+    });
+    try {
+      const r = await post(`/public/v1/bookings/${bookingId}/reschedule`,
+        { manageToken, last4: l4, startsAt: nextSlot() });
+      expect(r.statusCode).toBe(403);
+      expect(r.json().details.reason).toBe('reschedule_disabled');
+
+      // 取消照常 —— 关掉改期不该把客人逼成 no-show
+      const c = await post(`/public/v1/bookings/${bookingId}/cancel`, { manageToken, last4: l4 });
+      expect(c.statusCode).toBe(200);
+    } finally {
+      await run('location.saveOnlineBooking', {
+        enabled: true, maxDaysAhead: 60, minMinutesAhead: 120,
+        requirePhoneVerification: false, cancelCutoffHours: 4,
+      });
+    }
+  });
+
+  it('⭐ 查空档时排除本单，客人才看得到「原地往后延」那一格', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const { bookingId } = made.json();
+    const [appt] = await withTenant(tenant, (tx) => tx<{ d: string }[]>`
+      select business_date::text as d from appointments where id = ${bookingId}`);
+
+    const q = `date=${appt!.d}&serviceId=${serviceId}`;
+    const without = await get(`/public/v1/availability?${q}`);
+    const withEx = await get(`/public/v1/availability?${q}&excludeBookingId=${bookingId}`);
+
+    expect(without.statusCode).toBe(200);
+    expect(withEx.statusCode).toBe(200);
+    // 排除本单之后至少不会更少 —— 他自己占的那些格子回来了
+    expect(withEx.json().slots.length).toBeGreaterThanOrEqual(without.json().slots.length);
+  });
+});
+
 describe('这串公开 key 到底能干什么', () => {
   it('⭐ 关掉在线预约之后，建单和拉项目都进不来（但取消还能用）', async () => {
     __resetRateLimit();
     const made = await post('/public/v1/bookings', bookingPayload(),
       { 'idempotency-key': randomUUID() });
     const { bookingId, manageToken } = made.json();
+    const l4 = last4();
 
     await run('location.saveOnlineBooking', {
       enabled: false, maxDaysAhead: 60, minMinutesAhead: 120,
@@ -760,7 +995,8 @@ describe('这串公开 key 到底能干什么', () => {
       expect(book.statusCode).toBe(403);
 
       // ⭐ 昨天订了的客人今天必须还能取消 —— 取消不掉的人会直接不来
-      const cancel = await post(`/public/v1/bookings/${bookingId}/cancel`, { manageToken });
+      const cancel = await post(`/public/v1/bookings/${bookingId}/cancel`,
+        { manageToken, last4: l4 });
       expect(cancel.statusCode).toBe(200);
     } finally {
       await run('location.saveOnlineBooking', {

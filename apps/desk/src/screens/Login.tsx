@@ -1,5 +1,10 @@
 import { useState } from 'react';
+import { CircleAlert } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { Button } from '../ui/Button';
+import { Field } from '../ui/Field';
+import { Card } from '../ui/Card';
+import { Label } from '../ui/Page';
 import type { makeT } from '../i18n';
 
 export function Login({ t }: { t: ReturnType<typeof makeT> }) {
@@ -17,36 +22,39 @@ export function Login({ t }: { t: ReturnType<typeof makeT> }) {
   }
 
   return (
-    <div className="center-page">
-      <form className="card stack" onSubmit={submit}
-            style={{ width: 'min(460px, 100%)', padding: 32, gap: 18 }}>
-        <div className="stack" style={{ gap: 4 }}>
-          <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 800 }}>{t('app.name')}</div>
-          <div className="muted">{t('auth.title')}</div>
-        </div>
-
-        <label className="stack" style={{ gap: 6 }}>
-          <span className="tiny">{t('auth.email')}</span>
-          <input className="field" type="email" autoComplete="username" required
-                 value={email} onChange={(e) => setEmail(e.target.value)} />
-        </label>
-
-        <label className="stack" style={{ gap: 6 }}>
-          <span className="tiny">{t('auth.password')}</span>
-          <input className="field" type="password" autoComplete="current-password" required
-                 value={password} onChange={(e) => setPassword(e.target.value)} />
-        </label>
-
-        {err && (
-          <div className="badge badge-danger" style={{ padding: '10px 14px' }} role="alert">
-            ✕ {err}
+    <div className="grid min-h-full place-items-center p-6">
+      <Card asChild>
+        <form onSubmit={submit} className="flex w-[min(460px,100%)] flex-col gap-5 p-8">
+          <div className="flex flex-col gap-1">
+            <div className="text-2xl font-extrabold tracking-[-0.03em]">{t('app.name')}</div>
+            <div className="text-xs text-ink-2">{t('auth.title')}</div>
           </div>
-        )}
 
-        <button className="btn btn-primary btn-block" disabled={busy}>
-          {busy ? <span className="spin" /> : t('auth.signIn')}
-        </button>
-      </form>
+          <label className="flex flex-col gap-1.5">
+            <Label>{t('auth.email')}</Label>
+            <Field type="email" autoComplete="username" required
+                   value={email} onChange={(e) => setEmail(e.target.value)} />
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <Label>{t('auth.password')}</Label>
+            <Field type="password" autoComplete="current-password" required
+                   value={password} onChange={(e) => setPassword(e.target.value)} />
+          </label>
+
+          {err && (
+            <div role="alert"
+                 className="flex items-center gap-2 rounded bg-danger-soft px-3.5 py-2.5 text-danger">
+              <CircleAlert size={17} /><span className="text-xs font-semibold">{err}</span>
+            </div>
+          )}
+
+          {/* ⚠️ 这个按钮在 <form> 里，type 必须是 submit —— Button 默认给的是 button */}
+          <Button type="submit" variant="primary" size="lg" block disabled={busy}>
+            {busy ? '…' : t('auth.signIn')}
+          </Button>
+        </form>
+      </Card>
     </div>
   );
 }
