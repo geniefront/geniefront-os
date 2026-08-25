@@ -34,6 +34,7 @@ import './handlers/staff';
 import './handlers/blueprint';
 import './handlers/phone';
 import './handlers/giftcard';
+import './handlers/notify';
 import './handlers/yelp';
 import './handlers/kiosk';
 import './handlers/billing';
