@@ -12,7 +12,7 @@
 | 环境 | API |
 | :--- | :--- |
 | 生产 | `https://api.geniefront.com` |
-| 本地 | `http://localhost:8080`（`pnpm dev` 起） |
+| 本地 | `http://127.0.0.1:3000`（`pnpm dev:api` 起，端口看根 `.env` 的 `PORT`） |
 
 四个前端应用是**四套独立部署**，不要合成一个：
 
@@ -28,14 +28,16 @@
 ## 2. ⭐ 命令总线：所有写操作只有这一条路
 
 ```http
-POST /v1/commands
+POST /v1/commands/appointment.create       ← ⭐ 命令名在 URL 里
 Authorization: Bearer <supabase access token>
 X-Membership-Id: <当前门店的 membership id>
 Idempotency-Key: <前端生成的 uuid，同一次用户动作复用同一个>
 Content-Type: application/json
 
-{ "name": "appointment.create", "input": { … } }
+{ "input": { … } }                          ← body 里只有 input
 ```
+
+返回 **201**（真的执行了）或 **200**（命中幂等缓存，是一次重试）。
 
 **不要**为了「这个操作很简单」就去找一条 REST 路由 —— 没有那种路由。
 命令总线在一个事务里做完这五件事，绕过去就全丢：
@@ -152,16 +154,21 @@ GET /v1/auth/staff/me           技师端：我是谁
 ## 7. 本地起后端
 
 ```bash
-cd geniefront-os && pnpm i && pnpm dev
+cd geniefront-os && pnpm i
+pnpm dev:api      # API，127.0.0.1:3000
 ```
+
+⚠️ `.env` **只有根目录一份**，各 app 用 `loadEnv('../..')` + `define` 注进去。
 
 开发账号（密码统一 `GenieDev!2026`）：
 
-| 邮箱 | 角色 |
-| :--- | :--- |
-| `mia@example.test` | 前台 |
-| `amy@example.test` | 店长兼技师 |
-| `linh@example.test` | 技师 |
-| `owner@example.test` | 另一家店的老板（测多店用） |
+| 邮箱 | 角色 | 门店 |
+| :--- | :--- | :--- |
+| `mia@example.test` | `front_desk` | Lotus Nails |
+| `amy@example.test` | `manager` 兼 `tech` | Lotus Nails |
+| `owner@example.test` | `owner` | Golden Foot Spa |
+
+⚠️ 云端已经 seed 好，**不要再跑 `pnpm db:seed`** —— 它会解绑 Golden Foot Spa
+上那个真实的 Telnyx 号，那家店的电话会全部 401。
 
 `pnpm verify` 是唯一的验收入口，改完必须绿。

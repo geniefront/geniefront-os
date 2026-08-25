@@ -38,7 +38,7 @@
 
 ```
 生产   https://api.geniefront.com
-本地   http://localhost:8080      # pnpm dev
+本地   http://127.0.0.1:3000      # pnpm dev:api（端口在根 .env 的 PORT）
 ```
 
 ```ts
@@ -62,12 +62,13 @@ const H = {
 // ④ 读 —— 普通 REST
 const day = await fetch(`${API}/v1/desk/day?date=2026-08-25`, { headers: H }).then(r => r.json());
 
-// ⑤ 写 —— 只有一条路
-const res = await fetch(`${API}/v1/commands`, {
+// ⑤ 写 —— 只有一条路。⭐ 命令名在 URL 里，body 只有 input
+const res = await fetch(`${API}/v1/commands/appointment.create`, {
   method: 'POST',
   headers: { ...H, 'Idempotency-Key': crypto.randomUUID() },
-  body: JSON.stringify({ name: 'appointment.create', input: { /* … */ } }),
+  body: JSON.stringify({ input: { /* … */ } }),
 });
+// 201 = 真的执行了；200 = 命中幂等缓存（一次重试）
 ```
 
 **就这五步。** 剩下的都是细节。
@@ -121,23 +122,34 @@ GET  /v1/auth/staff/me
 ## 3. ⭐ 命令总线：所有写操作
 
 ```http
-POST /v1/commands
+POST /v1/commands/appointment.create      ← ⭐ 命令名在 **URL** 里
 Authorization: Bearer <supabase access token>
 X-Membership-Id: <membership id>
 Idempotency-Key: <uuid>
 Content-Type: application/json
 
-{ "name": "appointment.create", "input": { … } }
+{ "input": { … } }                         ← body 里**只有 input**
 ```
 
 ```jsonc
-// 200
+// 201 = 这次真的执行了 / 200 = 命中幂等缓存，是一次重试
 {
   "result": { "appointmentId": "…", "overbooked": false },
-  "replayed": false,        // true = 命中幂等缓存，这次没有真的执行
+  "replayed": false,        // true 时 HTTP 状态码是 200
   "undoToken": "audit-id"   // 只有可撤销的命令才有，用于 60 秒内撤销
 }
 ```
+
+> ⭐ **201 和 200 是有意分开的**：客户端据此知道「我这次是真的建了单，
+> 还是重试命中了上一次的结果」。两个都当成功处理，但埋点要分得开。
+>
+> 认不出的命令名返回 **404**（`{ code: 'NOT_FOUND', details: { command } }`），
+> 不是 400 —— 那是一条不存在的命令，不是一个格式错的请求。
+> ⚠️ 但**鉴权在前**：没带 token 时任何命令名都先拿 401，
+> 401 不代表这条命令不存在。
+>
+> `Idempotency-Key` 也可以放在 body 里（`{ input, idempotencyKey }`），
+> **但请求头优先**。推荐一律用请求头，body 那条只是给不方便设头的场景留的。
 
 ### 3.1 为什么不能绕过
 
@@ -917,17 +929,31 @@ sections:   hero about gallery services reviews giftcards faq contact
 ## 16. 本地起后端
 
 ```bash
-cd geniefront-os && pnpm i && pnpm dev
+cd geniefront-os && pnpm i
+pnpm dev:api          # API，127.0.0.1:3000（等价于 pnpm --filter @gf/api dev）
+pnpm dev:desk         # 现有前台，5183
 ```
+
+⚠️ **端口以根 `.env` 的 `PORT` 为准**（现在是 3000）。
+前端从 `VITE_API_BASE` 读，别在代码里写死。
+
+⚠️ **`.env` 只有根目录一份**，各个 app 用 `loadEnv('../..')` + `define` 注进去 ——
+不要在 `apps/*` 下面各建一个。
 
 开发账号（密码统一 `GenieDev!2026`）：
 
-| 邮箱 | 角色 |
-| :--- | :--- |
-| `mia@example.test` | 前台 |
-| `amy@example.test` | 店长兼技师 |
-| `linh@example.test` | 技师 |
-| `owner@example.test` | 另一家店的老板（测多店用） |
+| 邮箱 | 角色 | 门店 |
+| :--- | :--- | :--- |
+| `mia@example.test` | `front_desk` | Lotus Nails & Spa |
+| `amy@example.test` | `manager` **兼** `tech` | Lotus Nails & Spa |
+| `mai@example.test` | `senior_tech` | Lotus Nails & Spa |
+| `tran@` / `kim@` / `linh@example.test` | `tech` | Lotus Nails & Spa |
+| `owner@example.test` | `owner` | Golden Foot Spa（测多店 / 计费用） |
+| `yan@` / `bo@` / `hua@example.test` | `tech` | Golden Foot Spa |
+
+> 云端 Supabase 项目里**已经 seed 好了**，不需要再跑 `pnpm db:seed`。
+> ⚠️ 而且**不要跑** —— 种子会解绑 Golden Foot Spa 上那个真实的 Telnyx 号
+> （`+17579999968`），解绑后那家店的电话会全部 401。
 
 `pnpm verify` 是唯一的验收入口（lint + typecheck + 835 项测试）。
 

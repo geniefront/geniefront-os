@@ -8,6 +8,8 @@
   },
   "scripts": {
     "build": "turbo run build",
+    "dev:api": "pnpm --filter @gf/api dev",
+    "dev:desk": "pnpm --filter @gf/desk dev",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "lint:guards": "bash scripts/lint-guards.sh",
