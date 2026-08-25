@@ -28,8 +28,10 @@
 | Turnstile 校验、三维度限频、蜜罐、未完成预约上限 | ✅ |
 | 每店域名白名单 + 开店配置里的「🌐 官网对接」页 | ✅ |
 | `appointment.cancel` 命令（**之前一直没实现**，顺手补上） | ✅ |
-| `POST …/:id/reschedule` **自助改期** + 手机后四位二次校验（§4.6） | 🚧 批 2 |
-| `booking_policies`（改期/取消截止、自助改期次数上限） | 🚧 批 2 |
+| `POST …/:id/reschedule` **自助改期** + 手机后四位二次校验（§4.6） | ✅ 批 2 |
+| `appointment.reschedule` 命令（**之前只有契约没有实现**，批 2 补上） | ✅ |
+| 改期/取消截止、自助改期次数上限（在 `settings.online_booking` 里，**没建新表**） | ✅ 批 2 |
+| `GET /availability` 的 `excludeBookingId`（改期时排除本单） | ✅ 批 2 |
 | 手机验证码那一步（§6.5） | ⬜ **没做**，默认关，不影响开工 |
 
 ✅ **带真 Turnstile token 的完整链路已经走通了**（2026-08-21，用
@@ -37,7 +39,7 @@
 建出 `source='web'` 的预约 + `source='web'` 的客户 → 确认信入队 →
 点「取消这个预约」→ 预约和 item 一起变 `cancelled`。
 
-### 与初版文档的三处出入
+### 与初版文档的四处出入
 
 写代码时碰到了数据模型的实际情况，这三处**以本文档现在的内容为准**：
 
@@ -53,6 +55,23 @@
 3. ~~**确认邮件里没有取消链接**，`manageUrl` 也不返回~~ —— **2026-08-25 推翻**。
    邮件里现在放 manage URL，但打开后要输**手机后四位**才能改或取消。
    同时**新增了自助改期**（初版明确说不做）。两条顾虑怎么解掉的见 §4.6。
+
+4. 🔴 **破坏性变更（2026-08-25，批 2）：取消现在要带 `last4`。**
+
+   ```jsonc
+   // 之前
+   { "manageToken": "mt_…" }
+   // 现在
+   { "manageToken": "mt_…", "last4": "4821" }
+   ```
+
+   **只在这一单留了手机号时才要**（没留号码的单验不了，照旧只认令牌）。
+   连错 3 次锁 15 分钟，**按预约维度锁不按 IP** —— 一家店的客人常常连的是
+   同一个 WiFi，按 IP 锁会让第二位客人被前一位连累。
+
+   官网那边要加一个四位数字输入框。错的时候返回 `403`，
+   `details.reason` 是 `last4_mismatch`（带 `attemptsLeft`）
+   或 `last4_locked`（带 `retryAfterSec`）。
 
 ## 1. 分工：谁做什么
 
@@ -165,7 +184,10 @@ X-GF-Public-Key: pk_3f9a2b1c
     "maxDaysAhead": 60,                // 只能订未来 60 天内
     "minMinutesAhead": 120,            // ⭐ 两小时内的不让在线订，见下
     "requirePhoneVerification": false, // true 时多一步短信验证码，见 §6.5
-    "cancelCutoffHours": 4             // 开始前 4 小时内不能自助取消
+    "cancelCutoffHours": 4,            // 开始前 4 小时内不能自助取消
+    "rescheduleEnabled": true,         // ⭐ 批 2。false 时不要显示「改期」按钮
+    "rescheduleCutoffHours": 4,        // 开始前几小时内不能自助改期
+    "selfRescheduleMax": 2             // 每张单最多自助改几次。0 = 不限
   },
   "turnstileSiteKey": "0x4AAAAAAA…"    // ⭐ 前端 Turnstile widget 用这个
 }

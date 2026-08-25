@@ -47,6 +47,14 @@ export interface SlotOptions {
   genderPreference?: string | null;
   /** 同行几位客人。>1 时同一时刻要有这么多位技师同时有空 */
   partySize?: number;
+  /**
+   * ⭐ 算空档时**当这一单不存在**（批 2，改期用）。
+   *
+   * 客人要改期时，他自己那一格正被他自己占着。不排除的话他看不到
+   * 「原地往后延 15 分钟」这种最常见的改法 —— 而那恰恰是改期里
+   * 最高频的一种，看不到他就只能取消重订。
+   */
+  excludeAppointmentId?: string | null;
 }
 
 export async function loadSlotContext(
@@ -114,7 +122,9 @@ export async function loadSlotContext(
     join appointments a on a.id = ai.appointment_id
     where a.location_id = ${locationId}
       and a.business_date = ${businessDate}
-      and a.status <> 'cancelled'`;
+      and a.status <> 'cancelled'
+      ${opts.excludeAppointmentId
+        ? tx`and a.id <> ${opts.excludeAppointmentId}` : tx``}`;
 
   const busyBy = new Map<string, Array<{ startsAt: Date; endsAt: Date }>>();
   const locationBusy: Array<{ startsAt: Date; endsAt: Date }> = [];

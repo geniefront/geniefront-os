@@ -340,24 +340,30 @@ registerHandler(SaveOnlineBooking, async ({ input, ctx, tx, audit }: HandlerArgs
     }
   }
 
+  // 不传就跟着取消截止走 —— 两个数字对老板来说是同一件事的两面，
+  // 让他填两遍只会填出一个自相矛盾的组合（能改不能取消，或者反过来）
+  const rescheduleCutoff = input.rescheduleCutoffHours ?? input.cancelCutoffHours;
+
+  const next = {
+    enabled: input.enabled,
+    max_days_ahead: input.maxDaysAhead,
+    min_minutes_ahead: input.minMinutesAhead,
+    require_phone_verification: input.requirePhoneVerification,
+    cancel_cutoff_hours: input.cancelCutoffHours,
+    reschedule_enabled: input.rescheduleEnabled,
+    reschedule_cutoff_hours: rescheduleCutoff,
+    self_reschedule_max: input.selfRescheduleMax,
+  };
+
   await tx`update locations set
-      settings = jsonb_set(settings, '{online_booking}', ${jsonb({
-        enabled: input.enabled,
-        max_days_ahead: input.maxDaysAhead,
-        min_minutes_ahead: input.minMinutesAhead,
-        require_phone_verification: input.requirePhoneVerification,
-        cancel_cutoff_hours: input.cancelCutoffHours,
-      })}::jsonb, true),
+      settings = jsonb_set(settings, '{online_booking}', ${jsonb(next)}::jsonb, true),
       updated_at = now()
     where id = ${ctx.locationId}`;
 
   audit({
     entityType: 'location', entityId: ctx.locationId,
     before: { onlineBooking: before },
-    after: { onlineBooking: { enabled: input.enabled, maxDaysAhead: input.maxDaysAhead,
-                              minMinutesAhead: input.minMinutesAhead,
-                              requirePhoneVerification: input.requirePhoneVerification,
-                              cancelCutoffHours: input.cancelCutoffHours } },
+    after: { onlineBooking: next },
   });
   return { locationId: ctx.locationId, enabled: input.enabled };
 });

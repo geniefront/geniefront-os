@@ -24,6 +24,14 @@ export interface OnlineBookingConfig {
   minMinutesAhead: number;
   requirePhoneVerification: boolean;
   cancelCutoffHours: number;
+
+  // ── 自助改期（批 2，docs/13 §4.6）────────────────────────────────────────
+  /** 让不让客人自己在网上改期。关掉之后只剩取消 */
+  rescheduleEnabled: boolean;
+  /** 开始前几小时内不能自助改期。默认和取消同一个数 */
+  rescheduleCutoffHours: number;
+  /** 每张单最多自助改几次。到顶之后让他打电话 */
+  selfRescheduleMax: number;
 }
 
 export interface PublicShopRow {
@@ -56,6 +64,17 @@ export function readOnlineBooking(settings: Record<string, unknown>): OnlineBook
     minMinutesAhead: num(raw['min_minutes_ahead'], 120),
     requirePhoneVerification: raw['require_phone_verification'] === true,
     cancelCutoffHours: num(raw['cancel_cutoff_hours'], 4),
+
+    /**
+     * ⚠️ 改期**默认开**，和上面那些「默认关」的护栏不一样。
+     *
+     * 理由是它的替代品更糟：不让改期，客人的选择就只剩「取消」或者
+     * 「不来」—— 而 no-show 比改期糟得多（那一格既没人用也收不到钱）。
+     * 挡风险的是后四位校验和次数上限，不是把功能关掉。
+     */
+    rescheduleEnabled: raw['reschedule_enabled'] !== false,
+    rescheduleCutoffHours: num(raw['reschedule_cutoff_hours'], num(raw['cancel_cutoff_hours'], 4)),
+    selfRescheduleMax: num(raw['self_reschedule_max'], 2),
   };
 }
 

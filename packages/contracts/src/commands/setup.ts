@@ -231,6 +231,25 @@ export const SaveOnlineBooking = defineCommand({
     requirePhoneVerification: z.boolean().default(false),
     /** 开始前几小时内不能自助取消（那时候该打电话，店家有机会挽留） */
     cancelCutoffHours: z.number().int().min(0).max(72).default(4),
+
+    /**
+     * ⭐ 让不让客人自己在网上改期（批 2，docs/13 §4.6）。
+     *
+     * **默认开**，和上面那几个「默认关」的护栏相反。不让改期的话，
+     * 客人的选择只剩「取消」或者「不来」—— 而 no-show 比改期糟得多：
+     * 那一格既没人用、也收不到钱、技师还白等。
+     * 挡风险的是后四位校验和次数上限，不是把功能关掉。
+     */
+    rescheduleEnabled: z.boolean().default(true),
+    /** 开始前几小时内不能自助改期。不传就跟着 cancelCutoffHours */
+    rescheduleCutoffHours: z.number().int().min(0).max(72).optional(),
+    /**
+     * 每张单最多自助改几次。到顶之后让他打电话。
+     *
+     * 0 = 不限次。⚠️ 不建议：无限次自助改期等于把日程表交给客人随便拖，
+     * 而每一次拖动都可能把别人挤掉一格。
+     */
+    selfRescheduleMax: z.number().int().min(0).max(10).default(2),
   }),
   output: z.object({ locationId: uuid, enabled: z.boolean() }),
   permission: 'settings.manage',

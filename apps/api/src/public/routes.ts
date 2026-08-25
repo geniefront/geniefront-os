@@ -26,7 +26,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError, ERROR_CODES, pickText } from '@gf/contracts';
-import { withTenant, type PublicShopRow } from '@gf/db';
+import { withTenant, ts, parseTs, type PublicShopRow } from '@gf/db';
 import { businessDateOf, wallMinuteToInstant } from '@gf/scheduling';
 import { dispatch } from '../bus';
 import { loadSlotContext } from '../queries/slots';
@@ -86,6 +86,24 @@ const bookingBody = z.object({
 
 const cancelBody = z.object({
   manageToken: z.string().min(8).max(200),
+  /**
+   * ⭐ 手机后四位（批 2，docs/13 §4.6）。
+   *
+   * 令牌一个人拿到就能操作，而确认邮件是会被转发、会被同事看到的。
+   * 加这一道之后，捡到链接的人还得知道客人的手机尾号才动得了 ——
+   * 而客人自己早就习惯输后四位（门口 iPad 签到就是这个动作）。
+   *
+   * 可选：**建单时没留手机号的单没法验**，那种单只能靠令牌本身
+   * （同时它的 manage URL 也不会进邮件，见 handlers/appointment.ts）
+   */
+  last4: z.string().regex(/^\d{4}$/).optional(),
+  turnstileToken: z.string().min(1).max(4096).optional(),
+});
+
+const rescheduleBody = z.object({
+  manageToken: z.string().min(8).max(200),
+  last4: z.string().regex(/^\d{4}$/).optional(),
+  startsAt: z.string().datetime({ offset: true }),
   turnstileToken: z.string().min(1).max(4096).optional(),
 });
 
@@ -115,6 +133,10 @@ export function registerPublicRoutes(app: FastifyInstance): void {
         minMinutesAhead: shop.onlineBooking.minMinutesAhead,
         requirePhoneVerification: shop.onlineBooking.requirePhoneVerification,
         cancelCutoffHours: shop.onlineBooking.cancelCutoffHours,
+        // 官网靠这三个决定「我的预约」页面上要不要显示改期按钮（批 2）
+        rescheduleEnabled: shop.onlineBooking.rescheduleEnabled,
+        rescheduleCutoffHours: shop.onlineBooking.rescheduleCutoffHours,
+        selfRescheduleMax: shop.onlineBooking.selfRescheduleMax,
       },
       // ⚠️ site key 是公开的（它本来就要出现在官网的 HTML 里）。
       // secret key 一个字都不往外走
@@ -184,6 +206,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
   // 三边看到的必须一致，否则官网上报的时间前台会说没有（宪法第 2 条）。
   app.get<{ Querystring: {
     date?: string; serviceId?: string; addonIds?: string; staffId?: string;
+    excludeBookingId?: string;
   } }>('/public/v1/availability', async (req) => {
     const shop = await resolveShop(req.headers, { requireOnlineBooking: true });
     assertOriginAllowed(originOf(req), shop);
@@ -198,6 +221,16 @@ export function registerPublicRoutes(app: FastifyInstance): void {
     }
     const addonIds = (req.query.addonIds ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const staffId = (req.query.staffId ?? '').trim() || null;
+    /**
+     * ⭐ 改期时把本单自己占的格子排除掉（批 2）。
+     *
+     * ⚠️ **这里不校验令牌，也不需要。** 它能泄露的只有「某个 uuid 在这家店
+     * 有一单」—— 而空档表本来就是公开的，多一格少一格看不出是谁的。
+     * 真正的写操作在 `/reschedule` 上，那条要令牌 + 后四位。
+     * 在这里加令牌校验只会让「查空档」这个纯读的动作多一处能出错的地方。
+     */
+    const excludeBookingId = /^[0-9a-f-]{36}$/i.test(req.query.excludeBookingId ?? '')
+      ? req.query.excludeBookingId! : null;
 
     const today = businessDateOf(new Date(), shop.timezone, shop.businessDayCutoff);
     if (date < today || date > addDays(today, shop.onlineBooking.maxDaysAhead)) {
@@ -214,7 +247,8 @@ export function registerPublicRoutes(app: FastifyInstance): void {
         // 正午作锚点求那一天：cutoff 最晚也就凌晨几点，正午永远落在同一个营业日
         const around = wallMinuteToInstant(date, shop.timezone, 12 * 60);
         const ctxSlots = await loadSlotContext(
-          tx, shop.locationId, around, durationMin, staffId, { limit: 400 });
+          tx, shop.locationId, around, durationMin, staffId,
+          { limit: 400, excludeAppointmentId: excludeBookingId });
 
         // 太急的单不让在线订（docs/13 §4.1）
         const earliest = Date.now() + shop.onlineBooking.minMinutesAhead * 60_000;
@@ -465,6 +499,11 @@ export function registerPublicRoutes(app: FastifyInstance): void {
         { orgId: shop.orgId, locationId: shop.locationId, membershipId: null },
         (tx) => loadOwnBooking(tx, shop, req.params.id, parsed.data.manageToken));
 
+      // ⚠️ 已经取消了就别再验后四位 —— 幂等的第二次调用不该消耗锁定计数
+      if (appt.status !== 'cancelled') {
+        await assertLast4(shop, appt, parsed.data.last4);
+      }
+
       if (appt.status === 'cancelled') return { bookingId: appt.id, status: 'cancelled' };
 
       const cutoffMs = shop.onlineBooking.cancelCutoffHours * 3600_000;
@@ -490,6 +529,110 @@ export function registerPublicRoutes(app: FastifyInstance): void {
       }, publicContext(shop, shop.defaultLocale, req.ip));
 
       return { bookingId: appt.id, status: 'cancelled' };
+    });
+
+  // ── 7. 自助改期（批 2，docs/13 §4.6）─────────────────────────────────────
+  //
+  // 初版明确写过「没有自助改期」，理由是「改期在公开页面上会变成
+  // 取消 + 重订两步，中间那一格可能被人订走」。那个顾虑是真的 ——
+  // 解法不是绕过它，是 `appointment.reschedule` **在一个事务里**
+  // 先占新格再放旧格，容量触发器撞了就整体回滚。客人要么改成功，
+  // 要么原单原封不动，不存在两头落空的中间态。
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/public/v1/bookings/:id/reschedule', async (req) => {
+      const shop = await resolveShop(req.headers);
+      assertOriginAllowed(originOf(req), shop, { forWrite: true });
+
+      const cfg = shop.onlineBooking;
+      if (!cfg.rescheduleEnabled) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+          details: { reason: 'reschedule_disabled', shopPhone: shop.phone },
+        });
+      }
+
+      const parsed = rescheduleBody.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'bad_body' } });
+      }
+
+      const verdict = await checkRateLimits(
+        [{ scope: 'reschedule_ip', id: req.ip, limit: 20, windowSec: 3600 }], req.log);
+      if (!verdict.ok) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+          details: { reason: 'too_many_attempts' },
+          messageKey: 'error.TOO_MANY_ATTEMPTS',
+        });
+      }
+
+      const target = new Date(parsed.data.startsAt);
+      // 新时间也要过「太急」和「太远」这两道 —— 改期是另一次下单，
+      // 不能因为原单合规就让新时间免检
+      const aheadMin = (target.getTime() - Date.now()) / 60_000;
+      if (aheadMin < cfg.minMinutesAhead) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+          details: { reason: 'too_soon', minMinutesAhead: cfg.minMinutesAhead,
+                     shopPhone: shop.phone },
+        });
+      }
+      if (aheadMin > cfg.maxDaysAhead * 24 * 60) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+          details: { reason: 'date_out_of_window', maxDaysAhead: cfg.maxDaysAhead },
+        });
+      }
+
+      const appt = await withTenant(
+        { orgId: shop.orgId, locationId: shop.locationId, membershipId: null },
+        (tx) => loadOwnBooking(tx, shop, req.params.id, parsed.data.manageToken));
+
+      await assertLast4(shop, appt, parsed.data.last4);
+
+      if (appt.status === 'cancelled') {
+        throw new AppError(ERROR_CODES.ALREADY_CANCELLED, {
+          details: { bookingId: appt.id, shopPhone: shop.phone },
+        });
+      }
+
+      // 原单太近了不让改 —— 那时候技师可能已经在准备了，该打电话
+      const cutoffMs = cfg.rescheduleCutoffHours * 3600_000;
+      if (new Date(appt.starts_at).getTime() - Date.now() < cutoffMs) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+          details: { reason: 'reschedule_cutoff_passed',
+                     rescheduleCutoffHours: cfg.rescheduleCutoffHours, shopPhone: shop.phone },
+        });
+      }
+
+      // 改够次数了让他打电话。0 = 不限次
+      if (cfg.selfRescheduleMax > 0 && appt.self_reschedule_count >= cfg.selfRescheduleMax) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+          details: { reason: 'reschedule_limit_reached',
+                     selfRescheduleMax: cfg.selfRescheduleMax, shopPhone: shop.phone },
+        });
+      }
+
+      /**
+       * ⚠️ **不传 override**。公开入口永远没有超卖放行 ——
+       * 撞了容量就是撞了，让客人换一格，而不是让他把别人挤掉。
+       * 这和建单那条路的取舍完全一致（docs/13 §4.2）。
+       */
+      await dispatch('appointment.reschedule', {
+        appointmentId: appt.id,
+        startsAt: target.toISOString(),
+      }, publicContext(shop, shop.defaultLocale, req.ip));
+
+      // 计数 +1。⚠️ 放在改期成功**之后** —— 撞了容量的失败尝试不该消耗次数
+      await withTenant(
+        { orgId: shop.orgId, locationId: shop.locationId, membershipId: null },
+        (tx) => tx`
+          update appointments set self_reschedule_count = self_reschedule_count + 1
+          where id = ${appt.id}`);
+
+      return {
+        bookingId: appt.id,
+        status: 'booked',
+        startsAt: target.toISOString(),
+        rescheduleCountLeft: cfg.selfRescheduleMax > 0
+          ? Math.max(0, cfg.selfRescheduleMax - appt.self_reschedule_count - 1) : null,
+      };
     });
 }
 
@@ -590,23 +733,116 @@ async function assertNotSquatting(tx: Tx, shop: PublicShopRow, phone: string): P
  * ⚠️ 令牌不对、预约不存在、不是这家店的 —— **一律 404，措辞一致**。
  * 区分开来等于告诉试探的人「这个预约 id 是真的，只是令牌错了」。
  */
+interface OwnBooking {
+  id: string;
+  status: string;
+  starts_at: string;
+  confirmation_code: string | null;
+  /** 客人留的手机号，用来校验后四位。没留手机号的单是 null */
+  phone: string | null;
+  self_reschedule_count: number;
+}
+
 async function loadOwnBooking(
   tx: Tx, shop: PublicShopRow, id: string, token: string,
-): Promise<{ id: string; status: string; starts_at: string; confirmation_code: string | null }> {
+): Promise<OwnBooking> {
   const notFound = new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'booking' } });
   if (!/^[0-9a-f-]{36}$/i.test(id) || !token) throw notFound;
 
-  const [row] = await tx<{
-    id: string; status: string; starts_at: string;
-    confirmation_code: string | null; manage_token_digest: string | null;
-  }[]>`
-    select id, status, starts_at::text as starts_at, confirmation_code, manage_token_digest
-    from appointments
-    where id = ${id} and location_id = ${shop.locationId} and source = 'web'`;
+  const [row] = await tx<(OwnBooking & { manage_token_digest: string | null })[]>`
+    select a.id, a.status, a.starts_at::text as starts_at, a.confirmation_code,
+           a.manage_token_digest, a.self_reschedule_count,
+           c.phone_e164 as phone
+    from appointments a
+    left join customers c on c.id = a.customer_id
+    where a.id = ${id} and a.location_id = ${shop.locationId} and a.source = 'web'`;
 
   if (!row?.manage_token_digest) throw notFound;
   if (!sameDigest(row.manage_token_digest, hashManageToken(token))) throw notFound;
   return row;
+}
+
+// ── 手机后四位：第二道闸（批 2）──────────────────────────────────────────────
+
+/** 连错几次锁多久。一万种可能里连猜三次就锁，穷举要几十年 */
+const LAST4_MAX_FAILS = 3;
+const LAST4_LOCK_MS = 15 * 60_000;
+
+/**
+ * 校验手机后四位，并维护失败计数。
+ *
+ * ⚠️ **锁定按预约维度，不按 IP。** 按 IP 锁会让同一个 WiFi 下的第二位客人
+ * 被前一位连累（一家店的客人常连同一个 WiFi）；而攻击者要猜的是
+ * 「某一条特定预约」的后四位，按预约锁正好卡在他身上。
+ *
+ * ⚠️ **单子上没有手机号就跳过这一步。** 那种单的 manage URL 不会进确认邮件
+ * （见 handlers/appointment.ts），令牌只在建单响应里给过官网一次 ——
+ * 风险面和批 2 之前完全一样，没有变大。
+ *
+ * ⚠️⚠️ **失败计数走自己的事务，不能和调用方共用一个。**
+ * 第一版把它写在调用方那个事务里，结果抛异常时连计数一起回滚了 ——
+ * 于是 failed_count 永远停在 1，锁定形同虚设，而且测试之外根本看不出来。
+ * 「记录一次失败」必须在「拒绝这次请求」之前落地。
+ */
+async function assertLast4(
+  shop: PublicShopRow, appt: OwnBooking, supplied: string | undefined,
+): Promise<void> {
+  if (!appt.phone) return;
+
+  const tenant = { orgId: shop.orgId, locationId: shop.locationId, membershipId: null };
+
+  // ⚠️ timestamptz 读回来是**字符串**，不是 Date（驱动的行为，全仓一致）——
+  // 直接 .getTime() 会在锁定生效的那一刻才炸，平时测不出来
+  const [att] = await withTenant(tenant, (tx) => tx<{
+    failed_count: number; locked_until: string | Date | null;
+  }[]>`
+    select failed_count, locked_until from booking_manage_attempts
+    where appointment_id = ${appt.id}`);
+
+  const lockedUntilMs = att?.locked_until ? parseTs(att.locked_until).getTime() : 0;
+  if (lockedUntilMs > Date.now()) {
+    throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+      details: {
+        reason: 'last4_locked',
+        retryAfterSec: Math.ceil((lockedUntilMs - Date.now()) / 1000),
+        shopPhone: shop.phone,
+      },
+    });
+  }
+
+  const want = appt.phone.replace(/\D/g, '').slice(-4);
+  // 号码短到取不出四位（脏数据）—— 验不了就不验，而不是把客人锁在门外
+  if (want.length < 4) return;
+
+  if (supplied === want) {
+    if (att) {
+      await withTenant(tenant, (tx) => tx`
+        delete from booking_manage_attempts where appointment_id = ${appt.id}`);
+    }
+    return;
+  }
+
+  const failed = (att?.failed_count ?? 0) + 1;
+  // ⚠️ 时间参数一律先转成字符串再配 ::timestamptz（见 @gf/db 的 ts() 注释）——
+  // 直接丢 Date 进去 postgres 驱动会抛 ERR_INVALID_ARG_TYPE
+  const lock = failed >= LAST4_MAX_FAILS ? ts(new Date(Date.now() + LAST4_LOCK_MS)) : null;
+  await withTenant(tenant, (tx) => tx`
+    insert into booking_manage_attempts
+      (appointment_id, org_id, location_id, failed_count, locked_until, last_failed_at)
+    values (${appt.id}, ${shop.orgId}, ${shop.locationId}, ${failed},
+            ${lock}::timestamptz, now())
+    on conflict (appointment_id) do update set
+      failed_count = ${failed}, locked_until = ${lock}::timestamptz,
+      last_failed_at = now(), updated_at = now()`);
+
+  // ⚠️ 不回「还剩几次」以外的任何信息 —— 尤其不能提示正确答案的长度或首位
+  throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+    details: {
+      reason: 'last4_mismatch',
+      attemptsLeft: Math.max(0, LAST4_MAX_FAILS - failed),
+      shopPhone: shop.phone,
+    },
+  });
 }
 
 /**
