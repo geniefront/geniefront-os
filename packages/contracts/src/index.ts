@@ -15,6 +15,7 @@ export * from './notification.js';
 export * from './commands/phone.js';
 export * from './commands/giftcard.js';
 export * from './commands/notify.js';
+export * from './commands/storefront.js';
 export * from './commands/yelp.js';
 export * from './commands/kiosk.js';
 export * from './commands/billing.js';

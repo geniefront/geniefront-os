@@ -13,3 +13,4 @@ export * from './billing';
 export * from './email';
 export * from './giftcard';
 export * from './notify';
+export * from './storefront';
