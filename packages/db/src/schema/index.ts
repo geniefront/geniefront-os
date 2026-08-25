@@ -11,3 +11,4 @@ export * from './phone';
 export * from './kiosk';
 export * from './billing';
 export * from './email';
+export * from './giftcard';

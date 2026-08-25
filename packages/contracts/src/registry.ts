@@ -17,6 +17,7 @@ import { SHIFT_COMMANDS } from './commands/shift.js';
 import { STAFF_COMMANDS } from './commands/staff.js';
 import { BLUEPRINT_COMMANDS } from './commands/blueprint.js';
 import { PHONE_COMMANDS } from './commands/phone.js';
+import { GIFTCARD_COMMANDS } from './commands/giftcard.js';
 import { YELP_COMMANDS } from './commands/yelp.js';
 import { KIOSK_COMMANDS } from './commands/kiosk.js';
 import { BILLING_COMMANDS } from './commands/billing.js';
@@ -25,7 +26,8 @@ import { AI_COMMANDS } from './commands/ai.js';
 const ALL: readonly AnyCommandDef[] = [
   ...APPOINTMENT_COMMANDS, ...ROTATION_COMMANDS, ...TICKET_COMMANDS, ...SETUP_COMMANDS,
   ...PAYROLL_COMMANDS, ...DAYCLOSE_COMMANDS, ...SHIFT_COMMANDS, ...STAFF_COMMANDS,
-  ...BLUEPRINT_COMMANDS, ...PHONE_COMMANDS, ...YELP_COMMANDS, ...KIOSK_COMMANDS,
+  ...BLUEPRINT_COMMANDS, ...PHONE_COMMANDS,
+  ...GIFTCARD_COMMANDS, ...YELP_COMMANDS, ...KIOSK_COMMANDS,
   ...BILLING_COMMANDS, ...AI_COMMANDS,
 ];
 
