@@ -17,7 +17,9 @@ import { buildContext } from './actor';
 import { loadOrgSummary } from './queries/orgSummary';
 import { loadCustomerDetail, loadCustomerList } from './queries/customer';
 import { verifyAccessToken } from './auth';
-import { listMembershipsForUser, withTenant, claimableIntentFor, readOnlineBooking } from '@gf/db';
+import {
+  listMembershipsForUser, withTenant, claimableIntentFor, readOnlineBooking, jsonb,
+} from '@gf/db';
 
 interface CustomerRow {
   id: string; display_name: string; phone_e164: string | null;
@@ -64,6 +66,7 @@ import { searchBusinesses, getBusiness } from '@gf/yelp';
 import { extractPriceList, costMillicents, billableTokens, MAX_IMAGE_EDGE_PX,
          itemsNeedingTranslation, translateNames, TRANSLATE_MODEL, TRANSLATE_RATES,
          planRegions, padRegion, shouldChunk, capRegions, REGION_MODEL, REGION_RATES,
+         generateStorefrontDrafts,
          type PriceListImage, type ImageMediaType } from '@gf/ai';
 import { resolveDate } from './handlers/dayclose';
 import {
@@ -967,6 +970,129 @@ export function buildServer(): FastifyInstance {
   //
   // 图片走请求体而不是让 API 去 Storage 取：API 拿不到 service_role
   //（宪法第 5 条，CI 会失败），而让它去 fetch 一个客户端给的 URL 就是 SSRF。
+  /**
+   * ── 建站工单：AI 出三版（批 8 收尾，docs/17 §6）─────────────────────────
+   *
+   * ⚠️ **这是第二条不走命令总线的路由**（第一条是 blueprint/extract）。
+   * 理由一样：模型调用要几十秒，塞进数据库事务会占住一个连接和一个快照
+   * 那么久。这里只做编排 —— 校验 → 调模型 → 把结果交给一条写库语句。
+   *
+   * ⭐ 出**三版**不是一版：给一版的话老板只能说「不喜欢」而说不出
+   * 哪里不喜欢，然后我们只能猜。三版风格拉开，他一定选得出一个，
+   * 而他的选择本身就是最精确的反馈。
+   */
+  app.post<{ Params: { id: string } }>('/v1/storefront/:id/generate', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+    }
+    if (!ctx.permissions.has('ai.use')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
+    }
+    const apiKey = process.env['ANTHROPIC_API_KEY'];
+    if (!apiKey) {
+      req.log.error('ANTHROPIC_API_KEY 未配置，建站工单生成不可用');
+      throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
+    }
+
+    const tenant = { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId };
+
+    /*
+     * 先确认工单已提交再花那几毛钱。
+     *
+     * ⚠️ 只有 submitted 能生成 —— draft 还在改，chosen / live 已经定了。
+     * 对着一份还在改的工单跑模型，钱花了而老板下一分钟又改了需求。
+     */
+    const brief = await withTenant(tenant, (tx) => tx<{
+      id: string; status: string; shop_name: unknown; business_type: string;
+      voice: string | null; brand_primary: string | null; brand_accent: string | null;
+      pain_points: string[]; pain_free_text: string | null;
+      audience: string[]; top_questions: string[]; sections: string[];
+      usp: string | null; tone: string | null; reference_sites: string[];
+    }[]>`
+      select b.id, b.status, l.name as shop_name, l.business_type,
+             b.voice, b.brand_primary, b.brand_accent,
+             b.pain_points, b.pain_free_text, b.audience, b.top_questions,
+             b.sections, b.usp, b.tone, b.reference_sites
+      from storefront_briefs b
+      join locations l on l.id = b.location_id
+      where b.id = ${req.params.id} and b.location_id = ${ctx.locationId}`);
+
+    const row = brief[0];
+    if (!row) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'storefront_brief' } });
+    if (row.status !== 'submitted') {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'brief_not_submitted', status: row.status },
+      });
+    }
+
+    // ⚠️ 项目名和价格要给模型真的 —— system prompt 里明令「不许编」，
+    // 但不给它真数据的话它只能编
+    const services = await withTenant(tenant, (tx) => tx<{
+      name: unknown; price: number; minutes: number;
+    }[]>`
+      select name, base_price_cents as price, duration_min as minutes
+      from services
+      where location_id = ${ctx.locationId} and active = true and is_addon = false
+      order by sort, base_price_cents limit 40`);
+
+    const result = await generateStorefrontDrafts({
+      shopName: pickText(row.shop_name, ctx.locale, ''),
+      businessType: row.business_type,
+      voice: row.voice,
+      brandPrimary: row.brand_primary,
+      brandAccent: row.brand_accent,
+      painPoints: row.pain_points ?? [],
+      painFreeText: row.pain_free_text,
+      audience: row.audience ?? [],
+      topQuestions: row.top_questions ?? [],
+      sections: row.sections ?? [],
+      usp: row.usp,
+      tone: row.tone,
+      referenceSites: row.reference_sites ?? [],
+      services: services.map((s) => ({
+        name: pickText(s.name, ctx.locale, ''),
+        priceCents: s.price, durationMin: s.minutes,
+      })),
+    }, { apiKey });
+
+    /*
+     * 一版都没出来 = 别把工单推到 drafted 让老板看一个空列表。
+     * 502 而不是 500：挂的是上游模型，两个数字要分得开才看得出趋势。
+     */
+    if (result.drafts.length === 0) {
+      throw new AppError(ERROR_CODES.EXTRACTION_FAILED, {
+        details: { reason: 'no_drafts_generated', model: result.model },
+      });
+    }
+
+    const cost = costMillicents(result.usage);
+    await withTenant(tenant, async (tx) => {
+      // 重跑就换一批 —— 老板点「重新生成」时不该看到六版
+      await tx`delete from storefront_drafts where brief_id = ${row.id}`;
+      for (const d of result.drafts) {
+        await tx`
+          insert into storefront_drafts
+            (org_id, location_id, brief_id, variant, content,
+             model, input_tokens, output_tokens, cost_millicents)
+          values (${ctx.orgId}, ${ctx.locationId}, ${row.id}, ${d.variant},
+                  ${jsonb(d.content)}::jsonb, ${result.model},
+                  ${result.usage.inputTokens}, ${result.usage.outputTokens}, ${cost})`;
+      }
+      await tx`
+        update storefront_briefs set status = 'drafted', drafted_at = now(), updated_at = now()
+        where id = ${row.id}`;
+    });
+
+    return {
+      briefId: row.id,
+      status: 'drafted',
+      drafts: result.drafts,
+      model: result.model,
+      costMillicents: cost,
+    };
+  });
+
   const MAX_IMAGES_PER_EXTRACT = 6;
   const MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 

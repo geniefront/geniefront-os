@@ -13,6 +13,7 @@ import { buildContext } from './actor';
 import { dispatch } from './bus';
 import './handlers/notify';
 import './handlers/ticket';
+import './handlers/appointment';
 
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -272,5 +273,169 @@ describe('通知模板', () => {
       select offset_min as o from notification_rules
       where location_id = ${NAIL_LOC} and event_key = 'appointment_reminder'`);
     expect(row!.o).toBe(-1440);
+  });
+});
+
+// ════════════ 改期 / 取消真的通知到人（批 8 收尾，补批 3 的口子）══════════
+
+describe('⭐ 改期与取消会通知客人和技师', () => {
+  let serviceId = '';
+  let customerId = '';
+
+  /*
+   * ⚠️ 号码和名字都带一个每次不同的后缀。
+   *
+   * `customers_no_exact_dup` 挡「同号同名重复建客户」（宪法第 16 条的另一半），
+   * 而上一次跑留下的那条如果没清干净，这次 beforeAll 第一句就撞唯一键 ——
+   * 报错指向 beforeAll，看不出真正的原因在 afterAll。
+   */
+  const RUN = String(Date.now()).slice(-6);
+  const CUST_PHONE = `+1617555${RUN.slice(-4)}`;
+
+  beforeAll(async () => {
+    const [svc] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      select id from services where location_id = ${NAIL_LOC} and active = true
+        and is_addon = false limit 1`);
+    serviceId = svc!.id;
+
+    const [c] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      insert into customers (org_id, primary_location_id, display_name, phone_e164, locale)
+      values (${NAIL_ORG}, ${NAIL_LOC}, ${`通知测试客人 ${RUN}`}, ${CUST_PHONE}, 'en')
+      returning id`);
+    customerId = c!.id;
+
+    // 模板 + 规则都配上 —— 缺任何一个都不发（这本身就是下面一条用例）
+    await run('notification.saveTemplate', {
+      eventKey: 'appointment_changed', channel: 'sms', locale: 'en',
+      body: 'Hi {{customer_name}}, your {{service_name}} moved to {{when}}.',
+    });
+    await run('notification.saveTemplate', {
+      eventKey: 'appointment_cancelled', channel: 'sms', locale: 'en',
+      body: 'Hi {{customer_name}}, your {{when}} appointment is cancelled.',
+    });
+  });
+
+  const enable = (key: string) => run('notification.toggleRule',
+    { eventKey: key, enabled: true, channels: ['sms'], offsetMin: 0 });
+  const disable = (key: string) => run('notification.toggleRule',
+    { eventKey: key, enabled: false, channels: [], offsetMin: 0 });
+
+  const makeAppt = async (): Promise<string> => {
+    const out = await run<{ appointmentId: string }>('appointment.create', {
+      customerId,
+      items: [{
+        serviceId, addonIds: [], membershipId: null,
+        startsAt: new Date(Date.now() + 5 * 86400_000).toISOString(), details: {},
+      }],
+      partySize: 1, source: 'desk',
+    });
+    return out.appointmentId;
+  };
+
+  const smsFor = (id: string) => withTenant(tenant, (tx) => tx<{
+    body: string; entity_type: string;
+  }[]>`
+    select body, entity_type from sms_outbox
+    where entity_id = ${id} and kind = 'appointment_changed'`);
+
+  it('⭐ 改期之后客人收到一条，内容是渲染好的（不是花括号）', async () => {
+    await enable('appointment_changed');
+    const id = await makeAppt();
+
+    await run('appointment.reschedule', {
+      appointmentId: id,
+      startsAt: new Date(Date.now() + 6 * 86400_000).toISOString(),
+    });
+
+    const rows = await smsFor(id);
+    const toCustomer = rows.find((r) => r.entity_type === 'appointment');
+    expect(toCustomer).toBeTruthy();
+    expect(toCustomer!.body).toContain('通知测试客人');
+    expect(toCustomer!.body).not.toContain('{{');
+  });
+
+  it('⭐ 技师那条走不同的 entity_type —— 同一个的话会被幂等键吞掉', async () => {
+    await enable('appointment_changed');
+    await run('notification.saveTemplate', {
+      eventKey: 'staff_changed', channel: 'sms', locale: 'en',
+      body: '{{staff_name}}: {{customer_name}} moved to {{when}}',
+    });
+    await enable('staff_changed');
+
+    const id = await makeAppt();
+    await run('appointment.reschedule', {
+      appointmentId: id,
+      startsAt: new Date(Date.now() + 7 * 86400_000).toISOString(),
+    });
+
+    const rows = await smsFor(id);
+    // 客人那条一定在；技师那条要看种子里那位有没有手机号，
+    // 有的话 entity_type 必须是 appointment_staff
+    expect(rows.some((r) => r.entity_type === 'appointment')).toBe(true);
+    for (const r of rows) {
+      expect(['appointment', 'appointment_staff']).toContain(r.entity_type);
+    }
+  });
+
+  it('⭐ 规则关着就不发 —— 装上新版本不该让所有店突然开始发短信', async () => {
+    await disable('appointment_changed');
+    await disable('staff_changed');
+    const id = await makeAppt();
+
+    await run('appointment.reschedule', {
+      appointmentId: id,
+      startsAt: new Date(Date.now() + 8 * 86400_000).toISOString(),
+    });
+
+    expect(await smsFor(id)).toHaveLength(0);
+  });
+
+  it('⭐ 模板没配也不会让改期失败 —— 通知永不成为阻断点', async () => {
+    await enable('winback');   // 开一个没配模板的事件
+    const id = await makeAppt();
+    await enable('appointment_changed');
+
+    // 就算某条通知发不出去，改期本身必须成功
+    await expect(run('appointment.reschedule', {
+      appointmentId: id,
+      startsAt: new Date(Date.now() + 9 * 86400_000).toISOString(),
+    })).resolves.toBeTruthy();
+    await disable('winback');
+  });
+
+  it('取消也通知', async () => {
+    await enable('appointment_cancelled');
+    const id = await makeAppt();
+    await run('appointment.cancel', {
+      appointmentId: id, reason: 'guest_changed_mind', keepStaffTurn: false,
+    });
+
+    const [row] = await withTenant(tenant, (tx) => tx<{ body: string }[]>`
+      select body from sms_outbox
+      where entity_id = ${id} and entity_type = 'appointment'`);
+    expect(row!.body).toContain('cancelled');
+  });
+
+  afterAll(async () => {
+    /*
+     * ⚠️ **sms_outbox 删不掉** —— app_user 在那张表上没有 DELETE 权限，
+     * 因为 `segments` 是计费凭据（同 tickets：财务记录只冲销不删除）。
+     *
+     * 第一版这么写了，报的是 "permission denied for table sms_outbox"，
+     * 而且它在 afterAll 的**第一句** —— 后面的清理全都没跑，
+     * 于是下一次 beforeAll 撞了 customers_no_exact_dup，
+     * 报错指向一个和真正原因隔了一整个文件的位置。
+     *
+     * 正确做法是标成 suppressed（那正是这个状态的用途），不是删。
+     */
+    await withTenant(tenant, (tx) => tx`
+      update sms_outbox set status = 'suppressed'
+      where org_id = ${NAIL_ORG} and to_e164 = ${CUST_PHONE} and status = 'pending'`);
+    await withTenant(tenant, (tx) => tx`
+      delete from appointment_items ai using appointments a
+      where ai.appointment_id = a.id and a.customer_id = ${customerId}`);
+    await withTenant(tenant, (tx) => tx`
+      delete from appointments where customer_id = ${customerId}`);
+    await withTenant(tenant, (tx) => tx`delete from customers where id = ${customerId}`);
   });
 });

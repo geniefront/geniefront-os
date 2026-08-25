@@ -397,3 +397,57 @@ registerHandler(AdjustGiftCard, async ({ input, ctx, tx, audit }: HandlerArgs<
   });
   return { giftCardId: card.id, balanceCents };
 });
+
+
+// ────────────────────────────────────── 给结账链路用的核销（批 8 收尾）
+
+/**
+ * `ticket.close` 里那一步。
+ *
+ * ⚠️ **不走命令总线**，因为它已经在 `ticket.close` 这条命令的事务里了 ——
+ * 嵌套 dispatch 会开第二个事务，而那意味着「单结了但卡没扣」这种半截状态
+ * 有可能真的落地。这里直接复用同一个 `tx`，同生共死。
+ *
+ * ⚠️ **不足额直接抛错，不悄悄少扣。** 前台看到的必须是「这张卡只有 $30，
+ * 请改成 $30 再把余下的另开一行」，而不是单据写着 $80、实际扣了 $30 ——
+ * 后者会让日结永远差出那一笔，而没人知道差在哪。
+ */
+export async function redeemForTicket(
+  tx: Tx, ctx: Ctx,
+  args: { ticketId: string; dueCents: number; giftCardId?: string; code?: string },
+): Promise<{ appliedCents: number; commissionBaseCents: number; giftCardId: string }> {
+  const card = await loadCard(tx, ctx, {
+    ...(args.code ? { code: args.code } : {}),
+    ...(args.giftCardId ? { id: args.giftCardId } : {}),
+  });
+
+  const balance = await ledgerBalance(tx, card.id);
+  const plan = planRedeem(balance, args.dueCents);
+
+  if (plan.shortfallCents > 0) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: {
+        reason: 'gift_card_insufficient',
+        giftCardId: card.id,
+        balanceCents: balance,
+        requestedCents: args.dueCents,
+        /** 前台照着这个数改 —— 省掉她自己心算 */
+        maxApplicableCents: plan.appliedCents,
+      },
+    });
+  }
+
+  await appendLedger(tx, ctx, {
+    giftCardId: card.id, entry: 'redeem', amountCents: -plan.appliedCents,
+    customerId: card.holder_customer_id, ticketId: args.ticketId,
+  });
+
+  const settings = await giftCardSettings(tx, ctx.locationId);
+  return {
+    giftCardId: card.id,
+    appliedCents: plan.appliedCents,
+    commissionBaseCents: commissionBaseForGiftCard(
+      settings.commissionBasis, plan.appliedCents,
+      card.face_value_cents, card.sale_price_cents),
+  };
+}

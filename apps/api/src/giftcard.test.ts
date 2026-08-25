@@ -12,6 +12,7 @@ import { withTenant, closeDb } from '@gf/db';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
 import './handlers/giftcard';
+import './handlers/ticket';
 
 const SPA_ORG = '22222222-2222-4222-8222-222222222222';
 const SPA_LOC = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
@@ -229,5 +230,100 @@ describe('⭐ 跨店范围由老板设', () => {
     await expect(dispatch('giftcard.redeem',
       { giftCardId: c.giftCardId, dueCents: 1000 },
       nailCtx, { idempotencyKey: crypto.randomUUID() })).rejects.toThrow();
+  });
+});
+
+// ══════════════════════════ 结账时用礼品卡付（批 8 收尾）══════════════════
+
+describe('结账链路', () => {
+  let serviceId = '';
+  let techId = '';
+
+  const openTicket = () => run<{ ticketId: string; subtotalCents: number }>('ticket.open', {
+    customerId: null, walkInName: '礼品卡结账测试',
+    items: [{ serviceId, membershipId: techId, minutes: 60 }],
+  });
+
+  beforeAll(async () => {
+    const [svc] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      select id from services where location_id = ${SPA_LOC} and active = true
+        and is_addon = false order by base_price_cents desc limit 1`);
+    serviceId = svc!.id;
+    const [t] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      select membership_id as id from staff_profiles
+      where location_id = ${SPA_LOC} and is_bookable = true limit 1`);
+    techId = t!.id;
+  });
+
+  it('⭐ 用卡付完，卡上扣了钱、单子结了', async () => {
+    const c = await issue({ faceValueCents: 50000, salePriceCents: 50000 });
+    const t = await openTicket();
+
+    await run('ticket.close', {
+      ticketId: t.ticketId,
+      payments: [{
+        method: 'gift_card', amountCents: t.subtotalCents, tipCents: 0,
+        giftCardId: c.giftCardId,
+      }],
+    });
+
+    expect(await ledgerSum(c.giftCardId)).toBe(50000 - t.subtotalCents);
+    const [tk] = await withTenant(tenant, (tx) => tx<{ s: string }[]>`
+      select status as s from tickets where id = ${t.ticketId}`);
+    expect(tk!.s).toBe('closed');
+  });
+
+  it('⭐ 卡余额不够 → **整笔结账拒绝**，不悄悄少扣', async () => {
+    const c = await issue({ faceValueCents: 500, salePriceCents: 500 });
+    const t = await openTicket();
+
+    await expect(run('ticket.close', {
+      ticketId: t.ticketId,
+      payments: [{
+        method: 'gift_card', amountCents: t.subtotalCents, tipCents: 0,
+        giftCardId: c.giftCardId,
+      }],
+    })).rejects.toMatchObject({ details: { reason: 'gift_card_insufficient' } });
+
+    // ⭐ 回滚干净：卡没被扣，单也没结
+    expect(await ledgerSum(c.giftCardId)).toBe(500);
+    const [tk] = await withTenant(tenant, (tx) => tx<{ s: string }[]>`
+      select status as s from tickets where id = ${t.ticketId}`);
+    expect(tk!.s).not.toBe('closed');
+  });
+
+  it('⭐ 礼品卡既不算现金也不算刷卡 —— 否则刷卡机 batch total 永远对不上', async () => {
+    const c = await issue({ faceValueCents: 50000, salePriceCents: 50000 });
+    const t = await openTicket();
+    const half = Math.floor(t.subtotalCents / 2);
+
+    await run('ticket.close', {
+      ticketId: t.ticketId,
+      payments: [
+        { method: 'gift_card', amountCents: half, tipCents: 0, giftCardId: c.giftCardId },
+        { method: 'cash', amountCents: t.subtotalCents - half, tipCents: 0 },
+      ],
+    });
+
+    const [split] = await withTenant(tenant, (tx) => tx<{
+      cash: number; card: number; gc: number;
+    }[]>`
+      select
+        coalesce(sum(amount_cents) filter (where method = 'cash'), 0)::int as cash,
+        coalesce(sum(amount_cents) filter (where method not in ('cash','gift_card')), 0)::int as card,
+        coalesce(sum(amount_cents) filter (where method = 'gift_card'), 0)::int as gc
+      from payments where ticket_id = ${t.ticketId}`);
+
+    expect(split!.gc).toBe(half);
+    expect(split!.card).toBe(0);            // ⭐ 关键：一分钱都不该进刷卡侧
+    expect(split!.cash).toBe(t.subtotalCents - half);
+  });
+
+  it('没给卡号的 gift_card 行被 schema 挡下', async () => {
+    const t = await openTicket();
+    await expect(run('ticket.close', {
+      ticketId: t.ticketId,
+      payments: [{ method: 'gift_card', amountCents: t.subtotalCents, tipCents: 0 }],
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 });

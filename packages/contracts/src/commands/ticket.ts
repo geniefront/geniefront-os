@@ -11,7 +11,16 @@ import { z } from 'zod';
 import { defineCommand, uuid, cents } from '../command.js';
 
 /** 决策 19：只区分现金与刷卡。Zelle 按现金记，不记店内零钱流水 */
-export const paymentMethod = z.enum(['cash', 'card', 'external']);
+/**
+ * ⚠️ `gift_card` 加于批 8 收尾。它和另外三种**不是一回事**：
+ *
+ *   cash / card / external —— 真的有钱进来
+ *   gift_card             —— 钱**早就进来了**（卖卡那天），这次只是核销
+ *
+ * 所以它在日结里既不算现金也不算刷卡：算进刷卡的话，晚上和刷卡机的
+ * batch total 就永远差出这一笔，而那正是日结要发现的那种差额。
+ */
+export const paymentMethod = z.enum(['cash', 'card', 'external', 'gift_card']);
 
 export const voidReason = z.enum([
   'duplicate_booking', 'walk_out', 'guest_changed_mind',
@@ -86,6 +95,15 @@ export const TicketAddItem = defineCommand({
 export const paymentLine = z.object({
   method: paymentMethod,
   amountCents: cents.nonnegative(),
+  /**
+   * `method = 'gift_card'` 时必填其一：扫码给 id，客人念号给 code。
+   *
+   * ⚠️ 金额以 `amountCents` 为准，但**卡上不够就只扣得动那么多** ——
+   * 结账时会当场校验，不足额直接拒绝这一行（让前台改成实际能扣的数，
+   * 剩下的另开一行走现金或刷卡）。悄悄少扣的话，单据和账本会对不上。
+   */
+  giftCardId: z.string().uuid().optional(),
+  giftCardCode: z.string().max(60).optional(),
   tipCents: cents.nonnegative().default(0),
   /** 客人递过来的现金。刷卡不填 */
   tenderedCents: cents.nonnegative().optional(),
@@ -96,6 +114,13 @@ export const paymentLine = z.object({
 }).refine((p) => !p.keepChange || p.changeCents === 0, {
   message: '「不用找了」时不该同时有找零',
 }).refine(
+  (p) => p.method !== 'gift_card' || Boolean(p.giftCardId ?? p.giftCardCode),
+  { message: '用礼品卡付要给卡号或卡 id' },
+).refine(
+  // 礼品卡没有找零这回事 —— 余额不足就少扣，扣多了不会退现金
+  (p) => p.method !== 'gift_card' || (p.changeCents === 0 && !p.keepChange),
+  { message: '礼品卡没有找零' },
+).refine(
   (p) => p.tenderedCents === undefined || p.tenderedCents >= p.amountCents + p.changeCents,
   { message: '客人给的钱不够付这一单' },
 );

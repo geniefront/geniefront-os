@@ -19,6 +19,7 @@ import { smsConfigured, smsFrom } from '../sms/send';
 import { checkCapacity, businessDateOf, hasBlocking, type Interval } from '@gf/scheduling';
 import { ts, jsonb, parseTs } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
+import { notifyEvent } from '../notify/dispatch';
 
 type Input = typeof AppointmentCreate.input._type;
 type Output = typeof AppointmentCreate.output._type;
@@ -539,6 +540,14 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit }: HandlerArgs
   await tx`update appointment_items set status = 'cancelled'
     where appointment_id = ${appt.id} and status <> 'cancelled'`;
 
+  await notifyAppointmentChange(tx, ctx, {
+    appointmentId: appt.id,
+    event: 'appointment_cancelled',
+    staffEvent: 'staff_cancelled',
+    oldStartsAt: null,
+    newStartsAt: null,
+  });
+
   audit({
     entityType: 'appointment', entityId: appt.id,
     before: { status: appt.status },
@@ -764,6 +773,24 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
       business_date = ${businessDate}
     where id = ${appt.id}`;
 
+  /*
+   * ⭐ 通知客人和技师（批 8 收尾，补上批 3 留的口子）。
+   *
+   * 在此之前 AI 在电话里改期是**静默**的 —— 客人挂了电话不会收到任何
+   * 确认，而 telnyx/routes.ts 的权限注释里明写了这个缺口。现在补上。
+   *
+   * ⚠️ `notifyEvent` **不抛错**：规则关着、模板没配、客人没留手机号
+   * 都返回 0。一条改期因为「模板没配」而整个失败，是最不能接受的失败方式
+   * （宪法第 13/14 条：短信永不成为阻断点）。
+   */
+  await notifyAppointmentChange(tx, ctx, {
+    appointmentId: appt.id,
+    event: 'appointment_changed',
+    staffEvent: 'staff_changed',
+    oldStartsAt: appt.starts_at,
+    newStartsAt: newStart.toISOString(),
+  });
+
   audit({
     entityType: 'appointment', entityId: appt.id,
     before: { startsAt: appt.starts_at },
@@ -777,3 +804,85 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
 
   return { appointmentId: appt.id, overbooked };
 });
+
+/**
+ * 改期 / 取消之后通知客人与技师（批 8 收尾）。
+ *
+ * ⚠️ **两条都发**：客人要知道自己的单动了，技师要知道自己的班动了。
+ * 只发客人的话，技师会按旧时间来上班；只发技师的话，客人会按旧时间来。
+ *
+ * ⚠️ 整个函数**不抛错**。这是有意的 —— 通知失败绝不该让一条已经
+ * 生效的改期回滚（那会变成「客人以为改好了，其实没改」，比不通知糟得多）。
+ */
+async function notifyAppointmentChange(
+  tx: HandlerArgs<unknown>['tx'],
+  ctx: HandlerArgs<unknown>['ctx'],
+  args: {
+    appointmentId: string;
+    event: 'appointment_changed' | 'appointment_cancelled';
+    staffEvent: 'staff_changed' | 'staff_cancelled';
+    oldStartsAt: string | null;
+    newStartsAt: string | null;
+  },
+): Promise<void> {
+  const [row] = await tx<{
+    email: string | null; phone: string | null; customer_name: unknown;
+    locale: string | null; shop_name: unknown; timezone: string;
+    service_name: unknown; staff_name: unknown; staff_phone: string | null;
+    starts_at: string;
+  }[]>`
+    select c.email, c.phone_e164 as phone, c.display_name as customer_name, c.locale,
+           l.name as shop_name, l.timezone,
+           s.name as service_name, sp.display_name as staff_name,
+           u.phone as staff_phone,
+           ai.starts_at::text as starts_at
+    from appointments a
+    join locations l on l.id = a.location_id
+    left join appointment_items ai on ai.appointment_id = a.id and ai.status <> 'cancelled'
+    left join customers c on c.id = a.customer_id
+    left join services s on s.id = ai.service_id
+    left join staff_profiles sp on sp.membership_id = ai.membership_id
+    left join memberships m on m.id = ai.membership_id
+    left join users u on u.id = m.user_id
+    where a.id = ${args.appointmentId}
+    limit 1`;
+  if (!row) return;
+
+  const [line] = await tx<{ e164: string }[]>`
+    select e164 from phone_lines
+    where location_id = ${ctx.locationId} and purpose = 'main' and active limit 1`;
+
+  const when = formatWhen(
+    new Date(args.newStartsAt ?? row.starts_at).toISOString(), row.timezone);
+  const vars = {
+    customer_name: pickText(row.customer_name, ctx.locale, ''),
+    shop_name: pickText(row.shop_name, ctx.locale, ''),
+    service_name: pickText(row.service_name, ctx.locale, ''),
+    staff_name: row.staff_name ? pickText(row.staff_name, ctx.locale, '') : '',
+    when,
+    old_when: args.oldStartsAt
+      ? formatWhen(new Date(args.oldStartsAt).toISOString(), row.timezone) : '',
+    shop_phone: line?.e164 ?? '',
+  };
+
+  await notifyEvent(tx, ctx, {
+    event: args.event,
+    entityType: 'appointment', entityId: args.appointmentId,
+    vars, toEmail: row.email, toPhone: row.phone,
+    locale: row.locale,
+  });
+
+  /*
+   * 技师侧走**另一个 entity_type**（`appointment_staff`）。
+   *
+   * outbox 的幂等键是 (entity_type, entity_id, kind)，两条都用
+   * `appointment` 的话，后写的那条会被 `on conflict do nothing` 吞掉 ——
+   * 表现是「客人收到了，技师没收到」，而日志里看不出任何异常。
+   */
+  await notifyEvent(tx, ctx, {
+    event: args.staffEvent,
+    entityType: 'appointment_staff', entityId: args.appointmentId,
+    vars, toEmail: null, toPhone: row.staff_phone,
+    locale: row.locale,
+  });
+}
