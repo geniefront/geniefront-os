@@ -107,6 +107,9 @@ export async function dispatch<T = unknown>(
   return withTenant(
     { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
     async (tx) => {
+      // ── 3.5 订阅闸门 ────────────────────────────────────────────────────
+      await assertSubscriptionAllowsWrite(tx, ctx, commandName);
+
       if (key) {
         const hit = await tx<{ result_json: unknown; command: string }[]>`
           select result_json, command from command_idempotency
@@ -167,3 +170,59 @@ export async function dispatch<T = unknown>(
 
 /** 供 AI 工具生成与路由注册使用 */
 export const registeredCommands = (): AnyCommandDef[] => [...handlers.values()].map((h) => h.def);
+
+// ─────────────────────────────────────────────────────────────── 订阅闸门
+
+/**
+ * 欠费之后仍然放行的命令前缀。
+ *
+ * ⭐ **必须包含 `billing.`** —— 否则老板换了卡也救不回来，
+ * 那是个把自己锁在门外的死结。`setup.` 同理：认领门店这一步
+ * 发生在订阅刚建出来、webhook 还没回来的那几秒。
+ */
+const WRITE_ALLOWED_WHILE_PAST_DUE = ['billing.', 'setup.'] as const;
+
+/**
+ * 订阅欠费 → **冻结写入，读操作照常**（批 1，docs/03 Phase 2.9）。
+ *
+ * 三条设计约束：
+ *
+ * 1. **只冻结写。** 老板照样能看看板、查日结、导出报表 ——
+ *    经营数据是他的，欠费不是没收数据的理由。查询路由不经过总线，
+ *    所以「读照常」是免费得到的，不需要额外开口子。
+ * 2. **判据是 status，不是日期。** 试用期内 status 是 `trialing`，放行；
+ *    Stripe 扣款失败后会把它带成 `past_due`，那时才冻。我们不自己数日子 ——
+ *    自己数就一定会和 Stripe 的账单周期漂开。
+ * 3. **查不到账户行 = 放行。** 种子店、开发库、以及计费上线之前建的老店
+ *    都没有这一行。默认冻结的话，`pnpm dev` 起来第一件事就是全线报 402。
+ *
+ * ⚠️ 放在事务里、在幂等检查**之前** —— 顺序反了的话，欠费期间的重试
+ * 会命中幂等缓存并返回一个「成功」，而那次写入其实从来没发生过。
+ */
+async function assertSubscriptionAllowsWrite(
+  tx: postgres.TransactionSql,
+  ctx: CommandContext,
+  commandName: string,
+): Promise<void> {
+  if (WRITE_ALLOWED_WHILE_PAST_DUE.some((p) => commandName.startsWith(p))) return;
+
+  const [acct] = await tx<{ status: string }[]>`
+    select subscription_status as status
+    from billing_accounts where location_id = ${ctx.locationId}`;
+
+  // 没有账户行 = 还没接计费。放行（见上面第 3 条）
+  if (!acct) return;
+  if (!FROZEN_STATUSES.has(acct.status)) return;
+
+  throw new AppError(ERROR_CODES.SUBSCRIPTION_PAST_DUE, {
+    details: { command: commandName, subscriptionStatus: acct.status },
+  });
+}
+
+/**
+ * 哪些状态算欠费。
+ *
+ * `trialing` 和 `active` 放行。`canceled` 也冻 —— 主动退订之后
+ * 数据保留、只读可用，这和欠费是同一种处理。
+ */
+const FROZEN_STATUSES = new Set(['past_due', 'canceled', 'unpaid', 'incomplete_expired']);

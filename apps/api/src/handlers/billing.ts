@@ -40,6 +40,8 @@ export interface AccountRow {
   plan: string;
   subscription_status: string;
   current_period_end: string | Date | null;
+  trial_ends_at: string | Date | null;
+  trial_will_end_notified_at: string | Date | null;
   default_payment_method_id: string | null;
   payment_method_label: string | null;
 
@@ -88,8 +90,18 @@ export const balanceOf = (row: AccountRow, unit: QuotaUnit): number =>
 export const includedUsedOf = (row: AccountRow, unit: QuotaUnit): number =>
   unit === 'credit' ? row.included_credits_used : row.included_minutes_used;
 
+/**
+ * ⭐ 在不在试用期，**看 `trial_ends_at` 是不是还在未来，不看 status**。
+ *
+ * Stripe 的 `trialing` 状态在扣款那一刻就变成 `active`，但我们本地这行
+ * 要等 webhook 回来才更新 —— 中间那几秒如果按 status 判，
+ * 客户会短暂拿到试用额度而不是他刚付钱买的那一档。
+ */
+export const isTrialing = (row: Pick<AccountRow, 'trial_ends_at'>, now = new Date()): boolean =>
+  row.trial_ends_at !== null && new Date(ts(row.trial_ends_at)).getTime() > now.getTime();
+
 export const includedRemainingOf = (row: AccountRow, unit: QuotaUnit): number =>
-  Math.max(0, includedFor(row.plan, unit) - includedUsedOf(row, unit));
+  Math.max(0, includedFor(row.plan, unit, isTrialing(row)) - includedUsedOf(row, unit));
 
 /** postgres.js 回来的 timestamptz 可能是字符串（见 @gf/db 的 parseTs 注释） */
 const toDate = (v: string | Date | null): Date | null => {
@@ -264,6 +276,30 @@ registerHandler(SyncSubscription, async ({ input, ctx, tx, audit }: HandlerArgs<
     : (input.currentPeriodEnd === null ? null : ts(new Date(input.currentPeriodEnd)));
 
   /**
+   * 试用结束时刻。**id 类语义**：`null` = 明确清空。
+   *
+   * 试用一旦转正，Stripe 的 `trial_end` 就不再出现在订阅对象上，
+   * 这时候必须真的写回 null —— 留着旧值的话 `isTrialing()` 会一直
+   * 拿它和 now 比，虽然结果也是 false，但「这家店试用到什么时候」
+   * 这个问题在客服那边会得到一个早就过期的答案。
+   */
+  const trialEndsAt: string | null = input.trialEndsAt === undefined
+    ? (acct.trial_ends_at === null ? null : ts(acct.trial_ends_at))
+    : (input.trialEndsAt === null ? null : ts(new Date(input.trialEndsAt)));
+
+  /**
+   * 试用结束时刻变了 = 换了一段试用，提醒信的去重标记要跟着清掉。
+   *
+   * ⚠️ **按毫秒比，不能按字符串比。** 入参是客户端给的 ISO 串，
+   * 库里那个是 Postgres round-trip 回来的 —— 同一个时刻两边的
+   * 小数位和时区写法都可能不一样，字符串比会把「没变」判成「变了」，
+   * 于是每一条重投的 trial_will_end 都会重新发一封信。
+   */
+  const msOf = (v: string | null): number | null => (v === null ? null : new Date(v).getTime());
+  const trialChanged = msOf(trialEndsAt)
+    !== msOf(acct.trial_ends_at === null ? null : ts(acct.trial_ends_at));
+
+  /**
    * ⭐ **续期就把两种套餐内额度都清零。**
    *
    * 清零的时机跟着 Stripe 的 `current_period_end` 走，不自己数日子 ——
@@ -284,6 +320,10 @@ registerHandler(SyncSubscription, async ({ input, ctx, tx, audit }: HandlerArgs<
       plan = ${plan},
       subscription_status = ${status},
       current_period_end = ${periodEnd}::timestamptz,
+      trial_ends_at = ${trialEndsAt}::timestamptz,
+      trial_will_end_notified_at = ${trialChanged
+        ? null : (acct.trial_will_end_notified_at === null
+          ? null : ts(acct.trial_will_end_notified_at))}::timestamptz,
       included_credits_used = ${renewed ? 0 : acct.included_credits_used},
       included_minutes_used = ${renewed ? 0 : acct.included_minutes_used},
       included_period_start = ${renewed ? tx`now()` : tx`included_period_start`}
@@ -299,6 +339,8 @@ registerHandler(SyncSubscription, async ({ input, ctx, tx, audit }: HandlerArgs<
       sourceEventId: input.sourceEventId ?? null,
       // 续期清零要留痕：「我的额度怎么突然满了」是要能查的
       includedReset: renewed,
+      // 试用起止也留痕：「我什么时候被扣的第一笔钱」是客服第一个被问到的问题
+      trialEndsAt,
     },
   });
 

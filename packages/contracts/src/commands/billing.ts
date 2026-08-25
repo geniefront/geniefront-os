@@ -94,6 +94,11 @@ export const SyncSubscription = defineCommand({
     plan: billingPlan.nullable().optional(),
     subscriptionStatus: subscriptionStatus.nullable().optional(),
     currentPeriodEnd: z.string().datetime({ offset: true }).nullable().optional(),
+    /**
+     * 试用结束时刻（sql/0039）。这是 **id 类**语义：
+     * `null` = 明确清空（试用转正了，Stripe 那边 trial_end 就没了）。
+     */
+    trialEndsAt: z.string().datetime({ offset: true }).nullable().optional(),
     sourceEventId: z.string().max(80).nullable().optional(),
   }),
   output: z.object({

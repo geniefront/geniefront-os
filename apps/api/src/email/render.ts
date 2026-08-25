@@ -150,3 +150,50 @@ export function formatWhen(iso: string, timezone: string): string {
   }).format(d);
   return `${date} ${time}`;
 }
+
+// ─────────────────────────────────────────────────────── 试用还有 3 天到期
+
+export interface TrialEndingData {
+  shopName: string;
+  /** 已经按门店时区格式化好的首次扣款日，如「9月1日 周二」 */
+  chargeDateText: string;
+  planLabel: string;
+  monthlyText: string;
+  /** 老板自助管理订阅的入口（Stripe Customer Portal 的落地页） */
+  billingUrl: string;
+}
+
+/**
+ * 试用到期前 3 天的提醒信（批 1）。
+ *
+ * ⚠️ **必须把三件事写在一起**：哪天扣、扣多少、去哪儿取消。
+ * 少了任何一件，这封信就变成了「我们要扣你钱了」而不是通知 ——
+ * 而一封说不清怎么取消的催款信，收到的人第一反应是找银行拒付，
+ * 那比退订贵得多（拒付会留在我们的商户记录上）。
+ *
+ * ⚠️ **不写「您的试用即将结束，请立即升级」这种话术。** 他已经绑了卡，
+ * 什么都不做就会自动续 —— 假装需要他行动是在制造不存在的紧迫感。
+ */
+export function renderTrialEnding(d: TrialEndingData): Rendered {
+  const text = [
+    `${d.shopName}：免费试用还有 3 天`,
+    '',
+    `首次扣款：${d.chargeDateText}`,
+    `套餐：${d.planLabel}，${d.monthlyText}`,
+    '',
+    '什么都不用做，到期会自动续。',
+    `想改套餐或取消，在这里操作：${d.billingUrl}`,
+    '取消后当前试用期照常用到最后一天，不会补扣。',
+  ].join('\n');
+
+  const html = [
+    `<p>${esc(d.shopName)}：免费试用还有 3 天。</p>`,
+    `<p><strong>首次扣款：${esc(d.chargeDateText)}</strong><br>`,
+    `套餐：${esc(d.planLabel)}，${esc(d.monthlyText)}</p>`,
+    '<p>什么都不用做，到期会自动续。</p>',
+    `<p>想改套餐或取消：<a href="${esc(d.billingUrl)}">${esc(d.billingUrl)}</a><br>`,
+    '取消后当前试用期照常用到最后一天，不会补扣。</p>',
+  ].join('\n');
+
+  return { subject: `${d.shopName}：免费试用还有 3 天`, html, text };
+}

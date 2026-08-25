@@ -15,13 +15,25 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { withTenant, closeDb } from '@gf/db';
-import { creditsFor, MAX_TOPUP_FAILURES, PLAN_QUOTAS, TOPUP_UNITS } from '@gf/payroll';
+import {
+  creditsFor, MAX_TOPUP_FAILURES, PLAN_QUOTAS, TOPUP_UNITS, TRIAL_QUOTA,
+} from '@gf/payroll';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
 import { loadBilling } from './queries/billing';
 import { chargeQuota } from './billing/usage';
 import { ensureAccount, appendLedger } from './handlers/billing';
 import './handlers/billing';
+/**
+ * 闸门测试要一条**非 billing** 的命令来验证冻结确实生效。
+ *
+ * ⚠️ 用 `staff.setLocale` 而不是 `catalog.saveService`：后者会往共享的
+ * 开发库里插一条新服务，而 money.test.ts 取的是「这家店最便宜的服务」
+ * （`order by base_price_cents limit 1`）—— 一条 $10 的测试服务会让
+ * 组单拆分那个用例的现金额超过小计，报「填充不接受负数」。
+ * 跨文件的脏数据是最难查的一类失败，测试要选**不留痕**的命令。
+ */
+import './handlers/staff';
 
 /**
  * 用足疗店（SPA）而不是美甲店：**只有 owner 有 `billing.manage`**，
@@ -62,7 +74,8 @@ async function resetBilling(): Promise<void> {
                auto_topup_credits_enabled = false, auto_topup_credits_failures = 0,
                auto_topup_credits_last_at = null,
                auto_topup_minutes_enabled = false, auto_topup_minutes_failures = 0,
-               auto_topup_minutes_last_at = null
+               auto_topup_minutes_last_at = null,
+               trial_ends_at = null, trial_will_end_notified_at = null
              where location_id = ${SPA_LOC}`;
 
     /**
@@ -480,6 +493,136 @@ describe('订阅同步', () => {
 });
 
 // ───────────────────────────────────────────────────────────── 账本不可篡改
+
+describe('七天免费试用（批 1）', () => {
+  const inDays = (n: number) => new Date(Date.now() + n * 86400_000).toISOString();
+
+  it('试用期内额度按 TRIAL_QUOTA 算，不是套餐额度', async () => {
+    await resetBilling();
+    await run('billing.syncSubscription', {
+      subscriptionStatus: 'trialing', plan: 'growth', trialEndsAt: inDays(5),
+    });
+
+    // ⭐ 套餐是 growth（1200 积分 / 500 分钟），但试用期只给试用额度。
+    // 显示成 growth 的量、实际扣到 150 就没了，那是最难解释的一种账
+    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
+    expect(view!.trialing).toBe(true);
+    expect(view!.plan).toBe('growth');
+    expect((await quota('credit')).included.total).toBe(TRIAL_QUOTA.credits);
+    expect((await quota('voice_minute')).included.total).toBe(TRIAL_QUOTA.voiceMinutes);
+  });
+
+  it('⭐ 试用到期那一刻起按套餐额度算 —— 判据是时间不是 status', async () => {
+    await resetBilling();
+    // status 还留在 trialing（webhook 还没回来），但 trial_ends_at 已经过去了
+    await run('billing.syncSubscription', {
+      subscriptionStatus: 'trialing', plan: 'growth', trialEndsAt: inDays(-1),
+    });
+
+    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
+    expect(view!.trialing).toBe(false);
+    expect((await quota('credit')).included.total).toBe(PLAN_QUOTAS.growth.credits);
+  });
+
+  it('转正时 trialEndsAt 传 null → 真的写回 null，不留旧值', async () => {
+    await resetBilling();
+    await run('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: inDays(3) });
+    expect((await withTenant(tenant, (tx) => loadBilling(tx, ctx)))!.trialEndsAt).not.toBeNull();
+
+    // Stripe 扣款成功之后订阅上就没有 trial_end 了
+    await run('billing.syncSubscription', { subscriptionStatus: 'active', trialEndsAt: null });
+
+    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
+    expect(view!.trialEndsAt).toBeNull();
+    expect(view!.trialing).toBe(false);
+  });
+
+  it('不带 trialEndsAt 的局部更新不动它 —— 建 Checkout 那次只带 customerId', async () => {
+    await resetBilling();
+    const end = inDays(4);
+    await run('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: end });
+    await run('billing.syncSubscription', { stripeCustomerId: 'cus_trial' });
+
+    expect((await withTenant(tenant, (tx) => loadBilling(tx, ctx)))!.trialing).toBe(true);
+  });
+
+  it('⭐ 换了一段试用 → 提醒信的去重标记清掉，新的那段还能再发一封', async () => {
+    await resetBilling();
+    await run('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: inDays(3) });
+    await withTenant(tenant, (tx) => tx`
+      update billing_accounts set trial_will_end_notified_at = now()
+      where location_id = ${SPA_LOC}`);
+
+    // 到期时间变了 = 这是另一段试用
+    await run('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: inDays(9) });
+
+    const [row] = await withTenant(tenant, (tx) => tx<{ n: Date | null }[]>`
+      select trial_will_end_notified_at as n from billing_accounts
+      where location_id = ${SPA_LOC}`);
+    expect(row!.n).toBeNull();
+  });
+
+  it('到期时间没变 → 去重标记保留，不会重复发信', async () => {
+    await resetBilling();
+    const end = inDays(3);
+    await run('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: end });
+    await withTenant(tenant, (tx) => tx`
+      update billing_accounts set trial_will_end_notified_at = now()
+      where location_id = ${SPA_LOC}`);
+
+    // Stripe 重投同一条事件
+    await run('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: end });
+
+    const [row] = await withTenant(tenant, (tx) => tx<{ n: Date | null }[]>`
+      select trial_will_end_notified_at as n from billing_accounts
+      where location_id = ${SPA_LOC}`);
+    expect(row!.n).not.toBeNull();
+  });
+});
+
+describe('欠费冻结写入（批 1）', () => {
+  /** 把订阅状态直接压到某个值 —— 绕开命令，因为命令本身就是被测对象 */
+  const setStatus = (s: string) => withTenant(tenant, (tx) => tx`
+    update billing_accounts set subscription_status = ${s} where location_id = ${SPA_LOC}`);
+
+  it('⭐ past_due 时普通写操作被拒，错误码是 SUBSCRIPTION_PAST_DUE', async () => {
+    await resetBilling();
+    await setStatus('past_due');
+
+    await expect(run('staff.setLocale', { locale: 'en' }))
+      .rejects.toMatchObject({ code: 'SUBSCRIPTION_PAST_DUE' });
+
+    await resetBilling();
+  });
+
+  it('⭐ 但 billing.* 照样放行 —— 否则老板换了卡也救不回来', async () => {
+    await resetBilling();
+    await setStatus('past_due');
+
+    // 这一条必须能过：它是唯一的自救通道
+    await run('billing.syncSubscription', { subscriptionStatus: 'active' });
+
+    const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
+    expect(view!.subscriptionStatus).toBe('active');
+  });
+
+  it('trialing 和 active 都放行', async () => {
+    for (const s of ['trialing', 'active']) {
+      await resetBilling();
+      await setStatus(s);
+      await expect(run('staff.setLocale', { locale: 'en' })).resolves.toBeTruthy();
+    }
+    await resetBilling();
+  });
+
+  it('canceled 也冻 —— 退订之后数据保留、只读可用', async () => {
+    await resetBilling();
+    await setStatus('canceled');
+    await expect(run('staff.setLocale', { locale: 'en' }))
+      .rejects.toMatchObject({ code: 'SUBSCRIPTION_PAST_DUE' });
+    await resetBilling();
+  });
+});
 
 describe('账本只追加（宪法第 9 条）', () => {
   it('⭐ app_user 改不动已经写下的账本行', async () => {

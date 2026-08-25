@@ -59,6 +59,11 @@ export interface BillingView {
   currentPeriodEnd: string | null;
   hasSubscription: boolean;
 
+  /** 试用结束时刻。null = 从未试用，或已经转正（批 1） */
+  trialEndsAt: string | null;
+  /** 现在是不是在试用期内。界面上要显示「还剩 N 天」和首次扣款日 */
+  trialing: boolean;
+
   hasPaymentMethod: boolean;
   paymentMethodLabel: string | null;
 
@@ -126,10 +131,16 @@ export async function loadBilling(
     where location_id = ${ctx.locationId} and amount is not null
     order by seq desc limit ${RECENT_LIMIT}`;
 
+  /** 试用期的判据只有一处：`trial_ends_at` 还在未来。见 handlers/billing.ts §isTrialing */
+  const trialingNow = a.trial_ends_at !== null
+    && parseTs(a.trial_ends_at).getTime() > Date.now();
+
   const quotaOf = (unit: QuotaUnit): QuotaView => {
     const isCredit = unit === 'credit';
     const used = isCredit ? a.included_credits_used : a.included_minutes_used;
-    const total = includedFor(a.plan, unit);
+    // 试用期显示的是试用额度，不是套餐额度 —— 否则老板看到「本期含 500 积分」
+    // 而实际扣到 150 就没了，会当成 bug 报过来
+    const total = includedFor(a.plan, unit, trialingNow);
     const cached = isCredit ? a.credit_balance : a.voice_minute_balance;
     const ledger = replayBalance(entries, unit);
 
@@ -168,6 +179,16 @@ export async function loadBilling(
       ? parseTs(a.current_period_end).toISOString() : null,
     hasSubscription: Boolean(a.stripe_subscription_id),
 
+    /**
+     * 试用状态（批 1）。
+     *
+     * `trialing` 看的是 `trial_ends_at` 还在不在未来，**不看 subscription_status** ——
+     * Stripe 那边扣完款状态立刻变 active，而我们这行要等 webhook 回来，
+     * 中间那几秒按 status 判会闪一下错的额度（见 handlers/billing.ts §isTrialing）。
+     */
+    trialEndsAt: a.trial_ends_at ? parseTs(a.trial_ends_at).toISOString() : null,
+    trialing: trialingNow,
+
     hasPaymentMethod: Boolean(a.default_payment_method_id),
     paymentMethodLabel: a.payment_method_label,
 
@@ -192,6 +213,7 @@ export async function loadBilling(
 interface AccountFields {
   plan: string; subscription_status: string;
   current_period_end: string | Date | null; stripe_subscription_id: string | null;
+  trial_ends_at: string | Date | null;
   default_payment_method_id: string | null; payment_method_label: string | null;
   credit_balance: number; voice_minute_balance: number;
   included_credits_used: number; included_minutes_used: number;

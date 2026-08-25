@@ -31,7 +31,9 @@ import {
   type CommandContext, type Permission,
 } from '@gf/contracts';
 import { withTenant } from '@gf/db';
-import { unitsPerTopup, TOPUP_PRICE_CENTS, isQuotaUnit, type QuotaUnit } from '@gf/payroll';
+import {
+  unitsPerTopup, TOPUP_PRICE_CENTS, isQuotaUnit, TRIAL_DAYS, type QuotaUnit,
+} from '@gf/payroll';
 import { dispatch } from '../bus';
 import { rawBodyOf } from '../rawBody';
 import { verifyStripeSignature, STRIPE_SIGNATURE_HEADER } from './verify';
@@ -40,6 +42,7 @@ import {
   paymentMethodLabel, declineReason, isPlan, type Stripe,
 } from './client';
 import { maybeAutoTopup } from '../billing/autoTopup';
+import { renderTrialEnding, formatWhen } from '../email/render';
 import {
   isSignupSession, provisionFromSession, backfillStripeMetadata, sendActivationOnce,
   type SignupOutcome,
@@ -99,6 +102,22 @@ export function registerStripeRoutes(
   }
 
   /**
+   * 这家店订阅过没有 —— 决定这次 Checkout 给不给七天试用。
+   *
+   * 两列都为空才算「从来没有过」。只看 `stripe_subscription_id` 不够：
+   * 退订之后那一列会被清空，而 `trial_ends_at` 留着历史值 ——
+   * 那正是「这家伙已经用过一次试用」的证据。
+   */
+  async function everSubscribed(ctx: CommandContext): Promise<boolean> {
+    const [acct] = await withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => tx<{ sub: string | null; trial: Date | null }[]>`
+        select stripe_subscription_id as sub, trial_ends_at as trial
+        from billing_accounts where location_id = ${ctx.locationId}`);
+    return Boolean(acct?.sub) || Boolean(acct?.trial);
+  }
+
+  /**
    * 拿这家店的 Stripe 客户 id，没有就建一个。
    *
    * metadata 里写死 `gf_location_id` / `gf_org_id` —— **webhook 全靠它定位门店**。
@@ -146,6 +165,16 @@ export function registerStripeRoutes(
     }
     const { successUrl, cancelUrl } = safeReturnUrls(req.body);
 
+    /**
+     * ⭐ 试用只给**第一次订阅**的店。
+     *
+     * 判据是「这家店的账户上有没有过 subscription id」，不是
+     * 「现在是不是 active」—— 退订过又回来的老客户 `stripe_subscription_id`
+     * 会被清空，但 `trial_ends_at` 还留着历史值，那才是真正的判据。
+     * 两个都为空才算真的没订阅过。
+     */
+    const hadSubscription = await everSubscribed(ctx);
+
     const customerId = await ensureCustomer(ctx);
     const session = await stripeClient().checkout.sessions.create({
       mode: 'subscription',
@@ -158,6 +187,18 @@ export function registerStripeRoutes(
       // 只写一处的话，续订那些事件回来时是「查无此店」
       metadata: { gf_location_id: ctx.locationId, gf_org_id: ctx.orgId, gf_plan: plan },
       subscription_data: {
+        /**
+         * ⭐ 七天免费试用（批 1）。**卡照绑，只是七天内不扣。**
+         *
+         * 自己做「无付款租户」那条路要改建租户的幂等键、要做转正、
+         * 要做到期降级 —— 而 Stripe 这一个参数把三件事全做了，
+         * 我们只负责把状态镜像回来。
+         *
+         * ⚠️ 只在**这家店从来没订阅过**的时候给。改套餐（Switch Plan）
+         * 也走这条路，不挡住的话老板每次换档都白拿七天。
+         * Stripe 不替我们判这个 —— `trial_period_days` 给了就生效。
+         */
+        ...(hadSubscription ? {} : { trial_period_days: TRIAL_DAYS }),
         metadata: { gf_location_id: ctx.locationId, gf_org_id: ctx.orgId },
       },
     });
@@ -417,6 +458,40 @@ export function registerStripeRoutes(
         return 'subscription_synced';
       }
 
+      /**
+       * ⭐ 试用还有 3 天到期（批 1）。Stripe 自己在到期前 3 天发这一条。
+       *
+       * **不自己数日子**：我们只要收到它就发信。自己起一个定时任务去扫
+       * `trial_ends_at` 的话，那个任务和 Stripe 的账单周期迟早漂开，
+       * 而漂开的后果是「信发了但没扣款」或者「扣了款但信没发」。
+       */
+      case 'customer.subscription.trial_will_end': {
+        const sub = event.data.object;
+        // 先把最新状态同步下来，免得信里写的到期时间是旧的
+        await syncSubscription(sub, ctx, event.id);
+        const sent = await sendTrialEndingOnce(ctx, sub);
+        return sent ? 'trial_ending_notified' : 'trial_ending_already_notified';
+      }
+
+      /**
+       * 扣款失败。**不在这里停服** —— 订阅状态会由 Stripe 随后的
+       * `customer.subscription.updated` 带成 `past_due`，冻结由那条统一处理。
+       *
+       * 这里只做一件事：留一条能查的记录。老板打电话来问
+       * 「我的卡怎么被拒了」，客服要答得出是哪一天、哪张卡、什么原因。
+       */
+      case 'invoice.payment_failed': {
+        const inv = event.data.object;
+        app.log.warn({
+          locationId: ctx.locationId,
+          invoiceId: inv.id,
+          attempt: inv.attempt_count,
+          amountDue: inv.amount_due,
+          nextAttempt: inv.next_payment_attempt,
+        }, 'subscription invoice payment failed');
+        return 'invoice_failure_logged';
+      }
+
       case 'payment_intent.succeeded': {
         const pi = event.data.object;
         const kind = pi.metadata?.['gf_kind'];
@@ -491,6 +566,77 @@ export function registerStripeRoutes(
   }
 
   /** 订阅对象 → 本地账户状态 */
+  /**
+   * 试用到期提醒信 —— **一次订阅只发一封**。
+   *
+   * 和激活信同一个纪律（signup/webhook.ts §sendActivationOnce）：
+   * **先原子占位，再入队。** 反过来的话，Stripe 重投两次
+   * `trial_will_end` 会同时看到「还没发过」，然后老板收到两封一样的催款信。
+   *
+   * 返回 true = 这次真的发了；false = 已经发过。
+   */
+  async function sendTrialEndingOnce(
+    ctx: CommandContext, sub: Stripe.Subscription,
+  ): Promise<boolean> {
+    const tenant = { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: null };
+
+    return withTenant(tenant, async (tx) => {
+      // ① 抢占。只有抢到那一行的人往下走
+      const [claimed] = await tx<{ id: string; plan: string }[]>`
+        update billing_accounts set trial_will_end_notified_at = now()
+        where location_id = ${ctx.locationId} and trial_will_end_notified_at is null
+        returning id, plan`;
+      if (!claimed) return false;
+
+      // ② 收件人 = 这家店的 owner。找不到就不发 —— 宁可不发，
+      //    也不要发给一个「我们猜的」邮箱（那可能是某位前台）
+      const [owner] = await tx<{ email: string | null }[]>`
+        select u.email
+        from memberships m
+        join users u on u.id = m.user_id
+        join membership_roles mr on mr.membership_id = m.id
+        join roles r on r.id = mr.role_id
+        where m.location_id = ${ctx.locationId}
+          and r.key = 'owner' and m.user_id is not null and u.email is not null
+        order by m.created_at asc
+        limit 1`;
+      if (!owner?.email) {
+        app.log.warn({ locationId: ctx.locationId }, 'trial ending: 找不到 owner 邮箱，不发信');
+        return false;
+      }
+
+      const [loc] = await tx<{ name: unknown; timezone: string }[]>`
+        select name, timezone from locations where id = ${ctx.locationId}`;
+      const nameObj = (loc?.name ?? {}) as Record<string, string>;
+      const shopName = nameObj['zh-Hans'] ?? nameObj['en'] ?? Object.values(nameObj)[0] ?? '你的门店';
+
+      const plan = claimed.plan;
+      const msg = renderTrialEnding({
+        shopName,
+        chargeDateText: sub.trial_end
+          ? formatWhen(new Date(sub.trial_end * 1000).toISOString(), loc?.timezone ?? 'UTC')
+          : '试用结束当天',
+        planLabel: plan === 'growth' ? 'Growth' : 'Essential',
+        monthlyText: plan === 'growth' ? '每月 $199' : '每月 $99',
+        billingUrl: `${(process.env['APP_BASE_URL'] ?? 'http://localhost:5173')
+          .replace(/\/+$/, '')}/?tab=billing`,
+      });
+
+      // ③ 入队。唯一索引 (entity_type, entity_id, kind) 是第二道保险 ——
+      //    ① 已经挡住并发了，这一条挡的是「有人手工清了 notified_at」
+      await tx`
+        insert into email_outbox
+          (org_id, location_id, kind, to_email, subject, body_html, body_text,
+           entity_type, entity_id)
+        values (${ctx.orgId}, ${ctx.locationId}, 'trial_ending', ${owner.email},
+                ${msg.subject}, ${msg.html}, ${msg.text},
+                'billing_account', ${claimed.id})
+        on conflict (entity_type, entity_id, kind) do nothing`;
+
+      return true;
+    });
+  }
+
   async function syncSubscription(
     sub: Stripe.Subscription, ctx: CommandContext, eventId: string,
   ): Promise<void> {
@@ -507,6 +653,9 @@ export function registerStripeRoutes(
       plan,
       subscriptionStatus: mapSubscriptionStatus(sub.status),
       currentPeriodEnd: periodEndSec ? new Date(periodEndSec * 1000).toISOString() : null,
+      // 试用转正之后 Stripe 就不再给 trial_end 了 —— 这时候要真的写回 null，
+      // 不能 `?? undefined` 留着旧值（那会让客服看到一个早就过期的日期）
+      trialEndsAt: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
       sourceEventId: eventId,
     }, ctx);
   }
