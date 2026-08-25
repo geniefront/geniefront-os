@@ -16,6 +16,11 @@
 import { useState } from 'react';
 import { API_BASE, ApiError, runCommand } from '../lib/api';
 import { supabase } from '../lib/supabase';
+import { Button } from '../ui/Button';
+import { Badge } from '../ui/Badge';
+import { Alert } from '../ui/Alert';
+import { Card } from '../ui/Card';
+import { Spinner } from '../ui/Spinner';
 
 /** 一种额度的完整状态。两种额度各一份，**互不相干**（决策 8） */
 export interface QuotaData {
@@ -150,15 +155,14 @@ export function Billing({
 
   if (!data) {
     return (
-      <div className="stack" style={{ padding: '0 16px 24px', gap: 14 }}>
-        <div className="card stack" style={{ padding: 28, gap: 14, textAlign: 'center' }}>
-          <div style={{ fontSize: 'var(--text-xl)' }}>还没有开通订阅</div>
-          <div className="muted">开通之后这里会显示额度、用量和账单。</div>
-          <button className="btn btn-primary" style={{ minHeight: 56 }} disabled={busy !== ''}
-                  onClick={() => toStripe('/v1/billing/checkout', { plan: 'essential' }, 'checkout')}>
-            {busy === 'checkout' ? <span className="spin" /> : '开通 Essential'}
-          </button>
-        </div>
+      <div className="flex flex-col gap-3.5 px-4 pb-6">
+        <Card className="flex flex-col p-7 gap-3.5 text-center">
+          <div className="text-xl">还没有开通订阅</div>
+          <div className="text-ink-2">开通之后这里会显示额度、用量和账单。</div>
+          <Button variant="primary" style={{ minHeight: 56 }} disabled={busy !== ''} onClick={() => toStripe('/v1/billing/checkout', { plan: 'essential' }, 'checkout')}>
+            {busy === 'checkout' ? <Spinner /> : '开通 Essential'}
+          </Button>
+        </Card>
       </div>
     );
   }
@@ -166,12 +170,12 @@ export function Billing({
   const charged = autoTopup.filter((t) => t.charged);
 
   return (
-    <div className="stack" style={{ padding: '0 16px 24px', gap: 14 }}>
-      {err && <div className="badge badge-danger" style={{ padding: '10px 14px' }}>✕ {err}</div>}
+    <div className="flex flex-col gap-3.5 px-4 pb-6">
+      {err && <Alert tone="danger">{err}</Alert>}
 
       {/* 刚刚自动续充过 —— 老板打开页面会看到额度突然变多，得有个交代 */}
       {charged.map((t) => (
-        <div key={t.unit} className="badge badge-ok" style={{ padding: '10px 14px' }}>
+        <div key={t.unit} className="rounded bg-ok-soft px-3.5 py-2.5 text-xs font-semibold text-ok">
           ✓ 刚刚自动充了 {t.units} {UNIT_LABEL[t.unit]?.unit ?? ''}（{money(data.topupPriceCents)}）
         </div>
       ))}
@@ -188,62 +192,60 @@ export function Billing({
       ))}
 
       {/* ── 套餐与支付方式 ─────────────────────────────────────────────── */}
-      <div className="card stack" style={{ padding: '18px 20px', gap: 12 }}>
-        <div className="row" style={{ gap: 10 }}>
-          <strong className="grow">套餐</strong>
-          <span className="badge badge-soft">{PLAN_LABEL[data.plan] ?? data.plan}</span>
-          <span className={`badge ${data.subscriptionStatus === 'active'
-            || data.subscriptionStatus === 'trialing' ? 'badge-ok' : 'badge-danger'}`}>
+      <Card className="flex flex-col py-4.5 px-5 gap-3">
+        <div className="flex items-center gap-2.5">
+          <strong className="min-w-0 flex-1">套餐</strong>
+          <Badge tone="brand" >{PLAN_LABEL[data.plan] ?? data.plan}</Badge>
+          <Badge tone={data.subscriptionStatus === 'active'
+            || data.subscriptionStatus === 'trialing' ? 'ok' : 'danger'}>
             {STATUS_LABEL[data.subscriptionStatus] ?? data.subscriptionStatus}
-          </span>
+          </Badge>
         </div>
 
         {data.currentPeriodEnd && (
-          <div className="tiny muted">
+          <div className="text-xs text-ink-3 text-ink-2">
             下次扣费与额度重置：{new Date(data.currentPeriodEnd).toLocaleDateString()}
           </div>
         )}
 
-        <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+        <div className="flex items-center gap-2.5 flex-wrap">
           {(['essential', 'growth'] as const).map((p) => (
-            <button key={p} className="btn" style={{ minHeight: 56 }} disabled={busy !== ''}
-                    onClick={() => toStripe('/v1/billing/checkout', { plan: p }, `plan-${p}`)}>
-              {busy === `plan-${p}` ? <span className="spin" />
+            <Button key={p} style={{ minHeight: 56 }} disabled={busy !== ''} onClick={() => toStripe('/v1/billing/checkout', { plan: p }, `plan-${p}`)}>
+              {busy === `plan-${p}` ? <Spinner />
                 : data.hasSubscription && data.plan === p ? `${PLAN_LABEL[p]}（当前）`
                 : `换成 ${PLAN_LABEL[p]}`}
-            </button>
+            </Button>
           ))}
         </div>
 
-        <div className="row" style={{ gap: 10 }}>
-          <span className="grow">支付方式：{data.paymentMethodLabel ?? '未绑定'}</span>
-          <button className="btn" style={{ minHeight: 56 }} disabled={busy !== ''}
-                  onClick={() => toStripe('/v1/billing/payment-method', {}, 'pm')}>
-            {busy === 'pm' ? <span className="spin" />
+        <div className="flex items-center gap-2.5">
+          <span className="min-w-0 flex-1">支付方式：{data.paymentMethodLabel ?? '未绑定'}</span>
+          <Button style={{ minHeight: 56 }} disabled={busy !== ''} onClick={() => toStripe('/v1/billing/payment-method', {}, 'pm')}>
+            {busy === 'pm' ? <Spinner />
               : data.hasPaymentMethod ? '换一张卡' : '绑一张卡'}
-          </button>
+          </Button>
         </div>
-        <div className="tiny muted">
+        <div className="text-xs text-ink-3 text-ink-2">
           卡号在 Stripe 的页面上输入，我们这边只存「哪张卡」，看不到卡号。
         </div>
-      </div>
+      </Card>
 
       {/* ── 流水 ───────────────────────────────────────────────────────── */}
-      <div className="card stack" style={{ padding: '18px 20px', gap: 8 }}>
+      <Card className="flex flex-col py-4.5 px-5 gap-2">
         <strong>最近的账目</strong>
         {data.recent.length === 0 ? (
-          <div className="muted tiny">还没有任何账目。</div>
+          <div className="text-ink-2 text-xs text-ink-3">还没有任何账目。</div>
         ) : (
-          <div className="stack" style={{ gap: 6, maxHeight: 360, overflowY: 'auto' }}>
+          <div className="flex flex-col gap-1.5" style={{ maxHeight: 360, overflowY: 'auto' }}>
             {data.recent.map((r) => {
               const u = UNIT_LABEL[r.unit];
               return (
-                <div key={r.id} className="row" style={{ gap: 10, fontSize: 'var(--text-sm)' }}>
-                  <span className="tiny muted" style={{ minWidth: 92 }}>
+                <div key={r.id} className="flex items-center gap-2.5 text-xs">
+                  <span className="text-xs text-ink-3 text-ink-2" style={{ minWidth: 92 }}>
                     {new Date(r.at).toLocaleDateString()}{' '}
                     {new Date(r.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
-                  <span className="grow truncate">
+                  <span className="min-w-0 flex-1 truncate">
                     {LEDGER_LABEL[r.kind] ?? r.kind}
                     {r.source ? ` · ${SOURCE_LABEL[r.source] ?? r.source}` : ''}
                     {r.reason ? ` · ${r.reason}` : ''}
@@ -259,7 +261,7 @@ export function Billing({
             })}
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }
@@ -291,10 +293,10 @@ function QuotaCard({
   const key = `topup-${q.unit}`;
 
   return (
-    <div className="card stack" style={{ padding: '18px 20px', gap: 12 }}>
-      <div className="row" style={{ gap: 10 }}>
-        <strong className="grow" style={{ fontSize: 'var(--text-lg)' }}>{label.name}</strong>
-        <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+    <Card className="flex flex-col gap-3 px-5 py-4.5">
+      <div className="flex items-center gap-2.5">
+        <strong className="min-w-0 flex-1 text-lg">{label.name}</strong>
+        <span className="tnum">
           本期还剩 <strong>{q.included.remaining}</strong> / {q.included.total} {label.unit}
         </span>
       </div>
@@ -310,15 +312,13 @@ function QuotaCard({
         账本是事实，缓存对不上是事故 —— 老板要知道这个数现在不可信。
       */}
       {(q.balanceMismatch || q.ledgerBreakAt !== null) && (
-        <div className="badge badge-danger" style={{ padding: '10px 14px' }}>
-          ⚠️ 这个数字对账不一致，暂时不可信
+        <Alert tone="danger">这个数字对账不一致，暂时不可信
           {q.balanceMismatch && `（显示 ${q.balanceMismatch.cached}，按流水算是 ${q.balanceMismatch.ledger}）`}
-          。请联系我们，先别据此充值。
-        </div>
+          。请联系我们，先别据此充值。</Alert>
       )}
 
-      <div className="row" style={{ gap: 10 }}>
-        <span className="muted grow">
+      <div className="flex items-center gap-2.5">
+        <span className="text-ink-2 min-w-0 flex-1">
           买的余额（不过期）
         </span>
         <strong style={{
@@ -329,16 +329,13 @@ function QuotaCard({
       </div>
 
       {q.balance < 0 && (
-        <div className="tiny">
+        <div className="text-xs text-ink-3">
           欠着 {-q.balance} {label.unit}：已经用掉的部分先记在账上，下次充值自动补齐。
         </div>
       )}
 
-      <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-        <button className="btn btn-primary" style={{ minHeight: 56, minWidth: 180 }}
-                disabled={busy !== '' || !data.hasPaymentMethod}
-                title={data.hasPaymentMethod ? undefined : '先绑一张卡'}
-                onClick={async () => {
+      <div className="flex items-center gap-2.5 flex-wrap">
+        <Button variant="primary" style={{ minHeight: 56, minWidth: 180 }} disabled={busy !== '' || !data.hasPaymentMethod} title={data.hasPaymentMethod ? undefined : '先绑一张卡'} onClick={async () => {
                   setBusy(key); onError('');
                   try {
                     const out = await post<{ ok: boolean; pending?: boolean }>(
@@ -348,26 +345,25 @@ function QuotaCard({
                   } catch (e) { onError(describe(e)); }
                   finally { setBusy(''); }
                 }}>
-          {busy === key ? <span className="spin" />
+          {busy === key ? <Spinner />
             : `${money(data.topupPriceCents)} 买 ${q.unitsPerTopup} ${label.unit}`}
-        </button>
-        <span className="tiny muted" style={{ alignSelf: 'center' }}>
+        </Button>
+        <span className="text-xs text-ink-3 text-ink-2" style={{ alignSelf: 'center' }}>
           本月已用 {q.usedThisMonth} {label.unit}
         </span>
       </div>
 
-      <div className="tiny muted">{label.hint}</div>
+      <div className="text-xs text-ink-3 text-ink-2">{label.hint}</div>
       {!data.hasPaymentMethod && (
-        <div className="tiny">要先绑一张卡才能充值。卡号只在 Stripe 的页面上输入。</div>
+        <div className="text-xs text-ink-3">要先绑一张卡才能充值。卡号只在 Stripe 的页面上输入。</div>
       )}
 
       {/* ── 自动续充 ─────────────────────────────────────────────────── */}
-      <div className="row" style={{ gap: 10, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
-        <span className="grow">不够时自动买</span>
-        <button className="btn" style={{ minHeight: 56, minWidth: 92 }}
-                aria-pressed={enabled} onClick={() => setEnabled(!enabled)}>
+      <div className="flex items-center gap-2.5" style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+        <span className="min-w-0 flex-1">不够时自动买</span>
+        <Button style={{ minHeight: 56, minWidth: 92 }} aria-pressed={enabled} onClick={() => setEnabled(!enabled)}>
           {enabled ? '✓ 开着' : '关着'}
-        </button>
+        </Button>
       </div>
 
       {/*
@@ -376,31 +372,24 @@ function QuotaCard({
         然后打开、再失败、再被关 —— 而那几次失败都记在他的卡上
       */}
       {q.autoTopup.failures > 0 && (
-        <div className="badge badge-danger" style={{ padding: '10px 14px' }}>
-          最近有 {q.autoTopup.failures} 次扣款没成功
-          {!q.autoTopup.enabled && '，已暂停'}。建议换一张卡再打开。
-        </div>
+        <Alert tone="danger">最近有 {q.autoTopup.failures} 次扣款没成功
+          {!q.autoTopup.enabled && '，已暂停'}。建议换一张卡再打开。</Alert>
       )}
 
       {enabled && (
-        <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+        <div className="flex items-center gap-2.5 flex-wrap">
           <span style={{ minWidth: 110 }}>低于</span>
           {(q.unit === 'credit' ? [20, 50, 100, 200] : [10, 20, 50, 100]).map((t) => (
-            <button key={t} className="btn" style={{
-              minHeight: 56, minWidth: 76, borderWidth: 2,
-              borderColor: threshold === t ? 'var(--brand)' : 'var(--line)',
-              background: threshold === t ? 'var(--brand-soft)' : 'var(--surface)' }}
-              onClick={() => setThreshold(t)}>{t}</button>
+            <Button key={t} style={{ minHeight: 56, minWidth: 76, borderWidth: 2, borderColor: threshold === t ? 'var(--brand)' : 'var(--line)', background: threshold === t ? 'var(--brand-soft)' : 'var(--surface)' }} onClick={() => setThreshold(t)}>{t}</Button>
           ))}
-          <span className="tiny muted" style={{ alignSelf: 'center' }}>
+          <span className="text-xs text-ink-3 text-ink-2" style={{ alignSelf: 'center' }}>
             {label.unit}时自动买 {q.unitsPerTopup} 个
           </span>
         </div>
       )}
 
       {dirty && (
-        <button className="btn btn-primary" style={{ minHeight: 56 }} disabled={busy !== ''}
-                onClick={async () => {
+        <Button variant="primary" style={{ minHeight: 56 }} disabled={busy !== ''} onClick={async () => {
                   setBusy(`auto-${q.unit}`); onError('');
                   try {
                     await runCommand('billing.setAutoTopup', {
@@ -410,10 +399,10 @@ function QuotaCard({
                   } catch (e) { onError(describe(e)); }
                   finally { setBusy(''); }
                 }}>
-          {busy === `auto-${q.unit}` ? <span className="spin" /> : '保存'}
-        </button>
+          {busy === `auto-${q.unit}` ? <Spinner /> : '保存'}
+        </Button>
       )}
-    </div>
+    </Card>
   );
 }
 

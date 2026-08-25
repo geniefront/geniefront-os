@@ -154,8 +154,14 @@ export const formSubmissions = pgTable('form_submissions', {
   userAgent: text('user_agent'),
   /** 他当时看的是哪种语言的版本。「我看不懂英文」是最常见的抗辩 */
   locale: text('locale').notNull().default('en'),
-  /** kiosk | desk —— 前台代签也合法，但要标出来（宪法第 14 条） */
+  /** kiosk | desk | link —— 前台代签也合法，但要标出来（宪法第 14 条） */
   source: text('source').notNull().default('kiosk'),
+  /**
+   * `source='link'` 时是哪一条链接（`docs/15` §4）。
+   * 既是证据链的一环，也是「这条链接还剩几份没填」的唯一可靠依据 ——
+   * 靠 (customer_id, 时间) 去凑会让两条匿名链接互相算成对方填完了。
+   */
+  shareLinkId: uuid('share_link_id'),
   /** 前台代签时记下是谁代的 */
   onBehalfBy: uuid('on_behalf_by').references(() => memberships.id),
 
@@ -166,6 +172,54 @@ export const formSubmissions = pgTable('form_submissions', {
 }, (t) => [
   index('form_submissions_customer_idx').on(t.locationId, t.customerId, t.createdAt),
   index('form_submissions_expiry_idx').on(t.locationId, t.expiresOn),
+]);
+
+/**
+ * 一条**发给客人的填表链接**（`docs/15`）。
+ *
+ * ## 为什么不能只凭 submission id 或客户 id
+ *
+ * 链接会出现在浏览器历史、转发出去的邮件、客服截图里。凭 id 就能打开的话，
+ * **捡到链接的人就能替别人签一份免责书** —— 而这张表是出事时的证据，
+ * 一条来路不明的签名比没有签名更糟。
+ *
+ * 所以和自助取消令牌（0033）、设备令牌（0016）一个套路：
+ * 明文 `fs_…` 只在生成时露一次面，库里只有 SHA-256 摘要。
+ *
+ * ⚠️ **没有 sms 这一档**（`09` §5）：平台号发陌生短链是 10DLC 通道被掐的
+ * 头号原因，掐掉影响的是所有店的预约确认短信。只有当面扫码和邮件。
+ */
+export const formShareLinks = pgTable('form_share_links', {
+  id: id(),
+  orgId: orgCol(),
+  locationId: locCol(),
+  customerId: uuid('customer_id').references(() => customers.id),
+  appointmentId: uuid('appointment_id').references(() => appointments.id),
+  /**
+   * 要他签哪几份 —— 存的是**模板行的 id**，而每一版模板是单独一行。
+   * 所以链接发出去之后老板再发新版本，客人手里那条链接仍然指着
+   * 他被要求签的那一版：他看到的和前台当时以为他会看到的是同一份。
+   */
+  templateIds: jsonb('template_ids').notNull().default(sql`'[]'::jsonb`),
+  /** SHA-256(明文令牌)。明文不落库 */
+  tokenHash: text('token_hash').notNull(),
+  /** qr | email */
+  channel: text('channel').notNull().default('qr'),
+  /** 发去哪个邮箱。channel = qr 时是 null */
+  sentTo: text('sent_to'),
+  locale: text('locale').notNull().default('en'),
+  createdBy: uuid('created_by').references(() => memberships.id),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  /** 客人点开过没有 —— 前台要能分辨「他没收到」和「他收到了没填」 */
+  openedAt: timestamp('opened_at', { withTimezone: true }),
+  /** 全部签完的时间。填完即失效，一条链接不能签两遍 */
+  submittedAt: timestamp('submitted_at', { withTimezone: true }),
+  /** 发错人了就吊销。**不删行** —— 「发过给谁」本身要留档 */
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  createdAt: createdAt(),
+}, (t) => [
+  uniqueIndex('form_share_links_token_key').on(t.tokenHash),
+  index('form_share_links_customer_idx').on(t.locationId, t.customerId, t.createdAt),
 ]);
 
 /**

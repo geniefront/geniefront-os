@@ -21,8 +21,12 @@
  * 而对面可能十分钟后才看。要沟通就打电话，那按钮就在旁边。
  */
 
-import type { LucideIcon } from 'lucide-react';
 import { MessageSquare, Phone } from 'lucide-react';
+import { Button } from '../ui/Button';
+import { Card } from '../ui/Card';
+import { Badge } from '../ui/Badge';
+import { Page, PageHeader, Empty, Label } from '../ui/Page';
+import { cn } from '../ui/cn';
 
 export interface InboundSmsMessage {
   id: string;
@@ -54,8 +58,14 @@ const needsCall = (m: InboundSmsMessage): boolean =>
 export function SmsInbox({ data, timezone }: { data: SmsInboxData; timezone: string }) {
   if (data.messages.length === 0) {
     return (
-      <Empty Icon={MessageSquare} title="还没有客人发短信进来"
-             hint="客人回复的短信会出现在这里。回 STOP 或 CANCEL 的人尤其要看一眼 —— 那之后我们就发不了短信给他了。" />
+      <Page>
+        <PageHeader title="客人短信" />
+        <Empty
+          icon={<MessageSquare size={34} />}
+          title="还没有客人发短信进来"
+          hint="客人回复的短信会出现在这里。回 STOP 或 CANCEL 的人尤其要看一眼 —— 那之后我们就发不了短信给他了。"
+        />
+      </Page>
     );
   }
 
@@ -66,12 +76,16 @@ export function SmsInbox({ data, timezone }: { data: SmsInboxData; timezone: str
   });
 
   return (
-    <div className="stack" style={{ padding: '0 16px 24px', gap: 12 }}>
+    <Page>
+      <PageHeader title="客人短信"
+                  sub={<><span className="tnum">{data.messages.length}</span> 条</>} />
+
       {data.needsAttention > 0 && (
-        <div className="card" style={{ padding: 16, borderColor: 'var(--warn)',
-                                       background: 'var(--warn-soft)' }}>
-          <strong>{data.needsAttention} 个人可能以为自己取消了预约</strong>
-          <div className="tiny" style={{ marginTop: 6, lineHeight: 1.7 }}>
+        <div className="mb-4 rounded-lg border border-warn bg-warn-soft p-4">
+          <strong className="text-sm text-warn">
+            {data.needsAttention} 个人可能以为自己取消了预约
+          </strong>
+          <div className="mt-1.5 text-xs leading-relaxed text-warn">
             他们回复了 <strong>CANCEL</strong> 或 <strong>STOP</strong> —— 那是<strong>退订短信</strong>，
             不是取消预约。运营商规定这几个词必须退订，我们改不了。
             他们名下的预约还在，而且<strong>我们已经发不了短信给他们了</strong>。
@@ -80,10 +94,10 @@ export function SmsInbox({ data, timezone }: { data: SmsInboxData; timezone: str
         </div>
       )}
 
-      {sorted.map((m) => (
-        <Row key={m.id} m={m} timezone={timezone} />
-      ))}
-    </div>
+      <div className="flex flex-col gap-3">
+        {sorted.map((m) => <Row key={m.id} m={m} timezone={timezone} />)}
+      </div>
+    </Page>
   );
 }
 
@@ -92,35 +106,30 @@ function Row({ m, timezone }: { m: InboundSmsMessage; timezone: string }) {
   const who = m.customers.map((c) => c.name).join(' / ');
 
   return (
-    <div className="card stack" style={{
-      padding: 16, gap: 10,
-      ...(call ? { borderColor: 'var(--warn)', borderWidth: 2 } : {}),
-    }}>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
-        <strong style={{ fontSize: 'var(--text-lg)' }}>
-          {who || m.fromE164}
-        </strong>
-        <span className="tiny">{when(m.receivedAt, timezone)}</span>
+    <Card className={cn('flex flex-col gap-2.5 p-5', call && 'border-2 border-warn')}>
+      <div className="flex items-baseline justify-between gap-2.5">
+        <strong className="text-lg font-bold tracking-[-0.02em]">{who || m.fromE164}</strong>
+        <span className="text-xs text-ink-3">{when(m.receivedAt, timezone)}</span>
       </div>
 
-      <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <span className={`badge ${call ? 'badge-danger' : ''}`}>
-          {INTENT_LABEL[m.intent] ?? m.intent}
-        </span>
-        <code className="field-mono" style={{ fontSize: 14 }}>{m.body.slice(0, 120)}</code>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={call ? 'danger' : 'mute'}>{INTENT_LABEL[m.intent] ?? m.intent}</Badge>
+        <code className="tnum rounded bg-sunken px-2.5 py-1 font-mono text-xs">
+          {m.body.slice(0, 120)}
+        </code>
       </div>
 
       {/*
         ⚠️ 号码不脱敏：前台要照着它打电话，而她本来就有这个号
         （和「⚙ 开店配置」里技师手机号同一条口径）。技师端才脱敏（决策 16）。
       */}
-      <div className="tiny">{m.fromE164}</div>
+      <div className="tnum text-xs text-ink-3">{m.fromE164}</div>
 
       {m.upcoming.length > 0 && (
-        <div className="stack" style={{ gap: 4 }}>
-          <span className="tiny"><strong>名下还没到的预约</strong></span>
+        <div className="flex flex-col gap-1">
+          <Label>名下还没到的预约</Label>
           {m.upcoming.map((u) => (
-            <span key={u.appointmentId} className="tiny">
+            <span key={u.appointmentId} className="text-xs text-ink-2">
               · {when(u.startsAt, timezone)}
               {u.confirmationCode ? `（${u.confirmationCode}）` : ''}
             </span>
@@ -129,24 +138,11 @@ function Row({ m, timezone }: { m: InboundSmsMessage; timezone: string }) {
       )}
 
       {call && (
-        <a className="btn btn-primary" href={`tel:${m.fromE164}`}
-           style={{ display: 'grid', placeItems: 'center', minHeight: 'var(--tap)' }}>
-          <span className="row" style={{ gap: 8, alignItems: 'center' }}>
-            <Phone size={18} /> 打给他确认
-          </span>
-        </a>
+        <Button asChild variant="primary" size="lg" block className="mt-1">
+          <a href={`tel:${m.fromE164}`}><Phone size={18} />打给他确认</a>
+        </Button>
       )}
-    </div>
-  );
-}
-
-function Empty({ Icon, title, hint }: { Icon: LucideIcon; title: string; hint: string }) {
-  return (
-    <div className="center-page stack" style={{ gap: 10, textAlign: 'center', padding: 32 }}>
-      <Icon size={40} style={{ margin: '0 auto', opacity: .4 }} />
-      <strong>{title}</strong>
-      <span className="tiny" style={{ maxWidth: 420, margin: '0 auto', lineHeight: 1.7 }}>{hint}</span>
-    </div>
+    </Card>
   );
 }
 

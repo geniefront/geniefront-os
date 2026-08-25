@@ -21,6 +21,11 @@ import { dollarsToCents } from '@gf/contracts';
 import { ApiError, runCommand } from '../lib/api';
 import type { OpenTicket } from './Checkout';
 import type { DaySnapshot } from './DaySchedule';
+import { Button } from '../ui/Button';
+import { Field } from '../ui/Field';
+import { Alert } from '../ui/Alert';
+import { Card } from '../ui/Card';
+import { Spinner } from '../ui/Spinner';
 
 const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 
@@ -81,98 +86,95 @@ export function AddItemSheet({
       position: 'fixed', inset: 0, background: 'rgba(20,18,16,.45)',
       display: 'grid', placeItems: 'end center', zIndex: 55,
     }} onClick={onCancel}>
-      <div className="card stack" onClick={(e) => e.stopPropagation()}
+      <Card className="flex flex-col gap-3" onClick={(e) => e.stopPropagation()}
            style={{ width: 'min(620px,100%)', maxHeight: '92vh', overflow: 'auto',
                     padding: 24, gap: 16, borderRadius: '18px 18px 0 0' }}>
 
-        <div className="stack" style={{ gap: 2 }}>
-          <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 800 }}>
+        <div className="flex flex-col gap-0.5">
+          <div className="text-2xl font-extrabold">
             给 {ticket.customerName} 加一项
           </div>
-          <div className="muted tiny">
+          <div className="text-ink-2 text-xs text-ink-3">
             现在这单：{ticket.items.map((i) => `${i.staffName} · ${i.name}`).join('／')}
             {' · '}{money(ticket.subtotalCents)}
           </div>
         </div>
 
-        {err && <div className="badge badge-danger" style={{ padding: '10px 14px' }}>✕ {err}</div>}
+        {err && <Alert tone="danger">{err}</Alert>}
 
-        <input className="field" placeholder="搜项目" value={q}
+        <Field  placeholder="搜项目" value={q}
                onChange={(e) => setQ(e.target.value)} />
 
-        <div className="stack" style={{ gap: 6, maxHeight: 260, overflow: 'auto' }}>
+        <div className="flex flex-col gap-1.5" style={{ maxHeight: 260, overflow: 'auto' }}>
           {list.map((s) => (
-            <button key={s.id} className="btn row" onClick={() => setServiceId(s.id)}
+            <Button className="flex items-center gap-3" key={s.id} onClick={() => setServiceId(s.id)}
                     style={{
                       minHeight: 'var(--tap)', textAlign: 'left', gap: 10, borderWidth: 2,
                       borderColor: serviceId === s.id ? 'var(--brand)' : 'var(--line)',
                       background: serviceId === s.id ? 'var(--brand-soft)' : 'var(--surface)',
                     }}>
-              <span className="grow truncate">{s.name}</span>
-              <span className="tiny">{s.durationMin} 分钟</span>
-              <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{money(s.priceCents)}</strong>
-            </button>
+              <span className="min-w-0 flex-1 truncate">{s.name}</span>
+              <span className="text-xs text-ink-3">{s.durationMin} 分钟</span>
+              <strong className="tnum">{money(s.priceCents)}</strong>
+            </Button>
           ))}
-          {list.length === 0 && <div className="muted tiny">没找到这个项目</div>}
+          {list.length === 0 && <div className="text-ink-2 text-xs text-ink-3">没找到这个项目</div>}
         </div>
 
         {service && (
           <>
-            <div className="stack" style={{ gap: 6 }}>
-              <span className="tiny">谁做（默认还是这一单的技师）</span>
-              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-ink-3">谁做（默认还是这一单的技师）</span>
+              <div className="flex items-center gap-2 flex-wrap">
                 {bookable.map((s) => (
-                  <button key={s.membershipId} className="btn"
-                          onClick={() => setStaffId(s.membershipId)}
+                  <Button key={s.membershipId} onClick={() => setStaffId(s.membershipId)}
                           style={{
                             minHeight: 44, borderWidth: 2,
                             borderColor: staffId === s.membershipId ? 'var(--brand)' : 'var(--line)',
                             background: staffId === s.membershipId ? 'var(--brand-soft)' : 'var(--surface)',
                           }}>
                     {s.name}{s.membershipId === currentStaff ? ' ·在做' : ''}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
 
-            <div className="row" style={{ gap: 12 }}>
-              <label className="stack grow" style={{ gap: 6 }}>
-                <span className="tiny">多少钱（留空用原价 {money(service.priceCents)}）</span>
-                <input className="field field-mono" inputMode="decimal" value={priceEdit}
+            <div className="flex items-center gap-3">
+              <label className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <span className="text-xs text-ink-3">多少钱（留空用原价 {money(service.priceCents)}）</span>
+                <Field mono  inputMode="decimal" value={priceEdit}
                        placeholder={(service.priceCents / 100).toFixed(2)}
                        onChange={(e) => setPriceEdit(e.target.value)} />
               </label>
-              <div className="stack grow" style={{ gap: 6 }}>
-                <span className="tiny">算加项还是单独一项</span>
-                <div className="row" style={{ gap: 8 }}>
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <span className="text-xs text-ink-3">算加项还是单独一项</span>
+                <div className="flex items-center gap-2">
                   {([['addon', '加项'], ['service', '单独一项']] as const).map(([k, l]) => (
-                    <button key={k} className="btn grow" onClick={() => setKind(k)}
+                    <Button className="min-w-0 flex-1" key={k} onClick={() => setKind(k)}
                             style={{
                               minHeight: 44, borderWidth: 2,
                               borderColor: kind === k ? 'var(--brand)' : 'var(--line)',
                               background: kind === k ? 'var(--brand-soft)' : 'var(--surface)',
-                            }}>{l}</button>
+                            }}>{l}</Button>
                   ))}
                 </div>
               </div>
             </div>
 
-            <div className="tiny muted">
+            <div className="text-xs text-ink-3 text-ink-2">
               加完之后这一单是 <strong>{money(ticket.subtotalCents + priceCents)}</strong>。
               提成和小费按加完之后的金额算。
             </div>
           </>
         )}
 
-        <div className="row" style={{ gap: 10 }}>
-          <button className="btn grow" style={{ minHeight: 'var(--tap)' }}
-                  onClick={onCancel}>先不加</button>
-          <button className="btn btn-primary grow" disabled={busy || !service || !staffId}
-                  style={{ minHeight: 'var(--tap)' }} onClick={() => void submit()}>
-            {busy ? <span className="spin" /> : '加上'}
-          </button>
+        <div className="flex items-center gap-2.5">
+          <Button className="min-w-0 flex-1" style={{ minHeight: 'var(--tap)' }} onClick={onCancel}>先不加</Button>
+          <Button variant="primary" className="min-w-0 flex-1" disabled={busy || !service || !staffId} style={{ minHeight: 'var(--tap)' }} onClick={() => void submit()}>
+            {busy ? <Spinner /> : '加上'}
+          </Button>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

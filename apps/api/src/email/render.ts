@@ -72,6 +72,69 @@ ${d.staffName ? `<tr><td style="padding:4px 16px 4px 0;color:#6b635a">技师</td
 }
 
 /**
+ * 「到店前把健康表填了」的邀请信（`docs/15` §4）。
+ *
+ * ## ⚠️ 这封信里有一个能干事的链接，而上面那封刻意没有
+ *
+ * 看起来自相矛盾，其实是同一条标准算出来的两个答案：**捡到它的人能干什么。**
+ *
+ *   · 确认信里的取消链接 → 捡到的人能**改掉别人的预约**（不可接受）
+ *   · 这封信里的填表链接 → 捡到的人能**替别人填一份健康表**
+ *
+ * 后者当然也不好，所以三道一起上：只活 72 小时、**填完立刻失效**、
+ * 而且填出来的东西前台一眼看得出是链接来的（`source='link'`）。
+ * 更关键的是反过来算一遍：不发这封信，客人就得在柜台前、后面排着队的时候
+ * 用一台公用 iPad 回答「有没有血栓史」—— 那种情况下他会一路点「否」，
+ * 而这张表的全部意义就在他答的是不是真话。
+ *
+ * ⚠️ **信里不写他填过什么、也不写他的手机号。** 邮箱被转发是常事。
+ */
+export interface FormInviteData {
+  customerName: string;
+  shopName: string;
+  /** 要签的表叫什么（已经按客人语言取好） */
+  formTitles: string[];
+  url: string;
+  /** 已按门店时区格式化好的失效时间 */
+  expiresText: string;
+  shopPhone: string | null;
+}
+
+export function renderFormInvite(d: FormInviteData): Rendered {
+  const list = d.formTitles.join('、');
+  const call = d.shopPhone
+    ? `有问题请致电 ${d.shopPhone}，也可以到店后在前台填。`
+    : '有问题请致电门店，也可以到店后在前台填。';
+
+  const text = [
+    `${d.customerName} 您好，`,
+    ``,
+    `${d.shopName} 请您在到店前花两分钟填一份${list}。`,
+    `到店当天就不用在柜台前填了。`,
+    ``,
+    `  ${d.url}`,
+    ``,
+    `这个链接 ${d.expiresText} 之前有效，填完即失效。`,
+    call,
+    ``,
+    `— ${d.shopName}`,
+  ].join('\n');
+
+  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.7;color:#211e1b;max-width:520px">
+<p>${esc(d.customerName)} 您好，</p>
+<p><strong>${esc(d.shopName)}</strong> 请您在到店前花两分钟填一份${esc(list)}。到店当天就不用在柜台前填了。</p>
+<p style="margin:24px 0">
+  <a href="${esc(d.url)}" style="display:inline-block;background:#0f0f0f;color:#fff;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:600">开始填写</a>
+</p>
+<p style="color:#6b635a;font-size:14px">链接 ${esc(d.expiresText)} 之前有效，填完即失效。</p>
+<p style="color:#6b635a;font-size:14px">${esc(call)}</p>
+<p style="color:#6b635a;font-size:14px">— ${esc(d.shopName)}</p>
+</div>`;
+
+  return { subject: `请在到店前填写${list} · ${d.shopName}`, html, text };
+}
+
+/**
  * 把 UTC 时间按门店时区排成人话。
  *
  * ⚠️ 一律走门店时区，**不是服务器时区也不是客人的**。

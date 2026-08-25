@@ -17,6 +17,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { dollarsToCents } from '@gf/contracts';
 import { supabase } from '../lib/supabase';
 import { ApiError, API_BASE, runCommand, apiGet } from '../lib/api';
+import { Button } from '../ui/Button';
+import { Field } from '../ui/Field';
+import { Badge } from '../ui/Badge';
+import { Card } from '../ui/Card';
+import { Alert } from '../ui/Alert';
+import { Spinner } from '../ui/Spinner';
 
 /** 与 Opus 5 的视觉长边上限一致。超了 API 会自己缩，bbox 就不再是原图坐标 */
 const MAX_EDGE_PX = 2576;
@@ -360,10 +366,10 @@ export function PhotoSetup({
 
   if (step === 'working' || !view) {
     return (
-      <div className="center-page stack" style={{ gap: 16, textAlign: 'center' }}>
-        <span className="spin" style={{ width: 40, height: 40 }} />
-        <div style={{ fontSize: 'var(--text-lg)', fontWeight: 700 }}>正在看你的价目表…</div>
-        <div className="tiny" style={{ maxWidth: 380 }}>
+      <div className="grid min-h-full place-items-center p-6 flex flex-col gap-4 text-center">
+        <Spinner className="size-10" />
+        <div className="text-lg font-bold">正在看你的价目表…</div>
+        <div className="text-xs text-ink-3" style={{ maxWidth: 380 }}>
           一张照片大概要半分钟。它在一行一行地读，不是在猜 ——
           读不准的行会标黄让你复核。
         </div>
@@ -392,32 +398,31 @@ function PickPane({
   onRun: () => void; onCancel: () => void; onDrop: (seq: number) => void;
 }) {
   return (
-    <div className="stack" style={{ padding: '0 16px 24px', gap: 16, maxWidth: 760 }}>
-      <div className="card stack" style={{ padding: 20, gap: 10 }}>
-        <div style={{ fontSize: 'var(--text-xl)', fontWeight: 800 }}>📷 拍价目表，自动建项目</div>
-        <div className="tiny" style={{ lineHeight: 1.7 }}>
+    <div className="flex max-w-[760px] flex-col gap-4 px-4 pb-6">
+      <Card className="flex flex-col p-5 gap-2.5">
+        <div className="text-xl font-extrabold">📷 拍价目表，自动建项目</div>
+        <div className="text-xs text-ink-3" style={{ lineHeight: 1.7 }}>
           把墙上的价目表拍下来，系统会一行一行读出项目名、价格和时长，
           再摆给你逐个核对。<strong>核对之前不会建任何东西</strong>，你可以随时丢掉重来。
         </div>
-      </div>
+      </Card>
 
-      {err && <div className="badge badge-warn" style={{ padding: '12px 16px' }}>⚠ {err}</div>}
+      {err && <Alert tone="warn">{err}</Alert>}
 
       {shots.length > 0 && (
-        <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
+        <div className="flex items-center gap-3 flex-wrap">
           {shots.map((s) => (
-            <div key={s.seq} className="card" style={{ padding: 8, position: 'relative' }}>
+            <Card key={s.seq} style={{ padding: 8, position: 'relative' }}>
               <img src={s.objectUrl} alt={`第 ${s.seq + 1} 张`}
                    style={{ width: 150, height: 110, objectFit: 'cover', borderRadius: 8,
                             display: 'block' }} />
-              <div className="tiny" style={{ textAlign: 'center', marginTop: 4 }}>
+              <div className="text-xs text-ink-3 text-center mt-1">
                 第 {s.seq + 1} 张
               </div>
-              <button className="btn" aria-label={`去掉第 ${s.seq + 1} 张`}
-                      onClick={() => onDrop(s.seq)}
+              <Button aria-label={`去掉第 ${s.seq + 1} 张`} onClick={() => onDrop(s.seq)}
                       style={{ position: 'absolute', top: 2, right: 2, minHeight: 36,
-                               minWidth: 36, padding: 0, borderRadius: 18 }}>✕</button>
-            </div>
+                               minWidth: 36, padding: 0, borderRadius: 18 }}>✕</Button>
+            </Card>
           ))}
         </div>
       )}
@@ -426,26 +431,22 @@ function PickPane({
              style={{ display: 'none' }}
              onChange={(e) => onPick(e.target.files)} />
 
-      <button className="btn btn-block" disabled={busy}
-              style={{ minHeight: 'var(--tap-lg)', fontSize: 'var(--text-lg)' }}
-              onClick={() => fileInput.current?.click()}>
+      <Button block disabled={busy} style={{ minHeight: 'var(--tap-lg)', fontSize: 'var(--text-lg)' }} onClick={() => fileInput.current?.click()}>
         {shots.length === 0 ? '📷 选价目表照片' : '换一批照片'}
-      </button>
+      </Button>
 
-      <div className="tiny" style={{ lineHeight: 1.7 }}>
+      <div className="text-xs text-ink-3" style={{ lineHeight: 1.7 }}>
         一次最多 {MAX_IMAGES} 张。<strong>一张只拍一块牌子</strong>，正对着拍、别拍歪，
         字越清楚认得越准。手部一块、足部一块就分两张拍。
       </div>
 
-      <div className="row" style={{ gap: 12 }}>
-        <button className="btn grow" style={{ minHeight: 'var(--tap)' }} onClick={onCancel}>
+      <div className="flex items-center gap-3">
+        <Button className="min-w-0 flex-1" style={{ minHeight: 'var(--tap)' }} onClick={onCancel}>
           返回
-        </button>
-        <button className="btn btn-primary grow" disabled={busy || shots.length === 0}
-                style={{ minHeight: 'var(--tap-lg)', fontSize: 'var(--text-lg)' }}
-                onClick={onRun}>
-          {busy ? <span className="spin" /> : `开始读这 ${shots.length} 张 →`}
-        </button>
+        </Button>
+        <Button variant="primary" className="min-w-0 flex-1" disabled={busy || shots.length === 0} style={{ minHeight: 'var(--tap-lg)', fontSize: 'var(--text-lg)' }} onClick={onRun}>
+          {busy ? <Spinner /> : `开始读这 ${shots.length} 张 →`}
+        </Button>
       </div>
     </div>
   );
@@ -527,19 +528,18 @@ function ReviewPane({
 
   if (applied !== null) {
     return (
-      <div className="center-page stack" style={{ gap: 18, textAlign: 'center' }}>
+      <div className="grid min-h-full place-items-center p-6 flex flex-col gap-4.5 text-center">
         <div style={{ fontSize: 56 }}>✅</div>
-        <div style={{ fontSize: 'var(--text-xl)', fontWeight: 800 }}>
+        <div className="text-xl font-extrabold">
           建好了 {applied} 个项目
         </div>
-        <div className="tiny" style={{ maxWidth: 380, lineHeight: 1.7 }}>
+        <div className="text-xs text-ink-3" style={{ maxWidth: 380, lineHeight: 1.7 }}>
           现在就能开单了。价格、时长以后随时在「项目」里改 ——
           改那边才算数，这份草案已经封存成当时的记录。
         </div>
-        <button className="btn btn-primary" style={{ minHeight: 'var(--tap-lg)', minWidth: 220 }}
-                onClick={() => void onDone()}>
+        <Button variant="primary" style={{ minHeight: 'var(--tap-lg)', minWidth: 220 }} onClick={() => void onDone()}>
           去看项目列表
-        </button>
+        </Button>
       </div>
     );
   }
@@ -547,55 +547,51 @@ function ReviewPane({
   const accepted = view.summary.accepted;
 
   return (
-    <div className="stack" style={{ padding: '0 16px 24px', gap: 14 }}>
+    <div className="flex flex-col gap-3.5 px-4 pb-6">
       {/* 汇总条：一眼看清「有几行要我操心」 */}
-      <div className="card row" style={{ padding: '14px 18px', gap: 14, flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: 'var(--text-lg)' }}>读出 {view.summary.total} 行</strong>
-        <span className="badge badge-ok">已勾 {accepted}</span>
+      <Card className="flex items-center py-3.5 px-4.5 gap-3.5 flex-wrap">
+        <strong className="text-lg">读出 {view.summary.total} 行</strong>
+        <Badge tone="ok" >已勾 {accepted}</Badge>
         {view.summary.lowConfidence > 0 && (
-          <span className="badge badge-warn">
+          <Badge tone="warn" >
             ⚠ {view.summary.lowConfidence} 行读得不确定，请重点看
-          </span>
+          </Badge>
         )}
         {view.summary.notes > 0 && (
-          <span className="badge badge-mute">{view.summary.notes} 行是说明，默认不建</span>
+          <Badge tone="mute" >{view.summary.notes} 行是说明，默认不建</Badge>
         )}
-        <span className="grow" />
-        <button className="btn" style={{ minHeight: 44 }} disabled={busy}
-                onClick={() => void translate()}>
+        <span className="min-w-0 flex-1" />
+        <Button style={{ minHeight: 44 }} disabled={busy} onClick={() => void translate()}>
           🌐 补齐多语言
-        </button>
-        <button className="btn" style={{ minHeight: 44 }} disabled={busy}
-                onClick={() => void run('blueprint.reviewAll',
+        </Button>
+        <Button style={{ minHeight: 44 }} disabled={busy} onClick={() => void run('blueprint.reviewAll',
                   { blueprintId: view.blueprintId, decision: 'accepted', kinds: ['service'] })}>
           全勾上
-        </button>
-        <button className="btn" style={{ minHeight: 44 }} disabled={busy}
-                onClick={() => void run('blueprint.reviewAll',
+        </Button>
+        <Button style={{ minHeight: 44 }} disabled={busy} onClick={() => void run('blueprint.reviewAll',
                   { blueprintId: view.blueprintId, decision: 'rejected', kinds: ['service'] })}>
           全取消
-        </button>
-      </div>
+        </Button>
+      </Card>
 
-      {note && <div className="badge badge-soft" style={{ padding: '10px 14px' }}>ℹ {note}</div>}
+      {note && <Alert tone="info">{note}</Alert>}
       {noteLocal && (
-        <div className="badge badge-soft" style={{ padding: '10px 14px' }}>🌐 {noteLocal}</div>
+        <Alert tone="info">🌐 {noteLocal}</Alert>
       )}
-      {err && <div className="badge badge-danger" style={{ padding: '10px 14px' }}>✕ {err}</div>}
+      {err && <Alert tone="danger">{err}</Alert>}
 
       {view.unresolved.length > 0 && (
-        <div className="card stack" style={{ padding: 16, gap: 8,
-             background: 'var(--warn-soft)', borderColor: 'var(--warn)' }}>
+        <Card className="flex flex-col gap-2" style={{ padding: 16,  background: 'var(--warn-soft)', borderColor: 'var(--warn)' }}>
           <strong>价目表上没写、需要你补的：</strong>
           {view.unresolved.map((u, i) => (
-            <div key={i} className="tiny">· {u.question}</div>
+            <div key={i} className="text-xs text-ink-3">· {u.question}</div>
           ))}
-        </div>
+        </Card>
       )}
 
-      <div className="row" style={{ gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div className="flex items-center gap-4 items-start flex-wrap">
         {/* 左：原图 + 高亮框 */}
-        <div className="card" style={{ padding: 10, position: 'sticky', top: 76,
+        <Card style={{ padding: 10, position: 'sticky', top: 76,
              flex: '1 1 320px', minWidth: 300, maxWidth: 480 }}>
           {shot && source ? (
             <div style={{ position: 'relative', lineHeight: 0 }}>
@@ -615,17 +611,17 @@ function ReviewPane({
               )}
             </div>
           ) : (
-            <div className="tiny" style={{ padding: 24, textAlign: 'center' }}>
+            <div className="text-xs text-ink-3 p-6 text-center">
               这次没能保存原图，右边照常核对就行
             </div>
           )}
-          <div className="tiny" style={{ textAlign: 'center', marginTop: 8 }}>
+          <div className="text-xs text-ink-3 text-center mt-2">
             第 {shownSeq + 1} 张 · 点右边任意一行，这里会把它框出来
           </div>
-        </div>
+        </Card>
 
         {/* 右：可编辑表格 */}
-        <div className="stack" style={{ gap: 8, flex: '2 1 420px', minWidth: 320 }}>
+        <div className="flex flex-col gap-2" style={{ flex: '2 1 420px', minWidth: 320 }}>
           {view.items.map((it) => (
             <ItemRow key={it.itemId} item={it} busy={busy}
                      focused={it.itemId === focused}
@@ -640,34 +636,28 @@ function ReviewPane({
       </div>
 
       {/* 落地条 */}
-      <div className="card stack" style={{ padding: 18, gap: 14, position: 'sticky', bottom: 0,
-           borderColor: 'var(--brand)', boxShadow: 'var(--shadow)' }}>
-        <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span className="tiny">价目表上没写时长的，按</span>
+      <Card className="flex flex-col gap-3.5" style={{ padding: 18,  position: 'sticky', bottom: 0, borderColor: 'var(--brand)', boxShadow: 'var(--shadow)' }}>
+        <div className="flex items-center gap-2.5 flex-wrap items-center">
+          <span className="text-xs text-ink-3">价目表上没写时长的，按</span>
           {[15, 30, 45, 60, 90].map((m) => (
-            <button key={m} className="btn" disabled={busy}
-                    onClick={() => setFallbackDur(String(m))}
+            <Button key={m} disabled={busy} onClick={() => setFallbackDur(String(m))}
                     style={{
                       minHeight: 48, borderWidth: 2,
                       borderColor: fallbackDur === String(m) ? 'var(--brand)' : 'var(--line)',
                       background: fallbackDur === String(m) ? 'var(--brand-soft)' : 'var(--surface)',
-                    }}>{m} 分钟</button>
+                    }}>{m} 分钟</Button>
           ))}
-          <span className="tiny">算</span>
+          <span className="text-xs text-ink-3">算</span>
         </div>
 
-        <div className="row" style={{ gap: 12 }}>
-          <button className="btn" style={{ minHeight: 'var(--tap)' }} disabled={busy}
-                  onClick={onRestart}>重拍</button>
-          <button className="btn" style={{ minHeight: 'var(--tap)' }} disabled={busy}
-                  onClick={() => void run('blueprint.discard',
+        <div className="flex items-center gap-3">
+          <Button style={{ minHeight: 'var(--tap)' }} disabled={busy} onClick={onRestart}>重拍</Button>
+          <Button style={{ minHeight: 'var(--tap)' }} disabled={busy} onClick={() => void run('blueprint.discard',
                     { blueprintId: view.blueprintId }).then(onDone)}>
             丢掉这次
-          </button>
-          <span className="grow" />
-          <button className="btn btn-primary" disabled={busy || accepted === 0}
-                  style={{ minHeight: 'var(--tap-lg)', fontSize: 'var(--text-lg)', minWidth: 260 }}
-                  onClick={async () => {
+          </Button>
+          <span className="min-w-0 flex-1" />
+          <Button variant="primary" disabled={busy || accepted === 0} style={{ minHeight: 'var(--tap-lg)', fontSize: 'var(--text-lg)', minWidth: 260 }} onClick={async () => {
                     try {
                       setBusy(true); setErr('');
                       // 幂等键在客户端生成：网差的店里点两下「落地」，
@@ -686,10 +676,10 @@ function ReviewPane({
                       setErr(e instanceof ApiError ? `落地失败（${e.code}）` : '落地失败');
                     } finally { setBusy(false); }
                   }}>
-            {busy ? <span className="spin" /> : `✓ 建这 ${accepted} 个项目`}
-          </button>
+            {busy ? <Spinner /> : `✓ 建这 ${accepted} 个项目`}
+          </Button>
         </div>
-      </div>
+      </Card>
 
       {editing && (
         <EditSheet item={editing} busy={busy}
@@ -713,16 +703,17 @@ function ItemRow({
   const buildable = item.kind === 'service' || item.kind === 'addon';
 
   return (
-    <div className="card row" onClick={onFocus}
-         style={{
-           padding: '12px 14px', gap: 12, cursor: 'pointer',
-           // 三通道标注：颜色 + 图标 + 文字（宪法第 11 条，很多老板分不清红绿）
-           borderWidth: focused ? 3 : 2,
-           borderColor: focused ? 'var(--brand)'
-             : item.lowConfidence ? 'var(--warn)' : 'var(--line)',
-           background: item.lowConfidence ? 'var(--warn-soft)' : 'var(--surface)',
-           opacity: buildable ? 1 : .62,
-         }}>
+    <Card
+      onClick={onFocus}
+      className="flex cursor-pointer items-center gap-3 px-3.5 py-3"
+      style={{
+        // 三通道标注：颜色 + 图标 + 文字（宪法第 11 条，很多老板分不清红绿）
+        borderWidth: focused ? 3 : 2,
+        borderColor: focused ? 'var(--brand)'
+          : item.lowConfidence ? 'var(--warn)' : 'var(--line)',
+        background: item.lowConfidence ? 'var(--warn-soft)' : 'var(--surface)',
+        opacity: buildable ? 1 : .62,
+      }}>
       <button aria-label={on ? '取消这一项' : '选上这一项'}
               disabled={busy || !buildable}
               onClick={(e) => { e.stopPropagation(); onToggle(); }}
@@ -731,24 +722,24 @@ function ItemRow({
         {on ? '☑' : '☐'}
       </button>
 
-      <div className="grow stack" style={{ gap: 3, minWidth: 0 }}>
-        <div className="row" style={{ gap: 8 }}>
-          <strong className="truncate" style={{ fontSize: 'var(--text-lg)' }}>
+      <div className="flex min-w-0 flex-1 flex-col gap-[3px]" style={{ minWidth: 0 }}>
+        <div className="flex items-center gap-2">
+          <strong className="truncate text-lg">
             {item.displayName}
           </strong>
-          {!buildable && <span className="badge badge-mute">{KIND_LABEL[item.kind]}</span>}
-          {item.lowConfidence && <span className="badge badge-warn">⚠ 看不太清</span>}
-          {item.edited && <span className="badge badge-soft">已改</span>}
+          {!buildable && <Badge tone="mute" >{KIND_LABEL[item.kind]}</Badge>}
+          {item.lowConfidence && <Badge tone="warn" >⚠ 看不太清</Badge>}
+          {item.edited && <Badge tone="brand" >已改</Badge>}
           {/* 淡色 = 机器补的、还没人核过。不用警告色 —— 它不是错误，只是「没人看过」 */}
           {item.nameAuto.length > 0 && (
-            <span className="badge badge-mute" style={{ opacity: .75 }}>
+            <Badge tone="mute" style={{ opacity: .75 }}>
               🌐 补了 {item.nameAuto.length} 种
-            </span>
+            </Badge>
           )}
         </div>
-        <div className="tiny">
+        <div className="text-xs text-ink-3">
           {item.category && <span>{item.category} · </span>}
-          <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+          <span className="tnum">
             {money(item.priceCents)}{item.priceIsFrom && ' 起'}
           </span>
           {' · '}
@@ -757,9 +748,8 @@ function ItemRow({
         </div>
       </div>
 
-      <button className="btn" style={{ minHeight: 44 }} disabled={busy}
-              onClick={(e) => { e.stopPropagation(); onEdit(); }}>改</button>
-    </div>
+      <Button style={{ minHeight: 44 }} disabled={busy} onClick={(e) => { e.stopPropagation(); onEdit(); }}>改</Button>
+    </Card>
   );
 }
 
@@ -786,49 +776,48 @@ function EditSheet({
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,18,16,.45)',
                   display: 'grid', placeItems: 'end center', zIndex: 60 }}
          onClick={onCancel}>
-      <div className="card stack" onClick={(e) => e.stopPropagation()}
+      <Card className="flex flex-col gap-3" onClick={(e) => e.stopPropagation()}
            style={{ width: 'min(560px,100%)', padding: 24, gap: 16,
                     borderRadius: '18px 18px 0 0' }}>
-        <div style={{ fontSize: 'var(--text-xl)', fontWeight: 800 }}>改这一项</div>
+        <div className="text-xl font-extrabold">改这一项</div>
 
-        <label className="stack" style={{ gap: 6 }}>
-          <span className="tiny">项目名（照片上印的是什么就写什么）</span>
-          <input className="field" value={name} autoFocus
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs text-ink-3">项目名（照片上印的是什么就写什么）</span>
+          <Field  value={name} autoFocus
                  onChange={(e) => setName(e.target.value)} />
         </label>
 
-        <div className="row" style={{ gap: 12 }}>
-          <label className="stack grow" style={{ gap: 6 }}>
-            <span className="tiny">多少钱（美元）</span>
-            <input className="field field-mono" inputMode="decimal" value={price}
+        <div className="flex items-center gap-3">
+          <label className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <span className="text-xs text-ink-3">多少钱（美元）</span>
+            <Field mono  inputMode="decimal" value={price}
                    placeholder="45" onChange={(e) => setPrice(e.target.value)} />
           </label>
-          <label className="stack grow" style={{ gap: 6 }}>
-            <span className="tiny">要多久（分钟，留空用下面的默认值）</span>
-            <input className="field field-mono" inputMode="numeric" value={dur}
+          <label className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <span className="text-xs text-ink-3">要多久（分钟，留空用下面的默认值）</span>
+            <Field mono  inputMode="numeric" value={dur}
                    placeholder="45" onChange={(e) => setDur(e.target.value)} />
           </label>
         </div>
 
         {Object.keys(others).length > 0 && (
-          <div className="stack" style={{ gap: 8 }}>
-            <button className="btn" style={{ minHeight: 40 }}
-                    onClick={() => setShowLangs((v) => !v)}>
+          <div className="flex flex-col gap-2">
+            <Button style={{ minHeight: 40 }} onClick={() => setShowLangs((v) => !v)}>
               🌐 其它语言（{Object.keys(others).length} 种）{showLangs ? '收起' : '展开'}
-            </button>
+            </Button>
             {showLangs && (
-              <div className="stack" style={{ gap: 8 }}>
-                <div className="tiny">
+              <div className="flex flex-col gap-2">
+                <div className="text-xs text-ink-3">
                   <strong>淡色的是机器补的</strong>，客人在门口自助屏上看到的就是这些。
                   改一处就不再是机器补的了。
                 </div>
                 {Object.entries(others).map(([loc, val]) => (
-                  <label key={loc} className="stack" style={{ gap: 4 }}>
-                    <span className="tiny">
+                  <label key={loc} className="flex flex-col gap-1">
+                    <span className="text-xs text-ink-3">
                       {LOCALE_LABEL[loc] ?? loc}
                       {item.nameAuto.includes(loc) && ' · 机器补的'}
                     </span>
-                    <input className="field" value={val}
+                    <Field  value={val}
                            style={{ opacity: item.nameAuto.includes(loc) ? .65 : 1 }}
                            onChange={(e) => setOthers((o) => ({ ...o, [loc]: e.target.value }))} />
                   </label>
@@ -839,19 +828,16 @@ function EditSheet({
         )}
 
         {item.variants.length > 0 && (
-          <div className="tiny">
+          <div className="text-xs text-ink-3">
             这一项有 {item.variants.length} 个档位（
             {item.variants.map((v) => `${v.label} ${money(v.priceCents)}`).join('、')}
             ），落地时会建成 {item.variants.length} 个项目。
           </div>
         )}
 
-        <div className="row" style={{ gap: 10 }}>
-          <button className="btn grow" style={{ minHeight: 'var(--tap)' }}
-                  onClick={onCancel}>取消</button>
-          <button className="btn btn-primary grow" disabled={busy || !name.trim()}
-                  style={{ minHeight: 'var(--tap)' }}
-                  onClick={() => void onSave({
+        <div className="flex items-center gap-2.5">
+          <Button className="min-w-0 flex-1" style={{ minHeight: 'var(--tap)' }} onClick={onCancel}>取消</Button>
+          <Button variant="primary" className="min-w-0 flex-1" disabled={busy || !name.trim()} style={{ minHeight: 'var(--tap)' }} onClick={() => void onSave({
                     /**
                      * ⚠️ 只改**显示的那一格**，其余语言原样带回去。
                      *
@@ -868,10 +854,10 @@ function EditSheet({
                     durationMin: dur.trim() === '' ? null : Number(dur),
                     decision: 'accepted',
                   })}>
-            {busy ? <span className="spin" /> : '保存并勾上'}
-          </button>
+            {busy ? <Spinner /> : '保存并勾上'}
+          </Button>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

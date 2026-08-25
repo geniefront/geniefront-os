@@ -39,10 +39,12 @@ import { loadDay } from './queries/day';
 import { loadBlueprint, listBlueprints } from './queries/blueprint';
 import { loadCallDrafts } from './queries/callDrafts';
 import { loadCalls } from './queries/calls';
+import { loadForms, readSubmission } from './queries/forms';
 import { loadInboundSms } from './queries/smsInbound';
 import { registerTelnyxRoutes } from './telnyx/routes';
 import { registerKioskRoutes } from './kiosk/routes';
 import { registerPublicRoutes } from './public/routes';
+import { registerFormLinkRoutes } from './public/formRoutes';
 import { registerStripeRoutes } from './stripe/routes';
 import { registerCopilotRoutes } from './copilot/routes';
 import { registerAuthRoutes } from './auth/routes';
@@ -68,6 +70,19 @@ import { currentBusinessDate, loadRotation, stripRank } from './handlers/rotatio
 import { computeStanding, explain, FULL_TURN } from '@gf/rotation';
 import { businessDateOf } from '@gf/scheduling';
 
+/**
+ * 为什么要看健康表 —— 白名单，前台在下拉框里选一个（`docs/15` §5）。
+ *
+ * ⚠️ 不接受自由文本：那样每条日志都会变成「查看」两个字，
+ * 而这张表存在的意义就在于事后能回答「凭什么翻她的表」。
+ */
+const FORM_ACCESS_REASONS = new Set([
+  'service_prep',      // 马上要给他做，先看一眼禁忌 —— 九成是这条
+  'incident_review',   // 出事了，回头查
+  'customer_request',  // 客人自己要一份
+  'export',            // 打印 / 导出 PDF
+]);
+
 export function buildServer(): FastifyInstance {
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
@@ -92,7 +107,7 @@ export function buildServer(): FastifyInstance {
     // 而前端拿到的是一句语焉不详的 TypeError。X-Device-Token 就这么漏过一次。
     allowedHeaders: [
       'Authorization', 'Content-Type', 'X-Membership-Id', 'Idempotency-Key',
-      'X-Device-Token', 'X-Staff-Token', 'X-GF-Public-Key',
+      'X-Device-Token', 'X-Staff-Token', 'X-GF-Public-Key', 'X-GF-Form-Token',
     ],
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     maxAge: 86400,
@@ -1213,6 +1228,51 @@ export function buildServer(): FastifyInstance {
       }));
   });
 
+  // ── 查询：健康表（模板 / 已签 / 发出去的链接，docs/15 §5）───────────────
+  //
+  // 列表用 `customer.read`：前台要知道「这位客人还得签一份」，
+  // 而知道这件事不需要看内容。**内容是另一条路**（下面那条），
+  // 要 `customer.view_health_form`，而且看一眼就往 form_access_log 写一行。
+  app.get<{ Querystring: { days?: string; limit?: string; customerId?: string } }>(
+    '/v1/desk/forms', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('customer.read')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'customer.read' } });
+      }
+      return withTenant(
+        { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+        (tx) => loadForms(tx, ctx, {
+          days: Number(req.query.days ?? '30') || 30,
+          limit: Number(req.query.limit ?? '100') || 100,
+          ...(req.query.customerId ? { customerId: req.query.customerId } : {}),
+        }));
+    });
+
+  /**
+   * ⭐ 打开一份已签的健康表。**这条路每走一次就留一条痕。**
+   *
+   * `reason` 必填且是枚举 —— 一条只写「某某周二下午看过」的日志在纠纷里
+   * 几乎没有用，而带理由的那一条能回答「你们凭什么翻她的健康表」。
+   *
+   * ⚠️ 它是 GET 却有副作用（写 form_access_log）。这是**有意的**：
+   * 把它改成 POST 会让「读」看起来像「写」，而真正的问题不在动词 ——
+   * 在于**读这件事必须留痕**。浏览器不会自己预取一条要带 membership
+   * 头的接口，所以不存在「预取导致假日志」。
+   */
+  app.get<{ Params: { id: string }; Querystring: { reason?: string } }>(
+    '/v1/desk/forms/submissions/:id', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      const reason = req.query.reason ?? 'service_prep';
+      if (!FORM_ACCESS_REASONS.has(reason)) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+          details: { reason: 'bad_access_reason', allowed: [...FORM_ACCESS_REASONS] },
+        });
+      }
+      return withTenant(
+        { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+        (tx) => readSubmission(tx, ctx, req.params.id, reason));
+    });
+
   // ── 查询：客人发进来的短信（docs/09 §5.3）────────────────────────────────
   //
   // ⭐ 这一页的全部意义：运营商强制 CANCEL 是**退订**关键词，而客人打它
@@ -1339,6 +1399,9 @@ export function buildServer(): FastifyInstance {
   // ⚠️ 这是整个系统里**唯一一个不需要任何身份就能写库的入口**。
   // 身份是一个公开 key，权限收窄发生在路由那一层 —— 见 public/publicAuth.ts。
   registerPublicRoutes(app);
+  // 客人自己填健康表的那条公开路（docs/15）。身份是一次性令牌，
+  // 和门店官网那条互不相干 —— 它不认 pk_，也不受域名白名单约束
+  registerFormLinkRoutes(app);
 
   // ── 命令目录 ───────────────────────────────────────────────────────────────
   // 前端 SDK 和 AI 工具定义都从这里取，不用各自维护一份

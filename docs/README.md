@@ -233,6 +233,8 @@ AI 电话的开场录音告知与转人工；官网 URL 提取；
 | [11-WEBSITE-INTEGRATION.md](11-WEBSITE-INTEGRATION.md) | ⭐ **官网对接契约**：Stripe Checkout 的 metadata 是唯一接触面。给做官网的人看，读完就能开工 |
 | [12-SIGNUP-ACTIVATION.md](12-SIGNUP-ACTIVATION.md) | ⭐ **自助开户实现清单**：从付款到能用这条链路。含两个已定解法（建租户走 SECURITY DEFINER、发激活信用 signInWithOtp 而不是 service_role） |
 | [13-PUBLIC-BOOKING-API.md](13-PUBLIC-BOOKING-API.md) | ⭐ **公开预约 API**：门店自己的官网怎么接在线预约。给做门店官网的人看，读完就能开工。含防机器人/防恶意占位的七层方案。**接口已实现**（30 项测试） |
+| [14-VOICE-TOOLS.md](14-VOICE-TOOLS.md) | ⭐ **AI 电话工具接口**：Telnyx assistant 调的那几个 webhook、Telnyx 侧四个坑、通话计量与转录（`sql/0037`） |
+| [15-HEALTH-FORMS.md](15-HEALTH-FORMS.md) | ⭐ **健康表全链路**：模板库（三份 × 六语言）、加密存储与**读也留痕**、禁忌回填客户档案、二维码/邮件分享一次性填表链接（`sql/0038`，27 项测试） |
 
 **接手先读 `10`**，它把「现在在哪、下一步做什么、哪些坑别再踩」压在一份里。
 
@@ -280,4 +282,8 @@ SSH 别名 `gf-a` / `gf-b` 已配好，免密。
 **试门口 Kiosk**：前台 →「⚙ 开店配置」→「门口 iPad」→ 生成配对码，
 另开 `pnpm --filter @gf/kiosk dev`（localhost:5175）粘贴进去。
 选语言 → 我没有预约 → 留个称呼 → 签健康表 → 拿号。
-健康表答案是加密存的，要看内容得有 `FORM_ENCRYPTION_KEY`。
+健康表答案是加密存的，要看内容得有 `FORM_ENCRYPTION_KEY`
+**和 `customer.view_health_form` 权限，而且看一眼就留一条痕**（`15` §2）。
+
+**试「客人自己填」那条路**：前台 →「健康表」→「发给客人」→ 当面扫码 ——
+出来的二维码里就是 `localhost:5175/?t=fs_…`，把链接贴进浏览器就是客人看到的样子。

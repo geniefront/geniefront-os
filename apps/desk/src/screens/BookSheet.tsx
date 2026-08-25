@@ -14,6 +14,10 @@ import { useState } from 'react';
 import { ApiError, runCommand } from '../lib/api';
 import type { makeT } from '../i18n';
 import type { DaySnapshot } from './DaySchedule';
+import { Button } from '../ui/Button';
+import { Field } from '../ui/Field';
+import { Card } from '../ui/Card';
+import { Spinner } from '../ui/Spinner';
 
 /** 与后端 overrideReason 枚举一一对应 */
 const REASONS: Array<{ v: string; label: string; hint: string }> = [
@@ -114,15 +118,15 @@ export function BookSheet({
       position: 'fixed', inset: 0, background: 'rgba(20,18,16,.45)',
       display: 'grid', placeItems: 'end center', zIndex: 50,
     }} onClick={onCancel}>
-      <div className="card stack" onClick={(e) => e.stopPropagation()}
+      <Card className="flex flex-col gap-3" onClick={(e) => e.stopPropagation()}
            style={{ width: 'min(620px, 100%)', maxHeight: '92vh', overflow: 'auto',
                     padding: 24, gap: 18, borderRadius: '18px 18px 0 0' }}>
 
-        <div className="stack" style={{ gap: 2 }}>
-          <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 800 }}>
+        <div className="flex flex-col gap-0.5">
+          <div className="text-2xl font-extrabold">
             {customer?.displayName ?? '临时客人'}
           </div>
-          <div className="muted">
+          <div className="text-ink-2">
             {staff?.name} · {hhmm(startMin)}
             {service ? ` · ${service.durationMin} 分钟` : ''}
           </div>
@@ -132,58 +136,53 @@ export function BookSheet({
             AI 匹配的项目可能是对的，也可能把 "gel removal" 听成了 "gel manicure"。
             原话在这里，前台选项目时一眼能对上 */}
         {fromCallDraft && (fromCallDraft.serviceHeard || fromCallDraft.timeHeard) && (
-          <div className="card stack" style={{ padding: 12, gap: 4,
-               background: 'var(--brand-soft)', borderColor: 'var(--brand)' }}>
-            <span className="tiny"><strong>☎️ 电话里客人说的：</strong></span>
+          <Card className="flex flex-col gap-1" style={{ padding: 12,  background: 'var(--brand-soft)', borderColor: 'var(--brand)' }}>
+            <span className="text-xs text-ink-3"><strong>☎️ 电话里客人说的：</strong></span>
             {fromCallDraft.serviceHeard && (
-              <span className="tiny">项目：「{fromCallDraft.serviceHeard}」</span>
+              <span className="text-xs text-ink-3">项目：「{fromCallDraft.serviceHeard}」</span>
             )}
             {fromCallDraft.timeHeard && (
-              <span className="tiny">时间：「{fromCallDraft.timeHeard}」</span>
+              <span className="text-xs text-ink-3">时间：「{fromCallDraft.timeHeard}」</span>
             )}
-          </div>
+          </Card>
         )}
 
         {/* 项目：大按钮网格，不用下拉框 */}
-        <div className="stack" style={{ gap: 8 }}>
-          <div className="tiny">选项目</div>
+        <div className="flex flex-col gap-2">
+          <div className="text-xs text-ink-3">选项目</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
             {day.services.map((s) => (
               <button key={s.id} onClick={() => setServiceId(s.id)}
-                      className="btn"
-                      style={{
-                        minHeight: 68, flexDirection: 'column', gap: 2, padding: '10px 14px',
+                      className="min-h-tap rounded border border-line-2 bg-surface px-5 text-base font-semibold cursor-pointer hoverable:hover:bg-sunken gap-0.5" style={{ minHeight: 68, flexDirection: 'column',  padding: '10px 14px',
                         borderWidth: 2,
                         borderColor: s.id === serviceId ? 'var(--brand)' : 'var(--line)',
-                        background: s.id === serviceId ? 'var(--brand-soft)' : 'var(--surface)',
-                      }}>
-                <span className="truncate" style={{ fontSize: 'var(--text)' }}>{s.name}</span>
-                <span className="tiny">{s.durationMin} 分钟 · {money(s.priceCents)}</span>
+                        background: s.id === serviceId ? 'var(--brand-soft)' : 'var(--surface)' }}>
+                <span className="truncate text-base">{s.name}</span>
+                <span className="text-xs text-ink-3">{s.durationMin} 分钟 · {money(s.priceCents)}</span>
               </button>
             ))}
           </div>
         </div>
 
         {hardError && (
-          <div className="card" role="alert"
+          <Card role="alert"
                style={{ padding: 14, background: 'var(--danger-soft)', borderColor: 'var(--danger)' }}>
-            <span style={{ color: 'var(--danger)', fontWeight: 700 }}>✕ {hardError}</span>
-          </div>
+            <span className="text-danger font-bold">✕ {hardError}</span>
+          </Card>
         )}
 
         {/* ── 软约束：不拦，但要说明原因 ─────────────────────────────────── */}
         {issue && (
-          <div className="card stack" role="alert"
-               style={{ padding: 16, gap: 12, background: 'var(--warn-soft)', borderColor: 'var(--warn)' }}>
-            <div className="row" style={{ gap: 10, alignItems: 'flex-start' }}>
+          <Card className="flex flex-col gap-3" role="alert" style={{ padding: 16, gap: 12, background: 'var(--warn-soft)', borderColor: 'var(--warn)' }}>
+            <div className="flex items-center gap-2.5 items-start">
               <span aria-hidden style={{ fontSize: 24 }}>⚠️</span>
-              <div className="grow">
-                <div style={{ fontWeight: 800, color: 'var(--warn)', fontSize: 'var(--text-lg)' }}>
+              <div className="min-w-0 flex-1">
+                <div className="font-extrabold text-warn text-lg">
                   {overCap
                     ? `${staff?.name} 这个时段已经排满了`
                     : '这个时段全店已经排满了'}
                 </div>
-                <div className="tiny" style={{ color: 'var(--warn)' }}>
+                <div className="text-xs text-ink-3 text-warn">
                   可以继续排 —— 选个原因，会记进流水（谁排的、几点、为什么）
                 </div>
               </div>
@@ -191,40 +190,38 @@ export function BookSheet({
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 8 }}>
               {REASONS.map((r) => (
-                <button key={r.v} className="btn" onClick={() => setReason(r.v)}
+                <Button key={r.v} onClick={() => setReason(r.v)}
                         style={{
                           minHeight: 60, flexDirection: 'column', gap: 1, borderWidth: 2,
                           borderColor: reason === r.v ? 'var(--warn)' : 'var(--line)',
                           background: reason === r.v ? '#fff' : 'transparent',
                         }}>
                   <span>{r.label}</span>
-                  <span className="tiny">{r.hint}</span>
-                </button>
+                  <span className="text-xs text-ink-3">{r.hint}</span>
+                </Button>
               ))}
             </div>
 
             {reason === 'other' && (
-              <input className="field" placeholder="写清楚原因" value={note}
+              <Field  placeholder="写清楚原因" value={note}
                      onChange={(e) => setNote(e.target.value)} autoFocus />
             )}
 
-            <button className="btn btn-primary btn-block" disabled={busy || !reason || (reason === 'other' && !note.trim())}
-                    onClick={() => void submit(true)}>
-              {busy ? <span className="spin" /> : '仍然排这一单'}
-            </button>
-          </div>
+            <Button variant="primary" block disabled={busy || !reason || (reason === 'other' && !note.trim())} onClick={() => void submit(true)}>
+              {busy ? <Spinner /> : '仍然排这一单'}
+            </Button>
+          </Card>
         )}
 
         {!issue && (
-          <div className="row" style={{ gap: 12 }}>
-            <button className="btn grow" onClick={onCancel} disabled={busy}>{t('common.cancel')}</button>
-            <button className="btn btn-primary grow" disabled={busy || !serviceId}
-                    onClick={() => void submit(false)}>
-              {busy ? <span className="spin" /> : '开单'}
-            </button>
+          <div className="flex items-center gap-3">
+            <Button className="min-w-0 flex-1" onClick={onCancel} disabled={busy}>{t('common.cancel')}</Button>
+            <Button variant="primary" className="min-w-0 flex-1" disabled={busy || !serviceId} onClick={() => void submit(false)}>
+              {busy ? <Spinner /> : '开单'}
+            </Button>
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

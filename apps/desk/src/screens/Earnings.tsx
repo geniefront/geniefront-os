@@ -11,6 +11,11 @@
  */
 
 import { useState } from 'react';
+import { ChevronDown, ChevronUp, Wallet } from 'lucide-react';
+import { Card } from '../ui/Card';
+import { Badge } from '../ui/Badge';
+import { Page, PageHeader, Empty, Label } from '../ui/Page';
+import { cn } from '../ui/cn';
 
 const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 const hours = (min: number) => `${(min / 60).toFixed(1)}h`;
@@ -48,104 +53,103 @@ export function Earnings({ data }: { data: EarningsBoard }) {
 
   if (data.staff.length === 0) {
     return (
-      <div className="card" style={{ margin: 16, padding: 28, textAlign: 'center' }}>
-        <div className="muted">今天还没有结账的单</div>
-        <div className="tiny" style={{ marginTop: 6 }}>结完账就会出现在这里</div>
-      </div>
+      <Page>
+        <PageHeader title="今日营收" sub={data.businessDate} />
+        <Empty icon={<Wallet size={34} />} title="今天还没有结账的单"
+               hint="结完账就会出现在这里。技师下班前围过来问「我今天多少」，把这一页转过去就行。" />
+      </Page>
     );
   }
 
   return (
-    <div className="stack" style={{ padding: '0 16px 24px', gap: 12 }}>
-      <div className="card row" style={{ padding: '14px 18px', gap: 16, flexWrap: 'wrap' }}>
-        <div className="stack" style={{ gap: 2 }}>
-          <span className="tiny">营业额</span>
-          <strong style={{ fontSize: 'var(--text-xl)', fontVariantNumeric: 'tabular-nums' }}>
-            {money(data.totals.serviceRevenueCents)}
-          </strong>
-        </div>
-        <div className="stack" style={{ gap: 2 }}>
-          <span className="tiny">提成合计</span>
-          <strong style={{ fontSize: 'var(--text-xl)', fontVariantNumeric: 'tabular-nums' }}>
-            {money(data.totals.commissionCents)}
-          </strong>
-        </div>
-        <div className="stack" style={{ gap: 2 }}>
-          <span className="tiny">现金小费（今晚发）</span>
-          <strong style={{ fontSize: 'var(--text-xl)', color: 'var(--ok)',
-                           fontVariantNumeric: 'tabular-nums' }}>
-            {money(data.totals.tipCashCents)}
-          </strong>
-        </div>
-        <div className="stack" style={{ gap: 2 }}>
-          <span className="tiny">刷卡小费（进工资）</span>
-          <strong style={{ fontSize: 'var(--text-xl)', fontVariantNumeric: 'tabular-nums' }}>
-            {money(data.totals.tipCardCents)}
-          </strong>
-        </div>
-        <span className="grow" />
-        <span className="badge badge-soft">{data.businessDate}</span>
-      </div>
+    <Page>
+      <PageHeader title="今日营收"
+                  sub={<span className="tnum">{data.businessDate}</span>}
+                  actions={<Badge tone="brand">{data.staff.length} 位技师</Badge>} />
 
-      {data.staff.map((s) => (
-        <div key={s.membershipId} className="card stack" style={{ padding: 0, gap: 0 }}>
-          <button className="row" onClick={() => setOpen(open === s.membershipId ? null : s.membershipId)}
-                  style={{ padding: '16px 18px', gap: 14, textAlign: 'left',
-                           background: 'transparent', border: 0, cursor: 'pointer' }}>
-            <div className="grow stack" style={{ gap: 4 }}>
-              <strong style={{ fontSize: 'var(--text-xl)' }}>{s.name}</strong>
-              <div className="tiny">
-                {s.ticketCount} 单 · 营业额 {money(s.serviceRevenueCents)}
-                {s.minutesWorked > 0 && ` · 在岗 ${hours(s.minutesWorked)}`}
-              </div>
-            </div>
-            {s.cashTipOwedCents > 0 && (
-              <span className="badge badge-ok">现金待发 {money(s.cashTipOwedCents)}</span>
-            )}
-            <div className="stack" style={{ gap: 2, alignItems: 'flex-end' }}>
-              <strong style={{ fontSize: 'var(--text-xl)', fontVariantNumeric: 'tabular-nums' }}>
-                {money(s.payCents)}
-              </strong>
-              <span className="tiny">{open === s.membershipId ? '收起 ▲' : '看明细 ▼'}</span>
-            </div>
-          </button>
+      {/* 四个总数。⚠️ 现金和刷卡小费**分开**：一个今晚就要拿现钞，一个进工资 */}
+      <Card className="mb-3 flex flex-wrap items-center gap-x-8 gap-y-4 px-5 py-4">
+        <Total label="营业额" value={data.totals.serviceRevenueCents} />
+        <Total label="提成合计" value={data.totals.commissionCents} />
+        <Total label="现金小费（今晚发）" value={data.totals.tipCashCents} tone="ok" />
+        <Total label="刷卡小费（进工资）" value={data.totals.tipCardCents} />
+      </Card>
 
-          {open === s.membershipId && (
-            <div className="stack" style={{
-              padding: '0 18px 16px', gap: 8, borderTop: '1px solid var(--line)' }}>
-              <Row label={s.paidBy === 'hourly' ? '时薪（保底）' : '提成'}
-                   value={s.paidBy === 'hourly' ? s.hourlyCents : s.commissionCents} />
-              {/* 保底方案要写清楚哪边赢了 —— 不写的话技师会以为提成被吞了 */}
-              {s.note && <div className="tiny">{s.note}</div>}
-              <Row label="现金小费（今晚拿）" value={s.tipCashCents} tone="ok" />
-              <Row label="刷卡小费（进工资）" value={s.tipCardCents} />
-              <div className="row" style={{ paddingTop: 8, borderTop: '1px dashed var(--line)' }}>
-                <strong className="grow">今日合计</strong>
-                <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{money(s.payCents)}</strong>
-              </div>
-              {s.cashTipOwedCents !== s.tipCashCents && (
-                <div className="tiny">
-                  今晚实际要拿的现金是 {money(s.cashTipOwedCents)}
-                  （含昨天没发净的零头，或已发过一部分）
+      <div className="flex flex-col gap-2.5">
+        {data.staff.map((s) => {
+          const on = open === s.membershipId;
+          return (
+            <Card key={s.membershipId} className="overflow-hidden">
+              <button type="button"
+                      onClick={() => setOpen(on ? null : s.membershipId)}
+                      aria-expanded={on}
+                      className="flex w-full min-h-tap cursor-pointer items-center gap-3.5 px-5 py-4 text-left hoverable:hover:bg-sunken">
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <strong className="text-xl font-bold tracking-[-0.02em]">{s.name}</strong>
+                  <div className="text-xs text-ink-3">
+                    {s.ticketCount} 单 · 营业额 {money(s.serviceRevenueCents)}
+                    {s.minutesWorked > 0 && ` · 在岗 ${hours(s.minutesWorked)}`}
+                  </div>
+                </div>
+                {s.cashTipOwedCents > 0 && (
+                  <Badge tone="ok">现金待发 {money(s.cashTipOwedCents)}</Badge>
+                )}
+                <div className="flex shrink-0 flex-col items-end gap-0.5">
+                  <strong className="tnum text-xl font-bold">{money(s.payCents)}</strong>
+                  <span className="flex items-center gap-1 text-2xs text-ink-3">
+                    {on ? <>收起<ChevronUp size={12} /></> : <>看明细<ChevronDown size={12} /></>}
+                  </span>
+                </div>
+              </button>
+
+              {/*
+                ⭐ 每个数字都要能点开看依据 —— 技师质疑提成是常态，
+                说不清就从「算错了」变成人事矛盾
+              */}
+              {on && (
+                <div className="flex flex-col gap-2 border-t border-line bg-ground px-5 py-4">
+                  <Line label={s.paidBy === 'hourly' ? '时薪（保底）' : '提成'}
+                        value={s.paidBy === 'hourly' ? s.hourlyCents : s.commissionCents} />
+                  {/* 保底方案要写清楚哪边赢了 —— 不写的话技师会以为提成被吞了 */}
+                  {s.note && <div className="text-xs text-ink-3">{s.note}</div>}
+                  <Line label="现金小费（今晚拿）" value={s.tipCashCents} tone="ok" />
+                  <Line label="刷卡小费（进工资）" value={s.tipCardCents} />
+                  <div className="mt-1 flex items-center border-t border-dashed border-line pt-2.5">
+                    <strong className="flex-1 text-sm">今日合计</strong>
+                    <strong className="tnum text-sm">{money(s.payCents)}</strong>
+                  </div>
+                  {s.cashTipOwedCents !== s.tipCashCents && (
+                    <div className="text-xs text-ink-3">
+                      今晚实际要拿的现金是 {money(s.cashTipOwedCents)}
+                      （含昨天没发净的零头，或已发过一部分）
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          )}
-        </div>
-      ))}
+            </Card>
+          );
+        })}
+      </div>
+    </Page>
+  );
+}
+
+function Total({ label, value, tone }: { label: string; value: number; tone?: 'ok' }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <Label>{label}</Label>
+      <strong className={cn('tnum text-xl font-bold tracking-[-0.02em]', tone === 'ok' && 'text-ok')}>
+        {money(value)}
+      </strong>
     </div>
   );
 }
 
-function Row({ label, value, tone }: { label: string; value: number; tone?: 'ok' }) {
+function Line({ label, value, tone }: { label: string; value: number; tone?: 'ok' }) {
   return (
-    <div className="row">
-      <span className="grow muted">{label}</span>
-      <span style={{
-        fontVariantNumeric: 'tabular-nums',
-        color: tone === 'ok' ? 'var(--ok)' : undefined,
-        fontWeight: tone === 'ok' ? 700 : 400,
-      }}>{money(value)}</span>
+    <div className="flex items-center">
+      <span className="flex-1 text-xs text-ink-2">{label}</span>
+      <span className={cn('tnum text-sm', tone === 'ok' && 'font-bold text-ok')}>{money(value)}</span>
     </div>
   );
 }

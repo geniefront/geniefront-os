@@ -53,6 +53,7 @@ pnpm verify                 # 宪法检查 + typecheck + 547 项测试，应当�
 | `0014_blueprint` | `shop_blueprints` `blueprint_sources` `blueprint_items` | 落地后**封板**触发器 |
 | `0015_phone` | `phone_lines` `phone_calls` `call_drafts` | **号码维度解析策略**（不绕 RLS） |
 | `0016_kiosk` | `walkin_queue` `form_templates` `form_submissions` `form_access_log` | 健康表**不可删只可匿名化**；模板发布后不可改 |
+| `0038_form_share` | `form_share_links` | 发给客人的一次性填表链接。令牌只存摘要、**不可删只可吊销**；令牌维度的 RLS 解析同 0016 的设备令牌（`docs/15`） |
 | `0017_phase2_permissions` | —— | 把新权限补给已有预设角色 |
 | `0018_billing` | `billing_accounts` `credit_ledger` `stripe_events` | 账本**连 UPDATE 都收回** |
 | `0019_ledger_order` | —— | 账本加 `seq bigserial`：**对账不能按 `created_at` 排**（见 §4.9） |
@@ -599,6 +600,11 @@ RLS 挡的是**应用里的越权**；它挡不住**把整个库复制走的人*
 所以健康表答案是 **AES-256-GCM 应用层加密**的（`FORM_ENCRYPTION_KEY`）。
 
 ⚠️ **那把密钥丢了 = 所有已签的健康表永久解不开。**
+
+⭐ **2026-08-24 起，读健康表内容也要留痕**（`form_access_log`：谁、什么时候、
+因为什么、从哪个 IP）。权限 `customer.view_health_form` 同时给了
+`manager` 和 `front_desk` —— 理由见 `docs/15` §2.1：`02` §3.1 给技师看的那句话
+是「有禁忌，**见前台**」，前台看不到的话这句话指向了一个同样看不见的人。
 生产那一把只进 CI Secret，别进任何 `.env` 文件之外的地方。
 
 ### 5.5 「不确定」比「猜一个」有用

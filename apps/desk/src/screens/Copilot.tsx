@@ -23,6 +23,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { API_BASE, ApiError, runCommand } from '../lib/api';
 import { supabase } from '../lib/supabase';
+import { Button } from '../ui/Button';
+import { Badge } from '../ui/Badge';
+import { Card } from '../ui/Card';
+import { Alert } from '../ui/Alert';
+import { Field } from '../ui/Field';
+import { Spinner } from '../ui/Spinner';
 
 interface Proposal {
   command: string;
@@ -171,45 +177,40 @@ export function Copilot({ membershipId, onExecuted, onClose }: {
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)',
       display: 'flex', justifyContent: 'flex-end', zIndex: 40,
     }} onClick={onClose}>
-      <div className="stack" onClick={(e) => e.stopPropagation()}
+      <div className="flex flex-col gap-3" onClick={(e) => e.stopPropagation()}
            style={{
              width: 'min(520px, 100%)', height: '100%', background: 'var(--surface)',
              borderLeft: '1px solid var(--line)', gap: 0,
            }}>
-        <div className="row" style={{
-          padding: '12px 16px', borderBottom: '1px solid var(--line)', gap: 10 }}>
-          <strong className="grow" style={{ fontSize: 'var(--text-lg)' }}>🤖 副驾</strong>
-          <button className="btn btn-ghost" style={{ minHeight: 44 }} onClick={onClose}>关闭</button>
+        <div className="flex items-center gap-2.5" style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
+          <strong className="min-w-0 flex-1 text-lg">🤖 副驾</strong>
+          <Button variant="ghost" style={{ minHeight: 44 }} onClick={onClose}>关闭</Button>
         </div>
 
-        <div ref={boxRef} className="stack grow"
-             style={{ padding: 16, gap: 12, overflowY: 'auto' }}>
+        <div ref={boxRef} className="flex min-w-0 flex-1 flex-col gap-3" style={{ padding: 16,  overflowY: 'auto' }}>
           {turns.length === 0 && (
-            <div className="stack" style={{ gap: 10 }}>
-              <div className="muted">用平常说话的方式问就行。比如：</div>
+            <div className="flex flex-col gap-2.5">
+              <div className="text-ink-2">用平常说话的方式问就行。比如：</div>
               {[
                 '几个人在等？',
                 '谁有空？',
                 '把王太太五点那单挪到六点',
                 '明天下午有没有一个小时的空档',
               ].map((s) => (
-                <button key={s} className="btn" style={{ minHeight: 56, textAlign: 'left' }}
-                        onClick={() => void ask(s)}>{s}</button>
+                <Button key={s} style={{ minHeight: 56, textAlign: 'left' }} onClick={() => void ask(s)}>{s}</Button>
               ))}
             </div>
           )}
 
           {turns.map((t, i) => t.role === 'user' ? (
-            <div key={i} className="card" style={{
-              padding: '12px 16px', alignSelf: 'flex-end', maxWidth: '85%',
-              background: 'var(--brand-soft)', borderColor: 'var(--brand)' }}>
+            <Card key={i} style={{ padding: '12px 16px', alignSelf: 'flex-end', maxWidth: '85%', background: 'var(--brand-soft)', borderColor: 'var(--brand)' }}>
               {t.text}
-            </div>
+            </Card>
           ) : (
-            <div key={i} className="stack" style={{ gap: 8, maxWidth: '92%' }}>
-              <div className="card" style={{ padding: '12px 16px', whiteSpace: 'pre-wrap' }}>
+            <div key={i} className="flex flex-col gap-2" style={{ maxWidth: '92%' }}>
+              <Card style={{ padding: '12px 16px', whiteSpace: 'pre-wrap' }}>
                 {t.text}
-              </div>
+              </Card>
 
               {/*
                 ⭐ 「这句话是查库直接答的」要标出来。
@@ -217,10 +218,10 @@ export function Copilot({ membershipId, onExecuted, onClose }: {
                 模型说的那些，她会多看一眼，而这正是我们要的。
               */}
               {t.source === 'local' && (
-                <span className="tiny muted">· 直接查的，没过 AI</span>
+                <span className="text-xs text-ink-3 text-ink-2">· 直接查的，没过 AI</span>
               )}
               {t.source === 'model' && (t.toolsUsed?.length ?? 0) > 0 && (
-                <span className="tiny muted">· 查了：{t.toolsUsed!.join('、')}</span>
+                <span className="text-xs text-ink-3 text-ink-2">· 查了：{t.toolsUsed!.join('、')}</span>
               )}
 
               {t.proposal && (
@@ -240,13 +241,12 @@ export function Copilot({ membershipId, onExecuted, onClose }: {
             </div>
           ))}
 
-          {busy && <div className="row" style={{ gap: 8 }}><span className="spin" /> 想一下…</div>}
+          {busy && <div className="flex items-center gap-2"><Spinner /> 想一下…</div>}
         </div>
 
-        <div className="row" style={{
-          padding: 12, gap: 10, borderTop: '1px solid var(--line)' }}>
-          <input
-            className="btn grow" style={{ minHeight: 56, textAlign: 'left', padding: '0 14px' }}
+        <div className="flex items-center gap-2.5" style={{ padding: 12,  borderTop: '1px solid var(--line)' }}>
+          <Field
+            className="min-w-0 flex-1"
             placeholder="说一句话…"
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -255,9 +255,7 @@ export function Copilot({ membershipId, onExecuted, onClose }: {
             }}
             disabled={busy}
           />
-          <button className="btn btn-primary" style={{ minHeight: 56, minWidth: 80 }}
-                  disabled={busy || !text.trim()}
-                  onClick={() => void ask(text.trim())}>问</button>
+          <Button variant="primary" style={{ minHeight: 56, minWidth: 80 }} disabled={busy || !text.trim()} onClick={() => void ask(text.trim())}>问</Button>
         </div>
       </div>
     </div>
@@ -287,29 +285,22 @@ function ProposalCard({
   const undoLeft = Math.max(0, Math.ceil(undoLeftMs / 1000));
 
   return (
-    <div className="card stack" style={{
-      padding: '16px 18px', gap: 12,
-      borderWidth: 2,
-      borderColor: state === 'failed' ? 'var(--danger)'
-        : state === 'done' ? 'var(--brand)' : 'var(--line)',
-    }}>
-      <div style={{ fontSize: 'var(--text-lg)', fontWeight: 600 }}>{p.summary}</div>
+    <Card className="flex flex-col gap-3" style={{ padding: '16px 18px',  borderWidth: 2, borderColor: state === 'failed' ? 'var(--danger)' : state === 'done' ? 'var(--brand)' : 'var(--line)' }}>
+      <div className="text-lg font-semibold">{p.summary}</div>
 
       {state === 'pending' && (
         <>
-          <div className="row" style={{ gap: 10 }}>
-            <button className="btn btn-primary grow" style={{ minHeight: 56 }}
-                    disabled={busy} onClick={onConfirm}>确认执行</button>
-            <button className="btn" style={{ minHeight: 56 }}
-                    disabled={busy} onClick={onDismiss}>不用了</button>
+          <div className="flex items-center gap-2.5">
+            <Button variant="primary" className="min-w-0 flex-1" style={{ minHeight: 56 }} disabled={busy} onClick={onConfirm}>确认执行</Button>
+            <Button style={{ minHeight: 56 }} disabled={busy} onClick={onDismiss}>不用了</Button>
           </div>
-          <button className="tiny muted" onClick={() => setOpen(!open)}
+          <button className="text-xs text-ink-3 text-ink-2" onClick={() => setOpen(!open)}
                   style={{ background: 'none', border: 0, cursor: 'pointer',
                            textAlign: 'left', padding: 0 }}>
             {open ? '收起' : '看看它具体要做什么 ›'}
           </button>
           {open && (
-            <pre className="tiny" style={{
+            <pre className="text-xs text-ink-3" style={{
               margin: 0, padding: 10, overflowX: 'auto',
               background: 'var(--bg, #f6f6f6)', borderRadius: 6 }}>
 {p.command}
@@ -320,35 +311,33 @@ function ProposalCard({
       )}
 
       {state === 'done' && (
-        <div className="row" style={{ gap: 10 }}>
-          <span className="badge badge-ok grow">✓ 已执行</span>
+        <div className="flex items-center gap-2.5">
+          <Badge tone="ok" className="min-w-0 flex-1" >✓ 已执行</Badge>
           {canUndo && undoLeft > 0 ? (
-            <button className="btn" style={{ minHeight: 56 }} disabled={busy} onClick={onUndo}>
+            <Button style={{ minHeight: 56 }} disabled={busy} onClick={onUndo}>
               撤销（{undoLeft}s）
-            </button>
+            </Button>
           ) : (
             /*
               ⚠️ 撤不了的要**明说撤不了**，而不是不显示按钮让人以为
               自己没找到。「去日程表上改」是一句她能照着做的话
             */
-            <span className="tiny muted">
+            <span className="text-xs text-ink-3 text-ink-2">
               {canUndo ? '撤销时间已过' : '这一条撤不了，要改请到对应页面上改'}
             </span>
           )}
         </div>
       )}
 
-      {state === 'undone' && <span className="badge badge-soft">↩ 已撤销</span>}
+      {state === 'undone' && <Badge tone="brand" >↩ 已撤销</Badge>}
 
       {state === 'failed' && (
-        <div className="badge badge-danger" style={{ padding: '10px 14px' }}>
-          ✕ {error ?? '执行失败'}
-        </div>
+        <Alert tone="danger">{error ?? '执行失败'}</Alert>
       )}
       {state !== 'failed' && error && (
-        <div className="badge badge-danger" style={{ padding: '10px 14px' }}>✕ {error}</div>
+        <Alert tone="danger">{error}</Alert>
       )}
-    </div>
+    </Card>
   );
 }
 

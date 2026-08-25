@@ -30,6 +30,13 @@ import { useState } from 'react';
 import { ApiError, runCommand } from '../lib/api';
 import type { SettingsData } from './Settings';
 import { TZ_LABEL, TZ_CHOICES } from './YelpFill';
+import { Button } from '../ui/Button';
+import { Field } from '../ui/Field';
+import { Alert } from '../ui/Alert';
+import { Badge } from '../ui/Badge';
+import { Card } from '../ui/Card';
+import { Select } from '../ui/Select';
+import { Spinner } from '../ui/Spinner';
 
 const BUSINESS_TYPES: Array<[string, string]> = [
   ['nail', '美甲'], ['massage', '按摩'], ['foot_spa', '足疗'],
@@ -109,32 +116,31 @@ export function SetupWizard({
   }
 
   return (
-    <div className="stack" style={{ padding: '0 16px 32px', gap: 18, maxWidth: 760, margin: '0 auto' }}>
-      <div className="stack" style={{ gap: 6, paddingTop: 8 }}>
-        <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 800 }}>把店配起来</div>
-        <div className="muted" style={{ fontSize: 'var(--text)' }}>
+    <div className="flex flex-col gap-4.5" style={{ padding: '0 16px 32px',  maxWidth: 760, margin: '0 auto' }}>
+      <div className="flex flex-col gap-1.5 pt-2">
+        <div className="text-2xl font-extrabold">把店配起来</div>
+        <div className="text-ink-2 text-base">
           {leftCount === 0
             ? '都配好了 —— 点下面那个大按钮就可以开张了。'
             : `还差 ${leftCount} 项就能开张。每一项都可以以后再弄，配置里随时找得到。`}
         </div>
       </div>
 
-      {err && <div className="badge badge-danger" style={{ padding: '12px 16px' }}>✕ {err}</div>}
+      {err && <Alert tone="danger">{err}</Alert>}
 
       {/* ── 1. 店铺信息 ───────────────────────────────────────────────── */}
       <StepCard step={steps[0]!} n={1}>
         {!editProfile && (
-          <div className="stack" style={{ gap: 10 }}>
+          <div className="flex flex-col gap-2.5">
             <Facts rows={[
               ['店名', data.location.name],
               ['时区', TZ_LABEL[data.location.timezone] ?? data.location.timezone],
               ['业态', BUSINESS_TYPES.find(([k]) => k === data.location.businessType)?.[1]
                 ?? data.location.businessType],
             ]} />
-            <button className="btn btn-primary" style={{ minHeight: 'var(--tap)' }}
-                    onClick={() => setEditProfile(true)}>
+            <Button variant="primary" style={{ minHeight: 'var(--tap)' }} onClick={() => setEditProfile(true)}>
               {steps[0]!.done ? '改一下' : '看一眼，确认'}
-            </button>
+            </Button>
           </div>
         )}
         {editProfile && (
@@ -148,40 +154,37 @@ export function SetupWizard({
 
       {/* ── 2. 地址与营业时间 ─────────────────────────────────────────── */}
       <StepCard step={steps[1]!} n={2}>
-        <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-          <button className="btn btn-primary" style={{ minHeight: 'var(--tap)' }} onClick={onYelpFill}>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <Button variant="primary" style={{ minHeight: 'var(--tap)' }} onClick={onYelpFill}>
             🔎 从 Yelp 一键填好
-          </button>
-          <button className="btn" style={{ minHeight: 'var(--tap)' }}
-                  onClick={() => onOpenSettings('hours')}>
+          </Button>
+          <Button style={{ minHeight: 'var(--tap)' }} onClick={() => onOpenSettings('hours')}>
             自己填营业时间
-          </button>
+          </Button>
         </div>
       </StepCard>
 
       {/* ── 3. 项目库 ─────────────────────────────────────────────────── */}
       <StepCard step={steps[2]!} n={3}>
-        <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-          <button className="btn btn-primary" style={{ minHeight: 'var(--tap)' }} onClick={onPhotoSetup}>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <Button variant="primary" style={{ minHeight: 'var(--tap)' }} onClick={onPhotoSetup}>
             📷 拍价目表，自动建项目
-          </button>
-          <button className="btn" style={{ minHeight: 'var(--tap)' }}
-                  onClick={() => onOpenSettings('service')}>
+          </Button>
+          <Button style={{ minHeight: 'var(--tap)' }} onClick={() => onOpenSettings('service')}>
             一个一个手动加
-          </button>
+          </Button>
         </div>
       </StepCard>
 
       {/* ── 4. 员工 ───────────────────────────────────────────────────── */}
       <StepCard step={steps[3]!} n={4}>
-        <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-          <button className="btn btn-primary" style={{ minHeight: 'var(--tap)' }}
-                  onClick={() => onOpenSettings('staff')}>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <Button variant="primary" style={{ minHeight: 'var(--tap)' }} onClick={() => onOpenSettings('staff')}>
             去设置员工
-          </button>
+          </Button>
         </div>
         {bookable === 0 && (
-          <div className="muted tiny" style={{ marginTop: 8, lineHeight: 1.7 }}>
+          <div className="text-ink-2 text-xs text-ink-3" style={{ marginTop: 8, lineHeight: 1.7 }}>
             你自己也可以接客 —— 在员工里把自己打开「可接单」就行。
           </div>
         )}
@@ -189,30 +192,27 @@ export function SetupWizard({
 
       {/* ── 5. AI 电话（可选）─────────────────────────────────────────── */}
       <StepCard step={steps[4]!} n={5}>
-        <button className="btn" style={{ minHeight: 'var(--tap)' }}
-                onClick={() => onOpenSettings('phone')}>
+        <Button style={{ minHeight: 'var(--tap)' }} onClick={() => onOpenSettings('phone')}>
           ☎️ 了解一下 / 开通
-        </button>
+        </Button>
       </StepCard>
 
       {/* ── 完成 ──────────────────────────────────────────────────────── */}
-      <div className="card stack" style={{ padding: 20, gap: 12 }}>
-        <div style={{ fontSize: 'var(--text-lg)', fontWeight: 700 }}>开张</div>
-        <div className="muted">
+      <Card className="flex flex-col p-5 gap-3">
+        <div className="text-lg font-bold">开张</div>
+        <div className="text-ink-2">
           {leftCount === 0
             ? '一切就绪。'
             : '还差几项也可以先开张 —— 这些配置在「⚙ 开店配置」里随时能改。'}
         </div>
-        <button className="btn btn-primary btn-block" disabled={busy}
-                style={{ minHeight: 'var(--tap-lg)', fontSize: 'var(--text-lg)' }}
-                onClick={() => void run('location.finishSetup', {})}>
-          {busy ? <span className="spin" /> : '配好了，开张 →'}
-        </button>
+        <Button variant="primary" block disabled={busy} style={{ minHeight: 'var(--tap-lg)', fontSize: 'var(--text-lg)' }} onClick={() => void run('location.finishSetup', {})}>
+          {busy ? <Spinner /> : '配好了，开张 →'}
+        </Button>
         {/* 规矩 1：跳过不拦着他用。这个按钮是真的进得去 */}
-        <button className="btn btn-block" style={{ minHeight: 'var(--tap)' }} onClick={onEnterShop}>
+        <Button block style={{ minHeight: 'var(--tap)' }} onClick={onEnterShop}>
           先进店看看，晚点再配
-        </button>
-      </div>
+        </Button>
+      </Card>
     </div>
   );
 }
@@ -228,34 +228,31 @@ function StepCard({ step, n, children }: {
   step: Step; n: number; children: React.ReactNode;
 }) {
   return (
-    <div className="card stack" style={{
-      padding: 20, gap: 12,
-      borderLeft: `4px solid ${step.done ? 'var(--ok)' : 'var(--line)'}`,
-    }}>
-      <div className="row" style={{ gap: 12, alignItems: 'flex-start' }}>
-        <div className="grow stack" style={{ gap: 4 }}>
-          <div style={{ fontSize: 'var(--text-lg)', fontWeight: 700 }}>
+    <Card className="flex flex-col gap-3" style={{ padding: 20, gap: 12, borderLeft: `4px solid ${step.done ? 'var(--ok)' : 'var(--line)'}`, }}>
+      <div className="flex items-center gap-3 items-start">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="text-lg font-bold">
             {n}. {step.title}
           </div>
-          <div className="muted">{step.why}</div>
+          <div className="text-ink-2">{step.why}</div>
         </div>
-        <span className={`badge ${step.done ? 'badge-ok' : 'badge-warn'}`}
+        <Badge tone={step.done ? 'ok' : 'warn'}
               style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
           {step.done ? '✓ 已完成' : step.optional ? '○ 可跳过' : '○ 待办'}
-        </span>
+        </Badge>
       </div>
       {children}
-    </div>
+    </Card>
   );
 }
 
 function Facts({ rows }: { rows: Array<[string, string]> }) {
   return (
-    <div className="stack" style={{ gap: 6 }}>
+    <div className="flex flex-col gap-1.5">
       {rows.map(([k, v]) => (
-        <div key={k} className="row" style={{ gap: 12 }}>
-          <span className="muted" style={{ minWidth: 64 }}>{k}</span>
-          <span style={{ fontWeight: 600 }}>{v}</span>
+        <div key={k} className="flex items-center gap-3">
+          <span className="text-ink-2" style={{ minWidth: 64 }}>{k}</span>
+          <span className="font-semibold">{v}</span>
         </div>
       ))}
     </div>
@@ -280,48 +277,46 @@ function ProfileForm({ data, busy, onSave, onCancel }: {
   const [cutoff, setCutoff] = useState(data.location.businessDayCutoff || '03:00');
 
   return (
-    <div className="stack" style={{ gap: 14 }}>
-      <label className="stack" style={{ gap: 6 }}>
-        <span className="tiny">店名（顾客和技师看到的就是它）</span>
-        <input className="field" value={name} onChange={(e) => setName(e.target.value)} />
+    <div className="flex flex-col gap-3.5">
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs text-ink-3">店名（顾客和技师看到的就是它）</span>
+        <Field  value={name} onChange={(e) => setName(e.target.value)} />
       </label>
 
-      <label className="stack" style={{ gap: 6 }}>
-        <span className="tiny">时区 —— 一定要选对，日程表按它算</span>
-        <select className="field" value={tz} onChange={(e) => setTz(e.target.value)}>
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs text-ink-3">时区 —— 一定要选对，日程表按它算</span>
+        <Select value={tz} onChange={(e) => setTz(e.target.value)}>
           {/* 官网猜出来的时区如果不在这九个里，也得让他看得到自己现在是什么 */}
           {!TZ_CHOICES.includes(tz) && <option value={tz}>{tz}</option>}
           {TZ_CHOICES.map((z) => <option key={z} value={z}>{TZ_LABEL[z]}</option>)}
-        </select>
+        </Select>
       </label>
 
-      <label className="stack" style={{ gap: 6 }}>
-        <span className="tiny">主要做什么</span>
-        <select className="field" value={type} onChange={(e) => setType(e.target.value)}>
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs text-ink-3">主要做什么</span>
+        <Select value={type} onChange={(e) => setType(e.target.value)}>
           {BUSINESS_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-        </select>
+        </Select>
       </label>
 
-      <label className="stack" style={{ gap: 6 }}>
-        <span className="tiny">
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs text-ink-3">
           营业日几点算「第二天」—— 开到凌晨的店要设在打烊之后（默认 03:00）
         </span>
-        <input className="field" type="time" value={cutoff}
+        <Field  type="time" value={cutoff}
                onChange={(e) => setCutoff(e.target.value)} />
       </label>
 
-      <div className="row" style={{ gap: 10 }}>
-        <button className="btn btn-primary grow" disabled={busy}
-                style={{ minHeight: 'var(--tap)' }}
-                onClick={() => void onSave({
+      <div className="flex items-center gap-2.5">
+        <Button variant="primary" className="min-w-0 flex-1" disabled={busy} style={{ minHeight: 'var(--tap)' }} onClick={() => void onSave({
                   // 店名按界面语言写回去。多语言那一层由「🌐 补齐多语言」负责，
                   // 这里不替他猜别的语言怎么写
                   name: { en: name, 'zh-Hans': name },
                   timezone: tz, businessType: type, businessDayCutoff: cutoff,
                 })}>
-          {busy ? <span className="spin" /> : '就这样，保存'}
-        </button>
-        <button className="btn" style={{ minHeight: 'var(--tap)' }} onClick={onCancel}>取消</button>
+          {busy ? <Spinner /> : '就这样，保存'}
+        </Button>
+        <Button style={{ minHeight: 'var(--tap)' }} onClick={onCancel}>取消</Button>
       </div>
     </div>
   );

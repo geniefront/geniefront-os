@@ -85,7 +85,7 @@ export interface StaffToday {
   };
 }
 
-interface TaskRow {
+export interface TaskRow {
   ticket_id: string;
   item_id: string;
   customer_name: string | null;
@@ -116,7 +116,13 @@ async function loadOptionDefs(
   }]));
 }
 
-function buildTask(
+/**
+ * 一行任务 → 技师端看到的那张卡。
+ *
+ * ⚠️ 导出只是为了让它能被单独测（`staff.test.ts` 里的「床边看到什么」那一组）——
+ * 这一层决定的是「技师在床边先看到哪一句」，而那件事值得钉住。
+ */
+export function buildTask(
   r: TaskRow,
   defs: Map<string, { label: string; toStaff: boolean }>,
   canSeeContact: boolean,
@@ -147,6 +153,21 @@ function buildTask(
   const prefAvoid = (r.prefs ?? {})['avoid_areas'];
   if (Array.isArray(prefAvoid) && prefAvoid.length > 0) {
     alerts.unshift(`长期避开：${prefAvoid.join('、')}`);
+  }
+
+  /**
+   * ⭐ 「有禁忌，见前台」（`02` §3.1 那张表的最后一列）。
+   *
+   * 这个布尔由客人交健康表时回填（`handlers/kiosk.ts` 的 `syncToProfile`），
+   * 而**技师这一端只看得到这一句，看不到明细** —— 「怀孕 28 周」「血栓史」
+   * 留在加密的 `form_submissions` 里，要 `customer.view_health_form` 才打得开，
+   * 而且打开一次留一条痕（`docs/15` §2）。
+   *
+   * ⚠️ 排在最前面：技师在床边先看到的应该是「这位有事，去问一句」，
+   * 而不是排在三条偏好后面的第四行。
+   */
+  if ((r.prefs ?? {})['health_flag'] === true) {
+    alerts.unshift('⚠ 健康表里有禁忌 —— 开始之前问一下前台');
   }
 
   return {

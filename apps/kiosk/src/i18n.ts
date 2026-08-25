@@ -24,6 +24,12 @@ export const LOCALE_LABEL: Record<Locale, string> = {
 
 type Dict = Record<string, string>;
 
+/**
+ * ⚠️ `link.*` 是**客人在自己手机上**看到的那几句（`docs/15` §4）。
+ * 和门口那台 iPad 同一条标准：六种语言齐 —— 一个看不懂这句话的人
+ * 会以为链接坏了，然后到店还是得在柜台前重填一遍。
+ */
+
 const zhHans: Dict = {
   'welcome.title': '欢迎光临',
   'welcome.pick': '请选择语言',
@@ -79,6 +85,17 @@ const zhHans: Dict = {
   'setup.hint': '在前台的「开店配置 → 门口 iPad」里生成一个配对码，粘贴到这里',
   'setup.paste': '粘贴配对码',
   'setup.save': '保存',
+  'link.title': '请先填一下健康表',
+  'link.hint': '两分钟填完，到店就不用在柜台前填了',
+  'link.for': '这份表是发给',
+  'link.start': '开始填写',
+  'link.remaining': '还剩',
+  'link.forms': '份',
+  'link.allDone': '都填好了，谢谢！',
+  'link.allDoneHint': '到店直接找前台就行，不用再填一遍。',
+  'link.dead': '这个链接用不了了',
+  'link.deadHint': '可能已经填过了、过期了，或者门店取消了它。请直接联系门店。',
+  'link.callShop': '打给门店',
 };
 
 const en: Dict = {
@@ -136,6 +153,17 @@ const en: Dict = {
   'setup.hint': 'Generate a pairing code in Settings → Door iPad on the front desk, then paste it here',
   'setup.paste': 'Paste pairing code',
   'setup.save': 'Save',
+  'link.title': 'Please fill out your health form',
+  'link.hint': 'Two minutes now means no paperwork at the counter',
+  'link.for': 'This form was sent to',
+  'link.start': 'Start',
+  'link.remaining': 'Still to go:',
+  'link.forms': 'form(s)',
+  'link.allDone': 'All done — thank you!',
+  'link.allDoneHint': 'Just check in at the front desk when you arrive.',
+  'link.dead': 'This link no longer works',
+  'link.deadHint': 'It may have been used already, expired, or been cancelled by the shop. Please contact the shop.',
+  'link.callShop': 'Call the shop',
 };
 
 const vi: Dict = {
@@ -193,6 +221,17 @@ const vi: Dict = {
   'setup.hint': 'Tạo mã ghép nối ở quầy lễ tân rồi dán vào đây',
   'setup.paste': 'Dán mã ghép nối',
   'setup.save': 'Lưu',
+  'link.title': 'Vui lòng điền phiếu sức khỏe',
+  'link.hint': 'Hai phút bây giờ, khỏi phải điền ở quầy khi đến',
+  'link.for': 'Phiếu này được gửi cho',
+  'link.start': 'Bắt đầu',
+  'link.remaining': 'Còn lại:',
+  'link.forms': 'phiếu',
+  'link.allDone': 'Xong rồi — cảm ơn bạn!',
+  'link.allDoneHint': 'Khi đến, bạn chỉ cần báo quầy lễ tân.',
+  'link.dead': 'Liên kết này không dùng được nữa',
+  'link.deadHint': 'Có thể đã điền rồi, đã hết hạn, hoặc cửa hàng đã hủy. Vui lòng liên hệ cửa hàng.',
+  'link.callShop': 'Gọi cửa hàng',
 };
 
 const ko: Dict = {
@@ -250,6 +289,17 @@ const ko: Dict = {
   'setup.hint': '데스크에서 페어링 코드를 생성한 뒤 여기에 붙여넣으세요',
   'setup.paste': '페어링 코드 붙여넣기',
   'setup.save': '저장',
+  'link.title': '건강 문진표를 작성해 주세요',
+  'link.hint': '지금 2분이면 매장에서 따로 작성하지 않아도 됩니다',
+  'link.for': '이 문진표는 다음 분께 보냈습니다:',
+  'link.start': '시작하기',
+  'link.remaining': '남은 문진표:',
+  'link.forms': '개',
+  'link.allDone': '모두 완료되었습니다. 감사합니다!',
+  'link.allDoneHint': '방문하시면 프런트에 말씀만 해주세요.',
+  'link.dead': '이 링크는 더 이상 사용할 수 없습니다',
+  'link.deadHint': '이미 작성되었거나, 기한이 지났거나, 매장에서 취소했을 수 있습니다. 매장으로 문의해 주세요.',
+  'link.callShop': '매장에 전화하기',
 };
 
 const es: Dict = {
@@ -307,6 +357,17 @@ const es: Dict = {
   'setup.hint': 'Genere un código en recepción y péguelo aquí',
   'setup.paste': 'Pegar código',
   'setup.save': 'Guardar',
+  'link.title': 'Complete su formulario de salud',
+  'link.hint': 'Dos minutos ahora y no tendrá que llenarlo en el mostrador',
+  'link.for': 'Este formulario se envió a',
+  'link.start': 'Empezar',
+  'link.remaining': 'Faltan:',
+  'link.forms': 'formulario(s)',
+  'link.allDone': 'Listo — ¡gracias!',
+  'link.allDoneHint': 'Solo avise en recepción cuando llegue.',
+  'link.dead': 'Este enlace ya no funciona',
+  'link.deadHint': 'Puede que ya se haya usado, haya caducado o el negocio lo haya cancelado. Comuníquese con el negocio.',
+  'link.callShop': 'Llamar al negocio',
 };
 
 const zhHant: Dict = {
@@ -329,6 +390,17 @@ const zhHant: Dict = {
   'done.yourNumber': '您的號碼',
   'done.ahead': '前面還有',
   'done.keepScreen': '請留意叫號，或者把這個號碼記一下',
+  'link.title': '請先填一下健康表',
+  'link.hint': '兩分鐘填完，到店就不用在櫃檯前填了',
+  'link.for': '這份表是發給',
+  'link.start': '開始填寫',
+  'link.remaining': '還剩',
+  'link.forms': '份',
+  'link.allDone': '都填好了，謝謝！',
+  'link.allDoneHint': '到店直接找櫃檯就行，不用再填一遍。',
+  'link.dead': '這個連結用不了了',
+  'link.deadHint': '可能已經填過了、過期了，或者門店取消了它。請直接聯絡門店。',
+  'link.callShop': '打給門店',
 };
 
 const DICTS: Record<Locale, Dict> = {

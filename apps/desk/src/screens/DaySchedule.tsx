@@ -9,6 +9,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { makeT } from '../i18n';
+import { Badge } from '../ui/Badge';
+import { Card } from '../ui/Card';
 
 export interface DayStaff {
   membershipId: string; name: string; isBookable: boolean;
@@ -109,17 +111,17 @@ export function DaySchedule({
 
   if (cols.length === 0) {
     return (
-      <div className="card" style={{ padding: 28, textAlign: 'center', margin: 16 }}>
-        <div className="muted">今天没有可排单的技师</div>
-        <div className="tiny" style={{ marginTop: 6 }}>
+      <Card style={{ padding: 28, textAlign: 'center', margin: 16 }}>
+        <div className="text-ink-2">今天没有可排单的技师</div>
+        <div className="text-xs text-ink-3 mt-1.5">
           在「员工」里把接客的人打开「可被排单」
         </div>
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className="card" style={{ overflow: 'hidden', margin: '0 16px 16px' }}>
+    <Card className="mx-4 mb-4 overflow-hidden">
       {/* 表头：技师 + 他今天的角色状态 */}
       <div style={{
         display: 'grid', gridTemplateColumns: `62px repeat(${cols.length}, minmax(150px, 1fr))`,
@@ -128,22 +130,21 @@ export function DaySchedule({
       }}>
         <div style={{ height: HEAD_H, borderRight: '1px solid var(--line)' }} />
         {cols.map((s) => (
-          <div key={s.membershipId} className="stack"
-               style={{ height: HEAD_H, padding: '8px 10px', gap: 3,
+          <div key={s.membershipId} className="flex flex-col gap-[3px]" style={{ height: HEAD_H, padding: '8px 10px', 
                         borderRight: '1px solid var(--line)', justifyContent: 'center' }}>
-            <div className="row" style={{ gap: 6 }}>
-              <strong className="truncate" style={{ fontSize: 'var(--text-lg)' }}>{s.name}</strong>
+            <div className="flex items-center gap-1.5">
+              <strong className="truncate text-lg">{s.name}</strong>
               {s.maxConcurrent > 1 && (
-                <span className="badge badge-mute" title="可同时接多单（做手时脚在泡）">
+                <Badge tone="mute" title="可同时接多单（做手时脚在泡）">
                   ×{s.maxConcurrent}
-                </span>
+                </Badge>
               )}
             </div>
             {/* 「参与轮牌」是每天变的，必须一眼看到（决策 20） */}
-            <span className={s.inRotation ? 'badge badge-ok' : 'badge badge-mute'}
+            <Badge tone={s.inRotation ? 'ok' : 'mute'}
                   style={{ alignSelf: 'flex-start' }}>
               {s.inRotation ? '● 排轮牌' : '○ 只接点钟'}
-            </span>
+            </Badge>
           </div>
         ))}
       </div>
@@ -156,7 +157,7 @@ export function DaySchedule({
           {/* 时间轴 */}
           <div style={{ borderRight: '1px solid var(--line)', position: 'relative' }}>
             {hours.map((m) => (
-              <div key={m} className="tiny" style={{
+              <div key={m} className="text-xs text-ink-3" style={{
                 position: 'absolute', top: (m - day.openMin) * PX_PER_MIN - 8,
                 right: 8, fontVariantNumeric: 'tabular-nums',
               }}>{hhmm(m)}</div>
@@ -193,7 +194,7 @@ export function DaySchedule({
                   const h = Math.max(it.durationMin * PX_PER_MIN, 34);
                   const w = 100 / lanes;
                   return (
-                    <div key={it.itemId} className="stack"
+                    <div key={it.itemId} className="flex flex-col gap-3"
                          role={readOnly ? undefined : 'button'}
                          tabIndex={readOnly ? undefined : 0}
                          aria-label={`${it.customerName} ${it.serviceName}，点开可改时间或取消`}
@@ -213,14 +214,14 @@ export function DaySchedule({
                              ? '2px dashed var(--warn)' : '1px solid var(--brand)',
                            background: it.overbooked ? 'var(--warn-soft)' : 'var(--brand-soft)',
                          }}>
-                      <div className="row" style={{ gap: 5 }}>
+                      <div className="flex items-center gap-1.25">
                         {it.overbooked && <span title={`超卖放行：${it.overbookReason}`}>⚠️</span>}
                         {it.isRequest && <span title="点钟单">★</span>}
-                        <strong className="truncate" style={{ fontSize: 'var(--text-sm)' }}>
+                        <strong className="truncate text-xs">
                           {it.customerName}
                         </strong>
                       </div>
-                      <div className="truncate tiny">{it.serviceName}</div>
+                      <div className="truncate text-xs text-ink-3">{it.serviceName}</div>
                     </div>
                   );
                 })}
@@ -235,22 +236,22 @@ export function DaySchedule({
               top: (nowMin - day.openMin) * PX_PER_MIN,
               borderTop: '2px solid var(--danger)', zIndex: 2, pointerEvents: 'none',
             }}>
-              <span className="badge badge-danger" style={{
+              <Badge tone="danger" style={{
                 position: 'absolute', left: -58, top: -13, fontSize: 12,
-              }}>{hhmm(nowMin)}</span>
+              }}>{hhmm(nowMin)}</Badge>
             </div>
           )}
         </div>
       </div>
 
-      <div className="row tiny" style={{ padding: '8px 12px', gap: 16, borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
+      <div className="flex items-center text-xs text-ink-3 gap-4" style={{ padding: '8px 12px',  borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
         <span>{readOnly ? '断网中 · 只能查看' : '点空白处建单 · 点单子改时间或取消'}</span>
         <span>★ 点钟单</span>
         <span>⚠️ 虚线 = 超卖放行</span>
         <span>● 排轮牌 / ○ 只接点钟</span>
-        <span className="grow" />
+        <span className="min-w-0 flex-1" />
         <span>{t('common.loading') === 'Loading…' ? day.businessDate : `营业日 ${day.businessDate}`}</span>
       </div>
-    </div>
+    </Card>
   );
 }

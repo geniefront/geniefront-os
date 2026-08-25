@@ -16,6 +16,11 @@
 
 import { useState } from 'react';
 import { ApiError, runCommand } from '../lib/api';
+import { Button } from '../ui/Button';
+import { Field } from '../ui/Field';
+import { Alert } from '../ui/Alert';
+import { Card } from '../ui/Card';
+import { Spinner } from '../ui/Spinner';
 
 export interface PlanConfig {
   version: number;
@@ -52,21 +57,21 @@ export function PayrollPlans({
   const [editing, setEditing] = useState<{ id: string | null; name: string } | null>(null);
 
   return (
-    <div className="stack" style={{ gap: 14 }}>
-      <div className="card stack" style={{ padding: 14, gap: 8 }}>
+    <div className="flex flex-col gap-3.5">
+      <Card className="flex flex-col p-3.5 gap-2">
         <strong>改了只影响以后的单</strong>
-        <div className="tiny" style={{ lineHeight: 1.7 }}>
+        <div className="text-xs text-ink-3" style={{ lineHeight: 1.7 }}>
           今天之前算好的收入<strong>一分都不会变</strong>。技师每天下班都会看一次
           自己的收入，改一次提成率就把上周的数字改掉的话，这个表就没人信了。
           <br />
           所以：改完之后<strong>只有新开的单</strong>按新方案算。
         </div>
-      </div>
+      </Card>
 
       <PlanRow label="门店默认（新人自动套用）" plan={data.defaultPlan}
                onEdit={() => setEditing({ id: null, name: '门店默认' })} />
 
-      <div className="tiny muted" style={{ marginTop: 4 }}>逐人覆盖（没设的跟门店默认走）</div>
+      <div className="text-xs text-ink-3 text-ink-2 mt-1">逐人覆盖（没设的跟门店默认走）</div>
       {data.staff.map((s) => (
         <PlanRow key={s.membershipId} label={s.name} plan={s.plan}
                  onEdit={() => setEditing({ id: s.membershipId, name: s.name })} />
@@ -91,10 +96,10 @@ function PlanRow({ label, plan, onEdit }: {
   label: string; plan: PlanConfig | null; onEdit: () => void;
 }) {
   return (
-    <div className="card row" style={{ padding: '14px 16px', gap: 12 }}>
-      <div className="grow stack" style={{ gap: 3, minWidth: 0 }}>
+    <Card className="flex items-center py-3.5 px-4 gap-3">
+      <div className="flex min-w-0 flex-1 flex-col gap-[3px]" style={{ minWidth: 0 }}>
         <strong className="truncate">{label}</strong>
-        <div className="tiny">
+        <div className="text-xs text-ink-3">
           {plan ? (
             <>
               {KINDS.find((k) => k.v === plan.kind)?.label ?? plan.kind}
@@ -104,15 +109,15 @@ function PlanRow({ label, plan, onEdit }: {
               {' · '}按{plan.base === 'gross' ? '原价' : '折后'}算
               {plan.categoryRateBp && Object.keys(plan.categoryRateBp).length > 0
                 ? ` · ${Object.keys(plan.categoryRateBp).length} 个分类另定` : ''}
-              <span className="muted"> · 第 {plan.version} 版</span>
+              <span className="text-ink-2"> · 第 {plan.version} 版</span>
             </>
-          ) : <span className="muted">还没设 —— 跟门店默认走</span>}
+          ) : <span className="text-ink-2">还没设 —— 跟门店默认走</span>}
         </div>
       </div>
-      <button className="btn" style={{ minHeight: 44 }} onClick={onEdit}>
+      <Button style={{ minHeight: 44 }} onClick={onEdit}>
         {plan ? '改' : '设一个'}
-      </button>
-    </div>
+      </Button>
+    </Card>
   );
 }
 
@@ -173,42 +178,42 @@ function PlanSheet({
       position: 'fixed', inset: 0, background: 'rgba(20,18,16,.45)',
       display: 'grid', placeItems: 'end center', zIndex: 55,
     }} onClick={onCancel}>
-      <div className="card stack" onClick={(e) => e.stopPropagation()}
+      <Card className="flex flex-col gap-3" onClick={(e) => e.stopPropagation()}
            style={{ width: 'min(620px,100%)', maxHeight: '92vh', overflow: 'auto',
                     padding: 24, gap: 16, borderRadius: '18px 18px 0 0' }}>
-        <div style={{ fontSize: 'var(--text-xl)', fontWeight: 800 }}>{who.name} 的提成方案</div>
+        <div className="text-xl font-extrabold">{who.name} 的提成方案</div>
 
-        {err && <div className="badge badge-danger" style={{ padding: '10px 14px' }}>✕ {err}</div>}
+        {err && <Alert tone="danger">{err}</Alert>}
 
-        <div className="stack" style={{ gap: 8 }}>
+        <div className="flex flex-col gap-2">
           {KINDS.map((k) => (
-            <button key={k.v} className="btn" onClick={() => setKind(k.v)}
+            <Button key={k.v} onClick={() => setKind(k.v)}
                     style={{
                       minHeight: 'var(--tap)', textAlign: 'left', borderWidth: 2,
                       borderColor: kind === k.v ? 'var(--brand)' : 'var(--line)',
                       background: kind === k.v ? 'var(--brand-soft)' : 'var(--surface)',
                     }}>
-              <strong>{k.label}</strong> <span className="tiny">· {k.hint}</span>
-            </button>
+              <strong>{k.label}</strong> <span className="text-xs text-ink-3">· {k.hint}</span>
+            </Button>
           ))}
         </div>
 
-        <div className="row" style={{ gap: 12 }}>
-          <label className="stack grow" style={{ gap: 6 }}>
-            <span className="tiny">服务提成（%）</span>
-            <input className="field field-mono" inputMode="decimal" value={rate}
+        <div className="flex items-center gap-3">
+          <label className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <span className="text-xs text-ink-3">服务提成（%）</span>
+            <Field mono  inputMode="decimal" value={rate}
                    placeholder="45" onChange={(e) => setRate(e.target.value)} />
           </label>
           {needsHourly && (
-            <label className="stack grow" style={{ gap: 6 }}>
-              <span className="tiny">时薪（美元）</span>
-              <input className="field field-mono" inputMode="decimal" value={hourly}
+            <label className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <span className="text-xs text-ink-3">时薪（美元）</span>
+              <Field mono  inputMode="decimal" value={hourly}
                      placeholder="16.00" onChange={(e) => setHourly(e.target.value)} />
             </label>
           )}
-          <label className="stack grow" style={{ gap: 6 }}>
-            <span className="tiny">零售提成（%）</span>
-            <input className="field field-mono" inputMode="decimal" value={retail}
+          <label className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <span className="text-xs text-ink-3">零售提成（%）</span>
+            <Field mono  inputMode="decimal" value={retail}
                    placeholder="10" onChange={(e) => setRetail(e.target.value)} />
           </label>
         </div>
@@ -219,45 +224,42 @@ function PlanSheet({
           等于替老板做了一个他没意识到自己做过的决定，而技师会在第一次
           发工资时发现，然后来找他吵。
         */}
-        <div className="card stack" style={{ padding: 14, gap: 10,
-             background: base === null ? 'var(--warn-soft)' : 'var(--surface)',
-             borderColor: base === null ? 'var(--warn)' : 'var(--line)' }}>
+        <Card className="flex flex-col gap-2.5" style={{ padding: 14,  background: base === null ? 'var(--warn-soft)' : 'var(--surface)', borderColor: base === null ? 'var(--warn)' : 'var(--line)' }}>
           <strong>打折的单，提成按哪个数算？</strong>
-          <div className="tiny" style={{ lineHeight: 1.6 }}>
+          <div className="text-xs text-ink-3" style={{ lineHeight: 1.6 }}>
             $100 的活打八折收了 $80 —— 按 <strong>$80</strong> 给提成（折扣店里出），
             还是按 <strong>$100</strong>（折扣算店里让的，不影响技师）？
             <br />这一条最好开店时就跟技师说清楚。
           </div>
-          <div className="row" style={{ gap: 10 }}>
+          <div className="flex items-center gap-2.5">
             {([['net', '按折后（$80）'], ['gross', '按原价（$100）']] as const).map(([v, l]) => (
-              <button key={v} className="btn grow" onClick={() => setBase(v)}
+              <Button className="min-w-0 flex-1" key={v} onClick={() => setBase(v)}
                       style={{
                         minHeight: 'var(--tap)', borderWidth: 2,
                         borderColor: base === v ? 'var(--brand)' : 'var(--line)',
                         background: base === v ? 'var(--brand-soft)' : 'var(--surface)',
-                      }}>{l}</button>
+                      }}>{l}</Button>
             ))}
           </div>
-        </div>
+        </Card>
 
         {categories.length > 0 && (
-          <div className="stack" style={{ gap: 8 }}>
-            <button className="btn" style={{ minHeight: 40 }}
-                    onClick={() => setShowCats((v) => !v)}>
+          <div className="flex flex-col gap-2">
+            <Button style={{ minHeight: 40 }} onClick={() => setShowCats((v) => !v)}>
               分类单独定提成（{Object.values(catRates).filter((v) => v.trim() !== '').length} 个）
               {showCats ? ' 收起' : ' 展开'}
-            </button>
+            </Button>
             {showCats && (
-              <div className="stack" style={{ gap: 8 }}>
-                <div className="tiny">留空 = 用上面的服务提成。蜡疗、贴片这类毛利高的常单独定。</div>
+              <div className="flex flex-col gap-2">
+                <div className="text-xs text-ink-3">留空 = 用上面的服务提成。蜡疗、贴片这类毛利高的常单独定。</div>
                 {categories.map((c) => (
-                  <label key={c.id} className="row" style={{ gap: 10 }}>
-                    <span className="grow truncate tiny">{c.name}</span>
-                    <input className="field field-mono" inputMode="decimal"
+                  <label key={c.id} className="flex items-center gap-2.5">
+                    <span className="min-w-0 flex-1 truncate text-xs text-ink-3">{c.name}</span>
+                    <Field mono  inputMode="decimal"
                            style={{ width: 90 }} placeholder={rate}
                            value={catRates[c.id] ?? ''}
                            onChange={(e) => setCatRates((o) => ({ ...o, [c.id]: e.target.value }))} />
-                    <span className="tiny">%</span>
+                    <span className="text-xs text-ink-3">%</span>
                   </label>
                 ))}
               </div>
@@ -265,16 +267,14 @@ function PlanSheet({
           </div>
         )}
 
-        <div className="row" style={{ gap: 10 }}>
-          <button className="btn grow" style={{ minHeight: 'var(--tap)' }}
-                  onClick={onCancel}>取消</button>
-          <button className="btn btn-primary grow" disabled={busy || !ok}
-                  style={{ minHeight: 'var(--tap)' }} onClick={() => void save()}>
-            {busy ? <span className="spin" />
+        <div className="flex items-center gap-2.5">
+          <Button className="min-w-0 flex-1" style={{ minHeight: 'var(--tap)' }} onClick={onCancel}>取消</Button>
+          <Button variant="primary" className="min-w-0 flex-1" disabled={busy || !ok} style={{ minHeight: 'var(--tap)' }} onClick={() => void save()}>
+            {busy ? <Spinner />
               : base === null ? '先回答上面那一问' : '保存（只影响以后的单）'}
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }
