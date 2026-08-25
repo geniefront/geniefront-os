@@ -61,6 +61,28 @@ export const phoneLines = pgTable('phone_lines', {
   purpose: text('purpose').notNull().default('ai_voice'),
   /** Telnyx 那边的 assistant id。一家店一个，可以配不同开场白 */
   assistantId: text('assistant_id'),
+
+  // ── 话术，全部由老板在后台改（sql/0041，批 3）─────────────────────────
+  /** AI 自报家门用的名字（"This is Emily"）。空 = 不报名字 */
+  assistantName: text('assistant_name'),
+  /**
+   * 开场白模板。变量 `{{store_name}}` / `{{caller_name}}` / `{{assistant_name}}`。
+   * 空 = 用系统默认。
+   *
+   * ⭐ `greetingAiGenerated = true` 时这一列的含义变成**语气参考**而不是
+   * 逐字稿 —— 模型按它的调子自己组织，会带上时段（早上/晚上）和
+   * 「是不是老客」这类现编不出来的上下文。
+   */
+  greetingTemplate: text('greeting_template'),
+  greetingAiGenerated: boolean('greeting_ai_generated').notNull().default(false),
+  /**
+   * 这条线今天让不让 AI 接。
+   *
+   * ⚠️ 和 `active` 不是一回事：`active = false` 是「这个号不再属于本店」，
+   * 反查会查不到它；`aiAnswer = false` 是「号还在、还能反查、但今天先别让
+   * AI 接」—— 后者是个日常开关（今天前台人手够，或者 AI 说错话了先关掉）。
+   */
+  aiAnswer: boolean('ai_answer').notNull().default(true),
   /**
    * ⭐ 电话工具的第二把钥匙（sql/0036）。**只存摘要**，明文只在
    * `location.savePhoneLine` 的返回里出现一次。
@@ -193,7 +215,22 @@ export const callDrafts = pgTable('call_drafts', {
   reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
   /** 忽略时必选原因 —— 「AI 到底准不准」只能靠这个统计（05 §9） */
   dismissReason: text('dismiss_reason'),
+  /**
+   * new | reschedule | cancel（sql/0041，批 3）。
+   *
+   * 改期和取消也走这条队列 —— 和新建同一个思路：**AI 提请求，人拍板**。
+   * 但闸门比新建严得多，因为 AI 建错单只是往待办里塞垃圾，
+   * AI 取消错单是把真实的生意删掉（见 telnyx/routes.ts §aiChangeGate）。
+   */
+  kind: text('kind').notNull().default('new'),
+  /** 改期/取消指向的那一单 */
+  targetAppointmentId: uuid('target_appointment_id').references(() => appointments.id),
+  /** AI 听到的原话。前台复核时要看见原话，不能只看结构化结果 */
+  requestedText: text('requested_text'),
+  /** 哪一条闸把它拦下来了。前台要知道原因，否则只能猜 */
+  gateReason: text('gate_reason'),
   createdAt: createdAt(),
 }, (t) => [
   index('call_drafts_queue_idx').on(t.locationId, t.status, t.createdAt),
 ]);
+

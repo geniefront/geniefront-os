@@ -666,3 +666,71 @@ TELNYX_ASSISTANT_ID         # AI Assistant 的 id
 ⚠️ **`TELNYX_PUBLIC_KEY` 最容易被忽略** —— 它不是用来调 API 的，
 是用来**验证打进来的 webhook 是不是真的来自 Telnyx**。
 没有它，§3 里说的那个安全要害就是敞开的。
+
+---
+
+## ⭐ AI 改期与取消（批 3，2026-08-25）
+
+**推翻了原来那条「AI 只能建，不能改不能删」。** 那条的理由是
+「建错一单可以补救，被静默改掉的单没人会发现」—— 顾虑本身成立，
+所以这一版不是把它划掉，是专门去堵它。
+
+### 条件全部由老板设，代码里一个数字都不写死
+
+存 `locations.settings.ai_change`，命令 `location.saveAiChangePolicy`。
+理由：一家两个技师的小店和一家二十人的店，对「AI 自作主张取消一单」的
+容忍度差一个数量级。写死一套判据，两边都只能来找我们改代码。
+
+| 键 | 默认 | 含义 |
+| :--- | :--- | :--- |
+| `enabled` | **false** | 总开关。⭐ 没进过这一页的店，AI **一律只能提请求** |
+| `allow_reschedule` | true | 分开控制 —— 有的店愿意让 AI 改期但绝不让它取消 |
+| `allow_cancel` | **false** | 同上 |
+| `require_exact_caller` | true | 来电号码必须和单子上的手机号**精确相等**。不做模糊匹配、不做姓名匹配 |
+| `require_single_upcoming` | true | 名下将来只有一个未开始的单时才许直接动 |
+| `min_hours_ahead` | 24 | 距开始至少多少小时。0 = 不限 |
+| `block_group` | true | 组单一律落队列（两个人一起来，改一个要问另一个） |
+| `block_same_day` | true | 今天的单一律转人，哪怕满足小时数 |
+
+### 三个新 tool
+
+| tool | 说明 |
+| :--- | :--- |
+| `find_my_appointment` | 只读。名下多于一单时 **guidance 明确要求 AI 在电话里问是哪一个** —— 替他挑一个的后果是改错单，而客人当天才发现 |
+| `reschedule_appointment` | 闸门全过才真改，否则落复核队列 |
+| `cancel_appointment` | 同上 |
+
+拦下时返回 `applied: false` + `gateReason`，AI 说的是
+「已转前台，**您的预约现在还在**」—— 措辞在代码里定死，
+让模型自己组织的话它会说成「已经帮您取消了」。
+
+### 「静默」那一半靠什么堵
+
+1. 每一次变更都是一条命令 → 有审计（谁、何时、从哪个时间改到哪个）
+2. 前台「☎️ 待复核」里看得到被拦下的请求**和拦它的理由**（`gate_reason`）
+3. ⚠️ **客人侧的变更通知留到批 7**（通知模板）——
+   在批 7 落地之前，AI 改期/取消**不会**通知客人。
+   给店家开这个开关时必须说清楚这一点。
+
+---
+
+## 每条线的话术可配（批 3）
+
+`phone_lines` 上四列，`location.savePhoneLine` 写：
+
+| 列 | 说明 |
+| :--- | :--- |
+| `assistant_name` | AI 自报家门的名字（"This is Emily"）。空 = 不报名字 |
+| `greeting_template` | 开场白。变量 `{{store_name}}` / `{{caller_name}}` / `{{assistant_name}}` |
+| `greeting_ai_generated` | ⭐ 开了之后 `greeting_template` 从**逐字稿**变成**语气参考** —— 模型按那个调子自己组织，能带上时段和「是不是老客」 |
+| `ai_answer` | 这条线今天让不让 AI 接。**和 `active` 不是一回事**：`active=false` 是「这号不属于本店」（反查查不到），这个是日常开关 |
+
+`start_call` 的返回里多一个 `greeting` 对象，`mode` 三选一：
+`verbatim`（一字不改地念）/ `generate`（按语气参考自己组织）/ `default`。
+
+⚠️ **我们这边不调模型生成欢迎语。** 这段话要在客人拿起电话的第一秒说出口，
+多一次我们的模型往返就是一秒半的静默，而那一秒客人会以为没接通。
+生成交给 Telnyx 那边的 assistant，我们只把原料和用法给它。
+
+⚠️ 话术四列是**没传就不动**（和 `tool_token_digest` 同一个道理）——
+前台改个转接方式不该把老板调过的开场白清空。要清空得**显式传 null**。

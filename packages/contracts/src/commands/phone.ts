@@ -69,6 +69,26 @@ export const DraftFromCall = defineCommand({
     confidenceBp: z.number().int().min(0).max(10000).default(10000),
     /** 给前台看的一两句话。**不要塞整段转录** —— 那是个人信息，也没人会读 */
     notes: z.string().max(1000).optional(),
+
+    // ── 改期 / 取消也走这条队列（批 3，sql/0041）──────────────────────────
+    /**
+     * `new`（默认）/ `reschedule` / `cancel`。
+     *
+     * 同一条队列装三种请求，因为前台面对的是同一件事：
+     * 「AI 提了一个要求，我确认一下」。分成三张表只会让她要看三个地方。
+     */
+    kind: z.enum(['new', 'reschedule', 'cancel']).default('new'),
+    /** 改期 / 取消指向的那一单 */
+    targetAppointmentId: uuid.nullable().optional(),
+    /** AI 听到的原话（「能不能改到周六下午」）。前台复核时要看见原话 */
+    requestedText: z.string().max(500).nullable().optional(),
+    /**
+     * 哪一条闸把它拦下来了，没拦就不填。
+     *
+     * 前台看到「AI 本来想直接取消，但因为『名下有两个单』没敢动」
+     * 和只看到一条待办，处理速度差很多。
+     */
+    gateReason: z.string().max(60).nullable().optional(),
   }),
   output: z.object({ draftId: uuid, queuedAt: z.string() }),
   permission: 'call.draft',
@@ -228,6 +248,29 @@ export const SavePhoneLine = defineCommand({
      * 否则那家店的电话当场全 401。
      */
     rotateToolToken: z.boolean().default(false),
+
+    // ── 话术，全部老板可改（批 3，sql/0041）───────────────────────────────
+    /** AI 自报家门的名字。空字符串 = 不报名字 */
+    assistantName: z.string().max(60).nullable().optional(),
+    /**
+     * 开场白。支持 `{{store_name}}` / `{{caller_name}}` / `{{assistant_name}}`。
+     * 不传 = 不动；传 null = 清空回系统默认。
+     */
+    greetingTemplate: z.string().max(600).nullable().optional(),
+    /**
+     * ⭐ 让 AI 自己生成欢迎语。
+     *
+     * 打开之后 `greetingTemplate` 从「逐字稿」变成「语气参考」——
+     * 模型按它的调子自己组织，能带上时段（早上/晚上）和「是不是老客」
+     * 这类写死在模板里做不到的上下文。
+     */
+    greetingAiGenerated: z.boolean().optional(),
+    /**
+     * 这条线今天让不让 AI 接。**和 `active` 不是一回事**：
+     * `active=false` 是「这号不再属于本店」（反查会查不到），
+     * 这个是日常开关（今天人手够，或者 AI 说错话了先关掉）。
+     */
+    aiAnswer: z.boolean().optional(),
   }),
   output: z.object({
     e164: z.string(),
@@ -308,6 +351,52 @@ export const RequestAiVoice = defineCommand({
   idempotency: 'optional',
 });
 
+
+/**
+ * ⭐ AI 在电话里能不能**直接**改期 / 取消，以及要满足什么条件（批 3）。
+ *
+ * ## 为什么这一整组是可配的，不是写死的
+ *
+ * 一家两个技师的小店和一家二十人的店，对「AI 自作主张取消一单」的
+ * 容忍度差一个数量级。写死一套判据，小店嫌太松、大店嫌太紧，
+ * 而两边都只能来找我们改代码。
+ *
+ * ## 默认值刻意保守
+ *
+ * `enabled = false` —— 没进过这一页的店，AI **一律只落复核队列**。
+ * 这条默认值不能反过来：一个从没配置过的店，不该因为装了我们的系统
+ * 就突然获得「AI 可以挂掉客人的单」这个能力。
+ */
+export const SaveAiChangePolicy = defineCommand({
+  name: 'location.saveAiChangePolicy',
+  input: z.object({
+    /** 总开关。关着的时候下面所有条件都不看，一律进复核队列 */
+    enabled: z.boolean(),
+    /** 分开控制 —— 有的店愿意让 AI 改期，但绝不让它取消 */
+    allowReschedule: z.boolean().default(true),
+    allowCancel: z.boolean().default(false),
+    /** 来电号码必须和单子上的手机号精确相等。**不做模糊匹配、不做姓名匹配** */
+    requireExactCaller: z.boolean().default(true),
+    /** 名下将来只有一个未开始的单时才允许直接动（有两个必须人来确认改哪个） */
+    requireSingleUpcoming: z.boolean().default(true),
+    /** 距开始至少多少小时。0 = 不限 */
+    minHoursAhead: z.number().int().min(0).max(168).default(24),
+    /** 组单一律落队列 —— 两个人一起来，改一个要问另一个 */
+    blockGroup: z.boolean().default(true),
+    /** 今天的单一律转人，哪怕满足小时数 */
+    blockSameDay: z.boolean().default(true),
+  }),
+  output: z.object({ locationId: uuid, enabled: z.boolean() }),
+  permission: 'settings.manage',
+  ai: {
+    description: '设置 AI 电话能不能直接改期或取消，以及需要满足的条件。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
 export const PHONE_COMMANDS = [
-  DraftFromCall, ReviewCallDraft, RecordCall, AttachCallTranscript, SavePhoneLine, RequestAiVoice,
+  DraftFromCall, ReviewCallDraft, RecordCall, AttachCallTranscript, SavePhoneLine,
+  RequestAiVoice, SaveAiChangePolicy,
 ] as const;

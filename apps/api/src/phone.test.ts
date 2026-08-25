@@ -12,7 +12,7 @@
  *   · 号码没绑门店时会不会落到一个猜出来的租户上（不会，404）
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { randomUUID, generateKeyPairSync, sign as edSign, createHash } from 'node:crypto';
 import { withTenant, closeDb, tenantForPhoneNumber } from '@gf/db';
 import { buildContext } from './actor';
@@ -1079,5 +1079,241 @@ describe('通话计费', () => {
     const ev = await recordWithRate(undefined, 60);
     expect(ev.cost_cents).toBe(0);
     expect(ev.meta['unitPricePending']).toBe(true);
+  });
+});
+
+// ═════════════════════════════════ AI 改期 / 取消（批 3）══════════════════
+
+describe('AI 电话改期与取消', () => {
+  const CALLER = '+16175559911';
+
+  /** 造一单：客人 + 未来的预约。返回 appointmentId */
+  let apptSeq = 0;
+  async function makeAppt(startsAt: string, phone = CALLER): Promise<string> {
+    /*
+     * ⚠️ 名字要每次不同：`customers_no_exact_dup` 挡的正是
+     * 「同号同名重复建客户」（宪法第 16 条的另一半）。
+     * 这几条用例要的是「同一个号码名下有两个单」，而那在真实场景里
+     * 也是同一个客户 —— 但为了让 insert 过得去，这里各建各的。
+     */
+    const [cust] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      insert into customers (org_id, primary_location_id, display_name, phone_e164)
+      values (${NAIL_ORG}, ${NAIL_LOC}, ${`AI 改期测试 ${++apptSeq}`}, ${phone})
+      returning id`);
+    const out = await run<{ appointmentId: string }>('appointment.create', {
+      customerId: cust!.id,
+      items: [{ serviceId: catalog[0]!.id, addonIds: [], membershipId: null,
+                startsAt, details: {} }],
+      partySize: 1, source: 'phone_ai',
+    });
+    return out.appointmentId;
+  }
+
+  const setPolicy = (over: Record<string, unknown> = {}) =>
+    run('location.saveAiChangePolicy', {
+      enabled: true, allowReschedule: true, allowCancel: true,
+      requireExactCaller: true, requireSingleUpcoming: true,
+      minHoursAhead: 24, blockGroup: true, blockSameDay: true, ...over,
+    });
+
+  afterEach(async () => {
+    /*
+     * 每条用例自己收拾。**顺序不能反**：
+     * call_drafts.target_appointment_id → appointments → customers，
+     * 每一层都指着下一层。反过来第一条 delete 就会撞外键，
+     * 而撞了之后残留的单会让下一条用例的「名下只有一单」失真 ——
+     * 表现是一串莫名其妙的 multiple_upcoming。
+     */
+    await withTenant(tenant, (tx) => tx`
+      delete from call_drafts cd using appointments a, customers c
+      where cd.target_appointment_id = a.id and a.customer_id = c.id
+        and a.location_id = ${NAIL_LOC} and c.display_name::text like '%AI 改期测试%'`);
+    await withTenant(tenant, (tx) => tx`
+      delete from appointments a using customers c
+      where a.customer_id = c.id and a.location_id = ${NAIL_LOC}
+        and c.display_name::text like '%AI 改期测试%'`);
+    await withTenant(tenant, (tx) => tx`
+      delete from customers where org_id = ${NAIL_ORG}
+        and display_name::text like '%AI 改期测试%'`);
+  });
+
+  it('⭐ 默认 enabled=false —— 没配过的店，AI 一律只能提请求', async () => {
+    await run('location.saveAiChangePolicy', {
+      enabled: false, allowReschedule: true, allowCancel: true,
+      requireExactCaller: true, requireSingleUpcoming: true,
+      minHoursAhead: 0, blockGroup: false, blockSameDay: false,
+    });
+    const id = await makeAppt(noonAt(DAY_LATER));
+
+    const res = await telnyxCall('/v1/telnyx/tools/cancel_appointment',
+      { to: AI_LINE, from: CALLER, appointment_id: id });
+    const body = res.json();
+    expect(body.applied).toBe(false);
+    expect(body.gateReason).toBe('disabled');
+
+    // ⭐ 那一单必须还在
+    const [row] = await withTenant(tenant, (tx) => tx<{ status: string }[]>`
+      select status from appointments where id = ${id}`);
+    expect(row!.status).not.toBe('cancelled');
+  });
+
+  it('⭐ 闸门全过 → AI 真的取消掉', async () => {
+    await setPolicy();
+    const id = await makeAppt(noonAt(DAY_LATER));
+
+    const res = await telnyxCall('/v1/telnyx/tools/cancel_appointment',
+      { to: AI_LINE, from: CALLER, appointment_id: id });
+    expect(res.json().applied).toBe(true);
+
+    const [row] = await withTenant(tenant, (tx) => tx<{ status: string }[]>`
+      select status from appointments where id = ${id}`);
+    expect(row!.status).toBe('cancelled');
+  });
+
+  it('⭐ 号码对不上 → 落队列，绝不动那一单', async () => {
+    await setPolicy();
+    const id = await makeAppt(noonAt(DAY_LATER));
+
+    const res = await telnyxCall('/v1/telnyx/tools/cancel_appointment',
+      { to: AI_LINE, from: '+16175550000', appointment_id: id });
+    const body = res.json();
+    expect(body.applied).toBe(false);
+    // 号码不属于任何一单 → 连 upcoming 都查不到，报 not_found 而不是 caller_mismatch
+    expect(['caller_mismatch', 'not_found']).toContain(body.gateReason);
+
+    const [row] = await withTenant(tenant, (tx) => tx<{ status: string }[]>`
+      select status from appointments where id = ${id}`);
+    expect(row!.status).not.toBe('cancelled');
+  });
+
+  it('⭐ 名下两个单 → 必落队列，不许替他挑一个', async () => {
+    await setPolicy();
+    const a = await makeAppt(noonAt(DAY_LATER));
+    await makeAppt(new Date(new Date(noonAt(DAY_LATER)).getTime() + 3 * 3600_000).toISOString());
+
+    const res = await telnyxCall('/v1/telnyx/tools/cancel_appointment',
+      { to: AI_LINE, from: CALLER, appointment_id: a });
+    expect(res.json().applied).toBe(false);
+    expect(res.json().gateReason).toBe('multiple_upcoming');
+  });
+
+  it('⭐ 老板允许改期但不允许取消 —— 两个开关分别生效', async () => {
+    await setPolicy({ allowCancel: false, allowReschedule: true });
+    const id = await makeAppt(noonAt(DAY_LATER));
+
+    const no = await telnyxCall('/v1/telnyx/tools/cancel_appointment',
+      { to: AI_LINE, from: CALLER, appointment_id: id });
+    expect(no.json().applied).toBe(false);
+    expect(no.json().gateReason).toBe('not_allowed');
+
+    const yes = await telnyxCall('/v1/telnyx/tools/reschedule_appointment', {
+      to: AI_LINE, from: CALLER, appointment_id: id,
+      slot_starts_at: new Date(new Date(noonAt(DAY_LATER)).getTime() + 2 * 3600_000).toISOString(),
+    });
+    expect(yes.json().applied).toBe(true);
+  });
+
+  it('⭐ 提前小时数不够 → 落队列（阈值是老板设的，不是写死的）', async () => {
+    /*
+     * ⚠️ 用一个**两小时后**的单，不是三周后那个。
+     * 阈值上限是 168 小时（7 天），而 DAY_LATER 在 23 天之后 ——
+     * 拿它去试 minHoursAhead 永远够，测不出这道闸。
+     */
+    await setPolicy({ minHoursAhead: 24, blockSameDay: false });
+    const id = await makeAppt(new Date(Date.now() + 2 * 3600_000).toISOString());
+
+    const res = await telnyxCall('/v1/telnyx/tools/cancel_appointment',
+      { to: AI_LINE, from: CALLER, appointment_id: id });
+    expect(res.json().applied).toBe(false);
+    expect(res.json().gateReason).toBe('too_soon');
+
+    // 把阈值放宽到 1 小时，同一单就放行了 —— 证明拦下它的确实是这个数
+    await setPolicy({ minHoursAhead: 1, blockSameDay: false });
+    const ok = await telnyxCall('/v1/telnyx/tools/cancel_appointment',
+      { to: AI_LINE, from: CALLER, appointment_id: id });
+    expect(ok.json().applied).toBe(true);
+  });
+
+  it('find_my_appointment：名下多于一单时 guidance 要求 AI 先问', async () => {
+    await makeAppt(noonAt(DAY_LATER));
+    await makeAppt(new Date(new Date(noonAt(DAY_LATER)).getTime() + 3 * 3600_000).toISOString());
+
+    const res = await telnyxCall('/v1/telnyx/tools/find_my_appointment',
+      { to: AI_LINE, from: CALLER });
+    expect(res.json().appointments).toHaveLength(2);
+    expect(res.json().guidance).toMatch(/ask which one/i);
+  });
+
+  it('落队列的那条带着 kind 和 gate_reason，前台看得出是哪条闸拦的', async () => {
+    await setPolicy({ enabled: false });
+    const id = await makeAppt(noonAt(DAY_LATER));
+    await telnyxCall('/v1/telnyx/tools/cancel_appointment',
+      { to: AI_LINE, from: CALLER, appointment_id: id, call_session_id: randomUUID() });
+
+    const [row] = await withTenant(tenant, (tx) => tx<{
+      kind: string; gate_reason: string | null; target_appointment_id: string | null;
+    }[]>`
+      select kind, gate_reason, target_appointment_id from call_drafts
+      where location_id = ${NAIL_LOC} and target_appointment_id = ${id}`);
+    expect(row!.kind).toBe('cancel');
+    expect(row!.gate_reason).toBe('disabled');
+  });
+});
+
+describe('开场白可配（批 3）', () => {
+  it('老板没配 → 用系统默认，mode 是 default', async () => {
+    const res = await telnyxCall('/v1/telnyx/tools/start_call', { to: AI_LINE, from: '+15125551234' });
+    const g = res.json().greeting;
+    expect(g.mode).toBe('default');
+    expect(g.text).toMatch(/Thank you for calling/);
+  });
+
+  it('⭐ 配了逐字稿 → mode=verbatim，变量被替换掉', async () => {
+    await run('location.savePhoneLine', {
+      e164: AI_LINE, purpose: 'ai_voice',
+      assistantName: 'Emily',
+      greetingTemplate: 'Hi, {{store_name}} here. {{assistant_name}} speaking.',
+    });
+    const res = await telnyxCall('/v1/telnyx/tools/start_call', { to: AI_LINE, from: '+15125551234' });
+    const g = res.json().greeting;
+    expect(g.mode).toBe('verbatim');
+    expect(g.text).toContain('Emily speaking');
+    expect(g.text).not.toContain('{{');
+  });
+
+  it('⭐ 开了 AI 生成 → mode=generate，text 变成语气参考', async () => {
+    await run('location.savePhoneLine', {
+      e164: AI_LINE, purpose: 'ai_voice',
+      greetingAiGenerated: true,
+    });
+    expect((await telnyxCall('/v1/telnyx/tools/start_call',
+      { to: AI_LINE, from: '+15125551234' })).json().greeting.mode).toBe('generate');
+  });
+
+  it('⭐ 改转接方式不该把开场白清空 —— 没传就不动', async () => {
+    await run('location.savePhoneLine', {
+      e164: AI_LINE, purpose: 'ai_voice', assistantName: 'Emily',
+      greetingTemplate: 'Keep me.', greetingAiGenerated: false,
+    });
+    // 只改一个无关字段
+    await run('location.savePhoneLine', { e164: AI_LINE, purpose: 'ai_voice' });
+
+    const g = (await telnyxCall('/v1/telnyx/tools/start_call',
+      { to: AI_LINE, from: '+15125551234' })).json().greeting;
+    expect(g.text).toBe('Keep me.');
+    expect(g.assistantName).toBe('Emily');
+  });
+
+  it('显式传 null 才是清空', async () => {
+    await run('location.savePhoneLine', {
+      e164: AI_LINE, purpose: 'ai_voice', greetingTemplate: 'Bye.', assistantName: 'Emily',
+    });
+    await run('location.savePhoneLine', {
+      e164: AI_LINE, purpose: 'ai_voice', greetingTemplate: null, assistantName: null,
+    });
+    const g = (await telnyxCall('/v1/telnyx/tools/start_call',
+      { to: AI_LINE, from: '+15125551234' })).json().greeting;
+    expect(g.mode).toBe('default');
+    expect(g.assistantName).toBeNull();
   });
 });
