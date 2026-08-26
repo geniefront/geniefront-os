@@ -55,6 +55,27 @@ GET /v1/me/locations        Authorization: Bearer <token>
 
 细节见 `18` §2.2，来龙去脉见 `12` §7。
 
+### 选完店，再问一句「我能干什么」
+
+```jsonc
+GET /v1/me/context      Authorization + X-Membership-Id
+{ "membershipId": "…", "locationId": "…", "locale": "zh-Hans",
+  "timezone": "America/New_York", "permissions": ["appointment.read", …] }
+```
+
+**按 `permissions` 画界面，不要按 `roleKeys` 推。**
+
+`roles.key` 只有五个（`owner` `manager` `front_desk` `senior_tech` `tech`，
+⚠️ 技师是 `tech` 不是 `technician`，也没有 `accountant`），
+但实际权限是 `角色预设 ∪ 个别授予 − 个别撤销`，而撤销永远赢 ——
+老板可以只撤掉某一个前台的 `ticket.discount`，**这不改她的角色**。
+照角色表画的话按钮一直亮着，点下去 403。
+
+⚠️ `roleKeys` 是**数组**：Amy 是 `['manager','tech']`（店长兼技师，这行到处都是）。
+`roleKeys[0]` 会按数组顺序把她显示成其中一个。要显示就整个渲染。
+
+详见 `18` §12.1 / §12.3。
+
 ### 忘记密码
 
 ```http

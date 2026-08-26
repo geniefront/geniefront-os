@@ -441,6 +441,7 @@ GET /v1/desk/billing
 | 路由 | 说明 |
 | :--- | :--- |
 | `GET /v1/me/locations` | 我的门店列表（切店用）+ `claimable`，见 §2.2 |
+| `GET /v1/me/context` | ⭐ 我在当前这家店的**实际权限**（要 `X-Membership-Id`），见 §12.3 |
 | `POST /v1/auth/password/reset` | ⭐ 忘记密码（**不需要登录**），见 §2.3 |
 | `GET /v1/me/summary?from=&to=&scope=all\|<locationId>` | ⭐ 跨店汇总（批 4） |
 
@@ -854,6 +855,26 @@ X-Staff-Token: <上机会话令牌>
 
 ### 12.1 五个预设角色
 
+⭐ **`roles.key` 的取值就是这五个，一个不多**：
+
+```
+owner | manager | front_desk | senior_tech | tech
+```
+
+事实源是 `packages/contracts/src/permissions.ts` 的 `ROLE_PRESETS`，
+建店时按它一次性铺好（`setup.claimLocation` / `location.create`）。
+**目前没有任何命令能造出第六个 key** —— `staff.add` 的 `roleKeys` 是
+写死的 `z.enum(['manager','front_desk','senior_tech','tech'])`（加不出老板）。
+
+⚠️ 几个容易猜错的：技师是 **`tech`** 不是 `technician`；
+**没有** `accountant` / `admin` / `staff` / `receptionist` 这些；
+`senior_tech` 容易被漏掉（它和 `tech` 权限相同，差别在派单和提成，不在权限）。
+
+⚠️ `roles.name` 那一列现在是 `{"en": "<key>"}`，**就是 key 本身**，
+拿去显示没有意义。所以中文名前端自己维护那张映射表是对的做法。
+等哪天做了「老板自定义角色」，事实源会变成 `roles.name`，
+到时候会在这里改口并给出读接口 —— 在那之前照着上面五个写死没问题。
+
 | 角色 | 有什么（关键差异） |
 | :--- | :--- |
 | **owner** | 全部 36 条。**唯一有 `billing.manage`** —— 计费是老板一个人的事 |
@@ -873,7 +894,41 @@ X-Staff-Token: <上机会话令牌>
 | `ticket.discount` | 打折按钮 |
 | `rotation.override` | 拖拽轮牌、跳过、强行改派 |
 
+### 12.3 ⭐ 别拿 `roleKeys` 去点亮按钮 —— 问 `GET /v1/me/context`
+
+```jsonc
+GET /v1/me/context
+Authorization: Bearer <token>
+X-Membership-Id: <当前门店>
+
+{ "membershipId": "…", "orgId": "…", "locationId": "…",
+  "locale": "zh-Hans", "timezone": "America/New_York",
+  "permissions": ["ai.use", "appointment.cancel", "appointment.read", …] }
+```
+
+选完店之后问这一句，然后**按 `permissions` 画界面**。
+和技师端的 `/v1/auth/staff/me` 是同一件事（那一条从第一天就回
+`permissions[]`，平台账号这一侧一直缺个等价物，2026-08-26 补上）。
+
+为什么不能照 §12.1 那张表自己推：
+
+```
+实际权限 = 角色预设 ∪ 个别授予 − 个别撤销      ← permission_overrides，撤销永远赢
+```
+
+老板可以只撤掉**某一个**前台的 `ticket.discount`（她上个月打折打出事了），
+或者只给**某一个**店长开 `report.view`。这些**都不改角色** ——
+`roleKeys` 里她还是 `front_desk`。照角色表画的话，那个按钮一直亮着，
+点下去 403，而用的人只会觉得系统坏了。
+
+⚠️ **`roleKeys` 是数组，而且多角色是一等公民。** 种子里的 Amy 是
+`['manager', 'tech']`（店长兼技师，这行到处都是）。
+拿 `roleKeys[0]` 当「他的角色」会按数组顺序把她显示成其中一个。
+要显示就整个渲染，要判能力就用 `permissions`。
+
 > ⚠️ 再说一次：**这是减少挫败感，不是安全边界。**
+> `/v1/me/context` 回的东西只决定画不画按钮 —— 真正的判定在命令总线里
+> （每条命令执行前查 `role_permissions`），前端改它一个字节也拿不到多余的能力。
 
 ---
 

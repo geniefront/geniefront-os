@@ -289,6 +289,40 @@ export function buildServer(): FastifyInstance {
   });
 
   /**
+   * ── ⭐ 我在这家店能干什么 ────────────────────────────────────────────────
+   *
+   * 选完店之后前端问的第二句话。和技师端的 `/v1/auth/staff/me` 是同一件事
+   * ——那一条从第一天就回 `permissions[]`，而平台账号这一侧一直只有
+   * `/v1/me/locations` 的 `roleKeys`，没有等价物。
+   *
+   * ## 为什么 `roleKeys` 不够
+   *
+   * 前端拿角色 key 去点亮按钮，等于把权限判定抄了第二份，而那一份**是错的**：
+   *
+   *   实际权限 = 角色预设 ∪ 个别授予 − 个别撤销   （`permission_overrides`）
+   *
+   * 老板完全可以只撤掉某一个前台的 `ticket.discount`（她上个月打折打出事了），
+   * 或者只给某一个店长开 `report.view`。这些都不改角色。
+   * 抄一份角色表的结果是：按钮亮着，点下去 403 —— 而用的人只会觉得系统坏了。
+   *
+   * ⚠️ 这条路由**不是**权限边界。真正的判定在命令总线里（每一条命令执行前
+   * 查 `role_permissions`）。这里回的东西只用来决定**画不画那个按钮**，
+   * 前端改了它一个字节也拿不到任何多余的能力。
+   */
+  app.get('/v1/me/context', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    return {
+      membershipId: ctx.membershipId,
+      orgId: ctx.orgId,
+      locationId: ctx.locationId,
+      locale: ctx.locale,
+      timezone: ctx.timezone,
+      // 排序是为了让前端能直接比对/缓存，不是给人读的
+      permissions: [...ctx.permissions].sort(),
+    };
+  });
+
+  /**
    * ── 跨店汇总（批 4）────────────────────────────────────────────────────
    *
    * 多店老板现在要一家家切进去看。这条给他一屏。
