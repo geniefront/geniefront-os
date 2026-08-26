@@ -115,8 +115,17 @@ function assertBusinessHours(args: {
   const overridable = !isPublic && policy.beyond === 'warn';
   if (overridable && hasOverride) return true;
 
+  /*
+   * ⚠️ `overridable` 放在**顶层**，不放 details。
+   *
+   * 顶层那个字段的默认值来自 `OVERRIDABLE_CODES`（按码给的静态答案，
+   * 这个码是 true）。而这里的真实答案按渠道变 —— 官网越界时是 false。
+   * 两处都写就会出现「顶层 true、details 里 false」的自相矛盾响应，
+   * 前端读哪个都像对的。
+   */
   throw new AppError(ERROR_CODES.OUTSIDE_BUSINESS_HOURS, {
-    details: { ...args.details, issue, overridable },
+    details: { ...args.details, issue },
+    overridable,
   });
 }
 

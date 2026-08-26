@@ -88,6 +88,18 @@ export interface AppErrorOptions {
   /** i18n key，默认 `error.<code>` */
   messageKey?: string;
   cause?: unknown;
+  /**
+   * ⭐ 覆盖「这个码可不可以带 reason 放行」的默认判断。
+   *
+   * 默认值来自 `OVERRIDABLE_CODES`，那是**按错误码**给的静态答案。
+   * 但有些码的答案要按这一次的情况定 —— `OUTSIDE_BUSINESS_HOURS`
+   * 就是：前台越界可以带 reason 放行，官网和电话 AI 越界一律不许。
+   *
+   * 不给这个口子的话，只能在 `details` 里再放一个同名字段，
+   * 于是同一个响应里出现两个 `overridable` 而且值不一样 ——
+   * 前端读哪个都像对的，而其中一个是错的。
+   */
+  overridable?: boolean;
 }
 
 export class AppError extends Error {
@@ -102,7 +114,7 @@ export class AppError extends Error {
     this.code = code;
     this.details = opts.details ?? {};
     this.messageKey = opts.messageKey ?? `error.${code}`;
-    this.overridable = OVERRIDABLE_CODES.has(code);
+    this.overridable = opts.overridable ?? OVERRIDABLE_CODES.has(code);
   }
 
   toJSON() {

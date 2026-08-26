@@ -22,6 +22,14 @@ export interface DayItem {
   appointmentId: string;
   membershipId: string | null;
   customerName: string;
+  /**
+   * ⭐ 项目 id。**别拿 `serviceName` 去 `services[]` 里回查** ——
+   * 那条路有三个会静默出错的地方：
+   *   · `services[]` 只含 `active = true` 的，而已下架项目的旧单照样在 items 里
+   *   · 项目名没有唯一约束，两个同名项目会查到错的那一个
+   *   · 名字是按当前 locale 渲染过的，改一次 i18n 文案就全对不上了
+   */
+  serviceId: string;
   serviceName: string;
   startsAt: string;
   endsAt: string;
@@ -93,14 +101,15 @@ export async function loadDay(
 
   const itemRows = await tx<{
     item_id: string; appointment_id: string; membership_id: string | null;
-    customer_name: string | null; walk_in_name: string | null; service_name: unknown;
+    customer_name: string | null; walk_in_name: string | null;
+    service_id: string; service_name: unknown;
     starts_at: string; ends_at: string; duration_min: number; status: string;
     is_request: boolean; overbooked: boolean; overbook_reason: string | null;
     resource_id: string | null;
   }[]>`
     select ai.id as item_id, ai.appointment_id, ai.membership_id,
            c.display_name as customer_name, a.walk_in_name,
-           s.name as service_name,
+           ai.service_id, s.name as service_name,
            ai.starts_at, ai.ends_at, ai.duration_min, ai.status,
            ai.is_request, ai.overbooked, ai.overbook_reason, ai.resource_id
     from appointment_items ai
@@ -149,6 +158,7 @@ export async function loadDay(
       appointmentId: r.appointment_id,
       membershipId: r.membership_id,
       customerName: r.customer_name ?? r.walk_in_name ?? '临时客人',
+      serviceId: r.service_id,
       serviceName: pickText(r.service_name, ctx.locale),
       startsAt: parseTs(r.starts_at).toISOString(),
       endsAt: parseTs(r.ends_at).toISOString(),

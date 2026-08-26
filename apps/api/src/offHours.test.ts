@@ -165,7 +165,8 @@ describe('闸门开着', () => {
     const err = await errOf(book(nyc(MONDAY, 7)));
     expect(err.code).toBe('OUTSIDE_BUSINESS_HOURS');
     expect((err.details as { issue: { code: string } }).issue.code).toBe('BEFORE_OPEN');
-    expect((err.details as { overridable: boolean }).overridable).toBe(true);
+    // ⭐ 顶层的 overridable，不是 details 里的 —— 两处都写会自相矛盾
+    expect(err.overridable).toBe(true);
   });
 
   it('带 reason 重试就放行 —— 和超卖完全同一个交互', async () => {
@@ -192,7 +193,7 @@ describe('闸门开着', () => {
     await setPolicy({ beyond: 'block' });
     const err = await errOf(book(nyc(MONDAY, 7), { override: { reason: 'guest_requested' } }));
     expect(err.code).toBe('OUTSIDE_BUSINESS_HOURS');
-    expect((err.details as { overridable: boolean }).overridable).toBe(false);
+    expect(err.overridable).toBe(false);
   });
 });
 
@@ -201,7 +202,15 @@ describe('⭐ 官网和电话 AI：这条线上没有人', () => {
     await setPolicy({ beforeOpenMinutes: 60 });
     const err = await errOf(book(nyc(MONDAY, 8, 30), { source: 'web' }));
     expect(err.code).toBe('OUTSIDE_BUSINESS_HOURS');
-    expect((err.details as { overridable: boolean }).overridable).toBe(false);
+    /*
+     * ⭐ 顶层 `overridable` 必须是 false。
+     *
+     * 这个码在 `OVERRIDABLE_CODES` 里是 true（那是按码给的静态答案），
+     * 但这一次的真实答案按渠道定。`AppError` 的 overridable 选项就是为此加的
+     * —— 没有它就只能在 details 里再放一个，然后同一个响应里两个
+     * `overridable` 值不一样，前端读哪个都像对的。
+     */
+    expect(err.overridable).toBe(false);
   });
 
   it('公开渠道也不吃 reason —— 越界就是越界', async () => {

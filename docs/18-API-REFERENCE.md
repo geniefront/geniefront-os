@@ -291,7 +291,7 @@ Content-Type: application/json
 | `LOCATION_OVER_CAPACITY` | 409 | 门店时段超了（**软**） | 同上 |
 | `STAFF_LACKS_SKILL` | 409 | 这位技师不会这个项目 | 换人 |
 | `STAFF_NOT_BOOKABLE` | 409 | 这人根本不接客 | 换人。**有 reason 也没用** |
-| `OUTSIDE_BUSINESS_HOURS` | 409 | 不在营业时间（**软**，0046） | `details.overridable` 为 true 才可带 `override.reason` 重试；false 就是没得商量，见 §14.3 |
+| `OUTSIDE_BUSINESS_HOURS` | 409 | 不在营业时间（**软**，0046） | 看**顶层** `overridable`：true 才可带 `override.reason` 重试；false 就是没得商量，见 §14.3 |
 | `OVERBOOK_REASON_REQUIRED` | 400 | 要超卖但没写原因 | 弹输入框，带 reason 重发（**同一个幂等键**） |
 | `ALREADY_CANCELLED` | 409 | 已经取消过了 | — |
 | `TICKET_ALREADY_CLOSED` | 409 | 单已结 / 已开单不让改 | — |
@@ -313,8 +313,8 @@ Content-Type: application/json
 
 | 类 | 例子 | 做法 |
 | :--- | :--- | :--- |
-| **要人做决定** | `OVERBOOK_REASON_REQUIRED` `VARIANCE_REASON_REQUIRED` `VOID_REASON_REQUIRED` `OUTSIDE_BUSINESS_HOURS`（`overridable: true` 时）| 弹输入框 → 带 `reason` 重发**同一条命令、同一个幂等键** |
-| **要人改输入** | `STAFF_OVER_CAPACITY` `RESOURCE_CONFLICT` `OUTSIDE_BUSINESS_HOURS`（`overridable: false` 时）| 显示在**对应字段旁**，不要弹全局 toast |
+| **要人做决定** | `OVERBOOK_REASON_REQUIRED` `VARIANCE_REASON_REQUIRED` `VOID_REASON_REQUIRED` `OUTSIDE_BUSINESS_HOURS`（顶层 `overridable: true` 时）| 弹输入框 → 带 `reason` 重发**同一条命令、同一个幂等键** |
+| **要人改输入** | `STAFF_OVER_CAPACITY` `RESOURCE_CONFLICT` `OUTSIDE_BUSINESS_HOURS`（顶层 `overridable: false` 时）| 显示在**对应字段旁**，不要弹全局 toast |
 | **不该发生** | `INTERNAL` `UPSTREAM_UNAVAILABLE` | 全局提示 + 保留输入 + 重试（换新 key） |
 
 ### 4.3 ⚠️ `PERMISSION_DENIED` 不是让你藏按钮的信号
@@ -338,7 +338,7 @@ Content-Type: application/json
 
 | 路由 | 权限 | 返回 |
 | :--- | :--- | :--- |
-| `GET /v1/desk/day?date=` | `appointment.read` | 某一天的日程：预约、item、技师、房间 |
+| `GET /v1/desk/day?date=` | `appointment.read` | 某一天的日程：预约、item、技师、房间。**返回体见 §5.1** |
 | `GET /v1/desk/rotation` | `rotation.read` | 轮牌板：顺序、休息、已派 |
 | `GET /v1/desk/queue` | `queue.manage` | 候客队列 |
 | `GET /v1/desk/tickets` | `ticket.read` | 进行中的工单 |
@@ -366,7 +366,75 @@ Content-Type: application/json
 | `GET /v1/desk/yelp/search?name=&zip=` | `settings.manage` | Yelp 一键填店 |
 | `GET /v1/customers/search?q=` | `customer.read` | 快速搜客人（手机后四位 / 姓名） |
 
-### 5.1 客户档案（批 6）
+### 5.1 ⭐ `GET /v1/desk/day` 的真实返回
+
+**这是从真实数据库里 dump 出来的，不是照类型手写的。**
+`?date=` 是**门店本地营业日**（`YYYY-MM-DD`），不是 UTC 日期。
+
+```jsonc
+{
+  "businessDate": "2026-08-27",
+  "timezone": "America/New_York",
+  "openMin": 570,                 // 09:30，营业日墙上分钟
+  "closeMin": 1170,               // 19:30。⚠️ 跨午夜的店会 > 1440
+
+  "staff": [
+    { "membershipId": "16553cac-…", "name": "Amy",
+      "isBookable": true, "inRotation": true, "maxConcurrent": 2, "color": null }
+    // ⚠️ 前台（Mia）也在这个数组里，但 isBookable = false。
+    //    日程表的列要按 isBookable 过滤，否则会多出一条永远空的列
+  ],
+
+  "services": [
+    { "id": "7d33f38a-…", "name": "基础美甲", "durationMin": 30, "priceCents": 2500 }
+    // ⚠️ 只含 active = true 的
+  ],
+
+  "resources": [
+    { "id": "21efb9d0-…", "name": "Chair 1", "capacity": 1, "maxStaff": null }
+    // capacity 是「几个位子」：足疗房 6 张躺椅就是 6，画「3/6 位」不要画「占用」
+  ],
+
+  "items": [
+    {
+      "itemId": "8b1b22f7-…",           // ⭐ 改期/取消用这个，不是 appointmentId
+      "appointmentId": "fae8b855-…",    // 一单多项目时这几条共享它
+      "membershipId": "609d7a5e-…",     // null = 还没派技师
+      "customerName": "Lisa Chen",      // 已经兜过底：客人名 → walk_in_name → 「临时客人」
+      "serviceId": "faf71257-…",        // ⭐ 见下
+      "serviceName": "甲油胶美甲",       // 已按当前 locale 渲染好
+      "startsAt": "2026-08-27T09:00:00.000Z",   // UTC ISO，按 timezone 渲染
+      "endsAt":   "2026-08-27T09:45:00.000Z",
+      "durationMin": 45,
+      "status": "booked",               // booked | in_service | done（cancelled 不会出现）
+      "isRequest": false,               // 客人点钟
+      "overbooked": false,
+      "overbookReason": null,
+      "resourceId": null
+    }
+  ]
+}
+```
+
+`name` / `serviceName` / `customerName` **都已经在服务端按当前 locale 渲染成字符串**，
+前端不用再处理 i18n 对象。⚠️ 但 `pickText` 会回退：种子里技师只配了 `en`，
+所以 locale 是 `zh-Hans` 时技师名仍然是 "Amy"，而项目名是中文。这是对的，不是 bug。
+
+#### ⛔ 别拿 `serviceName` 去 `services[]` 里回查
+
+`items[].serviceId` 是 2026-08-26 加的，之前没有，所以这条路有人走过。**它会静默出错**：
+
+- `services[]` 只含 `active = true`，而**已下架项目的旧单照样出现在 `items` 里**。
+  实测：把一个项目下架，那一天 6 条单立刻全部回查不到
+- 项目名**没有唯一约束**，两个同名项目会查到错的那一个
+- 名字是按当前 locale 渲染过的，改一次 i18n 文案就全对不上
+
+用 `serviceId`。回查不到时（下架项目）用 item 自带的 `serviceName` / `durationMin` 显示 ——
+它们是**下单那一刻的快照**，本来就比现在的项目表更准。
+
+---
+
+### 5.2 客户档案（批 6）
 
 ```
 GET /v1/desk/customers?q=&vip=1&sleeping=90&limit=50&offset=0
@@ -410,7 +478,7 @@ GET /v1/desk/customers/:id
 > 读起来是「这位客人一分钱没花过」—— 一个明确的错误信息比空着糟得多。
 > 前端要判 `null` 并显示为「—」。
 
-### 5.2 订阅与试用（批 1）
+### 5.3 订阅与试用（批 1）
 
 ```jsonc
 GET /v1/desk/billing
@@ -1009,8 +1077,8 @@ X-Membership-Id: <当前门店>
 | 渠道 | 宽限窗口 | 越界之后 |
 | :--- | :--- | :--- |
 | 前台（`enforce: false`）| — | 不查 |
-| 前台（`enforce: true`）| 给 | `warn` → 报错 + `details.overridable: true`，**弹原因框、带 `override.reason` 重发**（和超卖同一个交互、同一个幂等键）；`block` → `overridable: false`，只能改时间 |
-| 官网 `web` / 电话 AI `phone_ai` | **不给** | 一律拒，`overridable: false`。reason 没用，`enforce` 也不看 |
+| 前台（`enforce: true`）| 给 | `warn` → 报错 + 顶层 `overridable: true`，**弹原因框、带 `override.reason` 重发**（和超卖同一个交互、同一个幂等键）；`block` → `overridable: false`，只能改时间 |
+| 官网 `web` / 电话 AI `phone_ai` | **不给** | 一律拒，顶层 `overridable: false`。reason 没用，`enforce` 也不看 |
 
 最后那一行是个**不可配的不变量**：老板那个开关管的是「前台能不能通融」，
 不是「要不要把没人在的时段挂到网上卖」。
@@ -1026,17 +1094,18 @@ X-Membership-Id: <当前门店>
 #### 报错长什么样
 
 ```json
-{ "error": { "code": "OUTSIDE_BUSINESS_HOURS",
+{ "code": "OUTSIDE_BUSINESS_HOURS",
+  "messageKey": "error.OUTSIDE_BUSINESS_HOURS",
+  "overridable": true,              // ⭐ 看这个，不是 details 里的
   "details": {
     "source": "desk",
-    "overridable": true,
     "issue": {
       "code": "BEFORE_OPEN",          // BEFORE_OPEN | AFTER_CLOSE | CLOSED_DAY
       "businessDate": "2026-09-28",
       "window": { "openMin": 570, "closeMin": 1170,
                   "earliestMin": 510, "latestMin": 1170 },
       "startMin": 420, "endMin": 465
-    } } } }
+    } } }
 ```
 
 `*Min` 全部是**营业日墙上分钟**（跨午夜可以 ≥ 1440，足疗店开到凌晨 1:00

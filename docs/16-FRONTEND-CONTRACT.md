@@ -176,7 +176,7 @@ GET /v1/me/locations   →  [{ membershipId, locationId, name, role, … }]
 | :--- | :--- | :--- |
 | **要人做决定** | `OVERBOOK_REASON_REQUIRED` `VARIANCE_REASON_REQUIRED` `VOID_REASON_REQUIRED` | 弹出输入原因，带着 `reason` 重发同一条命令（**同一个幂等键**） |
 | **要人改输入** | `STAFF_OVER_CAPACITY` `RESOURCE_CONFLICT` `STAFF_LACKS_SKILL` | 显示在对应字段旁，不要弹全局 toast |
-| **看 `details.overridable`** | `OUTSIDE_BUSINESS_HOURS` | true → 弹原因框带 `override.reason` 重发；false → 只能改时间。详见 `18` §14.3 |
+| **看顶层 `overridable`** | `OUTSIDE_BUSINESS_HOURS` | true → 弹原因框带 `override.reason` 重发；false → 只能改时间。⚠️ 这个码是**按这一次的情况**给答案的（前台 true、官网/AI false），别照错误码硬编。详见 `18` §14.3 |
 | **不该发生** | `INTERNAL` `UPSTREAM_UNAVAILABLE` | 全局提示 + 保留用户输入，给「重试」按钮（换新幂等键） |
 
 ⚠️ **`PERMISSION_DENIED` 不是让你藏按钮的信号。** 权限在服务端判，
