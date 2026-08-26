@@ -43,14 +43,17 @@
 
 ```ts
 // ① 登录（Supabase Auth）→ 拿 access token
-const { data } = await supabase.auth.signInWithPassword({ email, password });
+//    密码、magic link、Google —— 后端一视同仁（验的是 Supabase 的 JWKS）
+await supabase.auth.signInWithOAuth({ provider: 'google',
+  options: { redirectTo: `${location.origin}/auth/callback` } });
+const { data } = await supabase.auth.getSession();
 const token = data.session!.access_token;
 
-// ② 选店 —— 拿到 membershipId
-const { locations } = await fetch(`${API}/v1/me/locations`, {
+// ② 选店 —— 拿到 membershipId。⭐ 同时告诉你「登录之后该去哪一页」
+const { locations, claimable } = await fetch(`${API}/v1/me/locations`, {
   headers: { Authorization: `Bearer ${token}` },
 }).then(r => r.json());
-const membershipId = locations[0].membershipId;
+const membershipId = locations[0]?.membershipId;   // 见 §2.2
 
 // ③ 之后所有请求都带这两个头
 const H = {
@@ -93,14 +96,42 @@ const res = await fetch(`${API}/v1/commands/appointment.create`, {
 
 它的作用是**选店**：一个人可能在三家店有身份。切店 = 换这个头。
 
-```
+```jsonc
 GET /v1/me/locations
-→ { locations: [{ membershipId, orgId, locationId, locationName, locationStatus, roleKeys }] }
+{
+  "locations": [
+    { "membershipId": "…", "orgId": "…", "locationId": "…",
+      "locationName": "…", "locationStatus": "trial", "roleKeys": ["owner"] }
+  ],
+  // ⭐ 0047 新增。刚付完钱、还没开通的那一家；没有就是 null
+  "claimable": { "locationId": "…", "shopName": "Lotus Nails & Spa", "plan": "essential" }
+}
 ```
 
 `user_last_location` 会记住上次选的，返回里有标记。
 
-### 2.2 技师上机（staff 端）
+### 2.2 ⭐ 登录之后往哪一页跳（Google 登录必读）
+
+`locations` 和 `claimable` 两个字段一起看，**四种情况**：
+
+| `locations` | `claimable` | 往哪跳 |
+| :--- | :--- | :--- |
+| 有 1 条 | null | 直接进那家店 |
+| 有多条 | null | 选店器 |
+| **空** | **有** | 「你有一家 **{shopName}** 等着开通」→ 一个按钮打 `POST /v1/setup/claim` → 成功后进开店向导 |
+| **空** | **null** | 「这个账号还不属于任何门店」+ 客服联系方式。**别停在空白页**，也别自动登出 |
+| 有 | **有** | 正常进店，另外给一条提示：还有一家新买的店等着开通 |
+
+⚠️ 最后一行是真实存在的：一个老板已经有一家店，又刚买了第二家。
+所以**不能写成「locations 空了才去看 claimable」**。
+
+⚠️ **不要靠 `POST /v1/setup/claim` 返回 404 来判断有没有店可认领。**
+那是拿一次写操作去探测状态，而且它会消耗一次幂等键。`claimable` 就是为此加的。
+
+`claimable` 里**没有 `intentId`**，这是故意的：认领那条路自己去数据库要
+intent（比对的是 `auth.users` 里那一行的邮箱），前端传 id 回来一点用都没有。
+
+### 2.3 技师上机（staff 端）
 
 ```
 POST /v1/auth/staff/claim-code   { code: "482913" }

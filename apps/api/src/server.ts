@@ -246,16 +246,45 @@ export function buildServer(): FastifyInstance {
     return buildContext({ userId, membershipId, ip: req.ip });
   }
 
-  // ── 店铺选择器 ─────────────────────────────────────────────────────────────
-  // 登录后第一个调用。只有一条就直接进，多条出选择器（02 §2）。
+  /**
+   * ── 店铺选择器 ───────────────────────────────────────────────────────────
+   *
+   * 登录后第一个调用。只有一条就直接进，多条出选择器（02 §2）。
+   *
+   * ⭐ **`claimable`（0047）**：这条路同时回答「登录之后该去哪一页」。
+   *
+   * 之前前端只能拿到 `locations`。一个刚用 Google 登录进来的老板
+   * `locations` 是空的，而前端分不出他是「刚付完钱等着开通」还是
+   * 「谁也不是」—— 只能盲发一次 `POST /v1/setup/claim` 再看是不是 404，
+   * 也就是**用一次写操作去探测状态**。多这一个字段就不用那么干了。
+   *
+   * ⚠️ `claimable` 和 `locations` **可以同时非空**：一个老板已经有一家店，
+   * 又刚买了第二家。所以不能写成「locations 空了才去查」。
+   */
   app.get('/v1/me/locations', async (req) => {
     // ⚠️ 这条路要的是**平台账号**。技师用手机上机时没有账号，
     // 他的店是会话自己带的（/v1/auth/staff/me）—— 不挡的话
     // `req.user!` 会在这里炸成一个 500，而真正的原因是「这条路不适用于他」
     if (!req.user) throw new AppError(ERROR_CODES.UNAUTHENTICATED, {
       details: { reason: 'requires_platform_account' } });
-    const list = await listMembershipsForUser(req.user.userId);
-    return { locations: list };
+
+    const [list, intent] = await Promise.all([
+      listMembershipsForUser(req.user.userId),
+      claimableIntentFor(req.user.userId),
+    ]);
+
+    return {
+      locations: list,
+      /*
+       * ⚠️ **不回 `intentId`。** 认领那条路自己去数据库要 intent
+       * （`gf_signup_intent_for_user` 比对的是 auth.users 里的邮箱），
+       * 前端把 id 传回来一点用都没有 —— 而一旦回了，下一个人就会想
+       * 「那我传一个别的 id 试试」。这里回的全是给人看的字。
+       */
+      claimable: intent
+        ? { locationId: intent.locationId, shopName: intent.shopName, plan: intent.plan }
+        : null,
+    };
   });
 
   /**

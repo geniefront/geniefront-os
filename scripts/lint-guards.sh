@@ -18,7 +18,12 @@ report() {  # report <标题> <宪法条款> <说明> <命中内容>
   FAIL=1
 }
 
-SRC='--include=*.ts --include=*.tsx --include=*.js'
+# ⚠️ 必须排掉 node_modules / 构建产物。
+# 不排的话 Vite 的依赖预打包（apps/*/node_modules/.vite/deps/*.js）会被扫进来，
+# 而 recharts 里一句 `Number(activeTooltipIndex)` 会被当成「金额走了浮点解析」——
+# 一条谁也修不了的红线，最后的结果是大家开始忽略这个脚本。
+SRC='--include=*.ts --include=*.tsx --include=*.js
+     --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build --exclude-dir=.vite'
 
 # ── 1. service_role 只有 packages/db 能碰 ────────────────────────────────────
 # 业务查询一旦走 service_role，RLS 被静默绕过，所有租户隔离测试会

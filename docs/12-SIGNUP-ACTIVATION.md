@@ -271,3 +271,95 @@ ghost 在身份模式下连查都查不到。`ghostStaff.test.ts` 有一条专�
 所以这种身份下派单靠 **10 秒轮询**，响铃比「实测 2 秒」慢几秒，
 界面上如实写着「每 10 秒刷新」。要拿回 2 秒，只能等 Supabase 手机号登录
 （那要另配一个短信供应商）—— **不要为此在服务端自签 Supabase 令牌**。
+
+---
+
+## 7. Google 账号登录（sql/0047，2026-08-26）
+
+### 7.1 后端为什么几乎不用动
+
+`apps/api/src/auth.ts` 验的是 **Supabase 的 JWKS**，不是某一种登录方式。
+会话是密码登的、magic link 登的还是 Google 登的，它一视同仁 ——
+`sub` 就是 `auth.users.id`，后面所有的东西（membership、RLS、权限）都挂在这个 id 上。
+
+所以「加 Google 登录」在后端不是一个认证问题，**是一个认领门店的问题**。
+
+### 7.2 ⭐ 真正会出事的那一处：Gmail 的点
+
+认领门店那一步比对的是**邮箱字符串**（§3 B2：这是整条链路上唯一的身份边界）。
+而 Gmail 忽略本地部分里的点、也忽略 `+` 之后的部分：
+
+```
+老板在官网结账，邮箱框里手打   john.doe@gmail.com     → 存进 signup_intents
+他回头点「用 Google 登录」，Google 返回  johndoe@gmail.com
+lower(si.owner_email) = lower(u.email)                → 不相等
+```
+
+**他付了钱，而且进不去。** 报出来的还是「没有可认领的门店」——
+客服看到这句话第一反应是去查 webhook，而 webhook 一切正常。
+
+这一行的老板几乎人人用 Gmail，而结账时手打邮箱带不带点完全看当时怎么顺手。
+所以 0047 把比对换成了 `gf_canonical_email()`。
+
+### 7.3 ⚠️ 为什么只对 Gmail 规范化
+
+点号规则**只有 `gmail.com` / `googlemail.com` 成立**。
+Google Workspace 的自建域名（`john.doe@corp.com`）**不忽略点** ——
+那里 `john.doe@` 和 `johndoe@` 是两个不同的人。
+
+一视同仁地去点，会让 **A 认领到 B 付钱的店**。那比原来那个
+「付了钱进不去」严重一个量级：前者是投诉，后者是事故。
+
+`+tag` 同理只在 Gmail 上剥。别的域名剥掉，会把
+「同一个老板故意用 `owner+store1@` / `owner+store2@` 分开两家店」折叠成一条。
+
+`signup.test.ts` 的 D 组盯着这两条，正反都有。
+
+### 7.4 `email_confirmed_at` 那一条一个字都不能松
+
+```sql
+and u.email_confirmed_at is not null
+```
+
+不验的话，任何人都可以用别人的邮箱注册一个未验证账号，然后来认领他的店。
+
+**Google 登录天然满足它** —— OAuth 回来的邮箱是已验证的，Supabase 会把
+`email_confirmed_at` 填上。所以这道闸对 Google 那条路不构成任何摩擦，
+留着它只挡该挡的人。
+
+### 7.5 激活邮件和 Google 登录并不冲突
+
+激活邮件走的是 `POST /auth/v1/otp` + `create_user: true`（§2.2），
+它按**付款那个邮箱**建一个 auth 用户。老板如果不点那封信、
+直接用同一个邮箱的 Google 账号登录，Supabase 会把这个 OAuth 身份
+挂到同一个 `auth.users` 行上（邮箱唯一）。
+
+而就算它没挂上，**认领仍然成立** —— 认领比对的是邮箱，不是 user id。
+这一点是当初把身份边界放在邮箱上（而不是发一个我们自己造的激活码）
+顺带换来的：登录方式怎么变，那条边界都不用改。
+
+⚠️ 所以激活邮件里的落地页 `/activate` **也应该放一个「用 Google 登录」按钮**。
+老板点开信、看到要输密码、退出去用 Google 登 —— 这条路要通。
+
+### 7.6 前端要知道的：`claimable`
+
+`GET /v1/me/locations` 现在多回一个字段：
+
+```jsonc
+{ "locations": [ … ],
+  "claimable": { "locationId": "…", "shopName": "Lotus Nails & Spa", "plan": "essential" } }
+```
+
+在这之前，一个刚用 Google 登录进来的老板 `locations` 是空的，
+而前端分不出他是「刚付完钱等着开通」还是「谁也不是」——
+只能盲发一次 `POST /v1/setup/claim` 再看是不是 404，
+也就是**用一次写操作去探测状态**。
+
+⚠️ `claimable` 和 `locations` **可以同时非空**（已有一家店，又刚买了第二家），
+所以不能写成「locations 空了才去看 claimable」。四种情况的跳转表见 `18` §2.2。
+
+### 7.7 要去点的两个后台
+
+代码之外还有配置，见 `07` §A1b：Google Cloud 建 OAuth client（回调填
+**Supabase 的** `/auth/v1/callback`，不是我们的域名），Supabase 控制台开
+Google provider + 把前端落地页加进 Redirect URLs 白名单。**dev 和 prod 两个项目都要。**

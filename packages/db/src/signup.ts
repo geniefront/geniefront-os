@@ -61,6 +61,8 @@ export interface ClaimableIntent {
   locationId: string;
   ownerEmail: string;
   plan: string;
+  /** 店名。Google 登录之后那一屏要写「你有一家 XX 等着开通」（sql/0047） */
+  shopName: string;
 }
 
 /**
@@ -71,15 +73,22 @@ export interface ClaimableIntent {
  * 于是「谁能成为这家店的老板」是一条数据库事实（docs/12 §3 B2）。
  *
  * 一个邮箱买了两家店就有两行：一次认领一家，认领完再调一次。
+ *
+ * ⭐ 0047 起比对的是 **`gf_canonical_email`**，不是 `lower()`。
+ * 起因是 Google 登录：老板结账时手打 `john.doe@gmail.com`，
+ * Google 回来的是规范形式 `johndoe@gmail.com` —— 字符串不等，
+ * 于是他付了钱却拿到一句「没有可认领的门店」。
+ * ⚠️ 点号规则只对 gmail/googlemail 成立，Workspace 自建域名不去点。
  */
 export async function claimableIntentFor(userId: string): Promise<ClaimableIntent | null> {
   const [row] = await sql<{
     intent_id: string; org_id: string; location_id: string;
-    owner_email: string; plan: string;
+    owner_email: string; plan: string; shop_name: string | null;
   }[]>`select * from gf_signup_intent_for_user(${userId})`;
   if (!row) return null;
   return {
     intentId: row.intent_id, orgId: row.org_id, locationId: row.location_id,
     ownerEmail: row.owner_email, plan: row.plan,
+    shopName: row.shop_name ?? '',
   };
 }

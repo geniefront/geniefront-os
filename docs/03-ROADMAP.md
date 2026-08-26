@@ -406,8 +406,8 @@
 | 7 | **折扣明细 + 通知模板** | M | ✅ |
 | 8 | **建站工单** —— `storefront_briefs`，见 `docs/17` | M | ✅ |
 
-**八批全部完成（2026-08-25）。** 后端九包全绿，**863 项测试**（含批 9）。
-新增迁移 `sql/0039`–`sql/0046`，命令总数 **90 条**（`18` 附录 A 由 `COMMAND_REGISTRY` 导出，不会漂移）。
+**八批全部完成（2026-08-25）。** 后端九包全绿，**867 项测试**（含批 9、批 10）。
+新增迁移 `sql/0039`–`sql/0047`，命令总数 **90 条**（`18` 附录 A 由 `COMMAND_REGISTRY` 导出，不会漂移）。
 
 ✅ **那三件欠账已经补完（2026-08-25 当天）**：
 - **AI 改期/取消现在会通知客人和技师**（`notify/dispatch.ts`）。
@@ -434,6 +434,30 @@
   宽限窗口一格都不会报出去。前台的入口是手动输时间，不是从空档列表里挑
 
 见 `01` §7.1「第四层」与 `18` §14.3。
+
+#### 批 10（追加，2026-08-26）：**Google 账号注册登录** ⭐
+
+前端要接 `signInWithOAuth({ provider: 'google' })`。
+
+后端认证那一侧**一个字都不用改** —— `auth.ts` 验的是 Supabase 的 JWKS，
+会话怎么来的它不关心。会出事的是**认领门店**，那一步比对邮箱字符串：
+
+> 老板结账时手打 `john.doe@gmail.com`，Google 回来的是规范形式
+> `johndoe@gmail.com` → 字符串不等 → 他付了钱却拿到「没有可认领的门店」。
+
+- `sql/0047`：`gf_canonical_email()`，认领改按规范邮箱比对
+- ⚠️ **只对 gmail/googlemail 去点和剥 +tag**。Workspace 自建域名不忽略点，
+  一视同仁地去点会让 A 认领到 B 付钱的店 —— 那比原来的问题严重一个量级
+- `gf_sync_user_from_auth()` 顺带同步 Google 头像（`users.avatar_url` 这一列
+  从 0001 就在，从来没人往里写过）
+- `GET /v1/me/locations` 多回 `claimable`：前端不用再拿
+  `POST /v1/setup/claim` 的 404 去探测「有没有店等着开通」
+
+⚠️ 还有**两个后台要去点**（不是代码）：Google Cloud 建 OAuth client、
+Supabase 开 Google provider + Redirect URLs 白名单，dev/prod 两个项目都要。
+见 `07` §A1b。
+
+见 `12` §7 与 `18` §2.2。
 
 **接口文档见 [`18-API-REFERENCE.md`](18-API-REFERENCE.md)** —— 前端直接照着写。
 

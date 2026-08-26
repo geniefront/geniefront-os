@@ -44,6 +44,43 @@ SUPABASE_SERVICE_ROLE_KEY=sb_secret_...        # 或旧格式的 eyJ... JWT
 2. **给我的是 dev 项目那一把。生产那一把只进 GitHub Actions Secret**，不落任何 `.env`。
    `check-env.sh` 在 `NODE_ENV=production` 时看到它会直接报错。
 
+#### A1b · Google 登录（sql/0047）⭐ 要你去点两个后台
+
+代码这一侧**什么都不用配** —— `apps/api` 验的是 Supabase 的 JWKS，
+会话是密码登的、magic link 登的还是 Google 登的，它一视同仁。
+但下面这两步不做，前端那个「用 Google 登录」按钮点下去只会跳到一个报错页。
+
+**① Google Cloud Console** → APIs & Services → Credentials →
+Create Credentials → **OAuth client ID** → Web application
+
+- Authorized JavaScript origins：前端每一个域名（含本地开发的 `http://localhost:5190`）
+- Authorized redirect URIs：**填 Supabase 的回调，不是我们自己的域名**
+
+  ```
+  https://<你的项目>.supabase.co/auth/v1/callback
+  ```
+
+  ⚠️ 这一条最容易填错。填成 `https://app.geniefront.com/auth/callback`
+  会得到 `redirect_uri_mismatch`，而 Google 的报错页不会告诉你该填什么。
+
+拿到 **Client ID** 和 **Client Secret**。
+
+**② Supabase 控制台**（dev 和 prod **两个项目都要**）：
+
+- Authentication → Providers → **Google** → 打开，粘上面那两个值
+- Authentication → URL Configuration → **Redirect URLs** 白名单里加上前端的落地页：
+
+  ```
+  http://localhost:5190/**          # 本地开发
+  https://app.geniefront.com/**     # 生产
+  ```
+
+  ⚠️ 不在白名单里的 `redirectTo`，Supabase 会**静默换成 Site URL** ——
+  表现是「登录成功但跳回了首页，一直登不进后台」。
+
+⚠️ **Client Secret 不要发给我，也不要进 `.env`。** 它只活在 Supabase 控制台里，
+我们的服务器从头到尾不接触它。
+
 ---
 
 ### A2 · Anthropic API Key — AI 全部功能

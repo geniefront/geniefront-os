@@ -310,3 +310,78 @@ describe('C · 向导完成', () => {
     expect(ok.result.locationId).toBe(tenant.locationId);
   });
 });
+
+/**
+ * D · Google 账号登录（sql/0047）
+ *
+ * JWT 那一侧什么都不用测 —— `auth.ts` 验的是 Supabase 的 JWKS，
+ * 会话是密码登的、magic link 登的还是 Google 登的，它一视同仁。
+ *
+ * 会出事的是**认领门店**：那一步比对的是邮箱字符串，而 Gmail
+ * 忽略本地部分里的点、也忽略 `+` 之后的部分。老板在官网手打
+ * `john.doe@gmail.com`，Google 回来的是 `johndoe@gmail.com` ——
+ * 字符串不等，他付了钱却拿到一句「没有可认领的门店」。
+ *
+ * ⚠️ 这里测的是规范化函数本身，不是端到端：端到端要一个邮箱是 gmail
+ * 的 `auth.users` 行，而那个 schema 测试用的 app_user 写不了。
+ * 谓词接线由上面 B 组那两条（本人能认领 / 别人认领不到）盯着。
+ */
+describe('D · Google 登录：邮箱规范化', () => {
+  const canon = async (v: string | null) => {
+    const [r] = await withTenant({ ...tenant, membershipId: null }, (tx) =>
+      tx<{ v: string | null }[]>`select public.gf_canonical_email(${v}) as v`);
+    return r!.v;
+  };
+
+  it('⭐ Gmail：忽略点、剥掉 +tag、googlemail 收敛成 gmail', async () => {
+    expect(await canon('John.Doe@gmail.com')).toBe('johndoe@gmail.com');
+    expect(await canon('johndoe+geniefront@GMAIL.com')).toBe('johndoe@gmail.com');
+    expect(await canon('john.doe@googlemail.com')).toBe('johndoe@gmail.com');
+    // 官网手打的和 Google 回来的，规范化之后必须是同一个字符串
+    expect(await canon('John.Doe+shop@GMail.com')).toBe(await canon('johndoe@gmail.com'));
+  });
+
+  it('⭐ Workspace 自建域名**不去点** —— 去了就是把 A 的店送给 B', async () => {
+    /*
+     * 点号规则只有 gmail.com / googlemail.com 成立。
+     * `john.doe@corp.com` 和 `johndoe@corp.com` 在自建域名下是两个人，
+     * 一视同仁地去点会让后者认领到前者付钱的店 ——
+     * 比原来那个「付了钱进不去」严重得多。
+     */
+    expect(await canon('John.Doe@corp.com')).toBe('john.doe@corp.com');
+    expect(await canon('John.Doe@corp.com')).not.toBe(await canon('johndoe@corp.com'));
+    // +tag 同样只在 Gmail 上剥：别的域名剥掉会把老板故意分开的两家店折叠成一条
+    expect(await canon('owner+store1@corp.com')).toBe('owner+store1@corp.com');
+    expect(await canon('owner+store1@corp.com')).not.toBe(await canon('owner+store2@corp.com'));
+  });
+
+  it('喂进去的东西不成形也不能炸 —— 这个函数在认领那条路的 where 里', async () => {
+    expect(await canon(null)).toBeNull();
+    expect(await canon('nonsense')).toBe('nonsense');
+    expect(await canon('  Mixed@Example.TEST ')).toBe('mixed@example.test');
+  });
+
+  it('可认领的那一家要带店名 —— 登录后那一屏要写「你有一家 XX 等着开通」', async () => {
+    /*
+     * 这一条同时守着 `gf_signup_intent_for_user` 的返回列：
+     * 0047 给它加了 shop_name，加错了这里会拿到 undefined 而不是报错。
+     */
+    const [si] = await withTenant({ ...tenant, membershipId: null }, (tx) =>
+      tx<{ id: string }[]>`
+        select id from signup_intents where location_id = ${tenant.locationId}`);
+    expect(si).toBeTruthy();
+
+    // 上面 B 组已经认领过了，先放回未认领再问一次，问完还原
+    await withTenant({ ...tenant, membershipId: null }, (tx) => tx`
+      update signup_intents set claimed_at = null where id = ${si!.id}`);
+    try {
+      const intent = await claimableIntentFor(OWNER_USER);
+      expect(intent?.locationId).toBe(tenant.locationId);
+      expect(typeof intent?.shopName).toBe('string');
+      expect(intent!.shopName.length).toBeGreaterThan(0);
+    } finally {
+      await withTenant({ ...tenant, membershipId: null }, (tx) => tx`
+        update signup_intents set claimed_at = now() where id = ${si!.id}`);
+    }
+  });
+});

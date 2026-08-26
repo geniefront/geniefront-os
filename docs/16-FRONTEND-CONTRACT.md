@@ -18,10 +18,42 @@
 
 | 应用 | 谁用 | 身份方式 |
 | :--- | :--- | :--- |
-| `desk` | 前台 + 老板 | Supabase Auth（邮箱密码 / magic link） |
+| `desk` | 前台 + 老板 | Supabase Auth（邮箱密码 / magic link / **Google**） |
 | `staff` | 技师（手机 PWA） | 上机码换来的**可吊销会话行**，不是 JWT |
 | `kiosk` | 门口 iPad | 设备令牌 |
 | `booking` | 客人（公开） | 公开 key + Turnstile，无账号 |
+
+---
+
+## 1.5 登录之后往哪一页跳 ⭐
+
+登录方式后端一视同仁（验的是 Supabase 的 JWKS）。**要写代码的是登录之后那一步。**
+
+```jsonc
+GET /v1/me/locations        Authorization: Bearer <token>
+{ "locations": [ … ],
+  "claimable": { "locationId": "…", "shopName": "Lotus Nails & Spa", "plan": "essential" } }
+```
+
+| `locations` | `claimable` | 往哪跳 |
+| :--- | :--- | :--- |
+| 1 条 | null | 直接进那家店 |
+| 多条 | null | 选店器 |
+| **空** | **有** | 「你有一家 **{shopName}** 等着开通」→ 按钮打 `POST /v1/setup/claim` → 进开店向导 |
+| **空** | **null** | 「这个账号还不属于任何门店」+ 客服联系方式。**别停在空白页，也别自动登出** |
+| 有 | 有 | 正常进店，另给一条提示：还有一家新买的店等着开通 |
+
+⚠️ 两条**都可能同时非空**（已有一家店，又刚买了第二家），
+所以不能写成「locations 空了才去看 claimable」。
+
+⚠️ **不要靠 `POST /v1/setup/claim` 返回 404 去判断有没有店可认领** ——
+那是拿一次写操作探测状态，还会消耗一次幂等键。`claimable` 就是为此加的。
+
+⚠️ 激活邮件的落地页 `/activate` **也要放「用 Google 登录」按钮**：
+老板点开信、看到要输密码、退出去用 Google 登，这条路要通（认领比对的是
+邮箱，不是 user id，所以两条路殊途同归）。
+
+细节见 `18` §2.2，来龙去脉见 `12` §7。
 
 ---
 
