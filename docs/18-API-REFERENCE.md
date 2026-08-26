@@ -339,6 +339,7 @@ Content-Type: application/json
 | 路由 | 权限 | 返回 |
 | :--- | :--- | :--- |
 | `GET /v1/desk/day?date=` | `appointment.read` | 某一天的日程：预约、item、技师、房间。**返回体见 §5.1** |
+| `GET /v1/desk/days?from=&to=` | `appointment.read` | ⭐ 区间概览（**月视图**吃这一条），见 §5.2 |
 | `GET /v1/desk/rotation` | `rotation.read` | 轮牌板：顺序、休息、已派 |
 | `GET /v1/desk/queue` | `queue.manage` | 候客队列 |
 | `GET /v1/desk/tickets` | `ticket.read` | 进行中的工单 |
@@ -434,7 +435,48 @@ Content-Type: application/json
 
 ---
 
-### 5.2 客户档案（批 6）
+### 5.2 ⭐ `GET /v1/desk/days` —— 月视图
+
+```
+GET /v1/desk/days?from=2026-09-01&to=2026-10-12
+```
+
+**不要循环调 31 次 `/v1/desk/day`。** 那是 124 次查询，而且每天都把全店的
+员工、项目、房间原样带一遍 —— 日历格子上一个字都用不到它们。
+
+```jsonc
+{
+  "from": "2026-08-26", "to": "2026-08-28",
+  "timezone": "America/New_York",
+  "days": [
+    { "businessDate": "2026-08-27",
+      "isOpen": true,
+      "openMin": 570, "closeMin": 1170,   // 关门那天两个都是 null
+      "appointments": 6,                   // 预约条数（父行）
+      "items": 6,                          // 项目条数，一单两项就是 2
+      "staffOnDuty": 5,                    // 当天有 published 班次的人数
+      "daycloseStatus": null }             // null = 还没日结
+  ]
+}
+```
+
+- 不传 `from` / `to` 就给**本月起 42 天**（日历网格要六周）
+- 区间上限 **92 天**，超了 `VALIDATION_FAILED` + `details.reason = 'range_too_wide'`
+- `from > to` → `VALIDATION_FAILED` + `bad_range`
+- 取消的单**不计入** `appointments` / `items` —— 否则格子上写「8」点进去只有 3 条
+- `staffOnDuty` 只数 **published** 的班；planned 的还没发给技师
+- 密度用 `items` 比 `appointments` 准（一单两个项目占两条时间）
+
+⚠️ **`isOpen` 有一个反直觉的情况**：`business_hours` 一个键都没配的新店，
+**每一天都是 `true`**，而 `openMin` / `closeMin` 是 `null`。
+「还没配」不是「不营业」——和建单闸门同一个口径（§14.3）。
+日历照常画，只是那些格子没有时间轴。
+
+点进某一天再调 `/v1/desk/day` 拿细节。
+
+---
+
+### 5.3 客户档案（批 6）
 
 ```
 GET /v1/desk/customers?q=&vip=1&sleeping=90&limit=50&offset=0
@@ -478,7 +520,7 @@ GET /v1/desk/customers/:id
 > 读起来是「这位客人一分钱没花过」—— 一个明确的错误信息比空着糟得多。
 > 前端要判 `null` 并显示为「—」。
 
-### 5.3 订阅与试用（批 1）
+### 5.4 订阅与试用（批 1）
 
 ```jsonc
 GET /v1/desk/billing
@@ -808,6 +850,19 @@ X-Staff-Token: <上机会话令牌>
 | `rotation.reorder` / `rotation.skip` / `rotation.setBreak` | `rotation.override` | optional |
 | `queue.join` | `queue.join` | required |
 | `queue.update` | `queue.manage` | optional |
+
+> ⭐ **`queue.join` 的 `requestedStaffId` 是 membership id**（客人点名要谁）。
+> 契约上只写了 `uuid`，容易以为是「staff_profile 的 id」—— **没有那个东西**：
+> `staff_profiles` 的主键**就是** `membership_id`，它没有自己的 id 列，
+> 而 `walkin_queue.requested_staff_id` 的外键直接指向 `memberships.id`。
+>
+> 所以日程快照 `staff[].membershipId` 里那个值**可以原样传**。
+> `requestedServiceId` 同理，就是 `services[].id`。
+>
+> 两个字段都会校验**属于当前门店**，不属于就 `NOT_FOUND` +
+> `details.entity = 'staff' | 'service'`。⚠️ 这一道 2026-08-26 才加 ——
+> 在那之前传错会撞外键、抛成 **500**，而真相只是「这个技师不存在」。
+> 同一个 org 里**另一家店**的技师也会被拒（外键只认 id 不认 location，拦不住）。
 | `shift.set` / `shift.publish` / `shift.saveTemplate` | `schedule.write` | optional |
 | `shift.applyTemplate` | `schedule.write` | required |
 | `timeclock.punch` | `timeclock.punch_self` | optional |
@@ -1199,7 +1254,36 @@ pnpm dev:desk         # 现有前台，5183
 ⚠️ **`.env` 只有根目录一份**，各个 app 用 `loadEnv('../..')` + `define` 注进去 ——
 不要在 `apps/*` 下面各建一个。
 
-开发账号（密码统一 `GenieDev!2026`）：
+### 16.1 拿一个真 token（实测后端用）
+
+前端接 Supabase SDK 之前，想直接 curl 后端就用这个 ——
+**实测过，下面每一行都跑得通**：
+
+```bash
+set -a && . ./.env && set +a
+
+TOKEN=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
+  -H "apikey: $SUPABASE_ANON_KEY" -H "Content-Type: application/json" \
+  -d '{"email":"mia@example.test","password":"GenieDev!2026"}' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+
+curl -s http://127.0.0.1:3000/v1/me/locations -H "Authorization: Bearer $TOKEN"
+# → membershipId = 92ad668e-…（Mia 在 Lotus Nails 的那条）
+
+MID=<上面那个 membershipId>
+curl -s http://127.0.0.1:3000/v1/me/context \
+  -H "Authorization: Bearer $TOKEN" -H "X-Membership-Id: $MID"
+curl -s "http://127.0.0.1:3000/v1/desk/day?date=2026-08-27" \
+  -H "Authorization: Bearer $TOKEN" -H "X-Membership-Id: $MID"
+```
+
+⚠️ **`2026-08-27` 那一天种子里有 6 条真单**，别用今天去试 ——
+空数组会让你以为接口坏了。用 `/v1/desk/days` 找哪几天有数据。
+
+### 16.2 开发账号
+
+密码统一 `GenieDev!2026`（`packages/db/src/seed.ts` 的 `DEV_PASSWORD`），
+邮箱都是 `email_confirm: true`，可以直接密码登录：
 
 | 邮箱 | 角色 | 门店 |
 | :--- | :--- | :--- |
@@ -1214,10 +1298,21 @@ pnpm dev:desk         # 现有前台，5183
 > ⚠️ 而且**不要跑** —— 种子会解绑 Golden Foot Spa 上那个真实的 Telnyx 号
 > （`+17579999968`），解绑后那家店的电话会全部 401。
 
-`pnpm verify` 是唯一的验收入口（lint + typecheck + 835 项测试）。
+`pnpm verify` 是唯一的验收入口（lint + typecheck + test）。
 
 > ⚠️ **不要并发跑 `pnpm verify`** —— 两个进程会撞同一个测试库，
 > 表现是一堆莫名其妙的 404。
+
+⚠️ **`pnpm verify` 现在整体是红的，但不是后端的问题**：新建的几个前端 app
+还没有 `tsconfig.json` / `src`，`tsc --noEmit` 会打印帮助然后退出 1。
+只想确认后端有没有被改坏的话跑这一条：
+
+```bash
+pnpm turbo run typecheck test \
+  --filter=@gf/api --filter=@gf/db --filter=@gf/contracts \
+  --filter=@gf/payroll --filter=@gf/ai --filter=@gf/scheduling \
+  --filter=@gf/rotation --filter=@gf/yelp --filter=@gf/booking
+```
 
 ---
 

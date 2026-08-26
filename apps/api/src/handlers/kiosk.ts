@@ -111,6 +111,42 @@ registerHandler(JoinQueue, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   const staffCount = Math.max(1, Number(onDuty!.n));
   const quotedWaitMin = aheadCount === 0 ? 0 : Math.ceil((aheadCount * 40) / staffCount / 5) * 5;
 
+  /*
+   * ⭐ 点名的技师和项目要**先验存在、且属于这家店**。
+   *
+   * 不验的话有两种坏法：
+   *   · id 打错 → 撞 `walkin_queue_requested_staff_id_memberships_id_fk`，
+   *     整条命令抛出去是一个 **500 INTERNAL**。前端看到的是「系统炸了」，
+   *     而真相是「这个技师不存在」—— 一个它自己能修的错
+   *   · id 是**同一个 org 里另一家店**的人 → 外键查得到（它只认 memberships.id，
+   *     不认 location），于是这条 walk-in 点了一个今天不在这家店的技师，
+   *     一直到前台准备派单才发现
+   *
+   * ⚠️ `requestedStaffId` 是 **membership id**（`staff_profiles` 的主键就是
+   * `membership_id`，它没有自己的 id 列）。日程快照 `staff[].membershipId`
+   * 里那个值可以直接传进来。
+   */
+  if (input.requestedStaffId) {
+    const [ok] = await tx<{ membership_id: string }[]>`
+      select membership_id from staff_profiles
+      where membership_id = ${input.requestedStaffId} and location_id = ${ctx.locationId}`;
+    if (!ok) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, {
+        details: { entity: 'staff', requestedStaffId: input.requestedStaffId },
+      });
+    }
+  }
+  if (input.requestedServiceId) {
+    const [ok] = await tx<{ id: string }[]>`
+      select id from services
+      where id = ${input.requestedServiceId} and location_id = ${ctx.locationId}`;
+    if (!ok) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, {
+        details: { entity: 'service', requestedServiceId: input.requestedServiceId },
+      });
+    }
+  }
+
   const [row] = await tx<{ id: string }[]>`
     insert into walkin_queue
       (org_id, location_id, business_date, ticket_number, customer_id, walk_in_name,

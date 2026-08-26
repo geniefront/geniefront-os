@@ -76,6 +76,20 @@ GET /v1/me/context      Authorization + X-Membership-Id
 
 详见 `18` §12.1 / §12.3。
 
+### 想直接 curl 后端实测
+
+```bash
+set -a && . ./.env && set +a
+TOKEN=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
+  -H "apikey: $SUPABASE_ANON_KEY" -H "Content-Type: application/json" \
+  -d '{"email":"mia@example.test","password":"GenieDev!2026"}' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+```
+
+种子账号密码统一 `GenieDev!2026`，邮箱都已验证。`mia@example.test` 是前台。
+⚠️ 种子数据里**有单的那天是 `2026-08-27`**（6 条），别拿今天去试。
+完整清单和更多 curl 见 `18` §16。
+
 ### 忘记密码
 
 ```http

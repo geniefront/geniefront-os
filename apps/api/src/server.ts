@@ -43,6 +43,7 @@ import './handlers/kiosk';
 import './handlers/billing';
 import './handlers/ai';
 import { loadDay } from './queries/day';
+import { loadMonth } from './queries/month';
 import { loadBlueprint, listBlueprints } from './queries/blueprint';
 import { loadCallDrafts } from './queries/callDrafts';
 import { loadCalls } from './queries/calls';
@@ -542,6 +543,50 @@ export function buildServer(): FastifyInstance {
     return withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
       (tx) => loadDay(tx, ctx, date));
+  });
+
+  /**
+   * ── 查询：区间概览（月视图）────────────────────────────────────────────
+   *
+   * 日历那张网格吃的是这一条，**不是循环调 31 次 `/v1/desk/day`**。
+   * 那样是 124 次查询，而且每天都把全店的员工、项目、房间原样带一遍 ——
+   * 日历格子上一个字都用不到它们。
+   *
+   * 这里每天只回密度：开不开门、几点到几点、几条单、几个人上班、日结了没有。
+   * 点进某一天再调 `/v1/desk/day` 拿细节。
+   */
+  app.get<{ Querystring: { from?: string; to?: string } }>('/v1/desk/days', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('appointment.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'appointment.read' } });
+    }
+
+    const tenant = { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId };
+    const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+    // 不传就给「本月」—— 按门店的营业日算，不是按服务器的今天
+    const today = await withTenant(tenant, (tx) => resolveDate(tx, ctx.locationId));
+    const from = DATE.test(req.query.from ?? '') ? req.query.from! : `${today.slice(0, 7)}-01`;
+    const to = DATE.test(req.query.to ?? '') ? req.query.to! : addDaysIso(`${today.slice(0, 7)}-01`, 41);
+
+    if (from > to) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'bad_range' } });
+    }
+    /*
+     * ⚠️ 区间要封顶。
+     *
+     * 月视图最多要六周（42 天，日历网格把上下月的边角也画出来）。
+     * 给到 92 天让季度视图也够用，再多就是有人拿 `from=2020-01-01`
+     * 扫全库 —— 那三条聚合查询会全表扫，而门店的库和别人共用一个实例。
+     */
+    const span = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
+    if (!Number.isFinite(span) || span > 92) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'range_too_wide', maxDays: 92 },
+      });
+    }
+
+    return withTenant(tenant, (tx) => loadMonth(tx, ctx.locationId, from, to));
   });
 
   // ── 查询：轮牌板 ───────────────────────────────────────────────────────────

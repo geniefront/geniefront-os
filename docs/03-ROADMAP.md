@@ -481,6 +481,20 @@ Supabase 开 Google provider + Redirect URLs 白名单，dev/prod 两个项目�
 
 见 `12` §7、§8 与 `18` §2.2、§2.3、§12.3。
 
+**再补 `GET /v1/desk/days`（月视图）与两处前端问出来的坑**（2026-08-26）：
+
+- **月视图**没有区间接口，前端只能循环调 31 次 `/v1/desk/day` ——
+  那是 124 次查询，而且每天都把全店的员工、项目、房间原样带一遍。
+  新接口每天只回密度（开不开门、几条单、几个人上班、日结了没有），
+  区间封顶 92 天
+- **`items[].serviceId`**：`DayItem` 一直只有 `serviceName`，前端只能按名字
+  回查 `services[]`。实测下架一个项目，那一天 6 条单立刻全部回查不到
+- **`queue.join` 的 `requestedStaffId` 传错会抛 500**：撞外键、未翻译。
+  现在校验「存在且属于本店」→ `NOT_FOUND`。⚠️ 同一个 org 里另一家店的
+  技师原来也能传进来（外键只认 id 不认 location）
+- **`overridable` 同一个响应里有两个而且值可以不一样**（我 0046 引入的）。
+  给 `AppError` 加了 per-instance 选项，顶层说真话，`details.overridable` 删掉
+
 **接口文档见 [`18-API-REFERENCE.md`](18-API-REFERENCE.md)** —— 前端直接照着写。
 
 **明确不做**（写进宪法）：网站编辑器 · 招聘广场 · POS 硬件生意 ·

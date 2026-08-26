@@ -221,6 +221,60 @@ describe('⭐ Kiosk 的权限窄到只有两条', () => {
   });
 });
 
+describe('⭐ queue.join 的 requestedStaffId 是 membership id', () => {
+  /*
+   * 契约上只写着 `requestedStaffId: uuid`，没说是 membership 还是
+   * staff_profile 的 id —— 前端问过这个。答案是 **membership id**，
+   * 而且这不是约定俗成：`staff_profiles` 的主键**就是** `membership_id`
+   * （它没有自己的 id 列），`walkin_queue.requested_staff_id` 的外键也直接
+   * 指向 `memberships.id`。日程快照 `staff[].membershipId` 可以原样传。
+   *
+   * 这一组同时守着「传错不能是 500」：在这之前，一个不存在的 uuid 会撞外键，
+   * 整条命令抛成 500 INTERNAL —— 前端看到「系统炸了」，而真相是
+   * 「这个技师不存在」，一个它自己能修的错。
+   */
+  const joinWith = (requestedStaffId: string | null) => run<{ queueId: string }>(
+    'queue.join',
+    { walkInName: `点名测试 ${randomUUID().slice(0, 8)}`, requestedStaffId,
+      partySize: 1, source: 'desk' });
+
+  it('传日程快照里的 membershipId → 成功，而且原样落库', async () => {
+    const [linh] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      select membership_id as id from staff_profiles
+      where location_id = ${NAIL_LOC} and display_name->>'en' = 'Linh'`);
+
+    const out = await joinWith(linh!.id);
+    const [row] = await withTenant(tenant, (tx) => tx<{ s: string | null }[]>`
+      select requested_staff_id as s from walkin_queue where id = ${out.queueId}`);
+    expect(row!.s).toBe(linh!.id);
+  });
+
+  it('⭐ 不存在的 uuid → NOT_FOUND，不是 500', async () => {
+    await expect(joinWith('11111111-2222-4333-8444-555555555555'))
+      .rejects.toMatchObject({ code: 'NOT_FOUND', details: { entity: 'staff' } });
+  });
+
+  it('⭐ 同一个 org 里**另一家店**的技师也要拒 —— 外键拦不住这个', async () => {
+    /*
+     * 外键只认 `memberships.id`，不认 location。不自己验一道的话，
+     * 这条 walk-in 会点上一个今天根本不在这家店的技师，
+     * 一直到前台准备派单才发现。
+     */
+    const SPA_LOC = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+    const [yan] = await withTenant(
+      { orgId: '22222222-2222-4222-8222-222222222222', locationId: SPA_LOC, membershipId: null },
+      (tx) => tx<{ id: string }[]>`
+        select membership_id as id from staff_profiles where location_id = ${SPA_LOC} limit 1`);
+
+    await expect(joinWith(yan!.id))
+      .rejects.toMatchObject({ code: 'NOT_FOUND', details: { entity: 'staff' } });
+  });
+
+  it('不点名（null）照常进队列', async () => {
+    await expect(joinWith(null)).resolves.toBeTruthy();
+  });
+});
+
 describe('走单队列', () => {
   it('取号从 1 开始，按营业日重新数', async () => {
     __resetRateLimit();
