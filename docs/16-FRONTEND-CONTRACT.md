@@ -55,6 +55,32 @@ GET /v1/me/locations        Authorization: Bearer <token>
 
 细节见 `18` §2.2，来龙去脉见 `12` §7。
 
+### 忘记密码
+
+```http
+POST /v1/auth/password/reset      ← 不要 Authorization
+{ "email": "owner@example.com" }
+→ 200 { "ok": true }              ← 永远是这个
+```
+
+**响应永远只有一种**（邮箱不存在、格式不对、上游挂了都一样），
+所以前端也不要试图区分。文案只能是：
+「如果这个邮箱有账号，重置邮件已经发出去了，请查收（也看一下垃圾邮件）。」
+
+另一种响应只有 429（`{ code: 'RATE_LIMITED', details: { retryAfterSec } }`）。
+
+你要做三件事：
+
+1. 建 `/reset-password` 落地页 —— 从 URL 拿 recovery token 建会话，再调
+   `supabase.auth.updateUser({ password })`。**这一步不经过我们的 API。**
+2. 把 `/reset-password` 加进 Supabase 的 Redirect URLs 白名单。
+3. ⭐ 忘记密码那一页和落地页**都放「用 Google 登录」按钮** ——
+   用 Google 注册的人没有密码，不提示的话他会一直等一封自己不需要的信。
+
+⚠️ 也可以在前端直接调 `supabase.auth.resetPasswordForEmail()`，
+**但请走这条路由**：限频、`redirect_to` 由服务端拼、客服能查到「他说没收到」，
+这三件只有走这里才有。
+
 ---
 
 ## 2. ⭐ 命令总线：所有写操作只有这一条路

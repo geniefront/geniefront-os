@@ -131,7 +131,49 @@ GET /v1/me/locations
 `claimable` 里**没有 `intentId`**，这是故意的：认领那条路自己去数据库要
 intent（比对的是 `auth.users` 里那一行的邮箱），前端传 id 回来一点用都没有。
 
-### 2.3 技师上机（staff 端）
+### 2.3 ⭐ 忘记密码
+
+```http
+POST /v1/auth/password/reset          ← 不要 Authorization，不要 X-Membership-Id
+Content-Type: application/json
+
+{ "email": "owner@example.com" }
+```
+
+**响应永远是 `200 { "ok": true }`。** 邮箱不存在、格式不对、上游挂了 ——
+全都是这一个响应。「这个邮箱没注册过」是一句不能说的话：说了，
+这条路由就成了一个「拿邮箱列表探测谁是我们客户」的接口。
+
+所以**前端也不要试图区分**。文案只能是一句：
+「如果这个邮箱有账号，重置邮件已经发出去了，请查收（也看一下垃圾邮件）。」
+
+唯一的另一种响应是 **429**：
+
+```jsonc
+{ "code": "RATE_LIMITED", "details": { "scope": "pwreset-email", "retryAfterSec": 2841 } }
+```
+
+上限是 **每个 IP 10 次 / 小时**、**每个地址 5 次 / 小时**。429 不泄露任何东西 ——
+它只说明这个 IP / 这个地址最近被打过，和账号存不存在无关。
+
+#### 三件前端要做的事
+
+1. **落地页 `/reset-password` 必须存在。** 邮件里的链接跳到
+   `APP_BASE_URL + /reset-password`（**服务端拼的**，前端传什么都没用）。
+   那一页从 URL 里拿 Supabase 的 recovery token 建立会话，然后调
+   `supabase.auth.updateUser({ password })` —— 这一步**在前端做，不经过我们的 API**。
+2. **把它加进 Supabase 的 Redirect URLs 白名单**，否则会被静默换成 Site URL
+   （`07` §A1b）。
+3. ⭐ **那一页上要放「用 Google 登录」。** 用 Google 注册的人没有密码，
+   他点了「忘记密码」照样会收到信（点进去能**设**一个密码，这个行为是对的），
+   但更可能他只是忘了自己当初是用 Google 注册的 —— 不提示的话他会一直等一封
+   自己其实不需要的信。
+
+⚠️ 也可以在前端直接调 `supabase.auth.resetPasswordForEmail()`（anon key 本来就在包里），
+**但请走这条路由**：限频、`redirect_to` 由服务端拼、客服能查到「他说没收到」，
+这三件只有走这里才有。理由见 `12` §8。
+
+### 2.4 技师上机（staff 端）
 
 ```
 POST /v1/auth/staff/claim-code   { code: "482913" }
@@ -398,7 +440,8 @@ GET /v1/desk/billing
 
 | 路由 | 说明 |
 | :--- | :--- |
-| `GET /v1/me/locations` | 我的门店列表（切店用） |
+| `GET /v1/me/locations` | 我的门店列表（切店用）+ `claimable`，见 §2.2 |
+| `POST /v1/auth/password/reset` | ⭐ 忘记密码（**不需要登录**），见 §2.3 |
 | `GET /v1/me/summary?from=&to=&scope=all\|<locationId>` | ⭐ 跨店汇总（批 4） |
 
 ```jsonc

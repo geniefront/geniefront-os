@@ -75,6 +75,10 @@ Create Credentials → **OAuth client ID** → Web application
   https://app.geniefront.com/**     # 生产
   ```
 
+  ⭐ 这条白名单**同时管三样东西**的落地页，少一个就少一条能用的路：
+  Google 登录回跳、激活邮件的 `/activate`、忘记密码的 `/reset-password`。
+  上面那个 `/**` 通配一次覆盖掉，但如果你收紧成逐条列举，三条都要列。
+
   ⚠️ 不在白名单里的 `redirectTo`，Supabase 会**静默换成 Site URL** ——
   表现是「登录成功但跳回了首页，一直登不进后台」。
 

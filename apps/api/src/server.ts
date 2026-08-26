@@ -55,6 +55,7 @@ import { registerFormLinkRoutes } from './public/formRoutes';
 import { registerStripeRoutes } from './stripe/routes';
 import { registerCopilotRoutes } from './copilot/routes';
 import { registerAuthRoutes } from './auth/routes';
+import { registerPasswordResetRoutes } from './auth/passwordReset';
 import { staffContextFromToken, STAFF_TOKEN_HEADER } from './auth/staffSession';
 import { registerRawBodyParser } from './rawBody';
 import { loadBilling } from './queries/billing';
@@ -1636,6 +1637,16 @@ export function buildServer(): FastifyInstance {
   // 每一条自己回答「伪造这一次请求的人能拿到什么」，答案是
   //「必须先说出一个 15 分钟内有效的一次性码，或者收得到那条短信」。
   registerAuthRoutes(app);
+
+  /**
+   * ── 忘记密码 ────────────────────────────────────────────────────────────
+   *
+   * 同样在认证之前（`/v1/auth/` 前缀已经跳过 Bearer 校验），
+   * 同样自己回答那个问题：伪造这一次请求的人能拿到什么？
+   * **什么都拿不到** —— 响应永远是 `{ ok: true }`，信只会发到
+   * 那个邮箱本人手里，而落地页的域名是服务端拼的。
+   */
+  registerPasswordResetRoutes(app);
 
   // ── Kiosk 门口端（设备令牌鉴权）──────────────────────────────────────────
   registerKioskRoutes(app);
