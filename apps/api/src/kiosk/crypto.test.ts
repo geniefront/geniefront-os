@@ -14,7 +14,18 @@ const key = randomBytes(32);
 const hexKey = key.toString('hex');
 
 const answers = {
-  pregnant: true, pregnancy_weeks: 22,
+  /*
+   * ⚠️ 孕周用一个**长而独特**的数字，不是 22。
+   *
+   * 下面「密文里找不到明文片段」那一条是拿字节串做 `toContain`。
+   * `'22'` 只有两个字节 —— 一段随机密文里恰好出现 `0x32 0x32` 的概率
+   * 大约是千分之一点五，也就是说这条用例每跑几百次就会无缘无故红一次，
+   * 而红的是一条写着「拖库的人拿不到明文」的安全断言。
+   * 那种红比不测还糟：它教人忽略这个文件。
+   *
+   * 真实业务值是 22 周，用不到那么精确的探针 —— 探针要的是「独特」。
+   */
+  pregnant: true, pregnancy_weeks: 22, patient_ref: 'PW-22-8F3C91D6',
   conditions: ['high_blood_pressure', 'recent_surgery'],
   avoid_areas: ['lower_back'],
   note: '腰部两个月前动过手术，避开',
@@ -53,7 +64,18 @@ describe('加解密', () => {
     // 这条是整个文件的重点：拖库的人拿到的必须是解不开的字节
     const blob = encryptAnswers(answers, key);
     const asText = blob.toString('latin1');
-    for (const leak of ['pregnant', 'high_blood_pressure', '腰部', '22']) {
+    /*
+     * ⚠️ 每一个探针都必须**足够长**。
+     *
+     * 这里原来有一个 `'22'`（孕周）。两个字节的串在一段随机密文里
+     * 恰好撞上的概率约千分之一点五 —— 这条用例因此会周期性地无故变红
+     * （2026-08-26 撞到过一次）。而它红的时候写着的是
+     * 「拖库的人拿不到明文」，看到的人第一反应是加密坏了。
+     *
+     * 探针的作用是「明文有没有原样漏出去」，那要求它**独特**，不是**短**。
+     */
+    for (const leak of ['pregnant', 'high_blood_pressure', 'PW-22-8F3C91D6', '腰部两个月']) {
+      expect(leak.length).toBeGreaterThanOrEqual(5);   // 太短的探针会随机误报
       expect(asText).not.toContain(leak);
     }
   });

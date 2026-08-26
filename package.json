@@ -17,6 +17,7 @@
     "db:generate": "pnpm --filter @gf/db generate",
     "db:migrate": "pnpm --filter @gf/db migrate",
     "db:seed": "pnpm --filter @gf/db seed",
+    "db:tidy": "pnpm --filter @gf/api tidy",
     "verify": "pnpm lint:guards && pnpm typecheck && pnpm test"
   },
   "devDependencies": {

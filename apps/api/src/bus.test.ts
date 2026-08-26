@@ -34,23 +34,40 @@ let spaService: string;
 let spaRoom: string;
 let lisa: string;
 
-/** 明天 14:00 UTC —— 避开「今天已有数据」的干扰 */
-const at = (h: number, m = 0) => {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + 1);
-  d.setUTCHours(h, m, 0, 0);
-  return d.toISOString();
-};
+/**
+ * 这个文件专用的那一天。
+ *
+ * ⚠️ **不能用「明天」**。种子给两家店铺了几条演示预约，落点正是
+ * 今天前后 —— 而下面 `beforeAll` 会把这一天清空。于是每跑一次测试，
+ * 前端那边正在对着调的演示数据就消失一批，而他看到的现象是
+ * 「刚才还有的单没了」，完全查不到原因（2026-08-26 真的发生过）。
+ *
+ * 挪到一个足够远、没有任何别的东西会用的日子，清理也只清这一天。
+ * 远到 60 天以外还有一个好处：`min_minutes_ahead` 之类的近端护栏
+ * 一条都碰不到。
+ */
+const TEST_DAY = '2027-03-15';   // 周一。固定日期，不随今天漂
+const at = (h: number, m = 0) =>
+  `${TEST_DAY}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00.000Z`;
 
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const SPA_ORG = '22222222-2222-4222-8222-222222222222';
 
 beforeAll(async () => {
-  // 测试要可重复：上一轮留下的预约会让容量判断的铺垫步骤直接超限。
-  // 只清这两个种子 org 的预约，appointment_items 靠 FK 级联跟着走。
+  /*
+   * 测试要可重复：上一轮留下的预约会让容量判断的铺垫步骤直接超限。
+   *
+   * ⚠️ **只清 `TEST_DAY` 那一天**，不是整家店。
+   * 这里以前是 `delete from appointments where location_id = ...`（不带日期），
+   * 于是每跑一次测试就把种子的演示预约连锅端了 —— 前端在对着调的数据
+   * 会莫名其妙消失，而那个现象和这个文件看不出任何关系。
+   *
+   * appointment_items 靠 FK 级联跟着走。
+   */
   for (const [org, loc] of [[NAIL_ORG, NAIL_LOC], [SPA_ORG, SPA_LOC]] as const) {
     await withTenant({ orgId: org, locationId: loc, membershipId: null }, async (tx) => {
-      await tx`delete from appointments where location_id = ${loc}`;
+      await tx`delete from appointments
+               where location_id = ${loc} and business_date = ${TEST_DAY}`;
       await tx`delete from command_idempotency where location_id = ${loc}`;
     });
   }
@@ -89,7 +106,15 @@ beforeAll(async () => {
   lisa = cust[0]!.id;
 });
 
-afterAll(async () => { await closeDb(); });
+afterAll(async () => {
+  // 走的时候把 TEST_DAY 也带走 —— 留着的话它会出现在前端的月视图里，
+  // 而那一格看起来和真数据没有区别
+  for (const [org, loc] of [[NAIL_ORG, NAIL_LOC], [SPA_ORG, SPA_LOC]] as const) {
+    await withTenant({ orgId: org, locationId: loc, membershipId: null }, (tx) => tx`
+      delete from appointments where location_id = ${loc} and business_date = ${TEST_DAY}`);
+  }
+  await closeDb();
+});
 
 const create = (ctx: Awaited<ReturnType<typeof buildContext>>, input: unknown, key = randomUUID()) =>
   dispatch<{ appointmentId: string; itemIds: string[]; overbookedItemIds: string[]; businessDate: string }>(
