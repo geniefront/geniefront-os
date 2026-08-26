@@ -1089,7 +1089,9 @@ describe('AI 电话改期与取消', () => {
 
   /** 造一单：客人 + 未来的预约。返回 appointmentId */
   let apptSeq = 0;
-  async function makeAppt(startsAt: string, phone = CALLER): Promise<string> {
+  async function makeAppt(
+    startsAt: string, phone = CALLER, source: 'phone_ai' | 'desk' = 'phone_ai',
+  ): Promise<string> {
     /*
      * ⚠️ 名字要每次不同：`customers_no_exact_dup` 挡的正是
      * 「同号同名重复建客户」（宪法第 16 条的另一半）。
@@ -1104,7 +1106,7 @@ describe('AI 电话改期与取消', () => {
       customerId: cust!.id,
       items: [{ serviceId: catalog[0]!.id, addonIds: [], membershipId: null,
                 startsAt, details: {} }],
-      partySize: 1, source: 'phone_ai',
+      partySize: 1, source,
     });
     return out.appointmentId;
   }
@@ -1219,8 +1221,17 @@ describe('AI 电话改期与取消', () => {
      * 阈值上限是 168 小时（7 天），而 DAY_LATER 在 23 天之后 ——
      * 拿它去试 minHoursAhead 永远够，测不出这道闸。
      */
+    /*
+     * ⚠️ 这一单**只能挂在 `desk` 名下**（0046 之后）。
+     *
+     * 「两小时后」是相对本机时钟算的，跑测试的时间一晚就落到打烊之后，
+     * 而营业时间闸门对 `phone_ai` 这条渠道是不给宽限、不给放行的 ——
+     * AI 本来就不该在电话里把客人排到关门以后。
+     * 这里要测的是 `minHoursAhead` 那道闸，不是建单，所以让前台来建。
+     */
     await setPolicy({ minHoursAhead: 24, blockSameDay: false });
-    const id = await makeAppt(new Date(Date.now() + 2 * 3600_000).toISOString());
+    const id = await makeAppt(
+      new Date(Date.now() + 2 * 3600_000).toISOString(), CALLER, 'desk');
 
     const res = await telnyxCall('/v1/telnyx/tools/cancel_appointment',
       { to: AI_LINE, from: CALLER, appointment_id: id });

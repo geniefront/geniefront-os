@@ -10,7 +10,7 @@ import {
   SaveService, ArchiveService, SaveStaffProfile,
   SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
-  SaveOnlineBooking, AddWebOrigin, RemoveWebOrigin, CreateLocation,
+  SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
   ROLE_PRESETS,
   AppError, ERROR_CODES, pickText,
 } from '@gf/contracts';
@@ -367,6 +367,47 @@ registerHandler(SaveOnlineBooking, async ({ input, ctx, tx, audit }: HandlerArgs
     after: { onlineBooking: next },
   });
   return { locationId: ctx.locationId, enabled: input.enabled };
+});
+
+registerHandler(SaveOffHours, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SaveOffHours.input._type>) => {
+  const [cur] = await tx<{ settings: Record<string, unknown>; hours: Record<string, unknown> }[]>`
+    select settings, business_hours as hours from locations where id = ${ctx.locationId}`;
+  if (!cur) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
+
+  /**
+   * ⚠️ 营业时间都还没配就打开闸门 —— 那不是「拦住非营业时间」，
+   * 是「拦住一切」。空的 `business_hours` 在引擎里被当成「还没配」
+   * 而直接放行（见 `@gf/scheduling/business-hours` 文件头 ②），
+   * 所以打开开关会是一个**什么都不发生**的操作，老板会以为自己设好了。
+   * 当场拦下并说清楚该先去哪一页。
+   */
+  if (input.enforce && Object.keys(cur.hours ?? {}).length === 0) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'business_hours_not_configured' },
+    });
+  }
+
+  const before = (cur.settings['off_hours'] ?? {}) as Record<string, unknown>;
+
+  const next = {
+    enforce: input.enforce,
+    before_open_minutes: input.beforeOpenMinutes,
+    after_close_minutes: input.afterCloseMinutes,
+    beyond: input.beyond,
+  };
+
+  await tx`update locations set
+      settings = jsonb_set(settings, '{off_hours}', ${jsonb(next)}::jsonb, true),
+      updated_at = now()
+    where id = ${ctx.locationId}`;
+
+  audit({
+    entityType: 'location', entityId: ctx.locationId,
+    before: { offHours: before },
+    after: { offHours: next },
+  });
+  return { locationId: ctx.locationId, enforce: input.enforce };
 });
 
 registerHandler(AddWebOrigin, async ({ input, ctx, tx, audit }: HandlerArgs<

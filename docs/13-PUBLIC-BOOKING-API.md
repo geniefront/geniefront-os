@@ -312,6 +312,16 @@ X-GF-Public-Key: pk_3f9a2b1c
 
 ---
 
+> ⭐ **`slots` 永远只落在营业时间内**（sql/0046）。
+>
+> 老板可以在后台开一个「开门前 / 关门后各放宽 N 分钟」的窗口，
+> 但**那个窗口只对前台有效** —— 这条接口一格都不会多报，
+> `POST /bookings` 也一律拒（`OUTSIDE_BUSINESS_HOURS`，**不可覆盖**）。
+>
+> 理由是给客人的：宽限的意思是「前台看着排班表，知道谁会提前来开门」；
+> 挂到网上卖的意思是「没有任何人知道这件事，直到客人到了门口」。
+> 客人要约营业时间外，正确的路是让他打电话。
+
 ### 4.4 `POST /public/v1/bookings` —— 建预约
 
 ```http
@@ -710,6 +720,7 @@ POST /public/v1/bookings       { …, verifyToken }
 | 404 | `NOT_FOUND` | `public_key` 不对，或项目已下架 → 重拉 `/services` |
 | 409 | `RESOURCE_CONFLICT` | ⭐ **被抢先订走了**。重拉 availability 让客人重选 |
 | 409 | `LOCATION_OVER_CAPACITY` | 那个时段满了。同上处理 |
+| 409 | `OUTSIDE_BUSINESS_HOURS` | ⭐ 这个时刻店里没人（§4.3 那条注）。重拉 availability；`details.issue.code` 是 `CLOSED_DAY` 就直接跳到下一天 |
 | 409 | `IDEMPOTENCY_KEY_REUSED` | 同一个 key 配了不同的 body。**换一个新 key** |
 | 409 | `ALREADY_CANCELLED` | 取消一条已取消的。当成功处理，显示「已取消」 |
 | 429 | `RATE_LIMITED` | 限频。显示 `details.retryAfterSec` 和店铺电话，**不要自动重试** |

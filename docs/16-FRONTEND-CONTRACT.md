@@ -96,7 +96,8 @@ GET /v1/me/locations   →  [{ membershipId, locationId, name, role, … }]
 | 类 | 例子 | 前端该怎么做 |
 | :--- | :--- | :--- |
 | **要人做决定** | `OVERBOOK_REASON_REQUIRED` `VARIANCE_REASON_REQUIRED` `VOID_REASON_REQUIRED` | 弹出输入原因，带着 `reason` 重发同一条命令（**同一个幂等键**） |
-| **要人改输入** | `STAFF_OVER_CAPACITY` `RESOURCE_CONFLICT` `OUTSIDE_BUSINESS_HOURS` `STAFF_LACKS_SKILL` | 显示在对应字段旁，不要弹全局 toast |
+| **要人改输入** | `STAFF_OVER_CAPACITY` `RESOURCE_CONFLICT` `STAFF_LACKS_SKILL` | 显示在对应字段旁，不要弹全局 toast |
+| **看 `details.overridable`** | `OUTSIDE_BUSINESS_HOURS` | true → 弹原因框带 `override.reason` 重发；false → 只能改时间。详见 `18` §14.3 |
 | **不该发生** | `INTERNAL` `UPSTREAM_UNAVAILABLE` | 全局提示 + 保留用户输入，给「重试」按钮（换新幂等键） |
 
 ⚠️ **`PERMISSION_DENIED` 不是让你藏按钮的信号。** 权限在服务端判，

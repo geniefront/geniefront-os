@@ -262,6 +262,63 @@ export const SaveOnlineBooking = defineCommand({
 });
 
 /**
+ * ⭐ 非营业时间能不能约（0046）。
+ *
+ * ## 老板真正在问的那个问题
+ *
+ * 「我九点半开门，熟客说她八点半要过来做个甲，能不能给她排上？」
+ *
+ * 能。但**只在前台能** —— 官网和电话 AI 永远不会把这一格报出去。
+ * 报出去客人就会自己订，而那个点店里一个人都没有。
+ * 老板要的是「客人问了我可以答应」，不是「挂到网上卖」。
+ *
+ * ## 三个数字，不是三十个
+ *
+ * 刻意**不做**「每天各设一个宽限」：七天七组数字，老板填到第三天就烦了，
+ * 而填错的那一天要等到客人白跑一趟才被发现。一组数字管七天。
+ */
+export const SaveOffHours = defineCommand({
+  name: 'location.saveOffHours',
+  input: z.object({
+    /**
+     * 总开关。**默认关**，而且 0046 把所有存量门店都写成关。
+     *
+     * 这个闸门在此之前从来没生效过（`OUTSIDE_BUSINESS_HOURS` 有码没人抛）。
+     * 一上来就打开，会让所有已经排在营业时间外的单、所有还没配全营业时间的店
+     * 在同一个早上集体报错 —— 而没有任何人事先被告知。
+     */
+    enforce: z.boolean(),
+    /** 开门前多久仍然算约得进去。最多 4 小时 —— 再多就不是「通融」是「改营业时间」了 */
+    beforeOpenMinutes: z.number().int().min(0).max(240).default(0),
+    /** 关门后多久。同上 */
+    afterCloseMinutes: z.number().int().min(0).max(240).default(0),
+    /**
+     * 超出上面那个窗口时：
+     *   `warn`  —— 前台带 reason 可以放行（和超卖完全同一个交互）
+     *   `block` —— 一律不许，连 reason 都不给
+     *
+     * 默认 `warn`。前台手上握着一个 `block` 挡不住的东西：电话。
+     * 挡死之后他会改成「先约进营业时间、客人到了再改」，
+     * 那条路上一个字都不会留在系统里 —— 比放行还糟。
+     */
+    beyond: z.enum(['warn', 'block']).default('warn'),
+  }),
+  output: z.object({
+    locationId: uuid,
+    enforce: z.boolean(),
+  }),
+  permission: 'settings.manage',
+  ai: {
+    description:
+      '设置非营业时间能不能约：总开关、开门前/关门后各放宽多少分钟、' +
+      '超出之后是让前台带原因放行还是一律不许。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+/**
  * 官网域名白名单。
  *
  * ⚠️ 这**不是**鉴权 —— 它挡的是「别人的网站嵌一个我们的预约表单」，挡不住 curl。
@@ -349,5 +406,5 @@ export const CreateLocation = defineCommand({
 export const SETUP_COMMANDS = [
   SaveService, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
-  SaveOnlineBooking, AddWebOrigin, RemoveWebOrigin, CreateLocation,
+  SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
 ] as const;

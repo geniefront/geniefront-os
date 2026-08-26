@@ -24,13 +24,13 @@
 | [§8](#8-公开预约-api给客人的) | 公开预约 API（给客人的） |
 | [§9](#9-门口-ipad-kiosk) | 门口 iPad（Kiosk） |
 | [§10](#10-技师端) | 技师端 |
-| [§11](#11-命令全表89-条) | ⭐ 命令全表（89 条） |
+| [§11](#11-命令全表90-条) | ⭐ 命令全表（90 条） |
 | [§12](#12-权限与角色) | 权限与角色 |
 | [§13](#13-实时realtime) | 实时（Realtime） |
 | [§14](#14-枚举与常量) | 枚举与常量 |
 | [§15](#15-八条不要做的事) | ⚠️ 八条不要做的事 |
 | [§16](#16-本地起后端) | 本地起后端 |
-| [附录 A](#附录-a--89-条命令的全量表) | ⭐ 89 条命令的全量表（代码导出，不会漂移） |
+| [附录 A](#附录-a--90-条命令的全量表) | ⭐ 90 条命令的全量表（代码导出，不会漂移） |
 
 ---
 
@@ -174,7 +174,7 @@ Content-Type: application/json
 | 用户主动点「重试」 | **换新 key** |
 | 网络超时后自动重试 | **复用旧 key** |
 
-`idempotency: required` 的命令不给 key 直接 400。哪些是 required 见 [§11](#11-命令全表89-条)。
+`idempotency: required` 的命令不给 key 直接 400。哪些是 required 见 [§11](#11-命令全表90-条)。
 
 ### 3.3 撤销
 
@@ -218,7 +218,7 @@ Content-Type: application/json
 | `LOCATION_OVER_CAPACITY` | 409 | 门店时段超了（**软**） | 同上 |
 | `STAFF_LACKS_SKILL` | 409 | 这位技师不会这个项目 | 换人 |
 | `STAFF_NOT_BOOKABLE` | 409 | 这人根本不接客 | 换人。**有 reason 也没用** |
-| `OUTSIDE_BUSINESS_HOURS` | 409 | 不在营业时间 | — |
+| `OUTSIDE_BUSINESS_HOURS` | 409 | 不在营业时间（**软**，0046） | `details.overridable` 为 true 才可带 `override.reason` 重试；false 就是没得商量，见 §14.3 |
 | `OVERBOOK_REASON_REQUIRED` | 400 | 要超卖但没写原因 | 弹输入框，带 reason 重发（**同一个幂等键**） |
 | `ALREADY_CANCELLED` | 409 | 已经取消过了 | — |
 | `TICKET_ALREADY_CLOSED` | 409 | 单已结 / 已开单不让改 | — |
@@ -240,8 +240,8 @@ Content-Type: application/json
 
 | 类 | 例子 | 做法 |
 | :--- | :--- | :--- |
-| **要人做决定** | `OVERBOOK_REASON_REQUIRED` `VARIANCE_REASON_REQUIRED` `VOID_REASON_REQUIRED` | 弹输入框 → 带 `reason` 重发**同一条命令、同一个幂等键** |
-| **要人改输入** | `STAFF_OVER_CAPACITY` `RESOURCE_CONFLICT` `OUTSIDE_BUSINESS_HOURS` | 显示在**对应字段旁**，不要弹全局 toast |
+| **要人做决定** | `OVERBOOK_REASON_REQUIRED` `VARIANCE_REASON_REQUIRED` `VOID_REASON_REQUIRED` `OUTSIDE_BUSINESS_HOURS`（`overridable: true` 时）| 弹输入框 → 带 `reason` 重发**同一条命令、同一个幂等键** |
+| **要人改输入** | `STAFF_OVER_CAPACITY` `RESOURCE_CONFLICT` `OUTSIDE_BUSINESS_HOURS`（`overridable: false` 时）| 显示在**对应字段旁**，不要弹全局 toast |
 | **不该发生** | `INTERNAL` `UPSTREAM_UNAVAILABLE` | 全局提示 + 保留输入 + 重试（换新 key） |
 
 ### 4.3 ⚠️ `PERMISSION_DENIED` 不是让你藏按钮的信号
@@ -315,7 +315,7 @@ GET /v1/desk/customers/:id
   "preferences": {
     "preferredStaffIds": [], "avoidStaffIds": [], "preferredGender": "female",
     "allergies": null, "freeNotes": null,
-    "profile": {                    // ⭐ key 定死在 contracts，见 §14.3
+    "profile": {                    // ⭐ key 定死在 contracts，见 §14.4
       "pressure": "firm", "serviceLanguage": "zh-Hans",
       "focusAreas": ["neck", "shoulders"]
     }
@@ -577,7 +577,7 @@ X-Staff-Token: <上机会话令牌>
 
 ---
 
-## 11. ⭐ 命令全表（89 条）
+## 11. ⭐ 命令全表（90 条）
 
 `idem` 列：`required` = 必须给 `Idempotency-Key`，不给直接 400。
 
@@ -685,6 +685,7 @@ X-Staff-Token: <上机会话令牌>
 | :--- | :--- | :--- |
 | `location.saveProfile` / `location.saveHours` | `settings.manage` | |
 | `location.saveOnlineBooking` | `settings.manage` | ⭐ 含改期政策，见 §14.1 |
+| `location.saveOffHours` | `settings.manage` | ⭐ 非营业时间能不能约，见 §14.3 |
 | `location.saveAiChangePolicy` | `settings.manage` | ⭐ AI 改期/取消的八个开关，见 §14.2 |
 | `location.savePhoneLine` | `settings.manage` | ⭐ 含话术，见下 |
 | `location.addWebOrigin` / `removeWebOrigin` | `settings.manage` | 官网域名白名单 |
@@ -735,7 +736,7 @@ X-Staff-Token: <上机会话令牌>
 > ⚠️ **没有规则行 = 不发。** 默认全关是有意的：装上新版本的那一刻，
 > 所有历史门店突然开始给客人发短信是不可接受的（短信要花钱、会被投诉）。
 
-12 个 `eventKey` 见 §14.4。
+12 个 `eventKey` 见 §14.5。
 
 ### 建站工单（批 8）
 
@@ -852,7 +853,67 @@ X-Staff-Token: <上机会话令牌>
 `too_soon` / `not_found` / `execute_failed`。**前台界面要显示这个原因** ——
 她要知道是哪条闸拦的。
 
-### 14.3 `customer_preferences.profile`
+### 14.3 `settings.off_hours`（`location.saveOffHours`）⭐ 新
+
+老板真正在问的是：「我九点半开门，熟客说她八点半要来，能不能排上？」
+
+**能，但只在前台能。**
+
+| 键 | 默认 | 说明 |
+| :--- | :--- | :--- |
+| `enforce` | **false** | 总开关。关着 = 前台想约几点约几点（0046 之前的行为） |
+| `beforeOpenMinutes` | 0 | 开门前多久仍算约得进去。0–240 |
+| `afterCloseMinutes` | 0 | 关门后多久。0–240 |
+| `beyond` | `warn` | 超出上面那个窗口：`warn` 前台带 reason 放行 / `block` 一律不许 |
+
+`enforce` 默认 false 是**刻意的**：这道闸门在 0046 之前从来没生效过
+（`OUTSIDE_BUSINESS_HOURS` 有码没人抛）。一上来就打开，会让所有已经排在
+营业时间外的单在同一个早上集体报错。
+
+⚠️ `enforce: true` 时若门店 `business_hours` 是空的，命令会以
+`VALIDATION_FAILED` + `details.reason = 'business_hours_not_configured'`
+拒绝 —— 空营业时间在引擎里等于「还没配」而直接放行，打开开关会是一个
+什么都不发生的操作。**前台要把老板引到营业时间那一页**，不要只弹一句校验失败。
+
+#### 三条渠道三种待遇（前端必须区分）
+
+| 渠道 | 宽限窗口 | 越界之后 |
+| :--- | :--- | :--- |
+| 前台（`enforce: false`）| — | 不查 |
+| 前台（`enforce: true`）| 给 | `warn` → 报错 + `details.overridable: true`，**弹原因框、带 `override.reason` 重发**（和超卖同一个交互、同一个幂等键）；`block` → `overridable: false`，只能改时间 |
+| 官网 `web` / 电话 AI `phone_ai` | **不给** | 一律拒，`overridable: false`。reason 没用，`enforce` 也不看 |
+
+最后那一行是个**不可配的不变量**：老板那个开关管的是「前台能不能通融」，
+不是「要不要把没人在的时段挂到网上卖」。
+
+#### 找空档那条路不受影响
+
+`GET /v1/slots`、电话 AI 的 `find_slots`、官网预约页 —— **都只在
+[open, close] 里找**，宽限窗口一格都不会报出来。报出来客人就会自己订，
+而那个点店里一个人都没有。宽限是「客人问了前台可以答应」，不是挂出去卖。
+
+所以前台的「非营业时间加单」入口是**手动输时间**，不是从空档列表里挑。
+
+#### 报错长什么样
+
+```json
+{ "error": { "code": "OUTSIDE_BUSINESS_HOURS",
+  "details": {
+    "source": "desk",
+    "overridable": true,
+    "issue": {
+      "code": "BEFORE_OPEN",          // BEFORE_OPEN | AFTER_CLOSE | CLOSED_DAY
+      "businessDate": "2026-09-28",
+      "window": { "openMin": 570, "closeMin": 1170,
+                  "earliestMin": 510, "latestMin": 1170 },
+      "startMin": 420, "endMin": 465
+    } } } }
+```
+
+`*Min` 全部是**营业日墙上分钟**（跨午夜可以 ≥ 1440，足疗店开到凌晨 1:00
+就是 1500）。除以 60 取整拼 `HH:MM` 显示；`window` 在 `CLOSED_DAY` 时是 `null`。
+
+### 14.4 `customer_preferences.profile`
 
 七项，全是枚举（枚举才能筛能派单）：
 
@@ -872,7 +933,7 @@ X-Staff-Token: <上机会话令牌>
 >
 > ⚠️ 认不出的 key 服务端会**逐项丢弃**，不报错。这一列有历史遗留。
 
-### 14.4 通知事件（12 个）
+### 14.5 通知事件（12 个）
 
 | 组 | eventKey |
 | :--- | :--- |
@@ -884,7 +945,7 @@ X-Staff-Token: <上机会话令牌>
 **界面上要把可用变量列给老板看**，让他对着空文本框猜的话，
 猜错了也不报错（未知变量渲染成空串），他会以为功能坏了。
 
-### 14.5 建站工单枚举
+### 14.6 建站工单枚举
 
 ```
 painPoints: poor_mobile no_booking_entry slow dated_photos
@@ -894,7 +955,7 @@ voice:      warm luxury modern traditional
 sections:   hero about gallery services reviews giftcards faq contact
 ```
 
-### 14.6 其它
+### 14.7 其它
 
 | 名 | 取值 |
 | :--- | :--- |
@@ -962,7 +1023,7 @@ pnpm dev:desk         # 现有前台，5183
 
 ---
 
-## 附录 A · 89 条命令的全量表
+## 附录 A · 90 条命令的全量表
 
 > 这一节由 `COMMAND_REGISTRY` 导出，**不会和代码漂移**。
 > 上面 §11 是按业务分组的速查，这里是完整清单。
@@ -1021,6 +1082,7 @@ pnpm dev:desk         # 现有前台，5183
 | `location.requestAiVoice` | `settings.manage` | optional | ✅ |
 | `location.saveAiChangePolicy` | `settings.manage` | optional | ✅ |
 | `location.saveHours` | `settings.manage` | optional | ✅ |
+| `location.saveOffHours` | `settings.manage` | optional | ✅ |
 | `location.saveOnlineBooking` | `settings.manage` | optional | ✅ |
 | `location.savePhoneLine` | `settings.manage` | optional | ✅ |
 | `location.saveProfile` | `settings.manage` | optional | ✅ |
@@ -1060,5 +1122,5 @@ pnpm dev:desk         # 现有前台，5183
 | `ticket.void` | `ticket.void` | optional | — |
 | `timeclock.punch` | `timeclock.punch_self` | optional | ✅ |
 
-**合计 89 条。**
+**合计 90 条。**
 

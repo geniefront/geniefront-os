@@ -16,7 +16,10 @@ import { renderConfirm, formatWhen } from '../email/render';
 import { renderConfirmSms } from '../sms/render';
 import { segmentsOf } from '../sms/segments';
 import { smsConfigured, smsFrom } from '../sms/send';
-import { checkCapacity, businessDateOf, hasBlocking, type Interval } from '@gf/scheduling';
+import {
+  checkCapacity, businessDateOf, hasBlocking, checkBusinessHours, NO_OFF_HOURS,
+  type Interval, type WeeklyHours, type OffHoursWindow,
+} from '@gf/scheduling';
 import { ts, jsonb, parseTs } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
 import { notifyEvent } from '../notify/dispatch';
@@ -37,10 +40,93 @@ type Output = typeof AppointmentCreate.output._type;
  */
 const RESOURCE_CONFLICT_CODES = new Set(['23P01', '23001']);
 
+/**
+ * 官网和电话 AI 这两条路上**没有人**。
+ *
+ * 它们和前台的区别不是权限大小，是**有没有一个能负责的人在现场**：
+ * 前台把客人排到八点半，是他看着排班表、知道谁会提前来开门；
+ * 官网把八点半卖出去，没有任何人知道这件事，直到客人到了门口。
+ */
+const PUBLIC_SOURCES = new Set(['web', 'phone_ai']);
+
+interface OffHoursPolicy {
+  enforce: boolean;
+  window: OffHoursWindow;
+  beyond: 'warn' | 'block';
+}
+
+/** 读 `settings.off_hours`（0046）。读到脏值一律退回「不拦」——闸门宁可漏也不能误伤 */
+function readOffHours(settings: Record<string, unknown>): OffHoursPolicy {
+  const raw = (settings['off_hours'] ?? {}) as Record<string, unknown>;
+  const num = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.min(240, Math.floor(n)) : 0;
+  };
+  return {
+    enforce: raw['enforce'] === true,
+    window: {
+      beforeOpenMinutes: num(raw['before_open_minutes']),
+      afterCloseMinutes: num(raw['after_close_minutes']),
+    },
+    beyond: raw['beyond'] === 'block' ? 'block' : 'warn',
+  };
+}
+
+/**
+ * 营业时间闸门（0046）。返回 true = 越界了但被前台带 reason 放行。
+ *
+ * 三条渠道三种待遇，都在这里：
+ *
+ * | | 宽限窗口 | 越界之后 |
+ * | :--- | :--- | :--- |
+ * | 官网 / 电话 AI | **不给** | 一律拒，reason 也没用 |
+ * | 前台（闸门关着）| — | 不查，想约几点约几点 |
+ * | 前台（闸门开着）| 给 | `warn` 带 reason 放行 / `block` 一律拒 |
+ *
+ * ⚠️ 公开渠道那一行**不看 `enforce`**。老板那个开关管的是
+ * 「前台能不能通融」，不是「要不要把营业时间外的格子挂到网上卖」——
+ * 后者从来不是一个选项。
+ */
+function assertBusinessHours(args: {
+  businessDate: string;
+  timezone: string;
+  hours: WeeklyHours | null | undefined;
+  startsAt: Date;
+  endsAt: Date;
+  policy: OffHoursPolicy;
+  isPublic: boolean;
+  hasOverride: boolean;
+  details: Record<string, unknown>;
+}): boolean {
+  const { policy, isPublic, hasOverride } = args;
+  if (!isPublic && !policy.enforce) return false;
+
+  const issue = checkBusinessHours({
+    businessDate: args.businessDate,
+    timezone: args.timezone,
+    startsAt: args.startsAt,
+    endsAt: args.endsAt,
+    hours: args.hours,
+    // 公开渠道不吃宽限：宽限是「前台可以通融」，不是「网上可以卖」
+    window: isPublic ? NO_OFF_HOURS : policy.window,
+  });
+  if (!issue) return false;
+
+  const overridable = !isPublic && policy.beyond === 'warn';
+  if (overridable && hasOverride) return true;
+
+  throw new AppError(ERROR_CODES.OUTSIDE_BUSINESS_HOURS, {
+    details: { ...args.details, issue, overridable },
+  });
+}
+
 registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs<Input>): Promise<Output> => {
   // ── 门店配置 ──────────────────────────────────────────────────────────────
-  const [loc] = await tx<{ timezone: string; cutoff: string; settings: Record<string, unknown> }[]>`
-    select timezone, business_day_cutoff::text as cutoff, settings
+  const [loc] = await tx<{
+    timezone: string; cutoff: string; settings: Record<string, unknown>; hours: WeeklyHours;
+  }[]>`
+    select timezone, business_day_cutoff::text as cutoff, settings,
+           business_hours as hours
     from locations where id = ${ctx.locationId}`;
   if (!loc) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
 
@@ -73,6 +159,20 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
   const windowStart = new Date(Math.min(...resolved.map((r) => r.startsAt.getTime())));
   const windowEnd = new Date(Math.max(...resolved.map((r) => r.endsAt.getTime())));
   const businessDate = businessDateOf(windowStart, loc.timezone, loc.cutoff);
+
+  // ── 营业时间闸门（0046）────────────────────────────────────────────────────
+  //
+  // 在容量之前判。理由是给人看的错误要按「先大后小」来：
+  // 「今天不营业」比「Amy 这个点排满了」有用得多，先报后者会让前台
+  // 一路换技师换到最后才发现今天根本不开门。
+  const offHoursOverride = assertBusinessHours({
+    businessDate, timezone: loc.timezone, hours: loc.hours,
+    startsAt: windowStart, endsAt: windowEnd,
+    policy: readOffHours(loc.settings),
+    isPublic: PUBLIC_SOURCES.has(input.source) || ctx.membershipId === null,
+    hasOverride: !!input.override,
+    details: { source: input.source },
+  });
 
   // ── 当天已有的活跃时段（供容量判断）────────────────────────────────────────
   const existingRows = await tx<{ membership_id: string | null; starts_at: string; ends_at: string }[]>`
@@ -222,6 +322,8 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
       source: input.source,
       itemCount: itemIds.length,
       overbooked: overbookedItemIds.length,
+      // 营业时间外被前台带 reason 放行的那一单。查「谁把客人排到八点半」时用得上
+      offHours: offHoursOverride,
       overrideReason: input.override?.reason ?? null,
       // ⚠️ 确认码可以留（它不授权任何事），**令牌一个字都不能进审计**
       confirmationCode: input.guest?.confirmationCode ?? null,
@@ -592,8 +694,11 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit }: HandlerArgs
 registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof AppointmentReschedule.input._type>
 ): Promise<typeof AppointmentReschedule.output._type> => {
-  const [loc] = await tx<{ timezone: string; cutoff: string; settings: Record<string, unknown> }[]>`
-    select timezone, business_day_cutoff::text as cutoff, settings
+  const [loc] = await tx<{
+    timezone: string; cutoff: string; settings: Record<string, unknown>; hours: WeeklyHours;
+  }[]>`
+    select timezone, business_day_cutoff::text as cutoff, settings,
+           business_hours as hours
     from locations where id = ${ctx.locationId}`;
   if (!loc) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
 
@@ -659,6 +764,23 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
   const windowStart = new Date(Math.min(...moved.map((m) => m.startsAt.getTime())));
   const windowEnd = new Date(Math.max(...moved.map((m) => m.endsAt.getTime())));
   const businessDate = businessDateOf(windowStart, loc.timezone, loc.cutoff);
+
+  /*
+   * 营业时间闸门（0046）—— 和建单同一个函数。
+   *
+   * ⚠️ 这条命令没有 `source` 字段，渠道只能看 `ctx.membershipId`：
+   * 官网自助改期和电话 AI 改期都是 `null`（背后没有人），前台是真实
+   * membership。这不是凑合 —— 那个 null 本来就是**为了表达同一件事**
+   * 才这么设计的（见 telnyx/routes.ts 里 phoneContext 的注释）。
+   */
+  const offHoursOverride = assertBusinessHours({
+    businessDate, timezone: loc.timezone, hours: loc.hours,
+    startsAt: windowStart, endsAt: windowEnd,
+    policy: readOffHours(loc.settings),
+    isPublic: ctx.membershipId === null,
+    hasOverride: !!input.override,
+    details: { appointmentId: appt.id },
+  });
 
   /**
    * 新窗口里已经有谁。
@@ -799,6 +921,7 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
       itemIds: moved.map((m) => m.id),
       wholeAppointment: !input.itemId,
       overbooked,
+      offHours: offHoursOverride,
     },
   });
 
