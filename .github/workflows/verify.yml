@@ -42,14 +42,13 @@ jobs:
       SEED_SKIP_AUTH: '1'
       # 不是密钥：SUPABASE_URL 和 anon key 本来就会打进前端包。
       # JWKS 验签测试需要它们能解析到真实的 issuer。
-      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-      SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+      SUPABASE_URL: ${{ vars.SUPABASE_URL || 'https://example.com' }}
+      SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || 'ci-anon-key' }}
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with: { version: 11 }
 
       - uses: actions/setup-node@v4
         with:
