@@ -16,13 +16,18 @@ import './handlers/staff';
 
 const ORG_ID = '11111111-1111-4111-8111-111111111111';
 const LOCATION_ID = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+const OTHER_ORG_ID = '22222222-2222-4222-8222-222222222222';
+const OTHER_LOCATION_ID = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
 const tenant = { orgId: ORG_ID, locationId: LOCATION_ID, membershipId: null };
+const otherTenant = { orgId: OTHER_ORG_ID, locationId: OTHER_LOCATION_ID, membershipId: null };
 
 let ctx: Awaited<ReturnType<typeof buildContext>>;
 let membershipId = '';
 let serviceId = '';
 let servicePriceCents = 0;
 let customerId = '';
+let otherServiceId = '';
+let otherMembershipId = '';
 const appointmentIds: string[] = [];
 
 async function businessDate(): Promise<string> {
@@ -80,6 +85,21 @@ beforeAll(async () => {
   const [customer] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
     select id from customers where org_id = ${ORG_ID} and merged_into_id is null limit 1`);
   customerId = customer!.id;
+
+  const [foreign] = await withTenant(otherTenant, (tx) => tx<{
+    service_id: string; membership_id: string;
+  }[]>`
+    select s.id as service_id, sp.membership_id
+    from services s
+    cross join lateral (
+      select membership_id from staff_profiles
+      where location_id = ${OTHER_LOCATION_ID} and is_bookable = true
+      limit 1
+    ) sp
+    where s.location_id = ${OTHER_LOCATION_ID} and s.active
+    limit 1`);
+  otherServiceId = foreign!.service_id;
+  otherMembershipId = foreign!.membership_id;
 });
 
 afterEach(async () => {
@@ -109,6 +129,41 @@ afterEach(async () => {
 afterAll(async () => { await closeDb(); });
 
 describe('预约到收银的真实闭环', () => {
+  it('真实角色权限边界与门店岗位一致', async () => {
+    const roleContext = async (orgId: string, locationId: string, roleKey: string) => {
+      const [member] = await withTenant(
+        { orgId, locationId, membershipId: null },
+        (tx) => tx<{ id: string; user_id: string }[]>`
+          select m.id, m.user_id from memberships m
+          join membership_roles mr on mr.membership_id = m.id
+          join roles r on r.id = mr.role_id
+          where m.location_id = ${locationId} and m.status = 'active'
+            and r.key = ${roleKey} and m.user_id is not null
+          limit 1`,
+      );
+      return buildContext({ userId: member!.user_id, membershipId: member!.id });
+    };
+
+    const [owner, manager, frontDesk, technician] = await Promise.all([
+      roleContext(OTHER_ORG_ID, OTHER_LOCATION_ID, 'owner'),
+      roleContext(ORG_ID, LOCATION_ID, 'manager'),
+      roleContext(ORG_ID, LOCATION_ID, 'front_desk'),
+      roleContext(ORG_ID, LOCATION_ID, 'tech'),
+    ]);
+
+    for (const permission of ['queue.manage', 'ticket.write', 'ticket.void', 'dayclose.manage'] as const) {
+      expect(owner.permissions.has(permission)).toBe(true);
+    }
+    expect(manager.permissions.has('queue.manage')).toBe(true);
+    expect(manager.permissions.has('ticket.void')).toBe(true);
+    expect(frontDesk.permissions.has('queue.manage')).toBe(true);
+    expect(frontDesk.permissions.has('ticket.write')).toBe(true);
+    expect(frontDesk.permissions.has('ticket.void')).toBe(false);
+    expect(technician.permissions.has('ticket.write')).toBe(true);
+    expect(technician.permissions.has('queue.manage')).toBe(false);
+    expect(technician.permissions.has('ticket.void')).toBe(false);
+  });
+
   it('签到、开工、完工、现金收银会推进同一条真实业务链', async () => {
     const appointmentId = await createAppointment();
     const queued = await run<{ queueId: string }>('queue.join', {
@@ -200,6 +255,32 @@ describe('预约到收银的真实闭环', () => {
       code: 'VALIDATION_FAILED',
       details: expect.objectContaining({ reason: 'appointment_customer_mismatch' }),
     });
+  });
+
+  it('另一家店的服务和技师不能混入本店工单或加项', async () => {
+    const appointmentId = await createAppointment();
+    await expect(run('ticket.open', {
+      appointmentId,
+      customerId: null,
+      items: [{ serviceId, membershipId: otherMembershipId, minutes: 45 }],
+    })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    const opened = await run<{ ticketId: string }>('ticket.open', {
+      appointmentId,
+      customerId: null,
+      items: [{ serviceId, membershipId, minutes: 45 }],
+    }, `open-${appointmentId}`);
+
+    await expect(run('ticket.addItem', {
+      ticketId: opened.result.ticketId,
+      serviceId: otherServiceId,
+      membershipId,
+    })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(run('ticket.addItem', {
+      ticketId: opened.result.ticketId,
+      serviceId,
+      membershipId: otherMembershipId,
+    })).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('作废会回到已签到状态，并允许且只允许重开一张替代单', async () => {
