@@ -1,4 +1,4 @@
 import { defineConfig } from 'vitest/config';
-import { sharedTestConfig } from '../../vitest.shared';
+import { createSharedTestConfig } from '../../vitest.shared';
 
-export default defineConfig({ test: sharedTestConfig });
+export default defineConfig({ test: createSharedTestConfig({ database: true }) });

@@ -113,6 +113,19 @@ if command -v rg >/dev/null 2>&1; then
     "$hits"
 fi
 
+# ── 8. 数据库测试必须经过隔离环境闸门 ───────────────────────────────────────
+# 普通 sharedTestConfig 会加载通用测试环境，但不会映射任何数据库连接。API/DB
+# 两个写库套件必须显式打开 database 模式，由 vitest.shared.ts 校验 TEST_* 变量。
+for config in apps/api/vitest.config.ts packages/db/vitest.config.ts; do
+  if ! grep -Fq 'createSharedTestConfig({ database: true })' "$config"; then
+    report \
+      "$config 绕过了数据库测试隔离闸门" \
+      "数据库测试只能连接显式标记的独立 test 环境" \
+      "配置必须使用 createSharedTestConfig({ database: true })。" \
+      "$config"
+  fi
+done
+
 
 echo
 if [[ $FAIL -eq 0 ]]; then

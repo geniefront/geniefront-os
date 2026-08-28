@@ -30,9 +30,13 @@
 pnpm install
 cp .env.example .env          # ⚠️ 真实凭据不在仓库里，见 docs/07-CREDENTIALS-CHECKLIST.md
 bash scripts/check-env.sh     # 凭据格式 + 实测联通性
+pnpm test:unit                # 389 项无数据库测试，日常开发安全运行
 pnpm verify                   # 仅在独立且带测试种子的 test 数据库运行完整验证
-pnpm --filter '!@gf/api' --filter '!@gf/db' test  # 本地 389 项无数据库测试
 ```
+
+完整验证还必须配置 `DATABASE_TEST_TARGET=isolated`、`TEST_DATABASE_URL` 和
+`TEST_MIGRATION_DATABASE_URL`。测试配置不会读取普通 `.env` 的数据库连接串；缺少隔离标识时会在
+连接前失败，避免把 API/DB 测试写入 dev 或 prod。
 
 跑起来：
 

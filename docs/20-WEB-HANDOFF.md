@@ -19,7 +19,6 @@ AI 经营摘要、获客渠道拆分，以及服务成本/毛利/评分。后续
 下一步优先：
 
 - 建立独立、带固定测试种子的 Supabase test 项目或临时 branch；
-- 让 `packages/db` 与 `apps/api` 的数据库测试只接受 test 环境标识，拒绝 dev/prod；
 - 为支付服务商同步、薪资批次、提成冲正和评价 AI 分析建立真实数据模型；
 - 继续按真实门店核心闭环做角色、跨租户、幂等与清理型 E2E。
 
@@ -35,6 +34,8 @@ AI 经营摘要、获客渠道拆分，以及服务成本/毛利/评分。后续
 部分 API/DB 测试会写数据、改 GRANT 或依赖固定种子。只有配置了独立 test 项目或临时
 Supabase branch 后才能运行完整 `pnpm verify`。当前 dev 已完成 0000–0055 迁移，但没有测试种子，
 不是测试沙盒；直接运行 `packages/db/src/rls.test.ts` 会因固定 org/location/resource 不存在而失败。
+测试配置现在强制要求 `DATABASE_TEST_TARGET=isolated`、`TEST_DATABASE_URL` 和
+`TEST_MIGRATION_DATABASE_URL`，并且不会继承普通 `.env` 中的 dev/prod 连接串。
 
 ### 2. 错误码文案严禁运行期拼 key
 
@@ -98,7 +99,7 @@ node scripts/i18n-unused.mjs                               # 未引用词条盘�
 cd /Users/naiyouzhu/siteadmin/geniefront-os
 pnpm lint:guards                              # 含 i18n、金额与静默假数据关卡，应全绿
 pnpm typecheck                                # 11 个 workspace
-pnpm --filter '!@gf/api' --filter '!@gf/db' test  # 389 项，不连接数据库
+pnpm test:unit                                # 389 项，不连接数据库
 pnpm --filter @gf/web build
 ```
 
