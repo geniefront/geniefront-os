@@ -66,6 +66,8 @@ export interface SetResourceStatusInput {
   resourceId: string;
   status: RoomStatus;
   note?: string;
+  guestName?: string;
+  serviceName?: string;
 }
 
 export interface SaveResourceInput {

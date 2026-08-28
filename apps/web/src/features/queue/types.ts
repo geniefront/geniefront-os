@@ -18,7 +18,9 @@ export interface QueueEntry {
   phoneDisplay: string | null;
   customerId: string | null;
   serviceName: string | null;
+  serviceId: string | null;
   staffName: string | null;
+  staffId: string | null;
   partySize: number;
   /** 非空表示这位是有预约的客人到店签到，而非临时到店。 */
   appointmentId: string | null;
@@ -31,6 +33,14 @@ export interface QueueEntry {
   joinedAt: string;
   /** 尚未签署的健康表数量。叫号前就应知道，避免客人上床后才发现缺表。 */
   pendingForms: number;
+  items?: Array<{
+    serviceId: string;
+    serviceName: string;
+    staffName: string | null;
+    staffId: string | null;
+    durationMin: number;
+    addonIds: string[];
+  }>;
 }
 
 export interface QueueSummary {

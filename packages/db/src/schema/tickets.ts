@@ -7,7 +7,7 @@
  */
 
 import {
-  pgTable, uuid, text, jsonb, boolean, integer, timestamp, date, index,
+  pgTable, uuid, text, jsonb, boolean, integer, timestamp, date, index, uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { organizations, locations } from './tenancy';
@@ -77,6 +77,9 @@ export const tickets = pgTable('tickets', {
   index('tickets_customer_idx').on(t.customerId),
   index('tickets_appointment_idx').on(t.appointmentId),
   index('tickets_group_idx').on(t.groupId),
+  uniqueIndex('tickets_one_live_per_appointment_idx')
+    .on(t.appointmentId)
+    .where(sql`${t.appointmentId} is not null and ${t.status} <> 'voided'`),
 ]);
 
 export const ticketItems = pgTable('ticket_items', {

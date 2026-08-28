@@ -95,27 +95,125 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   const date = await bizDate(tx, ctx.locationId);
   await assertDayOpen(tx, ctx.locationId, date);
 
+  let customerId = input.customerId;
+  let walkInName = input.walkInName ?? null;
+  let appointmentItemSnapshots: Array<{
+    serviceId: string; durationMin: number; priceCents: number;
+  }> | null = null;
+  if (input.appointmentId) {
+    // Lock the appointment before looking for an existing ticket. Without the lock,
+    // two different idempotency keys submitted at the same time can both pass the
+    // check and turn one arrival into two live tickets.
+    const [appointment] = await tx<{
+      id: string; customer_id: string | null; walk_in_name: string | null;
+      status: string; business_date: string;
+    }[]>`
+      select id, customer_id, walk_in_name, status,
+             business_date::text as business_date
+      from appointments
+      where id = ${input.appointmentId} and location_id = ${ctx.locationId}
+      for update`;
+    if (!appointment) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
+    }
+    if (appointment.status === 'cancelled' || appointment.status === 'done') {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'appointment_not_openable', status: appointment.status },
+      });
+    }
+    if (appointment.business_date !== date) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: {
+          reason: 'appointment_business_date_mismatch',
+          appointmentBusinessDate: appointment.business_date,
+          currentBusinessDate: date,
+        },
+      });
+    }
+    if (input.customerId && input.customerId !== appointment.customer_id) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'appointment_customer_mismatch' },
+      });
+    }
+    const appointmentItems = await tx<{
+      service_id: string; duration_min: number; price_cents_snapshot: number;
+    }[]>`
+      select service_id, duration_min, price_cents_snapshot from appointment_items
+      where appointment_id = ${appointment.id} and status <> 'cancelled'
+      order by seq`;
+    const expectedServices = appointmentItems.map((item) => item.service_id);
+    const receivedServices = input.items.map((item) => item.serviceId);
+    if (expectedServices.length !== receivedServices.length
+      || expectedServices.some((serviceId, index) => serviceId !== receivedServices[index])) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'appointment_items_mismatch' },
+      });
+    }
+    appointmentItemSnapshots = appointmentItems.map((item) => ({
+      serviceId: item.service_id,
+      durationMin: item.duration_min,
+      priceCents: item.price_cents_snapshot,
+    }));
+    input.items.forEach((item, index) => {
+      const snapshot = appointmentItemSnapshots![index]!;
+      if ((item.minutes !== undefined && item.minutes !== snapshot.durationMin)
+        || (item.priceCentsOverride !== undefined
+          && item.priceCentsOverride !== snapshot.priceCents)) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+          details: { reason: 'appointment_snapshot_mismatch', itemIndex: index },
+        });
+      }
+    });
+
+    const [existing] = await tx<{ id: string; status: string }[]>`
+      select id, status from tickets
+      where appointment_id = ${appointment.id} and status <> 'voided'
+      limit 1`;
+    if (existing) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'appointment_ticket_exists', ticketId: existing.id, status: existing.status },
+      });
+    }
+
+    // The appointment is authoritative for identity. The desk does not have to
+    // copy a customer id out of a display DTO, and cannot accidentally attach the
+    // visit to somebody else with the same phone number.
+    customerId = appointment.customer_id;
+    walkInName = appointment.walk_in_name ?? walkInName;
+  }
+
   const svcIds = [...new Set(input.items.map((i) => i.serviceId))];
   const svcs = await tx<{
     id: string; name: unknown; duration_min: number; base_price_cents: number;
   }[]>`select id, name, duration_min, base_price_cents from services
-       where id = any(${svcIds}) and active = true`;
+       where id = any(${svcIds}) and location_id = ${ctx.locationId} and active = true`;
   const byId = new Map(svcs.map((s) => [s.id, s]));
+
+  const staffIds = [...new Set(input.items.map((item) => item.membershipId))];
+  const validStaff = await tx<{ membership_id: string }[]>`
+    select membership_id from staff_profiles
+    where location_id = ${ctx.locationId} and membership_id = any(${staffIds})
+      and is_bookable = true`;
+  if (validStaff.length !== staffIds.length) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff' } });
+  }
 
   const [ticket] = await tx<{ id: string }[]>`
     insert into tickets
       (org_id, location_id, business_date, customer_id, walk_in_name, appointment_id,
        group_id, status, opened_by)
-    values (${ctx.orgId}, ${ctx.locationId}, ${date}, ${input.customerId},
-            ${input.walkInName ?? null}, ${input.appointmentId ?? null},
+    values (${ctx.orgId}, ${ctx.locationId}, ${date}, ${customerId},
+            ${walkInName}, ${input.appointmentId ?? null},
             ${input.groupId ?? null}, 'in_service', ${ctx.membershipId})
     returning id`;
 
+  const ticketItemIds: string[] = [];
   for (const [seq, it] of input.items.entries()) {
     const svc = byId.get(it.serviceId);
     if (!svc) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { serviceId: it.serviceId } });
-    const price = it.priceCentsOverride ?? svc.base_price_cents;
-    const mins = it.minutes ?? svc.duration_min;
+    const snapshot = appointmentItemSnapshots?.[seq];
+    const price = snapshot?.priceCents ?? it.priceCentsOverride ?? svc.base_price_cents;
+    const mins = snapshot?.durationMin ?? it.minutes ?? svc.duration_min;
 
     const [item] = await tx<{ id: string }[]>`
       insert into ticket_items
@@ -124,12 +222,20 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
       values (${ctx.orgId}, ${ctx.locationId}, ${ticket!.id}, 'service', ${it.serviceId},
               ${pickText(svc.name, ctx.locale)}, 1, ${price}, ${price}, ${mins}, ${seq})
       returning id`;
+    ticketItemIds.push(item!.id);
 
     await tx`insert into ticket_item_staff (org_id, ticket_item_id, membership_id, role, minutes)
              values (${ctx.orgId}, ${item!.id}, ${it.membershipId}, 'primary', ${mins})`;
   }
 
   const subtotal = await recalcTotals(tx, ticket!.id);
+  if (input.appointmentId) {
+    await tx`update appointments set status = 'in_service'
+             where id = ${input.appointmentId}`;
+    await tx`update appointment_items set status = 'in_service'
+             where appointment_id = ${input.appointmentId}
+               and status not in ('cancelled','completed')`;
+  }
   audit({ entityType: 'ticket', entityId: ticket!.id,
           after: { itemCount: input.items.length, businessDate: date } });
 
@@ -138,7 +244,7 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   for (const mid of new Set(input.items.map((i) => i.membershipId))) {
     emit({ type: 'ticket.assigned', entityId: ticket!.id, membershipId: mid, businessDate: date });
   }
-  return { ticketId: ticket!.id, subtotalCents: subtotal };
+  return { ticketId: ticket!.id, ticketItemIds, subtotalCents: subtotal };
 });
 
 // ─────────────────────────────────────────────────────────────────── 加钟/加项
@@ -155,8 +261,14 @@ registerHandler(TicketAddItem, async ({ input, ctx, tx, audit, emit }: HandlerAr
 
   const [svc] = await tx<{ name: unknown; duration_min: number; base_price_cents: number }[]>`
     select name, duration_min, base_price_cents from services
-    where id = ${input.serviceId} and active = true`;
+    where id = ${input.serviceId} and location_id = ${ctx.locationId} and active = true`;
   if (!svc) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { serviceId: input.serviceId } });
+
+  const [staff] = await tx<{ membership_id: string }[]>`
+    select membership_id from staff_profiles
+    where membership_id = ${input.membershipId} and location_id = ${ctx.locationId}
+      and is_bookable = true`;
+  if (!staff) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff' } });
 
   const price = input.priceCentsOverride ?? svc.base_price_cents;
   const mins = input.minutes ?? svc.duration_min;
@@ -315,6 +427,24 @@ async function closeOneTicket(args: {
   const out: CloseOutcome['allocations'] = [];
   try {
     if (tipSplits && tipSplits.length > 0) {
+      const splitStaffIds = tipSplits.map((split) => split.staffMembershipId);
+      if (new Set(splitStaffIds).size !== splitStaffIds.length) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+          details: { reason: 'duplicate_tip_split_staff' },
+        });
+      }
+      const splitStaff = await tx<{ membership_id: string }[]>`
+        select membership_id from staff_profiles
+        where location_id = ${ctx.locationId} and membership_id = any(${splitStaffIds})`;
+      if (splitStaff.length !== splitStaffIds.length) {
+        throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff' } });
+      }
+      const splitTotal = tipSplits.reduce((sum, split) => sum + split.amountCents, 0);
+      if (splitTotal !== totalTip) {
+        throw new AppError(ERROR_CODES.PAYMENT_MISMATCH, {
+          details: { reason: 'tip_split_mismatch', expected: totalTip, received: splitTotal },
+        });
+      }
       for (const split of tipSplits) {
         if (split.amountCents <= 0) continue;
         const src = cardTip > 0 ? 'card' : 'cash';
@@ -415,6 +545,17 @@ async function closeOneTicket(args: {
       total_cents = ${paidTotal},
       tip_policy_version = ${version}
     where id = ${ticket.id}`;
+
+  // A checked-in appointment remains in walkin_queue until payment succeeds.
+  // Advancing it in the same transaction prevents a paid guest from reappearing
+  // in the waiting/seated column after the ticket disappears from open tickets.
+  await tx`update walkin_queue q set status = 'completed'
+           from tickets t
+           where t.id = ${ticket.id} and q.appointment_id = t.appointment_id
+             and q.status <> 'left'`;
+  await tx`update appointments a set status = 'done'
+           from tickets t
+           where t.id = ${ticket.id} and a.id = t.appointment_id`;
 
   return { ticketId: ticket.id, totalCents: paidTotal, tipCents: totalTip, allocations: out, earnings };
 }
@@ -670,8 +811,11 @@ registerHandler(TicketCloseGroup, async ({ input, ctx, tx, audit, emit }: Handle
 
 registerHandler(TicketVoid, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketVoid.input._type>) => {
-  const [t] = await tx<{ status: string; business_date: string }[]>`
-    select status, business_date::text as business_date from tickets where id = ${input.ticketId}`;
+  const [t] = await tx<{
+    status: string; business_date: string; appointment_id: string | null;
+  }[]>`
+    select status, business_date::text as business_date, appointment_id
+    from tickets where id = ${input.ticketId}`;
   if (!t) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket' } });
   if (t.status === 'voided') {
     throw new AppError(ERROR_CODES.ALREADY_CANCELLED, { details: { status: t.status } });
@@ -694,6 +838,18 @@ registerHandler(TicketVoid, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
       status = 'voided', voided_at = now(), voided_by = ${ctx.membershipId},
       void_reason = ${input.reason}, void_note = ${input.note ?? null}
     where id = ${input.ticketId}`;
+
+  if (t.appointment_id) {
+    // Voiding is the escape hatch back to the arrival flow. Keep the queue entry
+    // and appointment reusable; the partial unique index will then allow exactly
+    // one replacement ticket.
+    await tx`update appointments set status = 'checked_in'
+             where id = ${t.appointment_id}`;
+    await tx`update appointment_items set status = 'booked'
+             where appointment_id = ${t.appointment_id} and status <> 'cancelled'`;
+    await tx`update walkin_queue set status = 'waiting'
+             where appointment_id = ${t.appointment_id} and status <> 'left'`;
+  }
 
   audit({
     entityType: 'ticket', entityId: input.ticketId,
@@ -837,4 +993,3 @@ registerHandler(TicketSendReceipt, async ({ input, ctx, tx, audit }) => {
     outboxId,
   };
 });
-

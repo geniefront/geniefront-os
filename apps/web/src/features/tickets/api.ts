@@ -27,6 +27,64 @@ export function useTicketsList(status?: string) {
   });
 }
 
+export interface OpenTicketInput {
+  customerId: string | null;
+  walkInName?: string;
+  appointmentId?: string;
+  items: Array<{
+    serviceId: string;
+    membershipId: string;
+    minutes?: number;
+    priceCentsOverride?: number;
+  }>;
+  idempotencyKey: string;
+}
+
+export function useOpenTicket() {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ idempotencyKey, ...input }: OpenTicketInput) =>
+      (await runCommand<{
+        ticketId: string; ticketItemIds: string[]; subtotalCents: number;
+      }>('ticket.open', input, membershipId!, idempotencyKey)).result,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });
+    },
+  });
+}
+
+export function useStartTicketItem() {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { ticketItemId: string; membershipId?: string }) =>
+      (await runCommand<{ ticketItemId: string; startedAt: string }>(
+        'ticket.startItem', input, membershipId!,
+      )).result,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });
+    },
+  });
+}
+
+export function useFinishTicketItem() {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { ticketItemId: string; membershipId?: string }) =>
+      (await runCommand<{
+        ticketItemId: string; finishedAt: string; actualMinutes: number; ticketDone: boolean;
+      }>('ticket.finishItem', input, membershipId!)).result,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });
+    },
+  });
+}
+
 export function useOrdersQuery(params: OrdersQueryParams = {}) {
   const { membershipId, status: sessionStatus } = useSession();
   const searchParams = new URLSearchParams();

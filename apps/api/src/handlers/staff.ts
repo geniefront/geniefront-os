@@ -122,6 +122,13 @@ registerHandler(TicketFinishItem, async ({ input, ctx, tx, audit, emit }: Handle
   if (done) {
     await tx`update tickets set status = 'ready_to_pay'
              where id = ${row.ticket_id} and status = 'in_service'`;
+    await tx`update appointments a set status = 'done'
+             from tickets t
+             where t.id = ${row.ticket_id} and a.id = t.appointment_id`;
+    await tx`update appointment_items ai set status = 'completed'
+             from tickets t
+             where t.id = ${row.ticket_id} and ai.appointment_id = t.appointment_id
+               and ai.status <> 'cancelled'`;
   }
 
   audit({

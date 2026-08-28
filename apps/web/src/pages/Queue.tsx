@@ -44,10 +44,14 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
 import { useSchedule, UNASSIGNED_STAFF_ID } from '@/context/ScheduleContext';
-import { useQueue, useJoinQueue, useUpdateQueueEntry } from '@/features/queue/api';
-import { useTicketsList } from '@/features/tickets/api';
+import {
+  useJoinQueue, useQueue, useRollbackQueueStage, useUpdateQueueEntry,
+} from '@/features/queue/api';
+import {
+  useFinishTicketItem, useOpenTicket, useStartTicketItem, useTicketsList,
+} from '@/features/tickets/api';
 import { useCloseTicket, centsToDollars, dollarsToCents, verifyGiftCard } from '@/features/checkout/api';
-import { useRoomsQuery } from '@/features/rooms/api';
+import { useRoomsQuery, useSetResourceStatus } from '@/features/rooms/api';
 import { useRotationQuery } from '@/features/rotation/api';
 import { QUEUE_LEFT_REASONS } from '@/features/queue/types';
 import type { QueueEntry, QueueLeftReason, QueueStatus } from '@/features/queue/types';
@@ -276,11 +280,16 @@ function QueueContent() {
   const { data: roomsData, isLoading: roomsLoading, refetch: refetchRooms } = useRoomsQuery();
   const { data: rotationData, isLoading: rotationLoading, refetch: refetchRotation } = useRotationQuery();
   const closeTicketMutation = useCloseTicket();
+  const openTicketMutation = useOpenTicket();
+  const startTicketItemMutation = useStartTicketItem();
+  const finishTicketItemMutation = useFinishTicketItem();
+  const setResourceStatusMutation = useSetResourceStatus();
 
   const isInitialLoading = (queueLoading && scheduleLoading) && !queue;
 
   const join = useJoinQueue();
   const update = useUpdateQueueEntry();
+  const rollbackStageMutation = useRollbackQueueStage();
   const canManage = useCanWrite('queue.manage');
 
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -376,7 +385,7 @@ function QueueContent() {
     extraAddOnStaff: '',
     extraAddOnDuration: 30,
     addedAddOns: [],
-    markRoomCleaning: true,
+    markRoomCleaning: false,
     technicianNotes: '',
   });
 
@@ -482,10 +491,16 @@ function QueueContent() {
   const kanbanItems = useMemo<KanbanItem[]>(() => {
     const list: KanbanItem[] = [];
     const queuedApptIds = new Set<string>();
+    const ticketApptIds = new Set(
+      (ticketsData?.tickets ?? [])
+        .map((ticket) => ticket.appointmentId)
+        .filter((id): id is string => Boolean(id)),
+    );
 
     // 1. Queue entries (waiting, called, seated)
     if (queue) {
       queue.waiting.forEach((q) => {
+        if (q.appointmentId && ticketApptIds.has(q.appointmentId)) return;
         if (q.appointmentId) queuedApptIds.add(q.appointmentId);
         const override = localOverrides[`queue-${q.queueId}`];
         list.push({
@@ -497,10 +512,11 @@ function QueueContent() {
           customerName: q.displayName,
           phone: q.phoneDisplay,
           serviceName: q.serviceName || '常规服务',
+          serviceId: q.serviceId,
           durationMin: 45,
           priceCents: 0,
           staffName: override?.staffName || q.staffName,
-          staffId: override?.staffId,
+          staffId: override?.staffId || q.staffId,
           roomId: override?.roomId,
           roomName: override?.roomName,
           isRequest: false,
@@ -515,6 +531,7 @@ function QueueContent() {
       });
 
       queue.called.forEach((q) => {
+        if (q.appointmentId && ticketApptIds.has(q.appointmentId)) return;
         if (q.appointmentId) queuedApptIds.add(q.appointmentId);
         const override = localOverrides[`queue-called-${q.queueId}`];
         list.push({
@@ -526,10 +543,11 @@ function QueueContent() {
           customerName: q.displayName,
           phone: q.phoneDisplay,
           serviceName: q.serviceName || '常规服务',
+          serviceId: q.serviceId,
           durationMin: 45,
           priceCents: 0,
           staffName: override?.staffName || q.staffName,
-          staffId: override?.staffId,
+          staffId: override?.staffId || q.staffId,
           roomId: override?.roomId,
           roomName: override?.roomName,
           isRequest: false,
@@ -544,6 +562,7 @@ function QueueContent() {
       });
 
       queue.seated.forEach((q) => {
+        if (q.appointmentId && ticketApptIds.has(q.appointmentId)) return;
         if (q.appointmentId) queuedApptIds.add(q.appointmentId);
         const override = localOverrides[`queue-seated-${q.queueId}`];
         list.push({
@@ -555,10 +574,11 @@ function QueueContent() {
           customerName: q.displayName,
           phone: q.phoneDisplay,
           serviceName: q.serviceName || '服务中项目',
+          serviceId: q.serviceId,
           durationMin: 60,
           priceCents: 0,
           staffName: override?.staffName || q.staffName,
-          staffId: override?.staffId,
+          staffId: override?.staffId || q.staffId,
           roomId: override?.roomId,
           roomName: override?.roomName,
           isRequest: false,
@@ -572,7 +592,7 @@ function QueueContent() {
 
     // 2. Schedule Items (booked, in_service, completed)
     (items || []).forEach((it) => {
-      if (queuedApptIds.has(it.appointmentId)) return;
+      if (queuedApptIds.has(it.appointmentId) || ticketApptIds.has(it.appointmentId)) return;
 
       const matchedStaff = staff.find((s) => s.membershipId === it.staffId);
       const staffName =
@@ -652,8 +672,9 @@ function QueueContent() {
         const tkItems = Array.isArray(tk.items) ? tk.items : [];
         list.push({
           id: `ticket-${tk.ticketId}`,
-          stage: override?.stage || 'ready_checkout',
+          stage: override?.stage || (tk.status === 'ready_to_pay' ? 'ready_checkout' : 'in_service'),
           ticketId: tk.ticketId,
+          appointmentId: tk.appointmentId,
           customerName: formatI18n(tk.customerName, language) || '到店顾客',
           serviceName: tkItems.map((i: any) => formatI18n(i.name, language)).join(', ') || '综合消费',
           durationMin: tkItems.reduce((acc: number, i: any) => acc + (i.durationMin || 0), 0),
@@ -715,7 +736,10 @@ function QueueContent() {
     };
   }, [kanbanItems]);
 
-  const isSyncing = join.isPending || update.isPending || closeTicketMutation.isPending || isRefreshing;
+  const isSyncing = join.isPending || update.isPending || closeTicketMutation.isPending
+    || openTicketMutation.isPending || startTicketItemMutation.isPending
+    || finishTicketItemMutation.isPending || setResourceStatusMutation.isPending
+    || rollbackStageMutation.isPending || isRefreshing;
 
   // Refresh All Operations Data
   const handleRefresh = async () => {
@@ -805,7 +829,7 @@ function QueueContent() {
         extraAddOnStaff: item.staffName || '',
         extraAddOnDuration: 30,
         addedAddOns: item.addOns || [],
-        markRoomCleaning: true,
+        markRoomCleaning: false,
         technicianNotes: '',
       });
     } else if (item.stage === 'ready_checkout' && targetStage === 'completed') {
@@ -839,7 +863,6 @@ function QueueContent() {
     const {
       item,
       selectedAddOnId,
-      addOnStaffId,
       contraindications,
       massageStrength,
       aromaOil,
@@ -850,18 +873,6 @@ function QueueContent() {
     if (!item) return;
 
     const addOnService = services.find((s) => s.id === selectedAddOnId);
-    const assignedAddonStaff = staff.find((s) => s.membershipId === addOnStaffId);
-    const newAddOns: AddOnItem[] = addOnService
-      ? [
-          {
-            id: addOnService.id,
-            name: addOnService.name,
-            priceCents: addOnService.priceCents,
-            durationMin: addOnService.durationMin,
-            staffName: assignedAddonStaff?.name || item.staffName || undefined,
-          },
-        ]
-      : [];
 
     const contraStr = contraindications.filter((c) => c !== 'No specific contraindications').join('、');
     const focusStr = focusAreas.join('、');
@@ -878,9 +889,19 @@ function QueueContent() {
     if (addOnService) parts.push(`[加项: ${addOnService.name}]`);
 
     const extraNotes = parts.join(' ');
-    const finalPriceCents = (item.priceCents || 0) + (addOnService?.priceCents || 0);
 
     try {
+      const hasUnpersistedDetails = Boolean(
+        addOnService || extraNotes || focusAreas.length > 0
+        || contraindications.some((value) => value !== 'No specific contraindications')
+        || avoidAreas.some((value) => value !== 'No areas to avoid')
+        || massageStrength !== 'Medium Pressure'
+        || (oilObj && oilObj.id !== 'none_pref'),
+      );
+      if (hasUnpersistedDetails) {
+        toast.danger(t('queue.quCheckInDetailsUnavailable'));
+        return;
+      }
       if (item.stage === 'booked' && item.appointmentId) {
         await join.mutateAsync({
           appointmentId: item.appointmentId,
@@ -890,24 +911,9 @@ function QueueContent() {
         });
       }
 
-      setLocalOverrides((prev) => ({
-        ...prev,
-        [item.id]: {
-          ...prev[item.id],
-          stage: 'waiting',
-          addOns: newAddOns,
-          notes: extraNotes,
-          priceCents: finalPriceCents,
-        },
-      }));
-
       setCheckInModal((prev) => ({ ...prev, isOpen: false, item: null }));
-      toast.success(t('queue.quCheckedIn', { p0: item.customerName }), {
-        description: addOnService
-          ? t('queue.quAddOnAttached', { p0: addOnService.name, p1: centsToDollars(addOnService.priceCents) })
-          : t('queue.quHealthRecorded'),
-      });
-      void refetchQueue();
+      toast.success(t('queue.quCheckedIn', { p0: item.customerName }));
+      await Promise.all([refetchQueue(), refetchSchedule()]);
     } catch (err: any) {
       toast.danger(t('queue.quCheckInFailed') + (err?.message || t('queue.quNetworkError')));
     }
@@ -922,24 +928,57 @@ function QueueContent() {
     const assignedRoom = rooms.find((r) => r.id === roomId);
 
     try {
-      setLocalOverrides((prev) => ({
-        ...prev,
-        [item.id]: {
-          ...prev[item.id],
-          stage: 'in_service',
-          staffId,
-          staffName: assignedStaff?.name || item.staffName,
-          roomId,
-          roomName: assignedRoom?.name || '指定工位',
-          durationMin: serviceDurationMin,
-        },
-      }));
+      if (!staffId || staffId === UNASSIGNED_STAFF_ID || !item.serviceId) {
+        toast.danger(t('queue.quSeatFailed'));
+        return;
+      }
+
+      let ticketItemIds = item.rawTicket?.items
+        .filter((ticketItem) => !ticketItem.startedAt)
+        .map((ticketItem) => ticketItem.ticketItemId) ?? [];
+      if (!item.ticketId) {
+        const appointmentItems = item.rawQueue?.items ?? [];
+        const itemsToOpen = appointmentItems.length > 0
+          ? appointmentItems.map((appointmentItem) => ({
+              serviceId: appointmentItem.serviceId,
+              membershipId: appointmentItem.staffId ?? staffId,
+              minutes: appointmentItem.durationMin,
+            }))
+          : [{
+              serviceId: item.serviceId,
+              membershipId: staffId,
+              minutes: serviceDurationMin,
+            }];
+        const opened = await openTicketMutation.mutateAsync({
+          customerId: item.rawQueue?.customerId ?? null,
+          ...(item.rawQueue?.customerId ? {} : { walkInName: item.customerName }),
+          ...(item.appointmentId ? { appointmentId: item.appointmentId } : {}),
+          items: itemsToOpen,
+          idempotencyKey: `queue-start-${item.appointmentId ?? item.queueId ?? item.id}`,
+        });
+        ticketItemIds = opened.ticketItemIds;
+      }
+
+      for (const ticketItemId of ticketItemIds) {
+        await startTicketItemMutation.mutateAsync({ ticketItemId, membershipId: staffId });
+      }
+      if (item.queueId) {
+        await update.mutateAsync({ queueId: item.queueId, status: 'seated' });
+      }
+      if (roomId) {
+        await setResourceStatusMutation.mutateAsync({
+          resourceId: roomId,
+          status: 'in_service',
+          guestName: item.customerName,
+          serviceName: item.serviceName,
+        });
+      }
 
       setStartServiceModal((prev) => ({ ...prev, isOpen: false, item: null }));
       toast.success(t('queue.quSeated', { p0: item.customerName }), {
         description: t('queue.quSeatedDetail', { p0: assignedStaff?.name || '已指派', p1: assignedRoom?.name || '指定房间', p2: startTime, p3: serviceDurationMin }),
       });
-      void refetchQueue();
+      await Promise.all([refetchQueue(), refetchTickets(), refetchSchedule(), refetchRooms()]);
     } catch (err: any) {
       toast.danger(t('queue.quSeatFailed') + (err?.message || t('queue.quNetworkError2')));
     }
@@ -947,32 +986,35 @@ function QueueContent() {
 
   // 3. Complete Service Confirm Submit
   const handleConfirmCompleteService = async () => {
-    const { item, addedAddOns, actualDurationMin, technicianNotes } = completeServiceModal;
+    const { item, addedAddOns, technicianNotes, markRoomCleaning } = completeServiceModal;
     if (!item) return;
 
-    const addOnsTotalCents = addedAddOns.reduce((sum, a) => sum + a.priceCents, 0);
-    const finalPriceCents = (item.priceCents || 0) + addOnsTotalCents;
+    try {
+      // Free-text add-ons are not a billable record. Until they are selected from
+      // the real service catalog and written with ticket.addItem, do not pretend
+      // that they changed the ticket total.
+      if (addedAddOns.length > 0 || technicianNotes.trim() || markRoomCleaning || !item.rawTicket) {
+        toast.danger(t('queue.quFinishFailed'));
+        return;
+      }
+      const unfinished = item.rawTicket.items.filter((ticketItem) => !ticketItem.finishedAt);
+      let actualMinutes = 0;
+      for (const ticketItem of unfinished) {
+        const finished = await finishTicketItemMutation.mutateAsync({
+          ticketItemId: ticketItem.ticketItemId,
+          membershipId: ticketItem.membershipId,
+        });
+        actualMinutes += finished.actualMinutes;
+      }
 
-    const updatedNotes = technicianNotes.trim()
-      ? `${item.notes || ''} 【理疗总结: ${technicianNotes.trim()}】`
-      : item.notes;
-
-    setLocalOverrides((prev) => ({
-      ...prev,
-      [item.id]: {
-        ...prev[item.id],
-        stage: 'ready_checkout',
-        addOns: addedAddOns,
-        priceCents: finalPriceCents,
-        durationMin: actualDurationMin,
-        notes: updatedNotes,
-      },
-    }));
-
-    setCompleteServiceModal((prev) => ({ ...prev, isOpen: false, item: null }));
-    toast.success(t('queue.quServiceDone', { p0: item.customerName }), {
-      description: t('queue.quServiceDoneDetail', { p0: actualDurationMin, p1: centsToDollars(finalPriceCents) }),
-    });
+      setCompleteServiceModal((prev) => ({ ...prev, isOpen: false, item: null }));
+      toast.success(t('queue.quServiceDone', { p0: item.customerName }), {
+        description: t('queue.quServiceDoneDetail', { p0: actualMinutes, p1: centsToDollars(item.priceCents) }),
+      });
+      await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms()]);
+    } catch (err: any) {
+      toast.danger(t('queue.quFinishFailed') + (err?.message || t('queue.quNetworkError2')));
+    }
   };
 
   // 4. Checkout Tender Confirm Submit
@@ -1021,33 +1063,63 @@ function QueueContent() {
           )
         : 0;
 
-    const finalTotalCents = afterDiscountCents + taxCents + cardSurchargeCents + tipCents;
+    let finalTotalCents = afterDiscountCents + taxCents + cardSurchargeCents + tipCents;
 
     try {
-      if (item.ticketId) {
-        await closeTicketMutation.mutateAsync({
-          ticketId: item.ticketId,
-          discountCents,
-          payments: [
-            {
-              method: paymentMethod === 'apple_pay' ? 'card' : paymentMethod,
-              amountCents: finalTotalCents,
-              tipCents,
-              changeCents: 0,
-              keepChange: Boolean(keepChange),
-            },
-          ],
-        });
+      if (!item.ticketId) {
+        toast.danger(t('queue.quCheckoutFailed'));
+        return;
+      }
+      const isCash = paymentMethod === 'cash';
+      const tenderedCents = isCash ? dollarsToCents(tenderedDollars || '0') : undefined;
+      if (tenderedCents !== undefined && tenderedCents < finalTotalCents) {
+        toast.danger(t('queue.quCheckoutFailed'));
+        return;
+      }
+      const cashRemainder = tenderedCents === undefined ? 0 : tenderedCents - finalTotalCents;
+      if (isCash && keepChange && cashRemainder > 0) {
+        tipCents += cashRemainder;
+        finalTotalCents += cashRemainder;
+      }
+      const customTipSplits = tipMode === 'custom_per_staff'
+        ? Object.entries(customStaffTips)
+            .map(([staffMembershipId, value]) => ({
+              staffMembershipId,
+              amountCents: Math.max(0, dollarsToCents(value || '0')),
+            }))
+            .filter((split) => split.amountCents > 0)
+        : [];
+      if (tipMode === 'custom_per_staff' && tipCents > 0 && customTipSplits.length === 0) {
+        toast.danger(t('queue.quCheckoutFailed'));
+        return;
+      }
+      if (customTipSplits.length > 0) {
+        const assigned = customTipSplits.reduce((sum, split) => sum + split.amountCents, 0);
+        const remainder = tipCents - assigned;
+        if (remainder < 0) {
+          toast.danger(t('queue.quCheckoutFailed'));
+          return;
+        }
+        if (remainder > 0) customTipSplits[0]!.amountCents += remainder;
       }
 
-      setLocalOverrides((prev) => ({
-        ...prev,
-        [item.id]: {
-          ...prev[item.id],
-          stage: 'completed',
-          priceCents: finalTotalCents,
-        },
-      }));
+      await closeTicketMutation.mutateAsync({
+        ticketId: item.ticketId,
+        discountCents,
+        taxCents,
+        surchargeCents: cardSurchargeCents,
+        ...(customTipSplits.length > 0 ? { tipSplits: customTipSplits } : {}),
+        payments: [
+          {
+            method: paymentMethod === 'apple_pay' ? 'card' : paymentMethod,
+            amountCents: finalTotalCents,
+            tipCents,
+            ...(tenderedCents !== undefined ? { tenderedCents } : {}),
+            changeCents: isCash && !keepChange ? cashRemainder : 0,
+            keepChange: Boolean(isCash && keepChange),
+          },
+        ],
+      });
 
       setCheckoutModal({
         isOpen: false,
@@ -1075,30 +1147,42 @@ function QueueContent() {
         description: t('queue.quCheckoutDetail', { p0: centsToDollars(finalTotalCents), p1: paymentMethod.toUpperCase() }),
       });
 
-      await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms()]);
+      await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms(), refetchQueue()]);
     } catch (err: any) {
       toast.danger(t('queue.quCheckoutFailed') + (err?.message || t('queue.quNetworkError3')));
     }
   };
 
   // 5. Reverse Rollback Confirm Submit
-  const handleConfirmRollback = () => {
+  const handleConfirmRollback = async () => {
     const { item, toStage, reason, notes } = rollbackModal;
     if (!item || !toStage) return;
-
-    setLocalOverrides((prev) => ({
-      ...prev,
-      [item.id]: {
-        ...prev[item.id],
-        stage: toStage,
-        notes: `[回退记录: ${ROLLBACK_REASONS.find(r => r.id === reason)?.label}] ${notes || ''}`,
-      },
-    }));
-
-    setRollbackModal({ isOpen: false, item: null, fromStage: null, toStage: null, reason: 'entry_error', releaseResources: true, notes: '' });
-    toast.warning(t('queue.quRolledBack', { p0: item.customerName, p1: STAGE_NAMES[toStage] }), {
-      description: t('queue.quRollbackReason', { p0: ROLLBACK_REASONS.find(r => r.id === reason)?.label ?? '' }),
-    });
+    if (!item.appointmentId || toStage === 'ready_checkout' || toStage === 'completed') {
+      toast.danger(t('queue.quRollbackUnavailable'));
+      return;
+    }
+    const fromStage = item.stage === 'ready_checkout' ? 'ready_to_pay'
+      : item.stage === 'completed' ? 'completed'
+      : item.stage;
+    try {
+      await rollbackStageMutation.mutateAsync({
+        appointmentId: item.appointmentId,
+        ...(item.queueId ? { queueId: item.queueId } : {}),
+        fromStage: fromStage === 'booked' ? 'checked_in' : fromStage,
+        targetStage: toStage,
+        reason: reason === 'customer_extend' ? 'customer_delayed'
+          : reason === 'staff_emergency' ? 'service_restart'
+          : reason === 'entry_error' ? 'wrong_drag' : 'other',
+        ...(notes ? { notes } : {}),
+      });
+      setRollbackModal({ isOpen: false, item: null, fromStage: null, toStage: null, reason: 'entry_error', releaseResources: true, notes: '' });
+      toast.warning(t('queue.quRolledBack', { p0: item.customerName, p1: STAGE_NAMES[toStage] }), {
+        description: t('queue.quRollbackReason', { p0: ROLLBACK_REASONS.find(r => r.id === reason)?.label ?? '' }),
+      });
+      await Promise.all([refetchQueue(), refetchSchedule(), refetchTickets()]);
+    } catch (err: any) {
+      toast.danger(t('queue.quRollbackUnavailable') + (err?.message || t('queue.quNetworkError2')));
+    }
   };
 
   // Drag & Drop Handlers

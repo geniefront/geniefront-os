@@ -3,12 +3,16 @@ export interface TicketItem {
   name: string;
   totalCents: number;
   durationMin: number;
+  startedAt: string | null;
+  finishedAt: string | null;
   staffName: string;
   membershipId: string;
 }
 
 export interface TicketSummary {
   ticketId: string;
+  appointmentId: string | null;
+  status: 'open' | 'in_service' | 'ready_to_pay';
   customerName: string;
   subtotalCents: number;
   groupId: string | null;

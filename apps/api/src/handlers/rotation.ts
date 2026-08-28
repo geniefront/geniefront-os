@@ -272,15 +272,52 @@ registerHandler(QueueRollbackStage, async ({ input, ctx, tx, audit, emit }: Hand
 
   if (!apt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
 
+  const [ticket] = await tx<{ id: string; status: string }[]>`
+    select id, status from tickets
+    where appointment_id = ${apt.id} and status <> 'voided'
+    limit 1`;
+  if (ticket && input.targetStage !== 'in_service') {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: {
+        reason: 'ticket_exists_requires_void',
+        ticketId: ticket.id,
+        ticketStatus: ticket.status,
+      },
+    });
+  }
+
+  if (ticket && input.targetStage === 'in_service') {
+    if (ticket.status === 'closed') {
+      throw new AppError(ERROR_CODES.TICKET_ALREADY_CLOSED, {
+        details: { reason: 'closed_ticket_requires_void', ticketId: ticket.id },
+      });
+    }
+    await tx`update tickets set status = 'in_service' where id = ${ticket.id}`;
+    // Re-open the most recently completed item. A ticket cannot be in_service
+    // while every item remains finished; that contradictory state used to make
+    // the staff view and checkout view disagree.
+    await tx`update ticket_items set finished_at = null
+             where id = (
+               select id from ticket_items
+               where ticket_id = ${ticket.id}
+               order by finished_at desc nulls last, seq desc
+               limit 1
+             )`;
+  }
+
   // 回退 appointment 状态
   await tx`update appointments set status = ${input.targetStage} where id = ${apt.id}`;
+  await tx`update appointment_items set
+      status = ${input.targetStage === 'in_service' ? 'in_service' : 'booked'}
+    where appointment_id = ${apt.id} and status <> 'cancelled'`;
 
   // 若关联了 walkin_queue，也同步回退其状态
+  const queueStatus = input.targetStage === 'in_service' ? 'seated' : 'waiting';
   if (input.queueId) {
-    await tx`update walkin_queue set status = ${input.targetStage === 'booked' ? 'waiting' : input.targetStage}
+    await tx`update walkin_queue set status = ${queueStatus}
       where id = ${input.queueId} and location_id = ${ctx.locationId}`;
   } else {
-    await tx`update walkin_queue set status = ${input.targetStage === 'booked' ? 'waiting' : input.targetStage}
+    await tx`update walkin_queue set status = ${queueStatus}
       where appointment_id = ${apt.id} and location_id = ${ctx.locationId}`;
   }
 

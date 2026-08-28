@@ -53,7 +53,12 @@ export const TicketOpen = defineCommand({
       priceCentsOverride: cents.optional(),
     })).min(1).max(20),
   }),
-  output: z.object({ ticketId: uuid, subtotalCents: cents }),
+  output: z.object({
+    ticketId: uuid,
+    /** Newly created item ids, in the same order as input.items. */
+    ticketItemIds: z.array(uuid),
+    subtotalCents: cents,
+  }),
   permission: 'ticket.write',
   ai: { description: '给客人开一张服务单。', confirm: 'always' },
   reversible: true,

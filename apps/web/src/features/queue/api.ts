@@ -109,3 +109,25 @@ export function useUpdateQueueEntry() {
     },
   });
 }
+
+export function useRollbackQueueStage() {
+  const queryClient = useQueryClient();
+  const { membershipId } = useSession();
+  return useMutation({
+    mutationFn: async (input: {
+      appointmentId: string;
+      queueId?: string;
+      fromStage: 'checked_in' | 'waiting' | 'in_service' | 'ready_to_pay' | 'completed';
+      targetStage: 'booked' | 'checked_in' | 'waiting' | 'in_service';
+      reason: 'wrong_drag' | 'customer_delayed' | 'service_restart' | 'other';
+      notes?: string;
+    }) => (await runCommand<{
+      appointmentId: string; targetStage: string; rolledBack: boolean;
+    }>('queue.rollbackStage', input, membershipId!)).result,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'queue'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
+    },
+  });
+}

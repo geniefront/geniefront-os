@@ -20,7 +20,9 @@ export interface QueueEntryView {
   customerId: string | null;
   vipLevel: number;
   serviceName: string | null;
+  serviceId: string | null;
   staffName: string | null;
+  staffId: string | null;
   roomName: string | null;
   partySize: number;
   appointmentId: string | null;
@@ -39,6 +41,7 @@ export interface QueueEntryView {
     serviceId: string;
     serviceName: string;
     staffName: string | null;
+    staffId: string | null;
     durationMin: number;
     addonIds: string[];
   }>;
@@ -63,7 +66,8 @@ export async function loadQueue(
     id: string; ticket_number: number; status: string;
     customer_id: string | null; customer_name: string | null; phone: string | null;
     vip_level: number | null;
-    walk_in_name: string | null; service_name: unknown; staff_name: unknown;
+    walk_in_name: string | null; service_name: unknown; service_id: string | null;
+    staff_name: unknown; staff_id: string | null;
     room_name: string | null;
     party_size: number; appointment_id: string | null;
     joined_at: string | Date; quoted_wait_min: number | null; source: string;
@@ -74,7 +78,8 @@ export async function loadQueue(
     select q.id, q.ticket_number, q.status,
            q.customer_id, c.display_name as customer_name, c.phone_e164 as phone,
            coalesce(c.vip_level, 0) as vip_level,
-           q.walk_in_name, s.name as service_name, sp.display_name as staff_name,
+           q.walk_in_name, s.name as service_name, s.id as service_id,
+           sp.display_name as staff_name, sp.membership_id as staff_id,
            r.name as room_name,
            q.party_size, q.appointment_id, q.joined_at, q.quoted_wait_min, q.source,
            (
@@ -97,12 +102,49 @@ export async function loadQueue(
     from walkin_queue q
     left join customers c on c.id = q.customer_id
     left join customer_preferences cp on cp.customer_id = q.customer_id
-    left join services s on s.id = q.requested_service_id
-    left join staff_profiles sp on sp.membership_id = q.requested_staff_id
-    left join appointment_items ai on ai.appointment_id = q.appointment_id
+    left join lateral (
+      select x.service_id, x.membership_id, x.resource_id
+      from appointment_items x
+      where x.appointment_id = q.appointment_id and x.status <> 'cancelled'
+      order by x.seq limit 1
+    ) ai on true
+    left join services s on s.id = coalesce(q.requested_service_id, ai.service_id)
+    left join staff_profiles sp on sp.membership_id = coalesce(q.requested_staff_id, ai.membership_id)
     left join resources r on r.id = ai.resource_id
     where q.location_id = ${ctx.locationId} and q.business_date = ${businessDate}
     order by q.ticket_number`;
+
+  const appointmentIds = [...new Set(rows
+    .map((row) => row.appointment_id)
+    .filter((id): id is string => Boolean(id)))];
+  const appointmentItemRows = appointmentIds.length > 0
+    ? await tx<{
+        appointment_id: string; service_id: string; service_name: unknown;
+        membership_id: string | null; staff_name: unknown; duration_min: number;
+        addon_ids: string[];
+      }[]>`
+        select ai.appointment_id, ai.service_id, s.name as service_name,
+               ai.membership_id, sp.display_name as staff_name,
+               ai.duration_min, ai.addon_ids
+        from appointment_items ai
+        join services s on s.id = ai.service_id
+        left join staff_profiles sp on sp.membership_id = ai.membership_id
+        where ai.appointment_id = any(${appointmentIds}) and ai.status <> 'cancelled'
+        order by ai.appointment_id, ai.seq`
+    : [];
+  const itemsByAppointment = new Map<string, NonNullable<QueueEntryView['items']>>();
+  for (const item of appointmentItemRows) {
+    const list = itemsByAppointment.get(item.appointment_id) ?? [];
+    list.push({
+      serviceId: item.service_id,
+      serviceName: pickText(item.service_name, ctx.locale),
+      staffName: item.staff_name ? pickText(item.staff_name, ctx.locale) : null,
+      staffId: item.membership_id,
+      durationMin: item.duration_min,
+      addonIds: item.addon_ids,
+    });
+    itemsByAppointment.set(item.appointment_id, list);
+  }
 
   const now = Date.now();
 
@@ -132,7 +174,9 @@ export async function loadQueue(
       customerId: r.customer_id,
       vipLevel: r.vip_level ?? 0,
       serviceName: r.service_name ? pickText(r.service_name, ctx.locale) : null,
+      serviceId: r.service_id,
       staffName: r.staff_name ? pickText(r.staff_name, ctx.locale) : null,
+      staffId: r.staff_id,
       roomName: r.room_name ?? null,
       partySize: r.party_size,
       appointmentId: r.appointment_id,
@@ -144,6 +188,9 @@ export async function loadQueue(
       pendingForms,
       intakeSigned,
       contraindications,
+      ...(r.appointment_id
+        ? { items: itemsByAppointment.get(r.appointment_id) ?? [] }
+        : {}),
     };
   };
 

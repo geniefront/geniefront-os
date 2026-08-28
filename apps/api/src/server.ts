@@ -834,18 +834,22 @@ export function buildServer(): FastifyInstance {
         };
 
         const rows = await tx<{
-          ticket_id: string; status: string; customer_name: string | null; walk_in_name: string | null;
+          ticket_id: string; appointment_id: string | null; status: string;
+          customer_name: string | null; walk_in_name: string | null;
           group_id: string | null; group_label: string | null; business_date: string;
           subtotal_cents: number; discount_cents: number; tax_cents: number; total_cents: number;
           item_id: string; item_name: string; item_total: number;
-          duration_min: number; staff_name: unknown; membership_id: string;
+          duration_min: number; started_at: string | null; finished_at: string | null;
+          staff_name: unknown; membership_id: string;
         }[]>`
-          select t.id as ticket_id, t.status, c.display_name as customer_name, t.walk_in_name,
+          select t.id as ticket_id, t.appointment_id, t.status,
+                  c.display_name as customer_name, t.walk_in_name,
                   t.group_id, g.label as group_label,
                   t.business_date::text as business_date,
                   t.subtotal_cents, t.discount_cents, t.tax_cents, t.total_cents,
                   ti.id as item_id, ti.name_snapshot as item_name,
                   ti.total_cents as item_total, ti.duration_min,
+                  ti.started_at::text as started_at, ti.finished_at::text as finished_at,
                   sp.display_name as staff_name, tis.membership_id
           from tickets t
           left join customers c on c.id = t.customer_id
@@ -863,7 +867,7 @@ export function buildServer(): FastifyInstance {
           order by t.business_date, t.opened_at, ti.seq`;
 
         const map = new Map<string, {
-          ticketId: string; status: string; customerName: string;
+          ticketId: string; appointmentId: string | null; status: string; customerName: string;
           subtotalCents: number; discountCents: number; taxCents: number; totalCents: number;
           groupId: string | null; groupLabel: string | null;
           businessDate: string; daysAgo: number;
@@ -878,6 +882,7 @@ export function buildServer(): FastifyInstance {
         for (const r of rows) {
           const t = map.get(r.ticket_id) ?? {
             ticketId: r.ticket_id,
+            appointmentId: r.appointment_id,
             status: r.status,
             customerName: r.customer_name ?? r.walk_in_name ?? '临时客人',
             subtotalCents: r.subtotal_cents,
@@ -892,7 +897,7 @@ export function buildServer(): FastifyInstance {
           t.items.push({
             ticketItemId: r.item_id, name: r.item_name, totalCents: r.item_total,
             durationMin: r.duration_min, staffName: pickText(r.staff_name, ctx.locale),
-            membershipId: r.membership_id,
+            membershipId: r.membership_id, startedAt: r.started_at, finishedAt: r.finished_at,
           });
           map.set(r.ticket_id, t);
         }

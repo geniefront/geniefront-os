@@ -72,6 +72,45 @@ registerHandler(RevokeDeviceToken, async ({ input, ctx, tx, audit }: HandlerArgs
 registerHandler(JoinQueue, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof JoinQueue.input._type>) => {
   const businessDate = await currentDate(tx, ctx.locationId);
+  let customerId = input.customerId ?? null;
+
+  if (input.appointmentId) {
+    const [appointment] = await tx<{
+      id: string; customer_id: string | null; status: string; business_date: string;
+    }[]>`
+      select id, customer_id, status, business_date::text as business_date
+      from appointments
+      where id = ${input.appointmentId} and location_id = ${ctx.locationId}
+      for update`;
+    if (!appointment) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
+    }
+    if (appointment.status === 'cancelled' || appointment.status === 'done') {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'appointment_not_checkinable', status: appointment.status },
+      });
+    }
+    if (appointment.business_date !== businessDate) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'appointment_not_today', appointmentBusinessDate: appointment.business_date },
+      });
+    }
+    if (input.customerId && input.customerId !== appointment.customer_id) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'appointment_customer_mismatch' },
+      });
+    }
+    const [existing] = await tx<{ id: string }[]>`
+      select id from walkin_queue
+      where appointment_id = ${appointment.id} and status <> 'left'
+      limit 1`;
+    if (existing) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'appointment_already_queued', queueId: existing.id },
+      });
+    }
+    customerId = appointment.customer_id;
+  }
 
   // ⚠️ 先锁住这家店今天的队列，再取下一个号。
   //
@@ -153,11 +192,16 @@ registerHandler(JoinQueue, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
        requested_service_id, requested_staff_id, party_size, appointment_id,
        quoted_wait_min, source)
     values (${ctx.orgId}, ${ctx.locationId}, ${businessDate}, ${ticketNumber},
-            ${input.customerId ?? null}, ${input.walkInName ?? null},
+            ${customerId}, ${input.walkInName ?? null},
             ${input.requestedServiceId ?? null}, ${input.requestedStaffId ?? null},
             ${input.partySize}, ${input.appointmentId ?? null},
             ${quotedWaitMin}, ${input.source})
     returning id`;
+
+  if (input.appointmentId) {
+    await tx`update appointments set status = 'checked_in'
+             where id = ${input.appointmentId}`;
+  }
 
   audit({
     entityType: 'queue', entityId: row!.id,

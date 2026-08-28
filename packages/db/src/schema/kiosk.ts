@@ -77,6 +77,9 @@ export const walkinQueue = pgTable('walkin_queue', {
   leftReason: text('left_reason'),
 }, (t) => [
   uniqueIndex('walkin_queue_number_key').on(t.locationId, t.businessDate, t.ticketNumber),
+  uniqueIndex('walkin_queue_one_active_per_appointment_idx')
+    .on(t.appointmentId)
+    .where(sql`${t.appointmentId} is not null and ${t.status} <> 'left'`),
   index('walkin_queue_board_idx').on(t.locationId, t.businessDate, t.status, t.joinedAt),
 ]);
 
