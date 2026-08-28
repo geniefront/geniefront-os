@@ -55,13 +55,6 @@ export interface DayCloseSnapshot {
   tipPayouts: TipPayoutPlanItem[];
   varianceThresholdCents: number;
   safeDropCents?: number;
-  terminalBatches?: Array<{
-    terminalId: string;
-    terminalName: string;
-    status: 'settled' | 'open' | 'offline';
-    transactionCount: number;
-    amountCents: number;
-  }>;
 }
 
 export interface SaveCashCountInput {

@@ -49,6 +49,7 @@ import {
   useRfmCustomersQuery,
   useTopServicesQuery,
   useCopilotSummaryQuery,
+  useGenerateCopilotSummary,
 } from "@/features/analytics/api";
 import { exportToCSV } from "@/lib/exportUtils";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -94,6 +95,7 @@ export function BusinessData() {
   const rfmQ = useRfmCustomersQuery(from, to);
   const topServicesQ = useTopServicesQuery(from, to);
   const copilotQ = useCopilotSummaryQuery();
+  const generateCopilot = useGenerateCopilotSummary();
 
   const isLoading = revenueQ.isLoading || customersQ.isLoading || staffQ.isLoading || heatmapQ.isLoading;
   const isInitialLoading = (revenueQ.isLoading || staffQ.isLoading) && !revenueQ.data && !revenueQ.error;
@@ -912,9 +914,18 @@ export function BusinessData() {
                     </p>
                   </div>
                 </div>
-                <Badge variant="warning" className="text-xs font-bold">
-                  {t("finance.bdAiReady")}
-                </Badge>
+                <Button
+                  size="sm"
+                  className="bg-amber-500 text-white hover:bg-amber-600"
+                  disabled={generateCopilot.isPending}
+                  onClick={() => generateCopilot.mutate(undefined, {
+                    onSuccess: () => toast.success(t('finance.bdClaudeGenerated')),
+                    onError: (error) => toast.danger(errorMessage(error)),
+                  })}
+                >
+                  <Sparkles className={`mr-1.5 h-4 w-4 ${generateCopilot.isPending ? 'animate-pulse' : ''}`} />
+                  {generateCopilot.isPending ? t('finance.bdClaudeGenerating') : t('finance.bdClaudeGenerate')}
+                </Button>
               </div>
 
               {!hasCopilotData ? (

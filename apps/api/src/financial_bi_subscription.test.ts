@@ -19,7 +19,7 @@ import './handlers/rotation';
 import './handlers/appointment';
 import { loadDayClose } from './queries/money';
 import { loadHeatmap, loadRfmCustomers, loadTopServices, loadCopilotSummary } from './queries/analytics';
-import { loadMerchantBalance, loadBankPayoutBatches, loadPayrollBatches, loadPayrollStub, loadClawbacks } from './queries/payouts';
+import { loadEarningsEstimates, loadEarningsEstimate, loadClawbacks } from './queries/payouts';
 import { loadBillingInvoices, loadTaxProfile } from './queries/billingInvoices';
 
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
@@ -100,9 +100,6 @@ describe('财务与数据核心模块 API 完整增改测试', () => {
       expect(snapshot.varianceThresholdCents).toBeGreaterThan(0);
       expect(snapshot.countBreakdown.bill_100).toBe(5);
       expect(snapshot.countBreakdown.bill_50).toBe(4);
-      expect(snapshot.terminalBatches).toBeDefined();
-      expect(snapshot.terminalBatches!.length).toBeGreaterThan(0);
-      expect(snapshot.terminalBatches![0]!.terminalName).toContain('POS');
     });
   });
 
@@ -146,25 +143,15 @@ describe('财务与数据核心模块 API 完整增改测试', () => {
     });
   });
 
-  // ───────────────────────────────────────────────────────── 模块三：资金结算与薪资中心
-  describe('3. 资金结算与薪资中心 (/payouts)', () => {
-    it('支付服务商尚未同步时不伪造商户结余或银行账户', async () => {
-      const balance = await withTenant(tenant, (tx) => loadMerchantBalance(tx, ownerCtx));
-      expect(balance.availableBalanceCents).toBe(0);
-      expect(balance.pendingPayoutsCents).toBe(0);
-      expect(balance.bankAccount).toBeNull();
-    });
-
-    it('支付服务商尚未同步时不伪造划拨批次', async () => {
-      const batches = await withTenant(tenant, (tx) => loadBankPayoutBatches(tx, ownerCtx));
-      expect(batches.batches).toEqual([]);
-    });
-
-    it('未建立真实薪资批次时不生成工资条', async () => {
-      const payroll = await withTenant(tenant, (tx) => loadPayrollBatches(tx, ownerCtx));
-      expect(payroll.rows).toEqual([]);
-      await expect(withTenant(tenant, (tx) => loadPayrollStub(tx, ownerCtx, tenant.membershipId!)))
-        .rejects.toMatchObject({ code: 'NOT_FOUND' });
+  // ───────────────────────────────────────────────────────── 模块三：收入估算与记录
+  describe('3. 收入估算与记录 (/payouts)', () => {
+    it('只从收入台账生成估算，不产生工资支付状态', async () => {
+      const payroll = await withTenant(tenant, (tx) => loadEarningsEstimates(tx, ownerCtx));
+      expect(payroll.rows.every((row) => row.status === 'estimate')).toBe(true);
+      if (payroll.rows[0]) {
+        const estimate = await withTenant(tenant, (tx) => loadEarningsEstimate(tx, ownerCtx, payroll.rows[0]!.membershipId));
+        expect(estimate.estimate.status).toBe('estimate');
+      }
     });
 
     it('未建立真实冲正台账时不估算提成冲正', async () => {

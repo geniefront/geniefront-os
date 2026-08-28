@@ -1,36 +1,4 @@
-export interface MerchantBalanceResponse {
-  availableBalanceCents: number;
-  pendingPayoutsCents: number;
-  bankAccount: {
-    bankName: string;
-    last4: string;
-    status: 'verified' | 'pending';
-  } | null;
-  payoutSchedule: 'daily' | 'weekly' | 'manual' | null;
-  nextPayoutEstimatedAt: string | null;
-  monthlyGmvCents: number;
-  processingFeeCents: number;
-  netCaptureRateBp: number;
-}
-
-export interface BankPayoutBatchItem {
-  id: string;
-  payoutId: string;
-  amountCents: number;
-  feeCents: number;
-  netCents: number;
-  transactionCount: number;
-  bankAccount: string;
-  status: 'paid' | 'in_transit' | 'failed';
-  arrivalDate: string;
-  createdAt: string;
-}
-
-export interface BankPayoutBatchesResponse {
-  batches: BankPayoutBatchItem[];
-}
-
-export interface PayrollBatchItem {
+export interface EarningsEstimateItem {
   membershipId: string;
   name: string;
   jobTitle: string;
@@ -43,11 +11,11 @@ export interface PayrollBatchItem {
   bonusCents: number;
   deductionsCents: number;
   netPayCents: number;
-  status: 'paid' | 'pending' | 'draft';
+  status: 'estimate';
 }
 
-export interface PayrollBatchesResponse {
-  rows: PayrollBatchItem[];
+export interface EarningsEstimatesResponse {
+  rows: EarningsEstimateItem[];
 }
 
 export interface ClawbackItem {

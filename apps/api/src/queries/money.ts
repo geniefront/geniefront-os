@@ -179,13 +179,6 @@ export interface DayCloseSnapshot {
     tipCashCents: number; tipCardCents: number;
     movementsCents: number; tipPaidOutCents: number;
   };
-  terminalBatches?: Array<{
-    terminalId: string;
-    terminalName: string;
-    status: 'settled' | 'open' | 'offline';
-    transactionCount: number;
-    amountCents: number;
-  }>;
   openTicketCount: number;
   movements: Array<{
     id: string; kind: string; amountCents: number; note: string | null; at: string;
@@ -209,16 +202,11 @@ export async function loadDayClose(
     breakdown: Record<string, number> | null; counted: number | null;
     cash_reason: string | null; card_terminal: number | null;
     card_variance: number | null; card_reason: string | null;
-    terminal_batches: Array<{
-      terminalId: string; terminalName: string; status: 'settled' | 'open' | 'offline';
-      transactionCount: number; amountCents: number;
-    }> | null;
   }[]>`
     select status, opening_float_cents as opening, closing_float_cents as closing,
            count_breakdown as breakdown, counted_cash_cents as counted,
            cash_variance_reason as cash_reason, card_terminal_cents as card_terminal,
-           card_variance_cents as card_variance, card_variance_reason as card_reason,
-           terminal_batches
+           card_variance_cents as card_variance, card_variance_reason as card_reason
     from day_closes where location_id = ${ctx.locationId} and business_date = ${businessDate}`;
 
   const money = await loadDayMoney(tx, ctx.locationId, businessDate);
@@ -271,8 +259,6 @@ export async function loadDayClose(
 
   const safeDropCents = Math.max(0, (counted ?? cash.expectedCents) - closing);
 
-  const terminalBatches = dc?.terminal_batches ?? [];
-
   return {
     businessDate,
     status: (dc?.status ?? 'open') as DayCloseSnapshot['status'],
@@ -295,7 +281,6 @@ export async function loadDayClose(
       tipCashCents: money.tipCashCents, tipCardCents: money.tipCardCents,
       movementsCents: money.movementsCents, tipPaidOutCents: money.tipPaidOutCents,
     },
-    terminalBatches,
     openTicketCount: money.openTicketCount,
     movements: movements.map((m) => ({
       id: m.id, kind: m.kind, amountCents: m.amount_cents, note: m.note, at: m.at,

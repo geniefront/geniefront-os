@@ -433,9 +433,8 @@ turn_events: (location, business_date, staff_id, delta, reason, ticket_id, actor
 
 - **系统不碰钱**。现金/刷卡由门店现有终端处理，系统只**记录**支付方式与金额。不收定金、不做在线结账。
 - 好处：完全避开 PCI 范围、避开资金牌照、避开退款纠纷。这是正确的一期决策。
-- 但要为将来留口子（**只留字段，不做实现**）：
-  - `payments.processor_ref` / `terminal_ref` — 以后接 Stripe Terminal / Square 时小费能自动回写
-  - `appointments.deposit_payment_id` — 以后做留卡担保
+- `payments.processor_ref` / `terminal_ref` 仅可保存店家手工录入的外部凭据编号，不能据此宣称已连接终端。
+- 不做留卡担保、在线定金或门店业务款代收。
 - 唯一收钱的地方是**你向门店收订阅费**（Stripe，走平台侧，与门店业务数据无关）。
 - 爽约问题一期用非支付手段解决：**邮件确认 + 二次提醒 + 爽约计数 + 前台人工预警**（短信要等 Phase 2.5）（系统高亮显示历史爽约次数，由前台决定是否接待，不自动封禁），实测能压掉大部分 no-show。
 

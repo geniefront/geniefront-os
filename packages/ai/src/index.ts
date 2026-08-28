@@ -10,3 +10,4 @@ export * from './copilot/copilot';
 export * from './translate';
 export * from './regions';
 export * from './storefront';
+export * from './businessSummary';

@@ -547,8 +547,10 @@ earnings ✅               id, org_id, location_id, membership_id, business_date
                          kind(commission|tip_cash|tip_card|hourly|adjustment),
                          amount_cents, base_cents, ticket_id, basis(jsonb),
                          plan_version, reversed_at, reversed_by, created_at
-payout_batches           id, location_id, period_start, period_end, status, exported_at, export_url
 ```
+
+`earnings` 是门店经营记录与员工收入**估算**的事实来源。GenieFront 不创建工资批次、
+不标记工资已支付，也不连接银行执行代发；老板端按最近 14 天实时汇总，实际工资由店家自行处理。
 
 `tip_allocations.basis` 存人类可读结构，例如：
 ```json

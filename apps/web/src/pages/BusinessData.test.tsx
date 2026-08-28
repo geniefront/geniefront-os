@@ -107,6 +107,7 @@ vi.mock("@/features/analytics/api", () => ({
   useRfmCustomersQuery: () => mockAnalytics.rfm,
   useTopServicesQuery: () => mockAnalytics.topServices,
   useCopilotSummaryQuery: () => mockAnalytics.copilot,
+  useGenerateCopilotSummary: () => ({ isPending: false, mutate: vi.fn() }),
 }));
 
 function renderComponent() {

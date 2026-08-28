@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
-import { apiGet } from '@/lib/api';
+import { apiGet, apiPost } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import type {
   RevenueTrendsResponse,
@@ -119,6 +119,17 @@ export function useCopilotSummaryQuery() {
     queryKey: analyticsKeys.copilotSummary(membershipId),
     queryFn: () => apiGet<CopilotSummaryResponse>('/v1/desk/analytics/copilot-summary'),
     enabled: status === 'ready' && membershipId !== null,
+  });
+}
+
+export function useGenerateCopilotSummary() {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<CopilotSummaryResponse>('/v1/desk/analytics/copilot-summary/generate', {}),
+    onSuccess: (summary) => {
+      queryClient.setQueryData(analyticsKeys.copilotSummary(membershipId), summary);
+    },
   });
 }
 

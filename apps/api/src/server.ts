@@ -66,8 +66,7 @@ import {
   loadHeatmap, loadRfmCustomers, loadTopServices, loadCopilotSummary,
 } from './queries/analytics';
 import {
-  loadMerchantBalance, loadBankPayoutBatches,
-  loadPayrollBatches, loadPayrollStub, loadClawbacks,
+  loadEarningsEstimates, loadEarningsEstimate, loadClawbacks,
 } from './queries/payouts';
 import {
   loadBillingInvoices, loadTaxProfile,
@@ -89,6 +88,7 @@ import { registerRawBodyParser } from './rawBody';
 import { loadBilling } from './queries/billing';
 import { maybeAutoTopup } from './billing/autoTopup';
 import { flushEmails } from './email/flush';
+import { generateAndSaveBusinessSummary } from './businessSummary';
 import { flushSms } from './sms/flush';
 import { loadQueue } from './queries/queue';
 import {
@@ -2185,44 +2185,38 @@ export function buildServer(): FastifyInstance {
     }
   );
 
-  // ── 资金结算与薪资中心 ─────────────────────────────────────────────────────
-  app.get(
-    '/v1/desk/payouts/merchant-balance', async (req) => {
+  app.post(
+    '/v1/desk/analytics/copilot-summary/generate', async (req) => {
       const ctx = await ctxFromHeaders(req);
-      if (!ctx.permissions.has('report.view') && !ctx.permissions.has('billing.manage')) {
+      if (!ctx.permissions.has('report.view')) {
         throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
       }
-      return withTenant(ctx, (tx) => loadMerchantBalance(tx, ctx));
+      const apiKey = process.env['ANTHROPIC_API_KEY'];
+      if (!apiKey) {
+        throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
+      }
+      return generateAndSaveBusinessSummary(ctx, apiKey);
     }
   );
 
+  // ── 收入估算与记账（不代收、不打款、不执行工资支付）────────────────────────
   app.get(
-    '/v1/desk/payouts/bank-batches', async (req) => {
-      const ctx = await ctxFromHeaders(req);
-      if (!ctx.permissions.has('report.view') && !ctx.permissions.has('billing.manage')) {
-        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
-      }
-      return withTenant(ctx, (tx) => loadBankPayoutBatches(tx, ctx));
-    }
-  );
-
-  app.get(
-    '/v1/desk/payroll/batches', async (req) => {
+    '/v1/desk/earnings/estimates', async (req) => {
       const ctx = await ctxFromHeaders(req);
       if (!ctx.permissions.has('payroll.view_all') && !ctx.permissions.has('report.view')) {
         throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'payroll.view_all' } });
       }
-      return withTenant(ctx, (tx) => loadPayrollBatches(tx, ctx));
+      return withTenant(ctx, (tx) => loadEarningsEstimates(tx, ctx));
     }
   );
 
   app.get<{ Params: { membershipId: string } }>(
-    '/v1/desk/payroll/stubs/:membershipId', async (req) => {
+    '/v1/desk/earnings/estimates/:membershipId', async (req) => {
       const ctx = await ctxFromHeaders(req);
       if (!ctx.permissions.has('payroll.view_all') && ctx.membershipId !== req.params.membershipId) {
         throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'payroll.view_all' } });
       }
-      return withTenant(ctx, (tx) => loadPayrollStub(tx, ctx, req.params.membershipId));
+      return withTenant(ctx, (tx) => loadEarningsEstimate(tx, ctx, req.params.membershipId));
     }
   );
 

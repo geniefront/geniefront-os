@@ -36,7 +36,6 @@ import {
   Check,
   CircleDollarSign,
   Wallet,
-  Landmark,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -349,7 +348,7 @@ export function DayClose() {
                     ['折扣折让 Discounts', `-${centsToDollars(dayClose.money.discountCents)}`, ''],
                     ['税费 Tax', centsToDollars(dayClose.money.taxCents), ''],
                     ['净销售额 Net Sales', centsToDollars(dayClose.money.netCents), ''],
-                    ['刷卡实收 Card Take', centsToDollars(dayClose.money.cardTakeCents), 'Stripe POS Terminal'],
+                    ['刷卡金额记录 Card Record', centsToDollars(dayClose.money.cardTakeCents), '由门店手工记录，不代表 GenieFront 代收'],
                     ['Cash实收 Cash Take', centsToDollars(dayClose.money.cashTakeCents), '进入钱箱Cash'],
                     ['开店备用金 Starting Float', centsToDollars(dayClose.openingFloatCents), ''],
                     ['应有Cash Expected Cash', centsToDollars(dayClose.expectedCashCents), ''],
@@ -714,43 +713,6 @@ export function DayClose() {
                 </CardContent>
               </Card>
 
-              {/* POS 终端机对账批次 */}
-              <Card className="border-slate-200 shadow-2xs">
-                <CardHeader className="bg-slate-50/70 border-b border-slate-100 py-3.5 px-5 flex flex-row items-center justify-between">
-                  <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <Landmark className="w-4 h-4 text-indigo-600" />
-                    
-                    {t('checkout.dcTerminalBatchTitle')}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-5">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                    <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1.5">
-                      <div className="flex justify-between font-bold text-slate-800">
-                        <span>{t('checkout.dcTerminal01')}</span>
-                        <Badge variant="success" className="text-[10px]">{t('checkout.dcBatchSettled')}</Badge>
-                      </div>
-                      <p className="text-slate-500">Stripe Terminal BBPOS WisePOS E</p>
-                      <div className="flex justify-between pt-2 border-t border-slate-200/60 font-mono">
-                        <span className="text-slate-600">{t('checkout.dcBatchTx38')}</span>
-                        <span className="font-bold text-slate-900">${centsToDollars(dayClose.money.cardTakeCents)}</span>
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1.5">
-                      <div className="flex justify-between font-bold text-slate-800">
-                        <span>{t('checkout.dcTerminal02')}</span>
-                        <Badge variant="outline" className="text-[10px]">{t('checkout.dcTerminalIdle')}</Badge>
-                      </div>
-                      <p className="text-slate-500">Stripe Reader M2 (Bluetooth)</p>
-                      <div className="flex justify-between pt-2 border-t border-slate-200/60 font-mono">
-                        <span className="text-slate-600">{t('checkout.dcBatchTx0')}</span>
-                        <span className="font-bold text-slate-900">$0.00</span>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
             </div>
 
             {/* 右侧 1 列：钱箱对账与结付摘要 */}
@@ -1486,7 +1448,7 @@ export function DayClose() {
             {printReceiptType === 'thermal' ? (
               <div className="bg-white p-6 rounded-lg shadow-sm font-mono text-xs max-w-[320px] mx-auto text-slate-900 border border-slate-200">
                 <div className="text-center pb-4 border-b border-dashed border-slate-300">
-                  <h3 className="text-base font-bold tracking-wider uppercase">GENIE FRONT POS</h3>
+                  <h3 className="text-base font-bold tracking-wider uppercase">GENIE FRONT DAILY RECORD</h3>
                   <p className="text-[11px] text-slate-500">*** Z-REPORT (DAILY CLOSE) ***</p>
                   <p className="text-[10px] text-slate-400 mt-1">DATE: {dayClose.businessDate}</p>
                   <p className="text-[10px] text-slate-400">STORE: Main Salon & Spa</p>
