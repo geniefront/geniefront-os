@@ -5,7 +5,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { adminSql } from './admin';
+import { adminSql, adminDatabaseSource } from './admin';
 import { ROLE_PRESETS } from '@gf/contracts';
 
 const SB_URL = process.env.SUPABASE_URL!;
@@ -25,7 +25,13 @@ const toolTokenFor = (locationId: string): string => {
 };
 
 async function upsertAuthUser(email: string, fullName: string): Promise<string> {
-  if (process.env.SEED_SKIP_AUTH === '1') return crypto.randomUUID();
+  if (process.env.SEED_SKIP_AUTH === '1') {
+    const fixed: Record<string, string> = {
+      'owner@example.test': '196f0ab4-cd94-45cc-8109-2c414e966828',
+      'mia@example.test': 'd84f499d-4100-4791-a0ae-dca645aa2661',
+    };
+    return fixed[email] ?? crypto.randomUUID();
+  }
   const h = {
     apikey: SB_KEY,
     Authorization: `Bearer ${SB_KEY}`,
@@ -132,6 +138,11 @@ async function guardRealNumbers(about: readonly string[]): Promise<void> {
 }
 
 async function main() {
+  if (adminDatabaseSource !== 'process') {
+    throw new Error(
+      'seed 拒绝隐式读取 .env 的 MIGRATION_DATABASE_URL；请在命令中显式传入隔离数据库连接串。',
+    );
+  }
   console.log('\n═══ 填充真实测试数据（覆盖过去 14 天与未来 14 天） ═══\n');
 
   console.log('1. 开始数据库事务与清理旧数据...');
@@ -432,6 +443,12 @@ async function main() {
     for (const p of staff) {
       const email = `${p.name.toLowerCase()}@example.test`;
       const authId = await upsertAuthUser(email, p.name);
+      if (process.env.SEED_SKIP_AUTH === '1') {
+        await tx`insert into auth.users (id, email, raw_user_meta_data)
+          values (${authId}, ${email}, ${J({ full_name: p.name })})
+          on conflict (id) do update set email = excluded.email,
+            raw_user_meta_data = excluded.raw_user_meta_data`;
+      }
       const [u] = await tx<{ id: string }[]>`
         insert into users (id, email, full_name, locale)
         values (${authId}, ${email}, ${p.name}, 'zh-Hans')

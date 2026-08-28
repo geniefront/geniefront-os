@@ -156,9 +156,34 @@ export const dayCloses = pgTable('day_closes', {
   countedAt: timestamp('counted_at', { withTimezone: true }),
   closedBy: uuid('closed_by'),
   closedAt: timestamp('closed_at', { withTimezone: true }),
+  closeGeneration: integer('close_generation').notNull().default(0),
+  reopenedBy: uuid('reopened_by'),
+  reopenedAt: timestamp('reopened_at', { withTimezone: true }),
+  reopenReason: text('reopen_reason'),
   createdAt: createdAt(),
 }, (t) => [
   uniqueIndex('day_closes_unique').on(t.locationId, t.businessDate),
+]);
+
+/** Immutable close/reopen history. Each close generation retains its own snapshot. */
+export const dayCloseEvents = pgTable('day_close_events', {
+  id: id(),
+  orgId: orgCol(),
+  locationId: locCol(),
+  dayCloseId: uuid('day_close_id').notNull().references(() => dayCloses.id),
+  businessDate: date('business_date').notNull(),
+  generation: integer('generation').notNull(),
+  eventType: text('event_type').notNull(),
+  snapshot: jsonb('snapshot').notNull().default(sql`'{}'::jsonb`),
+  actorMembershipId: uuid('actor_membership_id').references(() => memberships.id),
+  reason: text('reason'),
+  idemKey: text('idem_key'),
+  createdAt: createdAt(),
+}, (t) => [
+  index('day_close_events_day_idx').on(t.locationId, t.businessDate, t.createdAt),
+  index('day_close_events_actor_idx').on(t.actorMembershipId, t.createdAt),
+  uniqueIndex('day_close_events_idem_idx').on(t.locationId, t.idemKey)
+    .where(sql`${t.idemKey} is not null`),
 ]);
 
 /**

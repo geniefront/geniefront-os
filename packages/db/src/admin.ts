@@ -12,7 +12,8 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 
-if (!process.env.MIGRATION_DATABASE_URL) {
+const hadExplicitMigrationUrl = Boolean(process.env.MIGRATION_DATABASE_URL);
+if (!hadExplicitMigrationUrl) {
   try {
     const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
     const envContent = readFileSync(resolve(root, '.env'), 'utf8');
@@ -26,6 +27,10 @@ if (!process.env.MIGRATION_DATABASE_URL) {
     // ignore
   }
 }
+
+/** Lets destructive utilities refuse the implicit .env fallback. */
+export const adminDatabaseSource: 'process' | 'env-file' =
+  hadExplicitMigrationUrl ? 'process' : 'env-file';
 
 const url = process.env.MIGRATION_DATABASE_URL;
 if (!url) {

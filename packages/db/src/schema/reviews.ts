@@ -17,6 +17,9 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { organizations, locations } from './tenancy';
+import { customers, services } from './scheduling';
+import { memberships } from './identity';
+import { tickets } from './tickets';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
 const orgCol = () => uuid('org_id').notNull().references(() => organizations.id);
@@ -43,10 +46,16 @@ export const locationReviews = pgTable('location_reviews', {
   aiHighlights: jsonb('ai_highlights').notNull().default(sql`'[]'::jsonb`),
   technicianName: text('technician_name'),
   serviceName: text('service_name'),
+  serviceId: uuid('service_id').references(() => services.id),
+  membershipId: uuid('membership_id').references(() => memberships.id),
+  customerId: uuid('customer_id').references(() => customers.id),
+  ticketId: uuid('ticket_id').references(() => tickets.id),
 }, (t) => [
   // 同一条评价重复抓到不该产生两行
   uniqueIndex('location_reviews_dedup').on(t.locationId, t.platform, t.externalId),
   index('location_reviews_recent').on(t.locationId, t.platform, t.postedAt),
+  index('location_reviews_service_idx').on(t.locationId, t.serviceId, t.postedAt),
+  index('location_reviews_membership_idx').on(t.locationId, t.membershipId, t.postedAt),
 ]);
 
 /**

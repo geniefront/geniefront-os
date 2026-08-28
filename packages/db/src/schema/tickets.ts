@@ -12,7 +12,7 @@ import {
 import { sql } from 'drizzle-orm';
 import { organizations, locations } from './tenancy';
 import { memberships } from './identity';
-import { customers, services, appointments } from './scheduling';
+import { customers, services, appointments, resources } from './scheduling';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
 const orgCol = () => uuid('org_id').notNull().references(() => organizations.id);
@@ -89,6 +89,7 @@ export const ticketItems = pgTable('ticket_items', {
   ticketId: uuid('ticket_id').notNull().references(() => tickets.id, { onDelete: 'cascade' }),
   kind: text('kind').notNull().default('service'), // service|addon|retail|fee
   serviceId: uuid('service_id').references(() => services.id),
+  resourceId: uuid('resource_id').references(() => resources.id),
   nameSnapshot: text('name_snapshot').notNull(),
   qty: integer('qty').notNull().default(1),
   unitPriceCents: integer('unit_price_cents').notNull(),
@@ -112,6 +113,7 @@ export const ticketItems = pgTable('ticket_items', {
 }, (t) => [
   index('ticket_items_ticket_idx').on(t.ticketId),
   index('ticket_items_service_idx').on(t.serviceId),
+  index('ticket_items_resource_idx').on(t.resourceId),
 ]);
 
 /** 双技师 / 接力：一条 item 可以关联多个技师，各记各的工时 */
@@ -179,7 +181,8 @@ export const ticketRefunds = pgTable('ticket_refunds', {
   tipCents: integer('tip_cents').notNull().default(0),
   cashCents: integer('cash_cents').notNull().default(0),
   cardCents: integer('card_cents').notNull().default(0),
-  storeCreditCents: integer('store_credit_cents').notNull().default(0),
+  giftCardCents: integer('gift_card_cents').notNull().default(0),
+  customerCreditCents: integer('customer_credit_cents').notNull().default(0),
   method: text('method').notNull(),
   reason: text('reason').notNull(),
   notes: text('notes'),
@@ -226,3 +229,41 @@ export const tipPolicies = pgTable('tip_policies', {
   config: jsonb('config').notNull(),
   effectiveFrom: timestamp('effective_from', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Per-visit notes. Visibility is enforced by API scope in addition to tenant RLS. */
+export const ticketServiceNotes = pgTable('ticket_service_notes', {
+  id: id(),
+  orgId: orgCol(),
+  locationId: locCol(),
+  ticketItemId: uuid('ticket_item_id').notNull().references(() => ticketItems.id),
+  authorMembershipId: uuid('author_membership_id').notNull().references(() => memberships.id),
+  visibility: text('visibility').notNull().default('management'),
+  content: text('content').notNull(),
+  containsSensitiveData: boolean('contains_sensitive_data').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('ticket_service_notes_ticket_item_id_author_membership_id_key')
+    .on(t.ticketItemId, t.authorMembershipId),
+  index('ticket_service_notes_item_idx').on(t.ticketItemId),
+  index('ticket_service_notes_author_idx').on(t.authorMembershipId, t.createdAt),
+]);
+
+/** Transactional room occupancy and cleaning lifecycle for a service item. */
+export const resourceOccupancies = pgTable('resource_occupancies', {
+  id: id(),
+  orgId: orgCol(),
+  locationId: locCol(),
+  resourceId: uuid('resource_id').notNull().references(() => resources.id),
+  ticketItemId: uuid('ticket_item_id').notNull().references(() => ticketItems.id),
+  status: text('status').notNull(),
+  occupiedAt: timestamp('occupied_at', { withTimezone: true }).notNull().defaultNow(),
+  cleaningStartedAt: timestamp('cleaning_started_at', { withTimezone: true }),
+  releasedAt: timestamp('released_at', { withTimezone: true }),
+  updatedBy: uuid('updated_by').references(() => memberships.id),
+}, (t) => [
+  uniqueIndex('resource_occupancies_ticket_item_id_resource_id_key')
+    .on(t.ticketItemId, t.resourceId),
+  index('resource_occupancies_active_idx').on(t.resourceId, t.status)
+    .where(sql`${t.status} <> 'released'`),
+]);

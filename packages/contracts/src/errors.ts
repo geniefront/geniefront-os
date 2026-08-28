@@ -43,6 +43,7 @@ export const ERROR_CODES = {
   // 钱（Phase 1b）
   /** 收款金额和单据金额对不上 —— 组单合并结账时必须当场拦下 */
   PAYMENT_MISMATCH: 'PAYMENT_MISMATCH',
+  STORE_CREDIT_INSUFFICIENT: 'STORE_CREDIT_INSUFFICIENT',
   /** 已封账的营业日不能再改 */
   DAY_ALREADY_CLOSED: 'DAY_ALREADY_CLOSED',
   /** 账实差异超阈值但没写原因 */
@@ -147,6 +148,7 @@ export const httpStatusFor: Record<ErrorCode, number> = {
   TICKET_ALREADY_CLOSED: 409,
   VOID_REASON_REQUIRED: 400,
   PAYMENT_MISMATCH: 400,
+  STORE_CREDIT_INSUFFICIENT: 409,
   DAY_ALREADY_CLOSED: 409,
   VARIANCE_REASON_REQUIRED: 400,
   OPEN_TICKETS_REMAIN: 409,

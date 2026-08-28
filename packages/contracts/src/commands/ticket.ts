@@ -20,7 +20,7 @@ import { defineCommand, uuid, cents } from '../command.js';
  * 所以它在日结里既不算现金也不算刷卡：算进刷卡的话，晚上和刷卡机的
  * batch total 就永远差出这一笔，而那正是日结要发现的那种差额。
  */
-export const paymentMethod = z.enum(['cash', 'card', 'external', 'gift_card']);
+export const paymentMethod = z.enum(['cash', 'card', 'external', 'gift_card', 'customer_credit']);
 
 export const voidReason = z.enum([
   'duplicate_booking', 'walk_out', 'guest_changed_mind',
@@ -50,6 +50,7 @@ export const TicketOpen = defineCommand({
     items: z.array(z.object({
       serviceId: uuid,
       membershipId: uuid,
+      resourceId: uuid.optional(),
       minutes: z.number().int().positive().max(600).optional(),
       priceCentsOverride: cents.optional(),
     })).min(1).max(20),
@@ -73,6 +74,7 @@ export const TicketAddItem = defineCommand({
     ticketId: uuid,
     serviceId: uuid,
     membershipId: uuid,
+    resourceId: uuid.optional(),
     kind: z.enum(['service', 'addon']).default('addon'),
     minutes: z.number().int().positive().max(600).optional(),
     priceCentsOverride: cents.optional(),
@@ -126,6 +128,13 @@ export const paymentLine = z.object({
   // 礼品卡没有找零这回事 —— 余额不足就少扣，扣多了不会退现金
   (p) => p.method !== 'gift_card' || (p.changeCents === 0 && !p.keepChange),
   { message: '礼品卡没有找零' },
+).refine(
+  (p) => !['gift_card', 'customer_credit'].includes(p.method) || p.tipCents === 0,
+  { message: '礼品卡和客户储值不能支付小费' },
+).refine(
+  (p) => p.method !== 'customer_credit'
+    || (p.tenderedCents === undefined && p.changeCents === 0 && !p.keepChange),
+  { message: '客户储值没有现金找零' },
 ).refine(
   (p) => p.tenderedCents === undefined || p.tenderedCents >= p.amountCents + p.changeCents,
   { message: '客人给的钱不够付这一单' },

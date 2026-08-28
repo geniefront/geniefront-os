@@ -180,7 +180,7 @@ export const ReopenDay = defineCommand({
     businessDate,
     reason: z.string().min(2).max(300),
   }),
-  output: z.object({ businessDate: z.string(), status: z.literal('counted') }),
+  output: z.object({ businessDate: z.string(), status: z.literal('reopened') }),
   permission: 'payroll.configure',
   ai: { description: '重新打开一个已封账的营业日。必须给原因。', confirm: 'always' },
   reversible: false,

@@ -91,6 +91,8 @@ export const services = pgTable('services', {
   /** 处理时间拆段：[{active_min:20},{wait_min:15},{active_min:10}]，wait 段技师可复用 */
   processingGap: jsonb('processing_gap'),
   basePriceCents: integer('base_price_cents').notNull(),
+  /** Internal fulfillment cost used for gross-margin reporting. Null = not configured. */
+  costCents: integer('cost_cents'),
   taxable: boolean('taxable').notNull().default(false), // 服务多数州不收税，零售收
   staffCount: integer('staff_count').notNull().default(1), // 2 = 双技师项目
   turnValueBp: integer('turn_value_bp'), // null = 按轮牌策略算

@@ -9,7 +9,9 @@
 import { z } from 'zod';
 import { defineCommand, uuid } from '../command.js';
 
-export const RESOURCE_STATUSES = ['available', 'in_service', 'cleaning', 'maintenance'] as const;
+export const RESOURCE_STATUSES = [
+  'available', 'in_service', 'in_use', 'cleaning_required', 'cleaning', 'maintenance',
+] as const;
 export type ResourceStatus = (typeof RESOURCE_STATUSES)[number];
 
 // ─────────────────────────────────────────────────────────── resource.setStatus
@@ -40,6 +42,36 @@ export const resourceSetStatus = defineCommand({
   },
   reversible: true,
   idempotency: 'optional',
+});
+
+export const resourceBeginCleaning = defineCommand({
+  name: 'resource.beginCleaning',
+  input: z.object({ resourceId: uuid, note: z.string().max(500).optional() }),
+  output: z.object({ resourceId: uuid, status: z.literal('cleaning') }),
+  permission: 'queue.manage',
+  ai: { description: '开始清洁待清洁的房间或工位。', confirm: 'never' },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+export const resourceCompleteCleaning = defineCommand({
+  name: 'resource.completeCleaning',
+  input: z.object({ resourceId: uuid, note: z.string().max(500).optional() }),
+  output: z.object({ resourceId: uuid, status: z.enum(['available', 'in_use']) }),
+  permission: 'queue.manage',
+  ai: { description: '完成房间或工位清洁并恢复可用。', confirm: 'never' },
+  reversible: false,
+  idempotency: 'required',
+});
+
+export const ticketMoveItemResource = defineCommand({
+  name: 'ticket.moveItemResource',
+  input: z.object({ ticketItemId: uuid, resourceId: uuid, reason: z.string().trim().min(2).max(500) }),
+  output: z.object({ ticketItemId: uuid, resourceId: uuid }),
+  permission: 'queue.manage',
+  ai: { description: '服务中换房；原房间进入待清洁。', confirm: 'always' },
+  reversible: false,
+  idempotency: 'required',
 });
 
 // ─────────────────────────────────────────────────────────── resource.save
@@ -100,7 +132,7 @@ export const resourceDelete = defineCommand({
 });
 
 export const RESOURCE_COMMANDS = [
-  resourceSetStatus,
+  resourceSetStatus, resourceBeginCleaning, resourceCompleteCleaning, ticketMoveItemResource,
   resourceSave,
   resourceDelete,
 ] as const;

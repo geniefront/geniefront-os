@@ -50,4 +50,26 @@ export const SavePlan = defineCommand({
   // 恰恰是最该留痕的一类操作
 });
 
-export const PAYROLL_COMMANDS = [SavePlan] as const;
+const businessDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+export const CreatePayrollBatch = defineCommand({
+  name: 'payroll.createBatch',
+  input: z.object({ periodStart: businessDate, periodEnd: businessDate }),
+  output: z.object({ batchId: uuid, itemCount: z.number().int().nonnegative(), status: z.literal('draft') }),
+  permission: 'payroll.configure',
+  ai: { description: '从已落库收入流水生成工资批次草稿。', confirm: 'always' },
+  reversible: false,
+  idempotency: 'required',
+});
+
+export const MarkPayrollBatchPaid = defineCommand({
+  name: 'payroll.markBatchPaid',
+  input: z.object({ batchId: uuid, providerBatchId: z.string().max(200).optional(), note: z.string().min(2).max(500) }),
+  output: z.object({ batchId: uuid, status: z.literal('paid') }),
+  permission: 'payroll.configure',
+  ai: { description: '确认工资批次已支付并留下人工或服务商凭据。', confirm: 'always' },
+  reversible: false,
+  idempotency: 'required',
+});
+
+export const PAYROLL_COMMANDS = [SavePlan, CreatePayrollBatch, MarkPayrollBatchPaid] as const;

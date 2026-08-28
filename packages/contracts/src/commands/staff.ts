@@ -56,6 +56,21 @@ export const TicketFinishItem = defineCommand({
   idempotency: 'optional',
 });
 
+export const TicketSaveServiceNote = defineCommand({
+  name: 'ticket.saveServiceNote',
+  input: z.object({
+    ticketItemId: uuid,
+    content: z.string().trim().min(1).max(2000),
+    visibility: z.enum(['management', 'assigned_staff']).default('management'),
+    containsSensitiveData: z.boolean().default(false),
+  }),
+  output: z.object({ noteId: uuid, ticketItemId: uuid, updated: z.boolean() }),
+  permission: 'ticket.write',
+  ai: { description: '保存本次服务的技师备注。', confirm: 'always' },
+  reversible: true,
+  idempotency: 'optional',
+});
+
 /**
  * ⭐ 打卡。
  *
@@ -230,7 +245,6 @@ export const RevokeStaffSessions = defineCommand({
 });
 
 export const STAFF_COMMANDS = [
-  TicketStartItem, TicketFinishItem, TimeclockPunch, SetMyLocale,
+  TicketStartItem, TicketFinishItem, TicketSaveServiceNote, TimeclockPunch, SetMyLocale,
   AddStaff, SetEmployment, IssueStaffClaimCode, RevokeStaffSessions,
 ] as const;
-

@@ -339,6 +339,7 @@ export const common = {
   errorVOID_REASON_REQUIRED: { 'zh-Hans': '作废单据必须填写原因', en: 'Void reason is required', ko: '주문 취소 사유가 필요합니다', es: 'Se requiere motivo de anulación', vi: 'Bắt buộc nhập lý do hủy' },
   errorPAYMENT_MISMATCH: { 'zh-Hans': '收款金额与单据总金额不符', en: 'Payment amount does not match ticket total', ko: '결제 금액이 주문 총액과 일치하지 않습니다', es: 'El importe pagado no coincide con el total', vi: 'Số tiền thanh toán không khớp tổng đơn' },
   errorDAY_ALREADY_CLOSED: { 'zh-Hans': '该营业日已完成日结封账', en: 'Business day is already closed', ko: '이미 마감된 영업일입니다', es: 'El día comercial ya está cerrado', vi: 'Ngày làm việc đã chốt sổ' },
+  errorSTORE_CREDIT_INSUFFICIENT: { 'zh-Hans': '客户储值余额不足', en: 'Customer store credit balance is insufficient', ko: '고객 적립금 잔액이 부족합니다', es: 'El saldo de crédito del cliente es insuficiente', vi: 'Số dư tín dụng của khách không đủ' },
   errorVARIANCE_REASON_REQUIRED: { 'zh-Hans': '钱箱实盘差额超标，需填写说明', en: 'Cash drawer variance reason required', ko: '현금 오차 사유를 입력해야 합니다', es: 'Se requiere motivo del descuadre de caja', vi: 'Bắt buộc nhập lý do chênh lệch tiền mặt' },
   errorOPEN_TICKETS_REMAIN: { 'zh-Hans': '尚有未结清工单，无法执行日结', en: 'Cannot close day with open tickets remaining', ko: '미결제 주문이 남아 있어 마감할 수 없습니다', es: 'No se puede cerrar el día con tickets abiertos', vi: 'Còn đơn chưa thanh toán, không thể chốt ngày' },
   errorDAY_HAS_REAL_RECORDS: { 'zh-Hans': '该营业日已有真实单据记录', en: 'Business day already contains live records', ko: '해당 일자에 이미 실제 데이터가 존재합니다', es: 'El día ya contiene registros reales', vi: 'Ngày này đã có giao dịch thực tế' },
