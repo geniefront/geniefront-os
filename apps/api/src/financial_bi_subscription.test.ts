@@ -32,7 +32,10 @@ const today = new Date().toISOString().slice(0, 10);
 beforeAll(async () => {
   const staffMembers = await withTenant(tenant, (tx) => tx<{ id: string; user_id: string }[]>`
     select m.id, m.user_id from memberships m
+    join membership_roles mr on mr.membership_id = m.id
+    join roles r on r.id = mr.role_id
     where m.location_id = ${NAIL_LOC} and m.status = 'active' and m.user_id is not null
+      and r.key = 'manager'
     limit 1`);
   const ctx = await buildContext({ userId: staffMembers[0]!.user_id, membershipId: staffMembers[0]!.id });
   ownerCtx = {
