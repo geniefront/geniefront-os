@@ -99,6 +99,85 @@ export const RotationAssign = defineCommand({
   idempotency: 'required',
 });
 
+export const QueueRollbackStage = defineCommand({
+  name: 'queue.rollbackStage',
+  input: z.object({
+    appointmentId: uuid,
+    queueId: uuid.optional(),
+    fromStage: z.enum(['checked_in', 'waiting', 'in_service', 'ready_to_pay', 'completed']),
+    targetStage: z.enum(['booked', 'checked_in', 'waiting', 'in_service']),
+    reason: z.enum(['wrong_drag', 'customer_delayed', 'service_restart', 'other']),
+    notes: z.string().max(1000).optional(),
+  }),
+  output: z.object({
+    appointmentId: uuid,
+    targetStage: z.string(),
+    rolledBack: z.boolean(),
+  }),
+  permission: 'appointment.write',
+  ai: {
+    description: '前台发生误操作或顾客变更时，安全逆向回退看板状态。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+export const RotationCheckIn = defineCommand({
+  name: 'rotation.checkIn',
+  input: z.object({
+    membershipId: uuid,
+    note: z.string().max(300).optional(),
+  }),
+  output: z.object({ eventId: uuid, membershipId: uuid, arrivedAt: z.string() }),
+  permission: 'rotation.override',
+  ai: {
+    description: '技师到店打卡上牌，开始参与今日轮牌队列。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+export const RotationCheckOut = defineCommand({
+  name: 'rotation.checkOut',
+  input: z.object({
+    membershipId: uuid,
+    note: z.string().max(300).optional(),
+  }),
+  output: z.object({ eventId: uuid, membershipId: uuid, leftAt: z.string() }),
+  permission: 'rotation.override',
+  ai: {
+    description: '技师下班离店离牌，退出今日轮牌队列。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+export const RotationUpdatePolicy = defineCommand({
+  name: 'rotation.updatePolicy',
+  input: z.object({
+    enabled: z.boolean().optional(),
+    carryOverNextDay: z.boolean().optional(),
+    startingMode: z.enum(['clock_in_order', 'designated_staff', 'carry_over', 'balanced']).optional(),
+    startingStaffMembershipId: uuid.nullable().optional(),
+    requestCountsAsTurn: z.boolean().optional(),
+    skipNoSkill: z.enum(['no_penalty', 'counts_as_turn']).optional(),
+    owedTurnPriority: z.boolean().optional(),
+    onBreak: z.enum(['off_rotation', 'stay_in_place']).optional(),
+  }),
+  output: z.object({ success: z.boolean(), version: z.number().int() }),
+  permission: 'settings.manage',
+  ai: {
+    description: '店主配置轮牌规则（开关、跨天接续策略、首发技师、点钟规则等）。',
+    confirm: 'destructive',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
 export const ROTATION_COMMANDS = [
-  RotationReorder, RotationSkip, RotationSetBreak, RotationAssign,
+  RotationReorder, RotationSkip, RotationSetBreak, RotationAssign, QueueRollbackStage,
+  RotationCheckIn, RotationCheckOut, RotationUpdatePolicy,
 ] as const;

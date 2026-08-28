@@ -83,6 +83,22 @@ if [[ -n "$tickets" && -z "$hits" ]]; then
   echo "  ${D}宪法第 17 条：ticket / payment 的金额字段不写入 audit_log${N}"
 fi
 
+# ── 6. 界面文案必须走多语言字典 ─────────────────────────────────────────────
+# 审核前的状态：字典有 1017 个词条，代码里另有约 3600 行中文字面量，
+# 两者从未对齐，且没有任何机制能在改动时发现。人工约定在此规模下不成立。
+# 判定基于 TypeScript AST，中文注释与业务标识不会被误判。
+if command -v node >/dev/null 2>&1; then
+  hits=$(node scripts/i18n-guard.mjs 2>&1 || true)
+  if [[ -n "$hits" ]]; then
+    report \
+      "界面文案未走多语言字典" \
+      "宪法第 18 条：界面文案一律经 t() 取用，不得写死在页面中" \
+      "用 node scripts/i18n-extract.mjs plan 生成抽取方案，复核译文后 apply。" \
+      "$hits"
+  fi
+fi
+
+
 echo
 if [[ $FAIL -eq 0 ]]; then
   echo "${G}✓ 全部通过${N}"

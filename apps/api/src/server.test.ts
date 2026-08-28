@@ -115,6 +115,7 @@ describe('身份解析走用户维度 RLS，不绕过', () => {
       (tx) => tx<{ membership_id: string; user_id: string }[]>`
         select sp.membership_id, m.user_id
         from staff_profiles sp join memberships m on m.id = sp.membership_id
+        where m.user_id is not null
         limit 1`);
 
     // 本人查得到
@@ -138,7 +139,7 @@ describe('身份解析走用户维度 RLS，不绕过', () => {
   it('⭐ 身份解析模式下看不到业务数据 —— 策略只放行「我自己的身份」', async () => {
     const [victim] = await withTenant(
       { orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null },
-      (tx) => tx<{ user_id: string }[]>`select user_id from memberships limit 1`);
+      (tx) => tx<{ user_id: string }[]>`select user_id from memberships where user_id is not null limit 1`);
 
     const { withUser } = await import('@gf/db');
     const rows = await withUser(victim!.user_id, (tx) =>

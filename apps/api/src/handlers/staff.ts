@@ -9,7 +9,7 @@ import type postgres from 'postgres';
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import {
   TicketStartItem, TicketFinishItem, TimeclockPunch, SetMyLocale,
-  AddStaff, SetEmployment, IssueStaffClaimCode, RevokeStaffSessions,
+  AddStaff, SetEmployment, StaffSaveProfile, IssueStaffClaimCode, RevokeStaffSessions,
   AppError, ERROR_CODES, actingMembership, type CommandContext,
 } from '@gf/contracts';
 import { businessDateOf } from '@gf/scheduling';
@@ -391,7 +391,11 @@ registerHandler(SetEmployment, async ({ input, ctx, tx, audit }: HandlerArgs<
     where id = ${input.membershipId} and location_id = ${ctx.locationId}`;
   if (!cur) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff' } });
 
-  await tx`update memberships set status = ${input.status}
+  let dbStatus = input.status;
+  if (input.status === 'on_leave') dbStatus = 'suspended';
+  if (input.status === 'resigned') dbStatus = 'left';
+
+  await tx`update memberships set status = ${dbStatus}
            where id = ${input.membershipId}`;
 
   /**
@@ -401,16 +405,174 @@ registerHandler(SetEmployment, async ({ input, ctx, tx, audit }: HandlerArgs<
    * 而「他已经不在花名册上了」和「他的手机还能刷出今天的单」
    * 是两件不会有人主动去核对的事。
    */
-  if (input.status !== 'active') {
+  if (dbStatus !== 'active') {
     await tx`update staff_sessions set revoked_at = now()
              where membership_id = ${input.membershipId} and revoked_at is null`;
   }
 
   audit({
     entityType: 'staff', entityId: input.membershipId,
-    before: { status: cur.status }, after: { status: input.status },
+    before: { status: cur.status }, after: { status: input.status, dbStatus },
   });
   return { membershipId: input.membershipId, status: input.status };
+});
+
+registerHandler(StaffSaveProfile, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
+  typeof StaffSaveProfile.input._type>) => {
+  let dbStatus = input.status;
+  if (input.status === 'on_leave') dbStatus = 'suspended';
+  if (input.status === 'resigned') dbStatus = 'left';
+
+  // 1. 解析/创建职级 levelId
+  let levelId = input.levelId;
+  if (!levelId && input.level) {
+    const [existingLevel] = await tx<{ id: string }[]>`
+      select id from staff_levels
+      where location_id = ${ctx.locationId} and (key = ${input.level} or name->>'zh-Hans' = ${input.level} or name->>'en' = ${input.level})
+      limit 1`;
+    if (existingLevel) {
+      levelId = existingLevel.id;
+    } else {
+      const [newLevel] = await tx<{ id: string }[]>`
+        insert into staff_levels (org_id, location_id, key, name, sort)
+        values (${ctx.orgId}, ${ctx.locationId}, ${input.level}, ${jsonb({ en: input.level, 'zh-Hans': input.level })}::jsonb, 5)
+        returning id`;
+      levelId = newLevel!.id;
+    }
+  }
+
+  let membershipId = input.membershipId;
+  let isNew = false;
+
+  if (membershipId) {
+    const [existing] = await tx<{ id: string }[]>`
+      select id from memberships where id = ${membershipId} and location_id = ${ctx.locationId}`;
+    if (!existing) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff', id: membershipId } });
+    }
+
+    await tx`
+      update memberships set status = ${dbStatus}
+      where id = ${membershipId}`;
+
+    if (dbStatus !== 'active') {
+      await tx`update staff_sessions set revoked_at = now()
+               where membership_id = ${membershipId} and revoked_at is null`;
+    }
+
+    await tx`
+      update staff_profiles set
+        display_name = ${jsonb({ en: input.name, 'zh-Hans': input.name })}::jsonb,
+        employee_no = ${input.employeeNo ?? null},
+        job_title = ${input.jobTitle ?? null},
+        notes = ${input.note ?? null},
+        hire_date = ${input.hireDate ?? null},
+        phone_e164 = ${input.phone || null},
+        level_id = ${levelId ?? null},
+        is_bookable = ${input.isBookable},
+        max_concurrent_appointments = ${input.maxConcurrentAppointments}
+      where membership_id = ${membershipId}`;
+  } else {
+    isNew = true;
+    const [m] = await tx<{ id: string }[]>`
+      insert into memberships (org_id, location_id, user_id, status)
+      values (${ctx.orgId}, ${ctx.locationId}, null, ${dbStatus})
+      returning id`;
+    membershipId = m!.id;
+
+    // 默认分配 tech role
+    const [role] = await tx<{ id: string }[]>`
+      select id from roles where location_id = ${ctx.locationId} and key = 'tech' limit 1`;
+    if (role) {
+      await tx`insert into membership_roles (membership_id, role_id) values (${membershipId}, ${role.id})
+               on conflict do nothing`;
+    }
+
+    await tx`
+      insert into staff_profiles (
+        membership_id, org_id, location_id, display_name, employee_no,
+        job_title, notes, hire_date, phone_e164, level_id,
+        is_bookable, max_concurrent_appointments
+      ) values (
+        ${membershipId}, ${ctx.orgId}, ${ctx.locationId},
+        ${jsonb({ en: input.name, 'zh-Hans': input.name })}::jsonb,
+        ${input.employeeNo ?? null}, ${input.jobTitle ?? null}, ${input.note ?? null},
+        ${input.hireDate ?? null}, ${input.phone || null}, ${levelId ?? null},
+        ${input.isBookable}, ${input.maxConcurrentAppointments}
+      )`;
+
+    if (input.inRotation && input.isBookable) {
+      const [loc] = await tx<{ tz: string; cutoff: string }[]>`
+        select timezone as tz, business_day_cutoff::text as cutoff
+        from locations where id = ${ctx.locationId}`;
+      const date = businessDateOf(new Date(), loc!.tz, loc!.cutoff);
+      await tx`
+        insert into rotation_participants (org_id, location_id, business_date, membership_id, in_rotation)
+        values (${ctx.orgId}, ${ctx.locationId}, ${date}, ${membershipId}, true)
+        on conflict (location_id, business_date, membership_id) do nothing`;
+    }
+  }
+
+  // 2. 技能标签同步
+  if (input.skills) {
+    await tx`delete from staff_skills where membership_id = ${membershipId}`;
+    for (const skName of input.skills) {
+      if (!skName.trim()) continue;
+      const [existingSkill] = await tx<{ id: string }[]>`
+        select id from skills
+        where location_id = ${ctx.locationId} and (key = ${skName} or name->>'zh-Hans' = ${skName} or name->>'en' = ${skName})
+        limit 1`;
+      let skillId = existingSkill?.id;
+      if (!skillId) {
+        const [newSkill] = await tx<{ id: string }[]>`
+          insert into skills (org_id, location_id, key, name)
+          values (${ctx.orgId}, ${ctx.locationId}, ${skName}, ${jsonb({ en: skName, 'zh-Hans': skName })}::jsonb)
+          returning id`;
+        skillId = newSkill!.id;
+      }
+      await tx`
+        insert into staff_skills (membership_id, skill_id, proficiency)
+        values (${membershipId}, ${skillId}, 1)
+        on conflict do nothing`;
+    }
+  }
+
+  // 3. 薪酬方案联动
+  if (input.payroll) {
+    const plan = {
+      kind: input.payroll.kind,
+      rateBp: Math.round(input.payroll.ratePercent * 100),
+      categoryRateBp: {},
+      retailRateBp: 1000,
+      hourlyRateCents: Math.round(input.payroll.hourlyRateDollars * 100),
+      base: input.payroll.base,
+      roleWeightBp: 10000,
+    };
+
+    const [prev] = await tx<{ v: number }[]>`
+      select coalesce(max(version), 0)::int as v from compensation_plans
+      where location_id = ${ctx.locationId}
+        and membership_id = ${membershipId}`;
+    const nextVer = (prev?.v ?? 0) + 1;
+
+    await tx`
+      insert into compensation_plans
+        (org_id, location_id, membership_id, version, config, created_by)
+      values (${ctx.orgId}, ${ctx.locationId}, ${membershipId}, ${nextVer},
+              ${jsonb(plan)}::jsonb, ${ctx.membershipId})`;
+  }
+
+  audit({
+    entityType: 'staff', entityId: membershipId,
+    after: {
+      name: input.name, employeeNo: input.employeeNo, jobTitle: input.jobTitle,
+      skills: input.skills, status: input.status, isNew,
+    },
+  });
+
+  emit({ type: 'staff.changed', entityId: membershipId, membershipId });
+
+  return { membershipId, created: isNew };
 });
 
 registerHandler(IssueStaffClaimCode, async ({ input, ctx, tx, audit }: HandlerArgs<

@@ -6,7 +6,7 @@
  * 加一个命令 = 自动有接口 + AI 自动会用（宪法第 1 条）。
  */
 
-import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import {
   AppError, ERROR_CODES, httpStatusFor, pickText, actingMembership,
@@ -42,13 +42,40 @@ import './handlers/yelp';
 import './handlers/kiosk';
 import './handlers/billing';
 import './handlers/ai';
+import './handlers/customer';
+import './handlers/sms';
+import './handlers/resource';
+import './handlers/marketing';
+import './handlers/profile';
+import './handlers/notification';
 import { loadDay } from './queries/day';
+
 import { loadMonth } from './queries/month';
 import { loadBlueprint, listBlueprints } from './queries/blueprint';
 import { loadCallDrafts } from './queries/callDrafts';
 import { loadCalls } from './queries/calls';
-import { loadForms, readSubmission } from './queries/forms';
+import { loadForms, readSubmission, loadAppointmentForms } from './queries/forms';
 import { loadInboundSms } from './queries/smsInbound';
+import { loadRooms } from './queries/rooms';
+import { loadGiftCards, loadGiftCardVerify } from './queries/giftcard';
+import { loadAppointmentDetail } from './queries/appointmentDetail';
+import { loadPackages, loadCoupons, loadLoyalty } from './queries/marketing';
+import { loadStaffDirectory } from './queries/staffList';
+import {
+  loadRevenueTrends, loadCustomerAnalytics, loadStaffAnalytics,
+  loadHeatmap, loadRfmCustomers, loadTopServices, loadCopilotSummary,
+} from './queries/analytics';
+import {
+  loadMerchantBalance, loadBankPayoutBatches,
+  loadPayrollBatches, loadPayrollStub, loadClawbacks,
+} from './queries/payouts';
+import {
+  loadBillingInvoices, loadTaxProfile,
+} from './queries/billingInvoices';
+import { createPairingSession, getPairingStatus, claimPairingSession } from './queries/pairing';
+import { loadReviewsSummary } from './queries/reviews';
+import { loadOrders } from './queries/orders';
+import { loadFormKey, encryptAnswers } from './kiosk/crypto';
 import { registerTelnyxRoutes } from './telnyx/routes';
 import { registerKioskRoutes } from './kiosk/routes';
 import { registerPublicRoutes } from './public/routes';
@@ -64,6 +91,17 @@ import { maybeAutoTopup } from './billing/autoTopup';
 import { flushEmails } from './email/flush';
 import { flushSms } from './sms/flush';
 import { loadQueue } from './queries/queue';
+import {
+  loadDeskSettings, loadCheckoutSettings, load10DlcStatus, loadIntakeWaiver, loadWebhooks,
+} from './queries/settings';
+import {
+  loadUserProfile, loadUserSessions, loadUserNotificationPreferences,
+} from './queries/profile';
+import {
+  loadDeskNotifications, loadDeskNotificationStats,
+} from './queries/notifications';
+
+
 import { searchBusinesses, getBusiness } from '@gf/yelp';
 import { extractPriceList, costMillicents, billableTokens, MAX_IMAGE_EDGE_PX,
          itemsNeedingTranslation, translateNames, TRANSLATE_MODEL, TRANSLATE_RATES,
@@ -200,6 +238,7 @@ export function buildServer(): FastifyInstance {
      * 入参都是路由自己拼的，官网说了不算（publicAuth.ts 文件头）。
      */
     if (path.startsWith('/public/')) return;
+    if (path.startsWith('/v1/public/')) return;
     // Stripe 的 webhook 同理：身份是一个 HMAC 签名，在 stripe/routes.ts 里验。
     // ⚠️ 只有 /v1/stripe/webhook 这一条是公开的 —— 老板端那几条
     // （/v1/billing/*）走正常的 Bearer 校验，别把它们放进这个前缀
@@ -217,7 +256,8 @@ export function buildServer(): FastifyInstance {
      * 有它就跳过 JWT 那一关 —— 归属与权限由 staffContextFromToken 解，
      * 它走的是令牌摘要维度的 RLS（和门口 iPad 同一个套路）。
      */
-    if (req.headers[STAFF_TOKEN_HEADER]) return;
+    const t = req.headers[STAFF_TOKEN_HEADER];
+    if (typeof t === 'string' && t.length > 0) return;
     req.user = await verifyAccessToken(req.headers.authorization);
   });
 
@@ -322,6 +362,68 @@ export function buildServer(): FastifyInstance {
       permissions: [...ctx.permissions].sort(),
     };
   });
+
+  // ── 个人档案与账号管理 (Profile & Sessions) ──────────────────────────────────
+  async function userCtxFromHeaders(req: { user?: { userId: string }; headers: Record<string, unknown>; ip: string }) {
+    const staffToken = req.headers[STAFF_TOKEN_HEADER];
+    if (typeof staffToken === 'string' && staffToken) {
+      return staffContextFromToken(staffToken, req.ip);
+    }
+    if (!req.user) throw new AppError(ERROR_CODES.UNAUTHENTICATED);
+    const userId = req.user.userId;
+    const headerMembershipId = req.headers['x-membership-id'];
+    let targetMembershipId: string | null = null;
+    let fallbackOrgId = '00000000-0000-0000-0000-000000000000';
+    let fallbackLocationId = '00000000-0000-0000-0000-000000000000';
+
+    if (typeof headerMembershipId === 'string' && headerMembershipId) {
+      targetMembershipId = headerMembershipId;
+    } else {
+      const list = await listMembershipsForUser(userId);
+      if (list[0]) {
+        targetMembershipId = list[0].membershipId;
+        fallbackOrgId = list[0].orgId;
+        fallbackLocationId = list[0].locationId;
+      }
+    }
+
+    if (targetMembershipId) {
+      return buildContext({ userId, membershipId: targetMembershipId, ip: req.ip });
+    }
+
+    const fallbackCtx: CommandContext = {
+      orgId: fallbackOrgId,
+      locationId: fallbackLocationId,
+      userId,
+      membershipId: null,
+      permissions: new Set<Permission>(),
+      actorKind: 'user',
+      locale: 'zh-Hans',
+      timezone: 'America/New_York',
+      ...(req.ip ? { ip: req.ip } : {}),
+    };
+    return fallbackCtx;
+  }
+
+
+  app.get('/v1/me/profile', async (req) => {
+    const ctx = await userCtxFromHeaders(req);
+    return withTenant(ctx, (tx) => loadUserProfile(tx, ctx));
+  });
+
+  app.get('/v1/me/sessions', async (req) => {
+    const ctx = await userCtxFromHeaders(req);
+    return withTenant(ctx, async (tx) => {
+      const sessions = await loadUserSessions(tx, ctx, req.ip);
+      return { sessions };
+    });
+  });
+
+  app.get('/v1/me/notification-preferences', async (req) => {
+    const ctx = await userCtxFromHeaders(req);
+    return withTenant(ctx, (tx) => loadUserNotificationPreferences(tx, ctx));
+  });
+
 
   /**
    * ── 跨店汇总（批 4）────────────────────────────────────────────────────
@@ -436,7 +538,7 @@ export function buildServer(): FastifyInstance {
    */
   const ENQUEUES_NOTIFICATIONS = new Set(['appointment.create']);
 
-  app.post<{ Params: { name: string } }>('/v1/commands/:name', async (req, reply) => {
+  const handleCommand = async (req: FastifyRequest<{ Params: { name: string } }>, reply: FastifyReply) => {
     const name = req.params.name;
     if (!commandNames.has(name)) {
       throw new AppError(ERROR_CODES.NOT_FOUND, { details: { command: name } });
@@ -470,7 +572,10 @@ export function buildServer(): FastifyInstance {
 
     // 重放的请求返回 200，新执行的返回 201 —— 客户端能分辨自己是不是重试成功了
     return reply.status(out.replayed ? 200 : 201).send(out);
-  });
+  };
+
+  app.post<{ Params: { name: string } }>('/v1/commands/:name', handleCommand);
+  app.post<{ Params: { name: string } }>('/api/commands/:name', handleCommand);
 
   // ── 查询：找客人 ───────────────────────────────────────────────────────────
   //
@@ -593,7 +698,7 @@ export function buildServer(): FastifyInstance {
   //
   // 顺序是**算出来的**不是存出来的：每个人都带 explain 和事件流水，
   // 技师质疑时前台能一条条给他看（决策 12）。
-  app.get('/v1/desk/rotation', async (req) => {
+  const handleRotation = async (req: FastifyRequest<{ Querystring: { businessDate?: string; date?: string } }>) => {
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('rotation.read')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'rotation.read' } });
@@ -601,11 +706,16 @@ export function buildServer(): FastifyInstance {
     return withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
       async (tx) => {
-        const { date, policy } = await currentBusinessDate(tx, ctx.locationId);
-        const { participants, events } = await loadRotation(tx, ctx, date);
+        const { date: todayDate, policy } = await currentBusinessDate(tx, ctx.locationId);
+        const queryDate = req.query.date || req.query.businessDate || todayDate;
+        const { participants, events } = await loadRotation(tx, ctx, queryDate);
         const st = computeStanding(participants, events, policy);
+
+        const nameByMember = new Map(participants.map((p) => [p.membershipId, p.name]));
+
         return {
-          businessDate: date,
+          businessDate: queryDate,
+          todayDate,
           policy,
           nextUpMembershipId: st.nextUp?.membershipId ?? null,
           entries: st.entries.map((e) => ({
@@ -616,16 +726,34 @@ export function buildServer(): FastifyInstance {
             state: e.state,
             position: e.position,
             manualRank: e.manualRank,
+            skills: e.skills || [],
+            levelName: e.levelName || null,
+            arrivedAt: e.arrivedAt,
+            leftAt: e.leftAt,
             why: explain(e, policy),
-            trail: e.trail.slice(0, 8).map((t) => ({
-              at: t.at, reason: t.reason,
+            trail: e.trail.map((t) => ({
+              at: t.at,
+              reason: t.reason,
               turns: t.deltaBp / FULL_TURN,
               note: stripRank(t.note),
             })),
           })),
+          fullEvents: events.map((ev) => ({
+            id: ev.id,
+            membershipId: ev.membershipId,
+            staffName: nameByMember.get(ev.membershipId) || '技师',
+            reason: ev.reason,
+            deltaTurns: ev.deltaBp / FULL_TURN,
+            at: ev.at,
+            note: stripRank(ev.note),
+            actorId: ev.actorId,
+          })),
         };
       });
-  });
+  };
+
+  app.get<{ Querystring: { businessDate?: string; date?: string } }>('/v1/desk/rotation', handleRotation);
+  app.get<{ Querystring: { businessDate?: string; date?: string } }>('/api/rotation/query', handleRotation);
 
   // ── 查询：今天开着的单 ─────────────────────────────────────────────────────
   /**
@@ -651,9 +779,9 @@ export function buildServer(): FastifyInstance {
     return detail;
   });
 
-  app.get<{ Querystring: {
-    q?: string; vip?: string; sleeping?: string; limit?: string; offset?: string;
-  } }>('/v1/desk/customers', async (req) => {
+  const handleCustomers = async (req: FastifyRequest<{ Querystring: {
+    q?: string; query?: string; filterType?: any; vip?: string; sleeping?: string; limit?: string; offset?: string;
+  } }>) => {
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('customer.read')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'customer.read' } });
@@ -665,34 +793,60 @@ export function buildServer(): FastifyInstance {
     return withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
       (tx) => loadCustomerList(tx, ctx, {
+        ...(req.query.query ? { query: req.query.query } : {}),
         ...(req.query.q ? { q: req.query.q } : {}),
+        ...(req.query.filterType ? { filterType: req.query.filterType } : {}),
         vipOnly: req.query.vip === '1',
         ...(int(req.query.sleeping) ? { sleepingDays: int(req.query.sleeping)! } : {}),
         ...(int(req.query.limit) ? { limit: int(req.query.limit)! } : {}),
         ...(int(req.query.offset) ? { offset: int(req.query.offset)! } : {}),
       }));
-  });
+  };
 
-  app.get('/v1/desk/tickets', async (req) => {
+  app.get('/v1/desk/customers', handleCustomers);
+  app.get('/api/customers/list', handleCustomers);
+
+  app.get<{ Querystring: { status?: string } }>('/v1/desk/tickets', async (req) => {
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('ticket.read')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ticket.read' } });
     }
+    const filterStatus = req.query.status && req.query.status !== 'all'
+      ? (req.query.status === 'paid' ? 'closed' : req.query.status)
+      : null;
+
     return withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
       async (tx) => {
+        const [checkoutSettingsRow] = await tx<{
+          sales_tax_rate_percent: string;
+          tax_calculation_mode: string;
+          suggested_tip_percentages: number[];
+        }[]>`
+          select sales_tax_rate_percent::text, tax_calculation_mode, suggested_tip_percentages
+          from location_checkout_settings
+          where location_id = ${ctx.locationId}`;
+
+        const checkoutSettings = {
+          salesTaxRatePercent: checkoutSettingsRow?.sales_tax_rate_percent ?? '8.8750',
+          taxCalculationMode: (checkoutSettingsRow?.tax_calculation_mode ?? 'exclusive') as 'exclusive' | 'inclusive',
+          suggestedTipPercentages: checkoutSettingsRow?.suggested_tip_percentages ?? [15, 18, 20, 25],
+        };
+
         const rows = await tx<{
-          ticket_id: string; customer_name: string | null; walk_in_name: string | null;
+          ticket_id: string; status: string; customer_name: string | null; walk_in_name: string | null;
           group_id: string | null; group_label: string | null; business_date: string;
-          subtotal_cents: number; item_id: string; item_name: string; item_total: number;
+          subtotal_cents: number; discount_cents: number; tax_cents: number; total_cents: number;
+          item_id: string; item_name: string; item_total: number;
           duration_min: number; staff_name: unknown; membership_id: string;
         }[]>`
-          select t.id as ticket_id, c.display_name as customer_name, t.walk_in_name,
-                 t.group_id, g.label as group_label,
-                 t.business_date::text as business_date,
-                 t.subtotal_cents, ti.id as item_id, ti.name_snapshot as item_name,
-                 ti.total_cents as item_total, ti.duration_min,
-                 sp.display_name as staff_name, tis.membership_id
+          select t.id as ticket_id, t.status, c.display_name as customer_name, t.walk_in_name,
+                  t.group_id, g.label as group_label,
+                  t.business_date::text as business_date,
+                  t.subtotal_cents, t.discount_cents, t.tax_cents, t.total_cents,
+                  ti.id as item_id, ti.name_snapshot as item_name,
+                  ti.total_cents as item_total, ti.duration_min,
+                  sp.display_name as staff_name, tis.membership_id
           from tickets t
           left join customers c on c.id = t.customer_id
           left join ticket_groups g on g.id = t.group_id
@@ -700,20 +854,22 @@ export function buildServer(): FastifyInstance {
           join ticket_item_staff tis on tis.ticket_item_id = ti.id
           left join staff_profiles sp on sp.membership_id = tis.membership_id
           where t.location_id = ${ctx.locationId}
-            and t.status in ('open','in_service','ready_to_pay')
+            and (
+              case
+                when ${filterStatus}::text is not null then t.status = ${filterStatus}
+                else t.status in ('open','in_service','ready_to_pay')
+              end
+            )
           order by t.business_date, t.opened_at, ti.seq`;
 
         const map = new Map<string, {
-          ticketId: string; customerName: string; subtotalCents: number;
+          ticketId: string; status: string; customerName: string;
+          subtotalCents: number; discountCents: number; taxCents: number; totalCents: number;
           groupId: string | null; groupLabel: string | null;
           businessDate: string; daysAgo: number;
           items: Array<Record<string, unknown>>;
         }>();
-        // ⭐ 隔夜单（0032）。这条查询按 status 过滤而**不按营业日** ——
-        // 那是对的：昨天开的单今天照样要能结掉。错的是把它跟今天的单
-        // 混在一个列表里不作区分：前台看不出哪张是哪天的，而封账会以
-        // 「还有单没结」为由被拦下，老板不知道拦他的是三天前的一张幽灵单。
-        // 服务端直接算好 daysAgo，别让每个客户端各写一遍日期减法。
+
         const today = await resolveDate(tx, ctx.locationId);
         const todayMs = Date.parse(`${today}T00:00:00Z`);
         const daysAgoOf = (d: string) =>
@@ -722,8 +878,12 @@ export function buildServer(): FastifyInstance {
         for (const r of rows) {
           const t = map.get(r.ticket_id) ?? {
             ticketId: r.ticket_id,
+            status: r.status,
             customerName: r.customer_name ?? r.walk_in_name ?? '临时客人',
             subtotalCents: r.subtotal_cents,
+            discountCents: r.discount_cents,
+            taxCents: r.tax_cents,
+            totalCents: r.total_cents,
             groupId: r.group_id, groupLabel: r.group_label,
             businessDate: r.business_date,
             daysAgo: daysAgoOf(r.business_date),
@@ -740,7 +900,7 @@ export function buildServer(): FastifyInstance {
         return {
           businessDate: today,
           tickets,
-          /** 前台一眼要知道「这堆里有几张不是今天的」，不用自己数 */
+          checkoutSettings,
           staleCount: tickets.filter((t) => t.daysAgo > 0).length,
         };
       });
@@ -795,157 +955,158 @@ export function buildServer(): FastifyInstance {
       });
   });
 
-  // ── 查询：开店配置 ─────────────────────────────────────────────────────────
-  app.get('/v1/desk/settings', async (req) => {
+  // ── 系统设置与门店配置 (Settings Enhancement) ──────────────────────────────
+  const handleDeskSettings = async (req: FastifyRequest) => {
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('settings.manage') && !ctx.permissions.has('staff.manage')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
     }
-    return withTenant(
-      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
-      async (tx) => {
-        const [loc] = await tx<{
-          name: unknown; timezone: string; business_hours: unknown;
-          business_type: string; cutoff: string; status: string;
-          has_address: boolean; profile_confirmed_at: string | null;
-          settings: unknown;
-        }[]>`
-          select name, timezone, business_hours, business_type,
-                 business_day_cutoff::text as cutoff, status,
-                 (address is not null or yelp_business_id is not null) as has_address,
-                 settings->>'profile_confirmed_at' as profile_confirmed_at,
-                 settings
-          from locations where id = ${ctx.locationId}`;
+    return withTenant(ctx, (tx) => loadDeskSettings(tx, ctx));
+  };
+  app.get('/v1/desk/settings', handleDeskSettings);
+  app.get('/api/desk/settings', handleDeskSettings);
 
-        const services = await tx<{
-          id: string; name: unknown; duration_min: number; base_price_cents: number;
-          taxable: boolean; online_bookable: boolean; is_addon: boolean; active: boolean;
-        }[]>`
-          select id, name, duration_min, base_price_cents, taxable, online_bookable,
-                 is_addon, active
-          from services where location_id = ${ctx.locationId}
-          order by active desc, sort, name->>'en'`;
+  const handleSaveLocation = async (req: FastifyRequest<{ Body: Record<string, unknown> }>) => {
+    const ctx = await ctxFromHeaders(req);
+    const res = await dispatch('location.saveProfile', req.body, ctx);
+    return res.result;
+  };
+  app.patch<{ Body: Record<string, unknown> }>('/v1/desk/settings/location', handleSaveLocation);
+  app.patch<{ Body: Record<string, unknown> }>('/api/desk/settings/location', handleSaveLocation);
 
-        const date = businessDateOf(new Date(), loc!.timezone, loc!.cutoff);
-        const staff = await tx<{
-          membership_id: string; name: unknown; is_bookable: boolean;
-          max_concurrent: number; level_key: string | null; in_rotation: boolean | null;
-          phone_e164: string | null; has_account: boolean; live_sessions: number;
-          role_keys: string[] | null;
-        }[]>`
-          select sp.membership_id, sp.display_name as name, sp.is_bookable,
-                 sp.max_concurrent_appointments as max_concurrent,
-                 sl.key as level_key, rp.in_rotation, sp.phone_e164,
-                 -- ⭐ 「他上过机没有」是推导出来的，没有状态列：
-                 -- user_id 有值 = 用邮箱登录过；有活着的会话 = 手机上机过。
-                 -- 存一个 has_logged_in 布尔的话，踢下线之后它就说谎了
-                 (m.user_id is not null) as has_account,
-                 (select count(*) from staff_sessions ss
-                   where ss.membership_id = sp.membership_id
-                     and ss.revoked_at is null and ss.expires_at > now())::int as live_sessions,
-                 (select array_remove(array_agg(r.key), null)
-                    from membership_roles mr join roles r on r.id = mr.role_id
-                   where mr.membership_id = sp.membership_id) as role_keys
-          from staff_profiles sp
-          join memberships m on m.id = sp.membership_id and m.status = 'active'
-          left join staff_levels sl on sl.id = sp.level_id
-          left join rotation_participants rp
-            on rp.membership_id = sp.membership_id and rp.business_date = ${date}
-          where sp.location_id = ${ctx.locationId}
-          order by sp.is_bookable desc, sp.display_name->>'en'`;
+  const handleSaveBusinessHours = async (req: FastifyRequest<{ Body: Record<string, unknown> }>) => {
+    const ctx = await ctxFromHeaders(req);
+    const res = await dispatch('location.saveHours', req.body, ctx);
+    return res.result;
+  };
+  app.put<{ Body: Record<string, unknown> }>('/v1/desk/settings/business-hours', handleSaveBusinessHours);
+  app.put<{ Body: Record<string, unknown> }>('/api/desk/settings/business-hours', handleSaveBusinessHours);
 
-        const levels = await tx<{ id: string; key: string; name: unknown }[]>`
-          select id, key, name from staff_levels
-          where location_id = ${ctx.locationId} order by sort`;
+  const handleGetCheckout = async (req: FastifyRequest) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage') && !ctx.permissions.has('ticket.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+    }
+    return withTenant(ctx, (tx) => loadCheckoutSettings(tx, ctx));
+  };
+  app.get('/v1/desk/settings/checkout', handleGetCheckout);
+  app.get('/api/desk/settings/checkout', handleGetCheckout);
 
-        // 官网对接那一页（docs/13）：公开 key + 域名白名单 + 在线预约配置
-        const [web] = await tx<{ public_key: string; slug: string }[]>`
-          select public_key, slug from locations where id = ${ctx.locationId}`;
-        const origins = await tx<{ id: string; origin: string; label: string | null }[]>`
-          select id, origin, label from location_allowed_origins
-          where location_id = ${ctx.locationId} order by origin`;
+  const handleSaveCheckout = async (req: FastifyRequest<{ Body: Record<string, unknown> }>) => {
+    const ctx = await ctxFromHeaders(req);
+    const res = await dispatch('settings.saveCheckout', req.body, ctx);
+    return res.result;
+  };
+  app.put<{ Body: Record<string, unknown> }>('/v1/desk/settings/checkout', handleSaveCheckout);
+  app.put<{ Body: Record<string, unknown> }>('/api/desk/settings/checkout', handleSaveCheckout);
 
-        // AI 电话那三个号。开通是**人工**做的（`09` §2），所以这里没有任何
-        // 状态列 —— 「开通了没有」就是「有没有 ai_voice 那一条」。
-        const lines = await tx<{
-          purpose: string; e164: string; forwarding_mode: string | null;
-        }[]>`
-          select purpose, e164, forwarding_mode from phone_lines
-          where location_id = ${ctx.locationId} and active
-            and purpose in ('ai_voice','main','transfer_target')`;
-        const lineOf = (p: string) => lines.find((l) => l.purpose === p)?.e164 ?? null;
+  const handleSaveOnlineBooking = async (req: FastifyRequest<{ Body: Record<string, unknown> }>) => {
+    const ctx = await ctxFromHeaders(req);
+    const res = await dispatch('location.saveOnlineBooking', req.body, ctx);
+    return res.result;
+  };
+  app.put<{ Body: Record<string, unknown> }>('/v1/desk/settings/online-booking', handleSaveOnlineBooking);
+  app.put<{ Body: Record<string, unknown> }>('/api/desk/settings/online-booking', handleSaveOnlineBooking);
 
-        return {
-          location: {
-            name: pickText(loc!.name, ctx.locale),
-            timezone: loc!.timezone,
-            businessType: loc!.business_type,
-            businessHours: loc!.business_hours ?? {},
-            businessDayCutoff: loc!.cutoff.slice(0, 5),
-            /** setup = 开店向导还没走完（sql/0030） */
-            status: loc!.status,
-            /**
-             * ⭐ 开店向导的进度**全部是从真实数据推出来的**，
-             * 没有一个「走到第几步」的计数器（docs/12 §3 C 规矩 2）：
-             * 存步数的话，老板换台设备登录会被拉回一个假的进度。
-             *
-             * 于是「已完成」和「真的能用了」永远是同一件事 ——
-             * 他从别的入口把项目建好了，向导那一项自己就会变成 ✓。
-             */
-            hasAddress: loc!.has_address,
-            profileConfirmedAt: loc!.profile_confirmed_at,
-          },
-          services: services.map((s) => ({
-            id: s.id, name: s.name as Record<string, string>,
-            displayName: pickText(s.name, ctx.locale),
-            durationMin: s.duration_min, basePriceCents: s.base_price_cents,
-            taxable: s.taxable, onlineBookable: s.online_bookable,
-            isAddon: s.is_addon, active: s.active,
-          })),
-          staff: staff.map((s) => ({
-            membershipId: s.membership_id,
-            name: pickText(s.name, ctx.locale),
-            isBookable: s.is_bookable,
-            maxConcurrent: s.max_concurrent,
-            levelKey: s.level_key,
-            inRotation: s.in_rotation ?? s.is_bookable,
-            roleKeys: s.role_keys ?? [],
-            /** 老板要照着这个打电话给技师，所以不脱敏 —— 他本来就有这个号 */
-            phoneE164: s.phone_e164,
-            /** 这三个一起回答「他能不能在自己手机上看到派单」 */
-            hasAccount: s.has_account,
-            liveSessions: s.live_sessions,
-          })),
-          levels: levels.map((l) => ({
-            id: l.id, key: l.key, name: pickText(l.name, ctx.locale),
-          })),
-          guest: {
-            /**
-             * ⚠️ 这串**不是密钥**，它本来就要出现在老板官网的 JS 里
-             * （docs/13 §3）。放在这里是为了让他能一键复制给做官网的人。
-             */
-            publicKey: web!.public_key,
-            slug: web!.slug,
-            allowedOrigins: origins,
-            onlineBooking: readOnlineBooking(
-              (loc!.settings ?? {}) as Record<string, unknown>),
-            /** 一个都没勾就打不开在线预约（handlers/setup.ts 里拦着） */
-            onlineBookableCount: services.filter((x) => x.active && x.online_bookable).length,
-          },
-          phone: {
-            /** 店家对外公布的号。我们不碰它，只用来生成转移教程 */
-            storefrontE164: lineOf('main'),
-            /** 人工客服号 —— AI 答不了时转给它 */
-            transferTargetE164: lineOf('transfer_target'),
-            /** 我们买的落地号。null = 还没开通 */
-            aiVoiceE164: lineOf('ai_voice'),
-            /** 店家说他在运营商那儿设的转接方式（我们改不了，只记录） */
-            forwardingMode:
-              lines.find((l) => l.purpose === 'main')?.forwarding_mode ?? null,
-          },
-        };
-      });
-  });
+  const handleSaveStaffProfile = async (req: FastifyRequest<{ Body: Record<string, unknown> }>) => {
+    const ctx = await ctxFromHeaders(req);
+    const res = await dispatch('staff.saveProfile', req.body, ctx);
+    return res.result;
+  };
+  app.put<{ Body: Record<string, unknown> }>('/v1/desk/settings/staff/profile', handleSaveStaffProfile);
+  app.put<{ Body: Record<string, unknown> }>('/api/desk/settings/staff/profile', handleSaveStaffProfile);
+
+  const handleSaveStaffRotation = async (req: FastifyRequest<{ Body: Record<string, unknown> }>) => {
+    const ctx = await ctxFromHeaders(req);
+    const res = await dispatch('staff.setRotation', req.body, ctx);
+    return res.result;
+  };
+  app.put<{ Body: Record<string, unknown> }>('/v1/desk/settings/staff/rotation', handleSaveStaffRotation);
+  app.put<{ Body: Record<string, unknown> }>('/api/desk/settings/staff/rotation', handleSaveStaffRotation);
+
+  const handleSavePhoneAssistant = async (req: FastifyRequest<{ Body: Record<string, unknown> }>) => {
+    const ctx = await ctxFromHeaders(req);
+    const res = await dispatch('settings.savePhoneAssistant', req.body, ctx);
+    return res.result;
+  };
+  app.put<{ Body: Record<string, unknown> }>('/v1/desk/settings/phone-assistant', handleSavePhoneAssistant);
+  app.put<{ Body: Record<string, unknown> }>('/api/desk/settings/phone-assistant', handleSavePhoneAssistant);
+
+  const handleApply10Dlc = async (req: FastifyRequest<{ Body: Record<string, unknown> }>) => {
+    const ctx = await ctxFromHeaders(req);
+    const res = await dispatch('settings.apply10dlc', req.body, ctx);
+    return res.result;
+  };
+  app.post<{ Body: Record<string, unknown> }>('/v1/desk/settings/10dlc/apply', handleApply10Dlc);
+  app.post<{ Body: Record<string, unknown> }>('/api/desk/settings/10dlc/apply', handleApply10Dlc);
+
+  const handleGet10DlcStatus = async (req: FastifyRequest) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage') && !ctx.permissions.has('staff.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+    }
+    return withTenant(ctx, (tx) => load10DlcStatus(tx, ctx));
+  };
+  app.get('/v1/desk/settings/10dlc/status', handleGet10DlcStatus);
+  app.get('/api/desk/settings/10dlc/status', handleGet10DlcStatus);
+
+  const handleSaveIntakeWaiver = async (req: FastifyRequest<{ Body: Record<string, unknown> }>) => {
+    const ctx = await ctxFromHeaders(req);
+    const res = await dispatch('settings.saveIntakeWaiver', req.body, ctx);
+    return res.result;
+  };
+  app.put<{ Body: Record<string, unknown> }>('/v1/desk/settings/hardware/intake-waiver', handleSaveIntakeWaiver);
+  app.put<{ Body: Record<string, unknown> }>('/api/desk/settings/hardware/intake-waiver', handleSaveIntakeWaiver);
+
+  const handleGetIntakeWaiver = async (req: FastifyRequest) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage') && !ctx.permissions.has('appointment.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+    }
+    return withTenant(ctx, (tx) => loadIntakeWaiver(tx, ctx));
+  };
+  app.get('/v1/desk/settings/hardware/intake-waiver', handleGetIntakeWaiver);
+  app.get('/api/desk/settings/hardware/intake-waiver', handleGetIntakeWaiver);
+
+  const handleSaveWebhooks = async (req: FastifyRequest<{ Body: Record<string, unknown> }>) => {
+    const ctx = await ctxFromHeaders(req);
+    const res = await dispatch('settings.saveWebhooks', req.body, ctx);
+    return res.result;
+  };
+  app.put<{ Body: Record<string, unknown> }>('/v1/desk/settings/webhooks', handleSaveWebhooks);
+  app.put<{ Body: Record<string, unknown> }>('/api/desk/settings/webhooks', handleSaveWebhooks);
+
+  const handleGetWebhooks = async (req: FastifyRequest) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+    }
+    return withTenant(ctx, (tx) => loadWebhooks(tx, ctx));
+  };
+  app.get('/v1/desk/settings/webhooks', handleGetWebhooks);
+  app.get('/api/desk/settings/webhooks', handleGetWebhooks);
+
+  // ── 应用内通知中心 (Notification Center) ───────────────────────────────────
+  const handleGetNotifications = async (req: FastifyRequest<{
+    Querystring: { category?: string; unreadOnly?: boolean; searchQuery?: string; page?: number; pageSize?: number };
+  }>) => {
+    const ctx = await ctxFromHeaders(req);
+    return withTenant(ctx, (tx) => loadDeskNotifications(tx, ctx, req.query));
+  };
+  app.get<{ Querystring: { category?: string; unreadOnly?: boolean; searchQuery?: string; page?: number; pageSize?: number } }>(
+    '/v1/desk/notifications', handleGetNotifications,
+  );
+  app.get<{ Querystring: { category?: string; unreadOnly?: boolean; searchQuery?: string; page?: number; pageSize?: number } }>(
+    '/api/desk/notifications', handleGetNotifications,
+  );
+
+  const handleGetNotificationStats = async (req: FastifyRequest) => {
+    const ctx = await ctxFromHeaders(req);
+    return withTenant(ctx, (tx) => loadDeskNotificationStats(tx, ctx));
+  };
+  app.get('/v1/desk/notifications/stats', handleGetNotificationStats);
+  app.get('/api/desk/notifications/stats', handleGetNotificationStats);
+
 
   // ── 查询：技师当日收入看板 ─────────────────────────────────────────────────
   //
@@ -983,8 +1144,10 @@ export function buildServer(): FastifyInstance {
   //
   // CSV 在服务端生成而不是前端拼：BOM、公式注入转义、列顺序这三件事
   // 只该有一份实现，而且导出的文件老板是要发给会计的。
-  app.get<{ Querystring: { from?: string; to?: string; format?: string } }>(
-    '/v1/desk/reports', async (req, reply) => {
+  const handleDeskReport = async (
+    req: FastifyRequest<{ Querystring: { from?: string; to?: string; format?: string } }>,
+    reply: FastifyReply,
+  ) => {
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('report.view')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
@@ -1015,10 +1178,12 @@ export function buildServer(): FastifyInstance {
         return reply
           .header('Content-Type', 'text/csv; charset=utf-8')
           .header('Content-Disposition',
-                  `attachment; filename="geniefront-${from}_${to}.csv"`)
+                  `attachment; filename="sales-report-${from}-to-${to}.csv"`)
           .send(reportToCsv(report));
       });
-  });
+  };
+  app.get<{ Querystring: { from?: string; to?: string; format?: string } }>('/v1/desk/reports', handleDeskReport);
+  app.get<{ Querystring: { from?: string; to?: string; format?: string } }>('/v1/desk/report', handleDeskReport);
 
   // ── 查询：排班表 ───────────────────────────────────────────────────────────
   app.get<{ Querystring: { from?: string; days?: string } }>('/v1/desk/roster', async (req) => {
@@ -1532,6 +1697,95 @@ export function buildServer(): FastifyInstance {
       async (tx) => ({ blueprints: await listBlueprints(tx, ctx) }));
   });
 
+  app.get('/v1/desk/storefront/brief', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      async (tx) => {
+        const [loc] = await tx<{ name: unknown; slogan: unknown }[]>`
+          select name, settings->'storefront'->>'slogan' as slogan from locations where id = ${ctx.locationId}`;
+        const [brief] = await tx<{
+          id: string; status: string;
+          voice: string | null; brand_primary: string | null; brand_accent: string | null;
+          pain_points: string[]; pain_free_text: string | null;
+          audience: string[]; top_questions: string[]; sections: string[];
+          usp: string | null; tone: string | null; reference_sites: string[];
+          current_site_url: string | null;
+        }[]>`
+          select id, status, voice, brand_primary, brand_accent,
+                 pain_points, pain_free_text, audience, top_questions,
+                 sections, usp, tone, reference_sites, current_site_url
+          from storefront_briefs where location_id = ${ctx.locationId} order by updated_at desc limit 1`;
+        return {
+          shopName: pickText(loc?.name, ctx.locale, 'Lotus Nails & Spa'),
+          slogan: (loc as any)?.slogan ?? '曼哈顿高端日式舒压与经络芳疗中心',
+          brief: brief ? {
+            id: brief.id,
+            status: brief.status,
+            voice: brief.voice,
+            brandPrimary: brief.brand_primary,
+            brandAccent: brief.brand_accent,
+            painPoints: brief.pain_points,
+            sections: brief.sections,
+            usp: brief.usp,
+            tone: brief.tone,
+            currentSiteUrl: brief.current_site_url,
+            referenceSites: brief.reference_sites,
+          } : null,
+        };
+      }
+    );
+  });
+
+  // ── 微店建站修改意见与批注流水 ──────────────────────────────────────────
+  const storefrontRevisionsMap = new Map<string, Array<{ id: string; time: string; text: string; status: string }>>();
+
+  app.get('/v1/desk/storefront/revisions', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    const revs = storefrontRevisionsMap.get(ctx.locationId) ?? [
+      {
+        id: "rev-1",
+        time: "2026-08-25 14:30",
+        text: "请将首页深层精油按摩的价格从 $85 更新为 $95，并加上『赠送 15min 热石体验』的角标。",
+        status: "已修改采纳",
+      },
+      {
+        id: "rev-2",
+        time: "2026-08-26 10:15",
+        text: "把技师团队展示里的 Lisa 师傅头像更换为 Drive 链接中的第一张高清肖像图。",
+        status: "设计处理中",
+      },
+    ];
+    return { revisions: revs };
+  });
+
+  app.post<{ Body: { text: string } }>('/v1/desk/storefront/revisions', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    const existing = storefrontRevisionsMap.get(ctx.locationId) ?? [
+      {
+        id: "rev-1",
+        time: "2026-08-25 14:30",
+        text: "请将首页深层精油按摩的价格从 $85 更新为 $95，并加上『赠送 15min 热石体验』的角标。",
+        status: "已修改采纳",
+      },
+      {
+        id: "rev-2",
+        time: "2026-08-26 10:15",
+        text: "把技师团队展示里的 Lisa 师傅头像更换为 Drive 链接中的第一张高清肖像图。",
+        status: "设计处理中",
+      },
+    ];
+    const newRev = {
+      id: `rev-${Date.now()}`,
+      time: new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
+      text: req.body?.text || '新增页面修改需求',
+      status: '已提交待处理',
+    };
+    const updated = [newRev, ...existing];
+    storefrontRevisionsMap.set(ctx.locationId, updated);
+    return { success: true, revision: newRev, revisions: updated };
+  });
+
   // ── 查询：来电待复核队列（决策 6 的「1 秒复核队列」）────────────────────
   app.get<{ Querystring: { status?: string } }>('/v1/desk/call-drafts', async (req) => {
     const ctx = await ctxFromHeaders(req);
@@ -1745,6 +1999,456 @@ export function buildServer(): FastifyInstance {
   // 客人自己填健康表的那条公开路（docs/15）。身份是一次性令牌，
   // 和门店官网那条互不相干 —— 它不认 pk_，也不受域名白名单约束
   registerFormLinkRoutes(app);
+
+  // ── 房间与工位实时看板 ─────────────────────────────────────────────────────
+  app.get('/v1/desk/rooms', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('appointment.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'appointment.read' } });
+    }
+    return withTenant(ctx, (tx) => loadRooms(tx, ctx));
+  });
+
+  // ── 预约详情（带客户健康表与单据明细）────────────────────────────────────────
+  app.get<{ Params: { id: string } }>('/v1/desk/appointments/:id', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('appointment.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'appointment.read' } });
+    }
+    return withTenant(ctx, (tx) => loadAppointmentDetail(tx, ctx, req.params.id));
+  });
+
+  // ── 营销中心：礼品卡 / 次卡套餐 / 优惠券 / 积分 ────────────────────────────
+  const handleGiftCards = async (
+    req: FastifyRequest<{ Querystring: { status?: string; q?: string; limit?: string; offset?: string } }>,
+  ) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('ticket.read') && !ctx.permissions.has('report.view')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ticket.read' } });
+    }
+    const limit = req.query.limit ? Number(req.query.limit) : undefined;
+    const offset = req.query.offset ? Number(req.query.offset) : undefined;
+    return withTenant(ctx, (tx) => loadGiftCards(tx, ctx, {
+      status: req.query.status,
+      q: req.query.q,
+      limit,
+      offset,
+    }));
+  };
+  app.get<{ Querystring: { status?: string; q?: string; limit?: string; offset?: string } }>('/v1/desk/giftcards', handleGiftCards);
+  app.get<{ Querystring: { status?: string; q?: string; limit?: string; offset?: string } }>('/v1/desk/marketing/giftcards', handleGiftCards);
+  app.get<{ Querystring: { status?: string; q?: string; limit?: string; offset?: string } }>('/v1/desk/marketing/gift-cards', handleGiftCards);
+
+  // 礼品卡即时余额预检接口（收银台使用）
+  const handleGiftCardVerify = async (
+    req: FastifyRequest<{ Querystring: { code?: string } }>,
+  ) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('ticket.read') && !ctx.permissions.has('report.view') && !ctx.permissions.has('ticket.write')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ticket.read' } });
+    }
+    const code = req.query.code?.trim();
+    if (!code) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'missing_gift_card_code' } });
+    }
+    return withTenant(ctx, (tx) => loadGiftCardVerify(tx, ctx, code));
+  };
+  app.get<{ Querystring: { code?: string } }>('/v1/desk/giftcards/verify', handleGiftCardVerify);
+  app.get<{ Querystring: { code?: string } }>('/v1/desk/gift-cards/verify', handleGiftCardVerify);
+
+  const handlePackages = async (req: FastifyRequest) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('catalog.manage') && !ctx.permissions.has('ticket.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'catalog.manage' } });
+    }
+    return withTenant(ctx, (tx) => loadPackages(tx, ctx));
+  };
+  app.get('/v1/desk/packages', handlePackages);
+  app.get('/v1/desk/marketing/packages', handlePackages);
+  app.get('/api/marketing/packages', handlePackages);
+
+  const handleCoupons = async (req: FastifyRequest) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage') && !ctx.permissions.has('ticket.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+    }
+    return withTenant(ctx, (tx) => loadCoupons(tx, ctx));
+  };
+  app.get('/v1/desk/coupons', handleCoupons);
+  app.get('/v1/desk/marketing/coupons', handleCoupons);
+
+  const handleLoyalty = async (req: FastifyRequest) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage') && !ctx.permissions.has('ticket.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+    }
+    return withTenant(ctx, (tx) => loadLoyalty(tx, ctx));
+  };
+  app.get('/v1/desk/loyalty', handleLoyalty);
+  app.get('/v1/desk/marketing/loyalty', handleLoyalty);
+
+  const handleStaffList = async (req: FastifyRequest) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('staff.manage') && !ctx.permissions.has('rotation.read') && !ctx.permissions.has('appointment.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'staff.manage' } });
+    }
+    return withTenant(ctx, (tx) => loadStaffDirectory(tx, ctx));
+  };
+  app.get('/v1/desk/staff/list', handleStaffList);
+  app.get('/api/staff/list', handleStaffList);
+
+  // ── 多维经营数据分析报表 ───────────────────────────────────────────────────
+  app.get<{ Querystring: { from?: string; to?: string } }>(
+    '/v1/desk/analytics/revenue-trends', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('report.view')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
+      }
+      const from = req.query.from || addDaysIso(todayIso(), -30);
+      const to = req.query.to || todayIso();
+      return withTenant(ctx, (tx) => loadRevenueTrends(tx, ctx, from, to));
+    }
+  );
+
+  app.get<{ Querystring: { from?: string; to?: string } }>(
+    '/v1/desk/analytics/customers', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('report.view')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
+      }
+      const from = req.query.from || addDaysIso(todayIso(), -30);
+      const to = req.query.to || todayIso();
+      return withTenant(ctx, (tx) => loadCustomerAnalytics(tx, ctx, from, to));
+    }
+  );
+
+  app.get<{ Querystring: { from?: string; to?: string } }>(
+    '/v1/desk/analytics/staff', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('payroll.view_all') && !ctx.permissions.has('report.view')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
+      }
+      const from = req.query.from || addDaysIso(todayIso(), -30);
+      const to = req.query.to || todayIso();
+      return withTenant(ctx, (tx) => loadStaffAnalytics(tx, ctx, from, to));
+    }
+  );
+
+  app.get<{ Querystring: { from?: string; to?: string } }>(
+    '/v1/desk/analytics/heatmap', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('report.view')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
+      }
+      const from = req.query.from || addDaysIso(todayIso(), -30);
+      const to = req.query.to || todayIso();
+      return withTenant(ctx, (tx) => loadHeatmap(tx, ctx, from, to));
+    }
+  );
+
+  app.get<{ Querystring: { from?: string; to?: string } }>(
+    '/v1/desk/analytics/rfm-customers', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('report.view')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
+      }
+      const from = req.query.from || addDaysIso(todayIso(), -90);
+      const to = req.query.to || todayIso();
+      return withTenant(ctx, (tx) => loadRfmCustomers(tx, ctx, from, to));
+    }
+  );
+
+  app.get<{ Querystring: { from?: string; to?: string } }>(
+    '/v1/desk/analytics/top-services', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('report.view')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
+      }
+      const from = req.query.from || addDaysIso(todayIso(), -30);
+      const to = req.query.to || todayIso();
+      return withTenant(ctx, (tx) => loadTopServices(tx, ctx, from, to));
+    }
+  );
+
+  app.get(
+    '/v1/desk/analytics/copilot-summary', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('report.view')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
+      }
+      return withTenant(ctx, (tx) => loadCopilotSummary(tx, ctx));
+    }
+  );
+
+  // ── 资金结算与薪资中心 ─────────────────────────────────────────────────────
+  app.get(
+    '/v1/desk/payouts/merchant-balance', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('report.view') && !ctx.permissions.has('billing.manage')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
+      }
+      return withTenant(ctx, (tx) => loadMerchantBalance(tx, ctx));
+    }
+  );
+
+  app.get(
+    '/v1/desk/payouts/bank-batches', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('report.view') && !ctx.permissions.has('billing.manage')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
+      }
+      return withTenant(ctx, (tx) => loadBankPayoutBatches(tx, ctx));
+    }
+  );
+
+  app.get(
+    '/v1/desk/payroll/batches', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('payroll.view_all') && !ctx.permissions.has('report.view')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'payroll.view_all' } });
+      }
+      return withTenant(ctx, (tx) => loadPayrollBatches(tx, ctx));
+    }
+  );
+
+  app.get<{ Params: { membershipId: string } }>(
+    '/v1/desk/payroll/stubs/:membershipId', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('payroll.view_all') && ctx.membershipId !== req.params.membershipId) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'payroll.view_all' } });
+      }
+      return withTenant(ctx, (tx) => loadPayrollStub(tx, ctx, req.params.membershipId));
+    }
+  );
+
+  app.get(
+    '/v1/desk/payouts/clawbacks', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('report.view') && !ctx.permissions.has('payroll.view_all')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
+      }
+      return withTenant(ctx, (tx) => loadClawbacks(tx, ctx));
+    }
+  );
+
+  // ── SaaS 订阅与算力资源中心 ────────────────────────────────────────────────
+  app.post<{ Body: { targetPlan: 'starter' | 'growth' | 'enterprise' | 'essential'; billingCycle?: 'monthly' | 'annual' } }>(
+    '/v1/desk/billing/change-plan', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      const res = await dispatch('billing.changePlan', req.body, ctx);
+      return res.result;
+    }
+  );
+
+  app.post<{ Body: { addonType: 'voice_minutes_100' | 'copilot_credits_500' | 'marketing_sms_1000'; priceCents: number } }>(
+    '/v1/desk/billing/buy-addon', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      const res = await dispatch('billing.buyAddon', req.body, ctx);
+      return res.result;
+    }
+  );
+
+  app.get(
+    '/v1/desk/billing/invoices', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('billing.manage') && !ctx.permissions.has('report.view')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'billing.manage' } });
+      }
+      return withTenant(ctx, (tx) => loadBillingInvoices(tx, ctx));
+    }
+  );
+
+  app.put<{ Body: { legalEntityName: string; taxId: string; billingEmail: string } }>(
+    '/v1/desk/billing/tax-profile', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      const res = await dispatch('billing.saveTaxProfile', req.body, ctx);
+      return res.result;
+    }
+  );
+
+  app.get(
+    '/v1/desk/billing/tax-profile', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('billing.manage') && !ctx.permissions.has('report.view')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'billing.manage' } });
+      }
+      return withTenant(ctx, (tx) => loadTaxProfile(tx, ctx));
+    }
+  );
+
+  // ── 硬件终端配对 ───────────────────────────────────────────────────────────
+  app.post<{ Body?: { terminalType?: 'customer-facing' | 'kiosk' } }>(
+    '/v1/desk/pairing/session', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('settings.manage')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+      }
+      return withTenant(ctx, (tx) => createPairingSession(tx, ctx, req.body?.terminalType));
+    }
+  );
+
+  app.get<{ Params: { code: string } }>(
+    '/v1/desk/pairing/session/:code/status', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('settings.manage')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+      }
+      return withTenant(ctx, (tx) => getPairingStatus(tx, ctx, req.params.code));
+    }
+  );
+
+  app.post<{ Body?: { code?: string; label?: string } }>(
+    '/v1/public/pairing/claim', async (req) => {
+      const code = req.body?.code?.trim();
+      if (!code) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+          details: { reason: 'missing_pairing_code' },
+        });
+      }
+      return claimPairingSession(code, req.body?.label);
+    }
+  );
+
+  // ── 口碑聚合与 AI Review 总结 ─────────────────────────────────────────────
+  const handleReviewsSummary = async (req: FastifyRequest) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('report.view') && !ctx.permissions.has('ticket.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
+    }
+    return withTenant(ctx, (tx) => loadReviewsSummary(tx, ctx));
+  };
+  app.get('/v1/desk/reviews/summary', handleReviewsSummary);
+  app.get('/v1/desk/analytics/reviews-summary', handleReviewsSummary);
+
+  // ── 预约健康表多版本历史 ───────────────────────────────────────────────────
+  app.get<{ Params: { id: string } }>('/v1/desk/appointments/:id/forms', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('appointment.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'appointment.read' } });
+    }
+    return withTenant(ctx, (tx) => loadAppointmentForms(tx, ctx, req.params.id));
+  });
+
+  // ── 健康免责声明重填与版本追加 ─────────────────────────────────────────────
+  app.post<{
+    Body: {
+      templateId: string;
+      customerId?: string;
+      appointmentId?: string;
+      answers: Record<string, unknown>;
+      signerName?: string;
+      signerRelation?: string;
+      signatureUrl?: string;
+    };
+  }>('/v1/desk/forms/re-submit', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('appointment.write') && !ctx.permissions.has('customer.write')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'appointment.write' } });
+    }
+    const { templateId, customerId, appointmentId, answers, signerName, signerRelation, signatureUrl } = req.body;
+    if (!templateId || !answers) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'missing_template_or_answers' } });
+    }
+
+    return withTenant(ctx, async (tx) => {
+      const key = loadFormKey(process.env['FORM_ENCRYPTION_KEY']);
+      const encrypted = encryptAnswers(answers, key);
+
+      const [prev] = await tx<{ id: string; version: number }[]>`
+        select id, version from form_submissions
+        where location_id = ${ctx.locationId}
+          and template_id = ${templateId}
+          and (${customerId ?? null}::uuid is null or customer_id = ${customerId ?? null})
+          and (${appointmentId ?? null}::uuid is null or appointment_id = ${appointmentId ?? null})
+          and is_latest = true
+        order by version desc limit 1`;
+
+      const nextVersion = (prev?.version ?? 0) + 1;
+
+      const [ins] = await tx<{ id: string }[]>`
+        insert into form_submissions (
+          org_id, location_id, customer_id, appointment_id, template_id, template_version,
+          version, is_latest, answers_encrypted, enc_alg, signature_url, signed_at,
+          signer_name, signer_relation, source, on_behalf_by
+        ) values (
+          ${ctx.orgId}, ${ctx.locationId}, ${customerId ?? null}, ${appointmentId ?? null},
+          ${templateId}, 1, ${nextVersion}, true, ${encrypted}, 'aes-256-gcm.v1',
+          ${signatureUrl ?? null}, now(), ${signerName ?? null}, ${signerRelation ?? 'self'},
+          'desk', ${ctx.membershipId}
+        ) returning id`;
+
+      if (prev) {
+        await tx`
+          update form_submissions
+          set is_latest = false, superseded_by = ${ins!.id}
+          where id = ${prev.id}`;
+      }
+
+      return {
+        submissionId: ins!.id,
+        version: nextVersion,
+        isLatest: true,
+      };
+    });
+  });
+
+  // ── 全量订单多维筛选与分页 ─────────────────────────────────────────────────
+  app.get<{
+    Querystring: {
+      status?: string;
+      from?: string;
+      to?: string;
+      staffId?: string;
+      paymentMethod?: string;
+      minAmount?: string;
+      maxAmount?: string;
+      q?: string;
+      limit?: string;
+      offset?: string;
+    };
+  }>('/v1/desk/orders', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('ticket.read') && !ctx.permissions.has('report.view')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ticket.read' } });
+    }
+    const limit = req.query.limit ? Number(req.query.limit) : undefined;
+    const offset = req.query.offset ? Number(req.query.offset) : undefined;
+    const minAmount = req.query.minAmount ? Number(req.query.minAmount) : undefined;
+    const maxAmount = req.query.maxAmount ? Number(req.query.maxAmount) : undefined;
+
+    return withTenant(ctx, (tx) => loadOrders(tx, ctx, {
+      status: req.query.status,
+      from: req.query.from,
+      to: req.query.to,
+      staffId: req.query.staffId,
+      paymentMethod: req.query.paymentMethod,
+      minAmount,
+      maxAmount,
+      q: req.query.q,
+      limit,
+      offset,
+    }));
+  });
+
+  // ── 电子小票快捷补发 ───────────────────────────────────────────────────────
+  app.post<{
+    Params: { id: string };
+    Body?: { channel?: 'sms' | 'email'; destination?: string };
+  }>('/v1/desk/tickets/:id/send-receipt', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('ticket.write')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ticket.write' } });
+    }
+    return dispatch(
+      'ticket.sendReceipt',
+      {
+        ticketId: req.params.id,
+        channel: req.body?.channel ?? 'sms',
+        destination: req.body?.destination,
+      },
+      ctx,
+    );
+  });
 
   // ── 命令目录 ───────────────────────────────────────────────────────────────
   // 前端 SDK 和 AI 工具定义都从这里取，不用各自维护一份

@@ -9,7 +9,8 @@
 
 import type postgres from 'postgres';
 import {
-  RotationAssign, RotationReorder, RotationSetBreak, RotationSkip,
+  RotationAssign, RotationReorder, RotationSetBreak, RotationSkip, QueueRollbackStage,
+  RotationCheckIn, RotationCheckOut, RotationUpdatePolicy,
   AppError, ERROR_CODES, type CommandContext, pickText
 } from '@gf/contracts';
 import {
@@ -39,6 +40,10 @@ export async function currentBusinessDate(
     order by version desc limit 1`;
 
   const c = (pol?.config ?? {}) as {
+    enabled?: boolean;
+    carry_over_next_day?: boolean;
+    starting_mode?: 'clock_in_order' | 'designated_staff' | 'carry_over' | 'balanced';
+    starting_staff_membership_id?: string | null;
     request_counts_as_turn?: boolean;
     skip_no_skill?: 'no_penalty' | 'counts_as_turn';
     owed_turn_priority?: boolean;
@@ -49,6 +54,10 @@ export async function currentBusinessDate(
   return {
     date: businessDateOf(new Date(), loc.tz, loc.cutoff),
     policy: {
+      enabled: c.enabled ?? DEFAULT_POLICY.enabled,
+      carryOverNextDay: c.carry_over_next_day ?? DEFAULT_POLICY.carryOverNextDay,
+      startingMode: c.starting_mode ?? DEFAULT_POLICY.startingMode,
+      startingStaffMembershipId: c.starting_staff_membership_id ?? DEFAULT_POLICY.startingStaffMembershipId,
       requestCountsAsTurn: c.request_counts_as_turn ?? DEFAULT_POLICY.requestCountsAsTurn,
       skipNoSkill: c.skip_no_skill ?? DEFAULT_POLICY.skipNoSkill,
       owedTurnPriority: c.owed_turn_priority ?? DEFAULT_POLICY.owedTurnPriority,
@@ -64,16 +73,39 @@ export async function loadRotation(
 ): Promise<{ participants: Participant[]; events: RotationEvent[] }> {
   const rows = await tx<{
     membership_id: string; name: unknown; in_rotation: boolean | null;
-    is_bookable: boolean; seed: number;
+    is_bookable: boolean; seed: number; gender: 'male' | 'female' | null;
+    level_name: unknown;
   }[]>`
     select sp.membership_id, sp.display_name as name, sp.is_bookable,
+           sp.gender,
+           sl.name as level_name,
            rp.in_rotation,
            row_number() over (order by sp.display_name->>'en')::int as seed
     from staff_profiles sp
     join memberships m on m.id = sp.membership_id and m.status = 'active'
+    left join staff_levels sl on sl.id = sp.level_id
     left join rotation_participants rp
       on rp.membership_id = sp.membership_id and rp.business_date = ${businessDate}
     where sp.location_id = ${ctx.locationId} and sp.is_bookable = true`;
+
+  const skillRows = await tx<{
+    membership_id: string; skill_id: string; key: string; name: unknown;
+  }[]>`
+    select ss.membership_id, sk.id as skill_id, sk.key, sk.name
+    from staff_skills ss
+    join skills sk on sk.id = ss.skill_id
+    where sk.location_id = ${ctx.locationId}`;
+
+  const skillsByMember = new Map<string, Array<{ id: string; key: string; name: string }>>();
+  for (const sk of skillRows) {
+    const list = skillsByMember.get(sk.membership_id) ?? [];
+    list.push({
+      id: sk.skill_id,
+      key: sk.key,
+      name: pickText(sk.name, ctx.locale) || sk.key,
+    });
+    skillsByMember.set(sk.membership_id, list);
+  }
 
   const evs = await tx<{
     id: string; membership_id: string; delta_bp: number; reason: string;
@@ -90,6 +122,9 @@ export async function loadRotation(
       name: pickText(r.name, ctx.locale),
       inRotation: r.in_rotation ?? r.is_bookable,
       seedOrder: r.seed,
+      gender: r.gender,
+      levelName: r.level_name ? pickText(r.level_name, ctx.locale) : undefined,
+      skills: skillsByMember.get(r.membership_id) ?? [],
     })),
     events: evs.map((e) => ({
       id: e.id,
@@ -226,4 +261,108 @@ registerHandler(RotationAssign, async ({ input, ctx, tx, audit, emit }: HandlerA
     consumedBp: policy.requestCountsAsTurn || !input.isRequest ? consumedBp : 0,
     nextUpMembershipId: afterStanding.nextUp?.membershipId ?? null,
   };
+});
+
+registerHandler(QueueRollbackStage, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
+  typeof QueueRollbackStage.input._type>) => {
+  const [apt] = await tx<{ id: string; status: string; business_date: string }[]>`
+    select id, status, business_date::text as business_date
+    from appointments
+    where id = ${input.appointmentId} and location_id = ${ctx.locationId}`;
+
+  if (!apt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
+
+  // 回退 appointment 状态
+  await tx`update appointments set status = ${input.targetStage} where id = ${apt.id}`;
+
+  // 若关联了 walkin_queue，也同步回退其状态
+  if (input.queueId) {
+    await tx`update walkin_queue set status = ${input.targetStage === 'booked' ? 'waiting' : input.targetStage}
+      where id = ${input.queueId} and location_id = ${ctx.locationId}`;
+  } else {
+    await tx`update walkin_queue set status = ${input.targetStage === 'booked' ? 'waiting' : input.targetStage}
+      where appointment_id = ${apt.id} and location_id = ${ctx.locationId}`;
+  }
+
+  audit({
+    entityType: 'queue_rollback', entityId: apt.id,
+    before: { stage: input.fromStage, appointmentStatus: apt.status },
+    after: { stage: input.targetStage, reason: input.reason, notes: input.notes ?? null },
+  });
+
+  emit({ type: 'appointment.changed', entityId: apt.id, businessDate: apt.business_date });
+
+  return {
+    appointmentId: apt.id,
+    targetStage: input.targetStage,
+    rolledBack: true,
+  };
+});
+
+// ─────────────────────────────────────────────────────────────────── 到店上牌
+registerHandler(RotationCheckIn, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
+  typeof RotationCheckIn.input._type>) => {
+  const { date } = await currentBusinessDate(tx, ctx.locationId);
+  const nowIso = new Date().toISOString();
+  const eventId = await insertEvent(tx, ctx, date, input.membershipId, 'check_in', 0, input.note ?? null);
+
+  audit({
+    entityType: 'rotation', entityId: input.membershipId,
+    after: { action: 'check_in', arrivedAt: nowIso, note: input.note ?? null },
+  });
+  emit({ type: 'rotation.changed', membershipId: input.membershipId, businessDate: date });
+  return { eventId, membershipId: input.membershipId, arrivedAt: nowIso };
+});
+
+// ─────────────────────────────────────────────────────────────────── 下班离牌
+registerHandler(RotationCheckOut, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
+  typeof RotationCheckOut.input._type>) => {
+  const { date } = await currentBusinessDate(tx, ctx.locationId);
+  const nowIso = new Date().toISOString();
+  const eventId = await insertEvent(tx, ctx, date, input.membershipId, 'check_out', 0, input.note ?? null);
+
+  audit({
+    entityType: 'rotation', entityId: input.membershipId,
+    after: { action: 'check_out', leftAt: nowIso, note: input.note ?? null },
+  });
+  emit({ type: 'rotation.changed', membershipId: input.membershipId, businessDate: date });
+  return { eventId, membershipId: input.membershipId, leftAt: nowIso };
+});
+
+// ─────────────────────────────────────────────────────────────────── 店主修改轮牌策略
+registerHandler(RotationUpdatePolicy, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
+  typeof RotationUpdatePolicy.input._type>) => {
+  const [latest] = await tx<{ id: string; version: number; config: Record<string, unknown> }[]>`
+    select id, version, config from rotation_policies
+    where location_id = ${ctx.locationId}
+    order by version desc limit 1`;
+
+  const newVersion = (latest?.version ?? 0) + 1;
+  const currentConfig = latest?.config ?? {};
+  const updatedConfig = {
+    ...currentConfig,
+    ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+    ...(input.carryOverNextDay !== undefined ? { carry_over_next_day: input.carryOverNextDay } : {}),
+    ...(input.startingMode !== undefined ? { starting_mode: input.startingMode } : {}),
+    ...(input.startingStaffMembershipId !== undefined ? { starting_staff_membership_id: input.startingStaffMembershipId } : {}),
+    ...(input.requestCountsAsTurn !== undefined ? { request_counts_as_turn: input.requestCountsAsTurn } : {}),
+    ...(input.skipNoSkill !== undefined ? { skip_no_skill: input.skipNoSkill } : {}),
+    ...(input.owedTurnPriority !== undefined ? { owed_turn_priority: input.owedTurnPriority } : {}),
+    ...(input.onBreak !== undefined ? { on_break: input.onBreak } : {}),
+  };
+
+  await tx`
+    insert into rotation_policies (org_id, location_id, version, config)
+    values (${ctx.orgId}, ${ctx.locationId}, ${newVersion}, ${JSON.stringify(updatedConfig)})`;
+
+  audit({
+    entityType: 'rotation_policy', entityId: ctx.locationId,
+    before: latest?.config ?? null,
+    after: updatedConfig,
+  });
+
+  const { date } = await currentBusinessDate(tx, ctx.locationId);
+  emit({ type: 'rotation.changed', membershipId: ctx.membershipId ?? '', businessDate: date });
+
+  return { success: true, version: newVersion };
 });

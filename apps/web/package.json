@@ -1,0 +1,52 @@
+{
+  "name": "@gf/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port=5177 --host=0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@gf/contracts": "workspace:*",
+    "@gf/scheduling": "workspace:*",
+    "@heroui-pro/react": "1.0.0-beta.8",
+    "@heroui/react": ">=3.2.2",
+    "@heroui/styles": ">=3.2.2",
+    "@radix-ui/react-tabs": "^1.1.21",
+    "@react-aria/utils": ">=3.34.1",
+    "@supabase/supabase-js": "^2.47.10",
+    "@tailwindcss/vite": "^4.1.14",
+    "@tanstack/react-query": "^5.62.11",
+    "clsx": "^2.1.1",
+    "fuse.js": "^7.5.0",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.0.1",
+    "react-aria-components": ">=1.19.0",
+    "react-dom": "^19.0.1",
+    "react-resizable-panels": ">=4.10.0",
+    "react-router-dom": "^7.18.2",
+    "recharts": "^3.10.1",
+    "tailwind-merge": "^3.6.0",
+    "tailwind-variants": ">=3.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.6",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^5.0.4",
+    "jsdom": "^30.0.1",
+    "tailwindcss": "^4.1.14",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3",
+    "vitest": "^2.1.8"
+  }
+}

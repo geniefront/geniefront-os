@@ -239,3 +239,76 @@ describe('稳定性', () => {
     expect(order(s)).toEqual(['Amy', 'Linh', 'Kim']);
   });
 });
+
+describe('上下牌与半天班（下午到店场景）', () => {
+  it('下午才到的技师上午处于 not_arrived 状态，不进上午队列', () => {
+    const mixedStaff: Participant[] = [
+      P('Amy', 0),
+      P('Linh', 1),
+      { membershipId: 'Kim', name: 'Kim', inRotation: true, seedOrder: 2, shiftType: 'afternoon_only' },
+    ];
+    const s = computeStanding(mixedStaff, []);
+    expect(order(s)).toEqual(['Amy', 'Linh']);
+    const kim = s.entries.find((e) => e.name === 'Kim')!;
+    expect(kim.state).toBe('not_arrived');
+    expect(explain(kim, DEFAULT_POLICY)).toContain('上午未到店 / 待下午打卡上牌');
+  });
+
+  it('下午技师到店上牌后进入队列并记录到店时间', () => {
+    const mixedStaff: Participant[] = [
+      P('Amy', 0),
+      P('Linh', 1),
+      { membershipId: 'Kim', name: 'Kim', inRotation: true, seedOrder: 2, shiftType: 'afternoon_only' },
+    ];
+    const s = computeStanding(mixedStaff, [
+      E('Amy', 'served', FULL_TURN),
+      E('Kim', 'check_in', 0, { at: '2026-08-15T14:30:00Z', note: '下午打卡到店' }),
+    ]);
+    const kim = s.entries.find((e) => e.name === 'Kim')!;
+    expect(kim.state).toBe('available');
+    expect(kim.arrivedAt).toBe('2026-08-15T14:30:00Z');
+    expect(order(s)).toEqual(['Linh', 'Kim', 'Amy']);
+    expect(explain(kim, DEFAULT_POLICY).some((line) => line.includes('14:30 到店上牌'))).toBe(true);
+  });
+
+  it('技师下班离牌后退出队列并记录离店时间', () => {
+    const s = computeStanding(staff, [
+      E('Amy', 'check_out', 0, { at: '2026-08-15T21:00:00Z', note: '下班离开' }),
+    ]);
+    const amy = s.entries.find((e) => e.name === 'Amy')!;
+    expect(amy.state).toBe('off');
+    expect(amy.leftAt).toBe('2026-08-15T21:00:00Z');
+    expect(order(s)).toEqual(['Linh', 'Kim']);
+    expect(explain(amy, DEFAULT_POLICY).some((line) => line.includes('21:00 下班离牌'))).toBe(true);
+  });
+});
+
+describe('首发技师与技能关联', () => {
+  it('指定首发技师在轮次相同(0轮)时优先排在第一位', () => {
+    const policy: RotationPolicy = {
+      ...DEFAULT_POLICY,
+      startingMode: 'designated_staff',
+      startingStaffMembershipId: 'Kim',
+    };
+    const s = computeStanding(staff, [], policy);
+    expect(order(s)).toEqual(['Kim', 'Amy', 'Linh']);
+    expect(s.nextUp?.name).toBe('Kim');
+  });
+
+  it('技师技能与职级元数据能够正确挂载在 StandingEntry 上', () => {
+    const staffWithSkills: Participant[] = [
+      {
+        membershipId: 'Amy',
+        name: 'Amy',
+        inRotation: true,
+        seedOrder: 0,
+        levelName: '资深总监',
+        skills: [{ id: 's1', key: 'gel', name: '光疗美甲' }],
+      },
+    ];
+    const s = computeStanding(staffWithSkills, []);
+    const amy = s.entries.find((e) => e.name === 'Amy')!;
+    expect(amy.levelName).toBe('资深总监');
+    expect(amy.skills).toEqual([{ id: 's1', key: 'gel', name: '光疗美甲' }]);
+  });
+});

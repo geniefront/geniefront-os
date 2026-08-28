@@ -24,6 +24,12 @@ import { YELP_COMMANDS } from './commands/yelp.js';
 import { KIOSK_COMMANDS } from './commands/kiosk.js';
 import { BILLING_COMMANDS } from './commands/billing.js';
 import { AI_COMMANDS } from './commands/ai.js';
+import { CUSTOMER_COMMANDS } from './commands/customer.js';
+import { SMS_COMMANDS } from './commands/sms.js';
+import { RESOURCE_COMMANDS } from './commands/resource.js';
+import { MARKETING_COMMANDS } from './commands/marketing.js';
+import { PROFILE_COMMANDS } from './commands/profile.js';
+import { NOTIFICATION_COMMANDS } from './commands/notifications.js';
 
 const ALL: readonly AnyCommandDef[] = [
   ...APPOINTMENT_COMMANDS, ...ROTATION_COMMANDS, ...TICKET_COMMANDS, ...SETUP_COMMANDS,
@@ -31,6 +37,8 @@ const ALL: readonly AnyCommandDef[] = [
   ...BLUEPRINT_COMMANDS, ...PHONE_COMMANDS,
   ...GIFTCARD_COMMANDS, ...NOTIFY_COMMANDS, ...STOREFRONT_COMMANDS, ...YELP_COMMANDS, ...KIOSK_COMMANDS,
   ...BILLING_COMMANDS, ...AI_COMMANDS,
+  ...CUSTOMER_COMMANDS, ...SMS_COMMANDS, ...RESOURCE_COMMANDS, ...MARKETING_COMMANDS,
+  ...PROFILE_COMMANDS, ...NOTIFICATION_COMMANDS,
 ];
 
 export const COMMAND_REGISTRY: ReadonlyMap<string, AnyCommandDef> = new Map(
@@ -70,9 +78,10 @@ export function aiToolDefinitions(): Array<{
       name: c.name,
       description: c.ai.description,
       confirm: c.ai.confirm,
-      permission: c.permission,
+      permission: c.permission ?? '',
       input: describeInput(c.input),
     }));
+
 }
 
 /**

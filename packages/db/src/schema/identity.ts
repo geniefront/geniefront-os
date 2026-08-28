@@ -30,7 +30,7 @@ export const memberships = pgTable('memberships', {
   orgId: uuid('org_id').notNull().references(() => organizations.id),
   /** null = org 级身份（多店老板） */
   locationId: uuid('location_id').references(() => locations.id),
-  userId: uuid('user_id').notNull().references(() => users.id),
+  userId: uuid('user_id').references(() => users.id),
   employmentType: text('employment_type').notNull().default('w2'), // w2|1099_booth
   status: text('status').notNull().default('active'),              // active|suspended|left
   startedOn: date('started_on'),
@@ -109,6 +109,12 @@ export const staffProfiles = pgTable('staff_profiles', {
   phoneE164: text('phone_e164'),
   /** 这位技师自己的界面语言。手机上机的技师没有 users 行，语言存这里 */
   locale: text('locale'),
+  /** 员工工号，如 EMP-1001 */
+  employeeNo: text('employee_no'),
+  /** 岗位职位，如 美甲师 / 芳疗理疗师 */
+  jobTitle: text('job_title'),
+  /** 员工档案备忘 */
+  notes: text('notes'),
   /** 上机码的摘要。明文只在老板屏幕上出现一次 */
   claimCodeHash: text('claim_code_hash'),
   claimCodeExpiresAt: timestamp('claim_code_expires_at', { withTimezone: true }),

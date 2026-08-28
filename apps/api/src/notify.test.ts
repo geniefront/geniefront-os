@@ -321,11 +321,13 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
     { eventKey: key, enabled: false, channels: [], offsetMin: 0 });
 
   const makeAppt = async (): Promise<string> => {
+    const d = new Date(Date.now() + 5 * 86400_000);
+    d.setUTCHours(18, 0, 0, 0);
     const out = await run<{ appointmentId: string }>('appointment.create', {
       customerId,
       items: [{
         serviceId, addonIds: [], membershipId: null,
-        startsAt: new Date(Date.now() + 5 * 86400_000).toISOString(), details: {},
+        startsAt: d.toISOString(), details: {},
       }],
       partySize: 1, source: 'desk',
     });
@@ -342,9 +344,11 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
     await enable('appointment_changed');
     const id = await makeAppt();
 
+    const d = new Date(Date.now() + 6 * 86400_000);
+    d.setUTCHours(18, 0, 0, 0);
     await run('appointment.reschedule', {
       appointmentId: id,
-      startsAt: new Date(Date.now() + 6 * 86400_000).toISOString(),
+      startsAt: d.toISOString(),
     });
 
     const rows = await smsFor(id);
@@ -363,9 +367,11 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
     await enable('staff_changed');
 
     const id = await makeAppt();
+    const d = new Date(Date.now() + 7 * 86400_000);
+    d.setUTCHours(18, 0, 0, 0);
     await run('appointment.reschedule', {
       appointmentId: id,
-      startsAt: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      startsAt: d.toISOString(),
     });
 
     const rows = await smsFor(id);
@@ -382,9 +388,11 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
     await disable('staff_changed');
     const id = await makeAppt();
 
+    const d = new Date(Date.now() + 8 * 86400_000);
+    d.setUTCHours(18, 0, 0, 0);
     await run('appointment.reschedule', {
       appointmentId: id,
-      startsAt: new Date(Date.now() + 8 * 86400_000).toISOString(),
+      startsAt: d.toISOString(),
     });
 
     expect(await smsFor(id)).toHaveLength(0);
@@ -396,9 +404,11 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
     await enable('appointment_changed');
 
     // 就算某条通知发不出去，改期本身必须成功
+    const d = new Date(Date.now() + 9 * 86400_000);
+    d.setUTCHours(18, 0, 0, 0);
     await expect(run('appointment.reschedule', {
       appointmentId: id,
-      startsAt: new Date(Date.now() + 9 * 86400_000).toISOString(),
+      startsAt: d.toISOString(),
     })).resolves.toBeTruthy();
     await disable('winback');
   });

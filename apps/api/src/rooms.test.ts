@@ -1,0 +1,125 @@
+/**
+ * 房间与工位看板及管理测试（P0 房态看板）
+ */
+
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { withTenant, closeDb } from '@gf/db';
+import { buildContext } from './actor';
+import { dispatch } from './bus';
+import './handlers/resource';
+import { loadRooms } from './queries/rooms';
+
+const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
+const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+const tenant = { orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null };
+
+let ownerCtx: Awaited<ReturnType<typeof buildContext>>;
+const createdResourceIds: string[] = [];
+
+beforeAll(async () => {
+  const [owner] = await withTenant(tenant, (tx) => tx<{ id: string; user_id: string }[]>`
+    select m.id, m.user_id from memberships m
+    join membership_roles mr on mr.membership_id = m.id
+    join roles r on r.id = mr.role_id
+    where m.location_id = ${NAIL_LOC} and m.status = 'active'
+      and r.key in ('owner','manager') and m.user_id is not null limit 1`);
+  ownerCtx = await buildContext({ userId: owner!.user_id, membershipId: owner!.id });
+});
+
+afterAll(async () => {
+  for (const id of createdResourceIds) {
+    await withTenant(tenant, (tx) => tx`delete from resources where id = ${id}`);
+  }
+  await closeDb();
+});
+
+describe('resource.save & loadRooms & resource.setStatus', () => {
+  it('创建工位/房间资源', async () => {
+    const res = await dispatch<{ resourceId: string; created: boolean }>(
+      'resource.save',
+      {
+        name: 'VIP Room 1',
+        type: 'vip',
+        capacity: 2,
+        maxStaff: 2,
+      },
+      ownerCtx,
+    );
+
+    expect(res.result.created).toBe(true);
+    expect(res.result.resourceId).toBeTruthy();
+    createdResourceIds.push(res.result.resourceId);
+  });
+
+  it('查询房间列表并包含所创建的房间与概览指标', async () => {
+    const list = await withTenant(tenant, (tx) => loadRooms(tx, ownerCtx));
+    expect(list.rooms.length).toBeGreaterThan(0);
+    expect(list.metrics).toBeDefined();
+    expect(list.metrics.total).toBeGreaterThan(0);
+    expect(typeof list.metrics.occupancyRate).toBe('number');
+    const vip = list.rooms.find((r) => r.id === createdResourceIds[0]);
+    expect(vip).toBeTruthy();
+    expect(vip?.name).toBe('VIP Room 1');
+    expect(vip?.capacity).toBe(2);
+    expect(vip?.status).toBe('available');
+    expect(Array.isArray(vip?.todaySlots)).toBe(true);
+  });
+
+  it('变更房间状态为 cleaning / in_service', async () => {
+    const resId = createdResourceIds[0]!;
+    const res = await dispatch<{ resourceId: string; status: string }>(
+      'resource.setStatus',
+      {
+        resourceId: resId,
+        status: 'cleaning',
+        note: '技师已完成服务，保洁清理中',
+      },
+      ownerCtx,
+    );
+
+    expect(res.result.status).toBe('cleaning');
+
+    const list = await withTenant(tenant, (tx) => loadRooms(tx, ownerCtx));
+    const vip = list.rooms.find((r) => r.id === resId);
+    expect(vip?.status).toBe('cleaning');
+  });
+
+  it('编辑房间名称和容量配置', async () => {
+    const resId = createdResourceIds[0]!;
+    const res = await dispatch<{ resourceId: string; created: boolean }>(
+      'resource.save',
+      {
+        resourceId: resId,
+        name: 'VIP Suite A',
+        capacity: 3,
+      },
+      ownerCtx,
+    );
+
+    expect(res.result.created).toBe(false);
+
+    const list = await withTenant(tenant, (tx) => loadRooms(tx, ownerCtx));
+    const vip = list.rooms.find((r) => r.id === resId);
+    expect(vip?.name).toBe('VIP Suite A');
+    expect(vip?.capacity).toBe(3);
+  });
+
+  it('删除工位/房间资源并从看板中移除', async () => {
+    const resId = createdResourceIds[0]!;
+    const res = await dispatch<{ resourceId: string; deleted: boolean }>(
+      'resource.delete',
+      {
+        resourceId: resId,
+        force: true,
+      },
+      ownerCtx,
+    );
+
+    expect(res.result.deleted).toBe(true);
+
+    const list = await withTenant(tenant, (tx) => loadRooms(tx, ownerCtx));
+    const deleted = list.rooms.find((r) => r.id === resId);
+    expect(deleted).toBeUndefined();
+  });
+});
+

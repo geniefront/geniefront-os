@@ -65,6 +65,11 @@ export const PERMISSIONS = [
   'staff.manage',
   'billing.manage',
   'catalog.manage',
+  'marketing.manage',
+  'package.manage',
+
+  // 通讯
+  'comms.send',
 
   // AI
   'ai.use',
@@ -111,7 +116,8 @@ export const ROLE_PRESETS = {
     'customer.view_health_form',
     'schedule.read', 'schedule.write',
     'timeclock.punch_self', 'timeclock.punch_others',
-    'settings.manage', 'staff.manage', 'catalog.manage',
+    'settings.manage', 'staff.manage', 'catalog.manage', 'marketing.manage', 'package.manage',
+    'comms.send',
     'queue.join', 'queue.manage', 'form.submit',
     'ai.use',
   ],
@@ -125,6 +131,7 @@ export const ROLE_PRESETS = {
     // 但历史营业报表不给 —— 那是老板的账（决策 19 极致隐私）。
     'dayclose.manage', 'tip.payout',
     'customer.read', 'customer.write', 'customer.view_contact', 'customer.merge',
+    'comms.send',
     /**
      * ⭐ 前台也要有 —— 02 §3.1 给技师看的那句话是**「有禁忌，见前台」**。
      * 前台看不到内容的话，这句话把技师指向了一个同样看不见的人，

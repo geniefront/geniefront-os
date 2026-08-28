@@ -7,7 +7,7 @@
  */
 
 import { z } from 'zod';
-import { defineCommand, uuid, cents, i18nText } from '../command.js';
+import { defineCommand, uuid, cents, i18nText, phoneE164 } from '../command.js';
 
 export const SaveService = defineCommand({
   name: 'catalog.saveService',
@@ -54,18 +54,38 @@ export const ArchiveService = defineCommand({
 export const SaveStaffProfile = defineCommand({
   name: 'staff.saveProfile',
   input: z.object({
-    membershipId: uuid,
+    membershipId: uuid.optional(),
     displayName: i18nText.optional(),
-    /** 能否被排单。店长/前台也接客时打开（决策 20） */
-    isBookable: z.boolean().optional(),
-    /** 并发上限。美甲店常设 2（做手时脚在泡水） */
-    maxConcurrentAppointments: z.number().int().min(1).max(5).optional(),
+    name: z.string().trim().max(100).optional(),
+    employeeNo: z.string().trim().max(30).optional(),
+    phone: phoneE164.optional().or(z.literal('')).nullable(),
+    email: z.string().email('邮箱格式不正确').optional().or(z.literal('')).nullable(),
+    jobTitle: z.string().trim().max(50).optional(),
+    level: z.string().trim().max(50).optional(),
     levelId: uuid.nullable().optional(),
+    skills: z.array(z.string().trim()).default([]),
+    status: z.enum(['active', 'on_leave', 'resigned', 'suspended', 'left']).default('active'),
+    hireDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '入职日期格式必须为 YYYY-MM-DD').optional(),
+    note: z.string().max(2000).optional(),
+    /** 能否被排单。店长/前台也接客时打开（决策 20） */
+    isBookable: z.boolean().default(true),
+    /** 并发上限。美甲店常设 2（做手时脚在泡水） */
+    maxConcurrentAppointments: z.number().int().min(1).max(5).default(1),
+    inRotation: z.boolean().default(true),
+    payroll: z.object({
+      kind: z.enum(['commission', 'hourly', 'commission_vs_hourly', 'booth_rent']),
+      ratePercent: z.number().nonnegative(),
+      hourlyRateDollars: z.number().nonnegative().default(0),
+      base: z.enum(['net', 'gross']).default('net'),
+    }).optional(),
   }),
-  output: z.object({ membershipId: uuid }),
+  output: z.object({
+    membershipId: uuid,
+    created: z.boolean().optional(),
+  }),
   permission: 'staff.manage',
   ai: {
-    description: '改技师的可排单状态、并发上限或等级。',
+    description: '改技师基础档案、工号、职位、可排单状态、并发上限、技能或等级与薪酬。',
     confirm: 'always',
   },
   reversible: true,
@@ -163,17 +183,25 @@ export const ClaimLocation = defineCommand({
 export const SaveLocationProfile = defineCommand({
   name: 'location.saveProfile',
   input: z.object({
-    name: i18nText.optional(),
+    name: i18nText.or(z.string()).optional(),
+    slug: z.string().min(2).max(64).optional(),
     /** IANA 时区名，如 America/New_York */
     timezone: z.string().min(3).max(64).optional(),
     businessType: z.enum(['nail', 'massage', 'foot_spa', 'lash', 'scalp', 'hair', 'mixed']).optional(),
+    phone: z.string().max(32).optional().nullable(),
+    email: z.string().email('邮箱格式不正确').optional().or(z.literal('')).nullable(),
+    addressStreet: z.string().max(255).optional().nullable(),
+    addressCity: z.string().max(64).optional().nullable(),
+    addressState: z.string().max(32).optional().nullable(),
+    addressZip: z.string().max(16).optional().nullable(),
+    address: z.any().optional(),
     /** 营业日边界。足疗店开到凌晨要设 03:00，美甲店 04:00 都行（00 §1.5.1） */
     businessDayCutoff: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
   }),
   output: z.object({ locationId: uuid }),
   permission: 'settings.manage',
   ai: {
-    description: '修改门店的店名、时区、业态。时区改动会影响所有日期计算，务必确认。',
+    description: '修改门店的店名、短码 slug、时区、业态、电话、邮箱、街道地址与营业日边界。',
     confirm: 'always',
   },
   reversible: true,
@@ -250,11 +278,22 @@ export const SaveOnlineBooking = defineCommand({
      * 而每一次拖动都可能把别人挤掉一格。
      */
     selfRescheduleMax: z.number().int().min(0).max(10).default(2),
+
+    /** 网格粒度: 15 | 30 | 60 分钟 */
+    slotIntervalMinutes: z.number().int().min(5).max(120).default(30),
+    /** 是否强制收取预约定金 */
+    depositRequired: z.boolean().default(false),
+    /** 预约定金金额 (分) */
+    depositAmountCents: z.number().int().nonnegative().default(2000),
+    /** 是否允许客户选技师 */
+    allowClientPickStaff: z.boolean().default(true),
+    requireCardOnFile: z.boolean().default(false),
+    cancellationPolicyNotice: z.string().max(1000).optional(),
   }),
   output: z.object({ locationId: uuid, enabled: z.boolean() }),
   permission: 'settings.manage',
   ai: {
-    description: '打开或关闭官网在线预约，并设置提前量、取消截止等护栏。',
+    description: '打开或关闭官网在线预约，并设置提前量、网格粒度、定金要求与取消截止等规则。',
     confirm: 'always',
   },
   reversible: true,
@@ -403,8 +442,96 @@ export const CreateLocation = defineCommand({
   idempotency: 'required',
 });
 
+export const SaveCheckoutSettings = defineCommand({
+  name: 'settings.saveCheckout',
+  input: z.object({
+    salesTaxRatePercent: z.number().nonnegative().optional(),
+    taxCalculationMode: z.enum(['exclusive', 'inclusive']).default('exclusive'),
+    suggestedTipPercentages: z.array(z.number().int().nonnegative()).default([15, 18, 20, 25]),
+    allowCustomTip: z.boolean().default(true),
+    defaultCashFloatCents: z.number().int().nonnegative().default(20000),
+    receiptFooterMessage: z.string().max(1000).optional().nullable(),
+    autoPrintReceipt: z.boolean().default(true),
+    autoSendSmsReceipt: z.boolean().default(true),
+  }),
+  output: z.object({ locationId: uuid }),
+  permission: 'settings.manage',
+  ai: {
+    description: '设置收银小费档位、消费税率、结账找零底金与小票页脚信息。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+export const Apply10Dlc = defineCommand({
+  name: 'settings.apply10dlc',
+  input: z.object({
+    legalBusinessName: z.string().min(1).max(255),
+    ein: z.string().min(1).max(32),
+    businessStructure: z.enum(['llc', 'corp', 'sole_prop', 'partnership']).default('llc'),
+    registeredAddress: z.string().min(1).max(500),
+    repName: z.string().min(1).max(128),
+    repTitle: z.string().min(1).max(128),
+    repEmail: z.string().email(),
+    repPhone: z.string().min(1).max(32),
+    optInMethod: z.string().max(1000).optional(),
+    sampleMessages: z.array(z.string()).default([]),
+    sampleMessage1: z.string().optional(),
+    sampleMessage2: z.string().optional(),
+  }),
+  output: z.object({ locationId: uuid, status: z.string(), submittedAt: z.string() }),
+  permission: 'settings.manage',
+  ai: {
+    description: '提交 10DLC 品牌认证资质代办信息（IRS 税号、执照地址、短信样例等）。',
+    confirm: 'always',
+  },
+  reversible: false,
+  idempotency: 'optional',
+});
+
+export const SaveIntakeWaiver = defineCommand({
+  name: 'settings.saveIntakeWaiver',
+  input: z.object({
+    waiverTitle: z.string().min(1).max(128).default('顾客服务知情同意书与健康声明'),
+    waiverContent: z.string().max(10000).optional().nullable(),
+    requireSignature: z.boolean().default(true),
+    requireHealthAllergies: z.boolean().default(true),
+    requirePressurePreference: z.boolean().default(true),
+    autoSyncToProfile: z.boolean().default(true),
+  }),
+  output: z.object({ locationId: uuid }),
+  permission: 'settings.manage',
+  ai: {
+    description: '保存大堂 iPad 客户健康告知书、免责声明内容与必填项配置。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+export const SaveWebhooks = defineCommand({
+  name: 'settings.saveWebhooks',
+  input: z.object({
+    url: z.string().url(),
+    events: z.array(z.string()).default(['booking.created', 'ticket.paid']),
+    secret: z.string().max(64).optional(),
+    active: z.boolean().default(true),
+  }),
+  output: z.object({ locationId: uuid, webhookId: uuid }),
+  permission: 'settings.manage',
+  ai: {
+    description: '配置外部系统接收事件通知的 Webhook 回调地址与订阅事件。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
 export const SETUP_COMMANDS = [
   SaveService, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
   SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
+  SaveCheckoutSettings, Apply10Dlc, SaveIntakeWaiver, SaveWebhooks,
 ] as const;
+

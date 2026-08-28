@@ -1,0 +1,80 @@
+/**
+ * 服务端错误的可读呈现。
+ *
+ * ⚠️ **不得直接展示 `err.message`。** `ApiError` 的 `message` 即服务端返回的
+ * 错误码本身（如 `STAFF_OVER_CAPACITY`），直接 toast 出去等同于让前台
+ * 面对一个无法理解的大写标识符，其结果通常是致电技术支持。
+ */
+import { useCallback } from 'react';
+import { ERROR_CODES } from '@gf/contracts';
+import type { ErrorCode } from '@gf/contracts';
+import { useLanguage } from '@/LanguageContext';
+import type { TranslationKey } from '@/i18n';
+import { ApiError } from './api';
+
+/**
+ * 错误码到文案 key 的映射。
+ *
+ * ⚠️ **必须逐条显式列出，不得写成 `` t(`error${code}`) `` 这类运行期拼接。**
+ * 拼接出来的 key 对静态分析不可见：字典瘦身脚本会把这些词条判定为「未引用」
+ * 并删除，而删除后没有任何编译期错误，故障要到门店真的触发该错误时才暴露。
+ *
+ * 此处的 `Record<ErrorCode, TranslationKey>` 同时提供两重保障 ——
+ * 服务端新增错误码时缺少映射是类型错误，映射到不存在的词条同样是类型错误。
+ */
+const ERROR_MESSAGE_KEYS: Record<ErrorCode, TranslationKey> = {
+  [ERROR_CODES.UNAUTHENTICATED]: 'errorUNAUTHENTICATED',
+  [ERROR_CODES.PERMISSION_DENIED]: 'errorPERMISSION_DENIED',
+  [ERROR_CODES.MEMBERSHIP_INACTIVE]: 'errorMEMBERSHIP_INACTIVE',
+  [ERROR_CODES.LOCATION_SUSPENDED]: 'errorLOCATION_SUSPENDED',
+  [ERROR_CODES.SUBSCRIPTION_PAST_DUE]: 'errorSUBSCRIPTION_PAST_DUE',
+  [ERROR_CODES.VALIDATION_FAILED]: 'errorVALIDATION_FAILED',
+  [ERROR_CODES.NOT_FOUND]: 'errorNOT_FOUND',
+  [ERROR_CODES.IDEMPOTENCY_KEY_REUSED]: 'errorIDEMPOTENCY_KEY_REUSED',
+  [ERROR_CODES.RESOURCE_CONFLICT]: 'errorRESOURCE_CONFLICT',
+  [ERROR_CODES.STAFF_OVER_CAPACITY]: 'errorSTAFF_OVER_CAPACITY',
+  [ERROR_CODES.LOCATION_OVER_CAPACITY]: 'errorLOCATION_OVER_CAPACITY',
+  [ERROR_CODES.STAFF_LACKS_SKILL]: 'errorSTAFF_LACKS_SKILL',
+  [ERROR_CODES.STAFF_NOT_BOOKABLE]: 'errorSTAFF_NOT_BOOKABLE',
+  [ERROR_CODES.OUTSIDE_BUSINESS_HOURS]: 'errorOUTSIDE_BUSINESS_HOURS',
+  [ERROR_CODES.OVERBOOK_REASON_REQUIRED]: 'errorOVERBOOK_REASON_REQUIRED',
+  [ERROR_CODES.ALREADY_CANCELLED]: 'errorALREADY_CANCELLED',
+  [ERROR_CODES.TICKET_ALREADY_CLOSED]: 'errorTICKET_ALREADY_CLOSED',
+  [ERROR_CODES.VOID_REASON_REQUIRED]: 'errorVOID_REASON_REQUIRED',
+  [ERROR_CODES.PAYMENT_MISMATCH]: 'errorPAYMENT_MISMATCH',
+  [ERROR_CODES.DAY_ALREADY_CLOSED]: 'errorDAY_ALREADY_CLOSED',
+  [ERROR_CODES.VARIANCE_REASON_REQUIRED]: 'errorVARIANCE_REASON_REQUIRED',
+  [ERROR_CODES.OPEN_TICKETS_REMAIN]: 'errorOPEN_TICKETS_REMAIN',
+  [ERROR_CODES.DAY_HAS_REAL_RECORDS]: 'errorDAY_HAS_REAL_RECORDS',
+  [ERROR_CODES.HOUSE_CUT_FORBIDDEN]: 'errorHOUSE_CUT_FORBIDDEN',
+  [ERROR_CODES.PATCH_TEST_REQUIRED]: 'errorPATCH_TEST_REQUIRED',
+  [ERROR_CODES.BLUEPRINT_FROZEN]: 'errorBLUEPRINT_FROZEN',
+  [ERROR_CODES.BLUEPRINT_NOTHING_ACCEPTED]: 'errorBLUEPRINT_NOTHING_ACCEPTED',
+  [ERROR_CODES.EXTRACTION_FAILED]: 'errorEXTRACTION_FAILED',
+  [ERROR_CODES.INTERNAL]: 'errorINTERNAL',
+  [ERROR_CODES.UPSTREAM_UNAVAILABLE]: 'errorUPSTREAM_UNAVAILABLE',
+};
+
+/**
+ * 返回一个把任意异常转换为母语文案的函数。
+ *
+ * 非 `ApiError`（网络中断、解析失败等）没有稳定的错误码可依据，
+ * 统一回退到通用文案 —— 对门店而言，「操作失败，请重试」是可执行的指引，
+ * 而堆栈信息不是。
+ */
+export function useErrorMessage(): (err: unknown) => string {
+  const { t } = useLanguage();
+  return useCallback(
+    (err: unknown) => {
+      if (err instanceof ApiError) {
+        const key = ERROR_MESSAGE_KEYS[err.code as ErrorCode];
+        if (key) return t(key);
+      }
+      return t('genericFailure');
+    },
+    [t],
+  );
+}
+
+/** 供完整性测试使用：错误码与文案 key 的对照表。 */
+export { ERROR_MESSAGE_KEYS };

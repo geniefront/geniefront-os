@@ -7,8 +7,8 @@
 
 import type postgres from 'postgres';
 import {
-  TicketOpen, TicketAddItem, TicketClose, TicketVoid,
-  TicketGroup, TicketUngroup, TicketCloseGroup,
+  TicketOpen, TicketAddItem, TicketClose, TicketPay, TicketVoid,
+  TicketGroup, TicketUngroup, TicketCloseGroup, TicketSendReceipt, TicketRefund,
   AppError, ERROR_CODES, type CommandContext, pickText
 } from '@gf/contracts';
 import {
@@ -16,10 +16,13 @@ import {
   largestRemainderSplit, distributeBuckets,
   TipPolicyError, type ServiceLine, type TipPolicy,
 } from '@gf/payroll';
-import { businessDateOf, } from '@gf/scheduling';
-import { jsonb } from '@gf/db';
+import { businessDateOf } from '@gf/scheduling';
+import { jsonb, smsOptedOut } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
 import { redeemForTicket } from './giftcard';
+import { segmentsOf } from '../sms/segments';
+import { flushSms } from '../sms/flush';
+import { flushEmails } from '../email/flush';
 import {
   loadPlans, writeCommissionEarnings, writeTipEarning, assertDayOpen,
   type LoadedPlans, type TicketRevenueRow,
@@ -143,7 +146,7 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
 registerHandler(TicketAddItem, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketAddItem.input._type>) => {
   const [t] = await tx<{ status: string }[]>`
-    select status from tickets where id = ${input.ticketId}`;
+    select status from tickets where id = ${input.ticketId} for update`;
   if (!t) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket' } });
   // 已结账的单不能再加项 —— 要改就得先作废重开，否则金额和已发的小费对不上
   if (t.status === 'closed' || t.status === 'voided') {
@@ -248,27 +251,33 @@ async function closeOneTicket(args: {
   ticket: TicketForClose;
   payments: readonly PaymentIn[];
   discountCents: number;
+  taxCents?: number;
+  surchargeCents?: number;
+  tipSplits?: readonly {
+    staffMembershipId: string;
+    staffName?: string | undefined;
+    amountCents: number;
+    percentageBp?: number | undefined;
+  }[] | undefined;
   loaded: LoadedPlans;
   groupPaymentId?: string;
   payerTicketId?: string;
 }): Promise<CloseOutcome> {
-  const { tx, ctx, ticket, payments, discountCents, loaded } = args;
+  const { tx, ctx, ticket, payments, discountCents, taxCents = 0, surchargeCents = 0, tipSplits, loaded } = args;
 
   const cashTip = payments.filter((p) => p.method === 'cash').reduce((s, p) => s + p.tipCents, 0);
   const cardTip = payments.filter((p) => p.method !== 'cash').reduce((s, p) => s + p.tipCents, 0);
   const totalTip = cashTip + cardTip;
   const paidTotal = payments.reduce((s, p) => s + p.amountCents, 0);
-  const shouldBe = ticket.subtotalCents - discountCents + totalTip;
+  const shouldBe = ticket.subtotalCents - discountCents + taxCents + totalTip + surchargeCents;
 
-  // 收多了收少了当场拦下。Phase 1a 没有这道校验，因为一张单的金额是前端
-  // 照着 subtotal 算出来的；组单拆分之后这个假设不再成立，
-  // 而「某个人的单被静默记成了别的金额」是查都没法查的错。
+  // 收多了收少了当场拦下。
   if (paidTotal !== shouldBe) {
     throw new AppError(ERROR_CODES.PAYMENT_MISMATCH, {
       details: {
         ticketId: ticket.id,
         expected: shouldBe, received: paidTotal,
-        hint: '收款额 = 服务金额 − 折扣 + 小费',
+        hint: '收款额 = 服务金额 − 折扣 + 税额 + 小费 + 刷卡费',
       },
     });
   }
@@ -305,24 +314,47 @@ async function closeOneTicket(args: {
 
   const out: CloseOutcome['allocations'] = [];
   try {
-    // 现金小费与刷卡小费分开算：现金当天发，刷卡进工资（00 §3.1）
-    for (const [src, amount] of [['cash', cashTip], ['card', cardTip]] as const) {
-      if (amount <= 0) continue;
-      const r = allocateTip(amount, serviceLines, policy);
-      for (const a of r.allocations) {
+    if (tipSplits && tipSplits.length > 0) {
+      for (const split of tipSplits) {
+        if (split.amountCents <= 0) continue;
+        const src = cardTip > 0 ? 'card' : 'cash';
         await tx`insert into tip_allocations
           (org_id, location_id, ticket_id, membership_id, amount_cents, basis, source, policy_version)
-          values (${ctx.orgId}, ${ctx.locationId}, ${ticket.id}, ${a.membershipId},
-                  ${a.amountCents}, ${jsonb(a.basis)}::jsonb, ${src}, ${version})`;
+          values (${ctx.orgId}, ${ctx.locationId}, ${ticket.id}, ${split.staffMembershipId},
+                  ${split.amountCents}, ${jsonb({ method: 'custom_split', percentageBp: split.percentageBp })}::jsonb, ${src}, ${version})`;
         await writeTipEarning({
           tx, ctx, ticketId: ticket.id, businessDate: ticket.businessDate,
-          membershipId: a.membershipId, amountCents: a.amountCents,
-          source: src, basis: a.basis, policyVersion: version,
+          membershipId: split.staffMembershipId, amountCents: split.amountCents,
+          source: src, basis: { method: 'custom_split' }, policyVersion: version,
         });
         out.push({
-          membershipId: a.membershipId, name: a.name, amountCents: a.amountCents,
-          source: src, explain: explainAllocation(a),
+          membershipId: split.staffMembershipId,
+          name: split.staffName ?? '技师',
+          amountCents: split.amountCents,
+          source: src,
+          explain: `自定义分账 $${(split.amountCents / 100).toFixed(2)}`,
         });
+      }
+    } else {
+      // 现金小费与刷卡小费分开算：现金当天发，刷卡进工资（00 §3.1）
+      for (const [src, amount] of [['cash', cashTip], ['card', cardTip]] as const) {
+        if (amount <= 0) continue;
+        const r = allocateTip(amount, serviceLines, policy);
+        for (const a of r.allocations) {
+          await tx`insert into tip_allocations
+            (org_id, location_id, ticket_id, membership_id, amount_cents, basis, source, policy_version)
+            values (${ctx.orgId}, ${ctx.locationId}, ${ticket.id}, ${a.membershipId},
+                    ${a.amountCents}, ${jsonb(a.basis)}::jsonb, ${src}, ${version})`;
+          await writeTipEarning({
+            tx, ctx, ticketId: ticket.id, businessDate: ticket.businessDate,
+            membershipId: a.membershipId, amountCents: a.amountCents,
+            source: src, basis: a.basis, policyVersion: version,
+          });
+          out.push({
+            membershipId: a.membershipId, name: a.name, amountCents: a.amountCents,
+            source: src, explain: explainAllocation(a),
+          });
+        }
       }
     }
   } catch (e) {
@@ -351,14 +383,6 @@ async function closeOneTicket(args: {
       ...(p.giftCardId ? { giftCardId: p.giftCardId } : {}),
       ...(p.giftCardCode ? { code: p.giftCardCode } : {}),
     });
-    /*
-     * ⭐ 提成基数按老板设的口径打折。
-     *
-     * `commission_basis = 'sale'` 时店家只收到售价那部分，
-     * 差额在提成上的效果**和一笔折扣完全一样** —— 所以直接并进
-     * `ticketDiscountCents`，复用引擎已经写好的「整单折扣按项摊」逻辑，
-     * 不在提成引擎里再开一个礼品卡分支。
-     */
     giftCardCommissionCut += r.appliedCents - r.commissionBaseCents;
   }
 
@@ -385,6 +409,8 @@ async function closeOneTicket(args: {
   await tx`update tickets set
       status = 'closed', closed_at = now(), closed_by = ${ctx.membershipId},
       discount_cents = ${discountCents},
+      tax_cents = ${taxCents},
+      surcharge_cents = ${surchargeCents},
       tip_cents = ${totalTip},
       total_cents = ${paidTotal},
       tip_policy_version = ${version}
@@ -393,7 +419,7 @@ async function closeOneTicket(args: {
   return { ticketId: ticket.id, totalCents: paidTotal, tipCents: totalTip, allocations: out, earnings };
 }
 
-registerHandler(TicketClose, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
+const handleTicketCloseOrPay = async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketClose.input._type>) => {
   const ticket = await loadTicketForClose(tx, input.ticketId);
   await assertDayOpen(tx, ctx.locationId, ticket.businessDate);
@@ -401,7 +427,11 @@ registerHandler(TicketClose, async ({ input, ctx, tx, audit, emit }: HandlerArgs
 
   const r = await closeOneTicket({
     tx, ctx, ticket, payments: input.payments,
-    discountCents: input.discountCents, loaded,
+    discountCents: input.discountCents,
+    taxCents: input.taxCents,
+    surchargeCents: input.surchargeCents,
+    tipSplits: input.tipSplits,
+    loaded,
   });
 
   // 审计留动作不留金额：只记「结了、几种支付方式、分给几个人」
@@ -412,6 +442,8 @@ registerHandler(TicketClose, async ({ input, ctx, tx, audit, emit }: HandlerArgs
       methods: input.payments.map((p) => p.method),
       keepChange: input.payments.some((p) => p.keepChange),
       allocationCount: r.allocations.length,
+      taxCents: input.taxCents ?? 0,
+      surchargeCents: input.surchargeCents ?? 0,
     },
   });
 
@@ -421,6 +453,61 @@ registerHandler(TicketClose, async ({ input, ctx, tx, audit, emit }: HandlerArgs
   return {
     ticketId: r.ticketId, totalCents: r.totalCents,
     tipCents: r.tipCents, allocations: r.allocations,
+    taxCents: input.taxCents ?? 0,
+    subtotalCents: ticket.subtotalCents,
+  };
+};
+
+registerHandler(TicketClose, handleTicketCloseOrPay);
+registerHandler(TicketPay, handleTicketCloseOrPay);
+
+registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
+  typeof TicketRefund.input._type>) => {
+  const [t] = await tx<{ id: string; status: string; total_cents: number; refund_cents: number; business_date: string }[]>`
+    select id, status, total_cents, refund_cents, business_date::text as business_date
+    from tickets
+    where id = ${input.ticketId} and location_id = ${ctx.locationId} for update`;
+
+  if (!t) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket' } });
+  if (t.status === 'voided') {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: '已作废的单据不能退款' } });
+  }
+
+  if (t.refund_cents + input.refundAmountCents > t.total_cents) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'refund_exceeds_total' } });
+  }
+
+  const isFullRefund = t.refund_cents + input.refundAmountCents >= t.total_cents;
+  const newStatus = isFullRefund ? 'refunded' : t.status;
+
+
+  await tx`update tickets set
+      refund_cents = refund_cents + ${input.refundAmountCents},
+      refund_reason = ${input.reason},
+      refund_method = ${input.refundMethod},
+      refunded_at = now(),
+      refunded_by = ${ctx.membershipId},
+      status = ${newStatus}
+    where id = ${t.id}`;
+
+  audit({
+    entityType: 'ticket', entityId: t.id,
+    after: {
+      action: 'refund',
+      amountCents: input.refundAmountCents,
+      reason: input.reason,
+      refundMethod: input.refundMethod,
+      isFullRefund,
+    },
+  });
+
+  emit({ type: 'ticket.changed', entityId: t.id, businessDate: t.business_date });
+
+  return {
+    ticketId: t.id,
+    status: 'refunded' as const,
+    refundedCents: input.refundAmountCents,
+    refundMethod: input.refundMethod,
   };
 });
 
@@ -495,11 +582,12 @@ registerHandler(TicketCloseGroup, async ({ input, ctx, tx, audit, emit }: Handle
 
   const tipSum = input.payments.reduce((s, p) => s + p.tipCents, 0);
   const paidSum = input.payments.reduce((s, p) => s + p.amountCents, 0);
-  if (paidSum !== subtotalSum - input.discountCents + tipSum) {
+  const expected = subtotalSum - input.discountCents + input.taxCents + input.surchargeCents + tipSum;
+  if (paidSum !== expected) {
     throw new AppError(ERROR_CODES.PAYMENT_MISMATCH, {
       details: {
-        expected: subtotalSum - input.discountCents + tipSum, received: paidSum,
-        hint: '整组收款额 = 各单服务金额合计 − 折扣 + 小费',
+        expected, received: paidSum,
+        hint: '整组收款额 = 各单服务金额合计 − 折扣 + 税金 + 附加费 + 小费',
       },
     });
   }
@@ -511,7 +599,9 @@ registerHandler(TicketCloseGroup, async ({ input, ctx, tx, audit, emit }: Handle
   // 各单的需求里 —— 按比例摊会在「单」和「支付方式」之间差出一分，
   // 而支付方式那一边差一分，晚上点钞就对不上。
   const discounts = largestRemainderSplit(input.discountCents, subtotals);
-  const nets = tickets.map((t, i) => t.subtotalCents - (discounts[i] ?? 0));
+  const taxes = largestRemainderSplit(input.taxCents, subtotals);
+  const surcharges = largestRemainderSplit(input.surchargeCents, subtotals);
+  const nets = tickets.map((t, i) => t.subtotalCents - (discounts[i] ?? 0) + (taxes[i] ?? 0) + (surcharges[i] ?? 0));
   const tipShares = largestRemainderSplit(tipSum, subtotals);
 
   const netBuckets = input.payments.map((p) => p.amountCents - p.tipCents);
@@ -544,7 +634,10 @@ registerHandler(TicketCloseGroup, async ({ input, ctx, tx, audit, emit }: Handle
         method: input.payments[0]!.method, amountCents: 0, tipCents: 0,
         tenderedCents: undefined, changeCents: 0, keepChange: false,
       }],
-      discountCents: discounts[i] ?? 0, loaded,
+      discountCents: discounts[i] ?? 0, 
+      taxCents: taxes[i] ?? 0,
+      surchargeCents: surcharges[i] ?? 0,
+      loaded,
       groupPaymentId,
       ...(input.payerTicketId ? { payerTicketId: input.payerTicketId } : {}),
     }));
@@ -610,3 +703,138 @@ registerHandler(TicketVoid, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   emit({ type: 'ticket.changed', entityId: input.ticketId, businessDate: t.business_date });
   return { ticketId: input.ticketId, status: 'voided' as const };
 });
+
+registerHandler(TicketSendReceipt, async ({ input, ctx, tx, audit }) => {
+  const [t] = await tx<{
+    id: string; total_cents: number; subtotal_cents: number;
+    discount_cents: number; tax_cents: number; tip_cents: number;
+    customer_id: string | null; walk_in_name: string | null;
+    business_date: string;
+  }[]>`
+    select id, total_cents, subtotal_cents, discount_cents, tax_cents, tip_cents,
+           customer_id, walk_in_name, business_date::text as business_date
+    from tickets where id = ${input.ticketId} and location_id = ${ctx.locationId}`;
+
+  if (!t) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket', id: input.ticketId } });
+  }
+
+  // 查询工单项目
+  const items = await tx<{ name_snapshot: string; total_cents: number }[]>`
+    select name_snapshot, total_cents from ticket_items where ticket_id = ${t.id}`;
+
+  let custPhone: string | null = null;
+  let custEmail: string | null = null;
+  let custName: string = t.walk_in_name ?? 'Valued Guest';
+
+  if (t.customer_id) {
+    const [c] = await tx<{ phone_e164: string | null; email: string | null; display_name: string | null }[]>`
+      select phone_e164, email, display_name from customers where id = ${t.customer_id}`;
+    if (c) {
+      custPhone = c.phone_e164;
+      custEmail = c.email;
+      if (c.display_name) custName = c.display_name;
+    }
+  }
+
+  const [loc] = await tx<{ name: unknown }[]>`
+    select name from locations where id = ${ctx.locationId}`;
+  const storeName = pickText(loc?.name, ctx.locale, 'Lotus Nails');
+
+  let outboxId = '';
+  let finalDestination = input.destination?.trim() ?? '';
+
+  if (input.channel === 'sms') {
+    if (!finalDestination) {
+      finalDestination = custPhone ?? '';
+    }
+    if (!finalDestination) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'missing_destination_phone' },
+      });
+    }
+
+    const itemsSummary = items.map((i) => `${i.name_snapshot} ($${(i.total_cents / 100).toFixed(2)})`).join(', ');
+    const totalFormatted = `$${(t.total_cents / 100).toFixed(2)}`;
+    const body = `${storeName}: Thank you ${custName}! Receipt for ${t.business_date}. Items: ${itemsSummary}. Total: ${totalFormatted}.`;
+
+    const segments = segmentsOf(body);
+    const isOptedOut = await smsOptedOut(finalDestination);
+    const status: 'suppressed' | 'pending' = isOptedOut ? 'suppressed' : 'pending';
+    const fromE164 = process.env['TELNYX_SMS_FROM'] ?? '+18005550199';
+
+    const [out] = await tx<{ id: string }[]>`
+      insert into sms_outbox (
+        org_id, location_id, kind, to_e164, from_e164, body, segments,
+        entity_type, entity_id, status, last_error
+      ) values (
+        ${ctx.orgId}, ${ctx.locationId}, 'direct_message', ${finalDestination},
+        ${fromE164}, ${body}, ${segments}, 'ticket', ${t.id},
+        ${status}, ${isOptedOut ? 'opted_out' : null}
+      )
+      returning id`;
+
+    outboxId = out!.id;
+
+    if (status === 'pending') {
+      void flushSms({
+        orgId: ctx.orgId,
+        locationId: ctx.locationId,
+        membershipId: ctx.membershipId,
+      });
+    }
+  } else {
+    // Email channel
+    if (!finalDestination) {
+      finalDestination = custEmail ?? '';
+    }
+    if (!finalDestination) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'missing_destination_email' },
+      });
+    }
+
+    const subject = `${storeName} Receipt - Ticket #${t.id.slice(0, 8)}`;
+    const itemsSummary = items.map((i) => `${i.name_snapshot}: $${(i.total_cents / 100).toFixed(2)}`).join('\n');
+    const body = `Thank you for visiting ${storeName}!\n\nDate: ${t.business_date}\n\nItems:\n${itemsSummary}\n\nSubtotal: $${(t.subtotal_cents / 100).toFixed(2)}\nDiscount: -$${(t.discount_cents / 100).toFixed(2)}\nTax: $${(t.tax_cents / 100).toFixed(2)}\nTip: $${(t.tip_cents / 100).toFixed(2)}\nTotal Paid: $${(t.total_cents / 100).toFixed(2)}\n\nWe look forward to seeing you again soon!`;
+
+    const bodyHtml = `<p>Thank you for visiting <strong>${storeName}</strong>!</p><p><strong>Date:</strong> ${t.business_date}</p><pre>${itemsSummary}</pre><p><strong>Total Paid:</strong> $${(t.total_cents / 100).toFixed(2)}</p>`;
+
+    const [out] = await tx<{ id: string }[]>`
+      insert into email_outbox (
+        org_id, location_id, kind, to_email, subject, body_html, body_text,
+        entity_type, entity_id, status
+      ) values (
+        ${ctx.orgId}, ${ctx.locationId}, 'receipt', ${finalDestination},
+        ${subject}, ${bodyHtml}, ${body}, 'ticket', ${t.id}, 'pending'
+      )
+      returning id`;
+
+    outboxId = out!.id;
+
+    void flushEmails({
+      orgId: ctx.orgId,
+      locationId: ctx.locationId,
+      membershipId: ctx.membershipId,
+    });
+  }
+
+  audit({
+    entityType: 'ticket_receipt',
+    entityId: t.id,
+    before: {},
+    after: {
+      channel: input.channel,
+      destination: finalDestination,
+      outboxId,
+    },
+  });
+
+  return {
+    ticketId: t.id,
+    channel: input.channel,
+    destination: finalDestination,
+    outboxId,
+  };
+});
+

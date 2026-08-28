@@ -111,7 +111,8 @@ async function loadCard(tx: Tx, ctx: Ctx, by: { code?: string; id?: string }) {
     select id, location_id, scope, status, balance_cents,
            face_value_cents, sale_price_cents, holder_customer_id, expires_at
     from gift_cards
-    where ${by.id ? tx`id = ${by.id}` : tx`replace(code, '-', '') = ${code}`}`;
+    where ${by.id ? tx`id = ${by.id}` : tx`replace(code, '-', '') = ${code}`}
+    for update`;
 
   if (!card) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'gift_card' } });
 

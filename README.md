@@ -36,12 +36,8 @@ pnpm verify                   # 宪法检查 + typecheck + 704 项测试
 跑起来：
 
 ```bash
-pnpm --filter @gf/api   dev   # API            → localhost:3000
-pnpm --filter @gf/desk  dev   # 前台            → localhost:5173
-pnpm --filter @gf/staff dev   # 技师端 PWA      → localhost:5174
-pnpm --filter @gf/kiosk dev   # 门口 iPad       → localhost:5175
-                              #   ⭐ 带 ?t=fs_… 打开时是「客人自己填健康表」那一页（docs/15）
-pnpm --filter @gf/booking dev # 官网预约页      → localhost:5176/?k=<门店的 pk_…>
+pnpm --filter @gf/api dev   # API 后端       → localhost:3000
+pnpm --filter @gf/web dev   # 统一 Web 前端   → localhost:5177
 ```
 
 ---
@@ -50,14 +46,11 @@ pnpm --filter @gf/booking dev # 官网预约页      → localhost:5176/?k=<门�
 
 ```
 apps/
-  api/        Fastify。命令总线、RLS 上下文、Telnyx webhook、Kiosk 设备认证、
-              public/ = 门店官网的公开预约 API（唯一无身份写入口，docs/13）
-  desk/       前台（桌面浏览器，键盘快捷键）
-  staff/      技师端 PWA（手机，无快捷键）
-  kiosk/      门口 iPad 自助端（六语言，无快捷键）。
-              带 ?t= 时切成客人手机上的填表页 —— 和门口共用同一份表（docs/15 §4.4）
-  booking/    ⭐ 门店官网的在线预约页（默认黑白极简，外观由 URL 参数控制，
-              可嵌 iframe，docs/13 §10）
+  api/        Fastify。命令总线、RLS 上下文、Telnyx webhook、Kiosk 设备认证
+  web/        统一 Web 前端（React 19 + Tailwind v4 + HeroUI + TanStack Query）
+              覆盖桌面端高信息密度操作、老板报表、技师排班、自助签到，按角色权限切界面
+  ipad/       iPad 平板端（前台触屏调度 / 自助签到 Kiosk）
+  ios/        iOS 移动端（技师接单打卡 / 老板移动看板）
 packages/
   contracts/  命令 Zod schema + 权限 + 错误码 —— 前后端唯一真源
   db/         Drizzle schema + drizzle/ 自动迁移 + sql/ 手写 RLS 与触发器

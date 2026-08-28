@@ -29,6 +29,9 @@ export type DomainEventType =
   | 'appointment.changed'
   | 'dayclose.changed'
   | 'shift.changed'
+  | 'staff.changed'
+  | 'customer.changed'
+  | 'sms.sent'
   /** 电话 AI 往复核队列放了一条 —— 前台那个「待复核 (N)」角标要当场跳（决策 6） */
   | 'call.drafted'
   /** 走单队列变了（取号 / 叫号 / 入座 / 离开）—— 前台那块屏要当场跳 */

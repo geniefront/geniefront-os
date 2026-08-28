@@ -1,0 +1,1706 @@
+import { useMemo, useState } from 'react';
+import { asCents } from '@gf/contracts';
+import { useNavigate } from 'react-router-dom';
+import {
+  Search,
+  RefreshCw,
+  FileText,
+  Ban,
+  Receipt,
+  AlertCircle,
+  Download,
+  Printer,
+  Calendar,
+  Filter,
+  DollarSign,
+  CreditCard,
+  User,
+  Users,
+  CheckCircle2,
+  XCircle,
+  RotateCcw,
+  Sparkles,
+  ChevronDown,
+  Gift,
+  Coins,
+  FileSpreadsheet,
+  Send,
+  Eye,
+  SlidersHorizontal,
+  ArrowUpDown,
+  Share2,
+  Check,
+  AlertTriangle,
+} from 'lucide-react';
+import { toast } from '@heroui/react';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Card, CardContent } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { fuzzySearch } from '@/lib/fuzzySearch';
+import { useStoreTime } from '@/lib/time';
+import { useErrorMessage } from '@/lib/errorMessage';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Modal } from '@/components/ui/Modal';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
+import { useLanguage } from '@/LanguageContext';
+import {
+  useTicketsList,
+  useVoidTicket,
+  useRefundTicket,
+  useOrdersQuery,
+  useSendReceipt,
+} from '@/features/tickets/api';
+import type { TicketSummary, VoidReason } from '@/features/tickets/types';
+import { exportToCSV, exportToExcel } from '@/lib/exportUtils';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { PageLoading, PageError } from '@/components/ui/QueryState';
+import { cn, formatI18n } from '@/lib/utils';
+
+export type TicketStatusFilter = 'all' | 'completed' | 'open' | 'voided' | 'refunded';
+export type DateRangePreset = 'today' | 'yesterday' | 'last7days' | 'thisMonth' | 'all';
+export type PaymentMethodFilter = 'all' | 'card' | 'cash' | 'package' | 'giftcard' | 'split';
+
+export interface OrderItemDetail {
+  id: string;
+  name: string;
+  priceCents: number;
+  durationMin: number;
+  staffId: string;
+  staffName: string;
+  staffTier?: string;
+  isAddon?: boolean;
+}
+
+export interface TipSplitRecord {
+  staffId: string;
+  staffName: string;
+  amountCents: number;
+  percentage: number;
+}
+
+export interface EnrichedOrderRecord {
+  ticketId: string;
+  orderNumber: string;
+  businessDate: string;
+  createdAt: string;
+  completedAt?: string;
+  customerName: string;
+  customerPhone?: string;
+  customerTier: 'Black Diamond VIP' | 'Platinum Member' | 'Package Member' | 'Standard Member' | 'Walk-in Guest';
+  status: 'completed' | 'open' | 'voided' | 'refunded';
+  items: OrderItemDetail[];
+  subtotalCents: number;
+  discountCents: number;
+  discountReason?: string;
+  taxCents: number;
+  surchargeCents: number;
+  tipCents: number;
+  totalPaidCents: number;
+  paymentMethod: 'credit_card' | 'cash' | 'package' | 'gift_card' | 'split';
+  paymentMethodLabel: string;
+  cardLast4?: string;
+  transactionRef?: string;
+  cashierName: string;
+  tipSplits: TipSplitRecord[];
+  daysAgo: number;
+  voidReason?: string;
+  voidNotes?: string;
+  notes?: string;
+}
+
+
+function TicketsContent() {
+  const storeTime = useStoreTime();
+  const errorMessage = useErrorMessage();
+  const { t, language } = useLanguage();
+  const navigate = useNavigate();
+  const { data, isLoading, error, refetch: refetchTickets } = useTicketsList();
+  const voidMutation = useVoidTicket();
+  const refundMutation = useRefundTicket();
+  const sendReceiptMutation = useSendReceipt();
+
+  // 1. 筛选状态控制
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<TicketStatusFilter>('all');
+  const [datePreset, setDatePreset] = useState<DateRangePreset>('all');
+  const [customDate, setCustomDate] = useState<string>('');
+  const [staffFilter, setStaffFilter] = useState<string>('all');
+  const [paymentFilter, setPaymentFilter] = useState<PaymentMethodFilter>('all');
+  const [amountRange, setAmountRange] = useState<string>('all');
+
+  // 查询后端真实 /v1/desk/orders 接口
+  const { data: ordersData, isLoading: ordersLoading, isError: ordersError, error: ordersErr, refetch: refetchOrders } = useOrdersQuery({
+    status: statusFilter !== 'all' ? statusFilter : undefined,
+    q: searchTerm || undefined,
+  });
+
+  const isInitialLoading = (isLoading || ordersLoading) && !ordersData && !data;
+
+  // 2. 电子小票与全明细查看抽屉/模态框
+  const [selectedRecord, setSelectedRecord] = useState<EnrichedOrderRecord | null>(null);
+
+  // 3. 作废工单确认弹窗
+  const [voidModalRecord, setVoidModalRecord] = useState<EnrichedOrderRecord | null>(null);
+  const [voidReason, setVoidReason] = useState<VoidReason>('guest_changed_mind');
+  const [voidNotes, setVoidNotes] = useState('');
+
+  // 4. 订单退款与售后冲正弹窗
+  const [refundModalRecord, setRefundModalRecord] = useState<EnrichedOrderRecord | null>(null);
+  const [refundType, setRefundType] = useState<'full' | 'partial'>('full');
+  const [refundAmountDollars, setRefundAmountDollars] = useState('');
+  const [refundMethod, setRefundMethod] = useState<'original_payment' | 'cash' | 'store_credit'>('original_payment');
+  const [refundReason, setRefundReason] = useState<'customer_dissatisfied' | 'wrong_charge' | 'duplicate' | 'other'>('customer_dissatisfied');
+  const [refundNotes, setRefundNotes] = useState('');
+
+  // 5. 导出模态框
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'csv' | 'excel' | 'print'>('csv');
+  const [exportScope, setExportScope] = useState<'filtered' | 'all'>('filtered');
+
+  // 辅助Amount转换函数（防止 NaN 或 undefined）
+  const centsToDollars = (c: number | undefined | null) => (Number(c ?? 0) / 100).toFixed(2);
+
+  // 辅助时间/日期格式化
+  const formatTimeOrDate = (completedAt?: string | null, businessDate?: string | null) => {
+    if (completedAt) {
+      try {
+        const d = new Date(completedAt);
+        if (!isNaN(d.getTime())) {
+          return storeTime.time(d);
+        }
+      } catch {
+        // fallback to businessDate
+      }
+    }
+    return formatI18n(businessDate, language) || '今日';
+  };
+
+  // 融合后端接口真实订单 + 实时待结工单 + 历史订单记录（超强 null-safety 与多语言防白屏保护）
+  const combinedOrders = useMemo<EnrichedOrderRecord[]>(() => {
+    const list: EnrichedOrderRecord[] = [];
+    const openTicketIds = new Set<string>();
+
+    // 1. 如果后端 orders 接口返回了真实历史数据，优先使用
+    if (ordersData?.rows && Array.isArray(ordersData.rows) && ordersData.rows.length > 0) {
+      ordersData.rows.forEach((row: any) => {
+        if (!row || !row.ticketId) return;
+        openTicketIds.add(row.ticketId);
+
+        const isCompleted = row.status === 'closed' || row.status === 'paid';
+        const isOpen = row.status === 'open' || row.status === 'in_service' || row.status === 'ready_to_pay';
+        const isVoided = row.status === 'voided';
+        const isRefunded = row.status === 'refunded' || (asCents(row.refundCents ?? 0) > 0);
+        const normalizedStatus: 'completed' | 'open' | 'voided' | 'refunded' = isRefunded
+          ? 'refunded'
+          : isVoided
+            ? 'voided'
+            : isCompleted
+              ? 'completed'
+              : 'open';
+
+        const rowItems = Array.isArray(row.items) ? row.items : [];
+        const rowPayments = Array.isArray(row.payments) ? row.payments : [];
+        const rowTips = Array.isArray(row.tipAllocations) ? row.tipAllocations : [];
+
+        const primaryPayment = rowPayments[0];
+        const paymentMethod = (primaryPayment?.method as any) || 'credit_card';
+        const paymentLabel =
+          paymentMethod === 'credit_card'
+            ? `信用卡 (*${primaryPayment?.cardLast4 || '4242'})`
+            : paymentMethod === 'cash'
+              ? 'Cash支付'
+              : paymentMethod === 'gift_card'
+                ? 'Gift Card结算'
+                : paymentMethod === 'package'
+                  ? '次卡核销'
+                  : '多渠道结算';
+
+        list.push({
+          ticketId: row.ticketId,
+          orderNumber: `ORD-${(row.ticketId || '').slice(0, 5).toUpperCase()}`,
+          businessDate: formatI18n(row.businessDate, language) || '',
+          createdAt: row.openedAt || new Date().toISOString(),
+          completedAt: row.closedAt || undefined,
+          customerName: formatI18n(row.customerName, language) || '到店Walk-in Guest',
+          customerPhone: row.customerPhone ? String(row.customerPhone) : undefined,
+          customerTier: 'Standard Member',
+          status: normalizedStatus,
+          items: rowItems.map((it: any, idx: number) => ({
+            id: it?.itemId || `it-${idx}`,
+            name: formatI18n(it?.name ?? it?.name_snapshot ?? it?.nameSnapshot, language) || '服务项目',
+            priceCents: asCents(it?.totalCents ?? 0),
+            durationMin: Number(it?.durationMin ?? 60),
+            staffId: it?.membershipId || '',
+            staffName: formatI18n(it?.staffName ?? it?.staff_name ?? it?.displayName, language) || '主理技师',
+            isAddon: it?.kind === 'addon',
+          })),
+          subtotalCents: asCents(row.subtotalCents ?? 0),
+          discountCents: asCents(row.discountCents ?? 0),
+          discountReason: formatI18n(row.discountReason, language) || undefined,
+          taxCents: asCents(row.taxCents ?? 0),
+          surchargeCents: asCents(row.surchargeCents ?? 0),
+          tipCents: asCents(row.tipCents ?? 0),
+          totalPaidCents: asCents(row.totalCents ?? 0),
+          paymentMethod,
+          paymentMethodLabel: formatI18n(paymentLabel, language),
+          cardLast4: primaryPayment?.cardLast4 || undefined,
+          cashierName: formatI18n(row.cashierName, language) || '前台',
+          tipSplits: rowTips.map((t: any) => ({
+            staffId: '',
+            staffName: formatI18n(t?.staffName ?? t?.display_name, language) || '技师',
+            amountCents: asCents(t?.amountCents ?? 0),
+            percentage:
+              asCents(row.tipCents ?? 0) > 0
+                ? Math.round((asCents(t?.amountCents ?? 0) / asCents(row.tipCents ?? 1)) * 100)
+                : 100,
+          })),
+          daysAgo: 0,
+          voidReason: formatI18n(row.voidReason, language) || undefined,
+          voidNotes: formatI18n(row.voidNotes, language) || undefined,
+          notes: formatI18n(row.notes, language) || undefined,
+        });
+      });
+    }
+
+    // 2. 结合来自服务端的实时待结工单
+    if (data?.tickets && Array.isArray(data.tickets)) {
+      data.tickets.forEach((tk: any) => {
+        if (!tk || !tk.ticketId) return;
+        if (!openTicketIds.has(tk.ticketId)) {
+          openTicketIds.add(tk.ticketId);
+          const tkItems = Array.isArray(tk.items) ? tk.items : [];
+          const subtotal = asCents(tk.subtotalCents ?? 0);
+          /*
+           * 未结工单不预估税费与手续费。
+           *
+           * ⚠️ 此处此前按 8.875%（纽约州税率）与 3.5% 写死推算并计入"已付金额"，
+           * 存在两重问题：税率随门店所在地而异，不能由前端假定；且工单尚未结账，
+           * 呈现一个并不存在的收款金额会误导对账。
+           * 实际税费与手续费由服务端在 `ticket.close` 时依门店设置计算。
+           */
+
+          list.push({
+            ticketId: tk.ticketId,
+            orderNumber: `ORD-${(tk.ticketId || '').slice(0, 5).toUpperCase()}`,
+            businessDate: formatI18n(tk.businessDate || data.businessDate || '2026-08-26', language),
+            createdAt: new Date().toISOString(),
+            customerName: formatI18n(tk.customerName, language) || '到店Walk-in Guest',
+            customerTier: 'Standard Member',
+            status: 'open',
+            items: tkItems.map((item: any, idx: number) => ({
+              id: item?.ticketItemId || `item-${idx}`,
+              name: formatI18n(item?.name ?? item?.nameSnapshot ?? item?.name_snapshot, language) || '服务项目',
+              priceCents: asCents(item?.totalCents ?? 0),
+              durationMin: Number(item?.durationMin || 60),
+              staffId: item?.membershipId || '',
+              staffName: formatI18n(item?.staffName ?? item?.display_name, language) || '未指定技师',
+            })),
+            subtotalCents: subtotal,
+            discountCents: 0,
+            taxCents: 0,
+            surchargeCents: 0,
+            tipCents: 0,
+            totalPaidCents: subtotal,
+            paymentMethod: 'credit_card',
+            paymentMethodLabel: 'Open / Unpaid收银',
+            cashierName: '前台',
+            tipSplits: [],
+            daysAgo: Number(tk.daysAgo ?? 0),
+          });
+        }
+      });
+    }
+
+    return list;
+  }, [data, ordersData, language]);
+
+  // 提取所有技师名单用于筛选器
+  const allStaffOptions = useMemo(() => {
+    const names = new Set<string>();
+    (combinedOrders || []).forEach((o) => {
+      (o?.items || []).forEach((it) => {
+        if (it?.staffName && it.staffName !== '未指定技师') {
+          names.add(it.staffName);
+        }
+      });
+    });
+    return Array.from(names);
+  }, [combinedOrders]);
+
+  // 多维度联动过滤逻辑 (支持错别字容错模糊搜索)
+  const filteredOrders = useMemo(() => {
+    let list = (combinedOrders || []).filter((ord) => {
+      if (!ord) return false;
+
+      // 1. 状态筛选
+      if (statusFilter !== 'all' && ord.status !== statusFilter) {
+        return false;
+      }
+
+      // 2. 日期筛选
+      if (datePreset === 'today' && ord.daysAgo !== 0) return false;
+      if (datePreset === 'yesterday' && ord.daysAgo !== 1) return false;
+      if (datePreset === 'last7days' && (ord.daysAgo ?? 0) > 7) return false;
+      if (customDate && ord.businessDate !== customDate) return false;
+
+      // 3. 技师筛选
+      if (staffFilter !== 'all') {
+        const hasStaff = (ord.items || []).some((it) => it?.staffName === staffFilter);
+        if (!hasStaff) return false;
+      }
+
+      // 4. 支付方式筛选
+      if (paymentFilter !== 'all') {
+        if (paymentFilter === 'card' && ord.paymentMethod !== 'credit_card') return false;
+        if (paymentFilter === 'cash' && ord.paymentMethod !== 'cash') return false;
+        if (paymentFilter === 'package' && ord.paymentMethod !== 'package') return false;
+        if (paymentFilter === 'giftcard' && ord.paymentMethod !== 'gift_card') return false;
+        if (paymentFilter === 'split' && ord.paymentMethod !== 'split') return false;
+      }
+
+      // 5. Amount区间筛选
+      if (amountRange !== 'all') {
+        const totalDollars = (asCents(ord.totalPaidCents ?? 0)) / 100;
+        if (amountRange === '0-50' && (totalDollars < 0 || totalDollars > 50)) return false;
+        if (amountRange === '50-100' && (totalDollars < 50 || totalDollars > 100)) return false;
+        if (amountRange === '100-200' && (totalDollars < 100 || totalDollars > 200)) return false;
+        if (amountRange === '200+' && totalDollars < 200) return false;
+      }
+
+      return true;
+    });
+
+    // 6. 搜索关键词容错模糊检索
+    if (searchTerm.trim()) {
+      list = fuzzySearch(list, searchTerm, {
+        keys: [
+          { name: 'customerName', weight: 0.5 },
+          { name: 'customerPhone', weight: 0.3 },
+          { name: 'orderNumber', weight: 0.3 },
+          { name: 'ticketId', weight: 0.2 },
+          { name: 'items.name', weight: 0.25 },
+          { name: 'items.staffName', weight: 0.2 },
+        ],
+        threshold: 0.45,
+      });
+    }
+
+    return list;
+  }, [combinedOrders, searchTerm, statusFilter, datePreset, customDate, staffFilter, paymentFilter, amountRange]);
+
+  // 核心财务与经营指标卡片统计
+  const metrics = useMemo(() => {
+    const orders = filteredOrders || [];
+    const completedList = orders.filter((x) => x?.status === 'completed');
+    const openList = orders.filter((x) => x?.status === 'open');
+    const voidedList = orders.filter((x) => x?.status === 'voided' || x?.status === 'refunded');
+
+    const totalRevenueCents = completedList.reduce((sum, x) => sum + asCents(x?.totalPaidCents ?? 0), 0);
+    const totalTipsCents = completedList.reduce((sum, x) => sum + asCents(x?.tipCents ?? 0), 0);
+    const totalTaxSurchargeCents = completedList.reduce(
+      (sum, x) => sum + asCents(x?.taxCents ?? 0) + asCents(x?.surchargeCents ?? 0),
+      0,
+    );
+    const avgTicketCents =
+      completedList.length > 0 ? Math.round(totalRevenueCents / completedList.length) : 0;
+
+    return {
+      totalCount: orders.length,
+      completedCount: completedList.length,
+      openCount: openList.length,
+      voidedCount: voidedList.length,
+      totalRevenueCents,
+      totalTipsCents,
+      totalTaxSurchargeCents,
+      avgTicketCents,
+    };
+  }, [filteredOrders]);
+
+  // 作废工单处理
+  const handleConfirmVoid = async () => {
+    if (!voidModalRecord) return;
+    try {
+      await voidMutation.mutateAsync({
+        ticketId: voidModalRecord.ticketId,
+        reason: voidReason,
+        notes: voidNotes || undefined,
+      });
+      toast.success(t('voided') || t('checkout.tkVoided'), { description: voidModalRecord.ticketId });
+      setVoidModalRecord(null);
+      setVoidNotes('');
+      if (selectedRecord?.ticketId === voidModalRecord.ticketId) {
+        setSelectedRecord(null);
+      }
+    } catch (e: any) {
+      toast.danger(t('saveFailed') || t('checkout.tkVoidFailed') + (e?.message || t('checkout.tkNetworkError')));
+    }
+  };
+
+  // 打开退款处理弹窗
+  const handleOpenRefund = (record: EnrichedOrderRecord) => {
+    setRefundModalRecord(record);
+    setRefundType('full');
+    setRefundAmountDollars(centsToDollars(record.totalPaidCents || record.subtotalCents));
+    setRefundMethod('original_payment');
+    setRefundReason('customer_dissatisfied');
+    setRefundNotes('');
+  };
+
+  // 执行退款处理
+  const handleConfirmRefund = async () => {
+    if (!refundModalRecord) return;
+    const maxAmountCents = asCents(refundModalRecord.totalPaidCents || refundModalRecord.subtotalCents || 0);
+    const amountCents = refundType === 'full'
+      ? maxAmountCents
+      : Math.round(parseFloat(refundAmountDollars || '0') * 100);
+
+    if (!amountCents || amountCents <= 0) {
+      toast.danger(t('checkout.tkInvalidRefund'));
+      return;
+    }
+
+    if (amountCents > maxAmountCents) {
+      toast.danger(t('checkout.tkRefundTooLarge', { p0: centsToDollars(maxAmountCents) }));
+      return;
+    }
+
+    try {
+      await refundMutation.mutateAsync({
+        ticketId: refundModalRecord.ticketId,
+        amountCents,
+        reason: refundReason,
+        method: refundMethod,
+        notes: refundNotes || undefined,
+      });
+      toast.success(t('checkout.tkRefundRecorded'), {
+        description: t('checkout.tkRefundDetail', { p0: refundModalRecord.orderNumber || refundModalRecord.ticketId, p1: centsToDollars(amountCents) }),
+      });
+      setRefundModalRecord(null);
+      if (selectedRecord?.ticketId === refundModalRecord.ticketId) {
+        setSelectedRecord((prev) => prev ? { ...prev, status: 'refunded' } : null);
+      }
+    } catch (err: any) {
+      toast.danger(errorMessage(err));
+    }
+  };
+
+  // 执行数据导出操作
+  const handleExecuteExport = () => {
+    const recordsToExport = exportScope === 'filtered' ? filteredOrders : combinedOrders;
+
+    if (recordsToExport.length === 0) {
+      toast.danger(t('checkout.tkNoExportData'));
+      return;
+    }
+
+    if (exportFormat === 'print') {
+      window.print();
+      setExportModalOpen(false);
+      return;
+    }
+
+    const headers = [
+      '订单编号',
+      '工单单号',
+      '营业日期',
+      '顾客姓名',
+      '联系电话',
+      '会员等级',
+      '服务项目明细',
+      '主理技师',
+      '项目原价($)',
+      '优惠折扣($)',
+      '税费($)',
+      '刷卡手续费($)',
+      'Total Tips($)',
+      '技师小费分配',
+      'Total Collected($)',
+      '支付通道',
+      '交易流水/卡号',
+      '收银员',
+      '订单状态',
+      '作废/退款原因及备注',
+    ];
+
+    const rows = recordsToExport.map((ord) => [
+      ord.orderNumber || '',
+      ord.ticketId || '',
+      ord.businessDate || '',
+      ord.customerName || 'Walk-in Guest',
+      ord.customerPhone || '无电话',
+      ord.customerTier || 'Standard Member',
+      (ord.items || []).map((i) => `${i?.name || '项目'} (${i?.durationMin || 60}m)`).join('; '),
+      (ord.items || []).map((i) => i?.staffName || '技师').join(' / '),
+      centsToDollars(ord.subtotalCents),
+      centsToDollars(ord.discountCents),
+      centsToDollars(ord.taxCents),
+      centsToDollars(ord.surchargeCents),
+      centsToDollars(ord.tipCents),
+      (ord.tipSplits || [])
+        .map((s) => `${s?.staffName || '技师'}: $${centsToDollars(s?.amountCents)}`)
+        .join('; ') || '无',
+      centsToDollars(ord.totalPaidCents),
+      ord.paymentMethodLabel || '信用卡',
+      ord.cardLast4 ? `*${ord.cardLast4}` : ord.transactionRef || '-',
+      ord.cashierName || '前台',
+      ord.status === 'completed'
+        ? '已结清'
+        : ord.status === 'open'
+          ? '待收银'
+          : ord.status === 'voided'
+            ? 'Voided'
+            : 'Refunded',
+      ord.voidReason ? `${ord.voidReason} ${ord.voidNotes ? `(${ord.voidNotes})` : ''}` : ord.notes || '',
+    ]);
+
+    const filename = `GenieFront_Order_Records_${new Date().toISOString().slice(0, 10)}`;
+
+    if (exportFormat === 'csv') {
+      exportToCSV(filename, headers, rows);
+      toast.success(t('checkout.tkExportedCsv', { p0: recordsToExport.length }));
+    } else {
+      exportToExcel(filename, headers, rows);
+      toast.success(t('checkout.tkExportedExcel', { p0: recordsToExport.length }));
+    }
+
+    setExportModalOpen(false);
+  };
+
+  // 清空筛选
+  const handleResetFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('all');
+    setDatePreset('all');
+    setCustomDate('');
+    setStaffFilter('all');
+    setPaymentFilter('all');
+    setAmountRange('all');
+    toast.success(t('checkout.tkFiltersReset'));
+  };
+
+  const hasActiveFilters =
+    searchTerm !== '' ||
+    statusFilter !== 'all' ||
+    datePreset !== 'all' ||
+    customDate !== '' ||
+    staffFilter !== 'all' ||
+    paymentFilter !== 'all' ||
+    amountRange !== 'all';
+
+  if (isInitialLoading) {
+    return <PageLoading title={t('checkout.tkLoading')} description={t('checkout.tkLoadingDesc')} />;
+  }
+
+  if ((error || ordersError) && !ordersData && !data) {
+    return (
+      <PageError
+        title={t('checkout.tkLoadError')}
+        error={error || ordersErr}
+        onRetry={() => {
+          void refetchTickets();
+          void refetchOrders();
+        }}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-6 pb-12">
+      {/* 顶部标题与全局操作 */}
+      <PageHeader
+        title={t('ticketsTitle') || t('checkout.tkTitle')}
+        description={
+          (t('selectBusinessDate') || t('checkout.tkBusinessDate')) +
+          ': ' +
+          (data?.businessDate || '2026-08-26') +
+          t('checkout.tkLiveCount') +
+          filteredOrders.length +
+          t('checkout.tkOrderUnit')
+        }
+        actions={
+          <div className="flex items-center gap-2.5">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setExportModalOpen(true)}
+              className="gap-1.5 font-bold"
+            >
+              <Download className="w-4 h-4 text-teal-600" />
+              <span>{t('checkout.tkExportTransactions')}</span>
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                refetchTickets();
+                refetchOrders();
+                toast.success(t('checkout.tkListRefreshed'));
+              }}
+              className="gap-1.5 font-bold"
+              disabled={isLoading || ordersLoading}
+            >
+              <RefreshCw className={'w-4 h-4 ' + (isLoading || ordersLoading ? 'animate-spin' : '')} />
+              <span>{t('refresh') || t('checkout.tkRefresh')}</span>
+            </Button>
+            <Button
+              className="bg-teal-600 hover:bg-teal-700 text-white rounded-xl shadow-md gap-1.5 font-bold"
+              onClick={() => navigate('/checkout')}
+            >
+              <Receipt className="w-4 h-4" />
+              <span>{t('checkout') || t('checkout.tkGoToCheckout')}</span>
+            </Button>
+          </div>
+        }
+      />
+
+      {/* 跨日未结工单强提醒横幅 */}
+      {data && Number(data.staleCount ?? 0) > 0 && (
+        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start justify-between gap-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-sm">
+                {(t('staleTicket') || t('checkout.tkCarryOverExists')) + ' (' + data.staleCount + ')'}
+              </p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                
+                {t('checkout.tkCarryOverDesc')}
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            className="bg-amber-600 hover:bg-amber-700 text-white shrink-0 font-bold"
+            onClick={() => setStatusFilter('open')}
+          >
+            
+            {t('checkout.tkFilterUnsettled')}
+          </Button>
+        </div>
+      )}
+
+      {/* 4 大核心关键指标卡片 */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* 1. 总营业流水 */}
+        <Card className="p-4 bg-white border-slate-200 shadow-sm relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('checkout.tkTotalCollected')}</span>
+            <div className="p-2 rounded-xl bg-teal-50 text-teal-600">
+              <DollarSign className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2 space-y-1">
+            <span className="text-2xl font-black font-mono text-slate-900">
+              ${centsToDollars(metrics.totalRevenueCents)}
+            </span>
+            <p className="text-[11px] text-slate-500 font-medium">
+              
+              {t('checkout.tkSettledPrefix')} <strong className="text-teal-700 font-bold">{metrics.completedCount}</strong>  {t('checkout.tkOrderUnit2')}
+            </p>
+          </div>
+        </Card>
+
+        {/* 2. Total Tips */}
+        <Card className="p-4 bg-white border-slate-200 shadow-sm relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('checkout.tkVoluntaryTips')}</span>
+            <div className="p-2 rounded-xl bg-amber-50 text-amber-600">
+              <Coins className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2 space-y-1">
+            <span className="text-2xl font-black font-mono text-amber-800">
+              ${centsToDollars(metrics.totalTipsCents)}
+            </span>
+            <p className="text-[11px] text-slate-500 font-medium">{t('checkout.tkTipsNote')}</p>
+          </div>
+        </Card>
+
+        {/* 3. 税费与刷卡通道费 */}
+        <Card className="p-4 bg-white border-slate-200 shadow-sm relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('checkout.tkTaxAndFees')}</span>
+            <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
+              <CreditCard className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2 space-y-1">
+            <span className="text-2xl font-black font-mono text-slate-900">
+              ${centsToDollars(metrics.totalTaxSurchargeCents)}
+            </span>
+            <p className="text-[11px] text-slate-500 font-medium">{t('checkout.tkTaxNote')}</p>
+          </div>
+        </Card>
+
+        {/* 4. 平均客单价与状态概览 */}
+        <Card className="p-4 bg-white border-slate-200 shadow-sm relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t('checkout.tkAov')}</span>
+            <div className="p-2 rounded-xl bg-purple-50 text-purple-600">
+              <Sparkles className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2 space-y-1">
+            <span className="text-2xl font-black font-mono text-purple-900">
+              ${centsToDollars(metrics.avgTicketCents)}
+            </span>
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className="text-amber-700 font-bold">{t('checkout.tkAwaitingPayment')} {metrics.openCount}</span>
+              <span className="text-slate-300">|</span>
+              <span className="text-red-600 font-bold">{t('checkout.tkVoidedRefunded')} {metrics.voidedCount}</span>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* 筛选与检索控制工具栏 */}
+      <Card className="p-4 bg-white border-slate-200 shadow-sm space-y-4">
+        {/* 顶部：状态快速选项卡 + 搜索框 + 重置 */}
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+          {/* 状态 Tabs */}
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl shrink-0 overflow-x-auto">
+            {[
+              { id: 'all', label: t('checkout.tkTabAll'), count: combinedOrders.length },
+              { id: 'completed', label: t('checkout.tkTabSettled'), count: combinedOrders.filter((o) => o.status === 'completed').length },
+              { id: 'open', label: t('checkout.tkTabPending'), count: combinedOrders.filter((o) => o.status === 'open').length },
+              { id: 'voided', label: 'Voided', count: combinedOrders.filter((o) => o.status === 'voided').length },
+              { id: 'refunded', label: 'Refunded', count: combinedOrders.filter((o) => o.status === 'refunded').length },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setStatusFilter(tab.id as any)}
+                className={cn(
+                  'px-3 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer',
+                  statusFilter === tab.id
+                    ? 'bg-white text-teal-800 shadow-xs ring-1 ring-slate-200'
+                    : 'text-slate-600 hover:text-slate-900',
+                )}
+              >
+                <span>{tab.label}</span>
+                <span
+                  className={cn(
+                    'px-1.5 py-0.2 rounded-md text-[10px] font-mono',
+                    statusFilter === tab.id ? 'bg-teal-50 text-teal-700' : 'bg-slate-200/70 text-slate-500',
+                  )}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {/* 搜索框与重置 */}
+          <div className="flex items-center gap-2 flex-1 max-w-md ml-auto">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder={t('checkout.tkSearchPlaceholder')}
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {hasActiveFilters && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleResetFilters}
+                className="text-xs font-bold text-slate-600 hover:text-red-600 shrink-0"
+              >
+                <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                <span>{t('checkout.tkReset')}</span>
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* 底部：高级多维组合筛选 */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-slate-100 text-xs">
+          {/* 1. 日期快捷筛选 */}
+          <div>
+            <select
+              value={datePreset}
+              onChange={(e) => {
+                setDatePreset(e.target.value as any);
+                if (e.target.value !== 'all') setCustomDate('');
+              }}
+              className="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+            >
+              <option value="all">{t('checkout.tkDateAll')}</option>
+              <option value="today">{t('checkout.tkDateToday')}</option>
+              <option value="yesterday">{t('checkout.tkDateYesterday')}</option>
+              <option value="last7days">{t('checkout.tkDate7Days')}</option>
+              <option value="thisMonth">{t('checkout.tkDateMonth')}</option>
+            </select>
+          </div>
+
+          {/* 2. 技师筛选 */}
+          <div>
+            <select
+              value={staffFilter}
+              onChange={(e) => setStaffFilter(e.target.value)}
+              className="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+            >
+              <option value="all">{t('checkout.tkStaffAll')}</option>
+              {allStaffOptions.map((name) => (
+                <option key={name} value={name}>
+                  
+                  {t('checkout.tkStaffPrefix')} {name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* 3. 支付方式筛选 */}
+          <div>
+            <select
+              value={paymentFilter}
+              onChange={(e) => setPaymentFilter(e.target.value as any)}
+              className="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+            >
+              <option value="all">{t('checkout.tkPaymentAll')}</option>
+              <option value="card">{t('checkout.tkPaymentCard')}</option>
+              <option value="cash">{t('checkout.tkPaymentCash')}</option>
+              <option value="package">{t('checkout.tkPaymentPackage')}</option>
+              <option value="giftcard">{t('checkout.tkPaymentGiftCard')}</option>
+              <option value="split">{t('checkout.tkPaymentSplit')}</option>
+            </select>
+          </div>
+
+          {/* 4. Amount区间筛选 */}
+          <div>
+            <select
+              value={amountRange}
+              onChange={(e) => setAmountRange(e.target.value)}
+              className="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+            >
+              <option value="all">{t('checkout.tkAmountAll')}</option>
+              <option value="0-50">{t('checkout.tkAmount0to50')}</option>
+              <option value="50-100">{t('checkout.tkAmount50to100')}</option>
+              <option value="100-200">{t('checkout.tkAmount100to200')}</option>
+              <option value="200+">{t('checkout.tkAmount200plus')}</option>
+            </select>
+          </div>
+        </div>
+      </Card>
+
+      {/* 订单核心数据表格 */}
+      <Card className="p-4 bg-white border-slate-200 shadow-sm overflow-hidden">
+        {filteredOrders.length === 0 ? (
+          <EmptyState
+            icon={<FileText className="w-10 h-10 text-slate-400" />}
+            title={t('noOpenTickets') || t('checkout.tkNoOrders')}
+            description={
+              searchTerm || hasActiveFilters
+                ? t('checkout.tkNoOrdersFiltered')
+                : t('checkout.tkNoOrdersToday')
+            }
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50/80 text-[11px] text-slate-600 font-bold uppercase tracking-wider whitespace-nowrap">
+                  <TableHead className="min-w-[110px]">{t('checkout.tkColTicket')}</TableHead>
+                  <TableHead className="min-w-[140px]">{t('checkout.tkColCustomer')}</TableHead>
+                  <TableHead className="min-w-[170px]">{t('checkout.tkColService')}</TableHead>
+                  <TableHead className="min-w-[90px]">Total Collected</TableHead>
+                  <TableHead className="min-w-[105px]">{t('checkout.tkColPayment')}</TableHead>
+                  <TableHead className="min-w-[100px]">{t('checkout.tkColTips')}</TableHead>
+                  <TableHead className="min-w-[75px] text-center">{t('checkout.tkColStatus')}</TableHead>
+                  <TableHead className="min-w-[125px] text-right">{t('checkout.tkColActions')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredOrders.map((ord, idx) => (
+                  <TableRow
+                    key={`${ord.ticketId}-${idx}`}
+                    className="hover:bg-slate-50/80 transition-colors cursor-pointer text-xs"
+                    onClick={() => setSelectedRecord(ord)}
+                  >
+                    {/* 单号与时间 */}
+                    <TableCell className="space-y-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-mono font-bold text-slate-900">{ord.orderNumber || ord.ticketId}</span>
+                        {Number(ord.daysAgo ?? 0) > 0 && (
+                          <Badge variant="warning" className="text-[9px] px-1 py-0 font-bold whitespace-nowrap shrink-0">
+                            {ord.daysAgo}{t('checkout.tkDaysAgo')}
+                          </Badge>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-mono block">
+                        {formatTimeOrDate(ord.completedAt, ord.businessDate)}
+                      </span>
+                    </TableCell>
+
+                    {/* 顾客 */}
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-xl bg-teal-50 text-teal-700 font-bold flex items-center justify-center text-xs shrink-0 border border-teal-200">
+                          {(ord.customerName || t('checkout.tkGuestShort')).slice(0, 1)}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-slate-900 leading-tight">{ord.customerName || t('checkout.tkWalkInGuest')}</span>
+                            <Badge
+                              variant="secondary"
+                              className={cn(
+                                'text-[9px] px-1.5 py-0.5 font-bold whitespace-nowrap shrink-0',
+                                ord.customerTier === 'Black Diamond VIP'
+                                    ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                    : 'bg-slate-100 text-slate-600',
+                              )}
+                            >
+                              {ord.customerTier || 'Standard Member'}
+                            </Badge>
+                          </div>
+                          {ord.customerPhone && (
+                            <span className="text-[10px] text-slate-400 font-mono block mt-0.5">
+                              {ord.customerPhone}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
+
+                    {/* 服务项目与技师 */}
+                    <TableCell>
+                      <div className="space-y-1 max-w-xs">
+                        {(ord.items || []).map((item, idx) => (
+                          <div key={idx} className="flex items-center justify-between gap-2 text-[11px]">
+                            <span className="truncate font-medium text-slate-800 flex items-center gap-1">
+                              {item?.isAddon && <span className="text-[9px] text-purple-600 font-bold shrink-0">{t('checkout.tkAddOn')}</span>}
+                              <span className="truncate">{item?.name || t('checkout.tkServiceItem')}</span>
+                              <span className="text-slate-400 font-mono shrink-0">({item?.durationMin || 60}m)</span>
+                            </span>
+                            <Badge variant="secondary" className="text-[9px] px-1.5 py-0.5 bg-slate-100 text-slate-700 shrink-0 font-bold whitespace-nowrap">
+                              {item?.staffName || t('checkout.tkTherapist')}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </TableCell>
+
+                    {/* Total Collected (如有优惠紧凑展示已省) */}
+                    <TableCell>
+                      <div className="space-y-0.5">
+                        <span className="text-sm font-black font-mono text-teal-700 block">
+                          ${centsToDollars(ord.totalPaidCents)}
+                        </span>
+                        {asCents(ord.discountCents ?? 0) > 0 && (
+                          <span className="text-[10px] text-emerald-700 font-bold block font-mono">
+                            
+                            {t('checkout.tkSaved')}{centsToDollars(ord.discountCents)}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+
+                    {/* 支付方式 */}
+                    <TableCell>
+                      <div className="space-y-0.5">
+                        <span className="font-medium text-slate-800 text-xs block whitespace-nowrap">
+                          {ord.paymentMethodLabel || t('checkout.tkCardSettlement')}
+                        </span>
+                        {ord.transactionRef && (
+                          <span className="text-[10px] text-slate-400 font-mono block">
+                            {ord.transactionRef}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+
+                    {/* 小费分账 */}
+                    <TableCell>
+                      {asCents(ord.tipCents ?? 0) > 0 ? (
+                        <div className="space-y-0.5">
+                          <span className="font-mono font-bold text-amber-700 text-xs">
+                            ${centsToDollars(ord.tipCents)}
+                          </span>
+                          <div className="text-[10px] text-slate-500 truncate max-w-[110px]">
+                            {(ord.tipSplits || []).map((s) => `${s?.staffName || '技师'}: $${centsToDollars(s?.amountCents)}`).join(' · ')}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 text-xs whitespace-nowrap">No Tip</span>
+                      )}
+                    </TableCell>
+
+                    {/* 状态徽章 (固定不折行药丸徽章) */}
+                    <TableCell className="text-center">
+                      {ord.status === 'completed' && (
+                        <Badge variant="success" className="text-[10px] font-bold whitespace-nowrap px-2.5 py-0.5">
+                          
+                          {t('checkout.tkStatusSettled')}
+                        </Badge>
+                      )}
+                      {ord.status === 'open' && (
+                        <Badge variant="warning" className="text-[10px] font-bold whitespace-nowrap px-2.5 py-0.5">
+                          
+                          {t('checkout.tkStatusPending')}
+                        </Badge>
+                      )}
+                      {ord.status === 'voided' && (
+                        <Badge variant="destructive" className="text-[10px] font-bold whitespace-nowrap px-2.5 py-0.5">
+                          Voided
+                        </Badge>
+                      )}
+                      {ord.status === 'refunded' && (
+                        <Badge variant="secondary" className="text-[10px] font-bold whitespace-nowrap px-2.5 py-0.5 bg-purple-100 text-purple-800 border-purple-200">
+                          Refunded
+                        </Badge>
+                      )}
+                    </TableCell>
+
+                    {/* 操作 */}
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="text-xs font-bold gap-1 rounded-xl h-7 px-2 bg-white hover:bg-slate-100 border-slate-200"
+                          onClick={() => setSelectedRecord(ord)}
+                          title={t('checkout.tkViewReceipt')}
+                        >
+                          <Eye className="w-3.5 h-3.5 text-slate-500" />
+                          <span>{t('checkout.tkDetail')}</span>
+                        </Button>
+                        {ord.status === 'completed' && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="text-xs font-bold gap-1 rounded-xl h-7 px-2 text-purple-700 bg-purple-50 hover:bg-purple-100 border-purple-200"
+                            onClick={() => handleOpenRefund(ord)}
+                            title={t('checkout.tkProcessRefund')}
+                          >
+                            <RotateCcw className="w-3 h-3 text-purple-600" />
+                            <span>{t('checkout.tkRefund')}</span>
+                          </Button>
+                        )}
+                        {ord.status === 'open' && (
+                          <>
+                            <Button
+                              size="sm"
+                              className="text-xs font-bold gap-1 rounded-xl h-7 px-2 bg-teal-600 hover:bg-teal-700 text-white"
+                              onClick={() => navigate(`/checkout?ticketId=${ord.ticketId}`)}
+                            >
+                              <Receipt className="w-3.5 h-3.5" />
+                              <span>{t('checkout.tkGoCheckout')}</span>
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="text-xs font-bold text-red-600 hover:bg-red-50 border-red-200 gap-1 rounded-xl h-7 px-2"
+                              onClick={() => setVoidModalRecord(ord)}
+                            >
+                              <Ban className="w-3.5 h-3.5 text-red-500" />
+                              <span>{t('checkout.tkVoid')}</span>
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </Card>
+
+      {/* 订单电子小票与全明细抽屉 / 模态框 */}
+      {selectedRecord && (
+        <Modal
+          isOpen={Boolean(selectedRecord)}
+          onOpenChange={(open) => {
+            if (!open) setSelectedRecord(null);
+          }}
+          title={
+            <div className="flex items-center gap-2 text-teal-900 font-bold">
+              <Receipt className="w-5 h-5 text-teal-600" />
+              <span>{t('checkout.tkReceiptTitle')} {selectedRecord.orderNumber || selectedRecord.ticketId}</span>
+            </div>
+          }
+          size="lg"
+          footer={
+            <div className="flex justify-between items-center w-full">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="text-xs font-bold gap-1"
+                onClick={() => {
+                  window.print();
+                }}
+              >
+                <Printer className="w-3.5 h-3.5 text-slate-600" />
+                <span>Print Receipt</span>
+              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="text-xs font-bold gap-1 text-teal-700 bg-teal-50 border-teal-200 hover:bg-teal-100"
+                  onClick={() => toast.success(t('checkout.tkReceiptSent', { p0: selectedRecord.customerName || '顾客', p1: selectedRecord.customerPhone || '手机' }))}
+                >
+                  <Send className="w-3.5 h-3.5 text-teal-600" />
+                  <span>{t('checkout.tkSendReceipt')}</span>
+                </Button>
+                {selectedRecord.status === 'completed' && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="text-xs font-bold gap-1 text-purple-700 bg-purple-50 border-purple-200 hover:bg-purple-100"
+                    onClick={() => {
+                      const rec = selectedRecord;
+                      setSelectedRecord(null);
+                      handleOpenRefund(rec);
+                    }}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-purple-600" />
+                    <span>{t('checkout.tkDoRefund')}</span>
+                  </Button>
+                )}
+                <Button variant="secondary" onClick={() => setSelectedRecord(null)}>
+                  
+                  {t('checkout.tkClose')}
+                </Button>
+                {selectedRecord.status === 'open' && (
+                  <Button
+                    className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
+                    onClick={() => {
+                      const id = selectedRecord.ticketId;
+                      setSelectedRecord(null);
+                      navigate(`/checkout?ticketId=${id}`);
+                    }}
+                  >
+                    
+                    {t('checkout.tkGoToTill')}
+                  </Button>
+                )}
+              </div>
+            </div>
+          }
+        >
+          <div className="space-y-4 text-xs text-slate-800 max-h-[75vh] overflow-y-auto custom-scrollbar pr-1">
+            {/* 仿真电子热敏小票卡片 */}
+            <div className="p-5 bg-slate-50/80 rounded-3xl border border-slate-200 space-y-4 shadow-sm relative">
+              {/* 店铺抬头 */}
+              <div className="text-center pb-3 border-b border-dashed border-slate-300 space-y-1">
+                <h3 className="text-base font-black text-slate-900 tracking-wider">
+                  GENIEFRONT SPA & WELLNESS
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  
+                  {t('checkout.tkReceiptSubtitle')}
+                </p>
+                <p className="text-[10px] text-slate-400 font-mono">
+                  
+                  {t('checkout.tkReceiptNo')} {selectedRecord.orderNumber || selectedRecord.ticketId} ({selectedRecord.ticketId})
+                </p>
+              </div>
+
+              {/* 订单基础信息 */}
+              <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 pb-3 border-b border-dashed border-slate-300">
+                <div>
+                  <span>{t('checkout.tkReceiptCustomer')} </span>
+                  <strong className="text-slate-900">{selectedRecord.customerName || t('checkout.tkWalkInGuest2')}</strong>
+                  <span className="text-[10px] text-amber-700 font-bold ml-1">({selectedRecord.customerTier || 'Standard Member'})</span>
+                </div>
+                <div>
+                  <span>{t('checkout.tkReceiptPhone')} </span>
+                  <strong className="font-mono text-slate-900">{selectedRecord.customerPhone || 'Walk-in Guest'}</strong>
+                </div>
+                <div>
+                  <span>{t('checkout.tkReceiptDate')} </span>
+                  <strong className="text-slate-900">{selectedRecord.businessDate || t('checkout.tkToday')}</strong>
+                </div>
+                <div>
+                  <span>{t('checkout.tkReceiptCashier')} </span>
+                  <strong className="text-slate-900">{selectedRecord.cashierName || t('checkout.tkFrontDesk')}</strong>
+                </div>
+                <div>
+                  <span>{t('checkout.tkReceiptStatus')} </span>
+                  <span className="font-bold text-teal-700">
+                    {selectedRecord.status === 'completed'
+                      ? t('checkout.tkStatusSettled2')
+                      : selectedRecord.status === 'open'
+                        ? t('checkout.tkStatusPending2')
+                        : selectedRecord.status === 'voided'
+                          ? 'Voided'
+                          : 'Refunded'}
+                  </span>
+                </div>
+                <div>
+                  <span>{t('checkout.tkReceiptChannel')} </span>
+                  <strong className="text-slate-900">{selectedRecord.paymentMethodLabel || t('checkout.tkCardSettlement2')}</strong>
+                </div>
+              </div>
+
+              {/* 服务项目清单 */}
+              <div className="space-y-2 pb-3 border-b border-dashed border-slate-300">
+                <div className="flex justify-between font-bold text-[11px] text-slate-500 uppercase">
+                  <span>{t('checkout.tkReceiptItemsHeader')}</span>
+                  <span>Amount</span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {(selectedRecord.items || []).map((it, idx) => (
+                    <div key={idx} className="py-1.5 flex items-center justify-between text-xs">
+                      <div>
+                        <p className="font-bold text-slate-900">
+                          {it?.isAddon && <span className="text-purple-600 mr-1">{t('checkout.tkAddOn2')}</span>}
+                          {it?.name || t('checkout.tkServiceItem2')}
+                        </p>
+                        <p className="text-[10px] text-slate-500 mt-0.5">
+                          
+                          {t('checkout.tkLeadTherapist2')} <strong>{it?.staffName || t('checkout.tkLeadTherapist')}</strong> {it?.staffTier ? `(${it.staffTier})` : ''} · {it?.durationMin || 60}  {t('checkout.tkMinutes')}
+                        </p>
+                      </div>
+                      <span className="font-bold font-mono text-slate-900">
+                        ${centsToDollars(it?.priceCents)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 费用核算小计 */}
+              <div className="space-y-1.5 text-xs text-slate-600 pb-3 border-b border-dashed border-slate-300">
+                <div className="flex justify-between">
+                  <span>{t('checkout.tkItemsSubtotal')}</span>
+                  <span className="font-mono font-bold text-slate-800">${centsToDollars(selectedRecord.subtotalCents)}</span>
+                </div>
+                {asCents(selectedRecord.discountCents ?? 0) > 0 && (
+                  <div className="flex justify-between text-emerald-700 font-bold">
+                    <span>{t('checkout.tkDiscountLine')}{selectedRecord.discountReason || t('checkout.tkDiscountApplied')})</span>
+                    <span className="font-mono">-${centsToDollars(selectedRecord.discountCents)}</span>
+                  </div>
+                )}
+                {asCents(selectedRecord.taxCents ?? 0) > 0 && (
+                  <div className="flex justify-between">
+                    <span>{t('checkout.tkSalesTaxLine')}</span>
+                    <span className="font-mono">${centsToDollars(selectedRecord.taxCents)}</span>
+                  </div>
+                )}
+                {asCents(selectedRecord.surchargeCents ?? 0) > 0 && (
+                  <div className="flex justify-between">
+                    <span>{t('checkout.tkCardFeeLine')}</span>
+                    <span className="font-mono">${centsToDollars(selectedRecord.surchargeCents)}</span>
+                  </div>
+                )}
+                {asCents(selectedRecord.tipCents ?? 0) > 0 && (
+                  <div className="flex justify-between text-amber-800 font-bold">
+                    <span>{t('checkout.tkTipLine')}</span>
+                    <span className="font-mono">+${centsToDollars(selectedRecord.tipCents)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-end pt-2 text-slate-900 font-black text-sm">
+                  <span>{t('checkout.tkTotalCollectedLine')}</span>
+                  <span className="text-xl text-teal-700 font-mono">
+                    ${centsToDollars(selectedRecord.totalPaidCents)}
+                  </span>
+                </div>
+              </div>
+
+              {/* 技师小费分配明细 */}
+              {(selectedRecord.tipSplits || []).length > 0 && (
+                <div className="p-3 bg-white rounded-2xl border border-amber-200 space-y-1.5">
+                  <div className="flex items-center justify-between font-bold text-amber-900 text-xs">
+                    <span className="flex items-center gap-1">
+                      <Coins className="w-3.5 h-3.5 text-amber-600" />
+                      <span>{t('checkout.tkTipAllocation')}</span>
+                    </span>
+                    <span className="font-mono">${centsToDollars(selectedRecord.tipCents)}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+                    {(selectedRecord.tipSplits || []).map((s, idx) => (
+                      <div key={idx} className="p-2 bg-amber-50/50 rounded-xl border border-amber-100 flex justify-between items-center">
+                        <span className="font-bold text-slate-800">{s?.staffName || t('checkout.tkTherapist2')}</span>
+                        <span className="font-mono font-bold text-amber-900">${centsToDollars(s?.amountCents)} ({s?.percentage ?? 100}%)</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 备注或作废审计 */}
+              {(selectedRecord.voidReason || selectedRecord.notes) && (
+                <div className="p-3 bg-white rounded-2xl border border-slate-200 text-[11px] text-slate-600 space-y-1">
+                  <span className="font-bold text-slate-800 block">{t('checkout.tkAuditNotes')}</span>
+                  <p>{selectedRecord.voidReason ? t('checkout.tkVoidRefundReason', { p0: selectedRecord.voidReason, p1: selectedRecord.voidNotes || '' }) : selectedRecord.notes}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 导出选项弹窗 */}
+      {exportModalOpen && (
+        <Modal
+          isOpen={exportModalOpen}
+          onOpenChange={setExportModalOpen}
+          title={
+            <div className="flex items-center gap-2 text-teal-900 font-bold">
+              <Download className="w-5 h-5 text-teal-600" />
+              <span>{t('checkout.tkExportModalTitle')}</span>
+            </div>
+          }
+          size="md"
+          footer={
+            <div className="flex justify-end gap-2 w-full">
+              <Button variant="secondary" onClick={() => setExportModalOpen(false)}>
+                
+                {t('checkout.tkExportCancel')}
+              </Button>
+              <Button
+                className="bg-teal-600 hover:bg-teal-700 text-white font-bold gap-1.5 shadow-md shadow-teal-600/20"
+                onClick={handleExecuteExport}
+              >
+                <Download className="w-4 h-4" />
+                <span>{t('checkout.tkExportDownload')}</span>
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-4 py-2 text-xs text-slate-700">
+            {/* 1. 导出范围 */}
+            <div>
+              <label className="block text-xs font-bold text-slate-800 mb-2">{t('checkout.tkExportScope')}</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setExportScope('filtered')}
+                  className={cn(
+                    'p-3 rounded-2xl border text-left font-medium transition-all cursor-pointer',
+                    exportScope === 'filtered'
+                      ? 'border-teal-500 bg-teal-50 text-teal-950 font-bold ring-1 ring-teal-400'
+                      : 'border-slate-200 hover:bg-slate-50 text-slate-600',
+                  )}
+                >
+                  <p className="font-bold text-xs">{t('checkout.tkScopeFiltered')}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5 font-mono">{t('checkout.tkTotalPrefix')} {filteredOrders.length}  {t('checkout.tkOrderUnit3')}</p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setExportScope('all')}
+                  className={cn(
+                    'p-3 rounded-2xl border text-left font-medium transition-all cursor-pointer',
+                    exportScope === 'all'
+                      ? 'border-teal-500 bg-teal-50 text-teal-950 font-bold ring-1 ring-teal-400'
+                      : 'border-slate-200 hover:bg-slate-50 text-slate-600',
+                  )}
+                >
+                  <p className="font-bold text-xs">{t('checkout.tkScopeAll')}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5 font-mono">{t('checkout.tkTotalPrefix2')} {combinedOrders.length}  {t('checkout.tkOrderUnit4')}</p>
+                </button>
+              </div>
+            </div>
+
+            {/* 2. 导出格式 */}
+            <div>
+              <label className="block text-xs font-bold text-slate-800 mb-2">{t('checkout.tkExportFormat')}</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: 'csv', label: t('checkout.tkFormatCsv'), desc: t('checkout.tkFormatCsvExt'), icon: FileSpreadsheet },
+                  { id: 'excel', label: t('checkout.tkFormatExcel'), desc: t('checkout.tkFormatExcelExt'), icon: FileText },
+                  { id: 'print', label: t('checkout.tkFormatPrint'), desc: t('checkout.tkFormatPrintExt'), icon: Printer },
+                ].map((fmt) => {
+                  const Icon = fmt.icon;
+                  const isSelected = exportFormat === fmt.id;
+                  return (
+                    <button
+                      key={fmt.id}
+                      type="button"
+                      onClick={() => setExportFormat(fmt.id as any)}
+                      className={cn(
+                        'p-2.5 rounded-2xl border text-center font-medium transition-all flex flex-col items-center gap-1 cursor-pointer',
+                        isSelected
+                          ? 'border-teal-500 bg-teal-50 text-teal-950 font-bold ring-1 ring-teal-400'
+                          : 'border-slate-200 hover:bg-slate-50 text-slate-600',
+                      )}
+                    >
+                      <Icon className="w-5 h-5 text-teal-600" />
+                      <span className="text-xs">{fmt.label}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">{fmt.desc}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 包含字段说明 */}
+            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-1 text-[11px] text-slate-600">
+              <span className="font-bold text-slate-800 block">{t('checkout.tkExportFieldsTitle')}</span>
+              <p>{t('checkout.tkExportFields1')}</p>
+              <p>{t('checkout.tkExportFields2')}</p>
+              <p>{t('checkout.tkExportFields3')}</p>
+              <p>{t('checkout.tkExportFields4')}</p>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 作废确认模态框 */}
+      {voidModalRecord && (
+        <Modal
+          isOpen={Boolean(voidModalRecord)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setVoidModalRecord(null);
+              setVoidNotes('');
+            }
+          }}
+          title={(t('voidTicketAction') || t('checkout.tkVoidModalTitle')) + ' #' + (voidModalRecord.ticketId || '').slice(0, 8).toUpperCase()}
+          footer={
+            <div className="flex justify-end gap-2 w-full">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setVoidModalRecord(null);
+                  setVoidNotes('');
+                }}
+              >
+                {t('cancel') || t('checkout.tkVoidCancel')}
+              </Button>
+              <Button
+                className="bg-red-600 hover:bg-red-700 text-white font-bold"
+                disabled={voidMutation.isPending}
+                onClick={handleConfirmVoid}
+              >
+                {voidMutation.isPending ? t('checkout.tkVoiding') : t('voidTicketAction') || t('checkout.tkVoidConfirm')}
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-4 text-xs text-slate-700 py-2">
+            <p className="text-red-700 bg-red-50 p-3 rounded-2xl border border-red-200 leading-relaxed font-medium">
+              {t('voidTicketAction') || t('checkout.tkVoidWarning')}
+            </p>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                {t('cancelReasonLabel') || t('checkout.tkVoidReasonLabel')}
+              </label>
+              <select
+                value={voidReason}
+                onChange={(e) => setVoidReason(e.target.value as VoidReason)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+              >
+                <option value="guest_changed_mind">{t('reasonChangedMind') || t('checkout.tkVoidReasonChangedMind')}</option>
+                <option value="walk_out">{t('reasonWalkOut') || t('checkout.tkVoidReasonWaited')}</option>
+                <option value="duplicate_booking">{t('reasonDuplicate') || t('checkout.tkVoidReasonDuplicate')}</option>
+                <option value="input_error">{t('reasonInputError') || t('checkout.tkVoidReasonWrongItem')}</option>
+                <option value="paid_externally">{t('checkout.tkVoidReasonSettledElsewhere')}</option>
+                <option value="other">{t('reasonOther') || t('checkout.tkVoidReasonOther')}</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                {t('note') || t('checkout.tkVoidNotesLabel')}
+              </label>
+              <input
+                type="text"
+                placeholder={t('checkout.tkVoidNotesPlaceholder')}
+                value={voidNotes}
+                onChange={(e) => setVoidNotes(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+              />
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 订单退款与售后冲正模态框 */}
+      {refundModalRecord && (
+        <Modal
+          isOpen={Boolean(refundModalRecord)}
+          onOpenChange={(open) => {
+            if (!open) setRefundModalRecord(null);
+          }}
+          title={
+            <div className="flex items-center gap-2 text-purple-900 font-bold">
+              <RotateCcw className="w-5 h-5 text-purple-600" />
+              <span>{t('checkout.tkRefundModalTitle')} {refundModalRecord.orderNumber || refundModalRecord.ticketId}</span>
+            </div>
+          }
+          size="md"
+          footer={
+            <div className="flex justify-end gap-2 w-full">
+              <Button
+                variant="secondary"
+                onClick={() => setRefundModalRecord(null)}
+              >
+                
+                {t('checkout.tkRefundCancel')}
+              </Button>
+              <Button
+                className="bg-purple-600 hover:bg-purple-700 text-white font-bold gap-1 shadow-md shadow-purple-600/20"
+                disabled={refundMutation.isPending}
+                onClick={handleConfirmRefund}
+              >
+                <Check className="w-4 h-4" />
+                <span>{refundMutation.isPending ? t('checkout.tkRefunding') : t('checkout.tkRefundConfirm')}</span>
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-4 text-xs text-slate-700 py-1">
+            {/* 订单概览卡片 */}
+            <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-2xl flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-900 text-sm">{refundModalRecord.customerName || t('checkout.tkWalkInGuest3')}</span>
+                  <span className="font-mono text-xs font-bold text-purple-950">
+                    {refundModalRecord.orderNumber || refundModalRecord.ticketId}
+                  </span>
+                </div>
+                <span className="text-[11px] text-purple-800 block mt-0.5">
+                  Total Collected: <strong>${centsToDollars(refundModalRecord.totalPaidCents)}</strong>  {t('checkout.tkPaymentMethodSep')} {refundModalRecord.paymentMethodLabel || t('checkout.tkCardSettlement3')}
+                </span>
+              </div>
+              <Badge variant="secondary" className="text-[10px] font-bold bg-purple-100 text-purple-900 border-purple-300">
+                
+                {t('checkout.tkRefundableUpTo')}{centsToDollars(refundModalRecord.totalPaidCents)}
+              </Badge>
+            </div>
+
+            {/* 1. 退款形式与Amount */}
+            <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-3">
+              <label className="block text-xs font-bold text-slate-800">{t('checkout.tkRefundTypeLabel')}</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRefundType('full');
+                    setRefundAmountDollars(centsToDollars(refundModalRecord.totalPaidCents));
+                  }}
+                  className={cn(
+                    'p-2.5 rounded-xl border text-center font-bold transition-all flex flex-col items-center justify-center cursor-pointer',
+                    refundType === 'full'
+                      ? 'border-purple-500 bg-purple-50/80 text-purple-950 ring-1 ring-purple-400'
+                      : 'border-slate-200 hover:bg-slate-50 text-slate-700',
+                  )}
+                >
+                  <span className="text-xs">{t('checkout.tkRefundFull')}</span>
+                  <span className="font-mono text-sm font-black text-purple-700 mt-0.5">
+                    ${centsToDollars(refundModalRecord.totalPaidCents)}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRefundType('partial');
+                    setRefundAmountDollars('');
+                  }}
+                  className={cn(
+                    'p-2.5 rounded-xl border text-center font-bold transition-all flex flex-col items-center justify-center cursor-pointer',
+                    refundType === 'partial'
+                      ? 'border-purple-500 bg-purple-50/80 text-purple-950 ring-1 ring-purple-400'
+                      : 'border-slate-200 hover:bg-slate-50 text-slate-700',
+                  )}
+                >
+                  <span className="text-xs">{t('checkout.tkRefundPartial')}</span>
+                  <span className="text-[10px] text-slate-400 font-normal mt-0.5">{t('checkout.tkRefundCustomAmount')}</span>
+                </button>
+              </div>
+
+              {refundType === 'partial' && (
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    
+                    {t('checkout.tkRefundAmountLabel')}
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-slate-400 font-bold">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={refundAmountDollars}
+                      onChange={(e) => setRefundAmountDollars(e.target.value)}
+                      className="w-full pl-7 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-white font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 2. 退款返还渠道 */}
+            <div>
+              <label className="block text-xs font-bold text-slate-800 mb-1.5">{t('checkout.tkRefundChannelLabel')}</label>
+              <select
+                value={refundMethod}
+                onChange={(e) => setRefundMethod(e.target.value as any)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+              >
+                <option value="original_payment">{t('checkout.tkRefundChannelOriginal')}</option>
+                <option value="cash">{t('checkout.tkRefundChannelCash')}</option>
+                <option value="store_credit">{t('checkout.tkRefundChannelCredit')}</option>
+              </select>
+            </div>
+
+            {/* 3. 退款原因 */}
+            <div>
+              <label className="block text-xs font-bold text-slate-800 mb-1.5">{t('checkout.tkRefundReasonLabel')}</label>
+              <select
+                value={refundReason}
+                onChange={(e) => setRefundReason(e.target.value as any)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+              >
+                <option value="customer_dissatisfied">{t('checkout.tkRefundReasonUnhappy')}</option>
+                <option value="wrong_charge">{t('checkout.tkRefundReasonWrongCharge')}</option>
+                <option value="duplicate">{t('checkout.tkRefundReasonDuplicate')}</option>
+                <option value="other">{t('checkout.tkRefundReasonOther')}</option>
+              </select>
+            </div>
+
+            {/* 4. 详细备注 */}
+            <div>
+              <label className="block text-xs font-bold text-slate-800 mb-1.5">{t('checkout.tkRefundAuditLabel')}</label>
+              <input
+                type="text"
+                placeholder={t('checkout.tkRefundAuditPlaceholder')}
+                value={refundNotes}
+                onChange={(e) => setRefundNotes(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+              />
+            </div>
+
+            {/* 财务与提成冲销联动说明 */}
+            <div className="p-3 bg-amber-50/80 rounded-2xl border border-amber-200/80 space-y-1 text-[11px] text-amber-900">
+              <span className="font-bold block flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>{t('checkout.tkRefundLinkTitle')}</span>
+              </span>
+              <p>{t('checkout.tkRefundLink1')}</p>
+              <p>{t('checkout.tkRefundLink2')}</p>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+export function Tickets() {
+  return (
+    <ErrorBoundary fallbackTitleKey="tickets">
+      <TicketsContent />
+    </ErrorBoundary>
+  );
+}

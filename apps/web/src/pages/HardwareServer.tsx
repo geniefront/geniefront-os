@@ -1,0 +1,703 @@
+import { useState, useEffect } from "react";
+import { useErrorMessage } from '@/lib/errorMessage';
+import { useLanguage } from "@/LanguageContext";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { SampleDataNotice } from '@/components/ui/SampleDataNotice';
+import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+import { Modal, ConfirmDialog } from "@/components/ui/Modal";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { PageLoading, PageError } from "@/components/ui/QueryState";
+import {
+  Tablet,
+  QrCode,
+  RefreshCw,
+  CheckCircle2,
+  ShieldCheck,
+  Battery,
+  Wifi,
+  SlidersHorizontal,
+  FileCheck2,
+  MonitorSmartphone,
+  Eye,
+  Trash2,
+  RotateCcw,
+  Sparkles,
+  Smartphone,
+  Check,
+  PenTool,
+  Lock,
+  Plus,
+} from "lucide-react";
+import { toast } from "@heroui/react";
+import { useCreatePairingSession, usePairingStatus } from "@/features/pairing/api";
+
+interface TabletDevice {
+  id: string;
+  name: string;
+  role: "intake_kiosk" | "customer_display";
+  model: string;
+  status: "online" | "offline";
+  ipAddress: string;
+  batteryLevel: number;
+  wifiSignal: string;
+  lastHeartbeat: string;
+  appVersion: string;
+}
+
+export function HardwareServer() {
+  const errorMessage = useErrorMessage();
+  const { t } = useLanguage();
+  const createSessionMut = useCreatePairingSession();
+
+  // 配对状态
+  const [sessionCode, setSessionCode] = useState<string>("849-201");
+  const [pairingRole, setPairingRole] = useState<"intake_kiosk" | "customer_display">("intake_kiosk");
+
+  // 监听配对状态
+  const pairingStatusQ = usePairingStatus(sessionCode);
+
+  useEffect(() => {
+    createSessionMut.mutateAsync().then((res) => {
+      if (res?.code) setSessionCode(res.code);
+    }).catch(() => {});
+  }, []);
+
+  // 二次确认弹窗状态
+  const [confirmRegenPinOpen, setConfirmRegenPinOpen] = useState(false);
+  const [resettingDevice, setResettingDevice] = useState<TabletDevice | null>(null);
+  const [unpairingDevice, setUnpairingDevice] = useState<TabletDevice | null>(null);
+
+  // 已连接的 iPad 设备列表 (严格聚焦于签到/健康表与副屏)
+  const [devices, setDevices] = useState<TabletDevice[]>([
+    {
+      id: "dev-ipad-01",
+      name: "大堂迎宾签到与健康表 iPad (Lobby)",
+      role: "intake_kiosk",
+      model: "iPad Pro 11-inch (M2)",
+      status: "online",
+      ipAddress: "192.168.1.108",
+      batteryLevel: 98,
+      wifiSignal: "5GHz · -42dBm (极佳)",
+      lastHeartbeat: "3 秒前",
+      appVersion: "v2.4.1",
+    },
+    {
+      id: "dev-ipad-02",
+      name: "前台收银小费副屏 iPad (Counter)",
+      role: "customer_display",
+      model: "iPad Air 10.9-inch",
+      status: "online",
+      ipAddress: "192.168.1.112",
+      batteryLevel: 100,
+      wifiSignal: "5GHz · -45dBm (极佳)",
+      lastHeartbeat: "5 秒前",
+      appVersion: "v2.4.1",
+    },
+  ]);
+
+  // 健康表与大堂签到规则配置
+  const [intakeSettings, setIntakeSettings] = useState({
+    requireSignature: true,
+    requireAllergies: true,
+    requirePressurePreference: true,
+    requireBodySorenessMap: true,
+    autoCreateCrmProfile: true,
+    autoPromptTipPercentages: true,
+  });
+
+  // 平板界面实时交互预览 Simulator Modal
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [previewDeviceRole, setPreviewDeviceRole] = useState<"intake_kiosk" | "customer_display">("intake_kiosk");
+  const [simStep, setSimStep] = useState<"welcome" | "phone" | "questions" | "sign" | "success">("welcome");
+
+  const handleRegenerateCode = async () => {
+    try {
+      const res = await createSessionMut.mutateAsync();
+      if (res?.code) {
+        setSessionCode(res.code);
+        toast.success(t('settings.hwPinRegenerated'));
+      }
+    } catch (err: any) {
+      toast.danger(errorMessage(err));
+    }
+  };
+
+  const handlePingDevice = (name: string) => {
+    toast.success(t('settings.hwPinged', { p0: name }));
+  };
+
+  const handleResetKiosk = (name: string) => {
+    toast.success(t('settings.hwReset', { p0: name }));
+  };
+
+  const handleUnpairDevice = (id: string, name: string) => {
+    setDevices(devices.filter((d) => d.id !== id));
+    toast.danger(t('settings.hwUnpaired', { p0: name }));
+  };
+
+  const toggleSetting = (key: keyof typeof intakeSettings) => {
+    setIntakeSettings((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      toast.success(t('settings.hwFormSynced'));
+      return next;
+    });
+  };
+
+  if (pairingStatusQ.isLoading && !pairingStatusQ.data && !sessionCode) {
+    return <PageLoading title={t('settings.hwLoading')} description={t('settings.hwLoadingDesc')} />;
+  }
+
+  if (pairingStatusQ.isError && !pairingStatusQ.data && !sessionCode) {
+    return (
+      <PageError
+        title={t('settings.hwLoadError')}
+        error={pairingStatusQ.error}
+        onRetry={() => {
+          createSessionMut.mutateAsync().then((res) => {
+            if (res?.code) setSessionCode(res.code);
+          }).catch(() => {});
+        }}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-6 pb-20 max-w-7xl mx-auto">
+      <SampleDataNotice />
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2 text-xl font-bold">
+            <Tablet className="w-5 h-5 text-teal-600" />
+            
+            {t('settings.hwTitle')}
+          </span>
+        }
+        description={t('settings.hwDesc')}
+        actions={
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setPreviewDeviceRole("intake_kiosk");
+                setSimStep("welcome");
+                setPreviewModalOpen(true);
+              }}
+              className="gap-1.5 text-xs font-bold"
+            >
+              <Eye className="w-3.5 h-3.5 text-teal-600" />
+              
+              {t('settings.hwPreviewKiosk')}
+            </Button>
+            <Button
+              className="bg-teal-600 hover:bg-teal-700 text-white gap-1.5 font-bold text-xs shadow-sm"
+              size="sm"
+              onClick={() => setConfirmRegenPinOpen(true)}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              
+              {t('settings.hwPairNew')}
+            </Button>
+          </div>
+        }
+      />
+
+      {/* 顶部设备网络健康状态 */}
+      <div className="p-4 rounded-2xl bg-gradient-to-r from-teal-900 to-slate-900 text-white shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-teal-500/20 border border-teal-400/30 flex items-center justify-center">
+            <Tablet className="w-5 h-5 text-teal-300" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-sm">{t('settings.hwFleetTitle')}</h3>
+              <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-400/30 text-[10px]">
+                
+                {t('settings.hwDevicesOnline')}
+              </Badge>
+            </div>
+            <p className="text-xs text-teal-100/80 mt-0.5">
+              
+              {t('settings.hwFleetDesc')}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 text-xs font-mono text-teal-200">
+          <span className="flex items-center gap-1.5">
+            <Wifi className="w-3.5 h-3.5 text-emerald-400" />  {t('settings.hwNetwork')}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-teal-300" />  {t('settings.hwKioskLocked')}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* 左侧 2 列：已配对 iPad 终端列表 & 健康表字段设置 */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* 在线设备卡片列表 */}
+          <Card className="p-5 border-slate-200 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                <Tablet className="w-4 h-4 text-teal-600" />
+                
+                {t('settings.hwPairedTablets')}{devices.length})
+              </h3>
+              <span className="text-xs text-slate-400">{t('settings.hwStandbyNote')}</span>
+            </div>
+
+            <div className="space-y-3">
+              {devices.map((dev) => (
+                <div
+                  key={dev.id}
+                  className="p-4 rounded-2xl border border-slate-200 bg-white hover:border-teal-300 hover:shadow-sm transition-all space-y-3"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700">
+                        {dev.role === "intake_kiosk" ? (
+                          <FileCheck2 className="w-5 h-5 text-teal-600" />
+                        ) : (
+                          <MonitorSmartphone className="w-5 h-5 text-blue-600" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-slate-900 text-xs sm:text-sm">{dev.name}</h4>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            
+                            {t('settings.hwOnline')}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                          {dev.model} · IP: {dev.ipAddress} · App {dev.appVersion}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="text-xs h-8 px-2.5 text-slate-700"
+                        onClick={() => handlePingDevice(dev.name)}
+                      >
+                        
+                        {t('settings.hwWake')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="text-xs h-8 px-2.5 text-slate-700"
+                        onClick={() => setResettingDevice(dev)}
+                      >
+                        <RotateCcw className="w-3 h-3 mr-1 text-slate-500" />
+                        
+                        {t('settings.hwResetHome')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="text-xs h-8 px-2 text-red-600 hover:bg-red-50"
+                        onClick={() => setUnpairingDevice(dev)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-[11px]">
+                    <div className="flex items-center gap-1.5 text-slate-600">
+                      <Battery className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>{t('settings.hwBattery')} {dev.batteryLevel}{t('settings.hwPluggedIn')}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-slate-600">
+                      <Wifi className="w-3.5 h-3.5 text-teal-600" />
+                      <span>WiFi: {dev.wifiSignal}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-slate-600 justify-end">
+                      <span>{t('settings.hwHeartbeat')} {dev.lastHeartbeat}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* 大堂签到与健康表单规则配置 */}
+          <Card className="p-5 border-slate-200 shadow-sm space-y-4">
+            <div className="border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-teal-600" />
+                
+                {t('settings.hwIntakeConfigTitle')}
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                
+                {t('settings.hwIntakeConfigDesc')}
+              </p>
+            </div>
+
+            <div className="space-y-2.5 text-xs">
+              {[
+                {
+                  key: "requireSignature" as const,
+                  title: t('settings.hwWaiverTitle'),
+                  desc: t('settings.hwWaiverDesc'),
+                },
+                {
+                  key: "requirePressurePreference" as const,
+                  title: t('settings.hwPressureTitle'),
+                  desc: t('settings.hwPressureDesc'),
+                },
+                {
+                  key: "requireBodySorenessMap" as const,
+                  title: t('settings.hwFocusTitle'),
+                  desc: t('settings.hwFocusDesc'),
+                },
+                {
+                  key: "requireAllergies" as const,
+                  title: t('settings.hwAllergyTitle'),
+                  desc: t('settings.hwAllergyDesc'),
+                },
+                {
+                  key: "autoCreateCrmProfile" as const,
+                  title: t('settings.hwAutoCrmTitle'),
+                  desc: t('settings.hwAutoCrmDesc'),
+                },
+              ].map((item) => {
+                const checked = intakeSettings[item.key];
+                return (
+                  <div
+                    key={item.key}
+                    onClick={() => toggleSetting(item.key)}
+                    className={`p-3 rounded-xl border cursor-pointer flex items-start justify-between gap-3 transition-colors ${
+                      checked
+                        ? "bg-teal-50/70 border-teal-200 text-teal-950"
+                        : "bg-slate-50 border-slate-200 text-slate-600"
+                    }`}
+                  >
+                    <div className="space-y-0.5">
+                      <p className="font-bold text-xs">{item.title}</p>
+                      <p className="text-[11px] opacity-80 leading-relaxed">{item.desc}</p>
+                    </div>
+                    <div
+                      className={`w-5 h-5 rounded-lg flex items-center justify-center shrink-0 mt-0.5 border ${
+                        checked
+                          ? "bg-teal-600 border-teal-600 text-white"
+                          : "bg-white border-slate-300"
+                      }`}
+                    >
+                      {checked && <Check className="w-3.5 h-3.5" />}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+
+        {/* 右侧 1 列：快速配对与入网引导 */}
+        <div className="space-y-4">
+          <Card className="p-5 border-teal-200 bg-teal-50/50 shadow-sm space-y-4 text-xs">
+            <div className="flex items-center gap-2 font-bold text-teal-950 text-sm">
+              <QrCode className="w-4 h-4 text-teal-600" />
+              
+              {t('settings.hwPairTitle')}
+            </div>
+
+            <p className="text-slate-600 leading-relaxed">
+              
+              {t('settings.hwPairDesc')}
+            </p>
+
+            {/* 配对模式选择 */}
+            <div className="space-y-1.5">
+              <label className="font-bold text-slate-700">{t('settings.hwAssignRole')}</label>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  onClick={() => setPairingRole("intake_kiosk")}
+                  className={`p-2 rounded-xl border text-center font-bold transition-all ${
+                    pairingRole === "intake_kiosk"
+                      ? "bg-teal-600 text-white border-teal-600 shadow-sm"
+                      : "bg-white text-slate-700 border-slate-200"
+                  }`}
+                >
+                  
+                  {t('settings.hwRoleIntake')}
+                </button>
+                <button
+                  onClick={() => setPairingRole("customer_display")}
+                  className={`p-2 rounded-xl border text-center font-bold transition-all ${
+                    pairingRole === "customer_display"
+                      ? "bg-teal-600 text-white border-teal-600 shadow-sm"
+                      : "bg-white text-slate-700 border-slate-200"
+                  }`}
+                >
+                  
+                  {t('settings.hwRoleDisplay')}
+                </button>
+              </div>
+            </div>
+
+            {/* 6 位配对码大字展示 */}
+            <div className="p-4 rounded-2xl bg-white border border-teal-200 text-center space-y-1 shadow-sm">
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">
+                6-Digit Pairing PIN
+              </span>
+              <div className="text-3xl font-black font-mono text-teal-700 tracking-widest">
+                {sessionCode}
+              </div>
+              <p className="text-[10px] text-slate-400">{t('settings.hwPinValidity')}</p>
+            </div>
+
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setConfirmRegenPinOpen(true)}
+              className="w-full text-xs font-bold text-slate-700 h-9 gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Regenerate PIN
+            </Button>
+
+            <div className="p-3 rounded-xl bg-white/80 border border-teal-200 text-[11px] text-slate-600 space-y-1">
+              <span className="font-bold text-slate-800">{t('settings.hwGuidedAccessTitle')}</span>
+              <p className="leading-relaxed">
+                
+                {t('settings.hwGuidedAccessDesc')}
+              </p>
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      {/* 平板真机界面交互模拟弹窗 Simulator Modal */}
+      <Modal
+        isOpen={previewModalOpen}
+        onOpenChange={setPreviewModalOpen}
+        size="lg"
+        title={
+          <div className="flex items-center gap-2">
+            <Tablet className="w-5 h-5 text-teal-600" />
+            <span>{t('settings.hwSimTitle')}</span>
+            <Badge className="bg-teal-100 text-teal-900 border-teal-300 text-[10px]">
+              {previewDeviceRole === "intake_kiosk" ? t('settings.hwSimIntakeMode') : t('settings.hwSimDisplayMode')}
+            </Badge>
+          </div>
+        }
+        footer={
+          <div className="flex justify-end gap-2 w-full">
+            <Button variant="secondary" size="sm" onClick={() => setPreviewModalOpen(false)}>
+              
+              {t('settings.hwSimClose')}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 py-2">
+          {/* 模拟 iPad 硬件边框 */}
+          <div className="bg-slate-900 p-4 rounded-3xl shadow-2xl border-4 border-slate-700 max-w-lg mx-auto">
+            {/* iPad 屏幕内容 */}
+            <div className="bg-white rounded-2xl p-6 min-h-[380px] flex flex-col justify-between text-slate-900 space-y-4">
+              {simStep === "welcome" && (
+                <div className="text-center py-6 space-y-4 flex-1 flex flex-col justify-center items-center">
+                  <div className="w-14 h-14 rounded-2xl bg-teal-600 text-white font-bold flex items-center justify-center text-xl shadow-lg">
+                    Lotus
+                  </div>
+                  <h2 className="text-lg font-black text-slate-900">
+                    
+                    {t('settings.hwSimWelcome')}
+                  </h2>
+                  <p className="text-xs text-slate-500 max-w-xs leading-relaxed">
+                    
+                    {t('settings.hwSimWelcomeDesc')}
+                  </p>
+                  <Button
+                    className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow-md gap-2"
+                    onClick={() => setSimStep("phone")}
+                  >
+                    <span>{t('settings.hwSimCheckIn')}</span>
+                  </Button>
+                </div>
+              )}
+
+              {simStep === "phone" && (
+                <div className="space-y-4 py-2">
+                  <div className="text-center">
+                    <h3 className="font-bold text-sm text-slate-900">{t('settings.hwSimPhonePrompt')}</h3>
+                    <p className="text-[11px] text-slate-400">{t('settings.hwSimPhoneHint')}</p>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-center font-mono font-bold text-lg text-slate-800">
+                    +1 (212) 555-0192
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 max-w-xs mx-auto text-xs font-mono font-bold">
+                    {["1", "2", "3", "4", "5", "6", "7", "8", "9", t('settings.hwSimClear'), "0", t('settings.hwSimConfirm')].map((k) => (
+                      <button
+                        key={k}
+                        onClick={() => {
+                          if (k === t('settings.hwSimConfirm2')) setSimStep("questions");
+                        }}
+                        className={`p-2.5 rounded-xl border transition-all ${
+                          k === "确认"
+                            ? "bg-teal-600 text-white border-teal-600 font-sans"
+                            : "bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100"
+                        }`}
+                      >
+                        {k}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {simStep === "questions" && (
+                <div className="space-y-3 py-1 text-xs">
+                  <div className="border-b border-slate-100 pb-2">
+                    <h3 className="font-bold text-slate-900">{t('settings.hwSimPressureTitle')}</h3>
+                    <p className="text-[10px] text-slate-400">{t('settings.hwSimBooking')}</p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700">{t('settings.hwSimPressureLabel')}</label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[t('settings.hwSimPressureLight'), t('settings.hwSimPressureMedium'), t('settings.hwSimPressureFirm')].map((p, idx) => (
+                        <button
+                          key={p}
+                          className={`p-2 rounded-lg border text-[10px] font-bold ${
+                            idx === 2 ? "bg-teal-50 border-teal-600 text-teal-900" : "border-slate-200 text-slate-600"
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700">{t('settings.hwSimFocusLabel')}</label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[t('settings.hwSimAreaNeck'), t('settings.hwSimAreaBack'), t('settings.hwSimAreaArm')].map((p, idx) => (
+                        <span key={p} className="p-1.5 rounded-lg bg-teal-50 text-teal-900 font-semibold border border-teal-200 text-[10px] text-center">
+                          {p}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <Button
+                    className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs h-9"
+                    onClick={() => setSimStep("sign")}
+                  >
+                    
+                    {t('settings.hwSimNextWaiver')}
+                  </Button>
+                </div>
+              )}
+
+              {simStep === "sign" && (
+                <div className="space-y-3 py-1 text-xs">
+                  <div className="border-b border-slate-100 pb-2">
+                    <h3 className="font-bold text-slate-900">{t('settings.hwSimWaiverTitle')}</h3>
+                    <p className="text-[10px] text-slate-500">
+                      
+                      {t('settings.hwSimWaiverBody')}
+                    </p>
+                  </div>
+
+                  {/* 模拟手写签名板 */}
+                  <div className="h-28 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/60 p-3 flex flex-col justify-between">
+                    <span className="text-[10px] text-slate-400">{t('settings.hwSimSignHere')}</span>
+                    <div className="text-right font-mono text-xs text-teal-700 font-bold italic">
+                      ✍️ Emily Chen (2026-08-27)
+                    </div>
+                  </div>
+
+                  <Button
+                    className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs h-9"
+                    onClick={() => setSimStep("success")}
+                  >
+                    
+                    {t('settings.hwSimSubmit')}
+                  </Button>
+                </div>
+              )}
+
+              {simStep === "success" && (
+                <div className="text-center py-8 space-y-3 flex-1 flex flex-col justify-center items-center">
+                  <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                    <CheckCircle2 className="w-7 h-7" />
+                  </div>
+                  <h3 className="font-bold text-base text-slate-900">{t('settings.hwSimDone')}</h3>
+                  <p className="text-xs text-slate-500 max-w-xs">
+                    
+                    {t('settings.hwSimDoneDesc')}
+                  </p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="text-xs mt-2"
+                    onClick={() => setSimStep("welcome")}
+                  >
+                    
+                    {t('settings.hwSimReturn')}
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Regenerate PIN二次确认弹窗 */}
+      <ConfirmDialog
+        isOpen={confirmRegenPinOpen}
+        onOpenChange={setConfirmRegenPinOpen}
+        title={t('settings.hwRegenConfirmTitle')}
+        description={t('settings.hwRegenConfirmBody')}
+        confirmLabel={t('settings.hwRegenConfirmAction')}
+        onConfirm={handleRegenerateCode}
+      />
+
+      {/* 终端复位首页二次确认弹窗 */}
+      <ConfirmDialog
+        isOpen={resettingDevice !== null}
+        onOpenChange={(open) => {
+          if (!open) setResettingDevice(null);
+        }}
+        title={t('settings.hwResetConfirmTitle', { p0: resettingDevice?.name ?? '' })}
+        description={t('settings.hwResetConfirmBody')}
+        confirmLabel={t('settings.hwResetConfirmAction')}
+        onConfirm={() => {
+          if (resettingDevice) {
+            handleResetKiosk(resettingDevice.name);
+            setResettingDevice(null);
+          }
+        }}
+      />
+
+      {/* 解除配对二次确认弹窗 */}
+      <ConfirmDialog
+        isOpen={unpairingDevice !== null}
+        onOpenChange={(open) => {
+          if (!open) setUnpairingDevice(null);
+        }}
+        tone="danger"
+        title={t('settings.hwUnpairConfirmTitle', { p0: unpairingDevice?.name ?? '' })}
+        description={t('settings.hwUnpairConfirmBody')}
+        confirmLabel={t('settings.hwUnpairConfirmAction')}
+        onConfirm={() => {
+          if (unpairingDevice) {
+            handleUnpairDevice(unpairingDevice.id, unpairingDevice.name);
+            setUnpairingDevice(null);
+          }
+        }}
+      />
+    </div>
+  );
+}

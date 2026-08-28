@@ -270,13 +270,14 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
     insert into appointments
       (org_id, location_id, customer_id, walk_in_name, business_date,
        starts_at, ends_at, source, party_size, notes, created_by, idempotency_key,
-       confirmation_code, manage_token_digest)
+       confirmation_code, manage_token_digest, is_backfill, backfill_reason, backfill_notes)
     values
       (${ctx.orgId}, ${ctx.locationId}, ${customerId}, ${input.walkInName ?? null},
        ${businessDate}, ${ts(windowStart)}::timestamptz, ${ts(windowEnd)}::timestamptz, ${input.source},
        ${input.partySize}, ${input.notes ?? null}, ${ctx.membershipId}, null,
        ${input.guest?.confirmationCode ?? null},
-       ${input.guest ? createHash('sha256').update(input.guest.manageToken, 'utf8').digest('hex') : null})
+       ${input.guest ? createHash('sha256').update(input.guest.manageToken, 'utf8').digest('hex') : null},
+       ${input.isBackfill ?? false}, ${input.backfillReason ?? null}, ${input.backfillNotes ?? null})
     returning id`;
 
   const itemIds: string[] = [];

@@ -15,6 +15,7 @@
 import {
   pgTable, uuid, text, jsonb, boolean, integer, timestamp, date, index, uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { organizations, locations } from './tenancy';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
@@ -38,6 +39,10 @@ export const locationReviews = pgTable('location_reviews', {
   postedAt: timestamp('posted_at', { withTimezone: true }),
   scrapedAt: timestamp('scraped_at', { withTimezone: true }).notNull().defaultNow(),
   status: text('status').notNull().default('new'), // new | replied | ignored
+  aiSentiment: text('ai_sentiment'),
+  aiHighlights: jsonb('ai_highlights').notNull().default(sql`'[]'::jsonb`),
+  technicianName: text('technician_name'),
+  serviceName: text('service_name'),
 }, (t) => [
   // 同一条评价重复抓到不该产生两行
   uniqueIndex('location_reviews_dedup').on(t.locationId, t.platform, t.externalId),

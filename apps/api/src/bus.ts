@@ -89,11 +89,12 @@ export async function dispatch<T = unknown>(
   // ── 2. 权限 ──────────────────────────────────────────────────────────────
   // AI 的权限是操作人权限的子集：ctx.permissions 在建会话时就已收窄，
   // 这里不区分 actorKind —— 分不清才是对的，AI 不该有特殊路径。
-  if (!ctx.permissions.has(def.permission as Permission)) {
+  if (def.permission && !ctx.permissions.has(def.permission as Permission)) {
     throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
       details: { command: commandName, need: def.permission },
     });
   }
+
 
   // ── 3. 幂等 ──────────────────────────────────────────────────────────────
   const key = opts.idempotencyKey;

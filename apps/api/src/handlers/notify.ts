@@ -58,7 +58,7 @@ registerHandler(ApplyDiscount, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof ApplyDiscount.input._type>) => {
   const [ticket] = await tx<{ id: string; status: string; subtotal: number }[]>`
     select id, status, subtotal_cents as subtotal from tickets
-    where id = ${input.ticketId} and location_id = ${ctx.locationId}`;
+    where id = ${input.ticketId} and location_id = ${ctx.locationId} for update`;
   if (!ticket) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket' } });
   /*
    * ⚠️ 开单之后的状态是 `in_service`，**不是 `open`** ——

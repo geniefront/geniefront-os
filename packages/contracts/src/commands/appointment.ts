@@ -57,6 +57,9 @@ export const AppointmentCreate = defineCommand({
     partySize: z.number().int().positive().max(20).default(1),
     notes: z.string().max(2000).optional(),
     source: appointmentSource.default('desk'),
+    isBackfill: z.boolean().optional(),
+    backfillReason: z.string().max(200).optional(),
+    backfillNotes: z.string().max(2000).optional(),
     /**
      * 软约束放行。不传而撞上软约束 → 返回 STAFF_OVER_CAPACITY /
      * LOCATION_OVER_CAPACITY，前台确认后带 reason 重试。

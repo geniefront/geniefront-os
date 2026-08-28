@@ -7,10 +7,11 @@
 
 import { randomUUID } from 'node:crypto';
 import {
-  SaveService, ArchiveService, SaveStaffProfile,
+  SaveService, ArchiveService,
   SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
   SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
+  SaveCheckoutSettings, Apply10Dlc, SaveIntakeWaiver, SaveWebhooks,
   ROLE_PRESETS,
   AppError, ERROR_CODES, pickText,
 } from '@gf/contracts';
@@ -68,33 +69,6 @@ registerHandler(ArchiveService, async ({ input, ctx, tx, audit }: HandlerArgs<
   return { serviceId: input.serviceId };
 });
 
-registerHandler(SaveStaffProfile, async ({ input, ctx, tx, audit }: HandlerArgs<
-  typeof SaveStaffProfile.input._type>) => {
-  const [cur] = await tx<{
-    membership_id: string; is_bookable: boolean; max_concurrent: number;
-  }[]>`
-    select membership_id, is_bookable, max_concurrent_appointments as max_concurrent
-    from staff_profiles
-    where membership_id = ${input.membershipId} and location_id = ${ctx.locationId}`;
-  if (!cur) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff' } });
-
-  await tx`update staff_profiles set
-      display_name = coalesce(${input.displayName ? jsonb(input.displayName) : null}::jsonb, display_name),
-      is_bookable = coalesce(${input.isBookable ?? null}, is_bookable),
-      max_concurrent_appointments = coalesce(${input.maxConcurrentAppointments ?? null}, max_concurrent_appointments),
-      level_id = ${input.levelId === undefined ? tx`level_id` : input.levelId}
-    where membership_id = ${input.membershipId}`;
-
-  audit({
-    entityType: 'staff', entityId: input.membershipId,
-    before: { isBookable: cur.is_bookable, maxConcurrent: cur.max_concurrent },
-    after: {
-      isBookable: input.isBookable ?? cur.is_bookable,
-      maxConcurrent: input.maxConcurrentAppointments ?? cur.max_concurrent,
-    },
-  });
-  return { membershipId: input.membershipId };
-});
 
 registerHandler(SetRotationParticipation, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof SetRotationParticipation.input._type>) => {
@@ -257,18 +231,24 @@ registerHandler(SaveLocationProfile, async ({ input, ctx, tx, audit }: HandlerAr
     }
   }
 
+  const nameJson = typeof input.name === 'string'
+    ? jsonb({ en: input.name, 'zh-Hans': input.name })
+    : (input.name ? jsonb(input.name) : null);
+
   await tx`update locations set
-      name = coalesce(${input.name ? jsonb(input.name) : null}::jsonb, name),
+      name = coalesce(${nameJson}::jsonb, name),
+      slug = coalesce(${input.slug ?? null}, slug),
       timezone = coalesce(${input.timezone ?? null}, timezone),
       business_type = coalesce(${input.businessType ?? null}, business_type),
+      phone = coalesce(${input.phone ?? null}, phone),
+      email = coalesce(${input.email ?? null}, email),
+      address_street = coalesce(${input.addressStreet ?? null}, address_street),
+      address_city = coalesce(${input.addressCity ?? null}, address_city),
+      address_state = coalesce(${input.addressState ?? null}, address_state),
+      address_zip = coalesce(${input.addressZip ?? null}, address_zip),
       business_day_cutoff = coalesce(${input.businessDayCutoff ?? null}::time, business_day_cutoff),
       /**
        * ⭐ 记一句「老板亲眼确认过这几项」。
-       *
-       * 这**不是**「向导走到第几步」（那种东西换台设备就成了假进度，
-       * docs/12 §3 C 规矩 2）—— 它是一条关于这家店的事实：
-       * 官网传来的时区是浏览器猜的，用 VPN 的人拿到的是错的，
-       * 所以「有没有人真的看过一眼」必须留下痕迹。
        */
       settings = jsonb_set(settings, '{profile_confirmed_at}', to_jsonb(now()::text)),
       updated_at = now()
@@ -280,7 +260,10 @@ registerHandler(SaveLocationProfile, async ({ input, ctx, tx, audit }: HandlerAr
     after: {
       timezone: input.timezone ?? cur.timezone,
       businessType: input.businessType ?? cur.business_type,
-      ...(input.name ? { name: pickText(input.name, ctx.locale) } : {}),
+      ...(input.name ? { name: typeof input.name === 'string' ? input.name : pickText(input.name, ctx.locale) } : {}),
+      ...(input.slug ? { slug: input.slug } : {}),
+      ...(input.phone ? { phone: input.phone } : {}),
+      ...(input.email ? { email: input.email } : {}),
     },
   });
   return { locationId: ctx.locationId };
@@ -354,12 +337,38 @@ registerHandler(SaveOnlineBooking, async ({ input, ctx, tx, audit }: HandlerArgs
     reschedule_enabled: input.rescheduleEnabled,
     reschedule_cutoff_hours: rescheduleCutoff,
     self_reschedule_max: input.selfRescheduleMax,
+    slot_interval_minutes: input.slotIntervalMinutes ?? 30,
+    deposit_required: input.depositRequired ?? false,
+    deposit_amount_cents: input.depositAmountCents ?? 2000,
+    allow_client_pick_staff: input.allowClientPickStaff ?? true,
+    require_card_on_file: input.requireCardOnFile ?? false,
+    cancellation_policy_notice: input.cancellationPolicyNotice ?? '',
   };
 
   await tx`update locations set
       settings = jsonb_set(settings, '{online_booking}', ${jsonb(next)}::jsonb, true),
       updated_at = now()
     where id = ${ctx.locationId}`;
+
+  await tx`
+    insert into location_scheduling_rules (
+      location_id, slot_interval_minutes, cancel_cutoff_hours,
+      deposit_required, deposit_amount_cents, allow_client_pick_staff,
+      require_card_on_file, cancellation_policy_notice, updated_at
+    ) values (
+      ${ctx.locationId}, ${input.slotIntervalMinutes ?? 30}, ${input.cancelCutoffHours ?? 4},
+      ${input.depositRequired ?? false}, ${input.depositAmountCents ?? 2000}, ${input.allowClientPickStaff ?? true},
+      ${input.requireCardOnFile ?? false}, ${input.cancellationPolicyNotice ?? ''}, now()
+    )
+    on conflict (location_id) do update set
+      slot_interval_minutes = excluded.slot_interval_minutes,
+      cancel_cutoff_hours = excluded.cancel_cutoff_hours,
+      deposit_required = excluded.deposit_required,
+      deposit_amount_cents = excluded.deposit_amount_cents,
+      allow_client_pick_staff = excluded.allow_client_pick_staff,
+      require_card_on_file = excluded.require_card_on_file,
+      cancellation_policy_notice = excluded.cancellation_policy_notice,
+      updated_at = now()`;
 
   audit({
     entityType: 'location', entityId: ctx.locationId,
@@ -562,3 +571,162 @@ registerHandler(CreateLocation, async ({ input, ctx, tx, audit }: HandlerArgs<
 
   return { locationId, orgId: ctx.orgId, membershipId: m!.id, slug };
 });
+
+// ───────────────────────────────────────────── 收银偏好与小费税率配置
+registerHandler(SaveCheckoutSettings, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SaveCheckoutSettings.input._type>) => {
+  const taxRate = input.salesTaxRatePercent !== undefined ? input.salesTaxRatePercent : 8.875;
+  const taxMode = input.taxCalculationMode ?? 'exclusive';
+  const tips = input.suggestedTipPercentages ?? [15, 18, 20, 25];
+  const allowCustom = input.allowCustomTip !== undefined ? input.allowCustomTip : true;
+  const cashFloat = input.defaultCashFloatCents !== undefined ? input.defaultCashFloatCents : 20000;
+  const footer = input.receiptFooterMessage ?? null;
+  const autoPrint = input.autoPrintReceipt !== undefined ? input.autoPrintReceipt : true;
+  const autoSms = input.autoSendSmsReceipt !== undefined ? input.autoSendSmsReceipt : true;
+
+  await tx`
+    insert into location_checkout_settings (
+      location_id, sales_tax_rate_percent, tax_calculation_mode,
+      suggested_tip_percentages, allow_custom_tip, default_cash_float_cents,
+      receipt_footer_message, auto_print_receipt, auto_send_sms_receipt, updated_at
+    ) values (
+      ${ctx.locationId}, ${taxRate}, ${taxMode},
+      ${tips}, ${allowCustom}, ${cashFloat},
+      ${footer}, ${autoPrint}, ${autoSms}, now()
+    )
+    on conflict (location_id) do update set
+      sales_tax_rate_percent = excluded.sales_tax_rate_percent,
+      tax_calculation_mode = excluded.tax_calculation_mode,
+      suggested_tip_percentages = excluded.suggested_tip_percentages,
+      allow_custom_tip = excluded.allow_custom_tip,
+      default_cash_float_cents = excluded.default_cash_float_cents,
+      receipt_footer_message = excluded.receipt_footer_message,
+      auto_print_receipt = excluded.auto_print_receipt,
+      auto_send_sms_receipt = excluded.auto_send_sms_receipt,
+      updated_at = now()`;
+
+  // 也冗余到 locations.settings['checkout'] 方便轻量读取
+  const checkoutPayload = {
+    salesTaxRatePercent: taxRate,
+    taxCalculationMode: taxMode,
+    suggestedTipPercentages: tips,
+    allowCustomTip: allowCustom,
+    defaultCashFloatCents: cashFloat,
+    receiptFooterMessage: footer,
+    autoPrintReceipt: autoPrint,
+    autoSendSmsReceipt: autoSms,
+  };
+
+  await tx`update locations set
+      settings = jsonb_set(settings, '{checkout}', ${jsonb(checkoutPayload)}::jsonb, true),
+      updated_at = now()
+    where id = ${ctx.locationId}`;
+
+  audit({
+    entityType: 'location_checkout_settings', entityId: ctx.locationId,
+    after: checkoutPayload,
+  });
+
+  return { locationId: ctx.locationId };
+});
+
+// ───────────────────────────────────────────── 10DLC 资质代办申请
+registerHandler(Apply10Dlc, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof Apply10Dlc.input._type>) => {
+  const messages = input.sampleMessages && input.sampleMessages.length > 0
+    ? input.sampleMessages
+    : [input.sampleMessage1, input.sampleMessage2].filter(Boolean) as string[];
+
+  const [row] = await tx<{ id: string; submitted_at: string }[]>`
+    insert into location_10dlc_registrations (
+      location_id, status, legal_business_name, ein, business_structure,
+      registered_address, rep_name, rep_title, rep_email, rep_phone,
+      opt_in_method, sample_message_1, sample_message_2, sample_messages,
+      submitted_at, updated_at
+    ) values (
+      ${ctx.locationId}, 'pending_review', ${input.legalBusinessName}, ${input.ein},
+      ${input.businessStructure}, ${input.registeredAddress}, ${input.repName},
+      ${input.repTitle}, ${input.repEmail}, ${input.repPhone},
+      ${input.optInMethod ?? null}, ${input.sampleMessage1 ?? messages[0] ?? null},
+      ${input.sampleMessage2 ?? messages[1] ?? null}, ${messages},
+      now(), now()
+    )
+    on conflict (location_id) do update set
+      status = 'pending_review',
+      legal_business_name = excluded.legal_business_name,
+      ein = excluded.ein,
+      business_structure = excluded.business_structure,
+      registered_address = excluded.registered_address,
+      rep_name = excluded.rep_name,
+      rep_title = excluded.rep_title,
+      rep_email = excluded.rep_email,
+      rep_phone = excluded.rep_phone,
+      opt_in_method = excluded.opt_in_method,
+      sample_message_1 = excluded.sample_message_1,
+      sample_message_2 = excluded.sample_message_2,
+      sample_messages = excluded.sample_messages,
+      submitted_at = now(),
+      updated_at = now()
+    returning location_id, submitted_at::text`;
+
+  audit({
+    entityType: 'location_10dlc', entityId: ctx.locationId,
+    after: { status: 'pending_review', ein: input.ein, legalBusinessName: input.legalBusinessName },
+  });
+
+  return {
+    locationId: ctx.locationId,
+    status: 'pending_review',
+    submittedAt: row?.submitted_at ?? new Date().toISOString(),
+  };
+});
+
+// ───────────────────────────────────────────── 大堂 iPad 免责声明模板
+registerHandler(SaveIntakeWaiver, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SaveIntakeWaiver.input._type>) => {
+  await tx`
+    insert into location_intake_templates (
+      location_id, waiver_title, waiver_content, require_signature,
+      require_health_allergies, require_pressure_preference, auto_sync_to_profile, updated_at
+    ) values (
+      ${ctx.locationId}, ${input.waiverTitle}, ${input.waiverContent ?? null},
+      ${input.requireSignature}, ${input.requireHealthAllergies},
+      ${input.requirePressurePreference}, ${input.autoSyncToProfile}, now()
+    )
+    on conflict (location_id) do update set
+      waiver_title = excluded.waiver_title,
+      waiver_content = excluded.waiver_content,
+      require_signature = excluded.require_signature,
+      require_health_allergies = excluded.require_health_allergies,
+      require_pressure_preference = excluded.require_pressure_preference,
+      auto_sync_to_profile = excluded.auto_sync_to_profile,
+      updated_at = now()`;
+
+  audit({
+    entityType: 'location_intake_template', entityId: ctx.locationId,
+    after: input,
+  });
+
+  return { locationId: ctx.locationId };
+});
+
+// ───────────────────────────────────────────── Webhook 回调配置
+registerHandler(SaveWebhooks, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SaveWebhooks.input._type>) => {
+  const [row] = await tx<{ id: string }[]>`
+    insert into location_webhooks (
+      location_id, url, events, secret, active, updated_at
+    ) values (
+      ${ctx.locationId}, ${input.url}, ${input.events},
+      ${input.secret ?? null}, ${input.active}, now()
+    )
+    returning id`;
+
+  audit({
+    entityType: 'location_webhook', entityId: row!.id,
+    after: { url: input.url, events: input.events, active: input.active },
+  });
+
+  return { locationId: ctx.locationId, webhookId: row!.id };
+});
+

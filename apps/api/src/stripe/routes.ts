@@ -345,6 +345,36 @@ export function registerStripeRoutes(
     return { url: session.url, sessionId: session.id };
   });
 
+  // ── 创建 Customer Portal Session（Stripe 托管门户）─────────────────────────
+  app.post<{ Body: { returnUrl?: string } }>('/v1/billing/portal-session', async (req) => {
+    const ctx = await ownerCtx(req);
+    const [acct] = await withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => tx<{ stripe_customer_id: string | null }[]>`
+        select stripe_customer_id from billing_accounts
+        where location_id = ${ctx.locationId}`);
+
+    if (!acct?.stripe_customer_id) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, {
+        details: { reason: 'stripe_customer_not_found' },
+      });
+    }
+
+    const returnUrl = req.body?.returnUrl || 'https://desk.geniefront.app/subscription';
+    try {
+      const session = await stripeClient().billingPortal.sessions.create({
+        customer: acct.stripe_customer_id,
+        return_url: returnUrl,
+      });
+      return { url: session.url };
+    } catch (e) {
+      req.log.warn({ err: e }, 'portal-session: 创建 Stripe 门户会话失败');
+      throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, {
+        details: { service: 'stripe', reason: declineReason(e) },
+      });
+    }
+  });
+
   // ── 手动充值 ─────────────────────────────────────────────────────────────
   //
   // 老板自己点的那一次，固定 $50，买**一种**额度（积分 或 语音分钟）。

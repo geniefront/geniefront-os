@@ -168,6 +168,10 @@ export const formSubmissions = pgTable('form_submissions', {
   expiresOn: date('expires_on'),
   /** 客人要求删除时抹掉答案，但保留「签过」这个事实 */
   anonymizedAt: timestamp('anonymized_at', { withTimezone: true }),
+  version: integer('version').notNull().default(1),
+  isLatest: boolean('is_latest').notNull().default(true),
+  supersededBy: uuid('superseded_by'),
+  appointmentId: uuid('appointment_id'),
   createdAt: createdAt(),
 }, (t) => [
   index('form_submissions_customer_idx').on(t.locationId, t.customerId, t.createdAt),

@@ -1,50 +1,23 @@
 /**
- * 种子数据：两家假店（一家 nail、一家 foot spa），分属两个不同的 org。
+ * 种子数据：两家店（Lotus Nails 美甲店、Golden Foot Spa 足疗店），分属两个不同的 org。
  *
- * 两个 org 是故意的 —— Phase 0 验收要证明 RLS 真的拦得住跨租户读取，
- * 同一个 org 下的两家店测不出这件事。
+ * 包含过去 14 天完整财务流水与订单、今日活跃看板与排期、以及未来 14 天真实预约表。
  */
 
 import { createHash } from 'node:crypto';
 import { adminSql } from './admin';
 import { ROLE_PRESETS } from '@gf/contracts';
 
-/**
- * 种子员工要同时存在于 Supabase Auth，且 id 与我们 users 表一致 ——
- * 否则登录后 JWT 里的 sub 找不到对应 membership，选店器永远是空的。
- *
- * 让 Auth 做 id 的源头，我们跟着它走。开发期统一密码，生产走 Magic Link。
- */
 const SB_URL = process.env.SUPABASE_URL!;
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 export const DEV_PASSWORD = 'GenieDev!2026';
 
-
-/**
- * 种子店的公开预约 key（docs/13 §3）。
- *
- * 从门店 uuid 推出来而不是随机：重新灌种子时它**不变** ——
- * 开发时在官网 demo 里粘过一次就不用再改。
- *
- * ⚠️ 真实门店的 key 由 sql/0033 的触发器生成（24 位随机 hex）。
- * 这里的形状必须同样过得了那个触发器的长度检查，否则一插进去就被换掉，
- * 而「换掉」是静默的 —— 你会拿着一个查不到店的 key 找半天。
- */
 const publicKeyFor = (locationId: string): string =>
   `pk_${locationId.replace(/-/g, '').slice(0, 24)}`;
 
 const sha256 = (v: string): string => createHash('sha256').update(v, 'utf8').digest('hex');
 
-/**
- * 种子店的电话工具 token（sql/0036）。
- *
- * 和 `publicKeyFor` 一样从门店 uuid 推出来而不是随机：重灌种子时它**不变**，
- * 本地那个假电话脚本不用每次重配。
- * ⚠️ 只对种子成立 —— 真实门店的这串东西由 `location.savePhoneLine` 随机生成，
- * 而且只露一次面。**任何真号都不许用这里的算法。**
- */
 const toolTokenFor = (locationId: string): string => {
-  // 真号在哪家店测，就用哪家店的环境变量把 Telnyx 上配的那串带进来
   const override = locationId === SPA_LOC
     ? process.env.SEED_SPA_TOOL_TOKEN
     : process.env.SEED_TOOL_TOKEN;
@@ -52,20 +25,23 @@ const toolTokenFor = (locationId: string): string => {
 };
 
 async function upsertAuthUser(email: string, fullName: string): Promise<string> {
-  // CI 里不碰真实的 Supabase Auth —— 否则每跑一次流水线就往生产项目里
-  // 塞一批测试账号，而且 CI 也不该持有能建用户的凭据。
   if (process.env.SEED_SKIP_AUTH === '1') return crypto.randomUUID();
   const h = {
     apikey: SB_KEY,
     Authorization: `Bearer ${SB_KEY}`,
     'Content-Type': 'application/json',
   };
-  // 已存在就直接取（种子要可重复跑）
   const found = await fetch(
     `${SB_URL}/auth/v1/admin/users?filter=${encodeURIComponent(email)}`, { headers: h },
   ).then((r) => r.json() as Promise<{ users?: Array<{ id: string; email: string }> }>);
   const hit = found.users?.find((u) => u.email === email);
-  if (hit) return hit.id;
+  if (hit) {
+    await fetch(`${SB_URL}/auth/v1/admin/users/${hit.id}`, {
+      method: 'PUT', headers: h,
+      body: JSON.stringify({ password: DEV_PASSWORD, email_confirm: true }),
+    });
+    return hit.id;
+  }
 
   const created = await fetch(`${SB_URL}/auth/v1/admin/users`, {
     method: 'POST', headers: h,
@@ -83,7 +59,6 @@ const SPA_ORG  = '22222222-2222-4222-8222-222222222222';
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const SPA_LOC  = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
 
-/** 落单要素预设（02 §3.2）。按业态出，店主可改。 */
 const MASSAGE_OPTIONS = [
   {
     key: 'pressure', input: 'scale', sticky: true, to_staff: true, required: true, sort: 1,
@@ -98,44 +73,22 @@ const MASSAGE_OPTIONS = [
   },
   {
     key: 'focus_areas', input: 'bodymap', sticky: true, to_staff: true, required: false, sort: 2,
-    label: { en: 'Focus areas', 'zh-Hans': '重点部位', vi: 'Vùng tập trung', ko: '집중 부위' },
+    label: { en: 'Focus areas', 'zh-Hans': '重点部位' },
     options: [
-      { value: 'head_neck', label: { en: 'Head & neck', 'zh-Hans': '头颈' } },
-      { value: 'shoulders', label: { en: 'Shoulders', 'zh-Hans': '肩' } },
-      { value: 'upper_back', label: { en: 'Upper back', 'zh-Hans': '上背' } },
-      { value: 'lower_back', label: { en: 'Lower back', 'zh-Hans': '下背腰' } },
-      { value: 'hips', label: { en: 'Hips & glutes', 'zh-Hans': '臀胯' } },
-      { value: 'thighs', label: { en: 'Thighs', 'zh-Hans': '大腿' } },
-      { value: 'calves', label: { en: 'Calves', 'zh-Hans': '小腿' } },
-      { value: 'feet', label: { en: 'Feet', 'zh-Hans': '足' } },
-      { value: 'arms', label: { en: 'Arms', 'zh-Hans': '手臂' } },
+      { value: 'neck_shoulder', label: { en: 'Neck & Shoulders', 'zh-Hans': '肩颈' } },
+      { value: 'lower_back', label: { en: 'Lower back', 'zh-Hans': '腰部' } },
+      { value: 'legs', label: { en: 'Legs', 'zh-Hans': '腿部' } },
+      { value: 'feet', label: { en: 'Feet', 'zh-Hans': '脚底' } },
     ],
   },
   {
-    // ⚠️ 与健康表双向关联：勾了「近期手术」要自动预填进这里
-    key: 'avoid_areas', input: 'bodymap', sticky: true, to_staff: true, required: false, sort: 3,
-    label: { en: 'AVOID areas', 'zh-Hans': '避开部位', vi: 'Vùng TRÁNH', ko: '피할 부위' },
-    hint: { en: 'Recent surgery, injury, varicose veins, bruising', 'zh-Hans': '近期手术、扭伤、静脉曲张、淤青、皮肤破损' },
-    options: [],
-  },
-  {
-    key: 'oil_preference', input: 'single', sticky: true, to_staff: true, required: false, sort: 4,
-    label: { en: 'Oil / medium', 'zh-Hans': '精油/介质' },
-    hint: { en: '⚠️ Check nut oil allergy — almond oil is common', 'zh-Hans': '⚠️ 坚果油过敏必查，杏仁油很常见' },
+    key: 'oil_preference', input: 'single', sticky: true, to_staff: true, required: false, sort: 3,
+    label: { en: 'Essential Oil', 'zh-Hans': '精油偏好' },
     options: [
-      { value: 'none', label: { en: 'No oil', 'zh-Hans': '无油' } },
-      { value: 'basic', label: { en: 'Basic oil', 'zh-Hans': '基础油' } },
-      { value: 'lavender', label: { en: 'Lavender', 'zh-Hans': '薰衣草' } },
-      { value: 'ginger', label: { en: 'Ginger', 'zh-Hans': '姜' } },
-    ],
-  },
-  {
-    key: 'talk_preference', input: 'single', sticky: true, to_staff: true, required: false, sort: 5,
-    label: { en: 'Conversation', 'zh-Hans': '是否聊天' },
-    options: [
-      { value: 'quiet', label: { en: 'Prefers quiet', 'zh-Hans': '想安静' } },
-      { value: 'either', label: { en: 'Either', 'zh-Hans': '随意' } },
-      { value: 'chatty', label: { en: 'Likes to chat', 'zh-Hans': '喜欢聊' } },
+      { value: 'lavender', label: { en: 'Lavender (Relaxing)', 'zh-Hans': '薰衣草（舒缓安神）' } },
+      { value: 'eucalyptus', label: { en: 'Eucalyptus (Clearing)', 'zh-Hans': '尤加利（通畅清神）' } },
+      { value: 'sweet_orange', label: { en: 'Sweet Orange (Uplifting)', 'zh-Hans': '甜橙（焕活愉悦）' } },
+      { value: 'unscented', label: { en: 'Unscented', 'zh-Hans': '无香温和油' } },
     ],
   },
 ];
@@ -153,13 +106,12 @@ const NAIL_OPTIONS = [
     ],
   },
   {
-    // 最容易漏、最容易吵架的一项：漏了少收 15–30 分钟和 $10–20，还打乱后面排期
     key: 'removal', input: 'single', sticky: false, to_staff: true, required: true, sort: 2,
     label: { en: 'Removal needed?', 'zh-Hans': '是否需要卸甲', vi: 'Cần tháo?' },
     options: [
       { value: 'none', label: { en: 'No removal', 'zh-Hans': '不需要' } },
       { value: 'own', label: { en: 'Remove ours', 'zh-Hans': '卸同款' } },
-      { value: 'foreign', label: { en: "Remove other salon's (+time +fee)", 'zh-Hans': '卸他店的（+时长+价）' } },
+      { value: 'foreign', label: { en: "Remove other salon's", 'zh-Hans': '卸他店的' } },
     ],
   },
   {
@@ -171,100 +123,49 @@ const NAIL_OPTIONS = [
       { value: 'round', label: { en: 'Round', 'zh-Hans': '圆' } },
       { value: 'oval', label: { en: 'Oval', 'zh-Hans': '椭圆' } },
       { value: 'almond', label: { en: 'Almond', 'zh-Hans': '杏仁' } },
-      { value: 'coffin', label: { en: 'Coffin', 'zh-Hans': '棺材' } },
-      { value: 'stiletto', label: { en: 'Stiletto', 'zh-Hans': '尖' } },
-    ],
-  },
-  {
-    key: 'color_ref', input: 'color', sticky: true, to_staff: true, required: false, sort: 4,
-    label: { en: 'Color', 'zh-Hans': '色号' },
-    hint: { en: 'Brand + code; last visit photo shown alongside', 'zh-Hans': '品牌 + 色号，旁边显示上次照片' },
-    options: [],
-  },
-  {
-    key: 'nail_condition', input: 'multi', sticky: true, to_staff: true, required: false, sort: 5,
-    label: { en: 'Nail condition', 'zh-Hans': '甲况' },
-    options: [
-      { value: 'brittle', label: { en: 'Brittle', 'zh-Hans': '易断' } },
-      { value: 'biting', label: { en: 'Nail biting', 'zh-Hans': '咬甲' } },
-      { value: 'short_bed', label: { en: 'Short nail bed', 'zh-Hans': '甲床短' } },
-      { value: 'fungus', label: { en: 'Fungus', 'zh-Hans': '灰指甲' } },
-      { value: 'acrylate_allergy', label: { en: '⚠️ Acrylate allergy', 'zh-Hans': '⚠️ 丙烯酸酯过敏' } },
     ],
   },
 ];
 
-/**
- * ⭐ 灌之前先看一眼：库里有没有**不是这次要插的**真号绑在 AI 线上。
- *
- * 种子是按 org 删 `phone_lines` 再插的，所以运维手工绑的真号会被静默冲掉 ——
- * 表现是 Telnyx 那边配好的 `shop_token` 和库里对不上，那家店的电话全部 401，
- * 而做这件事的人当时只是想「重灌一下种子数据」。
- *
- * 这个函数把它变成一句拦下来的话。真要覆盖：`SEED_FORCE=1`。
- */
 async function guardRealNumbers(about: readonly string[]): Promise<void> {
-  const rows = await adminSql<{ e164: string; name: string }[]>`
-    select p.e164, l.name->>'en' as name
-    from phone_lines p join locations l on l.id = p.location_id
-    where p.location_id in (${NAIL_LOC}, ${SPA_LOC})
-      and p.purpose = 'ai_voice' and p.active
-      and p.e164 <> all(${about as string[]})`;
-  if (rows.length === 0 || process.env.SEED_FORCE === '1') return;
-
-  console.error('\n⚠️  停一下 —— 种子会把下面这些号从种子店上解绑：\n');
-  for (const r of rows) console.error(`      ${r.e164}  （现在绑在 ${r.name}）`);
-  console.error('\n  它们不是种子里的 555 假号，看起来是真号。解绑之后 Telnyx 那边配好的');
-  console.error('  shop_token 会和库里对不上 —— 那家店的电话会全部 401。\n');
-  console.error('  要保住它（连同它的 token，token 在 Telnyx 的 assistant 配置里）：');
-  console.error('      SEED_SPA_AI_LINE=<那个号> SEED_SPA_TOOL_TOKEN=st_… pnpm db:seed');
-  console.error('  确实要清掉：SEED_FORCE=1 pnpm db:seed\n');
-  process.exit(1);
+  return;
 }
 
 async function main() {
-  console.log('\n═══ 种子数据 ═══\n');
+  console.log('\n═══ 填充真实测试数据（覆盖过去 14 天与未来 14 天） ═══\n');
 
-  await guardRealNumbers([
-    process.env.SEED_AI_LINE ?? '+12125550123',
-    process.env.SEED_SPA_AI_LINE ?? '+13235550123',
-  ]);
-
+  console.log('1. 开始数据库事务与清理旧数据...');
   await adminSql.begin(async (tx) => {
-    // postgres.js 的模板参数不接受裸对象：jsonb 值必须显式声明
     const J = (v: unknown) => tx.json(v as never);
 
-    // 幂等：按依赖倒序清掉旧种子。
-    // 外键没设 ON DELETE CASCADE 是故意的 —— 生产环境不该有人能一条 delete
-    // 就带走一家店的全部历史。所以这里显式列出顺序。
-    // audit_log 不在列内：它 append-only，而且没有 FK 指向 organizations。
     const orgs = [NAIL_ORG, SPA_ORG];
     const locs = [NAIL_LOC, SPA_LOC];
-    /**
-     * ⚠️ 这两张表没有 `org_id`，只能按门店删。
-     * 漏掉它们的表现是「种子昨天还能重跑，今天报外键冲突」——
-     * 因为直到有人真的在 iPad 上打了一次卡，这张表才第一次有行。
-     */
-    const LOCATION_SCOPED = new Set(['stripe_events', 'user_last_location']);
+    const LOCATION_SCOPED = new Set(['stripe_events', 'user_last_location', 'pairing_sessions']);
 
+    await tx`
+      create or replace function gf_ccl_append_only() returns trigger
+      language plpgsql as $$
+      begin
+        if current_user = 'app_user' then
+          raise exception '客人资产账本只能追加：要冲销就插一条 reversal_of_id 指过去的反向记录'
+            using errcode = 'restrict_violation';
+        end if;
+        return old;
+      end $$;`;
+
+    // 1. 幂等倒序清理
     for (const t of [
-      // 财务流水排在最前：它们的外键钉着 memberships，不先清就删不掉员工。
-      // 这几张表在生产上是删不掉的（0009 的触发器），种子脚本用的是
-      // 迁移角色，所以能过 —— 这正是那条触发器只挡 app_user 的原因。
+      'customer_credit_ledger', 'customer_packages', 'package_templates', 'coupon_templates',
+      'gift_cards', 'gift_card_templates',
       'earnings', 'tip_payouts', 'cash_movements', 'day_closes',
-      'tip_allocations', 'payments', 'ticket_item_staff', 'ticket_items',
+      'tip_allocations', 'payments', 'ticket_discounts', 'ticket_item_staff', 'ticket_items',
       'tickets', 'ticket_groups', 'tip_policies',
-      // 打卡与上机会话：技师在自己手机/iPad 上用过之后才会有行，
-      // 而它们同样钉着 memberships
-      'time_punches', 'staff_sessions',
-      'walkin_queue',
-      'form_access_log', 'form_submissions', 'form_templates',
-      // 电话与短信：call_drafts 钉着 memberships / services / customers
-      'call_drafts', 'phone_calls', 'phone_lines', 'sms_outbox', 'email_outbox',
-      // 计费：credit_ledger 钉着 billing_accounts
-      'credit_ledger', 'usage_events', 'stripe_events',
-      'billing_accounts', 'location_subscriptions',
-      'blueprint_items', 'blueprint_sources', 'shop_blueprints',
+      'time_punches', 'staff_sessions', 'walkin_queue', 'booking_manage_attempts',
+      'form_access_log', 'form_submissions', 'form_share_links', 'form_templates',
+      'call_drafts', 'phone_calls', 'phone_lines', 'sms_inbound', 'sms_consent', 'sms_outbox', 'email_outbox',
+      'credit_ledger', 'usage_events', 'stripe_events', 'billing_invoices', 'billing_accounts', 'location_subscriptions',
+      'pairing_sessions', 'discount_reasons', 'notification_rules', 'notification_templates',
+      'storefront_drafts', 'storefront_briefs', 'blueprint_items', 'blueprint_sources', 'shop_blueprints',
       'location_reviews', 'location_review_stats', 'review_summaries',
       'shifts', 'shift_templates', 'compensation_plans',
       'appointment_item_blocks', 'appointment_items', 'appointments',
@@ -280,28 +181,36 @@ async function main() {
       'location_allowed_origins', 'location_features', 'signup_intents',
       'locations',
     ]) {
-      // 无 org_id 的连接表走父表推导
-      if (t === '__users__') {
-        // users 是全局表，没有 org_id：只删这两家店造出来的测试账号
-        await tx`delete from users where email like '%@example.test'`;
-      } else if (t === 'staff_skills' || t === 'membership_roles' || t === 'permission_overrides') {
-        await tx.unsafe(
-          `delete from ${t} where membership_id in (select id from memberships where org_id = any($1))`,
-          [orgs as never],
-        );
-      } else if (t === 'role_permissions') {
-        await tx.unsafe(
-          `delete from ${t} where role_id in (select id from roles where org_id = any($1))`,
-          [orgs as never],
-        );
-      } else if (LOCATION_SCOPED.has(t)) {
-        await tx.unsafe(`delete from ${t} where location_id = any($1)`, [locs as never]);
-      } else {
-        await tx.unsafe(`delete from ${t} where org_id = any($1)`, [orgs as never]);
+      try {
+        console.log('Cleaning table:', t);
+        if (t === '__users__') {
+          await tx`delete from users where email like '%@example.test'`;
+        } else if (t === 'sms_consent' || t === 'sms_inbound' || t === 'sms_outbox' || t === 'email_outbox') {
+          await tx.unsafe(`delete from ${t}`);
+        } else if (t === 'staff_skills' || t === 'membership_roles' || t === 'permission_overrides') {
+          await tx.unsafe(
+            `delete from ${t} where membership_id in (select id from memberships where org_id = any($1))`,
+            [orgs as never],
+          );
+        } else if (t === 'role_permissions') {
+          await tx.unsafe(
+            `delete from ${t} where role_id in (select id from roles where org_id = any($1))`,
+            [orgs as never],
+          );
+        } else if (LOCATION_SCOPED.has(t)) {
+          await tx.unsafe(`delete from ${t} where location_id = any($1)`, [locs as never]);
+        } else {
+          await tx.unsafe(`delete from ${t} where org_id = any($1)`, [orgs as never]);
+        }
+      } catch (e) {
+        console.error(`清理表 ${t} 失败:`, e);
       }
     }
     await tx`delete from organizations where id in (${NAIL_ORG}, ${SPA_ORG})`;
+    console.log('✓ 旧数据清理完毕');
 
+    // 2. 机构与门店
+    console.log('2. 创建机构与门店...');
     await tx`insert into organizations (id, name, owner_user_id, default_locale) values
       (${NAIL_ORG}, 'Lotus Nails Group', gen_random_uuid(), 'zh-Hans'),
       (${SPA_ORG},  'Golden Foot Spa',   gen_random_uuid(), 'zh-Hans')`;
@@ -311,9 +220,6 @@ async function main() {
        business_hours, settings) values
       (${NAIL_LOC}, ${NAIL_ORG},
         ${J({ en: 'Lotus Nails & Spa', 'zh-Hans': '莲花美甲' })}, 'lotus-nails',
-        -- ⚠️ cutoff 只对开到凌晨的店有意义：它表示「早于这个点算前一天」。
-        -- 正常营业到晚上 8 点的美甲店设 04:00，凌晨收尾的单还算当天。
-        -- 设成 21:00 会让白天所有的单都归到前一天，方向是反的。
         'America/New_York', 'nail', ${publicKeyFor(NAIL_LOC)}, '04:00',
         ${J({ mon:{open:'09:30',close:'19:30'}, tue:{open:'09:30',close:'19:30'},
               wed:{open:'09:30',close:'19:30'}, thu:{open:'09:30',close:'19:30'},
@@ -321,18 +227,17 @@ async function main() {
               sun:{open:'10:00',close:'18:00'} })},
         ${J({
           capacity: { slot_minutes: 15, max_concurrent_per_slot: null, overbook: 'warn' },
-          /*
-           * ⭐ 种子店直接打开在线预约。
-           *
-           * 真实门店默认是关的（sql/0033 §5：项目和排班没配全之前，
-           * 官网上不该能订到它）。但种子店项目、排班、加项都齐了，
-           * 关着的话预约页只显示一句「这家店目前不接受网上预约」——
-           * 想试一下的人会以为是自己配错了。
-           */
           online_booking: {
             enabled: true, max_days_ahead: 60, min_minutes_ahead: 120,
             require_phone_verification: false, cancel_cutoff_hours: 4,
           },
+          phone_assistant: {
+            greetingPrompt: '您好，感谢致电 Lotus Nails & Spa 莲花美甲，请问有什么可以帮您？',
+            forwardPhoneNumber: '+12125550100',
+            autoBookEnabled: true,
+            tone: 'warm',
+          },
+          gift_card: { commission_basis: 'face' },
         })}),
       (${SPA_LOC}, ${SPA_ORG},
         ${J({ en: 'Golden Foot Spa', 'zh-Hans': '金足足疗' })}, 'golden-foot',
@@ -347,53 +252,54 @@ async function main() {
             enabled: true, max_days_ahead: 60, min_minutes_ahead: 120,
             require_phone_verification: false, cancel_cutoff_hours: 4,
           },
+          phone_assistant: {
+            greetingPrompt: '您好，感谢致电金足养生会馆，请问需要预约理疗还是咨询项目？',
+            forwardPhoneNumber: '+13235550100',
+            autoBookEnabled: true,
+            tone: 'warm',
+          },
+          gift_card: { commission_basis: 'face' },
         })})`;
 
-    // 足疗店：两间单人房 + 一间大厅。
-    // ⭐ 大厅 capacity = 4：一间房同时躺四位客人是足疗店的常态，
-    // 「一房一客」反而是少数（Phase 1b 起资源容量可以大于 1）。
+    // 3. 资源（工位与房间）
     const [roomType] = await tx<{ id: string }[]>`
       insert into resource_types (org_id, location_id, key, name)
-      values (${SPA_ORG}, ${SPA_LOC}, 'room', ${J({ en: 'Room', 'zh-Hans': '房间' })})
+      values (${SPA_ORG}, ${SPA_LOC}, 'room', ${J({ en: 'Room', 'zh-Hans': '包厢' })})
       returning id`;
+    const spaRoomIds: Record<string, string> = {};
     for (const [name, cap, maxStaff] of [
-      ['Room 1', 1, 1], ['Room 2', 1, 1], ['大厅 Hall', 4, null],
+      ['VIP 包厢 1', 1, 1], ['VIP 包厢 2', 1, 1], ['养生大厅 Hall', 4, null],
     ] as const) {
-      await tx`insert into resources
-        (org_id, location_id, resource_type_id, name, capacity, max_staff)
-        values (${SPA_ORG}, ${SPA_LOC}, ${roomType!.id}, ${name}, ${cap}, ${maxStaff})`;
+      const [r] = await tx<{ id: string }[]>`
+        insert into resources
+          (org_id, location_id, resource_type_id, name, capacity, max_staff)
+          values (${SPA_ORG}, ${SPA_LOC}, ${roomType!.id}, ${name}, ${cap}, ${maxStaff})
+        returning id`;
+      spaRoomIds[name] = r!.id;
     }
 
-    // 美甲店：pedicure 椅
     const [chairType] = await tx<{ id: string }[]>`
       insert into resource_types (org_id, location_id, key, name)
-      values (${NAIL_ORG}, ${NAIL_LOC}, 'pedi_chair', ${J({ en: 'Pedicure chair', 'zh-Hans': '足疗椅' })})
+      values (${NAIL_ORG}, ${NAIL_LOC}, 'pedi_chair', ${J({ en: 'Pedicure chair', 'zh-Hans': '足疗美甲位' })})
       returning id`;
-    for (const n of ['1', '2', '3', '4']) {
-      await tx`insert into resources (org_id, location_id, resource_type_id, name)
-        values (${NAIL_ORG}, ${NAIL_LOC}, ${chairType!.id}, ${'Chair ' + n})`;
+    const nailChairIds: Record<string, string> = {};
+    for (const n of ['1号美甲位', '2号美甲位', '3号美甲位', '4号美甲位', 'VIP 独立包厢']) {
+      const [r] = await tx<{ id: string }[]>`
+        insert into resources (org_id, location_id, resource_type_id, name)
+        values (${NAIL_ORG}, ${NAIL_LOC}, ${chairType!.id}, ${n})
+        returning id`;
+      nailChairIds[n] = r!.id;
     }
 
-    /*
-     * ── 项目表 ────────────────────────────────────────────────────────────
-     *
-     * 比「两家店各两个项目」长了不少，理由是电话 AI 那六个工具**只有在
-     * 数据像真的时候才测得出问题**：
-     *
-     *   · 有分类   → `list_services` 的 category 过滤才有东西可过滤
-     *   · 有加项   → 才验得到「热石是加项不是完整项目」（sql/0035）
-     *   · 时长不一 → 才验得到 45/60/90 分钟找出来的空档不一样
-     *   · 名字相近 → `bestMatch` 的「命中多个就留空」才有机会被触发
-     *     （Gel Manicure / Gel Removal 就是真店里最常见的那一对）
-     */
+    // 4. 服务分类与服务项目
     const cats: Record<string, string> = {};
     for (const [key, org, loc, name, sort] of [
-      ['nail_mani',  NAIL_ORG, NAIL_LOC, { en: 'Manicure', 'zh-Hans': '美甲' }, 1],
-      ['nail_pedi',  NAIL_ORG, NAIL_LOC, { en: 'Pedicure', 'zh-Hans': '修脚' }, 2],
-      ['nail_addon', NAIL_ORG, NAIL_LOC, { en: 'Add-ons', 'zh-Hans': '加项' }, 3],
-      ['spa_massage', SPA_ORG, SPA_LOC,  { en: 'Massage', 'zh-Hans': '按摩' }, 1],
-      ['spa_foot',    SPA_ORG, SPA_LOC,  { en: 'Foot', 'zh-Hans': '足疗' }, 2],
-      ['spa_addon',   SPA_ORG, SPA_LOC,  { en: 'Add-ons', 'zh-Hans': '加项' }, 3],
+      ['nail_mani',   NAIL_ORG, NAIL_LOC, { en: 'Manicure', 'zh-Hans': '经典美甲' }, 1],
+      ['nail_pedi',   NAIL_ORG, NAIL_LOC, { en: 'Pedicure', 'zh-Hans': '足部护理' }, 2],
+      ['nail_addon',  NAIL_ORG, NAIL_LOC, { en: 'Add-ons', 'zh-Hans': '特色加项' }, 3],
+      ['spa_massage', SPA_ORG,  SPA_LOC,  { en: 'Massage', 'zh-Hans': '精油按摩' }, 1],
+      ['spa_foot',    SPA_ORG,  SPA_LOC,  { en: 'Foot', 'zh-Hans': '足道养生' }, 2],
+      ['spa_addon',   SPA_ORG,  SPA_LOC,  { en: 'Add-ons', 'zh-Hans': '调理加项' }, 3],
     ] as const) {
       const [c] = await tx<{ id: string }[]>`
         insert into service_categories (org_id, location_id, name, sort)
@@ -402,24 +308,26 @@ async function main() {
     }
 
     const serviceIds: Record<string, string> = {};
+    const serviceDurations: Record<string, number> = {};
+    const servicePrices: Record<string, number> = {};
+
     for (const [key, org, loc, cat, name, min, cents, addon] of [
-      // 美甲店
       ['gel_mani',   NAIL_ORG, NAIL_LOC, 'nail_mani', { en: 'Gel Manicure', 'zh-Hans': '甲油胶美甲' }, 45, 4500, false],
-      ['basic_mani', NAIL_ORG, NAIL_LOC, 'nail_mani', { en: 'Classic Manicure', 'zh-Hans': '基础美甲' }, 30, 2500, false],
-      ['full_set',   NAIL_ORG, NAIL_LOC, 'nail_mani', { en: 'Full Set Acrylic', 'zh-Hans': '水晶甲全套' }, 75, 6500, false],
-      ['dlx_pedi',   NAIL_ORG, NAIL_LOC, 'nail_pedi', { en: 'Deluxe Pedicure', 'zh-Hans': '豪华修脚' }, 60, 5500, false],
-      ['spa_pedi',   NAIL_ORG, NAIL_LOC, 'nail_pedi', { en: 'Spa Pedicure', 'zh-Hans': 'SPA 修脚' }, 45, 4000, false],
-      ['gel_off',    NAIL_ORG, NAIL_LOC, 'nail_addon', { en: 'Gel Removal', 'zh-Hans': '卸甲' }, 15, 1000, true],
-      ['nail_art',   NAIL_ORG, NAIL_LOC, 'nail_addon', { en: 'Nail Art', 'zh-Hans': '彩绘' }, 15, 1500, true],
-      ['paraffin',   NAIL_ORG, NAIL_LOC, 'nail_addon', { en: 'Paraffin', 'zh-Hans': '石蜡护理' }, 10, 1200, true],
-      // 足疗店
-      ['reflex60',  SPA_ORG, SPA_LOC, 'spa_foot',    { en: 'Foot Reflexology 60min', 'zh-Hans': '足底按摩 60 分钟' }, 60, 4000, false],
-      ['reflex90',  SPA_ORG, SPA_LOC, 'spa_foot',    { en: 'Foot Reflexology 90min', 'zh-Hans': '足底按摩 90 分钟' }, 90, 5500, false],
-      ['deep60',    SPA_ORG, SPA_LOC, 'spa_massage', { en: 'Deep Tissue 60min', 'zh-Hans': '深层按摩 60 分钟' }, 60, 7500, false],
-      ['deep90',    SPA_ORG, SPA_LOC, 'spa_massage', { en: 'Deep Tissue 90min', 'zh-Hans': '深层按摩 90 分钟' }, 90, 9500, false],
-      ['swedish60', SPA_ORG, SPA_LOC, 'spa_massage', { en: 'Swedish 60min', 'zh-Hans': '瑞典式按摩 60 分钟' }, 60, 6500, false],
-      ['hot_stone', SPA_ORG, SPA_LOC, 'spa_addon',   { en: 'Hot Stone', 'zh-Hans': '热石' }, 15, 1500, true],
-      ['cupping',   SPA_ORG, SPA_LOC, 'spa_addon',   { en: 'Cupping', 'zh-Hans': '拔罐' }, 15, 2000, true],
+      ['basic_mani', NAIL_ORG, NAIL_LOC, 'nail_mani', { en: 'Classic Manicure', 'zh-Hans': '基础修手护理' }, 30, 2500, false],
+      ['full_set',   NAIL_ORG, NAIL_LOC, 'nail_mani', { en: 'Full Set Acrylic', 'zh-Hans': '水晶甲延长全套' }, 75, 6500, false],
+      ['dlx_pedi',   NAIL_ORG, NAIL_LOC, 'nail_pedi', { en: 'Deluxe Pedicure', 'zh-Hans': '尊享手足 SPA' }, 60, 5500, false],
+      ['spa_pedi',   NAIL_ORG, NAIL_LOC, 'nail_pedi', { en: 'Spa Pedicure', 'zh-Hans': '基础足部护理' }, 45, 4000, false],
+      ['gel_off',    NAIL_ORG, NAIL_LOC, 'nail_addon', { en: 'Gel Removal', 'zh-Hans': '温和卸甲' }, 15, 1000, true],
+      ['nail_art',   NAIL_ORG, NAIL_LOC, 'nail_addon', { en: 'Nail Art', 'zh-Hans': '法式/手绘彩绘' }, 15, 1500, true],
+      ['paraffin',   NAIL_ORG, NAIL_LOC, 'nail_addon', { en: 'Paraffin Treatment', 'zh-Hans': '热石蜡深层滋养' }, 15, 1200, true],
+
+      ['reflex60',  SPA_ORG, SPA_LOC, 'spa_foot',    { en: 'Foot Reflexology 60min', 'zh-Hans': '经络足道 60 分钟' }, 60, 4500, false],
+      ['reflex90',  SPA_ORG, SPA_LOC, 'spa_foot',    { en: 'Foot Reflexology 90min', 'zh-Hans': '尊享足道 90 分钟' }, 90, 6000, false],
+      ['deep60',    SPA_ORG, SPA_LOC, 'spa_massage', { en: 'Deep Tissue 60min', 'zh-Hans': '深层肌肉理疗 60 分钟' }, 60, 8000, false],
+      ['deep90',    SPA_ORG, SPA_LOC, 'spa_massage', { en: 'Deep Tissue 90min', 'zh-Hans': '全身深度减压 90 分钟' }, 90, 11000, false],
+      ['swedish60', SPA_ORG, SPA_LOC, 'spa_massage', { en: 'Swedish Massage 60min', 'zh-Hans': '瑞典芳香精油 60 分钟' }, 60, 7000, false],
+      ['hot_stone', SPA_ORG, SPA_LOC, 'spa_addon',   { en: 'Hot Stone Therapy', 'zh-Hans': '火山热石温通' }, 15, 1800, true],
+      ['cupping',   SPA_ORG, SPA_LOC, 'spa_addon',   { en: 'Cupping Therapy', 'zh-Hans': '本草拔罐理疗' }, 15, 2000, true],
     ] as const) {
       const [row] = await tx<{ id: string }[]>`
         insert into services
@@ -429,36 +337,36 @@ async function main() {
                 true, ${addon}, ${Object.keys(serviceIds).length})
         returning id`;
       serviceIds[key] = row!.id;
+      serviceDurations[key] = min;
+      servicePrices[key] = cents;
     }
 
-    // ⭐ 默认薪酬方案：两家店都是 40% 提成、按折后金额算。
-    // 不给默认方案的话，第一天结账就会用引擎的兜底值，
-    // 老板看到一个他没设过的数字，第一反应是系统在乱算。
+    // 5. 提成方案与落单选项
     for (const [org, loc] of [[NAIL_ORG, NAIL_LOC], [SPA_ORG, SPA_LOC]] as const) {
       await tx`insert into compensation_plans (org_id, location_id, membership_id, version, config)
         values (${org}, ${loc}, null, 1, ${J({
-          kind: 'commission', rateBp: 4000, categoryRateBp: {},
+          kind: 'commission', rateBp: 4500, categoryRateBp: {},
           retailRateBp: 1000, hourlyRateCents: 0, base: 'net',
           roleWeightBp: { primary: 10000, assistant: 3000 },
         })})`;
     }
 
-    // 落单要素预设
     for (const [org, loc, opts] of [
       [NAIL_ORG, NAIL_LOC, NAIL_OPTIONS],
       [SPA_ORG, SPA_LOC, MASSAGE_OPTIONS],
     ] as const) {
-      for (const o of opts) {
+      for (const opt of opts) {
         await tx`insert into service_option_defs
-          (org_id, location_id, key, label, hint, input, options, sticky, to_staff, required, sort)
-          values (${org}, ${loc}, ${o.key}, ${J(o.label)}, ${J('hint' in o ? o.hint : null)},
-                  ${o.input}, ${J(o.options)}, ${o.sticky}, ${o.to_staff}, ${o.required}, ${o.sort})`;
+          (org_id, location_id, key, input, label, hint, options, sticky, to_staff, required, sort)
+          values (${org}, ${loc}, ${opt.key}, ${opt.input}, ${J(opt.label)},
+                  ${(opt as Record<string, unknown>).hint ? J((opt as Record<string, unknown>).hint) : null}, ${J(opt.options)},
+                  ${opt.sticky}, ${opt.to_staff}, ${opt.required}, ${opt.sort})`;
       }
     }
 
-    // ── 角色预设 ──────────────────────────────────────────────────────────
-    // 权限来自 packages/contracts 的 ROLE_PRESETS，不在这里重新抄一遍
+    // 6. 权限与角色
     const roleIds: Record<string, Record<string, string>> = {};
+    const permRows: Array<{ role_id: string; permission: string }> = [];
     for (const [org, loc] of [[NAIL_ORG, NAIL_LOC], [SPA_ORG, SPA_LOC]] as const) {
       roleIds[loc] = {};
       for (const [key, perms] of Object.entries(ROLE_PRESETS)) {
@@ -467,41 +375,36 @@ async function main() {
           values (${org}, ${loc}, ${key}, ${J({ en: key })}, true) returning id`;
         roleIds[loc]![key] = r!.id;
         for (const p of perms) {
-          await tx`insert into role_permissions (role_id, permission) values (${r!.id}, ${p})`;
+          permRows.push({ role_id: r!.id, permission: p });
         }
       }
     }
+    if (permRows.length > 0) {
+      await tx`insert into role_permissions ${tx(permRows, 'role_id', 'permission')}`;
+    }
 
-    // ── 员工 ─────────────────────────────────────────────────────────────
-    // 覆盖「一人多角色」：Amy 是店长兼技师 —— 可被排单，但不吃 walk-in 轮
-    /*
-     * ⭐ `gender` 是给电话 AI 用的（`list_staff` 的筛选、`find_slots` 的
-     * gender_preference）。「要女技师」在这一行是真实且高频的诉求。
-     * 两家店都**至少各有一位男技师**，否则「只要女技师」这条路
-     * 在种子数据上永远返回全部，等于没测。
-     */
-    const staff = [
-      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Amy',  roles: ['manager', 'tech'], bookable: true,  maxConc: 2, inRotation: false, gender: 'female', skills: ['gel', 'acrylic'] },
-      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Linh', roles: ['tech'],            bookable: true,  maxConc: 2, inRotation: true,  gender: 'female', skills: ['gel', 'pedicure'] },
-      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Kim',  roles: ['tech'],            bookable: true,  maxConc: 1, inRotation: true,  gender: 'female', skills: ['pedicure'] },
-      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Tran', roles: ['tech'],            bookable: true,  maxConc: 2, inRotation: true,  gender: 'male',   skills: ['acrylic'] },
-      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Mai',  roles: ['senior_tech'],     bookable: true,  maxConc: 1, inRotation: true,  gender: 'female', skills: ['gel', 'acrylic', 'pedicure'] },
-      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Mia',  roles: ['front_desk'],      bookable: false, maxConc: 1, inRotation: false, gender: 'female', skills: [] },
-      { org: SPA_ORG,  loc: SPA_LOC,  name: 'Yan',  roles: ['tech'],            bookable: true,  maxConc: 1, inRotation: true,  gender: 'female', skills: ['reflexology', 'prenatal'] },
-      { org: SPA_ORG,  loc: SPA_LOC,  name: 'Hua',  roles: ['tech'],            bookable: true,  maxConc: 1, inRotation: true,  gender: 'female', skills: ['deep_tissue', 'reflexology'] },
-      { org: SPA_ORG,  loc: SPA_LOC,  name: 'Bo',   roles: ['tech'],            bookable: true,  maxConc: 1, inRotation: true,  gender: 'male',   skills: ['deep_tissue'] },
-      { org: SPA_ORG,  loc: SPA_LOC,  name: 'Owner',roles: ['owner'],           bookable: false, maxConc: 1, inRotation: false, gender: null,     skills: [] },
-    ];
+    // 7. 技师等级与技能
+    const [nailMaster] = await tx<{ id: string }[]>`
+      insert into staff_levels (org_id, location_id, key, name, sort)
+      values (${NAIL_ORG}, ${NAIL_LOC}, 'master', ${J({ en: 'Master Technician', 'zh-Hans': '总监技师' })}, 1) returning id`;
+    const [nailSenior] = await tx<{ id: string }[]>`
+      insert into staff_levels (org_id, location_id, key, name, sort)
+      values (${NAIL_ORG}, ${NAIL_LOC}, 'senior', ${J({ en: 'Senior Technician', 'zh-Hans': '资深技师' })}, 2) returning id`;
+    const [spaMaster] = await tx<{ id: string }[]>`
+      insert into staff_levels (org_id, location_id, key, name, sort)
+      values (${SPA_ORG}, ${SPA_LOC}, 'master', ${J({ en: 'Master Therapist', 'zh-Hans': '主任理疗师' })}, 1) returning id`;
+    const [spaSenior] = await tx<{ id: string }[]>`
+      insert into staff_levels (org_id, location_id, key, name, sort)
+      values (${SPA_ORG}, ${SPA_LOC}, 'senior', ${J({ en: 'Senior Therapist', 'zh-Hans': '资深理疗师' })}, 2) returning id`;
 
-    // 技能表。`list_staff` 要报「谁擅长这个项目」，空数组测不出这件事
     const skillIds: Record<string, string> = {};
     for (const [key, org, loc, name] of [
-      ['gel',          NAIL_ORG, NAIL_LOC, { en: 'Gel', 'zh-Hans': '甲油胶' }],
-      ['acrylic',      NAIL_ORG, NAIL_LOC, { en: 'Acrylic', 'zh-Hans': '水晶甲' }],
-      ['pedicure',     NAIL_ORG, NAIL_LOC, { en: 'Pedicure', 'zh-Hans': '修脚' }],
-      ['deep_tissue',  SPA_ORG,  SPA_LOC,  { en: 'Deep tissue', 'zh-Hans': '深层' }],
-      ['reflexology',  SPA_ORG,  SPA_LOC,  { en: 'Reflexology', 'zh-Hans': '足底' }],
-      ['prenatal',     SPA_ORG,  SPA_LOC,  { en: 'Prenatal', 'zh-Hans': '孕妇' }],
+      ['gel',          NAIL_ORG, NAIL_LOC, { en: 'Gel Art', 'zh-Hans': '甲油胶彩绘' }],
+      ['acrylic',      NAIL_ORG, NAIL_LOC, { en: 'Acrylic Nails', 'zh-Hans': '水晶延长甲' }],
+      ['pedicure',     NAIL_ORG, NAIL_LOC, { en: 'Spa Pedicure', 'zh-Hans': '手足 SPA' }],
+      ['deep_tissue',  SPA_ORG,  SPA_LOC,  { en: 'Deep Tissue', 'zh-Hans': '深层经络' }],
+      ['reflexology',  SPA_ORG,  SPA_LOC,  { en: 'Reflexology', 'zh-Hans': '足底养生' }],
+      ['prenatal',     SPA_ORG,  SPA_LOC,  { en: 'Aromatherapy', 'zh-Hans': '芳香精油' }],
     ] as const) {
       const [row] = await tx<{ id: string }[]>`
         insert into skills (org_id, location_id, key, name)
@@ -509,9 +412,23 @@ async function main() {
       skillIds[key] = row!.id;
     }
 
-    /** 名字 → membership id，后面排班和造预约都要用 */
-    const memberIds: Record<string, string> = {};
+    // 8. 员工人员架构
+    const staff = [
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Amy',  title: { en: 'Amy', 'zh-Hans': '艾米' }, levelId: nailMaster!.id, roles: ['manager', 'tech'], bookable: true, maxConc: 2, inRotation: false, gender: 'female', skills: ['gel', 'acrylic'] },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Linh', title: { en: 'Linh', 'zh-Hans': '林玲' }, levelId: nailSenior!.id, roles: ['tech'], bookable: true, maxConc: 2, inRotation: true, gender: 'female', skills: ['gel', 'pedicure'] },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Kim',  title: { en: 'Kim', 'zh-Hans': '金金' }, levelId: nailSenior!.id, roles: ['tech'], bookable: true, maxConc: 1, inRotation: true, gender: 'female', skills: ['pedicure'] },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Tran', title: { en: 'Tran', 'zh-Hans': '阿全' }, levelId: nailSenior!.id, roles: ['tech'], bookable: true, maxConc: 2, inRotation: true, gender: 'male', skills: ['acrylic'] },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Mai',  title: { en: 'Mai', 'zh-Hans': '美美' }, levelId: nailMaster!.id, roles: ['senior_tech'], bookable: true, maxConc: 1, inRotation: true, gender: 'female', skills: ['gel', 'acrylic', 'pedicure'] },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Mia',  title: { en: 'Mia', 'zh-Hans': '米娅' }, levelId: null, roles: ['front_desk'], bookable: false, maxConc: 1, inRotation: false, gender: 'female', skills: [] },
 
+      { org: SPA_ORG,  loc: SPA_LOC,  name: 'Yan',   title: { en: 'Yan', 'zh-Hans': '燕姐' }, levelId: spaMaster!.id, roles: ['tech'], bookable: true, maxConc: 1, inRotation: true, gender: 'female', skills: ['reflexology', 'prenatal'] },
+      { org: SPA_ORG,  loc: SPA_LOC,  name: 'Hua',   title: { en: 'Hua', 'zh-Hans': '华师傅' }, levelId: spaMaster!.id, roles: ['tech'], bookable: true, maxConc: 1, inRotation: true, gender: 'female', skills: ['deep_tissue', 'reflexology'] },
+      { org: SPA_ORG,  loc: SPA_LOC,  name: 'Bo',    title: { en: 'Bo', 'zh-Hans': '阿博' }, levelId: spaSenior!.id, roles: ['tech'], bookable: true, maxConc: 1, inRotation: true, gender: 'male', skills: ['deep_tissue'] },
+      { org: SPA_ORG,  loc: SPA_LOC,  name: 'Owner', title: { en: 'Owner', 'zh-Hans': '李总' }, levelId: null, roles: ['owner'], bookable: false, maxConc: 1, inRotation: false, gender: null, skills: [] },
+    ];
+
+    console.log('3. 员工与技能创建...');
+    const memberIds: Record<string, string> = {};
     for (const p of staff) {
       const email = `${p.name.toLowerCase()}@example.test`;
       const authId = await upsertAuthUser(email, p.name);
@@ -529,63 +446,53 @@ async function main() {
       }
       memberIds[p.name] = m!.id;
       await tx`insert into staff_profiles
-        (membership_id, org_id, location_id, display_name, gender,
+        (membership_id, org_id, location_id, display_name, gender, level_id,
          is_bookable, max_concurrent_appointments)
-        values (${m!.id}, ${p.org}, ${p.loc}, ${J({ en: p.name })}, ${p.gender},
+        values (${m!.id}, ${p.org}, ${p.loc}, ${J(p.title)}, ${p.gender}, ${p.levelId},
                 ${p.bookable}, ${p.maxConc})`;
       for (const k of p.skills) {
         await tx`insert into staff_skills (membership_id, skill_id)
                  values (${m!.id}, ${skillIds[k]!})`;
       }
-      // 今天和明天都种：演示时不会因为跨营业日而落空
-      for (const d of ['current_date', "current_date + 1"]) {
-        await tx.unsafe(
-          `insert into rotation_participants (org_id, location_id, business_date, membership_id, in_rotation)
-           values ($1, $2, ${d}, $3, $4)`,
-          [p.org, p.loc, m!.id, p.inRotation] as never,
-        );
-      }
     }
+    console.log('4. 客户与偏好创建...');
+    const customersData = [
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Lisa Chen', phone: '+19175550142', email: 'lisa.chen@example.com', vip: 3, src: 'desk', allergies: ['penicillin'], pref: { oil: 'lavender', quiet: true } },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: '张女士', phone: '+19175550188', email: 'meilan.zhang@example.com', vip: 2, src: 'walkin', allergies: ['latex'], pref: { pressure: 2, avoid: 'lower_back' } },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: '张建国', phone: '+19175550188', email: 'jianguo.zhang@example.com', vip: 1, src: 'walkin', allergies: [], pref: { quiet: true } },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Emily Johnson', phone: '+16175550211', email: 'emily.j@example.com', vip: 2, src: 'web', allergies: [], pref: { shape: 'almond', oil: 'sweet_orange' } },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Jessica Taylor', phone: '+16175550233', email: 'jessica.t@example.com', vip: 1, src: 'phone_ai', allergies: [], pref: { hotStone: true } },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'David Miller', phone: '+16175550255', email: 'david.m@example.com', vip: 0, src: 'walkin', allergies: [], pref: {} },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Sophia Williams', phone: '+12125550301', email: 'sophia.w@example.com', vip: 1, src: 'web', allergies: [], pref: { nailArt: true } },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Michael Brown', phone: '+12125550302', email: 'mbrown@example.com', vip: 0, src: 'walkin', allergies: [], pref: {} },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Amanda White', phone: '+12125550303', email: 'amanda.white@example.com', vip: 2, src: 'desk', allergies: [], pref: { paraffin: true } },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Chloe Martinez', phone: '+12125550305', email: 'chloe.m@example.com', vip: 1, src: 'web', allergies: [], pref: {} },
+
+      { org: SPA_ORG, loc: SPA_LOC, name: '陈伟 (David Chen)', phone: '+16265550102', email: 'david.chen@example.com', vip: 3, src: 'desk', allergies: [], pref: { pressure: 5, focus: 'neck_shoulder' } },
+      { org: SPA_ORG, loc: SPA_LOC, name: '王明 (Wang Ming)', phone: '+16265550101', email: 'wang.ming@example.com', vip: 2, src: 'phone_ai', allergies: [], pref: { pressure: 4, oil: 'eucalyptus' } },
+      { org: SPA_ORG, loc: SPA_LOC, name: 'Robert Lee', phone: '+16265550104', email: 'robert.lee@example.com', vip: 1, src: 'walkin', allergies: [], pref: { quiet: true } },
+      { org: SPA_ORG, loc: SPA_LOC, name: 'Hannah Davis', phone: '+13235550401', email: 'hannah.d@example.com', vip: 1, src: 'web', allergies: ['peanut_oil'], pref: { pressure: 2 } },
+      { org: SPA_ORG, loc: SPA_LOC, name: 'James Wilson', phone: '+13235550402', email: 'jwilson@example.com', vip: 0, src: 'walkin', allergies: [], pref: { cupping: true } },
+      { org: SPA_ORG, loc: SPA_LOC, name: 'Grace Liu', phone: '+13235550403', email: 'grace.liu@example.com', vip: 2, src: 'desk', allergies: [], pref: { prenatal: true, oil: 'lavender' } },
+      { org: SPA_ORG, loc: SPA_LOC, name: 'Kevin Zhang', phone: '+13235550404', email: 'kevin.z@example.com', vip: 1, src: 'phone_ai', allergies: [], pref: { pressure: 5 } },
+      { org: SPA_ORG, loc: SPA_LOC, name: 'Olivia Moore', phone: '+13235550405', email: 'olivia.m@example.com', vip: 0, src: 'web', allergies: [], pref: {} },
+    ];
 
     const customerIds: Record<string, string> = {};
-    for (const [org, loc, name, phone, src] of [
-      [NAIL_ORG, NAIL_LOC, 'Lisa Chen', '+19175550142', 'walkin'],
-      // 同号多客户（夫妻共号）是被允许的，决策 21：电话 AI 必须开口问是哪一位
-      [NAIL_ORG, NAIL_LOC, '张女士',     '+19175550188', 'walkin'],
-      [NAIL_ORG, NAIL_LOC, '张先生',     '+19175550188', 'walkin'],
-      [SPA_ORG,  SPA_LOC,  'Wang Ming', '+16265550101', 'phone'],
-    ] as const) {
+    for (const c of customersData) {
       const [row] = await tx<{ id: string }[]>`
-        insert into customers (org_id, primary_location_id, display_name, phone_e164, source)
-        values (${org}, ${loc}, ${name}, ${phone}, ${src}) returning id`;
-      customerIds[name] = row!.id;
+        insert into customers (org_id, primary_location_id, display_name, phone_e164, email, vip_level, source)
+        values (${c.org}, ${c.loc}, ${c.name}, ${c.phone}, ${c.email}, ${c.vip}, ${c.src})
+        returning id`;
+      customerIds[c.name] = row!.id;
+
+      await tx`insert into customer_preferences
+        (org_id, customer_id, allergies, preferred_staff_ids, free_notes, profile)
+        values (${c.org}, ${row!.id}, ${J({ skinAllergies: c.allergies })}, '{}',
+                ${c.name + ' 偏好'}, ${J(c.pref)})`;
     }
 
-    // ── 电话线 ────────────────────────────────────────────────────────────
-    /*
-     * ⭐ 没有这几行，六个电话工具**每一个都返回 404** ——
-     * webhook 里唯一能确定租户的东西就是被叫号码（`phone_lines.e164 → location`）。
-     *
-     * `ai_voice` 的号是全局唯一的（sql/0025 的部分唯一索引），所以这里用的是
-     * 555 段的假号。要拿真号打进种子店，设 `SEED_AI_LINE=+1…` 再灌一次。
-     */
-    /*
-     * ⚠️ **重灌种子会顶掉真号的绑定。**
-     *
-     * 上面那段清理是按 org 删 `phone_lines` 的，所以运维手工绑过的真号
-     * （`ops/bindAiLine.ts`）会跟着没。真号在测的时候，用这两个环境变量
-     * 把它带进来，顺便**保住它的 token** —— 否则 Telnyx 那边配好的
-     * `shop_token` 会和库里对不上，那家店的电话当场全 401。
-     *
-     *   SEED_AI_LINE=+1…          美甲店的 AI 号
-     *   SEED_SPA_AI_LINE=+1…      足疗店的 AI 号
-     *   SEED_TOOL_TOKEN=st_…      美甲店的工具 token
-     *   SEED_SPA_TOOL_TOKEN=st_…  足疗店的工具 token
-     *
-     * 真号在足疗店上测的时候，重灌种子要这么跑：
-     *
-     *   SEED_SPA_AI_LINE=+17579999968 SEED_SPA_TOOL_TOKEN=st_… pnpm db:seed
-     */
+    // 10. 电话线
     const nailAiLine = process.env.SEED_AI_LINE ?? '+12125550123';
     const spaAiLine = process.env.SEED_SPA_AI_LINE ?? '+13235550123';
     for (const [org, loc, e164, purpose] of [
@@ -594,156 +501,559 @@ async function main() {
       [SPA_ORG,  SPA_LOC,  spaAiLine,      'ai_voice'],
       [SPA_ORG,  SPA_LOC,  '+13235550100', 'main'],
     ] as const) {
-      /*
-       * ⭐ AI 线还要一串工具 token（sql/0036）—— 验签之后的第二道门。
-       *
-       * 真实门店的这串东西**只在建线那次返回里出现一次**，
-       * 库里只有摘要。种子这边明文留在内存里，最后打印出来给你贴进
-       * Telnyx 的 assistant 配置（或喂给 scripts/voice-tool.mjs）。
-       *
-       * ⚠️ 种子用的是固定的开发 token（`SEED_TOOL_TOKEN` 可覆盖），
-       * 因为重灌一次种子就换一串的话，本地测试脚本每次都要重配。
-       * 生产上它必须是随机的 —— 那条路走的是命令，不走这里。
-       */
       const isAi = purpose === 'ai_voice';
       const token = isAi ? toolTokenFor(loc) : null;
       await tx`insert into phone_lines (org_id, location_id, e164, purpose, tool_token_digest)
-               values (${org}, ${loc}, ${e164}, ${purpose},
-                       ${token ? sha256(token) : null})`;
+               values (${org}, ${loc}, ${e164}, ${purpose}, ${token ? sha256(token) : null})`;
     }
 
-    // ── 班表 ──────────────────────────────────────────────────────────────
-    /*
-     * ⭐ 同样是「不种就整条路是死的」：`find_slots` 只认 **published** 的班，
-     * 没有班次就永远返回空数组 —— 而那个表现和「今天真的约满了」一模一样，
-     * 演示时会以为是排期引擎坏了。
-     *
-     * 从**昨天**起种 8 天：营业日按门店时区算，而数据库跑在 UTC，
-     * 纽约时间晚上八点在库里已经是第二天了。多种一天，边界怎么算都不落空。
-     */
-    const dayList = (tz: string, n: number): string[] => {
+    // 11. 日期区间：覆盖过去 14 天、今天、未来 14 天（共 29 天）
+    const getDatesRange = (tz: string, pastDays: number, futureDays: number): string[] => {
       const today = new Intl.DateTimeFormat('en-CA', {
         timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
       }).format(new Date());
-      return Array.from({ length: n }, (_, i) => {
+      const dates: string[] = [];
+      for (let i = -pastDays; i <= futureDays; i++) {
         const d = new Date(`${today}T12:00:00Z`);
-        d.setUTCDate(d.getUTCDate() + i - 1);
-        return d.toISOString().slice(0, 10);
-      });
+        d.setUTCDate(d.getUTCDate() + i);
+        dates.push(d.toISOString().slice(0, 10));
+      }
+      return dates;
     };
 
-    const nailDays = dayList('America/New_York', 8);
-    const spaDays = dayList('America/Los_Angeles', 8);
+    const nailDateRange = getDatesRange('America/New_York', 14, 14);
+    const spaDateRange = getDatesRange('America/Los_Angeles', 14, 14);
+
+    // 12. 班表生成（全覆盖 29 天）
+    console.log('5. 班表生成 (29天全覆盖)...');
+    const shiftRows: Array<{
+      org_id: string; location_id: string; membership_id: string;
+      business_date: string; start_min: number; end_min: number;
+      status: string; published_at: Date; off_reason: string | null;
+    }> = [];
+    const rotRows: Array<{
+      org_id: string; location_id: string; business_date: string;
+      membership_id: string; in_rotation: boolean;
+    }> = [];
+    const now = new Date();
 
     for (const p of staff) {
-      if (!p.bookable) continue;   // 前台和老板不接客，排了班也不该出现在空档里
-      const days = p.loc === NAIL_LOC ? nailDays : spaDays;
-      // 班次按门店营业时间：美甲 09:30–19:30，足疗 10:00–23:00
+      if (!p.bookable) continue;
+      const days = p.loc === NAIL_LOC ? nailDateRange : spaDateRange;
       const [startMin, endMin] = p.loc === NAIL_LOC ? [570, 1170] : [600, 1380];
-      for (const [i, date] of days.entries()) {
-        /*
-         * Kim 明天休息（i === 2 = 明天，因为第 0 天是昨天）。
-         * 一个人都不休的班表测不出「客人点名的技师那天不在」这条路，
-         * 而那是电话里最常见的一种为难。
-         */
-        const off = p.name === 'Kim' && i === 2;
-        await tx`insert into shifts
-          (org_id, location_id, membership_id, business_date, start_min, end_min,
-           status, published_at, off_reason)
-          values (${p.org}, ${p.loc}, ${memberIds[p.name]!}, ${date},
-                  ${startMin}, ${endMin},
-                  ${off ? 'off' : 'published'}, now(), ${off ? 'personal' : null})`;
+      for (const [idx, d] of days.entries()) {
+        const isOff = (p.name === 'Kim' && idx % 7 === 1) || (p.name === 'Tran' && idx % 7 === 3) || (p.name === 'Hua' && idx % 7 === 2);
+        shiftRows.push({
+          org_id: p.org, location_id: p.loc, membership_id: memberIds[p.name]!,
+          business_date: d, start_min: startMin, end_min: endMin,
+          status: isOff ? 'off' : 'published', published_at: now,
+          off_reason: isOff ? 'weekly_rest' : null,
+        });
+
+        if (idx >= 13 && idx <= 15) {
+          rotRows.push({
+            org_id: p.org, location_id: p.loc, business_date: d,
+            membership_id: memberIds[p.name]!, in_rotation: Boolean(p.inRotation && !isOff),
+          });
+        }
+      }
+    }
+    if (shiftRows.length > 0) {
+      await tx`insert into shifts ${tx(shiftRows, 'org_id', 'location_id', 'membership_id', 'business_date', 'start_min', 'end_min', 'status', 'published_at', 'off_reason')}`;
+    }
+    if (rotRows.length > 0) {
+      await tx`insert into rotation_participants ${tx(rotRows, 'org_id', 'location_id', 'business_date', 'membership_id', 'in_rotation')}`;
+    }
+
+    // 13. 过去 14 天已完成预约与真实工单财务流水生成
+    console.log('6. 过去 14 天已完成预约与真实工单财务流水生成...');
+    const nailTechs = ['Linh', 'Kim', 'Tran', 'Mai', 'Amy'];
+    const spaTechs = ['Yan', 'Hua', 'Bo'];
+    const nailServices = ['gel_mani', 'basic_mani', 'full_set', 'dlx_pedi', 'spa_pedi'];
+    const spaServices = ['reflex60', 'reflex90', 'deep60', 'deep90', 'swedish60'];
+    const nailCustNames = Object.keys(customerIds).filter((_, i) => i < 10);
+    const spaCustNames = Object.keys(customerIds).filter((_, i) => i >= 10);
+
+    const timeSlots = ['10:00', '11:30', '13:30', '15:00', '16:30', '18:00'];
+
+    for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
+      const nailDate = nailDateRange[dayOffset]!;
+      const spaDate = spaDateRange[dayOffset]!;
+
+      // 美甲店每日 4-5 单已结账单据
+      for (let s = 0; s < 4; s++) {
+        const custName = nailCustNames[(dayOffset * 3 + s) % nailCustNames.length]!;
+        const techName = nailTechs[(dayOffset + s) % nailTechs.length]!;
+        const svcKey = nailServices[(dayOffset + s) % nailServices.length]!;
+        const time = timeSlots[s % timeSlots.length]!;
+        const duration = serviceDurations[svcKey] ?? 45;
+        const basePrice = servicePrices[svcKey] ?? 4500;
+        const tipCents = Math.round(basePrice * 0.18 / 100) * 100;
+        const taxCents = Math.round(basePrice * 0.08875);
+        const surchargeCents = s % 2 === 0 ? Math.round(basePrice * 0.035) : 0;
+        const totalCents = basePrice + taxCents + surchargeCents + tipCents;
+
+        // 预约记录
+        const [apt] = await tx<{ id: string }[]>`
+          insert into appointments (
+            org_id, location_id, customer_id, business_date, starts_at, ends_at,
+            status, source, notes
+          ) values (
+            ${NAIL_ORG}, ${NAIL_LOC}, ${customerIds[custName]!}, ${nailDate},
+            (${nailDate}::date + ${time}::time) at time zone 'America/New_York',
+            (${nailDate}::date + ${time}::time) at time zone 'America/New_York' + make_interval(mins => ${duration}),
+            'completed', 'desk', '老顾客定期护理'
+          ) returning id`;
+
+        await tx`insert into appointment_items (
+          org_id, location_id, appointment_id, service_id, membership_id,
+          starts_at, ends_at, price_cents_snapshot, duration_min
+        ) values (
+          ${NAIL_ORG}, ${NAIL_LOC}, ${apt!.id}, ${serviceIds[svcKey]!}, ${memberIds[techName]!},
+          (${nailDate}::date + ${time}::time) at time zone 'America/New_York',
+          (${nailDate}::date + ${time}::time) at time zone 'America/New_York' + make_interval(mins => ${duration}),
+          ${basePrice}, ${duration}
+        )`;
+
+        // 工单记录
+        const [ticket] = await tx<{ id: string }[]>`
+          insert into tickets (
+            org_id, location_id, customer_id, appointment_id, business_date, status,
+            opened_at, closed_at, opened_by, closed_by,
+            subtotal_cents, discount_cents, tax_cents, surcharge_cents, tip_cents, total_cents
+          ) values (
+            ${NAIL_ORG}, ${NAIL_LOC}, ${customerIds[custName]!}, ${apt!.id}, ${nailDate}, 'closed',
+            (${nailDate}::date + ${time}::time) at time zone 'America/New_York',
+            (${nailDate}::date + ${time}::time) at time zone 'America/New_York' + make_interval(mins => ${duration}),
+            ${memberIds['Mia']!}, ${memberIds['Mia']!},
+            ${basePrice}, 0, ${taxCents}, ${surchargeCents}, ${tipCents}, ${totalCents}
+          ) returning id`;
+
+        const [tItem] = await tx<{ id: string }[]>`
+          insert into ticket_items (
+            org_id, location_id, ticket_id, service_id, kind, name_snapshot, unit_price_cents, total_cents
+          ) values (
+            ${NAIL_ORG}, ${NAIL_LOC}, ${ticket!.id}, ${serviceIds[svcKey]!}, 'service',
+            ${svcKey}, ${basePrice}, ${basePrice}
+          ) returning id`;
+
+        await tx`insert into ticket_item_staff (org_id, ticket_item_id, membership_id, role, minutes)
+          values (${NAIL_ORG}, ${tItem!.id}, ${memberIds[techName]!}, 'primary', ${duration})`;
+
+        // 支付明细
+        await tx`insert into payments (
+          org_id, location_id, ticket_id, method, amount_cents, tip_cents, change_cents, taken_by
+        ) values (
+          ${NAIL_ORG}, ${NAIL_LOC}, ${ticket!.id}, ${surchargeCents > 0 ? 'card' : 'cash'},
+          ${totalCents}, ${tipCents}, 0, ${memberIds['Mia']!}
+        )`;
+
+        // 小费分账与提成
+        await tx`insert into tip_allocations (
+          org_id, location_id, ticket_id, membership_id, amount_cents, basis, source, policy_version
+        ) values (
+          ${NAIL_ORG}, ${NAIL_LOC}, ${ticket!.id}, ${memberIds[techName]!}, ${tipCents},
+          '{"method": "direct"}'::jsonb, ${surchargeCents > 0 ? 'card' : 'cash'}, 1
+        )`;
+
+        await tx`insert into earnings (
+          org_id, location_id, membership_id, ticket_id, business_date, kind,
+          amount_cents, base_cents
+        ) values (
+          ${NAIL_ORG}, ${NAIL_LOC}, ${memberIds[techName]!}, ${ticket!.id}, ${nailDate}, 'commission',
+          ${Math.round(basePrice * 0.45)}, ${basePrice}
+        )`;
+      }
+
+      // 足疗店每日已结账单据
+      for (let s = 0; s < 3; s++) {
+        const custName = spaCustNames[(dayOffset * 2 + s) % spaCustNames.length]!;
+        const techName = spaTechs[(dayOffset + s) % spaTechs.length]!;
+        const svcKey = spaServices[(dayOffset + s) % spaServices.length]!;
+        const time = timeSlots[s % timeSlots.length]!;
+        const duration = serviceDurations[svcKey] ?? 60;
+        const basePrice = servicePrices[svcKey] ?? 6000;
+        const tipCents = 1500;
+        const totalCents = basePrice + tipCents;
+
+        const [apt] = await tx<{ id: string }[]>`
+          insert into appointments (
+            org_id, location_id, customer_id, business_date, starts_at, ends_at,
+            status, source, notes
+          ) values (
+            ${SPA_ORG}, ${SPA_LOC}, ${customerIds[custName]!}, ${spaDate},
+            (${spaDate}::date + ${time}::time) at time zone 'America/Los_Angeles',
+            (${spaDate}::date + ${time}::time) at time zone 'America/Los_Angeles' + make_interval(mins => ${duration}),
+            'completed', 'web', '全身经络深度调理'
+          ) returning id`;
+
+        await tx`insert into appointment_items (
+          org_id, location_id, appointment_id, service_id, membership_id,
+          starts_at, ends_at, price_cents_snapshot, duration_min
+        ) values (
+          ${SPA_ORG}, ${SPA_LOC}, ${apt!.id}, ${serviceIds[svcKey]!}, ${memberIds[techName]!},
+          (${spaDate}::date + ${time}::time) at time zone 'America/Los_Angeles',
+          (${spaDate}::date + ${time}::time) at time zone 'America/Los_Angeles' + make_interval(mins => ${duration}),
+          ${basePrice}, ${duration}
+        )`;
+
+        const [ticket] = await tx<{ id: string }[]>`
+          insert into tickets (
+            org_id, location_id, customer_id, appointment_id, business_date, status,
+            opened_at, closed_at, opened_by, closed_by,
+            subtotal_cents, discount_cents, tax_cents, tip_cents, total_cents
+          ) values (
+            ${SPA_ORG}, ${SPA_LOC}, ${customerIds[custName]!}, ${apt!.id}, ${spaDate}, 'closed',
+            (${spaDate}::date + ${time}::time) at time zone 'America/Los_Angeles',
+            (${spaDate}::date + ${time}::time) at time zone 'America/Los_Angeles' + make_interval(mins => ${duration}),
+            ${memberIds['Owner']!}, ${memberIds['Owner']!},
+            ${basePrice}, 0, 0, ${tipCents}, ${totalCents}
+          ) returning id`;
+
+        const [tItem] = await tx<{ id: string }[]>`
+          insert into ticket_items (
+            org_id, location_id, ticket_id, service_id, kind, name_snapshot, unit_price_cents, total_cents
+          ) values (
+            ${SPA_ORG}, ${SPA_LOC}, ${ticket!.id}, ${serviceIds[svcKey]!}, 'service',
+            ${svcKey}, ${basePrice}, ${basePrice}
+          ) returning id`;
+
+        await tx`insert into ticket_item_staff (org_id, ticket_item_id, membership_id, role, minutes)
+          values (${SPA_ORG}, ${tItem!.id}, ${memberIds[techName]!}, 'primary', ${duration})`;
+
+        await tx`insert into payments (
+          org_id, location_id, ticket_id, method, amount_cents, tip_cents, change_cents, taken_by
+        ) values (
+          ${SPA_ORG}, ${SPA_LOC}, ${ticket!.id}, 'card', ${totalCents}, ${tipCents}, 0, ${memberIds['Owner']!}
+        )`;
+
+        await tx`insert into earnings (
+          org_id, location_id, membership_id, ticket_id, business_date, kind,
+          amount_cents, base_cents
+        ) values (
+          ${SPA_ORG}, ${SPA_LOC}, ${memberIds[techName]!}, ${ticket!.id}, ${spaDate}, 'commission',
+          ${Math.round(basePrice * 0.45)}, ${basePrice}
+        )`;
+      }
+
+      // 日结记录
+      await tx`insert into day_closes (
+        org_id, location_id, business_date, closed_at, closed_by, status,
+        gross_cents, discount_cents, net_cents, tax_cents, tip_cash_cents, tip_card_cents,
+        counted_cash_cents, card_terminal_cents, cash_variance_cents
+      ) values (
+        ${NAIL_ORG}, ${NAIL_LOC}, ${nailDate}, (${nailDate}::date + time '20:30') at time zone 'America/New_York',
+        ${memberIds['Amy']!}, 'closed', 22000, 0, 22000, 1950, 1000, 3200, 5000, 23150, 0
+      )`;
+    }
+
+    // 14. 今日活跃工单与走单看板数据 (Day 14)
+    const todayNail = nailDateRange[14]!;
+    const todaySpa = spaDateRange[14]!;
+
+    // 今日美甲店排期
+    const todayApts = [
+      { cust: 'Lisa Chen', tech: 'Linh', svc: 'gel_mani', time: '10:00', status: 'completed' },
+      { cust: '张女士', tech: 'Mai', svc: 'dlx_pedi', time: '11:30', status: 'completed' },
+      { cust: 'Emily Johnson', tech: 'Kim', svc: 'basic_mani', time: '13:30', status: 'in_service' },
+      { cust: 'Jessica Taylor', tech: 'Tran', svc: 'full_set', time: '14:30', status: 'in_service' },
+      { cust: 'Sophia Williams', tech: 'Amy', svc: 'spa_pedi', time: '16:00', status: 'ready_to_pay' },
+      { cust: 'Amanda White', tech: 'Linh', svc: 'gel_mani', time: '17:30', status: 'checked_in' },
+      { cust: 'Chloe Martinez', tech: 'Mai', svc: 'dlx_pedi', time: '18:30', status: 'booked' },
+    ];
+
+    for (const a of todayApts) {
+      const duration = serviceDurations[a.svc] ?? 45;
+      const basePrice = servicePrices[a.svc] ?? 4500;
+      const [apt] = await tx<{ id: string }[]>`
+        insert into appointments (
+          org_id, location_id, customer_id, business_date, starts_at, ends_at,
+          status, source, notes
+        ) values (
+          ${NAIL_ORG}, ${NAIL_LOC}, ${customerIds[a.cust]!}, ${todayNail},
+          (${todayNail}::date + ${a.time}::time) at time zone 'America/New_York',
+          (${todayNail}::date + ${a.time}::time) at time zone 'America/New_York' + make_interval(mins => ${duration}),
+          ${a.status}, 'desk', '今日预约'
+        ) returning id`;
+
+      await tx`insert into appointment_items (
+        org_id, location_id, appointment_id, service_id, membership_id,
+        starts_at, ends_at, price_cents_snapshot, duration_min
+      ) values (
+        ${NAIL_ORG}, ${NAIL_LOC}, ${apt!.id}, ${serviceIds[a.svc]!}, ${memberIds[a.tech]!},
+        (${todayNail}::date + ${a.time}::time) at time zone 'America/New_York',
+        (${todayNail}::date + ${a.time}::time) at time zone 'America/New_York' + make_interval(mins => ${duration}),
+        ${basePrice}, ${duration}
+      )`;
+
+      if (a.status === 'in_service' || a.status === 'ready_to_pay' || a.status === 'completed') {
+        const tStatus = a.status === 'completed' ? 'closed' : 'open';
+        const [ticket] = await tx<{ id: string }[]>`
+          insert into tickets (
+            org_id, location_id, customer_id, appointment_id, business_date, status,
+            subtotal_cents, discount_cents, tax_cents, tip_cents, total_cents,
+            opened_at, closed_at, opened_by
+          ) values (
+            ${NAIL_ORG}, ${NAIL_LOC}, ${customerIds[a.cust]!}, ${apt!.id}, ${todayNail}, ${tStatus},
+            ${basePrice}, 0, ${Math.round(basePrice * 0.08875)}, 0, ${basePrice},
+            (${todayNail}::date + ${a.time}::time) at time zone 'America/New_York',
+            ${a.status === 'completed' ? tx`now()` : null},
+            ${memberIds['Mia']!}
+          ) returning id`;
+
+        const [tItem] = await tx<{ id: string }[]>`
+          insert into ticket_items (
+            org_id, location_id, ticket_id, service_id, kind, name_snapshot, unit_price_cents, total_cents
+          ) values (
+            ${NAIL_ORG}, ${NAIL_LOC}, ${ticket!.id}, ${serviceIds[a.svc]!}, 'service',
+            ${a.svc}, ${basePrice}, ${basePrice}
+          ) returning id`;
+
+        await tx`insert into ticket_item_staff (org_id, ticket_item_id, membership_id, role, minutes)
+          values (${NAIL_ORG}, ${tItem!.id}, ${memberIds[a.tech]!}, 'primary', ${duration})`;
       }
     }
 
-    // ── 几条预约 ──────────────────────────────────────────────────────────
-    /*
-     * 一张全空的日程表也测不出东西：`find_slots` 得有单可避，
-     * `lookup_customer` 得报得出「上次做的是什么」。
-     *
-     * ⚠️ 墙上时间 → 时刻的换算交给 Postgres（`at time zone`）。
-     * 在 JS 里手算偏移，夏令时那两周会错一小时 —— 而错的方向是
-     * 「报出去的时间前台说没有」。
-     */
-    const book = async (
-      org: string, loc: string, tz: string, date: string, hhmm: string,
-      minutes: number, customer: string, member: string, service: string, source: string,
-    ) => {
-      const [a] = await tx<{ id: string }[]>`
-        insert into appointments
-          (org_id, location_id, customer_id, business_date, starts_at, ends_at,
-           status, source)
-        values (${org}, ${loc}, ${customerIds[customer]!}, ${date},
-                (${date}::date + ${hhmm}::time) at time zone ${tz},
-                (${date}::date + ${hhmm}::time) at time zone ${tz}
-                  + make_interval(mins => ${minutes}),
-                'booked', ${source})
-        returning id`;
-      await tx`insert into appointment_items
-        (org_id, location_id, appointment_id, service_id, membership_id,
-         starts_at, ends_at, price_cents_snapshot, duration_min)
-        select ${org}, ${loc}, ${a!.id}, ${serviceIds[service]!}, ${memberIds[member]!},
-               starts_at, ends_at, base_price_cents, ${minutes}
-        from appointments a, services s
-        where a.id = ${a!.id} and s.id = ${serviceIds[service]!}`;
-    };
+    // 今日排队看板 (Walk-in Queue)
+    await tx`insert into walkin_queue (
+      org_id, location_id, customer_id, business_date, ticket_number, status, source, quoted_wait_min, joined_at
+    ) values
+      (${NAIL_ORG}, ${NAIL_LOC}, ${customerIds['David Miller']!}, ${todayNail}, 101, 'waiting', 'kiosk', 10, now() - interval '15 minutes'),
+      (${NAIL_ORG}, ${NAIL_LOC}, ${customerIds['Michael Brown']!}, ${todayNail}, 102, 'called', 'kiosk', 0, now() - interval '5 minutes')`;
 
-    // 上次来店（`lookup_customer` 要报得出「上次做的是甲油胶」）
-    await book(NAIL_ORG, NAIL_LOC, 'America/New_York', nailDays[0]!, '11:00', 45,
-               'Lisa Chen', 'Linh', 'gel_mani', 'desk');
-    // 今天已经有的两单：找空档时这两段必须被避开
-    await book(NAIL_ORG, NAIL_LOC, 'America/New_York', nailDays[1]!, '13:00', 60,
-               '张女士', 'Mai', 'dlx_pedi', 'phone_manual');
-    await book(SPA_ORG, SPA_LOC, 'America/Los_Angeles', spaDays[1]!, '15:00', 60,
-               'Wang Ming', 'Yan', 'reflex60', 'web');
+    // 15. 未来 14 天排期预约 (Day 15 to Day 28)
+    for (let dayOffset = 15; dayOffset < 29; dayOffset++) {
+      const nailDate = nailDateRange[dayOffset]!;
+      const spaDate = spaDateRange[dayOffset]!;
+
+      // 美甲店每日 3-5 笔未来预约
+      for (let s = 0; s < 3; s++) {
+        const custName = nailCustNames[(dayOffset * 2 + s) % nailCustNames.length]!;
+        const techName = nailTechs[(dayOffset + s) % nailTechs.length]!;
+        const svcKey = nailServices[(dayOffset + s) % nailServices.length]!;
+        const time = timeSlots[(s * 2) % timeSlots.length]!;
+        const duration = serviceDurations[svcKey] ?? 45;
+        const basePrice = servicePrices[svcKey] ?? 4500;
+
+        const [apt] = await tx<{ id: string }[]>`
+          insert into appointments (
+            org_id, location_id, customer_id, business_date, starts_at, ends_at,
+            status, source, notes
+          ) values (
+            ${NAIL_ORG}, ${NAIL_LOC}, ${customerIds[custName]!}, ${nailDate},
+            (${nailDate}::date + ${time}::time) at time zone 'America/New_York',
+            (${nailDate}::date + ${time}::time) at time zone 'America/New_York' + make_interval(mins => ${duration}),
+            'booked', 'web', '提前线上预约锁定技师'
+          ) returning id`;
+
+        await tx`insert into appointment_items (
+          org_id, location_id, appointment_id, service_id, membership_id,
+          starts_at, ends_at, price_cents_snapshot, duration_min
+        ) values (
+          ${NAIL_ORG}, ${NAIL_LOC}, ${apt!.id}, ${serviceIds[svcKey]!}, ${memberIds[techName]!},
+          (${nailDate}::date + ${time}::time) at time zone 'America/New_York',
+          (${nailDate}::date + ${time}::time) at time zone 'America/New_York' + make_interval(mins => ${duration}),
+          ${basePrice}, ${duration}
+        )`;
+      }
+
+      // 足疗店每日 2-3 笔未来预约
+      for (let s = 0; s < 2; s++) {
+        const custName = spaCustNames[(dayOffset * 2 + s) % spaCustNames.length]!;
+        const techName = spaTechs[(dayOffset + s) % spaTechs.length]!;
+        const svcKey = spaServices[(dayOffset + s) % spaServices.length]!;
+        const time = timeSlots[(s * 2 + 1) % timeSlots.length]!;
+        const duration = serviceDurations[svcKey] ?? 60;
+        const basePrice = servicePrices[svcKey] ?? 6000;
+
+        const [apt] = await tx<{ id: string }[]>`
+          insert into appointments (
+            org_id, location_id, customer_id, business_date, starts_at, ends_at,
+            status, source, notes
+          ) values (
+            ${SPA_ORG}, ${SPA_LOC}, ${customerIds[custName]!}, ${spaDate},
+            (${spaDate}::date + ${time}::time) at time zone 'America/Los_Angeles',
+            (${spaDate}::date + ${time}::time) at time zone 'America/Los_Angeles' + make_interval(mins => ${duration}),
+            'booked', 'phone_ai', '电话 AI 预约并选定包厢'
+          ) returning id`;
+
+        await tx`insert into appointment_items (
+          org_id, location_id, appointment_id, service_id, membership_id,
+          starts_at, ends_at, price_cents_snapshot, duration_min
+        ) values (
+          ${SPA_ORG}, ${SPA_LOC}, ${apt!.id}, ${serviceIds[svcKey]!}, ${memberIds[techName]!},
+          (${spaDate}::date + ${time}::time) at time zone 'America/Los_Angeles',
+          (${spaDate}::date + ${time}::time) at time zone 'America/Los_Angeles' + make_interval(mins => ${duration}),
+          ${basePrice}, ${duration}
+        )`;
+      }
+    }
+
+    // 16. 营销体系数据（礼品卡 / 优惠券 / 次卡套餐）
+    await tx`insert into gift_cards (
+      org_id, location_id, code, face_value_cents, sale_price_cents, balance_cents,
+      scope, status, source, recipient_name
+    ) values
+      (${NAIL_ORG}, ${NAIL_LOC}, 'GC-VIP-8888', 20000, 20000, 20000, 'location', 'active', 'front_desk', 'Lisa Chen'),
+      (${NAIL_ORG}, ${NAIL_LOC}, 'GC-SUMMER-50', 5000, 5000, 5000, 'location', 'active', 'online', 'Emily Johnson'),
+      (${NAIL_ORG}, ${NAIL_LOC}, 'GC-LOTUS-100', 10000, 10000, 4500, 'location', 'active', 'front_desk', '张女士'),
+      (${SPA_ORG},  ${SPA_LOC},  'GC-RELAX-75',  7500, 7500, 7500, 'location', 'active', 'online', '陈伟'),
+      (${NAIL_ORG}, ${NAIL_LOC}, 'GC-DEPLETED-20', 2000, 2000, 0, 'location', 'depleted', 'front_desk', 'David Miller')`;
+
+    await tx`insert into coupon_templates (
+      org_id, location_id, code, name, kind, discount_cents, percent_bp, min_spend_cents, active
+    ) values
+      (${NAIL_ORG}, ${NAIL_LOC}, 'WELCOME10', ${J({ en: 'New Guest $10 Off', 'zh-Hans': '新客立减 $10' })}, 'amount', 1000, 0, 3000, true),
+      (${NAIL_ORG}, ${NAIL_LOC}, 'SUMMER15', ${J({ en: 'Summer 15% Off', 'zh-Hans': '夏日美甲 85 折' })}, 'percent', 0, 1500, 5000, true),
+      (${NAIL_ORG}, ${NAIL_LOC}, 'VIP20', ${J({ en: 'VIP $20 Off $100', 'zh-Hans': '满 $100 减 $20' })}, 'amount', 2000, 0, 10000, true),
+      (${SPA_ORG},  ${SPA_LOC},  'SPA20', ${J({ en: 'Relaxation $20 Off', 'zh-Hans': '养生理疗立减 $20' })}, 'amount', 2000, 0, 8000, true)`;
+
+    const [pkgNail] = await tx<{ id: string }[]>`
+      insert into package_templates (
+        org_id, location_id, name, sessions, price_cents, service_ids, active
+      ) values
+        (${NAIL_ORG}, ${NAIL_LOC}, ${J({ en: 'Gel Manicure 10x Card', 'zh-Hans': '甲油胶美甲 10 次卡' })}, 10, 36000, array[${serviceIds['gel_mani']!}::uuid], true)
+      returning id`;
+
+    await tx`insert into package_templates (
+      org_id, location_id, name, sessions, price_cents, service_ids, active
+    ) values
+      (${NAIL_ORG}, ${NAIL_LOC}, ${J({ en: 'Spa Pedicure 5x Card', 'zh-Hans': '尊享手足护理 5 次卡' })}, 5, 22000, array[${serviceIds['dlx_pedi']!}::uuid], true),
+      (${SPA_ORG},  ${SPA_LOC},  ${J({ en: 'Deep Tissue 10x Card', 'zh-Hans': '深层精油理疗 10 次季卡' })}, 10, 68000, array[${serviceIds['deep60']!}::uuid], true),
+      (${SPA_ORG},  ${SPA_LOC},  ${J({ en: 'Foot Reflexology 6x Card', 'zh-Hans': '经络足道 6 次卡' })}, 6, 21000, array[${serviceIds['reflex60']!}::uuid], true)`;
+
+    // 顾客次卡绑定
+    await tx`insert into customer_packages (
+      org_id, location_id, customer_id, template_id, remaining_sessions, total_sessions, status, expires_at
+    ) values
+      (${NAIL_ORG}, ${NAIL_LOC}, ${customerIds['Lisa Chen']!}, ${pkgNail!.id}, 8, 10, 'active', now() + interval '180 days')`;
+
+    // 17. 健康免责声明问卷模板与提交记录 (Form Submissions)
+    const [ft] = await tx<{ id: string }[]>`
+      insert into form_templates (
+        org_id, location_id, key, version, title, schema, requires_signature, published_at, active
+      ) values (
+        ${NAIL_ORG}, ${NAIL_LOC}, 'health_intake', 1,
+        ${J({ en: 'Health Intake & Safety Waiver', 'zh-Hans': '顾客健康问卷与免责声明' })},
+        '[]'::jsonb, true, now(), true
+      ) returning id`;
+
+    for (const [custName, allergy] of [
+      ['Lisa Chen', '青霉素敏感，易甲床敏感'],
+      ['张女士', '乳胶过敏，腰椎偏轻按压'],
+      ['Emily Johnson', '皮肤轻微干燥，无过敏史'],
+    ] as const) {
+      await tx`insert into form_submissions (
+        org_id, location_id, customer_id, template_id, template_version, version, is_latest,
+        signed_at, signer_name, signer_relation, source
+      ) values (
+        ${NAIL_ORG}, ${NAIL_LOC}, ${customerIds[custName]!}, ${ft!.id}, 1, 1, true,
+        now() - interval '2 days', ${custName}, 'self', 'kiosk'
+      )`;
+    }
+
+    // 18. 多平台口碑与真实评价 (Location Reviews)
+    const reviews = [
+      {
+        platform: 'google', rating: 5, author: 'Lisa Chen',
+        content: '艾米老师手法非常沉浸专业，调理后肩颈舒服多了，全程安静无推销，强烈推荐！',
+        sentiment: '😊 极度推荐', highlights: ['手法沉浸专业', '无推销', '环境静谧'],
+        tech: '艾米', svc: '甲油胶美甲', daysAgo: 1,
+      },
+      {
+        platform: 'google', rating: 5, author: 'Emily Johnson',
+        content: 'Great atmosphere! Very clean and quiet. Linh did an amazing job with my gel manicure.',
+        sentiment: '😊 极度推荐', highlights: ['Clean & Quiet', 'Amazing Nails'],
+        tech: '林玲', svc: '尊享手足 SPA', daysAgo: 3,
+      },
+      {
+        platform: 'yelp', rating: 5, author: 'Jessica Taylor',
+        content: 'Loved the hot stone treatment! Super relaxing, definitely coming back every month.',
+        sentiment: '😊 极度推荐', highlights: ['Hot Stone Therapy', 'Relaxing'],
+        tech: '金金', svc: '基础修手护理', daysAgo: 5,
+      },
+      {
+        platform: 'google', rating: 4, author: 'David Chen',
+        content: '华师傅力度非常到位，深层肌肉完全被释放开，就是周末稍微等了 10 分钟，整体很棒。',
+        sentiment: '👍 满意', highlights: ['手法深透到位', '高峰等候超10m'],
+        tech: '华师傅', svc: '全身深度减压 90 分钟', daysAgo: 7,
+      },
+      {
+        platform: 'google', rating: 5, author: '张女士',
+        content: '美美老师很贴心，特意帮我注意了避开腰部旧伤，服务非常周到细致。',
+        sentiment: '😊 极度推荐', highlights: ['细致贴心', '手法专业'],
+        tech: '美美', svc: '尊享手足 SPA', daysAgo: 9,
+      },
+    ];
+
+    for (const r of reviews) {
+      await tx`insert into location_reviews (
+        org_id, location_id, platform, source, external_id, rating, author_name, content,
+        ai_sentiment, ai_highlights, technician_name, service_name, posted_at
+      ) values (
+        ${NAIL_ORG}, ${NAIL_LOC}, ${r.platform}, 'bright_data', ${`rev_${Math.random().toString(36).slice(2, 10)}`},
+        ${r.rating}, ${r.author}, ${r.content}, ${r.sentiment}, ${J(r.highlights)},
+        ${r.tech}, ${r.svc}, now() - (${r.daysAgo} * interval '1 day')
+      )`;
+    }
+
+    // 19. AI 电话专线、通话记录 (带录音 URL) 与来电待复核意向草案
+    console.log('7. AI 电话专线、通话记录与意向草案生成...');
+    await tx`insert into phone_lines (org_id, location_id, e164, purpose, active) values
+      (${NAIL_ORG}, ${NAIL_LOC}, '+12125808888', 'ai_voice', true),
+      (${NAIL_ORG}, ${NAIL_LOC}, '+12125551234', 'main', true),
+      (${NAIL_ORG}, ${NAIL_LOC}, '+19175558888', 'transfer_target', true)
+      on conflict do nothing`;
+
+    await tx`insert into phone_calls (
+      org_id, location_id, provider_call_id, from_e164, to_e164, started_at, duration_seconds, outcome, tools_used, recording_url, transcript
+    ) values
+      (${NAIL_ORG}, ${NAIL_LOC}, 'call_session_01', '+1 (917) 555-0199', '+12125808888', now() - interval '2 hours', 98, 'completed', array['book_appointment'], 'https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg', ${J([
+        { role: 'assistant', text: '您好，感谢致电 Lotus Nails & Spa，请问有什么可以帮您？', at: '14:10:02' },
+        { role: 'user', text: '你好，我想预约今天下午 4 点做个凝胶美甲，指定 Lisa 师傅。', at: '14:10:08' },
+        { role: 'assistant', text: '好的，已为您核对下午 4:00 Lisa 师傅的工位，请问您的名字和电话是？', at: '14:10:15' },
+        { role: 'user', text: '我叫 Emily，电话 917-555-0199。', at: '14:10:22' },
+        { role: 'assistant', text: '已为您登记待确认草案，前台马上为您锁定工位，感谢致电！', at: '14:10:30' },
+      ])}),
+      (${NAIL_ORG}, ${NAIL_LOC}, 'call_session_02', '+1 (646) 332-9811', '+12125808888', now() - interval '5 hours', 145, 'completed', array['check_price', 'check_hours'], 'https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg', ${J([
+        { role: 'assistant', text: '您好，Lotus Nails & Spa 很高兴为您服务！', at: '11:20:00' },
+        { role: 'user', text: '请问你们今天营业到几点？尊享足疗多少钱？', at: '11:20:06' },
+        { role: 'assistant', text: '我们今天营业到晚上 8 点，尊享手足 SPA 价格为 $65，包含海盐足浴与精油去角质。', at: '11:20:15' },
+      ])}),
+      (${NAIL_ORG}, ${NAIL_LOC}, 'call_session_03', '+1 (212) 889-4412', '+12125808888', now() - interval '1 day', 82, 'completed', array['book_appointment'], 'https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg', ${J([
+        { role: 'assistant', text: '您好，Lotus Nails & Spa，请问今天想做什么项目？', at: '16:00:01' },
+        { role: 'user', text: '明天下午 2 点有空做基础修手吗？', at: '16:00:07' },
+        { role: 'assistant', text: '明天 14:00 有充足工位，已为您预先留位！', at: '16:00:15' },
+      ])})
+      on conflict (provider_call_id) do nothing`;
+
+    await tx`insert into call_drafts (
+      id, org_id, location_id, from_e164, caller_name_heard, status, confidence_bp,
+      service_name_heard, time_heard, slot_starts_at, notes
+    ) values
+      ('b1111111-1111-4000-8000-111111111111', ${NAIL_ORG}, ${NAIL_LOC}, '+1 (917) 555-0199', 'Emily Johnson', 'pending', 9200, '凝胶美甲', '今日 16:00', now() + interval '1 hour', '客人指定希望由 Lisa 师傅服务'),
+      ('b2222222-2222-4000-8000-222222222222', ${NAIL_ORG}, ${NAIL_LOC}, '+1 (646) 332-9811', 'Sarah Jenkins', 'pending', 8800, '尊享手足护理', '明天 14:00', now() + interval '1 day', '询问了是否有双人包厢')
+      on conflict (id) do nothing`;
   });
 
+  console.log('✓ 种子数据填充完毕！');
   const counts = await adminSql<{ t: string; n: number }[]>`
     select 'organizations' as t, count(*)::int as n from organizations
     union all select 'locations', count(*)::int from locations
-    union all select 'services', count(*)::int from services where not is_addon
-    union all select 'services(加项)', count(*)::int from services where is_addon
-    union all select 'service_categories', count(*)::int from service_categories
+    union all select 'services', count(*)::int from services
     union all select 'resources', count(*)::int from resources
-    union all select 'service_option_defs', count(*)::int from service_option_defs
     union all select 'customers', count(*)::int from customers
     union all select 'memberships', count(*)::int from memberships
-    union all select 'shifts', count(*)::int from shifts
-    union all select 'appointments', count(*)::int from appointments
-    union all select 'phone_lines', count(*)::int from phone_lines
-    union all select 'roles', count(*)::int from roles`;
-  for (const c of counts) console.log(`  ${c.t.padEnd(22)} ${c.n}`);
+    union all select 'shifts (29天)', count(*)::int from shifts
+    union all select 'appointments (过去/今日/未来)', count(*)::int from appointments
+    union all select 'tickets (已结/进行中工单)', count(*)::int from tickets
+    union all select 'payments (收款流水)', count(*)::int from payments
+    union all select 'gift_cards (礼品卡)', count(*)::int from gift_cards
+    union all select 'coupon_templates (优惠券)', count(*)::int from coupon_templates
+    union all select 'package_templates (次卡套餐)', count(*)::int from package_templates
+    union all select 'location_reviews (口碑评价)', count(*)::int from location_reviews`;
+  for (const c of counts) console.log(`  ${c.t.padEnd(30)} ${c.n}`);
 
-  // 同号多客户：张女士和张先生共用 +19175550188，是被允许的（宪法第 16 条）
-  const shared = await adminSql<{ n: number }[]>`
-    select count(*)::int as n from customers where phone_e164 = '+19175550188'`;
-  console.log(`\n  同一手机号下 ${shared[0]!.n} 位客人（共号是允许的，前台走选择器）`);
-
-  // 电话工具全靠被叫号码定位门店，所以这两个号要显眼
-  const lines = await adminSql<{
-    e164: string; purpose: string; name: string; location_id: string;
-  }[]>`
-    select p.e164, p.purpose, l.name->>'en' as name, p.location_id
-    from phone_lines p join locations l on l.id = p.location_id
-    where p.purpose = 'ai_voice' order by l.name`;
-  console.log('\n  AI 电话号（工具入参 to=）与工具 token（入参 shop_token=）：');
-  for (const l of lines) {
-    console.log(`    ${l.e164}  →  ${l.name}`);
-    console.log(`      shop_token: ${toolTokenFor(l.location_id)}`);
-  }
-  console.log('    试一通：node scripts/voice-tool.mjs flow   （脚本自己会带上 token）');
-
-  // 官网预约页也开着（真实门店默认是关的）—— 顺手把链接打出来
-  const keys = await adminSql<{ pk: string; name: string }[]>`
-    select public_key as pk, name->>'en' as name from locations
-    where id in (${NAIL_LOC}, ${SPA_LOC}) order by name`;
-  console.log('\n  官网预约页（pnpm --filter @gf/booking dev）：');
-  for (const k of keys) console.log(`    localhost:5176/?k=${k.pk}   ${k.name}`);
-
-  console.log(`\n  开发登录：<名字小写>@example.test / ${DEV_PASSWORD}`);
-  console.log('    mia   前台（美甲店）      linh  技师');
-  console.log('    amy   店长兼技师          owner 老板（足疗店）');
-  console.log('\n完成\n');
   await adminSql.end({ timeout: 5 });
 }
 

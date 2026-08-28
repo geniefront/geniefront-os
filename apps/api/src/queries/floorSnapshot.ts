@@ -137,6 +137,26 @@ export async function loadFloorSnapshot(
   const busy = new Set(working.map((w) => w.membership_id));
   const nowMs = now.getTime();
 
+  // ── 技师技能概览（直接随快照下发，消除 90% 的问技能往返）──────────────
+  const skillRows = await tx<{
+    name: unknown;
+    skill_name: unknown;
+    skill_key: string;
+  }[]>`
+    select sp.display_name as name, sk.name as skill_name, sk.key as skill_key
+    from staff_skills ss
+    join skills sk on sk.id = ss.skill_id
+    join staff_profiles sp on sp.membership_id = ss.membership_id
+    where sk.location_id = ${ctx.locationId}`;
+
+  const skillsMap: Record<string, string[]> = {};
+  for (const row of skillRows) {
+    const staffName = pickText(row.name, ctx.locale);
+    const skillName = pickText(row.skill_name, ctx.locale, row.skill_key);
+    if (!skillsMap[staffName]) skillsMap[staffName] = [];
+    skillsMap[staffName].push(skillName);
+  }
+
   const turn = standing.entries.map((e) => {
     // stripRank：手动调序的备注里带着内部位次编号，对模型没用还占 token
     const note = stripRank(e.trail[0]?.note ?? null);
@@ -200,6 +220,8 @@ export async function loadFloorSnapshot(
     idle: standing.entries
       .filter((e) => e.state === 'available' && !busy.has(e.membershipId))
       .map((e) => e.name),
+
+    skills: skillsMap,
   };
 }
 

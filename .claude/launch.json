@@ -2,44 +2,24 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "desk",
+      "name": "api",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
         "--filter",
-        "@gf/desk",
+        "@gf/api",
         "dev"
       ],
-      "port": 5173
+      "port": 3000
     },
     {
-      "name": "staff",
+      "name": "web",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
         "--filter",
-        "@gf/staff",
+        "@gf/web",
         "dev"
       ],
-      "port": 5174
-    },
-    {
-      "name": "kiosk",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": [
-        "--filter",
-        "@gf/kiosk",
-        "dev"
-      ],
-      "port": 5175
-    },
-    {
-      "name": "booking",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": [
-        "--filter",
-        "@gf/booking",
-        "dev"
-      ],
-      "port": 5176
+      "port": 5177
     }
   ]
 }

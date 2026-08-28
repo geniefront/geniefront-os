@@ -95,6 +95,8 @@ export interface FloorSnapshot {
   queue: QueueEntry[];
   /** 空着能接人的技师 */
   idle: string[];
+  /** 技师技能标签（技师名 -> 技能项），让模型 0 次工具往返直接回答项目指派与资格 */
+  skills?: Record<string, string[]>;
 }
 
 /** 一行最多带几个 NEXT。再多前台自己也记不住，而模型会被它们带偏 */
@@ -136,6 +138,13 @@ export function formatFloorSnapshot(s: FloorSnapshot): string {
     lines.push(`NOW:  ${parts.join(' | ')}`);
   }
 
+  if (s.skills && Object.keys(s.skills).length > 0) {
+    const list = Object.entries(s.skills)
+      .map(([name, sks]) => `${name}(${sks.join(',')})`)
+      .join(' | ');
+    lines.push(`SKILLS: ${list}`);
+  }
+
   if (s.next.length > 0) {
     const rows = s.next.slice(0, MAX_NEXT).map((n) => [
       n.startsAt,
@@ -144,8 +153,6 @@ export function formatFloorSnapshot(s: FloorSnapshot): string {
       n.staffName ? `w/ ${n.staffName}${n.isRequest ? ' [request]' : ''}` : '[no staff yet]',
       n.details ?? '',
     ].filter(Boolean).join(' '));
-    // 首行跟在 NEXT: 后面，其余对齐缩进 —— 模型对齐读得更稳，
-    // 而对齐的空格是同一个 token，不多花钱
     lines.push(`NEXT: ${rows[0]}`);
     for (const r of rows.slice(1)) lines.push(`      ${r}`);
     if (s.next.length > MAX_NEXT) {

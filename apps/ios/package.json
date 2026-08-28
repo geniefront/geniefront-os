@@ -1,0 +1,13 @@
+{
+  "name": "@gf/ios",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "echo '尚未开始，占位 workspace'",
+    "preview": "vite preview",
+    "typecheck": "echo '尚未开始，占位 workspace'",
+    "test": "vitest run --passWithNoTests"
+  }
+}

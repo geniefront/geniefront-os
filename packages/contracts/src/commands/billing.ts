@@ -248,6 +248,71 @@ export const RecordTopupFailure = defineCommand({
   idempotency: 'optional',
 });
 
+export const BillingChangePlan = defineCommand({
+  name: 'billing.changePlan',
+  input: z.object({
+    targetPlan: z.enum(['starter', 'growth', 'enterprise', 'essential']),
+    billingCycle: z.enum(['monthly', 'annual']).default('monthly'),
+  }),
+  output: z.object({
+    success: z.boolean(),
+    targetPlan: z.string(),
+    billingCycle: z.string(),
+    proratedChargeCents: cents,
+    effectiveImmediately: z.boolean(),
+  }),
+  permission: 'billing.manage',
+  ai: {
+    description: '变更或升降级 SaaS 订阅套餐版本与计费周期。',
+    confirm: 'always',
+    exposed: false,
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+export const BillingBuyAddon = defineCommand({
+  name: 'billing.buyAddon',
+  input: z.object({
+    addonType: z.enum(['voice_minutes_100', 'copilot_credits_500', 'marketing_sms_1000']),
+    priceCents: cents.positive(),
+  }),
+  output: z.object({
+    success: z.boolean(),
+    addonType: z.string(),
+    priceCents: cents,
+    invoiceId: uuid,
+    invoiceNumber: z.string(),
+  }),
+  permission: 'billing.manage',
+  ai: {
+    description: '增购即时 AI 语音分钟包、副驾算力包或营销短信包。',
+    confirm: 'always',
+    exposed: false,
+  },
+  reversible: false,
+  idempotency: 'optional',
+});
+
+export const BillingSaveTaxProfile = defineCommand({
+  name: 'billing.saveTaxProfile',
+  input: z.object({
+    legalEntityName: z.string().trim().min(1, '公司/法定实体名称不能为空').max(200),
+    taxId: z.string().trim().min(1, 'EIN / 纳税人识别号不能为空').max(100),
+    billingEmail: z.string().trim().email('财务发票邮箱格式不正确'),
+  }),
+  output: z.object({
+    saved: z.boolean(),
+  }),
+  permission: 'billing.manage',
+  ai: {
+    description: '保存企业发票与税务登记信息（EIN 纳税人识别号与财务邮箱）。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
 export const BILLING_COMMANDS = [
   SetAutoTopup,
   SyncSubscription,
@@ -255,4 +320,7 @@ export const BILLING_COMMANDS = [
   RecordTopup,
   ClaimAutoTopup,
   RecordTopupFailure,
+  BillingChangePlan,
+  BillingBuyAddon,
+  BillingSaveTaxProfile,
 ] as const;

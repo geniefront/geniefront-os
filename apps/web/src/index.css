@@ -1,0 +1,75 @@
+/* 顺序不能改：tailwind → heroui oss → heroui pro（Pro 的样式要盖在 OSS 上） */
+@import "tailwindcss";
+@import "@heroui/styles";
+@import "@heroui-pro/react/css";
+
+/*
+ * 品牌色。模板原来通篇写死 teal-600，与其在几十个页面里逐个替换，
+ * 不如把 HeroUI 的 accent 校准到同一个颜色 —— 组件换成 HeroUI 之后
+ * 视觉不跳，页面里剩下的 teal-* 工具类也仍然对得上。
+ */
+:root,
+[data-theme="light"] {
+  --accent: oklch(0.6 0.118 184.704); /* = tailwind teal-600 */
+  --accent-foreground: oklch(1 0 0);
+}
+
+/*
+ * ── 层级体系 ────────────────────────────────────────────────────────────────
+ *
+ * 之前每个组件各写各的（z-10 到 z-[120] 有八个层级），结果是表格里的下拉菜单
+ * 会被后面的行盖住。这里定死一套语义层级，**页面里不许再写数字 z-index**，
+ * 一律用 z-dropdown / z-drawer 这样的名字。
+ *
+ * 留出的间隔是给同一层内部排序用的（比如抽屉的遮罩和抽屉本体差 1）。
+ */
+@theme {
+  --z-index-base: 0;
+  --z-index-raised: 10;    /* 卡片内浮起的小元素：角标、拖拽把手 */
+  --z-index-sticky: 20;    /* 表头、粘顶工具条 */
+  --z-index-nav: 30;       /* 侧栏、顶栏 */
+  --z-index-dropdown: 100; /* 下拉菜单、popover、tooltip */
+  --z-index-fab: 150;      /* 右下角 Copilot 悬浮球 */
+  --z-index-drawer: 200;   /* 右侧抽屉（含遮罩） */
+  --z-index-modal: 300;    /* 居中弹窗（含遮罩） */
+  --z-index-toast: 400;    /* 提示条，永远在最上面 */
+}
+
+/* 确保所有 HeroUI Modal 和弹窗层级始终高于 Drawer 抽屉 */
+[data-slot="backdrop"],
+.heroui-modal-backdrop,
+div[data-slot="backdrop"] {
+  z-index: 300 !important;
+}
+
+[data-slot="modal-container"],
+.heroui-modal-container,
+div[data-slot="modal-container"] {
+  z-index: 301 !important;
+}
+
+/*
+ * 路由切换动画。用 CSS 而不是给每个页面包一层 motion 组件 ——
+ * 前台电脑配置不高，一个 opacity + translate 的合成动画不掉帧。
+ */
+@keyframes gf-page-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes gf-page-enter {
+    from { opacity: 1; transform: none; }
+    to   { opacity: 1; transform: none; }
+  }
+}
+
+/*
+ * ── 基础表单与排版样式 ──────────────────────────────────────────────────────
+ * 保证表单 label 默认以块级元素呈现，与输入框之间保持标准上下的舒适间距，
+ * 避免在网格或行内排版时发生文字和输入框横向黏连挤压的问题。
+ */
+label {
+  display: block;
+}
+

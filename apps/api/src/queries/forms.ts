@@ -323,3 +323,80 @@ function maskEmail(email: string): string {
   if (at <= 0) return '••••';
   return `${email[0]}••••${email.slice(at)}`;
 }
+
+export interface AppointmentFormVersionDto {
+  submissionId: string;
+  templateId: string;
+  templateTitle: Record<string, string>;
+  templateVersion: number;
+  version: number;
+  isLatest: boolean;
+  signerName: string | null;
+  signerRelation: string;
+  signatureUrl: string | null;
+  signedAt: string | null;
+  createdAt: string;
+  expiresOn: string | null;
+  answers: Record<string, unknown> | null;
+  anonymized: boolean;
+}
+
+export async function loadAppointmentForms(
+  tx: postgres.TransactionSql,
+  ctx: CommandContext,
+  appointmentId: string,
+): Promise<{ forms: AppointmentFormVersionDto[] }> {
+  const [apt] = await tx<{ customer_id: string | null }[]>`
+    select customer_id from appointments
+    where id = ${appointmentId} and location_id = ${ctx.locationId}`;
+
+  if (!apt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
+
+  const rows = await tx<{
+    id: string; template_id: string; template_version: number; title: unknown;
+    version: number; is_latest: boolean; answers_encrypted: Buffer | null;
+    signer_name: string | null; signer_relation: string; signature_url: string | null;
+    signed_at: Date | string | null; created_at: Date | string; expires_on: string | null;
+    anonymized_at: Date | string | null;
+  }[]>`
+    select s.id, s.template_id, s.template_version, t.title,
+           s.version, s.is_latest, s.answers_encrypted,
+           s.signer_name, s.signer_relation, s.signature_url,
+           s.signed_at, s.created_at, s.expires_on::text as expires_on, s.anonymized_at
+    from form_submissions s
+    join form_templates t on t.id = s.template_id
+    where s.location_id = ${ctx.locationId}
+      and (s.appointment_id = ${appointmentId}::uuid or (${apt.customer_id}::uuid is not null and s.customer_id = ${apt.customer_id}::uuid))
+    order by s.version desc, s.created_at desc`;
+
+  const key = process.env['FORM_ENCRYPTION_KEY'] ? loadFormKey(process.env['FORM_ENCRYPTION_KEY']) : null;
+
+  const forms: AppointmentFormVersionDto[] = rows.map((r) => {
+    let answers: Record<string, unknown> | null = null;
+    if (r.answers_encrypted && !r.anonymized_at && key) {
+      try {
+        answers = decryptAnswers(r.answers_encrypted, key) as Record<string, unknown>;
+      } catch {
+        answers = null;
+      }
+    }
+    return {
+      submissionId: r.id,
+      templateId: r.template_id,
+      templateTitle: (r.title ?? {}) as Record<string, string>,
+      templateVersion: r.template_version,
+      version: r.version,
+      isLatest: r.is_latest,
+      signerName: r.signer_name,
+      signerRelation: r.signer_relation,
+      signatureUrl: r.signature_url,
+      signedAt: r.signed_at ? new Date(r.signed_at).toISOString() : null,
+      createdAt: new Date(r.created_at).toISOString(),
+      expiresOn: r.expires_on,
+      answers,
+      anonymized: r.anonymized_at !== null,
+    };
+  });
+
+  return { forms };
+}

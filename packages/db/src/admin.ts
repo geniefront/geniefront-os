@@ -7,7 +7,25 @@
  * 业务读写一律走 client.ts 的 withTenant()。
  */
 
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
+
+if (!process.env.MIGRATION_DATABASE_URL) {
+  try {
+    const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+    const envContent = readFileSync(resolve(root, '.env'), 'utf8');
+    for (const line of envContent.split('\n')) {
+      const m = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line);
+      if (m?.[1] && m[2] && !process.env[m[1]]) {
+        process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
 
 const url = process.env.MIGRATION_DATABASE_URL;
 if (!url) {

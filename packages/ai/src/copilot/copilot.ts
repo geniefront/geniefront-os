@@ -82,6 +82,17 @@ export interface CopilotResult {
   stopped?: 'max_rounds' | 'refusal' | 'max_tokens';
 }
 
+export interface CopilotImageInput {
+  base64: string;
+  mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
+}
+
+export interface CopilotCallbacks {
+  onStep?: (step: string) => void;
+  onDelta?: (delta: string) => void;
+  onThinking?: (thought: string) => void;
+}
+
 export interface CopilotOptions {
   apiKey: string;
   /** 命令目录文本，由 `commandCatalogText()` 生成。**必须逐字节稳定** */
@@ -89,9 +100,15 @@ export interface CopilotOptions {
   /** 已经格式化好的现场快照 */
   snapshot: string;
   question: string;
+  /** 可选多模态图片输入（如外部预约截图、单据照片） */
+  image?: CopilotImageInput | undefined;
+  /** 思考深度：前台日常高频用 low 极速响应，复杂多步可用 medium */
+  effort?: 'low' | 'medium' | 'high' | undefined;
   /** 最近几轮对话。太多会把缓存后面的易变段撑大，默认只留 3 轮（05 §6.1） */
   history?: Array<{ role: 'user' | 'assistant'; text: string }>;
   tools: readonly ReadOnlyTool[];
+  /** 流式回调 */
+  callbacks?: CopilotCallbacks | undefined;
   /** 注入用，测试里替换掉真实客户端 */
   client?: Pick<Anthropic, 'messages'>;
   timeoutMs?: number;
@@ -194,6 +211,23 @@ export async function askCopilot(opts: CopilotOptions): Promise<CopilotResult> {
     proposeTool(commandNames),
   ];
 
+  const userContent: Anthropic.MessageParam['content'] = opts.image
+    ? [
+        {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: opts.image.mediaType,
+            data: opts.image.base64,
+          },
+        },
+        {
+          type: 'text',
+          text: copilotUserText(opts.snapshot, opts.question),
+        },
+      ]
+    : copilotUserText(opts.snapshot, opts.question);
+
   const messages: Anthropic.MessageParam[] = [
     // 最近几轮对话。**只留文本**，不把上一轮的工具调用也带回来 ——
     // 那会让易变段迅速膨胀，而模型并不需要看到上次它怎么查的
@@ -201,7 +235,7 @@ export async function askCopilot(opts: CopilotOptions): Promise<CopilotResult> {
       role: h.role,
       content: h.text,
     } as Anthropic.MessageParam)),
-    { role: 'user', content: copilotUserText(opts.snapshot, opts.question) },
+    { role: 'user', content: userContent },
   ];
 
   const usages: TokenUsage[] = [];
@@ -209,20 +243,43 @@ export async function askCopilot(opts: CopilotOptions): Promise<CopilotResult> {
   const byName = new Map(opts.tools.map((t) => [t.name, t]));
 
   for (let round = 1; round <= MAX_ROUNDS; round++) {
-    const message = await client.messages.create({
-      model: COPILOT_MODEL,
-      max_tokens: 2000,
-      // 日常前台操作用 medium：复杂多步才值得 high（05 §7.2 第 4 条）
-      output_config: { effort: 'medium' },
-      system: [{
-        type: 'text',
-        // ⭐ 缓存断点打在这里。这一段逐字节稳定，读取只要 0.1 倍价
-        text: copilotSystemText(opts.commandCatalog),
-        cache_control: { type: 'ephemeral' },
-      }],
-      tools,
-      messages,
-    });
+    let message: Anthropic.Message;
+
+    if (typeof (client.messages as any).stream === 'function' && opts.callbacks?.onDelta) {
+      const stream = (client.messages as any).stream({
+        model: COPILOT_MODEL,
+        max_tokens: 2000,
+        ...(opts.effort ? { output_config: { effort: opts.effort } } : {}),
+        system: [{
+          type: 'text',
+          text: copilotSystemText(opts.commandCatalog),
+          cache_control: { type: 'ephemeral' },
+        }],
+        tools,
+        messages,
+      });
+
+      stream.on('text', (delta: string) => {
+        opts.callbacks?.onDelta?.(delta);
+      });
+
+      message = await stream.finalMessage();
+    } else {
+      message = await client.messages.create({
+        model: COPILOT_MODEL,
+        max_tokens: 2000,
+        // 仅在明确指定 effort 时开启思考模式；日常高频采用标准直出模式（毫秒级首字）
+        ...(opts.effort ? { output_config: { effort: opts.effort } } : {}),
+        system: [{
+          type: 'text',
+          // ⭐ 缓存断点打在这里。这一段逐字节稳定，读取只要 0.1 倍价
+          text: copilotSystemText(opts.commandCatalog),
+          cache_control: { type: 'ephemeral' },
+        }],
+        tools,
+        messages,
+      });
+    }
 
     usages.push({
       inputTokens: message.usage.input_tokens,
@@ -294,6 +351,7 @@ export async function askCopilot(opts: CopilotOptions): Promise<CopilotResult> {
           continue;
         }
         try {
+          opts.callbacks?.onStep?.(`🔍 正在查询 ${use.name}...`);
           const out = await tool.run((use.input ?? {}) as Record<string, unknown>);
           results.push({
             type: 'tool_result', tool_use_id: use.id,

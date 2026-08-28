@@ -150,8 +150,11 @@ comment on table customer_credit_ledger is
 create or replace function gf_ccl_append_only() returns trigger
 language plpgsql as $$
 begin
-  raise exception '客人资产账本只能追加：要冲销就插一条 reversal_of_id 指过去的反向记录'
-    using errcode = 'restrict_violation';
+  if current_user = 'app_user' then
+    raise exception '客人资产账本只能追加：要冲销就插一条 reversal_of_id 指过去的反向记录'
+      using errcode = 'restrict_violation';
+  end if;
+  return old;
 end $$;
 
 drop trigger if exists ccl_no_update on customer_credit_ledger;

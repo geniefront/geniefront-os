@@ -55,10 +55,13 @@ async function today(): Promise<string> {
 async function reset() {
   await withTenant(tenant, async (tx) => {
     const [mx] = await tx<{ d: string }[]>`
-      select coalesce(max(business_date), '1990-01-01')::text as d from tickets
-      where location_id = ${NAIL_LOC} and business_date < '1999-01-01'`;
+      select coalesce(max(business_date), '1980-01-01')::text as d from (
+        select business_date from tickets where location_id = ${NAIL_LOC} and business_date < '1999-01-01'
+        union all
+        select business_date from day_closes where location_id = ${NAIL_LOC} and business_date < '1999-01-01'
+      ) t`;
     const [y, m, d] = mx!.d.split('-').map(Number);
-    const park = new Date(Date.UTC(y!, m! - 1, d! + 1)).toISOString().slice(0, 10);
+    const park = new Date(Date.UTC(y!, m! - 1, d! + 10)).toISOString().slice(0, 10);
     for (const t of ['tickets', 'earnings', 'time_punches'] as const) {
       await tx.unsafe(
         `update ${t} set business_date = $1 where location_id = $2 and business_date > '1999-01-01'`,
@@ -67,7 +70,7 @@ async function reset() {
     // 日结封过账的话今天就写不了单了（assertDayOpen）。
     // 每行各挪一天，day_closes 有 (location, business_date) 唯一索引
     await tx`
-      update day_closes d set business_date = (${park}::date + (x.rn - 1)::int), status = 'open'
+      update day_closes d set business_date = (${park}::date + (x.rn)::int), status = 'open'
       from (select id, row_number() over (order by business_date) as rn
               from day_closes
              where location_id = ${NAIL_LOC} and business_date > '1999-01-01') x

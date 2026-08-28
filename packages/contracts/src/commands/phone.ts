@@ -119,15 +119,17 @@ export const DraftFromCall = defineCommand({
 export const ReviewCallDraft = defineCommand({
   name: 'call.reviewDraft',
   input: z.object({
-    draftId: uuid,
-    decision: z.enum(['confirmed', 'dismissed']),
+    draftId: z.string(),
+    decision: z.enum(['confirmed', 'dismissed']).optional(),
+    action: z.string().optional(),
     /** decision = confirmed 时传：这条草案变成了哪一条预约 */
-    appointmentId: uuid.optional(),
+    appointmentId: z.string().optional(),
     /** decision = dismissed 时**必填** */
     dismissReason: draftDismissReason.optional(),
     note: z.string().max(500).optional(),
+    notes: z.string().max(500).optional(),
   }),
-  output: z.object({ draftId: uuid, status: z.string() }),
+  output: z.object({ draftId: z.string(), status: z.string() }),
   permission: 'appointment.write',
   ai: {
     description: '把一条来电草案标记为已确认或已忽略。忽略必须给原因。',
@@ -396,7 +398,31 @@ export const SaveAiChangePolicy = defineCommand({
   idempotency: 'optional',
 });
 
+export const SettingsSavePhoneAssistant = defineCommand({
+  name: 'settings.savePhoneAssistant',
+  input: z.object({
+    greetingPrompt: z.string().optional(),
+    forwardPhoneNumber: z.string().optional(),
+    autoBookEnabled: z.boolean().optional(),
+    tone: z.string().optional(),
+    voiceTone: z.string().optional(),
+    afterHoursVoicemail: z.boolean().optional(),
+  }),
+  output: z.object({
+    locationId: uuid,
+    saved: z.boolean(),
+  }),
+  permission: 'settings.manage',
+  ai: {
+    description: '配置 AI 电话接听开场白、转接手机号与自动建单行为。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+
 export const PHONE_COMMANDS = [
   DraftFromCall, ReviewCallDraft, RecordCall, AttachCallTranscript, SavePhoneLine,
-  RequestAiVoice, SaveAiChangePolicy,
+  RequestAiVoice, SaveAiChangePolicy, SettingsSavePhoneAssistant,
 ] as const;

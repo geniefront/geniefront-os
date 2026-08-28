@@ -1,0 +1,296 @@
+/**
+ * 会话上下文：登录状态、门店归属、网络可用性。
+ *
+ * 设计约束：
+ *
+ * 1. **门店归属是服务端事实，不是本地偏好。** `membershipId` 必须来自
+ *    `/v1/me/locations` 返回的集合；localStorage 中的记录仅用于在多店场景下
+ *    还原上次选择，且每次登录都会与服务端返回的集合做交叉校验。
+ *    校验不通过（离职、门店停用、换设备）时静默丢弃并重新进入选择流程。
+ *
+ * 2. **权限判断不在前端。** `roleKeys` 仅用于界面呈现（例如隐藏无关入口），
+ *    真正的授权由服务端在命令总线上完成。前端不得据此放行任何写操作。
+ *
+ * 3. **离线是一等状态。** 实体门店的网络中断是常态。断网时界面降级为只读，
+ *    不阻断、不跳转、不清空已渲染的数据（参见 `lib/offline.ts`）。
+ */
+import {
+  createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
+  type ReactNode,
+} from 'react';
+import type { Session } from '@supabase/supabase-js';
+import { supabase } from './supabase';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  fetchMembershipContext, listLocations, setActiveMembershipId, setUnauthenticatedHandler,
+  type LocationMembership, type MembershipContext,
+} from './api';
+
+const ACTIVE_MEMBERSHIP_KEY = 'gf.membershipId';
+
+/** 会话生命周期。界面据此决定渲染登录页、选店页还是主应用。 */
+export type SessionStatus =
+  | 'loading'        // 正在还原 Supabase 会话或拉取门店列表
+  | 'unauthenticated'// 未登录
+  | 'error'          // 门店列表拉取失败（网络或服务端故障），可重试
+  | 'selecting'      // 已登录，存在多个门店身份，等待选择
+  | 'no-membership'  // 已登录但确认无任何有效门店身份（离职或尚未认领门店）
+  | 'ready';         // 已登录、已确定门店、且操作上下文已就绪
+
+interface SessionContextValue {
+  status: SessionStatus;
+  session: Session | null;
+  locations: LocationMembership[];
+  membership: LocationMembership | null;
+  /** 当前门店的操作上下文（权限、时区、语言）。门店未就绪时为 null。 */
+  context: MembershipContext | null;
+  /**
+   * 权限判定。**所有按钮的显隐与禁用都必须经由此函数**，不得依据角色。
+   * 上下文尚未就绪时一律返回 false —— 宁可短暂少画一个按钮，
+   * 也不要画出一个点下去 403 的按钮。
+   */
+  can: (permission: string) => boolean;
+  /** 当前门店的 membership id。未就绪时为 null，请求层据此拒绝发出带店请求。 */
+  membershipId: string | null;
+  isOnline: boolean;
+  /** 门店列表加载失败时的错误信息，用于在选店页给出可重试的提示。 */
+  loadError: string | null;
+  selectMembership: (membershipId: string) => void;
+  /** 返回选店页。多店用户在顶栏切店时调用。 */
+  clearMembership: () => void;
+  reloadLocations: () => Promise<void>;
+  signOut: () => Promise<void>;
+}
+
+const SessionContext = createContext<SessionContextValue | undefined>(undefined);
+
+function readStoredMembershipId(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_MEMBERSHIP_KEY);
+  } catch {
+    // 隐私模式下 localStorage 访问可能抛出异常，退化为不记忆选择。
+    return null;
+  }
+}
+
+function writeStoredMembershipId(value: string | null): void {
+  try {
+    if (value === null) localStorage.removeItem(ACTIVE_MEMBERSHIP_KEY);
+    else localStorage.setItem(ACTIVE_MEMBERSHIP_KEY, value);
+  } catch {
+    // 同上：存储不可用时不影响本次会话的正常使用。
+  }
+}
+
+export function SessionProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
+  const [session, setSession] = useState<Session | null>(null);
+  const [sessionResolved, setSessionResolved] = useState(false);
+  const [locations, setLocations] = useState<LocationMembership[]>([]);
+  const [locationsLoaded, setLocationsLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [membershipId, setMembershipId] = useState<string | null>(readStoredMembershipId);
+  const [context, setContext] = useState<MembershipContext | null>(null);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+
+  // ── Supabase 会话 ────────────────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (cancelled) return;
+      setSession(data.session);
+      setSessionResolved(true);
+    });
+
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, next) => {
+      setSession(next);
+      setSessionResolved(true);
+      if (!next) {
+        // 登出后必须清空门店缓存，避免下一个登录用户短暂看到上一个用户的门店。
+        setLocations([]);
+        setLocationsLoaded(false);
+        setMembershipId(null);
+        writeStoredMembershipId(null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.subscription.unsubscribe();
+    };
+  }, [queryClient]);
+
+  // ── 网络可用性 ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    const online = () => setIsOnline(true);
+    const offline = () => setIsOnline(false);
+    window.addEventListener('online', online);
+    window.addEventListener('offline', offline);
+    return () => {
+      window.removeEventListener('online', online);
+      window.removeEventListener('offline', offline);
+    };
+  }, []);
+
+  // ── 门店列表 ─────────────────────────────────────────────────────────────
+  const reloadLocations = useCallback(async () => {
+    if (!session) return;
+    try {
+      const list = await listLocations();
+      setLocations(list);
+      setLoadError(null);
+
+      // 已记忆的门店必须存在于服务端返回的集合中，否则视为失效。
+      setMembershipId((current) => {
+        if (current && list.some((x) => x.membershipId === current)) return current;
+        if (current) writeStoredMembershipId(null);
+        if (list.length === 1) {
+          writeStoredMembershipId(list[0]!.membershipId);
+          return list[0]!.membershipId;
+        }
+        return null;
+      });
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'UNKNOWN');
+    } finally {
+      setLocationsLoaded(true);
+    }
+  }, [session]);
+
+  useEffect(() => {
+    if (session) void reloadLocations();
+  }, [session, reloadLocations]);
+
+  const selectMembership = useCallback((id: string) => {
+    setMembershipId(id);
+    writeStoredMembershipId(id);
+  }, []);
+
+  const clearMembership = useCallback(() => {
+    setMembershipId(null);
+    writeStoredMembershipId(null);
+  }, []);
+
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut();
+  }, []);
+
+  const permissionSet = useMemo(
+    () => new Set(context?.permissions ?? []),
+    [context],
+  );
+
+  const can = useCallback(
+    (permission: string) => permissionSet.has(permission),
+    [permissionSet],
+  );
+
+  /*
+   * 认证失效时终止会话。
+   *
+   * ⚠️ 仅在已建立会话时注册。未登录状态下 `authHeaders` 也会触发该回调，
+   * 若无条件注册会在登录页产生一次无意义的 signOut 调用。
+   */
+  useEffect(() => {
+    if (!session) return undefined;
+    setUnauthenticatedHandler(() => { void supabase.auth.signOut(); });
+    return () => setUnauthenticatedHandler(null);
+  }, [session]);
+
+  const membership = useMemo(
+    () => locations.find((x) => x.membershipId === membershipId) ?? null,
+    [locations, membershipId],
+  );
+
+  /*
+   * 将当前门店同步到请求层。
+   *
+   * ⚠️ 使用 useLayoutEffect 而非 useEffect：React 保证所有 layout effect
+   * 先于任何 passive effect 执行，因此本注入必定早于子组件在 useEffect 中发出的
+   * 第一个带店请求，不存在缺失 X-Membership-Id 的时间窗。
+   *
+   * ⚠️ 不可在渲染期直接赋值：并发渲染中被丢弃的渲染同样会执行该语句，
+   * 可能写入一个从未提交的门店。
+   */
+  useLayoutEffect(() => {
+    setActiveMembershipId(membership?.membershipId ?? null);
+  }, [membership]);
+
+  /*
+   * 拉取当前门店的操作上下文。
+   *
+   * ⚠️ 必须在 membership 注入请求层之后执行 —— 该请求本身需要携带
+   * `X-Membership-Id`。此处依赖 useLayoutEffect 与 useEffect 的执行顺序：
+   * 上方的注入是 layout effect，本 effect 是 passive effect，前者必定先执行。
+   *
+   * 上下文获取失败时不阻断进入应用：门店与身份已经确定，此时把用户挡在门外
+   * 无助于恢复。降级表现为「权限集为空」，即所有写入口不可用 ——
+   * 这与断网降级为只读是同一种处理，且是安全的方向。
+   */
+  useEffect(() => {
+    const id = membership?.membershipId;
+    if (!id) {
+      setContext(null);
+      return undefined;
+    }
+    let cancelled = false;
+    void fetchMembershipContext(id)
+      .then((next) => { if (!cancelled) setContext(next); })
+      .catch(() => { if (!cancelled) setContext(null); });
+    return () => { cancelled = true; };
+  }, [membership]);
+
+  /*
+   * 门店切换时清空查询缓存。
+   *
+   * ⚠️ 这是数据正确性要求，不是性能优化：缓存键若不含门店维度，
+   * 切换门店后会先渲染上一家门店的数据再被新数据覆盖。对多店经营者而言，
+   * 这是一次跨门店的数据呈现，必须消除。
+   *
+   * 清空而非失效（invalidate）：失效会保留旧数据作为占位继续渲染，
+   * 恰好是要避免的行为。
+   */
+  const previousMembershipRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const next = membership?.membershipId ?? null;
+    if (previousMembershipRef.current !== null && previousMembershipRef.current !== next) {
+      queryClient.clear();
+    }
+    previousMembershipRef.current = next;
+  }, [membership, queryClient]);
+
+  const status: SessionStatus = useMemo(() => {
+    if (!sessionResolved) return 'loading';
+    if (!session) return 'unauthenticated';
+    if (!locationsLoaded) return 'loading';
+    if (membership) return 'ready';
+    /*
+     * 顺序不可调整：请求失败必须先于「无门店」判定。
+     * 否则一次网络抖动会被呈现为「该账号无可用门店」—— 这是一个关于账号权限的
+     * 错误结论，会引导用户去联系管理员而不是重试。
+     */
+    if (loadError) return 'error';
+    if (locations.length === 0) return 'no-membership';
+    return 'selecting';
+  }, [sessionResolved, session, locationsLoaded, membership, locations.length, loadError]);
+
+  const value = useMemo<SessionContextValue>(
+    () => ({
+      status, session, locations, membership, context, can,
+      membershipId: membership?.membershipId ?? null,
+      isOnline, loadError,
+      selectMembership, clearMembership, reloadLocations, signOut,
+    }),
+    [status, session, locations, membership, context, can, isOnline, loadError,
+     selectMembership, clearMembership, reloadLocations, signOut],
+  );
+
+  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+}
+
+export function useSession(): SessionContextValue {
+  const ctx = useContext(SessionContext);
+  if (!ctx) throw new Error('useSession must be used within a SessionProvider');
+  return ctx;
+}

@@ -32,6 +32,14 @@ export interface OnlineBookingConfig {
   rescheduleCutoffHours: number;
   /** 每张单最多自助改几次。到顶之后让他打电话 */
   selfRescheduleMax: number;
+
+  // ── 规则扩展 ─────────────────────────────────────────────────────────────
+  slotIntervalMinutes?: number;
+  depositRequired?: boolean;
+  depositAmountCents?: number;
+  allowClientPickStaff?: boolean;
+  requireCardOnFile?: boolean;
+  cancellationPolicyNotice?: string;
 }
 
 export interface PublicShopRow {
@@ -60,10 +68,10 @@ export function readOnlineBooking(settings: Record<string, unknown>): OnlineBook
     typeof v === 'number' && Number.isFinite(v) ? v : fallback;
   return {
     enabled: raw['enabled'] === true,
-    maxDaysAhead: num(raw['max_days_ahead'], 60),
-    minMinutesAhead: num(raw['min_minutes_ahead'], 120),
-    requirePhoneVerification: raw['require_phone_verification'] === true,
-    cancelCutoffHours: num(raw['cancel_cutoff_hours'], 4),
+    maxDaysAhead: num(raw['max_days_ahead'] ?? raw['maxDaysAhead'], 60),
+    minMinutesAhead: num(raw['min_minutes_ahead'] ?? raw['minMinutesAhead'], 120),
+    requirePhoneVerification: raw['require_phone_verification'] === true || raw['requirePhoneVerification'] === true,
+    cancelCutoffHours: num(raw['cancel_cutoff_hours'] ?? raw['cancelCutoffHours'], 4),
 
     /**
      * ⚠️ 改期**默认开**，和上面那些「默认关」的护栏不一样。
@@ -72,9 +80,15 @@ export function readOnlineBooking(settings: Record<string, unknown>): OnlineBook
      * 「不来」—— 而 no-show 比改期糟得多（那一格既没人用也收不到钱）。
      * 挡风险的是后四位校验和次数上限，不是把功能关掉。
      */
-    rescheduleEnabled: raw['reschedule_enabled'] !== false,
-    rescheduleCutoffHours: num(raw['reschedule_cutoff_hours'], num(raw['cancel_cutoff_hours'], 4)),
-    selfRescheduleMax: num(raw['self_reschedule_max'], 2),
+    rescheduleEnabled: raw['reschedule_enabled'] !== false && raw['rescheduleEnabled'] !== false,
+    rescheduleCutoffHours: num(raw['reschedule_cutoff_hours'] ?? raw['rescheduleCutoffHours'], num(raw['cancel_cutoff_hours'] ?? raw['cancelCutoffHours'], 4)),
+    selfRescheduleMax: num(raw['self_reschedule_max'] ?? raw['selfRescheduleMax'], 2),
+    slotIntervalMinutes: num(raw['slot_interval_minutes'] ?? raw['slotIntervalMinutes'], 30),
+    depositRequired: raw['deposit_required'] === true || raw['depositRequired'] === true,
+    depositAmountCents: num(raw['deposit_amount_cents'] ?? raw['depositAmountCents'], 2000),
+    allowClientPickStaff: raw['allow_client_pick_staff'] !== false && raw['allowClientPickStaff'] !== false,
+    requireCardOnFile: raw['require_card_on_file'] === true || raw['requireCardOnFile'] === true,
+    cancellationPolicyNotice: ((raw['cancellation_policy_notice'] ?? raw['cancellationPolicyNotice'] ?? '') as string),
   };
 }
 

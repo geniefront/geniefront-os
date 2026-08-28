@@ -1,31 +1,54 @@
-import { describe, it, expect } from 'vitest';
-import { dollarsToCents } from './command.js';
+/**
+ * 整数金额强制转换的行为约束。
+ *
+ * ⚠️ 这几条断言对应的是**已经发生过的一类事故**：把 Postgres 返回的
+ * bigint 字符串或接口 JSON 里的字段用裸 `Number()` 转换，非整数输入被
+ * 安静地接受，随后每一次累加都把小数分带下去，最终日结对不上账
+ * 而无法定位是哪一单引入的。
+ */
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { asInt, asCents } from './command.js';
 
-describe('金额输入解析（宪法第 4 条）', () => {
-  it('常规金额', () => {
-    expect(dollarsToCents('12.34')).toBe(1234);
-    expect(dollarsToCents('55')).toBe(5500);
-    expect(dollarsToCents('0.05')).toBe(5);
-    expect(dollarsToCents('.5')).toBe(50);
+afterEach(() => vi.restoreAllMocks());
+
+describe('asInt / asCents', () => {
+  it('接受整数、bigint 与整数字符串', () => {
+    expect(asInt(1234)).toBe(1234);
+    expect(asInt(-1234)).toBe(-1234);
+    expect(asInt(0)).toBe(0);
+    expect(asInt(9007199254740991n)).toBe(9007199254740991);
+    expect(asInt('4200')).toBe(4200);
+    expect(asInt('  -7  ')).toBe(-7);
   });
 
-  it('⭐ 浮点会算错的那些值', () => {
-    // Number('1.005') * 100 = 100.49999999999999 → Math.round 得 100
-    expect(dollarsToCents('1.005')).toBe(100);   // 截断到两位，不进位
-    expect(dollarsToCents('8.15')).toBe(815);    // Number('8.15')*100 = 814.9999...
-    expect(dollarsToCents('1.115')).toBe(111);
-    expect(dollarsToCents('29.97')).toBe(2997);
+  it('缺失值回退到 fallback', () => {
+    expect(asInt(null)).toBe(0);
+    expect(asInt(undefined)).toBe(0);
+    expect(asInt('')).toBe(0);
+    expect(asInt(undefined, 1800)).toBe(1800);
   });
 
-  it('脏输入不炸', () => {
-    expect(dollarsToCents('$20')).toBe(2000);
-    expect(dollarsToCents('  12.5 ')).toBe(1250);
-    expect(dollarsToCents('')).toBe(0);
-    expect(dollarsToCents('abc')).toBe(0);
-    expect(dollarsToCents('.')).toBe(0);
+  it('拒绝非整数而非就地取整', () => {
+    // 关键行为：不得返回 10.5，也不得返回 11 —— 猜测会把上游契约错误藏起来
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(asInt('10.5')).toBe(0);
+    expect(asInt(10.5)).toBe(0);
+    expect(asInt('abc')).toBe(0);
+    expect(asInt('10.5', 99)).toBe(99);
   });
 
-  it('多余小数位直接截断 —— 收银时多收比少收更糟', () => {
-    expect(dollarsToCents('10.999')).toBe(1099);
+  it('拒绝超出安全整数范围的值', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(asInt('99999999999999999999')).toBe(0);
+  });
+
+  it('非整数输入会在开发环境显式告警', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    asCents('10.5');
+    expect(spy).toHaveBeenCalledOnce();
+  });
+
+  it('asCents 与 asInt 行为一致', () => {
+    expect(asCents('4200')).toBe(asInt('4200'));
   });
 });

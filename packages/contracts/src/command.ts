@@ -31,7 +31,7 @@ export interface CommandDef<TInput extends z.ZodTypeAny, TOutput extends z.ZodTy
   name: string;
   input: TInput;
   output: TOutput;
-  permission: Permission;
+  permission?: Permission;
   ai: CommandAiMeta;
   /** 可撤销 —— 执行后前台会看到 60 秒的「撤销」按钮 */
   reversible: boolean;
@@ -50,7 +50,7 @@ export interface CommandDef<TInput extends z.ZodTypeAny, TOutput extends z.ZodTy
 export function defineCommand<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny>(
   def: CommandDef<TInput, TOutput>,
 ): CommandDef<TInput, TOutput> {
-  if (!/^[a-z][a-z_]*\.[a-z][a-zA-Z]*$/.test(def.name)) {
+  if (!/^[a-z][a-z0-9_]*\.[a-z][a-zA-Z0-9]*$/.test(def.name)) {
     throw new Error(`命令名必须是 <聚合>.<动作> 形式，收到：${def.name}`);
   }
   return def;
@@ -203,3 +203,44 @@ export function dollarsToCents(input: string): number {
   const cents = Number(whole || '0') * 100 + Number((frac + '00').slice(0, 2));
   return Number.isFinite(cents) ? (neg ? -cents : cents) : 0;
 }
+
+/**
+ * 把「本该已经是整数」的值强制转成整数 —— 用于 Postgres 的 bigint（驱动以
+ * 字符串返回）与接口 JSON 中的整数字段。
+ *
+ * **不要用裸的 `Number(x)`**：它对 `"10.5"` 会安静地得到 10.5，
+ * 而金额一旦出现小数分，后续每一次累加都会把误差带下去，
+ * 最终表现为日结对不上账，且查不出是哪一单引入的。
+ *
+ * 此处的策略是「拒绝而非猜测」：非整数输入直接回退到 fallback，
+ * 并在开发环境显式告警 —— 因为这类输入意味着上游契约已经出错，
+ * 就地四舍五入只会把问题藏到更远的地方。
+ */
+export function asInt(value: unknown, fallback = 0): number {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? value : reject(value, fallback);
+  }
+  if (typeof value === 'bigint') return Number(value);
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!/^-?\d+$/.test(trimmed)) return trimmed === '' ? fallback : reject(value, fallback);
+    const parsed = Number.parseInt(trimmed, 10);
+    return Number.isSafeInteger(parsed) ? parsed : reject(value, fallback);
+  }
+  return fallback;
+}
+
+function reject(value: unknown, fallback: number): number {
+  if (process.env['NODE_ENV'] !== 'production') {
+    console.error(`[money] 期望整数，实际收到 ${JSON.stringify(value)}，已回退为 ${fallback}`);
+  }
+  return fallback;
+}
+
+/**
+ * `asInt` 的金额语义别名。
+ *
+ * 与 `asInt` 行为一致，独立命名只为让「这是一笔钱」在调用点一眼可见 ——
+ * 金额与计数混用同一个函数时，评审时很难发现某处把张数当成了分。
+ */
+export const asCents = asInt;

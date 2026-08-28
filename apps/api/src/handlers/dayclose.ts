@@ -17,7 +17,7 @@ import {
   VARIANCE_REASON_THRESHOLD_CENTS,
   type CashCount, type Denomination, type CashMovement,
 } from '@gf/payroll';
-import { businessDateOf } from '@gf/scheduling';
+import { businessDateOf, businessDayStart } from '@gf/scheduling';
 import { jsonb } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
 
@@ -188,9 +188,29 @@ registerHandler(SaveCashCount, async ({ input, ctx, tx, audit }: HandlerArgs<
   const dc = await ensureDayClose(tx, ctx, date);
   assertNotClosed(dc.status, date);
 
+  const DENOM_MAP: Record<string, Denomination> = {
+    bill_100: 10000,
+    bill_50: 5000,
+    bill_20: 2000,
+    bill_10: 1000,
+    bill_5: 500,
+    bill_1: 100,
+    coin_25: 25,
+    coin_10: 10,
+    coin_5: 5,
+    coin_1: 1,
+  };
+
   const breakdown: CashCount = {};
   for (const [k, v] of Object.entries(input.breakdown)) {
-    breakdown[Number(k) as Denomination] = v;
+    if (k === 'bill_2') {
+      breakdown[100] = (breakdown[100] ?? 0) + v * 2;
+      continue;
+    }
+    const denom = DENOM_MAP[k] ?? (Number(k) as Denomination);
+    if (!isNaN(denom) && denom > 0) {
+      breakdown[denom] = (breakdown[denom] ?? 0) + v;
+    }
   }
   const hasBreakdown = Object.keys(input.breakdown).length > 0;
   // 两个都给时以面额表为准 —— 手动填的总额多半是先填的那个
@@ -432,16 +452,23 @@ registerHandler(FinalizeDay, async ({ input, ctx, tx, audit }: HandlerArgs<
    * ⚠️ 按 `location_id` 取，不是按卡的售出门店 —— org 范围的卡
    * 在 A 店卖 B 店核销时，A 记负债、B 记收入，各算各的。
    */
+  const [loc] = await tx<{ tz: string; cutoff: string }[]>`
+    select timezone as tz, business_day_cutoff::text as cutoff
+    from locations where id = ${ctx.locationId}`;
+  
+  const startUtc = businessDayStart(date, loc!.tz, loc!.cutoff);
+  const [y, m, d] = date.split('-').map(Number);
+  const nextDateStr = new Date(Date.UTC(y!, m! - 1, d! + 1)).toISOString().slice(0, 10);
+  const endUtc = businessDayStart(nextDateStr, loc!.tz, loc!.cutoff);
+
   const [gc] = await tx<{ sold: number; redeemed: number }[]>`
     select
-      -- ⚠️ meta->> 返回 **text**，sum(text) 直接报错。先转型再求和；
-      -- 老行没有这个 key 时 nullif 挡住空串，否则 ''::int 也会炸
       coalesce(sum(case when entry = 'issue'
                         then nullif(meta->>'salePriceCents', '')::int end), 0)::int as sold,
       coalesce(-sum(case when entry = 'redeem' then amount_cents else 0 end), 0)::int as redeemed
     from customer_credit_ledger
     where location_id = ${ctx.locationId} and kind = 'gift_card'
-      and created_at >= ${date}::date and created_at < (${date}::date + 1)`;
+      and created_at >= ${startUtc} and created_at < ${endUtc}`;
 
   await tx`update day_closes set
       status = 'closed',

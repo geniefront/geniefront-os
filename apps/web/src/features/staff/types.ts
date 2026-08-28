@@ -1,0 +1,48 @@
+import type { PlanKind, CommissionBase } from '../payroll/types';
+
+export interface StaffDirectoryItem {
+  id: string;
+  membershipId: string;
+  employeeNo: string;
+  name: string;
+  phone: string;
+  email?: string;
+  jobTitle: string;
+  level: string;
+  skills: string[];
+  status: 'active' | 'on_leave' | 'resigned';
+  hireDate: string;
+  payroll: {
+    kind: PlanKind;
+    ratePercent: number;
+    hourlyRateDollars: number;
+    base: CommissionBase;
+  };
+  note?: string;
+}
+
+export interface SaveStaffProfileInput {
+  membershipId?: string;
+  name: string;
+  employeeNo?: string;
+  jobTitle?: string;
+  level?: string;
+  skills?: string[];
+  status?: 'active' | 'on_leave' | 'resigned' | 'suspended' | 'left';
+  hireDate?: string;
+  note?: string;
+  isBookable?: boolean;
+  maxConcurrentAppointments?: number;
+  inRotation?: boolean;
+  payroll?: {
+    kind: PlanKind;
+    ratePercent: number;
+    hourlyRateDollars: number;
+    base: CommissionBase;
+  };
+}
+
+export interface SetEmploymentInput {
+  membershipId: string;
+  status: 'active' | 'on_leave' | 'resigned' | 'suspended' | 'left';
+}

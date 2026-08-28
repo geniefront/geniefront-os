@@ -66,8 +66,17 @@ export const tickets = pgTable('tickets', {
   voidedAt: timestamp('voided_at', { withTimezone: true }),
   voidedBy: uuid('voided_by'),
   voidNote: text('void_note'),
+  surchargeCents: integer('surcharge_cents').notNull().default(0),
+  refundCents: integer('refund_cents').notNull().default(0),
+  refundReason: text('refund_reason'),
+  refundMethod: text('refund_method'),
+  refundedAt: timestamp('refunded_at', { withTimezone: true }),
+  refundedBy: uuid('refunded_by').references(() => memberships.id),
 }, (t) => [
   index('tickets_day_idx').on(t.locationId, t.businessDate, t.status),
+  index('tickets_customer_idx').on(t.customerId),
+  index('tickets_appointment_idx').on(t.appointmentId),
+  index('tickets_group_idx').on(t.groupId),
 ]);
 
 export const ticketItems = pgTable('ticket_items', {
@@ -97,7 +106,10 @@ export const ticketItems = pgTable('ticket_items', {
   finishedAt: timestamp('finished_at', { withTimezone: true }),
   /** 落单要素快照：加钟改了力度、加了款式也在这（02 §3.1） */
   details: jsonb('details').notNull().default(sql`'{}'::jsonb`),
-}, (t) => [index('ticket_items_ticket_idx').on(t.ticketId)]);
+}, (t) => [
+  index('ticket_items_ticket_idx').on(t.ticketId),
+  index('ticket_items_service_idx').on(t.serviceId),
+]);
 
 /** 双技师 / 接力：一条 item 可以关联多个技师，各记各的工时 */
 export const ticketItemStaff = pgTable('ticket_item_staff', {
@@ -107,7 +119,9 @@ export const ticketItemStaff = pgTable('ticket_item_staff', {
   membershipId: uuid('membership_id').notNull().references(() => memberships.id),
   role: text('role').notNull().default('primary'), // primary|assistant
   minutes: integer('minutes').notNull().default(0),
-});
+}, (t) => [
+  index('ticket_item_staff_item_idx').on(t.ticketItemId),
+]);
 
 export const payments = pgTable('payments', {
   id: id(),

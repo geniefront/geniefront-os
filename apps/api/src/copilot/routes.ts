@@ -30,16 +30,24 @@ import {
   askCopilot, formatFloorSnapshot, routeLocally, roughTokens,
   SNAPSHOT_TOKEN_BUDGET, SONNET_5_RATES, COPILOT_MODEL,
   costMillicents, billableTokens,
-  type ReadOnlyTool,
+  type ReadOnlyTool, type CopilotImageInput,
 } from '@gf/ai';
 import { dispatch } from '../bus';
 import { loadFloorSnapshot } from '../queries/floorSnapshot';
 import { loadSlotContext, summariseSlots } from '../queries/slots';
+import { loadRooms } from '../queries/rooms';
+import { loadCustomerAnalytics, loadRevenueTrends } from '../queries/analytics';
+import { loadCustomerDetail } from '../queries/customer';
+import { loadStaffDirectory } from '../queries/staffList';
+import { loadRoster } from '../queries/roster';
+import { loadDeskSettings, loadCheckoutSettings } from '../queries/settings';
+import { loadPackages } from '../queries/marketing';
+import { loadReviewsSummary } from '../queries/reviews';
 import { maybeAutoTopup } from '../billing/autoTopup';
 import type { CtxFromHeaders } from '../stripe/routes';
 
 /** 一次提问最多多长。再长的多半是粘贴进来的东西，不是一句问话 */
-const MAX_QUESTION_CHARS = 500;
+const MAX_QUESTION_CHARS = 2000;
 
 export function registerCopilotRoutes(
   app: FastifyInstance,
@@ -48,6 +56,8 @@ export function registerCopilotRoutes(
 
   app.post<{ Body: {
     question?: string;
+    sessionId?: string;
+    image?: { base64: string; mediaType?: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' };
     history?: Array<{ role?: string; text?: string }>;
   } }>('/v1/ai/copilot', async (req) => {
     const ctx = await ctxFromHeaders(req);
@@ -55,7 +65,13 @@ export function registerCopilotRoutes(
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
     }
 
-    const question = (req.body?.question ?? '').trim();
+    let question = (req.body?.question ?? '').trim();
+    const hasImage = Boolean(req.body?.image?.base64);
+
+    if (!question && hasImage) {
+      question = '请分析这张预约截图中的信息，识别客人姓名、手机号、服务项目、预约时间、技师和金额，并提议创建预约。';
+    }
+
     if (!question || question.length > MAX_QUESTION_CHARS) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { reason: `问题要在 1–${MAX_QUESTION_CHARS} 个字之间`, got: question.length },
@@ -77,20 +93,22 @@ export function registerCopilotRoutes(
                    'copilot snapshot over token budget');
     }
 
-    // ── 2. 先试确定性路由 ─────────────────────────────────────────────────
+    // ── 2. 先试确定性路由 (无图片时才尝试本地快速响应) ────────────────────
     //
     // ⭐ **最省钱的 AI 调用是没发生的那次**（05 §7.2 第 3 条）。
     // 前台 60–70% 的提问是「几个人在等」「谁有空」，答案快照里已经有了
-    const local = routeLocally(question, snapshot);
-    if (local) {
-      return {
-        answer: local.text,
-        proposal: null,
-        source: 'local' as const,
-        intent: local.intent,
-        costCents: 0,
-        snapshot: snapshotText,
-      };
+    if (!hasImage) {
+      const local = routeLocally(question, snapshot);
+      if (local) {
+        return {
+          answer: local.text,
+          proposal: null,
+          source: 'local' as const,
+          intent: local.intent,
+          costCents: 0,
+          snapshot: snapshotText,
+        };
+      }
     }
 
     // ── 3. 问模型 ────────────────────────────────────────────────────────
@@ -100,11 +118,19 @@ export function registerCopilotRoutes(
       throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
     }
 
+    const imageInput: CopilotImageInput | undefined = hasImage && req.body?.image
+      ? {
+          base64: req.body.image.base64,
+          mediaType: req.body.image.mediaType ?? 'image/png',
+        }
+      : undefined;
+
     const result = await askCopilot({
       apiKey,
       commandCatalog: commandCatalogText(),
       snapshot: snapshotText,
       question,
+      image: imageInput,
       history: (req.body?.history ?? [])
         .filter((h): h is { role: 'user' | 'assistant'; text: string } =>
           (h.role === 'user' || h.role === 'assistant') && typeof h.text === 'string')
@@ -168,7 +194,159 @@ export function registerCopilotRoutes(
       stopped: result.stopped ?? null,
       costCents: charged,
       snapshot: snapshotText,
+      sessionId: req.body?.sessionId ?? null,
     };
+  });
+
+  app.post<{ Body: {
+    question?: string;
+    sessionId?: string;
+    image?: { base64: string; mediaType?: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' };
+    history?: Array<{ role?: string; text?: string }>;
+  } }>('/v1/ai/copilot/stream', async (req, reply) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('ai.use')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
+    }
+
+    let question = (req.body?.question ?? '').trim();
+    const hasImage = Boolean(req.body?.image?.base64);
+
+    if (!question && hasImage) {
+      question = '请分析这张预约截图中的信息，识别客人姓名、手机号、服务项目、预约时间、技师和金额，并提议创建预约。';
+    }
+
+    if (!question || question.length > MAX_QUESTION_CHARS) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: `问题要在 1–${MAX_QUESTION_CHARS} 个字之间`, got: question.length },
+      });
+    }
+
+    const origin = req.headers.origin;
+    reply.raw.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
+    reply.raw.setHeader('Connection', 'keep-alive');
+    reply.raw.setHeader('X-Accel-Buffering', 'no');
+    if (origin) {
+      reply.raw.setHeader('Access-Control-Allow-Origin', origin);
+      reply.raw.setHeader('Access-Control-Allow-Credentials', 'false');
+      reply.raw.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Membership-Id');
+    }
+    reply.raw.statusCode = 200;
+
+    const sendEvent = (event: Record<string, unknown>) => {
+      try {
+        reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch {}
+    };
+
+    sendEvent({ type: 'step', step: '⚡ 正在读取现场快照与工位状态...' });
+
+    // ── 1. 现场快照 ───────────────────────────────────────────────────────
+    const snapshot = await withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => loadFloorSnapshot(tx, ctx));
+
+    const snapshotText = formatFloorSnapshot(snapshot);
+
+    // ── 2. 先试确定性路由 ──────────────────────────────────────────────────
+    if (!hasImage) {
+      const local = routeLocally(question, snapshot);
+      if (local) {
+        sendEvent({ type: 'step', step: '⚡ 本地规则引擎即时命中' });
+        sendEvent({ type: 'delta', delta: local.text });
+        sendEvent({
+          type: 'done',
+          answer: local.text,
+          proposal: null,
+          source: 'local',
+          intent: local.intent,
+          costCents: 0,
+          snapshot: snapshotText,
+          sessionId: req.body?.sessionId ?? null,
+        });
+        reply.raw.end();
+        return;
+      }
+    }
+
+    // ── 3. 问模型 ────────────────────────────────────────────────────────
+    const apiKey = process.env['ANTHROPIC_API_KEY'];
+    if (!apiKey) {
+      sendEvent({ type: 'error', error: 'ANTHROPIC_API_KEY 未配置，前台副驾不可用' });
+      reply.raw.end();
+      return;
+    }
+
+    sendEvent({ type: 'step', step: '🧠 正在分析技师技能与智能排单...' });
+
+    const imageInput: CopilotImageInput | undefined = hasImage && req.body?.image
+      ? {
+          base64: req.body.image.base64,
+          mediaType: req.body.image.mediaType ?? 'image/png',
+        }
+      : undefined;
+
+    let streamedText = '';
+
+    const result = await askCopilot({
+      apiKey,
+      commandCatalog: commandCatalogText(),
+      snapshot: snapshotText,
+      question,
+      image: imageInput,
+      history: (req.body?.history ?? [])
+        .filter((h): h is { role: 'user' | 'assistant'; text: string } =>
+          (h.role === 'user' || h.role === 'assistant') && typeof h.text === 'string')
+        .slice(-3),
+      tools: readOnlyTools(ctx),
+      callbacks: {
+        onStep: (step) => {
+          sendEvent({ type: 'step', step });
+        },
+        onDelta: (delta) => {
+          streamedText += delta;
+          sendEvent({ type: 'delta', delta });
+        },
+      },
+      log: req.log,
+    });
+
+    let proposal = result.proposal;
+    if (proposal) {
+      const def = getCommand(proposal.command);
+      if (!def || def.ai.exposed === false) {
+        req.log.warn({ command: proposal.command }, 'copilot proposed unknown command');
+        proposal = null;
+      } else {
+        proposal = { ...proposal, confirm: def.ai.confirm };
+      }
+      sendEvent({ type: 'proposal', proposal });
+    }
+
+    // ── 4. 记用量并扣费 ──────────────────────────────────────────────────
+    const cost = costMillicents(result.usage, SONNET_5_RATES);
+    const charged = await recordUsage(ctx, {
+      tokens: billableTokens(result.usage),
+      costMillicents: cost,
+      rounds: result.rounds,
+      hadProposal: Boolean(proposal),
+    }, req.log);
+
+    void maybeAutoTopup(ctx, 'credit', req.log);
+
+    sendEvent({
+      type: 'done',
+      answer: result.answer || streamedText,
+      proposal,
+      source: 'model',
+      costCents: charged,
+      snapshot: snapshotText,
+      toolsUsed: result.toolsUsed,
+      sessionId: req.body?.sessionId ?? null,
+    });
+
+    reply.raw.end();
   });
 
   /**
@@ -403,7 +581,549 @@ export function registerCopilotRoutes(
           };
         },
       },
-    ];
+
+      {
+        name: 'list_rooms',
+        description:
+          '列出本店所有房间与工位资源（名称、resourceId、当前状态 available/cleaning/in_service/maintenance、容量、正在服务中的客人与技师）。'
+          + '**变更房间状态（如设置打扫中 cleaning、空闲 available）前必须先调这个查出 resourceId**。',
+        inputSchema: { type: 'object', additionalProperties: false, properties: {} },
+        run: async () => {
+          const { rooms, metrics } = await withTenant(tenant, (tx) => loadRooms(tx, ctx));
+          return {
+            metrics,
+            rooms: rooms.map((r) => ({
+              resourceId: r.id,
+              name: r.name,
+              type: r.type,
+              status: r.status,
+              capacity: r.capacity,
+              currentSession: r.currentSession ? {
+                customer: r.currentSession.customerName,
+                service: r.currentSession.serviceName,
+                staff: r.currentSession.staffNames.join(', '),
+                endsAt: r.currentSession.estimatedEndAt,
+              } : null,
+              upcomingSession: r.upcomingSession ? {
+                customer: r.upcomingSession.customerName,
+                service: r.upcomingSession.serviceName,
+                startsInMinutes: r.upcomingSession.startsInMinutes,
+              } : null,
+            })),
+          };
+        },
+      },
+
+      {
+        name: 'get_revenue_analytics',
+        description:
+          '查询今日或指定日期区间的门店营收、工单量、客单价指标与品类占比。'
+          + '**前台询问今日营收或客单价时必须先调这个**。',
+        inputSchema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            from: { type: 'string', description: '起始日期 YYYY-MM-DD，不传默认今日' },
+            to: { type: 'string', description: '结束日期 YYYY-MM-DD，不传默认今日' },
+          },
+        },
+        run: async (input) => {
+          const today = new Date().toISOString().slice(0, 10);
+          const from = typeof input['from'] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input['from'])
+            ? input['from'] : today;
+          const to = typeof input['to'] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input['to'])
+            ? input['to'] : from;
+
+          const [overview, trends] = await withTenant(tenant, async (tx) => {
+            const ov = await loadCustomerAnalytics(tx, ctx, from, to);
+            const tr = await loadRevenueTrends(tx, ctx, from, to);
+            return [ov, tr] as const;
+          });
+
+          return {
+            dateRange: `${from} ~ ${to}`,
+            totalRevenueDollars: (trends.totalRevenueCents / 100).toFixed(2),
+            averageTicketDollars: (overview.averageTicketCents / 100).toFixed(2),
+            totalVisits: overview.totalVisits,
+            newCustomerVisits: overview.newCustomerVisits,
+            returningCustomerVisits: overview.returningCustomerVisits,
+            retentionRatePercent: (overview.retentionRateBp / 100).toFixed(1) + '%',
+            paymentBreakdown: {
+              cardDollars: (trends.byPaymentMethod.cardCents / 100).toFixed(2),
+              cashDollars: (trends.byPaymentMethod.cashCents / 100).toFixed(2),
+              giftCardDollars: (trends.byPaymentMethod.giftCardCents / 100).toFixed(2),
+              externalDollars: (trends.byPaymentMethod.externalCents / 100).toFixed(2),
+            },
+            categories: trends.byCategory.map((c) => ({
+              category: c.name,
+              revenueDollars: (c.revenueCents / 100).toFixed(2),
+              percent: (c.percentBp / 100).toFixed(1) + '%',
+            })),
+          };
+        },
+      },
+
+      {
+        name: 'list_inactive_customers',
+        description:
+          '检索超过指定天数（如 60 天）未到店消费的老顾客名单与上次到店时间。用于回答「帮我列出近60天未到店的老顾客」等召回分析。',
+        inputSchema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            days: { type: 'number', description: '未到店天数阈值，默认 60' },
+            limit: { type: 'number', description: '返回最多几人，默认 10' },
+          },
+        },
+        run: async (input) => {
+          const days = Math.max(1, Math.min(365, Number(input['days']) || 60));
+          const limit = Math.max(1, Math.min(50, Number(input['limit']) || 10));
+
+          const rows = await withTenant(tenant, (tx) => tx<{
+            id: string; display_name: string; phone_e164: string | null;
+            vip_level: number; last_visit_on: string; days_ago: number; visit_count: number;
+          }[]>`
+            select c.id, c.display_name, c.phone_e164, c.vip_level,
+                   max(a.business_date)::text as last_visit_on,
+                   (current_date - max(a.business_date)::date)::int as days_ago,
+                   count(distinct a.id)::int as visit_count
+            from customers c
+            join appointments a on a.customer_id = c.id and a.location_id = ${ctx.locationId}
+            where c.org_id = ${ctx.orgId}
+              and c.merged_into_id is null
+              and a.status <> 'cancelled'
+            group by c.id, c.display_name, c.phone_e164, c.vip_level
+            having max(a.business_date)::date <= current_date - ${days}
+            order by max(a.business_date) asc
+            limit ${limit}`);
+
+          return {
+            thresholdDays: days,
+            totalFound: rows.length,
+            customers: rows.map((r) => ({
+              customerId: r.id,
+              name: r.display_name,
+              phone: ctx.permissions.has('customer.view_contact')
+                ? r.phone_e164
+                : r.phone_e164 ? `***${r.phone_e164.slice(-4)}` : null,
+              vipLevel: r.vip_level,
+              lastVisitOn: r.last_visit_on,
+              daysInactive: r.days_ago,
+              totalVisits: r.visit_count,
+            })),
+          };
+        },
+      },
+
+      {
+        name: 'get_day_overview',
+        description:
+          '获取指定日期（默认今日）的全量预约单据统计与列表。当需要查询今天一共有几个预约或总览时调用。',
+        inputSchema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            businessDate: { type: 'string', description: 'YYYY-MM-DD，默认今日' },
+          },
+        },
+        run: async (input) => {
+          const date = String(input['businessDate'] ?? new Date().toISOString().slice(0, 10));
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: '日期格式为 YYYY-MM-DD' };
+
+          const rows = await withTenant(tenant, (tx) => tx<{
+            item_id: string; appointment_id: string; starts_at: string | Date; ends_at: string | Date;
+            duration_min: number; customer_name: string | null; walk_in_name: string | null;
+            service_name: unknown; staff_name: unknown; status: string; is_request: boolean;
+            phone_e164: string | null;
+          }[]>`
+            select ai.id as item_id, ai.appointment_id, ai.starts_at, ai.ends_at, ai.duration_min,
+                   c.display_name as customer_name, a.walk_in_name, c.phone_e164,
+                   s.name as service_name, sp.display_name as staff_name,
+                   ai.status, ai.is_request
+            from appointment_items ai
+            join appointments a on a.id = ai.appointment_id
+            join services s on s.id = ai.service_id
+            left join staff_profiles sp on sp.membership_id = ai.membership_id
+            left join customers c on c.id = a.customer_id
+            where ai.location_id = ${ctx.locationId}
+              and a.business_date = ${date}
+              and ai.status <> 'cancelled'
+            order by ai.starts_at asc`);
+
+          const countByStatus: Record<string, number> = {};
+          for (const r of rows) {
+            countByStatus[r.status] = (countByStatus[r.status] ?? 0) + 1;
+          }
+
+          return {
+            businessDate: date,
+            totalAppointments: rows.length,
+            statusBreakdown: countByStatus,
+            appointments: rows.map((r) => ({
+              appointmentId: r.appointment_id,
+              itemId: r.item_id,
+              customer: r.customer_name ?? r.walk_in_name ?? '客人',
+              phone: ctx.permissions.has('customer.view_contact')
+                ? r.phone_e164
+                : r.phone_e164 ? `***${r.phone_e164.slice(-4)}` : null,
+              service: pickText(r.service_name, ctx.locale),
+              staff: r.staff_name ? pickText(r.staff_name, ctx.locale) : '未指派',
+              startsAt: new Date(r.starts_at).toISOString(),
+              durationMin: r.duration_min,
+              status: r.status,
+              isRequest: r.is_request,
+            })),
+          };
+        },
+      },
+
+      {
+        name: 'get_customer_detail',
+        description: '按 customerId 查询客户 360 档案（偏好、过敏禁忌、历史总消费、到店次数、前台备忘）。',
+        inputSchema: {
+          type: 'object',
+          required: ['customerId'],
+          additionalProperties: false,
+          properties: {
+            customerId: { type: 'string', description: '客户 UUID' },
+          },
+        },
+        run: async (input) => {
+          const customerId = String(input['customerId'] ?? '').trim();
+          if (!customerId) return { error: 'customerId 不能为空' };
+
+          const detail = await withTenant(tenant, (tx) => loadCustomerDetail(tx, ctx, customerId));
+          if (!detail) return { error: '未找到该客户详情' };
+
+          return {
+            name: detail.displayName,
+            phone: detail.phone,
+            vipLevel: detail.vipLevel,
+            tags: detail.tags,
+            notes: detail.notes,
+            allergies: detail.preferences.allergies,
+            preferencesNotes: detail.preferences.freeNotes,
+            visitStats: {
+              totalVisits: detail.visits.total,
+              firstVisit: detail.visits.firstAt,
+              lastVisit: detail.visits.lastAt,
+              daysSinceLastVisit: detail.visits.daysSinceLastVisit,
+              lifetimeSpendDollars: detail.visits.lifetimeSpendCents
+                ? (detail.visits.lifetimeSpendCents / 100).toFixed(2) : null,
+              avgSpendDollars: detail.visits.avgSpendCents
+                ? (detail.visits.avgSpendCents / 100).toFixed(2) : null,
+            },
+            recentServices: detail.recentTickets.slice(0, 5).map((t) => ({
+              date: t.businessDate,
+              services: t.serviceNames,
+            })),
+          };
+        },
+      },
+
+      {
+        name: 'get_queue_status',
+        description: '查询当前现场等位排队详情（排队号、客人姓名、等待时间、超时预警、期望项目）。',
+        inputSchema: { type: 'object', additionalProperties: false, properties: {} },
+        run: async () => {
+          const rows = await withTenant(tenant, (tx) => tx<{
+            ticket_number: number; customer_name: string | null; walk_in_name: string | null;
+            party_size: number; joined_at: string | Date; quoted_wait_min: number | null;
+            service_name: unknown;
+          }[]>`
+            select q.ticket_number, c.display_name as customer_name, q.walk_in_name,
+                   q.party_size, q.joined_at, q.quoted_wait_min, s.name as service_name
+            from walkin_queue q
+            left join customers c on c.id = q.customer_id
+            left join services s on s.id = q.requested_service_id
+            where q.location_id = ${ctx.locationId}
+              and q.business_date = current_date
+              and q.status = 'waiting'
+            order by q.ticket_number asc`);
+
+          const nowMs = Date.now();
+          return {
+            waitingCount: rows.length,
+            queue: rows.map((r) => {
+              const waitedMin = Math.max(0, Math.round((nowMs - new Date(r.joined_at).getTime()) / 60000));
+              const isOverdue = r.quoted_wait_min !== null && waitedMin > r.quoted_wait_min + 10;
+              return {
+                ticketNumber: r.ticket_number,
+                customer: r.customer_name ?? r.walk_in_name ?? '散客',
+              partySize: r.party_size,
+              waitedMinutes: waitedMin,
+              quotedWaitMinutes: r.quoted_wait_min,
+              isOverdue,
+              requestedService: pickText(r.service_name, ctx.locale),
+            };
+          }),
+        };
+      },
+    },
+
+    {
+      name: 'list_staff_skills',
+      description:
+        '查询全店技师的花名册、技能标签（如美甲、Gel-X延长、美睫、足疗、推拿、手足护理等）、职级等级与在职状态。'
+        + '**前台询问谁会做某项目、某技师会什么技能、空闲技师能不能接单时必须先调用此工具**。',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          includeResigned: { type: 'boolean', description: '是否包含已离职员工，默认 false' },
+        },
+      },
+      run: async (input) => {
+        const includeResigned = Boolean(input['includeResigned']);
+        const { staff } = await withTenant(tenant, (tx) => loadStaffDirectory(tx, ctx));
+        const filtered = includeResigned ? staff : staff.filter((s) => s.status === 'active');
+        return {
+          totalStaff: filtered.length,
+          staffList: filtered.map((s) => ({
+            membershipId: s.membershipId,
+            employeeNo: s.employeeNo,
+            name: s.name,
+            jobTitle: s.jobTitle,
+            level: s.level,
+            skills: s.skills.length > 0 ? s.skills : ['全科基础服务'],
+            status: s.status,
+            hireDate: s.hireDate,
+          })),
+        };
+      },
+    },
+
+    {
+      name: 'get_service_catalog',
+      description:
+        '查询门店全量服务项目价目表、标准耗时与分类（如美甲、美睫、按摩、足疗项目单价与时长）。'
+        + '**前台询问项目多少钱、服务耗时多久、店内有哪些服务项目时必须调用**。',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          categoryId: { type: 'string', description: '可选分类 ID 筛选' },
+        },
+      },
+      run: async (input) => {
+        const categoryId = typeof input['categoryId'] === 'string' ? input['categoryId'] : null;
+        const [categories, services] = await withTenant(tenant, async (tx) => {
+          const cats = await tx<{ id: string; name: unknown; sort: number }[]>`
+            select id, name, sort from service_categories
+            where location_id = ${ctx.locationId}
+            order by sort asc, created_at asc`;
+
+          const srvs = await tx<{
+            id: string; category_id: string | null; name: unknown;
+            duration_min: number; price_cents: number; is_active: boolean;
+            description: unknown;
+          }[]>`
+            select id, category_id, name, duration_min, price_cents, is_active, description
+            from services
+            where location_id = ${ctx.locationId} and is_active = true
+            order by sort asc, created_at asc`;
+
+          return [cats, srvs] as const;
+        });
+
+        const catMap = new Map(categories.map((c) => [c.id, pickText(c.name, ctx.locale)]));
+        const list = services
+          .filter((s) => !categoryId || s.category_id === categoryId)
+          .map((s) => ({
+            serviceId: s.id,
+            category: s.category_id ? (catMap.get(s.category_id) ?? '默认分类') : '未分类',
+            name: pickText(s.name, ctx.locale),
+            durationMin: s.duration_min,
+            priceDollars: (s.price_cents / 100).toFixed(2),
+            description: s.description ? pickText(s.description, ctx.locale) : null,
+          }));
+
+        return {
+          totalServices: list.length,
+          categories: categories.map((c) => ({ id: c.id, name: pickText(c.name, ctx.locale) })),
+          services: list,
+        };
+      },
+    },
+
+    {
+      name: 'get_staff_schedules',
+      description:
+        '查询员工排班日历与休假情况（某天或未来几天的上班时段、休息日、请假原因）。'
+        + '**前台询问某技师明天几点上班、谁今天休息、某天排班时调用**。',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          fromDate: { type: 'string', description: 'YYYY-MM-DD，默认今日' },
+          days: { type: 'number', description: '查询天数，默认 3 天，最多 7 天' },
+        },
+      },
+      run: async (input) => {
+        const today = new Date().toISOString().slice(0, 10);
+        const fromDate = typeof input['fromDate'] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input['fromDate'])
+          ? input['fromDate'] : today;
+        const days = Math.max(1, Math.min(7, Number(input['days']) || 3));
+
+        const roster = await withTenant(tenant, (tx) => loadRoster(tx, ctx, fromDate, days));
+        return {
+          fromDate: roster.fromDate,
+          toDate: roster.toDate,
+          timezone: roster.timezone,
+          staffSchedules: roster.shifts.map((sh) => {
+            const staffInfo = roster.staff.find((s) => s.membershipId === sh.membershipId);
+            const startHour = `${String(Math.floor(sh.startMin / 60)).padStart(2, '0')}:${String(sh.startMin % 60).padStart(2, '0')}`;
+            const endHour = `${String(Math.floor(sh.endMin / 60)).padStart(2, '0')}:${String(sh.endMin % 60).padStart(2, '0')}`;
+            return {
+              date: sh.businessDate,
+              staffName: staffInfo?.name ?? '员工',
+              membershipId: sh.membershipId,
+              status: sh.status,
+              shiftHours: sh.status === 'off' ? '休息' : `${startHour} - ${endHour}`,
+              offReason: sh.offReason,
+              note: sh.note,
+            };
+          }),
+        };
+      },
+    },
+
+    {
+      name: 'get_store_info',
+      description:
+        '查询门店基础设置与规则（每周营业时间、开店打烊时间、门店地址、前台电话、税率、小费政策）。'
+        + '**前台询问几点打烊、营业时间、地址电话、税率时调用**。',
+      inputSchema: { type: 'object', additionalProperties: false, properties: {} },
+      run: async () => {
+        const [desk, checkout] = await withTenant(tenant, async (tx) => {
+          const d = await loadDeskSettings(tx, ctx);
+          const c = await loadCheckoutSettings(tx, ctx);
+          return [d, c] as const;
+        });
+
+        return {
+          storeName: pickText(desk.location.name, ctx.locale),
+          businessType: desk.location.businessType,
+          timezone: desk.location.timezone,
+          phone: desk.location.phone,
+          email: desk.location.email,
+          address: {
+            street: desk.location.addressStreet,
+            city: desk.location.addressCity,
+            state: desk.location.addressState,
+            zip: desk.location.addressZip,
+          },
+          businessHours: desk.location.businessHours,
+          taxRatePercent: checkout.salesTaxRatePercent,
+          suggestedTipPercentages: checkout.suggestedTipPercentages,
+          receiptFooterMessage: checkout.receiptFooterMessage,
+        };
+      },
+    },
+
+    {
+      name: 'get_promotions_and_cards',
+      description:
+        '查询门店当前次卡套餐（如10次卡）、优惠券活动与礼品卡信息。'
+        + '**前台询问次卡套餐、优惠活动、礼品卡规则时调用**。',
+      inputSchema: { type: 'object', additionalProperties: false, properties: {} },
+      run: async () => {
+        const pkgData = await withTenant(tenant, (tx) => loadPackages(tx, ctx));
+        return {
+          activePackages: pkgData.templates.filter((t) => t.active).map((p) => ({
+            packageId: p.id,
+            name: p.name,
+            priceDollars: (p.priceCents / 100).toFixed(2),
+            sessions: p.sessions,
+            validDays: p.validDays ? `${p.validDays} 天` : '永久有效',
+            serviceName: p.serviceName,
+          })),
+          totalPackagesSold: pkgData.totalSold,
+        };
+      },
+    },
+
+    {
+      name: 'get_store_reviews',
+      description:
+        '查询门店口碑与外部评价（Google/Yelp/店内评分、顾客好评点、差评反馈、技师好评榜）。'
+        + '**前台询问顾客评价口碑时调用**。',
+      inputSchema: { type: 'object', additionalProperties: false, properties: {} },
+      run: async () => {
+        const rev = await withTenant(tenant, (tx) => loadReviewsSummary(tx, ctx));
+        return {
+          overallScore: rev.overallScore,
+          totalReviewCount: rev.totalReviewCount,
+          satisfactionRatePercent: rev.satisfactionRate + '%',
+          googleRating: rev.platformBreakdown.google,
+          yelpRating: rev.platformBreakdown.yelp,
+          topStaff: rev.aiSummary.topStaff,
+          recentFeedback: rev.recentReviews.slice(0, 5).map((r) => ({
+            customer: r.customerName,
+            rating: r.rating,
+            platform: r.platform,
+            timeAgo: r.timeAgo,
+            technician: r.technicianName,
+            service: r.serviceName,
+            content: r.content,
+            highlights: r.highlights,
+          })),
+        };
+      },
+    },
+
+    {
+      name: 'search_orders',
+      description:
+        '查询收银订单流水（单据号、实付金额、支付方式、小费、技师业绩分成、状态）。'
+        + '**前台询问某单收了多少钱、查小费、查订单流水明细时调用**。',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          date: { type: 'string', description: 'YYYY-MM-DD，默认今日' },
+          limit: { type: 'number', description: '返回最多几笔单，默认 10' },
+        },
+      },
+      run: async (input) => {
+        const today = new Date().toISOString().slice(0, 10);
+        const date = typeof input['date'] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input['date'])
+          ? input['date'] : today;
+        const limit = Math.max(1, Math.min(30, Number(input['limit']) || 10));
+
+        const rows = await withTenant(tenant, (tx) => tx<{
+          id: string; ticket_number: number; status: string; customer_name: string | null;
+          subtotal_cents: number; tip_cents: number; total_cents: number;
+          payment_method: string | null; closed_at: string | null;
+        }[]>`
+          select t.id, t.ticket_number, t.status, c.display_name as customer_name,
+                 t.subtotal_cents, t.tip_cents, t.total_cents,
+                 t.payment_method, t.closed_at::text as closed_at
+          from tickets t
+          left join customers c on c.id = t.customer_id
+          where t.location_id = ${ctx.locationId}
+            and t.business_date = ${date}
+          order by t.created_at desc
+          limit ${limit}`);
+
+        return {
+          businessDate: date,
+          totalCount: rows.length,
+          orders: rows.map((r) => ({
+            orderId: r.id,
+            ticketNumber: `#${r.ticket_number}`,
+            customer: r.customer_name ?? '散客',
+            status: r.status,
+            totalDollars: (r.total_cents / 100).toFixed(2),
+            subtotalDollars: (r.subtotal_cents / 100).toFixed(2),
+            tipDollars: (r.tip_cents / 100).toFixed(2),
+            paymentMethod: r.payment_method ?? '其他',
+            closedAt: r.closed_at,
+          })),
+        };
+      },
+    },
+  ];
 
     /** 姓名 → membershipId。**匹配不上返回 null**，绝不挑一个最像的 */
     async function membershipByName(name: string): Promise<string | null> {

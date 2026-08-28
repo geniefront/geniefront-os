@@ -42,6 +42,8 @@ const issue = (over: Record<string, unknown> = {}) =>
     { faceValueCents: 10000, salePriceCents: 8000, ...over });
 
 beforeAll(async () => {
+  await withTenant(tenant, (tx) => tx`
+    update billing_accounts set subscription_status = 'active' where location_id = ${SPA_LOC}`);
   const [m] = await withTenant(tenant, (tx) => tx<{ id: string; user_id: string }[]>`
     select m.id, m.user_id from memberships m
     join membership_roles mr on mr.membership_id = m.id

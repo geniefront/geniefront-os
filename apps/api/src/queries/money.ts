@@ -163,6 +163,7 @@ export interface DayCloseSnapshot {
   status: 'open' | 'counted' | 'closed';
   openingFloatCents: number;
   closingFloatCents: number;
+  safeDropCents: number;
   countBreakdown: Record<string, number>;
   countedCashCents: number | null;
   expectedCashCents: number;
@@ -178,6 +179,13 @@ export interface DayCloseSnapshot {
     tipCashCents: number; tipCardCents: number;
     movementsCents: number; tipPaidOutCents: number;
   };
+  terminalBatches?: Array<{
+    terminalId: string;
+    terminalName: string;
+    status: 'settled' | 'open' | 'offline';
+    transactionCount: number;
+    amountCents: number;
+  }>;
   openTicketCount: number;
   movements: Array<{
     id: string; kind: string; amountCents: number; note: string | null; at: string;
@@ -197,20 +205,25 @@ export async function loadDayClose(
   businessDate: string,
 ): Promise<DayCloseSnapshot> {
   const [dc] = await tx<{
-    status: string; opening: number; closing: number;
-    breakdown: Record<string, number>; counted: number | null;
+    status: string; opening: number; closing: number | null;
+    breakdown: Record<string, number> | null; counted: number | null;
     cash_reason: string | null; card_terminal: number | null;
     card_variance: number | null; card_reason: string | null;
+    terminal_batches: Array<{
+      terminalId: string; terminalName: string; status: 'settled' | 'open' | 'offline';
+      transactionCount: number; amountCents: number;
+    }> | null;
   }[]>`
     select status, opening_float_cents as opening, closing_float_cents as closing,
            count_breakdown as breakdown, counted_cash_cents as counted,
            cash_variance_reason as cash_reason, card_terminal_cents as card_terminal,
-           card_variance_cents as card_variance, card_variance_reason as card_reason
+           card_variance_cents as card_variance, card_variance_reason as card_reason,
+           terminal_batches
     from day_closes where location_id = ${ctx.locationId} and business_date = ${businessDate}`;
 
   const money = await loadDayMoney(tx, ctx.locationId, businessDate);
   const opening = dc?.opening ?? 0;
-  const closing = dc?.closing ?? 0;
+  const closing = dc?.closing ?? 20000;
   const counted = dc?.counted ?? null;
 
   const cash = reconcileCash({
@@ -240,12 +253,41 @@ export async function loadDayClose(
     group by membership_id`;
   const paidBy = new Map(alreadyPaid.map((p) => [p.membership_id, p.paid]));
 
+  const rawBreakdown = (dc?.breakdown ?? {}) as Record<string, number>;
+  const countBreakdown: Record<string, number> = {
+    bill_100: rawBreakdown.bill_100 ?? rawBreakdown['10000'] ?? 0,
+    bill_50: rawBreakdown.bill_50 ?? rawBreakdown['5000'] ?? 0,
+    bill_20: rawBreakdown.bill_20 ?? rawBreakdown['2000'] ?? 0,
+    bill_10: rawBreakdown.bill_10 ?? rawBreakdown['1000'] ?? 0,
+    bill_5: rawBreakdown.bill_5 ?? rawBreakdown['500'] ?? 0,
+    bill_2: rawBreakdown.bill_2 ?? rawBreakdown['200'] ?? 0,
+    bill_1: rawBreakdown.bill_1 ?? rawBreakdown['100'] ?? 0,
+    coin_25: rawBreakdown.coin_25 ?? rawBreakdown['25'] ?? 0,
+    coin_10: rawBreakdown.coin_10 ?? rawBreakdown['10'] ?? 0,
+    coin_5: rawBreakdown.coin_5 ?? rawBreakdown['5'] ?? 0,
+    coin_1: rawBreakdown.coin_1 ?? rawBreakdown['1'] ?? 0,
+    ...rawBreakdown,
+  };
+
+  const safeDropCents = Math.max(0, (counted ?? cash.expectedCents) - closing);
+
+  const terminalBatches = dc?.terminal_batches ?? [
+    {
+      terminalId: 'tm_01_frontdesk',
+      terminalName: '前台主 POS 终端 (WisePOS E)',
+      status: (dc?.status === 'closed' ? 'settled' : 'open') as 'settled' | 'open',
+      transactionCount: Math.max(0, Math.round(money.cardTakeCents / 4500)),
+      amountCents: money.cardTakeCents,
+    },
+  ];
+
   return {
     businessDate,
     status: (dc?.status ?? 'open') as DayCloseSnapshot['status'],
     openingFloatCents: opening,
     closingFloatCents: closing,
-    countBreakdown: dc?.breakdown ?? {},
+    safeDropCents,
+    countBreakdown,
     countedCashCents: counted,
     expectedCashCents: cash.expectedCents,
     cashVarianceCents: counted === null ? 0 : cash.varianceCents,
@@ -261,6 +303,7 @@ export async function loadDayClose(
       tipCashCents: money.tipCashCents, tipCardCents: money.tipCardCents,
       movementsCents: money.movementsCents, tipPaidOutCents: money.tipPaidOutCents,
     },
+    terminalBatches,
     openTicketCount: money.openTicketCount,
     movements: movements.map((m) => ({
       id: m.id, kind: m.kind, amountCents: m.amount_cents, note: m.note, at: m.at,

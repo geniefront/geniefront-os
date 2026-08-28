@@ -66,8 +66,8 @@ export const SaveCashCount = defineCommand({
   name: 'dayclose.saveCount',
   input: z.object({
     businessDate: businessDate.optional(),
-    /** 面额（分）→ 张数。{"10000":3,"2000":7} */
-    breakdown: z.record(z.string().regex(/^\d+$/), z.number().int().nonnegative()).default({}),
+    /** 面额（分）或名称 → 张数。{"10000":3, "bill_100": 3} */
+    breakdown: z.record(z.string(), z.number().int().nonnegative()).default({}),
     /** 不按面额点时直接给总额。两个都给时以 breakdown 为准 */
     countedCashCents: cents.nonnegative().optional(),
     openingFloatCents: cents.nonnegative().optional(),

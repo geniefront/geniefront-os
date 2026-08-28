@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    // 组件测试使用 @testing-library/jest-dom 的 DOM 断言，其类型增强需显式引入
+    "types": ["vite/client", "@testing-library/jest-dom"],
+    "paths": { "@/*": ["./src/*"] },
+    /*
+     * 这两条比仓库其它包松。模板带进来的页面（尤其是手写的 Schedule 日历）
+     * 到处是 `arr[i]` 和可选属性直传，开着这两条会淹在几十条与业务无关的报错里。
+     * 页面逐个接真数据时再一页一页收紧，收干净了就把这两行删掉。
+     */
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "vitest.setup.ts"]
+}

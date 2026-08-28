@@ -132,11 +132,31 @@ export const TicketClose = defineCommand({
     /** 一单可以拆多种支付方式（一部分现金一部分刷卡） */
     payments: z.array(paymentLine).min(1).max(5),
     discountCents: cents.nonnegative().default(0),
+    taxCents: cents.nonnegative().default(0),
+    taxRateBp: z.number().int().nonnegative().optional(),
+    taxCalculationMode: z.enum(['exclusive', 'inclusive']).optional(),
+    surchargeCents: cents.nonnegative().default(0),
+    surchargeRateBp: z.number().int().nonnegative().optional(),
+    tipTotalCents: cents.nonnegative().optional(),
+    tipSplits: z.array(z.object({
+      staffMembershipId: uuid,
+      staffName: z.string().optional(),
+      amountCents: cents,
+      percentageBp: z.number().optional(),
+    })).optional(),
+    itemCommissionSplits: z.array(z.object({
+      ticketItemId: uuid,
+      staffMembershipId: uuid,
+      commissionCents: cents,
+    })).optional(),
+    notes: z.string().max(2000).optional(),
   }),
   output: z.object({
     ticketId: uuid,
     totalCents: cents,
     tipCents: cents,
+    taxCents: cents.nonnegative().optional(),
+    subtotalCents: cents.nonnegative().optional(),
     allocations: z.array(z.object({
       membershipId: uuid,
       name: z.string(),
@@ -148,6 +168,20 @@ export const TicketClose = defineCommand({
   permission: 'ticket.write',
   ai: {
     description: '结账。现金还是刷卡要到这一刻才知道，所以不能提前假设。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'required',
+  auditRedact: MONEY_PATHS,
+});
+
+export const TicketPay = defineCommand({
+  name: 'ticket.pay',
+  input: TicketClose.input,
+  output: TicketClose.output,
+  permission: 'ticket.write',
+  ai: {
+    description: '结账收银与多技师小费分账。',
     confirm: 'always',
   },
   reversible: true,
@@ -231,6 +265,8 @@ export const TicketCloseGroup = defineCommand({
     payments: z.array(paymentLine).min(1).max(5),
     /** 整组的折扣，按各单金额摊 */
     discountCents: cents.nonnegative().default(0),
+    taxCents: cents.nonnegative().default(0),
+    surchargeCents: cents.nonnegative().default(0),
     /** 掏钱的是哪一位（哪张单）。事后想问「谁付的」看这个 */
     payerTicketId: uuid.optional(),
   }),
@@ -259,7 +295,54 @@ export const TicketCloseGroup = defineCommand({
   auditRedact: MONEY_PATHS,
 });
 
+export const TicketSendReceipt = defineCommand({
+  name: 'ticket.sendReceipt',
+  input: z.object({
+    ticketId: uuid,
+    channel: z.enum(['sms', 'email']),
+    destination: z.string().optional(),
+  }),
+  output: z.object({
+    ticketId: uuid,
+    channel: z.enum(['sms', 'email']),
+    destination: z.string(),
+    outboxId: uuid,
+  }),
+  permission: 'ticket.write',
+  ai: {
+    description: '通过短信或邮件向客人发送电子小票。',
+    confirm: 'always',
+  },
+  reversible: false,
+  idempotency: 'optional',
+});
+
+export const TicketRefund = defineCommand({
+  name: 'ticket.refund',
+  input: z.object({
+    ticketId: uuid,
+    refundAmountCents: cents.positive(),
+    reason: z.enum(['customer_dissatisfied', 'wrong_charge', 'accidental_duplicate', 'other']),
+    refundMethod: z.enum(['original_payment', 'cash', 'store_credit']).default('original_payment'),
+    notes: z.string().max(1000).optional(),
+  }),
+  output: z.object({
+    ticketId: uuid,
+    status: z.literal('refunded'),
+    refundedCents: cents,
+    refundMethod: z.string(),
+  }),
+  permission: 'ticket.void',
+  ai: {
+    description: '对已结账单据发起部分或全额退款冲销。',
+    confirm: 'always',
+  },
+  reversible: false,
+  idempotency: 'optional',
+  auditRedact: MONEY_PATHS,
+});
+
 export const TICKET_COMMANDS = [
-  TicketOpen, TicketAddItem, TicketClose, TicketVoid,
-  TicketGroup, TicketUngroup, TicketCloseGroup,
+  TicketOpen, TicketAddItem, TicketClose, TicketPay, TicketVoid,
+  TicketGroup, TicketUngroup, TicketCloseGroup, TicketSendReceipt, TicketRefund,
 ] as const;

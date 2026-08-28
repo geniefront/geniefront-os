@@ -45,8 +45,12 @@ export const billingAccounts = pgTable('billing_accounts', {
   /** Stripe 的客户与订阅。null = 还没接上（试用期） */
   stripeCustomerId: text('stripe_customer_id'),
   stripeSubscriptionId: text('stripe_subscription_id'),
-  /** essential | growth。**和 Stripe 后台的产品名对齐**（迁移 0021） */
+  /** starter | growth | enterprise | essential */
   plan: text('plan').notNull().default('essential'),
+  /** monthly | annual */
+  billingCycle: text('billing_cycle').notNull().default('monthly'),
+  /** 企业开票与纳税人识别号 */
+  taxProfile: jsonb('tax_profile'),
   /** trialing | active | past_due | canceled */
   subscriptionStatus: text('subscription_status').notNull().default('trialing'),
   currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
@@ -201,6 +205,7 @@ export const creditLedger = pgTable('credit_ledger', {
   index('credit_ledger_seq_idx').on(t.locationId, t.seq),
   // 两种额度分开对账
   index('credit_ledger_unit_idx').on(t.locationId, t.unit, t.seq),
+  index('credit_ledger_stripe_idx').on(t.stripePaymentIntentId),
 ]);
 
 /**
@@ -227,3 +232,21 @@ export const stripeEvents = pgTable('stripe_events', {
   /** 处理时出的错。留着是为了能回头补处理，而不是让事件默默消失 */
   error: text('error'),
 });
+
+export const billingInvoices = pgTable('billing_invoices', {
+  id: id(),
+  orgId: orgCol(),
+  locationId: uuid('location_id').references(() => locations.id),
+  invoiceNumber: text('invoice_number').notNull(),
+  period: text('period').notNull(),
+  description: text('description').notNull(),
+  amountCents: integer('amount_cents').notNull(),
+  status: text('status').notNull().default('paid'), // paid | pending | failed
+  date: text('date').notNull(),
+  receiptPdfUrl: text('receipt_pdf_url'),
+  createdAt: createdAt(),
+}, (t) => [
+  index('billing_invoices_org_idx').on(t.orgId, t.createdAt),
+  index('billing_invoices_loc_idx').on(t.locationId, t.createdAt),
+]);
+

@@ -213,9 +213,13 @@ export const appointments = pgTable('appointments', {
    * 把别人挤掉一格。**前台代改不计数** —— 那是店里自己的决定。
    */
   selfRescheduleCount: integer('self_reschedule_count').notNull().default(0),
+  isBackfill: boolean('is_backfill').notNull().default(false),
+  backfillReason: text('backfill_reason'),
+  backfillNotes: text('backfill_notes'),
   createdAt: createdAt(),
 }, (t) => [
   index('appointments_day_idx').on(t.orgId, t.locationId, t.businessDate, t.status),
+  index('appointments_customer_idx').on(t.customerId),
 ]);
 
 export const appointmentItems = pgTable('appointment_items', {
@@ -243,6 +247,7 @@ export const appointmentItems = pgTable('appointment_items', {
 }, (t) => [
   index('appointment_items_staff_idx').on(t.locationId, t.membershipId, t.startsAt),
   index('appointment_items_resource_idx').on(t.locationId, t.resourceId, t.startsAt),
+  index('appointment_items_appointment_idx').on(t.appointmentId),
 ]);
 
 /** 处理时间拆段。资源排他约束只建在 active 段上，否则泡脚/等干场景排不进去。 */

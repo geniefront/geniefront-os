@@ -249,6 +249,8 @@ export interface CustomerListRow {
   noShowCount: number;
 }
 
+export type CustomerFilterType = 'all' | 'vip' | 'active30' | 'sleep30' | 'sleep90' | 'blocked';
+
 /**
  * 客户列表。
  *
@@ -257,17 +259,26 @@ export interface CustomerListRow {
  */
 export async function loadCustomerList(
   tx: postgres.TransactionSql, ctx: CommandContext,
-  opts: { q?: string; vipOnly?: boolean; sleepingDays?: number; limit?: number; offset?: number },
+  opts: {
+    q?: string;
+    query?: string;
+    filterType?: CustomerFilterType;
+    vipOnly?: boolean;
+    sleepingDays?: number;
+    limit?: number;
+    offset?: number;
+  },
 ): Promise<{ rows: CustomerListRow[]; total: number }> {
   const canSeeContact = ctx.permissions.has('customer.view_contact');
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
   const offset = Math.max(opts.offset ?? 0, 0);
-  const q = (opts.q ?? '').trim();
-  const digits = q.replace(/\D/g, '');
+  const searchStr = (opts.query ?? opts.q ?? '').trim();
+  const digits = searchStr.replace(/\D/g, '');
+  const filter = opts.filterType ?? 'all';
 
   const rows = await tx<{
     id: string; display_name: string | null; phone_e164: string | null;
-    vip_level: number; no_show_count: number;
+    vip_level: number; no_show_count: number; blocked_at: string | null;
     n: number; last_at: string | null; total: number;
   }[]>`
     with v as (
@@ -276,20 +287,24 @@ export async function loadCustomerList(
       where location_id = ${ctx.locationId} and status = 'closed'
       group by customer_id
     )
-    select c.id, c.display_name, c.phone_e164, c.vip_level, c.no_show_count,
+    select c.id, c.display_name, c.phone_e164, c.vip_level, c.no_show_count, c.blocked_at::text as blocked_at,
            coalesce(v.n, 0) as n, v.last_at,
            count(*) over ()::int as total
     from customers c
     left join v on v.customer_id = c.id
     where c.merged_into_id is null
       and (c.primary_location_id = ${ctx.locationId} or v.customer_id is not null)
-      ${q ? tx`and (
+      ${searchStr ? tx`and (
         ${digits.length >= 3 ? tx`c.phone_e164 like ${'%' + digits}` : tx`false`}
-        or c.display_name ilike ${'%' + q + '%'}
+        or c.display_name ilike ${'%' + searchStr + '%'}
       )` : tx``}
-      ${opts.vipOnly ? tx`and c.vip_level > 0` : tx``}
+      ${(opts.vipOnly || filter === 'vip') ? tx`and c.vip_level > 0` : tx``}
+      ${filter === 'active30' ? tx`and v.last_at is not null and v.last_at >= (current_date - 30)::text` : tx``}
+      ${filter === 'sleep30' ? tx`and (v.last_at is null or v.last_at < (current_date - 30)::text)` : tx``}
+      ${filter === 'sleep90' ? tx`and (v.last_at is null or v.last_at < (current_date - 90)::text)` : tx``}
+      ${filter === 'blocked' ? tx`and c.blocked_at is not null` : tx``}
       ${opts.sleepingDays
-        ? tx`and (v.last_at is null or v.last_at < (current_date - ${opts.sleepingDays}::int))`
+        ? tx`and (v.last_at is null or v.last_at < (current_date - ${opts.sleepingDays}::int)::text)`
         : tx``}
     order by v.last_at desc nulls last, c.display_name
     limit ${limit} offset ${offset}`;
@@ -311,3 +326,4 @@ export async function loadCustomerList(
     }),
   };
 }
+

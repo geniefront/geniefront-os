@@ -20,5 +20,12 @@ export * from './commands/yelp.js';
 export * from './commands/kiosk.js';
 export * from './commands/billing.js';
 export * from './commands/ai.js';
+export * from './commands/customer.js';
+export * from './commands/sms.js';
+export * from './commands/resource.js';
+export * from './commands/marketing.js';
+export * from './commands/profile.js';
+export * from './commands/notifications.js';
 export * from './aiSchema.js';
+
 export * from './registry.js';

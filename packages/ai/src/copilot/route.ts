@@ -24,7 +24,8 @@ export type LocalIntent =
   | 'queue_status'      // 谁在等 / 等多久
   | 'who_is_free'       // 谁有空 / 下一个是谁
   | 'next_appointments' // 接下来有什么单
-  | 'now_working';      // 现在谁在做谁
+  | 'now_working'       // 现在谁在做谁
+  | 'rooms_status';     // 房间空闲情况
 
 export interface LocalAnswer {
   intent: LocalIntent;
@@ -69,6 +70,13 @@ const PATTERNS: Array<{ intent: LocalIntent; words: readonly string[] }> = [
       '接下来有什么', '接下来的预约', '待会有谁', '后面有什么单', '今天还有什么',
       'what is next', "what's next", 'upcoming appointments', 'next appointments',
       'lịch hẹn tiếp theo',
+    ],
+  },
+  {
+    intent: 'rooms_status',
+    words: [
+      '房间状态', '空房间', '有几个房间空着', '房间情况', '几个房间空',
+      'how many rooms free', 'rooms free', 'room status', 'phòng trống',
     ],
   },
 ];
@@ -185,6 +193,11 @@ function answerFor(intent: LocalIntent, s: FloorSnapshot): string {
           + (n.staffName ? `，${n.staffName}` : '，还没派技师')
           + (n.isRequest ? '（点钟）' : ''))
         .join('\n');
+    }
+
+    case 'rooms_status': {
+      if (s.header.roomsTotal === 0) return '门店未配置房间或工位资源。';
+      return `当前房间情况：${s.header.roomsFree} / ${s.header.roomsTotal} 间空闲可用。`;
     }
   }
 }

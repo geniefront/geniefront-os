@@ -26,36 +26,62 @@ export interface ConfirmData {
    * 没留号码就验不了，那时令牌又变回单因素凭证（见下面的长注释）。
    */
   manageUrl?: string | null;
+  locale?: string;
 }
 
 export interface Rendered { subject: string; html: string; text: string; }
 
 /**
- * 预约确认信。
- *
- * ## 关于那个自助管理链接（这一段是两次决定的完整记录，别删）
- *
- * **初版（2026-08-21）不放链接**，理由是：一封会被转发、会被同事看到的邮件，
- * 不该自带一个能改动预约的凭证。「捡到这个链接的人能干什么」的答案是
- * 「改掉别人的预约」——不好听。当时的做法是令牌只在**建单响应**里返回一次，
- * 交给官网自己决定要不要做「我的预约」页面。
- *
- * **批 2（2026-08-25）改成放**，因为那个凭证不再是单因素：
- * 链接打开之后还要输**手机后四位**才动得了（`public/routes.ts` §assertLast4，
- * 连错三次锁 15 分钟）。捡到链接的同事没有那四位数。
- * 而不放链接的代价是真实的 —— 客人改不了就只剩「取消」或者「不来」，
- * 而 no-show 比改期糟得多：那一格既没人用、也收不到钱、技师还白等。
- *
- * ⚠️ **`manageUrl` 为 null 时一个字都不提。** 没留手机号的单验不了后四位，
- * 那时令牌就又变回单因素了 —— 调用方负责在那种情况下传 null。
- *
- * ⚠️ **不放客人的手机号**。信是发给他本人的，他知道自己的号码；
- * 而邮箱被转发、被同事看到是常事。
+ * 预约确认信（支持中英多语言，默认优先英语/按语言适配）。
  */
 export function renderConfirm(d: ConfirmData): Rendered {
+  const isEn = d.locale?.startsWith('en');
+
+  if (isEn) {
+    // English template
+    const who = d.staffName ? `Specialist: ${d.staffName}` : '';
+    const call = d.manageUrl
+      ? [
+          `Reschedule or cancel: ${d.manageUrl}`,
+          '(Enter the last 4 digits of your phone number)',
+          d.shopPhone ? `Or call us at ${d.shopPhone}.` : 'Or call the store.',
+        ].join('\n')
+      : (d.shopPhone ? `To reschedule or cancel, please call ${d.shopPhone}.` : 'To reschedule or cancel, please call the store.');
+
+    const text = [
+      `Hi ${d.customerName},`,
+      ``,
+      `Your appointment at ${d.shopName} has been confirmed:`,
+      ``,
+      `  Service: ${d.serviceName}`,
+      `  Time: ${d.whenText}`,
+      ...(who ? [`  ${who}`] : []),
+      ``,
+      call,
+      ``,
+      `— ${d.shopName}`,
+    ].join('\n');
+
+    const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.7;color:#211e1b;max-width:520px">
+<p>Hi ${esc(d.customerName)},</p>
+<p>Your appointment at <strong>${esc(d.shopName)}</strong> is confirmed:</p>
+<table style="border-collapse:collapse;margin:16px 0">
+<tr><td style="padding:4px 16px 4px 0;color:#6b635a">Service</td><td><strong>${esc(d.serviceName)}</strong></td></tr>
+<tr><td style="padding:4px 16px 4px 0;color:#6b635a">Time</td><td><strong>${esc(d.whenText)}</strong></td></tr>
+${d.staffName ? `<tr><td style="padding:4px 16px 4px 0;color:#6b635a">Specialist</td><td>${esc(d.staffName)}</td></tr>` : ''}
+</table>
+${d.manageUrl ? `<p style="font-size:15px"><a href="${esc(d.manageUrl)}" style="color:#0f5f57">Reschedule or Cancel</a>
+<span style="color:#6b635a;font-size:13px">(Enter last 4 digits of your phone)</span></p>
+<p style="color:#6b635a;font-size:14px">${d.shopPhone ? `Or call ${esc(d.shopPhone)}.` : 'Or call the store.'}</p>`
+  : `<p style="color:#6b635a;font-size:14px">${esc(call)}</p>`}
+<p style="color:#6b635a;font-size:14px">— ${esc(d.shopName)}</p>
+</div>`;
+
+    return { subject: `Appointment Confirmed · ${d.whenText} · ${d.shopName}`, html, text };
+  }
+
+  // 默认中文模板 (Default Chinese)
   const who = d.staffName ? `技师：${d.staffName}` : '';
-  // 有链接就先说链接，电话作为兜底跟在后面 —— 反过来的话，
-  // 大部分人看到电话就不往下看了，链接白放
   const call = d.manageUrl
     ? [
         `改期或取消：${d.manageUrl}`,
@@ -96,24 +122,6 @@ ${d.manageUrl ? `<p style="font-size:15px"><a href="${esc(d.manageUrl)}" style="
   return { subject: `预约已确认 · ${d.whenText} · ${d.shopName}`, html, text };
 }
 
-/**
- * 「到店前把健康表填了」的邀请信（`docs/15` §4）。
- *
- * ## ⚠️ 这封信里有一个能干事的链接，而上面那封刻意没有
- *
- * 看起来自相矛盾，其实是同一条标准算出来的两个答案：**捡到它的人能干什么。**
- *
- *   · 确认信里的取消链接 → 捡到的人能**改掉别人的预约**（不可接受）
- *   · 这封信里的填表链接 → 捡到的人能**替别人填一份健康表**
- *
- * 后者当然也不好，所以三道一起上：只活 72 小时、**填完立刻失效**、
- * 而且填出来的东西前台一眼看得出是链接来的（`source='link'`）。
- * 更关键的是反过来算一遍：不发这封信，客人就得在柜台前、后面排着队的时候
- * 用一台公用 iPad 回答「有没有血栓史」—— 那种情况下他会一路点「否」，
- * 而这张表的全部意义就在他答的是不是真话。
- *
- * ⚠️ **信里不写他填过什么、也不写他的手机号。** 邮箱被转发是常事。
- */
 export interface FormInviteData {
   customerName: string;
   shopName: string;
@@ -123,10 +131,46 @@ export interface FormInviteData {
   /** 已按门店时区格式化好的失效时间 */
   expiresText: string;
   shopPhone: string | null;
+  locale?: string;
 }
 
 export function renderFormInvite(d: FormInviteData): Rendered {
-  const list = d.formTitles.join('、');
+  const isEn = d.locale?.startsWith('en');
+  const list = d.formTitles.join(isEn ? ', ' : '、');
+
+  if (isEn) {
+    // 英语邀请
+    const call = d.shopPhone
+      ? `If you have questions, please call ${d.shopPhone} or complete it at our front desk upon arrival.`
+      : 'If you have questions, please call us or complete it at our front desk upon arrival.';
+
+    const text = [
+      `Hi ${d.customerName},`,
+      ``,
+      `${d.shopName} invites you to take two minutes to complete your ${list} before your visit.`,
+      ``,
+      `  ${d.url}`,
+      ``,
+      `This link is valid until ${d.expiresText} and will expire once submitted.`,
+      call,
+      ``,
+      `— ${d.shopName}`,
+    ].join('\n');
+
+    const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.7;color:#211e1b;max-width:520px">
+<p>Hi ${esc(d.customerName)},</p>
+<p><strong>${esc(d.shopName)}</strong> invites you to take two minutes to complete your ${esc(list)} before your visit.</p>
+<p style="margin:24px 0">
+  <a href="${esc(d.url)}" style="display:inline-block;background:#0f0f0f;color:#fff;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:600">Fill Out Form</a>
+</p>
+<p style="color:#6b635a;font-size:14px">Link is valid until ${esc(d.expiresText)}.</p>
+<p style="color:#6b635a;font-size:14px">— ${esc(d.shopName)}</p>
+</div>`;
+
+    return { subject: `Please complete intake form before your visit · ${d.shopName}`, html, text };
+  }
+
+  // 默认中文
   const call = d.shopPhone
     ? `有问题请致电 ${d.shopPhone}，也可以到店后在前台填。`
     : '有问题请致电门店，也可以到店后在前台填。';
@@ -160,16 +204,14 @@ export function renderFormInvite(d: FormInviteData): Rendered {
 
 /**
  * 把 UTC 时间按门店时区排成人话。
- *
- * ⚠️ 一律走门店时区，**不是服务器时区也不是客人的**。
- * 客人看到的必须是「到店那一刻墙上的钟」—— 差一小时他就会白跑一趟。
  */
-export function formatWhen(iso: string, timezone: string): string {
+export function formatWhen(iso: string, timezone: string, locale?: string): string {
   const d = new Date(iso);
-  const date = new Intl.DateTimeFormat('zh-CN', {
-    timeZone: timezone, month: 'long', day: 'numeric', weekday: 'short',
+  const targetLocale = locale || 'zh-CN';
+  const date = new Intl.DateTimeFormat(targetLocale, {
+    timeZone: timezone, month: 'short', day: 'numeric', weekday: 'short',
   }).format(d);
-  const time = new Intl.DateTimeFormat('zh-CN', {
+  const time = new Intl.DateTimeFormat(targetLocale, {
     timeZone: timezone, hour: 'numeric', minute: '2-digit', hour12: true,
   }).format(d);
   return `${date} ${time}`;
@@ -185,39 +227,56 @@ export interface TrialEndingData {
   monthlyText: string;
   /** 老板自助管理订阅的入口（Stripe Customer Portal 的落地页） */
   billingUrl: string;
+  locale?: string;
 }
 
-/**
- * 试用到期前 3 天的提醒信（批 1）。
- *
- * ⚠️ **必须把三件事写在一起**：哪天扣、扣多少、去哪儿取消。
- * 少了任何一件，这封信就变成了「我们要扣你钱了」而不是通知 ——
- * 而一封说不清怎么取消的催款信，收到的人第一反应是找银行拒付，
- * 那比退订贵得多（拒付会留在我们的商户记录上）。
- *
- * ⚠️ **不写「您的试用即将结束，请立即升级」这种话术。** 他已经绑了卡，
- * 什么都不做就会自动续 —— 假装需要他行动是在制造不存在的紧迫感。
- */
 export function renderTrialEnding(d: TrialEndingData): Rendered {
+  const isZh = d.locale?.startsWith('zh');
+
+  if (isZh) {
+    const text = [
+      `${d.shopName}：免费试用还有 3 天`,
+      '',
+      `首次扣款：${d.chargeDateText}`,
+      `套餐：${d.planLabel}，${d.monthlyText}`,
+      '',
+      '什么都不用做，到期会自动续。',
+      `想改套餐或取消，在这里操作：${d.billingUrl}`,
+      '取消后当前试用期照常用到最后一天，不会补扣。',
+    ].join('\n');
+
+    const html = [
+      `<p>${esc(d.shopName)}：免费试用还有 3 天。</p>`,
+      `<p><strong>首次扣款：${esc(d.chargeDateText)}</strong><br>`,
+      `套餐：${esc(d.planLabel)}，${esc(d.monthlyText)}</p>`,
+      '<p>什么都不用做，到期会自动续。</p>',
+      `<p>想改套餐或取消：<a href="${esc(d.billingUrl)}">${esc(d.billingUrl)}</a><br>`,
+      '取消后当前试用期照常用到最后一天，不会补扣。</p>',
+    ].join('\n');
+
+    return { subject: `${d.shopName}：免费试用还有 3 天`, html, text };
+  }
+
+  // 默认英语
   const text = [
-    `${d.shopName}：免费试用还有 3 天`,
+    `${d.shopName}: 3 days left in your free trial`,
     '',
-    `首次扣款：${d.chargeDateText}`,
-    `套餐：${d.planLabel}，${d.monthlyText}`,
+    `First charge date: ${d.chargeDateText}`,
+    `Plan: ${d.planLabel}, ${d.monthlyText}`,
     '',
-    '什么都不用做，到期会自动续。',
-    `想改套餐或取消，在这里操作：${d.billingUrl}`,
-    '取消后当前试用期照常用到最后一天，不会补扣。',
+    'No action needed, your subscription will automatically continue.',
+    `To manage your plan or cancel: ${d.billingUrl}`,
+    'If cancelled, your trial remains active until the last day with no unexpected charges.',
   ].join('\n');
 
   const html = [
-    `<p>${esc(d.shopName)}：免费试用还有 3 天。</p>`,
-    `<p><strong>首次扣款：${esc(d.chargeDateText)}</strong><br>`,
-    `套餐：${esc(d.planLabel)}，${esc(d.monthlyText)}</p>`,
-    '<p>什么都不用做，到期会自动续。</p>',
-    `<p>想改套餐或取消：<a href="${esc(d.billingUrl)}">${esc(d.billingUrl)}</a><br>`,
-    '取消后当前试用期照常用到最后一天，不会补扣。</p>',
+    `<p>${esc(d.shopName)}: 3 days left in your free trial.</p>`,
+    `<p><strong>First charge date: ${esc(d.chargeDateText)}</strong><br>`,
+    `Plan: ${esc(d.planLabel)}, ${esc(d.monthlyText)}</p>`,
+    '<p>No action needed, your subscription will automatically continue.</p>',
+    `<p>Manage or cancel: <a href="${esc(d.billingUrl)}">${esc(d.billingUrl)}</a><br>`,
+    'If cancelled, your trial remains active until the last day with no unexpected charges.</p>',
   ].join('\n');
 
-  return { subject: `${d.shopName}：免费试用还有 3 天`, html, text };
+  return { subject: `${d.shopName}: 3 days left in your free trial`, html, text };
 }

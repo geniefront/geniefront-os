@@ -153,7 +153,7 @@ export const AddStaff = defineCommand({
 });
 
 /**
- * 在岗 / 离职。
+ * 在岗 / 休假 / 离职。
  *
  * ⚠️ **不是删除**：他做过的单、算过的提成、签过的字都还在，
  * 删掉的话那些记录会变成没有主人的孤儿（宪法第 9 条的同一条精神）。
@@ -163,17 +163,19 @@ export const SetEmployment = defineCommand({
   name: 'staff.setEmployment',
   input: z.object({
     membershipId: uuid,
-    status: z.enum(['active', 'suspended', 'left']),
+    status: z.enum(['active', 'on_leave', 'resigned', 'suspended', 'left']),
   }),
   output: z.object({ membershipId: uuid, status: z.string() }),
   permission: 'staff.manage',
   ai: {
-    description: '把某位员工设为在岗/停用/离职。离职不删除任何历史记录。',
+    description: '把某位员工设为在职 active / 休假 on_leave (suspended) / 离职 resigned (left)。离职不删除任何历史记录并自动注销登录会话。',
     confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',
 });
+
+export { SaveStaffProfile as StaffSaveProfile } from './setup.js';
 
 /**
  * ⭐ 生成上机码 —— 技师在自己手机上登录的**第一条路**。
@@ -231,3 +233,4 @@ export const STAFF_COMMANDS = [
   TicketStartItem, TicketFinishItem, TimeclockPunch, SetMyLocale,
   AddStaff, SetEmployment, IssueStaffClaimCode, RevokeStaffSessions,
 ] as const;
+
