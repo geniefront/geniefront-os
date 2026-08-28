@@ -23,6 +23,11 @@ async function ensureLedger() {
       name text primary key,
       applied_at timestamptz not null default now()
     )`;
+  // 迁移账本位于 public，但绝不是业务 API。RLS 作为纵深防御，
+  // 显式撤销运行时角色权限，迁移用 postgres 仍可维护它。
+  await adminSql`alter table _migrations enable row level security`;
+  await adminSql`alter table _migrations force row level security`;
+  await adminSql`revoke all on table _migrations from public, anon, authenticated`;
 }
 
 async function applied(): Promise<Set<string>> {
@@ -92,14 +97,13 @@ async function assertRlsCoverage() {
   const missing = await adminSql<{ relname: string }[]>`
     select c.relname from pg_class c
     join pg_namespace n on n.oid = c.relnamespace
-    join pg_attribute a on a.attrelid = c.oid and a.attname = 'org_id' and a.attnum > 0
-    where n.nspname = 'public' and c.relkind = 'r'
+    where n.nspname = 'public' and c.relkind in ('r', 'p')
       and not (c.relrowsecurity and c.relforcerowsecurity)
     order by c.relname`;
   if (missing.length > 0) {
     throw new Error(
-      `这些表有 org_id 但没开强制 RLS：${missing.map((m) => m.relname).join(', ')}\n` +
-      '补上 enable + force row level security 和 tenant_isolation 策略。',
+      `这些 public 表没开强制 RLS：${missing.map((m) => m.relname).join(', ')}\n` +
+      '暴露 schema 中的每张表都必须 enable + force row level security。',
     );
   }
 

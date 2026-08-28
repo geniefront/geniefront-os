@@ -36,6 +36,11 @@ export interface TenantContext {
   orgId: string;
   locationId: string | null;
   membershipId: string | null;
+  /**
+   * 已验签的登录用户。系统任务（例如 Stripe webhook）可以为 null；
+   * 面向个人数据的 RLS 策略依赖 app.user_id，不能拿 membershipId 代替。
+   */
+  userId?: string | null;
   /** 'staff_self' 让技师端只看得到自己的单（RLS 叠加策略） */
   roleScope?: 'full' | 'staff_self';
 }
@@ -59,14 +64,18 @@ export async function withTenant<T>(
   if (ctx.locationId !== null && !UUID_RE.test(ctx.locationId)) {
     throw new Error(`withTenant: locationId 不是合法 UUID：${ctx.locationId}`);
   }
+  if (ctx.userId != null && !UUID_RE.test(ctx.userId)) {
+    throw new Error(`withTenant: userId 不是合法 UUID：${ctx.userId}`);
+  }
 
   return sql.begin(async (tx) => {
-    // 一条语句设完四个，而不是四次往返。
-    // 实测跨区单次往返 ~59ms，拆成四次就是白扔 180ms —— 每个命令都要付一遍。
+    // 一条语句设完五个，而不是五次往返。
+    // 实测跨区单次往返 ~59ms，拆开就是白扔几百毫秒 —— 每个命令都要付一遍。
     await tx`select
       set_config('app.org_id',        ${ctx.orgId},                  true),
       set_config('app.location_id',   ${ctx.locationId ?? ''},       true),
       set_config('app.membership_id', ${ctx.membershipId ?? ''},     true),
+      set_config('app.user_id',       ${ctx.userId ?? ''},           true),
       set_config('app.role_scope',    ${ctx.roleScope ?? 'full'},    true)`;
     return fn(tx);
   }) as Promise<T>;

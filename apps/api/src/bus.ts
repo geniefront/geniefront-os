@@ -106,7 +106,12 @@ export async function dispatch<T = unknown>(
   }
 
   return withTenant(
-    { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+    {
+      orgId: ctx.orgId,
+      locationId: ctx.locationId,
+      membershipId: ctx.membershipId,
+      userId: ctx.userId,
+    },
     async (tx) => {
       // ── 3.5 订阅闸门 ────────────────────────────────────────────────────
       await assertSubscriptionAllowsWrite(tx, ctx, commandName);
