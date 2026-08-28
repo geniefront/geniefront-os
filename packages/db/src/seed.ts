@@ -149,9 +149,18 @@ async function main() {
   await adminSql.begin(async (tx) => {
     const J = (v: unknown) => tx.json(v as never);
 
+    // 0061 only honors this flag for a non-app_user session.  It lets this
+    // explicit seed transaction rebuild the two fixed demo tenants while the
+    // runtime role remains unable to alter closed or append-only history.
+    await tx`select set_config('app.seed_reset', 'on', true)`;
+
     const orgs = [NAIL_ORG, SPA_ORG];
     const locs = [NAIL_LOC, SPA_LOC];
-    const LOCATION_SCOPED = new Set(['stripe_events', 'user_last_location', 'pairing_sessions']);
+    const LOCATION_SCOPED = new Set([
+      'stripe_events', 'user_last_location', 'pairing_sessions',
+      'location_webhooks', 'location_10dlc_registrations', 'location_intake_templates',
+      'location_scheduling_rules', 'location_checkout_settings',
+    ]);
 
     await tx`
       create or replace function gf_ccl_append_only() returns trigger
@@ -166,6 +175,11 @@ async function main() {
 
     // 1. 幂等倒序清理
     for (const t of [
+      'ai_business_summaries',
+      'day_close_events', 'ticket_refunds', 'ticket_service_notes', 'resource_occupancies',
+      'in_app_notifications', 'user_notification_preferences', 'user_device_sessions',
+      'location_webhooks', 'location_10dlc_registrations', 'location_intake_templates',
+      'location_scheduling_rules', 'location_checkout_settings',
       'customer_credit_ledger', 'customer_packages', 'package_templates', 'coupon_templates',
       'gift_cards', 'gift_card_templates',
       'earnings', 'tip_payouts', 'cash_movements', 'day_closes',
@@ -192,29 +206,30 @@ async function main() {
       'location_allowed_origins', 'location_features', 'signup_intents',
       'locations',
     ]) {
-      try {
-        console.log('Cleaning table:', t);
-        if (t === '__users__') {
-          await tx`delete from users where email like '%@example.test'`;
-        } else if (t === 'sms_consent' || t === 'sms_inbound' || t === 'sms_outbox' || t === 'email_outbox') {
-          await tx.unsafe(`delete from ${t}`);
-        } else if (t === 'staff_skills' || t === 'membership_roles' || t === 'permission_overrides') {
-          await tx.unsafe(
-            `delete from ${t} where membership_id in (select id from memberships where org_id = any($1))`,
-            [orgs as never],
-          );
-        } else if (t === 'role_permissions') {
-          await tx.unsafe(
-            `delete from ${t} where role_id in (select id from roles where org_id = any($1))`,
-            [orgs as never],
-          );
-        } else if (LOCATION_SCOPED.has(t)) {
-          await tx.unsafe(`delete from ${t} where location_id = any($1)`, [locs as never]);
-        } else {
-          await tx.unsafe(`delete from ${t} where org_id = any($1)`, [orgs as never]);
-        }
-      } catch (e) {
-        console.error(`清理表 ${t} 失败:`, e);
+      console.log('Cleaning table:', t);
+      if (t === '__users__') {
+        await tx`delete from users where email like '%@example.test'`;
+      } else if (t === 'sms_consent' || t === 'sms_inbound' || t === 'sms_outbox' || t === 'email_outbox') {
+        await tx.unsafe(`delete from ${t}`);
+      } else if (t === 'staff_skills' || t === 'membership_roles' || t === 'permission_overrides') {
+        await tx.unsafe(
+          `delete from ${t} where membership_id in (select id from memberships where org_id = any($1))`,
+          [orgs as never],
+        );
+      } else if (t === 'role_permissions') {
+        await tx.unsafe(
+          `delete from ${t} where role_id in (select id from roles where org_id = any($1))`,
+          [orgs as never],
+        );
+      } else if (t === 'user_notification_preferences' || t === 'user_device_sessions') {
+        await tx.unsafe(
+          `delete from ${t} where user_id in (select user_id from memberships where org_id = any($1))`,
+          [orgs as never],
+        );
+      } else if (LOCATION_SCOPED.has(t)) {
+        await tx.unsafe(`delete from ${t} where location_id = any($1)`, [locs as never]);
+      } else {
+        await tx.unsafe(`delete from ${t} where org_id = any($1)`, [orgs as never]);
       }
     }
     await tx`delete from organizations where id in (${NAIL_ORG}, ${SPA_ORG})`;
@@ -444,9 +459,10 @@ async function main() {
       const email = `${p.name.toLowerCase()}@example.test`;
       const authId = await upsertAuthUser(email, p.name);
       if (process.env.SEED_SKIP_AUTH === '1') {
-        await tx`insert into auth.users (id, email, raw_user_meta_data)
-          values (${authId}, ${email}, ${J({ full_name: p.name })})
+        await tx`insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data)
+          values (${authId}, ${email}, now(), ${J({ full_name: p.name })})
           on conflict (id) do update set email = excluded.email,
+            email_confirmed_at = excluded.email_confirmed_at,
             raw_user_meta_data = excluded.raw_user_meta_data`;
       }
       const [u] = await tx<{ id: string }[]>`

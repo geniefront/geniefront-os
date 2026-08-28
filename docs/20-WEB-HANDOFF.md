@@ -39,8 +39,10 @@ GenieFront 向店家收取订阅费与附加费。版本化 AI 经营摘要保�
 隔离测试使用本机一次性 PostgreSQL 17 容器，从空库执行全部迁移，加载固定种子，并以
 `app_user` 验证 RLS。核心测试覆盖真实 owner/manager/front_desk/technician 权限、跨租户、
 幂等、储值并发双花、服务备注越权、房态清洁、并发封账和不可变历史。仓库内可解决的 P0
-后端/数据库模型与核心专项闭环已完成。完整 API 历史套件仍有跨文件共享种子状态及旧“假数据应存在”
-断言需要逐项隔离/更新；在该套件全绿前，不应把本分支直接合入 main。
+后端/数据库模型与核心专项闭环已完成。API 套件现在每个测试文件都会在隔离库重置固定
+种子，已清理跨文件状态污染和旧假数据断言。PostgreSQL 17 空库全量验证为 DB 29/29、
+API 631/631，全仓合计 1,051 项通过。迁移重放为 0 个新文件，Web 产物和 78MB API
+镜像构建、容器健康检查与未认证 401 检查均通过。
 
 ---
 
@@ -65,7 +67,7 @@ GenieFront 向店家收取订阅费与附加费。版本化 AI 经营摘要保�
 ### 1. API 集成测试不得使用 dev 或 prod
 
 部分 API/DB 测试会写数据、改 GRANT 或依赖固定种子。只有配置了独立 test 项目或临时
-Supabase branch 后才能运行完整 `pnpm verify`。当前 dev 已完成 0000–0055 迁移，但没有测试种子，
+Supabase branch 后才能运行完整 `pnpm verify`。当前 dev 已完成 0000–0061 迁移，但没有测试种子，
 不是测试沙盒；直接运行 `packages/db/src/rls.test.ts` 会因固定 org/location/resource 不存在而失败。
 测试配置现在强制要求 `DATABASE_TEST_TARGET=isolated`、`TEST_DATABASE_URL` 和
 `TEST_MIGRATION_DATABASE_URL`，并且不会继承普通 `.env` 中的 dev/prod 连接串。
@@ -158,7 +160,7 @@ pnpm --filter @gf/web build
 - **测试**：web 29 → 58 项（新增 i18n 完整性、错误码覆盖、权限标识有效性、
   GuardedButton、LanguageContext、ErrorBoundary）；contracts 新增 6 项金额测试。
   已装 `jsdom` + `@testing-library/react` + `user-event` + `jest-dom`。
-- **数据库安全**：dev 已正式执行 0000–0055；`withTenant()` 设置 `app.user_id`；
+- **数据库安全**：dev 已正式执行 0000–0061；`withTenant()` 设置 `app.user_id`；
   迁移器强制核对 public 表 FORCE RLS；0055 收紧无 RLS 表、函数 `search_path` 与
   `SECURITY DEFINER` 执行权限。
 - **可信经营数据**：财务、评价、通知、沟通、员工、设置和收银不再生成看似真实的

@@ -134,12 +134,12 @@ describe('财务与数据核心模块 API 完整增改测试', () => {
       expect(first.salesCount).toBeGreaterThan(0);
     });
 
-    it('loadCopilotSummary 返回 AI 智能经营诊断亮点、风险与行动建议', async () => {
+    it('loadCopilotSummary 在尚未生成诊断时返回稳定空状态', async () => {
       const copilot = await withTenant(tenant, (tx) => loadCopilotSummary(tx, ownerCtx));
       expect(copilot.highlights).toEqual([]);
       expect(copilot.risks).toEqual([]);
       expect(copilot.actions).toEqual([]);
-      expect(copilot.generatedAt).toBeTruthy();
+      expect(copilot.generatedAt).toBe('');
     });
   });
 

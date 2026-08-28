@@ -343,7 +343,12 @@ registerHandler(DraftFromCall, async ({ input, ctx, tx, audit, emit }: HandlerAr
 registerHandler(ReviewCallDraft, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof ReviewCallDraft.input._type>) => {
   const decision = (input.decision ?? (input.action === 'dismiss' ? 'dismissed' : 'confirmed')) as 'confirmed' | 'dismissed';
-  const dismissReason = input.dismissReason ?? 'not_interested';
+  if (decision === 'dismissed' && !input.dismissReason) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'dismiss_reason_required' },
+    });
+  }
+  const dismissReason = input.dismissReason ?? null;
   const note = input.note ?? input.notes;
 
   const [cur] = await tx<{ id: string; status: string }[]>`
@@ -607,4 +612,3 @@ registerHandler(SettingsSavePhoneAssistant, async ({ input, ctx, tx, audit }) =>
 
   return { locationId: ctx.locationId, saved: true };
 });
-

@@ -60,14 +60,15 @@ let slotSeq = 0;
 // 这个文件的班表夹具会给 bookDate 起 DAYS 天全部灌上 published 班 ——
 // 而 phone.test.ts 靠「第 22 天没人排班」来测「那天没空档 → 往后找三天」。
 // 我把 DAYS 从 14 拉到 40 那次，正好盖住了它，表现是一个完全无关的文件红了。
-const PER_DAY = 8;
+const PER_DAY = 7;
 const DAYS = 14;
 function nextSlot(): string {
   const i = slotSeq++;
   if (i >= PER_DAY * DAYS) throw new Error('测试用的空档发完了 —— 调大 DAYS');
   const day = addDays(bookDate, Math.floor(i / PER_DAY));
-  // 9:30 起每小时一格，到 16:30 —— 全部落在夹具排的 9:00–19:00 班内
-  const minute = 9 * 60 + 30 + (i % PER_DAY) * 60;
+  // 10:30 起每小时一格，到 16:30。Seed has Sunday opening at 10:00,
+  // so these slots are inside both the published shift and business hours.
+  const minute = 10 * 60 + 30 + (i % PER_DAY) * 60;
   return wallMinuteToInstant(day, shopTz, minute).toISOString();
 }
 
@@ -190,7 +191,9 @@ beforeAll(async () => {
 
   shopTz = shop[0]!.tz;
   const today = businessDateOf(new Date(), shopTz, shop[0]!.cutoff);
-  bookDate = addDays(today, 2);
+  // Seed already contains future bookings for the next 14 days. Start after
+  // that window so this suite tests its own capacity, not demo appointments.
+  bookDate = addDays(today, 16);
 
   /**
    * ⚠️ 把上一次跑留下的 web 单清掉。

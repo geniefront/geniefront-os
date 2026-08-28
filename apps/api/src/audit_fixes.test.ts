@@ -13,6 +13,9 @@ import './handlers/marketing';
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const tenant = { orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null };
+// Seed closes the most recent 14 historical days. This remote date is
+// intentionally outside seeded accounting history and remains writable.
+const TEST_DAY = '1998-02-03';
 
 let ownerCtx: Awaited<ReturnType<typeof buildContext>>;
 let membershipId: string;
@@ -44,7 +47,7 @@ beforeAll(async () => {
       org_id, location_id, customer_id, business_date, status,
       subtotal_cents, discount_cents, tax_cents, tip_cents, total_cents
     ) values (
-      ${NAIL_ORG}, ${NAIL_LOC}, ${cust!.id}, '2026-08-27', 'closed',
+      ${NAIL_ORG}, ${NAIL_LOC}, ${cust!.id}, ${TEST_DAY}, 'closed',
       5000, 0, 300, 1000, 6300
     ) returning id`);
   testTicketId = ticket!.id;
@@ -74,8 +77,8 @@ beforeAll(async () => {
     insert into appointments (
       org_id, location_id, customer_id, business_date, starts_at, ends_at, status, notes
     ) values (
-      ${NAIL_ORG}, ${NAIL_LOC}, ${cust!.id}, '2026-08-27',
-      '2026-08-27 14:00:00+00', '2026-08-27 14:45:00+00', 'booked', '客人要求轻一点'
+      ${NAIL_ORG}, ${NAIL_LOC}, ${cust!.id}, ${TEST_DAY},
+      ${`${TEST_DAY} 14:00:00+00`}, ${`${TEST_DAY} 14:45:00+00`}, 'booked', '客人要求轻一点'
     ) returning id`);
   testAptId = apt!.id;
 
@@ -88,7 +91,7 @@ beforeAll(async () => {
       price_cents_snapshot, duration_min, membership_id
     ) values (
       ${NAIL_ORG}, ${NAIL_LOC}, ${testAptId}, ${svc!.id},
-      '2026-08-27 14:00:00+00', '2026-08-27 14:45:00+00',
+      ${`${TEST_DAY} 14:00:00+00`}, ${`${TEST_DAY} 14:45:00+00`},
       ${svc!.base_price_cents ?? 4500}, 45, ${membershipId}
     )`);
 });
@@ -189,11 +192,11 @@ describe('审计后端修复专项测试', () => {
   describe('4. 营业报表与 CSV 导出 (loadReport & reportToCsv)', () => {
     it('loadReport 正常返回区间报表汇总并可导出为 CSV', async () => {
       const report = await withTenant(tenant, (tx) =>
-        loadReport(tx, ownerCtx, '2026-08-01', '2026-08-27')
+        loadReport(tx, ownerCtx, TEST_DAY, TEST_DAY)
       );
 
-      expect(report.fromDate).toBe('2026-08-01');
-      expect(report.toDate).toBe('2026-08-27');
+      expect(report.fromDate).toBe(TEST_DAY);
+      expect(report.toDate).toBe(TEST_DAY);
       expect(report.byDay.length).toBeGreaterThan(0);
 
       const csv = reportToCsv(report);

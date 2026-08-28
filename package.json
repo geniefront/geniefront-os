@@ -13,7 +13,7 @@
     "dev:desk": "pnpm --filter @gf/web dev",
     "dev:front-desk": "pnpm --filter @gf/web dev",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test",
+    "test": "pnpm --filter @gf/db test && pnpm --filter '!@gf/db' test",
     "test:unit": "pnpm --filter '!@gf/api' --filter '!@gf/db' test",
     "lint:guards": "bash scripts/lint-guards.sh",
     "check:env": "bash scripts/check-env.sh",

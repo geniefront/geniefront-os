@@ -114,6 +114,27 @@ describe('宪法第 17 条：audit_log append-only', () => {
   });
 });
 
+describe('隔离种子重置边界', () => {
+  it('⭐ app_user 即使自行设置 app.seed_reset 也不能修改已日结财务数据', async () => {
+    await expect(
+      withTenant({ orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null }, async (tx) => {
+        await tx`select set_config('app.seed_reset', 'on', true)`;
+        const [ticket] = await tx<{ id: string }[]>`
+          select t.id
+          from tickets t
+          join day_closes d
+            on d.location_id = t.location_id
+           and d.business_date = t.business_date
+           and d.status = 'closed'
+          where t.location_id = ${NAIL_LOC}
+          limit 1`;
+        expect(ticket?.id).toBeTruthy();
+        await tx`update tickets set status = status where id = ${ticket!.id}`;
+      }),
+    ).rejects.toThrow(/business day .* is closed/i);
+  });
+});
+
 describe('宪法第 5 条：新表不许漏开 RLS', () => {
   it('⭐ 所有带 org_id 的表都开了 enable + force RLS', async () => {
     const rows = await sql<{ relname: string }[]>`

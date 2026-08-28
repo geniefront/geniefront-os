@@ -142,9 +142,10 @@ export async function staffContextFromToken(
   return {
     orgId: row.orgId,
     locationId: row.locationId,
-    // ⭐ 手机上机的技师**没有平台账号**。「谁做的」由 membership 表示，
-    // 审计记的本来就是 membership（audit_log.actor_id）
-    userId: null,
+    // Ghost staff legitimately have no platform account. When the membership
+    // is linked to one, preserve it so user-scoped RLS (sessions/preferences)
+    // sees the same identity as email/OAuth login.
+    userId: row.userId,
     membershipId: row.membershipId,
     permissions,
     actorKind: 'user',

@@ -603,11 +603,20 @@ describe('通话记录：计量 / 转录 / 转接（sql/0037）', () => {
 
   it('⭐ 没配人工客服号时，start_call 明说不能转接', async () => {
     // 说了「我帮您转接」却转不过去，客人听到的是一声忙音，这通电话就没了
-    const body = (await telnyxCall('/v1/telnyx/tools/start_call',
-      { to: AI_LINE, from: '+15125551234' })).json();
-    expect(body.transfer).toBeDefined();
-    expect(body.transfer.available).toBe(false);   // 种子店没填 transfer_target
-    expect(body.guidance).toMatch(/never say you will transfer/);
+    await withTenant(tenant, (tx) => tx`
+      update phone_lines set active = false
+      where location_id = ${NAIL_LOC} and purpose = 'transfer_target'`);
+    try {
+      const body = (await telnyxCall('/v1/telnyx/tools/start_call',
+        { to: AI_LINE, from: '+15125551234' })).json();
+      expect(body.transfer).toBeDefined();
+      expect(body.transfer.available).toBe(false);
+      expect(body.guidance).toMatch(/never say you will transfer/);
+    } finally {
+      await withTenant(tenant, (tx) => tx`
+        update phone_lines set active = true
+        where location_id = ${NAIL_LOC} and purpose = 'transfer_target'`);
+    }
   });
 });
 

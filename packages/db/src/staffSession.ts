@@ -19,6 +19,8 @@ export interface StaffSessionRow {
   orgId: string;
   locationId: string;
   membershipId: string;
+  /** Null only for a ghost staff identity that has no platform account yet. */
+  userId: string | null;
   /** claim_code | phone_otp —— 事后要能回答「这台手机是怎么绑上的」 */
   method: string;
   displayName: unknown;
@@ -49,11 +51,12 @@ export async function withStaffToken(tokenHash: string): Promise<StaffSessionRow
 
     const rows = await tx<{
       id: string; org_id: string; location_id: string; membership_id: string;
+      user_id: string | null;
       method: string; display_name: unknown; profile_locale: string | null;
       tz: string; default_locale: string; loc_status: string; m_status: string;
       revoked_at: Date | string | null; expires_at: Date | string;
     }[]>`
-      select s.id, s.org_id, s.location_id, s.membership_id, s.method,
+      select s.id, s.org_id, s.location_id, s.membership_id, m.user_id, s.method,
              sp.display_name, sp.locale as profile_locale,
              l.timezone as tz, o.default_locale, l.status as loc_status,
              m.status as m_status, s.revoked_at, s.expires_at
@@ -75,6 +78,7 @@ export async function withStaffToken(tokenHash: string): Promise<StaffSessionRow
       orgId: r.org_id,
       locationId: r.location_id,
       membershipId: r.membership_id,
+      userId: r.user_id,
       method: r.method,
       displayName: r.display_name,
       locale: r.profile_locale,

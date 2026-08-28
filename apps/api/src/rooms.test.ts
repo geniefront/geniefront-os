@@ -65,23 +65,26 @@ describe('resource.save & loadRooms & resource.setStatus', () => {
     expect(Array.isArray(vip?.todaySlots)).toBe(true);
   });
 
-  it('变更房间状态为 cleaning / in_service', async () => {
+  it('人工状态只允许维护开关，服务与清洁状态由工作流推进', async () => {
     const resId = createdResourceIds[0]!;
-    const res = await dispatch<{ resourceId: string; status: string }>(
-      'resource.setStatus',
-      {
+    await expect(dispatch('resource.setStatus', {
         resourceId: resId,
         status: 'cleaning',
         note: '技师已完成服务，保洁清理中',
-      },
-      ownerCtx,
-    );
+      }, ownerCtx)).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+        details: { reason: 'resource_state_is_workflow_managed' },
+      });
 
-    expect(res.result.status).toBe('cleaning');
+    const res = await dispatch<{ resourceId: string; status: string }>(
+      'resource.setStatus', { resourceId: resId, status: 'maintenance' }, ownerCtx);
+    expect(res.result.status).toBe('maintenance');
 
     const list = await withTenant(tenant, (tx) => loadRooms(tx, ownerCtx));
     const vip = list.rooms.find((r) => r.id === resId);
-    expect(vip?.status).toBe('cleaning');
+    expect(vip?.status).toBe('maintenance');
+
+    await dispatch('resource.setStatus', { resourceId: resId, status: 'available' }, ownerCtx);
   });
 
   it('编辑房间名称和容量配置', async () => {
@@ -122,4 +125,3 @@ describe('resource.save & loadRooms & resource.setStatus', () => {
     expect(deleted).toBeUndefined();
   });
 });
-

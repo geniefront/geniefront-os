@@ -144,8 +144,8 @@ describe('五大核心中台工作台后端 API 完整增改验证测试', () =>
   });
 
   describe('2. 房间与工位状态 (Rooms / Resources API)', () => {
-    it('resource.setStatus 支持 guestName / serviceName / note 丰富状态', async () => {
-      const res = await dispatch<{ resourceId: string; status: string }>(
+    it('resource.setStatus 只管理维护状态，不伪造服务占用事实', async () => {
+      await expect(dispatch(
         'resource.setStatus',
         {
           resourceId: testResourceId,
@@ -155,13 +155,31 @@ describe('五大核心中台工作台后端 API 完整增改验证测试', () =>
           note: '客人要求加深色号',
         },
         ownerCtx,
+      )).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+        details: { reason: 'resource_state_is_workflow_managed' },
+      });
+
+      const res = await dispatch<{ resourceId: string; status: string }>(
+        'resource.setStatus',
+        {
+          resourceId: testResourceId,
+          status: 'maintenance',
+          note: '设备检修',
+        },
+        ownerCtx,
       );
 
-      expect(res.result.status).toBe('in_service');
+      expect(res.result.status).toBe('maintenance');
 
       const [row] = await withTenant(tenant, (tx) => tx<{ status: string }[]>`
         select status from resources where id = ${testResourceId}`);
-      expect(row!.status).toBe('in_service');
+      expect(row!.status).toBe('maintenance');
+
+      await dispatch('resource.setStatus', {
+        resourceId: testResourceId,
+        status: 'available',
+      }, ownerCtx);
     });
 
     it('resource.delete 能够校验预约冲突并完成安全删除', async () => {

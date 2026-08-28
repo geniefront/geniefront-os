@@ -2,7 +2,7 @@
  * 房间与工位资源管理命令（02-DATA-MODEL §7，P0 房态看板）
  *
  * 包含：
- *   - resource.setStatus: 标记房间/工位实时状态（available | in_service | cleaning | maintenance）
+ *   - resource.setStatus: 人工维护开关；服务与清洁状态由对应工作流命令推进
  *   - resource.save: 房间/工位维护（增删改名称、类型、容量、技师上限）
  */
 
@@ -37,7 +37,7 @@ export const resourceSetStatus = defineCommand({
   output: resourceSetStatusOutput,
   permission: 'appointment.write',
   ai: {
-    description: '变更房间或工位的实时状态（空闲 available、服务中 in_service、打扫中 cleaning、维护中 maintenance）',
+    description: '人工标记房间或工位进入维护，或在检修结束后恢复可用。',
     confirm: 'never',
   },
   reversible: true,

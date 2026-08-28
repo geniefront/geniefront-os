@@ -8,5 +8,3 @@ export * from './publicBooking';
 export * from './formShare';
 export * from './sms';
 export * from './staffSession';
-export * from './admin';
-

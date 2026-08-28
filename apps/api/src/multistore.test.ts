@@ -99,8 +99,10 @@ describe('自助开第二家店', () => {
 
   it('⭐ 沿用同一个 Stripe 客户 —— 一个老板一张卡一张账单', async () => {
     await withTenant(tenant, (tx) => tx`
-      update billing_accounts set stripe_customer_id = 'cus_multistore_test'
-      where location_id = ${SPA_LOC}`);
+      insert into billing_accounts (org_id, location_id, stripe_customer_id)
+      values (${SPA_ORG}, ${SPA_LOC}, 'cus_multistore_test')
+      on conflict (location_id) do update
+      set stripe_customer_id = excluded.stripe_customer_id`);
 
     const out = await run<{ locationId: string }>('location.create',
       { name: 'Third Spa', timezone: 'America/New_York' });
