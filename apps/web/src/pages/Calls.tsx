@@ -3,7 +3,6 @@ import { useErrorMessage } from '@/lib/errorMessage';
 import { useStoreTime } from '@/lib/time';
 import { useLanguage } from "@/LanguageContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { SampleDataNotice } from '@/components/ui/SampleDataNotice';
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -40,115 +39,6 @@ import { PageLoading, PageError } from "@/components/ui/QueryState";
 import { useCallsQuery, useCallDraftsQuery, useDismissCallDraft } from "@/features/comms/api";
 import type { CallView, CallDraftView, DraftDismissReason } from "@/features/comms/types";
 import { useNavigate, useOutletContext } from "react-router-dom";
-
-// 扩充高质量企业级 Mock 通话与草案数据以保障完整体验
-const DEFAULT_ENTERPRISE_CALLS: CallView[] = [
-  {
-    callId: "call-901",
-    fromE164: "+1 (212) 555-0192",
-    startedAt: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-    durationSeconds: 142,
-    outcome: "Booked · 60min Deep Tissue Massage",
-    toolsUsed: ["calendar.checkSlot", "booking.createDraft", "crm.lookupCustomer"],
-    booked: true,
-    recordingUrl: "https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg",
-    transcript: [
-      { role: "assistant", text: "您好！感谢致电 Lotus Wellness & Spa，我是 AI 智能接待助手，请问有什么可以帮您？", at: "00:02" },
-      { role: "user", text: "你好，请问今天下午 4 点或者 4 点半还有没有 60 分钟的深层精油按摩？我希望指定 Lisa 师傅。", at: "00:09" },
-      { role: "assistant", text: "好的，请稍等，我为您查询 Lisa 师傅今天下午的排期…… Lisa 师傅在下午 4:30 正好有空档，可以为您安排 60 分钟深层精油按摩，费用为 $95。请问您的名字是？", at: "00:18" },
-      { role: "user", text: "我是 Emily Chen，手机号就是这个拨过来的号码。", at: "00:26" },
-      { role: "assistant", text: "已为您成功预留！今天下午 4:30，技师 Lisa，项目 60 分钟深层精油按摩。确认短信已同步发送至您的手机，期待您的光临！", at: "00:35" },
-    ],
-  },
-  {
-    callId: "call-902",
-    fromE164: "+1 (646) 388-9921",
-    startedAt: new Date(Date.now() - 110 * 60 * 1000).toISOString(),
-    durationSeconds: 98,
-    outcome: "Inquiry · Pricing & Couple Suite",
-    toolsUsed: ["crm.lookupCustomer", "pricing.inquire"],
-    booked: false,
-    recordingUrl: "https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg",
-    transcript: [
-      { role: "assistant", text: "您好！感谢致电 Lotus Spa，请问有什么可以为您效劳？", at: "00:02" },
-      { role: "user", text: "我想问一下这周末做双人足疗和头部 Spa 的价格是多少，需要提前几天定包厢？", at: "00:08" },
-      { role: "assistant", text: "双人尊享足疗 + 头部舒压套餐目前特惠价为 $168/对，包含独立 VIP 景观双人包厢及草本泡脚。周末房态较紧张，建议提前 1-2 天预订。请问需要我现在为您预留这周六的时间吗？", at: "00:22" },
-      { role: "user", text: "我先和朋友商量一下时间，谢谢你啊！", at: "00:31" },
-      { role: "assistant", text: "不客气，随时欢迎致电或通过我们官网直接预约，祝您生活愉快！", at: "00:38" },
-    ],
-  },
-  {
-    callId: "call-903",
-    fromE164: "+1 (917) 774-2018",
-    startedAt: new Date(Date.now() - 240 * 60 * 1000).toISOString(),
-    durationSeconds: 185,
-    outcome: "Transferred to Human · Reschedule Consultation",
-    toolsUsed: ["telephony.forwardToHuman"],
-    booked: false,
-    recordingUrl: "https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg",
-    transcript: [
-      { role: "assistant", text: "您好！感谢致电 Lotus Spa，请问有什么可以帮您？", at: "00:02" },
-      { role: "user", text: "我昨天买的次卡想退款，并且想把明天 5 人的团队预约整体改到下周，这个能处理吗？", at: "00:10" },
-      { role: "assistant", text: "次卡退款及多人团体大单改期涉及专享优惠与款项核算，我立即为您转接前台资深经理，请稍候不要挂机……", at: "00:20" },
-    ],
-  },
-  {
-    callId: "call-904",
-    fromE164: "+1 (347) 902-1144",
-    startedAt: new Date(Date.now() - 360 * 60 * 1000).toISOString(),
-    durationSeconds: 112,
-    outcome: "Booked · Gel Manicure + Removal",
-    toolsUsed: ["calendar.checkSlot", "booking.createDraft"],
-    booked: true,
-    recordingUrl: "https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg",
-    transcript: [
-      { role: "assistant", text: "您好，感谢致电 Lotus Spa，请问有什么可以帮您？", at: "00:02" },
-      { role: "user", text: "明天中午 12 点能做一个凝胶美甲吗？我需要先卸掉旧甲。", at: "00:07" },
-      { role: "assistant", text: "好的，明天中午 12:00 有美甲工位，基础凝胶美甲 $48，附加专业温和卸甲 $15，总Duration预计 50 分钟。已为您录入预约，请问联系人姓名是？", at: "00:19" },
-      { role: "user", text: "叫 Sophia 就行。", at: "00:25" },
-      { role: "assistant", text: "已为您成功建立明天 12:00 的美甲预约，感谢您的致电，期待明天见！", at: "00:32" },
-    ],
-  },
-];
-
-const DEFAULT_ENTERPRISE_DRAFTS: CallDraftView[] = [
-  {
-    draftId: "draft-801",
-    status: "pending",
-    fromE164: "+1 (212) 883-9912",
-    fromDisplay: "+1 (212) 883-9912 (Jessica Taylor)",
-    createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
-    service: { heard: "90分钟热石理疗", matchedId: "srv-hot-stone", matchedName: "90min 尊享热石深层理疗" },
-    staff: { heard: "王师傅或者经验丰富的老技师", matchedId: "staff-wang", matchedName: "David Wang (特级技师)" },
-    time: { heard: "明天下午两点或者两点半", slotStartsAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(), durationMin: 90 },
-    customer: { id: "cust-201", displayName: "Jessica Taylor" },
-    candidates: [{ customerId: "cust-201", displayName: "Jessica Taylor", lastVisitOn: "2026-08-10" }],
-    callerNameHeard: "Jessica",
-    confidenceBp: 9400,
-    lowConfidence: false,
-    notes: "客人背部肌肉偏紧，指名要求手法重一点的技师，自备理疗精油。",
-    readyToBook: true,
-    missing: [],
-  },
-  {
-    draftId: "draft-802",
-    status: "pending",
-    fromE164: "+1 (917) 441-2900",
-    fromDisplay: "+1 (917) 441-2900",
-    createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
-    service: { heard: "日式睫毛嫁接", matchedId: "srv-lash", matchedName: "日式单根自然睫毛嫁接" },
-    staff: { heard: "随便哪个技师都行", matchedId: null, matchedName: "任意空闲美睫师" },
-    time: { heard: "后天上午十点半", slotStartsAt: new Date(Date.now() + 48 * 3600 * 1000).toISOString(), durationMin: 60 },
-    customer: null,
-    candidates: [],
-    callerNameHeard: "Amanda",
-    confidenceBp: 7800,
-    lowConfidence: true,
-    notes: "新客人首次到店，询问是否有新人 85 折优惠，前台建单时可确认折扣。",
-    readyToBook: false,
-    missing: ["customerProfile"],
-  },
-];
 
 export function Calls() {
   const storeTime = useStoreTime();
@@ -188,20 +78,8 @@ export function Calls() {
   // 模拟拨测弹窗
   const [simulatorOpen, setSimulatorOpen] = useState(false);
 
-  // 合并接口与高保真数据
-  const calls = useMemo(() => {
-    if (callData?.calls && callData.calls.length > 0) {
-      return callData.calls;
-    }
-    return DEFAULT_ENTERPRISE_CALLS;
-  }, [callData]);
-
-  const drafts = useMemo(() => {
-    if (draftData?.drafts && draftData.drafts.length > 0) {
-      return draftData.drafts;
-    }
-    return DEFAULT_ENTERPRISE_DRAFTS;
-  }, [draftData]);
+  const calls = callData?.calls ?? [];
+  const drafts = draftData?.drafts ?? [];
 
   const filteredCalls = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -220,8 +98,6 @@ export function Calls() {
     });
   }, [calls, searchQuery, outcomeFilter]);
 
-  const SAMPLE_AUDIO_URL = "https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg";
-
   const formatAudioTime = (secs: number) => {
     const s = Math.max(0, Math.floor(secs));
     const m = Math.floor(s / 60);
@@ -230,7 +106,11 @@ export function Calls() {
   };
 
   const handleTogglePlay = (call: CallView) => {
-    const audioSrc = call.recordingUrl || SAMPLE_AUDIO_URL;
+    if (!call.recordingUrl) {
+      toast.danger(t('crm.callNoRecording'));
+      return;
+    }
+    const audioSrc = call.recordingUrl;
     const dur = call.durationSeconds || 98;
     setPlaybackTotalDuration(dur);
 
@@ -363,7 +243,6 @@ export function Calls() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20">
-      <SampleDataNotice />
       {/* 顶部企业级电话专线状态栏 */}
       <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-teal-900 via-teal-800 to-slate-900 text-white shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">

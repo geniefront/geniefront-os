@@ -13,7 +13,7 @@
 
 | 关注点 | 方案 | 为什么 |
 |---|---|---|
-| **数据库** | **Supabase 托管 Postgres 16**（单区 + PITR + 每日备份） | 备份、PITR、主从由平台负责。自管 Postgres + 每日 `pg_dump` 是现阶段最大的数据丢失风险 |
+| **数据库** | **Supabase 托管 Postgres 17**（单区 + PITR + 每日备份） | 备份、PITR、主从由平台负责。自管 Postgres + 每日 `pg_dump` 是现阶段最大的数据丢失风险 |
 | **认证** | **Supabase Auth**（邮箱 Magic Link / 密码） | 手机 OTP 依赖短信通道，推迟（见 `03` 决策 11）。PIN + 设备令牌由我们自己签发受限 JWT |
 | **实时** | **Supabase Realtime Broadcast** | 扇出在平台侧完成，**两台应用实例之间不需要任何广播通道** —— 这一条直接省掉整个 Redis Pub/Sub 层 |
 | **应用** | **Fastify (Node 22) + Docker**，生产 2 台实例，开发 1 台 | 100% 无状态，任意一台重启用户无感 |
@@ -64,7 +64,7 @@
                                     ▼
             ┌───────────────────────────────────────────────┐
             │  Supabase（托管，单区 + PITR）                 │
-            │  • Postgres 16：强制 RLS / 资源排他约束        │
+            │  • Postgres 17：强制 RLS / 资源排他约束        │
             │  • Auth：邮箱 Magic Link / 密码                │
             │  • Realtime：location:{id} 频道广播            │
             │  • Storage：签名、照片、价目表原图              │
@@ -99,7 +99,7 @@
 | 静态托管 | **Cloudflare Pages** | desk / staff / kiosk 三个构建产物直接上边缘，不需要自建 Nginx |
 | 后端 API | **Fastify (Node 22)** | 吞吐高，全 TypeScript 契约打通。**单进程无状态**，起 2 个实例就是全部的水平扩展 |
 | 类型契约 | **Zod schema 定义所有命令与查询** | `packages/contracts` 一处定义，前后端与 AI Tool 三方受益 |
-| 数据库 | **Supabase 托管 Postgres 16** + **Drizzle ORM** | 类型安全、原生 SQL 控制力；备份 / PITR 交给平台 |
+| 数据库 | **Supabase 托管 Postgres 17** + **Drizzle ORM** | 类型安全、原生 SQL 控制力；备份 / PITR 交给平台 |
 | 认证 | **Supabase Auth** + 自签受限 JWT（PIN / 设备令牌） | 见 §5 |
 | 实时 | **Supabase Realtime Broadcast** | 扇出在平台侧，应用实例之间零协调 |
 | 异步队列 | **Upstash Redis + BullMQ**（Phase 1b 起） | 定时提醒、报表导出、评价抓取。Phase 1a 不引入 |

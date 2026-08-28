@@ -121,90 +121,6 @@ export interface StaffMember {
   note?: string; // 备注说明
 }
 
-// 初始模拟员工列表
-const INITIAL_STAFF_LIST: StaffMember[] = [
-  {
-    id: 'staff-1',
-    membershipId: 'mem-1',
-    employeeNo: 'EMP-1001',
-    name: 'Emma Wang (王雪)',
-    phone: '555-0191',
-    email: 'emma.wang@salon.com',
-    jobTitle: '美甲师',
-    level: '首席大师',
-    skills: ['日式光疗美甲', '水晶琉璃延长', '俄式极致修甲', '手足精油SPA'],
-    status: 'active',
-    hireDate: '2023-03-15',
-    payroll: {
-      kind: 'commission',
-      ratePercent: 50,
-      hourlyRateDollars: 20,
-      base: 'net',
-    },
-    note: '主攻日式光疗、微雕彩绘与水晶延长，全品类美甲皆可接单。',
-  },
-  {
-    id: 'staff-2',
-    membershipId: 'mem-2',
-    employeeNo: 'EMP-1002',
-    name: 'Kevin Zhang (张宇)',
-    phone: '555-0192',
-    email: 'kevin.zhang@salon.com',
-    jobTitle: '芳疗理疗师',
-    level: '资深技师',
-    skills: ['全身芳香开背', '火山热石理疗', '足底全息反射', '头部舒压理疗'],
-    status: 'active',
-    hireDate: '2023-06-10',
-    payroll: {
-      kind: 'commission',
-      ratePercent: 45,
-      hourlyRateDollars: 18,
-      base: 'net',
-    },
-    note: '熟练掌握全身SPA、热石循经与足疗，不接美甲与美睫单。',
-  },
-  {
-    id: 'staff-3',
-    membershipId: 'mem-3',
-    employeeNo: 'EMP-1003',
-    name: 'Lisa Chen (陈琳)',
-    phone: '555-0193',
-    email: 'lisa.chen@salon.com',
-    jobTitle: 'Lashes & Brows师',
-    level: '资深技师',
-    skills: ['日式单根美睫', '3D云朵开花', '半永久野生眉', '日式光疗美甲'],
-    status: 'active',
-    hireDate: '2024-01-20',
-    payroll: {
-      kind: 'commission',
-      ratePercent: 45,
-      hourlyRateDollars: 18,
-      base: 'net',
-    },
-    note: '擅长睫毛嫁接与野生眉，兼接基础单色光疗美甲。',
-  },
-  {
-    id: 'staff-4',
-    membershipId: 'mem-4',
-    employeeNo: 'EMP-1004',
-    name: 'David Liu (刘强)',
-    phone: '555-0194',
-    email: 'david.liu@salon.com',
-    jobTitle: '美甲师',
-    level: '初级技师',
-    skills: ['俄式极致修甲', '手足精油SPA'],
-    status: 'active',
-    hireDate: '2025-02-01',
-    payroll: {
-      kind: 'commission_vs_hourly',
-      ratePercent: 35,
-      hourlyRateDollars: 16,
-      base: 'net',
-    },
-    note: '负责基础俄式死皮清理与手足SPA，暂不可接高阶晕染彩绘。',
-  },
-];
-
 interface ConfirmModalState {
   title: string;
   description: string;
@@ -226,11 +142,11 @@ function EmployeePerformanceContent() {
   const isInitialLoading = isStaffLoading && isPayrollLoading && !staffData;
 
   // 员工数据状态
-  const [staffList, setStaffList] = useState<StaffMember[]>(INITIAL_STAFF_LIST);
+  const [staffList, setStaffList] = useState<StaffMember[]>([]);
 
   // 后端数据到达后自动同步
   useEffect(() => {
-    if (staffData?.staff && staffData.staff.length > 0) {
+    if (staffData?.staff) {
       setStaffList(staffData.staff);
     }
   }, [staffData]);

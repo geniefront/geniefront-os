@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import {
   CreditCard,
   Building,
@@ -42,6 +42,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Modal } from '@/components/ui/Modal';
 import { toast, Spinner } from '@heroui/react';
 import { useLanguage } from '@/LanguageContext';
+import { useStoreTime } from '@/lib/time';
 import { useDayCloseQuery } from '@/features/dayclose/api';
 import { usePayrollPlansQuery } from '@/features/payroll/api';
 import {
@@ -54,8 +55,8 @@ import { centsToDollars, dollarsToCents } from '@/features/checkout/api';
 import { exportToCSV, exportToExcel } from '@/lib/exportUtils';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
+import { EmptyState } from '@/components/ui/EmptyState';
 
-// 模拟银行打款批次记录 (Stripe Payouts Batches)
 interface BankPayoutBatch {
   id: string;
   payoutId: string;
@@ -69,58 +70,6 @@ interface BankPayoutBatch {
   createdAt: string;
 }
 
-const MOCK_BANK_PAYOUTS: BankPayoutBatch[] = [
-  {
-    id: 'po-101',
-    payoutId: 'po_1Nk8F2Lkd82a01',
-    amountCents: 384500,
-    feeCents: 9612,
-    netCents: 374888,
-    transactionCount: 38,
-    bankAccount: 'JPMorgan Chase (****8892)',
-    status: 'paid',
-    arrivalDate: '2026-08-26',
-    createdAt: '2026-08-25 23:45',
-  },
-  {
-    id: 'po-102',
-    payoutId: 'po_1Nk8F2Lkd82a02',
-    amountCents: 421000,
-    feeCents: 10525,
-    netCents: 410475,
-    transactionCount: 42,
-    bankAccount: 'JPMorgan Chase (****8892)',
-    status: 'paid',
-    arrivalDate: '2026-08-25',
-    createdAt: '2026-08-24 23:40',
-  },
-  {
-    id: 'po-103',
-    payoutId: 'po_1Nk8F2Lkd82a03',
-    amountCents: 298000,
-    feeCents: 7450,
-    netCents: 290550,
-    transactionCount: 29,
-    bankAccount: 'JPMorgan Chase (****8892)',
-    status: 'paid',
-    arrivalDate: '2026-08-24',
-    createdAt: '2026-08-23 23:50',
-  },
-  {
-    id: 'po-104',
-    payoutId: 'po_1Nk8F2Lkd82a04',
-    amountCents: 185000,
-    feeCents: 4625,
-    netCents: 180375,
-    transactionCount: 19,
-    bankAccount: 'JPMorgan Chase (****8892)',
-    status: 'in_transit',
-    arrivalDate: '2026-08-28 (预计明日到账)',
-    createdAt: '2026-08-27 10:30',
-  },
-];
-
-// 模拟周期性薪资结算批次 (Bi-Weekly Payroll)
 interface StaffPayrollRecord {
   membershipId: string;
   name: string;
@@ -137,70 +86,6 @@ interface StaffPayrollRecord {
   status: 'paid' | 'pending' | 'draft';
 }
 
-const MOCK_STAFF_PAYROLL: StaffPayrollRecord[] = [
-  {
-    membershipId: 'st-01',
-    name: 'Elena Vance',
-    jobTitle: '首席美甲设计师',
-    baseSalaryCents: 120000,
-    serviceSalesCents: 685000,
-    serviceCommissionCents: 342500, // 50%
-    retailSalesCents: 45000,
-    retailCommissionCents: 4500, // 10%
-    cardTipsCents: 85000,
-    bonusCents: 10000,
-    deductionsCents: 0,
-    netPayCents: 562000,
-    status: 'pending',
-  },
-  {
-    membershipId: 'st-02',
-    name: 'Marcus Chen',
-    jobTitle: '资深芳疗理疗师',
-    baseSalaryCents: 140000,
-    serviceSalesCents: 590000,
-    serviceCommissionCents: 295000, // 50%
-    retailSalesCents: 32000,
-    retailCommissionCents: 3200,
-    cardTipsCents: 78000,
-    bonusCents: 5000,
-    deductionsCents: 0,
-    netPayCents: 521200,
-    status: 'pending',
-  },
-  {
-    membershipId: 'st-03',
-    name: 'Sophia Williams',
-    jobTitle: '高级Lashes & Brows师',
-    baseSalaryCents: 100000,
-    serviceSalesCents: 480000,
-    serviceCommissionCents: 240000,
-    retailSalesCents: 28000,
-    retailCommissionCents: 2800,
-    cardTipsCents: 62000,
-    bonusCents: 0,
-    deductionsCents: 0,
-    netPayCents: 404800,
-    status: 'paid',
-  },
-  {
-    membershipId: 'st-04',
-    name: 'David Miller',
-    jobTitle: '前台主管 / 收银店务',
-    baseSalaryCents: 220000,
-    serviceSalesCents: 0,
-    serviceCommissionCents: 0,
-    retailSalesCents: 12000,
-    retailCommissionCents: 1200,
-    cardTipsCents: 0,
-    bonusCents: 15000,
-    deductionsCents: 0,
-    netPayCents: 236200,
-    status: 'paid',
-  },
-];
-
-// 模拟退款冲正记录 (Commission Clawbacks)
 interface ClawbackRecord {
   id: string;
   ticketId: string;
@@ -212,31 +97,9 @@ interface ClawbackRecord {
   date: string;
 }
 
-const MOCK_CLAWBACKS: ClawbackRecord[] = [
-  {
-    id: 'cb-01',
-    ticketId: '#TK-9021',
-    customerName: 'Jennifer Lopez',
-    staffName: 'Elena Vance',
-    refundAmountCents: 6800,
-    clawbackCommissionCents: 3400,
-    reason: '客户指甲甲油起翘，前台办理全额退款并冲正提成',
-    date: '2026-08-24',
-  },
-  {
-    id: 'cb-02',
-    ticketId: '#TK-8942',
-    customerName: 'Robert De Niro',
-    staffName: 'Marcus Chen',
-    refundAmountCents: 8800,
-    clawbackCommissionCents: 4400,
-    reason: '客户因临时急事中途取消 SPA 服务，退还未服务款项',
-    date: '2026-08-20',
-  },
-];
-
 export function Payouts() {
   const { t } = useLanguage();
+  const storeTime = useStoreTime();
   const { data: dayClose, isLoading: isDayCloseLoading, refetch: refetchDayClose } = useDayCloseQuery();
   const balanceQ = useMerchantBalanceQuery();
   const bankBatchesQ = useBankPayoutBatchesQuery();
@@ -255,38 +118,30 @@ export function Payouts() {
   // 划拨订单穿透明细弹窗
   const [selectedPayoutBatch, setSelectedPayoutBatch] = useState<BankPayoutBatch | null>(null);
 
-  const bankBatchesList = useMemo(() => {
-    if (bankBatchesQ.data?.batches && bankBatchesQ.data.batches.length > 0) {
-      return bankBatchesQ.data.batches;
-    }
-    return MOCK_BANK_PAYOUTS;
-  }, [bankBatchesQ.data]);
-
-  const payrollList = useMemo(() => {
-    if (payrollBatchesQ.data?.rows && payrollBatchesQ.data.rows.length > 0) {
-      return payrollBatchesQ.data.rows;
-    }
-    return MOCK_STAFF_PAYROLL;
-  }, [payrollBatchesQ.data]);
-
-  const clawbackList = useMemo(() => {
-    if (clawbacksQ.data?.rows && clawbacksQ.data.rows.length > 0) {
-      return clawbacksQ.data.rows;
-    }
-    return MOCK_CLAWBACKS;
-  }, [clawbacksQ.data]);
+  const bankBatchesList = bankBatchesQ.data?.batches ?? [];
+  const payrollList = payrollBatchesQ.data?.rows ?? [];
+  const clawbackList = clawbacksQ.data?.rows ?? [];
 
   // KPI 计算
   const balanceData = balanceQ.data;
-  const availableBalanceCents = balanceData?.availableBalanceCents ?? dayClose?.money?.cardTakeCents ?? 312000;
-  const pendingPayoutsCents = balanceData?.pendingPayoutsCents ?? 185000;
-  const monthlyGmvCents = balanceData?.monthlyGmvCents ?? 4285000;
-  const processingFeeCents = balanceData?.processingFeeCents ?? 111410;
-  const netCaptureRateBp = balanceData?.netCaptureRateBp ?? 9740;
-  const bankName = balanceData?.bankAccount?.bankName ?? 'JPMorgan Chase (****8892)';
+  const availableBalanceCents = balanceData?.availableBalanceCents ?? 0;
+  const pendingPayoutsCents = balanceData?.pendingPayoutsCents ?? 0;
+  const monthlyGmvCents = balanceData?.monthlyGmvCents ?? 0;
+  const processingFeeCents = balanceData?.processingFeeCents ?? 0;
+  const netCaptureRateBp = balanceData?.netCaptureRateBp ?? 0;
+  const bankName = balanceData?.bankAccount?.bankName ?? t('finance.poNoBank');
 
-  const tipCents = (dayClose?.money?.tipCardCents ?? 48000) + (dayClose?.money?.tipCashCents ?? 12000);
+  const tipCents = (dayClose?.money?.tipCardCents ?? 0) + (dayClose?.money?.tipCashCents ?? 0);
   const tipPayouts = dayClose?.tipPayouts ?? [];
+  const pendingPayrollCents = payrollList
+    .filter((row) => row.status !== 'paid')
+    .reduce((sum, row) => sum + row.netPayCents, 0);
+  const serviceCommissionCents = payrollList
+    .filter((row) => row.status !== 'paid')
+    .reduce((sum, row) => sum + row.serviceCommissionCents, 0);
+  const nextPayoutLabel = balanceData?.nextPayoutEstimatedAt
+    ? storeTime.dateTime(balanceData.nextPayoutEstimatedAt)
+    : t('finance.poNotConfigured');
 
   if (isInitialLoading) {
     return <PageLoading title={t('finance.poLoading')} description={t('finance.poLoadingDesc')} />;
@@ -338,6 +193,7 @@ export function Payouts() {
                 variant="outline"
                 size="sm"
                 className="bg-white border-slate-200 text-xs font-bold gap-1.5"
+                disabled={bankBatchesList.length === 0}
                 onClick={() => {
                   const headers = ['划拨编号', '入账银行', '总Amount ($)', '手续费 ($)', '净入账 ($)', '笔数', '状态', '到账日期'];
                   const rows = bankBatchesList.map((p) => [
@@ -361,6 +217,7 @@ export function Payouts() {
               <Button
                 size="sm"
                 className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs gap-1.5 shadow-sm"
+                disabled={!balanceData?.bankAccount}
                 onClick={() => {
                   toast.success(t('finance.poStripeConnected', { p0: bankName }));
                 }}
@@ -381,9 +238,8 @@ export function Payouts() {
                 <Landmark className="w-4 h-4 text-teal-600" />
                 <span>{t('finance.poMerchantAccount')}</span>
               </div>
-              <Badge variant="success" className="text-[11px]">
-                
-                {t('finance.poAutoPayout')}
+              <Badge variant={balanceData?.payoutSchedule ? 'success' : 'secondary'} className="text-[11px]">
+                {balanceData?.payoutSchedule ? t('finance.poAutoPayout') : t('finance.poNotConfigured')}
               </Badge>
             </div>
 
@@ -405,7 +261,7 @@ export function Payouts() {
               </div>
               <div className="flex justify-between">
                 <span>{t('finance.poNextPayout')}</span>
-                <span className="text-slate-500">{t('finance.poNextPayoutTime')}</span>
+                <span className="text-slate-500">{nextPayoutLabel}</span>
               </div>
             </div>
           </Card>
@@ -426,14 +282,14 @@ export function Payouts() {
             <div>
               <p className="text-xs text-slate-500">{t('finance.poPendingPayroll')}</p>
               <p className="text-3xl font-black text-slate-900 mt-1 font-mono text-amber-900">
-                $10,832.00
+                ${centsToDollars(pendingPayrollCents)}
               </p>
             </div>
 
             <div className="space-y-1.5 text-xs text-slate-600 pt-2 border-t border-amber-100">
               <div className="flex justify-between">
                 <span>{t('finance.poServiceCommission')}</span>
-                <span className="font-mono font-bold text-slate-900">$8,775.00</span>
+                <span className="font-mono font-bold text-slate-900">${centsToDollars(serviceCommissionCents)}</span>
               </div>
               <div className="flex justify-between">
                 <span>{t('finance.poPendingCardTips')}</span>
@@ -441,7 +297,7 @@ export function Payouts() {
               </div>
               <div className="flex justify-between">
                 <span>{t('finance.poPayoutDay')}</span>
-                <span className="text-slate-500">{t('finance.poPayoutSchedule')}</span>
+                <span className="text-slate-500">{payrollList.length > 0 ? t('finance.poPayoutSchedule') : t('finance.poNotConfigured')}</span>
               </div>
             </div>
           </Card>
@@ -459,22 +315,22 @@ export function Payouts() {
             <div>
               <p className="text-xs text-slate-500">{t('finance.poMonthlyGmv')}</p>
               <p className="text-3xl font-black text-slate-900 mt-1 font-mono">
-                $42,850.00
+                ${centsToDollars(monthlyGmvCents)}
               </p>
             </div>
 
             <div className="space-y-1.5 text-xs text-slate-600 pt-2 border-t border-blue-100">
               <div className="flex justify-between">
                 <span>{t('finance.poProcessingFee')}</span>
-                <span className="font-mono text-slate-700">-$1,114.10</span>
+                <span className="font-mono text-slate-700">-${centsToDollars(processingFeeCents)}</span>
               </div>
               <div className="flex justify-between">
                 <span>{t('finance.poAvgSettlement')}</span>
-                <span className="font-semibold text-emerald-700">{t('finance.poSettlementT1')}</span>
+                <span className="font-semibold text-slate-500">{balanceData?.payoutSchedule ? t('finance.poSettlementT1') : t('finance.poNotConfigured')}</span>
               </div>
               <div className="flex justify-between">
                 <span>{t('finance.poNetRate')}</span>
-                <span className="font-mono font-bold text-slate-900">97.4%</span>
+                <span className="font-mono font-bold text-slate-900">{(netCaptureRateBp / 100).toFixed(2)}%</span>
               </div>
             </div>
           </Card>
@@ -569,6 +425,9 @@ export function Payouts() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {bankBatchesList.length === 0 && (
+                        <tr><td colSpan={9}><EmptyState icon={<Landmark />} title={t('finance.poNoBatches')} description={t('finance.poNoBatchesDesc')} /></td></tr>
+                      )}
                       {bankBatchesList.map((p) => (
                         <tr key={p.id} className="hover:bg-slate-50/80 transition-colors">
                           <td className="py-3 px-5 font-mono font-bold text-slate-900">{p.payoutId}</td>
@@ -728,6 +587,9 @@ export function Payouts() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {payrollList.length === 0 && (
+                        <tr><td colSpan={9}><EmptyState icon={<FileText />} title={t('finance.poNoPayroll')} description={t('finance.poNoPayrollDesc')} /></td></tr>
+                      )}
                       {payrollList.map((sp) => (
                         <tr key={sp.membershipId} className="hover:bg-slate-50/80 transition-colors">
                           <td className="py-3 px-5 font-bold text-slate-900">{sp.name}</td>
@@ -798,6 +660,9 @@ export function Payouts() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {clawbackList.length === 0 && (
+                        <tr><td colSpan={7}><EmptyState icon={<RotateCcw />} title={t('finance.poNoClawbacks')} description={t('finance.poNoClawbacksDesc')} /></td></tr>
+                      )}
                       {clawbackList.map((cb) => (
                         <tr key={cb.id} className="hover:bg-slate-50/80 transition-colors">
                           <td className="py-3 px-5 font-mono font-bold text-teal-700">{cb.ticketId}</td>

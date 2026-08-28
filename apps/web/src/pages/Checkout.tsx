@@ -18,7 +18,6 @@ import {
 import { PAYMENT_METHODS } from '@/features/checkout/types';
 import type { OpenTicket, PaymentLine, PaymentMethod } from '@/features/checkout/types';
 import { useSchedule, UNASSIGNED_STAFF_ID } from '@/context/ScheduleContext';
-import { useRoomsQuery } from '@/features/rooms/api';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { GuardedButton } from '@/components/ui/GuardedButton';
@@ -106,9 +105,6 @@ function CheckoutContent() {
   const urlTicketId = searchParams.get('ticketId');
 
   const { staff, services } = useSchedule();
-  const { data: roomsData } = useRoomsQuery();
-  const rooms = roomsData?.rooms ?? [];
-
   const { data, isLoading, error, refetch } = useOpenTickets();
   const close = useCloseTicket();
   const voidTicketMut = useVoidTicket();
@@ -136,7 +132,7 @@ function CheckoutContent() {
   // 多技师小费分配模式
   const [tipMode, setTipMode] = useState<'total_split' | 'custom_per_staff'>('total_split');
   const [totalTipInput, setTotalTipInput] = useState('0.00');
-  const [splitStrategy, setSplitStrategy] = useState<'proportional' | 'tier_weighted' | 'equal'>('proportional');
+  const [splitStrategy, setSplitStrategy] = useState<'proportional' | 'equal'>('proportional');
   const [customStaffTips, setCustomStaffTips] = useState<Record<string, string>>({});
 
   // Gift Card正在验证中的索引
@@ -209,46 +205,32 @@ function CheckoutContent() {
     const map = new Map<string, {
       membershipId: string;
       staffName: string;
-      tierLevel: number;
-      tierLabel: string;
-      commissionRate: number; // 如 0.50
       items: Array<{ name: string; durationMin: number; priceCents: number; roomName?: string }>;
       totalServiceCents: number;
     }>();
 
-    selected.items.forEach((item: any, idx: number) => {
+    selected.items.forEach((item: any) => {
       const staffMember = staff.find((s) => s.membershipId === item.membershipId || s.name === item.staffName);
-      const membershipId = item.membershipId || staffMember?.membershipId || `staff-${idx}`;
+      const membershipId = item.membershipId || staffMember?.membershipId;
+      if (!membershipId) return;
       const staffName = formatI18n(item.staffName || staffMember?.name, language) || '主理技师';
-      // 模拟技师职级: 总监 (Tier 2, 1.2x), 高级技师 (Tier 1, 1.0x), 普通 (0.8x)
-      const tierLevel = staffMember?.membershipId?.includes('lead') || idx === 0 ? 2 : 1;
-      const tierLabel = tierLevel === 2 ? '资深总监 · Tier 2' : '高级理疗师 · Tier 1';
-      const commissionRate = tierLevel === 2 ? 0.55 : 0.50;
-
-      const room = rooms[idx % Math.max(1, rooms.length)];
-      const roomName = room ? `${formatI18n(room.name, language)} (${room.type === 'room' ? '包厢' : '工位'})` : '主理疗间';
+      const roomName = typeof item.roomName === 'string' ? item.roomName : undefined;
 
       const existing: {
         membershipId: string;
         staffName: string;
-        tierLevel: number;
-        tierLabel: string;
-        commissionRate: number;
         items: Array<{ name: string; durationMin: number; priceCents: number; roomName?: string }>;
         totalServiceCents: number;
       } = map.get(membershipId) ?? {
         membershipId,
         staffName,
-        tierLevel,
-        tierLabel,
-        commissionRate,
         items: [],
         totalServiceCents: 0,
       };
 
       existing.items.push({
         name: formatI18n(item.name ?? item.name_snapshot ?? item.nameSnapshot, language) || '服务项目',
-        durationMin: item.durationMin || 60,
+        durationMin: item.durationMin ?? 0,
         priceCents: item.totalCents,
         roomName,
       });
@@ -257,7 +239,7 @@ function CheckoutContent() {
     });
 
     return [...map.values()];
-  }, [selected, staff, rooms, language]);
+  }, [selected, staff, language]);
 
   // 自动从门店设置同步税率
   useEffect(() => {
@@ -310,16 +292,6 @@ function CheckoutContent() {
         const extra = remainder > 0 ? 1 : 0;
         if (remainder > 0) remainder--;
         const cents = perStaff + extra;
-        const percent = Math.round((cents / totalTipCents) * 100);
-        return { ...st, allocatedTipCents: cents, percent };
-      });
-    }
-
-    if (splitStrategy === 'tier_weighted') {
-      const weights = staffAssignments.map((st) => (st.tierLevel === 2 ? 1.25 : 1.0));
-      const totalWeight = weights.reduce((a, b) => a + b, 0);
-      return staffAssignments.map((st, i) => {
-        const cents = Math.round((weights[i] / totalWeight) * totalTipCents);
         const percent = Math.round((cents / totalTipCents) * 100);
         return { ...st, allocatedTipCents: cents, percent };
       });
@@ -738,14 +710,7 @@ function CheckoutContent() {
                       <div className="flex items-center gap-2">
                         <User className="w-3.5 h-3.5 text-teal-600" />
                         <span className="font-bold text-slate-900">{staffGroup.staffName}</span>
-                        <Badge variant="secondary" className="text-[10px] font-bold px-1.5 py-0 bg-teal-50 text-teal-800 border-teal-200">
-                          {staffGroup.tierLabel}
-                        </Badge>
                       </div>
-                      <span className="text-[11px] font-mono text-slate-500 font-bold">
-                        
-                        {t('checkout.commissionRate')} {Math.round(staffGroup.commissionRate * 100)}%
-                      </span>
                     </div>
 
                     {/* 该技师执行的服务与加项 */}
@@ -761,7 +726,7 @@ function CheckoutContent() {
                             </div>
                             <div className="text-[10px] text-slate-400 flex items-center gap-1">
                               <BedDouble className="w-3 h-3 text-slate-400" />
-                              <span>{t('checkout.serviceRoom')} {item.roomName}</span>
+                              <span>{item.roomName ? `${t('checkout.serviceRoom')} ${item.roomName}` : t('checkout.roomUnassigned')}</span>
                             </div>
                           </div>
                           <span className="font-mono font-bold text-slate-900 text-sm">
@@ -857,7 +822,6 @@ function CheckoutContent() {
                         className="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800"
                       >
                         <option value="proportional">{t('checkout.splitByRevenue')}</option>
-                        <option value="tier_weighted">{t('checkout.splitByLevel')}</option>
                         <option value="equal">Equal Split</option>
                       </select>
                     </div>
@@ -870,7 +834,7 @@ function CheckoutContent() {
                   <div className="grid grid-cols-2 gap-2">
                     {staffAssignments.map((st) => (
                       <div key={st.membershipId} className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
-                        <span className="font-bold text-xs text-slate-800 block">{st.staffName} ({st.tierLabel})</span>
+                        <span className="font-bold text-xs text-slate-800 block">{st.staffName}</span>
                         <Input
                           inputMode="decimal"
                           value={customStaffTips[st.membershipId] || ''}
@@ -894,8 +858,6 @@ function CheckoutContent() {
                 </span>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   {staffTipAllocations.map((st) => {
-                    const estCommissionCents = Math.round(st.totalServiceCents * st.commissionRate);
-                    const totalStaffTakeHomeCents = estCommissionCents + st.allocatedTipCents;
                     return (
                       <div key={st.membershipId} className="p-2 bg-white rounded-lg border border-teal-200/80 space-y-0.5">
                         <div className="flex justify-between items-center">
@@ -905,15 +867,8 @@ function CheckoutContent() {
                           </Badge>
                         </div>
                         <div className="text-[10px] text-slate-500">
-                          Service Commission: <span className="font-mono font-bold text-slate-700">${centsToDollars(estCommissionCents)}</span>
-                        </div>
-                        <div className="text-[10px] text-slate-500">
                           
                           {t('checkout.tipEarned')} <span className="font-mono font-bold text-teal-700">${centsToDollars(st.allocatedTipCents)}</span>
-                        </div>
-                        <div className="text-[11px] font-bold text-teal-900 pt-0.5 border-t border-slate-100 flex justify-between">
-                          <span>Estimated Earnings:</span>
-                          <span className="font-mono text-teal-800">${centsToDollars(totalStaffTakeHomeCents)}</span>
                         </div>
                       </div>
                     );

@@ -13,7 +13,7 @@
 
 | 服务 | 用途 | 密钥 / 配置项 | 备注 |
 | :--- | :--- | :--- | :--- |
-| **Supabase** | **整个状态层**：托管 Postgres 16（业务数据 + 强制 RLS）、Auth（邮箱 Magic Link / 密码）、Realtime（`location:{id}` 广播）、Storage（电子签名、指甲照片、价目表原图） | `SUPABASE_URL`<br>`SUPABASE_ANON_KEY`<br>`SUPABASE_SERVICE_ROLE_KEY`<br>`DATABASE_URL`（受限角色 `app_user`） | ⚠️ **`SERVICE_ROLE_KEY` 与 `postgres` 凭据只放在迁移 CI 的 secret 里，不进应用运行时环境变量**（`01` §4）。应用连库一律用 `app_user` + 事务内 `SET LOCAL`。需要 dev / prod 两个项目 |
+| **Supabase** | **整个状态层**：托管 Postgres 17（业务数据 + 强制 RLS）、Auth（邮箱 Magic Link / 密码）、Realtime（`location:{id}` 广播）、Storage（电子签名、指甲照片、价目表原图） | `SUPABASE_URL`<br>`SUPABASE_ANON_KEY`<br>`SUPABASE_SERVICE_ROLE_KEY`<br>`DATABASE_URL`（受限角色 `app_user`） | ⚠️ **`SERVICE_ROLE_KEY` 与 `postgres` 凭据只放在迁移 CI 的 secret 里，不进应用运行时环境变量**（`01` §4）。应用连库一律用 `app_user` + 事务内 `SET LOCAL`。需要 dev / test / prod 隔离（test 可用独立项目或临时 branch） |
 | **Cloudflare** | DNS、TLS、WAF、**Pages**（desk / staff / kiosk 静态构建产物）；生产环境的 **Load Balancing + `/health` 健康探针** | `CLOUDFLARE_API_TOKEN`<br>`CLOUDFLARE_ZONE_ID` | Load Balancing 是**单独付费订阅**（约 $5/月起），只在生产双实例时需要 |
 | **应用主机** | 跑 Fastify Docker 镜像。**生产 2 台实例，开发 1 台** | SSH / 部署密钥 | 无状态，实例之间不需要任何通信（实时扇出在 Supabase 侧） |
 | **Anthropic API** | 规则 JSON 生成、价目表视觉提取、前台自然语言副驾、多语言翻译 | `ANTHROPIC_API_KEY` | 需绑卡预充值。模型 ID 用 **`claude-opus-5` / `claude-sonnet-5` / `claude-haiku-4-5`**，不带日期后缀。视觉提取必须用有视觉能力的 Opus 5 / Sonnet 5（`05` §5、§7） |

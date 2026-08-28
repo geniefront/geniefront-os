@@ -37,27 +37,107 @@ const ROOT = dirname(fileURLToPath(import.meta.url));
  *
  * vitest 自己会把 NODE_ENV 设成 `test`，我们只要别覆盖它。
  */
-const NEVER_FROM_DOTENV = new Set(['NODE_ENV']);
+const NEVER_FROM_DOTENV = new Set([
+  'NODE_ENV',
+  // 数据库测试只能使用下方显式映射的 TEST_* 变量。普通 .env 通常指向
+  // dev，绝不能因为「顺手加载环境变量」而让测试写进去。
+  'DATABASE_URL',
+  'MIGRATION_DATABASE_URL',
+  'APP_DB_PASSWORD',
+  'SUPABASE_SERVICE_ROLE_KEY',
+]);
 
-export function loadEnv(): Record<string, string> {
+type SharedTestOptions = {
+  database?: boolean;
+};
+
+function readDotEnv(): Record<string, string> {
   const out: Record<string, string> = {};
   try {
     for (const line of readFileSync(resolve(ROOT, '.env'), 'utf8').split('\n')) {
       const m = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line);
-      if (m?.[1] && m[2] && !NEVER_FROM_DOTENV.has(m[1])) {
+      if (m?.[1] && m[2]) {
         out[m[1]] = m[2].replace(/^["']|["']$/g, '');
       }
     }
   } catch { /* CI 用真实环境变量 */ }
+  return out;
+}
+
+export function loadEnv(options: SharedTestOptions = {}): Record<string, string> {
+  const dotenv = readDotEnv();
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(dotenv)) {
+    if (!NEVER_FROM_DOTENV.has(key)) {
+      out[key] = value;
+    }
+  }
+
+  if (options.database) {
+    const target = process.env['DATABASE_TEST_TARGET'] ?? dotenv['DATABASE_TEST_TARGET'];
+    const databaseUrl = process.env['TEST_DATABASE_URL'] ?? dotenv['TEST_DATABASE_URL'];
+    const migrationUrl = process.env['TEST_MIGRATION_DATABASE_URL']
+      ?? dotenv['TEST_MIGRATION_DATABASE_URL'];
+
+    if (target !== 'isolated' || !databaseUrl || !migrationUrl) {
+      throw new Error(
+        '拒绝运行数据库测试：必须配置 DATABASE_TEST_TARGET=isolated、' +
+        'TEST_DATABASE_URL 和 TEST_MIGRATION_DATABASE_URL。不要复用 dev/prod 连接串。',
+      );
+    }
+
+    if (databaseUrl === dotenv['DATABASE_URL']
+      || migrationUrl === dotenv['MIGRATION_DATABASE_URL']) {
+      throw new Error(
+        '拒绝运行数据库测试：TEST_* 连接串与当前 .env 的 dev/prod 连接串相同。',
+      );
+    }
+    if (databaseUrl === migrationUrl) {
+      throw new Error(
+        '拒绝运行数据库测试：TEST_DATABASE_URL 必须使用受 RLS 约束的应用角色，' +
+        '不能与迁移管理员连接串相同。',
+      );
+    }
+
+    for (const [name, value] of [
+      ['TEST_DATABASE_URL', databaseUrl],
+      ['TEST_MIGRATION_DATABASE_URL', migrationUrl],
+    ] as const) {
+      let parsed: URL;
+      try {
+        parsed = new URL(value);
+      } catch {
+        throw new Error(`${name} 不是有效的 PostgreSQL 连接串`);
+      }
+      if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+        throw new Error(`${name} 必须是 PostgreSQL 连接串`);
+      }
+      const expectedRole = name === 'TEST_DATABASE_URL' ? 'app_user' : 'postgres';
+      if (decodeURIComponent(parsed.username).split('.')[0] !== expectedRole) {
+        throw new Error(`${name} 必须使用 ${expectedRole} 角色`);
+      }
+    }
+
+    out['DATABASE_TEST_TARGET'] = target;
+    out['DATABASE_URL'] = databaseUrl;
+    out['MIGRATION_DATABASE_URL'] = migrationUrl;
+    const testPassword = process.env['TEST_APP_DB_PASSWORD'] ?? dotenv['TEST_APP_DB_PASSWORD'];
+    if (testPassword) out['APP_DB_PASSWORD'] = testPassword;
+  }
+
   // 兜底：就算哪天 vitest 改了默认值，替身也不能失效
   out['NODE_ENV'] = 'test';
   return out;
 }
 
-export const sharedTestConfig = {
-  env: loadEnv(),
-  hookTimeout: 30_000,
-  testTimeout: 30_000,
-  // 测试会真的写库，并行跑会互相干扰容量判断
-  fileParallelism: false,
-};
+export function createSharedTestConfig(options: SharedTestOptions = {}) {
+  return {
+    env: loadEnv(options),
+    hookTimeout: 30_000,
+    testTimeout: 30_000,
+    // 测试会真的写库，并行跑会互相干扰容量判断
+    fileParallelism: false,
+  };
+}
+
+export const sharedTestConfig = createSharedTestConfig();

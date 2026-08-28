@@ -52,13 +52,13 @@ import { useCallsQuery } from '@/features/comms/api';
 import { useTicketsList } from '@/features/tickets/api';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { formatI18n } from '@/lib/utils';
 import { pickText } from '@gf/contracts';
 import { useSession } from '@/lib/session';
 import { instantToWallDate, shiftDate } from '@/lib/time';
 import { cn } from '@/lib/utils';
 import type { CustomerReviewItem } from './DashboardReviewsData';
-import { BACKEND_REVIEWS_DATA } from './DashboardReviewsData';
 
 export function DashboardContent() {
   const { t, language } = useLanguage();
@@ -205,42 +205,40 @@ export function DashboardContent() {
 
   const centsToDollars = (c: number) => (c / 100).toFixed(2);
 
-  // 评价数据融合
+  // 评价数据只来自后端；无数据时保留明确空态所需的零值。
   const reviewsSummary = useMemo(() => {
-    if (reviewsData && reviewsData.totalReviewCount > 0) {
-      return {
-        overallScore: reviewsData.overallScore,
-        totalReviewCount: reviewsData.totalReviewCount,
-        satisfactionRate: reviewsData.satisfactionRate,
-        aiSummary: {
-          overview: formatI18n(reviewsData.aiSummary?.overview, language) || BACKEND_REVIEWS_DATA.aiSummary.overview,
-          topKeywords: reviewsData.aiSummary?.topKeywords || BACKEND_REVIEWS_DATA.aiSummary.topKeywords,
-          topStaff: reviewsData.aiSummary?.topStaff || BACKEND_REVIEWS_DATA.aiSummary.topStaff,
-          actionableSuggestions: reviewsData.aiSummary?.actionableSuggestions || BACKEND_REVIEWS_DATA.aiSummary.actionableSuggestions,
-        },
-        recentReviews: (reviewsData.recentReviews && reviewsData.recentReviews.length > 0)
-          ? reviewsData.recentReviews.map((r: any) => {
-              const cust = formatI18n(r.customerName, language) || '到店顾客';
-              return {
-                id: r.id,
-                customerName: cust,
-                avatarText: cust.slice(0, 2).toUpperCase(),
-                rating: r.rating || 5,
-                platform: (r.platform as any) || 'google',
-                platformLabel: r.platform === 'google' ? 'Google 真实好评' : r.platform === 'yelp' ? 'Yelp 认证评价' : '店内电子签署评价',
-                timeAgo: formatI18n(r.timeAgo, language) || '最近',
-                technicianName: formatI18n(r.technicianName, language) || undefined,
-                serviceName: formatI18n(r.serviceName, language) || '精油按摩理疗',
-                content: formatI18n(r.content, language) || '体验极佳，技师手法非常专业到位！',
-                sentiment: 'positive' as const,
-                sentimentTag: formatI18n(r.sentimentTag, language) || '😊 极度推荐',
-                highlights: r.highlights && r.highlights.length > 0 ? r.highlights : ['专业沉浸', '服务周到'],
-              };
-            })
-          : BACKEND_REVIEWS_DATA.recentReviews,
-      };
-    }
-    return BACKEND_REVIEWS_DATA;
+    return {
+      overallScore: reviewsData?.overallScore ?? 0,
+      totalReviewCount: reviewsData?.totalReviewCount ?? 0,
+      satisfactionRate: reviewsData?.satisfactionRate ?? 0,
+      aiSummary: {
+        overview: formatI18n(reviewsData?.aiSummary?.overview, language),
+        topKeywords: reviewsData?.aiSummary?.topKeywords ?? [],
+        topStaff: reviewsData?.aiSummary?.topStaff ?? [],
+        actionableSuggestions: reviewsData?.aiSummary?.actionableSuggestions ?? [],
+      },
+      recentReviews: (reviewsData?.recentReviews ?? []).map((r: any) => {
+        const customerName = formatI18n(r.customerName, language);
+        const platform = r.platform === 'yelp' || r.platform === 'in_store' || r.platform === 'redbook'
+          ? r.platform
+          : 'google';
+        return {
+          id: r.id,
+          customerName,
+          avatarText: customerName.slice(0, 2).toUpperCase(),
+          rating: r.rating ?? 0,
+          platform,
+          platformLabel: platform === 'google' ? 'Google' : platform === 'yelp' ? 'Yelp' : platform === 'redbook' ? 'Redbook' : t('finance.dashInStoreReview'),
+          timeAgo: formatI18n(r.timeAgo, language),
+          technicianName: formatI18n(r.technicianName, language) || undefined,
+          serviceName: formatI18n(r.serviceName, language),
+          content: formatI18n(r.content, language),
+          sentiment: r.rating >= 4 ? 'positive' as const : r.rating >= 3 ? 'neutral' as const : 'suggestion' as const,
+          sentimentTag: formatI18n(r.sentimentTag, language),
+          highlights: r.highlights ?? [],
+        };
+      }),
+    };
   }, [reviewsData, language]);
 
   // 评价搜索
@@ -936,6 +934,14 @@ export function DashboardContent() {
 
       {/* ── 4. 底部：全渠道顾客口碑评价与 AI 经营洞察 (紧凑无空白排版) ────────── */}
       <Card className="p-6 bg-white border-slate-200 shadow-sm rounded-3xl space-y-5">
+        {reviewsSummary.totalReviewCount === 0 ? (
+          <EmptyState
+            icon={<Star />}
+            title={t('finance.dashNoReviews')}
+            description={t('finance.dashNoReviewsDesc')}
+          />
+        ) : (
+          <>
         {/* 口碑区 Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-100">
           <div className="space-y-0.5">
@@ -1046,7 +1052,6 @@ export function DashboardContent() {
                     <div className="mt-0.5 shrink-0">
                       {sug.type === 'warning' && <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />}
                       {sug.type === 'tip' && <Sparkles className="w-3.5 h-3.5 text-sky-600" />}
-                      {sug.type === 'info' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />}
                     </div>
                     <div>
                       <h5 className="font-bold text-xs">{sug.title}</h5>
@@ -1180,6 +1185,8 @@ export function DashboardContent() {
             ))}
           </div>
         </div>
+          </>
+        )}
       </Card>
 
       {/* ── 快速指派 Modal ─────────────────────────────────────────────────── */}

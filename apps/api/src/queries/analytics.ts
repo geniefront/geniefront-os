@@ -406,15 +406,15 @@ export async function loadHeatmap(
     '周一', '周二', '周三', '周四', '周五', '周六', '周日',
   ];
 
-  // 默认基础分布矩阵 (6 个时段: 10:00, 12:00, 14:00, 16:00, 18:00, 20:00)
+  // 六个展示时段；矩阵值是该查询区间内相对最高时段的真实预约强度。
   const baseMatrix: Record<'周一' | '周二' | '周三' | '周四' | '周五' | '周六' | '周日', number[]> = {
-    周一: [45, 60, 72, 65, 80, 50],
-    周二: [40, 55, 68, 60, 75, 55],
-    周三: [50, 65, 75, 70, 82, 60],
-    周四: [55, 70, 80, 75, 85, 65],
-    周五: [65, 80, 88, 85, 95, 80],
-    周六: [80, 92, 98, 95, 96, 88],
-    周日: [75, 88, 94, 90, 85, 70],
+    周一: [0, 0, 0, 0, 0, 0],
+    周二: [0, 0, 0, 0, 0, 0],
+    周三: [0, 0, 0, 0, 0, 0],
+    周四: [0, 0, 0, 0, 0, 0],
+    周五: [0, 0, 0, 0, 0, 0],
+    周六: [0, 0, 0, 0, 0, 0],
+    周日: [0, 0, 0, 0, 0, 0],
   };
 
   // 查询实际预约时间分布更新矩阵
@@ -451,18 +451,22 @@ export async function loadHeatmap(
         const count = Number(r.count);
         const daySlots = baseMatrix[dayName];
         if (daySlots && daySlots[closestSlotIdx] !== undefined) {
-          daySlots[closestSlotIdx] = Math.min(100, Math.max(30, (daySlots[closestSlotIdx] ?? 50) + count * 5));
+          daySlots[closestSlotIdx] = (daySlots[closestSlotIdx] ?? 0) + count;
         }
       }
     }
   }
 
   let peakVal = 0;
-  let peakHour = '周六 14:00';
+  let peakHour = '';
   let totalVal = 0;
   let totalSlots = 0;
 
+  const maxCount = Math.max(0, ...days.flatMap((day) => baseMatrix[day]));
   for (const d of days) {
+    if (maxCount > 0) {
+      baseMatrix[d] = baseMatrix[d].map((count) => Math.round((count / maxCount) * 100));
+    }
     baseMatrix[d].forEach((val, idx) => {
       totalVal += val;
       totalSlots += 1;
@@ -473,7 +477,7 @@ export async function loadHeatmap(
     });
   }
 
-  const avgUtilization = totalSlots > 0 ? Math.round((totalVal / totalSlots) * 100) : 7850;
+  const avgUtilization = totalSlots > 0 ? Math.round((totalVal / totalSlots) * 100) : 0;
 
   return {
     matrix: baseMatrix,
@@ -567,30 +571,11 @@ export async function loadRfmCustomers(
     }
   }
 
-  // 保证至少有合理的统计底数展示
-  vipCount = Math.max(vipCount, 42);
-  vipRevenue = Math.max(vipRevenue, 3860000);
-  const vipAvgTicket = vipCount > 0 ? Math.round(vipRevenue / Math.max(1, vipVisits || (vipCount * 4))) : 9200;
-
-  activeCount = Math.max(activeCount, 128);
-  activeRevenue = Math.max(activeRevenue, 6240000);
-  const activeAvgTicket = activeCount > 0 ? Math.round(activeRevenue / Math.max(1, activeVisits || (activeCount * 2))) : 6800;
-
-  newCount = Math.max(newCount, 35);
-  const newAvgFirst = newCount > 0 ? Math.round((newFirstTicketSum || 245000) / newCount) : 7000;
-  const secondVisitRate = newCount > 0 ? Math.round((newRepeatCount / newCount) * 10000) : 3820;
-
-  sleepingCount = Math.max(sleepingCount, 26);
-  sleepingAtRiskRevenue = Math.max(sleepingAtRiskRevenue, 185000);
-
-  const totalCust = vipCount + activeCount + newCount + sleepingCount;
-  const channels = [
-    { channelName: '线上微店预约', customerCount: Math.round(totalCust * 0.42), percentBp: 4200 },
-    { channelName: 'Google 地图搜索', customerCount: Math.round(totalCust * 0.26), percentBp: 2600 },
-    { channelName: '社交媒体 (Instagram/小红书)', customerCount: Math.round(totalCust * 0.16), percentBp: 1600 },
-    { channelName: '自然进店 (Walk-in)', customerCount: Math.round(totalCust * 0.11), percentBp: 1100 },
-    { channelName: '熟客转介绍 (Referral)', customerCount: Math.round(totalCust * 0.05), percentBp: 500 },
-  ];
+  const vipAvgTicket = vipVisits > 0 ? Math.round(vipRevenue / vipVisits) : 0;
+  const activeAvgTicket = activeVisits > 0 ? Math.round(activeRevenue / activeVisits) : 0;
+  const newAvgFirst = newCount > 0 ? Math.round(newFirstTicketSum / newCount) : 0;
+  const secondVisitRate = newCount > 0 ? Math.round((newRepeatCount / newCount) * 10000) : 0;
+  const channels: RfmAnalyticsResponse['channels'] = [];
 
   return {
     cohorts: {
@@ -651,78 +636,8 @@ export async function loadTopServices(
     order by sum(ti.total_cents) desc
     limit 10`;
 
-  if (rows.length === 0) {
-    // 默认高品质服务样本
-    return {
-      services: [
-        {
-          rank: 1,
-          serviceId: 'srv-001',
-          name: '法式凝胶美甲 (French Gel Mani)',
-          categoryName: '美甲手部护理',
-          salesCount: 148,
-          revenueCents: 1184000,
-          costCents: 177600,
-          marginPercent: 85,
-          avgDurationMinutes: 50,
-          rating: 4.9,
-        },
-        {
-          rank: 2,
-          serviceId: 'srv-002',
-          name: '草本足道舒缓 SPA (Herbal Foot Reflexology)',
-          categoryName: '足疗 SPA',
-          salesCount: 122,
-          revenueCents: 976000,
-          costCents: 195200,
-          marginPercent: 80,
-          avgDurationMinutes: 60,
-          rating: 4.9,
-        },
-        {
-          rank: 3,
-          serviceId: 'srv-003',
-          name: '深度肩颈经络调理 (Deep Tissue Back & Neck)',
-          categoryName: '身体经络推拿',
-          salesCount: 96,
-          revenueCents: 864000,
-          costCents: 155520,
-          marginPercent: 82,
-          avgDurationMinutes: 60,
-          rating: 4.8,
-        },
-        {
-          rank: 4,
-          serviceId: 'srv-004',
-          name: '猫眼光疗甲定制款 (Cat-Eye Nail Art)',
-          categoryName: '美甲手部护理',
-          salesCount: 84,
-          revenueCents: 798000,
-          costCents: 143640,
-          marginPercent: 82,
-          avgDurationMinutes: 65,
-          rating: 4.9,
-        },
-        {
-          rank: 5,
-          serviceId: 'srv-005',
-          name: '热石能量疗愈套餐 (Volcanic Hot Stone Therapy)',
-          categoryName: '身体经络推拿',
-          salesCount: 65,
-          revenueCents: 682500,
-          costCents: 122850,
-          marginPercent: 82,
-          avgDurationMinutes: 75,
-          rating: 5.0,
-        },
-      ],
-    };
-  }
-
   const services = rows.map((r, idx) => {
     const rev = asCents(r.revenue_cents);
-    const cost = Math.round(rev * 0.18);
-    const margin = rev > 0 ? Math.round(((rev - cost) / rev) * 100) : 82;
     const name = r.service_name
       ? pickText(r.service_name, ctx.locale, '精品特色服务')
       : '精品特色服务';
@@ -732,15 +647,15 @@ export async function loadTopServices(
 
     return {
       rank: idx + 1,
-      serviceId: r.service_id ?? `srv-${idx + 1}`,
+      serviceId: r.service_id ?? '',
       name,
       categoryName,
       salesCount: Number(r.sales_count),
       revenueCents: rev,
-      costCents: cost,
-      marginPercent: margin,
-      avgDurationMinutes: r.duration_min ?? 50,
-      rating: 4.9,
+      costCents: 0,
+      marginPercent: 0,
+      avgDurationMinutes: r.duration_min ?? 0,
+      rating: 0,
     };
   });
 
@@ -757,38 +672,13 @@ export interface CopilotSummaryResponse {
 }
 
 export async function loadCopilotSummary(
-  tx: postgres.TransactionSql,
-  ctx: CommandContext,
+  _tx: postgres.TransactionSql,
+  _ctx: CommandContext,
 ): Promise<CopilotSummaryResponse> {
-  const [stats] = await tx<{
-    today_rev: string;
-    today_count: string;
-  }[]>`
-    select coalesce(sum(total_cents), 0)::text as today_rev,
-           count(*)::text as today_count
-    from tickets
-    where location_id = ${ctx.locationId}
-      and business_date = current_date
-      and status = 'closed'`;
-
-  const revDollars = Math.round(Number(stats?.today_rev ?? 0) / 100);
-
   return {
-    highlights: [
-      `本期客单价稳步提升，高价值 VIP 客户复购贡献率达 74.5%`,
-      `周六营业高峰期工位上客率达 98%，爆款「法式光疗」与「热石推拿」贡献过半营收`,
-      `今日已完成 ${stats?.today_count ?? 18} 单结账，累计营业额 $${revDollars > 0 ? revDollars : '2,180'}`,
-    ],
-    risks: [
-      `检测到 26 位沉睡预警客户（超过 60 天未到店），潜在流失年化价值约 $2,800`,
-      `周二至周四上午 10:00 - 12:00 闲置工位达 45%，产能利用率有待提升`,
-    ],
-    actions: [
-      `一键向沉睡高价值客户推送「专属感恩回馈 85 折」定向关怀短信`,
-      `在工作日上午推出「早鸟舒压特惠时段」，平衡全天产能波峰波谷`,
-      `为初级技师安排「猫眼光疗与热石推拿」技能进阶培训，承接周末溢出订单`,
-    ],
+    highlights: [],
+    risks: [],
+    actions: [],
     generatedAt: new Date().toISOString(),
   };
 }
-

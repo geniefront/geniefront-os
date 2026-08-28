@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { useStoreTime } from '@/lib/time';
 import { useLanguage } from "@/LanguageContext";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { SampleDataNotice } from '@/components/ui/SampleDataNotice';
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -50,83 +49,6 @@ export interface UnifiedCommLog {
   rawPayload?: Record<string, any>;
 }
 
-const DEFAULT_AUDIT_LOGS: UnifiedCommLog[] = [
-  {
-    id: "log-501",
-    time: new Date(Date.now() - 12 * 60 * 1000).toISOString(),
-    channel: "voice",
-    direction: "inbound",
-    contact: "+1 (212) 555-0192",
-    customerName: "Emily Chen",
-    category: "AI 电话落单",
-    summary: "自动识别意图并完成「60min 深层精油按摩」预约落单，预约时间为今日 16:30，指定 Lisa 技师。",
-    status: "booked",
-    durationSeconds: 142,
-    carrierSid: "CA_TWILIO_VOICE_882910",
-  },
-  {
-    id: "log-502",
-    time: new Date(Date.now() - 35 * 60 * 1000).toISOString(),
-    channel: "health_intake",
-    direction: "inbound",
-    contact: "+1 (212) 555-0192",
-    customerName: "Emily Chen",
-    category: "iPad 电子健康表",
-    summary: "大堂 iPad 终端完成《电子健康问卷与理疗知情同意书》签名提交，备注对坚果精油轻度敏感。",
-    status: "completed",
-    carrierSid: "KIOSK_INTAKE_SESSION_4492",
-  },
-  {
-    id: "log-503",
-    time: new Date(Date.now() - 75 * 60 * 1000).toISOString(),
-    channel: "system_reminder",
-    direction: "system",
-    contact: "+1 (917) 441-2900",
-    customerName: "Amanda Stone",
-    category: "24h 到店提醒",
-    summary: "系统自动外发明天上午 10:30「日式睫毛嫁接」预约提醒，带有一键导航与自助确认/改期链接。",
-    status: "delivered",
-    carrierSid: "SM_CARRIER_A2P_99812",
-  },
-  {
-    id: "log-504",
-    time: new Date(Date.now() - 140 * 60 * 1000).toISOString(),
-    channel: "sms_inbound",
-    direction: "inbound",
-    contact: "+1 (646) 772-8819",
-    customerName: "Michael Vance",
-    category: "短信上行退订",
-    summary: "客户上行发送 STOP 触发运营商全局退订，系统自动将号码写入免打扰黑名单。",
-    status: "opt_out",
-    carrierSid: "SM_OPT_OUT_A2P_33104",
-  },
-  {
-    id: "log-505",
-    time: new Date(Date.now() - 210 * 60 * 1000).toISOString(),
-    channel: "voice",
-    direction: "inbound",
-    contact: "+1 (917) 774-2018",
-    customerName: "David Zhao",
-    category: "AI 电话转人工",
-    summary: "客户要求咨询 5 人团体大单次卡退款及整体改期，AI 无法直接决策，已平滑转接前台店长。",
-    status: "transferred",
-    durationSeconds: 185,
-    carrierSid: "CA_TWILIO_VOICE_771920",
-  },
-  {
-    id: "log-506",
-    time: new Date(Date.now() - 320 * 60 * 1000).toISOString(),
-    channel: "sms_outbound",
-    direction: "outbound",
-    contact: "+1 (347) 819-2041",
-    customerName: "Chloe Zhao",
-    category: "前台人工回复",
-    summary: "前台向客户发送店铺专属后门免费停车指引及导航链接。",
-    status: "delivered",
-    carrierSid: "SM_OUTBOUND_STAFF_11902",
-  },
-];
-
 export function CommunicationLogs() {
   const storeTime = useStoreTime();
   const { t } = useLanguage();
@@ -161,7 +83,6 @@ export function CommunicationLogs() {
           summary: c.outcome || (c.booked ? "AI 电话落单成功" : "常规业务咨询"),
           status: c.booked ? "booked" : isForwarded ? "transferred" : "completed",
           durationSeconds: c.durationSeconds ?? undefined,
-          carrierSid: `CA_${c.callId.toUpperCase()}`,
         });
       }
     }
@@ -178,22 +99,11 @@ export function CommunicationLogs() {
           category: m.intent === "opt_out" ? "短信上行退订" : "客户短信回复",
           summary: m.body,
           status: m.intent === "opt_out" ? "opt_out" : "delivered",
-          carrierSid: `SM_${m.id.toUpperCase()}`,
         });
       }
     }
 
-    // 若接口数据不足，则与丰富 Mock 数据合并保证极佳演示效果
-    if (list.length === 0) {
-      return DEFAULT_AUDIT_LOGS;
-    }
-
-    // 去重并按时间降序
-    const all = [...list, ...DEFAULT_AUDIT_LOGS];
-    const uniqueMap = new Map<string, UnifiedCommLog>();
-    all.forEach((item) => uniqueMap.set(item.id, item));
-
-    return Array.from(uniqueMap.values()).sort(
+    return list.sort(
       (a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()
     );
   }, [callData, smsData]);
@@ -224,6 +134,11 @@ export function CommunicationLogs() {
       return true;
     });
   }, [unifiedLogs, query, channelFilter, statusFilter]);
+
+  const voiceLogs = unifiedLogs.filter((log) => log.channel === 'voice');
+  const selfResolvedRate = voiceLogs.length > 0
+    ? Math.round((voiceLogs.filter((log) => log.status !== 'transferred').length / voiceLogs.length) * 1000) / 10
+    : 0;
 
   const [confirmExportOpen, setConfirmExportOpen] = useState(false);
 
@@ -266,7 +181,6 @@ export function CommunicationLogs() {
 
   return (
     <div className="space-y-6 pb-20 max-w-7xl mx-auto">
-      <SampleDataNotice />
       <PageHeader
         title={
           <span className="flex items-center gap-2 text-xl font-bold">
@@ -317,7 +231,7 @@ export function CommunicationLogs() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-black text-slate-800">
-              628 <span className="text-xs font-semibold text-slate-400">{t('crm.commTimes')}</span>
+              {unifiedLogs.length} <span className="text-xs font-semibold text-slate-400">{t('crm.commTimes')}</span>
             </div>
             <p className="text-[11px] text-slate-500 mt-1">{t('crm.commTouchesDesc')}</p>
           </CardContent>
@@ -332,7 +246,7 @@ export function CommunicationLogs() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-black text-emerald-600">
-              92.4% <span className="text-xs font-semibold text-slate-400">{t('crm.commSelfResolved')}</span>
+              {selfResolvedRate}% <span className="text-xs font-semibold text-slate-400">{t('crm.commSelfResolved')}</span>
             </div>
             <p className="text-[11px] text-slate-500 mt-1">{t('crm.commAiClosureDesc')}</p>
           </CardContent>
@@ -347,7 +261,7 @@ export function CommunicationLogs() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-black text-teal-700">
-              99.2% <span className="text-xs font-semibold text-slate-400">{t('crm.commDelivered')}</span>
+              — <span className="text-xs font-semibold text-slate-400">{t('crm.commDelivered')}</span>
             </div>
             <p className="text-[11px] text-emerald-600 font-medium mt-1">
               
@@ -365,7 +279,7 @@ export function CommunicationLogs() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-black text-slate-800">
-              1.2 <span className="text-xs font-semibold text-slate-400">{t('crm.commMinutes')}</span>
+              — <span className="text-xs font-semibold text-slate-400">{t('crm.commMinutes')}</span>
             </div>
             <p className="text-[11px] text-slate-500 mt-1">{t('crm.commResponseDesc')}</p>
           </CardContent>

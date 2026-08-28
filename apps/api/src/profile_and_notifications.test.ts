@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { withTenant, closeDb, adminSql } from '@gf/db';
+import { withTenant, closeDb } from '@gf/db';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
 import './handlers/profile';
@@ -27,66 +27,9 @@ let app: Awaited<ReturnType<typeof buildServer>>;
 let staffToken: string;
 let ownerUserId: string;
 let ownerMembershipId: string;
+const ownerTenant = () => ({ ...tenant, userId: ownerUserId });
 
 beforeAll(async () => {
-  // 1. 执行 0054 DDL 迁移
-  await adminSql.unsafe(`
-    alter table users add column if not exists nickname text;
-    alter table users add column if not exists bio text;
-    alter table users add column if not exists timezone text default 'America/New_York';
-
-    alter table staff_profiles add column if not exists nickname text;
-    alter table staff_profiles add column if not exists skills text[] not null default '{}';
-
-    create table if not exists user_device_sessions (
-      id uuid primary key default gen_random_uuid(),
-      user_id uuid not null references users(id) on delete cascade,
-      device_label text not null,
-      browser text,
-      os text,
-      ip_address text,
-      refresh_token_hash text,
-      is_active boolean not null default true,
-      last_active_at timestamptz not null default now(),
-      created_at timestamptz not null default now(),
-      revoked_at timestamptz
-    );
-
-    create table if not exists user_notification_preferences (
-      user_id uuid not null references users(id) on delete cascade,
-      location_id uuid references locations(id) on delete cascade,
-      in_app jsonb not null default '{"appointmentNew": true, "appointmentChanged": true, "appointmentCancelled": true, "paymentFailed": true, "customerFeedback": true, "payoutSettled": true, "systemSecurity": true}'::jsonb,
-      sms jsonb not null default '{"appointmentNew": true, "appointmentChanged": false, "emergencyAlerts": true}'::jsonb,
-      email jsonb not null default '{"dailyDigest": true, "financialReports": true, "securityAlerts": true}'::jsonb,
-      updated_at timestamptz not null default now(),
-      primary key(user_id)
-    );
-
-    create table if not exists in_app_notifications (
-      id uuid primary key default gen_random_uuid(),
-      org_id uuid not null references organizations(id) on delete cascade,
-      location_id uuid not null references locations(id) on delete cascade,
-      recipient_user_id uuid references users(id) on delete cascade,
-      category text not null check (category in ('bookings', 'operations', 'customers', 'system')),
-      level text not null default 'info' check (level in ('info', 'warning', 'error', 'success')),
-      title text not null,
-      title_key text,
-      message text not null,
-      read boolean not null default false,
-      read_at timestamptz,
-      action_type text check (action_type in ('appointment', 'ticket', 'queue', 'customer', 'settings')),
-      action_target_id text,
-      action_url text,
-      meta jsonb default '{}'::jsonb,
-      created_at timestamptz not null default now(),
-      updated_at timestamptz not null default now()
-    );
-
-    grant select, insert, update, delete on user_device_sessions to app_user;
-    grant select, insert, update, delete on user_notification_preferences to app_user;
-    grant select, insert, update, delete on in_app_notifications to app_user;
-  `);
-
   const staffMembers = await withTenant(tenant, (tx) => tx<{ id: string; user_id: string }[]>`
     select m.id, m.user_id from memberships m
     where m.location_id = ${NAIL_LOC} and m.status = 'active' and m.user_id is not null
@@ -134,7 +77,7 @@ describe('个人资料与通知中心全量功能后端测试', () => {
       expect(res.result.userId).toBe(ownerUserId);
       expect(res.result.updated).toBe(true);
 
-      const profile = await withTenant(tenant, (tx) => loadUserProfile(tx, ownerCtx));
+      const profile = await withTenant(ownerTenant(), (tx) => loadUserProfile(tx, ownerCtx));
       expect(profile.fullName).toBe('Emily Watson');
       expect(profile.nickname).toBe('Lisa');
       expect(profile.phone).toBe('+1 (555) 019-2834');
@@ -171,7 +114,7 @@ describe('个人资料与通知中心全量功能后端测试', () => {
       expect(res.result.membershipId).toBe(ownerMembershipId);
       expect(res.result.hasPin).toBe(true);
 
-      const [sp] = await withTenant(tenant, (tx) => tx<{ pin_hash: string | null }[]>`
+      const [sp] = await withTenant(ownerTenant(), (tx) => tx<{ pin_hash: string | null }[]>`
         select pin_hash from staff_profiles where membership_id = ${ownerMembershipId}`);
 
       expect(sp?.pin_hash).toBeTruthy();
@@ -180,7 +123,7 @@ describe('个人资料与通知中心全量功能后端测试', () => {
 
     it('GET /v1/me/sessions 获取活跃设备列表与当前设备', async () => {
       // 插入一条测试设备会话
-      await withTenant(tenant, (tx) => tx`
+      await withTenant(ownerTenant(), (tx) => tx`
         insert into user_device_sessions (
           user_id, device_label, browser, os, ip_address, is_active
         ) values (
@@ -201,7 +144,7 @@ describe('个人资料与通知中心全量功能后端测试', () => {
     });
 
     it('user.revokeSession 踢下线指定设备会话', async () => {
-      const [sess] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      const [sess] = await withTenant(ownerTenant(), (tx) => tx<{ id: string }[]>`
         select id from user_device_sessions where user_id = ${ownerUserId} and is_active = true limit 1`);
 
       const res = await dispatch<{ sessionId: string; revoked: boolean }>(
@@ -213,7 +156,7 @@ describe('个人资料与通知中心全量功能后端测试', () => {
       expect(res.result.sessionId).toBe(sess!.id);
       expect(res.result.revoked).toBe(true);
 
-      const [revoked] = await withTenant(tenant, (tx) => tx<{ is_active: boolean }[]>`
+      const [revoked] = await withTenant(ownerTenant(), (tx) => tx<{ is_active: boolean }[]>`
         select is_active from user_device_sessions where id = ${sess!.id}`);
       expect(revoked?.is_active).toBe(false);
     });
@@ -329,14 +272,14 @@ describe('个人资料与通知中心全量功能后端测试', () => {
       expect(res.result.notificationId).toBe(createdNotifId);
       expect(res.result.read).toBe(true);
 
-      const [n] = await withTenant(tenant, (tx) => tx<{ read: boolean }[]>`
+      const [n] = await withTenant(ownerTenant(), (tx) => tx<{ read: boolean }[]>`
         select read from in_app_notifications where id = ${createdNotifId}`);
       expect(n?.read).toBe(true);
     });
 
     it('notification.markAllRead 一键全部标记已读', async () => {
       // 插入一条未读
-      await withTenant(tenant, (tx) => tx`
+      await withTenant(ownerTenant(), (tx) => tx`
         insert into in_app_notifications (
           org_id, location_id, category, level, title, message, read
         ) values (
@@ -361,7 +304,7 @@ describe('个人资料与通知中心全量功能后端测试', () => {
 
       expect(res.result.deleted).toBe(true);
 
-      const [n] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      const [n] = await withTenant(ownerTenant(), (tx) => tx<{ id: string }[]>`
         select id from in_app_notifications where id = ${createdNotifId}`);
       expect(n).toBeUndefined();
     });
