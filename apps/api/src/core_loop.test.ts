@@ -126,17 +126,24 @@ describe('预约到收银的真实闭环', () => {
     }, `open-${appointmentId}`);
     expect(opened.result.ticketItemIds).toHaveLength(1);
 
-    await run('ticket.startItem', {
-      ticketItemId: opened.result.ticketItemIds[0], membershipId,
-    });
-    await run('ticket.finishItem', {
-      ticketItemId: opened.result.ticketItemIds[0], membershipId,
-    });
+    const added = await run<{ ticketItemId: string; subtotalCents: number }>('ticket.addItem', {
+      ticketId: opened.result.ticketId,
+      serviceId,
+      membershipId,
+      kind: 'addon',
+      minutes: 45,
+    }, `addon-${appointmentId}`);
+    expect(added.result.subtotalCents).toBe(opened.result.subtotalCents + servicePriceCents);
+
+    for (const ticketItemId of [...opened.result.ticketItemIds, added.result.ticketItemId]) {
+      await run('ticket.startItem', { ticketItemId, membershipId });
+      await run('ticket.finishItem', { ticketItemId, membershipId });
+    }
     await run('ticket.close', {
       ticketId: opened.result.ticketId,
       payments: [{
-        method: 'cash', amountCents: opened.result.subtotalCents,
-        tipCents: 0, tenderedCents: opened.result.subtotalCents,
+        method: 'cash', amountCents: added.result.subtotalCents,
+        tipCents: 0, tenderedCents: added.result.subtotalCents,
       }],
     }, `pay-${appointmentId}`);
 

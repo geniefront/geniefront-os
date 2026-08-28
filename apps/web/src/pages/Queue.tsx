@@ -48,7 +48,7 @@ import {
   useJoinQueue, useQueue, useRollbackQueueStage, useUpdateQueueEntry,
 } from '@/features/queue/api';
 import {
-  useFinishTicketItem, useOpenTicket, useStartTicketItem, useTicketsList,
+  useAddTicketItem, useFinishTicketItem, useOpenTicket, useStartTicketItem, useTicketsList,
 } from '@/features/tickets/api';
 import { useCloseTicket, centsToDollars, dollarsToCents, verifyGiftCard } from '@/features/checkout/api';
 import { useRoomsQuery, useSetResourceStatus } from '@/features/rooms/api';
@@ -139,15 +139,6 @@ export const STRENGTH_OPTIONS = [
   { id: 'trigger', label: 'Trigger Point' },
 ];
 
-/** 常用增补加项预设快捷按钮 */
-export const QUICK_ADDON_PRESETS = [
-  { name: 'Add-on 30 min', priceCents: 2500, durationMin: 30 },
-  { name: 'Rose / Ginger Oil Upgrade', priceCents: 1500, durationMin: 0 },
-  { name: 'Cupping / Gua Sha Therapy', priceCents: 2000, durationMin: 15 },
-  { name: 'Herbal Heat Pack', priceCents: 1800, durationMin: 0 },
-  { name: 'Head Relaxation 15 min', priceCents: 2000, durationMin: 15 },
-];
-
 export type KanbanStage = 'booked' | 'waiting' | 'in_service' | 'ready_checkout' | 'completed';
 
 export const STAGE_ORDER: KanbanStage[] = ['booked', 'waiting', 'in_service', 'ready_checkout', 'completed'];
@@ -161,10 +152,12 @@ export const STAGE_NAMES: Record<KanbanStage, string> = {
 };
 
 export interface AddOnItem {
-  id: string;
+  idempotencyKey: string;
+  serviceId: string;
   name: string;
   priceCents: number;
   durationMin: number;
+  staffId: string;
   staffName?: string;
 }
 
@@ -281,6 +274,7 @@ function QueueContent() {
   const { data: rotationData, isLoading: rotationLoading, refetch: refetchRotation } = useRotationQuery();
   const closeTicketMutation = useCloseTicket();
   const openTicketMutation = useOpenTicket();
+  const addTicketItemMutation = useAddTicketItem();
   const startTicketItemMutation = useStartTicketItem();
   const finishTicketItemMutation = useFinishTicketItem();
   const setResourceStatusMutation = useSetResourceStatus();
@@ -369,10 +363,8 @@ function QueueContent() {
     isOpen: boolean;
     item: KanbanItem | null;
     actualDurationMin: number;
-    extraAddOnName: string;
-    extraAddOnPrice: string;
-    extraAddOnStaff: string;
-    extraAddOnDuration: number;
+    extraAddOnServiceId: string;
+    extraAddOnStaffId: string;
     addedAddOns: AddOnItem[];
     markRoomCleaning: boolean;
     technicianNotes: string;
@@ -380,10 +372,8 @@ function QueueContent() {
     isOpen: false,
     item: null,
     actualDurationMin: 60,
-    extraAddOnName: '',
-    extraAddOnPrice: '25',
-    extraAddOnStaff: '',
-    extraAddOnDuration: 30,
+    extraAddOnServiceId: '',
+    extraAddOnStaffId: '',
     addedAddOns: [],
     markRoomCleaning: false,
     technicianNotes: '',
@@ -737,7 +727,8 @@ function QueueContent() {
   }, [kanbanItems]);
 
   const isSyncing = join.isPending || update.isPending || closeTicketMutation.isPending
-    || openTicketMutation.isPending || startTicketItemMutation.isPending
+    || openTicketMutation.isPending || addTicketItemMutation.isPending
+    || startTicketItemMutation.isPending
     || finishTicketItemMutation.isPending || setResourceStatusMutation.isPending
     || rollbackStageMutation.isPending || isRefreshing;
 
@@ -824,11 +815,9 @@ function QueueContent() {
         isOpen: true,
         item,
         actualDurationMin: item.durationMin || 60,
-        extraAddOnName: '',
-        extraAddOnPrice: '25',
-        extraAddOnStaff: item.staffName || '',
-        extraAddOnDuration: 30,
-        addedAddOns: item.addOns || [],
+        extraAddOnServiceId: '',
+        extraAddOnStaffId: item.rawTicket?.items[0]?.membershipId || item.staffId || '',
+        addedAddOns: [],
         markRoomCleaning: false,
         technicianNotes: '',
       });
@@ -990,16 +979,41 @@ function QueueContent() {
     if (!item) return;
 
     try {
-      // Free-text add-ons are not a billable record. Until they are selected from
-      // the real service catalog and written with ticket.addItem, do not pretend
-      // that they changed the ticket total.
-      if (addedAddOns.length > 0 || technicianNotes.trim() || markRoomCleaning || !item.rawTicket) {
+      if (technicianNotes.trim() || markRoomCleaning || !item.rawTicket) {
         toast.danger(t('queue.quFinishFailed'));
         return;
       }
-      const unfinished = item.rawTicket.items.filter((ticketItem) => !ticketItem.finishedAt);
+      const addedTicketItems: Array<{ ticketItemId: string; membershipId: string }> = [];
+      let finalSubtotalCents = item.rawTicket.subtotalCents;
+      for (const addOn of addedAddOns) {
+        const added = await addTicketItemMutation.mutateAsync({
+          ticketId: item.rawTicket.ticketId,
+          serviceId: addOn.serviceId,
+          membershipId: addOn.staffId,
+          kind: 'addon',
+          minutes: addOn.durationMin,
+          idempotencyKey: addOn.idempotencyKey,
+        });
+        finalSubtotalCents = added.subtotalCents;
+        addedTicketItems.push({ ticketItemId: added.ticketItemId, membershipId: addOn.staffId });
+      }
+      const unfinished = [
+        ...item.rawTicket.items
+          .filter((ticketItem) => !ticketItem.finishedAt)
+          .map((ticketItem) => ({
+            ticketItemId: ticketItem.ticketItemId,
+            membershipId: ticketItem.membershipId,
+          })),
+        ...addedTicketItems,
+      ];
       let actualMinutes = 0;
       for (const ticketItem of unfinished) {
+        if (addedTicketItems.some((added) => added.ticketItemId === ticketItem.ticketItemId)) {
+          await startTicketItemMutation.mutateAsync({
+            ticketItemId: ticketItem.ticketItemId,
+            membershipId: ticketItem.membershipId,
+          });
+        }
         const finished = await finishTicketItemMutation.mutateAsync({
           ticketItemId: ticketItem.ticketItemId,
           membershipId: ticketItem.membershipId,
@@ -1009,7 +1023,7 @@ function QueueContent() {
 
       setCompleteServiceModal((prev) => ({ ...prev, isOpen: false, item: null }));
       toast.success(t('queue.quServiceDone', { p0: item.customerName }), {
-        description: t('queue.quServiceDoneDetail', { p0: actualMinutes, p1: centsToDollars(item.priceCents) }),
+        description: t('queue.quServiceDoneDetail', { p0: actualMinutes, p1: centsToDollars(finalSubtotalCents) }),
       });
       await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms()]);
     } catch (err: any) {
@@ -2442,37 +2456,30 @@ function QueueContent() {
                   </span>
                 </div>
 
-                {/* 快捷增补加项预设按钮 */}
+                {/* 当前门店真实服务目录 */}
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 mb-1">
-                    
-                    {t('queue.quCommonAddOns')}
+                    {t('queue.quSelectAddOn')}
                   </label>
                   <div className="flex flex-wrap gap-1.5">
-                    {QUICK_ADDON_PRESETS.map((preset) => (
+                    {services.map((service) => (
                       <button
-                        key={preset.name}
+                        key={service.id}
                         type="button"
-                        onClick={() => {
-                          setCompleteServiceModal((prev) => ({
-                            ...prev,
-                            addedAddOns: [
-                              ...prev.addedAddOns,
-                              {
-                                id: crypto.randomUUID(),
-                                name: preset.name,
-                                priceCents: preset.priceCents,
-                                durationMin: preset.durationMin,
-                                staffName: prev.extraAddOnStaff || item.staffName || '',
-                              },
-                            ],
-                          }));
-                        }}
-                        className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                        onClick={() => setCompleteServiceModal((prev) => ({
+                          ...prev,
+                          extraAddOnServiceId: service.id,
+                        }))}
+                        className={cn(
+                          'px-2 py-1 border rounded-lg text-xs font-bold flex items-center gap-1 transition-colors',
+                          completeServiceModal.extraAddOnServiceId === service.id
+                            ? 'bg-purple-100 text-purple-950 border-purple-500 ring-1 ring-purple-300'
+                            : 'bg-purple-50 hover:bg-purple-100 text-purple-900 border-purple-200',
+                        )}
                       >
                         <Plus className="w-3 h-3 text-purple-600" />
-                        <span>{preset.name}</span>
-                        <span className="font-mono text-purple-700 font-bold">${centsToDollars(preset.priceCents)}</span>
+                        <span>{service.name}</span>
+                        <span className="font-mono text-purple-700 font-bold">${centsToDollars(service.priceCents)}</span>
                       </button>
                     ))}
                   </div>
@@ -2496,13 +2503,15 @@ function QueueContent() {
                           <div className="flex items-center gap-1">
                             <span className="text-[10px] text-slate-500">{t('queue.quCommissionTo')}</span>
                             <select
-                              value={addon.staffName || item.staffName || ''}
+                              value={addon.staffId}
                               onChange={(e) => {
-                                const newStaff = e.target.value;
+                                const newStaff = staff.find((candidate) => candidate.membershipId === e.target.value);
                                 setCompleteServiceModal((prev) => ({
                                   ...prev,
                                   addedAddOns: prev.addedAddOns.map((a, i) =>
-                                    i === idx ? { ...a, staffName: newStaff } : a,
+                                    i === idx
+                                      ? { ...a, staffId: e.target.value, staffName: newStaff?.name }
+                                      : a,
                                   ),
                                 }));
                               }}
@@ -2511,7 +2520,7 @@ function QueueContent() {
                               {staff
                                 .filter((s) => s.membershipId !== UNASSIGNED_STAFF_ID && s.isBookable)
                                 .map((s) => (
-                                  <option key={s.membershipId} value={s.name}>
+                                  <option key={s.membershipId} value={s.membershipId}>
                                     {s.name}
                                   </option>
                                 ))}
@@ -2536,31 +2545,36 @@ function QueueContent() {
                   </div>
                 )}
 
-                {/* 自定义加项录入 */}
-                <div className="grid grid-cols-4 gap-2 pt-2 border-t border-slate-100">
-                  <Input
-                    placeholder={t('queue.quCustomAddOnName')}
-                    value={completeServiceModal.extraAddOnName}
-                    onChange={(e) => setCompleteServiceModal((prev) => ({ ...prev, extraAddOnName: e.target.value }))}
-                    className="text-xs"
-                  />
-                  <Input
-                    inputMode="decimal"
-                    placeholder="Amount ($)"
-                    value={completeServiceModal.extraAddOnPrice}
-                    onChange={(e) => setCompleteServiceModal((prev) => ({ ...prev, extraAddOnPrice: e.target.value }))}
-                    className="text-xs font-mono"
-                  />
+                {/* 从目录确认加项与执行技师 */}
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
                   <select
-                    value={completeServiceModal.extraAddOnStaff}
-                    onChange={(e) => setCompleteServiceModal((prev) => ({ ...prev, extraAddOnStaff: e.target.value }))}
+                    value={completeServiceModal.extraAddOnServiceId}
+                    onChange={(e) => setCompleteServiceModal((prev) => ({
+                      ...prev,
+                      extraAddOnServiceId: e.target.value,
+                    }))}
+                    className="col-span-1 px-2 py-1 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800"
+                  >
+                    <option value="">{t('queue.quSelectAddOn')}</option>
+                    {services.map((service) => (
+                      <option key={service.id} value={service.id}>
+                        {service.name} · ${centsToDollars(service.priceCents)} · {service.durationMin}m
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={completeServiceModal.extraAddOnStaffId}
+                    onChange={(e) => setCompleteServiceModal((prev) => ({
+                      ...prev,
+                      extraAddOnStaffId: e.target.value,
+                    }))}
                     className="px-2 py-1 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800"
                   >
-                    <option value="">{t('queue.quCommissionStaff')}{item.staffName || t('queue.quLead')})</option>
+                    <option value="">{t('queue.quAddOnStaff')}</option>
                     {staff
                       .filter((s) => s.membershipId !== UNASSIGNED_STAFF_ID && s.isBookable)
                       .map((s) => (
-                        <option key={s.membershipId} value={s.name}>
+                        <option key={s.membershipId} value={s.membershipId}>
                           {s.name}
                         </option>
                       ))}
@@ -2570,20 +2584,26 @@ function QueueContent() {
                     variant="secondary"
                     className="text-xs font-bold text-purple-700 border-purple-200 bg-purple-50 hover:bg-purple-100"
                     onClick={() => {
-                      const name = completeServiceModal.extraAddOnName.trim();
-                      const price = Number(completeServiceModal.extraAddOnPrice);
-                      if (!name || isNaN(price)) return;
+                      const selectedService = services.find(
+                        (service) => service.id === completeServiceModal.extraAddOnServiceId,
+                      );
+                      const selectedStaff = staff.find(
+                        (candidate) => candidate.membershipId === completeServiceModal.extraAddOnStaffId,
+                      );
+                      if (!selectedService || !selectedStaff) return;
                       setCompleteServiceModal((prev) => ({
                         ...prev,
-                        extraAddOnName: '',
+                        extraAddOnServiceId: '',
                         addedAddOns: [
                           ...prev.addedAddOns,
                           {
-                            id: crypto.randomUUID(),
-                            name,
-                            priceCents: dollarsToCents(completeServiceModal.extraAddOnPrice || '0'),
-                            durationMin: completeServiceModal.extraAddOnDuration || 30,
-                            staffName: completeServiceModal.extraAddOnStaff || item.staffName || '',
+                            idempotencyKey: crypto.randomUUID(),
+                            serviceId: selectedService.id,
+                            name: selectedService.name,
+                            priceCents: selectedService.priceCents,
+                            durationMin: selectedService.durationMin,
+                            staffId: selectedStaff.membershipId,
+                            staffName: selectedStaff.name,
                           },
                         ],
                       }));

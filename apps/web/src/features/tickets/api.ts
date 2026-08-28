@@ -55,6 +55,30 @@ export function useOpenTicket() {
   });
 }
 
+export interface AddTicketItemInput {
+  ticketId: string;
+  serviceId: string;
+  membershipId: string;
+  kind?: 'service' | 'addon';
+  minutes?: number;
+  idempotencyKey: string;
+}
+
+export function useAddTicketItem() {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ idempotencyKey, ...input }: AddTicketItemInput) =>
+      (await runCommand<{ ticketItemId: string; subtotalCents: number }>(
+        'ticket.addItem', input, membershipId!, idempotencyKey,
+      )).result,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });
+    },
+  });
+}
+
 export function useStartTicketItem() {
   const { membershipId } = useSession();
   const queryClient = useQueryClient();
