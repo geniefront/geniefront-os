@@ -85,28 +85,45 @@ export async function loadDayMoney(
   tx: postgres.TransactionSql, locationId: string, date: string,
 ): Promise<DayMoney> {
   const [pay] = await tx<{
-    cash: number; card: number; tip_cash: number; tip_card: number;
+    cash: number; card: number;
   }[]>`
     select
       -- ⚠️ **礼品卡既不是现金也不是刷卡**（批 8 收尾）。
       -- 算进刷卡的话，晚上和刷卡机的 batch total 就永远差出这一笔 ——
       -- 而那正是日结要发现的那种差额。external 保持原样归在刷卡侧。
       coalesce(sum(p.amount_cents) filter (where p.method = 'cash'), 0)::int as cash,
-      coalesce(sum(p.amount_cents) filter (where p.method not in ('cash','gift_card')), 0)::int as card,
-      coalesce(sum(p.tip_cents)    filter (where p.method = 'cash'), 0)::int as tip_cash,
-      coalesce(sum(p.tip_cents)    filter (where p.method not in ('cash','gift_card')), 0)::int as tip_card
+      coalesce(sum(p.amount_cents) filter (where p.method not in ('cash','gift_card')), 0)::int as card
     from payments p
     join tickets t on t.id = p.ticket_id
     where p.location_id = ${locationId}
-      and t.business_date = ${date} and t.status = 'closed'`;
+      and t.business_date = ${date} and t.status in ('closed','refunded')`;
+
+  const [refund] = await tx<{
+    service: number; tax: number; card: number;
+  }[]>`
+    select coalesce(sum(service_cents), 0)::int as service,
+           coalesce(sum(tax_cents), 0)::int as tax,
+           coalesce(sum(card_cents), 0)::int as card
+    from ticket_refunds tr
+    join tickets t on t.id = tr.ticket_id
+    where tr.location_id = ${locationId} and t.business_date = ${date}`;
+
+  const [tips] = await tx<{ cash: number; card: number }[]>`
+    select
+      coalesce(sum(ta.amount_cents) filter (where ta.source = 'cash'), 0)::int as cash,
+      coalesce(sum(ta.amount_cents) filter (where ta.source = 'card'), 0)::int as card
+    from tip_allocations ta
+    join tickets t on t.id = ta.ticket_id
+    where ta.location_id = ${locationId} and t.business_date = ${date}
+      and t.status = 'closed' and ta.reversed_at is null`;
 
   const [tk] = await tx<{
     gross: number; discount: number; tax: number; open_count: number;
   }[]>`
     select
-      coalesce(sum(subtotal_cents) filter (where status = 'closed'), 0)::int as gross,
-      coalesce(sum(discount_cents) filter (where status = 'closed'), 0)::int as discount,
-      coalesce(sum(tax_cents)      filter (where status = 'closed'), 0)::int as tax,
+      coalesce(sum(subtotal_cents) filter (where status in ('closed','refunded')), 0)::int as gross,
+      coalesce(sum(discount_cents) filter (where status in ('closed','refunded')), 0)::int as discount,
+      coalesce(sum(tax_cents)      filter (where status in ('closed','refunded')), 0)::int as tax,
       count(*) filter (where status in ('open','in_service','ready_to_pay'))::int as open_count
     from tickets
     where location_id = ${locationId} and business_date = ${date}`;
@@ -126,13 +143,13 @@ export async function loadDayMoney(
   const discount = tk?.discount ?? 0;
   return {
     cashTakeCents: pay?.cash ?? 0,
-    cardTakeCents: pay?.card ?? 0,
+    cardTakeCents: (pay?.card ?? 0) - (refund?.card ?? 0),
     grossCents: gross,
     discountCents: discount,
-    netCents: gross - discount,
-    taxCents: tk?.tax ?? 0,
-    tipCashCents: pay?.tip_cash ?? 0,
-    tipCardCents: pay?.tip_card ?? 0,
+    netCents: gross - discount - (refund?.service ?? 0),
+    taxCents: (tk?.tax ?? 0) - (refund?.tax ?? 0),
+    tipCashCents: tips?.cash ?? 0,
+    tipCardCents: tips?.card ?? 0,
     movementsCents: mv?.movements ?? 0,
     tipPaidOutCents: mv?.tip_out ?? 0,
     openTicketCount: tk?.open_count ?? 0,

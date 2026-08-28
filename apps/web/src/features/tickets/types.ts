@@ -76,6 +76,9 @@ export interface OrderRowDto {
   tipCents: number;
   totalCents: number;
   refundCents: number;
+  refundTipCents: number;
+  refundTaxCents: number;
+  refundFeeCents: number;
   items: OrderItemDto[];
   payments: OrderPaymentDto[];
   tipAllocations: Array<{
@@ -105,6 +108,7 @@ export interface OrdersQueryParams {
 export interface RefundTicketInput {
   ticketId: string;
   amountCents: number;
+  refundTipCents?: number;
   reason: 'customer_dissatisfied' | 'wrong_charge' | 'duplicate' | 'other';
   method: 'original_payment' | 'cash' | 'store_credit';
   notes?: string;

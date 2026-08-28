@@ -31,6 +31,7 @@ export const voidReason = z.enum([
 const MONEY_PATHS = [
   'subtotalCents', 'discountCents', 'taxCents', 'tipCents',
   'serviceChargeCents', 'totalCents', 'unitPriceCents', 'amountCents',
+  'refundAmountCents', 'refundTipCents',
   'items.*.unitPriceCents', 'items.*.totalCents',
   'payments.*.amountCents', 'payments.*.tipCents',
   'payments.*.tenderedCents', 'payments.*.changeCents',
@@ -327,13 +328,15 @@ export const TicketRefund = defineCommand({
   input: z.object({
     ticketId: uuid,
     refundAmountCents: cents.positive(),
+    /** 默认只退消费本身；退小费必须明确给出金额。 */
+    refundTipCents: cents.nonnegative().default(0),
     reason: z.enum(['customer_dissatisfied', 'wrong_charge', 'accidental_duplicate', 'other']),
     refundMethod: z.enum(['original_payment', 'cash', 'store_credit']).default('original_payment'),
     notes: z.string().max(1000).optional(),
   }),
   output: z.object({
     ticketId: uuid,
-    status: z.literal('refunded'),
+    status: z.enum(['closed', 'refunded']),
     refundedCents: cents,
     refundMethod: z.string(),
   }),

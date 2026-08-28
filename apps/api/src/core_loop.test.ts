@@ -13,6 +13,7 @@ import { dispatch } from './bus';
 import './handlers/kiosk';
 import './handlers/ticket';
 import './handlers/staff';
+import { loadDayMoney } from './handlers/dayclose';
 
 const ORG_ID = '11111111-1111-4111-8111-111111111111';
 const LOCATION_ID = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -106,6 +107,34 @@ afterEach(async () => {
   const ids = appointmentIds.splice(0);
   if (ids.length === 0) return;
   await withTenant(tenant, async (tx) => {
+    const credits = await tx<{
+      refund_id: string; ticket_id: string; customer_id: string; amount: number;
+    }[]>`
+      select tr.id as refund_id, tr.ticket_id, t.customer_id, tr.store_credit_cents as amount
+      from ticket_refunds tr join tickets t on t.id = tr.ticket_id
+      where t.appointment_id = any(${ids}) and tr.store_credit_cents > 0
+        and tr.method = 'store_credit'
+        and t.customer_id is not null
+        and not exists (
+          select 1 from customer_credit_ledger ccl
+          where ccl.idem_key = 'test-cleanup-refund-' || tr.id::text
+        )`;
+    for (const credit of credits) {
+      const [balance] = await tx<{ value: number }[]>`
+        select coalesce(sum(amount_cents), 0)::int as value
+        from customer_credit_ledger
+        where kind = 'store_credit' and customer_id = ${credit.customer_id}`;
+      await tx`insert into customer_credit_ledger
+        (org_id, location_id, kind, subject_id, customer_id, entry,
+         amount_cents, balance_after_cents, ticket_id, reason,
+         actor_membership_id, idem_key, meta)
+        values (${ORG_ID}, ${LOCATION_ID}, 'store_credit', ${credit.customer_id},
+                ${credit.customer_id}, 'adjust', ${-credit.amount},
+                ${(balance?.value ?? 0) - credit.amount}, ${credit.ticket_id},
+                'Core loop test cleanup', ${membershipId},
+                ${`test-cleanup-refund-${credit.refund_id}`},
+                ${JSON.stringify({ testCleanup: true, refundId: credit.refund_id })}::jsonb)`;
+    }
     // Financial rows are append-only. Detach and park test tickets, then remove
     // the scheduling/queue fixtures so repeated runs do not pollute the test shop.
     await tx`update earnings set reversed_at = coalesce(reversed_at, now()),
@@ -114,6 +143,12 @@ afterEach(async () => {
     await tx`update tip_allocations set reversed_at = coalesce(reversed_at, now()),
              reversed_by = ${membershipId}
              where ticket_id in (select id from tickets where appointment_id = any(${ids}))`;
+    await tx`update cash_movements set business_date = '1985-01-01'
+             where note in (
+               select 'Refund ' || tr.id::text from ticket_refunds tr
+               join tickets t on t.id = tr.ticket_id
+               where t.appointment_id = any(${ids})
+             )`;
     await tx`update tickets set appointment_id = null, business_date = '1985-01-01',
              status = 'voided', voided_at = coalesce(voided_at, now()),
              voided_by = coalesce(voided_by, ${membershipId}),
@@ -281,6 +316,100 @@ describe('预约到收银的真实闭环', () => {
       serviceId,
       membershipId: otherMembershipId,
     })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('部分退款和全额退款会同步日结、现金与技师收入，退款账本不可篡改', async () => {
+    const date = await businessDate();
+    const baseline = await withTenant(tenant, (tx) => loadDayMoney(tx, LOCATION_ID, date));
+    const appointmentId = await createAppointment();
+    const opened = await run<{
+      ticketId: string; ticketItemIds: string[]; subtotalCents: number;
+    }>('ticket.open', {
+      appointmentId,
+      customerId,
+      items: [{ serviceId, membershipId, minutes: 45 }],
+    }, `open-${appointmentId}`);
+    await run('ticket.startItem', {
+      ticketItemId: opened.result.ticketItemIds[0], membershipId,
+    });
+    await run('ticket.finishItem', {
+      ticketItemId: opened.result.ticketItemIds[0], membershipId,
+    });
+    await run('ticket.close', {
+      ticketId: opened.result.ticketId,
+      payments: [{
+        method: 'cash', amountCents: opened.result.subtotalCents,
+        tipCents: 0, tenderedCents: opened.result.subtotalCents,
+      }],
+    }, `pay-${appointmentId}`);
+
+    const [commissionBefore] = await withTenant(tenant, (tx) => tx<{ value: number }[]>`
+      select coalesce(sum(amount_cents), 0)::int as value from earnings
+      where ticket_id = ${opened.result.ticketId} and kind = 'commission' and reversed_at is null`);
+    const partialCents = Math.floor(opened.result.subtotalCents / 4);
+    const partial = await run<{ status: string; refundedCents: number }>('ticket.refund', {
+      ticketId: opened.result.ticketId,
+      refundAmountCents: partialCents,
+      refundTipCents: 0,
+      reason: 'customer_dissatisfied',
+      refundMethod: 'cash',
+    }, `refund-partial-${appointmentId}`);
+    expect(partial.result.status).toBe('closed');
+
+    const afterPartial = await withTenant(tenant, (tx) => loadDayMoney(tx, LOCATION_ID, date));
+    expect(afterPartial.netCents - baseline.netCents)
+      .toBe(opened.result.subtotalCents - partialCents);
+    expect(afterPartial.cashTakeCents - baseline.cashTakeCents).toBe(opened.result.subtotalCents);
+    expect(afterPartial.movementsCents - baseline.movementsCents).toBe(-partialCents);
+
+    const [commissionPartial] = await withTenant(tenant, (tx) => tx<{ value: number }[]>`
+      select coalesce(sum(amount_cents), 0)::int as value from earnings
+      where ticket_id = ${opened.result.ticketId} and kind = 'commission' and reversed_at is null`);
+    expect(commissionPartial!.value).toBeGreaterThan(0);
+    expect(commissionPartial!.value).toBeLessThan(commissionBefore!.value);
+
+    const [creditBefore] = await withTenant(tenant, (tx) => tx<{ value: number }[]>`
+      select coalesce(sum(amount_cents), 0)::int as value
+      from customer_credit_ledger where kind = 'store_credit' and customer_id = ${customerId}`);
+    const storeCreditCents = Math.floor(opened.result.subtotalCents / 4);
+    await run('ticket.refund', {
+      ticketId: opened.result.ticketId,
+      refundAmountCents: storeCreditCents,
+      refundTipCents: 0,
+      reason: 'customer_dissatisfied',
+      refundMethod: 'store_credit',
+    }, `refund-credit-${appointmentId}`);
+    const [creditAfter] = await withTenant(tenant, (tx) => tx<{ value: number }[]>`
+      select coalesce(sum(amount_cents), 0)::int as value
+      from customer_credit_ledger where kind = 'store_credit' and customer_id = ${customerId}`);
+    expect(creditAfter!.value - creditBefore!.value).toBe(storeCreditCents);
+
+    const remainingCents = opened.result.subtotalCents - partialCents - storeCreditCents;
+    const full = await run<{ status: string }>('ticket.refund', {
+      ticketId: opened.result.ticketId,
+      refundAmountCents: remainingCents,
+      refundTipCents: 0,
+      reason: 'customer_dissatisfied',
+      refundMethod: 'original_payment',
+    }, `refund-full-${appointmentId}`);
+    expect(full.result.status).toBe('refunded');
+
+    const afterFull = await withTenant(tenant, (tx) => loadDayMoney(tx, LOCATION_ID, date));
+    expect(afterFull.netCents).toBe(baseline.netCents);
+    expect(afterFull.movementsCents - baseline.movementsCents)
+      .toBe(-(opened.result.subtotalCents - storeCreditCents));
+
+    const refunds = await withTenant(tenant, (tx) => tx<{ id: string; amount: number }[]>`
+      select id, amount_cents as amount from ticket_refunds
+      where ticket_id = ${opened.result.ticketId} order by created_at`);
+    expect(refunds.map((refund) => refund.amount))
+      .toEqual([partialCents, storeCreditCents, remainingCents]);
+    await expect(withTenant(tenant, (tx) => tx`
+      update ticket_refunds set amount_cents = 1 where id = ${refunds[0]!.id}`))
+      .rejects.toThrow(/append-only|permission denied/i);
+    const foreignView = await withTenant(otherTenant, (tx) => tx`
+      select id from ticket_refunds where id = ${refunds[0]!.id}`);
+    expect(foreignView).toHaveLength(0);
   });
 
   it('作废会回到已签到状态，并允许且只允许重开一张替代单', async () => {

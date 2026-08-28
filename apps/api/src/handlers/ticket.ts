@@ -604,23 +604,185 @@ registerHandler(TicketPay, handleTicketCloseOrPay);
 
 registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketRefund.input._type>) => {
-  const [t] = await tx<{ id: string; status: string; total_cents: number; refund_cents: number; business_date: string }[]>`
-    select id, status, total_cents, refund_cents, business_date::text as business_date
+  const [t] = await tx<{
+    id: string; status: string; subtotal_cents: number; discount_cents: number;
+    tax_cents: number; surcharge_cents: number; service_charge_cents: number;
+    tip_cents: number; total_cents: number; refund_cents: number; business_date: string;
+    customer_id: string | null;
+  }[]>`
+    select id, status, subtotal_cents, discount_cents, tax_cents, surcharge_cents,
+           service_charge_cents, tip_cents, total_cents, refund_cents,
+           business_date::text as business_date, customer_id
     from tickets
     where id = ${input.ticketId} and location_id = ${ctx.locationId} for update`;
 
   if (!t) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket' } });
-  if (t.status === 'voided') {
-    throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: '已作废的单据不能退款' } });
+  if (t.status !== 'closed' && t.status !== 'refunded') {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'ticket_not_paid', status: t.status },
+    });
   }
+  await assertDayOpen(tx, ctx.locationId, t.business_date);
 
   if (t.refund_cents + input.refundAmountCents > t.total_cents) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'refund_exceeds_total' } });
   }
+  if (input.refundTipCents > input.refundAmountCents) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'refund_tip_exceeds_refund' },
+    });
+  }
+
+  const [already] = await tx<{
+    service: number; tax: number; fee: number; tip: number;
+    original_cash: number; original_card: number; original_store: number;
+  }[]>`
+    select
+      coalesce(sum(service_cents), 0)::int as service,
+      coalesce(sum(tax_cents), 0)::int as tax,
+      coalesce(sum(fee_cents), 0)::int as fee,
+      coalesce(sum(tip_cents), 0)::int as tip,
+      coalesce(sum(cash_cents) filter (where method = 'original_payment'), 0)::int as original_cash,
+      coalesce(sum(card_cents) filter (where method = 'original_payment'), 0)::int as original_card,
+      coalesce(sum(store_credit_cents) filter (where method = 'original_payment'), 0)::int as original_store
+    from ticket_refunds where ticket_id = ${t.id}`;
+
+  const serviceTotal = Math.max(0, t.subtotal_cents - t.discount_cents);
+  const feeTotal = t.surcharge_cents + t.service_charge_cents;
+  let nonTipLeft = input.refundAmountCents - input.refundTipCents;
+  const serviceCents = Math.min(nonTipLeft, Math.max(0, serviceTotal - (already?.service ?? 0)));
+  nonTipLeft -= serviceCents;
+  const taxCents = Math.min(nonTipLeft, Math.max(0, t.tax_cents - (already?.tax ?? 0)));
+  nonTipLeft -= taxCents;
+  const feeCents = Math.min(nonTipLeft, Math.max(0, feeTotal - (already?.fee ?? 0)));
+  nonTipLeft -= feeCents;
+  if (nonTipLeft > 0 || input.refundTipCents > t.tip_cents - (already?.tip ?? 0)) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'refund_components_exceed_remaining' },
+    });
+  }
+
+  let cashCents = 0;
+  let cardCents = 0;
+  let storeCreditCents = 0;
+  if (input.refundMethod === 'cash') {
+    cashCents = input.refundAmountCents;
+  } else if (input.refundMethod === 'store_credit') {
+    storeCreditCents = input.refundAmountCents;
+  } else {
+    const [paid] = await tx<{ cash: number; card: number; store: number }[]>`
+      select
+        coalesce(sum(amount_cents) filter (where method = 'cash'), 0)::int as cash,
+        coalesce(sum(amount_cents) filter (where method in ('card','external')), 0)::int as card,
+        coalesce(sum(amount_cents) filter (where method = 'gift_card'), 0)::int as store
+      from payments where ticket_id = ${t.id}`;
+    const remainingChannels = [
+      Math.max(0, (paid?.cash ?? 0) - (already?.original_cash ?? 0)),
+      Math.max(0, (paid?.card ?? 0) - (already?.original_card ?? 0)),
+      Math.max(0, (paid?.store ?? 0) - (already?.original_store ?? 0)),
+    ];
+    if (remainingChannels.reduce((sum, value) => sum + value, 0) < input.refundAmountCents) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'original_payment_refund_exceeds_channel_balance' },
+      });
+    }
+    [cashCents, cardCents, storeCreditCents] = largestRemainderSplit(
+      input.refundAmountCents, remainingChannels, { zeroWeights: 'throw' },
+    ) as [number, number, number];
+  }
+
+  const [refund] = await tx<{ id: string }[]>`
+    insert into ticket_refunds
+      (org_id, location_id, ticket_id, business_date, amount_cents,
+       service_cents, tax_cents, fee_cents, tip_cents,
+       cash_cents, card_cents, store_credit_cents,
+       method, reason, notes, refunded_by)
+    values
+      (${ctx.orgId}, ${ctx.locationId}, ${t.id}, ${t.business_date}, ${input.refundAmountCents},
+       ${serviceCents}, ${taxCents}, ${feeCents}, ${input.refundTipCents},
+       ${cashCents}, ${cardCents}, ${storeCreditCents},
+       ${input.refundMethod}, ${input.reason}, ${input.notes ?? null}, ${ctx.membershipId})
+    returning id`;
+
+  if (storeCreditCents > 0 && input.refundMethod === 'store_credit') {
+    if (!t.customer_id) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'store_credit_requires_customer' },
+      });
+    }
+    await tx`select id from customers where id = ${t.customer_id} for update`;
+    const [credit] = await tx<{ balance: number }[]>`
+      select coalesce(sum(amount_cents), 0)::int as balance
+      from customer_credit_ledger
+      where kind = 'store_credit' and customer_id = ${t.customer_id}`;
+    await tx`insert into customer_credit_ledger
+      (org_id, location_id, kind, subject_id, customer_id, entry,
+       amount_cents, balance_after_cents, ticket_id, reason,
+       actor_membership_id, idem_key, meta)
+      values (${ctx.orgId}, ${ctx.locationId}, 'store_credit', ${t.customer_id}, ${t.customer_id},
+              'refund', ${storeCreditCents}, ${(credit?.balance ?? 0) + storeCreditCents}, ${t.id},
+              ${input.reason}, ${ctx.membershipId}, ${`ticket-refund-${refund!.id}`},
+              ${jsonb({ refundId: refund!.id })}::jsonb)`;
+  }
+
+  if (storeCreditCents > 0 && input.refundMethod === 'original_payment') {
+    const giftRows = await tx<{
+      gift_card_id: string; redeemed: number; already_refunded: number;
+    }[]>`
+      with redeemed as (
+        select subject_id as gift_card_id, -sum(amount_cents)::int as amount
+        from customer_credit_ledger
+        where kind = 'gift_card' and ticket_id = ${t.id} and entry = 'redeem'
+        group by subject_id
+      ), refunded as (
+        select subject_id as gift_card_id, sum(amount_cents)::int as amount
+        from customer_credit_ledger
+        where kind = 'gift_card' and ticket_id = ${t.id} and entry = 'refund'
+          and meta->>'ticketRefund' = 'true'
+        group by subject_id
+      )
+      select r.gift_card_id, r.amount as redeemed,
+             coalesce(f.amount, 0)::int as already_refunded
+      from redeemed r left join refunded f using (gift_card_id)
+      order by r.gift_card_id`;
+    const remaining = giftRows.map((row) => Math.max(0, row.redeemed - row.already_refunded));
+    if (remaining.reduce((sum, value) => sum + value, 0) < storeCreditCents) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'gift_card_refund_source_missing' },
+      });
+    }
+    const giftRefunds = largestRemainderSplit(storeCreditCents, remaining);
+    for (const [index, row] of giftRows.entries()) {
+      const amount = giftRefunds[index]!;
+      if (amount <= 0) continue;
+      const [card] = await tx<{ id: string }[]>`
+        select id from gift_cards where id = ${row.gift_card_id} for update`;
+      if (!card) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'gift_card' } });
+      const [balance] = await tx<{ value: number }[]>`
+        select coalesce(sum(amount_cents), 0)::int as value
+        from customer_credit_ledger where kind = 'gift_card' and subject_id = ${card.id}`;
+      const nextBalance = (balance?.value ?? 0) + amount;
+      await tx`insert into customer_credit_ledger
+        (org_id, location_id, kind, subject_id, entry, amount_cents,
+         balance_after_cents, ticket_id, reason, actor_membership_id, idem_key, meta)
+        values (${ctx.orgId}, ${ctx.locationId}, 'gift_card', ${card.id}, 'refund', ${amount},
+                ${nextBalance}, ${t.id}, ${input.reason}, ${ctx.membershipId},
+                ${`ticket-refund-${refund!.id}-${card.id}`},
+                ${jsonb({ ticketRefund: true, refundId: refund!.id })}::jsonb)`;
+      await tx`update gift_cards set balance_cents = ${nextBalance}, status = 'active', updated_at = now()
+               where id = ${card.id}`;
+    }
+  }
+
+  if (cashCents > 0) {
+    await tx`insert into cash_movements
+      (org_id, location_id, business_date, kind, amount_cents, note, actor_id)
+      values (${ctx.orgId}, ${ctx.locationId}, ${t.business_date}, 'refund', ${-cashCents},
+              ${`Refund ${refund!.id}`}, ${ctx.membershipId})`;
+  }
 
   const isFullRefund = t.refund_cents + input.refundAmountCents >= t.total_cents;
   const newStatus = isFullRefund ? 'refunded' : t.status;
-
 
   await tx`update tickets set
       refund_cents = refund_cents + ${input.refundAmountCents},
@@ -631,11 +793,114 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
       status = ${newStatus}
     where id = ${t.id}`;
 
+  if (isFullRefund) {
+    await tx`update tip_allocations
+               set reversed_at = now(), reversed_by = ${ctx.membershipId}
+             where ticket_id = ${t.id} and reversed_at is null`;
+    await tx`update earnings
+               set reversed_at = now(), reversed_by = ${ctx.membershipId}
+             where ticket_id = ${t.id} and reversed_at is null`;
+  } else {
+    const cumulativeServiceRefund = (already?.service ?? 0) + serviceCents;
+    if (serviceCents > 0) {
+      const commissionRows = await tx<{
+        membership_id: string; amount: number; base: number;
+        refunded_amount: number; refunded_base: number;
+      }[]>`
+        with original as (
+          select membership_id, sum(amount_cents)::int as amount, sum(base_cents)::int as base
+          from earnings
+          where ticket_id = ${t.id} and kind = 'commission'
+            and amount_cents > 0 and reversed_at is null
+          group by membership_id
+        ), refunded as (
+          select membership_id, -sum(amount_cents)::int as amount, -sum(base_cents)::int as base
+          from earnings
+          where ticket_id = ${t.id} and kind = 'commission'
+            and amount_cents < 0 and basis->>'refund' = 'true' and reversed_at is null
+          group by membership_id
+        )
+        select o.membership_id, o.amount, o.base,
+               coalesce(r.amount, 0)::int as refunded_amount,
+               coalesce(r.base, 0)::int as refunded_base
+        from original o left join refunded r using (membership_id)
+        order by o.membership_id`;
+      const totalCommissionBase = commissionRows.reduce((sum, row) => sum + row.base, 0);
+      const targetCommissionBaseTotal = serviceTotal === 0
+        ? 0
+        : Math.round((totalCommissionBase * cumulativeServiceRefund) / serviceTotal);
+      const targetBases = largestRemainderSplit(
+        targetCommissionBaseTotal, commissionRows.map((row) => row.base),
+      );
+      const totalCommission = commissionRows.reduce((sum, row) => sum + row.amount, 0);
+      const targetCommissionTotal = serviceTotal === 0
+        ? 0
+        : Math.round((totalCommission * cumulativeServiceRefund) / serviceTotal);
+      const targetAmounts = largestRemainderSplit(
+        targetCommissionTotal, commissionRows.map((row) => row.amount),
+      );
+      for (const [index, row] of commissionRows.entries()) {
+        const baseDelta = targetBases[index]! - row.refunded_base;
+        const amountDelta = targetAmounts[index]! - row.refunded_amount;
+        if (baseDelta === 0 && amountDelta === 0) continue;
+        await tx`insert into earnings
+          (org_id, location_id, membership_id, business_date, kind,
+           amount_cents, base_cents, ticket_id, basis)
+          values (${ctx.orgId}, ${ctx.locationId}, ${row.membership_id}, ${t.business_date},
+                  'commission', ${-amountDelta}, ${-baseDelta}, ${t.id},
+                  ${jsonb({ refund: true, refundId: refund!.id })}::jsonb)`;
+      }
+    }
+
+    const cumulativeTipRefund = (already?.tip ?? 0) + input.refundTipCents;
+    if (input.refundTipCents > 0) {
+      const tipRows = await tx<{
+        membership_id: string; source: 'cash' | 'card'; amount: number; refunded: number;
+        policy_version: number | null;
+      }[]>`
+        with original as (
+          select membership_id, source, sum(amount_cents)::int as amount,
+                 max(policy_version)::int as policy_version
+          from tip_allocations
+          where ticket_id = ${t.id} and amount_cents > 0 and reversed_at is null
+          group by membership_id, source
+        ), refunded as (
+          select membership_id, source, -sum(amount_cents)::int as amount
+          from tip_allocations
+          where ticket_id = ${t.id} and amount_cents < 0
+            and basis->>'refund' = 'true' and reversed_at is null
+          group by membership_id, source
+        )
+        select o.membership_id, o.source, o.amount, coalesce(r.amount, 0)::int as refunded,
+               o.policy_version
+        from original o left join refunded r using (membership_id, source)
+        order by o.membership_id, o.source`;
+      const targets = largestRemainderSplit(
+        cumulativeTipRefund, tipRows.map((row) => row.amount),
+      );
+      for (const [index, row] of tipRows.entries()) {
+        const delta = targets[index]! - row.refunded;
+        if (delta === 0) continue;
+        const basis = jsonb({ refund: true, refundId: refund!.id });
+        await tx`insert into tip_allocations
+          (org_id, location_id, ticket_id, membership_id, amount_cents, basis, source, policy_version)
+          values (${ctx.orgId}, ${ctx.locationId}, ${t.id}, ${row.membership_id}, ${-delta},
+                  ${basis}::jsonb, ${row.source}, ${row.policy_version})`;
+        await tx`insert into earnings
+          (org_id, location_id, membership_id, business_date, kind,
+           amount_cents, base_cents, ticket_id, basis, plan_version)
+          values (${ctx.orgId}, ${ctx.locationId}, ${row.membership_id}, ${t.business_date},
+                  ${row.source === 'cash' ? 'tip_cash' : 'tip_card'}, ${-delta}, 0, ${t.id},
+                  ${basis}::jsonb, ${row.policy_version})`;
+      }
+    }
+  }
+
   audit({
     entityType: 'ticket', entityId: t.id,
     after: {
       action: 'refund',
-      amountCents: input.refundAmountCents,
+      refundId: refund!.id,
       reason: input.reason,
       refundMethod: input.refundMethod,
       isFullRefund,
@@ -646,7 +911,7 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
 
   return {
     ticketId: t.id,
-    status: 'refunded' as const,
+    status: newStatus as 'closed' | 'refunded',
     refundedCents: input.refundAmountCents,
     refundMethod: input.refundMethod,
   };

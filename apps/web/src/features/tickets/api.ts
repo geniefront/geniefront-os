@@ -164,7 +164,14 @@ export function useRefundTicket() {
     mutationFn: async (input: RefundTicketInput) => {
       const res = await runCommand<{ ticketId: string; status: string }>(
         'ticket.refund',
-        input,
+        {
+          ticketId: input.ticketId,
+          refundAmountCents: input.amountCents,
+          refundTipCents: input.refundTipCents ?? 0,
+          reason: input.reason === 'duplicate' ? 'accidental_duplicate' : input.reason,
+          refundMethod: input.method,
+          notes: input.notes,
+        },
         membershipId!,
       );
       return res;

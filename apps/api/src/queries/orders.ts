@@ -39,6 +39,9 @@ export interface OrderRowDto {
   tipCents: number;
   totalCents: number;
   refundCents: number;
+  refundTipCents: number;
+  refundTaxCents: number;
+  refundFeeCents: number;
   items: OrderItemDto[];
   payments: OrderPaymentDto[];
   tipAllocations: Array<{
@@ -83,14 +86,21 @@ export async function loadOrders(
     walk_in_name: string | null; opened_at: Date | string; closed_at: Date | string | null;
     subtotal_cents: number; discount_cents: number; tax_cents: number;
     surcharge_cents: number; tip_cents: number; total_cents: number;
-    refund_cents: number;
+    refund_cents: number; refund_tip_cents: number; refund_tax_cents: number;
+    refund_fee_cents: number;
   }[]>`
     select distinct t.id, t.business_date::text as business_date, t.status,
            t.customer_id, c.display_name as customer_name, c.phone_e164 as phone,
            t.walk_in_name, t.opened_at, t.closed_at,
            t.subtotal_cents, t.discount_cents, t.tax_cents,
            t.surcharge_cents, t.tip_cents, t.total_cents,
-           t.refund_cents
+           t.refund_cents,
+           coalesce((select sum(tr.tip_cents) from ticket_refunds tr where tr.ticket_id = t.id), 0)::int
+             as refund_tip_cents,
+           coalesce((select sum(tr.tax_cents) from ticket_refunds tr where tr.ticket_id = t.id), 0)::int
+             as refund_tax_cents,
+           coalesce((select sum(tr.fee_cents) from ticket_refunds tr where tr.ticket_id = t.id), 0)::int
+             as refund_fee_cents
     from tickets t
     left join customers c on c.id = t.customer_id
     left join ticket_items ti on ti.ticket_id = t.id
@@ -236,6 +246,9 @@ export async function loadOrders(
     tipCents: t.tip_cents,
     totalCents: t.total_cents,
     refundCents: t.refund_cents,
+    refundTipCents: t.refund_tip_cents,
+    refundTaxCents: t.refund_tax_cents,
+    refundFeeCents: t.refund_fee_cents,
     items: itemsMap.get(t.id) ?? [],
     payments: paymentsMap.get(t.id) ?? [],
     tipAllocations: tipsMap.get(t.id) ?? [],

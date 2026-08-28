@@ -459,6 +459,8 @@ export const checkout = {
   'checkout.tkRefundPartial': { 'zh-Hans': '部分金额退款', en: 'Partial refund', ko: '부분 금액 환불', es: 'Devolución parcial', vi: 'Hoàn một phần' },
   'checkout.tkRefundCustomAmount': { 'zh-Hans': '自定义退款数额', en: 'Custom refund amount', ko: '환불 금액 직접 입력', es: 'Importe personalizado', vi: 'Số tiền hoàn tùy chỉnh' },
   'checkout.tkRefundAmountLabel': { 'zh-Hans': '输入退款金额 ($) *', en: 'Refund amount ($) *', ko: '환불 금액 입력 ($) *', es: 'Importe de la devolución ($) *', vi: 'Nhập số tiền hoàn ($) *' },
+  'checkout.tkRefundRemainingTip': { 'zh-Hans': '同时退还剩余小费 ${p0}', en: 'Also refund the remaining ${p0} tip', ko: '남은 팁 ${p0}도 함께 환불', es: 'Devolver también los ${p0} restantes de propina', vi: 'Hoàn cả ${p0} tiền tip còn lại' },
+  'checkout.tkRefundTipExplicit': { 'zh-Hans': '小费默认不退款，必须在此明确选择。', en: 'Tips are not refunded by default; select this explicitly.', ko: '팁은 기본적으로 환불되지 않으므로 여기에서 명시적으로 선택해야 합니다.', es: 'Las propinas no se devuelven por defecto; selecciónelo expresamente.', vi: 'Tiền tip mặc định không được hoàn; phải chọn rõ tại đây.' },
   'checkout.tkRefundChannelLabel': { 'zh-Hans': '退款返还路径 / 渠道 *', en: 'Refund destination *', ko: '환불 반환 경로 / 채널 *', es: 'Canal de devolución *', vi: 'Kênh hoàn tiền *' },
   'checkout.tkRefundChannelOriginal': { 'zh-Hans': '原路退回支付账户 (信用卡/刷卡终端原路冲正)', en: 'Back to the original payment method (card reversal)', ko: '원 결제 수단으로 반환 (카드 단말 원거래 취소)', es: 'Al método de pago original (reversión en la tarjeta)', vi: 'Hoàn về phương thức thanh toán gốc (đảo giao dịch thẻ)' },
   'checkout.tkRefundChannelCash': { 'zh-Hans': '现金退款 (现场现金返还)', en: 'Cash refund (returned on the spot)', ko: '현금 환불 (현장 현금 반환)', es: 'Devolución en efectivo (entregada en el momento)', vi: 'Hoàn tiền mặt (trả trực tiếp tại chỗ)' },

@@ -108,7 +108,7 @@ export const customerCreditLedger = pgTable('customer_credit_ledger', {
    * 这一列现在不记，以后补不出来。
    */
   locationId: locCol(),
-  /** gift_card | package | points | coupon（后三种是后续批次，结构已留好） */
+  /** gift_card | package | points | coupon | store_credit */
   kind: text('kind').notNull().default('gift_card'),
   /** 指向具体那张卡 / 那份套餐 */
   subjectId: uuid('subject_id').notNull(),

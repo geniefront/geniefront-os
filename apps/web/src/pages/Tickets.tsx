@@ -86,6 +86,7 @@ export interface EnrichedOrderRecord {
   createdAt: string;
   completedAt?: string;
   customerName: string;
+  customerId?: string;
   customerPhone?: string;
   customerTier: 'Black Diamond VIP' | 'Platinum Member' | 'Package Member' | 'Standard Member' | 'Walk-in Guest';
   status: 'completed' | 'open' | 'voided' | 'refunded';
@@ -97,6 +98,10 @@ export interface EnrichedOrderRecord {
   surchargeCents: number;
   tipCents: number;
   totalPaidCents: number;
+  refundCents: number;
+  refundTipCents: number;
+  refundTaxCents: number;
+  refundFeeCents: number;
   paymentMethod: 'credit_card' | 'cash' | 'package' | 'gift_card' | 'split';
   paymentMethodLabel: string;
   cardLast4?: string;
@@ -149,6 +154,7 @@ function TicketsContent() {
   const [refundModalRecord, setRefundModalRecord] = useState<EnrichedOrderRecord | null>(null);
   const [refundType, setRefundType] = useState<'full' | 'partial'>('full');
   const [refundAmountDollars, setRefundAmountDollars] = useState('');
+  const [refundRemainingTip, setRefundRemainingTip] = useState(false);
   const [refundMethod, setRefundMethod] = useState<'original_payment' | 'cash' | 'store_credit'>('original_payment');
   const [refundReason, setRefundReason] = useState<'customer_dissatisfied' | 'wrong_charge' | 'duplicate' | 'other'>('customer_dissatisfied');
   const [refundNotes, setRefundNotes] = useState('');
@@ -160,6 +166,10 @@ function TicketsContent() {
 
   // 辅助Amount转换函数（防止 NaN 或 undefined）
   const centsToDollars = (c: number | undefined | null) => (Number(c ?? 0) / 100).toFixed(2);
+  const remainingNonTipRefundCents = (record: EnrichedOrderRecord) => Math.max(
+    0,
+    record.totalPaidCents - record.tipCents - (record.refundCents - record.refundTipCents),
+  );
 
   // 辅助时间/日期格式化
   const formatTimeOrDate = (completedAt?: string | null, businessDate?: string | null) => {
@@ -190,7 +200,7 @@ function TicketsContent() {
         const isCompleted = row.status === 'closed' || row.status === 'paid';
         const isOpen = row.status === 'open' || row.status === 'in_service' || row.status === 'ready_to_pay';
         const isVoided = row.status === 'voided';
-        const isRefunded = row.status === 'refunded' || (asCents(row.refundCents ?? 0) > 0);
+        const isRefunded = row.status === 'refunded';
         const normalizedStatus: 'completed' | 'open' | 'voided' | 'refunded' = isRefunded
           ? 'refunded'
           : isVoided
@@ -223,6 +233,7 @@ function TicketsContent() {
           createdAt: row.openedAt || new Date().toISOString(),
           completedAt: row.closedAt || undefined,
           customerName: formatI18n(row.customerName, language) || '到店Walk-in Guest',
+          customerId: row.customerId || undefined,
           customerPhone: row.customerPhone ? String(row.customerPhone) : undefined,
           customerTier: 'Standard Member',
           status: normalizedStatus,
@@ -242,6 +253,10 @@ function TicketsContent() {
           surchargeCents: asCents(row.surchargeCents ?? 0),
           tipCents: asCents(row.tipCents ?? 0),
           totalPaidCents: asCents(row.totalCents ?? 0),
+          refundCents: asCents(row.refundCents ?? 0),
+          refundTipCents: asCents(row.refundTipCents ?? 0),
+          refundTaxCents: asCents(row.refundTaxCents ?? 0),
+          refundFeeCents: asCents(row.refundFeeCents ?? 0),
           paymentMethod,
           paymentMethodLabel: formatI18n(paymentLabel, language),
           cardLast4: primaryPayment?.cardLast4 || undefined,
@@ -286,6 +301,7 @@ function TicketsContent() {
             businessDate: formatI18n(tk.businessDate || data.businessDate || '2026-08-26', language),
             createdAt: new Date().toISOString(),
             customerName: formatI18n(tk.customerName, language) || '到店Walk-in Guest',
+            customerId: undefined,
             customerTier: 'Standard Member',
             status: 'open',
             items: tkItems.map((item: any, idx: number) => ({
@@ -302,6 +318,10 @@ function TicketsContent() {
             surchargeCents: 0,
             tipCents: 0,
             totalPaidCents: subtotal,
+            refundCents: 0,
+            refundTipCents: 0,
+            refundTaxCents: 0,
+            refundFeeCents: 0,
             paymentMethod: 'credit_card',
             paymentMethodLabel: 'Open / Unpaid收银',
             cashierName: '前台',
@@ -396,10 +416,18 @@ function TicketsContent() {
     const openList = orders.filter((x) => x?.status === 'open');
     const voidedList = orders.filter((x) => x?.status === 'voided' || x?.status === 'refunded');
 
-    const totalRevenueCents = completedList.reduce((sum, x) => sum + asCents(x?.totalPaidCents ?? 0), 0);
-    const totalTipsCents = completedList.reduce((sum, x) => sum + asCents(x?.tipCents ?? 0), 0);
+    const totalRevenueCents = completedList.reduce(
+      (sum, x) => sum + Math.max(0, asCents(x?.totalPaidCents ?? 0) - asCents(x?.refundCents ?? 0)),
+      0,
+    );
+    const totalTipsCents = completedList.reduce(
+      (sum, x) => sum + Math.max(0, asCents(x?.tipCents ?? 0) - asCents(x?.refundTipCents ?? 0)),
+      0,
+    );
     const totalTaxSurchargeCents = completedList.reduce(
-      (sum, x) => sum + asCents(x?.taxCents ?? 0) + asCents(x?.surchargeCents ?? 0),
+      (sum, x) => sum
+        + asCents(x?.taxCents ?? 0) + asCents(x?.surchargeCents ?? 0)
+        - asCents(x?.refundTaxCents ?? 0) - asCents(x?.refundFeeCents ?? 0),
       0,
     );
     const avgTicketCents =
@@ -439,9 +467,11 @@ function TicketsContent() {
 
   // 打开退款处理弹窗
   const handleOpenRefund = (record: EnrichedOrderRecord) => {
+    const refundableCents = remainingNonTipRefundCents(record);
     setRefundModalRecord(record);
     setRefundType('full');
-    setRefundAmountDollars(centsToDollars(record.totalPaidCents || record.subtotalCents));
+    setRefundAmountDollars(centsToDollars(refundableCents));
+    setRefundRemainingTip(false);
     setRefundMethod('original_payment');
     setRefundReason('customer_dissatisfied');
     setRefundNotes('');
@@ -450,25 +480,37 @@ function TicketsContent() {
   // 执行退款处理
   const handleConfirmRefund = async () => {
     if (!refundModalRecord) return;
-    const maxAmountCents = asCents(refundModalRecord.totalPaidCents || refundModalRecord.subtotalCents || 0);
-    const amountCents = refundType === 'full'
-      ? maxAmountCents
+    const remainingTipCents = Math.max(
+      0,
+      refundModalRecord.tipCents - refundModalRecord.refundTipCents,
+    );
+    const maxNonTipCents = Math.max(
+      0,
+      asCents(refundModalRecord.totalPaidCents || refundModalRecord.subtotalCents || 0)
+        - refundModalRecord.tipCents
+        - (refundModalRecord.refundCents - refundModalRecord.refundTipCents),
+    );
+    const nonTipAmountCents = refundType === 'full'
+      ? maxNonTipCents
       : Math.round(parseFloat(refundAmountDollars || '0') * 100);
+    const refundTipCents = refundRemainingTip ? remainingTipCents : 0;
+    const amountCents = nonTipAmountCents + refundTipCents;
 
     if (!amountCents || amountCents <= 0) {
       toast.danger(t('checkout.tkInvalidRefund'));
       return;
     }
 
-    if (amountCents > maxAmountCents) {
-      toast.danger(t('checkout.tkRefundTooLarge', { p0: centsToDollars(maxAmountCents) }));
+    if (nonTipAmountCents > maxNonTipCents) {
+      toast.danger(t('checkout.tkRefundTooLarge', { p0: centsToDollars(maxNonTipCents) }));
       return;
     }
 
     try {
-      await refundMutation.mutateAsync({
+      const response = await refundMutation.mutateAsync({
         ticketId: refundModalRecord.ticketId,
         amountCents,
+        refundTipCents,
         reason: refundReason,
         method: refundMethod,
         notes: refundNotes || undefined,
@@ -478,7 +520,12 @@ function TicketsContent() {
       });
       setRefundModalRecord(null);
       if (selectedRecord?.ticketId === refundModalRecord.ticketId) {
-        setSelectedRecord((prev) => prev ? { ...prev, status: 'refunded' } : null);
+        setSelectedRecord((prev) => prev ? {
+          ...prev,
+          status: response.result.status === 'refunded' ? 'refunded' : 'completed',
+          refundCents: prev.refundCents + amountCents,
+          refundTipCents: prev.refundTipCents + refundTipCents,
+        } : null);
       }
     } catch (err: any) {
       toast.danger(errorMessage(err));
@@ -1042,10 +1089,16 @@ function TicketsContent() {
                     {/* 状态徽章 (固定不折行药丸徽章) */}
                     <TableCell className="text-center">
                       {ord.status === 'completed' && (
-                        <Badge variant="success" className="text-[10px] font-bold whitespace-nowrap px-2.5 py-0.5">
-                          
-                          {t('checkout.tkStatusSettled')}
-                        </Badge>
+                        <div className="flex flex-col items-center gap-1">
+                          <Badge variant="success" className="text-[10px] font-bold whitespace-nowrap px-2.5 py-0.5">
+                            {t('checkout.tkStatusSettled')}
+                          </Badge>
+                          {ord.refundCents > 0 && (
+                            <Badge variant="secondary" className="text-[9px] whitespace-nowrap bg-purple-50 text-purple-800 border-purple-200">
+                              {t('checkout.tkRefundPartial')} ${centsToDollars(ord.refundCents)}
+                            </Badge>
+                          )}
+                        </div>
                       )}
                       {ord.status === 'open' && (
                         <Badge variant="warning" className="text-[10px] font-bold whitespace-nowrap px-2.5 py-0.5">
@@ -1575,7 +1628,9 @@ function TicketsContent() {
               </div>
               <Badge variant="secondary" className="text-[10px] font-bold bg-purple-100 text-purple-900 border-purple-300">
                 
-                {t('checkout.tkRefundableUpTo')}{centsToDollars(refundModalRecord.totalPaidCents)}
+                {t('checkout.tkRefundableUpTo')}{centsToDollars(
+                  Math.max(0, refundModalRecord.totalPaidCents - refundModalRecord.refundCents),
+                )}
               </Badge>
             </div>
 
@@ -1587,7 +1642,7 @@ function TicketsContent() {
                   type="button"
                   onClick={() => {
                     setRefundType('full');
-                    setRefundAmountDollars(centsToDollars(refundModalRecord.totalPaidCents));
+                    setRefundAmountDollars(centsToDollars(remainingNonTipRefundCents(refundModalRecord)));
                   }}
                   className={cn(
                     'p-2.5 rounded-xl border text-center font-bold transition-all flex flex-col items-center justify-center cursor-pointer',
@@ -1598,7 +1653,12 @@ function TicketsContent() {
                 >
                   <span className="text-xs">{t('checkout.tkRefundFull')}</span>
                   <span className="font-mono text-sm font-black text-purple-700 mt-0.5">
-                    ${centsToDollars(refundModalRecord.totalPaidCents)}
+                    ${centsToDollars(
+                      remainingNonTipRefundCents(refundModalRecord)
+                        + (refundRemainingTip
+                          ? Math.max(0, refundModalRecord.tipCents - refundModalRecord.refundTipCents)
+                          : 0),
+                    )}
                   </span>
                 </button>
                 <button
@@ -1638,6 +1698,23 @@ function TicketsContent() {
                   </div>
                 </div>
               )}
+
+              {refundModalRecord.tipCents - refundModalRecord.refundTipCents > 0 && (
+                <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={refundRemainingTip}
+                    onChange={(event) => setRefundRemainingTip(event.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-[11px] text-amber-950">
+                    <strong>{t('checkout.tkRefundRemainingTip', {
+                      p0: centsToDollars(refundModalRecord.tipCents - refundModalRecord.refundTipCents),
+                    })}</strong>
+                    <span className="block mt-0.5 text-amber-800">{t('checkout.tkRefundTipExplicit')}</span>
+                  </span>
+                </label>
+              )}
             </div>
 
             {/* 2. 退款返还渠道 */}
@@ -1650,7 +1727,9 @@ function TicketsContent() {
               >
                 <option value="original_payment">{t('checkout.tkRefundChannelOriginal')}</option>
                 <option value="cash">{t('checkout.tkRefundChannelCash')}</option>
-                <option value="store_credit">{t('checkout.tkRefundChannelCredit')}</option>
+                <option value="store_credit" disabled={!refundModalRecord.customerId}>
+                  {t('checkout.tkRefundChannelCredit')}
+                </option>
               </select>
             </div>
 

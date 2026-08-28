@@ -162,6 +162,36 @@ export const payments = pgTable('payments', {
   index('payments_group_idx').on(t.groupPaymentId),
 ]);
 
+/**
+ * 退款逐笔账本。tickets.refund_cents 只是累计快照；渠道、构成和操作者以这里为准。
+ * 迁移层对本表启用 FORCE RLS，并用 REVOKE + trigger 强制只追加。
+ */
+export const ticketRefunds = pgTable('ticket_refunds', {
+  id: id(),
+  orgId: orgCol(),
+  locationId: locCol(),
+  ticketId: uuid('ticket_id').notNull().references(() => tickets.id),
+  businessDate: date('business_date').notNull(),
+  amountCents: integer('amount_cents').notNull(),
+  serviceCents: integer('service_cents').notNull().default(0),
+  taxCents: integer('tax_cents').notNull().default(0),
+  feeCents: integer('fee_cents').notNull().default(0),
+  tipCents: integer('tip_cents').notNull().default(0),
+  cashCents: integer('cash_cents').notNull().default(0),
+  cardCents: integer('card_cents').notNull().default(0),
+  storeCreditCents: integer('store_credit_cents').notNull().default(0),
+  method: text('method').notNull(),
+  reason: text('reason').notNull(),
+  notes: text('notes'),
+  refundedBy: uuid('refunded_by').references(() => memberships.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('ticket_refunds_ticket_idx').on(t.ticketId),
+  index('ticket_refunds_tenant_idx').on(t.orgId, t.locationId),
+  index('ticket_refunds_actor_idx').on(t.refundedBy),
+  index('ticket_refunds_day_idx').on(t.locationId, t.businessDate, t.createdAt),
+]);
+
 export const tipAllocations = pgTable('tip_allocations', {
   id: id(),
   orgId: orgCol(),
