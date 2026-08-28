@@ -58,6 +58,7 @@ export const checkout = {
   'checkout.itemsSuffix': { 'zh-Hans': '个服务项', en: 'service items', ko: '개 서비스', es: 'servicios', vi: 'dịch vụ' },
   'checkout.commissionRate': { 'zh-Hans': '提成比例:', en: 'Commission rate:', ko: '수수료율:', es: 'Comisión:', vi: 'Tỷ lệ hoa hồng:' },
   'checkout.serviceRoom': { 'zh-Hans': '服务场地:', en: 'Room / station:', ko: '서비스 장소:', es: 'Sala / puesto:', vi: 'Nơi phục vụ:' },
+  'checkout.roomUnassigned': { 'zh-Hans': '未分配房间或工位', en: 'No room or station assigned', ko: '배정된 룸 또는 스테이션 없음', es: 'Sin sala ni puesto asignado', vi: 'Chưa phân phòng hoặc vị trí' },
   'checkout.tipSplitTitle': { 'zh-Hans': '多技师小费分配与职级分账', en: 'Tip split across therapists and levels', ko: '복수 담당자 팁 분배 및 직급별 정산', es: 'Reparto de propinas por terapeuta y nivel', vi: 'Chia tiền tip theo KTV và cấp bậc' },
   'checkout.splitStrategy': { 'zh-Hans': '拆分算法策略', en: 'Split method', ko: '분배 방식', es: 'Método de reparto', vi: 'Cách chia' },
   'checkout.splitByRevenue': { 'zh-Hans': '按服务产值比例分账 (推荐)', en: 'By service revenue share (recommended)', ko: '서비스 매출 비중 기준 (권장)', es: 'Según la facturación de cada servicio (recomendado)', vi: 'Theo tỷ trọng doanh thu dịch vụ (khuyến nghị)' },

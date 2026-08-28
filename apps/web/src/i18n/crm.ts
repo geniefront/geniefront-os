@@ -275,6 +275,7 @@ export const crm = {
   'crm.callFilterTransferred': { 'zh-Hans': '已转人工', en: 'Transferred', ko: '상담원 전환', es: 'Transferidas', vi: 'Đã chuyển máy' },
   'crm.callNoMatch': { 'zh-Hans': '暂无符合条件的通话记录', en: 'No matching call records', ko: '조건에 맞는 통화 기록이 없습니다', es: 'No hay llamadas que coincidan', vi: 'Không có cuộc gọi phù hợp' },
   'crm.callNoMatchDesc': { 'zh-Hans': '当前筛选条件下没有检索到相关的呼入电话记录。', en: 'No inbound calls were found for the current filters.', ko: '현재 필터 조건으로 검색된 인입 통화가 없습니다.', es: 'No se han encontrado llamadas entrantes con los filtros actuales.', vi: 'Không tìm thấy cuộc gọi đến nào theo bộ lọc hiện tại.' },
+  'crm.callNoRecording': { 'zh-Hans': '这通电话没有可播放的录音', en: 'No recording is available for this call', ko: '이 통화에는 재생 가능한 녹음이 없습니다', es: 'No hay grabación disponible para esta llamada', vi: 'Cuộc gọi này không có bản ghi âm để phát' },
   'crm.callTagBooked': { 'zh-Hans': '成功自动落单', en: 'Booked automatically', ko: '자동 예약 성공', es: 'Reservada automáticamente', vi: 'Tự động chốt lịch' },
   'crm.callTagTransferred': { 'zh-Hans': '转接人工', en: 'Transferred to an agent', ko: '상담원 전환', es: 'Transferida a un agente', vi: 'Chuyển cho nhân viên' },
   'crm.callTagAnswered': { 'zh-Hans': '常规咨询已解答', en: 'Enquiry resolved', ko: '일반 문의 해결', es: 'Consulta resuelta', vi: 'Đã giải đáp tư vấn' },

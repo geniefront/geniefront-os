@@ -98,6 +98,21 @@ if command -v node >/dev/null 2>&1; then
   fi
 fi
 
+# ── 7. 经营页面与查询层不许静默注入演示记录 ─────────────────────────────────
+# 销售演示应使用隔离的 demo tenant。生产组件在空数据时只能返回空集合、零值或
+# 明确错误，不能用看似真实的姓名、电话、银行批次和经营指标填满页面。
+if command -v rg >/dev/null 2>&1; then
+  hits=$(rg -n \
+    --glob '!*.test.ts' --glob '!*.test.tsx' \
+    'MOCK_|DEFAULT_ENTERPRISE_|DEFAULT_AUDIT_LOGS|DEFAULT_CONVERSATIONS|INITIAL_STAFF_LIST|BACKEND_REVIEWS_DATA|notif_seed_|inv_mock_|sess_current|usr_current|默认高品质服务样本|保证至少有合理的统计底数|丰富 Mock 数据' \
+    apps/web/src/pages apps/api/src/queries 2>/dev/null || true)
+  [[ -n "$hits" ]] && report \
+    "业务界面或 API 查询中存在静默演示数据" \
+    "生产数据可信性：空数据只能显示空态，演示数据必须进入隔离 demo tenant" \
+    "删除页面/API fallback，并让无数据显示 EmptyState、零值或明确错误。" \
+    "$hits"
+fi
+
 
 echo
 if [[ $FAIL -eq 0 ]]; then

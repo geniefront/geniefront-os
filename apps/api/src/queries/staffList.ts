@@ -94,7 +94,7 @@ export async function loadStaffDirectory(
 
   const defaultPlanConfig = plansByMember.get(null) ?? {};
 
-  const staff: StaffDirectoryItem[] = rows.map((r, idx) => {
+  const staff: StaffDirectoryItem[] = rows.map((r) => {
     const rawStatus = r.status;
     let mappedStatus: 'active' | 'on_leave' | 'resigned' = 'active';
     if (rawStatus === 'left' || rawStatus === 'resigned') {
@@ -104,28 +104,28 @@ export async function loadStaffDirectory(
     }
 
     const memberPlan = plansByMember.get(r.membership_id) ?? defaultPlanConfig;
-    const rateBp = Number(memberPlan['rateBp'] ?? memberPlan['rate_bp'] ?? 4500);
-    const hourlyCents = asCents(memberPlan['hourlyRateCents'] ?? memberPlan['hourly_rate_cents'] ?? 1800);
+    const rateBp = Number(memberPlan['rateBp'] ?? memberPlan['rate_bp'] ?? 0);
+    const hourlyCents = asCents(memberPlan['hourlyRateCents'] ?? memberPlan['hourly_rate_cents'] ?? 0);
     const kind = (memberPlan['kind'] as any) || 'commission';
     const base = ((memberPlan['base'] as any) || 'net') as 'net' | 'gross';
 
-    const empNo = r.employee_no || `EMP-${String(1001 + idx).padStart(4, '0')}`;
+    const empNo = r.employee_no ?? '';
     const name = pickText(r.display_name, ctx.locale, '员工');
-    const level = r.level_name ? pickText(r.level_name, ctx.locale, '中级技师') : '中级技师';
-    const jobTitle = r.job_title || '美甲师';
+    const level = r.level_name ? pickText(r.level_name, ctx.locale, '') : '';
+    const jobTitle = r.job_title ?? '';
 
     return {
       id: r.membership_id,
       membershipId: r.membership_id,
       employeeNo: empNo,
       name,
-      phone: r.phone_e164 || '555-0100',
+      phone: r.phone_e164 ?? '',
       ...(r.user_email ? { email: r.user_email } : {}),
       jobTitle,
       level,
       skills: skillsByMember.get(r.membership_id) ?? [],
       status: mappedStatus,
-      hireDate: r.hire_date || new Date().toISOString().slice(0, 10),
+      hireDate: r.hire_date ?? '',
       payroll: {
         kind,
         ratePercent: Math.round(rateBp / 100),

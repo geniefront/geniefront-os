@@ -3,7 +3,7 @@
 美国市场亚裔服务业门店管理系统（nail / massage / foot spa / 头疗 / 美睫）。
 目标 1000 家门店，AI 驱动的前台，多语言。
 
-> 📖 **完整文档在 [`docs/`](docs/)。接手先读 [`docs/10-HANDOFF.md`](docs/10-HANDOFF.md)**，
+> 📖 **完整文档在 [`docs/`](docs/)。接手先读 [`docs/20-WEB-HANDOFF.md`](docs/20-WEB-HANDOFF.md)**，
 > 它把「现在在哪、下一步做什么、哪些坑别再踩」压在一份里。
 > **写代码前必读 [`docs/03-ROADMAP.md`](docs/03-ROADMAP.md) §A 已定决策 + §D 项目宪法** ——
 > 那 19 条是这个仓库的物理法则。
@@ -19,8 +19,8 @@
 | **Phase 1b** | ✅ 提成引擎 + 收入看板、打烊日结对账、现金小费发放、排班 + 报表 CSV |
 | **Phase 1c** | ✅ 技师端 PWA、Realtime 派单（实测 2 秒）、PIN 打卡 |
 | **Phase 2** | 🚧 拍照开店 ✅、Yelp ✅、Kiosk ✅、Stripe 计费 ✅、AI 前台副驾 ✅、**官网在线预约 ✅（含现成的预约页）**、AI 电话（代码 ✅ 卡开户）、**健康表全链路 ✅**（生成/存储/同步/分享，docs/15） |
-| **前台界面** | ✅ 30 个屏全部走同一套组件（`apps/desk/src/ui/`）—— 老的 `.btn`/`.card`/`.badge` 那套 CSS 已经退役 |
-| **测试** | **704 项**，13 个包，`pnpm verify` 全绿 |
+| **前台界面** | ✅ 统一 Web 应用位于 `apps/web`；旧 `desk/booking/staff/kiosk` 已合并 |
+| **测试** | 11 个 workspace 类型检查通过；纯函数/契约/Web 测试可在无数据库时运行；API 集成测试必须使用独立 test 库 |
 
 ---
 
@@ -30,7 +30,8 @@
 pnpm install
 cp .env.example .env          # ⚠️ 真实凭据不在仓库里，见 docs/07-CREDENTIALS-CHECKLIST.md
 bash scripts/check-env.sh     # 凭据格式 + 实测联通性
-pnpm verify                   # 宪法检查 + typecheck + 704 项测试
+pnpm verify                   # 仅在独立且带测试种子的 test 数据库运行完整验证
+pnpm --filter '!@gf/api' --filter '!@gf/db' test  # 本地 389 项无数据库测试
 ```
 
 跑起来：
@@ -71,8 +72,8 @@ docs/         ⭐ 全部设计文档与交接
 
 1. **每一次写库都是一条具名命令**，走 `dispatch()`：Zod 校验 → 权限 → 幂等键 → 审计。
    没有绕过总线的写入路径。
-2. **强制 RLS。** 每张带 `org_id` 的表都有 `tenant_isolation`；应用以受限的
-   `app_user` 连接，靠 `withTenant()` 的 `SET LOCAL` 划定租户。
+2. **强制 RLS。** 暴露 schema 中的每张表都强制 RLS；应用以受限的
+   `app_user` 连接，靠 `withTenant()` 的 `SET LOCAL` 划定组织、门店和登录用户上下文。
    **应用运行时永远不需要能绕过 RLS 的凭据。**
 3. **钱一律整数分**，百分比用基点（bp），AI 成本用毫分。全仓库不出现一次浮点算钱。
 4. **AI 的产出在被人勾中之前，不产生任何真实记录。** 视觉提取落

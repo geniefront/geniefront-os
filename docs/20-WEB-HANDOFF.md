@@ -5,60 +5,36 @@
 
 ---
 
-## 一、唯一的待办（高危，需要先做产品决策）
+## 一、当前高优先级待办
 
-### `apps/web/src/pages/BusinessData.tsx` 在接口失败时伪造经营数据
+静默假数据清理已经覆盖 `BusinessData`、`Dashboard`、`Payouts`、`EmployeePerformance`、
+`Calls`、`Messages`、`CommunicationLogs`、`Checkout`、`Queue` 和 `Settings`，并同步清理了
+评价、结算、账单、通知、个人资料、员工目录、经营分析与日结终端查询层的伪造 fallback。
+`scripts/lint-guards.sh` 现在会阻止常见经营 Mock 标识重新进入页面和 API query。
 
-**现象**：前台账号（`mia@example.test`，无 `report.view` 权限）打开经营数据页，
-`/v1/desk/analytics/*` 七个接口**全部返回 403**，页面却完整渲染出一套看起来真实的数字：
+尚未接入真实数据模型的功能现在明确返回空值：银行划拨批次、工资批次、提成冲正、
+AI 经营摘要、获客渠道拆分，以及服务成本/毛利/评分。后续应实现真实表或第三方同步，
+不能重新用估算值把页面填满。
 
-```
-Net GMV $15,890.00    +14.8% 环比
-总客流 286            新客 78 / 老客 208
-平均客单价 $58.50     复购率 76.5%     工位利用率 84.2%
-```
+下一步优先：
 
-**根因**：页面各处独立硬编码兜底，绕过了顶部的错误态判断。
+- 建立独立、带固定测试种子的 Supabase test 项目或临时 branch；
+- 让 `packages/db` 与 `apps/api` 的数据库测试只接受 test 环境标识，拒绝 dev/prod；
+- 为支付服务商同步、薪资批次、提成冲正和评价 AI 分析建立真实数据模型；
+- 继续按真实门店核心闭环做角色、跨租户、幂等与清理型 E2E。
 
-| 位置 | 问题 |
-|---|---|
-| `BusinessData.tsx:235` | `totalNetRevenueDollars` 无数据时 `return '15,890.00'` |
-| `BusinessData.tsx:397` | `(customersQ.data?.retentionRateBp \|\| 7650) / 100` |
-| `BusinessData.tsx:142` 起 | `chartData` 无数据时返回硬编码数组 |
-| `BusinessData.tsx:167` 起 | `categoryData` 同上 |
-| `BusinessData.tsx:198` | `topServicesList` 回落到常量 `TOP_SERVICES` |
-| `BusinessData.tsx:82` | `HEATMAP_DATA` 压根没接接口，全是常量 |
-| `BusinessData.tsx:248` | `PageError` 只守 `revenueQ` 一条，其余 KPI 各自绕过 |
-
-**为什么必须处理**：这是老板做经营决策的页面。同类问题上一轮已在
-`Tickets.tsx`（假订单）与 `features/profile|notifications`（localStorage 假成功）修掉了，
-`BusinessData` 是漏网的一处，且后果最重。
-
-**建议做法**（需店主/产品确认）：删除全部硬编码兜底，改为：
-- 403（无权限）→ 明确提示「当前账号没有查看经营报表的权限」，而不是给一份编出来的数字；
-- 其他失败 → 走 `PageError`；
-- 无数据 → 走 `EmptyState`。
-
-页面已有 `components/ui/EmptyState.tsx`、`components/ui/QueryState.tsx`（`PageError`）、
-`components/ui/SampleDataNotice.tsx` 可用。若产品坚持要留演示数据，**必须**挂
-`SampleDataNotice`，不得静默呈现。
-
-> ⚠️ 该页的文案已全部走字典（域 `finance`，前缀 `finance.bd*`）。删除兜底时
-> 只删数据，不要连带删掉 `t()` 调用，否则会触发 i18n 关卡。
+统一规则：无数据用 `EmptyState`，请求失败用 `PageError`，无权限用明确禁止态。
+销售演示只能使用独立 demo tenant，不得与真实数据静默混合。
 
 ---
 
 ## 二、接手前必须知道的四个坑
 
-### 1. `apps/api` 有 18 项测试失败，**与前端无关，不要去修**
+### 1. API 集成测试不得使用 dev 或 prod
 
-`bus / ghostStaff / offHours / phone / public / server / staff` 七个测试文件共 18 项失败，
-典型报错是 `Cannot read properties of undefined (reading 'user_id')`（种子数据缺失）。
-
-已用「回退—对比」实证确认：把上一轮的后端改动全部还原后，**同样是 18 失败 / 117 通过**，
-与代码改动无关。根因是共用开发库的测试互相清数据，见提交
-`016e942 共用开发库的三个坑`。覆盖到实际改动的 6 个测试文件（analytics / marketing /
-settings / giftcard / payouts / profile）**68 项全绿**。
+部分 API/DB 测试会写数据、改 GRANT 或依赖固定种子。只有配置了独立 test 项目或临时
+Supabase branch 后才能运行完整 `pnpm verify`。当前 dev 已完成 0000–0055 迁移，但没有测试种子，
+不是测试沙盒；直接运行 `packages/db/src/rls.test.ts` 会因固定 org/location/resource 不存在而失败。
 
 ### 2. 错误码文案严禁运行期拼 key
 
@@ -120,15 +96,14 @@ node scripts/i18n-unused.mjs                               # 未引用词条盘�
 
 ```bash
 cd /Users/naiyouzhu/siteadmin/geniefront-os
-pnpm lint:guards                              # 含 i18n 关卡与金额检查，应全绿
-npx tsc --noEmit -p apps/web/tsconfig.json
-cd apps/web && npx vitest run                 # 58 项
-npx vitest run packages/contracts/src/money.test.ts   # 6 项
-cd apps/web && npx vite build
+pnpm lint:guards                              # 含 i18n、金额与静默假数据关卡，应全绿
+pnpm typecheck                                # 11 个 workspace
+pnpm --filter '!@gf/api' --filter '!@gf/db' test  # 389 项，不连接数据库
+pnpm --filter @gf/web build
 ```
 
 开发环境：`pnpm --filter @gf/api dev`（:3000）+ `pnpm --filter @gf/web dev`（:5177），
-登录 `mia@example.test` / `GenieDev!2026`。
+只有在明确的 dev/demo tenant 执行种子流程后，才使用演示账号登录。
 开发环境下缺词条会渲染成 `⟦key⟧` 并在控制台告警，自测时留意。
 
 ---
@@ -146,3 +121,8 @@ cd apps/web && npx vite build
 - **测试**：web 29 → 58 项（新增 i18n 完整性、错误码覆盖、权限标识有效性、
   GuardedButton、LanguageContext、ErrorBoundary）；contracts 新增 6 项金额测试。
   已装 `jsdom` + `@testing-library/react` + `user-event` + `jest-dom`。
+- **数据库安全**：dev 已正式执行 0000–0055；`withTenant()` 设置 `app.user_id`；
+  迁移器强制核对 public 表 FORCE RLS；0055 收紧无 RLS 表、函数 `search_path` 与
+  `SECURITY DEFINER` 执行权限。
+- **可信经营数据**：财务、评价、通知、沟通、员工、设置和收银不再生成看似真实的
+  姓名、电话、银行账户、经营指标或提成比例；无法证明的数据明确为空或不可用。

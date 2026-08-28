@@ -37,37 +37,6 @@ export async function loadBillingInvoices(
     order by created_at desc
     limit 50`;
 
-  if (rows.length === 0) {
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    const prevMonthDate = new Date(Date.now() - 86400000 * 30);
-    const prevMonth = prevMonthDate.toISOString().slice(0, 7);
-
-    return {
-      invoices: [
-        {
-          id: 'inv_001',
-          invoiceNumber: `INV-${currentMonth.replace('-', '')}-001`,
-          period: `${currentMonth}-01 ~ ${currentMonth}-28`,
-          description: 'GenieFront OS - Growth 门店增长版套餐 (含 1000 算力积分与 200 语音分钟)',
-          amountCents: 19900,
-          status: 'paid',
-          date: `${currentMonth}-01`,
-          receiptPdfUrl: `https://billing.stripe.com/receipt/inv_mock_${currentMonth}`,
-        },
-        {
-          id: 'inv_002',
-          invoiceNumber: `INV-${prevMonth.replace('-', '')}-001`,
-          period: `${prevMonth}-01 ~ ${prevMonth}-30`,
-          description: 'GenieFront OS - Growth 门店增长版套餐',
-          amountCents: 19900,
-          status: 'paid',
-          date: `${prevMonth}-01`,
-          receiptPdfUrl: `https://billing.stripe.com/receipt/inv_mock_${prevMonth}`,
-        },
-      ],
-    };
-  }
-
   return {
     invoices: rows.map((r) => ({
       id: r.id,

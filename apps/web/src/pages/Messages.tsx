@@ -4,7 +4,6 @@ import { useStoreTime } from '@/lib/time';
 import { toast } from "@heroui/react";
 import { useLanguage } from "@/LanguageContext";
 import { Card } from "@/components/ui/Card";
-import { SampleDataNotice } from '@/components/ui/SampleDataNotice';
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -37,60 +36,9 @@ import {
   Settings2,
 } from "lucide-react";
 import { useInboundSmsQuery, useSendDirectSms } from "@/features/comms/api";
+import { useDeskSettingsQuery } from "@/features/settings/api";
 import type { InboundSms } from "@/features/comms/types";
 import { useNavigate } from "react-router-dom";
-
-// 扩充高质量企业级 Mock 对话数据
-const DEFAULT_CONVERSATIONS: InboundSms[] = [
-  {
-    id: "sms-101",
-    fromE164: "+1 (212) 555-0192",
-    body: "你好！我想确认一下今天下午 4:30 和 Lisa 师傅的预约，我可能会稍微迟到 5 分钟。",
-    intent: "inquiry",
-    receivedAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
-    customers: [{ id: "cust-1", name: "Emily Chen" }],
-    upcoming: [
-      {
-        appointmentId: "appt-901",
-        startsAt: new Date(Date.now() + 90 * 60 * 1000).toISOString(),
-        confirmationCode: "GF-8891",
-      },
-    ],
-  },
-  {
-    id: "sms-102",
-    fromE164: "+1 (646) 772-8819",
-    body: "STOP",
-    intent: "opt_out",
-    receivedAt: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
-    customers: [{ id: "cust-2", name: "Michael Vance" }],
-    upcoming: [
-      {
-        appointmentId: "appt-902",
-        startsAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
-        confirmationCode: "GF-7712",
-      },
-    ],
-  },
-  {
-    id: "sms-103",
-    fromE164: "+1 (917) 662-3301",
-    body: "请问你们店附近有免费停车位吗？我开 SUV 过来。",
-    intent: "inquiry",
-    receivedAt: new Date(Date.now() - 5 * 3600 * 1000).toISOString(),
-    customers: [{ id: "cust-3", name: "Sarah Jenkins" }],
-    upcoming: [],
-  },
-  {
-    id: "sms-104",
-    fromE164: "+1 (347) 819-2041",
-    body: "做完美甲感觉颜色超级好看！谢谢你们前台推荐的款式，下次还来！",
-    intent: "feedback",
-    receivedAt: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
-    customers: [{ id: "cust-4", name: "Chloe Zhao" }],
-    upcoming: [],
-  },
-];
 
 export function Messages() {
   const storeTime = useStoreTime();
@@ -99,17 +47,8 @@ export function Messages() {
   const navigate = useNavigate();
   const { data, isLoading, isError, error, refetch } = useInboundSmsQuery(14);
   const sendSmsMutation = useSendDirectSms();
-
-  // 10DLC 状态（从 localStorage 读取或默认为待审核/未认证，由后台管理员代办）
-  const [tenDlcStatus, setTenDlcStatus] = useState<"not_submitted" | "pending_review" | "approved">(() => {
-    try {
-      const saved = localStorage.getItem("gf.10dlc.status");
-      if (saved === "approved" || saved === "pending_review" || saved === "not_submitted") {
-        return saved;
-      }
-    } catch {}
-    return "pending_review";
-  });
+  const settingsQuery = useDeskSettingsQuery();
+  const tenDlcStatus = settingsQuery.data?.tenDlc?.status ?? "not_submitted";
 
   const [activeTab, setActiveTab] = useState<"all" | "needs_reply" | "has_upcoming" | "opt_out">("all");
   const [searchTerm, setSearchTerm] = useState("");
@@ -124,12 +63,7 @@ export function Messages() {
   // 10DLC 引导弹窗
   const [tenDlcModalOpen, setTenDlcModalOpen] = useState(false);
 
-  const messages = useMemo(() => {
-    if (data?.messages && data.messages.length > 0) {
-      return data.messages;
-    }
-    return DEFAULT_CONVERSATIONS;
-  }, [data]);
+  const messages = data?.messages ?? [];
 
   // 默认选中第一条
   useEffect(() => {
@@ -259,7 +193,6 @@ export function Messages() {
 
   return (
     <div className="space-y-5 pb-20 max-w-7xl mx-auto">
-      <SampleDataNotice />
       {/* 10DLC 电信合规状态风控横幅 */}
       {tenDlcStatus === "approved" ? (
         <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-950 flex items-center justify-between gap-4 text-xs">

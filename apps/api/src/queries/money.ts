@@ -271,15 +271,7 @@ export async function loadDayClose(
 
   const safeDropCents = Math.max(0, (counted ?? cash.expectedCents) - closing);
 
-  const terminalBatches = dc?.terminal_batches ?? [
-    {
-      terminalId: 'tm_01_frontdesk',
-      terminalName: '前台主 POS 终端 (WisePOS E)',
-      status: (dc?.status === 'closed' ? 'settled' : 'open') as 'settled' | 'open',
-      transactionCount: Math.max(0, Math.round(money.cardTakeCents / 4500)),
-      amountCents: money.cardTakeCents,
-    },
-  ];
+  const terminalBatches = dc?.terminal_batches ?? [];
 
   return {
     businessDate,

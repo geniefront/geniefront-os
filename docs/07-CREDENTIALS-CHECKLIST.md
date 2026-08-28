@@ -18,7 +18,7 @@
 
 ### A1 · Supabase — 整个状态层
 
-1. 去 [supabase.com](https://supabase.com) 建 **两个项目**：`geniefront-os-dev` / `geniefront-os-prod`
+1. 去 [supabase.com](https://supabase.com) 建立隔离环境：`geniefront-os-dev` / `geniefront-os-prod`；API 集成测试再用独立 test 项目或临时 branch
 2. Region 选 **US East (N. Virginia)** 或 **US West** —— 客户在美国，别选新加坡
 3. dev 用 Free plan 就够；**prod 必须上 Pro（$25/月）**，否则没有 PITR 和每日备份（`04` §10）
 
@@ -27,10 +27,12 @@
 ```bash
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_ANON_KEY=eyJhbG...
-DATABASE_URL=postgresql://postgres.xxxx:<密码>@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+DATABASE_URL=postgresql://app_user.xxxx:<APP_DB_PASSWORD>@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+MIGRATION_DATABASE_URL=postgresql://postgres.xxxx:<数据库密码>@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 ```
 
-> `DATABASE_URL` 在 Project Settings → Database → Connection string → **Transaction pooler**。
+> 两条连接都使用 **Transaction pooler**。`DATABASE_URL` 是受限 `app_user`，
+> `MIGRATION_DATABASE_URL` 才是只供迁移使用的 `postgres`。
 
 **外加 dev 项目的 service_role key**（跑迁移和灌种子数据要用）：
 

@@ -394,7 +394,7 @@ function QueueContent() {
     tipMode: 'total_split' | 'custom_per_staff';
     tipPercentage: number;
     totalTipDollars: string;
-    splitStrategy: 'proportional' | 'tier_weighted' | 'equal';
+    splitStrategy: 'proportional' | 'equal';
     customStaffTips: Record<string, string>;
     // 支付通道与Gift Card
     paymentMethod: 'card' | 'cash' | 'gift_card' | 'apple_pay';
@@ -2578,22 +2578,15 @@ function QueueContent() {
         // 收集参与本次单据的所有技师
         const staffMap = new Map<string, {
           name: string;
-          tierLabel: string;
-          commissionRate: number;
           items: Array<{ name: string; priceCents: number; roomName?: string }>;
           totalRevenueCents: number;
         }>();
 
         // 主项目
         const mainStaffName = item.staffName || t('queue.quLeadTherapist');
-        const mainStaff = staff.find((s) => s.name === mainStaffName || s.membershipId === item.staffId);
-        const mainTierLabel = mainStaff?.membershipId?.includes('lead') ? t('queue.quTier2') : t('queue.quTier1');
-        const mainCommRate = mainTierLabel.includes(t('queue.quDirectorShort')) ? 0.55 : 0.50;
 
         staffMap.set(mainStaffName, {
           name: mainStaffName,
-          tierLabel: mainTierLabel,
-          commissionRate: mainCommRate,
           items: [{ name: item.serviceName, priceCents: item.priceCents - addOns.reduce((s, a) => s + a.priceCents, 0), roomName: item.roomName || undefined }],
           totalRevenueCents: item.priceCents - addOns.reduce((s, a) => s + a.priceCents, 0),
         });
@@ -2603,8 +2596,6 @@ function QueueContent() {
           const addonStaffName = addon.staffName || mainStaffName;
           const existing = staffMap.get(addonStaffName) ?? {
             name: addonStaffName,
-            tierLabel: t('queue.quTier1b'),
-            commissionRate: 0.50,
             items: [],
             totalRevenueCents: 0,
           };
@@ -2629,30 +2620,23 @@ function QueueContent() {
         }
 
         // 小费智能分账明细
-        const tipAllocations = staffList.map((st, i) => {
+        const tipAllocations = staffList.map((st) => {
           let allocatedCents = 0;
           if (checkoutModal.tipMode === 'custom_per_staff') {
             allocatedCents = Math.max(0, dollarsToCents(checkoutModal.customStaffTips[st.name] || '0'));
           } else if (totalTipCents > 0) {
             if (checkoutModal.splitStrategy === 'equal') {
               allocatedCents = Math.round(totalTipCents / staffList.length);
-            } else if (checkoutModal.splitStrategy === 'tier_weighted') {
-              const weights = staffList.map((s) => (s.tierLabel.includes(t('queue.quDirectorShort2')) ? 1.25 : 1.0));
-              const totalW = weights.reduce((a, b) => a + b, 0);
-              allocatedCents = Math.round((weights[i] / totalW) * totalTipCents);
             } else {
               const totalRev = staffList.reduce((sum, s) => sum + s.totalRevenueCents, 0) || 1;
               allocatedCents = Math.round((st.totalRevenueCents / totalRev) * totalTipCents);
             }
           }
           const percent = totalTipCents > 0 ? Math.round((allocatedCents / totalTipCents) * 100) : 0;
-          const commCents = Math.round(st.totalRevenueCents * st.commissionRate);
           return {
             ...st,
             allocatedTipCents: allocatedCents,
             percent,
-            commCents,
-            totalTakeHomeCents: commCents + allocatedCents,
           };
         });
 
@@ -2746,14 +2730,7 @@ function QueueContent() {
                         <div className="flex items-center gap-1.5">
                           <User className="w-3 h-3 text-teal-600" />
                           <span className="font-bold text-slate-800">{st.name}</span>
-                          <Badge variant="secondary" className="text-[9px] font-bold px-1.5 py-0 bg-teal-50 text-teal-900 border-teal-200">
-                            {st.tierLabel}
-                          </Badge>
                         </div>
-                        <span className="text-[10px] font-mono text-slate-500 font-bold">
-                          
-                          {t('queue.quCommissionRate')} {Math.round(st.commissionRate * 100)}%
-                        </span>
                       </div>
                       <div className="space-y-1">
                         {st.items.map((it, idx) => (
@@ -2859,7 +2836,6 @@ function QueueContent() {
                           className="w-full px-2 py-1.5 text-xs rounded-xl border border-slate-200 bg-white font-medium"
                         >
                           <option value="proportional">Proportional to Service Revenue (Recommended)</option>
-                          <option value="tier_weighted">Tier-Weighted (Director 1.25x)</option>
                           <option value="equal">Equal Split</option>
                         </select>
                       </div>
@@ -2887,10 +2863,10 @@ function QueueContent() {
                   </div>
                 )}
 
-                {/* 技师收益预计卡片 */}
+                {/* 小费分配预览 */}
                 <div className="p-2.5 bg-teal-50/50 rounded-xl border border-teal-100 space-y-1">
                   <div className="flex justify-between items-center text-[10px] font-bold text-teal-900">
-                    <span>Estimated Staff Earnings:</span>
+                    <span>Tip Allocation:</span>
                     <span className="font-mono text-teal-700">Total Tips: ${centsToDollars(totalTipCents)}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
@@ -2899,10 +2875,6 @@ function QueueContent() {
                         <div className="flex justify-between items-center">
                           <span className="font-bold text-slate-800">{st.name}</span>
                           <span className="font-mono font-bold text-teal-700">+${centsToDollars(st.allocatedTipCents)} ({st.percent}%)</span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 flex justify-between">
-                          <span>Service Commission: ${centsToDollars(st.commCents)}</span>
-                          <span className="font-bold text-teal-900">Estimated Earnings: ${centsToDollars(st.totalTakeHomeCents)}</span>
                         </div>
                       </div>
                     ))}

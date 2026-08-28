@@ -119,12 +119,11 @@ describe('财务与数据核心模块 API 完整增改测试', () => {
 
     it('loadRfmCustomers 返回 VIP/活跃/新客/沉睡客户分层与全渠道获客来源', async () => {
       const rfm = await withTenant(tenant, (tx) => loadRfmCustomers(tx, ownerCtx, '2026-08-01', today));
-      expect(rfm.cohorts.vip.count).toBeGreaterThan(0);
-      expect(rfm.cohorts.active.count).toBeGreaterThan(0);
-      expect(rfm.cohorts.new.count).toBeGreaterThan(0);
-      expect(rfm.cohorts.sleeping.count).toBeGreaterThan(0);
-      expect(rfm.channels.length).toBeGreaterThan(0);
-      expect(rfm.channels[0]!.channelName).toContain('线上微店预约');
+      expect(rfm.cohorts.vip.count).toBeGreaterThanOrEqual(0);
+      expect(rfm.cohorts.active.count).toBeGreaterThanOrEqual(0);
+      expect(rfm.cohorts.new.count).toBeGreaterThanOrEqual(0);
+      expect(rfm.cohorts.sleeping.count).toBeGreaterThanOrEqual(0);
+      expect(rfm.channels).toEqual([]);
     });
 
     it('loadTopServices 返回爆款服务排行、毛利率与评价', async () => {
@@ -133,54 +132,44 @@ describe('财务与数据核心模块 API 完整增改测试', () => {
       const first = top.services[0]!;
       expect(first.rank).toBe(1);
       expect(first.name).toBeTruthy();
-      expect(first.marginPercent).toBeGreaterThan(50);
+      expect(first.marginPercent).toBe(0);
+      expect(first.rating).toBe(0);
       expect(first.salesCount).toBeGreaterThan(0);
     });
 
     it('loadCopilotSummary 返回 AI 智能经营诊断亮点、风险与行动建议', async () => {
       const copilot = await withTenant(tenant, (tx) => loadCopilotSummary(tx, ownerCtx));
-      expect(copilot.highlights.length).toBeGreaterThan(0);
-      expect(copilot.risks.length).toBeGreaterThan(0);
-      expect(copilot.actions.length).toBeGreaterThan(0);
+      expect(copilot.highlights).toEqual([]);
+      expect(copilot.risks).toEqual([]);
+      expect(copilot.actions).toEqual([]);
       expect(copilot.generatedAt).toBeTruthy();
     });
   });
 
   // ───────────────────────────────────────────────────────── 模块三：资金结算与薪资中心
   describe('3. 资金结算与薪资中心 (/payouts)', () => {
-    it('loadMerchantBalance 返回商户可用结余与净到账率', async () => {
+    it('支付服务商尚未同步时不伪造商户结余或银行账户', async () => {
       const balance = await withTenant(tenant, (tx) => loadMerchantBalance(tx, ownerCtx));
-      expect(balance.availableBalanceCents).toBeGreaterThan(0);
-      expect(balance.bankAccount.last4).toBe('8892');
-      expect(balance.bankAccount.status).toBe('verified');
-      expect(balance.netCaptureRateBp).toBeGreaterThan(9000); // 90%+
+      expect(balance.availableBalanceCents).toBe(0);
+      expect(balance.pendingPayoutsCents).toBe(0);
+      expect(balance.bankAccount).toBeNull();
     });
 
-    it('loadBankPayoutBatches 返回历史划拨结算流水批次', async () => {
+    it('支付服务商尚未同步时不伪造划拨批次', async () => {
       const batches = await withTenant(tenant, (tx) => loadBankPayoutBatches(tx, ownerCtx));
-      expect(batches.batches.length).toBeGreaterThan(0);
-      expect(batches.batches[0]!.payoutId).toContain('po_');
-      expect(batches.batches[0]!.netCents).toBeGreaterThan(0);
+      expect(batches.batches).toEqual([]);
     });
 
-    it('loadPayrollBatches 与 loadPayrollStub 返回员工工资条明细', async () => {
+    it('未建立真实薪资批次时不生成工资条', async () => {
       const payroll = await withTenant(tenant, (tx) => loadPayrollBatches(tx, ownerCtx));
-      expect(payroll.rows.length).toBeGreaterThan(0);
-      const staff0 = payroll.rows[0]!;
-      expect(staff0.baseSalaryCents).toBeGreaterThan(0);
-      expect(staff0.serviceCommissionCents).toBeGreaterThan(0);
-      expect(staff0.netPayCents).toBeGreaterThan(0);
-
-      const stub = await withTenant(tenant, (tx) => loadPayrollStub(tx, ownerCtx, staff0.membershipId));
-      expect(stub.stub.membershipId).toBe(staff0.membershipId);
-      expect(stub.stub.netPayCents).toBe(staff0.netPayCents);
+      expect(payroll.rows).toEqual([]);
+      await expect(withTenant(tenant, (tx) => loadPayrollStub(tx, ownerCtx, tenant.membershipId!)))
+        .rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
 
-    it('loadClawbacks 返回售后退款提成冲正追溯明细', async () => {
+    it('未建立真实冲正台账时不估算提成冲正', async () => {
       const clawbacks = await withTenant(tenant, (tx) => loadClawbacks(tx, ownerCtx));
-      expect(clawbacks.rows.length).toBeGreaterThan(0);
-      expect(clawbacks.rows[0]!.clawbackCommissionCents).toBeGreaterThan(0);
-      expect(clawbacks.rows[0]!.reason).toBeTruthy();
+      expect(clawbacks.rows).toEqual([]);
     });
   });
 

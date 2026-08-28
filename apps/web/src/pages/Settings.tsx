@@ -73,6 +73,7 @@ import {
   useSaveIntakeWaiver,
   useSaveWebhooks,
 } from '@/features/settings/api';
+import type { QuotaView } from '@/features/billing/types';
 import { useChangePlanMutation, useCreateBillingPortalSession } from '@/features/billing/api';
 import type {
   ServiceItem,
@@ -223,6 +224,14 @@ export function Settings() {
 
   const { data: settings, isLoading, error, refetch } = useDeskSettingsQuery();
   const { data: billing } = useDeskBillingQuery();
+  const voiceQuota = billing?.quotas.find((quota: QuotaView) => quota.unit === 'voice_minute');
+  const creditQuota = billing?.quotas.find((quota: QuotaView) => quota.unit === 'credit');
+  const voiceUsagePercent = voiceQuota && voiceQuota.included.total > 0
+    ? Math.min(100, Math.round((voiceQuota.included.used / voiceQuota.included.total) * 100))
+    : 0;
+  const creditUsagePercent = creditQuota && creditQuota.included.total > 0
+    ? Math.min(100, Math.round((creditQuota.included.used / creditQuota.included.total) * 100))
+    : 0;
 
   // Mutations
   const saveLocationMutation = useSaveLocationProfile();
@@ -244,17 +253,17 @@ export function Settings() {
   const createPortalMutation = useCreateBillingPortalSession();
 
   // 1. 门店品牌档案
-  const [storeName, setStoreName] = useState('Lotus Spa & Beauty Wellness');
-  const [storeSlug, setStoreSlug] = useState('lotus-spa-nyc');
+  const [storeName, setStoreName] = useState('');
+  const [storeSlug, setStoreSlug] = useState('');
   const [storeAvatarPresetId, setStoreAvatarPresetId] = useState('store-1');
   const [storeThemeId, setStoreThemeId] = useState('theme-teal');
   const [customStoreLogoUrl, setCustomStoreLogoUrl] = useState('');
-  const [storePhone, setStorePhone] = useState('+1 (212) 580-8888');
-  const [storeEmail, setStoreEmail] = useState('contact@lotusspanyc.com');
-  const [storeAddressStreet, setStoreAddressStreet] = useState('128 E 56th St, Suite 4B');
-  const [storeCity, setStoreCity] = useState('New York');
-  const [storeState, setStoreState] = useState('NY');
-  const [storeZip, setStoreZip] = useState('10022');
+  const [storePhone, setStorePhone] = useState('');
+  const [storeEmail, setStoreEmail] = useState('');
+  const [storeAddressStreet, setStoreAddressStreet] = useState('');
+  const [storeCity, setStoreCity] = useState('');
+  const [storeState, setStoreState] = useState('');
+  const [storeZip, setStoreZip] = useState('');
   const [businessType, setBusinessType] = useState<'nail' | 'massage' | 'foot_spa' | 'lash' | 'scalp' | 'hair' | 'mixed'>('mixed');
   const [storeTimezone, setStoreTimezone] = useState('America/New_York');
   const [storeCutoff, setStoreCutoff] = useState('03:00');
@@ -273,34 +282,28 @@ export function Settings() {
   const [businessHours, setBusinessHours] = useState<
     Record<string, { open: string; close: string } | null>
   >({
-    mon: { open: '09:30', close: '19:30' },
-    tue: { open: '09:30', close: '19:30' },
-    wed: { open: '09:30', close: '19:30' },
-    thu: { open: '09:30', close: '19:30' },
-    fri: { open: '09:30', close: '20:00' },
-    sat: { open: '10:00', close: '20:00' },
-    sun: { open: '10:00', close: '18:30' },
+    mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null,
   });
 
   // 3. 收银与小费偏好
-  const [taxRate, setTaxRate] = useState('8.875');
+  const [taxRate, setTaxRate] = useState('0');
   const [taxMode, setTaxMode] = useState<'exclusive' | 'inclusive'>('exclusive');
-  const [tipPresets, setTipPresets] = useState(['15', '18', '20', '25']);
-  const [allowCustomTip, setAllowCustomTip] = useState(true);
-  const [cashDrawerFloat, setCashDrawerFloat] = useState('200.00');
-  const [receiptFooter, setReceiptFooter] = useState('Thank you for visiting! Enjoy 10% off package reloads within 7 days · WiFi: LotusGuest / Pass: lotus2026');
-  const [autoPrintReceipt, setAutoPrintReceipt] = useState(true);
-  const [autoSendSmsReceipt, setAutoSendSmsReceipt] = useState(true);
+  const [tipPresets, setTipPresets] = useState<string[]>([]);
+  const [allowCustomTip, setAllowCustomTip] = useState(false);
+  const [cashDrawerFloat, setCashDrawerFloat] = useState('0.00');
+  const [receiptFooter, setReceiptFooter] = useState('');
+  const [autoPrintReceipt, setAutoPrintReceipt] = useState(false);
+  const [autoSendSmsReceipt, setAutoSendSmsReceipt] = useState(false);
 
   // 4. 在线预约与排班规则
-  const [onlineEnabled, setOnlineEnabled] = useState(true);
-  const [maxDaysAhead, setMaxDaysAhead] = useState('60');
-  const [minMinutesAhead, setMinMinutesAhead] = useState('120');
-  const [cancelCutoffHours, setCancelCutoffHours] = useState('4');
+  const [onlineEnabled, setOnlineEnabled] = useState(false);
+  const [maxDaysAhead, setMaxDaysAhead] = useState('0');
+  const [minMinutesAhead, setMinMinutesAhead] = useState('0');
+  const [cancelCutoffHours, setCancelCutoffHours] = useState('0');
   const [slotInterval, setSlotInterval] = useState<'15' | '30' | '60'>('30');
   const [requireDeposit, setRequireDeposit] = useState(false);
-  const [depositAmount, setDepositAmount] = useState('20.00');
-  const [allowPickStaff, setAllowPickStaff] = useState(true);
+  const [depositAmount, setDepositAmount] = useState('0.00');
+  const [allowPickStaff, setAllowPickStaff] = useState(false);
 
   // 5. 服务目录表单
   const [serviceSearch, setServiceSearch] = useState('');
@@ -328,50 +331,40 @@ export function Settings() {
   const [staffCommissionRate, setStaffCommissionRate] = useState('50');
 
   // 7. AI 电话助手
-  const [greetingPrompt, setGreetingPrompt] = useState(
-    'Hello! Thank you for calling Lotus Spa & Wellness. I am your AI receptionist. Would you like to book an appointment, or inquire about our services and hours?',
-  );
-  const [forwardPhone, setForwardPhone] = useState('+1 (212) 555-0199');
-  const [autoBookEnabled, setAutoBookEnabled] = useState(true);
+  const [greetingPrompt, setGreetingPrompt] = useState('');
+  const [forwardPhone, setForwardPhone] = useState('');
+  const [autoBookEnabled, setAutoBookEnabled] = useState(false);
   const [voiceTone, setVoiceTone] = useState<'warm' | 'professional' | 'concise'>('warm');
-  const [afterHoursVoicemail, setAfterHoursVoicemail] = useState(true);
+  const [afterHoursVoicemail, setAfterHoursVoicemail] = useState(false);
   const greetingTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // 8. 10DLC 资质代办
-  const [tenDlcStatus, setTenDlcStatus] = useState<'not_submitted' | 'pending_review' | 'approved' | 'rejected'>('pending_review');
-  const [legalName, setLegalName] = useState('Lotus Spa & Wellness LLC');
-  const [ein, setEin] = useState('12-3456789');
+  const [tenDlcStatus, setTenDlcStatus] = useState<'not_submitted' | 'pending_review' | 'approved' | 'rejected'>('not_submitted');
+  const [legalName, setLegalName] = useState('');
+  const [ein, setEin] = useState('');
   const [businessStructure, setBusinessStructure] = useState<'llc' | 'corp' | 'sole_prop' | 'partnership'>('llc');
-  const [regAddress, setRegAddress] = useState('128 E 56th St, New York, NY 10022');
-  const [repName, setRepName] = useState('Emily Zhang');
-  const [repTitle, setRepTitle] = useState('Store Owner / General Manager');
-  const [repEmail, setRepEmail] = useState('owner@lotusspanyc.com');
-  const [repPhone, setRepPhone] = useState('+1 (212) 580-8888');
-  const [sampleMsg1, setSampleMsg1] = useState(
-    'Lotus Spa: Hi {Name}, your appointment on {Date} at {Time} with Lisa is confirmed. Reply C to confirm or STOP to cancel.',
-  );
-  const [sampleMsg2, setSampleMsg2] = useState(
-    'Lotus Spa: Reminder of your massage appointment tomorrow at {Time}. Free parking behind store. Reply STOP to opt out.',
-  );
-  const [optInMethod, setOptInMethod] = useState(
-    '顾客在官网在线预约页面勾选知情同意复选框，或在大堂 iPad 电子签到表中签署授权。',
-  );
+  const [regAddress, setRegAddress] = useState('');
+  const [repName, setRepName] = useState('');
+  const [repTitle, setRepTitle] = useState('');
+  const [repEmail, setRepEmail] = useState('');
+  const [repPhone, setRepPhone] = useState('');
+  const [sampleMsg1, setSampleMsg1] = useState('');
+  const [sampleMsg2, setSampleMsg2] = useState('');
+  const [optInMethod, setOptInMethod] = useState('');
 
   // 9. 硬件与副屏
-  const [deviceLabel, setDeviceLabel] = useState('大堂迎宾 iPad Kiosk 1');
+  const [deviceLabel, setDeviceLabel] = useState('');
   const [issuedTokenResult, setIssuedTokenResult] = useState<{ token: string; label: string } | null>(null);
   const [requireSignature, setRequireSignature] = useState(true);
   const [requireHealthAllergies, setRequireHealthAllergies] = useState(true);
   const [requirePressurePreference, setRequirePressurePreference] = useState(true);
-  const [waiverTitle, setWaiverTitle] = useState('顾客服务知情同意书与健康声明');
-  const [waiverContent, setWaiverContent] = useState(
-    '本人确认已如实告知自身健康状况及过敏史。本人知晓本店理疗项目不能替代专业医疗诊断，在服务过程中如有任何不适将立即告知技师。',
-  );
+  const [waiverTitle, setWaiverTitle] = useState('');
+  const [waiverContent, setWaiverContent] = useState('');
 
   // 10. 网站插件与 API (CORS, Webhooks)
   const [newOriginUrl, setNewOriginUrl] = useState('');
   const [copiedKey, setCopiedKey] = useState(false);
-  const [webhookUrl, setWebhookUrl] = useState('https://api.mybrand.com/webhooks/gf-events');
+  const [webhookUrl, setWebhookUrl] = useState('');
   const [webhookEvents, setWebhookEvents] = useState({
     bookingCreated: true,
     bookingCancelled: true,
@@ -399,16 +392,16 @@ export function Settings() {
   useEffect(() => {
     if (settings) {
       if (settings.location) {
-        if (settings.location.name) setStoreName(settings.location.name);
-        if (settings.location.slug) setStoreSlug(settings.location.slug);
+        setStoreName(settings.location.name ?? '');
+        setStoreSlug(settings.location.slug ?? '');
         if (settings.location.timezone) setStoreTimezone(settings.location.timezone);
         if (settings.location.businessType) setBusinessType(settings.location.businessType as any);
-        if (settings.location.phone) setStorePhone(settings.location.phone);
-        if (settings.location.email) setStoreEmail(settings.location.email);
-        if (settings.location.addressStreet) setStoreAddressStreet(settings.location.addressStreet);
-        if (settings.location.addressCity) setStoreCity(settings.location.addressCity);
-        if (settings.location.addressState) setStoreState(settings.location.addressState);
-        if (settings.location.addressZip) setStoreZip(settings.location.addressZip);
+        setStorePhone(settings.location.phone ?? '');
+        setStoreEmail(settings.location.email ?? '');
+        setStoreAddressStreet(settings.location.addressStreet ?? '');
+        setStoreCity(settings.location.addressCity ?? '');
+        setStoreState(settings.location.addressState ?? '');
+        setStoreZip(settings.location.addressZip ?? '');
         if (settings.location.businessDayCutoff) setStoreCutoff(settings.location.businessDayCutoff);
         if (settings.location.businessHours) {
           setBusinessHours(settings.location.businessHours as any);
@@ -417,22 +410,20 @@ export function Settings() {
       if (settings.checkout) {
         if (settings.checkout.salesTaxRatePercent !== undefined) setTaxRate(String(settings.checkout.salesTaxRatePercent));
         if (settings.checkout.taxCalculationMode) setTaxMode(settings.checkout.taxCalculationMode);
-        if (settings.checkout.suggestedTipPercentages) {
-          setTipPresets(settings.checkout.suggestedTipPercentages.map(String));
-        }
+        setTipPresets((settings.checkout.suggestedTipPercentages ?? []).map(String));
         if (settings.checkout.allowCustomTip !== undefined) setAllowCustomTip(settings.checkout.allowCustomTip);
         if (settings.checkout.defaultCashFloatCents !== undefined) {
           setCashDrawerFloat(centsToDollars(settings.checkout.defaultCashFloatCents));
         }
-        if (settings.checkout.receiptFooterMessage) setReceiptFooter(settings.checkout.receiptFooterMessage);
+        setReceiptFooter(settings.checkout.receiptFooterMessage ?? '');
         if (settings.checkout.autoPrintReceipt !== undefined) setAutoPrintReceipt(settings.checkout.autoPrintReceipt);
         if (settings.checkout.autoSendSmsReceipt !== undefined) setAutoSendSmsReceipt(settings.checkout.autoSendSmsReceipt);
       }
       if (settings.guest?.onlineBooking) {
         setOnlineEnabled(Boolean(settings.guest.onlineBooking.enabled));
-        setMaxDaysAhead(String(settings.guest.onlineBooking.maxDaysAhead ?? 60));
-        setMinMinutesAhead(String(settings.guest.onlineBooking.minMinutesAhead ?? 120));
-        setCancelCutoffHours(String(settings.guest.onlineBooking.cancelCutoffHours ?? 4));
+        setMaxDaysAhead(String(settings.guest.onlineBooking.maxDaysAhead ?? 0));
+        setMinMinutesAhead(String(settings.guest.onlineBooking.minMinutesAhead ?? 0));
+        setCancelCutoffHours(String(settings.guest.onlineBooking.cancelCutoffHours ?? 0));
         if (settings.guest.onlineBooking.slotIntervalMinutes) {
           setSlotInterval(String(settings.guest.onlineBooking.slotIntervalMinutes) as any);
         }
@@ -447,31 +438,29 @@ export function Settings() {
         }
       }
       if (settings.phoneAssistant) {
-        if (settings.phoneAssistant.greetingPrompt) setGreetingPrompt(settings.phoneAssistant.greetingPrompt);
-        if (settings.phoneAssistant.forwardPhoneNumber) setForwardPhone(settings.phoneAssistant.forwardPhoneNumber);
+        setGreetingPrompt(settings.phoneAssistant.greetingPrompt ?? '');
+        setForwardPhone(settings.phoneAssistant.forwardPhoneNumber ?? '');
         if (settings.phoneAssistant.autoBookEnabled !== undefined) setAutoBookEnabled(settings.phoneAssistant.autoBookEnabled);
         if (settings.phoneAssistant.voiceTone) setVoiceTone(settings.phoneAssistant.voiceTone as any);
         if (settings.phoneAssistant.afterHoursVoicemail !== undefined) setAfterHoursVoicemail(settings.phoneAssistant.afterHoursVoicemail);
       }
       if (settings.tenDlc) {
         if (settings.tenDlc.status) setTenDlcStatus(settings.tenDlc.status);
-        if (settings.tenDlc.legalBusinessName) setLegalName(settings.tenDlc.legalBusinessName);
-        if (settings.tenDlc.ein) setEin(settings.tenDlc.ein);
+        setLegalName(settings.tenDlc.legalBusinessName ?? '');
+        setEin(settings.tenDlc.ein ?? '');
         if (settings.tenDlc.businessStructure) setBusinessStructure(settings.tenDlc.businessStructure as any);
-        if (settings.tenDlc.registeredAddress) setRegAddress(settings.tenDlc.registeredAddress);
-        if (settings.tenDlc.repName) setRepName(settings.tenDlc.repName);
-        if (settings.tenDlc.repTitle) setRepTitle(settings.tenDlc.repTitle);
-        if (settings.tenDlc.repEmail) setRepEmail(settings.tenDlc.repEmail);
-        if (settings.tenDlc.repPhone) setRepPhone(settings.tenDlc.repPhone);
-        if (settings.tenDlc.optInMethod) setOptInMethod(settings.tenDlc.optInMethod);
-        if (settings.tenDlc.sampleMessages && settings.tenDlc.sampleMessages.length > 0) {
-          setSampleMsg1(settings.tenDlc.sampleMessages[0] || '');
-          if (settings.tenDlc.sampleMessages[1]) setSampleMsg2(settings.tenDlc.sampleMessages[1]);
-        }
+        setRegAddress(settings.tenDlc.registeredAddress ?? '');
+        setRepName(settings.tenDlc.repName ?? '');
+        setRepTitle(settings.tenDlc.repTitle ?? '');
+        setRepEmail(settings.tenDlc.repEmail ?? '');
+        setRepPhone(settings.tenDlc.repPhone ?? '');
+        setOptInMethod(settings.tenDlc.optInMethod ?? '');
+        setSampleMsg1(settings.tenDlc.sampleMessages?.[0] ?? '');
+        setSampleMsg2(settings.tenDlc.sampleMessages?.[1] ?? '');
       }
       if (settings.intakeWaiver) {
-        if (settings.intakeWaiver.waiverTitle) setWaiverTitle(settings.intakeWaiver.waiverTitle);
-        if (settings.intakeWaiver.waiverContent) setWaiverContent(settings.intakeWaiver.waiverContent);
+        setWaiverTitle(settings.intakeWaiver.waiverTitle ?? '');
+        setWaiverContent(settings.intakeWaiver.waiverContent ?? '');
         if (settings.intakeWaiver.requireSignature !== undefined) setRequireSignature(settings.intakeWaiver.requireSignature);
         if (settings.intakeWaiver.requireHealthAllergies !== undefined) setRequireHealthAllergies(settings.intakeWaiver.requireHealthAllergies);
         if (settings.intakeWaiver.requirePressurePreference !== undefined) setRequirePressurePreference(settings.intakeWaiver.requirePressurePreference);
@@ -2587,10 +2576,12 @@ export function Settings() {
                           
                           {t('settings.stVoiceMinutes')}
                         </span>
-                        <span className="text-xs font-mono font-bold text-teal-700">{t('settings.stVoiceMinutesValue')}</span>
+                        <span className="text-xs font-mono font-bold text-teal-700">
+                          {voiceQuota ? `${voiceQuota.included.used} / ${voiceQuota.included.total}` : '—'}
+                        </span>
                       </div>
                       <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
-                        <div className="h-full bg-teal-600 rounded-full" style={{ width: '38.2%' }} />
+                        <div className="h-full bg-teal-600 rounded-full" style={{ width: `${voiceUsagePercent}%` }} />
                       </div>
                       <p className="text-[11px] text-slate-400">
                         
@@ -2605,10 +2596,12 @@ export function Settings() {
                           
                           {t('settings.stAiTokens')}
                         </span>
-                        <span className="text-xs font-mono font-bold text-purple-700">82.4k / 200k (41%)</span>
+                        <span className="text-xs font-mono font-bold text-purple-700">
+                          {creditQuota ? `${creditQuota.included.used} / ${creditQuota.included.total} (${creditUsagePercent}%)` : '—'}
+                        </span>
                       </div>
                       <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
-                        <div className="h-full bg-purple-600 rounded-full" style={{ width: '41.2%' }} />
+                        <div className="h-full bg-purple-600 rounded-full" style={{ width: `${creditUsagePercent}%` }} />
                       </div>
                       <p className="text-[11px] text-slate-400">
                         

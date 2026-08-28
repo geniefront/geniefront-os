@@ -5,9 +5,9 @@ export interface MerchantBalanceResponse {
     bankName: string;
     last4: string;
     status: 'verified' | 'pending';
-  };
-  payoutSchedule: 'daily' | 'weekly' | 'manual';
-  nextPayoutEstimatedAt: string;
+  } | null;
+  payoutSchedule: 'daily' | 'weekly' | 'manual' | null;
+  nextPayoutEstimatedAt: string | null;
   monthlyGmvCents: number;
   processingFeeCents: number;
   netCaptureRateBp: number;

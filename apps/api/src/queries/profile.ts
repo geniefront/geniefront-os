@@ -3,7 +3,7 @@
  */
 
 import type postgres from 'postgres';
-import { type CommandContext, pickText } from '@gf/contracts';
+import { AppError, ERROR_CODES, type CommandContext, pickText } from '@gf/contracts';
 
 export interface UserProfileDto {
   userId: string;
@@ -64,6 +64,11 @@ export async function loadUserProfile(
   ctx: CommandContext,
 ): Promise<UserProfileDto> {
   const userId = await resolveUserId(tx, ctx);
+  if (!userId) {
+    throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+      details: { reason: 'Missing authenticated user context' },
+    });
+  }
 
   // 1. 查询用户表
   const [user] = await tx<{
@@ -81,7 +86,13 @@ export async function loadUserProfile(
     select id, email, phone, full_name, nickname, avatar_url,
            locale, timezone, bio, created_at::text as created_at
     from users
-    where id = ${userId ?? '00000000-0000-0000-0000-000000000000'}`;
+    where id = ${userId}`;
+
+  if (!user) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, {
+      details: { entity: 'user', id: userId },
+    });
+  }
 
   // 2. 查询当前 membership 的 staff_profile 与 staff_level
   let staffInfo: UserProfileDto['staffInfo'] = undefined;
@@ -96,14 +107,20 @@ export async function loadUserProfile(
       skills: string[] | null;
       is_bookable: boolean;
       max_concurrent_appointments: number;
+      in_rotation: boolean;
       pin_hash: string | null;
     }[]>`
       select sp.membership_id, sp.display_name, sp.nickname,
              sp.employee_no, sp.job_title, sl.name as level_name,
              sp.skills, sp.is_bookable, sp.max_concurrent_appointments,
+             coalesce(rp.in_rotation, false) as in_rotation,
              sp.pin_hash
       from staff_profiles sp
       left join staff_levels sl on sl.id = sp.level_id
+      left join rotation_participants rp
+        on rp.membership_id = sp.membership_id
+       and rp.location_id = ${ctx.locationId}
+       and rp.business_date = current_date
       where sp.membership_id = ${ctx.membershipId}`;
 
     if (sp) {
@@ -112,29 +129,26 @@ export async function loadUserProfile(
         employeeNo: sp.employee_no || undefined,
         jobTitle: sp.job_title || undefined,
         levelName: sp.level_name ? pickText(sp.level_name, ctx.locale) : undefined,
-        skills: sp.skills ?? ['日式光疗美甲', '手足精油SPA', '前台店务调度', 'VIP客户服务'],
-        isBookable: sp.is_bookable ?? true,
-        maxConcurrentAppointments: sp.max_concurrent_appointments ?? 2,
-        inRotation: true,
+        skills: sp.skills ?? [],
+        isBookable: sp.is_bookable,
+        maxConcurrentAppointments: sp.max_concurrent_appointments,
+        inRotation: sp.in_rotation,
         hasPin: Boolean(sp.pin_hash),
       };
     }
   }
 
-  const email = user?.email ?? 'owner@lotusspanyc.com';
-  const defaultName = email.split('@')[0] || 'User';
-
   return {
-    userId: user?.id ?? userId ?? 'usr_current',
-    email,
-    fullName: user?.full_name ?? defaultName,
-    nickname: user?.nickname ?? staffInfo?.employeeNo ?? defaultName,
-    phone: user?.phone ?? '+1 (555) 019-2834',
-    avatarUrl: user?.avatar_url ?? '',
-    locale: user?.locale ?? ctx.locale ?? 'zh',
-    timezone: user?.timezone ?? 'America/New_York',
-    bio: user?.bio ?? '前台运营及门店管理负责人 · 专注于极致客户体验与高效店务调度',
-    createdAt: user?.created_at ?? new Date().toISOString(),
+    userId: user.id,
+    email: user.email ?? '',
+    fullName: user.full_name ?? '',
+    nickname: user.nickname ?? '',
+    phone: user.phone ?? '',
+    avatarUrl: user.avatar_url ?? '',
+    locale: user.locale ?? ctx.locale,
+    timezone: user.timezone ?? ctx.timezone,
+    bio: user.bio ?? '',
+    createdAt: user.created_at,
     staffInfo,
   };
 }
@@ -142,23 +156,10 @@ export async function loadUserProfile(
 export async function loadUserSessions(
   tx: postgres.TransactionSql,
   ctx: CommandContext,
-  currentIp?: string,
+  _currentIp?: string,
 ): Promise<UserSessionItemDto[]> {
   const userId = await resolveUserId(tx, ctx);
-  if (!userId) {
-    return [
-      {
-        id: 'sess_current',
-        deviceLabel: 'Apple MacBook Pro (macOS 15.3)',
-        browser: 'Google Chrome 133.0',
-        os: 'macOS Sequoia',
-        ipAddress: currentIp || '127.0.0.1',
-        lastActiveAt: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-        isCurrent: true,
-      },
-    ];
-  }
+  if (!userId) return [];
 
   const rows = await tx<{
     id: string;
@@ -176,30 +177,15 @@ export async function loadUserSessions(
     where user_id = ${userId} and is_active = true
     order by last_active_at desc`;
 
-  if (rows.length === 0) {
-    return [
-      {
-        id: 'sess_current',
-        deviceLabel: 'Apple MacBook Pro (macOS 15.3)',
-        browser: 'Google Chrome 133.0',
-        os: 'macOS Sequoia',
-        ipAddress: currentIp || '127.0.0.1',
-        lastActiveAt: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-        isCurrent: true,
-      },
-    ];
-  }
-
-  return rows.map((r, idx) => ({
+  return rows.map((r) => ({
     id: r.id,
     deviceLabel: r.device_label,
-    browser: r.browser || 'Chrome / Web App',
-    os: r.os || 'macOS',
+    browser: r.browser ?? '',
+    os: r.os ?? '',
     ipAddress: r.ip_address || undefined,
     lastActiveAt: r.last_active_at,
     createdAt: r.created_at,
-    isCurrent: idx === 0,
+    isCurrent: false,
   }));
 }
 
