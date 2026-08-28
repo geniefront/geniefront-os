@@ -3,6 +3,13 @@
   "tasks": {
     "build": { "dependsOn": ["^build"], "outputs": ["dist/**"] },
     "typecheck": { "dependsOn": ["^build"] },
-    "test": { "dependsOn": ["^build"] }
+    "test": {
+      "dependsOn": ["^build"],
+      "env": [
+        "DATABASE_TEST_TARGET", "TEST_DATABASE_URL", "TEST_MIGRATION_DATABASE_URL",
+        "TEST_APP_DB_PASSWORD", "NODE_ENV", "SUPABASE_URL", "SUPABASE_ANON_KEY",
+        "APP_JWT_SECRET", "SEED_SKIP_AUTH"
+      ]
+    }
   }
 }

@@ -370,13 +370,34 @@ describe('⭐ 打烊日结', () => {
     const d = await today();
 
     await run('dayclose.saveCount', { businessDate: d, breakdown: {}, countedCashCents: 0 }, ctx);
-    await run('dayclose.finalize', { businessDate: d, force: true }, ctx);
+    const finalized = await Promise.all([
+      run('dayclose.finalize', { businessDate: d, force: true }, ctx),
+      run('dayclose.finalize', { businessDate: d, force: true }, ctx),
+    ]);
+    expect(finalized[0]).toEqual(finalized[1]);
+    const [closedHistory] = await withTenant(tenant, (tx) => tx<{ count: number; snapshot: unknown }[]>`
+      select count(*)::int as count, max(snapshot::text)::jsonb as snapshot
+      from day_close_events where day_close_id = (
+        select id from day_closes where location_id = ${SPA_LOC} and business_date = ${d}
+      )
+        and event_type = 'closed'`);
+    expect(closedHistory!.count).toBe(1);
+    await expect(withTenant(tenant, (tx) => tx`
+      update day_close_events set reason = 'tamper' where day_close_id = (
+        select id from day_closes where location_id = ${SPA_LOC} and business_date = ${d}
+      )`)).rejects.toBeTruthy();
 
     await expect(openTicket(ctx, '封账后开单'))
       .rejects.toMatchObject({ code: 'DAY_ALREADY_CLOSED' });
 
     // 封错了要能开回来，但必须给原因
     await run('dayclose.reopen', { businessDate: d, reason: '漏了一单现金' }, ctx);
+    const [historyAfterReopen] = await withTenant(tenant, (tx) => tx<{ count: number }[]>`
+      select count(*)::int as count from day_close_events
+      where day_close_id = (
+        select id from day_closes where location_id = ${SPA_LOC} and business_date = ${d}
+      )`);
+    expect(historyAfterReopen!.count).toBe(2);
     await expect(openTicket(ctx, '重开后开单')).resolves.toBeTruthy();
   });
 

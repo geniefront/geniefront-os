@@ -64,6 +64,9 @@ jobs:
 
       - run: pnpm typecheck
 
+      - name: 初始化隔离测试库的 Supabase 基础对象
+        run: psql "$TEST_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f packages/db/test/bootstrap-postgres.sql
+
       - name: 建库 + 种子
         run: |
           pnpm db:migrate

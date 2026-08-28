@@ -13,6 +13,7 @@ import { dispatch } from './bus';
 import './handlers/kiosk';
 import './handlers/ticket';
 import './handlers/staff';
+import './handlers/resource';
 import { loadDayMoney } from './handlers/dayclose';
 
 const ORG_ID = '11111111-1111-4111-8111-111111111111';
@@ -110,9 +111,9 @@ afterEach(async () => {
     const credits = await tx<{
       refund_id: string; ticket_id: string; customer_id: string; amount: number;
     }[]>`
-      select tr.id as refund_id, tr.ticket_id, t.customer_id, tr.store_credit_cents as amount
+      select tr.id as refund_id, tr.ticket_id, t.customer_id, tr.customer_credit_cents as amount
       from ticket_refunds tr join tickets t on t.id = tr.ticket_id
-      where t.appointment_id = any(${ids}) and tr.store_credit_cents > 0
+      where t.appointment_id = any(${ids}) and tr.customer_credit_cents > 0
         and tr.method = 'store_credit'
         and t.customer_id is not null
         and not exists (
@@ -174,6 +175,12 @@ describe('预约到收银的真实闭环', () => {
           join roles r on r.id = mr.role_id
           where m.location_id = ${locationId} and m.status = 'active'
             and r.key = ${roleKey} and m.user_id is not null
+            and (${roleKey} <> 'tech' or not exists (
+              select 1 from membership_roles other_mr
+              join roles other_role on other_role.id = other_mr.role_id
+              where other_mr.membership_id = m.id
+                and other_role.key in ('owner','manager','front_desk')
+            ))
           limit 1`,
       );
       return buildContext({ userId: member!.user_id, membershipId: member!.id });
@@ -430,5 +437,95 @@ describe('预约到收银的真实闭环', () => {
     const rows = await withTenant(tenant, (tx) => tx<{ status: string }[]>`
       select status from tickets where appointment_id = ${appointmentId} order by opened_at`);
     expect(rows.map((row) => row.status).sort()).toEqual(['in_service', 'voided']);
+  });
+
+  it('客户储值并发消费只允许一笔成功，余额不会变成负数', async () => {
+    const [customer] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      insert into customers (org_id, display_name, source)
+      values (${ORG_ID}, ${`Credit race ${randomUUID()}`}, 'desk') returning id`);
+    const open = async (suffix: string) => (await run<{
+      ticketId: string; subtotalCents: number;
+    }>('ticket.open', {
+      customerId: customer!.id,
+      items: [{ serviceId, membershipId, minutes: 45 }],
+    }, `credit-open-${suffix}-${randomUUID()}`)).result;
+    const [first, second] = await Promise.all([open('a'), open('b')]);
+    await withTenant(tenant, (tx) => tx`insert into customer_credit_ledger
+      (org_id, location_id, kind, subject_id, customer_id, entry, amount_cents,
+       balance_after_cents, reason, actor_membership_id, idem_key, meta)
+      values (${ORG_ID}, ${LOCATION_ID}, 'store_credit', ${customer!.id}, ${customer!.id},
+              'adjust', ${first.subtotalCents}, ${first.subtotalCents}, 'concurrency test',
+              ${membershipId}, ${`credit-seed-${randomUUID()}`}, '{}'::jsonb)`);
+
+    const close = (ticketId: string, amountCents: number) => dispatch(
+      'ticket.close', { ticketId, payments: [{ method: 'customer_credit', amountCents, tipCents: 0 }] },
+      ctx, { idempotencyKey: randomUUID() },
+    );
+    const results = await Promise.allSettled([
+      close(first.ticketId, first.subtotalCents),
+      close(second.ticketId, second.subtotalCents),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((result) => result.status === 'rejected');
+    expect(rejected).toMatchObject({ reason: { code: 'STORE_CREDIT_INSUFFICIENT' } });
+    const [balance] = await withTenant(tenant, (tx) => tx<{ value: number; minimum: number }[]>`
+      select coalesce(sum(amount_cents), 0)::int as value,
+             min(balance_after_cents)::int as minimum
+      from customer_credit_ledger where customer_id = ${customer!.id} and kind = 'store_credit'`);
+    expect(balance).toEqual({ value: 0, minimum: 0 });
+  });
+
+  it('技师只能写自己被分配的服务备注，房态按开工、完工、清洁事务推进', async () => {
+    const members = await withTenant(tenant, (tx) => tx<{ id: string; user_id: string }[]>`
+      select m.id, m.user_id from memberships m
+      join membership_roles mr on mr.membership_id = m.id
+      join roles r on r.id = mr.role_id
+      where m.location_id = ${LOCATION_ID} and r.key = 'tech' and m.user_id is not null
+        and not exists (
+          select 1 from membership_roles x join roles xr on xr.id = x.role_id
+          where x.membership_id = m.id and xr.key in ('owner','manager','front_desk')
+        ) order by m.id limit 2`);
+    expect(members).toHaveLength(2);
+    const techCtx = await buildContext({ userId: members[0]!.user_id, membershipId: members[0]!.id });
+    const otherCtx = await buildContext({ userId: members[1]!.user_id, membershipId: members[1]!.id });
+    const [resource] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      select id from resources where location_id = ${LOCATION_ID} and capacity = 1
+      order by id limit 1`);
+    await withTenant(tenant, (tx) => tx`update resources set status = 'available' where id = ${resource!.id}`);
+    const opened = (await dispatch<{ ticketId: string; ticketItemIds: string[] }>(
+      'ticket.open', {
+        customerId,
+        items: [{ serviceId, membershipId: members[0]!.id, resourceId: resource!.id, minutes: 45 }],
+      }, ctx, { idempotencyKey: randomUUID() },
+    )).result;
+    const itemId = opened.ticketItemIds[0]!;
+
+    await expect(dispatch('ticket.saveServiceNote', {
+      ticketItemId: itemId, content: 'not mine', visibility: 'assigned_staff',
+      containsSensitiveData: false,
+    }, otherCtx, { idempotencyKey: randomUUID() }))
+      .rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    await dispatch('ticket.saveServiceNote', {
+      ticketItemId: itemId, content: 'pressure level four', visibility: 'assigned_staff',
+      containsSensitiveData: false,
+    }, techCtx, { idempotencyKey: randomUUID() });
+    await dispatch('ticket.startItem', { ticketItemId: itemId }, techCtx,
+      { idempotencyKey: randomUUID() });
+    await expect(withTenant(tenant, (tx) => tx<{ status: string }[]>`
+      select status from resources where id = ${resource!.id}`))
+      .resolves.toEqual([{ status: 'in_use' }]);
+    await dispatch('ticket.finishItem', { ticketItemId: itemId }, techCtx,
+      { idempotencyKey: randomUUID() });
+    await dispatch('resource.beginCleaning', { resourceId: resource!.id }, ctx,
+      { idempotencyKey: randomUUID() });
+    await dispatch('resource.completeCleaning', { resourceId: resource!.id }, ctx,
+      { idempotencyKey: randomUUID() });
+    const [state] = await withTenant(tenant, (tx) => tx<{
+      status: string; occupancy: string; notes: number;
+    }[]>`select r.status,
+        (select status from resource_occupancies where ticket_item_id = ${itemId}) as occupancy,
+        (select count(*)::int from ticket_service_notes where ticket_item_id = ${itemId}) as notes
+      from resources r where r.id = ${resource!.id}`);
+    expect(state).toEqual({ status: 'available', occupancy: 'released', notes: 1 });
   });
 });

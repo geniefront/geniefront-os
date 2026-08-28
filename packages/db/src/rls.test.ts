@@ -141,6 +141,27 @@ describe('宪法第 5 条：新表不许漏开 RLS', () => {
     // 开了 RLS 但没有策略 = 拒绝一切，比泄露安全但同样是 bug
     expect(rows.map((r) => r.relname)).toEqual([]);
   });
+
+  it('anon/authenticated/public 没有 public 业务表权限', async () => {
+    const rows = await sql<{ grantee: string; table_name: string; privilege_type: string }[]>`
+      select grantee, table_name, privilege_type
+      from information_schema.role_table_grants
+      where table_schema = 'public' and grantee in ('anon','authenticated','PUBLIC')
+      order by grantee, table_name, privilege_type`;
+    expect(rows).toEqual([]);
+  });
+
+  it('SECURITY DEFINER 函数都固定了 search_path', async () => {
+    const rows = await sql<{ name: string }[]>`
+      select p.proname as name from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.prosecdef
+        and not exists (
+          select 1 from unnest(coalesce(p.proconfig, '{}'::text[])) setting
+          where setting like 'search_path=%'
+        ) order by p.proname`;
+    expect(rows).toEqual([]);
+  });
 });
 
 describe('宪法第 15 条：约束分层', () => {
