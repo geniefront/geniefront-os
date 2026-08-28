@@ -98,7 +98,7 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   let customerId = input.customerId;
   let walkInName = input.walkInName ?? null;
   let appointmentItemSnapshots: Array<{
-    serviceId: string; durationMin: number; priceCents: number;
+    serviceId: string; durationMin: number; priceCents: number; resourceId: string | null;
   }> | null = null;
   if (input.appointmentId) {
     // Lock the appointment before looking for an existing ticket. Without the lock,
@@ -136,9 +136,9 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
       });
     }
     const appointmentItems = await tx<{
-      service_id: string; duration_min: number; price_cents_snapshot: number;
+      service_id: string; duration_min: number; price_cents_snapshot: number; resource_id: string | null;
     }[]>`
-      select service_id, duration_min, price_cents_snapshot from appointment_items
+      select service_id, duration_min, price_cents_snapshot, resource_id from appointment_items
       where appointment_id = ${appointment.id} and status <> 'cancelled'
       order by seq`;
     const expectedServices = appointmentItems.map((item) => item.service_id);
@@ -153,12 +153,14 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
       serviceId: item.service_id,
       durationMin: item.duration_min,
       priceCents: item.price_cents_snapshot,
+      resourceId: item.resource_id,
     }));
     input.items.forEach((item, index) => {
       const snapshot = appointmentItemSnapshots![index]!;
       if ((item.minutes !== undefined && item.minutes !== snapshot.durationMin)
         || (item.priceCentsOverride !== undefined
-          && item.priceCentsOverride !== snapshot.priceCents)) {
+          && item.priceCentsOverride !== snapshot.priceCents)
+        || (item.resourceId !== undefined && item.resourceId !== snapshot.resourceId)) {
         throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
           details: { reason: 'appointment_snapshot_mismatch', itemIndex: index },
         });
@@ -198,6 +200,17 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff' } });
   }
 
+  const resourceIds = [...new Set(input.items
+    .map((item, index) => appointmentItemSnapshots?.[index]?.resourceId ?? item.resourceId)
+    .filter((id): id is string => Boolean(id)))];
+  if (resourceIds.length > 0) {
+    const validResources = await tx<{ id: string }[]>`
+      select id from resources where location_id = ${ctx.locationId} and id = any(${resourceIds})`;
+    if (validResources.length !== resourceIds.length) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'resource' } });
+    }
+  }
+
   const [ticket] = await tx<{ id: string }[]>`
     insert into tickets
       (org_id, location_id, business_date, customer_id, walk_in_name, appointment_id,
@@ -214,13 +227,14 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     const snapshot = appointmentItemSnapshots?.[seq];
     const price = snapshot?.priceCents ?? it.priceCentsOverride ?? svc.base_price_cents;
     const mins = snapshot?.durationMin ?? it.minutes ?? svc.duration_min;
+    const resourceId = snapshot?.resourceId ?? it.resourceId ?? null;
 
     const [item] = await tx<{ id: string }[]>`
       insert into ticket_items
         (org_id, location_id, ticket_id, kind, service_id, name_snapshot,
-         qty, unit_price_cents, total_cents, duration_min, seq)
+         qty, unit_price_cents, total_cents, duration_min, resource_id, seq)
       values (${ctx.orgId}, ${ctx.locationId}, ${ticket!.id}, 'service', ${it.serviceId},
-              ${pickText(svc.name, ctx.locale)}, 1, ${price}, ${price}, ${mins}, ${seq})
+              ${pickText(svc.name, ctx.locale)}, 1, ${price}, ${price}, ${mins}, ${resourceId}, ${seq})
       returning id`;
     ticketItemIds.push(item!.id);
 
@@ -270,6 +284,12 @@ registerHandler(TicketAddItem, async ({ input, ctx, tx, audit, emit }: HandlerAr
       and is_bookable = true`;
   if (!staff) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff' } });
 
+  if (input.resourceId) {
+    const [resource] = await tx<{ id: string }[]>`
+      select id from resources where id = ${input.resourceId} and location_id = ${ctx.locationId}`;
+    if (!resource) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'resource' } });
+  }
+
   const price = input.priceCentsOverride ?? svc.base_price_cents;
   const mins = input.minutes ?? svc.duration_min;
 
@@ -279,9 +299,9 @@ registerHandler(TicketAddItem, async ({ input, ctx, tx, audit, emit }: HandlerAr
   const [item] = await tx<{ id: string }[]>`
     insert into ticket_items
       (org_id, location_id, ticket_id, kind, service_id, name_snapshot,
-       qty, unit_price_cents, total_cents, duration_min, seq)
+       qty, unit_price_cents, total_cents, duration_min, resource_id, seq)
     values (${ctx.orgId}, ${ctx.locationId}, ${input.ticketId}, ${input.kind},
-            ${input.serviceId}, ${pickText(svc.name, ctx.locale)}, 1, ${price}, ${price}, ${mins},
+            ${input.serviceId}, ${pickText(svc.name, ctx.locale)}, 1, ${price}, ${price}, ${mins}, ${input.resourceId ?? null},
             ${(maxSeq?.n ?? -1) + 1})
     returning id`;
 
@@ -304,6 +324,7 @@ interface TicketForClose {
   subtotalCents: number;
   businessDate: string;
   groupId: string | null;
+  customerId: string | null;
 }
 
 async function loadTicketForClose(
@@ -311,9 +332,10 @@ async function loadTicketForClose(
 ): Promise<TicketForClose> {
   const [t] = await tx<{
     id: string; status: string; subtotal: number; business_date: string; group_id: string | null;
+    customer_id: string | null;
   }[]>`
     select id, status, subtotal_cents as subtotal,
-           business_date::text as business_date, group_id
+           business_date::text as business_date, group_id, customer_id
     from tickets where id = ${ticketId}`;
   if (!t) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket', ticketId } });
   if (t.status === 'closed' || t.status === 'voided') {
@@ -321,13 +343,13 @@ async function loadTicketForClose(
   }
   return {
     id: t.id, subtotalCents: t.subtotal,
-    businessDate: t.business_date, groupId: t.group_id,
+    businessDate: t.business_date, groupId: t.group_id, customerId: t.customer_id,
   };
 }
 
 /** 结账用到的收款行。amountCents 含小费 —— 与刷卡机小票上的数一致 */
 interface PaymentIn {
-  method: 'cash' | 'card' | 'external' | 'gift_card';
+  method: 'cash' | 'card' | 'external' | 'gift_card' | 'customer_credit';
   amountCents: number;
   tipCents: number;
   tenderedCents?: number | undefined;
@@ -516,6 +538,40 @@ async function closeOneTicket(args: {
     giftCardCommissionCut += r.appliedCents - r.commissionBaseCents;
   }
 
+  const customerCreditCents = payments
+    .filter((p) => p.method === 'customer_credit')
+    .reduce((sum, p) => sum + p.amountCents, 0);
+  if (customerCreditCents > 0) {
+    if (!ticket.customerId) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'customer_credit_requires_ticket_customer' },
+      });
+    }
+    const [customer] = await tx<{ id: string }[]>`
+      select id from customers where id = ${ticket.customerId} for update`;
+    if (!customer) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'customer' } });
+    const [balance] = await tx<{ value: number }[]>`
+      select coalesce(sum(amount_cents), 0)::int as value
+      from customer_credit_ledger
+      where kind = 'store_credit' and customer_id = ${ticket.customerId}`;
+    const current = balance?.value ?? 0;
+    if (current < customerCreditCents) {
+      throw new AppError(ERROR_CODES.STORE_CREDIT_INSUFFICIENT, {
+        details: { customerId: ticket.customerId, availableCents: current,
+                   requestedCents: customerCreditCents },
+      });
+    }
+    await tx`insert into customer_credit_ledger
+      (org_id, location_id, kind, subject_id, customer_id, entry,
+       amount_cents, balance_after_cents, ticket_id, reason,
+       actor_membership_id, idem_key, meta)
+      values (${ctx.orgId}, ${ctx.locationId}, 'store_credit', ${ticket.customerId},
+              ${ticket.customerId}, 'redeem', ${-customerCreditCents},
+              ${current - customerCreditCents}, ${ticket.id}, 'ticket_payment',
+              ${ctx.membershipId}, ${`ticket-credit-use-${ticket.id}`},
+              ${jsonb({ paymentMethod: 'customer_credit' })}::jsonb)`;
+  }
+
   // ── 提成落账 ──────────────────────────────────────────────────────────────
   const earnings = await writeCommissionEarnings({
     tx, ctx, ticketId: ticket.id, businessDate: ticket.businessDate,
@@ -635,7 +691,7 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
 
   const [already] = await tx<{
     service: number; tax: number; fee: number; tip: number;
-    original_cash: number; original_card: number; original_store: number;
+    original_cash: number; original_card: number; original_gift: number; original_credit: number;
   }[]>`
     select
       coalesce(sum(service_cents), 0)::int as service,
@@ -644,7 +700,8 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
       coalesce(sum(tip_cents), 0)::int as tip,
       coalesce(sum(cash_cents) filter (where method = 'original_payment'), 0)::int as original_cash,
       coalesce(sum(card_cents) filter (where method = 'original_payment'), 0)::int as original_card,
-      coalesce(sum(store_credit_cents) filter (where method = 'original_payment'), 0)::int as original_store
+      coalesce(sum(gift_card_cents) filter (where method = 'original_payment'), 0)::int as original_gift,
+      coalesce(sum(customer_credit_cents) filter (where method = 'original_payment'), 0)::int as original_credit
     from ticket_refunds where ticket_id = ${t.id}`;
 
   const serviceTotal = Math.max(0, t.subtotal_cents - t.discount_cents);
@@ -664,47 +721,50 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
 
   let cashCents = 0;
   let cardCents = 0;
-  let storeCreditCents = 0;
+  let giftCardCents = 0;
+  let customerCreditCents = 0;
   if (input.refundMethod === 'cash') {
     cashCents = input.refundAmountCents;
   } else if (input.refundMethod === 'store_credit') {
-    storeCreditCents = input.refundAmountCents;
+    customerCreditCents = input.refundAmountCents;
   } else {
-    const [paid] = await tx<{ cash: number; card: number; store: number }[]>`
+    const [paid] = await tx<{ cash: number; card: number; gift: number; credit: number }[]>`
       select
         coalesce(sum(amount_cents) filter (where method = 'cash'), 0)::int as cash,
         coalesce(sum(amount_cents) filter (where method in ('card','external')), 0)::int as card,
-        coalesce(sum(amount_cents) filter (where method = 'gift_card'), 0)::int as store
+        coalesce(sum(amount_cents) filter (where method = 'gift_card'), 0)::int as gift,
+        coalesce(sum(amount_cents) filter (where method = 'customer_credit'), 0)::int as credit
       from payments where ticket_id = ${t.id}`;
     const remainingChannels = [
       Math.max(0, (paid?.cash ?? 0) - (already?.original_cash ?? 0)),
       Math.max(0, (paid?.card ?? 0) - (already?.original_card ?? 0)),
-      Math.max(0, (paid?.store ?? 0) - (already?.original_store ?? 0)),
+      Math.max(0, (paid?.gift ?? 0) - (already?.original_gift ?? 0)),
+      Math.max(0, (paid?.credit ?? 0) - (already?.original_credit ?? 0)),
     ];
     if (remainingChannels.reduce((sum, value) => sum + value, 0) < input.refundAmountCents) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { reason: 'original_payment_refund_exceeds_channel_balance' },
       });
     }
-    [cashCents, cardCents, storeCreditCents] = largestRemainderSplit(
+    [cashCents, cardCents, giftCardCents, customerCreditCents] = largestRemainderSplit(
       input.refundAmountCents, remainingChannels, { zeroWeights: 'throw' },
-    ) as [number, number, number];
+    ) as [number, number, number, number];
   }
 
   const [refund] = await tx<{ id: string }[]>`
     insert into ticket_refunds
       (org_id, location_id, ticket_id, business_date, amount_cents,
        service_cents, tax_cents, fee_cents, tip_cents,
-       cash_cents, card_cents, store_credit_cents,
+       cash_cents, card_cents, gift_card_cents, customer_credit_cents,
        method, reason, notes, refunded_by)
     values
       (${ctx.orgId}, ${ctx.locationId}, ${t.id}, ${t.business_date}, ${input.refundAmountCents},
        ${serviceCents}, ${taxCents}, ${feeCents}, ${input.refundTipCents},
-       ${cashCents}, ${cardCents}, ${storeCreditCents},
+       ${cashCents}, ${cardCents}, ${giftCardCents}, ${customerCreditCents},
        ${input.refundMethod}, ${input.reason}, ${input.notes ?? null}, ${ctx.membershipId})
     returning id`;
 
-  if (storeCreditCents > 0 && input.refundMethod === 'store_credit') {
+  if (customerCreditCents > 0 && input.refundMethod === 'store_credit') {
     if (!t.customer_id) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { reason: 'store_credit_requires_customer' },
@@ -720,12 +780,12 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
        amount_cents, balance_after_cents, ticket_id, reason,
        actor_membership_id, idem_key, meta)
       values (${ctx.orgId}, ${ctx.locationId}, 'store_credit', ${t.customer_id}, ${t.customer_id},
-              'refund', ${storeCreditCents}, ${(credit?.balance ?? 0) + storeCreditCents}, ${t.id},
+              'refund', ${customerCreditCents}, ${(credit?.balance ?? 0) + customerCreditCents}, ${t.id},
               ${input.reason}, ${ctx.membershipId}, ${`ticket-refund-${refund!.id}`},
               ${jsonb({ refundId: refund!.id })}::jsonb)`;
   }
 
-  if (storeCreditCents > 0 && input.refundMethod === 'original_payment') {
+  if (giftCardCents > 0 && input.refundMethod === 'original_payment') {
     const giftRows = await tx<{
       gift_card_id: string; redeemed: number; already_refunded: number;
     }[]>`
@@ -746,12 +806,12 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
       from redeemed r left join refunded f using (gift_card_id)
       order by r.gift_card_id`;
     const remaining = giftRows.map((row) => Math.max(0, row.redeemed - row.already_refunded));
-    if (remaining.reduce((sum, value) => sum + value, 0) < storeCreditCents) {
+    if (remaining.reduce((sum, value) => sum + value, 0) < giftCardCents) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { reason: 'gift_card_refund_source_missing' },
       });
     }
-    const giftRefunds = largestRemainderSplit(storeCreditCents, remaining);
+    const giftRefunds = largestRemainderSplit(giftCardCents, remaining);
     for (const [index, row] of giftRows.entries()) {
       const amount = giftRefunds[index]!;
       if (amount <= 0) continue;
@@ -772,6 +832,39 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
       await tx`update gift_cards set balance_cents = ${nextBalance}, status = 'active', updated_at = now()
                where id = ${card.id}`;
     }
+  }
+
+  if (customerCreditCents > 0 && input.refundMethod === 'original_payment') {
+    if (!t.customer_id) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'customer_credit_refund_customer_missing' },
+      });
+    }
+    await tx`select id from customers where id = ${t.customer_id} for update`;
+    const [used] = await tx<{ redeemed: number; returned: number }[]>`
+      select
+        coalesce(-sum(amount_cents) filter (where entry = 'redeem'), 0)::int as redeemed,
+        coalesce(sum(amount_cents) filter (where entry = 'refund'
+          and meta->>'originalCustomerCredit' = 'true'), 0)::int as returned
+      from customer_credit_ledger
+      where kind = 'store_credit' and customer_id = ${t.customer_id} and ticket_id = ${t.id}`;
+    if ((used?.redeemed ?? 0) - (used?.returned ?? 0) < customerCreditCents) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'customer_credit_refund_source_missing' },
+      });
+    }
+    const [balance] = await tx<{ value: number }[]>`
+      select coalesce(sum(amount_cents), 0)::int as value from customer_credit_ledger
+      where kind = 'store_credit' and customer_id = ${t.customer_id}`;
+    await tx`insert into customer_credit_ledger
+      (org_id, location_id, kind, subject_id, customer_id, entry,
+       amount_cents, balance_after_cents, ticket_id, reason,
+       actor_membership_id, idem_key, meta)
+      values (${ctx.orgId}, ${ctx.locationId}, 'store_credit', ${t.customer_id}, ${t.customer_id},
+              'refund', ${customerCreditCents}, ${(balance?.value ?? 0) + customerCreditCents},
+              ${t.id}, ${input.reason}, ${ctx.membershipId},
+              ${`ticket-refund-${refund!.id}-customer-credit`},
+              ${jsonb({ refundId: refund!.id, originalCustomerCredit: true })}::jsonb)`;
   }
 
   if (cashCents > 0) {
@@ -1098,6 +1191,30 @@ registerHandler(TicketVoid, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   await tx`update earnings
              set reversed_at = now(), reversed_by = ${ctx.membershipId}
            where ticket_id = ${input.ticketId} and reversed_at is null`;
+
+  const occupiedResources = await tx<{ resource_id: string }[]>`
+    select distinct ro.resource_id
+    from resource_occupancies ro join ticket_items ti on ti.id = ro.ticket_item_id
+    where ti.ticket_id = ${input.ticketId} and ro.status = 'in_use'
+    order by ro.resource_id`;
+  if (occupiedResources.length > 0) {
+    const resourceIds = occupiedResources.map((row) => row.resource_id);
+    await tx`select id from resources where id = any(${resourceIds}) order by id for update`;
+    await tx`update resource_occupancies ro set
+        status = case when ti.started_at is null then 'released' else 'cleaning_required' end,
+        released_at = case when ti.started_at is null then now() else null end,
+        updated_by = ${ctx.membershipId}
+      from ticket_items ti
+      where ti.id = ro.ticket_item_id and ti.ticket_id = ${input.ticketId}
+        and ro.status = 'in_use'`;
+    await tx`update resources r set status = case
+        when exists (select 1 from resource_occupancies ro where ro.resource_id = r.id and ro.status = 'in_use')
+          then 'in_use'
+        when exists (select 1 from resource_occupancies ro where ro.resource_id = r.id and ro.status = 'cleaning_required')
+          then 'cleaning_required'
+        else 'available' end
+      where r.id = any(${resourceIds})`;
+  }
 
   await tx`update tickets set
       status = 'voided', voided_at = now(), voided_by = ${ctx.membershipId},

@@ -18,7 +18,7 @@ import {
   type CashCount, type Denomination, type CashMovement,
 } from '@gf/payroll';
 import { businessDateOf, businessDayStart } from '@gf/scheduling';
-import { jsonb } from '@gf/db';
+import { jsonb, ts } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
 
 /** 当前营业日。命令都允许显式传日期（补录昨天的账是常事） */
@@ -64,11 +64,20 @@ function assertNotClosed(status: string, date: string): void {
 
 export interface DayMoney {
   cashTakeCents: number;     // 现金收款（含小费）
+  cashTenderedCents: number;
+  cashChangeCents: number;
+  cashRefundCents: number;
   cardTakeCents: number;     // 刷卡收款（含小费）
+  cardGrossCents: number;
+  cardRefundCents: number;
+  giftCardPaidCents: number;
+  customerCreditPaidCents: number;
   grossCents: number;        // 服务原价合计
   discountCents: number;
   netCents: number;
   taxCents: number;
+  surchargeCents: number;
+  serviceChargeCents: number;
   tipCashCents: number;
   tipCardCents: number;
   movementsCents: number;    // 现金进出净额（不含小费发放）
@@ -85,25 +94,32 @@ export async function loadDayMoney(
   tx: postgres.TransactionSql, locationId: string, date: string,
 ): Promise<DayMoney> {
   const [pay] = await tx<{
-    cash: number; card: number;
+    cash: number; tendered: number; change: number; card: number; gift: number; credit: number;
   }[]>`
     select
       -- ⚠️ **礼品卡既不是现金也不是刷卡**（批 8 收尾）。
       -- 算进刷卡的话，晚上和刷卡机的 batch total 就永远差出这一笔 ——
       -- 而那正是日结要发现的那种差额。external 保持原样归在刷卡侧。
       coalesce(sum(p.amount_cents) filter (where p.method = 'cash'), 0)::int as cash,
-      coalesce(sum(p.amount_cents) filter (where p.method not in ('cash','gift_card')), 0)::int as card
+      coalesce(sum(p.tendered_cents) filter (where p.method = 'cash'), 0)::int as tendered,
+      coalesce(sum(p.change_cents) filter (where p.method = 'cash'), 0)::int as change,
+      coalesce(sum(p.amount_cents) filter (where p.method in ('card','external')), 0)::int as card,
+      coalesce(sum(p.amount_cents) filter (where p.method = 'gift_card'), 0)::int as gift,
+      coalesce(sum(p.amount_cents) filter (where p.method = 'customer_credit'), 0)::int as credit
     from payments p
     join tickets t on t.id = p.ticket_id
     where p.location_id = ${locationId}
       and t.business_date = ${date} and t.status in ('closed','refunded')`;
 
   const [refund] = await tx<{
-    service: number; tax: number; card: number;
+    service: number; tax: number; cash: number; card: number; gift: number; credit: number;
   }[]>`
-    select coalesce(sum(service_cents), 0)::int as service,
-           coalesce(sum(tax_cents), 0)::int as tax,
-           coalesce(sum(card_cents), 0)::int as card
+    select coalesce(sum(tr.service_cents), 0)::int as service,
+           coalesce(sum(tr.tax_cents), 0)::int as tax,
+           coalesce(sum(tr.cash_cents), 0)::int as cash,
+           coalesce(sum(tr.card_cents), 0)::int as card,
+           coalesce(sum(tr.gift_card_cents), 0)::int as gift,
+           coalesce(sum(tr.customer_credit_cents), 0)::int as credit
     from ticket_refunds tr
     join tickets t on t.id = tr.ticket_id
     where tr.location_id = ${locationId} and t.business_date = ${date}`;
@@ -118,12 +134,15 @@ export async function loadDayMoney(
       and t.status = 'closed' and ta.reversed_at is null`;
 
   const [tk] = await tx<{
-    gross: number; discount: number; tax: number; open_count: number;
+    gross: number; discount: number; tax: number; surcharge: number;
+    service_charge: number; open_count: number;
   }[]>`
     select
       coalesce(sum(subtotal_cents) filter (where status in ('closed','refunded')), 0)::int as gross,
       coalesce(sum(discount_cents) filter (where status in ('closed','refunded')), 0)::int as discount,
       coalesce(sum(tax_cents)      filter (where status in ('closed','refunded')), 0)::int as tax,
+      coalesce(sum(surcharge_cents) filter (where status in ('closed','refunded')), 0)::int as surcharge,
+      coalesce(sum(service_charge_cents) filter (where status in ('closed','refunded')), 0)::int as service_charge,
       count(*) filter (where status in ('open','in_service','ready_to_pay'))::int as open_count
     from tickets
     where location_id = ${locationId} and business_date = ${date}`;
@@ -143,11 +162,20 @@ export async function loadDayMoney(
   const discount = tk?.discount ?? 0;
   return {
     cashTakeCents: pay?.cash ?? 0,
+    cashTenderedCents: pay?.tendered ?? 0,
+    cashChangeCents: pay?.change ?? 0,
+    cashRefundCents: refund?.cash ?? 0,
     cardTakeCents: (pay?.card ?? 0) - (refund?.card ?? 0),
+    cardGrossCents: pay?.card ?? 0,
+    cardRefundCents: refund?.card ?? 0,
+    giftCardPaidCents: (pay?.gift ?? 0) - (refund?.gift ?? 0),
+    customerCreditPaidCents: (pay?.credit ?? 0) - (refund?.credit ?? 0),
     grossCents: gross,
     discountCents: discount,
     netCents: gross - discount - (refund?.service ?? 0),
     taxCents: (tk?.tax ?? 0) - (refund?.tax ?? 0),
+    surchargeCents: tk?.surcharge ?? 0,
+    serviceChargeCents: tk?.service_charge ?? 0,
     tipCashCents: tips?.cash ?? 0,
     tipCardCents: tips?.card ?? 0,
     movementsCents: mv?.movements ?? 0,
@@ -416,16 +444,44 @@ registerHandler(PayCashTips, async ({ input, ctx, tx, audit }: HandlerArgs<
 registerHandler(FinalizeDay, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof FinalizeDay.input._type>) => {
   const date = await resolveDate(tx, ctx.locationId, input.businessDate);
-  const dc = await ensureDayClose(tx, ctx, date);
-  assertNotClosed(dc.status, date);
+  await ensureDayClose(tx, ctx, date);
+  const [locked] = await tx<{
+    id: string; status: string; close_generation: number;
+  }[]>`select id, status, close_generation from day_closes
+       where location_id = ${ctx.locationId} and business_date = ${date}
+       for update`;
+  if (!locked) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'day_close' } });
+
+  // Finalize is state-idempotent as well as command-idempotent. This matters when
+  // two registers submit with different request keys at the same time.
+  if (locked.status === 'closed') {
+    const [existing] = await tx<{ snapshot: Record<string, unknown> }[]>`
+      select snapshot from day_close_events
+      where day_close_id = ${locked.id} and generation = ${locked.close_generation}
+        and event_type = 'closed'`;
+    audit({ entityType: 'day_close', entityId: locked.id,
+            after: { businessDate: date, status: 'closed', alreadyClosed: true } });
+    const s = existing?.snapshot ?? {};
+    const cents = (key: string): number => typeof s[key] === 'number' ? s[key] : 0;
+    return {
+      businessDate: date,
+      grossCents: cents('grossCents'),
+      netCents: cents('netCents'),
+      tipCashCents: cents('tipCashCents'),
+      tipCardCents: cents('tipCardCents'),
+      cashVarianceCents: cents('cashVarianceCents'),
+      cardVarianceCents: cents('cardVarianceCents'),
+    };
+  }
 
   const [row] = await tx<{
     counted: number | null; variance: number | null; reason: string | null;
-    card_variance: number | null; card_reason: string | null;
+    card_terminal: number | null; card_variance: number | null; card_reason: string | null;
     opening: number; closing: number;
   }[]>`
     select counted_cash_cents as counted, cash_variance_cents as variance,
            cash_variance_reason as reason,
+           card_terminal_cents as card_terminal,
            card_variance_cents as card_variance, card_variance_reason as card_reason,
            opening_float_cents as opening, closing_float_cents as closing
     from day_closes where location_id = ${ctx.locationId} and business_date = ${date}`;
@@ -485,10 +541,59 @@ registerHandler(FinalizeDay, async ({ input, ctx, tx, audit }: HandlerArgs<
       coalesce(-sum(case when entry = 'redeem' then amount_cents else 0 end), 0)::int as redeemed
     from customer_credit_ledger
     where location_id = ${ctx.locationId} and kind = 'gift_card'
-      and created_at >= ${startUtc} and created_at < ${endUtc}`;
+      and created_at >= ${ts(startUtc)}::timestamptz
+      and created_at < ${ts(endUtc)}::timestamptz`;
+
+  const generation = locked.close_generation + 1;
+  const closedAt = new Date().toISOString();
+  const snapshot = {
+    businessDate: date,
+    generation,
+    closedAt,
+    closedBy: ctx.membershipId,
+    forcedWithOpenTickets: money.openTicketCount > 0,
+    forcedOpenTicketCount: input.force ? money.openTicketCount : 0,
+    cashReceivedCents: money.cashTakeCents,
+    cashTenderedCents: money.cashTenderedCents,
+    cashChangeCents: money.cashChangeCents,
+    cashRefundCents: money.cashRefundCents,
+    cashMovementsCents: money.movementsCents,
+    cashTipCents: money.tipCashCents,
+    cashTipsPaidCents: money.tipPaidOutCents,
+    cardReceivedCents: money.cardGrossCents,
+    cardRefundCents: money.cardRefundCents,
+    cardTerminalCents: row.card_terminal,
+    cardExpectedCents: money.cardTakeCents,
+    cardVarianceCents: row.card_variance ?? 0,
+    grossCents: money.grossCents,
+    discountCents: money.discountCents,
+    netCents: money.netCents,
+    taxCents: money.taxCents,
+    surchargeCents: money.surchargeCents,
+    serviceChargeCents: money.serviceChargeCents,
+    tipCashCents: money.tipCashCents,
+    tipCardCents: money.tipCardCents,
+    giftCardSoldCents: gc?.sold ?? 0,
+    giftCardRedeemedCents: gc?.redeemed ?? 0,
+    giftCardPaidCents: money.giftCardPaidCents,
+    customerCreditPaidCents: money.customerCreditPaidCents,
+    openTicketCount: money.openTicketCount,
+    expectedCashCents: cash.expectedCents,
+    countedCashCents: row.counted,
+    cashVarianceCents: cash.varianceCents,
+  };
+
+  const [event] = await tx<{ id: string }[]>`
+    insert into day_close_events
+      (org_id, location_id, day_close_id, business_date, generation,
+       event_type, snapshot, actor_membership_id)
+    values (${ctx.orgId}, ${ctx.locationId}, ${locked.id}, ${date}, ${generation},
+            'closed', ${jsonb(snapshot)}::jsonb, ${ctx.membershipId})
+    returning id`;
 
   await tx`update day_closes set
       status = 'closed',
+      close_generation = ${generation},
       expected_cash_cents = ${cash.expectedCents},
       cash_variance_cents = ${cash.varianceCents},
       gift_card_sold_cents = ${gc?.sold ?? 0},
@@ -501,14 +606,16 @@ registerHandler(FinalizeDay, async ({ input, ctx, tx, audit }: HandlerArgs<
       tip_card_cents = ${money.tipCardCents},
       note = coalesce(${input.note ?? null}, note),
       closed_by = ${ctx.membershipId},
-      closed_at = now()
+      closed_at = ${closedAt}::timestamptz
     where location_id = ${ctx.locationId} and business_date = ${date}`;
 
   audit({
-    entityType: 'day_close', entityId: dc.id,
+    entityType: 'day_close', entityId: locked.id,
     after: {
       businessDate: date, status: 'closed',
       forcedWithOpenTickets: money.openTicketCount > 0,
+      closeEventId: event!.id,
+      generation,
     },
   });
 
@@ -525,22 +632,35 @@ registerHandler(FinalizeDay, async ({ input, ctx, tx, audit }: HandlerArgs<
 
 registerHandler(ReopenDay, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof ReopenDay.input._type>) => {
-  const [row] = await tx<{ id: string; status: string }[]>`
-    update day_closes set status = 'counted', closed_at = null, closed_by = null
+  const [row] = await tx<{ id: string; status: string; close_generation: number }[]>`
+    select id, status, close_generation from day_closes
     where location_id = ${ctx.locationId} and business_date = ${input.businessDate}
-      and status = 'closed'
-    returning id, status`;
+    for update`;
   if (!row) {
     throw new AppError(ERROR_CODES.NOT_FOUND, {
       details: { businessDate: input.businessDate, reason: '这一天没有封账记录' },
     });
   }
+  if (row.status !== 'closed') {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { businessDate: input.businessDate, reason: 'day_is_not_closed' },
+    });
+  }
+  await tx`insert into day_close_events
+    (org_id, location_id, day_close_id, business_date, generation, event_type,
+     snapshot, reason, actor_membership_id)
+    values (${ctx.orgId}, ${ctx.locationId}, ${row.id}, ${input.businessDate},
+            ${row.close_generation}, 'reopened', '{}'::jsonb, ${input.reason}, ${ctx.membershipId})`;
+  await tx`update day_closes set status = 'reopened', reopened_at = now(),
+      reopened_by = ${ctx.membershipId}, reopen_reason = ${input.reason}
+    where id = ${row.id}`;
   audit({
     entityType: 'day_close', entityId: row.id,
     before: { status: 'closed' },
-    after: { businessDate: input.businessDate, status: 'counted', reason: input.reason },
+    after: { businessDate: input.businessDate, status: 'reopened', reason: input.reason,
+             generation: row.close_generation },
   });
-  return { businessDate: input.businessDate, status: 'counted' as const };
+  return { businessDate: input.businessDate, status: 'reopened' as const };
 });
 
 // ────────────────────────────────────────────────────────── 断档的日子（0032）

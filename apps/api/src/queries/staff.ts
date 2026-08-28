@@ -57,6 +57,13 @@ export interface StaffTask {
   /** 客人偏好的语言，技师好知道该说什么话 */
   customerLocale: string | null;
   note: string | null;
+  serviceNotes: Array<{
+    authorMembershipId: string;
+    visibility: 'management' | 'assigned_staff';
+    content: string;
+    containsSensitiveData: boolean;
+    updatedAt: string;
+  }>;
 }
 
 export interface StaffToday {
@@ -102,6 +109,7 @@ export interface TaskRow {
   prefs: Record<string, unknown> | null;
   cust_notes: string | null;
   allergies: Record<string, unknown> | null;
+  service_notes?: unknown;
 }
 
 /** 落单要素目录：key → 给技师看的标签 + 是否显示 */
@@ -186,6 +194,17 @@ export function buildTask(
     alerts,
     customerLocale: r.customer_locale,
     note: r.cust_notes,
+    serviceNotes: Array.isArray(r.service_notes)
+      ? r.service_notes.filter((note): note is StaffTask['serviceNotes'][number] => {
+        if (!note || typeof note !== 'object') return false;
+        const value = note as Record<string, unknown>;
+        return typeof value.authorMembershipId === 'string'
+          && (value.visibility === 'management' || value.visibility === 'assigned_staff')
+          && typeof value.content === 'string'
+          && typeof value.containsSensitiveData === 'boolean'
+          && typeof value.updatedAt === 'string';
+      })
+      : [],
   };
 }
 
@@ -207,8 +226,9 @@ export async function loadStaffToday(
            c.phone_e164 as phone, c.locale as customer_locale, c.notes as cust_notes,
            ti.name_snapshot as service_name, ti.duration_min,
            ti.started_at, ti.finished_at, ti.details,
-           ai.is_request, r.name as resource_name,
+           ai.is_request, coalesce(item_resource.name, appointment_resource.name) as resource_name,
            cp.profile as prefs, cp.allergies
+           , coalesce(notes.value, '[]'::jsonb) as service_notes
     from ticket_items ti
     join tickets t on t.id = ti.ticket_id
     join ticket_item_staff tis on tis.ticket_item_id = ti.id
@@ -216,7 +236,20 @@ export async function loadStaffToday(
     left join customer_preferences cp on cp.customer_id = c.id
     left join appointment_items ai on ai.appointment_id = t.appointment_id
                                   and ai.membership_id = tis.membership_id
-    left join resources r on r.id = ai.resource_id
+    left join resources item_resource on item_resource.id = ti.resource_id
+    left join resources appointment_resource on appointment_resource.id = ai.resource_id
+    left join lateral (
+      select jsonb_agg(jsonb_build_object(
+        'authorMembershipId', n.author_membership_id,
+        'visibility', n.visibility,
+        'content', n.content,
+        'containsSensitiveData', n.contains_sensitive_data,
+        'updatedAt', n.updated_at
+      ) order by n.updated_at) as value
+      from ticket_service_notes n
+      where n.ticket_item_id = ti.id
+        and (${ctx.permissions.has('staff.manage')} or n.visibility = 'assigned_staff')
+    ) notes on true
     where t.location_id = ${ctx.locationId}
       and t.business_date = ${businessDate}
       and t.status <> 'voided'

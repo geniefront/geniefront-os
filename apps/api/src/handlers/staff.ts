@@ -8,7 +8,7 @@
 import type postgres from 'postgres';
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import {
-  TicketStartItem, TicketFinishItem, TimeclockPunch, SetMyLocale,
+  TicketStartItem, TicketFinishItem, TicketSaveServiceNote, TimeclockPunch, SetMyLocale,
   AddStaff, SetEmployment, StaffSaveProfile, IssueStaffClaimCode, RevokeStaffSessions,
   AppError, ERROR_CODES, actingMembership, type CommandContext,
 } from '@gf/contracts';
@@ -48,13 +48,39 @@ function targetOf(
 
 // ─────────────────────────────────────────────────────────── 开始 / 完成
 
+async function assertCanActOnTicketItem(
+  tx: postgres.TransactionSql, ctx: CommandContext, ticketItemId: string,
+  requestedMembershipId?: string,
+): Promise<string> {
+  const assigned = await tx<{ membership_id: string }[]>`
+    select membership_id from ticket_item_staff where ticket_item_id = ${ticketItemId}
+    order by membership_id`;
+  if (assigned.length === 0) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket_item_staff' } });
+  }
+  const target = requestedMembershipId ?? ctx.membershipId;
+  if (ctx.permissions.has('queue.manage')) {
+    if (requestedMembershipId && !assigned.some((row) => row.membership_id === requestedMembershipId)) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { reason: 'staff_not_assigned' } });
+    }
+    return target ?? assigned[0]!.membership_id;
+  }
+  if (!ctx.membershipId || target !== ctx.membershipId
+    || !assigned.some((row) => row.membership_id === ctx.membershipId)) {
+    throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+      details: { reason: 'technician_may_only_update_assigned_service' },
+    });
+  }
+  return ctx.membershipId;
+}
+
 registerHandler(TicketStartItem, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketStartItem.input._type>) => {
   const [row] = await tx<{
     id: string; ticket_id: string; started_at: string | null; status: string;
-    business_date: string;
+    business_date: string; resource_id: string | null;
   }[]>`
-    select ti.id, ti.ticket_id, ti.started_at, t.status,
+    select ti.id, ti.ticket_id, ti.started_at, t.status, ti.resource_id,
            t.business_date::text as business_date
     from ticket_items ti join tickets t on t.id = ti.ticket_id
     where ti.id = ${input.ticketItemId}`;
@@ -62,7 +88,37 @@ registerHandler(TicketStartItem, async ({ input, ctx, tx, audit, emit }: Handler
   if (row.status === 'closed' || row.status === 'voided') {
     throw new AppError(ERROR_CODES.TICKET_ALREADY_CLOSED, { details: { status: row.status } });
   }
+  await assertCanActOnTicketItem(tx, ctx, row.id, input.membershipId);
   await assertDayOpen(tx, ctx.locationId, row.business_date);
+
+  if (row.resource_id) {
+    const [resource] = await tx<{ id: string; status: string; capacity: number }[]>`
+      select id, status, capacity from resources
+      where id = ${row.resource_id} and location_id = ${ctx.locationId} for update`;
+    if (!resource || ['maintenance', 'cleaning', 'cleaning_required'].includes(resource.status)) {
+      throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, {
+        details: { resourceId: row.resource_id, status: resource?.status ?? 'missing' },
+      });
+    }
+    const [usage] = await tx<{ active: number; dirty: number }[]>`
+      select count(*) filter (where status = 'in_use')::int as active,
+             count(*) filter (where status in ('cleaning_required','cleaning'))::int as dirty
+      from resource_occupancies where resource_id = ${row.resource_id} and status <> 'released'`;
+    const [existing] = await tx<{ id: string }[]>`
+      select id from resource_occupancies
+      where ticket_item_id = ${row.id} and resource_id = ${row.resource_id}`;
+    if (!existing && ((usage?.dirty ?? 0) > 0 || (usage?.active ?? 0) >= resource.capacity)) {
+      throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, {
+        details: { resourceId: row.resource_id, reason: 'resource_not_available' },
+      });
+    }
+    await tx`insert into resource_occupancies
+      (org_id, location_id, resource_id, ticket_item_id, status, updated_by)
+      values (${ctx.orgId}, ${ctx.locationId}, ${row.resource_id}, ${row.id}, 'in_use', ${ctx.membershipId})
+      on conflict (ticket_item_id, resource_id) do update set status = 'in_use',
+        released_at = null, updated_by = excluded.updated_by`;
+    await tx`update resources set status = 'in_use' where id = ${row.resource_id}`;
+  }
 
   // 重复点「开始」不报错，保持原来的时刻 —— 技师在嘈杂环境里多点一下很常见，
   // 而把开始时间往后推会让工时凭空缩水
@@ -90,9 +146,9 @@ registerHandler(TicketFinishItem, async ({ input, ctx, tx, audit, emit }: Handle
   typeof TicketFinishItem.input._type>) => {
   const [row] = await tx<{
     id: string; ticket_id: string; started_at: string | null; finished_at: string | null;
-    status: string; business_date: string;
+    status: string; business_date: string; resource_id: string | null;
   }[]>`
-    select ti.id, ti.ticket_id, ti.started_at, ti.finished_at, t.status,
+    select ti.id, ti.ticket_id, ti.started_at, ti.finished_at, t.status, ti.resource_id,
            t.business_date::text as business_date
     from ticket_items ti join tickets t on t.id = ti.ticket_id
     where ti.id = ${input.ticketItemId}`;
@@ -100,6 +156,7 @@ registerHandler(TicketFinishItem, async ({ input, ctx, tx, audit, emit }: Handle
   if (row.status === 'closed' || row.status === 'voided') {
     throw new AppError(ERROR_CODES.TICKET_ALREADY_CLOSED, { details: { status: row.status } });
   }
+  await assertCanActOnTicketItem(tx, ctx, row.id, input.membershipId);
   await assertDayOpen(tx, ctx.locationId, row.business_date);
 
   // 没点过开始就点完成：前台代点时很常见（技师早就在做了，前台才想起来）。
@@ -118,6 +175,17 @@ registerHandler(TicketFinishItem, async ({ input, ctx, tx, audit, emit }: Handle
     select count(*)::int as n from ticket_items
     where ticket_id = ${row.ticket_id} and finished_at is null`;
   const done = (rest?.n ?? 0) === 0;
+
+  if (row.resource_id) {
+    await tx`select id from resources where id = ${row.resource_id} for update`;
+    await tx`update resource_occupancies set status = 'cleaning_required', updated_by = ${ctx.membershipId}
+      where ticket_item_id = ${row.id} and status = 'in_use'`;
+    const [active] = await tx<{ value: number }[]>`
+      select count(*)::int as value from resource_occupancies
+      where resource_id = ${row.resource_id} and status = 'in_use'`;
+    await tx`update resources set status = ${(active?.value ?? 0) > 0 ? 'in_use' : 'cleaning_required'}
+      where id = ${row.resource_id}`;
+  }
 
   if (done) {
     await tx`update tickets set status = 'ready_to_pay'
@@ -147,6 +215,37 @@ registerHandler(TicketFinishItem, async ({ input, ctx, tx, audit, emit }: Handle
     actualMinutes: Math.max(0, updated!.mins),
     ticketDone: done,
   };
+});
+
+registerHandler(TicketSaveServiceNote, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof TicketSaveServiceNote.input._type>) => {
+  const [item] = await tx<{ id: string; ticket_id: string; business_date: string }[]>`
+    select ti.id, ti.ticket_id, t.business_date::text as business_date
+    from ticket_items ti join tickets t on t.id = ti.ticket_id
+    where ti.id = ${input.ticketItemId}`;
+  if (!item) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket_item' } });
+  if (!ctx.permissions.has('staff.manage')) {
+    await assertCanActOnTicketItem(tx, ctx, item.id);
+  }
+  await assertDayOpen(tx, ctx.locationId, item.business_date);
+  const [existing] = await tx<{ id: string }[]>`
+    select id from ticket_service_notes
+    where ticket_item_id = ${item.id} and author_membership_id = ${ctx.membershipId}`;
+  const [note] = await tx<{ id: string }[]>`
+    insert into ticket_service_notes
+      (org_id, location_id, ticket_item_id, author_membership_id, visibility,
+       content, contains_sensitive_data)
+    values (${ctx.orgId}, ${ctx.locationId}, ${item.id}, ${ctx.membershipId},
+            ${input.visibility}, ${input.content}, ${input.containsSensitiveData})
+    on conflict (ticket_item_id, author_membership_id) do update set
+      visibility = excluded.visibility, content = excluded.content,
+      contains_sensitive_data = excluded.contains_sensitive_data, updated_at = now()
+    returning id`;
+  audit({ entityType: 'ticket', entityId: item.ticket_id,
+          after: { action: 'service_note_saved', ticketItemId: item.id,
+                   visibility: input.visibility, sensitive: input.containsSensitiveData,
+                   updated: Boolean(existing) } });
+  return { noteId: note!.id, ticketItemId: item.id, updated: Boolean(existing) };
 });
 
 // ─────────────────────────────────────────────────────────────── 打卡

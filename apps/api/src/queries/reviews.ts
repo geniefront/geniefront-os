@@ -94,6 +94,26 @@ export async function loadReviewsSummary(
     ? Number(((positiveCount / rated.length) * 100).toFixed(1))
     : 0;
   const now = Date.now();
+  const [summary] = await tx<{ content: unknown }[]>`
+    select summary_content as content from review_summaries
+    where location_id = ${ctx.locationId} order by generated_at desc limit 1`;
+  const summaryContent = summary?.content && typeof summary.content === 'object'
+    ? summary.content as Record<string, unknown> : {};
+  const overview = typeof summaryContent['overview'] === 'string' ? summaryContent['overview'] : '';
+  const topKeywords = Array.isArray(summaryContent['topKeywords'])
+    ? summaryContent['topKeywords'].filter((value): value is ReviewSummaryDto['aiSummary']['topKeywords'][number] => {
+      if (!value || typeof value !== 'object') return false;
+      const row = value as Record<string, unknown>;
+      return typeof row['tag'] === 'string' && typeof row['count'] === 'number'
+        && ['positive','warning','neutral'].includes(String(row['sentiment']));
+    }) : [];
+  const suggestions = Array.isArray(summaryContent['actionableSuggestions'])
+    ? summaryContent['actionableSuggestions'].filter((value): value is ReviewSummaryDto['aiSummary']['actionableSuggestions'][number] => {
+      if (!value || typeof value !== 'object') return false;
+      const row = value as Record<string, unknown>;
+      return ['warning','tip'].includes(String(row['type']))
+        && typeof row['title'] === 'string' && typeof row['description'] === 'string';
+    }) : [];
 
   return {
     overallScore,
@@ -105,9 +125,9 @@ export async function loadReviewsSummary(
       inStore: platformStats(reviews, 'inStore'),
     },
     aiSummary: {
-      overview: '',
-      topKeywords: [],
-      actionableSuggestions: [],
+      overview,
+      topKeywords,
+      actionableSuggestions: suggestions,
       topStaff: [],
     },
     recentReviews: reviews.slice(0, 10).map((review) => {

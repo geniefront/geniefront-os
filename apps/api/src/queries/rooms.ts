@@ -218,7 +218,8 @@ export async function loadRooms(
     });
 
     // 如果有活跃 session，且状态为 available，可推导为 in_service
-    let effectiveStatus = r.status as RoomDto['status'];
+    let effectiveStatus = (r.status === 'in_use' ? 'in_service'
+      : r.status === 'cleaning_required' ? 'cleaning' : r.status) as RoomDto['status'];
     if (currentSession && effectiveStatus === 'available') {
       effectiveStatus = 'in_service';
     }

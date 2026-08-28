@@ -70,6 +70,9 @@ export interface CustomerDetail {
     faceValueCents: number; status: string; expiresAt: string | null;
   }>;
 
+  /** Append-only ledger sum; hidden from roles that cannot see customer contact/financial details. */
+  storeCreditBalanceCents: number | null;
+
   recentTickets: Array<{
     id: string; businessDate: string; status: string;
     totalCents: number | null; serviceNames: string[];
@@ -145,6 +148,11 @@ export async function loadCustomerDetail(
     from gift_cards
     where holder_customer_id = ${customerId} and status in ('active','depleted')
     order by created_at desc limit 20`;
+
+  const [storeCredit] = await tx<{ balance: number }[]>`
+    select coalesce(sum(amount_cents), 0)::int as balance
+    from customer_credit_ledger
+    where kind = 'store_credit' and customer_id = ${customerId}`;
 
   const tkRows = await tx<{
     id: string; business_date: string; status: string;
@@ -224,6 +232,8 @@ export async function loadCustomerDetail(
       faceValueCents: g.face_value_cents, status: g.status,
       expiresAt: g.expires_at ? parseTs(g.expires_at).toISOString() : null,
     })),
+
+    storeCreditBalanceCents: canSeeContact ? (storeCredit?.balance ?? 0) : null,
 
     recentTickets: tkRows.map((t) => ({
       id: t.id, businessDate: t.business_date, status: t.status,
@@ -326,4 +336,3 @@ export async function loadCustomerList(
     }),
   };
 }
-

@@ -617,14 +617,17 @@ export async function loadTopServices(
     category_name: unknown;
     sales_count: string;
     revenue_cents: string;
-    duration_min: number | null;
+    duration_min: number | null; cost_cents: number | null; rating_bp: number | null;
   }[]>`
     select ti.service_id,
            s.name as service_name,
            sc.name as category_name,
            count(*)::text as sales_count,
            coalesce(sum(ti.total_cents), 0)::text as revenue_cents,
-           s.duration_min
+           s.duration_min, s.cost_cents,
+           (select avg(lr.rating * 10000)::int from location_reviews lr
+             where lr.location_id = ${ctx.locationId} and lr.service_id = ti.service_id
+               and lr.rating is not null) as rating_bp
     from ticket_items ti
     join tickets t on t.id = ti.ticket_id
     left join services s on s.id = ti.service_id
@@ -632,7 +635,7 @@ export async function loadTopServices(
     where t.location_id = ${ctx.locationId}
       and t.business_date >= ${from} and t.business_date <= ${to}
       and t.status = 'closed'
-    group by ti.service_id, s.name, sc.name, s.duration_min
+    group by ti.service_id, s.name, sc.name, s.duration_min, s.cost_cents
     order by sum(ti.total_cents) desc
     limit 10`;
 
@@ -652,10 +655,11 @@ export async function loadTopServices(
       categoryName,
       salesCount: Number(r.sales_count),
       revenueCents: rev,
-      costCents: 0,
-      marginPercent: 0,
+      costCents: r.cost_cents === null ? 0 : r.cost_cents * Number(r.sales_count),
+      marginPercent: r.cost_cents === null || rev <= 0 ? 0
+        : Math.trunc(((rev - r.cost_cents * Number(r.sales_count)) * 100) / rev),
       avgDurationMinutes: r.duration_min ?? 0,
-      rating: 0,
+      rating: r.rating_bp === null ? 0 : r.rating_bp / 10000,
     };
   });
 
@@ -672,13 +676,22 @@ export interface CopilotSummaryResponse {
 }
 
 export async function loadCopilotSummary(
-  _tx: postgres.TransactionSql,
-  _ctx: CommandContext,
+  tx: postgres.TransactionSql,
+  ctx: CommandContext,
 ): Promise<CopilotSummaryResponse> {
+  const [row] = await tx<{ content: unknown; generated_at: string }[]>`
+    select content, generated_at::text as generated_at from ai_business_summaries
+    where location_id = ${ctx.locationId} order by generated_at desc limit 1`;
+  if (!row || typeof row.content !== 'object' || row.content === null) {
+    return { highlights: [], risks: [], actions: [], generatedAt: '' };
+  }
+  const content = row.content as Record<string, unknown>;
+  const strings = (key: string): string[] => Array.isArray(content[key])
+    ? content[key].filter((value): value is string => typeof value === 'string') : [];
   return {
-    highlights: [],
-    risks: [],
-    actions: [],
-    generatedAt: new Date().toISOString(),
+    highlights: strings('highlights'),
+    risks: strings('risks'),
+    actions: strings('actions'),
+    generatedAt: row.generated_at,
   };
 }
