@@ -25,15 +25,26 @@
 }
 
 # ── 正式入口 ───────────────────────────────────────────────────────────────
-https://api.geniefront.com {
+https://api.geniefront.com, https://desk.geniefront.com {
 	tls /etc/caddy/origin.pem /etc/caddy/origin.key
 
-	reverse_proxy api:3000 {
-		# 真实客户端 IP：Cloudflare 放在 CF-Connecting-IP，
-		# Fastify 的 trustProxy 读 X-Forwarded-For
-		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
-		health_uri /health
-		health_interval 10s
+	# 1. API 路由与健康检查转发给 Fastify
+	handle /v1/* {
+		reverse_proxy api:3000 {
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+			health_uri /health
+			health_interval 10s
+		}
+	}
+	handle /health {
+		reverse_proxy api:3000
+	}
+
+	# 2. 前端 SPA 静态页面与资源
+	handle {
+		root * /srv/web
+		file_server
+		try_files {path} /index.html
 	}
 
 	encode zstd gzip
@@ -41,7 +52,7 @@ https://api.geniefront.com {
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
-		X-Frame-Options DENY
+		X-Frame-Options SAMEORIGIN
 		Referrer-Policy strict-origin-when-cross-origin
 		-Server
 	}

@@ -58,6 +58,12 @@ fi
 log "生产 .env：$(wc -l < "$PROD_ENV" | tr -d ' ') 项（已剔除 service_role / 迁移连接串）"
 
 # ── 2. 构建 ─────────────────────────────────────────────────────────────────
+log "构建 Web 前端应用"
+VITE_API_BASE=https://api.geniefront.com \
+SUPABASE_URL=https://qiuyubvhirjtglonbkon.supabase.co \
+SUPABASE_ANON_KEY=sb_publishable_CCrBsWTtjn27TQNGbwTo1w_0YT54e-2 \
+pnpm --filter @gf/web build >/dev/null
+
 log "构建 ${IMAGE}（linux/amd64）"
 # ⚠️ 必须显式指定平台：开发机可能是 Apple Silicon(arm64)，而 VPS 是 amd64。
 # 不指定的话镜像能 load 进去、容器能创建，但一 exec 就是 "exec format error"。
@@ -76,19 +82,21 @@ for h in "${HOSTS[@]}"; do
   log "推送镜像"
   docker save "$IMAGE" | gzip -1 | ssh "$h" 'gunzip | docker load' | tail -1
 
-  log "同步配置"
+  log "同步 Web 前端与配置"
   scp -q "$PROD_ENV" "$h:/tmp/gf.env"
   scp -q deploy/compose.yml deploy/Caddyfile "$h:/tmp/"
-  ssh "$h" "
+  tar -czf - -C apps/web/dist . | ssh "$h" "
     install -m 0600 /tmp/gf.env ${REMOTE_DIR}/.env
     install -m 0644 /tmp/compose.yml ${REMOTE_DIR}/compose.yml
     install -m 0644 /tmp/Caddyfile   ${REMOTE_DIR}/Caddyfile
     rm -f /tmp/gf.env /tmp/compose.yml /tmp/Caddyfile
+    mkdir -p ${REMOTE_DIR}/web
+    rm -rf ${REMOTE_DIR}/web/*
+    tar -xzf - -C ${REMOTE_DIR}/web
   "
 
-  log "启动"
-  # 只起 api：Caddy 要等 DNS 指过来才能签证书，那是单独一步
-  ssh "$h" "cd ${REMOTE_DIR} && TAG=${TAG} docker compose up -d --no-deps api"
+  log "启动服务"
+  ssh "$h" "cd ${REMOTE_DIR} && TAG=${TAG} docker compose up -d"
 
   log "等健康检查"
   ok=0
