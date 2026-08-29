@@ -28,7 +28,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useCanWrite } from '@/lib/permissions';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
-import { cn, formatI18n } from '@/lib/utils';
+import { cn, formatI18n, formatPhoneInput } from '@/lib/utils';
 import type { TranslationKey } from '@/i18n';
 
 const METHOD_LABELS: Record<PaymentMethod, TranslationKey> = {
@@ -1332,8 +1332,12 @@ function CheckoutContent() {
               </label>
               <Input
                 value={receiptDestination}
-                onChange={(e) => setReceiptDestination(e.target.value)}
-                placeholder={receiptChannel === 'sms' ? '+12125551234' : 'customer@example.com'}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setReceiptDestination(receiptChannel === 'sms' ? formatPhoneInput(val) : val);
+                }}
+                placeholder={receiptChannel === 'sms' ? '(212) 555-1234' : 'customer@example.com'}
+                maxLength={receiptChannel === 'sms' ? 14 : undefined}
               />
             </div>
           </div>

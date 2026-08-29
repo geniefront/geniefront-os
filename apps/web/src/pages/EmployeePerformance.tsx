@@ -35,9 +35,9 @@ import {
 } from 'lucide-react';
 import { toast, Spinner } from '@heroui/react';
 import { Card, CardContent } from '@/components/ui/Card';
-import { ActionMenu } from '@/components/ui/ActionMenu';
 import { fuzzySearch } from '@/lib/fuzzySearch';
 import { useErrorMessage } from '@/lib/errorMessage';
+import { formatPhoneDisplay, formatPhoneInput } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
@@ -286,7 +286,7 @@ function EmployeePerformanceContent() {
     setEditingStaffId(staff.id);
     setFormName(staff.name);
     setFormEmployeeNo(staff.employeeNo);
-    setFormPhone(staff.phone);
+    setFormPhone(formatPhoneDisplay(staff.phone) || '');
     setFormEmail(staff.email || '');
     setFormJobTitle(staff.jobTitle);
     setFormLevel(staff.level);
@@ -683,7 +683,7 @@ function EmployeePerformanceContent() {
                           <Badge className="bg-purple-50 text-purple-900 border-purple-200 font-bold text-[10px]">
                             {staff.level}
                           </Badge>
-                          <span className="text-[11px] text-slate-400">· 📞 {staff.phone}</span>
+                          <span className="text-[11px] text-slate-400">· 📞 {formatPhoneDisplay(staff.phone)}</span>
                         </div>
                       </div>
                     </div>
@@ -914,8 +914,9 @@ function EmployeePerformanceContent() {
                 </label>
                 <Input
                   value={formPhone}
-                  onChange={(e) => setFormPhone(e.target.value)}
-                  placeholder={t('rotation.empPhonePlaceholder')}
+                  onChange={(e) => setFormPhone(formatPhoneInput(e.target.value))}
+                  placeholder="(555) 000-0000"
+                  maxLength={14}
                 />
               </div>
 

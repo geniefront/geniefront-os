@@ -44,7 +44,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Modal } from '@/components/ui/Modal';
 import { ActionMenu } from '@/components/ui/ActionMenu';
-import { cn } from '@/lib/utils';
+import { cn, formatPhoneDisplay, formatPhoneInput } from '@/lib/utils';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { hasAllergyContent, formatAllergies } from '@/features/customers/allergies';
 import { fuzzySearch } from '@/lib/fuzzySearch';
@@ -248,7 +248,7 @@ function CustomersContent() {
   const handleOpenEditProfile = () => {
     if (!currentDetail) return;
     setFormName(currentDetail.displayName);
-    setFormPhone(currentDetail.phone || '');
+    setFormPhone(formatPhoneDisplay(currentDetail.phone) || '');
     setFormEmail(currentDetail.email || '');
     setFormVip(String(currentDetail.vipLevel));
     setFormTags((currentDetail.tags || []).join(', '));
@@ -629,7 +629,7 @@ function CustomersContent() {
                         </div>
 
                         <span className="text-[11px] font-mono text-slate-400 shrink-0">
-                          {row.phone || t('crm.custNoPhone')}
+                          {row.phone ? formatPhoneDisplay(row.phone) : t('crm.custNoPhone')}
                         </span>
                       </div>
 
@@ -700,7 +700,7 @@ function CustomersContent() {
                       <div className="flex items-center gap-3 text-xs text-slate-600 mt-1 flex-wrap font-medium">
                         <span className="flex items-center gap-1">
                           <Phone className="w-3.5 h-3.5 text-slate-400" />
-                          <span className="font-mono">{currentDetail.phone || t('crm.custNoPhone2')}</span>
+                          <span className="font-mono">{currentDetail.phone ? formatPhoneDisplay(currentDetail.phone) : t('crm.custNoPhone2')}</span>
                         </span>
                         {currentDetail.email && (
                           <span className="flex items-center gap-1">
@@ -1027,7 +1027,7 @@ function CustomersContent() {
                           <span className="text-slate-400 font-medium">{t('crm.custRegular')}</span>
                         )}
                       </td>
-                      <td className="p-3.5 font-mono text-slate-600">{row.phone || '—'}</td>
+                      <td className="p-3.5 font-mono text-slate-600">{row.phone ? formatPhoneDisplay(row.phone) : '—'}</td>
                       <td className="p-3.5 font-bold text-slate-900">{row.visitCount}  {t('crm.custVisitUnit3')}</td>
                       <td className="p-3.5 text-slate-600">
                         {row.daysSinceLastVisit === null
@@ -1123,8 +1123,9 @@ function CustomersContent() {
               </label>
               <Input
                 value={formPhone}
-                onChange={(e) => setFormPhone(e.target.value)}
-                placeholder="+12125551234 / 617-555-1234"
+                onChange={(e) => setFormPhone(formatPhoneInput(e.target.value))}
+                placeholder="(555) 000-0000"
+                maxLength={14}
               />
             </div>
           </div>
@@ -1380,7 +1381,7 @@ function CustomersContent() {
                     <div>
                       <strong className="text-slate-900">{cand.displayName}</strong>
                       <span className="text-[11px] text-slate-500 ml-2">
-                        {cand.phone || t('crm.custNoPhoneShort')}
+                        {cand.phone ? formatPhoneDisplay(cand.phone) : t('crm.custNoPhoneShort')}
                       </span>
                     </div>
                     <span className="text-[11px] text-slate-400">{t('crm.custVisits2')} {cand.visitCount}  {t('crm.custVisitUnit4')}</span>
@@ -1436,7 +1437,7 @@ function CustomersContent() {
           <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-200">
             <span className="text-slate-500">{t('crm.custSmsRecipient')}</span>
             <span className="font-bold text-slate-900">
-              {currentDetail?.displayName} ({currentDetail?.phone || t('crm.custSmsBoundNumber')})
+              {currentDetail?.displayName} ({currentDetail?.phone ? formatPhoneDisplay(currentDetail.phone) : t('crm.custSmsBoundNumber')})
             </span>
           </div>
 

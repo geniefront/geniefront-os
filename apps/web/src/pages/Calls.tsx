@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useErrorMessage } from '@/lib/errorMessage';
 import { useStoreTime } from '@/lib/time';
 import { useLanguage } from "@/LanguageContext";
+import { formatPhoneDisplay } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -429,7 +430,7 @@ export function Calls() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="font-mono font-bold text-xs text-slate-900">
-                      {d.fromDisplay || d.fromE164 || t('crm.callUnknownCaller')}
+                      {d.fromDisplay ? formatPhoneDisplay(d.fromDisplay) : d.fromE164 ? formatPhoneDisplay(d.fromE164) : t('crm.callUnknownCaller')}
                     </span>
                     {d.customer ? (
                       <span className="text-[10px] font-bold bg-teal-50 text-teal-700 px-2 py-0.5 rounded-full border border-teal-200">
@@ -623,7 +624,7 @@ export function Calls() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <span className="font-mono font-bold text-xs text-slate-900">
-                            {call.fromE164 || t('crm.callAnonymous')}
+                            {call.fromE164 ? formatPhoneDisplay(call.fromE164) : t('crm.callAnonymous')}
                           </span>
                         </div>
                       </TableCell>
@@ -709,7 +710,7 @@ export function Calls() {
                     {t('crm.callDetailTitle')}
                   </h3>
                   <span className="font-mono text-xs font-semibold text-teal-900 bg-teal-50 border border-teal-200/80 px-2 py-0.5 rounded-md whitespace-nowrap">
-                    {selectedCall.fromE164 || t('crm.callUnknownCaller2')}
+                    {selectedCall.fromE164 ? formatPhoneDisplay(selectedCall.fromE164) : t('crm.callUnknownCaller2')}
                   </span>
                 </div>
               </div>
@@ -759,7 +760,7 @@ export function Calls() {
                   className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs gap-1.5 shadow-sm"
                   onClick={() => {
                     openCreateAppointment?.({
-                      defaultPhone: selectedCall.fromE164 || "",
+                      defaultPhone: selectedCall.fromE164 ? formatPhoneDisplay(selectedCall.fromE164) : "",
                     });
                     setSelectedCall(null);
                     toast.success(t('crm.callNumberCarried'));

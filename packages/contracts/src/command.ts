@@ -94,22 +94,26 @@ export function normalizePhoneE164(input: string): string | null {
   return E164_RE.test(candidate) ? candidate : null;
 }
 
-/** Consistent phone-entry display used by Web and Kiosk. */
-export function formatPhoneInput(input: string): string {
-  const raw = input.trim();
-  const digits = raw.replace(/\D/g, '').slice(0, 15);
-  const explicitInternational = raw.startsWith('+') || raw.startsWith('00');
+/** Consistent phone-entry and display formatted as (999) 999-9999. */
+export function formatPhoneInput(input: string | null | undefined): string {
+  if (!input) return '';
+  const raw = String(input).trim();
+  const digits = raw.replace(/\D/g, '');
+  const national = digits.length > 10 && digits.startsWith('1')
+    ? digits.slice(1, 11)
+    : digits.slice(0, 10);
 
-  if (explicitInternational && !(digits.length === 11 && digits.startsWith('1'))) {
-    const internationalDigits = raw.startsWith('00') ? digits.slice(2) : digits;
-    return internationalDigits ? `+${internationalDigits}` : '+';
-  }
-
-  const national = digits.length > 10 && digits.startsWith('1') ? digits.slice(1, 11) : digits.slice(0, 10);
-  if (national.length <= 3) return national;
+  if (national.length === 0) return '';
+  if (national.length <= 3) return `(${national}`;
   if (national.length <= 6) return `(${national.slice(0, 3)}) ${national.slice(3)}`;
-  const formatted = `(${national.slice(0, 3)}) ${national.slice(3, 6)}-${national.slice(6)}`;
-  return digits.length > 10 && digits.startsWith('1') ? `+1 ${formatted}` : formatted;
+  return `(${national.slice(0, 3)}) ${national.slice(3, 6)}-${national.slice(6)}`;
+}
+
+/** Consistent phone display helper formatted as (999) 999-9999. */
+export function formatPhoneDisplay(input: string | null | undefined): string {
+  if (!input) return '';
+  const formatted = formatPhoneInput(input);
+  return formatted || String(input);
 }
 
 /** 输入可带空格/括号/横线；命令 handler 收到的永远是规范 E.164。 */

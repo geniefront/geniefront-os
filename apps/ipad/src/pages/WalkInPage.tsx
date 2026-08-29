@@ -272,7 +272,8 @@ export const WalkInPage: React.FC = () => {
                 type="tel"
                 value={currentGuest.phone}
                 onChange={(e) => handleUpdateGuest(activeGuestIdx, { phone: formatPhoneInput(e.target.value) })}
-                placeholder={t('walkin.phonePlaceholder')}
+                placeholder="(555) 000-0000"
+                maxLength={14}
                 autoComplete="off"
                 autoCorrect="off"
                 className="kiosk-touch-target w-full px-4 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-base font-bold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-teal-600 focus:bg-white transition-colors shadow-inner"

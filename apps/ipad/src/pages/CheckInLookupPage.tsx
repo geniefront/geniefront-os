@@ -18,17 +18,21 @@ export const CheckInLookupPage: React.FC = () => {
   const [checkingInId, setCheckingInId] = useState<string | null>(null);
 
   const handleKeyPress = (char: string) => {
-    if (phone.length < 15) {
-      setPhone((prev) => prev + char);
+    const currentDigits = phone.replace(/\D/g, '');
+    if (currentDigits.length < 10) {
+      setPhone(formatPhoneInput(currentDigits + char));
       setErrorMsg(null);
       setHasSearched(false);
     }
   };
 
   const handleDelete = () => {
-    setPhone((prev) => prev.slice(0, -1));
-    setErrorMsg(null);
-    setHasSearched(false);
+    const currentDigits = phone.replace(/\D/g, '');
+    if (currentDigits.length > 0) {
+      setPhone(formatPhoneInput(currentDigits.slice(0, -1)));
+      setErrorMsg(null);
+      setHasSearched(false);
+    }
   };
 
   const handleClear = () => {

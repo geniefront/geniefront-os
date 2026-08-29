@@ -46,6 +46,7 @@ import { UI_LANGUAGES as LANGUAGES, type Language } from '@/i18n/types';
 import { useSession } from '@/lib/session';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { roleLabelKey } from '@/lib/roles';
+import { cn, formatPhoneDisplay, formatPhoneInput } from '@/lib/utils';
 import { pickText } from '@gf/contracts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -185,7 +186,7 @@ export function Profile() {
     if (profile) {
       setFullName(profile.fullName || '');
       setNickname(profile.nickname || '');
-      setPhone(profile.phone || '');
+      setPhone(formatPhoneDisplay(profile.phone) || '');
       setBio(profile.bio || '');
       if (profile.staffInfo) {
         setIsBookable(profile.staffInfo.isBookable);
@@ -546,7 +547,7 @@ export function Profile() {
                 {phone && (
                   <span className="flex items-center gap-1">
                     <Phone className="w-3.5 h-3.5 text-slate-400" />
-                    {phone}
+                    {formatPhoneDisplay(phone)}
                   </span>
                 )}
                 <span className="flex items-center gap-1 font-semibold text-teal-700">
@@ -832,8 +833,9 @@ export function Profile() {
                     <label className="text-xs font-bold text-slate-800">{t('settings.profPhone')}</label>
                     <Input
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="+1 (555) 019-2834"
+                      onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
+                      placeholder="(555) 019-2834"
+                      maxLength={14}
                       className="rounded-xl"
                     />
                     <p className="text-[11px] text-slate-400">{t('settings.profPhoneNote')}</p>

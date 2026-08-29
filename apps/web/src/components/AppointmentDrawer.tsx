@@ -28,7 +28,7 @@ import { Modal } from './ui/Modal';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { instantToWallDate, instantToWallMinutes, useStoreTime, wallMinutesToInstant } from '@/lib/time';
 import { centsToDollars } from '@/features/checkout/api';
-import { cn } from '@/lib/utils';
+import { cn, formatPhoneDisplay } from '@/lib/utils';
 
 interface AppointmentDrawerProps {
   onClose: () => void;
@@ -235,7 +235,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
           <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-teal-600 text-lg font-black text-white shadow-md shadow-teal-600/20">{customerInitials}</div>
           <div className="min-w-0">
             <div className="flex items-center gap-2"><h2 className="truncate text-xl font-black text-slate-950">{appointment.customer.name}</h2>{customerQ.data?.vipLevel ? <Badge variant="warning" className="text-[10px] font-black">VIP {customerQ.data.vipLevel}</Badge> : <Badge variant="outline" className="text-[10px]">{appointment.customer.id ? t('schedule.adMemberProfile') : t('schedule.adWalkInTicket')}</Badge>}</div>
-            <div className="mt-0.5 flex items-center gap-2 text-xs font-semibold text-slate-500"><span className="font-mono">{appointment.customer.phone ?? t('schedule.adNoPhone')}</span>{appointment.customer.id && <><span className="text-slate-300">•</span><button type="button" onClick={() => navigate(`/customers/${appointment.customer.id}`)} className="flex items-center font-bold text-teal-700 hover:underline">{t('schedule.adProfileDetail')}<ChevronRight size={13}/></button></>}</div>
+            <div className="mt-0.5 flex items-center gap-2 text-xs font-semibold text-slate-500"><span className="font-mono">{appointment.customer.phone ? formatPhoneDisplay(appointment.customer.phone) : t('schedule.adNoPhone')}</span>{appointment.customer.id && <><span className="text-slate-300">•</span><button type="button" onClick={() => navigate(`/customers/${appointment.customer.id}`)} className="flex items-center font-bold text-teal-700 hover:underline">{t('schedule.adProfileDetail')}<ChevronRight size={13}/></button></>}</div>
           </div>
         </div>
         <Button size="icon" variant="ghost" aria-label={t('close')} onPress={onClose} className="shrink-0 rounded-full"><X size={20} /></Button>

@@ -55,7 +55,7 @@ import type { TicketSummary, VoidReason } from '@/features/tickets/types';
 import { exportToCSV, exportToExcel } from '@/lib/exportUtils';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
-import { cn, formatI18n } from '@/lib/utils';
+import { cn, formatI18n, formatPhoneDisplay } from '@/lib/utils';
 
 export type TicketStatusFilter = 'all' | 'completed' | 'open' | 'voided' | 'refunded';
 export type DateRangePreset = 'today' | 'yesterday' | 'last7days' | 'thisMonth' | 'all';
@@ -1016,7 +1016,7 @@ function TicketsContent() {
                           </div>
                           {ord.customerPhone && (
                             <span className="text-[10px] text-slate-400 font-mono block mt-0.5">
-                              {ord.customerPhone}
+                              {formatPhoneDisplay(ord.customerPhone)}
                             </span>
                           )}
                         </div>
@@ -1289,7 +1289,7 @@ function TicketsContent() {
                 </div>
                 <div>
                   <span>{t('checkout.tkReceiptPhone')} </span>
-                  <strong className="font-mono text-slate-900">{selectedRecord.customerPhone || 'Walk-in Guest'}</strong>
+                  <strong className="font-mono text-slate-900">{selectedRecord.customerPhone ? formatPhoneDisplay(selectedRecord.customerPhone) : 'Walk-in Guest'}</strong>
                 </div>
                 <div>
                   <span>{t('checkout.tkReceiptDate')} </span>

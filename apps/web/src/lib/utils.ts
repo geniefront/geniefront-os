@@ -41,3 +41,5 @@ export function pickI18nText(val: unknown, locale: string = 'zh-Hans'): string {
 
 /** @deprecated 使用 `pickI18nText`。保留此别名仅为兼容存量调用点。 */
 export const formatI18n = pickI18nText;
+
+export { formatPhoneInput, formatPhoneDisplay } from "@gf/contracts";

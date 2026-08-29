@@ -180,7 +180,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 }
 
 /** 服务端 item → 日历色块。时间在此统一换算为门店墙上分钟数。 */
-function toScheduleItem(
+export function toScheduleItem(
   item: DaySnapshot['items'][number],
   snapshot: DaySnapshot,
   servicesById: Map<string, DayService>,

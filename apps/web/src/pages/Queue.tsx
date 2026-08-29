@@ -45,7 +45,12 @@ import {
   Languages,
 } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
-import { useSchedule, UNASSIGNED_STAFF_ID } from '@/context/ScheduleContext';
+import { UNASSIGNED_STAFF_ID, toScheduleItem } from '@/context/ScheduleContext';
+import { useDaySnapshot } from '@/features/schedule/api';
+import { useSession } from '@/lib/session';
+import { instantToWallDate } from '@/lib/time';
+import { cn, formatI18n, formatPhoneDisplay, formatPhoneInput } from '@/lib/utils';
+import type { DayStaff } from '@/features/schedule/types';
 import {
   useJoinQueue, useQueue, useRollbackQueueStage, useUpdateQueueEntry,
 } from '@/features/queue/api';
@@ -74,7 +79,6 @@ import { useErrorMessage } from '@/lib/errorMessage';
 import { fuzzySearch } from '@/lib/fuzzySearch';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
-import { cn, formatI18n } from '@/lib/utils';
 import type { TranslationKey } from '@/i18n';
 import { useShareForm, type FormShareResult } from '@/features/forms/api';
 import { generateAiHealthSummary } from '@/features/forms/mockData';
@@ -277,7 +281,33 @@ function QueueContent() {
     openCreateAppointment?: (options?: any) => void;
   }>();
 
-  const { services, staff, items, currentDate, isLoading: scheduleLoading, refetch: refetchSchedule } = useSchedule();
+  const { context } = useSession();
+  const timezone = context?.timezone || 'America/New_York';
+  const todayDate = useMemo(() => instantToWallDate(new Date().toISOString(), timezone), [timezone]);
+  const { data: todaySnapshot, isLoading: scheduleLoading, refetch: refetchSchedule } = useDaySnapshot(todayDate);
+
+  const services = useMemo(() => todaySnapshot?.services ?? [], [todaySnapshot]);
+
+  const staff = useMemo<DayStaff[]>(() => {
+    const real = (todaySnapshot?.staff ?? []).filter((s) => s.isBookable);
+    return [
+      {
+        membershipId: UNASSIGNED_STAFF_ID,
+        name: '',
+        isBookable: true,
+        inRotation: false,
+        maxConcurrent: Number.MAX_SAFE_INTEGER,
+        color: null,
+      },
+      ...real,
+    ];
+  }, [todaySnapshot]);
+
+  const items = useMemo<ScheduleItem[]>(() => {
+    if (!todaySnapshot) return [];
+    const servicesById = new Map(todaySnapshot.services.map((sv) => [sv.id, sv]));
+    return todaySnapshot.items.map((item) => toScheduleItem(item, todaySnapshot, servicesById));
+  }, [todaySnapshot]);
   const { data: queue, isLoading: queueLoading, isError: queueError, error: queueErr, isFetching: queueFetching, refetch: refetchQueue } = useQueue();
   const { data: ticketsData, isLoading: ticketsLoading, refetch: refetchTickets } = useTicketsList();
   const { data: roomsData, isLoading: roomsLoading, refetch: refetchRooms } = useRoomsQuery();
@@ -564,7 +594,7 @@ function QueueContent() {
           appointmentId: q.appointmentId,
           ticketNumber: q.ticketNumber,
           customerName: q.displayName,
-          phone: q.phoneDisplay,
+          phone: formatPhoneDisplay(q.phoneDisplay),
           serviceName: q.serviceName || '常规服务',
           serviceId: q.serviceId,
           durationMin: 45,
@@ -595,7 +625,7 @@ function QueueContent() {
           appointmentId: q.appointmentId,
           ticketNumber: q.ticketNumber,
           customerName: q.displayName,
-          phone: q.phoneDisplay,
+          phone: formatPhoneDisplay(q.phoneDisplay),
           serviceName: q.serviceName || '常规服务',
           serviceId: q.serviceId,
           durationMin: 45,
@@ -626,7 +656,7 @@ function QueueContent() {
           appointmentId: q.appointmentId,
           ticketNumber: q.ticketNumber,
           customerName: q.displayName,
-          phone: q.phoneDisplay,
+          phone: formatPhoneDisplay(q.phoneDisplay),
           serviceName: q.serviceName || '服务中项目',
           serviceId: q.serviceId,
           durationMin: 60,
@@ -1547,7 +1577,7 @@ function QueueContent() {
                                   </span>
                                   {item.phone && (
                                     <span className="text-[10px] text-slate-400 block font-mono">
-                                      {item.phone}
+                                      {formatPhoneDisplay(item.phone)}
                                     </span>
                                   )}
                                 </div>
@@ -1769,7 +1799,7 @@ function QueueContent() {
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-slate-900 text-sm">{item.customerName}</span>
                       <Badge variant="warning" className="text-[10px] font-bold px-1.5 py-0">
-                        {item.phone || t('queue.quWalkInNoPhone')}
+                        {item.phone ? formatPhoneDisplay(item.phone) : t('queue.quWalkInNoPhone')}
                       </Badge>
                       <Badge variant="secondary" className="text-[10px] font-bold px-1.5 py-0 bg-amber-100 text-amber-900 border-amber-300">
                         
@@ -3536,7 +3566,7 @@ function QueueContent() {
                     )}
                   </div>
                   <span className="text-[11px] text-slate-500 font-mono">
-                    {viewingQueueModal.item.phone || 'No phone provided (Walk-in)'}
+                    {viewingQueueModal.item.phone ? formatPhoneDisplay(viewingQueueModal.item.phone) : 'No phone provided (Walk-in)'}
                   </span>
                 </div>
               </div>

@@ -348,6 +348,8 @@ export const HealthFormPage: React.FC = () => {
             <label className="text-sm font-bold text-slate-700">{t('health.phoneNumber')} <span className="text-rose-600">*</span>
               <input type="tel" inputMode="tel" autoComplete="tel" value={clientInfo.phone}
                 onChange={(event) => setClientInfo({ ...clientInfo, phone: formatPhoneInput(event.target.value) })}
+                placeholder="(555) 000-0000"
+                maxLength={14}
                 className="mt-1.5 w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-3 font-mono font-medium outline-none focus:border-teal-600 focus:bg-white" />
             </label>
             <label className="text-sm font-bold text-slate-700">{t('health.occupation')}
@@ -363,6 +365,8 @@ export const HealthFormPage: React.FC = () => {
             <label className="text-sm font-bold text-slate-700">{t('health.emergencyPhone')}
               <input type="tel" inputMode="tel" autoComplete="tel" value={clientInfo.emergencyPhone}
                 onChange={(event) => setClientInfo({ ...clientInfo, emergencyPhone: formatPhoneInput(event.target.value) })}
+                placeholder="(555) 000-0000"
+                maxLength={14}
                 className="mt-1.5 w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-3 font-mono font-medium outline-none focus:border-teal-600 focus:bg-white" />
             </label>
           </div>

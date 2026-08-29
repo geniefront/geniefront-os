@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useLanguage } from '@/LanguageContext';
 import { fuzzySearch } from '@/lib/fuzzySearch';
 import { useErrorMessage } from '@/lib/errorMessage';
+import { formatPhoneDisplay } from '@/lib/utils';
 import { dollarsToCents, centsToDollars } from '@/features/checkout/api';
 import {
   Plus,
@@ -1099,7 +1100,7 @@ function MarketingContent() {
                       </div>
                       <div>
                         <p className="font-bold text-slate-900">{c.customerName}</p>
-                        <p className="text-slate-400 font-mono text-[11px]">{c.phone || '—'}</p>
+                        <p className="text-slate-400 font-mono text-[11px]">{c.phone ? formatPhoneDisplay(c.phone) : '—'}</p>
                       </div>
                     </div>
 

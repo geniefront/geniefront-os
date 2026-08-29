@@ -6,6 +6,7 @@ import { inferHealthFormCategory } from '@/features/forms/formExperience';
 import { publicText } from '@/features/forms/publicCopy';
 import { useHealthFormSubmissionQuery } from '@/features/schedule/appointmentDetail';
 import { useErrorMessage } from '@/lib/errorMessage';
+import { formatPhoneDisplay } from '@/lib/utils';
 
 const CLIENT_FIELDS = ['fullName', 'dob', 'phone', 'occupation', 'emergencyName', 'emergencyPhone'] as const;
 const CLIENT_LABELS: Record<(typeof CLIENT_FIELDS)[number], Record<string, string>> = {
@@ -89,7 +90,11 @@ export function CompletedHealthForm() {
                     {CLIENT_FIELDS.filter((field) => clientInfo[field] != null && clientInfo[field] !== '').map((field) => (
                       <div key={field} className="rounded-xl border border-slate-200 p-3">
                         <dt className="text-xs font-semibold text-slate-500">{CLIENT_LABELS[field].en}</dt>
-                        <dd className="mt-1 break-words text-sm font-medium">{displayValue(clientInfo[field], language)}</dd>
+                        <dd className="mt-1 break-words text-sm font-medium">
+                          {field === 'phone' || field === 'emergencyPhone'
+                            ? formatPhoneDisplay(String(clientInfo[field]))
+                            : displayValue(clientInfo[field], language)}
+                        </dd>
                       </div>
                     ))}
                   </dl>

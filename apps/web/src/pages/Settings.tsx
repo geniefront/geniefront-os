@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { useSearchParams } from 'react-router-dom';
 import { useLanguage } from '@/LanguageContext';
+import { cn, formatPhoneDisplay, formatPhoneInput } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -380,7 +381,7 @@ export function Settings() {
         setStoreSlug(settings.location.slug ?? '');
         if (settings.location.timezone) setStoreTimezone(settings.location.timezone);
         if (settings.location.businessType) setBusinessType(settings.location.businessType as any);
-        setStorePhone(settings.location.phone ?? '');
+        setStorePhone(formatPhoneDisplay(settings.location.phone) ?? '');
         setStoreEmail(settings.location.email ?? '');
         setStoreAddressStreet(settings.location.addressStreet ?? '');
         setStoreCity(settings.location.addressCity ?? '');
@@ -423,7 +424,7 @@ export function Settings() {
       }
       if (settings.phoneAssistant) {
         setGreetingPrompt(settings.phoneAssistant.greetingPrompt ?? '');
-        setForwardPhone(settings.phoneAssistant.forwardPhoneNumber ?? '');
+        setForwardPhone(formatPhoneDisplay(settings.phoneAssistant.forwardPhoneNumber) ?? '');
         if (settings.phoneAssistant.autoBookEnabled !== undefined) setAutoBookEnabled(settings.phoneAssistant.autoBookEnabled);
         if (settings.phoneAssistant.voiceTone) setVoiceTone(settings.phoneAssistant.voiceTone as any);
         if (settings.phoneAssistant.afterHoursVoicemail !== undefined) setAfterHoursVoicemail(settings.phoneAssistant.afterHoursVoicemail);
@@ -437,7 +438,7 @@ export function Settings() {
         setRepName(settings.tenDlc.repName ?? '');
         setRepTitle(settings.tenDlc.repTitle ?? '');
         setRepEmail(settings.tenDlc.repEmail ?? '');
-        setRepPhone(settings.tenDlc.repPhone ?? '');
+        setRepPhone(formatPhoneDisplay(settings.tenDlc.repPhone) ?? '');
         setOptInMethod(settings.tenDlc.optInMethod ?? '');
         setSampleMsg1(settings.tenDlc.sampleMessages?.[0] ?? '');
         setSampleMsg2(settings.tenDlc.sampleMessages?.[1] ?? '');
@@ -630,7 +631,7 @@ export function Settings() {
   const handleOpenStaffModal = (stf: StaffItem) => {
     setEditingStaff(stf);
     setStaffDisplayName(stf.name || '');
-    setStaffPhone(stf.phoneE164 || '');
+    setStaffPhone(formatPhoneDisplay(stf.phoneE164) || '');
     setStaffBookable(stf.isBookable);
     setStaffInRotation(stf.inRotation);
     setStaffMaxConcurrent(String(stf.maxConcurrent || 1));
@@ -1037,8 +1038,9 @@ export function Settings() {
                     <div className="relative">
                       <Input
                         value={storePhone}
-                        onChange={(e) => setStorePhone(e.target.value)}
-                        placeholder="+1 (212) 580-8888"
+                        onChange={(e) => setStorePhone(formatPhoneInput(e.target.value))}
+                        placeholder="(212) 580-8888"
+                        maxLength={14}
                         className="pl-8"
                       />
                       <Phone className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -1789,7 +1791,7 @@ export function Settings() {
                             </div>
                             <p className="text-xs text-slate-500 mt-0.5 font-mono">
                               
-                              {t('settings.stPhoneLabel')} {stf.phoneE164 || '—'}  {t('settings.stMaxConcurrentLabel')} {stf.maxConcurrent}
+                              {t('settings.stPhoneLabel')} {stf.phoneE164 ? formatPhoneDisplay(stf.phoneE164) : '—'}  {t('settings.stMaxConcurrentLabel')} {stf.maxConcurrent}
                             </p>
                           </div>
                         </div>
@@ -1855,19 +1857,19 @@ export function Settings() {
                   <div>
                     <span className="text-slate-500 block mb-1 font-medium">{t('settings.stPublicMainNumber')}</span>
                     <span className="font-mono font-bold text-slate-900 text-sm">
-                      {settings?.phone.storefrontE164 || storePhone || '—'}
+                      {formatPhoneDisplay(settings?.phone.storefrontE164 || storePhone) || '—'}
                     </span>
                   </div>
                   <div>
                     <span className="text-slate-500 block mb-1 font-medium">{t('settings.stAiDidNumber')}</span>
                     <span className="font-mono font-bold text-teal-700 text-sm">
-                      {settings?.phone.aiVoiceE164 || t('settings.stDidReady')}
+                      {formatPhoneDisplay(settings?.phone.aiVoiceE164) || t('settings.stDidReady')}
                     </span>
                   </div>
                   <div>
                     <span className="text-slate-500 block mb-1 font-medium">{t('settings.stAgentTransferNumber')}</span>
                     <span className="font-mono font-bold text-slate-900 text-sm">
-                      {forwardPhone || settings?.phone.transferTargetE164 || '—'}
+                      {formatPhoneDisplay(forwardPhone || settings?.phone.transferTargetE164) || '—'}
                     </span>
                   </div>
                 </div>
@@ -1920,8 +1922,9 @@ export function Settings() {
                   <div className="relative max-w-sm">
                     <Input
                       value={forwardPhone}
-                      onChange={(e) => setForwardPhone(e.target.value)}
-                      placeholder="+1 (212) 555-0199"
+                      onChange={(e) => setForwardPhone(formatPhoneInput(e.target.value))}
+                      placeholder="(212) 555-0199"
+                      maxLength={14}
                       className="pl-8 font-mono text-xs"
                     />
                     <Phone className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -2132,8 +2135,9 @@ export function Settings() {
                       />
                       <Input
                         value={repPhone}
-                        onChange={(e) => setRepPhone(e.target.value)}
-                        placeholder="+1 (212) 580-8888"
+                        onChange={(e) => setRepPhone(formatPhoneInput(e.target.value))}
+                        placeholder="(212) 580-8888"
+                        maxLength={14}
                         className="text-xs"
                       />
                     </div>

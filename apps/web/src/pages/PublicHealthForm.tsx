@@ -433,6 +433,7 @@ export function PublicHealthForm() {
                     value={clientInfo.phone}
                     onChange={(e) => setClientInfo({ ...clientInfo, phone: formatPhoneInput(e.target.value) })}
                     placeholder="(555) 123-4567"
+                    maxLength={14}
                     className="text-xs font-mono"
                   />
                 </div>
@@ -466,6 +467,7 @@ export function PublicHealthForm() {
                     value={clientInfo.emergencyPhone}
                     onChange={(e) => setClientInfo({ ...clientInfo, emergencyPhone: formatPhoneInput(e.target.value) })}
                     placeholder="(555) 987-6543"
+                    maxLength={14}
                     className="text-xs font-mono"
                   />
                 </div>

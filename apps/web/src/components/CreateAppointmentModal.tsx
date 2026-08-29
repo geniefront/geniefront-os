@@ -10,7 +10,7 @@ import { wallMinutesToInstant } from '@/lib/time';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { centsToDollars } from '@/features/checkout/api';
 import { toast } from '@heroui/react';
-import { cn } from '@/lib/utils';
+import { cn, formatPhoneInput, formatPhoneDisplay } from '@/lib/utils';
 import {
   Calendar,
   Clock,
@@ -477,8 +477,9 @@ export function CreateAppointmentModal({
                 </label>
                 <Input
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="+1 (555) 000-0000"
+                  onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
+                  placeholder="(555) 000-0000"
+                  maxLength={14}
                 />
               </div>
               <div>
