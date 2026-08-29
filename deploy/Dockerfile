@@ -5,7 +5,7 @@
 #  现在用 esbuild 打成单文件再跑普通 node：
 #    · 不带 node_modules —— turbo / vitest / drizzle-kit / typescript 全部留在构建阶段
 #    · 不带 TS 源码和 sourcemap 之外的任何编译期产物
-#    · 运行时只有 node:22-slim + 一个 .mjs + tini
+#    · 运行时只有 node:22-alpine + 一个 .mjs + tini
 # ─────────────────────────────────────────────────────────────────────────────
 
 FROM node:22-bookworm-slim AS build
@@ -47,20 +47,18 @@ RUN node_modules/.bin/esbuild apps/api/src/main.ts \
  && ls -lh /out/server.mjs
 
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
 # tini 负责转发信号并回收僵尸进程。
 # 没有它 node 是 PID 1，收不到 SIGTERM 就只能等 10 秒被 SIGKILL ——
 # 滚动部署时正在处理的请求会被硬切断。
-RUN apt-get update \
- && apt-get install -y --no-install-recommends tini \
- && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache tini
 
 COPY --from=build /out/server.mjs /out/server.mjs.map ./
 
 USER node
 EXPOSE 3000
-ENTRYPOINT ["/usr/bin/tini", "--"]
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "--enable-source-maps", "server.mjs"]
