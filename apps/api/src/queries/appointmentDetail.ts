@@ -39,7 +39,7 @@ export async function loadAppointmentDetail(
   ctx: CommandContext,
   appointmentId: string,
 ): Promise<AppointmentDetailDto> {
-  const [apt] = await tx<{
+  let [apt] = await tx<{
     id: string; customer_id: string | null; status: string;
     notes: string | null; walk_in_name: string | null;
     created_at: string; customer_name: string | null;
@@ -54,9 +54,80 @@ export async function loadAppointmentDetail(
     where a.id = ${appointmentId} and a.location_id = ${ctx.locationId}`;
 
   if (!apt) {
-    throw new AppError(ERROR_CODES.NOT_FOUND, {
-      details: { entity: 'appointment', id: appointmentId },
-    });
+    // 兼容现场排队单据 (walkin_queue)
+    const [wq] = await tx<{
+      id: string; customer_id: string | null; status: string;
+      walk_in_name: string | null; joined_at: string;
+      requested_service_id: string | null; appointment_id: string | null;
+      customer_name: string | null; customer_phone: string | null;
+    }[]>`
+      select w.id, w.customer_id, w.status, w.walk_in_name,
+             w.joined_at::text as joined_at,
+             w.requested_service_id, w.appointment_id,
+             c.display_name as customer_name,
+             c.phone_e164 as customer_phone
+      from walkin_queue w
+      left join customers c on c.id = w.customer_id
+      where w.id = ${appointmentId} and w.location_id = ${ctx.locationId}`;
+
+    if (!wq) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, {
+        details: { entity: 'appointment', id: appointmentId },
+      });
+    }
+
+    if (wq.appointment_id) {
+      return loadAppointmentDetail(tx, ctx, wq.appointment_id);
+    }
+
+    let items: AppointmentItemDetailDto[] = [];
+    if (wq.requested_service_id) {
+      const [svc] = await tx<{ id: string; name: unknown; duration_min: number; base_price_cents: number }[]>`
+        select id, name, duration_min, base_price_cents from services where id = ${wq.requested_service_id}`;
+      if (svc) {
+        items = [{
+          itemId: `wq-item-${wq.id}`,
+          serviceId: svc.id,
+          serviceName: pickText(svc.name, ctx.locale, '现场服务'),
+          staffId: null,
+          staffName: null,
+          resourceId: null,
+          resourceName: null,
+          startsAt: wq.joined_at,
+          durationMin: svc.duration_min,
+          priceCents: svc.base_price_cents,
+        }];
+      }
+    }
+
+    let hasHealthForm = false;
+    let healthFormSubmissionId: string | null = null;
+    if (wq.customer_id) {
+      const [sub] = await tx<{ id: string }[]>`
+        select id from form_submissions
+        where customer_id = ${wq.customer_id} and location_id = ${ctx.locationId}
+        order by created_at desc limit 1`;
+      if (sub) {
+        hasHealthForm = true;
+        healthFormSubmissionId = sub.id;
+      }
+    }
+
+    return {
+      appointmentId: wq.id,
+      status: wq.status === 'waiting' ? 'checked_in' : wq.status === 'in_service' ? 'in_service' : 'booked',
+      customer: {
+        id: wq.customer_id,
+        name: wq.customer_name ?? wq.walk_in_name ?? '客人',
+        phone: wq.customer_phone,
+        hasHealthForm,
+        healthFormSubmissionId,
+        allergiesSummary: null,
+      },
+      items,
+      notes: null,
+      createdAt: wq.joined_at,
+    };
   }
 
   // 1. 查询客户的健康表与偏好禁忌

@@ -355,11 +355,23 @@ export async function loadAppointmentForms(
   ctx: CommandContext,
   appointmentId: string,
 ): Promise<{ forms: AppointmentFormVersionDto[] }> {
+  let customerId: string | null = null;
+  let actualAppointmentId: string | null = appointmentId;
+
   const [apt] = await tx<{ customer_id: string | null }[]>`
     select customer_id from appointments
     where id = ${appointmentId} and location_id = ${ctx.locationId}`;
 
-  if (!apt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
+  if (apt) {
+    customerId = apt.customer_id;
+  } else {
+    const [wq] = await tx<{ customer_id: string | null; appointment_id: string | null }[]>`
+      select customer_id, appointment_id from walkin_queue
+      where id = ${appointmentId} and location_id = ${ctx.locationId}`;
+    if (!wq) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
+    customerId = wq.customer_id;
+    if (wq.appointment_id) actualAppointmentId = wq.appointment_id;
+  }
 
   const rows = await tx<{
     id: string; template_id: string; template_version: number; title: unknown; template_key: string;
@@ -377,7 +389,11 @@ export async function loadAppointmentForms(
     from form_submissions s
     join form_templates t on t.id = s.template_id
     where s.location_id = ${ctx.locationId}
-      and s.appointment_id = ${appointmentId}::uuid
+      and (
+        s.appointment_id = ${actualAppointmentId}::uuid
+        or s.queue_id = ${appointmentId}::uuid
+        ${customerId ? tx`or s.customer_id = ${customerId}` : tx``}
+      )
     order by s.version desc, s.created_at desc`;
 
   const key = process.env['FORM_ENCRYPTION_KEY'] ? loadFormKey(process.env['FORM_ENCRYPTION_KEY']) : null;
