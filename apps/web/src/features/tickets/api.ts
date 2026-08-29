@@ -32,7 +32,9 @@ export interface OpenTicketInput {
   appointmentId?: string;
   items: Array<{
     serviceId: string;
-    membershipId: string;
+    membershipId?: string;
+    staffAssignments?: Array<{ membershipId: string; role: 'primary' | 'assistant'; minutes?: number }>;
+    resourceId?: string;
     minutes?: number;
     priceCentsOverride?: number;
   }>;

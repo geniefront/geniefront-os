@@ -88,6 +88,8 @@ import {
   useHealthFormSubmissionQuery,
   useSaveAppointmentServiceBrief,
 } from '@/features/schedule/appointmentDetail';
+import { useLocationTechPresence } from '@/features/tech/lib/useLocationTechPresence';
+import { rankStaffCandidates } from '@/features/queue/assignment';
 
 /** 回退反向流转原因映射 */
 const ROLLBACK_REASONS = [
@@ -298,6 +300,8 @@ function QueueContent() {
         inRotation: false,
         maxConcurrent: Number.MAX_SAFE_INTEGER,
         color: null,
+        levelName: null,
+        skills: [],
       },
       ...real,
     ];
@@ -312,6 +316,7 @@ function QueueContent() {
   const { data: ticketsData, isLoading: ticketsLoading, refetch: refetchTickets } = useTicketsList();
   const { data: roomsData, isLoading: roomsLoading, refetch: refetchRooms } = useRoomsQuery();
   const { data: rotationData, isLoading: rotationLoading, refetch: refetchRotation } = useRotationQuery();
+  const onlineTechIds = useLocationTechPresence();
   const closeTicketMutation = useCloseTicket();
   const openTicketMutation = useOpenTicket();
   const addTicketItemMutation = useAddTicketItem();
@@ -434,6 +439,13 @@ function QueueContent() {
     isOpen: boolean;
     item: KanbanItem | null;
     staffId: string;
+    assignments: Array<{
+      serviceId: string;
+      serviceName: string;
+      durationMin: number;
+      staffCount: number;
+      staffIds: string[];
+    }>;
     roomId: string;
     startTime: string;
     serviceDurationMin: number;
@@ -443,6 +455,7 @@ function QueueContent() {
     isOpen: false,
     item: null,
     staffId: '',
+    assignments: [],
     roomId: '',
     startTime: '',
     serviceDurationMin: 60,
@@ -888,9 +901,44 @@ function QueueContent() {
       });
     } else if (item.stage === 'waiting' && targetStage === 'in_service') {
       // 到店 ➔ 服务：弹窗指定技师与房间/工位
-      const defaultStaff = item.staffId && item.staffId !== UNASSIGNED_STAFF_ID
-        ? item.staffId
-        : staff.find((s) => s.membershipId !== UNASSIGNED_STAFF_ID && s.isBookable)?.membershipId || '';
+      const requestedItems = item.rawQueue?.items?.length
+        ? item.rawQueue.items
+        : item.serviceId ? [{
+            serviceId: item.serviceId,
+            serviceName: item.serviceName,
+            staffId: item.staffId ?? null,
+            staffName: item.staffName ?? null,
+            durationMin: item.durationMin,
+            addonIds: [],
+          }] : [];
+      const assignments = requestedItems.map((requested) => {
+        const service = services.find((entry) => entry.id === requested.serviceId) ?? {
+          id: requested.serviceId,
+          name: requested.serviceName,
+          durationMin: requested.durationMin,
+          priceCents: 0,
+          staffCount: 1,
+          requiredSkills: [],
+        };
+        const candidates = rankStaffCandidates({
+          staff: staff.filter((member) => member.membershipId !== UNASSIGNED_STAFF_ID),
+          service,
+          rotationEntries: rotationData?.entries ?? [],
+          scheduledItems: todaySnapshot?.items ?? [],
+          onlineIds: onlineTechIds,
+          requestedStaffId: requested.staffId,
+          nowMs: Date.now(),
+        });
+        return {
+          serviceId: service.id,
+          serviceName: service.name,
+          durationMin: requested.durationMin,
+          staffCount: service.staffCount,
+          staffIds: candidates.filter((candidate) => candidate.eligible)
+            .slice(0, service.staffCount).map((candidate) => candidate.staff.membershipId),
+        };
+      });
+      const defaultStaff = assignments[0]?.staffIds[0] ?? '';
       
       const availableRoom = rooms.find((r) => r.status === 'available')?.id || rooms[0]?.id || '';
       const now = new Date();
@@ -900,6 +948,7 @@ function QueueContent() {
         isOpen: true,
         item,
         staffId: defaultStaff,
+        assignments,
         roomId: availableRoom,
         startTime: timeStr,
         serviceDurationMin: item.durationMin || 60,
@@ -999,14 +1048,15 @@ function QueueContent() {
 
   // 2. Start Service Confirm Submit
   const handleConfirmStartService = async () => {
-    const { item, staffId, roomId, startTime, serviceDurationMin, serviceBrief } = startServiceModal;
+    const { item, staffId, assignments, roomId, startTime, serviceDurationMin, serviceBrief } = startServiceModal;
     if (!item) return;
 
     const assignedStaff = staff.find((s) => s.membershipId === staffId);
     const assignedRoom = rooms.find((r) => r.id === roomId);
 
     try {
-      if (!staffId || staffId === UNASSIGNED_STAFF_ID || !item.serviceId) {
+      if (!item.serviceId || assignments.length === 0
+        || assignments.some((assignment) => assignment.staffIds.length !== assignment.staffCount)) {
         toast.danger(t('queue.quSeatFailed'));
         return;
       }
@@ -1021,15 +1071,28 @@ function QueueContent() {
       if (!item.ticketId) {
         const appointmentItems = item.rawQueue?.items ?? [];
         const itemsToOpen = appointmentItems.length > 0
-          ? appointmentItems.map((appointmentItem) => ({
-              serviceId: appointmentItem.serviceId,
-              membershipId: appointmentItem.staffId ?? staffId,
-              minutes: appointmentItem.durationMin,
-            }))
+          ? appointmentItems.map((appointmentItem, index) => {
+              const assignment = assignments[index];
+              return {
+                serviceId: appointmentItem.serviceId,
+                staffAssignments: (assignment?.staffIds ?? []).map((membershipId, staffIndex) => ({
+                  membershipId,
+                  role: staffIndex === 0 ? 'primary' as const : 'assistant' as const,
+                  minutes: appointmentItem.durationMin,
+                })),
+                minutes: appointmentItem.durationMin,
+                ...(index === 0 && roomId ? { resourceId: roomId } : {}),
+              };
+            })
           : [{
               serviceId: item.serviceId,
-              membershipId: staffId,
+              staffAssignments: assignments[0]!.staffIds.map((membershipId, staffIndex) => ({
+                membershipId,
+                role: staffIndex === 0 ? 'primary' as const : 'assistant' as const,
+                minutes: serviceDurationMin,
+              })),
               minutes: serviceDurationMin,
+              ...(roomId ? { resourceId: roomId } : {}),
             }];
         const opened = await openTicketMutation.mutateAsync({
           customerId: item.rawQueue?.customerId ?? null,
@@ -1041,8 +1104,12 @@ function QueueContent() {
         ticketItemIds = opened.ticketItemIds;
       }
 
-      for (const ticketItemId of ticketItemIds) {
-        await startTicketItemMutation.mutateAsync({ ticketItemId, membershipId: staffId });
+      const firstTicketItemId = ticketItemIds[0];
+      const firstStaffId = assignments[0]?.staffIds[0];
+      if (firstTicketItemId && firstStaffId) {
+        // 多项目按顺序流转：入座时只启动第一项，其余保留为 waiting，
+        // 完成前一项后由下一位已指派技师从技师端启动。
+        await startTicketItemMutation.mutateAsync({ ticketItemId: firstTicketItemId, membershipId: firstStaffId });
       }
       if (item.queueId) {
         await update.mutateAsync({ queueId: item.queueId, status: 'seated' });
@@ -1092,14 +1159,21 @@ function QueueContent() {
       }
       const unfinished = [
         ...item.rawTicket.items
-          .filter((ticketItem) => !ticketItem.finishedAt)
+          // A ticket may contain sequential services assigned to different technicians.
+          // Finishing the current stage must never auto-start/finish future services.
+          .filter((ticketItem) => ticketItem.startedAt && !ticketItem.finishedAt)
           .map((ticketItem) => ({
             ticketItemId: ticketItem.ticketItemId,
             membershipId: ticketItem.membershipId,
           })),
         ...addedTicketItems,
       ];
+      if (unfinished.length === 0) {
+        toast.danger(t('queue.quNoActiveService'));
+        return;
+      }
       let actualMinutes = 0;
+      let ticketDone = false;
       for (const ticketItem of unfinished) {
         if (addedTicketItems.some((added) => added.ticketItemId === ticketItem.ticketItemId)) {
           await startTicketItemMutation.mutateAsync({
@@ -1112,11 +1186,15 @@ function QueueContent() {
           membershipId: ticketItem.membershipId,
         });
         actualMinutes += finished.actualMinutes;
+        ticketDone = finished.ticketDone;
       }
 
       setCompleteServiceModal((prev) => ({ ...prev, isOpen: false, item: null }));
-      toast.success(t('queue.quServiceDone', { p0: item.customerName }), {
-        description: t('queue.quServiceDoneDetail', { p0: actualMinutes, p1: centsToDollars(finalSubtotalCents) }),
+      toast.success(t(ticketDone ? 'queue.quServiceDone' : 'queue.quServiceStageDone', { p0: item.customerName }), {
+        description: t(ticketDone ? 'queue.quServiceDoneDetail' : 'queue.quServiceStageDoneDetail', {
+          p0: actualMinutes,
+          p1: centsToDollars(finalSubtotalCents),
+        }),
       });
       await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms()]);
     } catch (err: any) {
@@ -2221,6 +2299,26 @@ function QueueContent() {
         const item = startServiceModal.item;
         const assignedStaff = staff.find((s) => s.membershipId === startServiceModal.staffId);
         const assignedRoom = rooms.find((r) => r.id === startServiceModal.roomId);
+        const assignmentCandidates = startServiceModal.assignments.map((assignment) => {
+          const service = services.find((entry) => entry.id === assignment.serviceId) ?? {
+            id: assignment.serviceId, name: assignment.serviceName,
+            durationMin: assignment.durationMin, priceCents: 0,
+            staffCount: assignment.staffCount, requiredSkills: [],
+          };
+          return {
+            assignment,
+            service,
+            candidates: rankStaffCandidates({
+              staff: staff.filter((member) => member.membershipId !== UNASSIGNED_STAFF_ID),
+              service,
+              rotationEntries: rotationData?.entries ?? [],
+              scheduledItems: todaySnapshot?.items ?? [],
+              onlineIds: onlineTechIds,
+              requestedStaffId: item.staffId,
+              nowMs: Date.now(),
+            }),
+          };
+        });
 
         return (
           <Modal
@@ -2247,6 +2345,7 @@ function QueueContent() {
                 <Button
                   className="bg-teal-600 hover:bg-teal-700 text-white font-bold gap-1 shadow-md shadow-teal-600/20"
                   onClick={handleConfirmStartService}
+                  isDisabled={startServiceModal.assignments.some((assignment) => assignment.staffIds.length !== assignment.staffCount)}
                 >
                   <Check className="w-4 h-4" />
                   <span>{t('queue.quSeatConfirm')}{assignedRoom?.name || t('queue.quAssignedStation')})</span>
@@ -2282,38 +2381,69 @@ function QueueContent() {
               </div>
 
               {/* 技师与工位分配 */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3">
                 {/* 技师指派 */}
                 <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2 shadow-2xs">
                   <label className="block text-xs font-bold text-slate-800 flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <User className="w-3.5 h-3.5 text-teal-600" />
-                      <span>{t('queue.quLeadTherapistRequired')}</span>
+                      <span>{t('queue.quQualifiedStaffAssignments')}</span>
                     </span>
                     <span className="text-[10px] text-teal-600 font-normal">{t('queue.quRotationPriority')}</span>
                   </label>
-                  <select
-                    value={startServiceModal.staffId}
-                    onChange={(e) => setStartServiceModal((prev) => ({ ...prev, staffId: e.target.value }))}
-                    className="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-900 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 truncate"
-                  >
-                    {staff
-                      .filter((s) => s.membershipId !== UNASSIGNED_STAFF_ID && s.isBookable)
-                      .map((s, idx) => {
-                        const isLead = s.membershipId.includes('lead');
-                        return (
-                          <option key={s.membershipId} value={s.membershipId}>
-                            {s.name} ({isLead ? t('queue.quLevelDirector') : t('queue.quLevelSenior')}  {t('queue.quRotationNo')}{idx + 1})
-                          </option>
-                        );
-                      })}
-                  </select>
-                  {assignedStaff && (
-                    <div className="p-2 bg-slate-50 rounded-xl text-[11px] text-slate-600 flex justify-between items-center gap-1.5">
-                      <span className="truncate">{t('queue.quLevelLabel')} {assignedStaff.membershipId.includes('lead') ? t('queue.quLevelDirectorRate') : t('queue.quLevelSeniorRate')}</span>
-                      <Badge variant="success" className="text-[9px] px-1.5 py-0.5 font-bold shrink-0 whitespace-nowrap">{t('queue.quIdleAvailable')}</Badge>
-                    </div>
-                  )}
+                  <div className="space-y-3">
+                    {assignmentCandidates.map(({ assignment, service, candidates }, assignmentIndex) => (
+                      <div key={`${assignment.serviceId}-${assignmentIndex}`} className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="font-bold text-slate-900">{assignmentIndex + 1}. {assignment.serviceName}</div>
+                            <div className="text-[10px] text-slate-500">
+                              {t('queue.quNeedsStaffCount', { p0: assignment.staffCount })}
+                              {service.requiredSkills.length > 0 && ` · ${service.requiredSkills.map((skill) => skill.name).join(' / ')}`}
+                            </div>
+                          </div>
+                          <Badge variant={assignment.staffIds.length === assignment.staffCount ? 'success' : 'warning'} className="text-[9px]">
+                            {assignment.staffIds.length}/{assignment.staffCount}
+                          </Badge>
+                        </div>
+                        <div className="grid gap-1.5 sm:grid-cols-2">
+                          {candidates.map((candidate) => {
+                            const selected = assignment.staffIds.includes(candidate.staff.membershipId);
+                            return (
+                              <button
+                                key={candidate.staff.membershipId}
+                                type="button"
+                                disabled={!candidate.eligible && !selected}
+                                onClick={() => setStartServiceModal((prev) => {
+                                  const nextAssignments = [...prev.assignments];
+                                  const current = nextAssignments[assignmentIndex]!;
+                                  const staffIds = selected
+                                    ? current.staffIds.filter((id) => id !== candidate.staff.membershipId)
+                                    : current.staffIds.length < current.staffCount
+                                      ? [...current.staffIds, candidate.staff.membershipId]
+                                      : [candidate.staff.membershipId, ...current.staffIds.slice(1)];
+                                  nextAssignments[assignmentIndex] = { ...current, staffIds };
+                                  return { ...prev, assignments: nextAssignments, staffId: nextAssignments[0]?.staffIds[0] ?? '' };
+                                })}
+                                className={cn(
+                                  'rounded-xl border p-2 text-left transition',
+                                  selected ? 'border-teal-500 bg-teal-50 ring-1 ring-teal-400' : candidate.eligible ? 'border-slate-200 bg-white hover:border-teal-300' : 'cursor-not-allowed border-slate-200 bg-slate-100 opacity-55',
+                                )}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="truncate font-bold text-slate-900">{candidate.staff.name}</span>
+                                  <span className={cn('h-2 w-2 shrink-0 rounded-full', candidate.online ? 'bg-emerald-500' : 'bg-slate-300')} />
+                                </div>
+                                <div className="mt-0.5 truncate text-[9px] text-slate-500">
+                                  {candidate.staff.levelName || t('queue.quLevelUnspecified')} · {candidate.reasons.map((reason) => t(`queue.quCandidate_${reason}`)).join(' · ')}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 {/* 房间/工位分配 */}

@@ -8,7 +8,7 @@
  */
 
 import { z } from 'zod';
-import { defineCommand, uuid, phoneE164 } from '../command.js';
+import { defineCommand, uuid, phoneE164, cents } from '../command.js';
 
 /**
  * ⭐ 开始做这一项。
@@ -69,6 +69,31 @@ export const TicketSaveServiceNote = defineCommand({
   ai: { description: '保存本次服务的技师备注。', confirm: 'always' },
   reversible: true,
   idempotency: 'optional',
+});
+
+/**
+ * 记录客人直接交给技师本人的现金小费。
+ *
+ * 这不是钱箱收款，也不是前台代发：金额计入技师收入，但不会进入现金抽屉
+ * 或待发现金小费。修改采用“冲销旧记录 + 新增记录”，保留完整审计链。
+ */
+export const StaffRecordDirectCashTip = defineCommand({
+  name: 'staff.recordDirectCashTip',
+  input: z.object({
+    ticketItemId: uuid,
+    amountCents: cents.nonnegative().max(100_000_00),
+    note: z.string().trim().max(200).optional(),
+  }),
+  output: z.object({
+    ticketItemId: uuid,
+    amountCents: cents.nonnegative(),
+    settlementStatus: z.enum(['no_tip', 'received_direct']),
+  }),
+  permission: 'ticket.write',
+  ai: { description: '记录或更正客人直接交给本人、未进入前台钱箱的现金小费。', confirm: 'always' },
+  reversible: true,
+  idempotency: 'required',
+  auditRedact: ['amountCents'],
 });
 
 /**

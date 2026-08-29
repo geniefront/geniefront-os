@@ -8,7 +8,8 @@
 import type postgres from 'postgres';
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import {
-  TicketStartItem, TicketFinishItem, TicketSaveServiceNote, TimeclockPunch, SetMyLocale,
+  TicketStartItem, TicketFinishItem, TicketSaveServiceNote, StaffRecordDirectCashTip,
+  TimeclockPunch, SetMyLocale,
   AddStaff, SetEmployment, StaffSaveProfile, IssueStaffClaimCode, RevokeStaffSessions,
   AppError, ERROR_CODES, actingMembership, type CommandContext,
 } from '@gf/contracts';
@@ -246,6 +247,61 @@ registerHandler(TicketSaveServiceNote, async ({ input, ctx, tx, audit }: Handler
                    visibility: input.visibility, sensitive: input.containsSensitiveData,
                    updated: Boolean(existing) } });
   return { noteId: note!.id, ticketItemId: item.id, updated: Boolean(existing) };
+});
+
+registerHandler(StaffRecordDirectCashTip, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
+  typeof StaffRecordDirectCashTip.input._type>) => {
+  const [item] = await tx<{
+    ticket_id: string; business_date: string; finished_at: string | null; ticket_status: string;
+  }[]>`
+    select ti.ticket_id, t.business_date::text as business_date,
+           ti.finished_at::text as finished_at, t.status as ticket_status
+    from ticket_items ti join tickets t on t.id = ti.ticket_id
+    where ti.id = ${input.ticketItemId} and t.location_id = ${ctx.locationId}
+    for update`;
+  if (!item) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket_item' } });
+  const targetMembershipId = await assertCanActOnTicketItem(tx, ctx, input.ticketItemId);
+  if (!item.finished_at || item.ticket_status === 'voided') {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'direct_tip_requires_completed_service' },
+    });
+  }
+  await assertDayOpen(tx, ctx.locationId, item.business_date);
+
+  // Never mutate money history in place. Reversing the active record preserves
+  // who changed what and when while keeping earnings as the reporting source.
+  await tx`
+    update earnings set reversed_at = now(), reversed_by = ${ctx.membershipId}
+    where ticket_id = ${item.ticket_id}
+      and membership_id = ${targetMembershipId}
+      and kind = 'tip_cash' and reversed_at is null
+      and basis->>'method' = 'direct_cash'
+      and basis->>'ticketItemId' = ${input.ticketItemId}`;
+
+  if (input.amountCents > 0) {
+    await tx`insert into earnings
+      (org_id, location_id, membership_id, business_date, kind, amount_cents,
+       base_cents, ticket_id, basis)
+      values (${ctx.orgId}, ${ctx.locationId}, ${targetMembershipId}, ${item.business_date},
+              'tip_cash', ${input.amountCents}, 0, ${item.ticket_id},
+              ${jsonb({
+                method: 'direct_cash',
+                ticketItemId: input.ticketItemId,
+                receivedByMembershipId: targetMembershipId,
+                note: input.note ?? null,
+              })}::jsonb)`;
+  }
+
+  audit({
+    entityType: 'ticket', entityId: item.ticket_id,
+    after: { action: 'record_direct_cash_tip', ticketItemId: input.ticketItemId, hasTip: input.amountCents > 0 },
+  });
+  emit({ type: 'ticket.changed', entityId: item.ticket_id, membershipId: targetMembershipId, businessDate: item.business_date });
+  return {
+    ticketItemId: input.ticketItemId,
+    amountCents: input.amountCents,
+    settlementStatus: input.amountCents > 0 ? 'received_direct' as const : 'no_tip' as const,
+  };
 });
 
 // ─────────────────────────────────────────────────────────────── 打卡

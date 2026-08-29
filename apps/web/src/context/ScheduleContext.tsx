@@ -149,6 +149,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         inRotation: false,
         maxConcurrent: Number.MAX_SAFE_INTEGER, // 待分配池不受并发上限约束
         color: null,
+        levelName: null,
+        skills: [],
       },
       ...real,
     ];

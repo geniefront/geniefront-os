@@ -22,6 +22,22 @@ import { registerHandler, type HandlerArgs } from '../bus';
 
 registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof SaveService.input._type>) => {
+  const syncRequiredSkills = async (serviceId: string) => {
+    if (input.requiredSkillIds === undefined) return;
+    const unique = [...new Set(input.requiredSkillIds)];
+    const valid = unique.length === 0 ? [] : await tx<{ id: string }[]>`
+      select id from skills where location_id = ${ctx.locationId} and id = any(${unique})`;
+    if (valid.length !== unique.length) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'skill' } });
+    }
+    await tx`delete from service_skill_requirements
+      where location_id = ${ctx.locationId} and service_id = ${serviceId}`;
+    for (const skillId of unique) {
+      await tx`insert into service_skill_requirements
+        (org_id, location_id, service_id, skill_id)
+        values (${ctx.orgId}, ${ctx.locationId}, ${serviceId}, ${skillId})`;
+    }
+  };
   if (input.serviceId) {
     const [exists] = await tx<{ id: string }[]>`
       select id from services where id = ${input.serviceId} and location_id = ${ctx.locationId}`;
@@ -34,8 +50,11 @@ registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
         taxable = ${input.taxable},
         online_bookable = ${input.onlineBookable},
         is_addon = ${input.isAddon},
+        staff_count = coalesce(${input.staffCount ?? null}, staff_count),
         active = ${input.active}
       where id = ${input.serviceId}`;
+
+    await syncRequiredSkills(input.serviceId);
 
     audit({ entityType: 'service', entityId: input.serviceId,
             after: { name: pickText(input.name, ctx.locale), durationMin: input.durationMin } });
@@ -45,11 +64,13 @@ registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
   const [row] = await tx<{ id: string }[]>`
     insert into services
       (org_id, location_id, name, duration_min, base_price_cents,
-       taxable, online_bookable, is_addon, active)
+       taxable, online_bookable, is_addon, staff_count, active)
     values (${ctx.orgId}, ${ctx.locationId}, ${jsonb(input.name)}::jsonb,
             ${input.durationMin}, ${input.basePriceCents},
-            ${input.taxable}, ${input.onlineBookable}, ${input.isAddon}, ${input.active})
+            ${input.taxable}, ${input.onlineBookable}, ${input.isAddon}, ${input.staffCount ?? 1}, ${input.active})
     returning id`;
+
+  await syncRequiredSkills(row!.id);
 
   audit({ entityType: 'service', entityId: row!.id,
           after: { name: pickText(input.name, ctx.locale), created: true } });

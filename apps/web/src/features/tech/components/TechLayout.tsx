@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { Navigate, NavLink, Outlet } from 'react-router-dom';
 import {
   Sparkles,
   TrendingUp,
@@ -14,23 +14,26 @@ import { pickText } from '@gf/contracts';
 import { useLanguage } from '@/LanguageContext';
 import { useSession } from '@/lib/session';
 import { UI_LANGUAGES } from '@/i18n';
-import { getMockStore, mockPunch, type MockTechStore } from '../lib/mockData';
+import { useErrorMessage } from '@/lib/errorMessage';
+import { useTechLocaleMutation, useTechTodayQuery } from '../api';
+import { useTechRealtime } from '../lib/useTechRealtime';
 
 export function TechLayout() {
   const { t, language, setLanguage } = useLanguage();
-  const { membership, locations, clearMembership } = useSession();
+  const errorMessage = useErrorMessage();
+  const { membership, locations, clearMembership, isTechCapable, isOnline } = useSession();
   const [langMenuOpen, setLangMenuOpen] = useState(false);
-  const [mockStore, setMockStore] = useState<MockTechStore>(getMockStore);
+  const todayQuery = useTechTodayQuery();
+  const localeMutation = useTechLocaleMutation();
+  const { connection, assignmentFlash } = useTechRealtime();
 
-  const { onDuty, onBreak } = mockStore.workbench;
+  const onDuty = todayQuery.data?.onDuty ?? false;
+  const onBreak = todayQuery.data?.rotation.onBreak ?? false;
 
-  const handleToggleBreak = () => {
-    const next = mockPunch(onBreak ? 'break_end' : 'break_start');
-    setMockStore({ ...next });
-  };
+  if (!isTechCapable) return <Navigate to="/" replace />;
 
   return (
-    <div className="min-h-screen bg-slate-100 flex justify-center font-sans text-slate-900 select-none">
+    <div className="min-h-screen bg-slate-100 flex justify-center font-sans text-slate-900">
       {/* 居中移动端 App 容器 (无论在手机或电脑打开都保持优雅的 App 质感) */}
       <div className="w-full max-w-md min-h-screen bg-slate-50 shadow-2xl flex flex-col relative border-x border-slate-200/80">
         {/* 顶部白色导航栏 */}
@@ -59,9 +62,8 @@ export function TechLayout() {
           {/* 右侧：在岗/暂休状态与多语言 */}
           <div className="flex items-center gap-2 shrink-0">
             {onDuty && (
-              <button
-                type="button"
-                onClick={handleToggleBreak}
+              <div
+                role="status"
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all active:scale-95 ${
                   onBreak
                     ? 'bg-amber-100 text-amber-800 border border-amber-300'
@@ -82,7 +84,7 @@ export function TechLayout() {
                 </span>
                 {onBreak ? <Coffee className="w-3 h-3" /> : <Play className="w-3 h-3 fill-current" />}
                 <span>{onBreak ? t('onBreak') : t('onDuty')}</span>
-              </button>
+              </div>
             )}
 
             {/* 语言切换菜单 */}
@@ -108,7 +110,11 @@ export function TechLayout() {
                         key={l.code}
                         type="button"
                         onClick={() => {
+                          const previousLanguage = language;
                           setLanguage(l.code);
+                          localeMutation.mutate(l.code, {
+                            onError: () => setLanguage(previousLanguage),
+                          });
                           setLangMenuOpen(false);
                         }}
                         className={`w-full px-3.5 py-2 text-left text-xs flex items-center justify-between hover:bg-slate-50 transition-colors ${
@@ -125,6 +131,28 @@ export function TechLayout() {
             </div>
           </div>
         </header>
+
+        {localeMutation.isError && (
+          <div role="alert" className="border-b border-rose-200 bg-rose-50 px-4 py-2 text-center text-[11px] font-semibold text-rose-800">
+            {errorMessage(localeMutation.error)}
+          </div>
+        )}
+
+        {!isOnline && (
+          <div role="status" className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-[11px] font-semibold text-amber-900">
+            {t('offlineBanner')}
+          </div>
+        )}
+        {isOnline && connection !== 'live' && (
+          <div role="status" className="border-b border-slate-200 bg-slate-100 px-4 py-2 text-center text-[11px] font-semibold text-slate-600">
+            {connection === 'connecting' ? t('techRealtimeConnecting') : t('techRealtimeDown')}
+          </div>
+        )}
+        {assignmentFlash && (
+          <div role="alert" className="border-b border-teal-300 bg-teal-600 px-4 py-3 text-center text-sm font-extrabold text-white shadow-sm">
+            {t('techNewAssignment')}
+          </div>
+        )}
 
         {/* 页面主内容区域 (底部留出足够空间，确保不被底栏遮挡) */}
         <main className="p-4 flex-1 flex flex-col pb-28">

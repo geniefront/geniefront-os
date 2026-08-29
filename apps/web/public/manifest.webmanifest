@@ -2,21 +2,25 @@
   "name": "GenieFront · 门店与技师工作台",
   "short_name": "GenieFront",
   "description": "GenieFront 门店前台与技师移动工作台",
-  "start_url": "/",
+  "start_url": "/tech/today",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#0d9488",
   "orientation": "portrait-primary",
+  "lang": "zh-Hans",
   "icons": [
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }

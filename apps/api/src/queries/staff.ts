@@ -64,6 +64,13 @@ export interface StaffTask {
     containsSensitiveData: boolean;
     updatedAt: string;
   }>;
+  tip: {
+    cashCents: number;
+    cardCents: number;
+    directCashCents: number;
+    status: 'awaiting_checkout' | 'no_tip' | 'received_direct' | 'awaiting_payout' | 'settled';
+    editable: boolean;
+  };
 }
 
 export interface StaffToday {
@@ -110,6 +117,11 @@ export interface TaskRow {
   cust_notes: string | null;
   allergies: Record<string, unknown> | null;
   service_notes?: unknown;
+  ticket_status: string;
+  tip_cash: number;
+  tip_card: number;
+  direct_cash: number;
+  payout_settled: boolean;
 }
 
 /** 落单要素目录：key → 给技师看的标签 + 是否显示 */
@@ -205,6 +217,21 @@ export function buildTask(
           && typeof value.updatedAt === 'string';
       })
       : [],
+    tip: {
+      cashCents: r.tip_cash,
+      cardCents: r.tip_card,
+      directCashCents: r.direct_cash,
+      status: r.ticket_status !== 'closed' && r.direct_cash === 0
+        ? 'awaiting_checkout'
+        : r.tip_cash === 0 && r.tip_card === 0
+          ? 'no_tip'
+          : r.tip_cash === r.direct_cash && r.direct_cash > 0 && r.tip_card === 0
+            ? 'received_direct'
+            : r.tip_cash - r.direct_cash > 0 && !r.payout_settled
+              ? 'awaiting_payout'
+              : 'settled',
+      editable: r.finished_at !== null && r.ticket_status !== 'voided',
+    },
   };
 }
 
@@ -227,8 +254,12 @@ export async function loadStaffToday(
            ti.name_snapshot as service_name, ti.duration_min,
            ti.started_at, ti.finished_at, ti.details,
            ai.is_request, coalesce(item_resource.name, appointment_resource.name) as resource_name,
-           cp.profile as prefs, cp.allergies
-           , coalesce(notes.value, '[]'::jsonb) as service_notes
+           cp.profile as prefs, cp.allergies, t.status as ticket_status,
+           coalesce(tips.tip_cash, 0)::int as tip_cash,
+           coalesce(tips.tip_card, 0)::int as tip_card,
+           coalesce(tips.direct_cash, 0)::int as direct_cash,
+           coalesce(payout.acknowledged and payout.paid_cents >= payout.owed_cents, false) as payout_settled,
+           coalesce(notes.value, '[]'::jsonb) as service_notes
     from ticket_items ti
     join tickets t on t.id = ti.ticket_id
     join ticket_item_staff tis on tis.ticket_item_id = ti.id
@@ -238,6 +269,22 @@ export async function loadStaffToday(
                                   and ai.membership_id = tis.membership_id
     left join resources item_resource on item_resource.id = ti.resource_id
     left join resources appointment_resource on appointment_resource.id = ai.resource_id
+    left join lateral (
+      select
+        coalesce(sum(amount_cents) filter (where kind = 'tip_cash'), 0)::int as tip_cash,
+        coalesce(sum(amount_cents) filter (where kind = 'tip_card'), 0)::int as tip_card,
+        coalesce(sum(amount_cents) filter (
+          where kind = 'tip_cash' and basis->>'method' = 'direct_cash'
+            and basis->>'ticketItemId' = ti.id::text
+        ), 0)::int as direct_cash
+      from earnings e
+      where e.ticket_id = t.id and e.membership_id = tis.membership_id
+        and e.reversed_at is null
+    ) tips on true
+    left join tip_payouts payout
+      on payout.location_id = t.location_id
+     and payout.business_date = t.business_date
+     and payout.membership_id = tis.membership_id
     left join lateral (
       select jsonb_agg(jsonb_build_object(
         'authorMembershipId', n.author_membership_id,
@@ -270,13 +317,16 @@ export async function loadStaffToday(
 
   // 我的收入：earnings 是唯一数据源，和前台看板同一份数
   const [earn] = await tx<{
-    commission: number; base: number; tip_cash: number; tip_card: number;
+    commission: number; base: number; tip_cash: number; tip_card: number; direct_cash: number;
   }[]>`
     select
       coalesce(sum(amount_cents) filter (where kind = 'commission'), 0)::int as commission,
       coalesce(sum(base_cents)   filter (where kind = 'commission'), 0)::int as base,
       coalesce(sum(amount_cents) filter (where kind = 'tip_cash'), 0)::int as tip_cash,
-      coalesce(sum(amount_cents) filter (where kind = 'tip_card'), 0)::int as tip_card
+      coalesce(sum(amount_cents) filter (where kind = 'tip_card'), 0)::int as tip_card,
+      coalesce(sum(amount_cents) filter (
+        where kind = 'tip_cash' and basis->>'method' = 'direct_cash'
+      ), 0)::int as direct_cash
     from earnings
     where location_id = ${ctx.locationId} and membership_id = ${membershipId}
       and business_date = ${businessDate} and reversed_at is null`;
@@ -320,7 +370,8 @@ export async function loadStaffToday(
       tipCashCents: tipCash,
       tipCardCents: earn?.tip_card ?? 0,
       payCents: commission + tipCash + (earn?.tip_card ?? 0),
-      cashTipOwedCents: tipCash - (payout?.paid ?? 0) + (payout?.carry_in ?? 0),
+      cashTipOwedCents: Math.max(0,
+        tipCash - (earn?.direct_cash ?? 0) - (payout?.paid ?? 0) + (payout?.carry_in ?? 0)),
     },
   };
 }

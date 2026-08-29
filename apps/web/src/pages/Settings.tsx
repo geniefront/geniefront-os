@@ -313,6 +313,8 @@ export function Settings() {
   const [serviceTaxable, setServiceTaxable] = useState(true);
   const [serviceOnlineBookable, setServiceOnlineBookable] = useState(true);
   const [serviceIsAddon, setServiceIsAddon] = useState(false);
+  const [serviceStaffCount, setServiceStaffCount] = useState('1');
+  const [serviceRequiredSkillIds, setServiceRequiredSkillIds] = useState<string[]>([]);
   const [archivingService, setArchivingService] = useState<ServiceItem | null>(null);
 
   // 6. 员工管理表单
@@ -581,6 +583,8 @@ export function Settings() {
       setServiceTaxable(svc.taxable);
       setServiceOnlineBookable(svc.onlineBookable);
       setServiceIsAddon(svc.isAddon);
+      setServiceStaffCount(String(svc.staffCount || 1));
+      setServiceRequiredSkillIds(svc.requiredSkillIds || []);
     } else {
       setEditingService(null);
       setServiceNameZh('');
@@ -590,6 +594,8 @@ export function Settings() {
       setServiceTaxable(true);
       setServiceOnlineBookable(true);
       setServiceIsAddon(false);
+      setServiceStaffCount('1');
+      setServiceRequiredSkillIds([]);
     }
     setServiceModalOpen(true);
   };
@@ -608,6 +614,8 @@ export function Settings() {
         taxable: serviceTaxable,
         onlineBookable: serviceOnlineBookable,
         isAddon: serviceIsAddon,
+        staffCount: Math.max(1, Math.min(5, parseInt(serviceStaffCount, 10) || 1)),
+        requiredSkillIds: serviceRequiredSkillIds,
         active: true,
       });
       toast.success(editingService ? t('settings.stServiceUpdated') : t('settings.stServiceCreated'));
@@ -2634,6 +2642,44 @@ export function Settings() {
           </div>
 
           <div className="space-y-2 pt-2 border-t border-slate-100">
+            <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <label className="block text-[11px] font-bold text-slate-700 uppercase">
+                {t('settings.stRequiredStaffCount')}
+              </label>
+              <Input
+                type="number"
+                min="1"
+                max="5"
+                value={serviceStaffCount}
+                onChange={(event) => setServiceStaffCount(event.target.value)}
+                className="w-24 font-mono text-xs"
+              />
+              <div className="text-[10px] leading-relaxed text-slate-500">{t('settings.stRequiredSkillsHint')}</div>
+              <div className="flex flex-wrap gap-1.5">
+                {(settings?.skills ?? []).map((skill) => {
+                  const checked = serviceRequiredSkillIds.includes(skill.id);
+                  return (
+                    <button
+                      key={skill.id}
+                      type="button"
+                      onClick={() => setServiceRequiredSkillIds((current) => checked
+                        ? current.filter((id) => id !== skill.id)
+                        : [...current, skill.id])}
+                      className={cn(
+                        'rounded-full border px-2.5 py-1 text-[10px] font-bold transition',
+                        checked ? 'border-teal-500 bg-teal-50 text-teal-800' : 'border-slate-200 bg-white text-slate-600',
+                      )}
+                    >
+                      {checked ? '✓ ' : ''}{skill.name}
+                    </button>
+                  );
+                })}
+                {(settings?.skills ?? []).length === 0 && (
+                  <span className="text-[10px] text-amber-700">{t('settings.stNoSkillsConfigured')}</span>
+                )}
+              </div>
+            </div>
+
             <label className="flex items-center gap-2 cursor-pointer text-slate-700">
               <input
                 type="checkbox"

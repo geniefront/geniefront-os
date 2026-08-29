@@ -26,6 +26,10 @@ export const SaveService = defineCommand({
      * 一个完整项目报给客人。
      */
     isAddon: z.boolean().default(false),
+    /** 同时参与同一项目的技师人数；2 表示双技师项目。 */
+    staffCount: z.number().int().min(1).max(5).optional(),
+    /** 履约硬门槛；为空数组表示该项目不限制技能。 */
+    requiredSkillIds: z.array(uuid).max(30).optional(),
     active: z.boolean().default(true),
   }),
   output: z.object({ serviceId: uuid, created: z.boolean() }),

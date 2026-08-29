@@ -186,18 +186,71 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
 
   const svcIds = [...new Set(input.items.map((i) => i.serviceId))];
   const svcs = await tx<{
-    id: string; name: unknown; duration_min: number; base_price_cents: number;
-  }[]>`select id, name, duration_min, base_price_cents from services
+    id: string; name: unknown; duration_min: number; base_price_cents: number; staff_count: number;
+  }[]>`select id, name, duration_min, base_price_cents, staff_count from services
        where id = any(${svcIds}) and location_id = ${ctx.locationId} and active = true`;
   const byId = new Map(svcs.map((s) => [s.id, s]));
 
-  const staffIds = [...new Set(input.items.map((item) => item.membershipId))];
-  const validStaff = await tx<{ membership_id: string }[]>`
-    select membership_id from staff_profiles
-    where location_id = ${ctx.locationId} and membership_id = any(${staffIds})
-      and is_bookable = true`;
+  const assignmentsFor = (item: typeof input.items[number]) => item.staffAssignments
+    ?? (item.membershipId ? [{ membershipId: item.membershipId, role: 'primary' as const }] : []);
+  const staffIds = [...new Set(input.items.flatMap((item) => assignmentsFor(item).map((a) => a.membershipId)))];
+  const validStaff = await tx<{ membership_id: string; max_concurrent: number; active_count: number }[]>`
+    select sp.membership_id, sp.max_concurrent_appointments as max_concurrent,
+           (select count(distinct active.ticket_item_id)::int
+              from ticket_item_staff active
+              join ticket_items ati on ati.id = active.ticket_item_id
+              join tickets at on at.id = ati.ticket_id
+             where active.membership_id = sp.membership_id
+               and ati.started_at is not null and ati.finished_at is null
+               and at.status not in ('closed','voided')) as active_count
+    from staff_profiles sp join memberships m on m.id = sp.membership_id
+    where sp.location_id = ${ctx.locationId} and sp.membership_id = any(${staffIds})
+      and sp.is_bookable = true and m.status = 'active'`;
   if (validStaff.length !== staffIds.length) {
     throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff' } });
+  }
+  const atCapacity = validStaff.find((member) => member.active_count >= member.max_concurrent);
+  if (atCapacity) {
+    throw new AppError(ERROR_CODES.STAFF_OVER_CAPACITY, {
+      details: { membershipId: atCapacity.membership_id, reason: 'max_concurrent_reached' },
+    });
+  }
+
+  const skillRows = await tx<{ service_id: string; skill_id: string; membership_id: string | null }[]>`
+    select ssr.service_id, ssr.skill_id, ss.membership_id
+    from service_skill_requirements ssr
+    left join staff_skills ss on ss.skill_id = ssr.skill_id and ss.membership_id = any(${staffIds})
+    where ssr.location_id = ${ctx.locationId} and ssr.service_id = any(${svcIds})`;
+  for (const item of input.items) {
+    const service = byId.get(item.serviceId);
+    const assignments = assignmentsFor(item);
+    if (!service) continue;
+    if (assignments.length !== service.staff_count) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'staff_count_mismatch', serviceId: item.serviceId, expected: service.staff_count, received: assignments.length },
+      });
+    }
+    if (new Set(assignments.map((a) => a.membershipId)).size !== assignments.length
+      || assignments.filter((a) => a.role === 'primary').length !== 1) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'invalid_staff_assignments', serviceId: item.serviceId },
+      });
+    }
+    const requiredSkillIds = [...new Set(skillRows
+      .filter((row) => row.service_id === item.serviceId)
+      .map((row) => row.skill_id))];
+    for (const assignment of assignments) {
+      const missing = requiredSkillIds.some((skillId) => !skillRows.some((row) => (
+        row.service_id === item.serviceId
+        && row.skill_id === skillId
+        && row.membership_id === assignment.membershipId
+      )));
+      if (missing) {
+        throw new AppError(ERROR_CODES.STAFF_LACKS_SKILL, {
+          details: { serviceId: item.serviceId, membershipId: assignment.membershipId },
+        });
+      }
+    }
   }
 
   const resourceIds = [...new Set(input.items
@@ -238,8 +291,10 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
       returning id`;
     ticketItemIds.push(item!.id);
 
-    await tx`insert into ticket_item_staff (org_id, ticket_item_id, membership_id, role, minutes)
-             values (${ctx.orgId}, ${item!.id}, ${it.membershipId}, 'primary', ${mins})`;
+    for (const assignment of assignmentsFor(it)) {
+      await tx`insert into ticket_item_staff (org_id, ticket_item_id, membership_id, role, minutes)
+               values (${ctx.orgId}, ${item!.id}, ${assignment.membershipId}, ${assignment.role}, ${assignment.minutes ?? mins})`;
+    }
   }
 
   const subtotal = await recalcTotals(tx, ticket!.id);
@@ -255,7 +310,7 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
 
   // ⭐ 这就是技师手机响铃的那一下（01 §6）。
   // 一张单可能派给两个人（双技师/接力），各发各的 —— 技师端只对自己那条响。
-  for (const mid of new Set(input.items.map((i) => i.membershipId))) {
+  for (const mid of new Set(input.items.flatMap((i) => assignmentsFor(i).map((a) => a.membershipId)))) {
     emit({ type: 'ticket.assigned', entityId: ticket!.id, membershipId: mid, businessDate: date });
   }
   return { ticketId: ticket!.id, ticketItemIds, subtotalCents: subtotal };

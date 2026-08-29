@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Sparkles,
   Clock,
@@ -6,47 +6,42 @@ import {
   ShieldAlert,
   Play,
   CheckCircle2,
-  XCircle,
-  Plus,
   Coffee,
-  AlertTriangle,
   UserCheck,
   Phone,
   Timer,
-  ChevronDown,
-  ChevronUp,
   ListOrdered,
-  FlaskConical,
-  DollarSign,
-  TrendingUp,
+  RefreshCw,
 } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
-import { useSession } from '@/lib/session';
-import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { playTaskChime, playTimerCompleteChime } from '../lib/audio';
+import { GuardedButton } from '@/components/ui/GuardedButton';
+import { PageError, PageLoading } from '@/components/ui/QueryState';
+import { useErrorMessage } from '@/lib/errorMessage';
+import { playTimerCompleteChime, unlockTechAudio } from '../lib/audio';
 import { requestScreenWakeLock, releaseScreenWakeLock } from '../lib/wakeLock';
-import { TechAddItemModal } from '../components/TechAddItemModal';
+import { readTechWakeLockEnabled } from '../lib/preferences';
 import {
-  getMockStore,
-  mockPunch,
-  mockStartService,
-  mockFinishService,
-  mockDeclineTask,
-  mockAssignNewTask,
-  type MockTechStore,
-} from '../lib/mockData';
+  useTechFinishServiceMutation,
+  useTechDirectCashTipMutation,
+  useTechPunchMutation,
+  useTechStartServiceMutation,
+  useTechTodayQuery,
+} from '../api';
+import type { PunchKind } from '../types';
+import { selectTechTaskCards, serviceTimerView } from '../lib/viewModel';
 
 export function TechTodayPage() {
   const { t } = useLanguage();
-  const { membership } = useSession();
-
-  const [mockStore, setMockStore] = useState<MockTechStore>(getMockStore);
-  const [addItemOpen, setAddItemOpen] = useState(false);
-  const [declineModalOpen, setDeclineModalOpen] = useState(false);
-  const [rotationOpen, setRotationOpen] = useState(false);
-  const [declineReason, setDeclineReason] = useState<'no_skill' | 'temporarily_busy' | 'other'>('no_skill');
+  const errorMessage = useErrorMessage();
+  const todayQuery = useTechTodayQuery();
+  const punchMutation = useTechPunchMutation();
+  const startMutation = useTechStartServiceMutation();
+  const finishMutation = useTechFinishServiceMutation();
+  const directTipMutation = useTechDirectCashTipMutation();
+  const [tipEditorItemId, setTipEditorItemId] = useState<string | null>(null);
+  const [tipDollars, setTipDollars] = useState('');
   const [currentTime, setCurrentTime] = useState(() => Date.now());
 
   // 1s 定时器刷新倒计时与工时
@@ -55,30 +50,26 @@ export function TechTodayPage() {
     return () => clearInterval(timer);
   }, []);
 
-  const { workbench } = mockStore;
-  const currentTask = workbench.currentTask;
-  const nextTask = workbench.nextTask;
-  const onDuty = workbench.onDuty;
-  const onBreak = workbench.onBreak;
-  const workedMinutes = workbench.workedMinutes;
-  const rotation = workbench.rotation;
-  const standings = workbench.standings;
-  const earnings = workbench.earnings;
-
-  // 检测到新派单时播放提示音
-  const lastTaskIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (currentTask && currentTask.ticketItemId !== lastTaskIdRef.current) {
-      if (lastTaskIdRef.current !== null && currentTask.state === 'waiting') {
-        playTaskChime();
-      }
-      lastTaskIdRef.current = currentTask.ticketItemId;
-    }
-  }, [currentTask]);
+  const snapshot = todayQuery.data;
+  const { primary: currentTask, next: nextTask } = snapshot
+    ? selectTechTaskCards(snapshot)
+    : { primary: null, next: null };
+  const onDuty = snapshot?.onDuty ?? false;
+  const onBreak = snapshot?.rotation.onBreak ?? false;
+  const workedMinutes = snapshot?.workedMinutes ?? 0;
+  const rotation = snapshot?.rotation ?? { position: null, isNextUp: false, onBreak: false };
+  const earnings = snapshot?.earnings ?? {
+    commissionCents: 0,
+    tipCashCents: 0,
+    tipCardCents: 0,
+    cashTipOwedCents: 0,
+    serviceRevenueCents: 0,
+    payCents: 0,
+  };
 
   // 做工中时获取屏幕常亮锁
   useEffect(() => {
-    if (currentTask?.state === 'in_service') {
+    if (currentTask?.state === 'in_service' && readTechWakeLockEnabled()) {
       void requestScreenWakeLock();
       return () => {
         releaseScreenWakeLock();
@@ -88,62 +79,71 @@ export function TechTodayPage() {
   }, [currentTask?.state]);
 
   // 交互动作处理器
-  const handlePunch = (kind: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => {
-    const next = mockPunch(kind);
-    setMockStore({ ...next });
+  const handlePunch = (kind: PunchKind) => {
+    void unlockTechAudio();
+    punchMutation.mutate(kind);
   };
 
   const handleStartService = () => {
-    const next = mockStartService();
-    setMockStore({ ...next });
+    void unlockTechAudio();
+    if (currentTask) startMutation.mutate(currentTask.ticketItemId);
   };
 
   const handleFinishService = () => {
-    playTimerCompleteChime();
-    const next = mockFinishService();
-    setMockStore({ ...next });
+    void unlockTechAudio();
+    if (!currentTask) return;
+    finishMutation.mutate(currentTask.ticketItemId, {
+      onSuccess: () => playTimerCompleteChime(),
+    });
   };
 
-  const handleDecline = () => {
-    const next = mockDeclineTask();
-    setMockStore({ ...next });
-    setDeclineModalOpen(false);
-  };
+  if (todayQuery.isPending) {
+    return <PageLoading title={t('loadingWorkbench')} className="min-h-[55vh]" />;
+  }
 
-  const handleSimulateNewTask = (isWaiting: boolean) => {
-    const next = mockAssignNewTask(isWaiting);
-    setMockStore({ ...next });
-    if (isWaiting) playTaskChime();
+  if (todayQuery.isError || !snapshot) {
+    return (
+      <PageError
+        error={todayQuery.error}
+        onRetry={() => void todayQuery.refetch()}
+        className="min-h-[55vh]"
+      />
+    );
+  }
+
+  const actionError = punchMutation.error ?? startMutation.error ?? finishMutation.error ?? directTipMutation.error;
+  const actionPending = punchMutation.isPending || startMutation.isPending || finishMutation.isPending || directTipMutation.isPending;
+
+  const saveDirectTip = (ticketItemId: string) => {
+    const normalized = tipDollars.trim().replace(/^\$/, '');
+    if (!/^\d{1,4}(?:\.\d{0,2})?$/.test(normalized)) return;
+    const [whole = '0', fraction = ''] = normalized.split('.');
+    const amountCents = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+    directTipMutation.mutate({ ticketItemId, amountCents }, {
+      onSuccess: () => {
+        setTipEditorItemId(null);
+        setTipDollars('');
+      },
+    });
   };
 
   // 计算倒计时时间
-  let timerDisplay = '00:00';
-  let isOvertime = false;
-  let progressPercent = 0;
-
-  if (currentTask && currentTask.startedAt) {
-    const startedMs = new Date(currentTask.startedAt).getTime();
-    const totalDurationSec = (currentTask.durationMin || 30) * 60;
-    const elapsedSec = Math.max(0, Math.floor((currentTime - startedMs) / 1000));
-    const remainingSec = totalDurationSec - elapsedSec;
-
-    if (remainingSec < 0) {
-      isOvertime = true;
-      const over = Math.abs(remainingSec);
-      const m = String(Math.floor(over / 60)).padStart(2, '0');
-      const s = String(over % 60).padStart(2, '0');
-      timerDisplay = `+${m}:${s}`;
-      progressPercent = 100;
-    } else {
-      const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
-      const s = String(remainingSec % 60).padStart(2, '0');
-      timerDisplay = `${m}:${s}`;
-      progressPercent = Math.min(100, Math.round((elapsedSec / totalDurationSec) * 100));
-    }
-  }
+  const timer = serviceTimerView(
+    currentTask?.startedAt ?? null,
+    currentTask?.durationMin ?? 30,
+    currentTime,
+  );
+  const timerDisplay = timer.display;
+  const isOvertime = timer.overtime;
+  const progressPercent = timer.progressPercent;
 
   return (
     <div className="space-y-3.5">
+      {actionError && (
+        <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-800">
+          {errorMessage(actionError)}
+        </div>
+      )}
       {/* 1. 考勤打卡与今日做工概览卡片 */}
       <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/80 shadow-xs space-y-4">
         <div className="flex items-center justify-between gap-3">
@@ -168,19 +168,22 @@ export function TechTodayPage() {
           {/* 右侧：打卡操作按钮 */}
           <div className="flex items-center gap-2">
             {!onDuty ? (
-              <Button
+              <GuardedButton
+                permission="timeclock.punch_self"
                 size="sm"
                 onClick={() => handlePunch('clock_in')}
+                isDisabled={actionPending}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-2xl shadow-sm active:scale-95 text-xs"
               >
                 <Play className="w-3.5 h-3.5 mr-1.5 fill-current" />
                 {t('clockIn')}
-              </Button>
+              </GuardedButton>
             ) : (
               <>
-                <button
-                  type="button"
+                <GuardedButton
+                  permission="timeclock.punch_self"
                   onClick={() => handlePunch(onBreak ? 'break_end' : 'break_start')}
+                  isDisabled={actionPending}
                   className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 border ${
                     onBreak
                       ? 'bg-amber-50 text-amber-800 border-amber-300'
@@ -189,15 +192,17 @@ export function TechTodayPage() {
                 >
                   <Coffee className="w-3.5 h-3.5 text-amber-600" />
                   <span>{onBreak ? t('endBreak') : t('takeBreak')}</span>
-                </button>
-                <Button
+                </GuardedButton>
+                <GuardedButton
+                  permission="timeclock.punch_self"
                   variant="ghost"
                   size="sm"
                   onClick={() => handlePunch('clock_out')}
+                  isDisabled={actionPending}
                   className="text-slate-600 hover:text-rose-600 hover:bg-rose-50 text-xs px-3 py-2 rounded-xl border border-slate-200 active:scale-95 font-bold"
                 >
                   {t('clockOut')}
-                </Button>
+                </GuardedButton>
               </>
             )}
           </div>
@@ -208,7 +213,7 @@ export function TechTodayPage() {
           <div className="bg-slate-50/80 py-2.5 px-1 rounded-2xl border border-slate-100 space-y-0.5">
             <div className="text-[11px] text-slate-500">{t('doneCount')}</div>
             <div className="text-base font-extrabold text-slate-900 font-mono">
-              {workbench.doneCount} <span className="text-xs font-normal text-slate-500 font-sans">{t('orderUnit')}</span>
+              {snapshot.doneCount} <span className="text-xs font-normal text-slate-500 font-sans">{t('orderUnit')}</span>
             </div>
           </div>
           <div className="bg-slate-50/80 py-2.5 px-1 rounded-2xl border border-slate-100 space-y-0.5">
@@ -226,94 +231,28 @@ export function TechTodayPage() {
         </div>
       </div>
 
-      {/* 2. 轮牌顺位与排牌榜折叠卡片 */}
+      {/* 2. 轮牌顺位。完整队列属于前台运营数据，技师快照只返回本人位置。 */}
       <div className="bg-white rounded-3xl p-4 border border-slate-200/80 shadow-xs space-y-3">
-        <div
-          className="flex items-center justify-between cursor-pointer"
-          onClick={() => setRotationOpen(!rotationOpen)}
-        >
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-teal-50 text-teal-700 border border-teal-200/60 flex items-center justify-center font-black text-sm shrink-0">
-              #{rotation.position}
+              {rotation.position === null ? '—' : `#${rotation.position}`}
             </div>
             <div>
               <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
-                <span>{t('turnPoints')}</span>
-                <span className="text-xs font-mono text-teal-700 font-black">
-                  {(rotation.consumedBp / 10000).toFixed(1)} {t('turnsUnit')}
-                </span>
+                <span>{t('rotationPosition')}</span>
               </div>
               <div className="text-[11px] text-slate-400 mt-0.5">
-                {rotation.isNextUp ? t('nextUpSoon') : `${t('totalStaffCount').replace('{n}', String(standings.length))}`}
+                {rotation.isNextUp ? t('nextUpSoon') : t('stayReadyPrompt').replace('{pos}', String(rotation.position ?? '-'))}
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 text-xs font-bold text-teal-700 bg-teal-50 hover:bg-teal-100/80 px-3 py-1.5 rounded-xl border border-teal-200/50 transition-colors">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1.5 rounded-xl border border-teal-200/50">
             <ListOrdered className="w-3.5 h-3.5" />
-            <span>{rotationOpen ? t('collapse') || '收起' : t('allStaffRotationOrder')}</span>
-            {rotationOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            <span>{rotation.isNextUp ? t('isNextUp') : t('rotationPosition')}</span>
           </div>
         </div>
-
-        {/* 展开的轮牌队列 */}
-        {rotationOpen && (
-          <div className="pt-2 border-t border-slate-100 space-y-2 animate-in fade-in duration-200">
-            {standings.map((staff, idx) => (
-              <div
-                key={staff.membershipId}
-                className={`p-2.5 rounded-2xl flex items-center justify-between text-xs transition-all ${
-                  staff.isMe
-                    ? 'bg-teal-50/80 border-2 border-teal-500 font-bold'
-                    : 'bg-slate-50 border border-slate-100 text-slate-700'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <span
-                    className={`w-5 h-5 rounded-lg flex items-center justify-center font-black text-xs shrink-0 ${
-                      idx === 0
-                        ? 'bg-amber-500 text-white'
-                        : staff.isMe
-                        ? 'bg-teal-600 text-white'
-                        : 'bg-slate-200 text-slate-600'
-                    }`}
-                  >
-                    {idx + 1}
-                  </span>
-                  <span className="truncate">{staff.name}</span>
-                  {staff.isMe && (
-                    <span className="text-[10px] bg-teal-600 text-white px-1.5 py-0.2 rounded-md font-semibold">
-                      {t('meBadge')}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2.5 shrink-0">
-                  <span className="text-[11px] font-mono text-slate-500">
-                    {(staff.consumedBp / 10000).toFixed(1)} {t('turnsUnit')}
-                  </span>
-                  <Badge
-                    variant={
-                      staff.state === 'in_service'
-                        ? 'warning'
-                        : staff.state === 'available'
-                        ? 'success'
-                        : 'secondary'
-                    }
-                    className="text-[10px] px-2 py-0.5"
-                  >
-                    {staff.state === 'in_service'
-                      ? t('servingStatus')
-                      : staff.state === 'available'
-                      ? t('idleStatus')
-                      : staff.state === 'on_break'
-                      ? t('onBreak')
-                      : t('offShiftStatus')}
-                  </Badge>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* 3. 核心卡片：当前任务 (Active / Waiting Task) */}
@@ -382,22 +321,15 @@ export function TechTodayPage() {
             </div>
           )}
 
-          {/* 已加项目标签 */}
-          {currentTask.addons && currentTask.addons.length > 0 && (
-            <div className="p-3.5 rounded-2xl bg-teal-50/70 border border-teal-200/70 text-xs space-y-2">
-              <div className="font-bold text-teal-900 flex items-center gap-1.5">
-                <Plus className="w-3.5 h-3.5 text-teal-700" />
-                <span>{t('addServiceItem')}</span>
-              </div>
-              <div className="space-y-1.5">
-                {currentTask.addons.map((add) => (
-                  <div key={add.id} className="flex items-center justify-between text-teal-900 font-medium">
-                    <span>{add.name['zh-Hans'] || add.id}</span>
-                    <span className="font-mono font-bold text-teal-800">+${(add.priceCents / 100).toFixed(2)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+          {currentTask.details.length > 0 && (
+            <dl className="grid gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3.5 text-xs">
+              {currentTask.details.map((detail) => (
+                <div key={detail.key} className="flex items-start justify-between gap-4">
+                  <dt className="text-slate-500">{detail.label}</dt>
+                  <dd className="text-right font-semibold text-slate-900">{detail.value}</dd>
+                </div>
+              ))}
+            </dl>
           )}
 
           {/* 大屏服务倒计时器 (如果是 in_service 状态) */}
@@ -430,42 +362,29 @@ export function TechTodayPage() {
           {/* 底部交互动作栏 */}
           <div className="pt-2 flex flex-col gap-2.5">
             {currentTask.state === 'waiting' ? (
-              <div className="grid grid-cols-2 gap-3">
-                <Button
-                  variant="ghost"
-                  className="w-full text-slate-600 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 font-bold text-xs py-3.5 rounded-2xl active:scale-98"
-                  onClick={() => setDeclineModalOpen(true)}
-                >
-                  <XCircle className="w-4 h-4 mr-1.5 text-slate-400" />
-                  {t('declineTask')}
-                </Button>
-                <Button
-                  className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold text-sm py-3.5 rounded-2xl shadow-sm active:scale-98"
+              <div>
+                <GuardedButton
+                  permission="ticket.write"
+                  className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold text-sm py-4 rounded-2xl shadow-sm active:scale-98"
                   onClick={handleStartService}
+                  isDisabled={actionPending || !onDuty || onBreak}
                 >
                   <Play className="w-4 h-4 mr-1.5 fill-current" />
                   {t('startService')}
-                </Button>
+                </GuardedButton>
               </div>
             ) : (
               <div className="space-y-2">
-                <div className="grid grid-cols-3 gap-2.5">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="border border-slate-200 text-slate-700 hover:bg-slate-100 font-bold text-xs py-3.5 rounded-2xl active:scale-98"
-                    onClick={() => setAddItemOpen(true)}
-                  >
-                    <Plus className="w-4 h-4 mr-1 text-teal-600" />
-                    {t('addServiceItem')}
-                  </Button>
-                  <Button
-                    className="col-span-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm py-3.5 rounded-2xl shadow-sm active:scale-98"
+                <div>
+                  <GuardedButton
+                    permission="ticket.write"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm py-4 rounded-2xl shadow-sm active:scale-98"
                     onClick={handleFinishService}
+                    isDisabled={actionPending}
                   >
                     <CheckCircle2 className="w-5 h-5 mr-1.5" />
                     {t('finishService')}
-                  </Button>
+                  </GuardedButton>
                 </div>
               </div>
             )}
@@ -486,26 +405,10 @@ export function TechTodayPage() {
             </p>
           </div>
 
-          {/* 模拟测试面板 */}
-          <div className="pt-2 flex items-center justify-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleSimulateNewTask(true)}
-              className="text-xs rounded-xl text-teal-700 border-teal-300 hover:bg-teal-50 font-bold"
-            >
-              <FlaskConical className="w-3.5 h-3.5 mr-1" />
-              模拟派单 (待接单)
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleSimulateNewTask(false)}
-              className="text-xs rounded-xl text-slate-700 border-slate-300 hover:bg-slate-50 font-bold"
-            >
-              直接进入服务中
-            </Button>
-          </div>
+          <Button variant="outline" size="sm" onClick={() => void todayQuery.refetch()} className="mx-auto rounded-xl text-xs font-bold">
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            {t('refresh')}
+          </Button>
         </div>
       )}
 
@@ -526,66 +429,66 @@ export function TechTodayPage() {
         </div>
       )}
 
-      {/* 加项抽屉弹窗 */}
-      {currentTask && (
-        <TechAddItemModal
-          isOpen={addItemOpen}
-          onClose={() => setAddItemOpen(false)}
-          ticketId={currentTask.ticketId}
-          onAddSuccess={() => setMockStore(getMockStore())}
-        />
-      )}
-
-      {/* 拒单 / 顺延确认弹窗 */}
-      {declineModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md bg-white rounded-3xl p-5 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150">
-            <div className="flex items-center gap-2.5 text-rose-600 font-bold text-base">
-              <AlertTriangle className="w-5 h-5 shrink-0" />
-              <span>{t('declineTask')}</span>
-            </div>
-            <p className="text-xs text-slate-600 leading-relaxed">{t('declineReason')}</p>
-
-            <div className="space-y-2">
-              {[
-                { id: 'no_skill', label: t('reasonNoSkill') },
-                { id: 'temporarily_busy', label: t('reasonBusy') },
-                { id: 'other', label: t('reasonGuest') },
-              ].map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => setDeclineReason(opt.id as typeof declineReason)}
-                  className={`w-full p-3.5 rounded-2xl border text-left text-xs font-bold flex items-center justify-between transition-all ${
-                    declineReason === opt.id
-                      ? 'border-rose-500 bg-rose-50 text-rose-900 ring-1 ring-rose-500 shadow-xs'
-                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                  }`}
+      {snapshot.tasks.filter((task) => task.state === 'done').length > 0 && (
+        <div className="space-y-2 rounded-3xl border border-slate-200/80 bg-white p-4 shadow-xs">
+          <h3 className="text-sm font-black text-slate-900">{t('completedServicesAndTips')}</h3>
+          {snapshot.tasks.filter((task) => task.state === 'done').map((task) => (
+            <div key={task.ticketItemId} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-bold text-slate-900">{task.serviceName}</div>
+                  <div className="mt-0.5 text-[11px] text-slate-500">{task.customerName}</div>
+                </div>
+                <Badge
+                  variant={task.tip.status === 'settled' || task.tip.status === 'received_direct' ? 'success' : task.tip.status === 'awaiting_payout' ? 'warning' : 'secondary'}
+                  className="shrink-0 text-[10px]"
                 >
-                  <span>{opt.label}</span>
-                  {declineReason === opt.id && <CheckCircle2 className="w-4 h-4 text-rose-600" />}
-                </button>
-              ))}
+                  {t(`tipStatus_${task.tip.status}`)}
+                </Badge>
+              </div>
+              <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2">
+                <span className="text-[11px] text-slate-500">
+                  {t('directCashReceived')}: ${(task.tip.directCashCents / 100).toFixed(2)}
+                </span>
+                {task.tip.editable && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTipEditorItemId(task.ticketItemId);
+                      setTipDollars((task.tip.directCashCents / 100).toFixed(2));
+                    }}
+                    className="text-[11px] font-bold text-teal-700"
+                  >
+                    {t('editDirectCashTip')}
+                  </button>
+                )}
+              </div>
+              {tipEditorItemId === task.ticketItemId && (
+                <div className="mt-2 flex gap-2">
+                  <label className="flex flex-1 items-center rounded-xl border border-slate-300 bg-white px-3">
+                    <span className="text-xs font-bold text-slate-500">$</span>
+                    <input
+                      inputMode="decimal"
+                      value={tipDollars}
+                      onChange={(event) => setTipDollars(event.target.value)}
+                      aria-label={t('directCashTipAmount')}
+                      className="min-w-0 flex-1 bg-transparent px-1 py-2 text-sm font-bold outline-none"
+                    />
+                  </label>
+                  <Button size="sm" onClick={() => saveDirectTip(task.ticketItemId)} isDisabled={directTipMutation.isPending}>
+                    {t('save')}
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => setTipEditorItemId(null)}>
+                    {t('cancel')}
+                  </Button>
+                </div>
+              )}
             </div>
-
-            <div className="flex items-center gap-3 pt-2">
-              <Button
-                variant="ghost"
-                className="flex-1 rounded-2xl font-bold"
-                onClick={() => setDeclineModalOpen(false)}
-              >
-                {t('cancel')}
-              </Button>
-              <Button
-                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-bold shadow-md"
-                onClick={handleDecline}
-              >
-                {t('confirmDecline')}
-              </Button>
-            </div>
-          </div>
+          ))}
+          <p className="text-[10px] leading-relaxed text-slate-400">{t('directCashTipAuditHint')}</p>
         </div>
       )}
+
     </div>
   );
 }

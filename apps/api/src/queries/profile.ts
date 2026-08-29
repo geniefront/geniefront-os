@@ -104,7 +104,8 @@ export async function loadUserProfile(
       employee_no: string | null;
       job_title: string | null;
       level_name: unknown;
-      skills: string[] | null;
+      skill_names: unknown;
+      legacy_skills: string[] | null;
       is_bookable: boolean;
       max_concurrent_appointments: number;
       in_rotation: boolean;
@@ -112,7 +113,10 @@ export async function loadUserProfile(
     }[]>`
       select sp.membership_id, sp.display_name, sp.nickname,
              sp.employee_no, sp.job_title, sl.name as level_name,
-             sp.skills, sp.is_bookable, sp.max_concurrent_appointments,
+             coalesce((select jsonb_agg(sk.name order by sk.key)
+               from staff_skills ss join skills sk on sk.id = ss.skill_id
+               where ss.membership_id = sp.membership_id), '[]'::jsonb) as skill_names,
+             sp.skills as legacy_skills, sp.is_bookable, sp.max_concurrent_appointments,
              coalesce(rp.in_rotation, false) as in_rotation,
              sp.pin_hash
       from staff_profiles sp
@@ -124,12 +128,23 @@ export async function loadUserProfile(
       where sp.membership_id = ${ctx.membershipId}`;
 
     if (sp) {
+      const canonicalSkills = Array.isArray(sp.skill_names)
+        ? sp.skill_names.map((name) => pickText(name, ctx.locale)).filter(Boolean)
+        : [];
+      const legacySkills = sp.legacy_skills ?? [];
+      const legacyMatchesCanonical = legacySkills.length === canonicalSkills.length
+        && legacySkills.every((name) => canonicalSkills.includes(name));
       staffInfo = {
         membershipId: sp.membership_id,
         employeeNo: sp.employee_no || undefined,
         jobTitle: sp.job_title || undefined,
         levelName: sp.level_name ? pickText(sp.level_name, ctx.locale) : undefined,
-        skills: sp.skills ?? [],
+        // The normalized catalog controls membership. Preserve legacy ordering
+        // only when it represents the exact same set (older profile clients
+        // expect the order they submitted).
+        skills: canonicalSkills.length > 0
+          ? (legacyMatchesCanonical ? legacySkills : canonicalSkills)
+          : legacySkills,
         isBookable: sp.is_bookable,
         maxConcurrentAppointments: sp.max_concurrent_appointments,
         inRotation: sp.in_rotation,

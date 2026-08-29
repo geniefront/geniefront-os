@@ -21,6 +21,28 @@ function getAudioContext(): AudioContext | null {
   return audioCtx;
 }
 
+/**
+ * Browser audio must be unlocked by a user gesture. Call this from the first
+ * explicit work action (clock in, break, start, finish) so later assignments
+ * can make a sound without storing any business data on the device.
+ */
+export async function unlockTechAudio(): Promise<boolean> {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return false;
+    await ctx.resume();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    oscillator.connect(gain).connect(ctx.destination);
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + 0.01);
+    return ctx.state === 'running';
+  } catch {
+    return false;
+  }
+}
+
 /** 派单提醒音：双音阶清脆和弦提示 */
 export function playTaskChime(): void {
   try {
@@ -56,8 +78,8 @@ export function playTaskChime(): void {
     if ('vibrate' in navigator) {
       navigator.vibrate([100, 50, 100]);
     }
-  } catch (err) {
-    console.warn('Audio chime playback failed:', err);
+  } catch {
+    // Vibration and the visual assignment banner remain available.
   }
 }
 
@@ -88,7 +110,7 @@ export function playTimerCompleteChime(): void {
     if ('vibrate' in navigator) {
       navigator.vibrate([200, 100, 200]);
     }
-  } catch (err) {
-    console.warn('Timer complete chime playback failed:', err);
+  } catch {
+    // Confirmation sound is best-effort only.
   }
 }

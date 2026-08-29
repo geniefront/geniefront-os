@@ -67,6 +67,34 @@ registerHandler(UpdateUserProfile, async ({ input, ctx, tx, audit }: HandlerArgs
         max_concurrent_appointments = coalesce(${input.maxConcurrentAppointments ?? null}, max_concurrent_appointments),
         skills = coalesce(${input.skills ?? null}, skills)
       where membership_id = ${ctx.membershipId}`;
+
+    // Keep the normalized skill catalog authoritative for scheduling and
+    // assignment while preserving the legacy array for older clients.
+    if (input.skills !== undefined) {
+      await tx`delete from staff_skills where membership_id = ${ctx.membershipId}`;
+      for (const rawName of input.skills) {
+        const skillName = rawName.trim();
+        if (!skillName) continue;
+        const [existingSkill] = await tx<{ id: string }[]>`
+          select id from skills
+          where location_id = ${ctx.locationId}
+            and (key = ${skillName} or name->>'zh-Hans' = ${skillName} or name->>'en' = ${skillName})
+          limit 1`;
+        let skillId = existingSkill?.id;
+        if (!skillId) {
+          const [createdSkill] = await tx<{ id: string }[]>`
+            insert into skills (org_id, location_id, key, name)
+            values (${ctx.orgId}, ${ctx.locationId}, ${skillName},
+                    ${jsonb({ en: skillName, 'zh-Hans': skillName })}::jsonb)
+            returning id`;
+          skillId = createdSkill!.id;
+        }
+        await tx`
+          insert into staff_skills (membership_id, skill_id, proficiency)
+          values (${ctx.membershipId}, ${skillId}, 1)
+          on conflict do nothing`;
+      }
+    }
   }
 
   audit({

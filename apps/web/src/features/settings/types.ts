@@ -31,6 +31,8 @@ export interface ServiceItem {
   taxable: boolean;
   onlineBookable: boolean;
   isAddon: boolean;
+  staffCount: number;
+  requiredSkillIds: string[];
   active: boolean;
 }
 
@@ -152,6 +154,7 @@ export interface DeskSettings {
   services: ServiceItem[];
   staff: StaffItem[];
   levels: StaffLevelItem[];
+  skills: Array<{ id: string; key: string; name: string }>;
   guest: GuestSettings;
   phone: PhoneSettings;
   phoneAssistant?: PhoneAssistantSettings;
@@ -187,6 +190,8 @@ export interface SaveServiceInput {
   taxable?: boolean;
   onlineBookable?: boolean;
   isAddon?: boolean;
+  staffCount?: number;
+  requiredSkillIds?: string[];
   active?: boolean;
 }
 

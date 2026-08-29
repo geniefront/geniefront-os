@@ -1,259 +1,282 @@
 import { useState } from 'react';
 import {
-  User,
-  Globe,
-  Volume2,
-  Moon,
-  LogOut,
-  Store,
-  Clock,
-  CalendarDays,
-  Save,
   Check,
   ChevronRight,
-  Sparkles,
+  Clock,
+  CalendarDays,
+  Globe,
+  LogOut,
+  Moon,
+  Store,
+  Volume2,
+  ShieldCheck,
+  Tags,
 } from 'lucide-react';
+import { pickText } from '@gf/contracts';
 import { useLanguage } from '@/LanguageContext';
 import { useSession } from '@/lib/session';
-import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
+import { useUserProfileQuery } from '@/features/profile/api';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { PageError, PageLoading } from '@/components/ui/QueryState';
 import { UI_LANGUAGES } from '@/i18n';
-import { pickText } from '@gf/contracts';
+import { useTechLocaleMutation, useTechRosterQuery, useTechTodayQuery } from '../api';
 import {
-  getMockStore,
-  mockUpdateWorkHours,
-  type MockTechStore,
-} from '../lib/mockData';
+  readTechSoundEnabled,
+  readTechWakeLockEnabled,
+  writeTechSoundEnabled,
+  writeTechWakeLockEnabled,
+} from '../lib/preferences';
+import { unlockTechAudio } from '../lib/audio';
+
+function timeLabel(minutes: number): string {
+  const hour = String(Math.floor(minutes / 60)).padStart(2, '0');
+  const minute = String(minutes % 60).padStart(2, '0');
+  return `${hour}:${minute}`;
+}
 
 export function TechProfilePage() {
   const { t, language, setLanguage } = useLanguage();
-  const { membership, locations, clearMembership, signOut } = useSession();
+  const { membership, membershipId, locations, clearMembership, signOut } = useSession();
+  const profileQuery = useUserProfileQuery();
+  const rosterQuery = useTechRosterQuery();
+  const todayQuery = useTechTodayQuery();
+  const localeMutation = useTechLocaleMutation();
+  const [soundEnabled, setSoundEnabled] = useState(readTechSoundEnabled);
+  const [wakeLockEnabled, setWakeLockEnabled] = useState(readTechWakeLockEnabled);
 
-  const [mockStore, setMockStore] = useState<MockTechStore>(getMockStore);
-  const [expectedStart, setExpectedStart] = useState(mockStore.profile.expectedStart);
-  const [expectedEnd, setExpectedEnd] = useState(mockStore.profile.expectedEnd);
-  const [prefSaved, setPrefSaved] = useState(false);
+  if (profileQuery.isPending || rosterQuery.isPending || todayQuery.isPending) {
+    return <PageLoading title={t('loadingSchedule')} className="min-h-[55vh]" />;
+  }
+  if (profileQuery.isError || rosterQuery.isError || todayQuery.isError) {
+    const error = profileQuery.error ?? rosterQuery.error ?? todayQuery.error;
+    return (
+      <PageError
+        error={error}
+        onRetry={() => {
+          void profileQuery.refetch();
+          void rosterQuery.refetch();
+          void todayQuery.refetch();
+        }}
+        className="min-h-[55vh]"
+      />
+    );
+  }
 
-  const [soundEnabled, setSoundEnabled] = useState(mockStore.profile.soundEnabled);
-  const [wakeLockEnabled, setWakeLockEnabled] = useState(mockStore.profile.wakeLockEnabled);
+  const profile = profileQuery.data;
+  const roster = rosterQuery.data;
+  const displayName = profile?.nickname || profile?.fullName || todayQuery.data?.name || '';
+  const staffInfo = profile?.staffInfo;
+  const myShifts = roster?.shifts.filter((shift) => shift.membershipId === membershipId) ?? [];
+  const operationalStatus = todayQuery.data?.onDuty
+    ? (todayQuery.data.rotation.onBreak ? t('onBreak') : t('onDuty'))
+    : t('offDuty');
 
-  const { profile, weeklyShifts } = mockStore;
-
-  const handleLanguageChange = (code: typeof language) => {
-    setLanguage(code);
-  };
-
-  const handleSavePref = (e: React.FormEvent) => {
-    e.preventDefault();
-    const next = mockUpdateWorkHours(expectedStart, expectedEnd);
-    setMockStore({ ...next });
-    setPrefSaved(true);
-    setTimeout(() => setPrefSaved(false), 2000);
+  const changeLanguage = (nextLanguage: typeof language) => {
+    const previousLanguage = language;
+    setLanguage(nextLanguage);
+    localeMutation.mutate(nextLanguage, {
+      onError: () => setLanguage(previousLanguage),
+    });
   };
 
   return (
     <div className="space-y-3.5">
-      {/* 技师名片卡 */}
-      <div className="p-5 bg-white rounded-3xl border border-slate-200/80 shadow-xs">
+      <div className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-xs">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-teal-600 text-white flex items-center justify-center font-black text-2xl shadow-sm shrink-0">
-            {profile.name.slice(0, 1)}
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-teal-600 text-2xl font-black text-white shadow-sm">
+            {displayName.slice(0, 1) || 'G'}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-black text-slate-900 truncate">{profile.name}</h2>
-              <Badge variant="success" className="text-[10px] px-2 py-0.5 font-bold">
-                {profile.employeeNo}
-              </Badge>
+              <h2 className="truncate text-lg font-black text-slate-900">{displayName}</h2>
+              {staffInfo?.employeeNo && (
+                <Badge variant="success" className="px-2 py-0.5 text-[10px] font-bold">
+                  {staffInfo.employeeNo}
+                </Badge>
+              )}
             </div>
-            <p className="text-xs text-teal-700 mt-0.5 font-bold">{profile.level}</p>
-            <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5 font-medium">
-              <Store className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <span className="truncate">{membership ? pickText(membership.locationName, language) : 'GenieFront Spa'}</span>
+            {(staffInfo?.levelName || staffInfo?.jobTitle) && (
+              <p className="mt-0.5 text-xs font-bold text-teal-700">
+                {staffInfo.levelName || staffInfo.jobTitle}
+              </p>
+            )}
+            <div className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
+              <Store className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{membership ? pickText(membership.locationName, language) : 'GenieFront'}</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 排班日程卡片 */}
-      <div className="p-4 bg-white rounded-3xl border border-slate-200/80 shadow-xs space-y-3">
+      <div className="space-y-3 rounded-3xl border border-slate-200/80 bg-white p-4 shadow-xs">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center font-bold">
-            <CalendarDays className="w-4 h-4" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700">
+            <ShieldCheck className="h-4 w-4" />
           </div>
           <div>
-            <h3 className="font-bold text-sm text-slate-900">{t('navSchedule')}</h3>
+            <h3 className="text-sm font-bold text-slate-900">{t('workProfileReadOnly')}</h3>
+            <p className="text-[11px] text-slate-500">{t('workProfileManagedByDesk')}</p>
+          </div>
+        </div>
+        <dl className="grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded-2xl bg-slate-50 p-3">
+            <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t('staffStatus')}</dt>
+            <dd className="mt-1 font-bold text-slate-900">{operationalStatus}</dd>
+          </div>
+          <div className="rounded-2xl bg-slate-50 p-3">
+            <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t('staffLevel')}</dt>
+            <dd className="mt-1 font-bold text-slate-900">{staffInfo?.levelName || staffInfo?.jobTitle || t('notConfigured')}</dd>
+          </div>
+        </dl>
+        <div className="rounded-2xl bg-slate-50 p-3">
+          <div className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+            <Tags className="h-3.5 w-3.5" />
+            {t('staffSkills')}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {(staffInfo?.skills ?? []).length > 0
+              ? staffInfo?.skills.map((skill) => <Badge key={skill} variant="secondary" className="text-[10px]">{skill}</Badge>)
+              : <span className="text-[11px] text-slate-400">{t('notConfigured')}</span>}
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3 rounded-3xl border border-slate-200/80 bg-white p-4 shadow-xs">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+            <CalendarDays className="h-4 w-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">{t('navSchedule')}</h3>
             <p className="text-[11px] text-slate-500">{t('viewPublishedRosterSub')}</p>
           </div>
         </div>
 
-        {/* 7 日排班日历网格 */}
         <div className="grid grid-cols-7 gap-1.5 pt-1">
-          {weeklyShifts.map((shift, idx) => {
-            const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
-            const isOff = shift.status === 'off';
+          {(roster?.dates ?? []).map((date) => {
+            const shift = myShifts.find((item) => item.businessDate === date);
+            const published = shift?.status === 'published';
             return (
               <div
-                key={shift.dateStr}
-                className={`p-2 rounded-2xl text-center flex flex-col items-center justify-between min-h-[70px] transition-all ${
-                  isOff
-                    ? 'bg-slate-50 border border-dashed border-slate-200 text-slate-400'
-                    : 'bg-teal-50/70 border border-teal-200/80 text-teal-950 font-semibold shadow-2xs'
+                key={date}
+                className={`flex min-h-[78px] flex-col items-center justify-between rounded-2xl p-2 text-center ${
+                  published
+                    ? 'border border-teal-200/80 bg-teal-50/70 font-semibold text-teal-950 shadow-2xs'
+                    : 'border border-dashed border-slate-200 bg-slate-50 text-slate-400'
                 }`}
               >
-                <span className="text-[10px] text-slate-500 font-bold">{weekdays[idx]}</span>
-                <span className="text-xs font-black font-mono">{shift.dateStr.slice(8, 10)}</span>
-                <span className="text-[9px] font-bold">
-                  {isOff ? t('restBadge') : `${Math.floor(shift.startMin / 60)}h`}
+                <span className="text-[9px] font-bold text-slate-500">{date.slice(5)}</span>
+                <Clock className="h-3.5 w-3.5" />
+                <span className="text-[9px] font-bold leading-tight">
+                  {published ? `${timeLabel(shift.startMin)}–${timeLabel(shift.endMin)}` : t('restBadge')}
                 </span>
               </div>
             );
           })}
         </div>
-
-        {/* 期望上下班时间设置 */}
-        <form onSubmit={handleSavePref} className="pt-3 border-t border-slate-100 space-y-2.5">
-          <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-            <Clock className="w-3.5 h-3.5 text-teal-600" />
-            <span>{t('expectedHours')}</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2.5">
-            <div>
-              <label className="block text-[11px] font-medium text-slate-500 mb-1">{t('expectedStartTime')}</label>
-              <input
-                type="time"
-                value={expectedStart}
-                onChange={(e) => setExpectedStart(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:border-teal-500 focus:outline-none transition-colors"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium text-slate-500 mb-1">{t('expectedEndTime')}</label>
-              <input
-                type="time"
-                value={expectedEnd}
-                onChange={(e) => setExpectedEnd(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:border-teal-500 focus:outline-none transition-colors"
-              />
-            </div>
-          </div>
-          <Button
-            type="submit"
-            size="sm"
-            variant="outline"
-            className="w-full rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 py-2.5 active:scale-98"
-          >
-            <Save className="w-3.5 h-3.5 mr-1 text-teal-600" />
-            {prefSaved ? t('savedPreferencesSuccess') : t('saveExpectedHours')}
-          </Button>
-        </form>
       </div>
 
-      {/* 5 种语言切换卡片 */}
-      <div className="p-4 bg-white rounded-3xl border border-slate-200/80 shadow-xs space-y-3">
+      <div className="space-y-3 rounded-3xl border border-slate-200/80 bg-white p-4 shadow-xs">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center font-bold">
-            <Globe className="w-4 h-4" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+            <Globe className="h-4 w-4" />
           </div>
-          <div>
-            <h3 className="font-bold text-sm text-slate-900">{t('preferredLanguage')}</h3>
-            <p className="text-[11px] text-slate-500">界面多语言支持 (中 / 英 / 西 / 越 / 韩)</p>
-          </div>
+          <h3 className="text-sm font-bold text-slate-900">{t('preferredLanguage')}</h3>
         </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
-          {UI_LANGUAGES.map((l) => {
-            const isSelected = language === l.code;
+        <div className="grid grid-cols-2 gap-2 pt-1 sm:grid-cols-3">
+          {UI_LANGUAGES.map((item) => {
+            const selected = language === item.code;
             return (
               <button
-                key={l.code}
+                key={item.code}
                 type="button"
-                onClick={() => handleLanguageChange(l.code)}
-                className={`p-3 rounded-2xl border text-xs font-bold flex items-center justify-between transition-all active:scale-95 ${
-                  isSelected
-                    ? 'border-teal-600 bg-teal-50 text-teal-800 ring-1 ring-teal-600 shadow-2xs'
-                    : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
+                disabled={localeMutation.isPending}
+                onClick={() => changeLanguage(item.code)}
+                className={`flex items-center justify-between rounded-2xl border p-3 text-xs font-bold transition-all active:scale-95 ${
+                  selected
+                    ? 'border-teal-600 bg-teal-50 text-teal-800 ring-1 ring-teal-600'
+                    : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                <span>{l.label}</span>
-                {isSelected && <Check className="w-3.5 h-3.5 text-teal-600" />}
+                <span>{item.label}</span>
+                {selected && <Check className="h-3.5 w-3.5 text-teal-600" />}
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* 实用开关 (声音提醒 & 倒计时常亮) */}
-      <div className="p-4 bg-white rounded-3xl border border-slate-200/80 shadow-xs space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center font-bold">
-              <Volume2 className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="font-bold text-xs text-slate-800">{t('soundEnabled')}</div>
-              <div className="text-[11px] text-slate-400">{t('soundEnabledDesc')}</div>
-            </div>
-          </div>
+      <div className="space-y-3 rounded-3xl border border-slate-200/80 bg-white p-4 shadow-xs">
+        <label className="flex items-center justify-between gap-4">
+          <span className="flex items-center gap-3">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+              <Volume2 className="h-4 w-4" />
+            </span>
+            <span>
+              <span className="block text-xs font-bold text-slate-800">{t('soundEnabled')}</span>
+              <span className="block text-[11px] text-slate-400">{t('soundEnabledDesc')}</span>
+            </span>
+          </span>
           <input
             type="checkbox"
             checked={soundEnabled}
-            onChange={(e) => setSoundEnabled(e.target.checked)}
-            className="w-5 h-5 accent-teal-600 rounded cursor-pointer"
+            onChange={(event) => {
+              const checked = event.target.checked;
+              setSoundEnabled(checked);
+              writeTechSoundEnabled(checked);
+              if (checked) void unlockTechAudio();
+            }}
+            className="h-5 w-5 accent-teal-600"
           />
-        </div>
+        </label>
 
-        <div className="border-t border-slate-100 pt-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center font-bold">
-              <Moon className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="font-bold text-xs text-slate-800">{t('wakeLockEnabled')}</div>
-              <div className="text-[11px] text-slate-400">{t('wakeLockDesc')}</div>
-            </div>
-          </div>
+        <label className="flex items-center justify-between gap-4 border-t border-slate-100 pt-3">
+          <span className="flex items-center gap-3">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+              <Moon className="h-4 w-4" />
+            </span>
+            <span>
+              <span className="block text-xs font-bold text-slate-800">{t('wakeLockEnabled')}</span>
+              <span className="block text-[11px] text-slate-400">{t('wakeLockDesc')}</span>
+            </span>
+          </span>
           <input
             type="checkbox"
             checked={wakeLockEnabled}
-            onChange={(e) => setWakeLockEnabled(e.target.checked)}
-            className="w-5 h-5 accent-teal-600 rounded cursor-pointer"
+            onChange={(event) => {
+              const checked = event.target.checked;
+              setWakeLockEnabled(checked);
+              writeTechWakeLockEnabled(checked);
+            }}
+            className="h-5 w-5 accent-teal-600"
           />
-        </div>
+        </label>
       </div>
 
-      {/* 多店选择切换 */}
       {locations.length > 1 && (
-        <div className="p-4 bg-white rounded-3xl border border-slate-200/80 shadow-xs">
-          <button
-            type="button"
-            onClick={clearMembership}
-            className="w-full flex items-center justify-between text-left active:scale-98 transition-transform"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold">
-                <Store className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="font-bold text-xs text-slate-800">{t('switchShop')}</div>
-                <div className="text-[11px] text-slate-400">
-                  {t('heldLocationsCount').replace('{n}', String(locations.length))}
-                </div>
-              </div>
-            </div>
-            <ChevronRight className="w-5 h-5 text-slate-400" />
+        <div className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-xs">
+          <button type="button" onClick={clearMembership} className="flex w-full items-center justify-between text-left active:scale-98">
+            <span className="flex items-center gap-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700">
+                <Store className="h-4 w-4" />
+              </span>
+              <span>
+                <span className="block text-xs font-bold text-slate-800">{t('switchShop')}</span>
+                <span className="block text-[11px] text-slate-400">{t('heldLocationsCount').replace('{n}', String(locations.length))}</span>
+              </span>
+            </span>
+            <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
         </div>
       )}
 
-      {/* 退出登录 */}
       <Button
         variant="ghost"
-        className="w-full text-rose-600 hover:bg-rose-50 rounded-2xl py-3.5 text-xs font-bold border border-rose-200/80 active:scale-98"
+        className="w-full rounded-2xl border border-rose-200/80 py-3.5 text-xs font-bold text-rose-600 hover:bg-rose-50"
         onClick={() => void signOut()}
       >
-        <LogOut className="w-4 h-4 mr-1.5" />
+        <LogOut className="mr-1.5 h-4 w-4" />
         {t('signOut')}
       </Button>
     </div>

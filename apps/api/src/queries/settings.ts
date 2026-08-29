@@ -275,11 +275,14 @@ export async function loadDeskSettings(
   const services = await tx<{
     id: string; name: unknown; duration_min: number; base_price_cents: number;
     taxable: boolean; online_bookable: boolean; is_addon: boolean; active: boolean;
+    staff_count: number; required_skill_ids: string[];
   }[]>`
-    select id, name, duration_min, base_price_cents, taxable, online_bookable,
-           is_addon, active
-    from services where location_id = ${ctx.locationId}
-    order by active desc, sort, name->>'en'`;
+    select s.id, s.name, s.duration_min, s.base_price_cents, s.taxable, s.online_bookable,
+           s.is_addon, s.active, s.staff_count,
+           coalesce((select array_agg(ssr.skill_id order by ssr.skill_id)
+             from service_skill_requirements ssr where ssr.service_id = s.id), '{}') as required_skill_ids
+    from services s where s.location_id = ${ctx.locationId}
+    order by s.active desc, s.sort, s.name->>'en'`;
 
   const date = businessDateOf(new Date(), loc!.timezone, loc!.cutoff);
   const staff = await tx<{
@@ -309,6 +312,8 @@ export async function loadDeskSettings(
   const levels = await tx<{ id: string; key: string; name: unknown }[]>`
     select id, key, name from staff_levels
     where location_id = ${ctx.locationId} order by sort`;
+  const skillCatalog = await tx<{ id: string; key: string; name: unknown }[]>`
+    select id, key, name from skills where location_id = ${ctx.locationId} order by key`;
 
   const [web] = await tx<{ public_key: string; slug: string }[]>`
     select public_key, slug from locations where id = ${ctx.locationId}`;
@@ -375,6 +380,8 @@ export async function loadDeskSettings(
       taxable: s.taxable,
       onlineBookable: s.online_bookable,
       isAddon: s.is_addon,
+      staffCount: s.staff_count,
+      requiredSkillIds: s.required_skill_ids,
       active: s.active,
     })),
     staff: staff.map((s) => ({
@@ -393,6 +400,11 @@ export async function loadDeskSettings(
       id: l.id,
       key: l.key,
       name: pickText(l.name, ctx.locale),
+    })),
+    skills: skillCatalog.map((skill) => ({
+      id: skill.id,
+      key: skill.key,
+      name: pickText(skill.name, ctx.locale, skill.key),
     })),
     phone: {
       storefrontE164: lineOf('main'),

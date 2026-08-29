@@ -146,6 +146,8 @@ describe('⭐ 技师在床边先看到哪一句', () => {
     customer_locale: null, service_name: '深层按摩 90 分钟', duration_min: 90,
     started_at: null, finished_at: null, resource_name: '3 号房',
     is_request: false, details: null, prefs: null, cust_notes: null, allergies: null,
+    ticket_status: 'in_service', tip_cash: 0, tip_card: 0, direct_cash: 0,
+    payout_settled: false,
     ...over,
   });
 
@@ -255,6 +257,42 @@ describe('开始 / 完成', () => {
 
     await expect(run('ticket.startItem', { ticketItemId: item!.id }, ctx))
       .rejects.toMatchObject({ code: 'TICKET_ALREADY_CLOSED' });
+  });
+});
+
+describe('本人直收现金小费', () => {
+  it('完成项目后可记录并更正，旧金额冲销且不进入待发现金', async () => {
+    await reset();
+    const ctx = await ctxFor(linh);
+    const t = await run<{ ticketId: string }>('ticket.open', {
+      customerId: null, walkInName: '现金直给',
+      items: [{ serviceId: service, membershipId: linh, minutes: 45 }],
+    }, ctx);
+    const [item] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      select id from ticket_items where ticket_id = ${t.ticketId}`);
+
+    await expect(run('staff.recordDirectCashTip', {
+      ticketItemId: item!.id, amountCents: 1200,
+    }, ctx)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+
+    await run('ticket.finishItem', { ticketItemId: item!.id }, ctx);
+    await run('staff.recordDirectCashTip', { ticketItemId: item!.id, amountCents: 1200 }, ctx);
+    await run('staff.recordDirectCashTip', { ticketItemId: item!.id, amountCents: 1500 }, ctx);
+
+    const rows = await withTenant(tenant, (tx) => tx<{ amount_cents: number; reversed_at: string | null }[]>`
+      select amount_cents, reversed_at::text as reversed_at from earnings
+      where ticket_id = ${t.ticketId} and membership_id = ${linh}
+        and basis->>'method' = 'direct_cash' order by created_at`);
+    expect(rows).toHaveLength(2);
+    expect(rows.filter((row) => row.reversed_at === null).map((row) => row.amount_cents)).toEqual([1500]);
+
+    const date = await today();
+    const snapshot = await withTenant(tenant, (tx) => loadStaffToday(tx, ctx, date, linh));
+    expect(snapshot.earnings.tipCashCents).toBe(1500);
+    expect(snapshot.earnings.cashTipOwedCents).toBe(0);
+    expect(snapshot.tasks[0]?.tip).toMatchObject({
+      directCashCents: 1500, status: 'received_direct', editable: true,
+    });
   });
 });
 
@@ -377,5 +415,59 @@ describe('⭐ 技师只看得到自己的单', () => {
     const snap = await withTenant(tenant, (tx) => loadStaffToday(tx, linhCtx, date, linh));
     expect(snap.tasks).toHaveLength(1);
     expect(snap.tasks[0]!.customerName).toBe('给 Linh 的');
+  });
+});
+
+describe('⭐ 多技师服务的服务端约束', () => {
+  it('人数不足会拒绝，人数满足时持久化一主一辅两位技师', async () => {
+    await reset();
+    const ctx = await ctxFor(amy);
+    await withTenant(tenant, (tx) => tx`
+      update services set staff_count = 2 where id = ${service}
+    `);
+
+    try {
+      await expect(run('ticket.open', {
+        customerId: null,
+        walkInName: '多人服务人数不足',
+        items: [{
+          serviceId: service,
+          staffAssignments: [{ membershipId: amy, role: 'primary', minutes: 45 }],
+          minutes: 45,
+        }],
+      }, ctx)).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+        details: expect.objectContaining({ reason: 'staff_count_mismatch' }),
+      });
+
+      const opened = await run<{ ticketId: string; ticketItemIds: string[] }>('ticket.open', {
+        customerId: null,
+        walkInName: '双人服务',
+        items: [{
+          serviceId: service,
+          staffAssignments: [
+            { membershipId: amy, role: 'primary', minutes: 45 },
+            { membershipId: linh, role: 'assistant', minutes: 45 },
+          ],
+          minutes: 45,
+        }],
+      }, ctx);
+
+      const assignments = await withTenant(tenant, (tx) => tx<{ membership_id: string; role: string }[]>`
+        select membership_id, role
+        from ticket_item_staff
+        where ticket_item_id = ${opened.ticketItemIds[0]!}
+        order by role desc, membership_id
+      `);
+      expect(assignments).toHaveLength(2);
+      expect(assignments).toEqual(expect.arrayContaining([
+        expect.objectContaining({ membership_id: amy, role: 'primary' }),
+        expect.objectContaining({ membership_id: linh, role: 'assistant' }),
+      ]));
+    } finally {
+      await withTenant(tenant, (tx) => tx`
+        update services set staff_count = 1 where id = ${service}
+      `);
+    }
   });
 });

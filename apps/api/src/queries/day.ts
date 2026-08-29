@@ -15,6 +15,8 @@ export interface DayStaff {
   inRotation: boolean;
   maxConcurrent: number;
   color: string | null;
+  levelName: string | null;
+  skills: Array<{ id: string; key: string; name: string }>;
 }
 
 export interface DayItem {
@@ -46,6 +48,8 @@ export interface DayService {
   name: string;
   durationMin: number;
   priceCents: number;
+  staffCount: number;
+  requiredSkills: Array<{ id: string; key: string; name: string }>;
 }
 
 export interface DaySnapshot {
@@ -71,23 +75,33 @@ export async function loadDay(
   const staffRows = await tx<{
     membership_id: string; display_name: unknown; is_bookable: boolean;
     max_concurrent: number; color: string | null; in_rotation: boolean | null;
+    level_name: unknown; skills: unknown;
   }[]>`
     select sp.membership_id, sp.display_name, sp.is_bookable,
            sp.max_concurrent_appointments as max_concurrent, sp.color,
-           rp.in_rotation
+           rp.in_rotation, sl.name as level_name,
+           coalesce((select jsonb_agg(jsonb_build_object('id', sk.id, 'key', sk.key, 'name', sk.name) order by sk.key)
+             from staff_skills ss join skills sk on sk.id = ss.skill_id
+             where ss.membership_id = sp.membership_id), '[]'::jsonb) as skills
     from staff_profiles sp
     left join rotation_participants rp
       on rp.membership_id = sp.membership_id and rp.business_date = ${businessDate}
     join memberships m on m.id = sp.membership_id and m.status = 'active'
+    left join staff_levels sl on sl.id = sp.level_id
     where sp.location_id = ${ctx.locationId}
     order by sp.is_bookable desc, sp.display_name->>'en'`;
 
   const serviceRows = await tx<{
     id: string; name: unknown; duration_min: number; base_price_cents: number;
+    staff_count: number; required_skills: unknown;
   }[]>`
-    select id, name, duration_min, base_price_cents from services
-    where location_id = ${ctx.locationId} and active = true
-    order by sort, name->>'en'`;
+    select s.id, s.name, s.duration_min, s.base_price_cents, s.staff_count,
+           coalesce((select jsonb_agg(jsonb_build_object('id', sk.id, 'key', sk.key, 'name', sk.name) order by sk.key)
+             from service_skill_requirements ssr join skills sk on sk.id = ssr.skill_id
+             where ssr.service_id = s.id), '[]'::jsonb) as required_skills
+    from services s
+    where s.location_id = ${ctx.locationId} and s.active = true
+    order by s.sort, s.name->>'en'`;
 
   // ⭐ 带上 capacity：一间房不等于一张床（决策 25）。
   // 足疗房排 6 张躺椅、双人房两张床 —— 房态看板要画「3/6 位」而不是「占用」，
@@ -143,12 +157,22 @@ export async function loadDay(
       inRotation: s.in_rotation ?? s.is_bookable,
       maxConcurrent: s.max_concurrent,
       color: s.color,
+      levelName: s.level_name ? pickText(s.level_name, ctx.locale) : null,
+      skills: Array.isArray(s.skills) ? s.skills.map((skill) => {
+        const value = skill as { id: string; key: string; name: unknown };
+        return { id: value.id, key: value.key, name: pickText(value.name, ctx.locale, value.key) };
+      }) : [],
     })),
     services: serviceRows.map((s) => ({
       id: s.id,
       name: pickText(s.name, ctx.locale),
       durationMin: s.duration_min,
       priceCents: s.base_price_cents,
+      staffCount: s.staff_count,
+      requiredSkills: Array.isArray(s.required_skills) ? s.required_skills.map((skill) => {
+        const value = skill as { id: string; key: string; name: unknown };
+        return { id: value.id, key: value.key, name: pickText(value.name, ctx.locale, value.key) };
+      }) : [],
     })),
     resources: resourceRows.map((r) => ({
       id: r.id, name: r.name, capacity: r.capacity, maxStaff: r.max_staff,

@@ -13,9 +13,9 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'apps', 'staff', 'public');
+const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'apps', 'web', 'public');
 
-const BRAND = [0xb8, 0x14, 0x3c];   // --brand
+const BRAND = [0x0d, 0x94, 0x88];   // technician workspace teal
 const INK = [0xff, 0xff, 0xff];
 
 function crc32(buf) {

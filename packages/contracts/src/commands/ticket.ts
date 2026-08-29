@@ -49,10 +49,18 @@ export const TicketOpen = defineCommand({
     groupId: uuid.optional(),
     items: z.array(z.object({
       serviceId: uuid,
-      membershipId: uuid,
+      /** 兼容旧客户端；新客户端用 staffAssignments 表达一项多技师。 */
+      membershipId: uuid.optional(),
+      staffAssignments: z.array(z.object({
+        membershipId: uuid,
+        role: z.enum(['primary', 'assistant']).default('primary'),
+        minutes: z.number().int().positive().max(600).optional(),
+      })).min(1).max(5).optional(),
       resourceId: uuid.optional(),
       minutes: z.number().int().positive().max(600).optional(),
       priceCentsOverride: cents.optional(),
+    }).refine((item) => Boolean(item.membershipId || item.staffAssignments?.length), {
+      message: '每个项目至少需要一位技师',
     })).min(1).max(20),
   }),
   output: z.object({

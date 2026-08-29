@@ -12,6 +12,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { organizations, locations } from './tenancy';
+import { skills } from './identity';
 import { memberships } from './identity';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
@@ -111,6 +112,19 @@ export const services = pgTable('services', {
   sort: integer('sort').notNull().default(0),
 }, (t) => [
   index('services_location_idx').on(t.locationId, t.active),
+]);
+
+/** 项目履约所需技能；为空表示不设技能硬门槛。 */
+export const serviceSkillRequirements = pgTable('service_skill_requirements', {
+  orgId: orgCol(),
+  locationId: locCol(),
+  serviceId: uuid('service_id').notNull().references(() => services.id, { onDelete: 'cascade' }),
+  skillId: uuid('skill_id').notNull().references(() => skills.id, { onDelete: 'cascade' }),
+  minimumProficiency: integer('minimum_proficiency').notNull().default(1),
+}, (t) => [
+  primaryKey({ columns: [t.serviceId, t.skillId] }),
+  index('service_skill_requirements_location_idx').on(t.locationId, t.serviceId),
+  index('service_skill_requirements_skill_idx').on(t.skillId),
 ]);
 
 export const resourceTypes = pgTable('resource_types', {

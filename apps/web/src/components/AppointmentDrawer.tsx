@@ -156,7 +156,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
 
   const handleSaveCustomerProfile = async () => {
     if (!custFormName.trim()) {
-      toast.danger(t('crm.custNameRequired') || '客户姓名不能为空');
+      toast.danger(t('crm.custNameRequired'));
       return;
     }
     const phoneE164 = custFormPhone.trim() ? (normalizePhoneE164(custFormPhone) ?? undefined) : undefined;
@@ -188,7 +188,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
         });
       }
 
-      toast.success(t('crm.custSaved') || '客户档案已更新');
+      toast.success(t('crm.custSaved').replace('{p0}', custFormName.trim()));
       setEditCustomerOpen(false);
       await refresh();
     } catch (err) {
@@ -626,7 +626,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
               <option value="官网预约">{t('crm.custSourceWebsite')}</option>
               <option value="朋友转介绍">{t('crm.custSourceReferral')}</option>
               <option value="社交媒体">{t('crm.custSourceSocial')}</option>
-              <option value="电话预约">电话预约</option>
+              <option value="Phone">{t('crm.custSourcePhone')}</option>
             </select>
           </div>
         </div>
@@ -652,7 +652,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
             rows={3}
             maxLength={2000}
             className="w-full rounded-xl border border-slate-200 p-3 text-xs outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-            placeholder="记录客户特殊服务习惯、喜好饮品、过往沟通重点等..."
+            placeholder={t('crm.custNotesPlaceholder')}
           />
         </div>
       </div>
