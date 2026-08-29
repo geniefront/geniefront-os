@@ -86,16 +86,31 @@ export async function loadQueue(
              select count(*) from form_templates ft
              where ft.location_id = q.location_id and ft.active = true
                and ft.published_at is not null
+               and ft.key = case (
+                 select business_type from locations where id = q.location_id
+               )
+                 when 'nail' then 'nail_pedicure_intake'
+                 when 'massage' then 'massage_intake'
+                 when 'foot_spa' then 'massage_intake'
+                 when 'lash' then 'lash_services_intake'
+                 when 'scalp' then 'head_spa_intake'
+                 when 'hair' then 'hair_services_intake'
+                 else 'nail_pedicure_intake'
+               end
                and jsonb_array_length(ft.service_ids) = 0
                and not exists (
                  select 1 from form_submissions fs
-                 where fs.template_id = ft.id and fs.customer_id = q.customer_id
+                 where fs.template_id = ft.id
+                   and (fs.appointment_id = q.appointment_id
+                     or (q.customer_id is not null and fs.customer_id = q.customer_id))
                    and fs.anonymized_at is null
                    and (fs.expires_on is null or fs.expires_on >= current_date))
            ) as pending_forms,
            (
              select count(*) from form_submissions fs
-             where fs.customer_id = q.customer_id and fs.location_id = q.location_id
+             where fs.location_id = q.location_id
+               and (fs.appointment_id = q.appointment_id
+                 or (q.customer_id is not null and fs.customer_id = q.customer_id))
                and fs.anonymized_at is null
            ) as signed_form_count,
            cp.allergies
@@ -152,7 +167,7 @@ export async function loadQueue(
     const joinedAt = parseTs(r.joined_at);
     const waitedMin = Math.max(0, Math.round((now - joinedAt.getTime()) / 60_000));
     const signedCount = Number(r.signed_form_count ?? 0);
-    const pendingForms = r.customer_id ? Number(r.pending_forms) : 0;
+    const pendingForms = Number(r.pending_forms ?? 0);
     const intakeSigned = signedCount > 0 && pendingForms === 0;
 
     let contraindications: string[] = [];

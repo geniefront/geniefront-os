@@ -143,6 +143,8 @@ const formQuestions = z.array(z.object({
   label: i18nText,
   options: z.array(z.object({ value: z.string().min(1).max(40), label: i18nText })).max(20).optional(),
   required: z.boolean().default(false),
+  /** 隐藏题保留在模板版本中，方便店主以后重新启用；公开端不下发。 */
+  hidden: z.boolean().default(false),
   sync: z.enum(['avoid_areas', 'health_flag']).optional(),
 })).min(1).max(40).superRefine((questions, ctx) => {
   const ids = new Set<string>();
@@ -213,6 +215,11 @@ export const SubmitForm = defineCommand({
   input: z.object({
     templateId: uuid,
     customerId: uuid.nullable().optional(),
+    /**
+     * 关联预约。公开链接提交时由服务端从 form_share_links 注入，
+     * 不信任顾客端请求体中的值。
+     */
+    appointmentId: uuid.nullable().optional(),
     /** 题目 id → 答案 */
     answers: z.record(z.string(), z.unknown()),
     /** 签名图片的 data URL（PNG）。模板要求签字时必填 */
@@ -276,7 +283,7 @@ export const SubmitForm = defineCommand({
 export const ShareForm = defineCommand({
   name: 'form.share',
   input: z.object({
-    /** 要他签哪几份。空 = 按门店当前在用的全部必签表 */
+    /** 要他签哪几份。空 = 按门店当前业态选择一份已发布表 */
     templateIds: z.array(uuid).max(10).default([]),
     /** 认得出是谁签的。没有客户档案也能发（他到店再合并，决策 21） */
     customerId: uuid.nullable().optional(),

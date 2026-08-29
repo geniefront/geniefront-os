@@ -314,11 +314,25 @@ registerHandler(SaveFormTemplate, async ({ input, ctx, tx, audit }: HandlerArgs<
 
 registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof SubmitForm.input._type>) => {
+  if (input.appointmentId) {
+    const [appointment] = await tx<{ customer_id: string | null }[]>`
+      select customer_id from appointments
+      where id = ${input.appointmentId} and location_id = ${ctx.locationId}`;
+    if (!appointment) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
+    }
+    if (input.customerId && appointment.customer_id && input.customerId !== appointment.customer_id) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'appointment_customer_mismatch' },
+      });
+    }
+  }
+
   const [tpl] = await tx<{
     id: string; version: number; requires_signature: boolean;
-    valid_days: number | null; schema: unknown; key: string;
+    valid_days: number | null; schema: unknown; key: string; title: unknown;
   }[]>`
-    select id, version, requires_signature, valid_days, schema, key
+    select id, version, requires_signature, valid_days, schema, key, title
     from form_templates
     where id = ${input.templateId} and location_id = ${ctx.locationId}`;
   if (!tpl) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'form_template' } });
@@ -327,7 +341,7 @@ registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
   // 「怀孕了吗」漏答和答「否」在法律上完全不是一回事
   const questions = (tpl.schema ?? []) as FormQuestion[];
   const missing = questions
-    .filter((q) => q.required && (input.answers[q.id] === undefined || input.answers[q.id] === null))
+    .filter((q) => !q.hidden && q.required && (input.answers[q.id] === undefined || input.answers[q.id] === null))
     .map((q) => q.id);
   if (missing.length > 0) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
@@ -354,7 +368,8 @@ registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
       (org_id, location_id, customer_id, template_id, template_version,
        answers_encrypted, enc_alg,
        signature_url, signed_at, signer_name, signer_relation,
-       ip, user_agent, locale, source, on_behalf_by, expires_on, share_link_id)
+       ip, user_agent, locale, source, on_behalf_by, expires_on, share_link_id,
+       appointment_id)
     values (${ctx.orgId}, ${ctx.locationId}, ${input.customerId ?? null},
             ${tpl.id}, ${tpl.version},
             ${encrypted}, ${ENC_ALG},
@@ -363,8 +378,31 @@ registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
             ${input.signerName}, ${input.signerRelation},
             ${ctx.ip ?? null}, ${null}, ${input.locale}, ${input.source},
             ${input.source === 'desk' ? ctx.membershipId : null},
-            ${expiresOn}::date, ${input.shareLinkId ?? null})
+            ${expiresOn}::date, ${input.shareLinkId ?? null},
+            ${input.appointmentId ?? null})
     returning id`;
+
+  // 顾客完成预约关联表单后，立即向本店前台广播应用内通知。
+  // 通知只包含操作所需元数据，不包含任何健康答案。
+  if (input.appointmentId) {
+    await tx`
+      insert into in_app_notifications (
+        org_id, location_id, category, level, title, title_key, message,
+        action_type, action_target_id, action_url, meta, created_at, updated_at
+      ) values (
+        ${ctx.orgId}, ${ctx.locationId}, 'customers', 'success',
+        ${'Health form completed'}, ${'healthForms.notificationCompletedTitle'},
+        ${`${input.signerName} completed ${pickText(tpl.title, 'en', 'health form')}.`},
+        'appointment', ${input.appointmentId}, ${`/schedule?appointmentId=${input.appointmentId}`},
+        jsonb_build_object(
+          'appointmentId', ${input.appointmentId}::text,
+          'customerId', ${input.customerId ?? null}::text,
+          'submissionId', ${row!.id}::text,
+          'templateKey', ${tpl.key}::text
+        ),
+        now(), now()
+      )`;
+  }
 
   // ⭐ 回填客户档案（见下面那个函数的头注释：只搬部位和一个布尔）
   const synced = input.customerId
@@ -404,6 +442,7 @@ interface FormQuestion {
   id: string;
   type?: 'bool' | 'text' | 'choice' | 'multi';
   required?: boolean;
+  hidden?: boolean;
   /** 见 contracts 里 SaveFormTemplate 的注释：只有两个去处，都不搬明细 */
   sync?: 'avoid_areas' | 'health_flag';
 }
@@ -446,7 +485,7 @@ async function syncToProfile(
   let healthFlag = false;
 
   for (const q of questions) {
-    if (!q.sync) continue;
+    if (q.hidden || !q.sync) continue;
     const a = answers[q.id];
     if (a === undefined || a === null || a === '') continue;
 
@@ -472,6 +511,22 @@ async function syncToProfile(
       const has = Array.isArray(a) ? values.length > 0 : a !== false;
       if (has) healthFlag = true;
     }
+  }
+
+  // Web 顾客端的人体图是所有行业模板共用的结构化控件，不属于某一道
+  // 可编辑问题。仍只同步「避开哪些部位」这一层操作信息，不搬疼痛描述。
+  const bodyMapAvoid = answers['bodyMapAvoid'];
+  if (Array.isArray(bodyMapAvoid)) {
+    for (const value of bodyMapAvoid) {
+      if (typeof value === 'string' && value.length > 0 && value.length <= 40) areas.add(value);
+    }
+  }
+
+  // 顾客端公共健康排查区同样独立于店主题库。只把“存在至少一项风险”
+  // 合并成布尔标记，具体勾选内容继续只留在加密答案中。
+  const conditions = answers['conditions'];
+  if (conditions && typeof conditions === 'object' && !Array.isArray(conditions)) {
+    healthFlag ||= Object.values(conditions as Record<string, unknown>).some((value) => value === true);
   }
 
   if (areas.size === 0 && !healthFlag) return { areaCount: 0, healthFlag: false };
@@ -521,12 +576,40 @@ registerHandler(ShareForm, async ({ input, ctx, tx, audit }: HandlerArgs<
     });
   }
 
+  let resolvedCustomerId = input.customerId ?? null;
+  if (input.appointmentId) {
+    const [appointment] = await tx<{ customer_id: string | null }[]>`
+      select customer_id from appointments
+      where id = ${input.appointmentId} and location_id = ${ctx.locationId}`;
+    if (!appointment) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
+    }
+    if (resolvedCustomerId && appointment.customer_id && resolvedCustomerId !== appointment.customer_id) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'appointment_customer_mismatch' },
+      });
+    }
+    resolvedCustomerId = appointment.customer_id ?? resolvedCustomerId;
+  }
+
   /**
-   * 要签哪几份。
-   *
-   * ⚠️ 没点名就取**当前在用的全部**，而不是「上次发的那几份」——
-   * 老板刚加了一份新的免责书，前台不该因为用的是同一个按钮而漏掉它。
+   * 要签哪一份。预约/到店入口不点名时，根据门店固定业态选择唯一模板，
+   * 避免把其它行业的表一并发给顾客。
    */
+  const [location] = input.templateIds.length === 0
+    ? await tx<{ business_type: string }[]>`
+        select business_type from locations where id = ${ctx.locationId}`
+    : [];
+  const defaultTemplateKey: Record<string, string> = {
+    nail: 'nail_pedicure_intake',
+    massage: 'massage_intake',
+    foot_spa: 'massage_intake',
+    lash: 'lash_services_intake',
+    scalp: 'head_spa_intake',
+    hair: 'hair_services_intake',
+    mixed: 'nail_pedicure_intake',
+  };
+  const selectedKey = defaultTemplateKey[location?.business_type ?? 'nail'] ?? 'nail_pedicure_intake';
   const rows = input.templateIds.length > 0
     ? await tx<{ id: string; title: unknown }[]>`
         select id, title from form_templates
@@ -535,8 +618,9 @@ registerHandler(ShareForm, async ({ input, ctx, tx, audit }: HandlerArgs<
     : await tx<{ id: string; title: unknown }[]>`
         select id, title from form_templates
         where location_id = ${ctx.locationId} and active
-          and published_at is not null
-        order by created_at`;
+          and published_at is not null and key = ${selectedKey}
+        order by version desc, created_at desc
+        limit 1`;
 
   if (rows.length === 0) {
     // 一条打开是空白的链接比没有链接更糟：客人以为自己填过了
@@ -553,7 +637,7 @@ registerHandler(ShareForm, async ({ input, ctx, tx, audit }: HandlerArgs<
       (org_id, location_id, customer_id, appointment_id, template_ids,
        token_hash, channel, sent_to, locale, created_by, expires_at)
     values (${ctx.orgId}, ${ctx.locationId},
-            ${input.customerId ?? null}, ${input.appointmentId ?? null},
+            ${resolvedCustomerId}, ${input.appointmentId ?? null},
             ${jsonb(rows.map((r) => r.id))}::jsonb,
             ${hashFormToken(token)}, ${input.channel},
             ${input.channel === 'email' ? input.email! : null},
@@ -567,9 +651,9 @@ registerHandler(ShareForm, async ({ input, ctx, tx, audit }: HandlerArgs<
     const [line] = await tx<{ e164: string }[]>`
       select e164 from phone_lines
       where location_id = ${ctx.locationId} and purpose = 'main' and active limit 1`;
-    const [cust] = input.customerId
+    const [cust] = resolvedCustomerId
       ? await tx<{ display_name: string }[]>`
-          select display_name from customers where id = ${input.customerId}`
+          select display_name from customers where id = ${resolvedCustomerId}`
       : [];
 
     /**
@@ -608,7 +692,7 @@ registerHandler(ShareForm, async ({ input, ctx, tx, audit }: HandlerArgs<
     after: {
       channel: input.channel,
       templateCount: rows.length,
-      customerId: input.customerId ?? null,
+      customerId: resolvedCustomerId,
       expiresAt: expiresAt.toISOString(),
       locale: input.locale,
     },

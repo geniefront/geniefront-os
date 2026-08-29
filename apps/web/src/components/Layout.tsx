@@ -663,7 +663,7 @@ export function Layout() {
                           />
                           <div className="min-w-0 flex-1">
                             <p className={cn('text-xs truncate', !n.read ? 'font-bold text-slate-900' : 'font-medium text-slate-700')}>
-                              {n.title}
+                              {n.titleKey ? t(n.titleKey) : n.title}
                             </p>
                             <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">{n.message}</p>
                           </div>

@@ -1,5 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
-import { apiGet } from '@/lib/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiGet, apiPost } from '@/lib/api';
 import { useSession } from '@/lib/session';
 
 export interface AppointmentItemDetail {
@@ -40,21 +40,78 @@ export function useAppointmentDetailQuery(appointmentId: string | null) {
   });
 }
 
+export function useSaveAppointmentServiceBrief(appointmentId: string | null) {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (note: string) => apiPost<{ appointmentId: string; note: string | null }>(
+      `/v1/desk/appointments/${appointmentId}/service-brief`,
+      { note },
+    ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'appointment-detail', appointmentId, membershipId] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'day', membershipId] });
+    },
+  });
+}
+
+export interface AppointmentHealthForm {
+  submissionId: string;
+  templateId: string;
+  templateKey: string;
+  templateTitle: Record<string, string>;
+  templateVersion: number;
+  version: number;
+  isLatest: boolean;
+  signerName: string | null;
+  signedAt: string | null;
+  createdAt: string;
+  expiresOn: string | null;
+  anonymized: boolean;
+  locale: string;
+}
+
+export function useAppointmentFormsQuery(appointmentId: string | null) {
+  const { membershipId, status } = useSession();
+  return useQuery({
+    queryKey: ['desk', 'appointment-forms', appointmentId, membershipId],
+    queryFn: () => apiGet<{ forms: AppointmentHealthForm[] }>(`/v1/desk/appointments/${appointmentId}/forms`),
+    enabled: status === 'ready' && Boolean(appointmentId),
+    // 只在等顾客提交时轮询；已有完成记录后立即停止，避免前台持续重复请求。
+    refetchInterval: (query) => (
+      appointmentId && !query.state.data?.forms.some((form) => form.isLatest)
+        ? 5_000
+        : false
+    ),
+  });
+}
+
 export interface HealthFormSubmissionDetail {
   submissionId: string;
-  formId?: string;
-  customerName?: string;
-  submittedAt?: string;
-  answers?: Array<{ question: string; answer: unknown }>;
-  data?: Record<string, unknown>;
-  signatureSvg?: string;
+  templateKey: string;
+  templateTitle: Record<string, string>;
+  templateVersion: number;
+  questions: Array<{ id: string; label: Record<string, string> }>;
+  answers: Record<string, unknown> | null;
+  signerName: string | null;
+  signerRelation: string;
+  signatureUrl: string | null;
+  signedAt: string | null;
+  locale: string;
+  source: string;
+  expiresOn: string | null;
+  anonymized: boolean;
+  customerName: string | null;
 }
 
 export function useHealthFormSubmissionQuery(submissionId: string | null, enabled: boolean = false) {
   const { membershipId, status } = useSession();
   return useQuery({
     queryKey: ['desk', 'form-submission', submissionId, membershipId],
-    queryFn: () => apiGet<HealthFormSubmissionDetail>(`/v1/desk/forms/submissions/${submissionId}?reason=service_prep`),
+    queryFn: () => apiPost<HealthFormSubmissionDetail>(
+      `/v1/desk/forms/submissions/${submissionId}/access`,
+      { reason: 'service_prep' },
+    ),
     enabled: status === 'ready' && Boolean(submissionId) && enabled,
   });
 }

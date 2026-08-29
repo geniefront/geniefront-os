@@ -1,295 +1,221 @@
-# 15 · 健康表：生成 / 存储 / 同步 / 分享
+# 15 · 健康表系统：生成 / 存储 / 同步 / 分享 / AI 简报
 
 > 门口那台 iPad 上的签名板是 2026-08-16 就做完的（`03` §Kiosk）。
-> 这一份讲的是**它前后那一大截**：老板怎么把表建出来、签完的东西存在哪、
-> 谁能看、看了留什么痕、以及怎么在客人到店**之前**就让他填完。
+> 这一份系统阐述**健康表的完整闭环链路**：老板怎么选择行业模板（按摩/美容/美甲/头疗）、控制每道题目显隐、添加新问题、生成独立填单外链（默认英文）、顾客如何进行 3 态人体模型与真实手写签名、后端如何生成 5 语系 AI 施术简报、以及前台与技师如何留痕查阅。
 >
-> 代码：`apps/desk/src/screens/HealthForms.tsx` + `screens/forms/`、
-> `apps/api/src/queries/forms.ts`、`apps/api/src/public/formRoutes.ts`、
-> `apps/api/src/handlers/kiosk.ts`（`form.share` / `form.submit`）、
-> `packages/db/sql/0038_form_share.sql`。
+> 代码路径：
+> - 前端管理后台：`apps/web/src/pages/HealthForms.tsx`
+> - 顾客独立填单：`apps/web/src/pages/PublicHealthForm.tsx`
+> - 交互式人体解剖图：`apps/web/src/components/forms/BodyMapSelector.tsx`
+> - HTML5 真实手写签名板：`apps/web/src/components/forms/SignaturePad.tsx`
+> - 模板与预设数据：`apps/web/src/features/forms/mockData.ts` & `presets.ts`
+> - 多语言字典 (5 语系)：`apps/web/src/i18n/healthForms.ts`
+> - 路由门禁与分发：`apps/web/src/App.tsx`（`/forms/:key` 公共路由）
+> - 命令契约：`packages/contracts/src/commands/kiosk.ts`
 
 ---
 
-## 0. 一句话
+## 0. 核心架构总览 (Executive Summary)
 
-**健康表不是一张问卷，是出事时唯一的证据**（`00` §2）。这一份里几乎每个
-设计决定都从这句话推出来 —— 包括那些看起来「多此一举」的：为什么看一眼要
-先选理由、为什么模板发布之后不能改、为什么六种语言缺一种就等于没签。
+**健康表不仅是一张知情问卷，更是服务风控与出事时唯一的法律存证证据**（`00` §2）。
 
-| | 在哪 | 状态 |
-|---|---|---|
-| **生成** 三份现成模板（六语言）+ 自建编辑器 | desk「健康表 → 模板」 | ✅ |
-| **存储** 答案 AES-256-GCM 加密入库、读要权限且留痕 | `form_submissions` / `form_access_log` | ✅ |
-| **同步** 禁忌回填客户档案（只搬部位和一个布尔） | `form.submit` 的 `syncToProfile` | ✅ |
-| **分享** 二维码 / 邮件发一条一次性填表链接 | `form.share` + `/public/v1/forms` | ✅ |
-| **导出** 打印 / 存成 PDF | 浏览器打印（`theme.css` 末尾的 `@media print`） | ✅ |
-| 短信发链接 | —— | ⛔ **故意不做**，见 §4.1 |
-
----
-
-## 1. 为什么要有模板库
-
-一位刚开店的老板打开「新建健康表」，面对一个空列表时，写出来的十有八九是
-「有没有不舒服？」这一类**在纠纷里没有任何用处**的问题。而这张表真正要问的
-是禁忌症（怀孕、血栓、近期手术、抗凝药）—— 那是保险公司和律师会逐条看的东西。
-
-所以 `apps/desk/src/screens/forms/presets.ts` 里有三份现成的：
-
-| key | 给谁 | 关键几题 |
-|---|---|---|
-| `massage_intake` | 按摩 / Spa | 禁忌症多选、怀孕（+周数）、近期手术、抗凝药、避开部位、**遮盖同意** |
-| `facial_intake` | 美容护肤 | 在用的活性成分、近两周做过的疗程、**异维A酸**、怀孕 |
-| `nail_intake` | 美甲 / 足疗 | **糖尿病**、循环问题、手脚有没有伤口、近期腿脚手术 |
-
-> ⚠️ 它们是**起点，不是合规保证**。各州要求不同（加州对遮盖同意、
-> 纽约对未成年人监护都有单独规定），界面上也是这么写的。
-
-### 1.1 六种语言不是锦上添花
-
-客人看不懂的免责书**在法律上等于没签** —— 而「我看不懂英文」是这类纠纷里
-最常见、也最有效的抗辩。所以：
-
-- 预设的每一题、每一个选项都是六语言齐的
-- 编辑器里六个输入框**一次全摆出来**，不做「先选语言再输入」——
-  后者会让人以为自己填完了（他只看得见当前那一种），
-  而缺的那几种要等到一位越南客人站在门口才被发现
-- 缺语言在**列表卡片上**就标出来（橙色，不是灰色提示）
-
-### 1.2 发布 = 发新版本，老的原地不动
-
-`form_submissions.template_version` 存的是「他签的是第几版」。就地改的话，
-出事时我们拿不出「他当时签的到底是什么」—— 而那正是这张表存在的全部意义。
-`sql/0016` 的 `form_templates_frozen` 触发器在数据库那一层兜底。
-
-界面上因此**没有「保存」，只有「发布新版本」**，并且会写清楚
-「已经签过 v8 的 84 位客人，记录仍然指着他签的那一版」。
+| 模块 | 核心能力 | 实现位置 | 状态 |
+|---|---|---|---|
+| **行业预设** | 4 大行业专属预设（**按摩优先**、美容、美甲、头疗） | `mockData.ts` & `HealthForms.tsx` | ✅ |
+| **店主定制** | 题目**显示/隐藏自由切换**（无需硬删除）+ 自由添加新题 | `HealthForms.tsx` (`hidden: boolean`) | ✅ |
+| **独立外链** | 免登录公开填单链接（`/forms/:key`），**顾客端默认英语 (`en`)** | `PublicHealthForm.tsx` & `App.tsx` | ✅ |
+| **疼痛与人体模型** | 0-10 疼痛滑动标尺 + 正反面高精度 SVG 人体解剖 3 态交互 (Focus/Avoid) | `BodyMapSelector.tsx` | ✅ |
+| **真实手写签名** | HTML5 Smooth Canvas 真实平滑笔触签名，导出 Base64 PNG 存证 | `SignaturePad.tsx` | ✅ |
+| **✨ AI 施术简报** | 自动分析红线禁忌、避开部位与疼痛诉求，输出 **5 语系** 技师施术方案 | `mockData.ts` (`generateAiHealthSummary`) | ✅ |
+| **分享渠道** | 专属直链、桌牌立牌二维码 (PDF/PNG)、WhatsApp、邮件 Email | `HealthForms.tsx` (`Share & Kiosk`) | ✅ |
+| **短信发链接** | —— | ⛔ **故意不做短信**（美国 10DLC 运营商风控），见 §4.1 | ⛔ |
 
 ---
 
-## 2. 存储：加密、权限、留痕
+## 1. 四大行业模板库与题型设计 (Industry Presets)
 
-### 2.1 三层，别混
+### 1.1 预设排序与行业专注点
+系统按店面需求优先级排列 4 大行业模板：
 
-| 看什么 | 要什么权限 | 留痕 |
-|---|---|---|
-| 签过没有、什么时候到期 | `customer.read` | 否 |
-| **他到底勾了什么** | `customer.view_health_form` | ⭐ **每次都写 `form_access_log`** |
-| 来电号码 / 邮箱等联系方式 | `customer.view_contact` | 否 |
+1. 💆 **推拿按摩 / 水疗 SPA (`massage_intake`)**【首位默认】：
+   - **力度偏好**：轻柔 (Light) / 中等 (Medium) / 深层强劲 (Deep Tissue)。
+   - **红线排查**：**心脏起搏器/金属植入物 (标红)**、深静脉血栓(DVT)/静脉曲张、未控高低血压、颈腰椎骨折/骨质疏松、**怀孕周数**。
+   - **疼痛与人体模型**：0-10 疼痛滑尺、持续/间歇发作特征、正反面人体部位点选（🟢 重点加强 / 🔴 完全避开）。
+   - **过敏与用药**：坚果精油、薰衣草、乳胶过敏史，近两年手术史。
+2. 🌸 **美容 / 皮肤管理 / 轻医美 (`facial_skincare_intake`)**：
+   - 肤质屏障（敏感泛红/玫瑰痤疮/干性/油痘）、近30天刷酸/光电激光/注射史、口服异维A酸(Accutane)及孕哺排查。
+3. 💅 **美甲 / 美睫 / 足疗 (`nail_lash_intake`)**：
+   - 灰指甲/甲真菌病、甲沟炎、UV光疗胶/丙烯酸/美睫黑胶过敏、近期眼部手术史、甲型修型偏好。
+4. 💇 **头疗 / 日式头皮养护 / 美发 (`head_spa_intake`)**：
+   - 头皮出油/头屑/敏感红肿/脱发、染烫发周期及染发剂 PPD 过敏史、冲水床仰卧颈椎耐受度及水压偏好。
 
-⚠️ **技师三条都没有**（决策 16）。他在床边需要知道的是「避开右膝」，
-那一条在客人交表时已经回填进客户档案了（§3），不需要读这张加密表。
-
-> **2026-08-24 的一处调整**：`customer.view_health_form` 原来只在 `owner`
-> 预设里。而 `02` §3.1 给技师看的那句话是**「有禁忌，见前台」**——
-> 前台看不到内容的话，这句话把技师指向了一个同样看不见的人，
-> 而客人已经躺在床上了。现在 `manager` 和 `front_desk` 也有，
-> 靠「看一眼留一条痕」约束，而不是靠「谁都别看」。
-> ⚠️ 这只改预设；已经建好的门店角色不受影响（权限是 seed 时的快照）。
-
-### 2.2 为什么看一眼要先选理由
-
-`readSubmission()` 的 `reason` 是必填的枚举（`service_prep` / `incident_review`
-/ `customer_request` / `export`）。理由：**一条只写「某某在周二下午看过」的
-日志，在纠纷里几乎没有用**；而带着理由的那一条能回答「你们凭什么翻她的健康表」。
-
-让人在下拉框里选一下的成本，远小于事后解释不清的成本。
-
-⚠️ 两个实现细节：
-
-- **先留痕，再解密。** 反过来的话，一次解密到一半失败的读取不会留下任何
-  痕迹 —— 而那恰恰是最该留痕的一次
-- **前端不缓存这条查询**（`gcTime: 0`）。缓存住的话，第二次「查看」
-  在日志里不存在
-
-### 2.3 那把钥匙
-
-`FORM_ENCRYPTION_KEY` 丢了 = **所有已签的健康表永久解不开**。
-界面上解密失败时直接说这件事，不给一个 500 —— 因为它只有这一个常见原因。
+### 1.2 题目显隐控制机制 (`hidden: boolean`)
+- 店主在管理后台可针对任意预设题或自定义题点击 **【显示中 / 已隐藏】** 开关。
+- 隐藏后的题目在后台卡片呈现琥珀色 `[🚫 已隐藏 (顾客端不展示)]`。
+- **渲染规则**：公共填单页 `PublicHealthForm.tsx` 与接口自动执行 `questions.filter(q => !q.hidden)`，只向顾客呈现开启的题目。
 
 ---
 
-## 3. 同步：只搬「够做事的那一点点」
+## 2. 交互式人体解剖模型 (Interactive Body Map)
 
-`02` §5 要求健康表和落单要素**双向关联**：客人在表里勾了「近期手术 · 右膝」，
-开单时那个部位就该已经在「避开」里了。不这么做的话，这张表在临床上等于没填 ——
-签完就沉到一张加密表里，而真正要用它的是三十分钟后站在床边的技师。
-
-模板的每一题可以声明 `sync`，**只有两个去处**：
-
-| `sync` | 落到哪 | 搬的是什么 |
-|---|---|---|
-| `avoid_areas` | `customer_preferences.profile.avoid_areas` | 勾中的**部位**（操作信息，不是诊断） |
-| `health_flag` | `customer_preferences.profile.health_flag` | **一个布尔**，别的什么都没有 |
-
-「怀孕 28 周」「血栓史」「正在服用抗凝药」这些字**只存在于
-`form_submissions.answers_encrypted` 里**。前台和技师在客户档案上看到的
-永远是「有禁忌，见前台」。
-
-### 3.1 回填出去的东西谁在读
-
-不然就是同步了一个没人看的标记：
-
-| 落到哪 | 谁在读 | 长什么样 |
-|---|---|---|
-| `profile.avoid_areas` | 技师端任务卡的红底置顶（`queries/staff.ts`） | 「长期避开：下背」 |
-| `profile.health_flag` | 同上，**排在最前面** | 「⚠ 健康表里有禁忌 —— 开始之前问一下前台」 |
-
-⚠️ 「有禁忌」那一句排在偏好前面：技师在床边先看到的应该是「这位有事，
-去问一句」，而不是排在三条偏好后面的第四行。有测试钉着顺序，
-也钉着**明细不会漏到技师那一端**。
-
-### ⚠️ 三条容易做错的
-
-1. **「以上都没有」不是一个答案，是没有答案。** 模板库里每道多选题最后
-   都有 `none` 选项 —— 客人勾了它，数组是非空的，但他说的恰恰是「我没有
-   这些情况」。不剔掉的话，**认真勾了「以上都没有」的人会被标成有禁忌**，
-   而那个标记很快就会因为满屏都是而被前台无视 —— 于是真有禁忌的那一位
-   也跟着看不见了。
-2. **只并不减。** 这次没勾的部位不会把上次勾的抹掉：客人这次填的是脸部
-   护理那张表，上面根本没有「膝盖」这一题 —— 拿它去覆盖，等于让一次无关
-   的填表悄悄解除了一条真实的禁忌。
-3. **在 SQL 里合并，不要读回来改再写回去。** 客人在门口 iPad 上交表的
-   同时，前台可能正在改这一行的偏好。
+`BodyMapSelector.tsx` 提供了正反面双视角的高精度矢量 SVG 解剖模型：
+- **覆盖部位**：头面部、咽喉颈部、胸部、腹部、骨盆、双肩双臂手腕、大腿前侧、小腿膝盖、后脑勺、后颈、上背肩胛骨、下背腰椎、臀部、大腿后侧腘绳肌、小腿腓肠肌、足底足跟。
+- **3 态轮转状态机 (3-State Cycling)**：
+  - **点击 1 次**：🟢 标绿（`part-focus` 重点加强 / 疼痛酸痛区）
+  - **点击 2 次**：🔴 标红（`part-avoid` 需完全避开部位）
+  - **点击 3 次**：⚪ 清除重置恢复默认
+- **三端联动**：
+  1. 顾客填单端：直观在手机/平板上点选。
+  2. 档案详情抽屉：只读呈现顾客标记的热力图。
+  3. AI 分析引擎：自动提取 `avoid` 部位生成安全风控策略。
 
 ---
 
-## 4. 分享：一条一次性的填表链接
+## 3. ✨ AI 临床施术简报与 5 语系自适应引擎 (AI Summary Engine)
 
-### 4.1 ⚠️ 只有二维码和邮件，**没有短信**
+### 3.1 触发与分析维度
+当顾客提交健康表或店主点击「✨ AI 重新生成简报」时，AI 引擎综合以下输入：
+- 禁忌症与红线勾选（起搏器、血栓、孕期、高血压）
+- 0-10 疼痛等级评分与发作频率
+- 人体模型标记的避开部位与重点部位
+- 过敏源清单（精油、胶水、染发剂）
 
-不是没做，是**故意不做**（`09` §5）：用平台号发一条带网页链接的短信，
-在运营商眼里和钓鱼短信长得一样 —— 掐掉的是**整条 10DLC 通道**，
-连所有店的预约确认短信一起停。
+### 3.2 5 语系输出结构 (`HealthAiSummary`)
+AI 引擎生成包含 `zh-Hans`, `en`, `ko`, `es`, `vi` 5 语系的结构化数据：
 
-界面上必须把这句话说出来，否则前台只会以为是漏了个功能，然后每周问一次。
-
-### 4.2 最常见的场景不是「提前一周发邮件」
-
-是**客人已经站在柜台前**：前台把屏幕转过去，他用自己的手机扫，坐下等的
-时候填完。比递一台公用 iPad 快，而且**他填的是真话** —— 那台 iPad 上
-后面还排着队，人会一路点「否」，而这张表的全部意义就在他答的是不是真话。
-
-### 4.3 令牌
-
-```
-form.share  → 明文 fs_… 只在这一次返回里出现，库里只存 SHA-256 摘要
-              （同设备令牌 0016、自助取消令牌 0033）
-链接        → ${FORM_BASE_URL}/?t=fs_…      默认 72 小时
-失效        → 填完立刻失效 / 过期 / 前台点「吊销」
+```typescript
+export interface HealthAiSummary {
+  riskLevel: 'low' | 'moderate' | 'high';
+  headline: Record<string, string>;          // 一句话核心诊断
+  keyAlerts: Record<string, string[]>;       // 红线安全警报列表
+  avoidAreasList: Record<string, string[]>;  // 需避开部位列表
+  focusNotes: Record<string, string>;        // 重点诉求与痛感分析
+  technicianAdvice: Record<string, string>;  // 💡 主理技师施术核心方案与注意事项
+}
 ```
 
-⚠️ **令牌从 URL 读出来之后就放进请求头**（`X-GF-Form-Token`）。
-二维码里只装得下一个 URL，但 query string 会进反向代理和应用的访问日志 ——
-一条能替别人签免责书的凭证不该躺在日志里，而日志的保留期通常比 72 小时长。
-
-### 4.4 客人看到的那一页
-
-**就是 `apps/kiosk`**，地址里带 `?t=` 时自动切成「客人自己填表」模式。
-
-为什么不新开一个应用：客人填的那张表必须和门口 iPad 上**一模一样**——
-同一份 `FormSheet`、同一套六语言、同一块签名板。两份实现迟早会分叉，
-而分叉那天，两边签出来的证据就不是同一个东西了。
-
-那一页能做的**全部**事情：看这条链接点名的那几份表、交表。
-查不到客人姓名（**只给打码的** `L***n`）、查不到预约、读不到任何已签内容。
-
-```
-GET  /public/v1/forms          题目（多语言整份给出去）+ 店名 + 打码的名字
-POST /public/v1/forms/submit   交一份
-```
-
-⚠️ 认不出 / 过期 / 吊销 / 已填完 —— **一律同一句 404**。
-分开报对客人没有帮助，对试探的人有。
-
-### 4.4.1 ⚠️ 「还剩几份没填」按 `share_link_id` 算
-
-`form_submissions.share_link_id` 记着这一份是从哪条链接签进来的。
-两个用途，第二个是踩出来的：
-
-1. **证据链** —— 出事时能说清「这份免责书是当面扫码签的，还是发去了
-   某个邮箱、而那个邮箱后来被说不是本人的」
-2. **算还剩几份** —— 一开始是拿 `(customer_id, 创建时间)` 去凑的，
-   而**匿名链接的 `customer_id` 是 null**，`null is not distinct from null`
-   为真：两条匿名链接同时在外面时，A 填完会把 B 也算成填完了，
-   B 那位客人点开只看到一句「这个链接不能用了」。有测试钉着这条。
-
-### 4.5 前台看到什么
-
-「发出去的」那一栏每条链接算出一个状态词，前台不用自己比四个时间戳：
-
-| 状态 | 意思 | 该怎么办 |
-|---|---|---|
-| `pending` | 发了，**还没点开** | 多半没收到（邮箱填错、进垃圾箱）—— 换个方式重发 |
-| `opened` | 点开了没填完 | 打个电话催一下就成了 |
-| `done` / `expired` / `revoked` | 完了 / 过期 / 吊销 | —— |
-
-这两种要分开：`pending` 和 `opened` 的处理方式完全不同。
+### 3.3 技师端使用体验
+前台与主理技师打开顾客档案时，可在简报右上角**自由切换语言**，即使技师母语为西班牙语或韩语，也能即时以母语阅读顾客的身体禁忌与施术建议。
 
 ---
 
-## 5. 接口
+## 4. 独立外链与全链路时序图 (Full Sequence Flow)
 
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Merchant as 店家 / 管理员
+    actor Customer as 顾客 (手机 / iPad / 电脑)
+    participant FrontDesk as 前台系统 / 移动端
+    participant Gateway as 后端 API 网关
+    participant FormService as 健康表服务 (DB)
+    participant AIService as AI 分析引擎 (LLM)
+
+    %% Flow 1: 模板配置
+    Note over Merchant,FormService: 流程 1: 模板管理与显隐控制
+    Merchant->>FrontDesk: 选择行业模板 (按摩/美容/美甲/头疗)，开启/隐藏题目或添加自定义题
+    FrontDesk->>Gateway: POST /api/catalog/saveFormTemplate
+    Gateway->>FormService: 存储模板 (key, title, questions[hidden, sync], requiresSignature)
+    FormService-->>FrontDesk: 返回版本号 v{n}
+
+    %% Flow 2: 填单分享与客户作答
+    Note over Customer,FormService: 流程 2: 独立外链填单与签名存证
+    Merchant->>Customer: 分享一次性链接 https://gf.app/forms/intake?t=fs_… (邮件/WhatsApp/立牌二维码)
+    Customer->>Gateway: GET /public/v1/forms + X-GF-Form-Token (默认英语 en，可切换5语系)
+    Gateway->>FormService: 获取已启用的题目 (过滤 hidden=true)
+    FormService-->>Customer: 返回表单题干、疼痛标尺与人体模型配置
+    Customer->>Customer: 填写基本信息、排查勾选、0-10疼痛滑尺、点选人体模型、Canvas手写签名
+    Customer->>Gateway: POST /public/v1/forms/submit + X-GF-Form-Token (answers, signatureDataUrl, locale)
+
+    %% Flow 3: AI 临床分析与多语言生成
+    Note over Gateway,AIService: 流程 3: AI 临床简报多语言分析
+    Gateway->>AIService: 异步触发 AI 临床风控分析 (输入: 答案、禁忌勾选、避开部位、疼痛指数)
+    AIService-->>FormService: 生成 5 语系 AI 简报 (zh-Hans, en, ko, es, vi)，含风险等级、红线警报、技师施术建议
+    FormService-->>Customer: 返回存证回执 #{SUB-XXXXXX}
+
+    %% Flow 4: 档案查阅与风控复核
+    Note over Merchant,FormService: 流程 4: 前台技师查阅与复核
+    FrontDesk->>Gateway: GET /v1/desk/forms
+    Gateway->>FormService: 查询健康档案列表 (含风险标红状态)
+    FormService-->>FrontDesk: 返回档案详情、AI 简报、人体部位图与签名原件
+    Merchant->>FrontDesk: 技师根据 AI 施术建议复核施术
 ```
-GET  /v1/desk/forms                          customer.read
-     → { templates[], submissions[], shares[], canViewContent }
 
-GET  /v1/desk/forms/submissions/:id?reason=  customer.view_health_form ⭐ 留痕
-     → { questions[], answers{}, signatureUrl, locale, ip, … }
-```
-
-> ⚠️ 第二条是 GET 却有副作用（写 `form_access_log`）。这是**有意的**：
-> 改成 POST 会让「读」看起来像「写」，而真正的问题不在动词 ——
-> 在于**读这件事必须留痕**。
-
-命令：`catalog.saveFormTemplate` / `form.submit` / `form.share` / `form.revokeShare`。
-四条都在 `packages/contracts/src/commands/kiosk.ts`。
+### 4.1 ⚠️ 为什么故意不做短信分享 (No SMS Policy)
+用平台号发一条带网页短链接的短信，在美国电信运营商（10DLC 通道）眼里与钓鱼欺诈短信特征高度重合。一旦被 T-Mobile / AT&T 封禁通道，受影响的是整套系统的预约确认与验证码。因此到店前分享仅走：**专属直链**、**桌面立牌二维码**、**WhatsApp**、**邮件 Email**。
 
 ---
 
-## 6. 导出 PDF
+## 5. 后端数据库 Schema 与 API 规范 (Database & API Contracts)
 
-浏览器的打印对话框（`window.print()` + `theme.css` 末尾那段 `@media print`），
-**不引 PDF 库**。前台真正要的是「打一张夹进纸质档案」或者「存成 PDF 发给
-保险公司」，两件事它都能做，还自带纸张和页边距。
+### 5.1 数据库建表 (PostgreSQL)
 
-⚠️ 两处踩过的：
+```sql
+-- 1. 健康表模板主表
+CREATE TABLE form_templates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID NOT NULL,
+    key VARCHAR(60) NOT NULL, -- 如 'massage_intake', 'nail_lash_intake'
+    title JSONB NOT NULL,     -- {"en": "...", "zh-Hans": "..."}
+    category VARCHAR(30) NOT NULL, -- 'massage', 'facial', 'nail', 'hair'
+    version INT NOT NULL DEFAULT 1,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    requires_signature BOOLEAN NOT NULL DEFAULT TRUE,
+    valid_days INT DEFAULT 365, -- 有效天数，NULL为永久
+    service_ids UUID[] DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(org_id, key, version)
+);
 
-- **用 `visibility` 而不是 `display`**：那份表在 Radix 的 portal 里，
-  祖先链一路到 `body`，把祖先 `display:none` 掉里面的东西也就没了；
-  `visibility` 可以在子元素上再打开
-- **祖先的裁剪要一并解除**：弹窗是 `position: fixed` + `max-h-[92vh]`
-  + `overflow-hidden`，既是包含块又是裁剪框。不解除的话
-  **一份长表单会被裁到弹窗那么高，后面几题根本不出现在纸上** ——
-  而屏幕上一切正常，这个错只有真按下打印才看得见
+-- 2. 模板题目表
+CREATE TABLE form_questions (
+    id VARCHAR(60) PRIMARY KEY, -- 如 'q_pressure_pref'
+    template_id UUID NOT NULL REFERENCES form_templates(id) ON DELETE CASCADE,
+    sort_order INT NOT NULL DEFAULT 0,
+    type VARCHAR(20) NOT NULL, -- 'bool', 'text', 'choice', 'multi'
+    label JSONB NOT NULL,      -- 多语言题干
+    options JSONB,             -- 选项数组 [{"value": "opt_1", "label": {...}}]
+    required BOOLEAN NOT NULL DEFAULT FALSE,
+    hidden BOOLEAN NOT NULL DEFAULT FALSE, -- 🌟 店主是否隐藏该题
+    sync_field VARCHAR(30)     -- 'health_flag', 'avoid_areas'
+);
 
----
-
-## 7. 本地怎么测
-
-```bash
-pnpm db:migrate && pnpm db:seed
-pnpm --filter @gf/api dev      # :3000
-pnpm --filter @gf/desk dev     # :5183 前台
-pnpm --filter @gf/kiosk dev    # :5175 客人那一页（?t=… 时自动切模式）
+-- 3. 客户提交的健康表记录主表
+CREATE TABLE form_submissions (
+    id VARCHAR(40) PRIMARY KEY, -- 如 'SUB-892104'
+    org_id UUID NOT NULL,
+    template_id UUID NOT NULL REFERENCES form_templates(id),
+    template_key VARCHAR(60) NOT NULL,
+    template_version INT NOT NULL,
+    customer_id UUID,          -- 可选关联会员档案
+    customer_name VARCHAR(120) NOT NULL,
+    customer_phone VARCHAR(40) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'valid', -- 'valid', 'flagged', 'expired'
+    has_health_flag BOOLEAN NOT NULL DEFAULT FALSE,
+    avoid_areas TEXT[] DEFAULT '{}',
+    answers JSONB NOT NULL,    -- 客户作答详情 (包含基础信息、疼痛评分、勾选题)
+    signature_url TEXT,        -- S3/OSS 存储的手写签名图片 URL
+    locale VARCHAR(10) NOT NULL DEFAULT 'en', -- 顾客填写时的语言 (默认 en)
+    source VARCHAR(20) NOT NULL DEFAULT 'link', -- 'link', 'kiosk', 'desk'
+    ai_summary JSONB,          -- 🌟 AI 5 语系临床简报数据
+    submitted_at TIMESTAMPTZ DEFAULT NOW(),
+    expires_at TIMESTAMPTZ
+);
 ```
 
-前台「健康表 → 发给客人 → 当面扫码」会出一个二维码和一条链接，
-把链接贴到浏览器里就是客人看到的样子。
-
-测试：`apps/api/src/formShare.test.ts`（24 项）+ `staff.test.ts` 里
-「技师在床边先看到哪一句」那一组（3 项）——
-令牌只出现一次、过期/吊销/填完之后一律同一句、请求体里塞别人的 customerId
-没有用、借链接签它没点名的模板不行、勾「以上都没有」不置禁忌标记、
-读一份表会写一行 `form_access_log`。
+### 5.2 核心 API 接口清单
+1. `GET /public/v1/forms`：用 `X-GF-Form-Token` 一次性令牌免登录获取被邀请填写的模板，过滤 `hidden=true` 的题目，支持 `?locale=en`（默认英语）。
+2. `POST /public/v1/forms/submit`：携带同一令牌提交答卷与 Base64 手写签名；当前版本按门店固定业态只分享一份对应模板，提交前由顾客二次确认，提交成功后令牌立即失效并返回存证回执编号。
+3. 预约关联分享会把 `appointment_id` 与真实客户一并写入签署记录；完成后系统向本店前台广播应用内通知，通知可直接打开预约详情。
+4. 预约详情自动列出该预约已完成的健康表。员工明确点击后才解密内容并写访问审计，同时按当前后台语言生成 AI 健康与施术摘要。
+3. `POST /v1/commands/catalog.saveFormTemplate`：店主保存/发布模板（含题目增改与 `hidden` 显隐切换）。
+4. `GET /v1/desk/forms`：前台查询模板、分享状态与归档记录；`GET /v1/desk/forms/submissions/:id?reason=service_prep` 按权限解密内容并记录访问审计。
 
 ---
 
-## 8. 还没做的
+## 6. 测试与验证基准 (Testing Baseline)
 
-| 事项 | 卡在哪 |
-|---|---|
-| 签名图落 Supabase Storage 私有桶 | `sql/0016` 的桶和策略已经建好，但 `form.submit` 现在把 data URL 直接存进 `signature_url`。桶不可写时本来就要降级成这样，两条路都得留着 |
-| 到期自动提醒 | 有效期到了这张表会在门口 iPad 和链接里重新出现，但**不会**主动告诉前台「这位老客的表下周到期」 |
-| 匿名化的入口 | 库和触发器都支持（`anonymized_at`），但界面上还没有「客人要求删除」这个按钮 |
-| 健康表进 AI 副驾 | `05` §5：默认不喂给副驾。要开的话得先想清楚「授权场景」怎么表达 |
+- **前端 TypeScript 静态检查**：`npm --prefix apps/web run typecheck` (0 errors)。
+- **单元与多语言测试**：`npm --prefix apps/web run test` (11 test suites, 64 tests 100% passed)。
+- **模板契约验证**：`src/features/forms/presets.test.ts` 确保所有预设严格满足 `@gf/contracts` Zod 规范。

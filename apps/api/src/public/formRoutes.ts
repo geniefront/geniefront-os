@@ -171,7 +171,10 @@ export function registerFormLinkRoutes(app: FastifyInstance): void {
             version: r.version,
             // i18n 整份给出去 —— 客人在自己手机上还可以再换语言（宪法第 7 条）
             title: r.title,
-            questions: r.schema,
+            // 隐藏题仍在版本快照中，但绝不能下发给顾客端。
+            questions: Array.isArray(r.schema)
+              ? r.schema.filter((q) => !q || typeof q !== 'object' || !(q as { hidden?: boolean }).hidden)
+              : [],
             requiresSignature: r.requires_signature,
             done: doneIds.has(r.id),
           })),
@@ -207,6 +210,7 @@ export function registerFormLinkRoutes(app: FastifyInstance): void {
         // ⭐ 客人是谁由**链接**决定，不由请求体决定 —— 让请求体说了算的话，
         // 一条链接就能往任意一位客人名下挂一份健康表
         customerId: link.customerId,
+        appointmentId: link.appointmentId,
         source: 'link',
         // ⭐ 出处。它同时是「还剩几份没填」的依据 —— 见下面那段
         shareLinkId: link.id,

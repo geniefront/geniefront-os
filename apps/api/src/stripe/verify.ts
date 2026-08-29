@@ -84,11 +84,14 @@ export function parseStripeSignature(header: string): ParsedHeader | null {
 /** 常数时间比较两个十六进制签名。长度不同直接算不等，但仍然不短路泄漏位置 */
 function hexEquals(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
-  const ba = Buffer.from(a, 'utf8');
-  const bb = Buffer.from(b, 'utf8');
+  // 用 hex 编码：把十六进制字符串解析为原始字节再比较，
+  // 语义上比 utf8 更精确（比的是签名字节，不是 ASCII 字节值）
+  const ba = Buffer.from(a, 'hex');
+  const bb = Buffer.from(b, 'hex');
   // 长度已经相等，timingSafeEqual 不会抛
   return timingSafeEqual(ba, bb);
 }
+
 
 /**
  * 验一条 webhook。不通过一律抛 UNAUTHENTICATED，**不说是哪一步不对** ——

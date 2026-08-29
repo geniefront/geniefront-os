@@ -41,6 +41,8 @@ import {
   Percent,
   RefreshCw,
   Copy,
+  ExternalLink,
+  Languages,
 } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
 import { useSchedule, UNASSIGNED_STAFF_ID } from '@/context/ScheduleContext';
@@ -75,6 +77,13 @@ import { PageLoading, PageError } from '@/components/ui/QueryState';
 import { cn, formatI18n } from '@/lib/utils';
 import type { TranslationKey } from '@/i18n';
 import { useShareForm, type FormShareResult } from '@/features/forms/api';
+import { generateAiHealthSummary } from '@/features/forms/mockData';
+import { inferHealthFormCategory } from '@/features/forms/formExperience';
+import {
+  useAppointmentFormsQuery,
+  useHealthFormSubmissionQuery,
+  useSaveAppointmentServiceBrief,
+} from '@/features/schedule/appointmentDetail';
 
 /** 回退反向流转原因映射 */
 const ROLLBACK_REASONS = [
@@ -374,6 +383,21 @@ function QueueContent() {
     addOnStaffId: '',
     notes: '',
   });
+  const checkInFormsQ = useAppointmentFormsQuery(checkInModal.item?.appointmentId ?? null);
+  const completedCheckInForms = checkInFormsQ.data?.forms.filter((form) => form.isLatest) ?? [];
+  const [aiSummarySubmissionId, setAiSummarySubmissionId] = useState<string | null>(null);
+  const [checkInError, setCheckInError] = useState<string | null>(null);
+  const aiSummaryForm = completedCheckInForms.find((form) => form.submissionId === aiSummarySubmissionId) ?? null;
+  const aiSummaryQ = useHealthFormSubmissionQuery(aiSummarySubmissionId, Boolean(aiSummarySubmissionId));
+  const checkInAiSummary = useMemo(() => {
+    if (!aiSummaryForm || !aiSummaryQ.data?.answers) return null;
+    const answers = aiSummaryQ.data.answers;
+    return generateAiHealthSummary({
+      templateKey: aiSummaryForm.templateKey,
+      answers,
+      avoidAreas: Array.isArray(answers.bodyMapAvoid) ? answers.bodyMapAvoid as string[] : [],
+    });
+  }, [aiSummaryForm, aiSummaryQ.data?.answers]);
 
   // 2. Start Service Modal (Step 2 -> Step 3: Waiting -> In Service)
   const [startServiceModal, setStartServiceModal] = useState<{
@@ -384,6 +408,7 @@ function QueueContent() {
     startTime: string;
     serviceDurationMin: number;
     requireBriefingAck: boolean;
+    serviceBrief: string;
   }>({
     isOpen: false,
     item: null,
@@ -392,7 +417,9 @@ function QueueContent() {
     startTime: '',
     serviceDurationMin: 60,
     requireBriefingAck: true,
+    serviceBrief: '',
   });
+  const saveServiceBriefMutation = useSaveAppointmentServiceBrief(startServiceModal.item?.appointmentId ?? null);
 
   // 3. Complete Service Modal (Step 3 -> Step 4: In Service -> Ready Checkout)
   const [completeServiceModal, setCompleteServiceModal] = useState<{
@@ -813,6 +840,8 @@ function QueueContent() {
     // 3. 正向单步流转 (Forward Step 1 -> 2 -> 3 -> 4 -> 5)
     if (item.stage === 'booked' && targetStage === 'waiting') {
       // 预约 ➔ 到店：弹窗确认用户信息、健康问卷二维码、现场加项与按摩偏好
+      setAiSummarySubmissionId(null);
+      setCheckInError(null);
       setCheckInModal({
         isOpen: true,
         item,
@@ -844,6 +873,7 @@ function QueueContent() {
         startTime: timeStr,
         serviceDurationMin: item.durationMin || 60,
         requireBriefingAck: true,
+        serviceBrief: item.notes || '',
       });
     } else if (item.stage === 'in_service' && targetStage === 'ready_checkout') {
       // 服务 ➔ 结账：弹窗核对服务项目明细与中途加项记录
@@ -896,35 +926,23 @@ function QueueContent() {
       notes,
     } = checkInModal;
     if (!item) return;
+    setCheckInError(null);
 
     const addOnService = services.find((s) => s.id === selectedAddOnId);
 
-    const contraStr = contraindications.filter((c) => c !== 'No specific contraindications').join('、');
-    const focusStr = focusAreas.join('、');
-    const avoidStr = avoidAreas.filter((a) => a !== 'No areas to avoid').join('、');
     const oilObj = AROMA_OIL_OPTIONS.find((o) => o.id === aromaOil);
-
-    const parts: string[] = [];
-    if (contraStr) parts.push(`【禁忌: ${contraStr}】`);
-    if (avoidStr) parts.push(`【避开: ${avoidStr}】`);
-    if (focusStr) parts.push(`【重点: ${focusStr}】`);
-    if (massageStrength !== 'No Preference') parts.push(`【力度: ${massageStrength}】`);
-    if (oilObj && oilObj.id !== 'none_pref') parts.push(`【精油: ${oilObj.label}】`);
-    if (notes.trim()) parts.push(notes.trim());
-    if (addOnService) parts.push(`[加项: ${addOnService.name}]`);
-
-    const extraNotes = parts.join(' ');
 
     try {
       const hasUnpersistedDetails = Boolean(
-        addOnService || extraNotes || focusAreas.length > 0
+        addOnService || focusAreas.length > 0
         || contraindications.some((value) => value !== 'No specific contraindications')
         || avoidAreas.some((value) => value !== 'No areas to avoid')
         || massageStrength !== 'Medium Pressure'
-        || (oilObj && oilObj.id !== 'none_pref'),
+        || (oilObj && oilObj.id !== 'none_pref')
+        || notes.trim() !== (item.notes ?? '').trim(),
       );
       if (hasUnpersistedDetails) {
-        toast.danger(t('queue.quCheckInDetailsUnavailable'));
+        setCheckInError(t('queue.quCheckInDetailsUnavailable'));
         return;
       }
       if (item.stage === 'booked' && item.appointmentId) {
@@ -937,16 +955,20 @@ function QueueContent() {
       }
 
       setCheckInModal((prev) => ({ ...prev, isOpen: false, item: null }));
+      setAiSummarySubmissionId(null);
+      setCheckInError(null);
       toast.success(t('queue.quCheckedIn', { p0: item.customerName }));
       await Promise.all([refetchQueue(), refetchSchedule()]);
     } catch (err: any) {
-      toast.danger(t('queue.quCheckInFailed') + (err?.message || t('queue.quNetworkError')));
+      const message = `${t('queue.quCheckInFailed')} ${errorMessage(err) || t('queue.quNetworkError')}`;
+      setCheckInError(message);
+      toast.danger(message, { timeout: 8_000 });
     }
   };
 
   // 2. Start Service Confirm Submit
   const handleConfirmStartService = async () => {
-    const { item, staffId, roomId, startTime, serviceDurationMin } = startServiceModal;
+    const { item, staffId, roomId, startTime, serviceDurationMin, serviceBrief } = startServiceModal;
     if (!item) return;
 
     const assignedStaff = staff.find((s) => s.membershipId === staffId);
@@ -956,6 +978,10 @@ function QueueContent() {
       if (!staffId || staffId === UNASSIGNED_STAFF_ID || !item.serviceId) {
         toast.danger(t('queue.quSeatFailed'));
         return;
+      }
+
+      if (item.appointmentId && serviceBrief.trim() !== (item.notes || '').trim()) {
+        await saveServiceBriefMutation.mutateAsync(serviceBrief.trim());
       }
 
       let ticketItemIds = item.rawTicket?.items
@@ -1688,12 +1714,18 @@ function QueueContent() {
         const addOnService = services.find((s) => s.id === checkInModal.selectedAddOnId);
         const addOnPriceCents = addOnService ? addOnService.priceCents : 0;
         const totalEstCents = (item.priceCents || 0) + addOnPriceCents;
+        const usesMassageIntake = !completedCheckInForms[0]
+          || inferHealthFormCategory(completedCheckInForms[0].templateKey) === 'massage';
 
         return (
           <Modal
             isOpen={checkInModal.isOpen}
             onOpenChange={(open) => {
-              if (!open) setCheckInModal((prev) => ({ ...prev, isOpen: false, item: null }));
+              if (!open) {
+                setCheckInModal((prev) => ({ ...prev, isOpen: false, item: null }));
+                setAiSummarySubmissionId(null);
+                setCheckInError(null);
+              }
             }}
             title={
               <div className="flex items-center gap-2 text-amber-800 font-bold">
@@ -1706,7 +1738,11 @@ function QueueContent() {
               <div className="flex justify-end gap-2 w-full">
                 <Button
                   variant="secondary"
-                  onClick={() => setCheckInModal((prev) => ({ ...prev, isOpen: false, item: null }))}
+                  onClick={() => {
+                    setCheckInModal((prev) => ({ ...prev, isOpen: false, item: null }));
+                    setAiSummarySubmissionId(null);
+                    setCheckInError(null);
+                  }}
                 >
                   
                   {t('queue.quCheckInCancel')}
@@ -1767,7 +1803,69 @@ function QueueContent() {
                   </Badge>
                 </div>
 
-                <div className="p-3.5 bg-sky-50/70 border border-sky-200 rounded-2xl flex flex-col sm:flex-row items-center gap-3.5">
+                {completedCheckInForms.length > 0 && (
+                  <div className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                        <div>
+                          <p className="text-xs font-bold text-emerald-950">{t('queue.quHealthFormReceived')}</p>
+                          <p className="text-[11px] text-emerald-700">
+                            {completedCheckInForms.map((form) => form.templateTitle[language] ?? form.templateTitle.en ?? t('queue.quHealthForm')).join(', ')}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          className="h-8 bg-teal-900 px-3 text-xs font-bold text-white"
+                          onPress={() => setAiSummarySubmissionId((current) => (
+                            current === completedCheckInForms[0]?.submissionId ? null : completedCheckInForms[0]?.submissionId ?? null
+                          ))}
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                          {t('queue.quAiHealthSummary')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 border-emerald-300 bg-white px-3 text-xs font-bold text-emerald-800"
+                          onPress={() => {
+                            const submissionId = completedCheckInForms[0]?.submissionId;
+                            if (submissionId) window.open(`/forms/submissions/${encodeURIComponent(submissionId)}`, '_blank', 'noopener,noreferrer');
+                          }}
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          {t('queue.quViewCompletedForm')}
+                        </Button>
+                      </div>
+                    </div>
+                    {aiSummarySubmissionId && (
+                      <div className="rounded-xl border border-teal-700 bg-teal-950 p-3 text-white">
+                        <div className="flex items-center gap-2 text-xs font-bold text-teal-100">
+                          <Sparkles className="h-3.5 w-3.5 text-teal-300" />
+                          {t('schedule.adAiHealthSummary')}
+                          <Languages className="ml-auto h-3.5 w-3.5 text-teal-300" />
+                        </div>
+                        {aiSummaryQ.isLoading && <div className="mt-3 flex items-center gap-2 text-xs text-teal-100"><Spinner size="sm" />{t('queue.quAiSummaryLoading')}</div>}
+                        {aiSummaryQ.isError && <p className="mt-3 text-xs text-rose-200">{t('queue.quAiSummaryFailed')}</p>}
+                        {checkInAiSummary && (
+                          <div className="mt-3 space-y-2">
+                            <p className="text-sm font-semibold text-teal-50">{checkInAiSummary.headline[language] ?? checkInAiSummary.headline.en}</p>
+                            {(checkInAiSummary.keyAlerts[language] ?? checkInAiSummary.keyAlerts.en ?? []).length > 0 && (
+                              <ul className="list-disc space-y-1 pl-5 text-xs text-teal-100">
+                                {(checkInAiSummary.keyAlerts[language] ?? checkInAiSummary.keyAlerts.en).map((alert) => <li key={alert}>{alert}</li>)}
+                              </ul>
+                            )}
+                            <p className="text-xs leading-relaxed text-teal-100">{checkInAiSummary.technicianAdvice[language] ?? checkInAiSummary.technicianAdvice.en}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {completedCheckInForms.length === 0 && <div className="p-3.5 bg-sky-50/70 border border-sky-200 rounded-2xl flex flex-col sm:flex-row items-center gap-3.5">
                   {/* 可点击放大的真实二维码卡片 */}
                   {(() => {
                     const intakeUrl = formShares[item.id]?.url;
@@ -1829,10 +1927,10 @@ function QueueContent() {
                       </>
                     );
                   })()}
-                </div>
+                </div>}
 
                 {/* 禁忌快速排查标签 */}
-                <div>
+                <div className={cn(!usesMassageIntake && 'hidden')}>
                   <label className="block text-[11px] font-bold text-slate-700 mb-1.5">
                     
                     {t('queue.quContraindicationsHint')}
@@ -1879,7 +1977,7 @@ function QueueContent() {
               </div>
 
               {/* 3. 护理偏好与身体部位偏好 */}
-              <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-3 shadow-sm">
+              <div className={cn('bg-white p-3.5 rounded-2xl border border-slate-200 space-y-3 shadow-sm', !usesMassageIntake && 'hidden')}>
                 <h4 className="font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-teal-600" />
                   <span>{t('queue.quPreferencesTitle')}</span>
@@ -2073,6 +2171,15 @@ function QueueContent() {
                   className="text-xs"
                 />
               </div>
+
+              {checkInError && (
+                <div role="alert" className="sticky bottom-0 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2.5 text-xs font-semibold leading-relaxed text-rose-800 shadow-sm">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{checkInError}</span>
+                  </div>
+                </div>
+              )}
             </div>
           </Modal>
         );
@@ -2291,9 +2398,16 @@ function QueueContent() {
                   </h4>
                   <Badge variant="warning" className="text-[9px] font-bold shrink-0">{t('queue.quHandoverVerbally')}</Badge>
                 </div>
-                <div className="p-2.5 bg-white/90 rounded-xl border border-amber-200/80 text-[11px] text-slate-700 leading-relaxed font-medium">
-                  {item.notes || t('queue.quNoContraindications')}
-                </div>
+                <textarea
+                  value={startServiceModal.serviceBrief}
+                  onChange={(event) => setStartServiceModal((prev) => ({ ...prev, serviceBrief: event.target.value }))}
+                  maxLength={2000}
+                  rows={3}
+                  aria-label={t('queue.quPreServiceNotes')}
+                  placeholder={t('queue.quNoContraindications')}
+                  className="w-full resize-none rounded-xl border border-amber-200/80 bg-white/90 p-2.5 text-[11px] font-medium leading-relaxed text-slate-700 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-200/60"
+                />
+                <p className="text-[10px] leading-relaxed text-amber-800">{t('queue.quPreServiceNotesHelp')}</p>
                 {!((item.pendingForms && item.pendingForms > 0) || (item.rawQueue?.pendingForms && item.rawQueue.pendingForms > 0)) && (
                   <label className="flex items-center gap-2 cursor-pointer pt-0.5 text-amber-950 font-bold text-[11px]">
                     <input

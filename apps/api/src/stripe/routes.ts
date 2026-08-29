@@ -264,6 +264,7 @@ export function registerStripeRoutes(
     }
 
     // ③ 往那条订阅上加一个 item
+    // ⚠️ idempotencyKey 用新门店 id：同一个 location 重试不会建出第二个 item
     const item = await stripeClient().subscriptionItems.create({
       subscription: existing.sub,
       price: priceIdFor(plan),
@@ -271,7 +272,8 @@ export function registerStripeRoutes(
       // ⚠️ metadata 必须带 —— 后续每一条 subscription.updated 靠它定位门店
       metadata: { gf_location_id: newLoc, gf_org_id: ctx.orgId },
       proration_behavior: 'create_prorations',
-    });
+    }, { idempotencyKey: `add-store-item-${newLoc}` });
+
 
     // ④ 把订阅信息落到新店的账户上。**同一个 subscription id** ——
     //    续期、欠费、取消这些事件对两家店同时生效，本来就该是同一条
@@ -408,6 +410,11 @@ export function registerStripeRoutes(
     }
 
     let paymentIntentId: string;
+    // 手动充值的幂等键：location + unit + 当前时间戳毫秒。
+    // 每次充值是独立操作（区别于 add-store 用固定 locationId），
+    // 所以用时间戳保证不同次充值不会互相命中 Stripe 的幂等缓存。
+    // Stripe 的 idempotency_key 在 24h 后自动失效，不会永久占位。
+    const topupIdempotencyKey = `topup-${ctx.locationId}-${unit}-${Date.now()}`;
     try {
       const pi = await stripeClient().paymentIntents.create({
         amount: TOPUP_PRICE_CENTS,
@@ -423,7 +430,7 @@ export function registerStripeRoutes(
           // ⚠️ 单位和数量必须写进 metadata：webhook 那条路只拿得到这个对象
           gf_unit: unit, gf_units: String(units),
         },
-      });
+      }, { idempotencyKey: topupIdempotencyKey });
       paymentIntentId = pi.id;
       if (pi.status !== 'succeeded') {
         // 还要 3DS 之类的后续动作。**不当成功** —— 记了账额度可能白送。
@@ -520,13 +527,19 @@ export function registerStripeRoutes(
      * 一次 `payment_intent.succeeded` 会给客户充值两次 ——
      * 这次是我们亏钱，反过来（扣费重复）就是多收客户的钱。
      * 两个方向都不能接受。
+     *
+     * ⚠️ `status='failed'` 的行允许被重试（ON CONFLICT DO UPDATE WHERE status='failed'）：
+     * 处理失败的事件不删行，而是标记 failed；Stripe 重投时这里重新「认领」，
+     * 让它再走一次 handleEvent。
      */
     const claimed = await withTenant(
       { orgId: t.orgId, locationId: t.locationId, membershipId: null },
       (tx) => tx<{ id: string }[]>`
-        insert into stripe_events (id, type, location_id)
-        values (${event.id}, ${event.type}, ${t.locationId})
-        on conflict (id) do nothing
+        insert into stripe_events (id, type, location_id, status)
+        values (${event.id}, ${event.type}, ${t.locationId}, 'processing')
+        on conflict (id) do update
+          set status = 'processing', error = null, processed_at = null
+          where stripe_events.status = 'failed'
         returning id`);
 
     if (claimed.length === 0) {
@@ -547,27 +560,36 @@ export function registerStripeRoutes(
         if (email) await sendActivationOnce(signup, email, req.log);
       }
 
+      // 成功：标记为 processed，供监控 / 后台审计查阅
+      await withTenant(
+        { orgId: t.orgId, locationId: t.locationId, membershipId: null },
+        (tx) => tx`
+          update stripe_events
+          set status = 'processed', processed_at = now()
+          where id = ${event.id}`).catch(() => {});
+
       return { ok: true, handled };
     } catch (e) {
       /**
-       * 处理失败要把错**写回那一行**，而不是让事件默默消失。
+       * 处理失败：把错误写回行、标记 status='failed'，**不删行**。
        *
-       * 记下来才能回头补处理。同时**抛出去让 Stripe 重投** ——
-       * 但重投会撞上上面的主键去重……所以这里先把行删掉再抛：
-       * 「认领」在处理成功之前不算数。
+       * ⚠️ 原来的做法是 update error → delete → 抛出让 Stripe 重投。
+       * delete 会把刚写的 error 字段一并抹掉，失去了唯一的排查线索。
+       *
+       * 现在：写 failed + error → 抛出让 Stripe 重投。
+       * Stripe 重投时上面的 ON CONFLICT DO UPDATE WHERE status='failed' 会重新认领这条事件。
        */
       await withTenant(
         { orgId: t.orgId, locationId: t.locationId, membershipId: null },
         (tx) => tx`
           update stripe_events
-          set error = ${e instanceof Error ? e.message.slice(0, 500) : 'unknown'}
+          set status = 'failed',
+              error = ${e instanceof Error ? e.message.slice(0, 500) : 'unknown'}
           where id = ${event.id}`).catch(() => {});
-      await withTenant(
-        { orgId: t.orgId, locationId: t.locationId, membershipId: null },
-        (tx) => tx`delete from stripe_events where id = ${event.id}`).catch(() => {});
       throw e;
     }
   });
+
 
   /**
    * 一条事件怎么落库。

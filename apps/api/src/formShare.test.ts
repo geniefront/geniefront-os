@@ -61,6 +61,8 @@ beforeAll(async () => {
         ] },
       { id: 'note', type: 'text', required: false,
         label: { 'zh-Hans': '其他', en: 'Anything else' } },
+      { id: 'internal_only', type: 'text', required: true, hidden: true,
+        label: { 'zh-Hans': '内部预留题', en: 'Internal reserved question' } },
     ],
     requiresSignature: false,
     validDays: 365,
@@ -184,6 +186,14 @@ describe('分享：客人那一页看得到什么', () => {
       select opened_at from form_share_links where id = ${s.shareId}`);
     expect(row!.opened_at).not.toBeNull();
   });
+
+  it('隐藏题保留在模板版本中，但不会下发给顾客', async () => {
+    const s = await share();
+    const res = await link('GET', '/public/v1/forms', s.token);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().forms[0].questions.map((q: { id: string }) => q.id))
+      .not.toContain('internal_only');
+  });
 });
 
 describe('分享：交表', () => {
@@ -286,6 +296,30 @@ describe('⭐ 同步：回填客户档案只搬部位和一个布尔', () => {
     expect(pref!.profile['health_flag']).toBeUndefined();
     // ⭐ 自由文本里的健康明细**没有**被搬出加密表
     expect(JSON.stringify(pref!.profile)).not.toContain('手术');
+  });
+
+  it('公共页人体图和健康排查区会同步为操作标记，不搬健康明细', async () => {
+    await withTenant(tenant, (tx) => tx`
+      update customer_preferences set profile = profile - 'health_flag' - 'avoid_areas'
+      where customer_id = ${customerId}`);
+
+    const s = await share();
+    const res = await link('POST', '/public/v1/forms/submit', s.token, {
+      templateId,
+      answers: {
+        pregnant: false,
+        bodyMapAvoid: ['right_shoulder'],
+        conditions: { pacemaker: true },
+      },
+      signerName: 'Amy Chen',
+    });
+    expect(res.statusCode).toBe(200);
+
+    const [pref] = await withTenant(tenant, (tx) => tx<{ profile: Record<string, unknown> }[]>`
+      select profile from customer_preferences where customer_id = ${customerId}`);
+    expect(pref!.profile['avoid_areas']).toContain('right_shoulder');
+    expect(pref!.profile['health_flag']).toBe(true);
+    expect(JSON.stringify(pref!.profile)).not.toContain('pacemaker');
   });
 
   it('⭐ 勾了「以上都没有」不算有禁忌 —— 否则满屏标记等于没有标记', async () => {

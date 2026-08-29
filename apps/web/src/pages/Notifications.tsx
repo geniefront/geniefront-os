@@ -639,7 +639,7 @@ export function Notifications() {
                                 !notif.read ? 'font-black text-slate-900' : 'font-bold text-slate-700'
                               }`}
                             >
-                              {notif.title}
+                              {notif.titleKey ? t(notif.titleKey) : notif.title}
                             </h3>
                             {getLevelBadge(notif.level)}
                             {!notif.read && (

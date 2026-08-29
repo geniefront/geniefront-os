@@ -104,14 +104,27 @@ export interface StaffMatch {
  *
  * ⚠️ 6 位码的摘要**不是秘密** —— 一百万种可以离线全跑一遍。
  * 真正的防线是调用方的限频 + 几分钟时效；这里保证的是「猜中一次也只能用一次」。
+ *
+ * ⚠️ 显式清空 app.org_id 等上下文变量（和 withPhoneLine / withDeviceToken 同一纪律）：
+ * 连接是复用的，上一个请求的租户上下文如果没被清掉，这里的 SECURITY DEFINER
+ * 函数仍然在正确的安全上下文里执行（函数本身不依赖这些变量），
+ * 但防御性地清空可以防止未来出现依赖泄漏的情况。
  */
 export async function redeemStaffClaimCode(codeHash: string): Promise<StaffMatch | null> {
-  const [row] = await sql<{
-    membership_id: string; org_id: string; location_id: string;
-  }[]>`select * from gf_redeem_staff_claim_code(${codeHash})`;
-  if (!row) return null;
-  return { membershipId: row.membership_id, orgId: row.org_id, locationId: row.location_id };
+  return sql.begin(async (tx) => {
+    // 显式清空：连接可能带着上一个请求的租户 id，在这里把它们清掉
+    await tx`select
+      set_config('app.org_id',      '', true),
+      set_config('app.location_id', '', true),
+      set_config('app.user_id',     '', true)`;
+    const [row] = await tx<{
+      membership_id: string; org_id: string; location_id: string;
+    }[]>`select * from gf_redeem_staff_claim_code(${codeHash})`;
+    if (!row) return null;
+    return { membershipId: row.membership_id, orgId: row.org_id, locationId: row.location_id };
+  }) as Promise<StaffMatch | null>;
 }
+
 
 /**
  * 已验证的手机号 → 在岗身份。

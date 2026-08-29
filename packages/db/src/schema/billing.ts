@@ -228,10 +228,21 @@ export const stripeEvents = pgTable('stripe_events', {
    * 没人显式写这一列），一直到有人写 `where processed_at > …` 才炸。
    * 这是 10-HANDOFF §4.1 那个坑的第二次发作；迁移 0020 把列名改回来了。
    */
-  processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp('processed_at', { withTimezone: true }).defaultNow(),
   /** 处理时出的错。留着是为了能回头补处理，而不是让事件默默消失 */
   error: text('error'),
+  /**
+   * 处理状态：
+   *   · `processing` — 已认领，正在处理（insert 时写入）
+   *   · `processed`  — 处理成功
+   *   · `failed`     — 处理失败，错误见 `error` 列，等 Stripe 重投后重试
+   *
+   * ⚠️ Stripe 重投时 ON CONFLICT DO UPDATE WHERE status='failed' 会重新认领，
+   * 使失败的事件可以被重试，而成功的事件不受影响（仍然幂等）。
+   */
+  status: text('status').notNull().default('processing'),
 });
+
 
 export const billingInvoices = pgTable('billing_invoices', {
   id: id(),

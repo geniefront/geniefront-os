@@ -11,3 +11,4 @@ export * from './translate';
 export * from './regions';
 export * from './storefront';
 export * from './businessSummary';
+export * from './healthForms';

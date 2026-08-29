@@ -35,8 +35,31 @@ import { sendPhoneCode, checkPhoneCode, verifyConfigured } from './phoneOtp';
  */
 const HITS = new Map<string, { count: number; resetAt: number }>();
 
+/**
+ * 硬上界：超过这个大小就触发一次紧急清理。
+ * 防止攻击者用大量不同 IP / 手机号把 Map 撑爆内存。
+ */
+const MAX_HITS_ENTRIES = 10_000;
+
+/**
+ * 每 5 分钟清理一次过期条目。
+ * `.unref()` 保证定时器不会阻止进程正常退出。
+ */
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of HITS) {
+    if (now > v.resetAt) HITS.delete(k);
+  }
+}, 5 * 60_000).unref();
+
 function limit(key: string, max: number, windowMs: number): void {
   const now = Date.now();
+
+  // 紧急清理：超出硬上界时先把过期的删掉，腾出空间
+  if (HITS.size >= MAX_HITS_ENTRIES) {
+    for (const [k, v] of HITS) { if (now > v.resetAt) HITS.delete(k); }
+  }
+
   const cur = HITS.get(key);
   if (!cur || now > cur.resetAt) {
     HITS.set(key, { count: 1, resetAt: now + windowMs });
@@ -71,8 +94,10 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     if (code.length !== 6) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'code_format' } });
     }
-    // 一个 IP 一分钟 10 次：老板念错一次很正常，试一百次不是
-    limit(`claim:${req.ip}`, 10, 60_000);
+    // 一个 IP 一分钟 5 次：老板念错一两次很正常，试三十次不是
+    limit(`claim:${req.ip}`, 5, 60_000);
+    // 全平台全局：每分钟最多 100 次兑换尝试，防分布式代理绕过单 IP 限制
+    limit('claim:global', 100, 60_000);
 
     /**
      * 码不按门店加盐 —— 输码的人不知道自己在哪家店，兑换这一侧
@@ -82,7 +107,10 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const match = await redeemStaffClaimCode(claimCodeHash(code));
     if (!match) {
       // 不区分「码不对」和「码过期了」：对输码的人来说，
-      // 要做的事都是「让老板再点一次」
+      // 要做的事都是「让老板再点一次」。
+      // ⚠️ 失败加 500ms 延迟：让每轮暴力猜码的实际速率上限约 2 次/秒/IP，
+      // 即使绕过了计数器也无法在 15 分钟窗口内穷举百万种组合。
+      await new Promise((r) => setTimeout(r, 500));
       throw new AppError(ERROR_CODES.UNAUTHENTICATED, { details: { reason: 'bad_claim_code' } });
     }
 
@@ -90,6 +118,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       match, 'claim_code', (req.body?.deviceLabel ?? '').slice(0, 40) || null);
     return { ...session, ...(await whoAmI(match)) };
   });
+
 
   // ── ② 发验证码 ───────────────────────────────────────────────────────────
   app.post<{ Body: { phone?: string; locale?: string } }>('/v1/auth/phone/start', async (req) => {

@@ -112,6 +112,15 @@ function ScheduleContent() {
   } = useSchedule();
   const { create, reschedule, cancel } = useScheduleMutations();
 
+  useEffect(() => {
+    const linkedAppointmentId = searchParams.get('appointmentId');
+    if (!linkedAppointmentId || !openAppointment) return;
+    openAppointment(linkedAppointmentId);
+    const next = new URLSearchParams(searchParams);
+    next.delete('appointmentId');
+    setSearchParams(next, { replace: true });
+  }, [openAppointment, searchParams, setSearchParams]);
+
   /*
    * 写操作可用性。同时考虑权限与网络状态：
    * 断网期间不提供写入口（本系统不做离线写入队列，请求必然失败），
@@ -1306,4 +1315,3 @@ export function Schedule() {
     </ErrorBoundary>
   );
 }
-

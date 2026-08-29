@@ -225,6 +225,7 @@ export async function readSubmission(
   reason: string,
 ): Promise<{
   submissionId: string;
+  templateKey: string;
   templateTitle: Record<string, string>;
   templateVersion: number;
   questions: unknown[];
@@ -247,14 +248,14 @@ export async function readSubmission(
   }
 
   const [row] = await tx<{
-    id: string; template_version: number; title: unknown; schema: unknown;
+    id: string; template_key: string; template_version: number; title: unknown; schema: unknown;
     answers_encrypted: Buffer | null; enc_alg: string | null;
     signer_name: string | null; signer_relation: string; signature_url: string | null;
     signed_at: Date | string | null; locale: string; source: string; ip: string | null;
     expires_on: string | null; anonymized_at: Date | string | null;
     customer_name: string | null;
   }[]>`
-    select s.id, s.template_version, t.title, t.schema,
+    select s.id, t.key as template_key, s.template_version, t.title, t.schema,
            s.answers_encrypted, s.enc_alg, s.signer_name, s.signer_relation,
            s.signature_url, s.signed_at, s.locale, s.source, s.ip,
            s.expires_on::text as expires_on, s.anonymized_at,
@@ -285,6 +286,7 @@ export async function readSubmission(
 
   return {
     submissionId: row.id,
+    templateKey: row.template_key,
     templateTitle: (row.title ?? {}) as Record<string, string>,
     templateVersion: row.template_version,
     questions: Array.isArray(row.schema) ? row.schema : [],
@@ -328,6 +330,7 @@ export interface AppointmentFormVersionDto {
   submissionId: string;
   templateId: string;
   templateTitle: Record<string, string>;
+  templateKey: string;
   templateVersion: number;
   version: number;
   isLatest: boolean;
@@ -339,6 +342,7 @@ export interface AppointmentFormVersionDto {
   expiresOn: string | null;
   answers: Record<string, unknown> | null;
   anonymized: boolean;
+  locale: string;
 }
 
 export async function loadAppointmentForms(
@@ -353,20 +357,21 @@ export async function loadAppointmentForms(
   if (!apt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
 
   const rows = await tx<{
-    id: string; template_id: string; template_version: number; title: unknown;
+    id: string; template_id: string; template_version: number; title: unknown; template_key: string;
     version: number; is_latest: boolean; answers_encrypted: Buffer | null;
     signer_name: string | null; signer_relation: string; signature_url: string | null;
     signed_at: Date | string | null; created_at: Date | string; expires_on: string | null;
-    anonymized_at: Date | string | null;
+    anonymized_at: Date | string | null; locale: string;
   }[]>`
-    select s.id, s.template_id, s.template_version, t.title,
+    select s.id, s.template_id, s.template_version, t.title, t.key as template_key,
            s.version, s.is_latest, s.answers_encrypted,
            s.signer_name, s.signer_relation, s.signature_url,
-           s.signed_at, s.created_at, s.expires_on::text as expires_on, s.anonymized_at
+           s.signed_at, s.created_at, s.expires_on::text as expires_on, s.anonymized_at,
+           s.locale
     from form_submissions s
     join form_templates t on t.id = s.template_id
     where s.location_id = ${ctx.locationId}
-      and (s.appointment_id = ${appointmentId}::uuid or (${apt.customer_id}::uuid is not null and s.customer_id = ${apt.customer_id}::uuid))
+      and s.appointment_id = ${appointmentId}::uuid
     order by s.version desc, s.created_at desc`;
 
   const key = process.env['FORM_ENCRYPTION_KEY'] ? loadFormKey(process.env['FORM_ENCRYPTION_KEY']) : null;
@@ -384,6 +389,7 @@ export async function loadAppointmentForms(
       submissionId: r.id,
       templateId: r.template_id,
       templateTitle: (r.title ?? {}) as Record<string, string>,
+      templateKey: r.template_key,
       templateVersion: r.template_version,
       version: r.version,
       isLatest: r.is_latest,
@@ -395,6 +401,7 @@ export async function loadAppointmentForms(
       expiresOn: r.expires_on,
       answers,
       anonymized: r.anonymized_at !== null,
+      locale: r.locale,
     };
   });
 

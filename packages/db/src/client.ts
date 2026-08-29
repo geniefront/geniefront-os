@@ -156,12 +156,16 @@ export const jsonb = (v: unknown): string => JSON.stringify(v ?? null);
 export function parseTs(v: string | Date): Date {
   if (typeof v !== 'string') return v;
   const iso = v
-    .replace(' ', 'T')
+    // 精确替换：只把 'YYYY-MM-DD ' 后面那一个空格换成 'T'，
+    // 防止字符串里其他位置的空格被误替换（`.replace(' ', 'T')` 只替换第一个，
+    // 但用正则约束位置更明确、更不容易被误改）
+    .replace(/^(\d{4}-\d{2}-\d{2}) /, '$1T')
     .replace(/([+-]\d{2})$/, '$1:00');
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) throw new Error(`无法解析时间戳：${v}`);
   return d;
 }
+
 
 export async function closeDb(): Promise<void> {
   await sql.end({ timeout: 5 });

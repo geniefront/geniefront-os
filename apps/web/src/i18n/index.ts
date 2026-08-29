@@ -15,6 +15,7 @@ import { checkout } from './checkout';
 import { finance } from './finance';
 import { crm } from './crm';
 import { settings } from './settings';
+import { healthForms } from './healthForms';
 import { UI_LANGUAGES } from './types';
 import type { Language } from './types';
 
@@ -33,6 +34,7 @@ const dict = {
   ...finance,
   ...crm,
   ...settings,
+  ...healthForms,
 };
 
 export type TranslationKey = keyof typeof dict;

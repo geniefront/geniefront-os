@@ -27,6 +27,8 @@ export function hashFormToken(token: string): string {
  * 而且前端不需要路由 —— 那一页是个静态 SPA，读一下 location.search 就够了。
  */
 export function formShareUrl(token: string): string {
-  const base = (process.env['FORM_BASE_URL'] ?? 'http://localhost:5175').replace(/\/+$/, '');
-  return `${base}/?t=${encodeURIComponent(token)}`;
+  const base = (process.env['FORM_BASE_URL'] ?? 'http://localhost:5177').replace(/\/+$/, '');
+  // 顾客填单页已经合并进 apps/web；`intake` 只是稳定路由占位，
+  // 真正允许填写哪些模板仍完全由一次性 fs_ 令牌决定。
+  return `${base}/forms/intake?t=${encodeURIComponent(token)}`;
 }

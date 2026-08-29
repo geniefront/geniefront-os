@@ -42,9 +42,11 @@ const CommunicationLogs = lazy(() => import('./pages/CommunicationLogs').then((m
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })));
 const StorefrontBuilder = lazy(() => import('./pages/StorefrontBuilder').then((m) => ({ default: m.StorefrontBuilder })));
 const HealthForms = lazy(() => import('./pages/HealthForms').then((m) => ({ default: m.HealthForms })));
+const CompletedHealthForm = lazy(() => import('./pages/CompletedHealthForm').then((m) => ({ default: m.CompletedHealthForm })));
 const Profile = lazy(() => import('./pages/Profile').then((m) => ({ default: m.Profile })));
 const Notifications = lazy(() => import('./pages/Notifications').then((m) => ({ default: m.Notifications })));
 const UnderConstruction = lazy(() => import('./pages/UnderConstruction').then((m) => ({ default: m.UnderConstruction })));
+const PublicHealthForm = lazy(() => import('./pages/PublicHealthForm').then((m) => ({ default: m.PublicHealthForm })));
 const Layout = lazy(() => import('./components/Layout').then((m) => ({ default: m.Layout })));
 
 /**
@@ -93,25 +95,31 @@ function SessionGate() {
 
   if (status === 'unauthenticated') {
     return (
-      <Routes>
-        <Route element={<AuthLayout />}>
-          <Route path="*" element={<Login />} />
-        </Route>
-      </Routes>
+      <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+        <Routes>
+          <Route path="/forms/:key" element={<PublicHealthForm />} />
+          <Route element={<AuthLayout />}>
+            <Route path="*" element={<Login />} />
+          </Route>
+        </Routes>
+      </Suspense>
     );
   }
 
   // 选店、无门店、加载失败三种状态共用认证外壳；LocationPicker 自行呈现错误态。
   if (status === 'selecting' || status === 'no-membership' || status === 'error') {
     return (
-      <Routes>
-        <Route element={<AuthLayout />}>
-          <Route
-            path="*"
-            element={status === 'no-membership' ? <NoMembership /> : <LocationPicker />}
-          />
-        </Route>
-      </Routes>
+      <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+        <Routes>
+          <Route path="/forms/:key" element={<PublicHealthForm />} />
+          <Route element={<AuthLayout />}>
+            <Route
+              path="*"
+              element={status === 'no-membership' ? <NoMembership /> : <LocationPicker />}
+            />
+          </Route>
+        </Routes>
+      </Suspense>
     );
   }
 
@@ -121,6 +129,26 @@ function SessionGate() {
 
   return (
     <Routes>
+      {/* 独立公共填单路由 (免 Layout 侧边栏) */}
+      <Route
+        path="/forms/:key"
+        element={
+          <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+            <PublicHealthForm />
+          </Suspense>
+        }
+      />
+
+      {/* 员工查看的签署存证页：需要登录，但采用独立版式便于新标签页阅读和打印。 */}
+      <Route
+        path="/forms/submissions/:submissionId"
+        element={
+          <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+            <CompletedHealthForm />
+          </Suspense>
+        }
+      />
+
       {/* Main Application (Dashboard Layout) */}
       <Route path="/" element={<Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}><Layout /></Suspense>}>
         {/*

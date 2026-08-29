@@ -384,6 +384,7 @@ export const schedule = {
   'schedule.adHealthAvailable': { 'zh-Hans': '已有提交记录；点击查看时会写入审计日志。', en: 'A submission is available. Opening it is audit logged.', ko: '제출 기록이 있습니다. 열람은 감사 로그에 기록됩니다.', es: 'Hay un envío disponible. La consulta queda auditada.', vi: 'Đã có bản nộp. Việc xem sẽ được ghi vào nhật ký kiểm toán.' },
   'schedule.adHealthMissing': { 'zh-Hans': '尚未提交健康表。', en: 'No health form has been submitted.', ko: '제출된 건강 문진표가 없습니다.', es: 'No se ha enviado ningún formulario de salud.', vi: 'Chưa nộp phiếu sức khỏe.' },
   'schedule.adViewHealth': { 'zh-Hans': '查看健康表', en: 'View health form', ko: '건강 문진표 보기', es: 'Ver formulario de salud', vi: 'Xem phiếu sức khỏe' },
+  'schedule.adAiHealthSummary': { 'zh-Hans': 'AI 多语言健康摘要', en: 'AI multilingual health summary', ko: 'AI 다국어 건강 요약', es: 'Resumen de salud multilingüe con IA', vi: 'Tóm tắt sức khỏe đa ngôn ngữ bằng AI' },
   'schedule.adCreateFormLink': { 'zh-Hans': '生成一次性填表二维码', en: 'Create one-time form QR code', ko: '일회용 문진 QR 코드 생성', es: 'Crear QR de formulario de un solo uso', vi: 'Tạo mã QR điền phiếu một lần' },
   'schedule.adExpiresAt': { 'zh-Hans': '有效期至', en: 'Expires', ko: '만료', es: 'Caduca', vi: 'Hết hạn' },
   'schedule.adGuestNoProfile': { 'zh-Hans': '匿名散客没有可编辑的客户档案。', en: 'This anonymous walk-in has no editable customer profile.', ko: '익명 방문 고객은 편집할 고객 프로필이 없습니다.', es: 'Este cliente anónimo no tiene una ficha editable.', vi: 'Khách vãng lai ẩn danh không có hồ sơ để chỉnh sửa.' },
@@ -402,4 +403,10 @@ export const schedule = {
   'schedule.adCancel.walk_out': { 'zh-Hans': '等候后离店', en: 'Walked out', ko: '대기 후 이탈', es: 'Se marchó', vi: 'Khách bỏ về' },
   'schedule.adCancel.input_error': { 'zh-Hans': '录入错误', en: 'Entry error', ko: '입력 오류', es: 'Error de registro', vi: 'Lỗi nhập liệu' },
   'schedule.adCancel.other': { 'zh-Hans': '其他', en: 'Other', ko: '기타', es: 'Otro', vi: 'Khác' },
+  'schedule.adServiceBriefTitle': { 'zh-Hans': '技师服务前重要提示', en: 'Important notes before service', ko: '서비스 전 관리사 중요 안내', es: 'Notas importantes antes del servicio', vi: 'Lưu ý quan trọng trước khi phục vụ' },
+  'schedule.adEditBrief': { 'zh-Hans': '前台编辑', en: 'Edit at front desk', ko: '프런트 편집', es: 'Editar en recepción', vi: 'Lễ tân chỉnh sửa' },
+  'schedule.adServiceBriefPlaceholder': { 'zh-Hans': '填写需要向技师交接的禁忌、偏好、注意事项或服务要求…', en: 'Add contraindications, preferences, cautions, or service instructions for the therapist…', ko: '관리사에게 전달할 금기, 선호, 주의 사항 또는 서비스 요청을 입력하세요…', es: 'Añade contraindicaciones, preferencias, precauciones o instrucciones para el terapeuta…', vi: 'Nhập chống chỉ định, sở thích, lưu ý hoặc yêu cầu dịch vụ cho kỹ thuật viên…' },
+  'schedule.adSaveBrief': { 'zh-Hans': '保存提示', en: 'Save note', ko: '안내 저장', es: 'Guardar nota', vi: 'Lưu ghi chú' },
+  'schedule.adServiceBriefSaved': { 'zh-Hans': '技师服务前提示已同步到预约与接待流程。', en: 'The pre-service note is now synced with the appointment and front-desk flow.', ko: '서비스 전 안내가 예약 및 프런트 절차에 동기화되었습니다.', es: 'La nota previa al servicio se sincronizó con la cita y recepción.', vi: 'Ghi chú trước dịch vụ đã đồng bộ với lịch hẹn và quy trình lễ tân.' },
+  'schedule.adNoServiceBrief': { 'zh-Hans': '尚未填写。前台可补充顾客禁忌、偏好或需要向技师交接的事项。', en: 'No note yet. Front desk can add contraindications, preferences, or therapist handoff details.', ko: '아직 안내가 없습니다. 프런트에서 금기, 선호 또는 전달 사항을 추가할 수 있습니다.', es: 'Aún no hay nota. Recepción puede añadir contraindicaciones, preferencias o detalles para el terapeuta.', vi: 'Chưa có ghi chú. Lễ tân có thể thêm chống chỉ định, sở thích hoặc nội dung bàn giao.' },
 } satisfies DomainDict;
