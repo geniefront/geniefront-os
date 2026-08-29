@@ -64,6 +64,10 @@ SUPABASE_URL=https://qiuyubvhirjtglonbkon.supabase.co \
 SUPABASE_ANON_KEY=sb_publishable_CCrBsWTtjn27TQNGbwTo1w_0YT54e-2 \
 pnpm --filter @gf/web build >/dev/null
 
+log "构建 iPad Kiosk 自助应用"
+VITE_API_BASE=https://api.geniefront.com \
+pnpm --filter @gf/ipad build >/dev/null
+
 log "构建 ${IMAGE}（linux/amd64）"
 # ⚠️ 必须显式指定平台：开发机可能是 Apple Silicon(arm64)，而 VPS 是 amd64。
 # 不指定的话镜像能 load 进去、容器能创建，但一 exec 就是 "exec format error"。
@@ -82,7 +86,7 @@ for h in "${HOSTS[@]}"; do
   log "推送镜像"
   docker save "$IMAGE" | gzip -1 | ssh "$h" 'gunzip | docker load' | tail -1
 
-  log "同步 Web 前端与配置"
+  log "同步 Web 前端、Kiosk 与配置"
   scp -q "$PROD_ENV" "$h:/tmp/gf.env"
   scp -q deploy/compose.yml deploy/Caddyfile "$h:/tmp/"
   tar -czf - -C apps/web/dist . | ssh "$h" "
@@ -93,6 +97,11 @@ for h in "${HOSTS[@]}"; do
     mkdir -p ${REMOTE_DIR}/web
     rm -rf ${REMOTE_DIR}/web/*
     tar -xzf - -C ${REMOTE_DIR}/web
+  "
+  tar -czf - -C apps/ipad/dist . | ssh "$h" "
+    mkdir -p ${REMOTE_DIR}/kiosk
+    rm -rf ${REMOTE_DIR}/kiosk/*
+    tar -xzf - -C ${REMOTE_DIR}/kiosk
   "
 
   log "启动服务"

@@ -33,6 +33,7 @@ services:
       - /opt/geniefront/origin.pem:/etc/caddy/origin.pem:ro
       - /opt/geniefront/origin.key:/etc/caddy/origin.key:ro
       - /opt/geniefront/web:/srv/web:ro
+      - /opt/geniefront/kiosk:/srv/kiosk:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on: [api]
