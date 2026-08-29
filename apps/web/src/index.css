@@ -1,7 +1,6 @@
 /* 顺序不能改：tailwind → heroui oss → heroui pro（Pro 的样式要盖在 OSS 上） */
 @import "tailwindcss";
 @import "@heroui/styles";
-@import "@heroui-pro/react/css";
 
 /*
  * 品牌色。模板原来通篇写死 teal-600，与其在几十个页面里逐个替换，
@@ -72,4 +71,3 @@ div[data-slot="modal-container"] {
 label {
   display: block;
 }
-

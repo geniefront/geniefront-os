@@ -3,6 +3,5 @@ packages:
   - "apps/*"
 allowBuilds:
   esbuild: true
-  "@heroui-pro/react": true
   "@zowe/secrets-for-zowe-sdk": true
   "heroui-native-pro": true
