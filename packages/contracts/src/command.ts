@@ -134,6 +134,9 @@ export interface CommandContext {
   /** 门店时区，用于营业日边界计算 */
   timezone: string;
   ip?: string;
+  userAgent?: string;
+  /** 设备 actor 的持久化标识。只由服务端验过设备令牌后注入。 */
+  deviceId?: string;
 }
 
 /**

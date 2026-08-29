@@ -2,16 +2,16 @@
  * 硬件副屏与 Kiosk 配对信令服务（HardwareServer.tsx，P2 设备配对）
  */
 
-import { randomBytes, createHash } from 'node:crypto';
+import { randomInt } from 'node:crypto';
 import type postgres from 'postgres';
 import { AppError, ERROR_CODES, type CommandContext } from '@gf/contracts';
 import { sql } from '@gf/db';
 import { generateDeviceToken, hashDeviceToken } from '../kiosk/deviceAuth';
 
 function generatePairingCode(): string {
-  // 6 位纯数字 PIN 码，方便在 iPad 触控数字键盘上极速输入
-  const n = Math.floor(100000 + Math.random() * 900000);
-  return n.toString();
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const chars = Array.from({ length: 6 }, () => alphabet[randomInt(0, alphabet.length)]);
+  return `${chars.slice(0, 3).join('')}-${chars.slice(3).join('')}`;
 }
 
 export interface PairingSessionDto {
@@ -102,7 +102,9 @@ export async function claimPairingSession(
   locationId: string;
   terminalType: string;
 }> {
-  const code = (rawCode ?? '').trim().replace(/\s+/g, '').toUpperCase();
+  const safeLabel = label.trim().slice(0, 60) || 'iPad Device';
+  const compact = (rawCode ?? '').trim().replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  const code = compact.length === 6 ? `${compact.slice(0, 3)}-${compact.slice(3)}` : compact;
   return sql.begin(async (tx) => {
     // 显式设置 app.pairing_code 以允许根据 code 查找 session
     await tx`select
@@ -118,7 +120,7 @@ export async function claimPairingSession(
     }[]>`
       select id, org_id, location_id, terminal_type, expires_at::text, status
       from pairing_sessions
-      where code = ${code} or code = ${code.replace(/-/g, '')}
+      where code = ${code}
       for update`;
 
     if (!session) {
@@ -153,7 +155,7 @@ export async function claimPairingSession(
       insert into device_tokens (
         org_id, location_id, label, token_hash, last_seen_at, terminal_type
       ) values (
-        ${session.org_id}, ${session.location_id}, ${label}, ${tokenHash}, now(),
+        ${session.org_id}, ${session.location_id}, ${safeLabel}, ${tokenHash}, now(),
         ${session.terminal_type}
       )
       returning id`;

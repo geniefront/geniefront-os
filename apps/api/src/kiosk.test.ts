@@ -34,6 +34,7 @@ let deviceToken = '';
 let deviceId = '';
 let templateId = '';
 let templateVersion = 0;
+let formQueueId = '';
 
 beforeAll(async () => {
   process.env['FORM_ENCRYPTION_KEY'] ??= randomBytes(32).toString('hex');
@@ -75,6 +76,10 @@ beforeAll(async () => {
 
   app = buildServer();
   await app.ready();
+  const queue = await kiosk('POST', '/v1/kiosk/walk-in', {
+    name: '健康表测试', idempotencyKey: randomUUID(),
+  });
+  formQueueId = queue.json().queueId;
 });
 
 afterAll(async () => {
@@ -98,6 +103,11 @@ const kiosk = (method: 'GET' | 'POST', url: string, payload?: unknown, token = d
     method, url,
     headers: { 'content-type': 'application/json', 'x-device-token': token },
     ...(payload !== undefined ? { payload: JSON.stringify(payload) } : {}),
+  });
+
+const kioskForm = (payload: Record<string, unknown>, idempotencyKey = randomUUID()) =>
+  kiosk('POST', '/v1/kiosk/forms/submit', {
+    ...payload, queueId: formQueueId, idempotencyKey,
   });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -377,7 +387,7 @@ describe('健康表', () => {
 
   it('⭐ 答案在库里是密文 —— 拖库也拿不到健康数据', async () => {
     __resetRateLimit();
-    const res = await kiosk('POST', '/v1/kiosk/forms/submit', {
+    const res = await kioskForm({
       templateId, answers,
       signatureDataUrl: 'data:image/png;base64,iVBORw0KGgo=',
       signerName: '陈女士', locale: 'zh-Hans',
@@ -385,19 +395,27 @@ describe('健康表', () => {
     expect(res.statusCode).toBe(200);
 
     const [row] = await withTenant(tenant, (tx) => tx<{
-      answers_encrypted: Buffer; enc_alg: string; locale: string; source: string;
+      answers_encrypted: Buffer; signature_encrypted: Buffer; signature_url: string | null;
+      enc_alg: string; locale: string; source: string;
     }[]>`
-      select answers_encrypted, enc_alg, locale, source from form_submissions
+      select answers_encrypted, signature_encrypted, signature_url, enc_alg, locale, source
+      from form_submissions
       where id = ${res.json().submissionId}`);
 
     const blob = Buffer.from(row!.answers_encrypted);
     expect(blob.toString('latin1')).not.toContain('腰部');
     expect(blob.toString('latin1')).not.toContain('pregnant');
     expect(row!.enc_alg).toBe('aes-256-gcm.v1');
+    expect(row!.signature_url).toBeNull();
+    expect(Buffer.from(row!.signature_encrypted).toString('latin1')).not.toContain('iVBORw0KGgo');
 
     // 有钥匙才解得开
     expect(decryptAnswers(blob, loadFormKey(process.env['FORM_ENCRYPTION_KEY'])))
       .toEqual(answers);
+    expect(decryptAnswers(
+      Buffer.from(row!.signature_encrypted),
+      loadFormKey(process.env['FORM_ENCRYPTION_KEY']),
+    )).toBe('data:image/png;base64,iVBORw0KGgo=');
   });
 
   it('⭐ 留下他当时看的是哪种语言 ——「我看不懂英文」是最常见的抗辩', async () => {
@@ -411,7 +429,7 @@ describe('健康表', () => {
   it('⭐ 必答题漏答被服务端挡下，不只靠前端', async () => {
     // 「怀孕了吗」漏答和答「否」在法律上完全不是一回事
     __resetRateLimit();
-    const res = await kiosk('POST', '/v1/kiosk/forms/submit', {
+    const res = await kioskForm({
       templateId, answers: { note: '什么都没答' },
       signatureDataUrl: 'data:image/png;base64,iVBORw0KGgo=',
       signerName: '张先生', locale: 'en',
@@ -422,7 +440,7 @@ describe('健康表', () => {
 
   it('要签字的表没签字交不了', async () => {
     __resetRateLimit();
-    const res = await kiosk('POST', '/v1/kiosk/forms/submit', {
+    const res = await kioskForm({
       templateId, answers: { pregnant: false }, signerName: '张先生', locale: 'en',
     });
     expect(res.statusCode).toBe(400);
@@ -440,6 +458,28 @@ describe('健康表', () => {
     expect(log!.after['locale']).toBe('zh-Hans');
     expect(JSON.stringify(log!.after)).not.toContain('腰部');
     expect(log!.after['answers']).toBeUndefined();
+  });
+
+  it('⭐ Kiosk 健康表重试幂等，并关联队列与设备审计', async () => {
+    __resetRateLimit();
+    const key = randomUUID();
+    const payload = {
+      templateId, answers: { pregnant: false },
+      signatureDataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+      signerName: '幂等测试', locale: 'zh-Hans',
+    };
+    const first = await kioskForm(payload, key);
+    const replay = await kioskForm(payload, key);
+    expect(replay.json().submissionId).toBe(first.json().submissionId);
+
+    const [row] = await withTenant(tenant, (tx) => tx<{
+      queue_id: string; actor_device_id: string;
+    }[]>`
+      select s.queue_id, a.actor_device_id
+      from form_submissions s
+      join audit_log a on a.entity_id = s.id and a.command = 'form.submit'
+      where s.id = ${first.json().submissionId}`);
+    expect(row).toMatchObject({ queue_id: formQueueId, actor_device_id: deviceId });
   });
 
   it('模板改内容会发新版本，老签名仍指向他当时签的那一版', async () => {

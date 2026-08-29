@@ -91,6 +91,9 @@ export const JoinQueue = defineCommand({
     customerId: uuid.nullable().optional(),
     /** 匿名 walk-in：只留个名字，事后可合并（决策 21） */
     walkInName: z.string().max(120).optional(),
+    /** Kiosk walk-in 主联系人；仅在门店开启自动建档时写入 CRM。 */
+    walkInPhone: z.string().regex(/^\+[1-9]\d{6,14}$/).optional(),
+    walkInEmail: z.string().email().max(200).optional(),
     requestedServiceId: uuid.nullable().optional(),
     requestedStaffId: uuid.nullable().optional(),
     partySize: z.number().int().min(1).max(20).default(1),
@@ -220,6 +223,8 @@ export const SubmitForm = defineCommand({
      * 不信任顾客端请求体中的值。
      */
     appointmentId: uuid.nullable().optional(),
+    /** Kiosk walk-in 表单关联到刚取的队列号；由已验设备令牌的路由注入。 */
+    queueId: uuid.nullable().optional(),
     /** 题目 id → 答案 */
     answers: z.record(z.string(), z.unknown()),
     /** 签名图片的 data URL（PNG）。模板要求签字时必填 */

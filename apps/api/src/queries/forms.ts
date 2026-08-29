@@ -120,7 +120,7 @@ export async function loadForms(
            s.template_version, s.customer_id, c.display_name as customer_name,
            s.signer_name, s.signer_relation, s.source, s.locale,
            s.signed_at, s.created_at, s.expires_on::text as expires_on, s.anonymized_at,
-           (s.signature_url is not null) as has_signature
+           (s.signature_url is not null or s.signature_encrypted is not null) as has_signature
     from form_submissions s
     join form_templates t on t.id = s.template_id
     left join customers c on c.id = s.customer_id
@@ -251,13 +251,14 @@ export async function readSubmission(
     id: string; template_key: string; template_version: number; title: unknown; schema: unknown;
     answers_encrypted: Buffer | null; enc_alg: string | null;
     signer_name: string | null; signer_relation: string; signature_url: string | null;
+    signature_encrypted: Buffer | null;
     signed_at: Date | string | null; locale: string; source: string; ip: string | null;
     expires_on: string | null; anonymized_at: Date | string | null;
     customer_name: string | null;
   }[]>`
     select s.id, t.key as template_key, s.template_version, t.title, t.schema,
            s.answers_encrypted, s.enc_alg, s.signer_name, s.signer_relation,
-           s.signature_url, s.signed_at, s.locale, s.source, s.ip,
+           s.signature_url, s.signature_encrypted, s.signed_at, s.locale, s.source, s.ip,
            s.expires_on::text as expires_on, s.anonymized_at,
            c.display_name as customer_name
     from form_submissions s
@@ -274,6 +275,7 @@ export async function readSubmission(
             ${ctx.membershipId}, ${reason}, ${ctx.ip ?? null})`;
 
   let answers: Record<string, unknown> | null = null;
+  let signatureUrl = row.signature_url;
   if (row.answers_encrypted && !row.anonymized_at) {
     const key = loadFormKey(process.env['FORM_ENCRYPTION_KEY']);
     /**
@@ -282,6 +284,9 @@ export async function readSubmission(
      * 所有已签的表就永久解不开，而这条报错是唯一会说出这件事的地方。
      */
     answers = decryptAnswers(row.answers_encrypted, key) as Record<string, unknown>;
+    if (row.signature_encrypted) {
+      signatureUrl = decryptAnswers(row.signature_encrypted, key) as string;
+    }
   }
 
   return {
@@ -293,7 +298,7 @@ export async function readSubmission(
     answers,
     signerName: row.signer_name,
     signerRelation: row.signer_relation,
-    signatureUrl: row.signature_url,
+    signatureUrl: row.anonymized_at ? null : signatureUrl,
     signedAt: row.signed_at ? new Date(row.signed_at).toISOString() : null,
     locale: row.locale,
     source: row.source,
@@ -360,12 +365,13 @@ export async function loadAppointmentForms(
     id: string; template_id: string; template_version: number; title: unknown; template_key: string;
     version: number; is_latest: boolean; answers_encrypted: Buffer | null;
     signer_name: string | null; signer_relation: string; signature_url: string | null;
+    signature_encrypted: Buffer | null;
     signed_at: Date | string | null; created_at: Date | string; expires_on: string | null;
     anonymized_at: Date | string | null; locale: string;
   }[]>`
     select s.id, s.template_id, s.template_version, t.title, t.key as template_key,
            s.version, s.is_latest, s.answers_encrypted,
-           s.signer_name, s.signer_relation, s.signature_url,
+           s.signer_name, s.signer_relation, s.signature_url, s.signature_encrypted,
            s.signed_at, s.created_at, s.expires_on::text as expires_on, s.anonymized_at,
            s.locale
     from form_submissions s
@@ -378,11 +384,16 @@ export async function loadAppointmentForms(
 
   const forms: AppointmentFormVersionDto[] = rows.map((r) => {
     let answers: Record<string, unknown> | null = null;
+    let signatureUrl = r.signature_url;
     if (r.answers_encrypted && !r.anonymized_at && key) {
       try {
         answers = decryptAnswers(r.answers_encrypted, key) as Record<string, unknown>;
+        if (r.signature_encrypted) {
+          signatureUrl = decryptAnswers(r.signature_encrypted, key) as string;
+        }
       } catch {
         answers = null;
+        signatureUrl = null;
       }
     }
     return {
@@ -395,7 +406,7 @@ export async function loadAppointmentForms(
       isLatest: r.is_latest,
       signerName: r.signer_name,
       signerRelation: r.signer_relation,
-      signatureUrl: r.signature_url,
+      signatureUrl: r.anonymized_at ? null : signatureUrl,
       signedAt: r.signed_at ? new Date(r.signed_at).toISOString() : null,
       createdAt: new Date(r.created_at).toISOString(),
       expiresOn: r.expires_on,

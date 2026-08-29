@@ -1,31 +1,25 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LanguageProvider } from './context/LanguageContext';
 import { DeviceAuthProvider } from './context/DeviceAuthContext';
 import { App } from './App';
 import './index.css';
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      refetchOnWindowFocus: false,
-    },
-  },
-});
+if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+  });
+}
 
 const rootElement = document.getElementById('root');
 if (rootElement) {
   ReactDOM.createRoot(rootElement).render(
     <React.StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <LanguageProvider>
-          <DeviceAuthProvider>
-            <App />
-          </DeviceAuthProvider>
-        </LanguageProvider>
-      </QueryClientProvider>
+      <LanguageProvider>
+        <DeviceAuthProvider>
+          <App />
+        </DeviceAuthProvider>
+      </LanguageProvider>
     </React.StrictMode>,
   );
 }

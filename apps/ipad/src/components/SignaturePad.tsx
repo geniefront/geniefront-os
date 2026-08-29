@@ -48,8 +48,6 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({
 
   useEffect(() => {
     initCanvas();
-    window.addEventListener('resize', initCanvas);
-    return () => window.removeEventListener('resize', initCanvas);
   }, [initCanvas]);
 
   const saveStroke = () => {

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gf-kiosk-v1';
+const CACHE_NAME = 'gf-kiosk-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -27,8 +27,18 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // 严禁缓存任何 API 接口与写操作
-  if (url.pathname.startsWith('/v1/') || event.request.method !== 'GET') {
+  // 只缓存本站静态资源；严禁让设备令牌或任何 API 响应进入 Cache Storage。
+  if (url.origin !== self.location.origin || url.pathname.startsWith('/v1/')
+      || url.pathname.startsWith('/public/') || event.request.method !== 'GET') {
+    return;
+  }
+
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => response.ok ? response : Promise.reject(new Error('navigation failed')))
+        .catch(() => caches.match('/index.html'))
+    );
     return;
   }
 
@@ -43,12 +53,7 @@ self.addEventListener('fetch', (event) => {
           });
         }
         return networkResponse;
-      }).catch(() => {
-        // 离线且无缓存时返回根页面
-        if (event.request.mode === 'navigate') {
-          return caches.match('/');
-        }
-      });
+      }).catch(() => cachedResponse);
 
       return cachedResponse || fetchPromise;
     })

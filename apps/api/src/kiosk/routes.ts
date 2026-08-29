@@ -46,6 +46,11 @@ const RATE_MAX = 20;
 
 function rateLimit(deviceId: string): void {
   const now = Date.now();
+  if (RATE.size > 1_000) {
+    for (const [key, value] of RATE) {
+      if (value.resetAt < now) RATE.delete(key);
+    }
+  }
   const cur = RATE.get(deviceId);
   if (!cur || now > cur.resetAt) {
     RATE.set(deviceId, { count: 1, resetAt: now + RATE_WINDOW_MS });
@@ -81,7 +86,8 @@ export function maskName(name: string): string {
 export function registerKioskRoutes(app: FastifyInstance): void {
   /** 验设备令牌，换一个受限的门店上下文 */
   async function device(req: { headers: Record<string, unknown>; ip: string }): Promise<DeviceSession> {
-    return verifyDeviceToken(req.headers[DEVICE_HEADER] as string | undefined, req.ip);
+    const userAgent = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : undefined;
+    return verifyDeviceToken(req.headers[DEVICE_HEADER] as string | undefined, req.ip, userAgent);
   }
 
   // ── 开机自检：这台设备还认不认得出自己是哪家店 ──────────────────────────
@@ -292,7 +298,8 @@ export function registerKioskRoutes(app: FastifyInstance): void {
 
   // ── walk-in：没有预约，自己排 ──────────────────────────────────────────
   app.post<{ Body: {
-    name?: string; serviceId?: string; partySize?: number; idempotencyKey?: string;
+    name?: string; phone?: string; email?: string; serviceId?: string;
+    partySize?: number; idempotencyKey?: string;
   } }>('/v1/kiosk/walk-in', async (req) => {
     const { ctx, deviceId } = await device(req);
     rateLimit(deviceId);
@@ -302,6 +309,37 @@ export function registerKioskRoutes(app: FastifyInstance): void {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'bad_name' } });
     }
 
+    const phoneDigits = (req.body?.phone ?? '').replace(/\D/g, '');
+    const walkInPhone = phoneDigits.length === 10
+      ? `+1${phoneDigits}`
+      : phoneDigits.length >= 7 && phoneDigits.length <= 15
+        ? `+${phoneDigits}`
+        : undefined;
+    if (req.body?.phone && !walkInPhone) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'bad_phone' } });
+    }
+    const walkInEmail = req.body?.email?.trim().toLowerCase() || undefined;
+
+    const serviceId = req.body?.serviceId;
+    if (serviceId) {
+      const service = await withTenant(
+        { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: null },
+        (tx) => tx<{ id: string }[]>`
+          select id from services
+          where id = ${serviceId} and location_id = ${ctx.locationId} and active = true`,
+      );
+      if (service.length === 0) {
+        throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'service' } });
+      }
+    }
+
+    const idempotencyKey = req.body?.idempotencyKey?.trim();
+    if (!idempotencyKey || idempotencyKey.length > 120 || !/^[A-Za-z0-9:_-]+$/.test(idempotencyKey)) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'invalid_idempotency_key' },
+      });
+    }
+
     // 幂等键由 Kiosk 生成：门口那台 iPad 的网常常是店里最差的一条，
     // 重试不能变成两个号（客人手上会拿到两张纸，前台会喊两次）
     const out = await dispatch<{
@@ -309,11 +347,13 @@ export function registerKioskRoutes(app: FastifyInstance): void {
       quotedWaitMin: number | null; businessDate: string;
     }>('queue.join', {
       walkInName: name,
-      requestedServiceId: req.body?.serviceId ?? null,
+      walkInPhone,
+      walkInEmail,
+      requestedServiceId: serviceId ?? null,
       partySize: Math.min(Math.max(req.body?.partySize ?? 1, 1), 20),
       source: 'kiosk',
     }, ctx, {
-      idempotencyKey: req.body?.idempotencyKey ?? `kiosk-walkin-${deviceId}-${Date.now()}`,
+      idempotencyKey: `kiosk-walkin-${deviceId}-${idempotencyKey}`,
     });
 
     return out.result;
@@ -351,20 +391,29 @@ export function registerKioskRoutes(app: FastifyInstance): void {
   // ── 这次要不要签健康表 ─────────────────────────────────────────────────
   //
   // 「上次签过」不等于「不用签」—— 到期就要重签（三年前签的在法律上站不住）。
-  app.get<{ Querystring: { customerId?: string; serviceId?: string; appointmentId?: string; queueId?: string } }>(
+  app.get<{ Querystring: { appointmentId?: string; queueId?: string } }>(
     '/v1/kiosk/forms/required', async (req) => {
     const { ctx } = await device(req);
 
     return withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: null },
       async (tx) => {
-        let customerId = req.query.customerId;
-        const requestedServiceIds: string[] = req.query.serviceId ? [req.query.serviceId] : [];
+        let customerId: string | undefined;
+        const requestedServiceIds: string[] = [];
+
+        if (!req.query.appointmentId && !req.query.queueId) {
+          throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+            details: { reason: 'missing_visit_context' },
+          });
+        }
 
         if (req.query.appointmentId) {
           const [appt] = await tx<{ customer_id: string | null }[]>`
             select customer_id from appointments
             where id = ${req.query.appointmentId} and location_id = ${ctx.locationId}`;
+          if (!appt) {
+            throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
+          }
           if (appt?.customer_id) {
             customerId = appt.customer_id;
           }
@@ -380,6 +429,9 @@ export function registerKioskRoutes(app: FastifyInstance): void {
           const [q] = await tx<{ customer_id: string | null; requested_service_id: string | null; appointment_id: string | null }[]>`
             select customer_id, requested_service_id, appointment_id from walkin_queue
             where id = ${req.query.queueId} and location_id = ${ctx.locationId}`;
+          if (!q) {
+            throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'queue' } });
+          }
           if (q) {
             if (q.customer_id) customerId = q.customer_id;
             if (q.requested_service_id && !requestedServiceIds.includes(q.requested_service_id)) {
@@ -432,7 +484,10 @@ export function registerKioskRoutes(app: FastifyInstance): void {
               version: t.version,
               // i18n 整份给出去 —— 客人看的是自己的语言（宪法第 7 条）
               title: t.title,
-              questions: t.schema,
+              questions: Array.isArray(t.schema)
+                ? t.schema.filter((question) => !question || typeof question !== 'object'
+                  || !(question as { hidden?: boolean }).hidden)
+                : [],
               requiresSignature: t.requires_signature,
             })),
         };
@@ -445,11 +500,36 @@ export function registerKioskRoutes(app: FastifyInstance): void {
     rateLimit(deviceId);
 
     const body = req.body ?? {};
+    const idempotencyKey = typeof body['idempotencyKey'] === 'string'
+      ? body['idempotencyKey'].trim()
+      : '';
+    if (!idempotencyKey || idempotencyKey.length > 120 || !/^[A-Za-z0-9:_-]+$/.test(idempotencyKey)) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'invalid_idempotency_key' },
+      });
+    }
+    if (!body['appointmentId'] && !body['queueId']) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'missing_visit_context' },
+      });
+    }
     const out = await dispatch<{ submissionId: string; expiresOn: string | null }>(
       'form.submit',
-      { ...body, source: 'kiosk' },
+      {
+        templateId: body['templateId'],
+        appointmentId: body['appointmentId'],
+        queueId: body['queueId'],
+        answers: body['answers'],
+        signatureDataUrl: body['signatureDataUrl'],
+        signerName: body['signerName'],
+        signerRelation: body['signerRelation'],
+        locale: body['locale'],
+        customerId: null,
+        shareLinkId: null,
+        source: 'kiosk',
+      },
       ctx,
-      { idempotencyKey: `kiosk-form-${deviceId}-${String(body['templateId'])}-${Date.now()}` },
+      { idempotencyKey: `kiosk-form-${deviceId}-${idempotencyKey}` },
     );
     return out.result;
   });

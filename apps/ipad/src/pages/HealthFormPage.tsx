@@ -1,23 +1,12 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useLanguage } from '../context/LanguageContext';
+import { AlertCircle, ArrowLeft, Check, ChevronRight, Loader2, ShieldCheck, User } from 'lucide-react';
+import { api } from '../api/client';
+import { BodyMapSelector, type BodyMapValue } from '../components/BodyMapSelector';
+import { SignaturePad } from '../components/SignaturePad';
 import { useDeviceAuth } from '../context/DeviceAuthContext';
-import type {
-  KioskFormTemplateDto,
-  GuestIntake,
-  QueueJoinResult,
-} from '../types';
-import { QRCodeSVG } from 'qrcode.react';
-import {
-  ArrowLeft,
-  QrCode,
-  Tablet,
-  CheckCircle2,
-  User,
-  ShieldCheck,
-  ChevronRight,
-  ExternalLink,
-} from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
+import type { FormQuestionDto, GuestIntake, KioskFormTemplateDto, QueueJoinResult } from '../types';
 
 interface LocationState {
   appointmentId?: string;
@@ -25,331 +14,279 @@ interface LocationState {
   queueResult?: QueueJoinResult;
   forms?: KioskFormTemplateDto[];
   guests?: GuestIntake[];
-  phone?: string;
   customerName?: string;
+}
+
+interface FormTask {
+  guest: GuestIntake;
+  form: KioskFormTemplateDto;
+}
+
+export function missingRequiredQuestionIds(
+  questions: FormQuestionDto[],
+  answers: Record<string, unknown>,
+): string[] {
+  return questions
+    .filter((question) => !question.hidden && question.required)
+    .filter((question) => {
+      const value = answers[question.id];
+      return value === undefined || value === null || value === ''
+        || (Array.isArray(value) && value.length === 0);
+    })
+    .map((question) => question.id);
+}
+
+function makeIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 export const HealthFormPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { t, pickText } = useLanguage();
+  const { language, t, pickText } = useLanguage();
   const { storeInfo } = useDeviceAuth();
+  const state = (location.state as LocationState | null) ?? null;
 
-  const state = (location.state as LocationState) || {};
-  const appointmentId = state.appointmentId;
-  const queueId = state.queueId;
-  const queueResult = state.queueResult;
+  const tasks = useMemo<FormTask[]>(() => {
+    const forms = state?.forms ?? [];
+    const guests = state?.guests?.length
+      ? state.guests
+      : [{ id: 'guest-1', name: state?.customerName ?? '', phone: '', serviceId: null, addonIds: [] }];
+    return guests.flatMap((guest) => forms.map((form) => ({ guest, form })));
+  }, [state]);
 
-  // 标准化客人列表（支持单人与多人）
-  const [guestList, setGuestList] = useState<GuestIntake[]>(() => {
-    if (state.guests && state.guests.length > 0) {
-      return state.guests;
-    }
-    return [
-      {
-        id: 'guest-1',
-        name: state.customerName || 'Guest',
-        phone: state.phone || '',
-        email: '',
-        serviceId: null,
-        addonIds: [],
-        isFormSubmitted: false,
-      },
-    ];
-  });
+  const [taskIndex, setTaskIndex] = useState(0);
+  const [answers, setAnswers] = useState<Record<string, unknown>>({});
+  const [bodyMap, setBodyMap] = useState<BodyMapValue>({ focus: [], avoid: [] });
+  const [signerName, setSignerName] = useState(tasks[0]?.guest.name ?? '');
+  const [signerRelation, setSignerRelation] = useState<'self' | 'guardian'>('self');
+  const [signatureDataUrl, setSignatureDataUrl] = useState<string | undefined>();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const idempotencyKeys = useRef(new Map<string, string>());
 
-  const [activeGuestIdx, setActiveGuestIdx] = useState(0);
-  const [fillMode, setFillMode] = useState<'pad' | 'qr'>('pad');
+  const current = tasks[taskIndex];
+  const queueResult = state?.queueResult;
 
-  // 当前活动的健康表模板
-  const formTemplate: KioskFormTemplateDto = useMemo(() => {
-    if (state.forms && state.forms.length > 0) {
-      return state.forms[0]!;
-    }
-    return {
-      templateId: 'default-intake',
-      key: 'massage_intake',
-      version: 1,
-      title: {
-        'zh-Hans': '理疗与健康安全排查表',
-        en: 'Health & Safety Intake Waiver',
-        ko: '건강 및 안전 설문지',
-        es: 'Formulario de Salud y Exención',
-        vi: 'Phiếu Khai Báo Sức Khỏe & Miễn Trừ',
-      },
-      questions: [],
-      requiresSignature: true,
-    };
-  }, [state.forms]);
-
-  const currentGuest = guestList[activeGuestIdx] || guestList[0]!;
-
-  // 构建前台 Web 健康表嵌入 URL
-  const iframeUrl = useMemo(() => {
-    const origin = window.location.origin.includes(':5178')
-      ? window.location.origin.replace(':5178', ':5177')
-      : window.location.origin;
-    const formKey = formTemplate.key || 'massage_intake';
-    const params = new URLSearchParams({
-      name: currentGuest.name || '',
-      phone: currentGuest.phone || '',
-      kiosk: '1',
-      ...(queueId ? { queueId } : {}),
-      ...(appointmentId ? { appointmentId } : {}),
-    });
-    return `${origin}/forms/${formKey}?${params.toString()}`;
-  }, [formTemplate.key, currentGuest.name, currentGuest.phone, queueId, appointmentId]);
-
-  // 监听内嵌 iframe 发送的表单提交完成信令
   useEffect(() => {
-    const handleMessage = (e: MessageEvent) => {
-      if (e.data?.type === 'GF_KIOSK_FORM_SUBMITTED') {
-        const updatedList = [...guestList];
-        updatedList[activeGuestIdx] = {
-          ...updatedList[activeGuestIdx]!,
-          isFormSubmitted: true,
-        };
-        setGuestList(updatedList);
+    if (!queueResult || tasks.length === 0 || (!state?.appointmentId && !state?.queueId)) {
+      navigate('/', { replace: true });
+    }
+  }, [navigate, queueResult, state?.appointmentId, state?.queueId, tasks.length]);
 
-        const nextPendingIdx = updatedList.findIndex((g) => !g.isFormSubmitted);
-        if (nextPendingIdx !== -1) {
-          setActiveGuestIdx(nextPendingIdx);
-        } else {
-          handleFinishAll();
-        }
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [guestList, activeGuestIdx]);
+  const resetForTask = (nextIndex: number) => {
+    const next = tasks[nextIndex];
+    setAnswers({});
+    setBodyMap({ focus: [], avoid: [] });
+    setSignerName(next?.guest.name ?? '');
+    setSignerRelation('self');
+    setSignatureDataUrl(undefined);
+    setError(null);
+    setTaskIndex(nextIndex);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
-  const handleFinishAll = () => {
+  const finish = () => {
     navigate('/success', {
+      replace: true,
       state: {
-        appointmentId,
-        queueId,
-        ticketNumber: queueResult?.ticketNumber,
-        aheadCount: queueResult?.aheadCount,
-        quotedWaitMin: queueResult?.quotedWaitMin,
-        businessDate: queueResult?.businessDate || storeInfo?.businessDate,
-        partySize: guestList.length,
+        queueResult,
+        customerName: tasks[0]?.guest.name,
+        formSubmitted: true,
       },
     });
   };
 
-  // 生成供手机扫码填写的 URL
-  const getMobileFormUrl = (guest: GuestIntake) => {
-    const origin = window.location.origin.includes(':5178')
-      ? window.location.origin.replace(':5178', ':5177')
-      : window.location.origin;
-    const formKey = formTemplate.key || 'massage_intake';
-    const params = new URLSearchParams({
-      name: guest.name,
-      phone: guest.phone,
-      ...(queueId ? { queueId } : {}),
-      ...(appointmentId ? { appointmentId } : {}),
-    });
-    return `${origin}/forms/${formKey}?${params.toString()}`;
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!current || !queueResult) return;
+
+    const missing = missingRequiredQuestionIds(current.form.questions, answers);
+    if (missing.length > 0) {
+      setError(t('health.missingAnswers'));
+      return;
+    }
+    if (!signerName.trim()) {
+      setError(t('walkin.nameRequired'));
+      return;
+    }
+    if (current.form.requiresSignature && !signatureDataUrl) {
+      setError(t('health.signatureRequired'));
+      return;
+    }
+
+    const taskKey = `${current.guest.id}:${current.form.templateId}`;
+    const idempotencyKey = idempotencyKeys.current.get(taskKey) ?? makeIdempotencyKey();
+    idempotencyKeys.current.set(taskKey, idempotencyKey);
+
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      await api.submitForm({
+        templateId: current.form.templateId,
+        ...(state?.appointmentId ? { appointmentId: state.appointmentId } : {}),
+        ...(state?.queueId ? { queueId: state.queueId } : {}),
+        answers: {
+          ...answers,
+          bodyMapFocus: bodyMap.focus,
+          bodyMapAvoid: bodyMap.avoid,
+          kioskGuest: { phone: current.guest.phone || null, email: current.guest.email || null },
+        },
+        ...(signatureDataUrl ? { signatureDataUrl } : {}),
+        signerName: signerName.trim(),
+        signerRelation,
+        locale: language,
+        idempotencyKey,
+      });
+
+      if (taskIndex + 1 < tasks.length) resetForTask(taskIndex + 1);
+      else finish();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to submit form');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  const setAnswer = (id: string, value: unknown) => {
+    setAnswers((previous) => ({ ...previous, [id]: value }));
+    setError(null);
+  };
+
+  const toggleMulti = (id: string, option: string) => {
+    const currentValues = Array.isArray(answers[id]) ? answers[id] as string[] : [];
+    setAnswer(id, currentValues.includes(option)
+      ? currentValues.filter((value) => value !== option)
+      : [...currentValues, option]);
+  };
+
+  if (!current || !queueResult) return null;
+
+  const showBodyMap = storeInfo?.deviceConfig.requireBodySorenessMap ?? false;
 
   return (
-    <div className="flex-1 flex flex-col p-4 sm:p-8 max-w-6xl w-full mx-auto select-none overflow-y-auto">
-      {/* 顶部返回与模式切换 */}
-      <div className="flex items-center justify-between pb-4">
-        <button
-          type="button"
-          onClick={() => navigate(-1)}
-          className="kiosk-touch-target px-4 py-2.5 rounded-2xl bg-white hover:bg-slate-100 text-slate-700 font-bold text-sm flex items-center gap-2 border border-slate-200 shadow-2xs transition-colors active:scale-95"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>{t('common.back')}</span>
-        </button>
-
-        {/* 模式切换：Pad 内嵌填写 vs 手机扫码填写 */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-200/80 rounded-2xl">
-          <button
-            type="button"
-            onClick={() => setFillMode('pad')}
-            className={`kiosk-touch-target px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 ${
-              fillMode === 'pad'
-                ? 'bg-white text-teal-800 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Tablet className="w-4 h-4 text-teal-600" />
-            <span>{t('health.modePad')}</span>
+    <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+      <form onSubmit={handleSubmit} className="mx-auto max-w-4xl space-y-6 pb-16">
+        <div className="flex items-center justify-between gap-4">
+          <button type="button" onClick={() => navigate('/', { replace: true })}
+            className="kiosk-touch-target flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700">
+            <ArrowLeft className="h-4 w-4" /> {t('common.back')}
           </button>
-          <button
-            type="button"
-            onClick={() => setFillMode('qr')}
-            className={`kiosk-touch-target px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 ${
-              fillMode === 'qr'
-                ? 'bg-white text-teal-800 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <QrCode className="w-4 h-4 text-teal-600" />
-            <span>{t('health.modeQr')}</span>
-          </button>
+          <span className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-800">
+            {taskIndex + 1} / {tasks.length}
+          </span>
         </div>
-      </div>
 
-      <div className="space-y-4 animate-fade-in pb-12 flex-1 flex flex-col">
-        {/* 标题说明 */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-b border-slate-200 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-teal-50 border border-teal-200 text-teal-700 flex items-center justify-center font-bold">
-              <ShieldCheck className="w-5 h-5 text-teal-600" />
+        <header className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-start gap-4">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-teal-50 text-teal-700">
+              <ShieldCheck className="h-6 w-6" />
             </div>
-            <div>
-              <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900">
-                {pickText(formTemplate.title, 'Health Intake Form')}
-              </h2>
-              <p className="text-xs text-slate-500">
-                {t('health.multiGuestsDesc')}
+            <div className="min-w-0">
+              <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-teal-700">
+                <User className="h-3.5 w-3.5" /> {current.guest.name}
               </p>
+              <h1 className="mt-1 text-2xl font-black text-slate-950 sm:text-3xl">
+                {pickText(current.form.title, t('health.title'))}
+              </h1>
+              <p className="mt-2 text-sm text-slate-500">{t('health.subtitle')}</p>
             </div>
           </div>
+        </header>
 
-          <button
-            type="button"
-            onClick={handleFinishAll}
-            className="kiosk-touch-target px-5 py-2.5 rounded-2xl bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold text-sm shadow-sm transition-all flex items-center gap-1.5 shrink-0"
-          >
-            <span>{t('health.finishAll')}</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
+        <section className="space-y-4">
+          {current.form.questions.filter((question) => !question.hidden).map((question, index) => {
+            const value = answers[question.id];
+            return (
+              <fieldset key={question.id} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <legend className="w-full px-1 text-base font-bold text-slate-900">
+                  <span className="mr-2 text-teal-700">{index + 1}.</span>{pickText(question.label)}
+                  {question.required && <span className="ml-1 text-rose-600">*</span>}
+                </legend>
 
-        {/* 同行多客人切换标签栏 */}
-        {guestList.length > 1 && (
-          <div className="flex flex-wrap items-center gap-2 p-2 bg-white rounded-2xl border border-slate-200 shadow-2xs">
-            {guestList.map((guest, idx) => {
-              const isCurrent = activeGuestIdx === idx;
-              const isDone = guest.isFormSubmitted;
-              return (
-                <button
-                  key={guest.id}
-                  type="button"
-                  onClick={() => setActiveGuestIdx(idx)}
-                  className={`kiosk-touch-target px-4 py-2 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 ${
-                    isCurrent
-                      ? 'bg-teal-600 text-white shadow-xs'
-                      : isDone
-                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                        : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
-                  }`}
-                >
-                  <User className="w-3.5 h-3.5" />
-                  <span>{guest.name || `Guest ${idx + 1}`}</span>
-                  {isDone ? (
-                    <span className="text-[10px] bg-emerald-600 text-white px-1.5 py-0.5 rounded-full font-black">
-                      ✓
-                    </span>
-                  ) : (
-                    <span className="text-[10px] opacity-75 font-normal">
-                      {t('health.guestStatusPending')}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* ── 模式 1：iPad 内嵌浏览器视图 (Embedded Web View) ── */}
-        {fillMode === 'pad' && (
-          <div className="w-full flex-1 min-h-[720px] bg-white rounded-3xl border border-slate-200 shadow-md overflow-hidden relative flex flex-col">
-            <iframe
-              key={`${currentGuest.id}-${activeGuestIdx}`}
-              src={iframeUrl}
-              title="Health Form Web View"
-              className="w-full flex-1 border-0 rounded-3xl"
-            />
-          </div>
-        )}
-
-        {/* ── 模式 2：手机扫码填写 (QR Code Mode) ── */}
-        {fillMode === 'qr' && (
-          <div className="space-y-6 pt-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {guestList.map((guest, idx) => {
-                const qrUrl = getMobileFormUrl(guest);
-                const isDone = guest.isFormSubmitted;
-                return (
-                  <div
-                    key={guest.id}
-                    className={`rounded-3xl bg-white border p-6 flex flex-col items-center text-center space-y-4 shadow-sm transition-all ${
-                      isDone
-                        ? 'border-emerald-300 bg-emerald-50/30 ring-2 ring-emerald-400/20'
-                        : 'border-slate-200/90'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between w-full border-b border-slate-100 pb-3">
-                      <div className="flex items-center gap-2 text-sm font-extrabold text-slate-900">
-                        <User className="w-4 h-4 text-teal-600" />
-                        <span>
-                          {guest.name || `Guest ${idx + 1}`}
-                        </span>
-                      </div>
-                      {isDone ? (
-                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                          {t('health.guestStatusDone')}
-                        </span>
-                      ) : (
-                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                          {t('health.guestStatusPending')}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* 二维码展示 */}
-                    <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-inner">
-                      <QRCodeSVG
-                        value={qrUrl}
-                        size={180}
-                        level="M"
-                        includeMargin
-                        className="rounded-lg"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <p className="text-xs font-bold text-slate-700">{t('health.scanToFill')}</p>
-                      <p className="text-[11px] text-slate-400 truncate max-w-xs">{qrUrl}</p>
-                    </div>
-
-                    {/* 快捷切换到 Pad 上填写该客人 */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveGuestIdx(idx);
-                        setFillMode('pad');
-                      }}
-                      className="kiosk-touch-target w-full py-2.5 rounded-xl bg-slate-100 hover:bg-teal-50 text-teal-800 hover:text-teal-900 font-bold text-xs transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <Tablet className="w-3.5 h-3.5" />
-                      <span>{t('health.switchGuest')}</span>
-                    </button>
+                {question.type === 'bool' && (
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    {([true, false] as const).map((option) => (
+                      <button key={String(option)} type="button" onClick={() => setAnswer(question.id, option)}
+                        className={`kiosk-touch-target rounded-2xl border-2 py-4 text-base font-bold ${value === option ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+                        {option ? t('health.yes') : t('health.no')}
+                      </button>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
+                )}
 
-            {/* 完成并进入排队凭条 */}
-            <div className="pt-4 flex justify-center">
-              <button
-                type="button"
-                onClick={handleFinishAll}
-                className="kiosk-touch-target px-10 py-4 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-extrabold text-lg shadow-sm transition-all flex items-center gap-2"
-              >
-                <span>{t('health.finishAll')}</span>
-                <ChevronRight className="w-5 h-5" />
+                {question.type === 'choice' && (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {(question.options ?? []).map((option) => (
+                      <button key={option.value} type="button" onClick={() => setAnswer(question.id, option.value)}
+                        className={`kiosk-touch-target flex items-center justify-between rounded-2xl border-2 p-4 text-left font-semibold ${value === option.value ? 'border-teal-600 bg-teal-50 text-teal-950' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+                        {pickText(option.label)} {value === option.value && <Check className="h-5 w-5 text-teal-700" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {question.type === 'multi' && (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {(question.options ?? []).map((option) => {
+                      const selected = Array.isArray(value) && value.includes(option.value);
+                      return (
+                        <button key={option.value} type="button" onClick={() => toggleMulti(question.id, option.value)}
+                          className={`kiosk-touch-target flex items-center justify-between rounded-2xl border-2 p-4 text-left font-semibold ${selected ? 'border-teal-600 bg-teal-50 text-teal-950' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+                          {pickText(option.label)} {selected && <Check className="h-5 w-5 text-teal-700" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {question.type === 'text' && (
+                  <textarea rows={4} maxLength={2000} value={typeof value === 'string' ? value : ''}
+                    onChange={(event) => setAnswer(question.id, event.target.value)}
+                    className="mt-4 w-full rounded-2xl border-2 border-slate-200 bg-slate-50 p-4 text-base text-slate-900 outline-none focus:border-teal-600 focus:bg-white" />
+                )}
+              </fieldset>
+            );
+          })}
+        </section>
+
+        {showBodyMap && <BodyMapSelector value={bodyMap} onChange={setBodyMap} />}
+
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <label className="block text-sm font-bold text-slate-800">{t('health.signerName')} <span className="text-rose-600">*</span></label>
+          <input value={signerName} maxLength={120} onChange={(event) => setSignerName(event.target.value)}
+            className="mt-2 w-full rounded-2xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-base font-semibold outline-none focus:border-teal-600 focus:bg-white" />
+          <p className="mt-5 text-sm font-bold text-slate-800">{t('health.signerRelation')}</p>
+          <div className="mt-2 grid grid-cols-2 gap-3">
+            {(['self', 'guardian'] as const).map((relation) => (
+              <button key={relation} type="button" onClick={() => setSignerRelation(relation)}
+                className={`kiosk-touch-target rounded-2xl border-2 py-3 font-bold ${signerRelation === relation ? 'border-teal-600 bg-teal-50 text-teal-900' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+                {relation === 'self' ? t('health.relationSelf') : t('health.relationGuardian')}
               </button>
-            </div>
+            ))}
+          </div>
+        </section>
+
+        {current.form.requiresSignature && (
+          <SignaturePad key={`${current.guest.id}:${current.form.templateId}`} required
+            onSave={setSignatureDataUrl} onClear={() => setSignatureDataUrl(undefined)} />
+        )}
+
+        {error && (
+          <div role="alert" className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700">
+            <AlertCircle className="h-5 w-5 shrink-0" /> {error}
           </div>
         )}
-      </div>
+
+        <button type="submit" disabled={isSubmitting}
+          className="kiosk-touch-target flex w-full items-center justify-center gap-2 rounded-2xl bg-teal-600 py-5 text-xl font-extrabold text-white shadow-sm disabled:opacity-50">
+          {isSubmitting ? <Loader2 className="h-6 w-6 animate-spin" /> : <ChevronRight className="h-6 w-6" />}
+          {taskIndex + 1 < tasks.length ? t('common.next') : t('health.finishAll')}
+        </button>
+      </form>
     </div>
   );
 };

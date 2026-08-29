@@ -13,6 +13,7 @@ import { withTenant } from '@gf/db';
 import { loadHardwareDevices } from '../queries/hardware';
 import { createPairingSession, getPairingStatus, claimPairingSession } from '../queries/pairing';
 import type { CtxFromHeaders } from './utils';
+import { checkRateLimits } from '../public/rateLimit';
 
 export function registerHardwareRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHeaders): void {
 
@@ -51,6 +52,17 @@ export function registerHardwareRoutes(app: FastifyInstance, ctxFromHeaders: Ctx
       if (!code) {
         throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
           details: { reason: 'missing_pairing_code' },
+        });
+      }
+      const normalizedCode = code.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      const verdict = await checkRateLimits([
+        { scope: 'pairing_ip', id: req.ip, limit: 20, windowSec: 600 },
+        { scope: 'pairing_code', id: normalizedCode, limit: 8, windowSec: 600 },
+      ], req.log);
+      if (!verdict.ok) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+          details: { reason: 'too_many_attempts', retryAfterSec: verdict.retryAfterSec },
+          messageKey: 'error.TOO_MANY_ATTEMPTS',
         });
       }
       return claimPairingSession(code, req.body?.label);

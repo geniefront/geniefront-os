@@ -99,6 +99,7 @@ export interface SubmitFormPayload {
   signerName: string;
   signerRelation: 'self' | 'guardian';
   locale: Language;
+  idempotencyKey: string;
 }
 
 export interface SubmitFormResult {

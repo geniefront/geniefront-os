@@ -8,6 +8,7 @@
     <meta name="apple-mobile-web-app-title" content="Kiosk" />
     <meta name="theme-color" content="#ffffff" />
     <meta name="format-detection" content="telephone=no" />
+    <meta name="referrer" content="no-referrer" />
     <title>GenieFront iPad Kiosk</title>
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icon.svg" />
@@ -16,14 +17,5 @@
   <body class="h-full w-full overflow-hidden bg-slate-50 text-slate-900 touch-pan-y">
     <div id="root" class="h-full w-full flex flex-col"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch((err) => {
-            console.warn('Service Worker registration failed:', err);
-          });
-        });
-      }
-    </script>
   </body>
 </html>

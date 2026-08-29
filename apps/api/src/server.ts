@@ -135,6 +135,17 @@ export function buildServer(): FastifyInstance {
     return reply.status(500).send(new AppError(ERROR_CODES.INTERNAL).toJSON());
   });
 
+  // API 响应默认包含业务或身份上下文，任何代理、浏览器历史和共享终端缓存都不应保存。
+  app.addHook('onSend', async (req, reply, payload) => {
+    if ((req.url.split('?')[0] ?? '') !== '/health') {
+      reply.header('Cache-Control', 'no-store, max-age=0');
+      reply.header('Pragma', 'no-cache');
+    }
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('Referrer-Policy', 'no-referrer');
+    return payload;
+  });
+
   // ── 认证：除白名单外全部要令牌 ─────────────────────────────────────────────
   const PUBLIC = new Set(['/health']);
 

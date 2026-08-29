@@ -63,10 +63,25 @@ async function request<T>(
 
   const url = `${API_BASE}${path}`;
   let res: Response;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15_000);
+  if (options.signal) {
+    if (options.signal.aborted) controller.abort();
+    else options.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
   try {
-    res = await fetch(url, { ...options, headers });
+    res = await fetch(url, {
+      ...options,
+      headers,
+      signal: controller.signal,
+      cache: 'no-store',
+      credentials: 'omit',
+      referrerPolicy: 'no-referrer',
+    });
   } catch (err) {
     throw new ApiError(0, 'NETWORK_ERROR', err);
+  } finally {
+    window.clearTimeout(timeout);
   }
 
   if (res.status === 401) {
@@ -123,7 +138,7 @@ export const api = {
       body: JSON.stringify({ appointmentId }),
     }),
 
-  walkIn: (params: { name: string; serviceId?: string; partySize?: number; idempotencyKey?: string }) =>
+  walkIn: (params: { name: string; phone?: string; email?: string; serviceId?: string; partySize?: number; idempotencyKey: string }) =>
     request<QueueJoinResult>('/v1/kiosk/walk-in', {
       method: 'POST',
       body: JSON.stringify(params),
@@ -132,12 +147,10 @@ export const api = {
   getQueueStatus: (queueId: string) =>
     request<QueueStatusResponse>(`/v1/kiosk/queue/${queueId}`, { method: 'GET' }),
 
-  getRequiredForms: (params: { appointmentId?: string; queueId?: string; serviceId?: string; customerId?: string }) => {
+  getRequiredForms: (params: { appointmentId?: string; queueId?: string }) => {
     const qs = new URLSearchParams();
     if (params.appointmentId) qs.set('appointmentId', params.appointmentId);
     if (params.queueId) qs.set('queueId', params.queueId);
-    if (params.serviceId) qs.set('serviceId', params.serviceId);
-    if (params.customerId) qs.set('customerId', params.customerId);
     return request<KioskRequiredFormsResponse>(`/v1/kiosk/forms/required?${qs.toString()}`, {
       method: 'GET',
     });

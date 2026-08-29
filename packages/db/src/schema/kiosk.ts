@@ -147,6 +147,8 @@ export const formSubmissions = pgTable('form_submissions', {
 
   /** 签名图片在 Supabase Storage 的路径。私有桶，只有有权限的人拿得到签名 URL */
   signatureUrl: text('signature_url'),
+  /** Kiosk 内联签名的应用层密文；旧记录仍可从 signature_url 兼容读取 */
+  signatureEncrypted: bytea('signature_encrypted'),
   signedAt: timestamp('signed_at', { withTimezone: true }),
   signerName: text('signer_name'),
   /** self | guardian —— 未成年人由监护人签（00 §2） */
@@ -175,10 +177,12 @@ export const formSubmissions = pgTable('form_submissions', {
   isLatest: boolean('is_latest').notNull().default(true),
   supersededBy: uuid('superseded_by'),
   appointmentId: uuid('appointment_id'),
+  queueId: uuid('queue_id').references(() => walkinQueue.id),
   createdAt: createdAt(),
 }, (t) => [
   index('form_submissions_customer_idx').on(t.locationId, t.customerId, t.createdAt),
   index('form_submissions_expiry_idx').on(t.locationId, t.expiresOn),
+  index('form_submissions_queue_idx').on(t.locationId, t.queueId, t.createdAt),
 ]);
 
 /**

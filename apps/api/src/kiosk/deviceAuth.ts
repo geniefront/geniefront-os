@@ -78,6 +78,7 @@ export interface DeviceSession {
 export async function verifyDeviceToken(
   headerValue: string | undefined,
   ip?: string,
+  userAgent?: string,
 ): Promise<DeviceSession> {
   const token = headerValue?.trim();
   if (!token || !token.startsWith('gfk_')) throw new AppError(ERROR_CODES.UNAUTHENTICATED);
@@ -89,6 +90,9 @@ export async function verifyDeviceToken(
     throw new AppError(ERROR_CODES.UNAUTHENTICATED);
   }
   if (row.revokedAt) throw new AppError(ERROR_CODES.UNAUTHENTICATED);
+  if (row.terminalType === 'customer-facing') {
+    throw new AppError(ERROR_CODES.UNAUTHENTICATED);
+  }
   if (['suspended', 'closed'].includes(row.locationStatus)) {
     throw new AppError(ERROR_CODES.LOCATION_SUSPENDED, { details: { status: row.locationStatus } });
   }
@@ -108,7 +112,9 @@ export async function verifyDeviceToken(
       actorKind: 'system',
       locale: (row.defaultLocale as CommandContext['locale']) ?? 'en',
       timezone: row.timezone,
+      deviceId: row.id,
       ...(ip ? { ip } : {}),
+      ...(userAgent ? { userAgent: userAgent.slice(0, 500) } : {}),
     },
   };
 }

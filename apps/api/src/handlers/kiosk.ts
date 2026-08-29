@@ -96,6 +96,36 @@ registerHandler(JoinQueue, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   const businessDate = await currentDate(tx, ctx.locationId);
   let customerId = input.customerId ?? null;
 
+  if (!input.appointmentId && input.walkInPhone) {
+    const [settings] = await tx<{ auto_create_crm_profile: boolean }[]>`
+      select auto_create_crm_profile from location_intake_templates
+      where location_id = ${ctx.locationId}`;
+    if (settings?.auto_create_crm_profile ?? true) {
+      const [existing] = await tx<{ id: string }[]>`
+        select id from customers
+        where org_id = ${ctx.orgId} and phone_e164 = ${input.walkInPhone}
+          and lower(display_name) = lower(${input.walkInName ?? ''})
+          and merged_into_id is null
+        order by created_at limit 1`;
+      if (existing) {
+        customerId = existing.id;
+      } else {
+        const [created] = await tx<{ id: string }[]>`
+          insert into customers (
+            org_id, primary_location_id, display_name, phone_e164, email, locale, source
+          ) values (
+            ${ctx.orgId}, ${ctx.locationId}, ${input.walkInName ?? 'Walk-in'},
+            ${input.walkInPhone}, ${input.walkInEmail ?? null}, ${ctx.locale}, 'kiosk'
+          ) returning id`;
+        customerId = created!.id;
+        audit({
+          entityType: 'customer', entityId: created!.id,
+          after: { source: 'kiosk', createdFrom: 'walkin' },
+        });
+      }
+    }
+  }
+
   if (input.appointmentId) {
     const [appointment] = await tx<{
       id: string; customer_id: string | null; status: string; business_date: string;
@@ -330,20 +360,61 @@ registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
     customerId = appointment.customer_id ?? customerId;
   }
 
+  if (input.queueId) {
+    const [queue] = await tx<{
+      customer_id: string | null; appointment_id: string | null;
+    }[]>`
+      select customer_id, appointment_id from walkin_queue
+      where id = ${input.queueId} and location_id = ${ctx.locationId}`;
+    if (!queue) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'queue' } });
+    }
+    if (input.appointmentId && queue.appointment_id && input.appointmentId !== queue.appointment_id) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'queue_appointment_mismatch' },
+      });
+    }
+    customerId = queue.customer_id ?? customerId;
+  }
+
+  let linkedTemplate = false;
+  if (input.source === 'link') {
+    if (!input.shareLinkId) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'share_link_required' },
+      });
+    }
+    const [share] = await tx<{ id: string }[]>`
+      select id from form_share_links
+      where id = ${input.shareLinkId} and location_id = ${ctx.locationId}
+        and revoked_at is null and expires_at > now()
+        and template_ids @> ${jsonb([input.templateId])}::jsonb`;
+    if (!share) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'form_share_link' } });
+    }
+    linkedTemplate = true;
+  }
+
   const [tpl] = await tx<{
     id: string; version: number; requires_signature: boolean;
     valid_days: number | null; schema: unknown; key: string; title: unknown;
   }[]>`
     select id, version, requires_signature, valid_days, schema, key, title
     from form_templates
-    where id = ${input.templateId} and location_id = ${ctx.locationId}`;
+    where id = ${input.templateId} and location_id = ${ctx.locationId}
+      and (${linkedTemplate} or (active = true and published_at is not null))`;
   if (!tpl) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'form_template' } });
 
   // 必答题没答就退回。**在这里挡而不是只靠前端** ——
   // 「怀孕了吗」漏答和答「否」在法律上完全不是一回事
   const questions = (tpl.schema ?? []) as FormQuestion[];
   const missing = questions
-    .filter((q) => !q.hidden && q.required && (input.answers[q.id] === undefined || input.answers[q.id] === null))
+    .filter((q) => {
+      if (q.hidden || !q.required) return false;
+      const value = input.answers[q.id];
+      return value === undefined || value === null || value === ''
+        || (Array.isArray(value) && value.length === 0);
+    })
     .map((q) => q.id);
   if (missing.length > 0) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
@@ -357,31 +428,69 @@ registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
     });
   }
 
+  const serializedAnswers = JSON.stringify(input.answers);
+  if (Buffer.byteLength(serializedAnswers, 'utf8') > 200_000) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'answers_too_large' },
+    });
+  }
+
+  for (const question of questions) {
+    if (question.hidden) continue;
+    const answer = input.answers[question.id];
+    if (answer === undefined || answer === null || answer === '') continue;
+    const options = new Set((question.options ?? []).map((option) => option.value));
+    const valid = question.type === 'bool'
+      ? typeof answer === 'boolean'
+      : question.type === 'text'
+        ? typeof answer === 'string' && answer.length <= 2_000
+        : question.type === 'choice'
+          ? typeof answer === 'string' && options.has(answer)
+          : Array.isArray(answer) && answer.length <= 20
+            && answer.every((value) => typeof value === 'string' && options.has(value));
+    if (!valid) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'invalid_answer', questionId: question.id },
+      });
+    }
+  }
+
+  if (input.signatureDataUrl && !/^data:image\/png;base64,[A-Za-z0-9+/=\r\n]+$/.test(input.signatureDataUrl)) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'invalid_signature_format' },
+    });
+  }
+
   // ⭐ 加密之后才落库。密钥在环境变量，库被拖走也拿不到健康数据（02 §5）
   const key = loadFormKey(process.env['FORM_ENCRYPTION_KEY']);
   const encrypted = encryptAnswers(input.answers, key);
+  const encryptedSignature = input.signatureDataUrl
+    ? encryptAnswers(input.signatureDataUrl, key)
+    : null;
 
-  const expiresOn = tpl.valid_days === null
-    ? null
-    : new Date(Date.now() + tpl.valid_days * 86400_000).toISOString().slice(0, 10);
+  const [expiry] = tpl.valid_days === null
+    ? []
+    : await tx<{ value: string }[]>`
+        select (((now() at time zone ${ctx.timezone})::date + ${tpl.valid_days})::text) as value`;
+  const expiresOn = expiry?.value ?? null;
 
   const [row] = await tx<{ id: string }[]>`
     insert into form_submissions
       (org_id, location_id, customer_id, template_id, template_version,
        answers_encrypted, enc_alg,
-       signature_url, signed_at, signer_name, signer_relation,
+       signature_url, signature_encrypted, signed_at, signer_name, signer_relation,
        ip, user_agent, locale, source, on_behalf_by, expires_on, share_link_id,
-       appointment_id)
+       appointment_id, queue_id)
     values (${ctx.orgId}, ${ctx.locationId}, ${customerId},
             ${tpl.id}, ${tpl.version},
             ${encrypted}, ${ENC_ALG},
-            ${input.signatureDataUrl ?? null},
+            ${null}, ${encryptedSignature},
             ${input.signatureDataUrl ? tx`now()` : null},
             ${input.signerName}, ${input.signerRelation},
-            ${ctx.ip ?? null}, ${null}, ${input.locale}, ${input.source},
+            ${ctx.ip ?? null}, ${ctx.userAgent ?? null}, ${input.locale}, ${input.source},
             ${input.source === 'desk' ? ctx.membershipId : null},
             ${expiresOn}::date, ${input.shareLinkId ?? null},
-            ${input.appointmentId ?? null})
+            ${input.appointmentId ?? null}, ${input.queueId ?? null})
     returning id`;
 
   // 顾客完成预约关联表单后，立即向本店前台广播应用内通知。
@@ -427,6 +536,8 @@ registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
       locale: input.locale,
       source: input.source,
       signed: Boolean(input.signatureDataUrl),
+      deviceId: ctx.deviceId ?? null,
+      queueId: input.queueId ?? null,
       expiresOn,
       // ⚠️ 只记「回填了几个部位、有没有置禁忌标记」，不记是哪些部位 ——
       // 部位本身也是健康信息的一半（「避开右膝」= 右膝有事）
@@ -445,6 +556,7 @@ interface FormQuestion {
   type?: 'bool' | 'text' | 'choice' | 'multi';
   required?: boolean;
   hidden?: boolean;
+  options?: Array<{ value: string }>;
   /** 见 contracts 里 SaveFormTemplate 的注释：只有两个去处，都不搬明细 */
   sync?: 'avoid_areas' | 'health_flag';
 }

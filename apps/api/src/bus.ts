@@ -117,6 +117,10 @@ export async function dispatch<T = unknown>(
       await assertSubscriptionAllowsWrite(tx, ctx, commandName);
 
       if (key) {
+        // 同一门店同一幂等键先串行化。否则两个并发重试都可能先读到“未执行”，
+        // 然后各自写业务数据，最后才在幂等表唯一键处撞车。
+        await tx`select pg_advisory_xact_lock(
+          hashtext(${ctx.locationId}), hashtext(${key}))`;
         const hit = await tx<{ result_json: unknown; command: string }[]>`
           select result_json, command from command_idempotency
           where location_id = ${ctx.locationId} and key = ${key}`;

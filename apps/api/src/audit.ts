@@ -74,10 +74,10 @@ export async function writeAudit(
 
   const rows = await tx<{ id: string }[]>`
     insert into audit_log
-      (org_id, location_id, actor_id, actor_kind, command,
+      (org_id, location_id, actor_id, actor_device_id, actor_kind, command,
        entity_type, entity_id, before, after, ip, undo_of_id)
     values
-      (${ctx.orgId}, ${ctx.locationId}, ${ctx.membershipId}, ${ctx.actorKind}, ${entry.command},
+      (${ctx.orgId}, ${ctx.locationId}, ${ctx.membershipId}, ${ctx.deviceId ?? null}, ${ctx.actorKind}, ${entry.command},
        ${entry.entityType ?? null}, ${entry.entityId ?? null},
        ${before === null ? null : jsonb(before)}::jsonb,
        ${after === null ? null : jsonb(after)}::jsonb,
