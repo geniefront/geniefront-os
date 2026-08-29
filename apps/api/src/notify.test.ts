@@ -422,7 +422,9 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
 
     const [row] = await withTenant(tenant, (tx) => tx<{ body: string }[]>`
       select body from sms_outbox
-      where entity_id = ${id} and entity_type = 'appointment'`);
+      where entity_id = ${id} and entity_type = 'appointment'
+      order by created_at desc, id desc
+      limit 1`);
     expect(row!.body).toContain('cancelled');
   });
 
