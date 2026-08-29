@@ -459,7 +459,7 @@ export function registerKioskRoutes(app: FastifyInstance): void {
         // Kiosk and Web must render the same currently-published business form.
         // Do not return every active industry preset: that previously made a nail
         // customer complete massage, lash, scalp, and hair forms in sequence.
-        const templates = await tx<{
+        let templates = await tx<{
           id: string; key: string; version: number; title: unknown; schema: unknown;
           requires_signature: boolean; service_ids: unknown;
         }[]>`
@@ -470,6 +470,19 @@ export function registerKioskRoutes(app: FastifyInstance): void {
           order by version desc, created_at desc
           limit 1`;
 
+        if (templates.length === 0) {
+          templates = await tx<{
+            id: string; key: string; version: number; title: unknown; schema: unknown;
+            requires_signature: boolean; service_ids: unknown;
+          }[]>`
+            select id, key, version, title, schema, requires_signature, service_ids
+            from form_templates
+            where location_id = ${ctx.locationId} and active = true
+              and published_at is not null
+            order by version desc, created_at desc
+            limit 1`;
+        }
+
         const applicable = templates.filter((t) => {
           const ids = (t.service_ids as string[]) ?? [];
           return ids.length === 0 || (requestedServiceIds.length > 0
@@ -477,14 +490,17 @@ export function registerKioskRoutes(app: FastifyInstance): void {
             : false);
         });
 
-        // 已经签过而且**还没到期**的就不用再签
-        const signed = customerId
-          ? await tx<{ template_id: string }[]>`
-              select distinct template_id from form_submissions
-              where location_id = ${ctx.locationId} and customer_id = ${customerId}
-                and anonymized_at is null
-                and (expires_on is null or expires_on >= current_date)`
-          : [];
+        // 顾客到店签到或排队时：
+        // 1. 若本次预约/排队已经提交过健康表，则不再重复弹出；
+        // 2. 若本次到店尚未签署，则返回最新模板供顾客在 Kiosk 签到时填写并签署确认。
+        const signed = await tx<{ template_id: string }[]>`
+          select distinct template_id from form_submissions
+          where location_id = ${ctx.locationId}
+            and anonymized_at is null
+            and (
+              (${req.query.appointmentId ?? null}::uuid is not null and appointment_id = ${req.query.appointmentId ?? null}::uuid)
+              or (${req.query.queueId ?? null}::uuid is not null and queue_id = ${req.query.queueId ?? null}::uuid)
+            )`;
         const signedIds = new Set(signed.map((s) => s.template_id));
 
         return {

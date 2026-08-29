@@ -138,7 +138,11 @@ export const HealthFormPage: React.FC = () => {
   const finish = () => {
     navigate('/success', {
       replace: true,
-      state: { queueResult, customerName: tasks[0]?.guest.name, formSubmitted: true },
+      state: {
+        queueResult,
+        customerName: tasks[0]?.guest.name || clientInfo.fullName.trim() || state?.customerName,
+        formSubmitted: true,
+      },
     });
   };
 

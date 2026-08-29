@@ -975,9 +975,12 @@ async function main() {
       insert into form_templates (
         org_id, location_id, key, version, title, schema, requires_signature, published_at, active
       ) values (
-        ${NAIL_ORG}, ${NAIL_LOC}, 'health_intake', 1,
-        ${J({ en: 'Health Intake & Safety Waiver', 'zh-Hans': '顾客健康问卷与免责声明' })},
-        '[]'::jsonb, true, now(), true
+        ${NAIL_ORG}, ${NAIL_LOC}, 'nail_pedicure_intake', 1,
+        ${J({ en: 'Health Intake & Safety Waiver', 'zh-Hans': '美甲健康问卷与安全免责声明' })},
+        ${J([
+          { id: 'pregnant', type: 'bool', required: true, label: { 'zh-Hans': '是否怀孕？', en: 'Are you pregnant?' } },
+          { id: 'allergies', type: 'multi', required: false, label: { 'zh-Hans': '过敏史', en: 'Allergies' }, options: [{ value: '无', label: { 'zh-Hans': '无', en: 'None' } }] },
+        ])}, true, now(), true
       ) returning id`;
 
     for (const [custName, allergy] of [

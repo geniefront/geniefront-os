@@ -118,6 +118,34 @@ describe('Kiosk 健康表选择', () => {
     expect(forms.length).toBeLessThanOrEqual(1);
     expect(forms.every((form) => form.key === 'nail_pedicure_intake')).toBe(true);
   });
+
+  it('顾客预约签到时弹出健康表，签署后不再重复弹出', async () => {
+    const [appt] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      select id from appointments where location_id = ${NAIL_LOC} limit 1`);
+    const apptId = appt!.id;
+
+    const apptRes = await kiosk('GET', `/v1/kiosk/forms/required?appointmentId=${apptId}`);
+    expect(apptRes.statusCode).toBe(200);
+    const forms = apptRes.json().forms as Array<{ templateId: string; key: string }>;
+    expect(forms.length).toBe(1);
+    expect(forms[0]!.key).toBe('nail_pedicure_intake');
+
+    // 模拟顾客签到时提交健康表
+    const submitRes = await kiosk('POST', '/v1/kiosk/forms/submit', {
+      templateId: forms[0]!.templateId,
+      appointmentId: apptId,
+      answers: { pregnant: false, allergies: ['无'] },
+      signerName: 'Emily Watson',
+      signatureDataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      idempotencyKey: randomUUID(),
+    });
+    expect(submitRes.statusCode).toBe(200);
+
+    // 提交后再次请求，不再重复弹出
+    const recheckRes = await kiosk('GET', `/v1/kiosk/forms/required?appointmentId=${apptId}`);
+    expect(recheckRes.statusCode).toBe(200);
+    expect(recheckRes.json().forms.length).toBe(0);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

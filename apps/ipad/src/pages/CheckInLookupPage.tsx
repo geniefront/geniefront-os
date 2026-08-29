@@ -66,7 +66,10 @@ export const CheckInLookupPage: React.FC = () => {
       const queueRes = await api.checkIn(match.appointmentId);
 
       // 2. 检查这次预约是否需要填健康表
-      const formsRes = await api.getRequiredForms({ appointmentId: match.appointmentId });
+      const formsRes = await api.getRequiredForms({
+        appointmentId: match.appointmentId,
+        queueId: queueRes.queueId,
+      });
 
       if (formsRes.forms && formsRes.forms.length > 0) {
         // 跳转健康表录入
