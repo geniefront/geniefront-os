@@ -34,7 +34,7 @@ export interface ActivationTarget {
 
 /** 激活链接的落点。域名一律用我们自己配的，不接受任何外部输入 */
 export function activationRedirectUrl(): string {
-  const base = (process.env['APP_BASE_URL'] ?? 'http://localhost:5173').replace(/\/+$/, '');
+  const base = (process.env['APP_BASE_URL'] ?? 'https://desk.geniefront.com').replace(/\/+$/, '');
   return `${base}/activate`;
 }
 

@@ -48,7 +48,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
  * （和 `signup/activation.ts` 的 `activationRedirectUrl` 同一条纪律）。
  */
 export function resetRedirectUrl(): string {
-  const base = (process.env['APP_BASE_URL'] ?? 'http://localhost:5173').replace(/\/+$/, '');
+  const base = (process.env['APP_BASE_URL'] ?? 'https://desk.geniefront.com').replace(/\/+$/, '');
   return `${base}/reset-password`;
 }
 

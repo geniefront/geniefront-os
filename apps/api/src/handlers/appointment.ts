@@ -472,7 +472,7 @@ async function enqueueConfirmEmail(
    * 那条路只留给官网（建单响应里返回过一次令牌），不进邮件。
    */
   const manageUrl = manageToken && row!.phone
-    ? `${(process.env['APP_BASE_URL'] ?? 'http://localhost:5173').replace(/\/+$/, '')}`
+    ? `${(process.env['APP_BASE_URL'] ?? 'https://desk.geniefront.com').replace(/\/+$/, '')}`
       + `/b/${appointmentId}?t=${encodeURIComponent(manageToken)}`
     : null;
 

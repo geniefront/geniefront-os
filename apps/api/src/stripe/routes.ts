@@ -782,7 +782,7 @@ export function registerStripeRoutes(
           : '试用结束当天',
         planLabel: plan === 'growth' ? 'Growth' : 'Essential',
         monthlyText: plan === 'growth' ? '每月 $199' : '每月 $99',
-        billingUrl: `${(process.env['APP_BASE_URL'] ?? 'http://localhost:5173')
+        billingUrl: `${(process.env['APP_BASE_URL'] ?? 'https://desk.geniefront.com')
           .replace(/\/+$/, '')}/?tab=billing`,
       });
 
@@ -857,7 +857,7 @@ function tenantFromMetadata(meta: Record<string, string> | null | undefined): Te
 function safeReturnUrls(body: { successUrl?: string; cancelUrl?: string } | undefined): {
   successUrl: string; cancelUrl: string;
 } {
-  const base = (process.env['APP_BASE_URL'] ?? 'http://localhost:5173').replace(/\/+$/, '');
+  const base = (process.env['APP_BASE_URL'] ?? 'https://desk.geniefront.com').replace(/\/+$/, '');
   const pathOf = (v: string | undefined, dflt: string): string => {
     if (!v) return dflt;
     // 只认相对路径。带协议或以 // 开头的一律丢掉

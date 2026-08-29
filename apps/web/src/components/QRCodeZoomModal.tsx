@@ -31,16 +31,29 @@ export function QRCodeZoomModal({
   const { t } = useLanguage();
   const [copied, setCopied] = useState(false);
 
+  const normalizedUrl = (() => {
+    if (!url) return '';
+    try {
+      const parsed = new URL(url);
+      const isLoopback = ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname);
+      const isPageRemote = !['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+      if (isLoopback && isPageRemote) {
+        return `${window.location.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+      }
+    } catch {}
+    return url;
+  })();
+
   const modalTitle = title || t('customerHealthForms') || 'Digital Waiver & Intake Form';
   const modalDesc = description || 'Scan with smartphone camera or open directly on iPad.';
 
   const handleCopy = async () => {
     try {
       if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url);
+        await navigator.clipboard.writeText(normalizedUrl);
       } else {
         const textarea = document.createElement('textarea');
-        textarea.value = url;
+        textarea.value = normalizedUrl;
         document.body.appendChild(textarea);
         textarea.select();
         document.execCommand('copy');
@@ -55,7 +68,7 @@ export function QRCodeZoomModal({
   };
 
   const handleOpenLink = () => {
-    window.open(url, '_blank', 'noopener,noreferrer');
+    window.open(normalizedUrl, '_blank', 'noopener,noreferrer');
   };
 
   const handlePrint = () => {
@@ -131,7 +144,7 @@ export function QRCodeZoomModal({
         <div className="flex flex-col items-center justify-center p-6 bg-white rounded-3xl border-2 border-dashed border-sky-200 shadow-sm relative group">
           <div className="p-4 bg-white rounded-2xl shadow-md border border-slate-100 transition-transform group-hover:scale-105 duration-200">
             <QRCodeSVG
-              value={url}
+              value={normalizedUrl}
               size={240}
               level="H"
               includeMargin={true}
@@ -165,7 +178,7 @@ export function QRCodeZoomModal({
             <input
               type="text"
               readOnly
-              value={url}
+              value={normalizedUrl}
               className="flex-1 px-2.5 py-1 text-xs font-mono bg-transparent text-slate-700 outline-none select-all"
             />
             <Button
