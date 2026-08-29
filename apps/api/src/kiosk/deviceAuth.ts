@@ -65,6 +65,7 @@ function sameHash(a: string, b: string): boolean {
 export interface DeviceSession {
   deviceId: string;
   label: string;
+  terminalType: 'customer-facing' | 'kiosk' | null;
   ctx: CommandContext;
 }
 
@@ -95,6 +96,7 @@ export async function verifyDeviceToken(
   return {
     deviceId: row.id,
     label: row.label,
+    terminalType: row.terminalType,
     ctx: {
       orgId: row.orgId,
       locationId: row.locationId,

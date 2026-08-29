@@ -87,7 +87,7 @@ jobs:
       # typecheck 过了不代表打得出包（比如某个 public 资源丢了、
       # 或者 vite 的 define 少一个变量）。统一 Web 是当前唯一前端产物。
       - name: 构建统一 Web
-        run: pnpm --filter @gf/web build
+        run: NODE_ENV=production pnpm --filter @gf/web build
 
       - name: 构建镜像
         run: |

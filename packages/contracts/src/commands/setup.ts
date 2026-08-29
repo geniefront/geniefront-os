@@ -498,6 +498,9 @@ export const SaveIntakeWaiver = defineCommand({
     requireSignature: z.boolean().default(true),
     requireHealthAllergies: z.boolean().default(true),
     requirePressurePreference: z.boolean().default(true),
+    requireBodySorenessMap: z.boolean().default(true),
+    autoCreateCrmProfile: z.boolean().default(true),
+    autoPromptTipPercentages: z.boolean().default(true),
     autoSyncToProfile: z.boolean().default(true),
   }),
   output: z.object({ locationId: uuid }),
@@ -534,4 +537,3 @@ export const SETUP_COMMANDS = [
   SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
   SaveCheckoutSettings, Apply10Dlc, SaveIntakeWaiver, SaveWebhooks,
 ] as const;
-

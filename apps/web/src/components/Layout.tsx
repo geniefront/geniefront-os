@@ -1,9 +1,7 @@
-import { AppointmentDrawer } from './AppointmentDrawer';
-import { CopilotDrawer } from './CopilotDrawer';
-import { CreateAppointmentModal } from './CreateAppointmentModal';
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { lazy, Suspense, useState, useRef, useEffect, useMemo } from 'react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { Spinner } from '@heroui/react';
 import { 
   LayoutDashboard, 
   BarChart, 
@@ -23,7 +21,6 @@ import {
   MessageSquare,
   History,
   Settings, 
-  MonitorSmartphone,
   Server,
   Menu,
   ChevronLeft,
@@ -35,10 +32,11 @@ import {
   MessageCircle,
   Plus,
   Package,
-  User
+  User,
+  ClipboardList,
 } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
-import { LANGUAGES } from '@/i18n';
+import { UI_LANGUAGES as LANGUAGES } from '@/i18n/types';
 import { pickText } from '@gf/contracts';
 import { useSession } from '@/lib/session';
 import { roleLabelKey } from '@/lib/roles';
@@ -62,6 +60,10 @@ import {
   PRESET_AVATAR_GRADIENTS,
 } from '@/lib/avatarPresets';
 
+const AppointmentDrawer = lazy(() => import('./AppointmentDrawer').then((module) => ({ default: module.AppointmentDrawer })));
+const CopilotDrawer = lazy(() => import('./CopilotDrawer').then((module) => ({ default: module.CopilotDrawer })));
+const CreateAppointmentModal = lazy(() => import('./CreateAppointmentModal').then((module) => ({ default: module.CreateAppointmentModal })));
+
 const GLOBAL_COMMANDS = [
   { path: '/dashboard', label: '概览仪表盘', en: 'Dashboard Overview', desc: '实时业绩与客流口碑分析', keywords: 'overview home yibiaopan 仪表盘' },
   { path: '/schedule', label: '日程排班安排', en: 'Schedule & Appointments', desc: '技师排班、新建预约与改期', keywords: 'appointment calendar paiban yuyue 日程 预约' },
@@ -73,9 +75,9 @@ const GLOBAL_COMMANDS = [
   { path: '/customers', label: '客户管理 CRM', en: 'Customer 360 CRM', desc: '档案画像、健康禁忌、消费力与短信', keywords: 'kehu customer vip profile 客户 会员 档案' },
   { path: '/marketing', label: '营销中心与次卡', en: 'Marketing & Loyalty', desc: '发售次卡、活动优惠券与Gift Card', keywords: 'yingxiao coupon package giftcard cika 营销 优惠券 次卡 Gift Card' },
   { path: '/employee-performance', label: '员工中心与技能', en: 'Staff Directory & Skills', desc: '员工技能等级、可接项目与档案', keywords: 'yuangong staff performance jineng 员工 技师 技能' },
-  { path: '/dayclose', label: '打烊日结封账', en: 'Day Close & Reconciliation', desc: '点钞对账、差异平账与生成 Z 报表', keywords: 'rijie dayclose endofday 日结 打烊' },
-  { path: '/analytics', label: '经营数据分析', en: 'Business Analytics', desc: '全店营收、客单价与技师工时报表', keywords: 'shuju fenxi reports 数据 报表' },
-  { path: '/payroll', label: '薪资与提成核算', en: 'Payroll & Commissions', desc: '业绩提成计算与薪资账单明细', keywords: 'xinzi payroll commission 薪资 提成' },
+  { path: '/day-close', label: '打烊日结封账', en: 'Day Close & Reconciliation', desc: '点钞对账、差异平账与生成 Z 报表', keywords: 'rijie dayclose endofday 日结 打烊' },
+  { path: '/business-data', label: '经营数据分析', en: 'Business Analytics', desc: '全店营收、客单价与技师工时报表', keywords: 'shuju fenxi reports 数据 报表' },
+  { path: '/payouts', label: '薪资与提成核算', en: 'Payroll & Commissions', desc: '业绩提成计算与薪资账单明细', keywords: 'xinzi payroll commission 薪资 提成' },
   { path: '/settings', label: '门店系统设置', en: 'Store Settings', desc: '营业时间、硬件设备与权限配置', keywords: 'shezhi settings config 设置 门店' },
   { path: '/profile', label: '个人资料与安全', en: 'Personal Profile & Security', desc: '修改密码、POS PIN码与个人信息', keywords: 'profile gerenziliao mima pin 个人资料 密码' },
   { path: '/notifications', label: '通知中心与动态', en: 'Notification Center', desc: '查看全部业务通知、排班与对账提醒', keywords: 'tongzhi notifications alerts 消息 通知' },
@@ -85,6 +87,7 @@ export function Layout() {
   const navigate = useNavigate();
   const { setCurrentDate, timezone } = useSchedule();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
   const [activeAppointmentId, setActiveAppointmentId] = useState<string | null>(null);
   const [activeAppointmentStatus, setActiveAppointmentStatus] = useState<'booked' | 'checked_in' | 'in_service' | 'done'>('booked');
@@ -223,6 +226,7 @@ export function Layout() {
     setNotifOpen(false);
     setGlobalSearchOpen(false);
     setGlobalQuery('');
+    setMobileNavOpen(false);
   }, [location.pathname]);
 
   /**
@@ -269,7 +273,7 @@ export function Layout() {
         { name: t('messages') || '消息沟通', icon: MessageSquare, path: '/messages' },
         { name: t('communicationLogs') || '沟通日志', icon: History, path: '/communication-logs' },
         { name: t('storefrontBuilder') || '微店建站', icon: Globe, path: '/storefront-builder' },
-        { name: t('hardwareServer') || '硬件设备', icon: MonitorSmartphone, path: '/hardware-server' },
+        { name: t('settings.healthForms'), icon: ClipboardList, path: '/health-forms' },
         { name: t('settings') || '系统设置', icon: Settings, path: '/settings' },
         { name: t('profile') || '个人资料', icon: User, path: '/profile' },
       ],
@@ -292,12 +296,14 @@ export function Layout() {
   }
 
   return (
-    <div className="flex h-screen w-full bg-slate-50 text-slate-900 font-sans overflow-hidden">
+    <div className="flex h-dvh w-full overflow-hidden bg-slate-50 font-sans text-slate-900">
+      {mobileNavOpen && <button type="button" className="fixed inset-0 z-[89] bg-slate-950/40 lg:hidden" aria-label={t('close')} onClick={() => setMobileNavOpen(false)} />}
       {/* Sidebar */}
       <aside
         className={cn(
-          "bg-white border-r border-slate-200 flex flex-col transition-all duration-300 relative z-nav",
-          collapsed ? "w-16" : "w-60"
+          "fixed inset-y-0 left-0 z-[90] flex w-72 max-w-[86vw] flex-col border-r border-slate-200 bg-white transition-transform duration-300 lg:relative lg:z-nav lg:max-w-none lg:translate-x-0",
+          mobileNavOpen ? "translate-x-0" : "-translate-x-full",
+          collapsed ? "lg:w-16" : "lg:w-60"
         )}
       >
         <div className="h-14 flex items-center gap-2.5 px-3.5 border-b border-slate-100 shrink-0">
@@ -342,8 +348,9 @@ export function Layout() {
           <Button
             variant="ghost"
             size="icon"
+            aria-label={t('collapseSidebar')}
             onClick={() => setCollapsed(!collapsed)}
-            className={cn("h-7 w-7 shrink-0", collapsed ? "hidden" : "flex")}
+            className={cn("hidden h-7 w-7 shrink-0 lg:flex", collapsed && "lg:hidden")}
           >
             <ChevronLeft className="w-4 h-4" />
           </Button>
@@ -366,6 +373,7 @@ export function Layout() {
                       <Link
                         to={item.path}
                         onClick={() => {
+                          setMobileNavOpen(false);
                           if (item.path === '/schedule') {
                             const today = instantToWallDate(new Date().toISOString(), timezone);
                             setCurrentDate(today);
@@ -486,19 +494,22 @@ export function Layout() {
       {/* Main Content Wrapper */}
       <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Header */}
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0 relative z-nav shadow-sm">
-          <div className="flex items-center gap-4 w-48 shrink-0">
+        <header className="relative z-nav flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-3 shadow-sm sm:px-4 lg:h-16 lg:px-6">
+          <div className="flex min-w-0 items-center gap-2 lg:w-48 lg:shrink-0 lg:gap-4">
+            <Button variant="ghost" size="icon" aria-label={t('openNavigation')} onClick={() => setMobileNavOpen(true)} className="h-9 w-9 shrink-0 lg:hidden">
+              <Menu className="h-5 w-5" />
+            </Button>
             {collapsed && (
               <Button variant="ghost" size="icon" onClick={() => setCollapsed(!collapsed)} className="h-8 w-8 -ml-2 mr-2 shrink-0">
                 <Menu className="w-5 h-5" />
               </Button>
             )}
             {/* Breadcrumb / Title */}
-            <div className="hidden sm:flex flex-col">
+            <div className="flex min-w-0 flex-col">
               <div className="flex items-center text-xs text-slate-400 font-medium">
-                <span>App</span>
-                <span className="mx-1.5">/</span>
-                <span className="text-teal-600 truncate max-w-[120px]">{pageTitle}</span>
+                <span className="hidden sm:inline">App</span>
+                <span className="mx-1.5 hidden sm:inline">/</span>
+                <span className="max-w-[42vw] truncate text-sm font-semibold text-teal-700 sm:max-w-[120px] sm:text-xs">{pageTitle}</span>
               </div>
             </div>
           </div>
@@ -562,9 +573,9 @@ export function Layout() {
             )}
           </div>
 
-          <div className="flex items-center space-x-2 shrink-0 justify-end w-48">
+          <div className="flex shrink-0 items-center justify-end gap-1 sm:gap-2 lg:w-48">
             <div className="relative" ref={langMenuRef}>
-              <Button variant="ghost" size="icon" className="relative text-slate-500 hover:text-slate-700" onClick={() => setLangOpen(!langOpen)}>
+              <Button variant="ghost" size="icon" aria-label={t('language')} className="relative text-slate-500 hover:text-slate-700" onClick={() => setLangOpen(!langOpen)}>
                 <Globe className="w-5 h-5" />
               </Button>
               
@@ -606,7 +617,7 @@ export function Layout() {
               </Button>
 
               {notifOpen && (
-                <div className="absolute top-full right-0 mt-2 w-84 bg-white rounded-2xl shadow-xl border border-slate-100 z-dropdown overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="absolute right-0 top-full mt-2 w-[min(21rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-xl z-dropdown animate-in fade-in slide-in-from-top-2 duration-150">
                   <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/50">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-slate-900">{t('notifications')}</span>
@@ -688,7 +699,7 @@ export function Layout() {
         {!isOnline && (
           <div
             role="status"
-            className="shrink-0 flex items-start gap-2 px-6 py-2.5 bg-amber-50 border-b border-amber-200 text-amber-900"
+            className="flex shrink-0 items-start gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-900 sm:px-4 lg:px-6"
           >
             <WifiOff className="w-4 h-4 mt-0.5 shrink-0" />
             <p className="text-xs font-medium leading-relaxed">{t('offlineBanner')}</p>
@@ -704,7 +715,7 @@ export function Layout() {
         */}
         <main
           tabIndex={-1}
-          className="flex-1 overflow-auto bg-slate-50/50 p-6 min-h-0 focus:outline-none isolate"
+          className="isolate min-h-0 flex-1 overflow-auto bg-slate-50/50 p-3 focus:outline-none sm:p-4 lg:p-6"
         >
           <AnimatePresence mode="wait">
             <motion.div
@@ -735,16 +746,18 @@ export function Layout() {
         </main>
 
         {/* Global Create Appointment Modal */}
-        <CreateAppointmentModal
-          isOpen={createModalOptions.isOpen}
-          onClose={() => setCreateModalOptions((prev) => ({ ...prev, isOpen: false }))}
-          defaultDate={createModalOptions.defaultDate}
-          defaultStaffId={createModalOptions.defaultStaffId}
-          defaultTime={createModalOptions.defaultTime}
-          defaultCustomerName={createModalOptions.defaultCustomerName}
-          defaultPhone={createModalOptions.defaultPhone}
-          defaultServiceId={createModalOptions.defaultServiceId}
-        />
+        {createModalOptions.isOpen && <Suspense fallback={null}>
+          <CreateAppointmentModal
+            isOpen
+            onClose={() => setCreateModalOptions((prev) => ({ ...prev, isOpen: false }))}
+            defaultDate={createModalOptions.defaultDate}
+            defaultStaffId={createModalOptions.defaultStaffId}
+            defaultTime={createModalOptions.defaultTime}
+            defaultCustomerName={createModalOptions.defaultCustomerName}
+            defaultPhone={createModalOptions.defaultPhone}
+            defaultServiceId={createModalOptions.defaultServiceId}
+          />
+        </Suspense>}
 
         {/* Global Right-Side Drawer (Appointment Details) */}
         {rightDrawerOpen && (
@@ -757,14 +770,14 @@ export function Layout() {
               }}
             />
             <div className="relative z-10 h-full">
-              <AppointmentDrawer
+              <Suspense fallback={<div className="grid h-full w-full place-items-center bg-white sm:w-[600px]"><Spinner /></div>}><AppointmentDrawer
                 appointmentId={activeAppointmentId}
                 initialStatus={activeAppointmentStatus}
                 onClose={() => {
                   setRightDrawerOpen(false);
                   setActiveAppointmentId(null);
                 }}
-              />
+              /></Suspense>
             </div>
           </div>
         )}
@@ -777,7 +790,7 @@ export function Layout() {
               onClick={() => setIsCopilotOpen(false)}
             />
             <div className="relative z-10 h-full">
-              <CopilotDrawer onClose={() => setIsCopilotOpen(false)} />
+              <Suspense fallback={<div className="grid h-full w-full place-items-center bg-white sm:w-[480px]"><Spinner /></div>}><CopilotDrawer onClose={() => setIsCopilotOpen(false)} /></Suspense>
             </div>
           </div>
         )}
@@ -785,7 +798,8 @@ export function Layout() {
         {/* Floating Copilot AI Button */}
         <button 
           onClick={() => setIsCopilotOpen(true)}
-          className="absolute bottom-6 right-6 w-14 h-14 bg-slate-900 text-white rounded-full shadow-xl shadow-slate-900/20 flex items-center justify-center hover:scale-105 active:scale-95 transition-all z-fab border border-slate-700 group"
+          aria-label={t('openCopilot')}
+          className="absolute bottom-4 right-4 flex h-12 w-12 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-white shadow-xl shadow-slate-900/20 transition-all hover:scale-105 active:scale-95 z-fab group sm:bottom-6 sm:right-6 sm:h-14 sm:w-14"
         >
           <Sparkles className="w-6 h-6 group-hover:text-teal-400 transition-colors" />
           <span className="absolute -top-1 -right-1 flex h-4 w-4">

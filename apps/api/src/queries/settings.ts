@@ -43,6 +43,9 @@ export interface IntakeWaiverDto {
   requireSignature: boolean;
   requireHealthAllergies: boolean;
   requirePressurePreference: boolean;
+  requireBodySorenessMap: boolean;
+  autoCreateCrmProfile: boolean;
+  autoPromptTipPercentages: boolean;
   autoSyncToProfile: boolean;
 }
 
@@ -133,9 +136,13 @@ export async function loadIntakeWaiver(
     require_health_allergies: boolean;
     require_pressure_preference: boolean;
     auto_sync_to_profile: boolean;
+    require_body_soreness_map: boolean;
+    auto_create_crm_profile: boolean;
+    auto_prompt_tip_percentages: boolean;
   }[]>`
     select waiver_title, waiver_content, require_signature,
-           require_health_allergies, require_pressure_preference, auto_sync_to_profile
+           require_health_allergies, require_pressure_preference, auto_sync_to_profile,
+           require_body_soreness_map, auto_create_crm_profile, auto_prompt_tip_percentages
     from location_intake_templates
     where location_id = ${ctx.locationId}`;
 
@@ -146,6 +153,9 @@ export async function loadIntakeWaiver(
       requireSignature: row.require_signature ?? true,
       requireHealthAllergies: row.require_health_allergies ?? true,
       requirePressurePreference: row.require_pressure_preference ?? true,
+      requireBodySorenessMap: row.require_body_soreness_map ?? true,
+      autoCreateCrmProfile: row.auto_create_crm_profile ?? true,
+      autoPromptTipPercentages: row.auto_prompt_tip_percentages ?? true,
       autoSyncToProfile: row.auto_sync_to_profile ?? true,
     };
   }
@@ -156,6 +166,9 @@ export async function loadIntakeWaiver(
     requireSignature: true,
     requireHealthAllergies: true,
     requirePressurePreference: true,
+    requireBodySorenessMap: true,
+    autoCreateCrmProfile: true,
+    autoPromptTipPercentages: true,
     autoSyncToProfile: true,
   };
 }

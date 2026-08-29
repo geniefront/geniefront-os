@@ -395,4 +395,8 @@ export const common = {
   error: { 'zh-Hans': '错误', en: 'Error', ko: '오류', es: 'Error', vi: 'Lỗi' },
   reload: { 'zh-Hans': '重新加载', en: 'Reload', ko: '다시 불러오기', es: 'Recargar', vi: 'Tải lại' },
   genericFailure: { 'zh-Hans': '操作失败，请稍后重试', en: 'The operation failed. Please try again.', ko: '작업에 실패했습니다. 다시 시도해 주세요.', es: 'La operación ha fallado. Inténtalo de nuevo.', vi: 'Thao tác thất bại. Vui lòng thử lại.' },
+  collapseSidebar: { 'zh-Hans': '收起侧边栏', en: 'Collapse sidebar', ko: '사이드바 접기', es: 'Contraer barra lateral', vi: 'Thu gọn thanh bên' },
+  openNavigation: { 'zh-Hans': '打开导航', en: 'Open navigation', ko: '탐색 열기', es: 'Abrir navegación', vi: 'Mở điều hướng' },
+  language: { 'zh-Hans': '语言', en: 'Language', ko: '언어', es: 'Idioma', vi: 'Ngôn ngữ' },
+  openCopilot: { 'zh-Hans': '打开 AI 副驾', en: 'Open AI copilot', ko: 'AI 코파일럿 열기', es: 'Abrir copiloto de IA', vi: 'Mở trợ lý AI' },
 } satisfies DomainDict;

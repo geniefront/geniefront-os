@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
 import { useErrorMessage } from '@/lib/errorMessage';
 import { useLanguage } from "@/LanguageContext";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { SampleDataNotice } from '@/components/ui/SampleDataNotice';
+import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal, ConfirmDialog } from "@/components/ui/Modal";
@@ -16,95 +15,45 @@ import {
   ShieldCheck,
   Battery,
   Wifi,
-  SlidersHorizontal,
   FileCheck2,
   MonitorSmartphone,
   Eye,
   Trash2,
   RotateCcw,
-  Sparkles,
-  Smartphone,
-  Check,
-  PenTool,
-  Lock,
   Plus,
 } from "lucide-react";
 import { toast } from "@heroui/react";
-import { useCreatePairingSession, usePairingStatus } from "@/features/pairing/api";
+import {
+  useCreatePairingSession, useHardwareDevicesQuery, usePairingStatus,
+  useQueueDeviceCommand, useRevokeDevice, type HardwareDevice,
+} from "@/features/pairing/api";
+import { useDeskSettingsQuery } from '@/features/settings/api';
 
-interface TabletDevice {
-  id: string;
-  name: string;
-  role: "intake_kiosk" | "customer_display";
-  model: string;
-  status: "online" | "offline";
-  ipAddress: string;
-  batteryLevel: number;
-  wifiSignal: string;
-  lastHeartbeat: string;
-  appVersion: string;
-}
-
-export function HardwareServer() {
+export function HardwareServer({ embedded = false }: { embedded?: boolean } = {}) {
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
   const createSessionMut = useCreatePairingSession();
+  const devicesQuery = useHardwareDevicesQuery();
+  const queueCommandMutation = useQueueDeviceCommand();
+  const revokeDeviceMutation = useRevokeDevice();
+  const settingsQuery = useDeskSettingsQuery();
 
   // 配对状态
-  const [sessionCode, setSessionCode] = useState<string>("849-201");
+  const [sessionCode, setSessionCode] = useState<string | null>(null);
   const [pairingRole, setPairingRole] = useState<"intake_kiosk" | "customer_display">("intake_kiosk");
 
   // 监听配对状态
   const pairingStatusQ = usePairingStatus(sessionCode);
 
-  useEffect(() => {
-    createSessionMut.mutateAsync().then((res) => {
-      if (res?.code) setSessionCode(res.code);
-    }).catch(() => {});
-  }, []);
-
   // 二次确认弹窗状态
   const [confirmRegenPinOpen, setConfirmRegenPinOpen] = useState(false);
-  const [resettingDevice, setResettingDevice] = useState<TabletDevice | null>(null);
-  const [unpairingDevice, setUnpairingDevice] = useState<TabletDevice | null>(null);
+  const [resettingDevice, setResettingDevice] = useState<HardwareDevice | null>(null);
+  const [unpairingDevice, setUnpairingDevice] = useState<HardwareDevice | null>(null);
+  const devices = devicesQuery.data?.devices.filter((device) => device.state !== 'revoked') ?? [];
 
-  // 已连接的 iPad 设备列表 (严格聚焦于签到/健康表与副屏)
-  const [devices, setDevices] = useState<TabletDevice[]>([
-    {
-      id: "dev-ipad-01",
-      name: "大堂迎宾签到与健康表 iPad (Lobby)",
-      role: "intake_kiosk",
-      model: "iPad Pro 11-inch (M2)",
-      status: "online",
-      ipAddress: "192.168.1.108",
-      batteryLevel: 98,
-      wifiSignal: "5GHz · -42dBm (极佳)",
-      lastHeartbeat: "3 秒前",
-      appVersion: "v2.4.1",
-    },
-    {
-      id: "dev-ipad-02",
-      name: "前台收银小费副屏 iPad (Counter)",
-      role: "customer_display",
-      model: "iPad Air 10.9-inch",
-      status: "online",
-      ipAddress: "192.168.1.112",
-      batteryLevel: 100,
-      wifiSignal: "5GHz · -45dBm (极佳)",
-      lastHeartbeat: "5 秒前",
-      appVersion: "v2.4.1",
-    },
-  ]);
-
-  // 健康表与大堂签到规则配置
-  const [intakeSettings, setIntakeSettings] = useState({
-    requireSignature: true,
-    requireAllergies: true,
-    requirePressurePreference: true,
-    requireBodySorenessMap: true,
-    autoCreateCrmProfile: true,
-    autoPromptTipPercentages: true,
-  });
+  useEffect(() => {
+    if (pairingStatusQ.data?.status === 'paired') void devicesQuery.refetch();
+  }, [pairingStatusQ.data?.status]);
 
   // 平板界面实时交互预览 Simulator Modal
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
@@ -113,7 +62,7 @@ export function HardwareServer() {
 
   const handleRegenerateCode = async () => {
     try {
-      const res = await createSessionMut.mutateAsync();
+      const res = await createSessionMut.mutateAsync(pairingRole === 'intake_kiosk' ? 'kiosk' : 'customer-facing');
       if (res?.code) {
         setSessionCode(res.code);
         toast.success(t('settings.hwPinRegenerated'));
@@ -123,49 +72,40 @@ export function HardwareServer() {
     }
   };
 
-  const handlePingDevice = (name: string) => {
-    toast.success(t('settings.hwPinged', { p0: name }));
+  const handlePingDevice = async (device: HardwareDevice) => {
+    await queueCommandMutation.mutateAsync({ deviceId: device.deviceId, kind: 'wake' });
+    toast.success(t('settings.hwCommandQueued', { p0: device.label }));
   };
 
-  const handleResetKiosk = (name: string) => {
-    toast.success(t('settings.hwReset', { p0: name }));
+  const handleResetKiosk = async (device: HardwareDevice) => {
+    await queueCommandMutation.mutateAsync({ deviceId: device.deviceId, kind: 'reset_home' });
+    toast.success(t('settings.hwCommandQueued', { p0: device.label }));
   };
 
-  const handleUnpairDevice = (id: string, name: string) => {
-    setDevices(devices.filter((d) => d.id !== id));
-    toast.danger(t('settings.hwUnpaired', { p0: name }));
+  const handleUnpairDevice = async (device: HardwareDevice) => {
+    await revokeDeviceMutation.mutateAsync(device.deviceId);
+    toast.success(t('settings.hwUnpaired', { p0: device.label }));
   };
 
-  const toggleSetting = (key: keyof typeof intakeSettings) => {
-    setIntakeSettings((prev) => {
-      const next = { ...prev, [key]: !prev[key] };
-      toast.success(t('settings.hwFormSynced'));
-      return next;
-    });
-  };
-
-  if (pairingStatusQ.isLoading && !pairingStatusQ.data && !sessionCode) {
+  if ((devicesQuery.isLoading || settingsQuery.isLoading) && !devicesQuery.data && !settingsQuery.data) {
     return <PageLoading title={t('settings.hwLoading')} description={t('settings.hwLoadingDesc')} />;
   }
 
-  if (pairingStatusQ.isError && !pairingStatusQ.data && !sessionCode) {
+  if ((devicesQuery.isError || settingsQuery.isError) && !devicesQuery.data && !settingsQuery.data) {
     return (
       <PageError
         title={t('settings.hwLoadError')}
         error={pairingStatusQ.error}
         onRetry={() => {
-          createSessionMut.mutateAsync().then((res) => {
-            if (res?.code) setSessionCode(res.code);
-          }).catch(() => {});
+          void Promise.all([devicesQuery.refetch(), settingsQuery.refetch()]);
         }}
       />
     );
   }
 
   return (
-    <div className="space-y-6 pb-20 max-w-7xl mx-auto">
-      <SampleDataNotice />
-      <PageHeader
+    <div className={embedded ? "space-y-6" : "space-y-6 pb-20 max-w-7xl mx-auto"}>
+      {!embedded && <PageHeader
         title={
           <span className="flex items-center gap-2 text-xl font-bold">
             <Tablet className="w-5 h-5 text-teal-600" />
@@ -201,7 +141,7 @@ export function HardwareServer() {
             </Button>
           </div>
         }
-      />
+      />}
 
       {/* 顶部设备网络健康状态 */}
       <div className="p-4 rounded-2xl bg-gradient-to-r from-teal-900 to-slate-900 text-white shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -214,7 +154,7 @@ export function HardwareServer() {
               <h3 className="font-bold text-sm">{t('settings.hwFleetTitle')}</h3>
               <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-400/30 text-[10px]">
                 
-                {t('settings.hwDevicesOnline')}
+                {devices.filter((device) => device.state === 'online').length} / {devices.length} {t('settings.hwOnline')}
               </Badge>
             </div>
             <p className="text-xs text-teal-100/80 mt-0.5">
@@ -226,7 +166,7 @@ export function HardwareServer() {
 
         <div className="flex items-center gap-4 text-xs font-mono text-teal-200">
           <span className="flex items-center gap-1.5">
-            <Wifi className="w-3.5 h-3.5 text-emerald-400" />  {t('settings.hwNetwork')}
+            <Wifi className="w-3.5 h-3.5 text-emerald-400" /> {t('settings.hwHeartbeat')} API
           </span>
           <span className="flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5 text-teal-300" />  {t('settings.hwKioskLocked')}
@@ -235,7 +175,7 @@ export function HardwareServer() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 左侧 2 列：已配对 iPad 终端列表 & 健康表字段设置 */}
+        {/* 左侧 2 列：已配对终端列表 */}
         <div className="lg:col-span-2 space-y-6">
           {/* 在线设备卡片列表 */}
           <Card className="p-5 border-slate-200 shadow-sm space-y-4">
@@ -251,13 +191,13 @@ export function HardwareServer() {
             <div className="space-y-3">
               {devices.map((dev) => (
                 <div
-                  key={dev.id}
+                  key={dev.deviceId}
                   className="p-4 rounded-2xl border border-slate-200 bg-white hover:border-teal-300 hover:shadow-sm transition-all space-y-3"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700">
-                        {dev.role === "intake_kiosk" ? (
+                        {dev.terminalType === "kiosk" ? (
                           <FileCheck2 className="w-5 h-5 text-teal-600" />
                         ) : (
                           <MonitorSmartphone className="w-5 h-5 text-blue-600" />
@@ -265,15 +205,15 @@ export function HardwareServer() {
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <h4 className="font-bold text-slate-900 text-xs sm:text-sm">{dev.name}</h4>
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          <h4 className="font-bold text-slate-900 text-xs sm:text-sm">{dev.label}</h4>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${dev.state === 'online' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${dev.state === 'online' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                             
-                            {t('settings.hwOnline')}
+                            {dev.state === 'online' ? t('settings.hwOnline') : t('settings.hwOffline')}
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-500 font-mono mt-0.5">
-                          {dev.model} · IP: {dev.ipAddress} · App {dev.appVersion}
+                          {dev.model ?? '—'} · IP: {dev.ipAddress ?? '—'} · App {dev.appVersion ?? '—'}
                         </p>
                       </div>
                     </div>
@@ -283,7 +223,8 @@ export function HardwareServer() {
                         size="sm"
                         variant="secondary"
                         className="text-xs h-8 px-2.5 text-slate-700"
-                        onClick={() => handlePingDevice(dev.name)}
+                        disabled={queueCommandMutation.isPending}
+                        onClick={() => void handlePingDevice(dev).catch((err) => toast.danger(errorMessage(err)))}
                       >
                         
                         {t('settings.hwWake')}
@@ -312,14 +253,14 @@ export function HardwareServer() {
                   <div className="grid grid-cols-3 gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-[11px]">
                     <div className="flex items-center gap-1.5 text-slate-600">
                       <Battery className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>{t('settings.hwBattery')} {dev.batteryLevel}{t('settings.hwPluggedIn')}</span>
+                      <span>{t('settings.hwBattery')} {dev.batteryLevel === null ? '—' : `${dev.batteryLevel}%`}</span>
                     </div>
                     <div className="flex items-center gap-1.5 text-slate-600">
                       <Wifi className="w-3.5 h-3.5 text-teal-600" />
-                      <span>WiFi: {dev.wifiSignal}</span>
+                      <span>WiFi: {dev.wifiSignalDbm === null ? '—' : `${dev.wifiSignalDbm} dBm`}</span>
                     </div>
                     <div className="flex items-center gap-1.5 text-slate-600 justify-end">
-                      <span>{t('settings.hwHeartbeat')} {dev.lastHeartbeat}</span>
+                      <span>{t('settings.hwHeartbeat')} {dev.lastSeenAt ? new Date(dev.lastSeenAt).toLocaleString() : '—'}</span>
                     </div>
                   </div>
                 </div>
@@ -327,77 +268,6 @@ export function HardwareServer() {
             </div>
           </Card>
 
-          {/* 大堂签到与健康表单规则配置 */}
-          <Card className="p-5 border-slate-200 shadow-sm space-y-4">
-            <div className="border-b border-slate-100 pb-3">
-              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                <SlidersHorizontal className="w-4 h-4 text-teal-600" />
-                
-                {t('settings.hwIntakeConfigTitle')}
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                
-                {t('settings.hwIntakeConfigDesc')}
-              </p>
-            </div>
-
-            <div className="space-y-2.5 text-xs">
-              {[
-                {
-                  key: "requireSignature" as const,
-                  title: t('settings.hwWaiverTitle'),
-                  desc: t('settings.hwWaiverDesc'),
-                },
-                {
-                  key: "requirePressurePreference" as const,
-                  title: t('settings.hwPressureTitle'),
-                  desc: t('settings.hwPressureDesc'),
-                },
-                {
-                  key: "requireBodySorenessMap" as const,
-                  title: t('settings.hwFocusTitle'),
-                  desc: t('settings.hwFocusDesc'),
-                },
-                {
-                  key: "requireAllergies" as const,
-                  title: t('settings.hwAllergyTitle'),
-                  desc: t('settings.hwAllergyDesc'),
-                },
-                {
-                  key: "autoCreateCrmProfile" as const,
-                  title: t('settings.hwAutoCrmTitle'),
-                  desc: t('settings.hwAutoCrmDesc'),
-                },
-              ].map((item) => {
-                const checked = intakeSettings[item.key];
-                return (
-                  <div
-                    key={item.key}
-                    onClick={() => toggleSetting(item.key)}
-                    className={`p-3 rounded-xl border cursor-pointer flex items-start justify-between gap-3 transition-colors ${
-                      checked
-                        ? "bg-teal-50/70 border-teal-200 text-teal-950"
-                        : "bg-slate-50 border-slate-200 text-slate-600"
-                    }`}
-                  >
-                    <div className="space-y-0.5">
-                      <p className="font-bold text-xs">{item.title}</p>
-                      <p className="text-[11px] opacity-80 leading-relaxed">{item.desc}</p>
-                    </div>
-                    <div
-                      className={`w-5 h-5 rounded-lg flex items-center justify-center shrink-0 mt-0.5 border ${
-                        checked
-                          ? "bg-teal-600 border-teal-600 text-white"
-                          : "bg-white border-slate-300"
-                      }`}
-                    >
-                      {checked && <Check className="w-3.5 h-3.5" />}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
         </div>
 
         {/* 右侧 1 列：快速配对与入网引导 */}
@@ -449,7 +319,7 @@ export function HardwareServer() {
                 6-Digit Pairing PIN
               </span>
               <div className="text-3xl font-black font-mono text-teal-700 tracking-widest">
-                {sessionCode}
+                {sessionCode ?? '—'}
               </div>
               <p className="text-[10px] text-slate-400">{t('settings.hwPinValidity')}</p>
             </div>
@@ -506,11 +376,11 @@ export function HardwareServer() {
               {simStep === "welcome" && (
                 <div className="text-center py-6 space-y-4 flex-1 flex flex-col justify-center items-center">
                   <div className="w-14 h-14 rounded-2xl bg-teal-600 text-white font-bold flex items-center justify-center text-xl shadow-lg">
-                    Lotus
+                    {(settingsQuery.data?.location.name || 'GF').slice(0, 6)}
                   </div>
                   <h2 className="text-lg font-black text-slate-900">
                     
-                    {t('settings.hwSimWelcome')}
+                    {t('settings.hwSimWelcomeStore', { p0: settingsQuery.data?.location.name || 'GenieFront' })}
                   </h2>
                   <p className="text-xs text-slate-500 max-w-xs leading-relaxed">
                     
@@ -541,10 +411,10 @@ export function HardwareServer() {
                       <button
                         key={k}
                         onClick={() => {
-                          if (k === t('settings.hwSimConfirm2')) setSimStep("questions");
+                          if (k === t('settings.hwSimConfirm')) setSimStep("questions");
                         }}
                         className={`p-2.5 rounded-xl border transition-all ${
-                          k === "确认"
+                            k === t('settings.hwSimConfirm')
                             ? "bg-teal-600 text-white border-teal-600 font-sans"
                             : "bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100"
                         }`}
@@ -670,13 +540,17 @@ export function HardwareServer() {
         onOpenChange={(open) => {
           if (!open) setResettingDevice(null);
         }}
-        title={t('settings.hwResetConfirmTitle', { p0: resettingDevice?.name ?? '' })}
+        title={t('settings.hwResetConfirmTitle', { p0: resettingDevice?.label ?? '' })}
         description={t('settings.hwResetConfirmBody')}
         confirmLabel={t('settings.hwResetConfirmAction')}
-        onConfirm={() => {
+        onConfirm={async () => {
           if (resettingDevice) {
-            handleResetKiosk(resettingDevice.name);
-            setResettingDevice(null);
+            try {
+              await handleResetKiosk(resettingDevice);
+              setResettingDevice(null);
+            } catch (err: any) {
+              toast.danger(errorMessage(err));
+            }
           }
         }}
       />
@@ -688,13 +562,17 @@ export function HardwareServer() {
           if (!open) setUnpairingDevice(null);
         }}
         tone="danger"
-        title={t('settings.hwUnpairConfirmTitle', { p0: unpairingDevice?.name ?? '' })}
+        title={t('settings.hwUnpairConfirmTitle', { p0: unpairingDevice?.label ?? '' })}
         description={t('settings.hwUnpairConfirmBody')}
         confirmLabel={t('settings.hwUnpairConfirmAction')}
-        onConfirm={() => {
+        onConfirm={async () => {
           if (unpairingDevice) {
-            handleUnpairDevice(unpairingDevice.id, unpairingDevice.name);
-            setUnpairingDevice(null);
+            try {
+              await handleUnpairDevice(unpairingDevice);
+              setUnpairingDevice(null);
+            } catch (err: any) {
+              toast.danger(errorMessage(err));
+            }
           }
         }}
       />

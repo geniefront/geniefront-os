@@ -29,9 +29,15 @@ export class ApiError extends Error {
  * 服务端对缺失该头的请求一律返回 VALIDATION_FAILED，而调用栈中不易定位。
  */
 let activeMembershipId: string | null = null;
+let commandGuardOnline = true;
 
 export function setActiveMembershipId(value: string | null): void {
   activeMembershipId = value;
+}
+
+/** 防止遗漏的普通按钮在离线时发出必然失败的写请求。权限仍由按钮与服务端双重判定。 */
+export function setCommandGuard(online: boolean): void {
+  commandGuardOnline = online;
 }
 
 export async function authHeaders(membershipId?: string): Promise<Record<string, string>> {
@@ -123,6 +129,7 @@ export async function runCommand<T>(
   membershipId: string,
   idempotencyKey: string = crypto.randomUUID(),
 ): Promise<CommandResult<T>> {
+  if (!commandGuardOnline) throw new ApiError('OFFLINE', {}, false, 0);
   const res = await fetch(`${API_BASE}/v1/commands/${name}`, {
     method: 'POST',
     headers: { ...(await authHeaders(membershipId)), 'Idempotency-Key': idempotencyKey },

@@ -42,7 +42,7 @@ import {
 } from 'lucide-react';
 import { toast } from '@heroui/react';
 import { useLanguage } from '@/LanguageContext';
-import { LANGUAGES, type Language } from '@/i18n';
+import { UI_LANGUAGES as LANGUAGES, type Language } from '@/i18n/types';
 import { useSession } from '@/lib/session';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { roleLabelKey } from '@/lib/roles';
@@ -443,20 +443,8 @@ export function Profile() {
   const avatarInitial = (fullName || session?.user.email || 'U').slice(0, 1).toUpperCase();
 
   // Categorized permissions
-  const allPermissions = context?.permissions || [
-    'appointment.read',
-    'appointment.write',
-    'appointment.cancel',
-    'ticket.read',
-    'ticket.write',
-    'ticket.discount',
-    'customer.read',
-    'customer.write',
-    'rotation.view',
-    'timeclock.punch_self',
-    'reports.view',
-    'staff.manage',
-  ];
+  // 会话上下文是权限的唯一事实来源；加载失败时不得展示一组“看似拥有”的假权限。
+  const allPermissions = context?.permissions ?? [];
 
   const filteredPermissions = allPermissions.filter((p) =>
     permissionQuery.trim() ? p.toLowerCase().includes(permissionQuery.trim().toLowerCase()) : true,

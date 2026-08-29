@@ -52,6 +52,9 @@ export const SaveStorefrontBrief = defineCommand({
     logoKey: z.string().max(300).nullable().optional(),
     heroKey: z.string().max(300).nullable().optional(),
     galleryKeys: z.array(z.string().max(300)).max(12).optional(),
+    storeName: z.string().max(200).nullable().optional(),
+    slogan: z.string().max(500).nullable().optional(),
+    photoSourceUrl: z.string().max(1000).nullable().optional(),
   }),
   output: z.object({ briefId: z.string(), status: z.string() }),
   permission: 'settings.manage',
@@ -90,6 +93,27 @@ export const ChooseStorefrontDraft = defineCommand({
   idempotency: 'optional',
 });
 
+export const AddStorefrontRevision = defineCommand({
+  name: 'storefront.addRevision',
+  input: z.object({ text: z.string().trim().min(1).max(4000) }),
+  output: z.object({ revisionId: uuid, status: z.literal('submitted'), createdAt: z.string() }),
+  permission: 'billing.manage',
+  ai: { description: '向微店交付团队提交一条修改意见。', confirm: 'always' },
+  reversible: false,
+  idempotency: 'optional',
+});
+
+export const RequestStorefrontLaunch = defineCommand({
+  name: 'storefront.requestLaunch',
+  input: z.object({}),
+  output: z.object({ briefId: uuid, status: z.string(), launchRequestedAt: z.string() }),
+  permission: 'billing.manage',
+  ai: { description: '确认当前选定的微店版本并申请正式上线。', confirm: 'always' },
+  reversible: false,
+  idempotency: 'optional',
+});
+
 export const STOREFRONT_COMMANDS = [
   SaveStorefrontBrief, SubmitStorefrontBrief, WithdrawStorefrontBrief, ChooseStorefrontDraft,
+  AddStorefrontRevision, RequestStorefrontLaunch,
 ] as const;

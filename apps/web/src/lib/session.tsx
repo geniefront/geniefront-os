@@ -23,6 +23,7 @@ import { supabase } from './supabase';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   fetchMembershipContext, listLocations, setActiveMembershipId, setUnauthenticatedHandler,
+  setCommandGuard,
   type LocationMembership, type MembershipContext,
 } from './api';
 
@@ -216,6 +217,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     setActiveMembershipId(membership?.membershipId ?? null);
   }, [membership]);
+
+  useLayoutEffect(() => {
+    setCommandGuard(isOnline);
+  }, [isOnline]);
 
   /*
    * 拉取当前门店的操作上下文。

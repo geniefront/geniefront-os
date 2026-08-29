@@ -11,7 +11,7 @@
 
 import { randomUUID } from 'node:crypto';
 import {
-  IssueDeviceToken, RevokeDeviceToken, JoinQueue, UpdateQueueEntry,
+  IssueDeviceToken, RevokeDeviceToken, QueueDeviceCommand, JoinQueue, UpdateQueueEntry,
   SaveFormTemplate, SubmitForm, ShareForm, RevokeFormShare,
   AppError, ERROR_CODES, pickText,
 } from '@gf/contracts';
@@ -65,6 +65,28 @@ registerHandler(RevokeDeviceToken, async ({ input, ctx, tx, audit }: HandlerArgs
   audit({ entityType: 'device', entityId: input.deviceId,
           after: { revoked: true, label: rows[0]!.label } });
   return { deviceId: input.deviceId };
+});
+
+registerHandler(QueueDeviceCommand, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof QueueDeviceCommand.input._type>) => {
+  const [device] = await tx<{ id: string }[]>`
+    select id from device_tokens
+    where id = ${input.deviceId} and location_id = ${ctx.locationId} and revoked_at is null`;
+  if (!device) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'device' } });
+  }
+
+  const [command] = await tx<{ id: string }[]>`
+    insert into device_commands (
+      org_id, location_id, device_id, kind, requested_by_membership_id
+    ) values (
+      ${ctx.orgId}, ${ctx.locationId}, ${device.id}, ${input.kind}, ${ctx.membershipId}
+    ) returning id`;
+  audit({
+    entityType: 'device_command', entityId: command!.id,
+    after: { deviceId: device.id, kind: input.kind, status: 'pending' },
+  });
+  return { commandId: command!.id, deviceId: device.id, status: 'pending' as const };
 });
 
 // ─────────────────────────────────────────────────────────── 走单队列

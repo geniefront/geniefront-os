@@ -169,6 +169,12 @@ export const deviceTokens = pgTable('device_tokens', {
   label: text('label').notNull(),
   tokenHash: text('token_hash').notNull(),
   lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+  terminalType: text('terminal_type'),
+  model: text('model'),
+  ipAddress: text('ip_address'),
+  batteryLevel: integer('battery_level'),
+  wifiSignalDbm: integer('wifi_signal_dbm'),
+  appVersion: text('app_version'),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   createdAt: createdAt(),
 }, (t) => [

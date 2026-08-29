@@ -13,6 +13,7 @@
 
 import {
   SaveStorefrontBrief, SubmitStorefrontBrief, WithdrawStorefrontBrief, ChooseStorefrontDraft,
+  AddStorefrontRevision, RequestStorefrontLaunch,
   AppError, ERROR_CODES,
 } from '@gf/contracts';
 import { jsonb, parseTs } from '@gf/db';
@@ -75,6 +76,9 @@ registerHandler(SaveStorefrontBrief, async ({ input, ctx, tx, audit }: HandlerAr
       logo_key         = ${has('logoKey') ? (input.logoKey ?? null) : tx`logo_key`},
       hero_key         = ${has('heroKey') ? (input.heroKey ?? null) : tx`hero_key`},
       gallery_keys     = ${has('galleryKeys') ? tx`${jsonb(input.galleryKeys)}::jsonb` : tx`gallery_keys`},
+      store_name       = ${has('storeName') ? (input.storeName ?? null) : tx`store_name`},
+      slogan           = ${has('slogan') ? (input.slogan ?? null) : tx`slogan`},
+      photo_source_url = ${has('photoSourceUrl') ? (input.photoSourceUrl ?? null) : tx`photo_source_url`},
       status           = 'draft',
       updated_at       = now()
     where id = ${brief.id}`;
@@ -183,4 +187,50 @@ registerHandler(ChooseStorefrontDraft, async ({ input, ctx, tx, audit }: Handler
     after: { status: 'chosen', draftId: draft.id, variant: draft.variant },
   });
   return { briefId: draft.brief_id, draftId: draft.id, status: 'chosen' };
+});
+
+registerHandler(AddStorefrontRevision, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof AddStorefrontRevision.input._type>) => {
+  const brief = await ensureBrief(tx, ctx);
+  if (!['submitted', 'drafted', 'chosen', 'live'].includes(brief.status)) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'brief_not_submitted', status: brief.status },
+    });
+  }
+  const [revision] = await tx<{ id: string; created_at: string | Date }[]>`
+    insert into storefront_revisions (
+      org_id, location_id, brief_id, text, created_by_membership_id
+    ) values (
+      ${ctx.orgId}, ${ctx.locationId}, ${brief.id}, ${input.text}, ${ctx.membershipId}
+    ) returning id, created_at`;
+  audit({
+    entityType: 'storefront_revision', entityId: revision!.id,
+    after: { briefId: brief.id, status: 'submitted' },
+  });
+  return {
+    revisionId: revision!.id,
+    status: 'submitted' as const,
+    createdAt: parseTs(revision!.created_at).toISOString(),
+  };
+});
+
+registerHandler(RequestStorefrontLaunch, async ({ ctx, tx, audit }: HandlerArgs<
+  typeof RequestStorefrontLaunch.input._type>) => {
+  const brief = await ensureBrief(tx, ctx);
+  if (brief.status !== 'chosen') {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'draft_not_chosen', status: brief.status },
+    });
+  }
+  const [row] = await tx<{ launch_requested_at: string | Date }[]>`
+    update storefront_briefs
+    set launch_requested_at = coalesce(launch_requested_at, now()), updated_at = now()
+    where id = ${brief.id}
+    returning launch_requested_at`;
+  const at = parseTs(row!.launch_requested_at).toISOString();
+  audit({
+    entityType: 'storefront_brief', entityId: brief.id,
+    after: { status: brief.status, launchRequestedAt: at },
+  });
+  return { briefId: brief.id, status: brief.status, launchRequestedAt: at };
 });

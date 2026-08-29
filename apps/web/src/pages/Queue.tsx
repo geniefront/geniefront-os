@@ -74,6 +74,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
 import { cn, formatI18n } from '@/lib/utils';
 import type { TranslationKey } from '@/i18n';
+import { useShareForm, type FormShareResult } from '@/features/forms/api';
 
 /** 回退反向流转原因映射 */
 const ROLLBACK_REASONS = [
@@ -278,6 +279,8 @@ function QueueContent() {
   const startTicketItemMutation = useStartTicketItem();
   const finishTicketItemMutation = useFinishTicketItem();
   const setResourceStatusMutation = useSetResourceStatus();
+  const shareFormMutation = useShareForm();
+  const [formShares, setFormShares] = useState<Record<string, FormShareResult>>({});
 
   const isInitialLoading = (queueLoading && scheduleLoading) && !queue;
 
@@ -287,6 +290,39 @@ function QueueContent() {
   const canManage = useCanWrite('queue.manage');
 
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const getFormShare = async (item: KanbanItem) => {
+    const existing = formShares[item.id];
+    if (existing) return existing;
+    const created = await shareFormMutation.mutateAsync({
+      customerId: null,
+      appointmentId: item.appointmentId ?? null,
+      locale: language,
+    });
+    setFormShares((current) => ({ ...current, [item.id]: created }));
+    return created;
+  };
+
+  const openFormQr = async (item: KanbanItem) => {
+    try {
+      const created = await getFormShare(item);
+      setQrZoomModal({
+        isOpen: true,
+        url: created.url,
+        customerName: item.customerName,
+        phone: item.phone || undefined,
+        serviceName: item.serviceName,
+      });
+    } catch (error) { toast.danger(errorMessage(error)); }
+  };
+
+  const copyFormLink = async (item: KanbanItem) => {
+    try {
+      const created = await getFormShare(item);
+      await navigator.clipboard.writeText(created.url);
+      toast.success(t('queue.quFormLinkCopied'));
+    } catch (error) { toast.danger(errorMessage(error)); }
+  };
 
   const rooms = roomsData?.rooms ?? [];
   const rotationEntries = rotationData?.entries ?? [];
@@ -1557,16 +1593,7 @@ function QueueContent() {
                               {item.pendingForms && item.pendingForms > 0 ? (
                                 <span
                                   className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold text-[9px] flex items-center gap-0.5 cursor-pointer hover:bg-amber-200"
-                                  onClick={() => {
-                                    const intakeUrl = `${window.location.origin}/forms?appointmentId=${encodeURIComponent(item.appointmentId || item.id)}&customerName=${encodeURIComponent(item.customerName)}&phone=${encodeURIComponent(item.phone || '')}`;
-                                    setQrZoomModal({
-                                      isOpen: true,
-                                      url: intakeUrl,
-                                      customerName: item.customerName,
-                                      phone: item.phone || undefined,
-                                      serviceName: item.serviceName,
-                                    });
-                                  }}
+                                  onClick={() => void openFormQr(item)}
                                 >
                                   <FileWarning className="w-2.5 h-2.5" />
                                   Form Pending
@@ -1743,23 +1770,15 @@ function QueueContent() {
                 <div className="p-3.5 bg-sky-50/70 border border-sky-200 rounded-2xl flex flex-col sm:flex-row items-center gap-3.5">
                   {/* 可点击放大的真实二维码卡片 */}
                   {(() => {
-                    const intakeUrl = `${window.location.origin}/forms?appointmentId=${encodeURIComponent(item.appointmentId || item.id)}&customerName=${encodeURIComponent(item.customerName)}&phone=${encodeURIComponent(item.phone || '')}`;
+                    const intakeUrl = formShares[item.id]?.url;
                     return (
                       <>
                         <div
-                          onClick={() =>
-                            setQrZoomModal({
-                              isOpen: true,
-                              url: intakeUrl,
-                              customerName: item.customerName,
-                              phone: item.phone || undefined,
-                              serviceName: item.serviceName,
-                            })
-                          }
+                          onClick={() => void openFormQr(item)}
                           className="w-20 h-20 bg-white p-1.5 rounded-2xl border border-sky-300 shadow-sm flex flex-col items-center justify-center shrink-0 cursor-pointer hover:border-sky-500 hover:shadow-md transition-all group relative"
                           title={t('queue.quZoomQr')}
                         >
-                          <QRCodeSVG value={intakeUrl} size={52} level="M" />
+                          {intakeUrl ? <QRCodeSVG value={intakeUrl} size={52} level="M" /> : <QrCode className="h-10 w-10 text-sky-600" />}
                           <span className="text-[8px] text-sky-800 font-bold mt-0.5 group-hover:text-sky-600 transition-colors">
                             
                             {t('queue.quZoomQrHint')}
@@ -1775,10 +1794,7 @@ function QueueContent() {
                             <button
                               type="button"
                               onClick={() => {
-                                if (navigator?.clipboard?.writeText) {
-                                  navigator.clipboard.writeText(intakeUrl);
-                                  toast.success(t('queue.quFormLinkCopied'));
-                                }
+                              void copyFormLink(item);
                               }}
                               className="text-[10px] text-sky-700 hover:text-sky-900 font-bold underline cursor-pointer"
                             >
@@ -1802,15 +1818,7 @@ function QueueContent() {
                             </label>
                             <button
                               type="button"
-                                onClick={() =>
-                                  setQrZoomModal({
-                                    isOpen: true,
-                                    url: intakeUrl,
-                                    customerName: item.customerName,
-                                    phone: item.phone || undefined,
-                                    serviceName: item.serviceName,
-                                  })
-                                }
+                                onClick={() => void openFormQr(item)}
                               className="text-[10px] text-sky-700 bg-white hover:bg-sky-50 px-2 py-0.5 border border-sky-300 rounded-lg font-bold shadow-xs"
                             >
                               
@@ -2207,7 +2215,6 @@ function QueueContent() {
               {/* 健康问卷与免责知情同意书签署状态 (未填时醒目提示与扫码入口) */}
               {(() => {
                 const hasPendingForm = Boolean((item.pendingForms && item.pendingForms > 0) || (item.rawQueue?.pendingForms && item.rawQueue.pendingForms > 0));
-                const intakeUrl = `${window.location.origin}/forms?appointmentId=${encodeURIComponent(item.appointmentId || item.id)}&customerName=${encodeURIComponent(item.customerName)}&phone=${encodeURIComponent(item.phone || '')}`;
 
                 if (hasPendingForm) {
                   return (
@@ -2228,12 +2235,7 @@ function QueueContent() {
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button
                             type="button"
-                            onClick={() => {
-                              if (navigator?.clipboard?.writeText) {
-                                navigator.clipboard.writeText(intakeUrl);
-                                toast.success(t('queue.quFormLinkCopied2'));
-                              }
-                            }}
+                            onClick={() => void copyFormLink(item)}
                             className="px-2 py-1 text-[11px] font-bold bg-white text-rose-800 border border-rose-300 rounded-xl hover:bg-rose-100 flex items-center gap-1 shadow-2xs cursor-pointer transition-colors"
                           >
                             <Copy className="w-3 h-3" />
@@ -2241,15 +2243,7 @@ function QueueContent() {
                           </button>
                           <button
                             type="button"
-                            onClick={() =>
-                              setQrZoomModal({
-                                isOpen: true,
-                                url: intakeUrl,
-                                customerName: item.customerName,
-                                phone: item.phone || undefined,
-                                serviceName: item.serviceName,
-                              })
-                            }
+                            onClick={() => void openFormQr(item)}
                             className="px-2.5 py-1 text-[11px] font-bold bg-rose-600 text-white rounded-xl hover:bg-rose-700 flex items-center gap-1 shadow-2xs cursor-pointer transition-colors"
                           >
                             <QrCode className="w-3 h-3" />
@@ -3460,7 +3454,6 @@ function QueueContent() {
             {/* 健康问卷情况 */}
             {(() => {
               const it = viewingQueueModal.item;
-              const intakeUrl = `${window.location.origin}/forms?appointmentId=${encodeURIComponent(it.appointmentId || it.id)}&customerName=${encodeURIComponent(it.customerName)}&phone=${encodeURIComponent(it.phone || '')}`;
               const hasPending = Boolean((it.pendingForms && it.pendingForms > 0) || (it.rawQueue?.pendingForms && it.rawQueue.pendingForms > 0));
 
               if (hasPending) {
@@ -3481,13 +3474,7 @@ function QueueContent() {
                         type="button"
                         onClick={() => {
                           setViewingQueueModal({ isOpen: false, item: null });
-                          setQrZoomModal({
-                            isOpen: true,
-                            url: intakeUrl,
-                            customerName: it.customerName,
-                            phone: it.phone || undefined,
-                            serviceName: it.serviceName,
-                          });
+                          void openFormQr(it);
                         }}
                         className="flex-1 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl flex items-center justify-center gap-1 text-xs shadow-xs cursor-pointer"
                       >
@@ -3497,10 +3484,7 @@ function QueueContent() {
                       <button
                         type="button"
                         onClick={() => {
-                          if (navigator?.clipboard?.writeText) {
-                            navigator.clipboard.writeText(intakeUrl);
-                            toast.success('Form Link Copied');
-                          }
+                          void copyFormLink(it);
                         }}
                         className="px-3 py-1.5 bg-white border border-rose-300 text-rose-800 font-bold rounded-xl flex items-center justify-center gap-1 text-xs shadow-2xs hover:bg-rose-50 cursor-pointer"
                       >

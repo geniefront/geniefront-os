@@ -6,6 +6,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { withTenant, closeDb } from '@gf/db';
 import { buildContext } from './actor';
 import { createPairingSession, getPairingStatus, claimPairingSession } from './queries/pairing';
+import { loadHardwareDevices } from './queries/hardware';
 
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -75,5 +76,15 @@ describe('硬件副屏配对流程', () => {
     );
     expect(statusAfter.status).toBe('paired');
     expect(statusAfter.pairedDeviceId).toBe(claimRes.deviceId);
+  });
+
+  it('设备列表只返回真实持久化字段，并根据心跳计算在线状态', async () => {
+    const result = await withTenant(tenant, (tx) => loadHardwareDevices(tx, ownerCtx));
+    const device = result.devices.find((item) => createdDeviceIds.includes(item.deviceId));
+    expect(device).toMatchObject({
+      label: 'Desk Guest iPad', state: 'online', revokedAt: null,
+      terminalType: 'customer-facing', pendingCommandCount: 0,
+    });
+    expect(device?.lastSeenAt).toBeTruthy();
   });
 });

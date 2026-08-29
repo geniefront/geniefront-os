@@ -4,15 +4,14 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { Toast, Spinner } from '@heroui/react';
 import { SessionProvider, useSession } from './lib/session';
 import { queryClient } from './lib/queryClient';
-import { LanguageProvider } from './LanguageContext';
+import { LanguageProvider, useLanguage } from './LanguageContext';
 import { ScheduleProvider } from './context/ScheduleContext';
 import { AuthLayout } from './components/AuthLayout';
 
 /*
- * 登录页与主壳层静态引入 —— 二者是每次访问的必经路径，
- * 拆分出去只会在首屏多一次往返并导致可见的白屏。
+ * 登录页静态引入；认证后的主壳层单独拆包。未登录访问不应下载后台导航、
+ * 预约抽屉与副驾等大体积代码。
  */
-import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { LocationPicker } from './pages/LocationPicker';
 import { NoMembership } from './pages/NoMembership';
@@ -42,10 +41,11 @@ const Messages = lazy(() => import('./pages/Messages').then((m) => ({ default: m
 const CommunicationLogs = lazy(() => import('./pages/CommunicationLogs').then((m) => ({ default: m.CommunicationLogs })));
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })));
 const StorefrontBuilder = lazy(() => import('./pages/StorefrontBuilder').then((m) => ({ default: m.StorefrontBuilder })));
-const HardwareServer = lazy(() => import('./pages/HardwareServer').then((m) => ({ default: m.HardwareServer })));
+const HealthForms = lazy(() => import('./pages/HealthForms').then((m) => ({ default: m.HealthForms })));
 const Profile = lazy(() => import('./pages/Profile').then((m) => ({ default: m.Profile })));
 const Notifications = lazy(() => import('./pages/Notifications').then((m) => ({ default: m.Notifications })));
 const UnderConstruction = lazy(() => import('./pages/UnderConstruction').then((m) => ({ default: m.UnderConstruction })));
+const Layout = lazy(() => import('./components/Layout').then((m) => ({ default: m.Layout })));
 
 /**
  * 懒加载页面的过渡态。与 SessionGate 的加载态保持一致的视觉表现。
@@ -81,6 +81,7 @@ function SuspendedOutlet() {
  */
 function SessionGate() {
   const { status } = useSession();
+  const { ready: translationsReady } = useLanguage();
 
   if (status === 'loading') {
     return (
@@ -114,10 +115,14 @@ function SessionGate() {
     );
   }
 
+  if (!translationsReady) {
+    return <div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>;
+  }
+
   return (
     <Routes>
       {/* Main Application (Dashboard Layout) */}
-      <Route path="/" element={<Layout />}>
+      <Route path="/" element={<Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}><Layout /></Suspense>}>
         {/*
           懒加载页面的挂起边界置于 Layout 之内 —— 置于外层会令侧边栏与顶栏
           在每次切换页面时一并消失，视觉上等同于整页重载。
@@ -156,7 +161,8 @@ function SessionGate() {
           {/* Group 6: System Settings & Hardware */}
           <Route path="settings" element={<Settings />} />
           <Route path="storefront-builder" element={<StorefrontBuilder />} />
-          <Route path="hardware-server" element={<HardwareServer />} />
+          <Route path="hardware-server" element={<Navigate to="/settings?tab=hardware" replace />} />
+          <Route path="health-forms" element={<HealthForms />} />
           <Route path="profile" element={<Profile />} />
           <Route path="notifications" element={<Notifications />} />
 

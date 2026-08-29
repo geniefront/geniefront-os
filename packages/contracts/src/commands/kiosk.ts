@@ -52,6 +52,23 @@ export const RevokeDeviceToken = defineCommand({
   idempotency: 'optional',
 });
 
+export const QueueDeviceCommand = defineCommand({
+  name: 'device.queueCommand',
+  input: z.object({
+    deviceId: uuid,
+    kind: z.enum(['wake', 'reset_home']),
+  }),
+  output: z.object({ commandId: uuid, deviceId: uuid, status: z.literal('pending') }),
+  permission: 'settings.manage',
+  ai: {
+    description: '向已配对且未吊销的门店终端发送唤醒或回到首页命令。',
+    confirm: 'always',
+    exposed: false,
+  },
+  reversible: false,
+  idempotency: 'optional',
+});
+
 // ─────────────────────────────────────────────────────────── 走单队列
 
 export const queueLeftReason = z.enum([
@@ -120,6 +137,39 @@ export const UpdateQueueEntry = defineCommand({
 
 // ─────────────────────────────────────────────────── 健康表 / 同意书
 
+const formQuestions = z.array(z.object({
+  id: z.string().min(1).max(40),
+  type: z.enum(['bool', 'text', 'choice', 'multi']),
+  label: i18nText,
+  options: z.array(z.object({ value: z.string().min(1).max(40), label: i18nText })).max(20).optional(),
+  required: z.boolean().default(false),
+  sync: z.enum(['avoid_areas', 'health_flag']).optional(),
+})).min(1).max(40).superRefine((questions, ctx) => {
+  const ids = new Set<string>();
+  questions.forEach((question, index) => {
+    if (ids.has(question.id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index, 'id'], message: '题目 id 不能重复' });
+    }
+    ids.add(question.id);
+    if ((question.type === 'choice' || question.type === 'multi') && !question.options?.length) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index, 'options'], message: '选择题至少需要一个选项' });
+    }
+    if (question.sync === 'health_flag' && question.type !== 'bool') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index, 'sync'], message: '健康禁忌标记只能来自是非题' });
+    }
+    if (question.sync === 'avoid_areas' && question.type !== 'multi') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index, 'sync'], message: '避开部位只能来自多选题' });
+    }
+    const optionValues = new Set<string>();
+    question.options?.forEach((option, optionIndex) => {
+      if (optionValues.has(option.value)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index, 'options', optionIndex, 'value'], message: '选项 value 不能重复' });
+      }
+      optionValues.add(option.value);
+    });
+  });
+});
+
 export const SaveFormTemplate = defineCommand({
   name: 'catalog.saveFormTemplate',
   input: z.object({
@@ -129,30 +179,10 @@ export const SaveFormTemplate = defineCommand({
     /**
      * 题目。每一题的 label 也是多语言的 —— 客人看不懂的免责书
      * 在法律上等于没签（宪法第 7 条在这里不是体验问题，是效力问题）。
+     * `sync` 的题型兼容性与题目 / 选项 id 唯一性也在 schema 中强制校验，
+     * 避免提交答案时一个 key 对应两个含义。
      */
-    questions: z.array(z.object({
-      id: z.string().min(1).max(40),
-      type: z.enum(['bool', 'text', 'choice', 'multi']),
-      label: i18nText,
-      options: z.array(z.object({ value: z.string().max(40), label: i18nText })).max(20).optional(),
-      required: z.boolean().default(false),
-      /**
-       * ⭐ 这一题要不要**回填客户档案**（02 §5 那条「双向关联」）。
-       *
-       * 只有两个去处，而且**都不搬明细**：
-       *
-       *   · `avoid_areas`   选中的部位并进 `customer_preferences.profile.avoid_areas`。
-       *                     那是**操作信息**（这块别按），不是诊断
-       *   · `health_flag`   答了「有」就把 `profile.health_flag` 置真。
-       *                     **只有一个布尔**，前台和技师看到的永远是
-       *                     「有禁忌，见前台」——「怀孕 28 周」「血栓史」这些字
-       *                     一个都不出 `form_submissions`（那张表是加密的）
-       *
-       * 换句话说：健康表的**明细**只有拿到 `customer.view_health_form`
-       * 的人才看得到，而且看一眼就留一条痕。回填出去的只是够做事的那一点点。
-       */
-      sync: z.enum(['avoid_areas', 'health_flag']).optional(),
-    })).min(1).max(40),
+    questions: formQuestions,
     requiresSignature: z.boolean().default(true),
     /** 有效期。到期重签 —— 「三年前签过一次」在法律上站不住 */
     validDays: z.number().int().min(1).max(3650).nullable().default(365),
@@ -303,7 +333,7 @@ export const RevokeFormShare = defineCommand({
 });
 
 export const KIOSK_COMMANDS = [
-  IssueDeviceToken, RevokeDeviceToken,
+  IssueDeviceToken, RevokeDeviceToken, QueueDeviceCommand,
   JoinQueue, UpdateQueueEntry,
   SaveFormTemplate, SubmitForm, ShareForm, RevokeFormShare,
 ] as const;

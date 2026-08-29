@@ -114,6 +114,9 @@ export interface HardwareIntakeConfig {
   requireSignature: boolean;
   requireHealthAllergies: boolean;
   requirePressurePreference: boolean;
+  requireBodySorenessMap: boolean;
+  autoCreateCrmProfile: boolean;
+  autoPromptTipPercentages: boolean;
   waiverTitle: string;
   waiverContent: string;
   autoSyncToProfile: boolean;
@@ -270,6 +273,9 @@ export interface SaveIntakeWaiverInput {
   requireSignature?: boolean;
   requireHealthAllergies?: boolean;
   requirePressurePreference?: boolean;
+  requireBodySorenessMap?: boolean;
+  autoCreateCrmProfile?: boolean;
+  autoPromptTipPercentages?: boolean;
   autoSyncToProfile?: boolean;
 }
 

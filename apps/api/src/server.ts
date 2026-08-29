@@ -72,6 +72,7 @@ import {
   loadBillingInvoices, loadTaxProfile,
 } from './queries/billingInvoices';
 import { createPairingSession, getPairingStatus, claimPairingSession } from './queries/pairing';
+import { loadHardwareDevices } from './queries/hardware';
 import { loadReviewsSummary } from './queries/reviews';
 import { loadOrders } from './queries/orders';
 import { loadFormKey, encryptAnswers } from './kiosk/crypto';
@@ -106,7 +107,7 @@ import { searchBusinesses, getBusiness } from '@gf/yelp';
 import { extractPriceList, costMillicents, billableTokens, MAX_IMAGE_EDGE_PX,
          itemsNeedingTranslation, translateNames, TRANSLATE_MODEL, TRANSLATE_RATES,
          planRegions, padRegion, shouldChunk, capRegions, REGION_MODEL, REGION_RATES,
-         generateStorefrontDrafts,
+         generateStorefrontDrafts, SONNET_5_RATES,
          type PriceListImage, type ImageMediaType } from '@gf/ai';
 import { resolveDate } from './handlers/dayclose';
 import {
@@ -1345,7 +1346,7 @@ export function buildServer(): FastifyInstance {
       });
     }
 
-    const cost = costMillicents(result.usage);
+    const cost = costMillicents(result.usage, SONNET_5_RATES);
     await withTenant(tenant, async (tx) => {
       // 重跑就换一批 —— 老板点「重新生成」时不该看到六版
       await tx`delete from storefront_drafts where brief_id = ${row.id}`;
@@ -1362,6 +1363,16 @@ export function buildServer(): FastifyInstance {
         update storefront_briefs set status = 'drafted', drafted_at = now(), updated_at = now()
         where id = ${row.id}`;
     });
+
+    await dispatch('ai.recordAssist', {
+      feature: 'storefront_generation',
+      model: result.model,
+      tokens: billableTokens(result.usage),
+      costMillicents: cost,
+      rounds: 1,
+      hadProposal: true,
+    }, ctx);
+    void maybeAutoTopup(ctx, 'credit', req.log);
 
     return {
       briefId: row.id,
@@ -1715,15 +1726,29 @@ export function buildServer(): FastifyInstance {
           pain_points: string[]; pain_free_text: string | null;
           audience: string[]; top_questions: string[]; sections: string[];
           usp: string | null; tone: string | null; reference_sites: string[];
-          current_site_url: string | null;
+          current_site_url: string | null; has_no_site: boolean;
+          submitted_at: Date | string | null; drafted_at: Date | string | null;
+          live_at: Date | string | null; public_url: string | null;
+          store_name: string | null; slogan: string | null; photo_source_url: string | null;
+          launch_requested_at: Date | string | null;
+          created_at: Date | string; updated_at: Date | string;
         }[]>`
           select id, status, voice, brand_primary, brand_accent,
                  pain_points, pain_free_text, audience, top_questions,
-                 sections, usp, tone, reference_sites, current_site_url
+                 sections, usp, tone, reference_sites, current_site_url, has_no_site,
+                 submitted_at, drafted_at, live_at, public_url,
+                 store_name, slogan, photo_source_url, launch_requested_at,
+                 created_at, updated_at
           from storefront_briefs where location_id = ${ctx.locationId} order by updated_at desc limit 1`;
+        const drafts = brief ? await tx<{
+          id: string; variant: number; content: unknown; chosen_at: Date | string | null;
+          model: string | null; created_at: Date | string;
+        }[]>`
+          select id, variant, content, chosen_at, model, created_at
+          from storefront_drafts where brief_id = ${brief.id} order by variant` : [];
         return {
-          shopName: pickText(loc?.name, ctx.locale, 'Lotus Nails & Spa'),
-          slogan: (loc as any)?.slogan ?? '曼哈顿高端日式舒压与经络芳疗中心',
+          shopName: brief?.store_name || pickText(loc?.name, ctx.locale, ''),
+          slogan: brief?.slogan || (loc as any)?.slogan || '',
           brief: brief ? {
             id: brief.id,
             status: brief.status,
@@ -1735,60 +1760,33 @@ export function buildServer(): FastifyInstance {
             usp: brief.usp,
             tone: brief.tone,
             currentSiteUrl: brief.current_site_url,
+            hasNoSite: brief.has_no_site,
+            painFreeText: brief.pain_free_text,
+            audience: brief.audience,
+            topQuestions: brief.top_questions,
             referenceSites: brief.reference_sites,
+            submittedAt: brief.submitted_at ? new Date(brief.submitted_at).toISOString() : null,
+            draftedAt: brief.drafted_at ? new Date(brief.drafted_at).toISOString() : null,
+            liveAt: brief.live_at ? new Date(brief.live_at).toISOString() : null,
+            publicUrl: brief.public_url,
+            storeName: brief.store_name,
+            slogan: brief.slogan,
+            photoSourceUrl: brief.photo_source_url,
+            launchRequestedAt: brief.launch_requested_at ? new Date(brief.launch_requested_at).toISOString() : null,
+            createdAt: new Date(brief.created_at).toISOString(),
+            updatedAt: new Date(brief.updated_at).toISOString(),
           } : null,
+          drafts: drafts.map((draft) => ({
+            draftId: draft.id,
+            variant: draft.variant,
+            content: draft.content,
+            chosenAt: draft.chosen_at ? new Date(draft.chosen_at).toISOString() : null,
+            model: draft.model,
+            createdAt: new Date(draft.created_at).toISOString(),
+          })),
         };
       }
     );
-  });
-
-  // ── 微店建站修改意见与批注流水 ──────────────────────────────────────────
-  const storefrontRevisionsMap = new Map<string, Array<{ id: string; time: string; text: string; status: string }>>();
-
-  app.get('/v1/desk/storefront/revisions', async (req) => {
-    const ctx = await ctxFromHeaders(req);
-    const revs = storefrontRevisionsMap.get(ctx.locationId) ?? [
-      {
-        id: "rev-1",
-        time: "2026-08-25 14:30",
-        text: "请将首页深层精油按摩的价格从 $85 更新为 $95，并加上『赠送 15min 热石体验』的角标。",
-        status: "已修改采纳",
-      },
-      {
-        id: "rev-2",
-        time: "2026-08-26 10:15",
-        text: "把技师团队展示里的 Lisa 师傅头像更换为 Drive 链接中的第一张高清肖像图。",
-        status: "设计处理中",
-      },
-    ];
-    return { revisions: revs };
-  });
-
-  app.post<{ Body: { text: string } }>('/v1/desk/storefront/revisions', async (req) => {
-    const ctx = await ctxFromHeaders(req);
-    const existing = storefrontRevisionsMap.get(ctx.locationId) ?? [
-      {
-        id: "rev-1",
-        time: "2026-08-25 14:30",
-        text: "请将首页深层精油按摩的价格从 $85 更新为 $95，并加上『赠送 15min 热石体验』的角标。",
-        status: "已修改采纳",
-      },
-      {
-        id: "rev-2",
-        time: "2026-08-26 10:15",
-        text: "把技师团队展示里的 Lisa 师傅头像更换为 Drive 链接中的第一张高清肖像图。",
-        status: "设计处理中",
-      },
-    ];
-    const newRev = {
-      id: `rev-${Date.now()}`,
-      time: new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
-      text: req.body?.text || '新增页面修改需求',
-      status: '已提交待处理',
-    };
-    const updated = [newRev, ...existing];
-    storefrontRevisionsMap.set(ctx.locationId, updated);
-    return { success: true, revision: newRev, revisions: updated };
   });
 
   // ── 查询：来电待复核队列（决策 6 的「1 秒复核队列」）────────────────────
@@ -1925,6 +1923,34 @@ export function buildServer(): FastifyInstance {
         const date = await resolveDate(tx, ctx.locationId, req.query.date);
         return loadQueue(tx, ctx, date);
       });
+  });
+
+  app.get('/v1/desk/storefront/revisions', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('billing.manage') && !ctx.permissions.has('settings.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'billing.manage' } });
+    }
+    return withTenant(ctx, async (tx) => {
+      const rows = await tx<{
+        id: string; text: string; status: string; response: string | null;
+        created_at: Date | string; updated_at: Date | string;
+      }[]>`
+        select r.id, r.text, r.status, r.response, r.created_at, r.updated_at
+        from storefront_revisions r
+        join storefront_briefs b on b.id = r.brief_id
+        where b.location_id = ${ctx.locationId}
+        order by r.created_at desc`;
+      return {
+        revisions: rows.map((row) => ({
+          id: row.id,
+          text: row.text,
+          status: row.status,
+          response: row.response,
+          createdAt: new Date(row.created_at).toISOString(),
+          updatedAt: new Date(row.updated_at).toISOString(),
+        })),
+      };
+    });
   });
 
   // ── 查询：订阅与余额（决策 8）────────────────────────────────────────────
@@ -2276,6 +2302,14 @@ export function buildServer(): FastifyInstance {
   );
 
   // ── 硬件终端配对 ───────────────────────────────────────────────────────────
+  app.get('/v1/desk/hardware/devices', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+    }
+    return withTenant(ctx, (tx) => loadHardwareDevices(tx, ctx));
+  });
+
   app.post<{ Body?: { terminalType?: 'customer-facing' | 'kiosk' } }>(
     '/v1/desk/pairing/session', async (req) => {
       const ctx = await ctxFromHeaders(req);

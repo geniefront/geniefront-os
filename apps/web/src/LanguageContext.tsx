@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { translations, DEFAULT_LANGUAGE } from './i18n';
-import type { Language, TranslationKey } from './i18n';
+import { common } from './i18n/common';
+import { DEFAULT_LANGUAGE, UI_LANGUAGES, type Language, type DomainDict } from './i18n/types';
+import type { TranslationKey } from './i18n';
 
 const STORAGE_KEY = 'gf.lang';
 
@@ -21,19 +22,54 @@ const LEGACY_LANGUAGE_ALIASES: Record<string, Language> = {
 
 function normalizeLanguage(raw: string | null): Language | null {
   if (!raw) return null;
-  if (raw in translations) return raw as Language;
+  if (UI_LANGUAGES.some(({ code }) => code === raw)) return raw as Language;
   return LEGACY_LANGUAGE_ALIASES[raw] ?? null;
+}
+
+function flatten(dict: DomainDict): Record<Language, Record<string, string>> {
+  return Object.fromEntries(UI_LANGUAGES.map(({ code }) => [
+    code,
+    Object.fromEntries(Object.entries(dict).map(([key, value]) => [key, value[code]])),
+  ])) as Record<Language, Record<string, string>>;
 }
 
 interface LanguageContextType {
   language: Language;
   setLanguage: (lang: Language) => void;
   t: (key: TranslationKey | string, params?: Record<string, string | number>) => string;
+  /** 业务域词典已按需下载完成；登录页只依赖同步加载的 common。 */
+  ready: boolean;
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
+  const isTest = import.meta.env.MODE === 'test';
+  const [translations, setTranslations] = useState<Record<Language, Record<string, string>>>(() => (
+    (globalThis as typeof globalThis & { __GF_TEST_TRANSLATIONS__?: Record<Language, Record<string, string>> })
+      .__GF_TEST_TRANSLATIONS__ ?? flatten(common)
+  ));
+  const [ready, setReady] = useState(isTest);
+
+  useEffect(() => {
+    if (isTest) return undefined;
+    let cancelled = false;
+    void Promise.all([
+      import('./i18n/schedule'), import('./i18n/queue'), import('./i18n/rotation'),
+      import('./i18n/checkout'), import('./i18n/finance'), import('./i18n/crm'),
+      import('./i18n/settings'), import('./i18n/healthForms'),
+    ]).then(([schedule, queue, rotation, checkout, finance, crm, settings, healthForms]) => {
+      if (cancelled) return;
+      const merged: DomainDict = {
+        ...common, ...schedule.schedule, ...queue.queue, ...rotation.rotation,
+        ...checkout.checkout, ...finance.finance, ...crm.crm, ...settings.settings,
+        ...healthForms.healthForms,
+      };
+      setTranslations(flatten(merged));
+      setReady(true);
+    });
+    return () => { cancelled = true; };
+  }, [isTest]);
   /**
    * 记住上次选择的语言。门店内多台前台终端各有其习惯语言，
    * 若每次刷新都退回默认语言，非中文母语的员工每日均需重复设置。
@@ -103,10 +139,10 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       }
       return text;
     },
-    [language],
+    [language, translations],
   );
 
-  const value = useMemo(() => ({ language, setLanguage, t }), [language, setLanguage, t]);
+  const value = useMemo(() => ({ language, setLanguage, t, ready }), [language, setLanguage, t, ready]);
 
   return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
 }

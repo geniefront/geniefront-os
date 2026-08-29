@@ -157,9 +157,10 @@ export async function claimPairingSession(
 
     const [device] = await tx<{ id: string }[]>`
       insert into device_tokens (
-        org_id, location_id, label, token_hash, last_seen_at
+        org_id, location_id, label, token_hash, last_seen_at, terminal_type
       ) values (
-        ${session.org_id}, ${session.location_id}, ${label}, ${tokenHash}, now()
+        ${session.org_id}, ${session.location_id}, ${label}, ${tokenHash}, now(),
+        ${session.terminal_type}
       )
       returning id`;
 

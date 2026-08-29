@@ -2,37 +2,25 @@ import { useState, useEffect } from "react";
 import { useErrorMessage } from '@/lib/errorMessage';
 import { toast } from "@heroui/react";
 import { useLanguage } from "@/LanguageContext";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { SampleDataNotice } from '@/components/ui/SampleDataNotice';
+import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
-import { Modal, ConfirmDialog } from "@/components/ui/Modal";
+import { ConfirmDialog } from "@/components/ui/Modal";
 import { PageLoading, PageError } from "@/components/ui/QueryState";
 import {
-  Store,
-  Upload,
   CheckCircle2,
   RefreshCw,
   Sparkles,
   Globe,
   Smartphone,
   Monitor,
-  Calendar,
   MessageSquare,
-  FileCheck2,
   Layers,
-  ArrowRight,
   Send,
   ExternalLink,
-  ShieldCheck,
   Paintbrush,
-  Users,
-  Star,
-  MapPin,
-  Clock,
   ChevronRight,
-  Info,
   Check,
   Building2,
 } from "lucide-react";
@@ -42,6 +30,8 @@ import {
   useSaveStorefrontDraft,
   useStorefrontRevisionsQuery,
   useAddStorefrontRevisionMutation,
+  useSubmitStorefrontBrief,
+  useRequestStorefrontLaunch,
 } from "@/features/storefront/api";
 
 export function StorefrontBuilder() {
@@ -51,7 +41,9 @@ export function StorefrontBuilder() {
   const { data: briefData, isLoading: isBriefLoading, isError: isBriefError, error: briefError, refetch } = useStorefrontBriefQuery();
   const { data: revisionsData } = useStorefrontRevisionsQuery();
   const saveDraftMutation = useSaveStorefrontDraft();
+  const submitBriefMutation = useSubmitStorefrontBrief();
   const addRevisionMutation = useAddStorefrontRevisionMutation();
+  const requestLaunchMutation = useRequestStorefrontLaunch();
 
   const isInitialLoading = isBriefLoading && isBlueprintLoading && !briefData && !blueprintData;
 
@@ -62,23 +54,14 @@ export function StorefrontBuilder() {
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
 
   // 品牌建站资料提报表单状态
-  const [storeTitle, setStoreTitle] = useState("Lotus Wellness & Spa");
-  const [storeSlogan, setStoreSlogan] = useState("Manhattan Premium Japanese Spa & Wellness Center");
+  const [storeTitle, setStoreTitle] = useState("");
+  const [storeSlogan, setStoreSlogan] = useState("");
   const [tone, setTone] = useState<"modern" | "luxury" | "zen" | "warm">("zen");
   const [primaryColor, setPrimaryColor] = useState("#0d9488");
-  const [customUsp, setCustomUsp] = useState(
-    "Over 10 years of licensed therapeutic expertise, featuring 100% natural organic essential oils, luxury private VIP suites, and herbal foot soaks."
-  );
-  const [existingWebsiteUrl, setExistingWebsiteUrl] = useState("https://instagram.com/lotus_spa_nyc");
-  const [photoDriveUrl, setPhotoDriveUrl] = useState("https://drive.google.com/drive/folders/lotus-spa-photos");
-  const [selectedModules, setSelectedModules] = useState<string[]>([
-    "online_booking",
-    "service_menu",
-    "therapist_showcase",
-    "google_reviews",
-    "location_map",
-    "multilingual",
-  ]);
+  const [customUsp, setCustomUsp] = useState("");
+  const [existingWebsiteUrl, setExistingWebsiteUrl] = useState("");
+  const [photoDriveUrl, setPhotoDriveUrl] = useState("");
+  const [selectedModules, setSelectedModules] = useState<string[]>([]);
 
   // 从服务端加载已保存的建站需求数据并填入表单
   useEffect(() => {
@@ -91,41 +74,17 @@ export function StorefrontBuilder() {
         if (b.tone || b.voice) setTone((b.tone || b.voice) as any);
         if (b.usp) setCustomUsp(b.usp);
         if (b.currentSiteUrl) setExistingWebsiteUrl(b.currentSiteUrl);
-        if (b.painPoints && Array.isArray(b.painPoints) && b.painPoints.length > 0) {
-          setSelectedModules(b.painPoints);
+        if (b.photoSourceUrl) setPhotoDriveUrl(b.photoSourceUrl);
+        if (b.sections && Array.isArray(b.sections)) {
+          setSelectedModules(b.sections);
         }
       }
     }
   }, [briefData]);
 
-  useEffect(() => {
-    if (revisionsData?.revisions && revisionsData.revisions.length > 0) {
-      setRevisionList(revisionsData.revisions);
-    }
-  }, [revisionsData]);
-
   // 修改意见提报
   const [revisionNote, setRevisionNote] = useState("");
-  const [revisionList, setRevisionList] = useState<
-    Array<{ id: string; time: string; text: string; status: string }>
-  >([
-    {
-      id: "rev-1",
-      time: "2026-08-25 14:30",
-      text: "请将首页深层精油按摩的价格从 $85 更新为 $95，并加上『赠送 15min 热石体验』的角标。",
-      status: "已修改采纳",
-    },
-    {
-      id: "rev-2",
-      time: "2026-08-26 10:15",
-      text: "把技师团队展示里的 Lisa 师傅头像更换为 Drive 链接中的第一张高清肖像图。",
-      status: "设计处理中",
-    },
-  ]);
-
-  // 模拟微店交互：在线预约弹窗
-  const [bookingDemoModalOpen, setBookingDemoModalOpen] = useState(false);
-  const [selectedServiceInDemo, setSelectedServiceInDemo] = useState("60min 尊享深层芳疗精油按摩 ($95)");
+  const revisionList = revisionsData?.revisions ?? [];
 
   // 二次确认弹窗状态
   const [confirmBriefOpen, setConfirmBriefOpen] = useState(false);
@@ -141,13 +100,17 @@ export function StorefrontBuilder() {
   const handleExecuteSaveBrief = async () => {
     try {
       await saveDraftMutation.mutateAsync({
-        voice: tone as any,
+        voice: tone === 'zen' ? 'traditional' : tone,
+        tone,
         brandPrimary: primaryColor,
-        painPoints: selectedModules,
         usp: customUsp || undefined,
         currentSiteUrl: existingWebsiteUrl || undefined,
         sections: selectedModules,
+        storeName: storeTitle || undefined,
+        slogan: storeSlogan || undefined,
+        photoSourceUrl: photoDriveUrl || undefined,
       });
+      await submitBriefMutation.mutateAsync({});
       toast.success(t('settings.sfBriefSubmitted'));
       setConfirmBriefOpen(false);
     } catch (err: any) {
@@ -158,14 +121,11 @@ export function StorefrontBuilder() {
 
   const handleExecuteSubmitRevision = async () => {
     if (!revisionNote.trim()) {
-      toast("请填写具体修改意见");
+      toast(t('settings.sfFeedbackRequired'));
       return;
     }
     try {
-      const res = await addRevisionMutation.mutateAsync({ text: revisionNote.trim() });
-      if (res?.revisions) {
-        setRevisionList(res.revisions);
-      }
+      await addRevisionMutation.mutateAsync({ text: revisionNote.trim() });
       setRevisionNote("");
       setConfirmRevisionOpen(false);
       toast.success(t('settings.sfFeedbackSent'));
@@ -175,10 +135,28 @@ export function StorefrontBuilder() {
     }
   };
 
-  const handleExecuteLaunch = () => {
-    setConfirmLaunchOpen(false);
-    toast.success(t('settings.sfGoLiveSubmitted'));
+  const handleExecuteLaunch = async () => {
+    try {
+      await requestLaunchMutation.mutateAsync({});
+      toast.success(t('settings.sfGoLiveSubmitted'));
+    } catch (err: any) {
+      toast.danger(errorMessage(err));
+    } finally {
+      setConfirmLaunchOpen(false);
+    }
   };
+
+  const briefStatus = briefData?.brief?.status ?? 'draft';
+  const launchRequested = Boolean(briefData?.brief?.launchRequestedAt);
+  const publicUrl = briefData?.brief?.publicUrl;
+  const chosenDraft = briefData?.drafts.find((draft) => draft.chosenAt) ?? briefData?.drafts[0];
+  const progress = [
+    ['submitted', 'drafted', 'chosen', 'live'].includes(briefStatus),
+    ['drafted', 'chosen', 'live'].includes(briefStatus),
+    ['chosen', 'live'].includes(briefStatus),
+    launchRequested || briefStatus === 'live',
+    briefStatus === 'live',
+  ];
 
   if (isInitialLoading) {
     return <PageLoading title={t('settings.sfLoading')} description={t('settings.sfLoadingDesc')} />;
@@ -198,7 +176,6 @@ export function StorefrontBuilder() {
 
   return (
     <div className="space-y-6 pb-20 max-w-7xl mx-auto">
-      <SampleDataNotice />
       {/* 顶部微店服务总览与上线流水线卡片 */}
       <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-teal-950 to-slate-900 text-white shadow-lg space-y-4">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -212,7 +189,7 @@ export function StorefrontBuilder() {
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-teal-500/20 text-teal-300 border border-teal-400/30">
                   <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
                   
-                  {t('settings.sfTicketInProgress')}
+                  {briefStatus === 'live' ? t('settings.sfStep5Status') : t('settings.sfTicketInProgress')}
                 </span>
               </div>
               <p className="text-xs text-teal-100/80 mt-1">
@@ -223,15 +200,17 @@ export function StorefrontBuilder() {
           </div>
 
           <div className="flex items-center gap-2">
-            <a
-              href="https://lotusspa.geniefront.app"
-              target="_blank"
-              rel="noreferrer"
-              className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-mono font-bold flex items-center gap-1.5 border border-white/20 transition-colors"
-            >
-              <span>lotusspa.geniefront.app</span>
-              <ExternalLink className="w-3.5 h-3.5 text-teal-300" />
-            </a>
+            {publicUrl && (
+              <a
+                href={publicUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-mono font-bold flex items-center gap-1.5 border border-white/20 transition-colors"
+              >
+                <span>{publicUrl.replace(/^https?:\/\//, '').split('/')[0]}</span>
+                <ExternalLink className="w-3.5 h-3.5 text-teal-300" />
+              </a>
+            )}
           </div>
         </div>
 
@@ -239,33 +218,36 @@ export function StorefrontBuilder() {
         <div className="pt-2 border-t border-white/10">
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
             {[
-              { step: t('settings.sfStep1'), status: "completed", desc: t('settings.sfStep1Status') },
-              { step: t('settings.sfStep2'), status: "completed", desc: t('settings.sfStep2Status') },
-              { step: t('settings.sfStep3'), status: "active", desc: t('settings.sfStep3Status') },
-              { step: t('settings.sfStep4'), status: "pending", desc: t('settings.sfStep4Status') },
-              { step: t('settings.sfStep5'), status: "pending", desc: t('settings.sfStep5Status') },
-            ].map((st, idx) => (
+              { step: t('settings.sfStep1'), desc: t('settings.sfStep1Status') },
+              { step: t('settings.sfStep2'), desc: t('settings.sfStep2Status') },
+              { step: t('settings.sfStep3'), desc: t('settings.sfStep3Status') },
+              { step: t('settings.sfStep4'), desc: t('settings.sfStep4Status') },
+              { step: t('settings.sfStep5'), desc: t('settings.sfStep5Status') },
+            ].map((st, idx) => {
+              const status = progress[idx] ? 'completed' : progress.slice(0, idx).every(Boolean) ? 'active' : 'pending';
+              return (
               <div
                 key={idx}
                 className={`p-2.5 rounded-xl border transition-all ${
-                  st.status === "completed"
+                  status === "completed"
                     ? "bg-teal-500/20 border-teal-400/40 text-teal-200"
-                    : st.status === "active"
+                    : status === "active"
                     ? "bg-amber-500/20 border-amber-400/50 text-amber-200 font-bold"
                     : "bg-white/5 border-white/10 text-slate-400"
                 }`}
               >
                 <div className="flex items-center justify-between text-[11px]">
                   <span>{st.step}</span>
-                  {st.status === "completed" ? (
+                  {status === "completed" ? (
                     <CheckCircle2 className="w-3.5 h-3.5 text-teal-400" />
-                  ) : st.status === "active" ? (
+                  ) : status === "active" ? (
                     <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
                   ) : null}
                 </div>
                 <p className="text-[10px] opacity-80 mt-0.5">{st.desc}</p>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
@@ -481,7 +463,7 @@ export function StorefrontBuilder() {
             <div className="flex justify-end pt-4 border-t border-slate-100">
               <Button
                 className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow-md gap-1.5"
-                disabled={saveDraftMutation.isPending}
+                disabled={saveDraftMutation.isPending || submitBriefMutation.isPending || !['draft', 'withdrawn'].includes(briefStatus)}
                 onClick={() => setConfirmBriefOpen(true)}
               >
                 <Sparkles className="w-3.5 h-3.5" />
@@ -566,6 +548,7 @@ export function StorefrontBuilder() {
               <div className="flex justify-end">
                 <Button
                   className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs gap-1.5"
+                  disabled={!['submitted', 'drafted', 'chosen', 'live'].includes(briefStatus) || addRevisionMutation.isPending}
                   onClick={() => setConfirmRevisionOpen(true)}
                 >
                   <Send className="w-3.5 h-3.5" />
@@ -584,12 +567,14 @@ export function StorefrontBuilder() {
                     className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1.5"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-[11px] text-slate-400">{rev.time}</span>
+                      <span className="font-mono text-[11px] text-slate-400">
+                        {new Date(rev.createdAt).toLocaleString()}
+                      </span>
                       <Badge
-                        variant={rev.status === t('settings.sfRevisionAccepted') ? "success" : "warning"}
+                        variant={rev.status === 'accepted' ? "success" : "warning"}
                         className="text-[10px]"
                       >
-                        {rev.status}
+                        {t(`settings.sfRevisionStatus.${rev.status}`)}
                       </Badge>
                     </div>
                     <p className="text-slate-800 font-medium leading-relaxed">{rev.text}</p>
@@ -604,29 +589,37 @@ export function StorefrontBuilder() {
             <div className="space-y-2 text-slate-600">
               <div className="flex justify-between p-2 rounded-lg bg-slate-50">
                 <span>{t('settings.sfTicketNo')}</span>
-                <span className="font-mono font-bold text-slate-800">SF-2026-0881</span>
+                <span className="font-mono font-bold text-slate-800">
+                  {briefData?.brief ? `SF-${briefData.brief.id.slice(0, 8).toUpperCase()}` : '—'}
+                </span>
               </div>
               <div className="flex justify-between p-2 rounded-lg bg-slate-50">
                 <span>{t('settings.sfDesigner')}</span>
-                <span className="font-bold text-teal-700">Alex Mitchell</span>
+                <span className="font-bold text-teal-700">—</span>
               </div>
               <div className="flex justify-between p-2 rounded-lg bg-slate-50">
                 <span>{t('settings.sfLastUpdated')}</span>
-                <span className="font-mono text-slate-800">{t('settings.sfUpdatedAt')}</span>
+                <span className="font-mono text-slate-800">
+                  {briefData?.brief ? new Date(briefData.brief.updatedAt).toLocaleString() : '—'}
+                </span>
               </div>
               <div className="flex justify-between p-2 rounded-lg bg-slate-50">
                 <span>{t('settings.sfCurrentVersion')}</span>
-                <span className="font-bold text-slate-800">{t('settings.sfVersionNote')}</span>
+                <span className="font-bold text-slate-800">{briefData?.drafts.length ? `v${briefData.drafts.length}` : '—'}</span>
               </div>
             </div>
 
             <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-teal-950 space-y-1">
               <span className="font-bold">{t('settings.sfDesignerNote')}</span>
-              <p className="text-[11px] leading-relaxed">
-                
-                {t('settings.sfDesignerNoteBody')}
-              </p>
+              <p className="text-[11px] leading-relaxed">{revisionList.find((item) => item.response)?.response ?? '—'}</p>
             </div>
+            <Button
+              className="w-full bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold"
+              disabled={briefStatus !== 'chosen' || launchRequested || requestLaunchMutation.isPending}
+              onClick={() => setConfirmLaunchOpen(true)}
+            >
+              {launchRequested ? t('settings.sfGoLiveSubmitted') : t('settings.sfGoLiveConfirmAction')}
+            </Button>
           </Card>
         </div>
       )}
@@ -649,7 +642,7 @@ export function StorefrontBuilder() {
                 </div>
                 <div className="bg-white border border-slate-200 rounded-lg px-3 py-1 flex items-center gap-1.5 font-mono text-[11px] text-slate-600 shadow-inner">
                   <Globe className="w-3 h-3 text-teal-600 shrink-0" />
-                  <span>https://www.geniefront.com/demo-site/</span>
+                  <span>{publicUrl ?? t('settings.sfPreviewDraftUrl')}</span>
                   <span className="text-[10px] text-emerald-600 font-bold ml-1">{t('settings.sfSslEncrypted')}</span>
                 </div>
               </div>
@@ -657,94 +650,58 @@ export function StorefrontBuilder() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => {
-                    const iframe = document.getElementById("demo-site-iframe") as HTMLIFrameElement;
-                    if (iframe) iframe.src = iframe.src;
-                    toast.success(t('settings.sfPreviewReloaded'));
-                  }}
+                  onClick={() => void refetch()}
                   className="text-xs h-7 px-2 text-slate-600 hover:text-slate-900 gap-1"
                 >
                   <RefreshCw className="w-3 h-3" />
                   
                   {t('settings.sfReload')}
                 </Button>
-                <a
-                  href="https://www.geniefront.com/demo-site/"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-xs font-bold text-teal-700 hover:text-teal-800 bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200"
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  
-                  {t('settings.sfOpenNewTab')}
-                </a>
+                {publicUrl && (
+                  <a
+                    href={publicUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-bold text-teal-700 hover:text-teal-800 bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    {t('settings.sfOpenNewTab')}
+                  </a>
+                )}
               </div>
             </div>
 
             {/* 真实高保真微店 iframe 浏览器 */}
             <div className="relative flex-1 w-full bg-slate-50 flex flex-col min-h-[640px]">
-              <iframe
-                id="demo-site-iframe"
-                src="https://www.geniefront.com/demo-site/"
-                title="GenieFront Live Storefront"
-                className="w-full flex-1 border-0 rounded-b-3xl"
-                style={{ height: previewDevice === "desktop" ? "700px" : "740px" }}
-                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-              />
+              {publicUrl ? (
+                <iframe
+                  id="demo-site-iframe"
+                  src={publicUrl}
+                  title="GenieFront Live Storefront"
+                  className="w-full flex-1 border-0 rounded-b-3xl"
+                  style={{ height: previewDevice === "desktop" ? "700px" : "740px" }}
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+                />
+              ) : (
+                <div className="flex-1 bg-white overflow-auto">
+                  <section className="px-8 py-20 text-center text-white" style={{ backgroundColor: primaryColor }}>
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] opacity-80">{storeTitle || briefData?.shopName}</p>
+                    <h1 className="mt-5 text-4xl font-serif font-bold">{chosenDraft?.content.hero.headline || storeSlogan || storeTitle}</h1>
+                    <p className="mt-4 mx-auto max-w-xl text-sm opacity-90">{chosenDraft?.content.hero.subhead || customUsp}</p>
+                    <span className="inline-flex mt-7 rounded-full bg-white px-5 py-2 text-xs font-bold" style={{ color: primaryColor }}>
+                      {chosenDraft?.content.hero.cta || t('settings.sfFeatureBooking')}
+                    </span>
+                  </section>
+                  <section className="px-8 py-12 max-w-3xl mx-auto">
+                    <h2 className="text-xl font-bold text-slate-900">{t('settings.sfFeaturePricing')}</h2>
+                    <p className="mt-3 text-sm leading-7 text-slate-600">{chosenDraft?.content.about || customUsp || t('settings.sfPreviewEmpty')}</p>
+                  </section>
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
-
-      {/* 模拟官网在线预约弹窗 */}
-      <Modal
-        isOpen={bookingDemoModalOpen}
-        onOpenChange={setBookingDemoModalOpen}
-        size="md"
-        title={t('settings.sfWidgetSim')}
-        footer={
-          <div className="flex justify-end gap-2 w-full">
-            <Button variant="secondary" size="sm" onClick={() => setBookingDemoModalOpen(false)}>
-              
-              {t('settings.sfClosePreview')}
-            </Button>
-            <Button
-              size="sm"
-              className="bg-teal-600 text-white font-bold"
-              onClick={() => {
-                setBookingDemoModalOpen(false);
-                toast.success(t('settings.sfSimBooked'));
-              }}
-            >
-              
-              {t('settings.sfSimSubmit')}
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-3 py-2 text-xs">
-          <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 space-y-1">
-            <span className="font-bold text-teal-900">{t('settings.sfSelectedService')}</span>
-            <p className="font-semibold text-teal-800">{selectedServiceInDemo}</p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block font-semibold text-slate-600 mb-1">{t('settings.sfVisitDate')}</label>
-              <Input type="date" defaultValue="2026-08-28" />
-            </div>
-            <div>
-              <label className="block font-semibold text-slate-600 mb-1">{t('settings.sfPreferredSlot')}</label>
-              <Input type="time" defaultValue="14:30" />
-            </div>
-          </div>
-
-          <div>
-            <label className="block font-semibold text-slate-600 mb-1">{t('settings.sfCustomerContact')}</label>
-            <Input placeholder="Emily Chen (+1 212-555-0192)" defaultValue="Emily Chen (+1 212-555-0192)" />
-          </div>
-        </div>
-      </Modal>
 
       {/* 提交建站资料二次确认弹窗 */}
       <ConfirmDialog

@@ -1,10 +1,8 @@
 /**
  * 客户档案数据层。
  *
- * ⚠️ **当前为只读。** 服务端的 90 条命令中没有任何 `customer.*` 写命令 ——
- * 客户档案目前只作为其他流程的副产品产生（开单时带 guest、取号时带
- * walkInName、提交健康表时回填）。`customer.write` 权限已定义但尚无命令使用它，
- * 因此界面不提供新建 / 编辑入口，而不是提供一个必然失败的入口。
+ * 读操作走 Desk 查询，档案、偏好、拉黑、合并与短信写操作走对应的
+ * `customer.*` 命令。这里不维护本地镜像，命令成功后统一失效相关查询。
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, runCommand } from '@/lib/api';
@@ -179,4 +177,3 @@ export function useSendCustomerSms() {
     },
   });
 }
-

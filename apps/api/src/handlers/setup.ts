@@ -687,11 +687,15 @@ registerHandler(SaveIntakeWaiver, async ({ input, ctx, tx, audit }: HandlerArgs<
   await tx`
     insert into location_intake_templates (
       location_id, waiver_title, waiver_content, require_signature,
-      require_health_allergies, require_pressure_preference, auto_sync_to_profile, updated_at
+      require_health_allergies, require_pressure_preference, auto_sync_to_profile,
+      updated_at, require_body_soreness_map, auto_create_crm_profile,
+      auto_prompt_tip_percentages
     ) values (
       ${ctx.locationId}, ${input.waiverTitle}, ${input.waiverContent ?? null},
       ${input.requireSignature}, ${input.requireHealthAllergies},
-      ${input.requirePressurePreference}, ${input.autoSyncToProfile}, now()
+      ${input.requirePressurePreference}, ${input.autoSyncToProfile}, now(),
+      ${input.requireBodySorenessMap}, ${input.autoCreateCrmProfile},
+      ${input.autoPromptTipPercentages}
     )
     on conflict (location_id) do update set
       waiver_title = excluded.waiver_title,
@@ -700,6 +704,9 @@ registerHandler(SaveIntakeWaiver, async ({ input, ctx, tx, audit }: HandlerArgs<
       require_health_allergies = excluded.require_health_allergies,
       require_pressure_preference = excluded.require_pressure_preference,
       auto_sync_to_profile = excluded.auto_sync_to_profile,
+      require_body_soreness_map = excluded.require_body_soreness_map,
+      auto_create_crm_profile = excluded.auto_create_crm_profile,
+      auto_prompt_tip_percentages = excluded.auto_prompt_tip_percentages,
       updated_at = now()`;
 
   audit({
@@ -729,4 +736,3 @@ registerHandler(SaveWebhooks, async ({ input, ctx, tx, audit }: HandlerArgs<
 
   return { locationId: ctx.locationId, webhookId: row!.id };
 });
-

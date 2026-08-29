@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
 import { apiGet, runCommand } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import type {
@@ -76,6 +75,20 @@ export function useAddTicketItem() {
       void queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
       void queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });
     },
+  });
+}
+
+export function useSaveServiceNote() {
+  const { membershipId } = useSession();
+  return useMutation({
+    mutationFn: async (input: {
+      ticketItemId: string;
+      content: string;
+      visibility: 'management' | 'assigned_staff';
+      containsSensitiveData: boolean;
+    }) => (await runCommand<{ noteId: string; ticketItemId: string; updated: boolean }>(
+      'ticket.saveServiceNote', input, membershipId!,
+    )).result,
   });
 }
 
@@ -188,23 +201,15 @@ export function useSendReceipt() {
   const { membershipId } = useSession();
 
   return useMutation({
-    mutationFn: async ({ ticketId, channel, recipient }: { ticketId: string; channel: 'sms' | 'email'; recipient?: string }) => {
-      const session = (await supabase.auth.getSession()).data.session;
-      const token = session?.access_token;
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-      if (membershipId) headers['X-Membership-Id'] = membershipId;
-
-      const res = await fetch(`/v1/desk/tickets/${ticketId}/send-receipt`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ channel, recipient }),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || '发送小票失败');
-      }
-      return res.json();
-    },
+    mutationFn: async ({ ticketId, channel, destination }: {
+      ticketId: string;
+      channel: 'sms' | 'email';
+      destination?: string;
+    }) => (await runCommand<{
+      ticketId: string;
+      channel: 'sms' | 'email';
+      destination: string;
+      outboxId: string;
+    }>('ticket.sendReceipt', { ticketId, channel, destination }, membershipId!)).result,
   });
 }

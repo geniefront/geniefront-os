@@ -89,7 +89,7 @@ export function registerKioskRoutes(app: FastifyInstance): void {
   // Kiosk 一开机就调它。令牌被吊销时立刻显示「这台设备已停用，请找前台」，
   // 而不是等客人输完号码才报错。
   app.get('/v1/kiosk/hello', async (req) => {
-    const { ctx, label } = await device(req);
+    const { ctx, label, terminalType } = await device(req);
     return withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: null },
       async (tx) => {
@@ -102,8 +102,21 @@ export function registerKioskRoutes(app: FastifyInstance): void {
           where location_id = ${ctx.locationId} and active = true
           order by sort, name->>'en' limit 40`;
 
+        const [intake] = await tx<{
+          require_signature: boolean; require_health_allergies: boolean;
+          require_pressure_preference: boolean; require_body_soreness_map: boolean;
+          auto_create_crm_profile: boolean; auto_prompt_tip_percentages: boolean;
+        }[]>`
+          select require_signature, require_health_allergies, require_pressure_preference,
+                 require_body_soreness_map, auto_create_crm_profile, auto_prompt_tip_percentages
+          from location_intake_templates where location_id = ${ctx.locationId}`;
+        const [checkout] = await tx<{ suggested_tip_percentages: number[] }[]>`
+          select suggested_tip_percentages from location_checkout_settings
+          where location_id = ${ctx.locationId}`;
+
         return {
           deviceLabel: label,
+          terminalType,
           locationName: loc!.name,
           timezone: loc!.tz,
           businessDate: businessDateOf(new Date(), loc!.tz, loc!.cutoff),
@@ -111,9 +124,84 @@ export function registerKioskRoutes(app: FastifyInstance): void {
           services: services.map((s) => ({
             id: s.id, name: s.name, durationMin: s.duration_min,
           })),
+          deviceConfig: {
+            requireSignature: intake?.require_signature ?? true,
+            requireHealthAllergies: intake?.require_health_allergies ?? true,
+            requirePressurePreference: intake?.require_pressure_preference ?? true,
+            requireBodySorenessMap: intake?.require_body_soreness_map ?? true,
+            autoCreateCrmProfile: intake?.auto_create_crm_profile ?? true,
+            autoPromptTipPercentages: intake?.auto_prompt_tip_percentages ?? true,
+            suggestedTipPercentages: checkout?.suggested_tip_percentages ?? [15, 18, 20, 25],
+          },
         };
       });
   });
+
+  // ── 设备心跳：上报可选遥测，并领取后台下发的短命令 ──────────────────────
+  app.post<{ Body?: {
+    model?: string; batteryLevel?: number; wifiSignalDbm?: number; appVersion?: string;
+  } }>('/v1/kiosk/heartbeat', async (req) => {
+    const { ctx, deviceId } = await device(req);
+    const body = req.body ?? {};
+    const battery = Number.isInteger(body.batteryLevel) && body.batteryLevel! >= 0 && body.batteryLevel! <= 100
+      ? body.batteryLevel! : null;
+    const wifi = Number.isInteger(body.wifiSignalDbm) && body.wifiSignalDbm! >= -150 && body.wifiSignalDbm! <= 0
+      ? body.wifiSignalDbm! : null;
+    const model = typeof body.model === 'string' ? body.model.trim().slice(0, 120) : null;
+    const appVersion = typeof body.appVersion === 'string' ? body.appVersion.trim().slice(0, 60) : null;
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: null },
+      async (tx) => {
+        await tx`
+          update device_tokens set
+            last_seen_at = now(),
+            ip_address = ${req.ip},
+            model = coalesce(${model || null}, model),
+            battery_level = coalesce(${battery}, battery_level),
+            wifi_signal_dbm = coalesce(${wifi}, wifi_signal_dbm),
+            app_version = coalesce(${appVersion || null}, app_version)
+          where id = ${deviceId}`;
+        await tx`
+          update device_commands set status = 'expired'
+          where device_id = ${deviceId} and status = 'pending'
+            and created_at < now() - interval '10 minutes'`;
+        const commands = await tx<{ id: string; kind: 'wake' | 'reset_home'; created_at: Date | string }[]>`
+          select id, kind, created_at from device_commands
+          where device_id = ${deviceId} and status = 'pending'
+          order by created_at limit 20`;
+        return {
+          serverTime: new Date().toISOString(),
+          commands: commands.map((command) => ({
+            commandId: command.id,
+            kind: command.kind,
+            createdAt: new Date(command.created_at).toISOString(),
+          })),
+        };
+      },
+    );
+  });
+
+  app.post<{ Params: { id: string }; Body?: { status?: 'acknowledged' | 'failed'; errorMessage?: string } }>(
+    '/v1/kiosk/commands/:id/ack', async (req) => {
+      const { ctx, deviceId } = await device(req);
+      const status = req.body?.status === 'failed' ? 'failed' : 'acknowledged';
+      return withTenant(
+        { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: null },
+        async (tx) => {
+          const rows = await tx<{ id: string }[]>`
+            update device_commands set
+              status = ${status}, acknowledged_at = now(),
+              error_message = ${status === 'failed' ? (req.body?.errorMessage ?? '').slice(0, 500) : null}
+            where id = ${req.params.id} and device_id = ${deviceId} and status = 'pending'
+            returning id`;
+          if (rows.length === 0) {
+            throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'device_command' } });
+          }
+          return { commandId: rows[0]!.id, status };
+        },
+      );
+    },
+  );
 
   // ── 签到：手机号 → 今天的预约（窄路径，见文件头）─────────────────────────
   app.post<{ Body: { phone?: string } }>('/v1/kiosk/check-in/lookup', async (req) => {

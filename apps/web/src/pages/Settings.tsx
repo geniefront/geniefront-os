@@ -39,7 +39,6 @@ import {
   Percent,
   DollarSign,
   Smartphone,
-  FileCheck2,
   Sliders,
   Webhook,
   HelpCircle,
@@ -66,11 +65,9 @@ import {
   useSaveOnlineBooking,
   useAddWebOrigin,
   useRemoveWebOrigin,
-  useIssueDeviceToken,
   useSavePhoneAssistant,
   useSaveCheckoutSettings,
   useApply10Dlc,
-  useSaveIntakeWaiver,
   useSaveWebhooks,
 } from '@/features/settings/api';
 import type { QuotaView } from '@/features/billing/types';
@@ -79,9 +76,9 @@ import type {
   ServiceItem,
   StaffItem,
   CheckoutSettings,
-  HardwareIntakeConfig,
   WebhookConfigItem,
 } from '@/features/settings/types';
+import { HardwareServer } from './HardwareServer';
 import { dollarsToCents, centsToDollars } from '@/features/checkout/api';
 import {
   PRESET_STORE_AVATARS,
@@ -145,7 +142,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     groupName: 'Hardware & Devices',
     items: [
-      { id: 'hardware', label: '硬件与大堂副屏', icon: TabletSmartphone },
+      { id: 'hardware', label: '设备与顾客副屏', icon: TabletSmartphone },
       { id: 'integrations', label: '网站插件与 API', icon: Globe },
     ],
   },
@@ -243,11 +240,9 @@ export function Settings() {
   const saveOnlineBookingMutation = useSaveOnlineBooking();
   const addOriginMutation = useAddWebOrigin();
   const removeOriginMutation = useRemoveWebOrigin();
-  const issueTokenMutation = useIssueDeviceToken();
   const savePhoneAssistantMutation = useSavePhoneAssistant();
   const saveCheckoutMutation = useSaveCheckoutSettings();
   const apply10DlcMutation = useApply10Dlc();
-  const saveIntakeWaiverMutation = useSaveIntakeWaiver();
   const saveWebhooksMutation = useSaveWebhooks();
   const changePlanMutation = useChangePlanMutation();
   const createPortalMutation = useCreateBillingPortalSession();
@@ -352,15 +347,6 @@ export function Settings() {
   const [sampleMsg2, setSampleMsg2] = useState('');
   const [optInMethod, setOptInMethod] = useState('');
 
-  // 9. 硬件与副屏
-  const [deviceLabel, setDeviceLabel] = useState('');
-  const [issuedTokenResult, setIssuedTokenResult] = useState<{ token: string; label: string } | null>(null);
-  const [requireSignature, setRequireSignature] = useState(true);
-  const [requireHealthAllergies, setRequireHealthAllergies] = useState(true);
-  const [requirePressurePreference, setRequirePressurePreference] = useState(true);
-  const [waiverTitle, setWaiverTitle] = useState('');
-  const [waiverContent, setWaiverContent] = useState('');
-
   // 10. 网站插件与 API (CORS, Webhooks)
   const [newOriginUrl, setNewOriginUrl] = useState('');
   const [copiedKey, setCopiedKey] = useState(false);
@@ -378,8 +364,6 @@ export function Settings() {
   const [confirmSaveBookingOpen, setConfirmSaveBookingOpen] = useState(false);
   const [confirmTenDlcOpen, setConfirmTenDlcOpen] = useState(false);
   const [confirmSavePhoneOpen, setConfirmSavePhoneOpen] = useState(false);
-  const [confirmSaveHardwareOpen, setConfirmSaveHardwareOpen] = useState(false);
-  const [confirmIssueTokenOpen, setConfirmIssueTokenOpen] = useState(false);
   const [confirmChangePlan, setConfirmChangePlan] = useState<string | null>(null);
 
   // Walk-in Guest轮牌状态切换二次确认弹窗
@@ -457,13 +441,6 @@ export function Settings() {
         setOptInMethod(settings.tenDlc.optInMethod ?? '');
         setSampleMsg1(settings.tenDlc.sampleMessages?.[0] ?? '');
         setSampleMsg2(settings.tenDlc.sampleMessages?.[1] ?? '');
-      }
-      if (settings.intakeWaiver) {
-        setWaiverTitle(settings.intakeWaiver.waiverTitle ?? '');
-        setWaiverContent(settings.intakeWaiver.waiverContent ?? '');
-        if (settings.intakeWaiver.requireSignature !== undefined) setRequireSignature(settings.intakeWaiver.requireSignature);
-        if (settings.intakeWaiver.requireHealthAllergies !== undefined) setRequireHealthAllergies(settings.intakeWaiver.requireHealthAllergies);
-        if (settings.intakeWaiver.requirePressurePreference !== undefined) setRequirePressurePreference(settings.intakeWaiver.requirePressurePreference);
       }
       if (settings.webhooks && settings.webhooks.length > 0) {
         const primaryWebhook = settings.webhooks[0];
@@ -712,22 +689,6 @@ export function Settings() {
     }
   };
 
-  const handleSaveIntakeWaiver = async () => {
-    try {
-      await saveIntakeWaiverMutation.mutateAsync({
-        waiverTitle: waiverTitle.trim(),
-        waiverContent: waiverContent.trim() || null,
-        requireSignature,
-        requireHealthAllergies,
-        requirePressurePreference,
-        autoSyncToProfile: true,
-      });
-      toast.success(t('settings.stIntakeSaved'));
-    } catch (err: any) {
-      toast.danger(errorMessage(err));
-    }
-  };
-
   const handleSaveWebhooks = async () => {
     if (!webhookUrl.trim()) return;
     try {
@@ -742,16 +703,6 @@ export function Settings() {
         active: true,
       });
       toast.success(t('settings.stWebhookSaved'));
-    } catch (err: any) {
-      toast.danger(errorMessage(err));
-    }
-  };
-
-  const handleIssueKioskToken = async () => {
-    try {
-      const res = await issueTokenMutation.mutateAsync({ label: deviceLabel.trim() || 'iPad Kiosk' });
-      setIssuedTokenResult({ token: res.token, label: deviceLabel.trim() || 'iPad Kiosk' });
-      toast.success(t('settings.stTokenGenerated'));
     } catch (err: any) {
       toast.danger(errorMessage(err));
     }
@@ -2244,125 +2195,7 @@ export function Settings() {
           {/* TAB 9: 硬件设备与大堂副屏 (hardware) */}
           {/* ============================================================ */}
           {currentTab === 'hardware' && (
-            <div className="space-y-6">
-              <SettingsCard
-                title={t('settings.stPairingTitle')}
-                description={t('settings.stPairingDesc')}
-              >
-                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3 mb-6">
-                  <h4 className="text-xs font-bold text-slate-900">{t('settings.stIssueNewToken')}</h4>
-                  <p className="text-[11px] text-slate-500">
-                    
-                    {t('settings.stIssueTokenDesc')}
-                  </p>
-                  <div className="flex gap-2 max-w-md">
-                    <Input
-                      value={deviceLabel}
-                      onChange={(e) => setDeviceLabel(e.target.value)}
-                      placeholder={t('settings.stKiosk1')}
-                      className="text-xs"
-                    />
-                    <Button
-                      onClick={() => setConfirmIssueTokenOpen(true)}
-                      disabled={issueTokenMutation.isPending}
-                      className="shrink-0 bg-teal-600 text-white font-bold text-xs"
-                    >
-                      {issueTokenMutation.isPending ? t('settings.stTokenGenerating') : t('settings.stIssueToken')}
-                    </Button>
-                  </div>
-                </div>
-
-                {issuedTokenResult && (
-                  <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-2 mb-6">
-                    <span className="text-xs font-bold text-emerald-800 uppercase flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      {issuedTokenResult.label}  {t('settings.stTokenReady')}
-                    </span>
-                    <code className="block p-3 bg-white rounded-xl border border-emerald-300 text-xs font-mono text-emerald-900 break-all select-all font-bold">
-                      {issuedTokenResult.token}
-                    </code>
-                    <p className="text-[11px] text-emerald-700">
-                      
-                      {t('settings.stTokenEnterHint')}
-                    </p>
-                  </div>
-                )}
-
-                <div className="border-t border-slate-100 pt-4 space-y-4">
-                  <h4 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                    <FileCheck2 className="w-4 h-4 text-teal-600" />
-                    
-                    {t('settings.stConsentTemplateTitle')}
-                  </h4>
-
-                  <SettingsRow
-                    label={t('settings.stConsentTitle')}
-                    required
-                  >
-                    <Input
-                      value={waiverTitle}
-                      onChange={(e) => setWaiverTitle(e.target.value)}
-                      className="text-xs"
-                    />
-                  </SettingsRow>
-
-                  <SettingsRow
-                    label={t('settings.stConsentBody')}
-                    description={t('settings.stConsentBodyDesc')}
-                    alignTop
-                  >
-                    <textarea
-                      rows={3}
-                      value={waiverContent}
-                      onChange={(e) => setWaiverContent(e.target.value)}
-                      className="w-full p-2.5 text-xs rounded-xl border border-slate-200 leading-relaxed text-slate-800"
-                    />
-                  </SettingsRow>
-
-                  <SettingsRow label={t('settings.stRequiredFields')}>
-                    <div className="space-y-2 text-xs">
-                      <label className="flex items-center gap-2 cursor-pointer text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={requireSignature}
-                          onChange={(e) => setRequireSignature(e.target.checked)}
-                          className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 w-4 h-4"
-                        />
-                        <span>{t('settings.stRequireSignature')}</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={requireHealthAllergies}
-                          onChange={(e) => setRequireHealthAllergies(e.target.checked)}
-                          className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 w-4 h-4"
-                        />
-                        <span>{t('settings.stCollectAllergies')}</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={requirePressurePreference}
-                          onChange={(e) => setRequirePressurePreference(e.target.checked)}
-                          className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 w-4 h-4"
-                        />
-                        <span>{t('settings.stCollectPressure')}</span>
-                      </label>
-                    </div>
-                  </SettingsRow>
-
-                  <div className="flex justify-end pt-2">
-                    <Button
-                      onClick={handleSaveIntakeWaiver}
-                      disabled={saveIntakeWaiverMutation.isPending}
-                      className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs"
-                    >
-                      {saveIntakeWaiverMutation.isPending ? t('settings.stConsentSaving') : t('settings.stSaveConsent')}
-                    </Button>
-                  </div>
-                </div>
-              </SettingsCard>
-            </div>
+            <HardwareServer embedded />
           )}
 
           {/* ============================================================ */}
@@ -2984,19 +2817,6 @@ export function Settings() {
         onConfirm={async () => {
           await handleSavePhoneAssistant();
           setConfirmSavePhoneOpen(false);
-        }}
-      />
-
-      {/* 10. 签发设备令牌确认 */}
-      <ConfirmDialog
-        isOpen={confirmIssueTokenOpen}
-        onOpenChange={setConfirmIssueTokenOpen}
-        title={t('settings.stIssueTokenConfirmTitle', { p0: deviceLabel })}
-        description={t('settings.stIssueTokenConfirmBody')}
-        confirmLabel={t('settings.stIssueTokenConfirmAction')}
-        onConfirm={async () => {
-          await handleIssueKioskToken();
-          setConfirmIssueTokenOpen(false);
         }}
       />
 

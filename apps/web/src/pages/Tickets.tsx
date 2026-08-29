@@ -1206,7 +1206,22 @@ function TicketsContent() {
                   size="sm"
                   variant="secondary"
                   className="text-xs font-bold gap-1 text-teal-700 bg-teal-50 border-teal-200 hover:bg-teal-100"
-                  onClick={() => toast.success(t('checkout.tkReceiptSent', { p0: selectedRecord.customerName || '顾客', p1: selectedRecord.customerPhone || '手机' }))}
+                  isPending={sendReceiptMutation.isPending}
+                  onClick={async () => {
+                    try {
+                      const result = await sendReceiptMutation.mutateAsync({
+                        ticketId: selectedRecord.ticketId,
+                        channel: 'sms',
+                        ...(selectedRecord.customerPhone ? { destination: selectedRecord.customerPhone } : {}),
+                      });
+                      toast.success(t('checkout.tkReceiptSent', {
+                        p0: selectedRecord.customerName || t('checkout.walkInGuest'),
+                        p1: result.destination,
+                      }));
+                    } catch (err) {
+                      toast.danger(errorMessage(err));
+                    }
+                  }}
                 >
                   <Send className="w-3.5 h-3.5 text-teal-600" />
                   <span>{t('checkout.tkSendReceipt')}</span>

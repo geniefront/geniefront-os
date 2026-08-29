@@ -22,13 +22,17 @@ export function Modal({
   isOpen, onOpenChange, title, description, children, footer, size = 'md',
 }: ModalProps) {
   return (
-    <HeroModal>
-      <HeroModal.Backdrop
-        variant="blur"
-        isOpen={isOpen}
-        onOpenChange={onOpenChange}
-        className="!z-[300]"
-      >
+    /*
+      这是外部状态驱动的弹窗，直接使用 Backdrop（底层 ModalOverlay）。
+      HeroUI Modal.Root 固定创建 DialogTrigger，若没有页面内触发按钮就会产生
+      PressResponder 警告；这里的触发入口在调用方，不能伪造隐藏按钮。
+    */
+    <HeroModal.Backdrop
+      variant="blur"
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      className="!z-[300]"
+    >
         <HeroModal.Container size={size} className="!z-[301]">
           <HeroModal.Dialog>
             <HeroModal.CloseTrigger />
@@ -40,8 +44,7 @@ export function Modal({
             {footer ? <HeroModal.Footer>{footer}</HeroModal.Footer> : null}
           </HeroModal.Dialog>
         </HeroModal.Container>
-      </HeroModal.Backdrop>
-    </HeroModal>
+    </HeroModal.Backdrop>
   );
 }
 

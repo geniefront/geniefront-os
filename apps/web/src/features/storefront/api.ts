@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, runCommand } from "@/lib/api";
 import { useSession } from "@/lib/session";
-import type { BlueprintsResponse, SaveStorefrontBriefInput } from "./types";
+import type { BlueprintsResponse, SaveStorefrontBriefInput, StorefrontBriefResponse, StorefrontDraftContent, StorefrontRevision } from "./types";
 
 export const storefrontKeys = {
   blueprints: (membershipId: string | null) => ["desk", "blueprints", membershipId] as const,
@@ -21,23 +21,7 @@ export function useStorefrontBriefQuery() {
   return useQuery({
     queryKey: ["desk", "storefront-brief", membershipId],
     queryFn: () =>
-      apiGet<{
-        shopName: string;
-        slogan: string;
-        brief: {
-          id: string;
-          status: string;
-          voice: string | null;
-          brandPrimary: string | null;
-          brandAccent: string | null;
-          painPoints: string[];
-          sections: string[];
-          usp: string | null;
-          tone: "modern" | "luxury" | "zen" | "warm" | null;
-          currentSiteUrl: string | null;
-          referenceSites: string[];
-        } | null;
-      }>("/v1/desk/storefront/brief"),
+      apiGet<StorefrontBriefResponse>("/v1/desk/storefront/brief"),
     enabled: status === "ready" && membershipId !== null,
   });
 }
@@ -62,35 +46,46 @@ export function useSaveStorefrontDraft() {
   });
 }
 
-export interface StorefrontRevision {
-  id: string;
-  time: string;
-  text: string;
-  status: string;
+function useStorefrontCommand<TInput extends Record<string, unknown>, TResult>(name: string) {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: TInput) => (await runCommand<TResult>(name, input, membershipId!)).result,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["desk", "storefront-brief"] });
+    },
+  });
 }
+
+export const useSubmitStorefrontBrief = () => useStorefrontCommand<Record<string, never>, { briefId: string; status: string }>('storefront.submit');
+export const useWithdrawStorefrontBrief = () => useStorefrontCommand<Record<string, never>, { briefId: string; status: string }>('storefront.withdraw');
+export const useChooseStorefrontDraft = () => useStorefrontCommand<{ draftId: string }, { briefId: string; draftId: string; status: string }>('storefront.chooseDraft');
+export const useRequestStorefrontLaunch = () => useStorefrontCommand<Record<string, never>, { briefId: string; status: string; launchRequestedAt: string }>('storefront.requestLaunch');
 
 export function useStorefrontRevisionsQuery() {
   const { membershipId, status } = useSession();
   return useQuery({
-    queryKey: ["desk", "storefront-revisions", membershipId],
-    queryFn: () => apiGet<{ revisions: StorefrontRevision[] }>("/v1/desk/storefront/revisions"),
-    enabled: status === "ready" && membershipId !== null,
+    queryKey: ['desk', 'storefront-revisions', membershipId],
+    queryFn: () => apiGet<{ revisions: StorefrontRevision[] }>('/v1/desk/storefront/revisions'),
+    enabled: status === 'ready' && membershipId !== null,
   });
 }
 
 export function useAddStorefrontRevisionMutation() {
+  const { membershipId } = useSession();
   const queryClient = useQueryClient();
-
   return useMutation({
-    mutationFn: async ({ text }: { text: string }) => {
-      const res = await apiPost<{ success: boolean; revision: StorefrontRevision; revisions: StorefrontRevision[] }>(
-        "/v1/desk/storefront/revisions",
-        { text },
-      );
-      return res;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["desk", "storefront-revisions"] });
-    },
+    mutationFn: async (input: { text: string }) => (await runCommand<{
+      revisionId: string; status: 'submitted'; createdAt: string;
+    }>('storefront.addRevision', input, membershipId!)).result,
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['desk', 'storefront-revisions'] }),
+  });
+}
+
+export function useGenerateStorefrontDrafts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (briefId: string) => apiPost<{ briefId: string; status: string; drafts: Array<{ variant: number; content: StorefrontDraftContent }> }>(`/v1/storefront/${briefId}/generate`, {}),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["desk", "storefront-brief"] }),
   });
 }

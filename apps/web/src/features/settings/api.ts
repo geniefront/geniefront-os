@@ -188,7 +188,7 @@ export function useAddWebOrigin() {
   return useMutation({
     mutationFn: async (input: AddWebOriginInput) => {
       const res = await runCommand(
-        'location.addOrigin',
+        'location.addWebOrigin',
         input,
         membershipId!,
       );
@@ -207,7 +207,7 @@ export function useRemoveWebOrigin() {
   return useMutation({
     mutationFn: async (input: RemoveWebOriginInput) => {
       const res = await runCommand(
-        'location.removeOrigin',
+        'location.removeWebOrigin',
         input,
         membershipId!,
       );

@@ -25,6 +25,7 @@ export interface DeviceTokenRow {
   timezone: string;
   defaultLocale: string;
   locationStatus: string;
+  terminalType: 'customer-facing' | 'kiosk' | null;
 }
 
 export async function withDeviceToken(tokenHash: string): Promise<DeviceTokenRow | null> {
@@ -44,9 +45,11 @@ export async function withDeviceToken(tokenHash: string): Promise<DeviceTokenRow
     const rows = await tx<{
       id: string; org_id: string; location_id: string; label: string;
       token_hash: string; revoked_at: Date | string | null;
+      terminal_type: 'customer-facing' | 'kiosk' | null;
       tz: string; locale: string; loc_status: string;
     }[]>`
       select d.id, d.org_id, d.location_id, d.label, d.token_hash, d.revoked_at,
+             d.terminal_type,
              l.timezone as tz, o.default_locale as locale, l.status as loc_status
       from device_tokens d
       join locations l on l.id = d.location_id
@@ -70,6 +73,7 @@ export async function withDeviceToken(tokenHash: string): Promise<DeviceTokenRow
       timezone: r.tz,
       defaultLocale: r.locale,
       locationStatus: r.loc_status,
+      terminalType: r.terminal_type,
     };
   }) as Promise<DeviceTokenRow | null>;
 }

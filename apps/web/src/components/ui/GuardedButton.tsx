@@ -1,4 +1,4 @@
-import { Tooltip } from '@heroui/react';
+import { useId } from 'react';
 import { useLanguage } from '@/LanguageContext';
 import { useWriteBlockReason } from '@/lib/permissions';
 import { Button, type ButtonProps } from './Button';
@@ -33,6 +33,7 @@ export function GuardedButton({
 }: GuardedButtonProps) {
   const { t } = useLanguage();
   const blockReason = useWriteBlockReason()(permission);
+  const reasonId = useId();
 
   if (blockReason === 'forbidden' && fallback === 'hide') return null;
 
@@ -43,21 +44,25 @@ export function GuardedButton({
   const reasonText = blockReason === 'offline' ? t('blockedOffline') : t('blockedForbidden');
 
   return (
-    <Tooltip delay={200}>
-      {/*
-        禁用的按钮不派发指针事件，因此不能直接作为触发元素。
-        由 Tooltip.Trigger 包裹一个可聚焦的容器承载悬停与键盘焦点，
-        使被禁用的原因在鼠标与键盘两种操作方式下都能被读到。
-      */}
-      <Tooltip.Trigger aria-label={reasonText}>
-        <span className="inline-flex" tabIndex={0}>
-          <Button {...props} isDisabled />
-        </span>
-      </Tooltip.Trigger>
-      <Tooltip.Content showArrow>
-        <Tooltip.Arrow />
+    /*
+      禁用的按钮不派发指针事件，因此由可聚焦容器承载悬停与键盘焦点。
+      这里不使用 HeroUI Tooltip.Trigger：它要求直接子节点实现 react-aria
+      pressable 契约，而普通容器会在每个无权限按钮上产生 PressResponder 警告。
+    */
+    <span
+      className="group relative inline-flex"
+      tabIndex={0}
+      aria-label={reasonText}
+      aria-describedby={reasonId}
+    >
+      <Button {...props} isDisabled />
+      <span
+        id={reasonId}
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-max max-w-64 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus:opacity-100"
+      >
         {reasonText}
-      </Tooltip.Content>
-    </Tooltip>
+      </span>
+    </span>
   );
 }

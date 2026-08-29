@@ -162,6 +162,32 @@ describe('选版', () => {
     expect(rows.find((r) => r.chosen_at !== null)!.id).toBe(ids[1]!.id);
   });
 
+  it('选版后可提交修改意见并申请上线', async () => {
+    await reset();
+    const brief = await run<{ briefId: string }>('storefront.saveDraft', {
+      storeName: 'Test Spa', slogan: 'Rest well', photoSourceUrl: 'https://drive.test/photos',
+      usp: 'x', sections: ['hero'],
+    });
+    await run('storefront.submit');
+    const [draft] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      insert into storefront_drafts (org_id, location_id, brief_id, variant, content)
+      values (${SPA_ORG}, ${SPA_LOC}, ${brief.briefId}, 1, '{"v":1}'::jsonb)
+      returning id`);
+    await run('storefront.chooseDraft', { draftId: draft!.id });
+    const revision = await run<{ revisionId: string; status: string }>(
+      'storefront.addRevision', { text: 'Please update the hero photo.' },
+    );
+    expect(revision.status).toBe('submitted');
+    const launched = await run<{ launchRequestedAt: string }>('storefront.requestLaunch');
+    expect(new Date(launched.launchRequestedAt).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+
+    const [row] = await withTenant(tenant, (tx) => tx<{
+      store_name: string; launch_requested_at: Date | string | null;
+    }[]>`select store_name, launch_requested_at from storefront_briefs where id = ${brief.briefId}`);
+    expect(row?.store_name).toBe('Test Spa');
+    expect(row?.launch_requested_at).toBeTruthy();
+  });
+
   it('别家店的版本选不了', async () => {
     await reset();
     await expect(run('storefront.chooseDraft',

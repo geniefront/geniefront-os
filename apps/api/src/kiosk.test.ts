@@ -127,6 +127,10 @@ describe('设备令牌', () => {
     const res = await kiosk('GET', '/v1/kiosk/hello');
     expect(res.statusCode).toBe(200);
     expect(res.json().deviceLabel).toBe('测试用门口 iPad');
+    expect(res.json().deviceConfig).toMatchObject({
+      requireSignature: expect.any(Boolean),
+      suggestedTipPercentages: expect.any(Array),
+    });
     // 项目名要整份多语言给出去 —— 客人看的是自己的语言
     expect(Array.isArray(res.json().services)).toBe(true);
   });
@@ -143,6 +147,31 @@ describe('设备令牌', () => {
       headers: { authorization: 'Bearer whatever' },
     });
     expect(res.statusCode).toBe(401);
+  });
+
+  it('心跳会上报遥测、领取后台命令并回执', async () => {
+    const queued = await run<{ commandId: string }>('device.queueCommand', {
+      deviceId, kind: 'reset_home',
+    });
+    const heartbeat = await kiosk('POST', '/v1/kiosk/heartbeat', {
+      model: 'Test Tablet', batteryLevel: 81, wifiSignalDbm: -48, appVersion: '2.5.0',
+    });
+    expect(heartbeat.statusCode).toBe(200);
+    expect(heartbeat.json().commands).toContainEqual(expect.objectContaining({
+      commandId: queued.commandId, kind: 'reset_home',
+    }));
+
+    const ack = await kiosk('POST', `/v1/kiosk/commands/${queued.commandId}/ack`, {
+      status: 'acknowledged',
+    });
+    expect(ack.statusCode).toBe(200);
+    const [row] = await withTenant(tenant, (tx) => tx<{
+      model: string; battery_level: number; status: string;
+    }[]>`
+      select d.model, d.battery_level, c.status
+      from device_tokens d join device_commands c on c.device_id = d.id
+      where d.id = ${deviceId} and c.id = ${queued.commandId}`);
+    expect(row).toMatchObject({ model: 'Test Tablet', battery_level: 81, status: 'acknowledged' });
   });
 
   it('⭐ 吊销之后立刻用不了 —— iPad 丢了就是靠这个', async () => {
