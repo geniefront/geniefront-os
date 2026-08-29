@@ -1,4 +1,4 @@
-/* 顺序不能改：tailwind → heroui oss → heroui pro（Pro 的样式要盖在 OSS 上） */
+/* 顺序不能改：Tailwind 基础层必须先于 HeroUI 组件样式。 */
 @import "tailwindcss";
 @import "@heroui/styles";
 
