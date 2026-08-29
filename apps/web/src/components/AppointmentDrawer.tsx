@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  AlertCircle, AlertTriangle, BedDouble, CalendarClock, Check, ChevronRight,
-  CreditCard, Edit3, FileHeart, FileText, Gift, HeartPulse, Languages, Plus,
-  QrCode, Scissors, Settings, Sparkles, Stethoscope, User, X,
+  AlertCircle, AlertTriangle, BedDouble, Calendar, CalendarClock, Check, ChevronRight,
+  CreditCard, Edit2, Edit3, FileHeart, FileText, Gift, HeartPulse, Languages, Mail, Phone, Plus,
+  QrCode, Scissors, Settings, Sparkles, Star, Stethoscope, Tag, User, X,
 } from 'lucide-react';
 import { Spinner, toast } from '@heroui/react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -14,9 +14,10 @@ import {
   useAppointmentFormsQuery,
   useHealthFormSubmissionQuery,
   useSaveAppointmentServiceBrief,
+  useUpdateAppointmentCustomer,
 } from '@/features/schedule/appointmentDetail';
 import { useCancelAppointment, useRescheduleAppointment } from '@/features/schedule/api';
-import { useCustomerDetail, useSaveCustomerPreferences } from '@/features/customers/api';
+import { useCustomerDetail, useSaveCustomerPreferences, useSaveCustomerProfile } from '@/features/customers/api';
 import { useAddTicketItem, useSaveServiceNote, useTicketsList } from '@/features/tickets/api';
 import { useShareForm, type FormShareResult } from '@/features/forms/api';
 import { generateAiHealthSummary } from '@/features/forms/mockData';
@@ -25,10 +26,11 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { GuardedButton } from './ui/GuardedButton';
 import { Modal } from './ui/Modal';
+import { Input } from './ui/Input';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { instantToWallDate, instantToWallMinutes, useStoreTime, wallMinutesToInstant } from '@/lib/time';
 import { centsToDollars } from '@/features/checkout/api';
-import { cn, formatPhoneDisplay } from '@/lib/utils';
+import { cn, formatPhoneDisplay, formatPhoneInput, normalizePhoneE164 } from '@/lib/utils';
 
 interface AppointmentDrawerProps {
   onClose: () => void;
@@ -83,10 +85,24 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
   const [briefEditing, setBriefEditing] = useState(false);
   const [serviceBrief, setServiceBrief] = useState('');
 
+  // 客户全量信息编辑状态
+  const [editCustomerOpen, setEditCustomerOpen] = useState(false);
+  const [custFormName, setCustFormName] = useState('');
+  const [custFormPhone, setCustFormPhone] = useState('');
+  const [custFormEmail, setCustFormEmail] = useState('');
+  const [custFormVip, setCustFormVip] = useState('0');
+  const [custFormBirthday, setCustFormBirthday] = useState('');
+  const [custFormGender, setCustFormGender] = useState<'female' | 'male' | 'other' | 'unspecified'>('unspecified');
+  const [custFormTags, setCustFormTags] = useState('');
+  const [custFormNotes, setCustFormNotes] = useState('');
+  const [custFormSource, setCustFormSource] = useState('Walk-in');
+
   const cancelM = useCancelAppointment(currentDate);
   const rescheduleM = useRescheduleAppointment(currentDate);
   const addItemM = useAddTicketItem();
   const savePreferencesM = useSaveCustomerPreferences();
+  const saveCustomerProfileM = useSaveCustomerProfile();
+  const updateApptCustomerM = useUpdateAppointmentCustomer(appointmentId ?? null);
   const saveNoteM = useSaveServiceNote();
   const shareM = useShareForm();
   const saveBriefM = useSaveAppointmentServiceBrief(appointmentId ?? null);
@@ -122,6 +138,62 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
   const refresh = async () => {
     await Promise.all([appointmentQ.refetch(), appointmentFormsQ.refetch(), ticketsQ.refetch()]);
     refetchSchedule();
+  };
+
+  const handleOpenEditCustomer = () => {
+    const c = customerQ.data;
+    setCustFormName(c?.displayName || appointment?.customer.name || '');
+    setCustFormPhone(c?.phone ? formatPhoneDisplay(c.phone) : appointment?.customer.phone ? formatPhoneDisplay(appointment.customer.phone) : '');
+    setCustFormEmail(c?.email || '');
+    setCustFormVip(String(c?.vipLevel ?? 0));
+    setCustFormBirthday(c?.birthday || '');
+    setCustFormGender((c?.gender as any) || 'unspecified');
+    setCustFormTags((c?.tags || []).join(', '));
+    setCustFormNotes(c?.notes || '');
+    setCustFormSource(c?.source || 'Walk-in');
+    setEditCustomerOpen(true);
+  };
+
+  const handleSaveCustomerProfile = async () => {
+    if (!custFormName.trim()) {
+      toast.danger(t('crm.custNameRequired') || '客户姓名不能为空');
+      return;
+    }
+    const phoneE164 = custFormPhone.trim() ? normalizePhoneE164(custFormPhone) : undefined;
+    const tags = custFormTags.split(',').map((s) => s.trim()).filter(Boolean);
+
+    try {
+      const res = await saveCustomerProfileM.mutateAsync({
+        customerId: appointment?.customer.id || undefined,
+        name: custFormName.trim(),
+        phoneE164,
+        email: custFormEmail.trim() || undefined,
+        vipLevel: Number(custFormVip) || 0,
+        birthday: custFormBirthday || undefined,
+        gender: custFormGender,
+        tags,
+        notes: custFormNotes.trim() || undefined,
+        source: custFormSource,
+      });
+
+      const targetCustomerId = res?.customerId || appointment?.customer.id;
+      if (targetCustomerId) {
+        await updateApptCustomerM.mutateAsync({
+          customerId: targetCustomerId,
+          walkInName: custFormName.trim(),
+        });
+      } else {
+        await updateApptCustomerM.mutateAsync({
+          walkInName: custFormName.trim() + (custFormPhone.trim() ? ` (${formatPhoneDisplay(custFormPhone)})` : ''),
+        });
+      }
+
+      toast.success(t('crm.custSaved') || '客户档案已更新');
+      setEditCustomerOpen(false);
+      await refresh();
+    } catch (err) {
+      toast.danger(errorMessage(err));
+    }
   };
 
   const runCancel = async () => {
@@ -169,7 +241,11 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
   };
 
   const runSavePreferences = async () => {
-    if (!appointment?.customer.id) return;
+    if (!appointment?.customer.id) {
+      // 散客保存偏好时，自动先建立客户档案
+      handleOpenEditCustomer();
+      return;
+    }
     try {
       await savePreferencesM.mutateAsync({ customerId: appointment.customer.id, freeNotes: preferences });
       toast.success(t('schedule.adPrefsSaved'));
@@ -219,7 +295,8 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
     ['preferences', t('schedule.adTabPrefs'), Settings],
     ['notes', t('schedule.adTabNotes'), Stethoscope],
   ];
-  const customerInitials = appointment.customer.name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || '?';
+  const activeCustomerName = customerQ.data?.displayName || appointment.customer.name;
+  const customerInitials = activeCustomerName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || '?';
   const status: NonNullable<AppointmentDrawerProps['initialStatus']> = appointment.status === 'completed'
     ? 'done'
     : appointment.status === 'booked' || appointment.status === 'checked_in' || appointment.status === 'in_service' || appointment.status === 'done'
@@ -234,8 +311,43 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-teal-600 text-lg font-black text-white shadow-md shadow-teal-600/20">{customerInitials}</div>
           <div className="min-w-0">
-            <div className="flex items-center gap-2"><h2 className="truncate text-xl font-black text-slate-950">{appointment.customer.name}</h2>{customerQ.data?.vipLevel ? <Badge variant="warning" className="text-[10px] font-black">VIP {customerQ.data.vipLevel}</Badge> : <Badge variant="outline" className="text-[10px]">{appointment.customer.id ? t('schedule.adMemberProfile') : t('schedule.adWalkInTicket')}</Badge>}</div>
-            <div className="mt-0.5 flex items-center gap-2 text-xs font-semibold text-slate-500"><span className="font-mono">{appointment.customer.phone ? formatPhoneDisplay(appointment.customer.phone) : t('schedule.adNoPhone')}</span>{appointment.customer.id && <><span className="text-slate-300">•</span><button type="button" onClick={() => navigate(`/customers/${appointment.customer.id}`)} className="flex items-center font-bold text-teal-700 hover:underline">{t('schedule.adProfileDetail')}<ChevronRight size={13}/></button></>}</div>
+            <div className="flex items-center gap-2">
+              <h2 className="truncate text-xl font-black text-slate-950">{activeCustomerName}</h2>
+              {customerQ.data?.vipLevel ? (
+                <Badge variant="warning" className="text-[10px] font-black">VIP {customerQ.data.vipLevel}</Badge>
+              ) : (
+                <Badge variant="outline" className="text-[10px]">{appointment.customer.id ? t('schedule.adMemberProfile') : t('schedule.adWalkInTicket')}</Badge>
+              )}
+            </div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500">
+              <span className="font-mono">
+                {customerQ.data?.phone ? formatPhoneDisplay(customerQ.data.phone) : appointment.customer.phone ? formatPhoneDisplay(appointment.customer.phone) : t('schedule.adNoPhone')}
+              </span>
+              {customerQ.data?.email && (
+                <>
+                  <span className="text-slate-300">•</span>
+                  <span className="truncate text-slate-500 max-w-[140px]">{customerQ.data.email}</span>
+                </>
+              )}
+              <span className="text-slate-300">•</span>
+              <button
+                type="button"
+                onClick={handleOpenEditCustomer}
+                className="flex items-center gap-0.5 font-bold text-teal-700 hover:underline"
+              >
+                <Edit3 size={12} />
+                <span>{t('schedule.adEditCustomer')}</span>
+              </button>
+              {appointment.customer.id && (
+                <>
+                  <span className="text-slate-300">•</span>
+                  <button type="button" onClick={() => navigate(`/customers/${appointment.customer.id}`)} className="flex items-center font-bold text-teal-700 hover:underline">
+                    {t('schedule.adProfileDetail')}
+                    <ChevronRight size={13} />
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
         <Button size="icon" variant="ghost" aria-label={t('close')} onPress={onClose} className="shrink-0 rounded-full"><X size={20} /></Button>
@@ -289,10 +401,262 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
         {share && <section className="rounded-xl border border-slate-200 p-4 text-center"><QRCodeSVG value={share.url} size={180} className="mx-auto max-w-full" /><p className="mt-3 break-all text-xs text-slate-500">{share.url}</p><div className="mt-3 flex justify-center gap-2"><Button variant="outline" onPress={() => void navigator.clipboard.writeText(share.url)}>{t('schedule.adCopy')}</Button><Button variant="outline" onPress={() => window.open(share.url, '_blank', 'noopener,noreferrer')}>{t('schedule.adOpen')}</Button></div><p className="mt-3 text-xs text-slate-500">{t('schedule.adExpiresAt')} {storeTime.dateTime(share.expiresAt)}</p></section>}
       </div>}
 
-      {tab === 'preferences' && <div className="space-y-4">{!appointment.customer.id ? <p className="text-sm text-slate-500">{t('schedule.adGuestNoProfile')}</p> : <><label className="block text-sm font-medium" htmlFor="appointment-preferences">{t('schedule.adPreferenceNotes')}</label><textarea id="appointment-preferences" value={preferences} onChange={(event) => setPreferences(event.target.value)} maxLength={2000} rows={8} className="w-full rounded-xl border border-slate-300 p-3 text-sm" placeholder={t('schedule.adNotesPlaceholder')} /><GuardedButton permission="customer.write" onPress={() => void runSavePreferences()} isPending={savePreferencesM.isPending}>{t('schedule.adSavePrefs')}</GuardedButton></>}</div>}
+      {tab === 'preferences' && <div className="space-y-4">
+        {/* 客户详细档案卡片 */}
+        <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-2">
+            <SectionTitle icon={<User size={15} />} label={t('schedule.adCustomerProfile')} />
+            <GuardedButton
+              permission="customer.write"
+              size="sm"
+              variant="secondary"
+              className="h-7 gap-1 bg-teal-50 px-2.5 text-[11px] font-bold text-teal-800"
+              onPress={handleOpenEditCustomer}
+            >
+              <Edit3 size={13} />
+              {t('schedule.adEditCustomer')}
+            </GuardedButton>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5 text-xs">
+            <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-2.5">
+              <span className="block text-[10px] font-bold uppercase text-slate-400">{t('crm.custNameLabel')}</span>
+              <strong className="mt-0.5 block truncate text-slate-900">{activeCustomerName}</strong>
+            </div>
+
+            <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-2.5">
+              <span className="block text-[10px] font-bold uppercase text-slate-400">{t('crm.custPhoneLabel')}</span>
+              <strong className="mt-0.5 block truncate font-mono text-slate-900">
+                {customerQ.data?.phone ? formatPhoneDisplay(customerQ.data.phone) : appointment.customer.phone ? formatPhoneDisplay(appointment.customer.phone) : '—'}
+              </strong>
+            </div>
+
+            <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-2.5">
+              <span className="block text-[10px] font-bold uppercase text-slate-400">{t('crm.custEmailLabel')}</span>
+              <span className="mt-0.5 block truncate text-slate-700">{customerQ.data?.email || '—'}</span>
+            </div>
+
+            <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-2.5">
+              <span className="block text-[10px] font-bold uppercase text-slate-400">{t('crm.custVipLabel')}</span>
+              <span className="mt-0.5 block font-bold text-amber-700">
+                {customerQ.data?.vipLevel ? `⭐ VIP ${customerQ.data.vipLevel}` : 'Regular (VIP 0)'}
+              </span>
+            </div>
+
+            <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-2.5">
+              <span className="block text-[10px] font-bold uppercase text-slate-400">{t('crm.custBirthdayLabel')}</span>
+              <span className="mt-0.5 block text-slate-700">{customerQ.data?.birthday || '—'}</span>
+            </div>
+
+            <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-2.5">
+              <span className="block text-[10px] font-bold uppercase text-slate-400">{t('crm.custGenderLabel')}</span>
+              <span className="mt-0.5 block text-slate-700">
+                {customerQ.data?.gender === 'female' ? t('crm.custGenderFemale') : customerQ.data?.gender === 'male' ? t('crm.custGenderMale') : customerQ.data?.gender === 'other' ? t('crm.custGenderOther') : t('crm.custGenderUnspecified')}
+              </span>
+            </div>
+          </div>
+
+          {customerQ.data?.tags && customerQ.data.tags.length > 0 && (
+            <div>
+              <span className="block text-[10px] font-bold uppercase text-slate-400 mb-1">{t('crm.custTagsLabel')}</span>
+              <div className="flex flex-wrap gap-1.5">
+                {customerQ.data.tags.map((tag) => (
+                  <Badge key={tag} variant="secondary" className="text-[10px] font-semibold">{tag}</Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {customerQ.data?.notes && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+              <span className="block text-[10px] font-bold uppercase text-amber-900 mb-0.5">{t('crm.custNotesLabel')}</span>
+              <p className="text-xs text-slate-700 leading-relaxed">{customerQ.data.notes}</p>
+            </div>
+          )}
+        </section>
+
+        {/* 服务偏好与备忘 */}
+        <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <SectionTitle icon={<Settings size={15} />} label={t('schedule.adPreferenceNotes')} />
+          <textarea
+            id="appointment-preferences"
+            value={preferences}
+            onChange={(event) => setPreferences(event.target.value)}
+            maxLength={2000}
+            rows={5}
+            className="w-full rounded-xl border border-slate-200 p-3 text-xs outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+            placeholder={t('schedule.adNotesPlaceholder')}
+          />
+          <div className="flex justify-end">
+            <GuardedButton
+              permission="customer.write"
+              size="sm"
+              className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
+              onPress={() => void runSavePreferences()}
+              isPending={savePreferencesM.isPending}
+            >
+              {t('schedule.adSavePrefs')}
+            </GuardedButton>
+          </div>
+        </section>
+      </div>}
 
       {tab === 'notes' && <div className="space-y-4">{!activeTicket ? <p className="text-sm text-slate-500">{t('schedule.adNoteNeedsTicket')}</p> : <><label className="block text-sm font-medium" htmlFor="service-note-item">{t('schedule.adServiceItem')}</label><select id="service-note-item" value={noteItemId} onChange={(event) => setNoteItemId(event.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">{activeTicket.items.map((item) => <option key={item.ticketItemId} value={item.ticketItemId}>{item.name} · {item.staffName}</option>)}</select><label className="block text-sm font-medium" htmlFor="service-note">{t('schedule.adSoapTitle')}</label><textarea id="service-note" value={serviceNote} onChange={(event) => setServiceNote(event.target.value)} maxLength={2000} rows={10} className="w-full rounded-xl border border-slate-300 p-3 text-sm" placeholder={t('schedule.adSoapSPlaceholder')} /><p className="text-xs text-slate-500">{t('schedule.adSensitiveNoteWarning')}</p><GuardedButton permission="ticket.write" onPress={() => void runSaveNote()} isPending={saveNoteM.isPending} isDisabled={!serviceNote.trim()}>{t('schedule.adSoapSave')}</GuardedButton></>}</div>}
     </main>
+
+    {/* 1. 编辑客户档案 Modal */}
+    <Modal
+      isOpen={editCustomerOpen}
+      onOpenChange={setEditCustomerOpen}
+      title={t('schedule.adEditCustomer')}
+      size="lg"
+      footer={
+        <div className="flex w-full justify-end gap-2">
+          <Button variant="secondary" onClick={() => setEditCustomerOpen(false)}>
+            {t('cancel')}
+          </Button>
+          <Button
+            className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
+            onClick={handleSaveCustomerProfile}
+            disabled={saveCustomerProfileM.isPending || updateApptCustomerM.isPending}
+          >
+            {saveCustomerProfileM.isPending || updateApptCustomerM.isPending ? t('saving') : t('save')}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4 py-1 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block font-bold text-slate-700 uppercase mb-1">
+              {t('crm.custNameLabel')} <span className="text-rose-500">*</span>
+            </label>
+            <Input
+              value={custFormName}
+              onChange={(e) => setCustFormName(e.target.value)}
+              placeholder={t('crm.custNamePlaceholder')}
+            />
+          </div>
+
+          <div>
+            <label className="block font-bold text-slate-700 uppercase mb-1">
+              {t('crm.custPhoneLabel')}
+            </label>
+            <Input
+              value={custFormPhone}
+              onChange={(e) => setCustFormPhone(formatPhoneInput(e.target.value))}
+              placeholder="(555) 000-0000"
+              maxLength={14}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="block font-bold text-slate-700 uppercase mb-1">
+              {t('crm.custEmailLabel')}
+            </label>
+            <Input
+              type="email"
+              value={custFormEmail}
+              onChange={(e) => setCustFormEmail(e.target.value)}
+              placeholder="customer@example.com"
+            />
+          </div>
+
+          <div>
+            <label className="block font-bold text-slate-700 uppercase mb-1">
+              {t('crm.custVipLabel')}
+            </label>
+            <select
+              value={custFormVip}
+              onChange={(e) => setCustFormVip(e.target.value)}
+              className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700 focus:outline-none focus:border-teal-500"
+            >
+              <option value="0">{t('crm.custVip0')}</option>
+              <option value="1">{t('crm.custVip1')}</option>
+              <option value="2">{t('crm.custVip2')}</option>
+              <option value="3">Platinum (VIP 3)</option>
+              <option value="4">{t('crm.custVip4')}</option>
+              <option value="5">{t('crm.custVip5')}</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block font-bold text-slate-700 uppercase mb-1">
+              {t('crm.custGenderLabel')}
+            </label>
+            <select
+              value={custFormGender}
+              onChange={(e) => setCustFormGender(e.target.value as any)}
+              className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700 focus:outline-none focus:border-teal-500"
+            >
+              <option value="unspecified">{t('crm.custGenderUnspecified')}</option>
+              <option value="female">{t('crm.custGenderFemale')}</option>
+              <option value="male">{t('crm.custGenderMale')}</option>
+              <option value="other">{t('crm.custGenderOther')}</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block font-bold text-slate-700 uppercase mb-1">
+              {t('crm.custBirthdayLabel')}
+            </label>
+            <Input
+              type="date"
+              value={custFormBirthday}
+              onChange={(e) => setCustFormBirthday(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="block font-bold text-slate-700 uppercase mb-1">
+              {t('crm.custSourceLabel')}
+            </label>
+            <select
+              value={custFormSource}
+              onChange={(e) => setCustFormSource(e.target.value)}
+              className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700 focus:outline-none focus:border-teal-500"
+            >
+              <option value="Walk-in">{t('crm.custSourceWalkIn')}</option>
+              <option value="Google 搜索">{t('crm.custSourceGoogle')}</option>
+              <option value="Yelp 推荐">{t('crm.custSourceYelp')}</option>
+              <option value="官网预约">{t('crm.custSourceWebsite')}</option>
+              <option value="朋友转介绍">{t('crm.custSourceReferral')}</option>
+              <option value="社交媒体">{t('crm.custSourceSocial')}</option>
+              <option value="电话预约">电话预约</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block font-bold text-slate-700 uppercase mb-1">
+            {t('crm.custTagsLabel')}
+          </label>
+          <Input
+            value={custFormTags}
+            onChange={(e) => setCustFormTags(e.target.value)}
+            placeholder={t('crm.custTagsPlaceholder')}
+          />
+        </div>
+
+        <div>
+          <label className="block font-bold text-slate-700 uppercase mb-1">
+            {t('crm.custNotesLabel')}
+          </label>
+          <textarea
+            value={custFormNotes}
+            onChange={(e) => setCustFormNotes(e.target.value)}
+            rows={3}
+            maxLength={2000}
+            className="w-full rounded-xl border border-slate-200 p-3 text-xs outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+            placeholder="记录客户特殊服务习惯、喜好饮品、过往沟通重点等..."
+          />
+        </div>
+      </div>
+    </Modal>
 
     <Modal isOpen={cancelOpen} onOpenChange={setCancelOpen} title={t('schedule.adCancelConfirmTitle')} size="sm" footer={<Actions cancel={() => setCancelOpen(false)} submit={<GuardedButton permission="appointment.cancel" variant="danger" onPress={() => void runCancel()} isPending={cancelM.isPending}>{t('schedule.adConfirmCancelAppt')}</GuardedButton>} />}><div className="space-y-4"><select value={cancelReason} onChange={(event) => setCancelReason(event.target.value as CancelReason)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">{CANCEL_REASONS.map((reason) => <option key={reason} value={reason}>{t(`schedule.adCancel.${reason}`)}</option>)}</select><label className="flex gap-2 text-sm"><input type="checkbox" checked={keepStaffTurn} onChange={(event) => setKeepStaffTurn(event.target.checked)} />{t('schedule.adKeepStaffTurn')}</label></div></Modal>
     <Modal isOpen={rescheduleOpen} onOpenChange={setRescheduleOpen} title={t('schedule.adReschedule')} size="sm" footer={<Actions cancel={() => setRescheduleOpen(false)} submit={<GuardedButton permission="appointment.write" onPress={() => void runReschedule()} isPending={rescheduleM.isPending}>{t('schedule.adConfirmUpdate')}</GuardedButton>} />}><div className="grid gap-3 sm:grid-cols-2"><input aria-label={t('schedule.adDate')} type="date" value={date} onChange={(event) => setDate(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5" /><input aria-label={t('schedule.adTime')} type="time" value={time} onChange={(event) => setTime(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5" /><StaffSelect value={staffId} onChange={setStaffId} includeUnassigned /><select aria-label={t('schedule.adRoomType')} value={roomId} onChange={(event) => setRoomId(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5"><option value="">{t('schedule.adNoRoom')}</option>{resources.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></div></Modal>

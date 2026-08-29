@@ -55,6 +55,23 @@ export function useSaveAppointmentServiceBrief(appointmentId: string | null) {
   });
 }
 
+export function useUpdateAppointmentCustomer(appointmentId: string | null) {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { customerId?: string | null; walkInName?: string | null }) =>
+      apiPost<{ appointmentId: string; customerId: string | null }>(
+        `/v1/desk/appointments/${appointmentId}/customer`,
+        input,
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'appointment-detail', appointmentId, membershipId] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'day', membershipId] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'customers'] });
+    },
+  });
+}
+
 export interface AppointmentHealthForm {
   submissionId: string;
   templateId: string;

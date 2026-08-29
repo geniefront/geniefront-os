@@ -151,4 +151,61 @@ export function registerScheduleRoutes(app: FastifyInstance, ctxFromHeaders: Ctx
       });
     },
   );
+
+  // ── 更新预约关联客户档案 / 散客姓名 ───────────────────────────────────────
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/v1/desk/appointments/:id/customer', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('appointment.write')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'appointment.write' } });
+      }
+      const body = z.object({
+        customerId: z.string().uuid().nullable().optional(),
+        walkInName: z.string().max(120).nullable().optional(),
+      }).parse(req.body);
+
+      return withTenant(ctx, async (tx) => {
+        const rows = await tx<{ id: string; customer_id: string | null }[]>`
+          update appointments set
+            customer_id = coalesce(${body.customerId !== undefined ? body.customerId : null}, customer_id),
+            walk_in_name = coalesce(${body.walkInName !== undefined ? body.walkInName : null}, walk_in_name)
+          where id = ${req.params.id} and location_id = ${ctx.locationId}
+          returning id, customer_id`;
+
+        if (rows[0]) {
+          if (body.customerId) {
+            await tx`
+              update walkin_queue
+              set customer_id = ${body.customerId}
+              where appointment_id = ${req.params.id} and location_id = ${ctx.locationId}`;
+          }
+          return { appointmentId: rows[0].id, customerId: rows[0].customer_id };
+        }
+
+        // 若不是 appointments.id，检查是否为 walkin_queue 记录 id
+        const [wq] = await tx<{ id: string; appointment_id: string | null }[]>`
+          select id, appointment_id from walkin_queue
+          where id = ${req.params.id} and location_id = ${ctx.locationId}`;
+        if (!wq) {
+          throw new AppError(ERROR_CODES.NOT_FOUND, {
+            details: { entity: 'appointment', id: req.params.id },
+          });
+        }
+        if (wq.appointment_id && body.customerId) {
+          await tx`
+            update appointments
+            set customer_id = ${body.customerId}
+            where id = ${wq.appointment_id} and location_id = ${ctx.locationId}`;
+        }
+        if (body.customerId || body.walkInName) {
+          await tx`
+            update walkin_queue set
+              customer_id = coalesce(${body.customerId !== undefined ? body.customerId : null}, customer_id),
+              walk_in_name = coalesce(${body.walkInName !== undefined ? body.walkInName : null}, walk_in_name)
+            where id = ${wq.id} and location_id = ${ctx.locationId}`;
+        }
+        return { appointmentId: wq.id, customerId: body.customerId ?? null };
+      });
+    },
+  );
 }

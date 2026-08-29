@@ -155,6 +155,8 @@ export const schedule = {
   'schedule.adAvgSpend': { 'zh-Hans': '客单均额', en: 'Average spend', ko: '평균 객단가', es: 'Gasto medio', vi: 'Chi tiêu trung bình' },
   'schedule.adBookedServices': { 'zh-Hans': '预约服务项目', en: 'Booked services', ko: '예약 서비스 항목', es: 'Servicios reservados', vi: 'Dịch vụ đã đặt' },
   'schedule.adEditItems': { 'zh-Hans': '编辑项目', en: 'Edit services', ko: '항목 편집', es: 'Editar servicios', vi: 'Sửa dịch vụ' },
+  'schedule.adEditCustomer': { 'zh-Hans': '编辑客户信息', en: 'Edit customer profile', ko: '고객 정보 편집', es: 'Editar perfil del cliente', vi: 'Sửa hồ sơ khách hàng' },
+  'schedule.adCustomerProfile': { 'zh-Hans': '客户档案', en: 'Customer profile', ko: '고객 프로필', es: 'Perfil del cliente', vi: 'Hồ sơ khách hàng' },
   'schedule.adAddOn': { 'zh-Hans': '+ 加项', en: '+ Add-on', ko: '+ 추가', es: '+ Extra', vi: '+ Thêm dịch vụ' },
   'schedule.adAddOnTag': { 'zh-Hans': '[加项]', en: '[add-on]', ko: '[추가]', es: '[extra]', vi: '[thêm]' },
   'schedule.adDelete': { 'zh-Hans': '删除', en: 'Delete', ko: '삭제', es: 'Eliminar', vi: 'Xóa' },
