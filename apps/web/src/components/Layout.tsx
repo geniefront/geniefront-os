@@ -165,7 +165,7 @@ export function Layout() {
   
   const location = useLocation();
   const { t, language, setLanguage } = useLanguage();
-  const { membership, locations, session, isOnline, clearMembership, signOut } = useSession();
+  const { membership, locations, session, isOnline, clearMembership, signOut, isTechCapable, switchPortal } = useSession();
 
   const storeName = membership ? pickText(membership.locationName, language) : '—';
   /** 多店账号才提供切店入口；单店账号不暴露该概念。 */

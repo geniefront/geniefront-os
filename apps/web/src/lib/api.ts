@@ -146,6 +146,7 @@ export interface LocationMembership {
   /** setup = 开店向导还没走完。进来先给他看向导，不是轮牌板 */
   locationStatus: string;
   roleKeys: string[];
+  isBookable?: boolean;
 }
 
 /**

@@ -25,6 +25,7 @@ export interface MembershipRow {
    */
   locationStatus: string;
   roleKeys: string[];
+  isBookable: boolean;
 }
 
 /**
@@ -35,18 +36,21 @@ export async function listMembershipsForUser(userId: string): Promise<Membership
   const rows = await withUser(userId, (tx) => tx<{
     membership_id: string; org_id: string; location_id: string;
     location_name: unknown; location_status: string; role_keys: string[] | null;
+    is_bookable: boolean | null;
   }[]>`
     select m.id as membership_id, m.org_id, m.location_id,
            l.name as location_name, l.status as location_status,
-           array_remove(array_agg(r.key), null) as role_keys
+           array_remove(array_agg(r.key), null) as role_keys,
+           coalesce(sp.is_bookable, false) as is_bookable
     from memberships m
     join locations l on l.id = m.location_id
+    left join staff_profiles sp on sp.membership_id = m.id
     left join membership_roles mr on mr.membership_id = m.id
     left join roles r on r.id = mr.role_id
     where m.user_id = ${userId}
       and m.status = 'active'
       and l.status not in ('closed','suspended')
-    group by m.id, l.name, l.status
+    group by m.id, l.name, l.status, sp.is_bookable
     order by l.name->>'en'`);
 
   return rows.map((r) => ({
@@ -56,6 +60,7 @@ export async function listMembershipsForUser(userId: string): Promise<Membership
     locationName: r.location_name,
     locationStatus: r.location_status,
     roleKeys: r.role_keys ?? [],
+    isBookable: r.is_bookable ?? false,
   }));
 }
 

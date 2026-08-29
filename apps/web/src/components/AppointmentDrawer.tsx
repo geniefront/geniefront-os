@@ -159,7 +159,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
       toast.danger(t('crm.custNameRequired') || '客户姓名不能为空');
       return;
     }
-    const phoneE164 = custFormPhone.trim() ? normalizePhoneE164(custFormPhone) : undefined;
+    const phoneE164 = custFormPhone.trim() ? (normalizePhoneE164(custFormPhone) ?? undefined) : undefined;
     const tags = custFormTags.split(',').map((s) => s.trim()).filter(Boolean);
 
     try {

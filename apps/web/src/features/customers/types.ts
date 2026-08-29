@@ -112,6 +112,8 @@ export interface SaveCustomerProfileInput {
   birthday?: string;
   tags?: string[];
   gender?: 'female' | 'male' | 'other' | 'unspecified';
+  notes?: string;
+  source?: string;
 }
 
 export interface SaveCustomerPreferencesInput {

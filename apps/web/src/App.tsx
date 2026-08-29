@@ -14,6 +14,7 @@ import { AuthLayout } from './components/AuthLayout';
  */
 import { Login } from './pages/Login';
 import { LocationPicker } from './pages/LocationPicker';
+import { PortalPicker } from './pages/PortalPicker';
 import { NoMembership } from './pages/NoMembership';
 
 /*
@@ -49,6 +50,12 @@ const UnderConstruction = lazy(() => import('./pages/UnderConstruction').then((m
 const PublicHealthForm = lazy(() => import('./pages/PublicHealthForm').then((m) => ({ default: m.PublicHealthForm })));
 const Layout = lazy(() => import('./components/Layout').then((m) => ({ default: m.Layout })));
 
+/* 技师端懒加载模块 (3 大核心 Tab) */
+const TechLayout = lazy(() => import('./features/tech/components/TechLayout').then((m) => ({ default: m.TechLayout })));
+const TechTodayPage = lazy(() => import('./features/tech/pages/TechTodayPage').then((m) => ({ default: m.TechTodayPage })));
+const TechSummaryPage = lazy(() => import('./features/tech/pages/TechSummaryPage').then((m) => ({ default: m.TechSummaryPage })));
+const TechProfilePage = lazy(() => import('./features/tech/pages/TechProfilePage').then((m) => ({ default: m.TechProfilePage })));
+
 /**
  * 懒加载页面的过渡态。与 SessionGate 的加载态保持一致的视觉表现。
  *
@@ -82,7 +89,7 @@ function SuspendedOutlet() {
  * 发起带店请求。
  */
 function SessionGate() {
-  const { status } = useSession();
+  const { status, activePortal, isPureTech, isTechCapable } = useSession();
   const { ready: translationsReady } = useLanguage();
 
   if (status === 'loading') {
@@ -123,6 +130,19 @@ function SessionGate() {
     );
   }
 
+  // 双重身份（管理+技师做工）工作台选择页
+  if (status === 'portal-selecting') {
+    return (
+      <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+        <Routes>
+          <Route element={<AuthLayout />}>
+            <Route path="*" element={<PortalPicker />} />
+          </Route>
+        </Routes>
+      </Suspense>
+    );
+  }
+
   if (!translationsReady) {
     return <div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>;
   }
@@ -149,6 +169,28 @@ function SessionGate() {
         }
       />
 
+      {/* 技师端工作台路由 (Technician Mobile Workspace - 3 大主 Tab) */}
+      <Route
+        path="/tech"
+        element={
+          <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+            <TechLayout />
+          </Suspense>
+        }
+      >
+        <Route index element={<Navigate to="/tech/today" replace />} />
+        {/* Tab 1: 今日工作 (打卡、轮牌、待接单/服务中倒计时/加项) */}
+        <Route path="today" element={<TechTodayPage />} />
+        {/* Tab 2: 业绩总结 (做工明细、收益分成、趋势图表) */}
+        <Route path="summary" element={<TechSummaryPage />} />
+        <Route path="ledger" element={<Navigate to="/tech/summary" replace />} />
+        {/* Tab 3: 个人设置 (技师档案、排班、PIN 码、多语言与偏好) */}
+        <Route path="profile" element={<TechProfilePage />} />
+        <Route path="schedule" element={<Navigate to="/tech/profile" replace />} />
+        <Route path="rotation" element={<Navigate to="/tech/today" replace />} />
+        <Route path="*" element={<Navigate to="/tech/today" replace />} />
+      </Route>
+
       {/* Main Application (Dashboard Layout) */}
       <Route path="/" element={<Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}><Layout /></Suspense>}>
         {/*
@@ -156,10 +198,19 @@ function SessionGate() {
           在每次切换页面时一并消失，视觉上等同于整页重载。
         */}
         <Route element={<SuspendedOutlet />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route
+            index
+            element={
+              activePortal === 'tech' ? (
+                <Navigate to="/tech/today" replace />
+              ) : (
+                <Navigate to="/dashboard" replace />
+              )
+            }
+          />
 
           {/* Group 1: Dashboard & Analytics */}
-          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="dashboard" element={isPureTech || (activePortal === 'tech' && isTechCapable) ? <Navigate to="/tech/today" replace /> : <Dashboard />} />
           <Route path="business-data" element={<BusinessData />} />
           <Route path="community" element={<UnderConstruction titleKey="community" />} />
           <Route path="subscription" element={<Navigate to="/settings?tab=billing" replace />} />
@@ -194,8 +245,17 @@ function SessionGate() {
           <Route path="profile" element={<Profile />} />
           <Route path="notifications" element={<Notifications />} />
 
-          {/* 未知路径回落到概览，避免深链失效后停留在空白页 */}
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          {/* 未知路径回落 */}
+          <Route
+            path="*"
+            element={
+              activePortal === 'tech' ? (
+                <Navigate to="/tech/today" replace />
+              ) : (
+                <Navigate to="/dashboard" replace />
+              )
+            }
+          />
         </Route>
       </Route>
     </Routes>

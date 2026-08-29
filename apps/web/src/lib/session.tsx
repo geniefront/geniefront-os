@@ -28,6 +28,9 @@ import {
 } from './api';
 
 const ACTIVE_MEMBERSHIP_KEY = 'gf.membershipId';
+const ACTIVE_PORTAL_KEY = 'gf.activePortal';
+
+export type PortalType = 'admin' | 'tech';
 
 /** 会话生命周期。界面据此决定渲染登录页、选店页还是主应用。 */
 export type SessionStatus =
@@ -35,6 +38,7 @@ export type SessionStatus =
   | 'unauthenticated'// 未登录
   | 'error'          // 门店列表拉取失败（网络或服务端故障），可重试
   | 'selecting'      // 已登录，存在多个门店身份，等待选择
+  | 'portal-selecting' // 已登录且选定门店，具备双重身份（管理+技师），等待选择工作台
   | 'no-membership'  // 已登录但确认无任何有效门店身份（离职或尚未认领门店）
   | 'ready';         // 已登录、已确定门店、且操作上下文已就绪
 
@@ -56,7 +60,16 @@ interface SessionContextValue {
   isOnline: boolean;
   /** 门店列表加载失败时的错误信息，用于在选店页给出可重试的提示。 */
   loadError: string | null;
-  selectMembership: (membershipId: string) => void;
+  /** 当前工作台模式：'admin' = 后台管理, 'tech' = 技师工作台 */
+  activePortal: PortalType;
+  portalPreference: PortalType | null;
+  isTechCapable: boolean;
+  isPureTech: boolean;
+  isManagementCapable: boolean;
+  isDualRole: boolean;
+  setPortal: (portal: PortalType) => void;
+  switchPortal: () => void;
+  selectMembership: (membershipId: string, portal?: PortalType) => void;
   /** 返回选店页。多店用户在顶栏切店时调用。 */
   clearMembership: () => void;
   reloadLocations: () => Promise<void>;
@@ -64,6 +77,24 @@ interface SessionContextValue {
 }
 
 const SessionContext = createContext<SessionContextValue | undefined>(undefined);
+
+function readStoredPortal(): PortalType | null {
+  try {
+    const p = localStorage.getItem(ACTIVE_PORTAL_KEY);
+    return p === 'admin' || p === 'tech' ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredPortal(value: PortalType | null): void {
+  try {
+    if (value === null) localStorage.removeItem(ACTIVE_PORTAL_KEY);
+    else localStorage.setItem(ACTIVE_PORTAL_KEY, value);
+  } catch {
+    // 忽略存储异常
+  }
+}
 
 function readStoredMembershipId(): string | null {
   try {
@@ -163,9 +194,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (session) void reloadLocations();
   }, [session, reloadLocations]);
 
-  const selectMembership = useCallback((id: string) => {
+  const [portalPreference, setPortalPreference] = useState<PortalType | null>(readStoredPortal);
+
+  const setPortal = useCallback((p: PortalType) => {
+    setPortalPreference(p);
+    writeStoredPortal(p);
+  }, []);
+
+  const switchPortal = useCallback(() => {
+    setPortalPreference((cur) => {
+      const next = cur === 'tech' ? 'admin' : 'tech';
+      writeStoredPortal(next);
+      return next;
+    });
+  }, []);
+
+  const selectMembership = useCallback((id: string, portal?: PortalType) => {
     setMembershipId(id);
     writeStoredMembershipId(id);
+    if (portal) {
+      setPortalPreference(portal);
+      writeStoredPortal(portal);
+    }
   }, []);
 
   const clearMembership = useCallback(() => {
@@ -174,6 +224,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    writeStoredPortal(null);
+    setPortalPreference(null);
     await supabase.auth.signOut();
   }, []);
 
@@ -203,6 +255,41 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () => locations.find((x) => x.membershipId === membershipId) ?? null,
     [locations, membershipId],
   );
+
+  const isTechCapable = useMemo(
+    () => (membership?.roleKeys.some((r) => r === 'tech' || r === 'senior_tech') || Boolean(membership?.isBookable)) ?? false,
+    [membership],
+  );
+
+  const isManagementCapable = useMemo(
+    () => membership?.roleKeys.some((r) => r === 'owner' || r === 'manager' || r === 'front_desk') ?? false,
+    [membership],
+  );
+
+  const isPureTech = useMemo(
+    () => isTechCapable && !isManagementCapable,
+    [isTechCapable, isManagementCapable],
+  );
+
+  const isDualRole = useMemo(
+    () => isTechCapable && isManagementCapable,
+    [isTechCapable, isManagementCapable],
+  );
+
+  // 检测是否处于手机移动端 (PWA 独立全屏模式或手机小屏幕)
+  const isMobileClient = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as unknown as { standalone?: boolean }).standalone);
+    const isSmallScreen = window.innerWidth < 768;
+    return isStandalone || isSmallScreen;
+  }, []);
+
+  const activePortal: PortalType = useMemo(() => {
+    if (portalPreference) return portalPreference;
+    if (isPureTech) return 'tech';
+    if (isDualRole) return isMobileClient ? 'tech' : 'admin';
+    return isMobileClient && isTechCapable ? 'tech' : 'admin';
+  }, [portalPreference, isPureTech, isDualRole, isMobileClient, isTechCapable]);
 
   /*
    * 将当前门店同步到请求层。
@@ -285,10 +372,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       status, session, locations, membership, context, can,
       membershipId: membership?.membershipId ?? null,
       isOnline, loadError,
+      activePortal, portalPreference,
+      isTechCapable, isPureTech, isManagementCapable, isDualRole,
+      setPortal, switchPortal,
       selectMembership, clearMembership, reloadLocations, signOut,
     }),
     [status, session, locations, membership, context, can, isOnline, loadError,
-     selectMembership, clearMembership, reloadLocations, signOut],
+     activePortal, portalPreference, isTechCapable, isPureTech, isManagementCapable, isDualRole,
+     setPortal, switchPortal, selectMembership, clearMembership, reloadLocations, signOut],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
