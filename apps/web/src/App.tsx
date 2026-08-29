@@ -7,6 +7,7 @@ import { queryClient } from './lib/queryClient';
 import { LanguageProvider, useLanguage } from './LanguageContext';
 import { ScheduleProvider } from './context/ScheduleContext';
 import { AuthLayout } from './components/AuthLayout';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 /*
  * 登录页静态引入；认证后的主壳层单独拆包。未登录访问不应下载后台导航、
@@ -68,15 +69,17 @@ const TechProfilePage = lazy(() => import('./features/tech/pages/TechProfilePage
 function SuspendedOutlet() {
   const outletContext = useOutletContext();
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-[60vh] grid place-items-center">
-          <Spinner />
-        </div>
-      }
-    >
-      <Outlet context={outletContext} />
-    </Suspense>
+    <ErrorBoundary>
+      <Suspense
+        fallback={
+          <div className="min-h-[60vh] grid place-items-center">
+            <Spinner />
+          </div>
+        }
+      >
+        <Outlet context={outletContext} />
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 

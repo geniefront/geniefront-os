@@ -221,13 +221,14 @@ export function Settings() {
   const currentTab = searchParams.get('tab') || 'store';
 
   const { data: settings, isLoading, error, refetch } = useDeskSettingsQuery();
-  const { data: billing } = useDeskBillingQuery();
-  const voiceQuota = billing?.quotas.find((quota: QuotaView) => quota.unit === 'voice_minute');
-  const creditQuota = billing?.quotas.find((quota: QuotaView) => quota.unit === 'credit');
-  const voiceUsagePercent = voiceQuota && voiceQuota.included.total > 0
+  const { data: billingData } = useDeskBillingQuery();
+  const billing = (billingData as any)?.billing ?? billingData;
+  const voiceQuota = billing?.quotas?.find((quota: QuotaView) => quota.unit === 'voice_minute');
+  const creditQuota = billing?.quotas?.find((quota: QuotaView) => quota.unit === 'credit');
+  const voiceUsagePercent = voiceQuota?.included && voiceQuota.included.total > 0
     ? Math.min(100, Math.round((voiceQuota.included.used / voiceQuota.included.total) * 100))
     : 0;
-  const creditUsagePercent = creditQuota && creditQuota.included.total > 0
+  const creditUsagePercent = creditQuota?.included && creditQuota.included.total > 0
     ? Math.min(100, Math.round((creditQuota.included.used / creditQuota.included.total) * 100))
     : 0;
 
@@ -759,10 +760,13 @@ export function Settings() {
     if (serviceCategoryFilter === 'online' && !s.onlineBookable) return false;
     if (serviceSearch.trim()) {
       const q = serviceSearch.toLowerCase();
+      const displayName = typeof s.displayName === 'string' ? s.displayName : '';
+      const zhName = typeof s.name === 'object' ? ((s.name as any)?.['zh-Hans'] || (s.name as any)?.zh || '') : (typeof s.name === 'string' ? s.name : '');
+      const enName = typeof s.name === 'object' ? ((s.name as any)?.en || '') : '';
       return (
-        s.displayName.toLowerCase().includes(q) ||
-        (s.name as any)?.zh?.toLowerCase?.().includes(q) ||
-        (s.name as any)?.en?.toLowerCase?.().includes(q)
+        displayName.toLowerCase().includes(q) ||
+        zhName.toLowerCase().includes(q) ||
+        enName.toLowerCase().includes(q)
       );
     }
     return true;
@@ -773,7 +777,7 @@ export function Settings() {
     if (staffSearch.trim()) {
       const q = staffSearch.toLowerCase();
       return (
-        stf.name.toLowerCase().includes(q) ||
+        (stf.name || '').toLowerCase().includes(q) ||
         (stf.phoneE164 && stf.phoneE164.includes(q)) ||
         (stf.roleKeys && stf.roleKeys.some((r) => r.toLowerCase().includes(q)))
       );
