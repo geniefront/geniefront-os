@@ -29,7 +29,9 @@ DENY='^(SUPABASE_SERVICE_ROLE_KEY|MIGRATION_DATABASE_URL|APP_DB_PASSWORD|DEEPSEE
 
 PROD_ENV="$(mktemp)"
 trap 'rm -f "$PROD_ENV"' EXIT
-grep -E '^[A-Z][A-Z0-9_]*=' .env | grep -vE "$DENY" > "$PROD_ENV"
+SRC_ENV=".env.production"
+[[ ! -f "$SRC_ENV" ]] && SRC_ENV=".env"
+grep -E '^[A-Z][A-Z0-9_]*=' "$SRC_ENV" | grep -vE "$DENY" > "$PROD_ENV"
 #
 # ⚠️ **APP_BASE_URL 必须一起改。**
 #
