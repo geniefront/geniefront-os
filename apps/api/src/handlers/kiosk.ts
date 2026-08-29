@@ -314,6 +314,7 @@ registerHandler(SaveFormTemplate, async ({ input, ctx, tx, audit }: HandlerArgs<
 
 registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof SubmitForm.input._type>) => {
+  let customerId = input.customerId ?? null;
   if (input.appointmentId) {
     const [appointment] = await tx<{ customer_id: string | null }[]>`
       select customer_id from appointments
@@ -326,6 +327,7 @@ registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
         details: { reason: 'appointment_customer_mismatch' },
       });
     }
+    customerId = appointment.customer_id ?? customerId;
   }
 
   const [tpl] = await tx<{
@@ -370,7 +372,7 @@ registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
        signature_url, signed_at, signer_name, signer_relation,
        ip, user_agent, locale, source, on_behalf_by, expires_on, share_link_id,
        appointment_id)
-    values (${ctx.orgId}, ${ctx.locationId}, ${input.customerId ?? null},
+    values (${ctx.orgId}, ${ctx.locationId}, ${customerId},
             ${tpl.id}, ${tpl.version},
             ${encrypted}, ${ENC_ALG},
             ${input.signatureDataUrl ?? null},
@@ -396,7 +398,7 @@ registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
         'appointment', ${input.appointmentId}, ${`/schedule?appointmentId=${input.appointmentId}`},
         jsonb_build_object(
           'appointmentId', ${input.appointmentId}::text,
-          'customerId', ${input.customerId ?? null}::text,
+          'customerId', ${customerId}::text,
           'submissionId', ${row!.id}::text,
           'templateKey', ${tpl.key}::text
         ),
@@ -405,8 +407,8 @@ registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
   }
 
   // ⭐ 回填客户档案（见下面那个函数的头注释：只搬部位和一个布尔）
-  const synced = input.customerId
-    ? await syncToProfile(tx, ctx, input.customerId, questions, input.answers)
+  const synced = customerId
+    ? await syncToProfile(tx, ctx, customerId, questions, input.answers)
     : null;
 
   /**

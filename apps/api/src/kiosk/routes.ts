@@ -351,13 +351,53 @@ export function registerKioskRoutes(app: FastifyInstance): void {
   // ── 这次要不要签健康表 ─────────────────────────────────────────────────
   //
   // 「上次签过」不等于「不用签」—— 到期就要重签（三年前签的在法律上站不住）。
-  app.get<{ Querystring: { customerId?: string; serviceId?: string } }>(
+  app.get<{ Querystring: { customerId?: string; serviceId?: string; appointmentId?: string; queueId?: string } }>(
     '/v1/kiosk/forms/required', async (req) => {
     const { ctx } = await device(req);
 
     return withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: null },
       async (tx) => {
+        let customerId = req.query.customerId;
+        const requestedServiceIds: string[] = req.query.serviceId ? [req.query.serviceId] : [];
+
+        if (req.query.appointmentId) {
+          const [appt] = await tx<{ customer_id: string | null }[]>`
+            select customer_id from appointments
+            where id = ${req.query.appointmentId} and location_id = ${ctx.locationId}`;
+          if (appt?.customer_id) {
+            customerId = appt.customer_id;
+          }
+          const items = await tx<{ service_id: string }[]>`
+            select service_id from appointment_items
+            where appointment_id = ${req.query.appointmentId} and location_id = ${ctx.locationId}`;
+          for (const it of items) {
+            if (it.service_id && !requestedServiceIds.includes(it.service_id)) {
+              requestedServiceIds.push(it.service_id);
+            }
+          }
+        } else if (req.query.queueId) {
+          const [q] = await tx<{ customer_id: string | null; requested_service_id: string | null; appointment_id: string | null }[]>`
+            select customer_id, requested_service_id, appointment_id from walkin_queue
+            where id = ${req.query.queueId} and location_id = ${ctx.locationId}`;
+          if (q) {
+            if (q.customer_id) customerId = q.customer_id;
+            if (q.requested_service_id && !requestedServiceIds.includes(q.requested_service_id)) {
+              requestedServiceIds.push(q.requested_service_id);
+            }
+            if (q.appointment_id) {
+              const items = await tx<{ service_id: string }[]>`
+                select service_id from appointment_items
+                where appointment_id = ${q.appointment_id} and location_id = ${ctx.locationId}`;
+              for (const it of items) {
+                if (it.service_id && !requestedServiceIds.includes(it.service_id)) {
+                  requestedServiceIds.push(it.service_id);
+                }
+              }
+            }
+          }
+        }
+
         const templates = await tx<{
           id: string; key: string; version: number; title: unknown; schema: unknown;
           requires_signature: boolean; service_ids: unknown;
@@ -366,14 +406,14 @@ export function registerKioskRoutes(app: FastifyInstance): void {
           from form_templates
           where location_id = ${ctx.locationId} and active = true and published_at is not null`;
 
-        const serviceId = req.query.serviceId;
         const applicable = templates.filter((t) => {
           const ids = (t.service_ids as string[]) ?? [];
-          return ids.length === 0 || (serviceId ? ids.includes(serviceId) : false);
+          return ids.length === 0 || (requestedServiceIds.length > 0
+            ? ids.some((id) => requestedServiceIds.includes(id))
+            : false);
         });
 
         // 已经签过而且**还没到期**的就不用再签
-        const customerId = req.query.customerId;
         const signed = customerId
           ? await tx<{ template_id: string }[]>`
               select distinct template_id from form_submissions

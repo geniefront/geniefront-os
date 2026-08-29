@@ -1,0 +1,19 @@
+{
+  "name": "GenieFront iPad Kiosk",
+  "short_name": "Kiosk",
+  "description": "Store Lobby Check-in & Intake Health Form Terminal",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

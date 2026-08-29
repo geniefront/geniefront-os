@@ -197,7 +197,7 @@ export function HealthForms() {
     setShareResult(null);
     const presetObj = INDUSTRY_PRESETS.find((p) => p.category === category);
     if (presetObj) {
-      toast.success(`已切换至《${localized(presetObj.name, language)}》`);
+      toast.success(t('healthForms.success1', { p0: localized(presetObj.name, language) }));
     }
   };
 
@@ -208,21 +208,21 @@ export function HealthForms() {
     target.hidden = !target.hidden;
     setDraft({ ...draft, questions });
     if (target.hidden) {
-      toast.warning('该问题已设置为【隐藏】，顾客端填单时将不会展示此题');
+      toast.warning(t('healthForms.warning2'));
     } else {
-      toast.success('该问题已设置为【显示】，顾客端将正常呈现');
+      toast.success(t('healthForms.success3'));
     }
   };
 
   // 删除问题
   const handleDeleteQuestion = (index: number) => {
     if (draft.questions.length <= 1) {
-      toast.danger('至少需要保留一道题目');
+      toast.danger(t('healthForms.danger4'));
       return;
     }
     const questions = draft.questions.filter((_, idx) => idx !== index);
     setDraft({ ...draft, questions });
-    toast.success('问题已删除');
+    toast.success(t('healthForms.success5'));
   };
 
   // 上下移动题目
@@ -239,7 +239,7 @@ export function HealthForms() {
   // 添加自定义新问题
   const handleConfirmAddQuestion = () => {
     if (!newQuestionLabel.trim()) {
-      toast.danger('请输入题干内容');
+      toast.danger(t('healthForms.danger6'));
       return;
     }
 
@@ -278,14 +278,14 @@ export function HealthForms() {
     setAddQuestionModalOpen(false);
     setNewQuestionLabel('');
     setNewQuestionOptions(['Option 1', 'Option 2']);
-    toast.success('已成功添加新问题并置为显示！');
+    toast.success(t('healthForms.success7'));
   };
 
   // AI 智能出题 / 增补
   const handleRunAi = async (customPrompt?: string, actionType?: string) => {
     const promptToUse = customPrompt || aiPrompt;
     if (!promptToUse.trim()) {
-      toast.danger('请输入您的 AI 定制需求');
+      toast.danger(t('healthForms.danger8'));
       return;
     }
 
@@ -300,13 +300,13 @@ export function HealthForms() {
       const generated = result.questions.map((question) => ({ ...question, hidden: false }));
       if ((actionType ?? '') === 'translate_all') {
         setDraft({ ...draft, questions: generated });
-        toast.success('当前问卷已完成五语翻译与润色。');
+        toast.success(t('healthForms.success9'));
       } else {
         const existingIds = new Set(draft.questions.map((question) => question.id));
         const additions = generated.filter((question) => !existingIds.has(question.id));
         if (additions.length === 0) throw new Error('AI 没有生成可添加的新问题');
         setDraft({ ...draft, questions: [...draft.questions, ...additions] });
-        toast.success(`AI 已生成并添加 ${additions.length} 道问题。`);
+        toast.success(t('healthForms.success10', { p0: additions.length }));
       }
       setAiModalOpen(false);
       setAiPrompt('');
@@ -322,7 +322,7 @@ export function HealthForms() {
     try {
       await save.mutateAsync({ ...draft, questions: draft.questions });
       setShareResult(null);
-      toast.success(`健康表《${localized(draft.title, language)}》已成功发布！`);
+      toast.success(t('healthForms.success11', { p0: localized(draft.title, language) }));
     } catch (error) {
       toast.danger(errorMessage(error));
     }
@@ -333,7 +333,7 @@ export function HealthForms() {
 
   const createShareLink = async (channel: 'qr' | 'email' = 'qr', email?: string) => {
     if (!activePublishedTemplate) {
-      toast.warning('请先发布当前模板，再生成顾客填写链接。');
+      toast.warning(t('healthForms.warning12'));
       return null;
     }
     try {
@@ -368,12 +368,12 @@ export function HealthForms() {
     const created = shareResult ?? await createShareLink();
     if (!created) return;
     await navigator.clipboard.writeText(created.url);
-    toast.success('专属填单链接已复制到剪贴板！');
+    toast.success(t('healthForms.success13'));
   };
 
   const openSubmission = async (summary: FormSubmissionSummary) => {
     if (!formsQ.data?.canViewContent) {
-      toast.warning('当前账号没有查看健康表内容的权限。');
+      toast.warning(t('healthForms.warning14'));
       return;
     }
     try {
@@ -437,7 +437,7 @@ export function HealthForms() {
         status: record.status === 'expired' ? 'expired' : aiSummary.riskLevel === 'low' ? 'valid' : 'flagged',
       };
     });
-    toast.success('AI 健康摘要已重新生成。');
+    toast.success(t('healthForms.success15'));
   };
 
   const visibleCount = draft.questions.filter((q) => !q.hidden).length;
@@ -700,7 +700,7 @@ export function HealthForms() {
                               ? 'bg-amber-100 border-amber-300 text-amber-900 hover:bg-amber-200'
                               : 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100'
                           }`}
-                          title={isHidden ? '点击恢复在顾客端显示' : '点击对顾客隐藏此题'}
+                          title={isHidden ? t('healthForms.healthForms16') : t('healthForms.healthForms17')}
                         >
                           {isHidden ? (
                             <>
@@ -960,7 +960,8 @@ export function HealthForms() {
               }`}
             >
               <Mail className="inline mr-1.5 h-4 w-4 text-blue-600" />
-              邮件 Email
+              
+              {t('healthForms.healthForms18')}
             </button>
           </div>
 
@@ -979,7 +980,8 @@ export function HealthForms() {
             )}
             <label className="font-bold text-slate-700 block">{t('healthForms.dispatchMessagePreview')}:</label>
             <div className="p-3 bg-slate-50 border rounded-xl text-slate-700 leading-relaxed font-sans">
-              【GenieFront】Dear Valued Guest, 为了给您提供最安全舒适的体验，请在到店前点击专属链接完成健康表签署：
+              
+              {t('healthForms.healthForms19')}
               <span className="text-teal-700 underline block font-mono mt-1">{intakeShareUrl}</span>
             </div>
           </div>
@@ -994,12 +996,12 @@ export function HealthForms() {
               onClick={() => void (async () => {
                 if (dispatchChannel === 'email') {
                   if (!dispatchEmail.trim()) {
-                    toast.danger('请输入顾客邮箱。');
+                    toast.danger(t('healthForms.danger20'));
                     return;
                   }
                   const created = await createShareLink('email', dispatchEmail.trim());
                   if (created) {
-                    toast.success('邀请邮件已加入发送队列。');
+                    toast.success(t('healthForms.success21'));
                     setDispatchModalOpen(false);
                   }
                   return;
@@ -1033,7 +1035,7 @@ export function HealthForms() {
           </div>
           <div>
             <h4 className="font-bold text-xs text-slate-900">{localized(draft.title, language)}</h4>
-            <p className="text-[11px] text-slate-400 mt-0.5">扫码即刻在手机上打开健康表</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">{t('healthForms.healthForms22')}</p>
           </div>
           <Button
             size="sm"
@@ -1046,12 +1048,13 @@ export function HealthForms() {
               anchor.download = `${draft.key}-qr.svg`;
               anchor.click();
               URL.revokeObjectURL(url);
-              toast.success('高清二维码已保存');
+              toast.success(t('healthForms.success23'));
               setQrModalOpen(false);
             }}
             className="w-full bg-teal-600 text-white font-bold"
           >
-            下载打印版桌牌二维码 (SVG)
+            
+            {t('healthForms.healthForms24')}
           </Button>
         </div>
       </Modal>
@@ -1077,16 +1080,18 @@ export function HealthForms() {
                   <h4 className="font-bold text-sm text-slate-900 flex items-center gap-2">
                     {selectedRecord.customerName}
                     <Badge variant="outline" className="text-[9px] text-teal-700 border-teal-300">
-                      实名已核验
+                      
+                      {t('healthForms.healthForms25')}
                     </Badge>
                   </h4>
                   <p className="text-[11px] text-slate-500 font-mono">{selectedRecord.customerPhone}</p>
                 </div>
               </div>
               <div className="text-right text-[11px] text-slate-500">
-                <span className="block font-medium">签署时间：{new Date(selectedRecord.submittedAt).toLocaleString()}</span>
+                <span className="block font-medium">{t('healthForms.healthForms26')}{new Date(selectedRecord.submittedAt).toLocaleString()}</span>
                 <span className="block text-slate-400 font-mono">
-                  表单版本：v{selectedRecord.templateVersion}
+                  
+                  {t('healthForms.healthForms27')}{selectedRecord.templateVersion}
                 </span>
               </div>
             </div>
@@ -1199,7 +1204,7 @@ export function HealthForms() {
 
             {/* 问答明细 */}
             <div className="p-3 bg-slate-50 rounded-xl border space-y-1">
-              <span className="font-bold block text-slate-800">问答完整记录：</span>
+              <span className="font-bold block text-slate-800">{t('healthForms.healthForms28')}</span>
               {Object.entries(selectedRecord.answers).map(([k, v]) => (
                 <div key={k} className="flex justify-between py-0.5 border-b border-slate-100">
                   <span className="text-slate-500">{k}:</span>
@@ -1212,7 +1217,8 @@ export function HealthForms() {
             <div className="flex justify-end gap-2 pt-2 border-t">
               <Button size="sm" variant="outline" onClick={() => window.print()}>
                 <Printer className="mr-1.5 h-3.5 w-3.5" />
-                打印归档单
+                
+                {t('healthForms.healthForms29')}
               </Button>
               <Button size="sm" onClick={() => setSelectedRecord(null)} className="bg-teal-600 text-white font-bold">
                 {t('healthForms.completeView')}

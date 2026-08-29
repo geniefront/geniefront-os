@@ -6,19 +6,12 @@ import { randomBytes, createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import { AppError, ERROR_CODES, type CommandContext } from '@gf/contracts';
 import { sql } from '@gf/db';
+import { generateDeviceToken, hashDeviceToken } from '../kiosk/deviceAuth';
 
 function generatePairingCode(): string {
-  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // 排除容易混淆的 I, O
-  const numbers = '23456789';               // 排除容易混淆的 0, 1
-  let prefix = '';
-  for (let i = 0; i < 3; i++) {
-    prefix += letters.charAt(Math.floor(Math.random() * letters.length));
-  }
-  let suffix = '';
-  for (let i = 0; i < 3; i++) {
-    suffix += numbers.charAt(Math.floor(Math.random() * numbers.length));
-  }
-  return `${prefix}-${suffix}`;
+  // 6 位纯数字 PIN 码，方便在 iPad 触控数字键盘上极速输入
+  const n = Math.floor(100000 + Math.random() * 900000);
+  return n.toString();
 }
 
 export interface PairingSessionDto {
@@ -100,7 +93,7 @@ export async function getPairingStatus(
 }
 
 export async function claimPairingSession(
-  code: string,
+  rawCode: string,
   label = 'iPad Device',
 ): Promise<{
   deviceToken: string;
@@ -109,6 +102,7 @@ export async function claimPairingSession(
   locationId: string;
   terminalType: string;
 }> {
+  const code = (rawCode ?? '').trim().replace(/\s+/g, '').toUpperCase();
   return sql.begin(async (tx) => {
     // 显式设置 app.pairing_code 以允许根据 code 查找 session
     await tx`select
@@ -124,7 +118,7 @@ export async function claimPairingSession(
     }[]>`
       select id, org_id, location_id, terminal_type, expires_at::text, status
       from pairing_sessions
-      where code = ${code}
+      where code = ${code} or code = ${code.replace(/-/g, '')}
       for update`;
 
     if (!session) {
@@ -151,9 +145,9 @@ export async function claimPairingSession(
       set_config('app.org_id',      ${session.org_id},      true),
       set_config('app.location_id', ${session.location_id}, true)`;
 
-    // 生成设备 Token 并哈希存库
-    const rawToken = randomBytes(32).toString('hex');
-    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    // 生成设备 Token 并哈希存库（符合 gfk_ 前缀规范）
+    const rawToken = generateDeviceToken();
+    const tokenHash = hashDeviceToken(rawToken);
 
     const [device] = await tx<{ id: string }[]>`
       insert into device_tokens (
