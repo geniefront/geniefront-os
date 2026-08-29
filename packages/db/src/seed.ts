@@ -8,8 +8,8 @@ import { createHash } from 'node:crypto';
 import { adminSql, adminDatabaseSource } from './admin';
 import { ROLE_PRESETS } from '@gf/contracts';
 
-const SB_URL = process.env.SUPABASE_URL!;
-const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const SB_URL = process.env.SUPABASE_URL ?? process.env.TEST_SUPABASE_URL ?? '';
+const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.TEST_SUPABASE_SERVICE_ROLE_KEY ?? '';
 export const DEV_PASSWORD = 'GenieDev!2026';
 
 const publicKeyFor = (locationId: string): string =>
@@ -24,13 +24,18 @@ const toolTokenFor = (locationId: string): string => {
   return override ?? `st_dev_${locationId.replace(/-/g, '')}`;
 };
 
+function deterministicUuid(seed: string): string {
+  const hash = createHash('md5').update(seed).digest('hex');
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+}
+
 async function upsertAuthUser(email: string, fullName: string): Promise<string> {
   if (process.env.SEED_SKIP_AUTH === '1') {
     const fixed: Record<string, string> = {
       'owner@example.test': '196f0ab4-cd94-45cc-8109-2c414e966828',
       'mia@example.test': 'd84f499d-4100-4791-a0ae-dca645aa2661',
     };
-    return fixed[email] ?? crypto.randomUUID();
+    return fixed[email] ?? deterministicUuid(email);
   }
   const h = {
     apikey: SB_KEY,
@@ -185,8 +190,9 @@ async function main() {
       'earnings', 'tip_payouts', 'cash_movements', 'day_closes',
       'tip_allocations', 'payments', 'ticket_discounts', 'ticket_item_staff', 'ticket_items',
       'tickets', 'ticket_groups', 'tip_policies',
-      'time_punches', 'staff_sessions', 'walkin_queue', 'booking_manage_attempts',
+      'time_punches', 'staff_sessions', 'booking_manage_attempts',
       'form_access_log', 'form_submissions', 'form_share_links', 'form_templates',
+      'walkin_queue',
       'call_drafts', 'phone_calls', 'phone_lines', 'sms_inbound', 'sms_consent', 'sms_outbox', 'email_outbox',
       'credit_ledger', 'usage_events', 'stripe_events', 'billing_invoices', 'billing_accounts', 'location_subscriptions',
       'pairing_sessions', 'discount_reasons', 'notification_rules', 'notification_templates',
@@ -209,6 +215,9 @@ async function main() {
       console.log('Cleaning table:', t);
       if (t === '__users__') {
         await tx`delete from users where email like '%@example.test'`;
+        if (process.env.SEED_SKIP_AUTH === '1') {
+          await tx`delete from auth.users where email like '%@example.test'`;
+        }
       } else if (t === 'sms_consent' || t === 'sms_inbound' || t === 'sms_outbox' || t === 'email_outbox') {
         await tx.unsafe(`delete from ${t}`);
       } else if (t === 'staff_skills' || t === 'membership_roles' || t === 'permission_overrides') {

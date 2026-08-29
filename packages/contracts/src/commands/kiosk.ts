@@ -103,6 +103,8 @@ export const JoinQueue = defineCommand({
   }),
   output: z.object({
     queueId: uuid,
+    /** 所有到店来源统一生成/关联的预约主记录；queueId 只负责排队状态。 */
+    appointmentId: uuid,
     ticketNumber: z.number().int(),
     /** 前面还有几位。客人最想知道的就是这个数 */
     aheadCount: z.number().int(),

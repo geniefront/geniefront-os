@@ -7,6 +7,7 @@ const c = (zh: string, en: string, ko: string, es: string, vi: string): Record<L
 export const publicFormCopy = {
   nameRequired: c('请填写您的姓名', 'Please enter your full name', '성명을 입력해 주세요', 'Ingrese su nombre completo', 'Vui lòng nhập họ tên'),
   phoneRequired: c('请填写联系电话', 'Please enter your phone number', '전화번호를 입력해 주세요', 'Ingrese su número de teléfono', 'Vui lòng nhập số điện thoại'),
+  phoneInvalid: c('请输入有效的电话号码', 'Please enter a valid phone number', '유효한 전화번호를 입력해 주세요', 'Ingrese un número de teléfono válido', 'Vui lòng nhập số điện thoại hợp lệ'),
   signatureRequired: c('请在签名框内签名', 'Please sign in the signature box', '서명란에 서명해 주세요', 'Firme en el recuadro de firma', 'Vui lòng ký trong ô chữ ký'),
   requiredQuestions: c('请完成所有必填问题', 'Please complete all required questions', '필수 질문에 모두 답해 주세요', 'Complete todas las preguntas obligatorias', 'Vui lòng hoàn thành tất cả câu hỏi bắt buộc'),
   invalidLink: c('填写链接无效，请联系门店重新获取', 'This form link is invalid. Please contact the shop.', '양식 링크가 유효하지 않습니다. 매장에 문의해 주세요.', 'El enlace no es válido. Comuníquese con el establecimiento.', 'Liên kết không hợp lệ. Vui lòng liên hệ cửa hàng.'),

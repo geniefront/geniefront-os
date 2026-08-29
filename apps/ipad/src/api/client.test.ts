@@ -1,5 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { api, setStoredDeviceToken } from './client';
+import { api, resolveApiBase, setStoredDeviceToken } from './client';
+
+describe('resolveApiBase', () => {
+  it('rewrites a loopback API host when the Kiosk is opened from an iPad on LAN', () => {
+    expect(resolveApiBase('http://127.0.0.1:3000', {
+      protocol: 'http:', hostname: '192.168.1.25', origin: 'http://192.168.1.25:5178',
+    }, true)).toBe('http://192.168.1.25:3000');
+  });
+
+  it('keeps loopback for a browser running on the development computer', () => {
+    expect(resolveApiBase('http://127.0.0.1:3000', {
+      protocol: 'http:', hostname: 'localhost', origin: 'http://localhost:5178',
+    }, true)).toBe('http://127.0.0.1:3000');
+  });
+});
 
 describe('kiosk API client', () => {
   beforeEach(() => {

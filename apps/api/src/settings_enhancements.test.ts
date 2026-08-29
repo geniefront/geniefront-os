@@ -90,7 +90,7 @@ describe('系统设置增强模块与全新 REST API 接口测试', () => {
 
       expect(loc?.slug).toBe('lotus-spa-nyc');
       expect(loc?.business_type).toBe('mixed');
-      expect(loc?.phone).toBe('+1 (212) 580-8888');
+      expect(loc?.phone).toBe('+12125808888');
       expect(loc?.email).toBe('contact@lotusspanyc.com');
       expect(loc?.address_street).toBe('128 E 56th St, Suite 4B');
     });
@@ -309,7 +309,7 @@ describe('系统设置增强模块与全新 REST API 接口测试', () => {
       expect(data.location).toBeTruthy();
       expect(data.location.slug).toBe('lotus-spa-nyc');
       expect(data.location.businessType).toBe('mixed');
-      expect(data.location.phone).toBe('+1 (212) 580-8888');
+      expect(data.location.phone).toBe('+12125808888');
       expect(data.location.email).toBe('contact@lotusspanyc.com');
       expect(data.location.addressStreet).toBe('128 E 56th St, Suite 4B');
 

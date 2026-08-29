@@ -90,6 +90,10 @@ export function buildServer(): FastifyInstance {
   const ORIGINS = [
     /^http:\/\/localhost:\d+$/,
     /^http:\/\/127\.0\.0\.1:\d+$/,
+    // 同一 Wi-Fi 上的 Kiosk 真机调试。只允许 RFC1918 私网与 mDNS .local，
+    // 不放开公网 http origin；设备路由仍必须通过 X-Device-Token。
+    /^http:\/\/(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}):\d+$/,
+    /^http:\/\/[a-z0-9-]+\.local:\d+$/i,
     /^https:\/\/([a-z0-9-]+\.)*geniefront\.com$/,
     /^https:\/\/[a-z0-9-]+\.pages\.dev$/,   // Pages 预览部署
   ];

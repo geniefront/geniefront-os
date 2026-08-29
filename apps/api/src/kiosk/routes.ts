@@ -22,7 +22,13 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { AppError, ERROR_CODES, pickText } from '@gf/contracts';
+import {
+  AppError,
+  ERROR_CODES,
+  healthFormTemplateKeyForBusinessType,
+  normalizePhoneE164,
+  pickText,
+} from '@gf/contracts';
 import { withTenant } from '@gf/db';
 import { businessDateOf } from '@gf/scheduling';
 import { dispatch } from '../bus';
@@ -285,7 +291,7 @@ export function registerKioskRoutes(app: FastifyInstance): void {
     }
 
     const out = await dispatch<{
-      queueId: string; ticketNumber: number; aheadCount: number;
+      queueId: string; appointmentId: string; ticketNumber: number; aheadCount: number;
       quotedWaitMin: number | null; businessDate: string;
     }>('queue.join', {
       customerId: appt[0]!.customer_id,
@@ -309,12 +315,8 @@ export function registerKioskRoutes(app: FastifyInstance): void {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'bad_name' } });
     }
 
-    const phoneDigits = (req.body?.phone ?? '').replace(/\D/g, '');
-    const walkInPhone = phoneDigits.length === 10
-      ? `+1${phoneDigits}`
-      : phoneDigits.length >= 7 && phoneDigits.length <= 15
-        ? `+${phoneDigits}`
-        : undefined;
+    const rawPhone = req.body?.phone?.trim() ?? '';
+    const walkInPhone = rawPhone ? normalizePhoneE164(rawPhone) ?? undefined : undefined;
     if (req.body?.phone && !walkInPhone) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'bad_phone' } });
     }
@@ -343,7 +345,7 @@ export function registerKioskRoutes(app: FastifyInstance): void {
     // 幂等键由 Kiosk 生成：门口那台 iPad 的网常常是店里最差的一条，
     // 重试不能变成两个号（客人手上会拿到两张纸，前台会喊两次）
     const out = await dispatch<{
-      queueId: string; ticketNumber: number; aheadCount: number;
+      queueId: string; appointmentId: string; ticketNumber: number; aheadCount: number;
       quotedWaitMin: number | null; businessDate: string;
     }>('queue.join', {
       walkInName: name,
@@ -450,13 +452,23 @@ export function registerKioskRoutes(app: FastifyInstance): void {
           }
         }
 
+        const [location] = await tx<{ business_type: string }[]>`
+          select business_type from locations where id = ${ctx.locationId}`;
+        const selectedKey = healthFormTemplateKeyForBusinessType(location?.business_type ?? 'nail');
+
+        // Kiosk and Web must render the same currently-published business form.
+        // Do not return every active industry preset: that previously made a nail
+        // customer complete massage, lash, scalp, and hair forms in sequence.
         const templates = await tx<{
           id: string; key: string; version: number; title: unknown; schema: unknown;
           requires_signature: boolean; service_ids: unknown;
         }[]>`
           select id, key, version, title, schema, requires_signature, service_ids
           from form_templates
-          where location_id = ${ctx.locationId} and active = true and published_at is not null`;
+          where location_id = ${ctx.locationId} and active = true
+            and published_at is not null and key = ${selectedKey}
+          order by version desc, created_at desc
+          limit 1`;
 
         const applicable = templates.filter((t) => {
           const ids = (t.service_ids as string[]) ?? [];

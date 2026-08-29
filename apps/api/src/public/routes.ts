@@ -25,7 +25,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { AppError, ERROR_CODES, pickText } from '@gf/contracts';
+import { AppError, ERROR_CODES, pickText, phoneE164 } from '@gf/contracts';
 import { withTenant, ts, parseTs, type PublicShopRow } from '@gf/db';
 import { businessDateOf, wallMinuteToInstant } from '@gf/scheduling';
 import { dispatch } from '../bus';
@@ -66,7 +66,7 @@ const bookingBody = z.object({
   locale: z.string().max(16).optional(),
   customer: z.object({
     name: z.string().min(1).max(120),
-    phone: z.string().regex(/^\+[1-9]\d{7,14}$/, 'must be E.164'),
+    phone: phoneE164,
     email: z.string().email().max(200).optional(),
     smsOptIn: z.boolean().default(false),
   }),

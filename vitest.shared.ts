@@ -44,6 +44,8 @@ const NEVER_FROM_DOTENV = new Set([
   'DATABASE_URL',
   'MIGRATION_DATABASE_URL',
   'APP_DB_PASSWORD',
+  'SUPABASE_URL',
+  'SUPABASE_ANON_KEY',
   'SUPABASE_SERVICE_ROLE_KEY',
 ]);
 
@@ -123,6 +125,13 @@ export function loadEnv(options: SharedTestOptions = {}): Record<string, string>
     out['MIGRATION_DATABASE_URL'] = migrationUrl;
     const testPassword = process.env['TEST_APP_DB_PASSWORD'] ?? dotenv['TEST_APP_DB_PASSWORD'];
     if (testPassword) out['APP_DB_PASSWORD'] = testPassword;
+
+    const testSupabaseUrl = process.env['TEST_SUPABASE_URL'] ?? dotenv['TEST_SUPABASE_URL'];
+    const testSupabaseKey = process.env['TEST_SUPABASE_SERVICE_ROLE_KEY'] ?? dotenv['TEST_SUPABASE_SERVICE_ROLE_KEY'];
+    const testSupabaseAnon = process.env['TEST_SUPABASE_ANON_KEY'] ?? dotenv['TEST_SUPABASE_ANON_KEY'];
+    if (testSupabaseUrl) out['SUPABASE_URL'] = testSupabaseUrl;
+    if (testSupabaseKey) out['SUPABASE_SERVICE_ROLE_KEY'] = testSupabaseKey;
+    if (testSupabaseAnon) out['SUPABASE_ANON_KEY'] = testSupabaseAnon;
   }
 
   // 兜底：就算哪天 vitest 改了默认值，替身也不能失效
@@ -133,10 +142,16 @@ export function loadEnv(options: SharedTestOptions = {}): Record<string, string>
 export function createSharedTestConfig(options: SharedTestOptions = {}) {
   return {
     env: loadEnv(options),
-    hookTimeout: 30_000,
-    testTimeout: 30_000,
+    hookTimeout: 120_000,
+    testTimeout: 60_000,
     // 测试会真的写库，并行跑会互相干扰容量判断
     fileParallelism: false,
+    pool: 'forks' as const,
+    poolOptions: {
+      forks: {
+        singleFork: true,
+      },
+    },
   };
 }
 

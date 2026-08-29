@@ -25,6 +25,7 @@ import {
   type HealthFormCategory,
 } from '@/features/forms/formExperience';
 import { useErrorMessage } from '@/lib/errorMessage';
+import { formatPhoneInput, normalizePhoneE164 } from '@gf/contracts';
 
 const localized = (value: Partial<Record<string, string>> | undefined, language: string, defaultLanguage = 'en'): string => {
   if (!value) return '';
@@ -146,6 +147,14 @@ export function PublicHealthForm() {
       toast.danger(copy('phoneRequired'));
       return;
     }
+    if (!normalizePhoneE164(clientInfo.phone)) {
+      toast.danger(copy('phoneInvalid'));
+      return;
+    }
+    if (clientInfo.emergencyPhone.trim() && !normalizePhoneE164(clientInfo.emergencyPhone)) {
+      toast.danger(copy('phoneInvalid'));
+      return;
+    }
 
     if (template.requiresSignature && !signatureDataUrl) {
       toast.danger(copy('signatureRequired'));
@@ -174,7 +183,14 @@ export function PublicHealthForm() {
   const submitConfirmed = async () => {
     const submissionAnswers = {
       ...answers,
-      clientInfo,
+      clientInfo: {
+        ...clientInfo,
+        fullName: clientInfo.fullName.trim(),
+        phone: normalizePhoneE164(clientInfo.phone),
+        emergencyPhone: clientInfo.emergencyPhone.trim()
+          ? normalizePhoneE164(clientInfo.emergencyPhone)
+          : null,
+      },
       conditions,
       pregnancyWeeks,
       recentSurgeries,
@@ -415,7 +431,7 @@ export function PublicHealthForm() {
                   <Input
                     required
                     value={clientInfo.phone}
-                    onChange={(e) => setClientInfo({ ...clientInfo, phone: e.target.value })}
+                    onChange={(e) => setClientInfo({ ...clientInfo, phone: formatPhoneInput(e.target.value) })}
                     placeholder="(555) 123-4567"
                     className="text-xs font-mono"
                   />
@@ -448,7 +464,7 @@ export function PublicHealthForm() {
                   </label>
                   <Input
                     value={clientInfo.emergencyPhone}
-                    onChange={(e) => setClientInfo({ ...clientInfo, emergencyPhone: e.target.value })}
+                    onChange={(e) => setClientInfo({ ...clientInfo, emergencyPhone: formatPhoneInput(e.target.value) })}
                     placeholder="(555) 987-6543"
                     className="text-xs font-mono"
                   />

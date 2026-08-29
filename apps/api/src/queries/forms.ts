@@ -355,22 +355,22 @@ export async function loadAppointmentForms(
   ctx: CommandContext,
   appointmentId: string,
 ): Promise<{ forms: AppointmentFormVersionDto[] }> {
-  let customerId: string | null = null;
-  let actualAppointmentId: string | null = appointmentId;
+  let actualAppointmentId: string | null = null;
+  let queueId: string | null = null;
 
   const [apt] = await tx<{ customer_id: string | null }[]>`
     select customer_id from appointments
     where id = ${appointmentId} and location_id = ${ctx.locationId}`;
 
   if (apt) {
-    customerId = apt.customer_id;
+    actualAppointmentId = appointmentId;
   } else {
-    const [wq] = await tx<{ customer_id: string | null; appointment_id: string | null }[]>`
-      select customer_id, appointment_id from walkin_queue
+    const [wq] = await tx<{ id: string; appointment_id: string | null }[]>`
+      select id, appointment_id from walkin_queue
       where id = ${appointmentId} and location_id = ${ctx.locationId}`;
     if (!wq) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
-    customerId = wq.customer_id;
-    if (wq.appointment_id) actualAppointmentId = wq.appointment_id;
+    queueId = wq.id;
+    actualAppointmentId = wq.appointment_id;
   }
 
   const rows = await tx<{
@@ -390,9 +390,8 @@ export async function loadAppointmentForms(
     join form_templates t on t.id = s.template_id
     where s.location_id = ${ctx.locationId}
       and (
-        s.appointment_id = ${actualAppointmentId}::uuid
-        or s.queue_id = ${appointmentId}::uuid
-        ${customerId ? tx`or s.customer_id = ${customerId}` : tx``}
+        (${actualAppointmentId}::uuid is not null and s.appointment_id = ${actualAppointmentId}::uuid)
+        or (${queueId}::uuid is not null and s.queue_id = ${queueId}::uuid)
       )
     order by s.version desc, s.created_at desc`;
 

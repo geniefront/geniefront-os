@@ -54,6 +54,7 @@ export interface GuestIntake {
 
 export interface QueueJoinResult {
   queueId: string;
+  appointmentId: string;
   ticketNumber: number;
   aheadCount: number;
   quotedWaitMin: number | null;

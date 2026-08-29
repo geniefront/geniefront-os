@@ -10,7 +10,10 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
-      alias: { '@': path.resolve(__dirname, './src') },
+      alias: {
+        '@': path.resolve(__dirname, './src'),
+        '@gf/contracts': path.resolve(__dirname, '../../packages/contracts/src/index.ts'),
+      },
     },
     // launch.json 里给前台端留的口
     server: { port: 5177, strictPort: true },

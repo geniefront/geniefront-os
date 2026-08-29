@@ -19,7 +19,10 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 try {
   execFileSync('pnpm', ['--dir', root, 'db:seed'], {
-    env: process.env,
+    env: {
+      ...process.env,
+      SEED_SKIP_AUTH: '1',
+    },
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });

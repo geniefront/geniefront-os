@@ -537,7 +537,8 @@ function QueueContent() {
   // 通用查看详情入口 (全看板 5 列统一呼出右侧全生命周期大抽屉)
   const handleViewDetails = (item: KanbanItem) => {
     const drawerStatus = stageToDrawerStatus[item.stage] || 'booked';
-    openAppointment?.(item.appointmentId || item.id, drawerStatus);
+    // 新数据一定有 appointmentId；queueId 仅用于兼容尚未跑回填迁移的旧 Walk-in。
+    openAppointment?.(item.appointmentId ?? item.queueId ?? null, drawerStatus);
   };
 
   // Compile Unified Kanban Items

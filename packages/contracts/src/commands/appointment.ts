@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod';
-import { defineCommand, uuid, cents, overrideReason } from '../command.js';
+import { defineCommand, uuid, cents, overrideReason, phoneE164 } from '../command.js';
 
 /** 预约来源。AI 产生的数据必须带 source 标记（宪法第 6 条），可筛可撤可审计。 */
 export const appointmentSource = z.enum([
@@ -107,7 +107,7 @@ export const AppointmentCreate = defineCommand({
        */
       customer: z.object({
         name: z.string().min(1).max(120),
-        phoneE164: z.string().regex(/^\+[1-9]\d{7,14}$/),
+        phoneE164,
         email: z.string().email().max(200).optional(),
         /**
          * ⚠️ 只管**营销**短信，不管预约确认（那是事务性的，不需要这个开关）。

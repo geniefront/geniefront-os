@@ -3,7 +3,7 @@
  */
 
 import { z } from 'zod';
-import { defineCommand } from '../command';
+import { defineCommand, phoneE164 } from '../command';
 
 /** 更新当前用户个人档案与技师接单配置 */
 export const UpdateUserProfile = defineCommand({
@@ -11,7 +11,7 @@ export const UpdateUserProfile = defineCommand({
   input: z.object({
     fullName: z.string().trim().min(1).max(100).optional(),
     nickname: z.string().trim().max(60).optional(),
-    phone: z.string().trim().max(40).optional(),
+    phone: phoneE164.optional(),
     avatarUrl: z.string().url().or(z.literal('')).optional(),
     bio: z.string().max(500).optional(),
     locale: z.string().max(10).optional(),

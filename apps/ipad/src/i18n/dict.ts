@@ -390,6 +390,57 @@ export const dict = {
     es: 'Para su seguridad y calidad del servicio, complete los siguientes datos',
     vi: 'Vì sự an toàn và chất lượng phục vụ, vui lòng điền trung thực các thông tin sau',
   },
+  'health.clientInfo': {
+    'zh-Hans': '顾客资料', en: 'Client information', ko: '고객 정보',
+    es: 'Información del cliente', vi: 'Thông tin khách hàng',
+  },
+  'health.fullName': {
+    'zh-Hans': '姓名', en: 'Full name', ko: '성명', es: 'Nombre completo', vi: 'Họ tên',
+  },
+  'health.dateOfBirth': {
+    'zh-Hans': '出生日期', en: 'Date of birth', ko: '생년월일', es: 'Fecha de nacimiento', vi: 'Ngày sinh',
+  },
+  'health.phoneNumber': {
+    'zh-Hans': '电话号码', en: 'Phone number', ko: '전화번호', es: 'Número de teléfono', vi: 'Số điện thoại',
+  },
+  'health.occupation': {
+    'zh-Hans': '职业', en: 'Occupation', ko: '직업', es: 'Ocupación', vi: 'Nghề nghiệp',
+  },
+  'health.emergencyName': {
+    'zh-Hans': '紧急联系人', en: 'Emergency contact name', ko: '비상 연락처 이름',
+    es: 'Contacto de emergencia', vi: 'Tên liên hệ khẩn cấp',
+  },
+  'health.emergencyPhone': {
+    'zh-Hans': '紧急联系人电话', en: 'Emergency contact phone', ko: '비상 연락처 전화번호',
+    es: 'Teléfono de emergencia', vi: 'Số điện thoại khẩn cấp',
+  },
+  'health.safetyInstructions': {
+    'zh-Hans': '请如实回答，以便服务人员判断是否可以安全提供服务。',
+    en: 'Please answer accurately so the provider can determine whether the service can be performed safely.',
+    ko: '안전한 서비스 제공 여부를 판단할 수 있도록 정확히 답변해 주세요.',
+    es: 'Responda con precisión para determinar si el servicio puede realizarse de forma segura.',
+    vi: 'Vui lòng trả lời chính xác để nhân viên đánh giá dịch vụ có thể thực hiện an toàn hay không.',
+  },
+  'health.additionalQuestions': {
+    'zh-Hans': '3. 其他问题', en: '3. Additional questions', ko: '3. 추가 질문',
+    es: '3. Preguntas adicionales', vi: '3. Câu hỏi bổ sung',
+  },
+  'health.informedConsent': {
+    'zh-Hans': '知情同意', en: 'Informed consent', ko: '사전 동의',
+    es: 'Consentimiento informado', vi: 'Đồng ý sau khi được thông tin',
+  },
+  'health.consentBody': {
+    'zh-Hans': '我确认以上信息真实完整，并理解本服务不替代医疗诊断或治疗。如有不适，我会立即告知服务人员，并同意门店按隐私政策保存本表及签名。',
+    en: 'I confirm that the information above is accurate and complete. I understand this service is not a substitute for medical diagnosis or treatment. I will immediately report discomfort and consent to secure storage of this form and signature.',
+    ko: '위 정보가 정확하고 완전함을 확인합니다. 본 서비스는 의료 진단이나 치료를 대신하지 않으며, 불편함이 있으면 즉시 알리고 양식과 서명의 안전한 보관에 동의합니다.',
+    es: 'Confirmo que la información es exacta y completa. Entiendo que el servicio no sustituye un diagnóstico o tratamiento médico y acepto el almacenamiento seguro del formulario y la firma.',
+    vi: 'Tôi xác nhận thông tin trên chính xác và đầy đủ. Tôi hiểu dịch vụ không thay thế chẩn đoán hoặc điều trị y tế và đồng ý lưu trữ an toàn biểu mẫu cùng chữ ký.',
+  },
+  'health.painDescription': {
+    'zh-Hans': '请描述疼痛或不适部位与感觉', en: 'Describe the pain or discomfort',
+    ko: '통증 또는 불편함을 설명해 주세요', es: 'Describa el dolor o la molestia',
+    vi: 'Mô tả cơn đau hoặc khó chịu',
+  },
   'health.requiredBadge': {
     'zh-Hans': '必填',
     en: 'Required',

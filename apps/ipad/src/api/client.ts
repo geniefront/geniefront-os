@@ -11,7 +11,34 @@ import type {
 } from '../types';
 
 declare const __API_BASE__: string;
-export const API_BASE = typeof __API_BASE__ !== 'undefined' ? __API_BASE__ : 'http://localhost:3000';
+const configuredApiBase = typeof __API_BASE__ !== 'undefined' ? __API_BASE__.replace(/\/$/, '') : '';
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+
+export function resolveApiBase(
+  configured: string,
+  page: Pick<Location, 'protocol' | 'hostname' | 'origin'>,
+  dev: boolean,
+): string {
+  if (configured) {
+    try {
+      const url = new URL(configured);
+      // .env 的 127.0.0.1 对电脑浏览器是对的，对同一 Wi-Fi 上的 iPad 却指向 iPad 自己。
+      if (LOOPBACK_HOSTS.has(url.hostname) && !LOOPBACK_HOSTS.has(page.hostname)) {
+        url.hostname = page.hostname;
+      }
+      return url.toString().replace(/\/$/, '');
+    } catch {
+      return configured;
+    }
+  }
+  return dev ? `${page.protocol}//${page.hostname}:3000` : page.origin;
+}
+/**
+ * 开发时用当前页面的 hostname，而不是写死 localhost。
+ * iPad 打开 http://192.168.x.x:5178 时，localhost 指的是 iPad 自己，会永远连不上电脑上的 API。
+ * 生产环境默认同源；API 分域部署时必须显式设置 VITE_API_BASE。
+ */
+export const API_BASE = resolveApiBase(configuredApiBase, window.location, import.meta.env.DEV);
 
 const DEVICE_TOKEN_KEY = 'gf_kiosk_device_token';
 

@@ -4,6 +4,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useDeviceAuth } from '../context/DeviceAuthContext';
 import { api } from '../api/client';
 import type { GuestIntake } from '../types';
+import { formatPhoneInput } from '../utils/phone';
 import {
   ArrowLeft,
   User,
@@ -118,7 +119,7 @@ export const WalkInPage: React.FC = () => {
 
       // 2. 检查所选服务是否需要健康表
       const formsRes = await api.getRequiredForms({
-        queueId: queueRes.queueId,
+        appointmentId: queueRes.appointmentId,
       });
 
       if (formsRes.forms.length === 0) {
@@ -132,6 +133,7 @@ export const WalkInPage: React.FC = () => {
       // 逐位客人在 Kiosk 上完成后端持久化的健康表。
       navigate('/health-form', {
         state: {
+          appointmentId: queueRes.appointmentId,
           queueId: queueRes.queueId,
           queueResult: queueRes,
           forms: formsRes.forms ?? [],
@@ -269,7 +271,7 @@ export const WalkInPage: React.FC = () => {
               <input
                 type="tel"
                 value={currentGuest.phone}
-                onChange={(e) => handleUpdateGuest(activeGuestIdx, { phone: e.target.value })}
+                onChange={(e) => handleUpdateGuest(activeGuestIdx, { phone: formatPhoneInput(e.target.value) })}
                 placeholder={t('walkin.phonePlaceholder')}
                 autoComplete="off"
                 autoCorrect="off"

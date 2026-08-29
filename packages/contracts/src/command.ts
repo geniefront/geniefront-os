@@ -72,8 +72,58 @@ export const cents = z.number().int();
 /** 百分比一律 basis point：10000 = 100%，避免 0.4 变成 0.4000000000000001 */
 export const basisPoints = z.number().int().min(0).max(10000);
 
-/** E.164 手机号 */
-export const phoneE164 = z.string().regex(/^\+[1-9]\d{7,14}$/, 'must be E.164, e.g. +15125550142');
+const E164_RE = /^\+[1-9]\d{7,14}$/;
+
+/** 将各入口的常见号码写法统一成 E.164；无法可靠判断的短号返回 null。 */
+export function normalizePhoneE164(input: string): string | null {
+  const raw = input.trim();
+  if (!raw || /(?:ext(?:ension)?|x|#)\s*\d+\s*$/i.test(raw)) return null;
+
+  const explicitInternational = raw.startsWith('+') || raw.startsWith('00');
+  const digits = raw.replace(/\D/g, '');
+  let candidate: string;
+  if (explicitInternational) {
+    candidate = `+${raw.startsWith('00') ? digits.slice(2) : digits}`;
+  } else if (digits.length === 10) {
+    candidate = `+1${digits}`;
+  } else if (digits.length === 11 && digits.startsWith('1')) {
+    candidate = `+${digits}`;
+  } else {
+    candidate = `+${digits}`;
+  }
+  return E164_RE.test(candidate) ? candidate : null;
+}
+
+/** Consistent phone-entry display used by Web and Kiosk. */
+export function formatPhoneInput(input: string): string {
+  const raw = input.trim();
+  const digits = raw.replace(/\D/g, '').slice(0, 15);
+  const explicitInternational = raw.startsWith('+') || raw.startsWith('00');
+
+  if (explicitInternational && !(digits.length === 11 && digits.startsWith('1'))) {
+    const internationalDigits = raw.startsWith('00') ? digits.slice(2) : digits;
+    return internationalDigits ? `+${internationalDigits}` : '+';
+  }
+
+  const national = digits.length > 10 && digits.startsWith('1') ? digits.slice(1, 11) : digits.slice(0, 10);
+  if (national.length <= 3) return national;
+  if (national.length <= 6) return `(${national.slice(0, 3)}) ${national.slice(3)}`;
+  const formatted = `(${national.slice(0, 3)}) ${national.slice(3, 6)}-${national.slice(6)}`;
+  return digits.length > 10 && digits.startsWith('1') ? `+1 ${formatted}` : formatted;
+}
+
+/** 输入可带空格/括号/横线；命令 handler 收到的永远是规范 E.164。 */
+export const phoneE164 = z.string().transform((raw, ctx) => {
+  const normalized = normalizePhoneE164(raw);
+  if (!normalized) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'must be a valid phone number, e.g. +15125550142 or (512) 555-0142',
+    });
+    return z.NEVER;
+  }
+  return normalized;
+});
 
 /** 多语言文本。缺失时回退到门店默认语言。 */
 export const LOCALES = ['en', 'zh-Hans', 'zh-Hant', 'ko', 'vi', 'es'] as const;

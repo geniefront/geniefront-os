@@ -83,7 +83,8 @@ export async function loadAppointmentDetail(
     let items: AppointmentItemDetailDto[] = [];
     if (wq.requested_service_id) {
       const [svc] = await tx<{ id: string; name: unknown; duration_min: number; base_price_cents: number }[]>`
-        select id, name, duration_min, base_price_cents from services where id = ${wq.requested_service_id}`;
+        select id, name, duration_min, base_price_cents from services
+        where id = ${wq.requested_service_id} and location_id = ${ctx.locationId}`;
       if (svc) {
         items = [{
           itemId: `wq-item-${wq.id}`,
@@ -100,18 +101,13 @@ export async function loadAppointmentDetail(
       }
     }
 
-    let hasHealthForm = false;
-    let healthFormSubmissionId: string | null = null;
-    if (wq.customer_id) {
-      const [sub] = await tx<{ id: string }[]>`
-        select id from form_submissions
-        where customer_id = ${wq.customer_id} and location_id = ${ctx.locationId}
-        order by created_at desc limit 1`;
-      if (sub) {
-        hasHealthForm = true;
-        healthFormSubmissionId = sub.id;
-      }
-    }
+    const [sub] = await tx<{ id: string }[]>`
+      select id from form_submissions
+      where queue_id = ${wq.id} and location_id = ${ctx.locationId}
+        and anonymized_at is null
+      order by created_at desc limit 1`;
+    const hasHealthForm = Boolean(sub);
+    const healthFormSubmissionId = sub?.id ?? null;
 
     return {
       appointmentId: wq.id,

@@ -188,7 +188,7 @@ export const SaveLocationProfile = defineCommand({
     /** IANA 时区名，如 America/New_York */
     timezone: z.string().min(3).max(64).optional(),
     businessType: z.enum(['nail', 'massage', 'foot_spa', 'lash', 'scalp', 'hair', 'mixed']).optional(),
-    phone: z.string().max(32).optional().nullable(),
+    phone: phoneE164.optional().nullable(),
     email: z.string().email('邮箱格式不正确').optional().or(z.literal('')).nullable(),
     addressStreet: z.string().max(255).optional().nullable(),
     addressCity: z.string().max(64).optional().nullable(),
@@ -425,7 +425,7 @@ export const CreateLocation = defineCommand({
     businessType: z.enum(['nail', 'massage', 'foot_spa', 'lash', 'scalp']).default('nail'),
     /** 不填就跟着当前门店 */
     locale: z.enum(['en', 'zh-Hans', 'zh-Hant', 'ko', 'vi', 'es']).optional(),
-    phone: z.string().max(32).optional(),
+    phone: phoneE164.optional(),
   }),
   output: z.object({
     locationId: uuid,

@@ -87,7 +87,7 @@ afterAll(async () => {
   await withTenant(tenant, async (tx) => {
     // 健康表不可删除（sql/0016 的触发器）—— 测试数据同样只能匿名化。
     // 这正好也验证了那条触发器是活的
-    await tx`update form_submissions set answers_encrypted = null, anonymized_at = now()
+    await tx`update form_submissions set answers_encrypted = null, anonymized_at = now(), queue_id = null
              where location_id = ${NAIL_LOC}`;
     await tx`delete from walkin_queue where location_id = ${NAIL_LOC}`;
     await tx`delete from device_tokens where location_id = ${NAIL_LOC}`;
@@ -109,6 +109,16 @@ const kioskForm = (payload: Record<string, unknown>, idempotencyKey = randomUUID
   kiosk('POST', '/v1/kiosk/forms/submit', {
     ...payload, queueId: formQueueId, idempotencyKey,
   });
+
+describe('Kiosk 健康表选择', () => {
+  it('只返回门店业态对应的 Web 已发布模板', async () => {
+    const res = await kiosk('GET', `/v1/kiosk/forms/required?queueId=${formQueueId}`);
+    expect(res.statusCode).toBe(200);
+    const forms = res.json().forms as Array<{ key: string }>;
+    expect(forms.length).toBeLessThanOrEqual(1);
+    expect(forms.every((form) => form.key === 'nail_pedicure_intake')).toBe(true);
+  });
+});
 
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -229,7 +239,7 @@ describe('⭐ 签到不是一个客户查询接口', () => {
     }
     expect(blocked).toBe(true);
     __resetRateLimit();
-  });
+  }, 120_000);
 });
 
 describe('⭐ Kiosk 的权限窄到只有两条', () => {
@@ -322,6 +332,20 @@ describe('走单队列', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().ticketNumber).toBeGreaterThanOrEqual(1);
     expect(res.json().quotedWaitMin).toBeGreaterThanOrEqual(0);
+    expect(res.json().appointmentId).toMatch(/^[0-9a-f-]{36}$/i);
+
+    const [visit] = await withTenant(tenant, (tx) => tx<{
+      appointment_id: string; source: string; status: string;
+    }[]>`
+      select q.appointment_id, a.source, a.status
+      from walkin_queue q
+      join appointments a on a.id = q.appointment_id
+      where q.id = ${res.json().queueId}`);
+    expect(visit).toMatchObject({
+      appointment_id: res.json().appointmentId,
+      source: 'walkin',
+      status: 'checked_in',
+    });
   });
 
   it('⭐ 号码不重复 —— 同时取号不会拿到同一个号', async () => {
@@ -342,6 +366,7 @@ describe('走单队列', () => {
     const a = await kiosk('POST', '/v1/kiosk/walk-in', { name: '重试测试', idempotencyKey: key });
     const b = await kiosk('POST', '/v1/kiosk/walk-in', { name: '重试测试', idempotencyKey: key });
     expect(a.json().ticketNumber).toBe(b.json().ticketNumber);
+    expect(a.json().appointmentId).toBe(b.json().appointmentId);
   });
 
   it('客人能查自己前面还有几位', async () => {

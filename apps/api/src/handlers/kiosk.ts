@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import {
   IssueDeviceToken, RevokeDeviceToken, QueueDeviceCommand, JoinQueue, UpdateQueueEntry,
   SaveFormTemplate, SubmitForm, ShareForm, RevokeFormShare,
-  AppError, ERROR_CODES, pickText,
+  AppError, ERROR_CODES, healthFormTemplateKeyForBusinessType, pickText,
 } from '@gf/contracts';
 import { jsonb, ts } from '@gf/db';
 import { businessDateOf } from '@gf/scheduling';
@@ -95,6 +95,9 @@ registerHandler(JoinQueue, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof JoinQueue.input._type>) => {
   const businessDate = await currentDate(tx, ctx.locationId);
   let customerId = input.customerId ?? null;
+  let requestedService: {
+    id: string; duration_min: number; base_price_cents: number;
+  } | null = null;
 
   if (!input.appointmentId && input.walkInPhone) {
     const [settings] = await tx<{ auto_create_crm_profile: boolean }[]>`
@@ -228,17 +231,21 @@ registerHandler(JoinQueue, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     }
   }
   if (input.requestedServiceId) {
-    const [ok] = await tx<{ id: string }[]>`
-      select id from services
-      where id = ${input.requestedServiceId} and location_id = ${ctx.locationId}`;
-    if (!ok) {
+    const [service] = await tx<{
+      id: string; duration_min: number; base_price_cents: number;
+    }[]>`
+      select id, duration_min, base_price_cents from services
+      where id = ${input.requestedServiceId} and location_id = ${ctx.locationId}
+        and active = true`;
+    if (!service) {
       throw new AppError(ERROR_CODES.NOT_FOUND, {
         details: { entity: 'service', requestedServiceId: input.requestedServiceId },
       });
     }
+    requestedService = service;
   }
 
-  const [row] = await tx<{ id: string }[]>`
+  const [row] = await tx<{ id: string; joined_at: string | Date }[]>`
     insert into walkin_queue
       (org_id, location_id, business_date, ticket_number, customer_id, walk_in_name,
        requested_service_id, requested_staff_id, party_size, appointment_id,
@@ -248,31 +255,75 @@ registerHandler(JoinQueue, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
             ${input.requestedServiceId ?? null}, ${input.requestedStaffId ?? null},
             ${input.partySize}, ${input.appointmentId ?? null},
             ${quotedWaitMin}, ${input.source})
-    returning id`;
+    returning id, joined_at`;
 
-  if (input.appointmentId) {
-    await tx`update appointments set status = 'checked_in'
-             where id = ${input.appointmentId}`;
+  // 所有来源在进入门店后都使用 appointments 作为 visit 主记录。
+  // queueId 只表达“排队中的状态”，后续详情、表单、开单、结账统一拿 appointmentId。
+  let appointmentId = input.appointmentId ?? null;
+  if (!appointmentId) {
+    const durationMin = requestedService?.duration_min ?? 40;
+    const joinedAt = ts(row!.joined_at);
+    const [appointment] = await tx<{ id: string }[]>`
+      insert into appointments (
+        org_id, location_id, customer_id, walk_in_name, business_date,
+        starts_at, ends_at, status, source, booking_channel_ref,
+        party_size, created_by
+      ) values (
+        ${ctx.orgId}, ${ctx.locationId}, ${customerId}, ${input.walkInName ?? null},
+        ${businessDate}, ${joinedAt}::timestamptz,
+        ${joinedAt}::timestamptz + make_interval(mins => ${durationMin}),
+        'checked_in', 'walkin', ${`walkin_queue:${row!.id}`},
+        ${input.partySize}, ${ctx.membershipId}
+      ) returning id`;
+    appointmentId = appointment!.id;
+
+    if (requestedService) {
+      await tx`
+        insert into appointment_items (
+          org_id, location_id, appointment_id, service_id, membership_id,
+          is_request, starts_at, ends_at, price_cents_snapshot, duration_min,
+          seq, status
+        ) values (
+          ${ctx.orgId}, ${ctx.locationId}, ${appointmentId}, ${requestedService.id},
+          ${input.requestedStaffId ?? null}, ${Boolean(input.requestedStaffId)},
+          ${joinedAt}::timestamptz,
+          ${joinedAt}::timestamptz + make_interval(mins => ${requestedService.duration_min}),
+          ${requestedService.base_price_cents}, ${requestedService.duration_min}, 0, 'booked'
+        )`;
+    }
+
+    await tx`update walkin_queue set appointment_id = ${appointmentId} where id = ${row!.id}`;
+  } else {
+    await tx`update appointments set status = 'checked_in' where id = ${appointmentId}`;
   }
 
   audit({
     entityType: 'queue', entityId: row!.id,
     after: {
       ticketNumber, businessDate, source: input.source,
-      partySize: input.partySize, aheadCount,
+      partySize: input.partySize, aheadCount, appointmentId,
     },
   });
 
   // 前台那块屏上的队列要当场跳 —— 客人还站在门口
   emit({ type: 'queue.changed', entityId: row!.id, businessDate });
 
-  return { queueId: row!.id, ticketNumber, aheadCount, quotedWaitMin, businessDate };
+  return {
+    queueId: row!.id,
+    appointmentId,
+    ticketNumber,
+    aheadCount,
+    quotedWaitMin,
+    businessDate,
+  };
 });
 
 registerHandler(UpdateQueueEntry, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof UpdateQueueEntry.input._type>) => {
-  const [cur] = await tx<{ id: string; status: string; business_date: string }[]>`
-    select id, status, business_date::text from walkin_queue
+  const [cur] = await tx<{
+    id: string; status: string; business_date: string; appointment_id: string | null;
+  }[]>`
+    select id, status, business_date::text, appointment_id from walkin_queue
     where id = ${input.queueId} and location_id = ${ctx.locationId}`;
   if (!cur) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'queue' } });
 
@@ -293,10 +344,36 @@ registerHandler(UpdateQueueEntry, async ({ input, ctx, tx, audit, emit }: Handle
       left_reason = ${input.leftReason ?? null}
     where id = ${input.queueId}`;
 
+  if (cur.appointment_id) {
+    const appointmentStatus = input.status === 'seated'
+      ? 'in_service'
+      : input.status === 'left'
+        ? 'cancelled'
+        : 'checked_in';
+    const itemStatus = input.status === 'seated'
+      ? 'in_service'
+      : input.status === 'left'
+        ? 'cancelled'
+        : 'booked';
+    await tx`
+      update appointments set
+        status = ${appointmentStatus},
+        cancelled_at = ${input.status === 'left' ? tx`coalesce(cancelled_at, now())` : tx`null`},
+        cancel_reason = ${input.status === 'left' ? 'walk_out' : null}
+      where id = ${cur.appointment_id}`;
+    await tx`
+      update appointment_items set status = ${itemStatus}
+      where appointment_id = ${cur.appointment_id} and status <> 'cancelled'`;
+  }
+
   audit({
     entityType: 'queue', entityId: input.queueId,
     before: { status: cur.status },
-    after: { status: input.status, leftReason: input.leftReason ?? null },
+    after: {
+      status: input.status,
+      leftReason: input.leftReason ?? null,
+      appointmentId: cur.appointment_id,
+    },
   });
   emit({ type: 'queue.changed', entityId: input.queueId, businessDate: cur.business_date });
 
@@ -471,7 +548,7 @@ registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
   const [expiry] = tpl.valid_days === null
     ? []
     : await tx<{ value: string }[]>`
-        select (((now() at time zone ${ctx.timezone})::date + ${tpl.valid_days})::text) as value`;
+        select (((now() at time zone ${ctx.timezone})::date + (${tpl.valid_days})::int)::text) as value`;
   const expiresOn = expiry?.value ?? null;
 
   const [row] = await tx<{ id: string }[]>`
@@ -714,16 +791,7 @@ registerHandler(ShareForm, async ({ input, ctx, tx, audit }: HandlerArgs<
     ? await tx<{ business_type: string }[]>`
         select business_type from locations where id = ${ctx.locationId}`
     : [];
-  const defaultTemplateKey: Record<string, string> = {
-    nail: 'nail_pedicure_intake',
-    massage: 'massage_intake',
-    foot_spa: 'massage_intake',
-    lash: 'lash_services_intake',
-    scalp: 'head_spa_intake',
-    hair: 'hair_services_intake',
-    mixed: 'nail_pedicure_intake',
-  };
-  const selectedKey = defaultTemplateKey[location?.business_type ?? 'nail'] ?? 'nail_pedicure_intake';
+  const selectedKey = healthFormTemplateKeyForBusinessType(location?.business_type ?? 'nail');
   const rows = input.templateIds.length > 0
     ? await tx<{ id: string; title: unknown }[]>`
         select id, title from form_templates

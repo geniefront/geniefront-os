@@ -80,7 +80,7 @@ describe('个人资料与通知中心全量功能后端测试', () => {
       const profile = await withTenant(ownerTenant(), (tx) => loadUserProfile(tx, ownerCtx));
       expect(profile.fullName).toBe('Emily Watson');
       expect(profile.nickname).toBe('Lisa');
-      expect(profile.phone).toBe('+1 (555) 019-2834');
+      expect(profile.phone).toBe('+15550192834');
       expect(profile.staffInfo?.isBookable).toBe(true);
       expect(profile.staffInfo?.maxConcurrentAppointments).toBe(2);
       expect(profile.staffInfo?.skills).toEqual(['日式光疗美甲', '手足精油SPA', '前台店务调度']);

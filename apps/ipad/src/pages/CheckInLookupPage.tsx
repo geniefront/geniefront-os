@@ -5,6 +5,7 @@ import { VirtualKeypad } from '../components/VirtualKeypad';
 import { api } from '../api/client';
 import type { AppointmentMatchDto } from '../types';
 import { ArrowLeft, Phone, Search, Clock, UserCheck, AlertCircle, Loader2 } from 'lucide-react';
+import { formatPhoneInput } from '../utils/phone';
 
 export const CheckInLookupPage: React.FC = () => {
   const navigate = useNavigate();
@@ -72,6 +73,7 @@ export const CheckInLookupPage: React.FC = () => {
         navigate('/health-form', {
           state: {
             appointmentId: match.appointmentId,
+            queueId: queueRes.queueId,
             queueResult: queueRes,
             forms: formsRes.forms,
             customerName: match.maskedName,
@@ -79,7 +81,9 @@ export const CheckInLookupPage: React.FC = () => {
             guests: [
               {
                 id: 'guest-1',
-                name: match.maskedName,
+                // Do not persist a lookup-safe masked value as a legal name or
+                // signature. The customer enters their full name on the form.
+                name: '',
                 phone,
                 email: '',
                 serviceId: null,
@@ -143,7 +147,7 @@ export const CheckInLookupPage: React.FC = () => {
         <div className="space-y-3">
           <div className="flex items-center justify-center">
             <div className="w-full max-w-md h-18 rounded-2xl bg-white border-2 border-teal-500/70 flex items-center justify-center tracking-[0.2em] font-mono text-3xl font-extrabold text-teal-800 shadow-inner px-4">
-              {phone || <span className="text-slate-300 font-sans tracking-normal text-base font-normal">___-____</span>}
+              {phone ? formatPhoneInput(phone) : <span className="text-slate-300 font-sans tracking-normal text-base font-normal">(•••) •••-••••</span>}
             </div>
           </div>
 

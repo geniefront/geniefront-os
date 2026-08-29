@@ -27,5 +27,6 @@ export * from './commands/marketing.js';
 export * from './commands/profile.js';
 export * from './commands/notifications.js';
 export * from './aiSchema.js';
+export * from './healthForms.js';
 
 export * from './registry.js';

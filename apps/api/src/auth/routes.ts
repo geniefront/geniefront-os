@@ -20,7 +20,7 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { AppError, ERROR_CODES, pickText, type Locale } from '@gf/contracts';
+import { AppError, ERROR_CODES, normalizePhoneE164, pickText, type Locale } from '@gf/contracts';
 import { redeemStaffClaimCode, staffByPhone, withTenant } from '@gf/db';
 import { claimCodeHash } from '../handlers/staff';
 import { issueStaffSession, staffContextFromToken, STAFF_TOKEN_HEADER } from './staffSession';
@@ -72,9 +72,6 @@ function limit(key: string, max: number, windowMs: number): void {
   }
 }
 
-/** E.164。前端已经拼过一次国号，这里再挡一道 —— 拼错的号码是要花钱发出去的 */
-const E164 = /^\+[1-9]\d{7,14}$/;
-
 const LOCALES = ['en', 'zh-Hans', 'zh-Hant', 'ko', 'vi', 'es'] as const;
 const asLocale = (v: unknown): Locale | undefined =>
   (LOCALES as readonly string[]).includes(v as string) ? (v as Locale) : undefined;
@@ -122,8 +119,8 @@ export function registerAuthRoutes(app: FastifyInstance): void {
 
   // ── ② 发验证码 ───────────────────────────────────────────────────────────
   app.post<{ Body: { phone?: string; locale?: string } }>('/v1/auth/phone/start', async (req) => {
-    const phone = (req.body?.phone ?? '').trim();
-    if (!E164.test(phone)) {
+    const phone = normalizePhoneE164(req.body?.phone ?? '');
+    if (!phone) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'phone_format' } });
     }
     if (!verifyConfigured()) {
@@ -166,9 +163,9 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   // ── ③ 验码换会话 ─────────────────────────────────────────────────────────
   app.post<{ Body: { phone?: string; code?: string; locationId?: string; deviceLabel?: string } }>(
     '/v1/auth/phone/verify', async (req) => {
-    const phone = (req.body?.phone ?? '').trim();
+    const phone = normalizePhoneE164(req.body?.phone ?? '');
     const code = (req.body?.code ?? '').replace(/\D/g, '');
-    if (!E164.test(phone) || code.length < 4) {
+    if (!phone || code.length < 4) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'bad_input' } });
     }
     limit(`otp-verify:${phone}`, 8, 5 * 60_000);
