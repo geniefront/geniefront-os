@@ -9,7 +9,7 @@
 
 import { createHash } from 'node:crypto';
 import {
-  AppointmentCreate, AppointmentCancel, AppointmentReschedule,
+  AppointmentCreate, AppointmentAddItem, AppointmentCancel, AppointmentReschedule,
   AppError, ERROR_CODES, pickText,
 } from '@gf/contracts';
 import { renderConfirm, formatWhen } from '../email/render';
@@ -936,6 +936,157 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
   });
 
   return { appointmentId: appt.id, overbooked };
+});
+
+/**
+ * `appointment.addItem` —— 前台在预约尚未开单时追加正式服务项目。
+ *
+ * 这一步不能直接调用 ticket.addItem：ticket.addItem 会创建/修改账单，
+ * 而预约详情里的追加项目应该先进入 appointment_items，待之后开单时由
+ * ticket.open 按预约快照整单带入。
+ */
+registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
+  typeof AppointmentAddItem.input._type>
+): Promise<typeof AppointmentAddItem.output._type> => {
+  const [appt] = await tx<{ id: string; status: string }[]>`
+    select id, status from appointments
+    where id = ${input.appointmentId} and location_id = ${ctx.locationId}`;
+  if (!appt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
+  if (appt.status === 'cancelled' || appt.status === 'completed') {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'appointment_not_editable', status: appt.status },
+    });
+  }
+
+  const [ticket] = await tx<{ id: string }[]>`
+    select id from tickets where appointment_id = ${appt.id} and status <> 'voided' limit 1`;
+  if (ticket) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'appointment_ticket_exists', ticketId: ticket.id },
+    });
+  }
+
+  const [service] = await tx<{ id: string; duration_min: number; base_price_cents: number }[]>`
+    select id, duration_min, base_price_cents from services
+    where id = ${input.serviceId} and location_id = ${ctx.locationId} and active = true`;
+  if (!service) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { serviceId: input.serviceId } });
+
+  const [loc] = await tx<{ timezone: string; cutoff: string; settings: Record<string, unknown>; hours: WeeklyHours }[]>`
+    select timezone, business_day_cutoff::text as cutoff, settings, business_hours as hours
+    from locations where id = ${ctx.locationId}`;
+  if (!loc) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
+
+  const oldItems = await tx<{ ends_at: string }[]>`
+    select ends_at::text as ends_at from appointment_items
+    where appointment_id = ${appt.id} and status <> 'cancelled' order by ends_at`;
+  const latestEnd = oldItems.reduce((latest, item) => Math.max(latest, parseTs(item.ends_at).getTime()), 0);
+  const startsAt = input.startsAt ? new Date(input.startsAt) : new Date(latestEnd || Date.now());
+  const durationMin = input.durationMin ?? service.duration_min;
+  const endsAt = new Date(startsAt.getTime() + durationMin * 60_000);
+  const businessDate = businessDateOf(startsAt, loc.timezone, loc.cutoff);
+  const offHoursOverride = assertBusinessHours({
+    businessDate, timezone: loc.timezone, hours: loc.hours,
+    startsAt, endsAt, policy: readOffHours(loc.settings), isPublic: false,
+    hasOverride: !!input.override, details: { appointmentId: appt.id },
+  });
+
+  if (input.membershipId) {
+    const [member] = await tx<{ membership_id: string; max_concurrent: number; is_bookable: boolean }[]>`
+      select membership_id, max_concurrent_appointments as max_concurrent, is_bookable
+      from staff_profiles
+      where membership_id = ${input.membershipId} and location_id = ${ctx.locationId}`;
+    if (!member || !member.is_bookable) {
+      throw new AppError(ERROR_CODES.STAFF_NOT_BOOKABLE, { details: { membershipId: input.membershipId } });
+    }
+  }
+  if (input.resourceId) {
+    const [resource] = await tx<{ id: string }[]>`
+      select id from resources where id = ${input.resourceId} and location_id = ${ctx.locationId}`;
+    if (!resource) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'resource' } });
+  }
+
+  const capacity = (loc.settings['capacity'] ?? {}) as {
+    max_concurrent_per_slot?: number | null; overbook?: 'warn' | 'block';
+  };
+  const otherRows = await tx<{ membership_id: string | null; starts_at: string; ends_at: string }[]>`
+    select membership_id, starts_at::text as starts_at, ends_at::text as ends_at
+    from appointment_items
+    where location_id = ${ctx.locationId} and appointment_id <> ${appt.id}
+      and status in ('booked','in_service')
+      and starts_at < ${ts(endsAt)}::timestamptz and ends_at > ${ts(startsAt)}::timestamptz`;
+  const existing = otherRows.map((row) => ({
+    membershipId: row.membership_id, startsAt: parseTs(row.starts_at), endsAt: parseTs(row.ends_at),
+  }));
+  const [staffRow] = input.membershipId
+    ? await tx<{ membership_id: string; max_concurrent: number; is_bookable: boolean }[]>`
+        select membership_id, max_concurrent_appointments as max_concurrent, is_bookable
+        from staff_profiles where membership_id = ${input.membershipId}`
+    : [];
+  const [onDuty] = await tx<{ n: number }[]>`
+    select count(*)::int as n from staff_profiles
+    where location_id = ${ctx.locationId} and is_bookable = true`;
+  const issues = checkCapacity({
+    proposed: { startsAt, endsAt },
+    staff: staffRow ? {
+      membershipId: staffRow.membership_id, maxConcurrent: staffRow.max_concurrent,
+      isBookable: staffRow.is_bookable,
+      existing: existing.filter((row) => row.membershipId === staffRow.membership_id),
+    } : null,
+    location: {
+      maxConcurrentPerSlot: capacity.max_concurrent_per_slot ?? null,
+      onDutyBookableCount: onDuty?.n ?? 0, existing,
+    },
+  });
+  if (hasBlocking(issues)) {
+    throw new AppError(ERROR_CODES.STAFF_NOT_BOOKABLE, { details: { issues } });
+  }
+  const overbooked = issues.length > 0;
+  if (overbooked && (capacity.overbook === 'block' || !input.override)) {
+    const first = issues[0]!;
+    throw new AppError(
+      first.code === 'STAFF_OVER_CAPACITY' ? ERROR_CODES.STAFF_OVER_CAPACITY : ERROR_CODES.LOCATION_OVER_CAPACITY,
+      { details: { issues } },
+    );
+  }
+
+  const [seq] = await tx<{ n: number }[]>`
+    select coalesce(max(seq), -1)::int as n from appointment_items where appointment_id = ${appt.id}`;
+  let item: { id: string } | undefined;
+  try {
+    [item] = await tx<{ id: string }[]>`
+      insert into appointment_items
+        (org_id, location_id, appointment_id, service_id, addon_ids, membership_id,
+         is_request, resource_id, starts_at, ends_at, price_cents_snapshot,
+         duration_min, seq, overbooked, overbook_reason, overbook_note, details)
+      values (${ctx.orgId}, ${ctx.locationId}, ${appt.id}, ${service.id}, '{}',
+              ${input.membershipId}, ${input.isRequest}, ${input.resourceId ?? null},
+              ${ts(startsAt)}::timestamptz, ${ts(endsAt)}::timestamptz,
+              ${service.base_price_cents}, ${durationMin}, ${(seq?.n ?? -1) + 1},
+              ${overbooked}, ${overbooked ? input.override?.reason ?? null : null},
+              ${overbooked ? input.override?.note ?? null : null}, ${jsonb({})}::jsonb)
+      returning id`;
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code && RESOURCE_CONFLICT_CODES.has(code)) {
+      throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, {
+        details: { resourceId: input.resourceId, startsAt: startsAt.toISOString() }, cause: error,
+      });
+    }
+    throw error;
+  }
+
+  const [span] = await tx<{ s: string; e: string }[]>`
+    select min(starts_at)::text as s, max(ends_at)::text as e
+    from appointment_items where appointment_id = ${appt.id} and status <> 'cancelled'`;
+  await tx`update appointments set starts_at = ${span!.s}::timestamptz,
+    ends_at = ${span!.e}::timestamptz, business_date = ${businessDate}
+    where id = ${appt.id}`;
+  audit({ entityType: 'appointment', entityId: appt.id, after: {
+    addedItemId: item!.id, serviceId: service.id, membershipId: input.membershipId,
+    overbooked, offHours: offHoursOverride,
+  } });
+  emit({ type: 'appointment.changed', entityId: appt.id, businessDate });
+  return { appointmentId: appt.id, itemId: item!.id, businessDate, overbooked };
 });
 
 /**

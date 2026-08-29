@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiPost } from '@/lib/api';
+import { apiGet, apiPost, runCommand } from '@/lib/api';
 import { useSession } from '@/lib/session';
 
 export interface AppointmentItemDetail {
@@ -51,6 +51,37 @@ export function useSaveAppointmentServiceBrief(appointmentId: string | null) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['desk', 'appointment-detail', appointmentId, membershipId] });
       void queryClient.invalidateQueries({ queryKey: ['desk', 'day', membershipId] });
+    },
+  });
+}
+
+export interface AddAppointmentItemInput {
+  appointmentId: string;
+  serviceId: string;
+  membershipId?: string | null;
+  startsAt?: string;
+  resourceId?: string | null;
+  durationMin?: number;
+  isRequest?: boolean;
+  override?: { reason: 'guest_requested' | 'staff_on_break' | 'desk_coordination' | 'walk_in_stacking' | 'other'; note?: string };
+  idempotencyKey: string;
+}
+
+export function useAddAppointmentItem() {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ idempotencyKey, ...input }: AddAppointmentItemInput) => (
+      await runCommand<{
+        appointmentId: string;
+        itemId: string;
+        businessDate: string;
+        overbooked: boolean;
+      }>('appointment.addItem', input, membershipId!, idempotencyKey)
+    ).result,
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'appointment-detail', result.appointmentId] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });
     },
   });
 }

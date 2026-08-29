@@ -158,6 +158,39 @@ export const AppointmentReschedule = defineCommand({
   idempotency: 'optional',
 });
 
+/**
+ * 前台在尚未开单的预约详情里追加一个正式预约项目。
+ *
+ * 开单前不能借用 ticket.addItem：那会提前创建工单并把预约推进到服务中。
+ * 这个命令只增加 appointment_items，开单时 ticket.open 会自动读取整单项目。
+ */
+export const AppointmentAddItem = defineCommand({
+  name: 'appointment.addItem',
+  input: z.object({
+    appointmentId: uuid,
+    serviceId: uuid,
+    membershipId: uuid.nullable().default(null),
+    startsAt: z.string().datetime({ offset: true }).optional(),
+    resourceId: uuid.nullable().optional(),
+    durationMin: z.number().int().positive().max(600).optional(),
+    isRequest: z.boolean().default(false),
+    override: overrideReason.optional(),
+  }),
+  output: z.object({
+    appointmentId: uuid,
+    itemId: uuid,
+    businessDate: z.string(),
+    overbooked: z.boolean(),
+  }),
+  permission: 'appointment.write',
+  ai: {
+    description: '在尚未开单的已有预约中追加一个服务项目；开单时会一并带入工单。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'required',
+});
+
 export const AppointmentCancel = defineCommand({
   name: 'appointment.cancel',
   input: z.object({
@@ -189,5 +222,6 @@ export const AppointmentCancel = defineCommand({
 export const APPOINTMENT_COMMANDS = [
   AppointmentCreate,
   AppointmentReschedule,
+  AppointmentAddItem,
   AppointmentCancel,
 ] as const;

@@ -373,8 +373,13 @@ function QueueContent() {
 
   // Top 3 On-Duty Technicians in Rotation
   const top3Rotation = useMemo(() => {
-    return rotationEntries.slice(0, 3);
+    return [...rotationEntries]
+      .sort((a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER))
+      .slice(0, 3);
   }, [rotationEntries]);
+  const orderedRotationEntries = useMemo(() => (
+    [...rotationEntries].sort((a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER))
+  ), [rotationEntries]);
 
   // Room Vacancy Metrics
   const availableRooms = useMemo(() => rooms.filter((r) => r.status === 'available'), [rooms]);
@@ -446,6 +451,9 @@ function QueueContent() {
       staffCount: number;
       staffIds: string[];
     }>;
+    extraAddOnServiceId: string;
+    extraAddOnStaffId: string;
+    addedAddOns: AddOnItem[];
     roomId: string;
     startTime: string;
     serviceDurationMin: number;
@@ -456,6 +464,9 @@ function QueueContent() {
     item: null,
     staffId: '',
     assignments: [],
+    extraAddOnServiceId: '',
+    extraAddOnStaffId: '',
+    addedAddOns: [],
     roomId: '',
     startTime: '',
     serviceDurationMin: 60,
@@ -949,6 +960,9 @@ function QueueContent() {
         item,
         staffId: defaultStaff,
         assignments,
+        extraAddOnServiceId: '',
+        extraAddOnStaffId: defaultStaff,
+        addedAddOns: [],
         roomId: availableRoom,
         startTime: timeStr,
         serviceDurationMin: item.durationMin || 60,
@@ -957,12 +971,16 @@ function QueueContent() {
       });
     } else if (item.stage === 'in_service' && targetStage === 'ready_checkout') {
       // 服务 ➔ 结账：弹窗核对服务项目明细与中途加项记录
+      const defaultAddOnStaffId = item.rawTicket?.items.find((ticketItem) => ticketItem.membershipId && ticketItem.membershipId !== UNASSIGNED_STAFF_ID)?.membershipId
+        ?? (item.staffId && item.staffId !== UNASSIGNED_STAFF_ID ? item.staffId : null)
+        ?? staff.find((member) => member.membershipId !== UNASSIGNED_STAFF_ID && member.isBookable)?.membershipId
+        ?? '';
       setCompleteServiceModal({
         isOpen: true,
         item,
         actualDurationMin: item.durationMin || 60,
         extraAddOnServiceId: '',
-        extraAddOnStaffId: item.rawTicket?.items[0]?.membershipId || item.staffId || '',
+        extraAddOnStaffId: defaultAddOnStaffId,
         addedAddOns: [],
         markRoomCleaning: false,
         technicianNotes: '',
@@ -1046,9 +1064,52 @@ function QueueContent() {
     }
   };
 
+  const addStartServiceAddOn = () => {
+    const selectedService = services.find((service) => service.id === startServiceModal.extraAddOnServiceId);
+    const requestedStaffId = startServiceModal.extraAddOnStaffId
+      && startServiceModal.extraAddOnStaffId !== UNASSIGNED_STAFF_ID
+      ? startServiceModal.extraAddOnStaffId
+      : startServiceModal.staffId
+        || startServiceModal.assignments[0]?.staffIds[0]
+        || staff.find((member) => member.membershipId !== UNASSIGNED_STAFF_ID && member.isBookable)?.membershipId
+        || '';
+    const selectedStaff = staff.find((member) => member.membershipId === requestedStaffId && member.membershipId !== UNASSIGNED_STAFF_ID);
+    if (!selectedService || !selectedStaff) {
+      toast.danger(t('queue.quAddOnStaffRequired'));
+      return;
+    }
+
+    setStartServiceModal((prev) => ({
+      ...prev,
+      extraAddOnServiceId: '',
+      extraAddOnStaffId: selectedStaff.membershipId,
+      addedAddOns: [
+        ...prev.addedAddOns,
+        {
+          idempotencyKey: crypto.randomUUID(),
+          serviceId: selectedService.id,
+          name: selectedService.name,
+          priceCents: selectedService.priceCents,
+          durationMin: selectedService.durationMin,
+          staffId: selectedStaff.membershipId,
+          staffName: selectedStaff.name,
+        },
+      ],
+    }));
+  };
+
   // 2. Start Service Confirm Submit
   const handleConfirmStartService = async () => {
-    const { item, staffId, assignments, roomId, startTime, serviceDurationMin, serviceBrief } = startServiceModal;
+    const {
+      item,
+      staffId,
+      assignments,
+      addedAddOns,
+      roomId,
+      startTime,
+      serviceDurationMin,
+      serviceBrief,
+    } = startServiceModal;
     if (!item) return;
 
     const assignedStaff = staff.find((s) => s.membershipId === staffId);
@@ -1056,7 +1117,8 @@ function QueueContent() {
 
     try {
       if (!item.serviceId || assignments.length === 0
-        || assignments.some((assignment) => assignment.staffIds.length !== assignment.staffCount)) {
+        || assignments.some((assignment) => assignment.staffIds.length !== assignment.staffCount)
+        || addedAddOns.some((addOn) => !addOn.staffId || addOn.staffId === UNASSIGNED_STAFF_ID)) {
         toast.danger(t('queue.quSeatFailed'));
         return;
       }
@@ -1065,6 +1127,7 @@ function QueueContent() {
         await saveServiceBriefMutation.mutateAsync(serviceBrief.trim());
       }
 
+      let ticketId = item.ticketId ?? item.rawTicket?.ticketId;
       let ticketItemIds = item.rawTicket?.items
         .filter((ticketItem) => !ticketItem.startedAt)
         .map((ticketItem) => ticketItem.ticketItemId) ?? [];
@@ -1101,7 +1164,23 @@ function QueueContent() {
           items: itemsToOpen,
           idempotencyKey: `queue-start-${item.appointmentId ?? item.queueId ?? item.id}`,
         });
+        ticketId = opened.ticketId;
         ticketItemIds = opened.ticketItemIds;
+      }
+
+      // 启动弹窗里的加项先挂到已开的服务单；这样预约本身仍保持原预约项目，
+      // 同时前台可以在安排入座时一次性把临时增补项目记入当前账单。
+      if (ticketId) {
+        for (const addOn of addedAddOns) {
+          await addTicketItemMutation.mutateAsync({
+            ticketId,
+            serviceId: addOn.serviceId,
+            membershipId: addOn.staffId,
+            kind: 'addon',
+            minutes: addOn.durationMin,
+            idempotencyKey: addOn.idempotencyKey,
+          });
+        }
       }
 
       const firstTicketItemId = ticketItemIds[0];
@@ -1429,13 +1508,13 @@ function QueueContent() {
                 <span className="font-bold text-slate-400 font-mono text-[11px]">{t('queue.quNoRotation')}</span>
               ) : (
                 <div className="flex items-center gap-1.5 font-mono">
-                  {top3Rotation.map((entry, idx) => (
-                    <span key={entry.membershipId} className="flex items-center gap-0.5 font-bold text-slate-800">
+                        {top3Rotation.map((entry, idx) => (
+                          <span key={entry.membershipId} className="flex items-center gap-0.5 font-bold text-slate-800">
                       <span className={cn(
                         "w-3.5 h-3.5 rounded text-[9px] flex items-center justify-center font-black",
                         idx === 0 ? "bg-amber-100 text-amber-900" : idx === 1 ? "bg-slate-200 text-slate-700" : "bg-orange-100 text-orange-900"
                       )}>
-                        {idx + 1}
+                        {entry.position ?? idx + 1}
                       </span>
                       <span>{entry.name}</span>
                     </span>
@@ -2319,6 +2398,14 @@ function QueueContent() {
             }),
           };
         });
+        const addOnStaffOptions = staff.filter((member) => member.membershipId !== UNASSIGNED_STAFF_ID && member.isBookable);
+        const rotationStateLabel = (state: string) => {
+          if (state === 'available') return t('queue.quCandidate_available');
+          if (state === 'in_service') return t('queue.quRotationStatusInService');
+          if (state === 'on_break') return t('queue.quCandidate_on_break');
+          if (state === 'off') return t('queue.quRotationStatusOff');
+          return t('queue.quCandidate_off_duty');
+        };
 
         return (
           <Modal
@@ -2391,9 +2478,77 @@ function QueueContent() {
                     </span>
                     <span className="text-[10px] text-teal-600 font-normal">{t('queue.quRotationPriority')}</span>
                   </label>
+                  <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50/70 p-3">
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="grid h-7 w-7 place-items-center rounded-xl bg-indigo-600 text-white shadow-sm">
+                          <Clock className="h-4 w-4" />
+                        </span>
+                        <div>
+                          <div className="text-sm font-black text-indigo-950">{t('queue.quFullRotation')}</div>
+                          <div className="text-[10px] font-medium text-indigo-800">{t('queue.quRotationLegend')}</div>
+                        </div>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-white px-2 py-1 font-mono text-[10px] font-black text-indigo-800 ring-1 ring-indigo-200">
+                        {orderedRotationEntries.length}
+                      </span>
+                    </div>
+                    {orderedRotationEntries.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-indigo-200 bg-white/80 px-3 py-2 text-xs font-semibold text-slate-500">
+                        {t('queue.quNoRotation')}
+                      </div>
+                    ) : (
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {orderedRotationEntries.map((entry, index) => {
+                          const recommended = assignmentCandidates.some(({ candidates }) => candidates.find((candidate) => candidate.eligible)?.staff.membershipId === entry.membershipId);
+                          const position = entry.position ?? index + 1;
+                          const statusClass = entry.state === 'available'
+                            ? 'border-slate-300 bg-white'
+                            : entry.state === 'in_service'
+                              ? 'border-orange-300 bg-orange-50'
+                              : entry.state === 'on_break'
+                                ? 'border-violet-300 bg-violet-50'
+                                : 'border-slate-300 bg-slate-100';
+                          return (
+                            <div
+                              key={entry.membershipId}
+                              className={cn(
+                                'min-w-0 rounded-xl border-2 px-2.5 py-2 shadow-sm',
+                                recommended ? 'border-emerald-600 bg-emerald-50 ring-2 ring-emerald-200' : statusClass,
+                              )}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className={cn(
+                                  'grid h-7 min-w-7 place-items-center rounded-lg px-1 font-mono text-xs font-black',
+                                  recommended ? 'bg-emerald-700 text-white' : 'bg-slate-800 text-white',
+                                )}>
+                                  #{position}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate text-sm font-black text-slate-950">{entry.name}</span>
+                                <span className={cn(
+                                  'h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white',
+                                  entry.state === 'available' ? 'bg-emerald-500' : entry.state === 'in_service' ? 'bg-orange-500' : entry.state === 'on_break' ? 'bg-violet-500' : 'bg-slate-400',
+                                )} />
+                              </div>
+                              <div className="mt-1 flex items-center justify-between gap-2 text-[10px] font-bold">
+                                <span className={cn(recommended ? 'text-emerald-800' : 'text-slate-600')}>{rotationStateLabel(entry.state)}</span>
+                                {recommended && <span className="truncate text-emerald-800">✓ {t('queue.quRotationRecommended')}</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                   <div className="space-y-3">
                     {assignmentCandidates.map(({ assignment, service, candidates }, assignmentIndex) => (
                       <div key={`${assignment.serviceId}-${assignmentIndex}`} className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                        {assignment.staffIds.some((staffId) => candidates.find((candidate) => candidate.staff.membershipId === staffId && !candidate.eligible)) && (
+                          <div role="alert" className="mb-2 flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] font-bold leading-relaxed text-amber-900">
+                            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                            <span>{t('queue.quSelectedStaffWarning')}</span>
+                          </div>
+                        )}
                         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                           <div>
                             <div className="font-bold text-slate-900">{assignmentIndex + 1}. {assignment.serviceName}</div>
@@ -2409,11 +2564,14 @@ function QueueContent() {
                         <div className="grid gap-1.5 sm:grid-cols-2">
                           {candidates.map((candidate) => {
                             const selected = assignment.staffIds.includes(candidate.staff.membershipId);
+                            const rotationEntry = rotationData?.entries.find((entry) => entry.membershipId === candidate.staff.membershipId);
+                            const rotationPosition = rotationEntry?.position;
+                            const recommended = candidates.find((entry) => entry.eligible)?.staff.membershipId === candidate.staff.membershipId;
+                            const warning = !candidate.eligible;
                             return (
                               <button
                                 key={candidate.staff.membershipId}
                                 type="button"
-                                disabled={!candidate.eligible && !selected}
                                 onClick={() => setStartServiceModal((prev) => {
                                   const nextAssignments = [...prev.assignments];
                                   const current = nextAssignments[assignmentIndex]!;
@@ -2426,16 +2584,36 @@ function QueueContent() {
                                   return { ...prev, assignments: nextAssignments, staffId: nextAssignments[0]?.staffIds[0] ?? '' };
                                 })}
                                 className={cn(
-                                  'rounded-xl border p-2 text-left transition',
-                                  selected ? 'border-teal-500 bg-teal-50 ring-1 ring-teal-400' : candidate.eligible ? 'border-slate-200 bg-white hover:border-teal-300' : 'cursor-not-allowed border-slate-200 bg-slate-100 opacity-55',
+                                  'min-h-[96px] rounded-2xl border-2 p-3 text-left shadow-sm transition hover:-translate-y-px hover:shadow-md',
+                                  selected
+                                    ? warning
+                                      ? 'border-amber-600 bg-amber-50 ring-2 ring-amber-200'
+                                      : recommended
+                                        ? 'border-emerald-700 bg-emerald-50 ring-2 ring-emerald-200'
+                                        : 'border-sky-600 bg-sky-50 ring-2 ring-sky-200'
+                                    : recommended
+                                      ? 'border-emerald-500 bg-emerald-50 hover:border-emerald-700'
+                                      : warning
+                                        ? 'border-amber-300 bg-amber-50 hover:border-amber-500'
+                                        : 'border-slate-300 bg-white hover:border-sky-500',
                                 )}
+                                aria-pressed={selected}
                               >
                                 <div className="flex items-center justify-between gap-2">
-                                  <span className="truncate font-bold text-slate-900">{candidate.staff.name}</span>
-                                  <span className={cn('h-2 w-2 shrink-0 rounded-full', candidate.online ? 'bg-emerald-500' : 'bg-slate-300')} />
+                                  <span className="flex min-w-0 items-center gap-1.5">
+                                    <span className={cn('grid h-7 min-w-7 place-items-center rounded-lg px-1 font-mono text-xs font-black', recommended ? 'bg-emerald-700 text-white' : warning ? 'bg-amber-600 text-white' : selected ? 'bg-sky-700 text-white' : 'bg-slate-800 text-white')}>
+                                      {rotationPosition ? `#${rotationPosition}` : '—'}
+                                    </span>
+                                    <span className="truncate text-sm font-black text-slate-950">{candidate.staff.name}</span>
+                                  </span>
+                                  <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white', candidate.online ? 'bg-emerald-500' : 'bg-slate-400')} />
                                 </div>
-                                <div className="mt-0.5 truncate text-[9px] text-slate-500">
+                                <div className="mt-1 truncate text-[11px] font-semibold text-slate-600">
                                   {candidate.staff.levelName || t('queue.quLevelUnspecified')} · {candidate.reasons.map((reason) => t(`queue.quCandidate_${reason}`)).join(' · ')}
+                                </div>
+                                <div className={cn('mt-1.5 flex items-center gap-1 text-[11px] font-black', warning ? 'text-amber-900' : recommended ? 'text-emerald-800' : selected ? 'text-sky-800' : 'text-slate-500')}>
+                                  {selected ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : warning ? <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> : recommended ? <Award className="h-3.5 w-3.5 shrink-0" /> : null}
+                                  <span>{selected ? t('queue.quSelected') : recommended ? t('queue.quRecommendedForService') : warning ? t('queue.quSelectionWarning') : t('queue.quCandidate_available')}</span>
                                 </div>
                               </button>
                             );
@@ -2443,6 +2621,95 @@ function QueueContent() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                </div>
+
+                {/* 入座前加项目 */}
+                <div className="rounded-2xl border-2 border-violet-200 bg-violet-50/70 p-3.5 shadow-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="grid h-7 w-7 place-items-center rounded-xl bg-violet-600 text-white shadow-sm">
+                        <Plus className="h-4 w-4" />
+                      </span>
+                      <div>
+                        <h4 className="text-sm font-black text-violet-950">{t('queue.quSeatAddOnsTitle')}</h4>
+                        <p className="mt-0.5 text-[10px] font-medium leading-relaxed text-violet-800">{t('queue.quSeatAddOnsHint')}</p>
+                      </div>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-white px-2 py-1 font-mono text-[10px] font-black text-violet-800 ring-1 ring-violet-200">
+                      +{centsToDollars(startServiceModal.addedAddOns.reduce((sum, addOn) => sum + addOn.priceCents, 0))}
+                    </span>
+                  </div>
+
+                  {startServiceModal.addedAddOns.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {startServiceModal.addedAddOns.map((addOn) => (
+                        <div key={addOn.idempotencyKey} className="flex items-center justify-between gap-2 rounded-xl border border-violet-200 bg-white px-2.5 py-2">
+                          <div className="min-w-0">
+                            <div className="truncate text-xs font-black text-slate-900">{addOn.name}</div>
+                            <div className="text-[10px] font-semibold text-slate-500">{addOn.durationMin}m · {addOn.staffName || t('queue.quAssigned')}</div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <span className="font-mono text-xs font-black text-violet-800">${centsToDollars(addOn.priceCents)}</span>
+                            <button
+                              type="button"
+                              className="rounded-lg px-1.5 py-1 text-[10px] font-bold text-rose-700 hover:bg-rose-50"
+                              onClick={() => setStartServiceModal((prev) => ({
+                                ...prev,
+                                addedAddOns: prev.addedAddOns.filter((item) => item.idempotencyKey !== addOn.idempotencyKey),
+                              }))}
+                            >
+                              {t('queue.quRemoveAddOn')}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)_auto]">
+                    <select
+                      aria-label={t('queue.quSelectAddOn')}
+                      value={startServiceModal.extraAddOnServiceId}
+                      onChange={(event) => setStartServiceModal((prev) => ({
+                        ...prev,
+                        extraAddOnServiceId: event.target.value,
+                        extraAddOnStaffId: prev.extraAddOnStaffId
+                          || prev.staffId
+                          || prev.assignments[0]?.staffIds[0]
+                          || addOnStaffOptions[0]?.membershipId
+                          || '',
+                      }))}
+                      className="w-full rounded-xl border-2 border-violet-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-900 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
+                    >
+                      <option value="">{t('queue.quSelectAddOn')}</option>
+                      {services.map((service) => (
+                        <option key={service.id} value={service.id}>
+                          {service.name} · ${centsToDollars(service.priceCents)} · {service.durationMin}m
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      aria-label={t('queue.quAddOnStaff')}
+                      value={startServiceModal.extraAddOnStaffId}
+                      onChange={(event) => setStartServiceModal((prev) => ({ ...prev, extraAddOnStaffId: event.target.value }))}
+                      className="w-full rounded-xl border-2 border-violet-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-900 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
+                    >
+                      <option value="">{t('queue.quAddOnStaff')}</option>
+                      {addOnStaffOptions.map((member) => (
+                        <option key={member.membershipId} value={member.membershipId}>{member.name}</option>
+                      ))}
+                    </select>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="h-full min-h-10 border-violet-300 bg-white px-3 text-xs font-black text-violet-800 hover:bg-violet-100"
+                      onClick={addStartServiceAddOn}
+                      isDisabled={!startServiceModal.extraAddOnServiceId}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      {t('queue.quAddItem')}
+                    </Button>
                   </div>
                 </div>
 
@@ -2859,7 +3126,10 @@ function QueueContent() {
                       const selectedStaff = staff.find(
                         (candidate) => candidate.membershipId === completeServiceModal.extraAddOnStaffId,
                       );
-                      if (!selectedService || !selectedStaff) return;
+                      if (!selectedService || !selectedStaff || selectedStaff.membershipId === UNASSIGNED_STAFF_ID) {
+                        toast.danger(t('queue.quAddOnStaffRequired'));
+                        return;
+                      }
                       setCompleteServiceModal((prev) => ({
                         ...prev,
                         extraAddOnServiceId: '',
@@ -2877,6 +3147,7 @@ function QueueContent() {
                         ],
                       }));
                     }}
+                    isDisabled={!completeServiceModal.extraAddOnServiceId || !completeServiceModal.extraAddOnStaffId}
                   >
                     
                     {t('queue.quAddItem')}
