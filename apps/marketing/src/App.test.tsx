@@ -117,18 +117,73 @@ describe('Marketing pricing and signup', () => {
     });
   });
 
-  it('20. success page does not claim activation is already complete', () => {
+  it('20. success page does not claim payment without a verified session', () => {
     render(
       <MemoryRouter>
         <Success />
       </MemoryRouter>,
     );
     const msg = screen.getByTestId('success-message');
-    expect(msg).toHaveTextContent(/check your email/i);
+    expect(screen.getByTestId('success-state')).toHaveTextContent('invalid');
+    expect(msg).toHaveTextContent(/could not confirm/i);
+    expect(msg.textContent).not.toMatch(/checkout completed/i);
+    expect(msg.textContent).not.toMatch(/payment (was )?received/i);
+    expect(msg.textContent).not.toMatch(/account is (ready|active)/i);
+    expect(screen.queryByRole('link', { name: /log in/i })).not.toBeInTheDocument();
+  });
+
+  it('21. verified session_id shows confirmed checkout, still not activated', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'confirmed', plan: 'essential' }),
+    });
+    render(
+      <MemoryRouter initialEntries={['/signup/success?session_id=cs_test_gfsuccesslookupabc123']}>
+        <Success />
+      </MemoryRouter>,
+    );
+    const msg = await screen.findByText(/checkout completed/i);
+    expect(screen.getByTestId('success-state')).toHaveTextContent('confirmed');
     expect(msg).toHaveTextContent(/not active yet/i);
     expect(msg.textContent).not.toMatch(/account is (ready|active)/i);
-    expect(msg.textContent).not.toMatch(/shop is (ready|open|active)/i);
-    expect(screen.queryByRole('link', { name: /log in/i })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining(
+      '/v1/public/signup-session?session_id=cs_test_gfsuccesslookupabc123',
+    ));
+  });
+
+  it('22. pending lookup does not claim payment was received', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'pending', plan: 'essential' }),
+    });
+    render(
+      <MemoryRouter initialEntries={['/signup/success?session_id=cs_test_gfsuccesslookupabc123']}>
+        <Success />
+      </MemoryRouter>,
+    );
+    const msg = await screen.findByTestId('success-message');
+    expect(await screen.findByTestId('success-state')).toHaveTextContent('pending');
+    expect(msg).toHaveTextContent(/confirming your signup/i);
+    expect(msg.textContent).not.toMatch(/checkout completed/i);
+    expect(msg.textContent).not.toMatch(/payment (was )?received/i);
+  });
+
+  it('23. unknown session_id does not claim payment', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'invalid' }),
+    });
+    render(
+      <MemoryRouter initialEntries={['/signup/success?session_id=cs_test_unknownsessionid999']}>
+        <Success />
+      </MemoryRouter>,
+    );
+    const msg = await screen.findByText(/could not confirm/i);
+    expect(screen.getByTestId('success-state')).toHaveTextContent('invalid');
+    expect(msg.textContent).not.toMatch(/checkout completed/i);
   });
 
   it('terms and privacy routes are not broken', () => {

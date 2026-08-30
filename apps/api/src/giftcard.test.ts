@@ -13,6 +13,7 @@ import { buildContext } from './actor';
 import { dispatch } from './bus';
 import './handlers/giftcard';
 import './handlers/ticket';
+import './handlers/billing';
 
 const SPA_ORG = '22222222-2222-4222-8222-222222222222';
 const SPA_LOC = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
@@ -42,14 +43,16 @@ const issue = (over: Record<string, unknown> = {}) =>
     { faceValueCents: 10000, salePriceCents: 8000, ...over });
 
 beforeAll(async () => {
-  await withTenant(tenant, (tx) => tx`
-    update billing_accounts set subscription_status = 'active' where location_id = ${SPA_LOC}`);
   const [m] = await withTenant(tenant, (tx) => tx<{ id: string; user_id: string }[]>`
     select m.id, m.user_id from memberships m
     join membership_roles mr on mr.membership_id = m.id
     join roles r on r.id = mr.role_id
     where m.location_id = ${SPA_LOC} and m.status = 'active' and r.key = 'owner' limit 1`);
   ctx = await buildContext({ userId: m!.user_id, membershipId: m!.id });
+  await dispatch('billing.syncSubscription', {
+    plan: 'growth',
+    subscriptionStatus: 'active',
+  }, ctx);
 });
 
 afterAll(async () => {

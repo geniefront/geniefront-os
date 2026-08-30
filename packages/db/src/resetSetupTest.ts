@@ -8,6 +8,8 @@
 import { randomUUID } from 'node:crypto';
 import { ROLE_PRESETS } from '@gf/contracts';
 import { adminDatabaseSource, adminSql } from './admin';
+import { createQaClock } from './qa/clock';
+import { applyStripeSyncFixture } from './qa/stripeFixture';
 
 const TEST_EMAIL = process.env.SETUP_TEST_EMAIL ?? 'setup@example.test';
 const TEST_PASSWORD = process.env.SETUP_TEST_PASSWORD ?? 'GenieSetup!2026';
@@ -142,12 +144,14 @@ async function createFreshSetup(authUser: AuthUser): Promise<{ locationId: strin
     await tx`update signup_intents
       set claimed_at = now(), claimed_user_id = ${authUser.id}, activation_email_sent_at = now()
       where checkout_session_id = ${checkoutSession}`;
-    await tx`update billing_accounts set
-      stripe_customer_id = ${`cus_test_setup_${shortId}`},
-      stripe_subscription_id = ${`sub_test_setup_${shortId}`},
-      plan = 'growth', subscription_status = 'active',
-      current_period_end = now() + interval '30 days'
-      where location_id = ${tenant.location_id}`;
+    await applyStripeSyncFixture(tx, {
+      orgId: tenant.org_id,
+      locationId: tenant.location_id,
+      plan: 'growth',
+      subscriptionStatus: 'active',
+      clock: createQaClock(),
+      scenarioKey: `setup-test-${shortId}`,
+    });
     await tx`insert into user_last_location (user_id, location_id, at)
       values (${authUser.id}, ${tenant.location_id}, now())
       on conflict (user_id) do update

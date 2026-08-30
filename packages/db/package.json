@@ -9,6 +9,8 @@
     "generate": "drizzle-kit generate",
     "migrate": "tsx src/migrate.ts",
     "seed": "tsx src/seed.ts",
+    "qa:reset": "tsx src/qa/cli.ts reset",
+    "qa:seed": "tsx src/qa/cli.ts seed",
     "setup-test-reset": "tsx --env-file=../../.env src/resetSetupTest.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
@@ -16,7 +18,8 @@
   "dependencies": {
     "drizzle-orm": "^0.38.2",
     "postgres": "^3.4.5",
-    "@gf/contracts": "workspace:*"
+    "@gf/contracts": "workspace:*",
+    "@gf/payroll": "workspace:*"
   },
   "devDependencies": { "drizzle-kit": "^0.30.1" }
 }

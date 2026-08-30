@@ -1,5 +1,9 @@
 /**
- * 种子数据：两家店（Lotus Nails 美甲店、Golden Foot Spa 足疗店），分属两个不同的 org。
+ * Regression seed (Lotus Nails + Golden Foot Spa). API integration tests
+ * (`apps/api/src/test/resetDatabase.ts`) rebuild this pair before each suite.
+ *
+ * QA browser scenarios live in `packages/db/src/qa` (Seed V2). Do not grow
+ * this file into a universal store. See docs/qa/TEST_DATA_AUDIT.md.
  *
  * 包含过去 14 天完整财务流水与订单、今日活跃看板与排期、以及未来 14 天真实预约表。
  */
