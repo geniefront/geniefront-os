@@ -55,10 +55,12 @@ import {
   useJoinQueue, useQueue, useRollbackQueueStage, useUpdateQueueEntry,
 } from '@/features/queue/api';
 import {
-  useAddTicketItem, useFinishTicketItem, useOpenTicket, useStartTicketItem, useTicketsList,
+  useAddTicketItem, useFinishTicketItem, useOpenTicket, useSaveServiceNote, useStartTicketItem, useTicketsList,
 } from '@/features/tickets/api';
 import { useCloseTicket, centsToDollars, dollarsToCents, verifyGiftCard } from '@/features/checkout/api';
-import { useRoomsQuery } from '@/features/rooms/api';
+import { useBeginCleaning, useRoomsQuery } from '@/features/rooms/api';
+import { completeQueueService, resolveQueueRoomId } from '@/features/queue/completeService';
+import { inlineGiftCardFields } from '@/features/queue/inlinePayment';
 import { useRotationQuery } from '@/features/rotation/api';
 import { QUEUE_LEFT_REASONS } from '@/features/queue/types';
 import type { QueueEntry, QueueLeftReason, QueueStatus } from '@/features/queue/types';
@@ -322,6 +324,8 @@ function QueueContent() {
   const addTicketItemMutation = useAddTicketItem();
   const startTicketItemMutation = useStartTicketItem();
   const finishTicketItemMutation = useFinishTicketItem();
+  const saveServiceNoteMutation = useSaveServiceNote();
+  const beginCleaningMutation = useBeginCleaning();
   const shareFormMutation = useShareForm();
   const [formShares, setFormShares] = useState<Record<string, FormShareResult>>({});
 
@@ -484,6 +488,7 @@ function QueueContent() {
     addedAddOns: AddOnItem[];
     markRoomCleaning: boolean;
     technicianNotes: string;
+    roomId: string | null;
   }>({
     isOpen: false,
     item: null,
@@ -493,6 +498,7 @@ function QueueContent() {
     addedAddOns: [],
     markRoomCleaning: false,
     technicianNotes: '',
+    roomId: null,
   });
 
   // 4. Checkout Tender Modal (Step 4 -> Step 5: Ready Checkout -> Completed)
@@ -516,6 +522,7 @@ function QueueContent() {
     tenderedDollars: string;
     keepChange: boolean;
     giftCardCode: string;
+    giftCardId: string;
     giftCardVerified: boolean;
     giftCardBalanceCents: number;
     isVerifyingGiftCard: boolean;
@@ -536,6 +543,7 @@ function QueueContent() {
     tenderedDollars: '',
     keepChange: false,
     giftCardCode: '',
+    giftCardId: '',
     giftCardVerified: false,
     giftCardBalanceCents: 0,
     isVerifyingGiftCard: false,
@@ -726,7 +734,7 @@ function QueueContent() {
           staffId: override?.staffId || it.staffId,
           staffName: override?.staffName || staffName,
           staffColor: matchedStaff?.color ?? null,
-          roomId: override?.roomId,
+          roomId: override?.roomId || it.resourceId,
           roomName: override?.roomName,
           isRequest: it.isRequest,
           timeDisplay: `${it.startTime} - ${it.endTime}`,
@@ -748,7 +756,7 @@ function QueueContent() {
           staffId: override?.staffId || it.staffId,
           staffName: override?.staffName || staffName,
           staffColor: matchedStaff?.color ?? null,
-          roomId: override?.roomId,
+          roomId: override?.roomId || it.resourceId,
           roomName: override?.roomName,
           isRequest: it.isRequest,
           timeDisplay: `${it.startTime} (${it.durationMin}m)`,
@@ -988,6 +996,7 @@ function QueueContent() {
         addedAddOns: [],
         markRoomCleaning: false,
         technicianNotes: '',
+        roomId: resolveQueueRoomId(item, rooms),
       });
     } else if (item.stage === 'ready_checkout' && targetStage === 'completed') {
       // 结账 ➔ 收银：弹窗录入支付方式、小费与Amount结算
@@ -1008,6 +1017,7 @@ function QueueContent() {
         tenderedDollars: centsToDollars(item.priceCents),
         keepChange: false,
         giftCardCode: '',
+        giftCardId: '',
         giftCardVerified: false,
         giftCardBalanceCents: 0,
         isVerifyingGiftCard: false,
@@ -1209,71 +1219,55 @@ function QueueContent() {
 
   // 3. Complete Service Confirm Submit
   const handleConfirmCompleteService = async () => {
-    const { item, addedAddOns, technicianNotes, markRoomCleaning } = completeServiceModal;
+    const { item, addedAddOns, technicianNotes, markRoomCleaning, roomId } = completeServiceModal;
     if (!item) return;
 
-    try {
-      if (technicianNotes.trim() || markRoomCleaning || !item.rawTicket) {
-        toast.danger(t('queue.quFinishFailed'));
-        return;
-      }
-      const addedTicketItems: Array<{ ticketItemId: string; membershipId: string }> = [];
-      let finalSubtotalCents = item.rawTicket.subtotalCents;
-      for (const addOn of addedAddOns) {
-        const added = await addTicketItemMutation.mutateAsync({
-          ticketId: item.rawTicket.ticketId,
-          serviceId: addOn.serviceId,
-          membershipId: addOn.staffId,
-          kind: 'addon',
-          minutes: addOn.durationMin,
-          idempotencyKey: addOn.idempotencyKey,
-        });
-        finalSubtotalCents = added.subtotalCents;
-        addedTicketItems.push({ ticketItemId: added.ticketItemId, membershipId: addOn.staffId });
-      }
-      const unfinished = [
-        ...item.rawTicket.items
-          // A ticket may contain sequential services assigned to different technicians.
-          // Finishing the current stage must never auto-start/finish future services.
-          .filter((ticketItem) => ticketItem.startedAt && !ticketItem.finishedAt)
-          .map((ticketItem) => ({
-            ticketItemId: ticketItem.ticketItemId,
-            membershipId: ticketItem.membershipId,
-          })),
-        ...addedTicketItems,
-      ];
-      if (unfinished.length === 0) {
+    const result = await completeQueueService(
+      {
+        rawTicket: item.rawTicket,
+        technicianNotes,
+        markRoomCleaning,
+        roomId,
+        addedAddOns,
+      },
+      {
+        addItem: (input) => addTicketItemMutation.mutateAsync(input),
+        saveNote: (input) => saveServiceNoteMutation.mutateAsync(input),
+        startItem: (input) => startTicketItemMutation.mutateAsync(input),
+        finishItem: (input) => finishTicketItemMutation.mutateAsync(input),
+        beginCleaning: (input) => beginCleaningMutation.mutateAsync(input),
+      },
+    );
+
+    if (!result.ok) {
+      if (result.reason === 'no_active_service') {
         toast.danger(t('queue.quNoActiveService'));
         return;
       }
-      let actualMinutes = 0;
-      let ticketDone = false;
-      for (const ticketItem of unfinished) {
-        if (addedTicketItems.some((added) => added.ticketItemId === ticketItem.ticketItemId)) {
-          await startTicketItemMutation.mutateAsync({
-            ticketItemId: ticketItem.ticketItemId,
-            membershipId: ticketItem.membershipId,
-          });
-        }
-        const finished = await finishTicketItemMutation.mutateAsync({
-          ticketItemId: ticketItem.ticketItemId,
-          membershipId: ticketItem.membershipId,
-        });
-        actualMinutes += finished.actualMinutes;
-        ticketDone = finished.ticketDone;
+      if (result.reason === 'missing_ticket' || result.reason === 'missing_room') {
+        toast.danger(t('queue.quFinishFailed'));
+        return;
       }
-
-      setCompleteServiceModal((prev) => ({ ...prev, isOpen: false, item: null }));
-      toast.success(t(ticketDone ? 'queue.quServiceDone' : 'queue.quServiceStageDone', { p0: item.customerName }), {
-        description: t(ticketDone ? 'queue.quServiceDoneDetail' : 'queue.quServiceStageDoneDetail', {
-          p0: actualMinutes,
-          p1: centsToDollars(finalSubtotalCents),
-        }),
-      });
-      await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms()]);
-    } catch (err: any) {
-      toast.danger(t('queue.quFinishFailed') + (err?.message || t('queue.quNetworkError2')));
+      if (result.finished) {
+        setCompleteServiceModal((prev) => ({ ...prev, isOpen: false, item: null }));
+        toast.danger(t('queue.quFinishRoomFailed'));
+        await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms()]);
+        return;
+      }
+      const cause = result.cause;
+      const message = cause instanceof Error ? cause.message : t('queue.quNetworkError2');
+      toast.danger(t('queue.quFinishFailed') + message);
+      return;
     }
+
+    setCompleteServiceModal((prev) => ({ ...prev, isOpen: false, item: null }));
+    toast.success(t(result.ticketDone ? 'queue.quServiceDone' : 'queue.quServiceStageDone', { p0: item.customerName }), {
+      description: t(result.ticketDone ? 'queue.quServiceDoneDetail' : 'queue.quServiceStageDoneDetail', {
+        p0: result.actualMinutes,
+        p1: centsToDollars(result.subtotalCents),
+      }),
+    });
+    await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms()]);
   };
 
   // 4. Checkout Tender Confirm Submit
@@ -1292,6 +1286,10 @@ function QueueContent() {
       paymentMethod,
       tenderedDollars,
       keepChange,
+      giftCardCode,
+      giftCardId,
+      giftCardVerified,
+      giftCardBalanceCents,
     } = checkoutModal;
     if (!item) return;
 
@@ -1362,6 +1360,23 @@ function QueueContent() {
         if (remainder > 0) customTipSplits[0]!.amountCents += remainder;
       }
 
+      const giftCard = inlineGiftCardFields(
+        paymentMethod,
+        { giftCardCode, giftCardId, giftCardVerified, giftCardBalanceCents },
+        finalTotalCents,
+      );
+      if (!giftCard.ok) {
+        toast.danger(
+          giftCard.reason === 'overspend'
+            ? t('checkout.giftCardOverspend', {
+              p0: centsToDollars(finalTotalCents),
+              p1: centsToDollars(giftCardBalanceCents),
+            })
+            : t('queue.quGiftCardRequired'),
+        );
+        return;
+      }
+
       await closeTicketMutation.mutateAsync({
         ticketId: item.ticketId,
         discountCents,
@@ -1376,6 +1391,8 @@ function QueueContent() {
             ...(tenderedCents !== undefined ? { tenderedCents } : {}),
             changeCents: isCash && !keepChange ? cashRemainder : 0,
             keepChange: Boolean(isCash && keepChange),
+            ...(giftCard.giftCardId ? { giftCardId: giftCard.giftCardId } : {}),
+            ...(giftCard.giftCardCode ? { giftCardCode: giftCard.giftCardCode } : {}),
           },
         ],
       });
@@ -1397,6 +1414,7 @@ function QueueContent() {
         tenderedDollars: '',
         keepChange: false,
         giftCardCode: '',
+        giftCardId: '',
         giftCardVerified: false,
         giftCardBalanceCents: 0,
         isVerifyingGiftCard: false,
@@ -3151,7 +3169,8 @@ function QueueContent() {
               </div>
 
               {/* 包厢工位翻台清洁与技师跟进备注 */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className={completeServiceModal.roomId ? 'grid grid-cols-2 gap-3' : 'grid grid-cols-1 gap-3'}>
+                {completeServiceModal.roomId && (
                 <div className="p-3 bg-white rounded-2xl border border-slate-200 space-y-1.5 shadow-sm">
                   <label className="font-bold text-slate-800 flex items-center gap-1.5 cursor-pointer">
                     <input
@@ -3167,6 +3186,7 @@ function QueueContent() {
                     {t('queue.quReleaseStationDesc')}
                   </p>
                 </div>
+                )}
 
                 <div className="p-3 bg-white rounded-2xl border border-slate-200 space-y-1.5 shadow-sm">
                   <label className="block text-[11px] font-bold text-slate-800">
@@ -3714,6 +3734,7 @@ function QueueContent() {
                         setCheckoutModal((prev) => ({
                           ...prev,
                           giftCardCode: e.target.value,
+                          giftCardId: '',
                           giftCardVerified: false,
                         }))
                       }
@@ -3732,6 +3753,8 @@ function QueueContent() {
                             setCheckoutModal((prev) => ({
                               ...prev,
                               giftCardVerified: true,
+                              giftCardId: res.giftCardId,
+                              giftCardCode: res.code,
                               giftCardBalanceCents: res.balanceCents,
                             }));
                             toast.success(t('queue.quGiftCardValid', { p0: centsToDollars(res.balanceCents) }));

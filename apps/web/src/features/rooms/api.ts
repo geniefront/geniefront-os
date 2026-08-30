@@ -38,6 +38,25 @@ export function useSetResourceStatus() {
   });
 }
 
+export function useBeginCleaning() {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: { resourceId: string; note?: string }) => {
+      const res = await runCommand<{ resourceId: string; status: 'cleaning' }>(
+        'resource.beginCleaning',
+        input,
+        membershipId!,
+      );
+      return res.result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['desk', 'rooms'] });
+    },
+  });
+}
+
 export function useSaveResource() {
   const { membershipId } = useSession();
   const queryClient = useQueryClient();

@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, runCommand } from "@/lib/api";
 import { useSession } from "@/lib/session";
+import { isRelativeAppPath, PORTAL_RETURN_PATH } from "./display";
 import type {
   BillingResponse,
   SetAutoTopupInput,
   BillingInvoicesResponse,
   TaxProfile,
-  ChangePlanInput,
   BuyAddonInput,
   SaveTaxProfileInput,
 } from "./types";
@@ -63,31 +63,6 @@ export function useSetAutoTopup() {
   });
 }
 
-export function useChangePlanMutation() {
-  const { membershipId } = useSession();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (input: ChangePlanInput) => {
-      const res = await runCommand<{
-        success: boolean;
-        targetPlan: string;
-        billingCycle: string;
-        proratedChargeCents: number;
-      }>(
-        "billing.changePlan",
-        input,
-        membershipId!,
-      );
-      return res;
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["desk", "billing"] });
-      void queryClient.invalidateQueries({ queryKey: ["desk", "billing", "invoices"] });
-    },
-  });
-}
-
 export function useBuyAddonMutation() {
   const { membershipId } = useSession();
   const queryClient = useQueryClient();
@@ -137,10 +112,12 @@ export function useCreateBillingPortalSession() {
   const { membershipId } = useSession();
 
   return useMutation({
-    mutationFn: async (returnUrl?: string | void) => {
-      const res = await apiPost<{ url: string }>(
+    mutationFn: async (returnPath?: string | void) => {
+      const candidate = typeof returnPath === 'string' ? returnPath : undefined;
+      const path = isRelativeAppPath(candidate) ? candidate : PORTAL_RETURN_PATH;
+      const res = await apiPost<{ url: string | null }>(
         "/v1/billing/portal-session",
-        { returnUrl: (typeof returnUrl === 'string' && returnUrl) ? returnUrl : window.location.href },
+        { returnUrl: path },
         { headers: { "X-Membership-Id": membershipId! } },
       );
       return res;

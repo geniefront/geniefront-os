@@ -67,6 +67,7 @@ import {
   useSavePersonalNotificationPreferences,
 } from '@/features/profile/api';
 import type { PersonalNotificationPreferences } from '@/features/profile/types';
+import { persistRecommendedInAppPrefs } from '@/features/profile/recommendedPrefs';
 
 import {
   PRESET_USER_AVATARS,
@@ -1361,22 +1362,20 @@ export function Profile() {
                         </h4>
                         <button
                           type="button"
-                          onClick={() => {
-                            setLocalNotifPrefs({
-                              ...localNotifPrefs,
-                              inApp: {
-                                appointmentNew: true,
-                                appointmentChanged: true,
-                                appointmentCancelled: true,
-                                paymentFailed: true,
-                                customerFeedback: true,
-                                payoutSettled: true,
-                                systemSecurity: true,
-                              },
-                            });
-                            toast.success(t('settings.profRecommendedApplied'));
+                          disabled={saveNotifPrefsMutation.isPending}
+                          onClick={async () => {
+                            try {
+                              const next = await persistRecommendedInAppPrefs(
+                                localNotifPrefs,
+                                (prefs) => saveNotifPrefsMutation.mutateAsync(prefs),
+                              );
+                              setLocalNotifPrefs(next);
+                              toast.success(t('settings.profRecommendedApplied'));
+                            } catch (err: any) {
+                              toast.danger(errorMessage(err));
+                            }
                           }}
-                          className="text-xs font-bold text-teal-600 hover:text-teal-700"
+                          className="text-xs font-bold text-teal-600 hover:text-teal-700 disabled:opacity-50"
                         >
                           
                           {t('settings.profEnableAll')}

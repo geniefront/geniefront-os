@@ -59,7 +59,7 @@ export interface BillingInvoiceItem {
   amountCents: number;
   status: 'paid' | 'pending' | 'failed';
   date: string;
-  receiptPdfUrl?: string;
+  receiptPdfUrl?: string | null;
 }
 
 export interface BillingInvoicesResponse {
@@ -70,11 +70,6 @@ export interface TaxProfile {
   legalEntityName: string;
   taxId: string;
   billingEmail: string;
-}
-
-export interface ChangePlanInput {
-  targetPlan: 'starter' | 'growth' | 'enterprise';
-  billingCycle: 'monthly' | 'annual';
 }
 
 export interface BuyAddonInput {

@@ -42,6 +42,7 @@ import {
   paymentMethodLabel, declineReason, isPlan, type Stripe,
 } from './client';
 import { maybeAutoTopup } from '../billing/autoTopup';
+import { safePortalReturnUrl, safeReturnUrls } from './returnUrl';
 import { renderTrialEnding, formatWhen } from '../email/render';
 import {
   isSignupSession, provisionFromSession, backfillStripeMetadata, sendActivationOnce,
@@ -388,7 +389,7 @@ export function registerStripeRoutes(
       });
     }
 
-    const returnUrl = req.body?.returnUrl || 'https://desk.geniefront.app/subscription';
+    const returnUrl = safePortalReturnUrl(req.body?.returnUrl);
     try {
       const session = await stripeClient().billingPortal.sessions.create({
         customer: acct.stripe_customer_id,
@@ -863,30 +864,5 @@ function tenantFromMetadata(meta: Record<string, string> | null | undefined): Te
   return { orgId, locationId };
 }
 
-/**
- * 回跳地址。
- *
- * ⚠️ **不接受客户端给的任意 URL**：那是一个开放重定向 ——
- * 攻击者把老板从「付款成功」直接送到一个仿冒的登录页，
- * 而地址栏上一跳确实是 stripe.com，看起来无可挑剔。
- *
- * 所以只保留 path，域名一律用我们自己配的 `APP_BASE_URL`。
- */
-function safeReturnUrls(body: { successUrl?: string; cancelUrl?: string } | undefined): {
-  successUrl: string; cancelUrl: string;
-} {
-  const base = (process.env['APP_BASE_URL'] ?? 'https://desk.geniefront.com').replace(/\/+$/, '');
-  const pathOf = (v: string | undefined, dflt: string): string => {
-    if (!v) return dflt;
-    // 只认相对路径。带协议或以 // 开头的一律丢掉
-    if (!v.startsWith('/') || v.startsWith('//')) return dflt;
-    return v;
-  };
-  return {
-    successUrl: `${base}${pathOf(body?.successUrl, '/?billing=done')}`,
-    cancelUrl: `${base}${pathOf(body?.cancelUrl, '/?billing=cancelled')}`,
-  };
-}
-
-export { maybeAutoTopup };
+export { maybeAutoTopup, safeReturnUrls, safePortalReturnUrl };
 export type { QuotaUnit };

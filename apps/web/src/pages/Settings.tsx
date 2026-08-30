@@ -25,7 +25,6 @@ import {
   Copy,
   Check,
   RotateCcw,
-  Sparkles,
   AlertCircle,
   Clock,
   ShieldCheck,
@@ -71,8 +70,8 @@ import {
   useApply10Dlc,
   useSaveWebhooks,
 } from '@/features/settings/api';
-import type { QuotaView } from '@/features/billing/types';
-import { useChangePlanMutation, useCreateBillingPortalSession } from '@/features/billing/api';
+import { BillingPanel } from '@/features/billing/BillingPanel';
+import { planNavBadge } from '@/features/billing/display';
 import type {
   ServiceItem,
   StaffItem,
@@ -150,7 +149,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     groupName: '订阅与财务',
     items: [
-      { id: 'billing', label: 'SaaS 订阅与算力', icon: CreditCard, badge: 'Growth' },
+      { id: 'billing', label: 'SaaS 订阅与算力', icon: CreditCard },
     ],
   },
 ];
@@ -222,15 +221,7 @@ export function Settings() {
 
   const { data: settings, isLoading, error, refetch } = useDeskSettingsQuery();
   const { data: billingData } = useDeskBillingQuery();
-  const billing = (billingData as any)?.billing ?? billingData;
-  const voiceQuota = billing?.quotas?.find((quota: QuotaView) => quota.unit === 'voice_minute');
-  const creditQuota = billing?.quotas?.find((quota: QuotaView) => quota.unit === 'credit');
-  const voiceUsagePercent = voiceQuota?.included && voiceQuota.included.total > 0
-    ? Math.min(100, Math.round((voiceQuota.included.used / voiceQuota.included.total) * 100))
-    : 0;
-  const creditUsagePercent = creditQuota?.included && creditQuota.included.total > 0
-    ? Math.min(100, Math.round((creditQuota.included.used / creditQuota.included.total) * 100))
-    : 0;
+  const billing = billingData?.billing ?? null;
 
   // Mutations
   const saveLocationMutation = useSaveLocationProfile();
@@ -246,8 +237,7 @@ export function Settings() {
   const saveCheckoutMutation = useSaveCheckoutSettings();
   const apply10DlcMutation = useApply10Dlc();
   const saveWebhooksMutation = useSaveWebhooks();
-  const changePlanMutation = useChangePlanMutation();
-  const createPortalMutation = useCreateBillingPortalSession();
+
 
   // 1. 门店品牌档案
   const [storeName, setStoreName] = useState('');
@@ -369,7 +359,6 @@ export function Settings() {
   const [confirmSaveBookingOpen, setConfirmSaveBookingOpen] = useState(false);
   const [confirmTenDlcOpen, setConfirmTenDlcOpen] = useState(false);
   const [confirmSavePhoneOpen, setConfirmSavePhoneOpen] = useState(false);
-  const [confirmChangePlan, setConfirmChangePlan] = useState<string | null>(null);
 
   // Walk-in Guest轮牌状态切换二次确认弹窗
   const [confirmRotationTarget, setConfirmRotationTarget] = useState<{
@@ -819,6 +808,7 @@ export function Settings() {
                   {group.items.map((item) => {
                     const Icon = item.icon;
                     const isActive = currentTab === item.id;
+                    const badge = item.id === 'billing' ? planNavBadge(billing?.plan) : item.badge;
                     return (
                       <button
                         key={item.id}
@@ -838,7 +828,7 @@ export function Settings() {
                           />
                           <span className="truncate">{item.label}</span>
                         </div>
-                        {item.badge && (
+                        {badge && (
                           <span
                             className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold shrink-0 ${
                               isActive
@@ -846,7 +836,7 @@ export function Settings() {
                                 : 'bg-slate-100 text-slate-500'
                             }`}
                           >
-                            {item.badge}
+                            {badge}
                           </span>
                         )}
                       </button>
@@ -2396,217 +2386,7 @@ export function Settings() {
           {/* ============================================================ */}
           {currentTab === 'billing' && (
             <div className="space-y-6">
-              <SettingsCard
-                title={t('settings.stBillingTitle')}
-                description={t('settings.stBillingDesc')}
-                badge={
-                  <Badge variant="success" className="text-xs font-bold gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" />  {t('settings.stGrowthActive')}
-                  </Badge>
-                }
-              >
-                {/* 当前订阅主卡片 */}
-                <div className="p-5 rounded-2xl bg-gradient-to-r from-teal-900 to-slate-900 text-white shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-                  <div className="space-y-1">
-                    <span className="text-[10px] uppercase tracking-wider text-teal-300 font-bold">
-                      Current Active Subscription
-                    </span>
-                    <h3 className="text-xl font-black text-white">
-                      
-                      {t('settings.stGrowthPrice')}
-                    </h3>
-                    <p className="text-xs text-teal-100/80">
-                      
-                      {t('settings.stRenewalInfo')}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={createPortalMutation.isPending}
-                      onClick={async () => {
-                        try {
-                          const res = await createPortalMutation.mutateAsync();
-                          if (res?.url) {
-                            window.open(res.url, '_blank');
-                          } else {
-                            toast.success(t('settings.stStripeRedirect'));
-                          }
-                        } catch (err: any) {
-                          toast.danger(errorMessage(err));
-                        }
-                      }}
-                      className="text-xs font-bold bg-white/10 hover:bg-white/20 text-white border-white/20"
-                    >
-                      {createPortalMutation.isPending ? t('settings.stBillingLoading') : t('settings.stManageCard')}
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => setConfirmChangePlan(t('settings.stPlanEnterprise'))}
-                      className="text-xs font-bold bg-teal-500 hover:bg-teal-600 text-white shadow-sm"
-                    >
-                      
-                      {t('settings.stUpgradeEnterprise')}
-                    </Button>
-                  </div>
-                </div>
-
-                {/* AI 算力仪表板 */}
-                <div className="space-y-3 mb-6">
-                  <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider text-slate-500">
-                    
-                    {t('settings.stUsageQuotas')}
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2.5 shadow-2xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                          <PhoneCall className="w-4 h-4 text-teal-600" />
-                          
-                          {t('settings.stVoiceMinutes')}
-                        </span>
-                        <span className="text-xs font-mono font-bold text-teal-700">
-                          {voiceQuota ? `${voiceQuota.included.used} / ${voiceQuota.included.total}` : '—'}
-                        </span>
-                      </div>
-                      <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
-                        <div className="h-full bg-teal-600 rounded-full" style={{ width: `${voiceUsagePercent}%` }} />
-                      </div>
-                      <p className="text-[11px] text-slate-400">
-                        
-                        {t('settings.stVoiceMinutesDesc')}
-                      </p>
-                    </div>
-
-                    <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2.5 shadow-2xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                          <Sparkles className="w-4 h-4 text-purple-600" />
-                          
-                          {t('settings.stAiTokens')}
-                        </span>
-                        <span className="text-xs font-mono font-bold text-purple-700">
-                          {creditQuota ? `${creditQuota.included.used} / ${creditQuota.included.total} (${creditUsagePercent}%)` : '—'}
-                        </span>
-                      </div>
-                      <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
-                        <div className="h-full bg-purple-600 rounded-full" style={{ width: `${creditUsagePercent}%` }} />
-                      </div>
-                      <p className="text-[11px] text-slate-400">
-                        
-                        {t('settings.stAiTokensDesc')}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 套餐列表 */}
-                <div className="space-y-3 mb-6">
-                  <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider text-slate-500">
-                    
-                    {t('settings.stAvailablePlans')}
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {[
-                      {
-                        name: t('settings.stPlanStarter'),
-                        price: '$89',
-                        desc: t('settings.stPlanStarterDesc'),
-                        active: false,
-                      },
-                      {
-                        name: t('settings.stPlanGrowth'),
-                        price: '$169',
-                        desc: t('settings.stPlanGrowthDesc'),
-                        active: true,
-                      },
-                      {
-                        name: t('settings.stPlanEnterprise2'),
-                        price: '$299',
-                        desc: t('settings.stPlanEnterpriseDesc'),
-                        active: false,
-                      },
-                    ].map((plan) => (
-                      <div
-                        key={plan.name}
-                        className={`p-4 rounded-2xl border flex flex-col justify-between space-y-3 ${
-                          plan.active
-                            ? 'bg-teal-50/60 border-teal-300 shadow-2xs'
-                            : 'bg-white border-slate-200'
-                        }`}
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-xs text-slate-900">{plan.name}</span>
-                            {plan.active && (
-                              <Badge variant="success" className="text-[10px] font-bold">
-                                
-                                {t('settings.stPlanActive')}
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="text-xl font-black text-slate-900">
-                            {plan.price} <span className="text-xs font-normal text-slate-400">{t('settings.stPerMonth')}</span>
-                          </div>
-                          <p className="text-[11px] text-slate-500 leading-relaxed">{plan.desc}</p>
-                        </div>
-                        <Button
-                          variant={plan.active ? 'secondary' : 'default'}
-                          size="sm"
-                          disabled={plan.active}
-                          onClick={() => setConfirmChangePlan(plan.name)}
-                          className={`w-full text-xs font-bold ${
-                            plan.active ? 'text-teal-800' : 'bg-slate-900 hover:bg-slate-800 text-white'
-                          }`}
-                        >
-                          {plan.active ? t('settings.stCurrentPlan') : t('settings.stSwitchPlan')}
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 历史账单与发票 */}
-                <div className="space-y-3">
-                  <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider text-slate-500">
-                    
-                    {t('settings.stInvoicesTitle')}
-                  </h4>
-                  <div className="border border-slate-200 rounded-2xl overflow-hidden text-xs">
-                    <div className="bg-slate-50 p-3 font-bold text-slate-600 grid grid-cols-4 border-b border-slate-200">
-                      <span>{t('settings.stInvoiceNo')}</span>
-                      <span>{t('settings.stBillingPeriod')}</span>
-                      <span>Amount</span>
-                      <span className="text-right">{t('settings.stDownloadReceipt')}</span>
-                    </div>
-                    {[
-                      { id: 'INV-2026-0801', date: '2026-08-01', amount: '$169.00' },
-                      { id: 'INV-2026-0701', date: '2026-07-01', amount: '$169.00' },
-                      { id: 'INV-2026-0601', date: '2026-06-01', amount: '$169.00' },
-                    ].map((inv) => (
-                      <div
-                        key={inv.id}
-                        className="p-3 grid grid-cols-4 items-center border-b last:border-b-0 border-slate-100 hover:bg-slate-50/50"
-                      >
-                        <span className="font-mono font-bold text-slate-800">{inv.id}</span>
-                        <span className="text-slate-600">{inv.date}</span>
-                        <span className="font-mono font-bold text-slate-900">{inv.amount}</span>
-                        <div className="text-right">
-                          <button
-                            type="button"
-                            onClick={() => toast.success(t('settings.stInvoiceDownloading', { p0: inv.id }))}
-                            className="text-xs font-bold text-teal-600 hover:text-teal-700 hover:underline"
-                          >
-                            
-                            {t('settings.stDownloadPdf')}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </SettingsCard>
+              <BillingPanel />
             </div>
           )}
         </div>
@@ -2912,33 +2692,6 @@ export function Settings() {
         onConfirm={async () => {
           await handleSavePhoneAssistant();
           setConfirmSavePhoneOpen(false);
-        }}
-      />
-
-      {/* 11. 切换套餐确认 */}
-      <ConfirmDialog
-        isOpen={confirmChangePlan !== null}
-        onOpenChange={(open) => {
-          if (!open) setConfirmChangePlan(null);
-        }}
-        title={t('settings.stChangePlanConfirmTitle', { p0: confirmChangePlan ?? '' })}
-        description={t('settings.stChangePlanConfirmBody')}
-        confirmLabel={t('settings.stChangePlanConfirmAction')}
-        onConfirm={async () => {
-          if (!confirmChangePlan) return;
-          const targetPlan: 'starter' | 'growth' | 'enterprise' = confirmChangePlan.includes('Starter')
-            ? 'starter'
-            : confirmChangePlan.includes('Growth')
-            ? 'growth'
-            : 'enterprise';
-          try {
-            await changePlanMutation.mutateAsync({ targetPlan, billingCycle: 'monthly' });
-            toast.success(t('settings.stPlanChanged', { p0: confirmChangePlan ?? '' }));
-            setConfirmChangePlan(null);
-          } catch (err: any) {
-            toast.danger(errorMessage(err));
-            setConfirmChangePlan(null);
-          }
         }}
       />
 

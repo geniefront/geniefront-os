@@ -7,6 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, runCommand } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import type { BillingResponse } from '@/features/billing/types';
 import type {
   DeskSettings,
   SaveLocationProfileInput,
@@ -43,7 +44,7 @@ export function useDeskBillingQuery() {
   const { membershipId, status } = useSession();
   return useQuery({
     queryKey: settingsKeys.billing(membershipId),
-    queryFn: () => apiGet<any>('/v1/desk/billing'),
+    queryFn: () => apiGet<BillingResponse>('/v1/desk/billing'),
     enabled: status === 'ready' && membershipId !== null,
   });
 }

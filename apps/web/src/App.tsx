@@ -51,7 +51,6 @@ const Notifications = lazy(() => import('./pages/Notifications').then((m) => ({ 
 const SetupWizard = lazy(() => import('./pages/SetupWizard').then((m) => ({ default: m.SetupWizard })));
 const Activate = lazy(() => import('./pages/Activate').then((m) => ({ default: m.Activate })));
 const ResetPassword = lazy(() => import('./pages/ResetPassword').then((m) => ({ default: m.ResetPassword })));
-const UnderConstruction = lazy(() => import('./pages/UnderConstruction').then((m) => ({ default: m.UnderConstruction })));
 const PublicHealthForm = lazy(() => import('./pages/PublicHealthForm').then((m) => ({ default: m.PublicHealthForm })));
 const Layout = lazy(() => import('./components/Layout').then((m) => ({ default: m.Layout })));
 
@@ -342,7 +341,6 @@ function SessionGate() {
           {/* Group 1: Dashboard & Analytics */}
           <Route path="dashboard" element={isPureTech || (activePortal === 'tech' && isTechCapable) ? <Navigate to="/tech/today" replace /> : <Dashboard />} />
           <Route path="business-data" element={<BusinessData />} />
-          <Route path="community" element={<UnderConstruction titleKey="community" />} />
           <Route path="subscription" element={<Navigate to="/settings?tab=billing" replace />} />
 
           {/* Group 2: Front-Desk Operations */}

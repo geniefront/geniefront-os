@@ -63,7 +63,7 @@ describe('多语言字典完整性', () => {
       'AI', 'iPad', 'iPhone', 'GenieFront', 'Stripe', 'Google', 'Yelp', 'Telnyx',
       'WiFi', 'SMS', 'CSV', 'PDF', 'API', 'URL', 'QR', 'VIP', 'POS', 'CRM', 'SOAP',
       'SSL', 'CDN', 'EIN', 'IRS', 'TCR', 'SOC', 'DID', 'LLC', 'RFM', 'GMV', 'AOV',
-      'Instagram', 'Safari', 'Kiosk', 'Growth', 'Starter', 'Enterprise', 'SPA',
+      'Instagram', 'Safari', 'Kiosk', 'Growth', 'Starter', 'Enterprise', 'Essential', 'SPA',
     ];
     const suspects: string[] = [];
     for (const key of ALL_TRANSLATION_KEYS) {

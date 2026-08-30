@@ -134,7 +134,7 @@ export const crm = {
   'crm.msgOptOutWarnAction': { 'zh-Hans': '请前台电话联系核实是否需取消排班', en: 'Please call to confirm whether the booking should be cancelled', ko: '프런트에서 전화로 예약 취소 여부를 확인해 주세요', es: 'La recepción debería llamar para confirmar si hay que cancelar', vi: 'Lễ tân nên gọi điện xác nhận có cần hủy lịch không' },
   'crm.msgTitle': { 'zh-Hans': '客户消息与短信工作台', en: 'Customer messages and SMS workspace', ko: '고객 메시지 및 문자 워크스페이스', es: 'Mensajes de clientes y espacio de SMS', vi: 'Bàn làm việc tin nhắn khách hàng' },
   'crm.msgDesc': { 'zh-Hans': '全方位管理客户上行咨询、预约确认回执与合规短信沟通', en: 'Handle inbound enquiries, booking confirmations and compliant SMS communication in one place', ko: '고객 문의, 예약 확인 회신, 규정 준수 문자 소통을 한곳에서 처리합니다', es: 'Gestiona consultas entrantes, confirmaciones de cita y comunicación SMS conforme a la normativa', vi: 'Quản lý câu hỏi của khách, xác nhận lịch hẹn và tin nhắn tuân thủ quy định tại một nơi' },
-  'crm.msgStreamSynced': { 'zh-Hans': '消息流已同步', en: 'Message stream synced', ko: '메시지 흐름을 동기화했습니다', es: 'Flujo de mensajes sincronizado', vi: 'Đã đồng bộ luồng tin nhắn' },
+  'crm.msgRefreshed': { 'zh-Hans': '已刷新', en: 'Refreshed', ko: '새로고침했습니다', es: 'Actualizado', vi: 'Đã làm mới' },
   'crm.msgRefresh': { 'zh-Hans': '刷新', en: 'Refresh', ko: '새로고침', es: 'Actualizar', vi: 'Làm mới' },
   'crm.msgNew': { 'zh-Hans': '发新短信', en: 'New message', ko: '새 문자 작성', es: 'Mensaje nuevo', vi: 'Soạn tin mới' },
   'crm.msgFilterAll': { 'zh-Hans': '全部', en: 'All', ko: '전체', es: 'Todos', vi: 'Tất cả' },

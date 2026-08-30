@@ -229,13 +229,6 @@ export function Layout() {
     setMobileNavOpen(false);
   }, [location.pathname]);
 
-  /**
-   * 未开放模块清单。侧栏据此渲染「搭建中」标记并降低视觉权重，
-   * 使用户在点击前即可判断该入口当前不可用。
-   * 模块交付后从本数组移除对应路径即可。
-   */
-  const UNAVAILABLE_PATHS = new Set(['/community']);
-
   const navGroups = [
     {
       group: t('groupCore') || '核心前台',
@@ -367,7 +360,6 @@ export function Layout() {
               <ul className="space-y-0.5 px-2">
                 {group.items.map((item) => {
                   const isActive = location.pathname.startsWith(item.path);
-                  const isUnavailable = UNAVAILABLE_PATHS.has(item.path);
                   return (
                     <li key={item.path}>
                       <Link
@@ -379,22 +371,19 @@ export function Layout() {
                             setCurrentDate(today);
                           }
                         }}
-                        aria-disabled={isUnavailable || undefined}
                         className={cn(
                           "flex items-center px-2.5 py-1.5 rounded-lg transition-all group relative text-xs font-semibold",
                           isActive
                             ? "bg-teal-50 text-teal-800 font-bold shadow-xs"
-                            : isUnavailable
-                              ? "text-slate-400 hover:bg-slate-50"
-                              : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900"
+                            : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900"
                         )}
-                        title={collapsed ? `${item.name}${isUnavailable ? ` · ${t('underConstruction')}` : ''}` : undefined}
+                        title={collapsed ? item.name : undefined}
                       >
                         <item.icon
                           className={cn(
                             "w-4 h-4 shrink-0",
                             collapsed ? "mx-auto" : "mr-2.5",
-                            isActive ? "text-teal-600" : isUnavailable ? "text-slate-300" : "text-slate-400 group-hover:text-slate-600"
+                            isActive ? "text-teal-600" : "text-slate-400 group-hover:text-slate-600"
                           )}
                         />
                         {!collapsed && <span className="truncate">{item.name}</span>}
@@ -403,12 +392,7 @@ export function Layout() {
                             {(item as any).badge}
                           </span>
                         )}
-                        {!collapsed && isUnavailable && (
-                          <span className="ml-auto shrink-0 text-[9px] font-bold text-slate-400 border border-slate-200 rounded px-1 py-0.5">
-                            {t('underConstruction')}
-                          </span>
-                        )}
-                        {isActive && !collapsed && !isUnavailable && (
+                        {isActive && !collapsed && (
                           <div className="absolute right-2 w-1.5 h-1.5 rounded-full bg-teal-600"></div>
                         )}
                       </Link>

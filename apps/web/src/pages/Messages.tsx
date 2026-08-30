@@ -280,9 +280,13 @@ export function Messages() {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => {
-                refetch();
-                toast.success(t('crm.msgStreamSynced'));
+              onClick={async () => {
+                const result = await refetch();
+                if (result.error) {
+                  toast.danger(errorMessage(result.error));
+                  return;
+                }
+                toast.success(t('crm.msgRefreshed'));
               }}
               className="gap-2 text-xs"
               disabled={isLoading}
