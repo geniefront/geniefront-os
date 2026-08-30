@@ -68,6 +68,10 @@ log "构建 iPad Kiosk 自助应用"
 VITE_API_BASE=https://api.geniefront.com \
 pnpm --filter @gf/ipad build >/dev/null
 
+log "构建 Marketing 官网应用"
+VITE_API_BASE=https://api.geniefront.com \
+pnpm --filter @gf/marketing build >/dev/null
+
 log "构建 Platform 控制台应用"
 VITE_API_BASE=https://api.geniefront.com \
 SUPABASE_URL=https://qiuyubvhirjtglonbkon.supabase.co \
@@ -92,7 +96,7 @@ for h in "${HOSTS[@]}"; do
   log "推送镜像"
   docker save "$IMAGE" | gzip -1 | ssh "$h" 'gunzip | docker load' | tail -1
 
-  log "同步 Web 前端、Kiosk、Platform 与配置"
+  log "同步 Web 前端、Kiosk、Platform、Marketing 与配置"
   scp -q "$PROD_ENV" "$h:/tmp/gf.env"
   scp -q deploy/compose.yml deploy/Caddyfile "$h:/tmp/"
   tar -czf - -C apps/web/dist . | ssh "$h" "
@@ -113,6 +117,11 @@ for h in "${HOSTS[@]}"; do
     mkdir -p ${REMOTE_DIR}/platform
     rm -rf ${REMOTE_DIR}/platform/*
     tar -xzf - -C ${REMOTE_DIR}/platform
+  "
+  tar -czf - -C apps/marketing/dist . | ssh "$h" "
+    mkdir -p ${REMOTE_DIR}/marketing
+    rm -rf ${REMOTE_DIR}/marketing/*
+    tar -xzf - -C ${REMOTE_DIR}/marketing
   "
 
   log "启动服务"

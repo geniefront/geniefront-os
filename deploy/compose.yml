@@ -35,6 +35,7 @@ services:
       - /opt/geniefront/web:/srv/web:ro
       - /opt/geniefront/kiosk:/srv/kiosk:ro
       - /opt/geniefront/platform:/srv/platform:ro
+      - /opt/geniefront/marketing:/srv/marketing:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on: [api]
