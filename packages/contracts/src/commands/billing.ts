@@ -248,6 +248,11 @@ export const RecordTopupFailure = defineCommand({
   idempotency: 'optional',
 });
 
+/**
+ * Kept registered for API compatibility. The handler refuses without
+ * mutating paid state until a Stripe Checkout / Portal path exists.
+ * Do not reimplement as a local writer of plan or invoices.
+ */
 export const BillingChangePlan = defineCommand({
   name: 'billing.changePlan',
   input: z.object({
@@ -271,6 +276,11 @@ export const BillingChangePlan = defineCommand({
   idempotency: 'optional',
 });
 
+/**
+ * Kept registered for API compatibility. The handler refuses without
+ * granting credits or inserting a paid invoice. Buy packs via Stripe
+ * topup / Checkout; ledger writes belong to `billing.recordTopup`.
+ */
 export const BillingBuyAddon = defineCommand({
   name: 'billing.buyAddon',
   input: z.object({

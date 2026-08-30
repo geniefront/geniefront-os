@@ -538,128 +538,25 @@ registerHandler(RecordTopupFailure, async ({ input, ctx, tx, audit }: HandlerArg
   return { unit: input.unit, failures, disabled };
 });
 
-registerHandler(BillingChangePlan, async ({ input, ctx, tx, audit }: HandlerArgs<
-  typeof BillingChangePlan.input._type>) => {
-  const acct = await ensureAccount(tx, ctx, { forUpdate: true });
-
-  const PLAN_PRICES: Record<string, number> = {
-    starter: 9900,
-    essential: 9900,
-    growth: 19900,
-    enterprise: 39900,
-  };
-
-  const proratedChargeCents = PLAN_PRICES[input.targetPlan] ?? 19900;
-  const period = new Date().toISOString().slice(0, 7);
-  const invoiceNumber = `INV-${period.replace('-', '')}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-  await tx`
-    update billing_accounts set
-      plan = ${input.targetPlan},
-      billing_cycle = ${input.billingCycle},
-      subscription_status = 'active'
-    where id = ${acct.id}`;
-
-  await tx`
-    insert into billing_invoices (
-      org_id, location_id, invoice_number, period, description,
-      amount_cents, status, date, receipt_pdf_url
-    ) values (
-      ${ctx.orgId}, ${ctx.locationId}, ${invoiceNumber},
-      ${period}, ${`SaaS 订阅版本变更: ${input.targetPlan} (${input.billingCycle === 'annual' ? '年付' : '月付'})`},
-      ${proratedChargeCents}, 'paid', ${new Date().toISOString().slice(0, 10)},
-      ${`https://billing.stripe.com/receipt/${invoiceNumber}`}
-    )`;
-
-  audit({
-    entityType: 'billing_account',
-    entityId: acct.id,
-    before: { plan: acct.plan },
-    after: { plan: input.targetPlan, billingCycle: input.billingCycle, proratedChargeCents },
+/**
+ * Stripe is the only writer of paid subscription / credit state.
+ * These two commands stay registered for API compatibility, but they
+ * must not activate a plan, grant units, or insert a paid invoice.
+ * Owners change plan or buy packs through Checkout / Customer Portal;
+ * webhooks then call `billing.syncSubscription` / `billing.recordTopup`.
+ */
+function refuseLocalPaidMutation(command: 'billing.changePlan' | 'billing.buyAddon'): never {
+  throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, {
+    details: { service: 'stripe', reason: 'use_checkout_or_portal', command },
   });
+}
 
-  return {
-    success: true,
-    targetPlan: input.targetPlan,
-    billingCycle: input.billingCycle,
-    proratedChargeCents,
-    effectiveImmediately: true,
-  };
+registerHandler(BillingChangePlan, async () => {
+  refuseLocalPaidMutation('billing.changePlan');
 });
 
-registerHandler(BillingBuyAddon, async ({ input, ctx, tx, audit }: HandlerArgs<
-  typeof BillingBuyAddon.input._type>) => {
-  const acct = await ensureAccount(tx, ctx, { forUpdate: true });
-
-  let unit: QuotaUnit = 'credit';
-  let units = 500;
-  let desc = '副驾算力加油包 (500 算力点)';
-
-  if (input.addonType === 'voice_minutes_100') {
-    unit = 'voice_minute';
-    units = 100;
-    desc = 'AI 语音通话分钟包 (100 分钟)';
-  } else if (input.addonType === 'copilot_credits_500') {
-    unit = 'credit';
-    units = 500;
-    desc = '副驾算力加油包 (500 算力点)';
-  } else if (input.addonType === 'marketing_sms_1000') {
-    unit = 'credit';
-    units = 1000;
-    desc = '营销关怀短信资源包 (1000 条)';
-  }
-
-  const curBalance = balanceOf(acct, unit);
-  const newBalance = curBalance + units;
-  const c = COLS[unit];
-
-  // 1. 更新账户缓存
-  await tx`update billing_accounts set ${tx(c.balance)} = ${newBalance} where id = ${acct.id}`;
-
-  // 2. 插入账本流水 credit_ledger
-  await tx`
-    insert into credit_ledger (
-      org_id, location_id, kind, unit, amount, balance_after,
-      paid_cents, source, reason
-    ) values (
-      ${ctx.orgId}, ${ctx.locationId}, 'topup', ${unit}, ${units}, ${newBalance},
-      ${input.priceCents}, 'manual', ${desc}
-    )`;
-
-  // 3. 生成发票
-  const period = new Date().toISOString().slice(0, 7);
-  const invoiceNumber = `INV-ADDON-${Date.now().toString().slice(-6)}`;
-  const [inv] = await tx<{ id: string }[]>`
-    insert into billing_invoices (
-      org_id, location_id, invoice_number, period, description,
-      amount_cents, status, date, receipt_pdf_url
-    ) values (
-      ${ctx.orgId}, ${ctx.locationId}, ${invoiceNumber},
-      ${period}, ${desc}, ${input.priceCents}, 'paid',
-      ${new Date().toISOString().slice(0, 10)},
-      ${`https://billing.stripe.com/receipt/${invoiceNumber}`}
-    )
-    returning id`;
-
-  audit({
-    entityType: 'billing_addon',
-    entityId: inv!.id,
-    after: {
-      addonType: input.addonType,
-      unit,
-      units,
-      priceCents: input.priceCents,
-      balanceAfter: newBalance,
-    },
-  });
-
-  return {
-    success: true,
-    addonType: input.addonType,
-    priceCents: input.priceCents,
-    invoiceId: inv!.id,
-    invoiceNumber,
-  };
+registerHandler(BillingBuyAddon, async () => {
+  refuseLocalPaidMutation('billing.buyAddon');
 });
 
 registerHandler(BillingSaveTaxProfile, async ({ input, ctx, tx, audit }: HandlerArgs<

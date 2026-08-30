@@ -624,6 +624,173 @@ describe('欠费冻结写入（批 1）', () => {
   });
 });
 
+// ─────────────────────────────────────────────── 本地命令不得发明付费状态
+
+describe('本地命令不得发明付费状态（P0-1 / P0-2）', () => {
+  const setStatus = (s: string) => withTenant(tenant, (tx) => tx`
+    update billing_accounts set subscription_status = ${s} where location_id = ${SPA_LOC}`);
+
+  const refuse = { code: 'UPSTREAM_UNAVAILABLE', details: { reason: 'use_checkout_or_portal' } };
+
+  async function snapshotPaidState() {
+    return withTenant(tenant, async (tx) => {
+      const [acct] = await tx<{
+        plan: string;
+        subscription_status: string;
+        billing_cycle: string;
+        credit_balance: number;
+        voice_minute_balance: number;
+        included_credits_used: number;
+        included_minutes_used: number;
+      }[]>`
+        select plan, subscription_status, billing_cycle,
+               credit_balance, voice_minute_balance,
+               included_credits_used, included_minutes_used
+        from billing_accounts where location_id = ${SPA_LOC}`;
+      const invoices = await tx<{ id: string; status: string; invoice_number: string }[]>`
+        select id, status, invoice_number from billing_invoices
+        where location_id = ${SPA_LOC} order by id`;
+      const ledger = await tx<{ id: string; kind: string; unit: string; amount: number }[]>`
+        select id, kind, unit, amount from credit_ledger
+        where location_id = ${SPA_LOC} order by id`;
+      const view = await loadBilling(tx, ctx);
+      const credit = view!.quotas.find((q) => q.unit === 'credit')!;
+      const voice = view!.quotas.find((q) => q.unit === 'voice_minute')!;
+      return {
+        plan: acct!.plan,
+        subscriptionStatus: acct!.subscription_status,
+        billingCycle: acct!.billing_cycle,
+        creditBalance: acct!.credit_balance,
+        voiceMinuteBalance: acct!.voice_minute_balance,
+        includedCreditsUsed: acct!.included_credits_used,
+        includedMinutesUsed: acct!.included_minutes_used,
+        invoices,
+        ledger,
+        entitlement: {
+          plan: view!.plan,
+          subscriptionStatus: view!.subscriptionStatus,
+          credit: {
+            includedTotal: credit.included.total,
+            includedUsed: credit.included.used,
+            includedRemaining: credit.included.remaining,
+            balance: credit.balance,
+          },
+          voice: {
+            includedTotal: voice.included.total,
+            includedUsed: voice.included.used,
+            includedRemaining: voice.included.remaining,
+            balance: voice.balance,
+          },
+        },
+      };
+    });
+  }
+
+  it('billing.changePlan 不能改 plan / subscription_status / invoices / 额度', async () => {
+    await resetBilling();
+    const before = await snapshotPaidState();
+
+    await expect(run('billing.changePlan', {
+      targetPlan: 'growth',
+      billingCycle: 'monthly',
+    })).rejects.toMatchObject(refuse);
+
+    expect(await snapshotPaidState()).toEqual(before);
+    expect(before.plan).toBe('essential');
+    expect(before.subscriptionStatus).toBe('trialing');
+  });
+
+  it('past_due 不能靠 billing.changePlan 变成 active', async () => {
+    await resetBilling();
+    await setStatus('past_due');
+    const before = await snapshotPaidState();
+    expect(before.subscriptionStatus).toBe('past_due');
+
+    await expect(run('billing.changePlan', {
+      targetPlan: 'growth',
+      billingCycle: 'monthly',
+    })).rejects.toMatchObject(refuse);
+
+    const after = await snapshotPaidState();
+    expect(after).toEqual(before);
+    expect(after.subscriptionStatus).toBe('past_due');
+  });
+
+  it('billing.buyAddon 不能改积分 / 语音余额、账本或发票', async () => {
+    await resetBilling();
+    const before = await snapshotPaidState();
+
+    await expect(run('billing.buyAddon', {
+      addonType: 'voice_minutes_100',
+      priceCents: 2500,
+    })).rejects.toMatchObject(refuse);
+
+    await expect(run('billing.buyAddon', {
+      addonType: 'copilot_credits_500',
+      priceCents: 4900,
+    })).rejects.toMatchObject(refuse);
+
+    expect(await snapshotPaidState()).toEqual(before);
+    expect(before.creditBalance).toBe(0);
+    expect(before.voiceMinuteBalance).toBe(0);
+  });
+
+  it('past_due 不能靠 billing.buyAddon 拿到单位', async () => {
+    await resetBilling();
+    await setStatus('past_due');
+    const before = await snapshotPaidState();
+
+    await expect(run('billing.buyAddon', {
+      addonType: 'marketing_sms_1000',
+      priceCents: 3900,
+    })).rejects.toMatchObject(refuse);
+
+    const after = await snapshotPaidState();
+    expect(after).toEqual(before);
+    expect(after.creditBalance).toBe(before.creditBalance);
+    expect(after.voiceMinuteBalance).toBe(before.voiceMinuteBalance);
+    expect(after.ledger).toEqual(before.ledger);
+  });
+
+  it('Stripe 回写路径仍然有效：syncSubscription 与 recordTopup', async () => {
+    await resetBilling();
+    const essentialIncluded = (await quota('credit')).included.total;
+
+    await run('billing.syncSubscription', {
+      plan: 'growth',
+      subscriptionStatus: 'active',
+      stripeCustomerId: 'cus_p0_batch1',
+      stripeSubscriptionId: 'sub_p0_batch1',
+    });
+
+    const afterSync = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
+    expect(afterSync!.plan).toBe('growth');
+    expect(afterSync!.subscriptionStatus).toBe('active');
+    expect(afterSync!.quotas.find((q) => q.unit === 'credit')!.included.total)
+      .toBeGreaterThan(essentialIncluded);
+
+    const pi = `pi_p0_${Date.now()}`;
+    const topup = await run<{ balanceAfter: number; alreadyRecorded: boolean }>(
+      'billing.recordTopup',
+      {
+        unit: 'credit', units: TOPUP_UNITS.credit, paidCents: 5000,
+        stripePaymentIntentId: pi, trigger: 'manual',
+      },
+      `topup-${pi}`,
+    );
+    expect(topup).toMatchObject({ alreadyRecorded: false, balanceAfter: 1000 });
+    expect((await quota('credit')).balance).toBe(1000);
+    expect((await quota('voice_minute')).balance).toBe(0);
+
+    await run('billing.syncSubscription', { subscriptionStatus: 'past_due' });
+    expect((await withTenant(tenant, (tx) => loadBilling(tx, ctx)))!.subscriptionStatus)
+      .toBe('past_due');
+    await run('billing.syncSubscription', { subscriptionStatus: 'active' });
+    expect((await withTenant(tenant, (tx) => loadBilling(tx, ctx)))!.subscriptionStatus)
+      .toBe('active');
+  });
+});
+
 describe('账本只追加（宪法第 9 条）', () => {
   it('⭐ app_user 改不动已经写下的账本行', async () => {
     await resetBilling();

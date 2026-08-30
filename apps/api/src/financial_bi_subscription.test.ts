@@ -165,46 +165,26 @@ describe('财务与数据核心模块 API 完整增改测试', () => {
 
   // ───────────────────────────────────────────────────────── 模块四：SaaS 订阅与算力资源中心
   describe('4. SaaS 订阅与算力资源中心 (/subscription)', () => {
-    it('billing.changePlan 能够切换套餐版本并生成账单发票', async () => {
-      const planRes = await dispatch<{
-        success: boolean;
-        targetPlan: string;
-        billingCycle: string;
-        proratedChargeCents: number;
-      }>(
+    it('billing.changePlan 拒绝本地改套餐，不写入付费状态', async () => {
+      await expect(dispatch(
         'billing.changePlan',
-        {
-          targetPlan: 'growth',
-          billingCycle: 'monthly',
-        },
+        { targetPlan: 'growth', billingCycle: 'monthly' },
         ownerCtx,
-      );
-
-      expect(planRes.result.success).toBe(true);
-      expect(planRes.result.targetPlan).toBe('growth');
-      expect(planRes.result.proratedChargeCents).toBe(19900);
+      )).rejects.toMatchObject({
+        code: 'UPSTREAM_UNAVAILABLE',
+        details: { reason: 'use_checkout_or_portal', command: 'billing.changePlan' },
+      });
     });
 
-    it('billing.buyAddon 能够增购即时语音/算力加油包并入账', async () => {
-      const addonRes = await dispatch<{
-        success: boolean;
-        addonType: string;
-        priceCents: number;
-        invoiceId: string;
-        invoiceNumber: string;
-      }>(
+    it('billing.buyAddon 拒绝本地入账，不写入额度或发票', async () => {
+      await expect(dispatch(
         'billing.buyAddon',
-        {
-          addonType: 'voice_minutes_100',
-          priceCents: 2500,
-        },
+        { addonType: 'voice_minutes_100', priceCents: 2500 },
         ownerCtx,
-      );
-
-      expect(addonRes.result.success).toBe(true);
-      expect(addonRes.result.addonType).toBe('voice_minutes_100');
-      expect(addonRes.result.invoiceId).toBeDefined();
-      expect(addonRes.result.invoiceNumber).toContain('INV-ADDON');
+      )).rejects.toMatchObject({
+        code: 'UPSTREAM_UNAVAILABLE',
+        details: { reason: 'use_checkout_or_portal', command: 'billing.buyAddon' },
+      });
     });
 
     it('billing.saveTaxProfile 能够保存企业发票抬头与税号', async () => {
@@ -227,13 +207,9 @@ describe('财务与数据核心模块 API 完整增改测试', () => {
       expect(taxProfile.taxProfile!.billingEmail).toBe('finance@glamournails.com');
     });
 
-    it('loadBillingInvoices 返回包含新开出的发票记录', async () => {
+    it('loadBillingInvoices 不依赖本地假付费命令', async () => {
       const invs = await withTenant(tenant, (tx) => loadBillingInvoices(tx, ownerCtx));
-      expect(invs.invoices.length).toBeGreaterThan(0);
-      const latest = invs.invoices[0]!;
-      expect(latest.invoiceNumber).toBeTruthy();
-      expect(latest.amountCents).toBeGreaterThan(0);
-      expect(latest.status).toBe('paid');
+      expect(Array.isArray(invs.invoices)).toBe(true);
     });
   });
 });
