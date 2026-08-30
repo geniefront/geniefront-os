@@ -1,4 +1,4 @@
-import { UserCircle, Rocket } from 'lucide-react';
+import { Rocket } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -32,4 +32,5 @@ function PlaceholderPage({ titleKey, icon: Icon }: { titleKey: TranslationKey; i
   );
 }
 
+/** @deprecated The real setup page is routed from App.tsx outside the admin Layout. */
 export const SetupWizard = () => <PlaceholderPage titleKey="setupWizard" icon={Rocket} />;

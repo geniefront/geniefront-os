@@ -19,6 +19,8 @@ export interface QueueEntry {
   customerId: string | null;
   serviceName: string | null;
   serviceId: string | null;
+  serviceDurationMin: number | null;
+  servicePriceCents: number | null;
   staffName: string | null;
   staffId: string | null;
   partySize: number;
@@ -39,6 +41,7 @@ export interface QueueEntry {
     staffName: string | null;
     staffId: string | null;
     durationMin: number;
+    basePriceCents: number;
     addonIds: string[];
   }>;
 }

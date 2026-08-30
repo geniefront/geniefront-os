@@ -229,6 +229,8 @@ export const stripeEvents = pgTable('stripe_events', {
    * 这是 10-HANDOFF §4.1 那个坑的第二次发作；迁移 0020 把列名改回来了。
    */
   processedAt: timestamp('processed_at', { withTimezone: true }).defaultNow(),
+  /** 当前一次处理尝试开始时间；超时后 Stripe 重投可以安全接管。 */
+  attemptStartedAt: timestamp('attempt_started_at', { withTimezone: true }).notNull().defaultNow(),
   /** 处理时出的错。留着是为了能回头补处理，而不是让事件默默消失 */
   error: text('error'),
   /**
@@ -237,8 +239,8 @@ export const stripeEvents = pgTable('stripe_events', {
    *   · `processed`  — 处理成功
    *   · `failed`     — 处理失败，错误见 `error` 列，等 Stripe 重投后重试
    *
-   * ⚠️ Stripe 重投时 ON CONFLICT DO UPDATE WHERE status='failed' 会重新认领，
-   * 使失败的事件可以被重试，而成功的事件不受影响（仍然幂等）。
+   * ⚠️ Stripe 重投时会重新认领 failed 或超时的 processing 事件，
+   * 使显式失败和进程中断都可以恢复，而成功事件不受影响（仍然幂等）。
    */
   status: text('status').notNull().default('processing'),
 });
@@ -260,4 +262,3 @@ export const billingInvoices = pgTable('billing_invoices', {
   index('billing_invoices_org_idx').on(t.orgId, t.createdAt),
   index('billing_invoices_loc_idx').on(t.locationId, t.createdAt),
 ]);
-

@@ -21,17 +21,44 @@ import {
   planRegions, padRegion, shouldChunk, capRegions, REGION_MODEL, REGION_RATES,
   generateStorefrontDrafts, SONNET_5_RATES,
   generateHealthFormQuestions,
+  extractWebsite,
   type PriceListImage, type ImageMediaType,
 } from '@gf/ai';
 import { dispatch } from '../bus';
 import { maybeAutoTopup } from '../billing/autoTopup';
 import { loadBlueprint, listBlueprints } from '../queries/blueprint';
 import type { CtxFromHeaders } from './utils';
+import { fetchWebsitePages } from '../onboarding/websiteFetch';
 
 const MAX_IMAGES_PER_EXTRACT = 6;
 const MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHeaders): void {
+
+  app.post<{ Body: { url?: string; locale?: string } }>('/v1/onboarding/website/extract', { bodyLimit: 50_000 }, async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage') || !ctx.permissions.has('catalog.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage+catalog.manage' } });
+    }
+    if (!ctx.permissions.has('ai.use')) throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
+    const url = req.body?.url?.trim() ?? '';
+    const apiKey = process.env['ANTHROPIC_API_KEY'];
+    if (!apiKey) throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
+    const pages = await fetchWebsitePages(url);
+    const extracted = await extractWebsite(pages, { apiKey, locale: req.body?.locale ?? ctx.locale });
+    const created = await dispatch<{ blueprintId: string }>('blueprint.createDraft', {
+      label: `官网导入 · ${new URL(url).hostname}`,
+      sources: [{ seq: 0, kind: 'website', storagePath: null, sourceUrl: url, rawSnapshot: { pages: pages.map((p) => p.url) }, widthPx: null, heightPx: null }],
+    }, ctx);
+    const cost = costMillicents(extracted.usage, SONNET_5_RATES);
+    await dispatch('blueprint.saveExtraction', {
+      blueprintId: created.result.blueprintId, items: extracted.items, unresolved: extracted.unresolved,
+      locationProposal: extracted.locationProposal,
+      usage: { tokens: billableTokens(extracted.usage), costMillicents: cost, imagesOk: 0, imagesFailed: 0, feature: 'website_onboarding', model: extracted.model },
+    }, ctx);
+    void maybeAutoTopup(ctx, 'credit', req.log);
+    return withTenant({ orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId }, (tx) => loadBlueprint(tx, ctx, created.result.blueprintId));
+  });
 
   // ── 健康表设计器：真实 AI 出题 / 五语翻译 ────────────────────────────────
   app.post<{

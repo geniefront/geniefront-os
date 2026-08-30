@@ -185,7 +185,7 @@ export interface SaveBusinessHoursInput {
 
 export interface SaveServiceInput {
   serviceId?: string;
-  name: string | Record<string, string>;
+  name: Record<string, string>;
   durationMin: number;
   basePriceCents: number;
   taxable?: boolean;
@@ -201,11 +201,14 @@ export interface ArchiveServiceInput {
 }
 
 export interface SaveStaffProfileInput {
-  membershipId: string;
+  /** 不传就是在当前门店新增一位员工。 */
+  membershipId?: string;
+  name?: string;
   displayName?: string | Record<string, string>;
   isBookable?: boolean;
   maxConcurrentAppointments?: number;
   levelId?: string | null;
+  inRotation?: boolean;
 }
 
 export interface SetRotationParticipationInput {

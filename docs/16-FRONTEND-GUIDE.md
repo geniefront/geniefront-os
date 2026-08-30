@@ -16,7 +16,7 @@ pnpm --filter @gf/api dev              # http://127.0.0.1:3000
 # 2) 启动统一 Web 前端（开发端口 5177）
 pnpm --filter @gf/web dev              # http://localhost:5177
 
-# 3) 重置/清理测试残留数据（恢复种子演示预约）
+# 3) 清理共享开发库残留并补回演示预约
 pnpm db:tidy
 ```
 
@@ -29,6 +29,24 @@ pnpm db:tidy
 | `mia@example.test` | `front_desk` | 前台（24条权限）· Lotus Nails & Spa (`America/New_York`) |
 | `amy@example.test` | `manager` 兼 `tech` | 店长兼技师 · Lotus Nails & Spa |
 | `owner@example.test` | `owner` | 老板 · Golden Foot Spa |
+
+### 可重复测试开店 Setup
+
+下面这条命令会创建一个新的空白测试门店，状态等价于“Stripe 测试付款成功、账号已认领、尚未完成 setup”：
+
+```bash
+pnpm setup:test:reset
+```
+
+随后使用 `setup@example.test` / `GenieSetup!2026` 登录，Web 会自动进入 `/setup`。每次想从头再测就重新运行命令；上一轮门店会被关闭而不是删除，因此不会伪造或抹掉付款与审计历史。可通过根目录 `.env` 的 `SETUP_TEST_EMAIL`、`SETUP_TEST_PASSWORD` 覆盖账号，邮箱必须使用 `@example.test`。
+
+### 首次开店的路由门禁
+
+- `locations.status = 'setup'` 是唯一事实源。会话还原并选定门店后，`SessionGate` 只挂载独立的 `/setup` 路由；`/dashboard`、`/settings`、`/tech/*` 以及其他后台深链接统一重定向回 `/setup`。
+- `/setup` 不挂载后台 `Layout`，也不提供“稍后进入后台”的链接。向导只包含门店资料、项目价格、员工接单能力、正式开店四项营业必需信息。
+- 网站主页、通知提醒、AI 电话、品牌素材和高级系统设置不会阻塞首次开店；页面只说明这些能力会在开店后从后台继续添加。
+- 点击“正式开店”仍由 `location.finishSetup` 在服务端重新检查门店资料、营业时间、启用项目和可接单员工；成功后刷新门店列表并自动进入后台。刷新或换设备不会依赖浏览器里的假进度。
+- 已完成门店访问 `/setup` 会被导向当前工作台；设置状态变回 `setup` 时，下一次登录或会话恢复再次执行门禁。
 
 ⚠️ **有演示单据的日期是 `2026-08-25` ~ `2026-08-28`**，拿今天去试会看到空日历。可通过 `GET /v1/desk/days?from=&to=` 查询有数据的日期。
 

@@ -12,12 +12,29 @@ import type { FastifyInstance } from 'fastify';
 import { AppError, ERROR_CODES } from '@gf/contracts';
 import { withTenant } from '@gf/db';
 import { searchBusinesses, getBusiness } from '@gf/yelp';
+import { searchGooglePlaces, getGooglePlace } from '../integrations/googlePlaces';
 import { loadCallDrafts } from '../queries/callDrafts';
 import { loadCalls } from '../queries/calls';
 import { loadInboundSms } from '../queries/smsInbound';
 import type { CtxFromHeaders } from './utils';
 
 export function registerMiscRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHeaders): void {
+
+  app.get<{ Querystring: { term?: string; location?: string; id?: string } }>(
+    '/v1/desk/google/search', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('settings.manage')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+      }
+      const apiKey = process.env['GOOGLE_PLACES_API_KEY'];
+      if (!apiKey) throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'google_places' } });
+      if (req.query.id) return { business: await getGooglePlace(req.query.id, apiKey) };
+      const term = (req.query.term ?? '').trim(); const location = (req.query.location ?? '').trim();
+      if (term.length < 2 || location.length < 3) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: '要店名和邮编（或城市）才能搜' } });
+      }
+      return { businesses: await searchGooglePlaces(`${term}, ${location}`, apiKey) };
+    });
 
   // ── 查询：来电待复核队列 ──────────────────────────────────────────────────
   app.get<{ Querystring: { status?: string } }>('/v1/desk/call-drafts', async (req) => {

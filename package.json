@@ -23,6 +23,7 @@
     "db:migrate": "pnpm --filter @gf/db migrate",
     "db:seed": "pnpm --filter @gf/db seed",
     "db:tidy": "pnpm --filter @gf/api tidy",
+    "setup:test:reset": "pnpm --filter @gf/db setup-test-reset",
     "verify": "pnpm lint:guards && pnpm typecheck && pnpm test"
   },
   "devDependencies": {

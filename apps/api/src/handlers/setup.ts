@@ -298,6 +298,40 @@ registerHandler(SaveLocationProfile, async ({ input, ctx, tx, audit }: HandlerAr
  */
 registerHandler(FinishSetup, async ({ ctx, tx, audit }: HandlerArgs<
   typeof FinishSetup.input._type>) => {
+  const [readiness] = await tx<{
+    status: string;
+    profile_confirmed: boolean;
+    hours_configured: boolean;
+    active_services: number;
+    bookable_staff: number;
+  }[]>`
+    select l.status,
+           (l.settings ? 'profile_confirmed_at') as profile_confirmed,
+           exists (
+             select 1 from jsonb_each(l.business_hours) as h
+             where h.value <> 'null'::jsonb
+           ) as hours_configured,
+           (select count(*)::int from services s
+             where s.location_id = l.id and s.active = true) as active_services,
+           (select count(*)::int from staff_profiles sp
+             where sp.location_id = l.id and sp.is_bookable = true) as bookable_staff
+    from locations l where l.id = ${ctx.locationId}`;
+  if (!readiness) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
+
+  if (readiness.status === 'setup') {
+    const missing = [
+      !readiness.profile_confirmed && 'profile',
+      !readiness.hours_configured && 'business_hours',
+      readiness.active_services < 1 && 'active_service',
+      readiness.bookable_staff < 1 && 'bookable_staff',
+    ].filter((value): value is string => Boolean(value));
+    if (missing.length > 0) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'setup_incomplete', missing },
+      });
+    }
+  }
+
   const [row] = await tx<{ status: string }[]>`
     update locations set status = 'active', updated_at = now()
     where id = ${ctx.locationId} and status = 'setup'

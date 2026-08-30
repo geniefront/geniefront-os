@@ -30,6 +30,10 @@ registerHandler(ApplyYelpBusiness, async ({ input, ctx, tx, audit }: HandlerArgs
       name = coalesce(${input.name ? jsonb({ en: input.name }) : null}::jsonb, name),
       phone = coalesce(${input.phone ?? null}, phone),
       address = coalesce(${input.address ? jsonb(input.address) : null}::jsonb, address),
+      address_street = coalesce(${input.address?.line1 ?? null}, address_street),
+      address_city = coalesce(${input.address?.city ?? null}, address_city),
+      address_state = coalesce(${input.address?.state ?? null}, address_state),
+      address_zip = coalesce(${input.address?.zip ?? null}, address_zip),
       timezone = coalesce(${input.timezone ?? null}, timezone),
       business_hours = coalesce(
         ${input.businessHours ? jsonb(input.businessHours) : null}::jsonb, business_hours)

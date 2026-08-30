@@ -24,6 +24,8 @@ describe('phone normalization', () => {
     expect(formatPhoneInput('+1 512 555 0142')).toBe('(512) 555-0142');
     expect(formatPhoneInput('15125550142')).toBe('(512) 555-0142');
     expect(formatPhoneInput('(512) 555-0142')).toBe('(512) 555-0142');
+    expect(formatPhoneInput('+84 912 345 678')).toBe('+84912345678');
+    expect(formatPhoneInput('0084 912 345 678')).toBe('+84912345678');
     expect(formatPhoneInput('512')).toBe('(512');
     expect(formatPhoneInput('5125')).toBe('(512) 5');
   });

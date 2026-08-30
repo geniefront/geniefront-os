@@ -8,6 +8,7 @@ import { LanguageProvider, useLanguage } from './LanguageContext';
 import { ScheduleProvider } from './context/ScheduleContext';
 import { AuthLayout } from './components/AuthLayout';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { isTechWorkspaceOnly } from './features/tech/lib/access';
 
 /*
  * 登录页静态引入；认证后的主壳层单独拆包。未登录访问不应下载后台导航、
@@ -48,6 +49,8 @@ const CompletedHealthForm = lazy(() => import('./pages/CompletedHealthForm').the
 const Profile = lazy(() => import('./pages/Profile').then((m) => ({ default: m.Profile })));
 const Notifications = lazy(() => import('./pages/Notifications').then((m) => ({ default: m.Notifications })));
 const SetupWizard = lazy(() => import('./pages/SetupWizard').then((m) => ({ default: m.SetupWizard })));
+const Activate = lazy(() => import('./pages/Activate').then((m) => ({ default: m.Activate })));
+const ResetPassword = lazy(() => import('./pages/ResetPassword').then((m) => ({ default: m.ResetPassword })));
 const UnderConstruction = lazy(() => import('./pages/UnderConstruction').then((m) => ({ default: m.UnderConstruction })));
 const PublicHealthForm = lazy(() => import('./pages/PublicHealthForm').then((m) => ({ default: m.PublicHealthForm })));
 const Layout = lazy(() => import('./components/Layout').then((m) => ({ default: m.Layout })));
@@ -110,6 +113,8 @@ function SessionGate() {
         <Routes>
           <Route path="/forms/:key" element={<PublicHealthForm />} />
           <Route element={<AuthLayout />}>
+            <Route path="/activate" element={<Activate />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="*" element={<Login />} />
           </Route>
         </Routes>
@@ -124,6 +129,8 @@ function SessionGate() {
         <Routes>
           <Route path="/forms/:key" element={<PublicHealthForm />} />
           <Route element={<AuthLayout />}>
+            <Route path="/activate" element={<Activate />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route
               path="*"
               element={status === 'no-membership' ? <NoMembership /> : <LocationPicker />}
@@ -134,12 +141,70 @@ function SessionGate() {
     );
   }
 
+  if (!translationsReady) {
+    return <div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>;
+  }
+
+  /*
+   * 未完成开店设置时，只挂载独立的 setup 路由树。
+   *
+   * 不能只在首页做一次重定向：用户可以收藏 /dashboard、手输 /settings，
+   * 也可能在登录前就带着深链接。以服务端 locations.status 为事实源，
+   * 每次还原登录会话后都重新判定；setup 完成前后台 Layout 和技师端均不挂载。
+   */
+  if (membership?.locationStatus === 'setup') {
+    return (
+      <Routes>
+        {/* 顾客公开填表链接不是后台；即使店主尚未完成 setup 也不能被门禁误伤。 */}
+        <Route
+          path="/forms/:key"
+          element={
+            <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+              <PublicHealthForm />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/activate"
+          element={
+            <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+              <AuthLayout>
+                <Activate />
+              </AuthLayout>
+            </Suspense>
+          }
+        />
+        <Route
+          path="/reset-password"
+          element={
+            <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+              <AuthLayout>
+                <ResetPassword />
+              </AuthLayout>
+            </Suspense>
+          }
+        />
+        <Route
+          path="/setup"
+          element={
+            <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+              <SetupWizard />
+            </Suspense>
+          }
+        />
+        <Route path="*" element={<Navigate to="/setup" replace />} />
+      </Routes>
+    );
+  }
+
   // 双重身份（管理+技师做工）工作台选择页
   if (status === 'portal-selecting') {
     return (
       <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
         <Routes>
           <Route element={<AuthLayout />}>
+            <Route path="/activate" element={<Activate />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="*" element={<PortalPicker />} />
           </Route>
         </Routes>
@@ -147,8 +212,42 @@ function SessionGate() {
     );
   }
 
-  if (!translationsReady) {
-    return <div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>;
+  /*
+   * 纯技师，以及明确选择技师门户的双重身份，只挂载技师路由树。
+   * 后端权限仍是安全边界；这里避免他们通过 /settings 等深链接看到
+   * 老板侧边栏后才收到 PERMISSION_DENIED。
+   */
+  if (isTechWorkspaceOnly({ activePortal, isPureTech, isTechCapable })) {
+    return (
+      <Routes>
+        <Route
+          path="/forms/:key"
+          element={
+            <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+              <PublicHealthForm />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/tech"
+          element={
+            <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+              <TechLayout />
+            </Suspense>
+          }
+        >
+          <Route index element={<Navigate to="/tech/today" replace />} />
+          <Route path="today" element={<TechTodayPage />} />
+          <Route path="summary" element={<TechSummaryPage />} />
+          <Route path="ledger" element={<Navigate to="/tech/summary" replace />} />
+          <Route path="profile" element={<TechProfilePage />} />
+          <Route path="schedule" element={<Navigate to="/tech/profile" replace />} />
+          <Route path="rotation" element={<Navigate to="/tech/today" replace />} />
+          <Route path="*" element={<Navigate to="/tech/today" replace />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/tech/today" replace />} />
+      </Routes>
+    );
   }
 
   return (
@@ -159,6 +258,28 @@ function SessionGate() {
         element={
           <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
             <PublicHealthForm />
+          </Suspense>
+        }
+      />
+
+      {/* 激活与密码重置路由 */}
+      <Route
+        path="/activate"
+        element={
+          <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+            <AuthLayout>
+              <Activate />
+            </AuthLayout>
+          </Suspense>
+        }
+      />
+      <Route
+        path="/reset-password"
+        element={
+          <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+            <AuthLayout>
+              <ResetPassword />
+            </AuthLayout>
           </Suspense>
         }
       />
@@ -195,6 +316,9 @@ function SessionGate() {
         <Route path="*" element={<Navigate to="/tech/today" replace />} />
       </Route>
 
+      {/* 已完成 setup 的门店不再进入向导。 */}
+      <Route path="/setup" element={<Navigate to={activePortal === 'tech' ? '/tech/today' : '/dashboard'} replace />} />
+
       {/* Main Application (Dashboard Layout) */}
       <Route path="/" element={<Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}><Layout /></Suspense>}>
         {/*
@@ -217,7 +341,6 @@ function SessionGate() {
 
           {/* Group 1: Dashboard & Analytics */}
           <Route path="dashboard" element={isPureTech || (activePortal === 'tech' && isTechCapable) ? <Navigate to="/tech/today" replace /> : <Dashboard />} />
-          <Route path="setup" element={<SetupWizard />} />
           <Route path="business-data" element={<BusinessData />} />
           <Route path="community" element={<UnderConstruction titleKey="community" />} />
           <Route path="subscription" element={<Navigate to="/settings?tab=billing" replace />} />

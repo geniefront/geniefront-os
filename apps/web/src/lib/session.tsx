@@ -22,9 +22,9 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  fetchMembershipContext, listLocations, setActiveMembershipId, setUnauthenticatedHandler,
-  setCommandGuard,
-  type LocationMembership, type MembershipContext,
+  fetchMembershipContext, fetchLocationsAndClaimable, setActiveMembershipId, setUnauthenticatedHandler,
+  setCommandGuard, claimLocation,
+  type LocationMembership, type MembershipContext, type ClaimableStore,
 } from './api';
 
 const ACTIVE_MEMBERSHIP_KEY = 'gf.membershipId';
@@ -47,6 +47,8 @@ interface SessionContextValue {
   session: Session | null;
   locations: LocationMembership[];
   membership: LocationMembership | null;
+  /** 当前用户是否存在待认领开通的已付费门店（例如刚在 Stripe 付款成功） */
+  claimable: ClaimableStore | null;
   /** 当前门店的操作上下文（权限、时区、语言）。门店未就绪时为 null。 */
   context: MembershipContext | null;
   /**
@@ -70,6 +72,8 @@ interface SessionContextValue {
   setPortal: (portal: PortalType) => void;
   switchPortal: () => void;
   selectMembership: (membershipId: string, portal?: PortalType) => void;
+  /** 认领当前待开通门店并自动刷新门店列表 */
+  claimStore: () => Promise<void>;
   /** 返回选店页。多店用户在顶栏切店时调用。 */
   clearMembership: () => void;
   reloadLocations: () => Promise<void>;
@@ -119,6 +123,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionResolved, setSessionResolved] = useState(false);
   const [locations, setLocations] = useState<LocationMembership[]>([]);
+  const [claimable, setClaimable] = useState<ClaimableStore | null>(null);
   const [locationsLoaded, setLocationsLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [membershipId, setMembershipId] = useState<string | null>(readStoredMembershipId);
@@ -141,6 +146,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (!next) {
         // 登出后必须清空门店缓存，避免下一个登录用户短暂看到上一个用户的门店。
         setLocations([]);
+        setClaimable(null);
         setLocationsLoaded(false);
         setMembershipId(null);
         writeStoredMembershipId(null);
@@ -165,12 +171,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // ── 门店列表 ─────────────────────────────────────────────────────────────
+  // ── 门店列表与待开通门店 ───────────────────────────────────────────────────
   const reloadLocations = useCallback(async () => {
     if (!session) return;
     try {
-      const list = await listLocations();
+      const res = await fetchLocationsAndClaimable();
+      const list = res.locations;
       setLocations(list);
+      setClaimable(res.claimable);
       setLoadError(null);
 
       // 已记忆的门店必须存在于服务端返回的集合中，否则视为失效。
@@ -189,6 +197,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setLocationsLoaded(true);
     }
   }, [session]);
+
+  const claimStore = useCallback(async () => {
+    await claimLocation();
+    await reloadLocations();
+  }, [reloadLocations]);
 
   useEffect(() => {
     if (session) void reloadLocations();
@@ -369,17 +382,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<SessionContextValue>(
     () => ({
-      status, session, locations, membership, context, can,
+      status, session, locations, membership, claimable, context, can,
       membershipId: membership?.membershipId ?? null,
       isOnline, loadError,
       activePortal, portalPreference,
       isTechCapable, isPureTech, isManagementCapable, isDualRole,
       setPortal, switchPortal,
-      selectMembership, clearMembership, reloadLocations, signOut,
+      selectMembership, claimStore, clearMembership, reloadLocations, signOut,
     }),
-    [status, session, locations, membership, context, can, isOnline, loadError,
+    [status, session, locations, membership, claimable, context, can, isOnline, loadError,
      activePortal, portalPreference, isTechCapable, isPureTech, isManagementCapable, isDualRole,
-     setPortal, switchPortal, selectMembership, clearMembership, reloadLocations, signOut],
+     setPortal, switchPortal, selectMembership, claimStore, clearMembership, reloadLocations, signOut],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

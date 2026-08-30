@@ -343,7 +343,7 @@ export async function loadDeskSettings(
   const rawOnlineBooking = readOnlineBooking((loc!.settings ?? {}) as Record<string, unknown>);
 
   const addrObj = (loc!.address && typeof loc!.address === 'object' ? loc!.address : {}) as Record<string, string>;
-  const addressStreet = loc!.address_street || addrObj['street'] || addrObj['address'] || '';
+  const addressStreet = loc!.address_street || addrObj['line1'] || addrObj['street'] || addrObj['address'] || '';
   const addressCity = loc!.address_city || addrObj['city'] || '';
   const addressState = loc!.address_state || addrObj['state'] || '';
   const addressZip = loc!.address_zip || addrObj['zip'] || addrObj['postalCode'] || '';

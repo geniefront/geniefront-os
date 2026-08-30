@@ -49,7 +49,10 @@ export const CreateBlueprintDraft = defineCommand({
      */
     sources: z.array(z.object({
       seq: z.number().int().min(0).max(19),
+      kind: z.enum(['price_list_image', 'website', 'google', 'yelp']).default('price_list_image'),
       storagePath: z.string().max(500).nullable(),
+      sourceUrl: z.string().url().max(2000).nullable().optional(),
+      rawSnapshot: z.record(z.unknown()).nullable().optional(),
       widthPx: z.number().int().positive().max(20000).nullable(),
       heightPx: z.number().int().positive().max(20000).nullable(),
     })).min(1).max(20),
@@ -80,12 +83,15 @@ export const SaveBlueprintExtraction = defineCommand({
       field: z.string().max(80),
       question: z.string().max(300),
     })).max(20),
+    locationProposal: z.record(z.unknown()).optional(),
     /** 计量用（05 §7.3）。分开记 token 与毫分，出账单时用后者 */
     usage: z.object({
       tokens: z.number().int().min(0),
       costMillicents: z.number().int().min(0),
       imagesOk: z.number().int().min(0),
       imagesFailed: z.number().int().min(0),
+      feature: z.string().max(80).optional(),
+      model: z.string().max(120).optional(),
     }),
   }),
   output: z.object({
@@ -208,6 +214,25 @@ export const ReviewAllBlueprintItems = defineCommand({
   idempotency: 'optional',
 });
 
+export const ReviewBlueprintItems = defineCommand({
+  name: 'blueprint.reviewItems',
+  input: z.object({
+    blueprintId: uuid,
+    items: z.array(z.object({
+      itemId: uuid,
+      decision: z.enum(['accepted', 'rejected']),
+      name: i18nText.optional(),
+      durationMin: z.number().int().min(1).max(600).nullable().optional(),
+      priceCents: cents.min(0).max(500_000).nullable().optional(),
+    })).min(1).max(300),
+  }),
+  output: z.object({ blueprintId: uuid, affected: z.number().int() }),
+  permission: 'catalog.manage',
+  ai: { description: '批量确认并编辑开店草案项目。', confirm: 'always', exposed: false },
+  reversible: true,
+  idempotency: 'optional',
+});
+
 /**
  * 一键回填落地。
  *
@@ -226,10 +251,17 @@ export const ApplyBlueprint = defineCommand({
      * 一个能一键改的默认值，好过逼老板给 38 个项目逐个填。
      */
     fallbackDurationMin: z.number().int().min(5).max(600).default(45),
+    /** 官网草案可在同一事务内落地门店资料与老板勾选的员工。 */
+    applyLocationProposal: z.boolean().default(false),
+    staffProposalIndexes: z.array(z.number().int().min(0).max(79)).max(80).default([]),
+    /** 官网可能只有门店资料、没有价目表；显式允许这种草案完成。 */
+    allowNoServices: z.boolean().default(false),
   }),
   output: z.object({
     blueprintId: uuid,
     createdServiceIds: z.array(uuid),
+    createdStaffIds: z.array(uuid),
+    locationApplied: z.boolean(),
     skipped: z.number().int(),
   }),
   permission: 'catalog.manage',
@@ -258,5 +290,5 @@ export const DiscardBlueprint = defineCommand({
 
 export const BLUEPRINT_COMMANDS = [
   CreateBlueprintDraft, SaveBlueprintExtraction, SaveBlueprintTranslations, ReviewBlueprintItem,
-  ReviewAllBlueprintItems, ApplyBlueprint, DiscardBlueprint,
+  ReviewAllBlueprintItems, ReviewBlueprintItems, ApplyBlueprint, DiscardBlueprint,
 ] as const;

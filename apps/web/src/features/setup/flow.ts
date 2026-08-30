@@ -1,8 +1,5 @@
 import {
-  BellRing,
-  CalendarRange,
   ClipboardCheck,
-  Images,
   Scissors,
   Store,
   UsersRound,
@@ -10,12 +7,9 @@ import {
 } from 'lucide-react';
 
 export type SetupStepId =
-  | 'import'
   | 'store'
   | 'catalog'
   | 'team'
-  | 'booking'
-  | 'experience'
   | 'launch';
 
 export interface SetupStep {
@@ -34,66 +28,39 @@ export interface SetupStep {
  */
 export const SETUP_STEPS: SetupStep[] = [
   {
-    id: 'import',
-    number: 1,
-    icon: Images,
-    title: '导入现有店铺资料',
-    shortTitle: '智能导入',
-    description: '从 Google、Yelp、官网或价目表开始，所有结果先进入草案。',
-    required: false,
-  },
-  {
     id: 'store',
-    number: 2,
+    number: 1,
     icon: Store,
     title: '确认门店资料',
     shortTitle: '门店资料',
-    description: '确认店名、地址、电话、时区、营业时间和节假日。',
+    description: '确认店名、地址、电话、时区和营业时间。',
     required: true,
   },
   {
     id: 'catalog',
-    number: 3,
+    number: 2,
     icon: Scissors,
     title: '设置项目与价格',
     shortTitle: '项目价格',
-    description: '核对项目分类、价格、时长、加项和在线预约状态。',
+    description: '建立至少一个可售项目，先确认名称、价格和服务时长。',
     required: true,
   },
   {
     id: 'team',
-    number: 4,
+    number: 3,
     icon: UsersRound,
     title: '添加员工与排班',
     shortTitle: '员工日程',
-    description: '添加可接单员工，分配项目、班表、房间和轮牌规则。',
+    description: '添加至少一位可接单员工；详细班表、技能和轮牌规则可在开店后完善。',
     required: true,
-  },
-  {
-    id: 'booking',
-    number: 5,
-    icon: CalendarRange,
-    title: '预约与收款规则',
-    shortTitle: '预约收款',
-    description: '设置在线预约、取消订金、现金和已有线上收款方式。',
-    required: true,
-  },
-  {
-    id: 'experience',
-    number: 6,
-    icon: BellRing,
-    title: '通知与品牌体验',
-    shortTitle: '通知品牌',
-    description: '配置顾客提醒、AI 电话、Logo、照片和公开预约主页。',
-    required: false,
   },
   {
     id: 'launch',
-    number: 7,
+    number: 4,
     icon: ClipboardCheck,
     title: '测试并正式开店',
     shortTitle: '测试开店',
-    description: '模拟一次预约、签到和结账，通过检查后正式营业。',
+    description: '确认开店检查项，通过后正式营业；测试预约和结账可在后台继续完成。',
     required: true,
   },
 ];
@@ -101,4 +68,3 @@ export const SETUP_STEPS: SetupStep[] = [
 export const REQUIRED_SETUP_STEP_IDS = SETUP_STEPS
   .filter((step) => step.required)
   .map((step) => step.id);
-

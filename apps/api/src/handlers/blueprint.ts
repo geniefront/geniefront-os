@@ -10,7 +10,7 @@
 import {
   CreateBlueprintDraft, SaveBlueprintExtraction, SaveBlueprintTranslations,
   ReviewBlueprintItem,
-  ReviewAllBlueprintItems, ApplyBlueprint, DiscardBlueprint,
+  ReviewAllBlueprintItems, ReviewBlueprintItems, ApplyBlueprint, DiscardBlueprint,
   AppError, ERROR_CODES, pickText,
 } from '@gf/contracts';
 import { jsonb } from '@gf/db';
@@ -21,6 +21,7 @@ import {
 import { registerHandler, type HandlerArgs } from '../bus';
 import { chargeQuota } from '../billing/usage';
 import { creditsFor } from '@gf/payroll';
+import { businessDateOf } from '@gf/scheduling';
 import type postgres from 'postgres';
 
 /**
@@ -54,9 +55,11 @@ registerHandler(CreateBlueprintDraft, async ({ input, ctx, tx, audit }: HandlerA
   for (const s of input.sources) {
     await tx`
       insert into blueprint_sources
-        (org_id, location_id, blueprint_id, seq, storage_path, width_px, height_px)
+        (org_id, location_id, blueprint_id, seq, kind, storage_path, source_url,
+         raw_snapshot, width_px, height_px)
       values (${ctx.orgId}, ${ctx.locationId}, ${bp!.id}, ${s.seq},
-              ${s.storagePath}, ${s.widthPx}, ${s.heightPx})`;
+              ${s.kind}, ${s.storagePath}, ${s.sourceUrl ?? null},
+              ${s.rawSnapshot ? jsonb(s.rawSnapshot) : null}::jsonb, ${s.widthPx}, ${s.heightPx})`;
   }
 
   audit({
@@ -90,7 +93,8 @@ registerHandler(SaveBlueprintExtraction, async ({ input, ctx, tx, audit }: Handl
 
   await tx`
     update shop_blueprints
-    set extracted_at = now(), unresolved = ${jsonb(input.unresolved)}::jsonb
+    set extracted_at = now(), unresolved = ${jsonb(input.unresolved)}::jsonb,
+        location_proposal = coalesce(${input.locationProposal ? jsonb(input.locationProposal) : null}::jsonb, location_proposal)
     where id = ${input.blueprintId}`;
 
   // ── 用量计量（05 §7.3）────────────────────────────────────────────────
@@ -107,8 +111,8 @@ registerHandler(SaveBlueprintExtraction, async ({ input, ctx, tx, audit }: Handl
             ${input.usage.tokens},
             ${Math.round(input.usage.costMillicents / 1000)},
             ${jsonb({
-              feature: 'price_list_vision',
-              model: 'claude-opus-5',
+              feature: input.usage.feature ?? 'price_list_vision',
+              model: input.usage.model ?? 'claude-opus-5',
               costMillicents: input.usage.costMillicents,
               imagesOk: input.usage.imagesOk,
               imagesFailed: input.usage.imagesFailed,
@@ -318,9 +322,37 @@ registerHandler(ReviewAllBlueprintItems, async ({ input, ctx, tx, audit }: Handl
   return { blueprintId: input.blueprintId, affected: rows.length };
 });
 
+registerHandler(ReviewBlueprintItems, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof ReviewBlueprintItems.input._type>) => {
+  await loadDraft(tx, ctx.locationId, input.blueprintId);
+  let affected = 0;
+  for (const item of input.items) {
+    const rows = await tx`
+      update blueprint_items set
+        decision = ${item.decision},
+        name = coalesce(${item.name ? jsonb(item.name) : null}::jsonb, name),
+        duration_min = case when ${item.durationMin !== undefined} then ${item.durationMin ?? null} else duration_min end,
+        price_cents = case when ${item.priceCents !== undefined} then ${item.priceCents ?? null} else price_cents end,
+        edited_at = case when ${Boolean(item.name || item.durationMin !== undefined || item.priceCents !== undefined)} then now() else edited_at end
+      where id = ${item.itemId} and blueprint_id = ${input.blueprintId}
+        and location_id = ${ctx.locationId}
+      returning id`;
+    affected += rows.length;
+  }
+  audit({ entityType: 'blueprint', entityId: input.blueprintId, after: { reviewed: affected } });
+  return { blueprintId: input.blueprintId, affected };
+});
+
 registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof ApplyBlueprint.input._type>) => {
   await loadDraft(tx, ctx.locationId, input.blueprintId);
+
+  if (input.applyLocationProposal && !ctx.permissions.has('settings.manage')) {
+    throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+  }
+  if (input.staffProposalIndexes.length > 0 && !ctx.permissions.has('staff.manage')) {
+    throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'staff.manage' } });
+  }
 
   const rows = await tx<{
     id: string; kind: string; name: unknown; category: string | null;
@@ -339,13 +371,102 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
   const buildable = rows.filter((r) => r.kind === 'service' || r.kind === 'addon');
   const skipped = rows.length - buildable.length;
 
-  if (buildable.length === 0) {
+  if (buildable.length === 0 && !input.allowNoServices) {
     throw new AppError(ERROR_CODES.BLUEPRINT_NOTHING_ACCEPTED, {
       details: { skipped },
     });
   }
 
   const createdServiceIds: string[] = [];
+  const createdStaffIds: string[] = [];
+
+  const [blueprint] = await tx<{ location_proposal: unknown }[]>`
+    select location_proposal from shop_blueprints
+    where id = ${input.blueprintId} and location_id = ${ctx.locationId}`;
+  const proposal = blueprint?.location_proposal && typeof blueprint.location_proposal === 'object'
+    ? blueprint.location_proposal as Record<string, unknown>
+    : {};
+  const textValue = (key: string, max: number): string | null => {
+    const value = proposal[key];
+    return typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null;
+  };
+  let locationApplied = false;
+  if (input.applyLocationProposal) {
+    const name = textValue('name', 200);
+    const phoneRaw = textValue('phone', 32);
+    const phone = phoneRaw && /^\+\d{8,15}$/.test(phoneRaw) ? phoneRaw : null;
+    const emailRaw = textValue('email', 320);
+    const email = emailRaw && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw) ? emailRaw : null;
+    const businessTypeRaw = textValue('businessType', 40);
+    const businessType = businessTypeRaw && ['nail', 'massage', 'foot_spa', 'lash', 'scalp', 'hair', 'mixed'].includes(businessTypeRaw)
+      ? businessTypeRaw : null;
+    const addressStreet = textValue('addressStreet', 200);
+    const addressCity = textValue('addressCity', 120);
+    const addressState = textValue('addressState', 40);
+    const addressZip = textValue('addressZip', 20);
+    const hoursRaw = proposal['businessHours'];
+    const hours = hoursRaw && typeof hoursRaw === 'object'
+      ? Object.fromEntries(Object.entries(hoursRaw as Record<string, unknown>).filter(([day, value]) => {
+          if (!['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].includes(day)) return false;
+          if (value === null) return true;
+          if (!value || typeof value !== 'object') return false;
+          const row = value as Record<string, unknown>;
+          return typeof row['open'] === 'string' && typeof row['close'] === 'string'
+            && /^([01]\d|2[0-3]):[0-5]\d$/.test(row['open'])
+            && /^([01]\d|2[0-3]):[0-5]\d$/.test(row['close']);
+        }))
+      : {};
+    const hasLocationValues = Boolean(name || phone || email || businessType || addressStreet
+      || addressCity || addressState || addressZip || Object.keys(hours).length > 0);
+    if (hasLocationValues) {
+      await tx`update locations set
+        name = coalesce(${name ? jsonb({ [ctx.locale]: name }) : null}::jsonb, name),
+        phone = coalesce(${phone}, phone), email = coalesce(${email}, email),
+        address_street = coalesce(${addressStreet}, address_street),
+        address_city = coalesce(${addressCity}, address_city),
+        address_state = coalesce(${addressState}, address_state),
+        address_zip = coalesce(${addressZip}, address_zip),
+        business_type = coalesce(${businessType}, business_type),
+        business_hours = case when ${Object.keys(hours).length > 0}
+          then ${jsonb(hours)}::jsonb else business_hours end,
+        settings = jsonb_set(settings, '{profile_confirmed_at}', to_jsonb(now()::text)),
+        updated_at = now()
+        where id = ${ctx.locationId}`;
+      locationApplied = true;
+    }
+  }
+
+  const staffRaw = Array.isArray(proposal['staff']) ? proposal['staff'] : [];
+  const uniqueStaffIndexes = [...new Set(input.staffProposalIndexes)];
+  if (uniqueStaffIndexes.length > 0) {
+    const [techRole] = await tx<{ id: string }[]>`
+      select id from roles where location_id = ${ctx.locationId} and key = 'tech' limit 1`;
+    const [loc] = await tx<{ tz: string; cutoff: string }[]>`
+      select timezone as tz, business_day_cutoff::text as cutoff from locations where id = ${ctx.locationId}`;
+    const date = businessDateOf(new Date(), loc!.tz, loc!.cutoff);
+    for (const index of uniqueStaffIndexes) {
+      const raw = staffRaw[index];
+      if (!raw || typeof raw !== 'object') continue;
+      const staff = raw as Record<string, unknown>;
+      const staffName = typeof staff['name'] === 'string' ? staff['name'].trim().slice(0, 100) : '';
+      if (!staffName) continue;
+      const role = typeof staff['role'] === 'string' ? staff['role'].trim().slice(0, 50) : null;
+      const [membership] = await tx<{ id: string }[]>`
+        insert into memberships (org_id, location_id, user_id, status)
+        values (${ctx.orgId}, ${ctx.locationId}, null, 'active') returning id`;
+      if (techRole) await tx`insert into membership_roles (membership_id, role_id)
+        values (${membership!.id}, ${techRole.id}) on conflict do nothing`;
+      await tx`insert into staff_profiles
+        (membership_id, org_id, location_id, display_name, job_title, is_bookable, max_concurrent_appointments)
+        values (${membership!.id}, ${ctx.orgId}, ${ctx.locationId},
+          ${jsonb({ [ctx.locale]: staffName })}::jsonb, ${role}, true, 1)`;
+      await tx`insert into rotation_participants
+        (org_id, location_id, business_date, membership_id, in_rotation)
+        values (${ctx.orgId}, ${ctx.locationId}, ${date}, ${membership!.id}, true)
+        on conflict (location_id, business_date, membership_id) do nothing`;
+      createdStaffIds.push(membership!.id);
+    }
+  }
 
   /**
    * 价目表上的分类标题（「MANICURE」「足疗」）落成 `service_categories`。
@@ -441,9 +562,11 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
       // Phase 3 的自我改进（05 §9）要靠它
       editedByHuman: buildable.filter((r) => r.edited_at !== null).length,
       fallbackDurationMin: input.fallbackDurationMin,
+      locationApplied,
+      createdStaff: createdStaffIds.length,
     },
   });
-  return { blueprintId: input.blueprintId, createdServiceIds, skipped };
+  return { blueprintId: input.blueprintId, createdServiceIds, createdStaffIds, locationApplied, skipped };
 });
 
 registerHandler(DiscardBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<

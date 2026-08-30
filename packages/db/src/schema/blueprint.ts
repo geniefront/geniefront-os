@@ -52,6 +52,8 @@ export const shopBlueprints = pgTable('shop_blueprints', {
    * 这些会变成确认页底部的追问，而不是让模型瞎猜一个值填进去。
    */
   unresolved: jsonb('unresolved').notNull().default(sql`'[]'::jsonb`),
+  /** 官网/商家平台提取出的门店资料提议，确认前不写正式门店。 */
+  locationProposal: jsonb('location_proposal').notNull().default(sql`'{}'::jsonb`),
 }, (t) => [
   index('shop_blueprints_loc_idx').on(t.locationId, t.status, t.createdAt),
 ]);
@@ -75,6 +77,8 @@ export const blueprintSources = pgTable('blueprint_sources', {
   seq: integer('seq').notNull(),
   /** Supabase Storage 的对象路径，如 `{locationId}/{blueprintId}/0.jpg` */
   storagePath: text('storage_path'),
+  sourceUrl: text('source_url'),
+  rawSnapshot: jsonb('raw_snapshot'),
   /** 原始像素尺寸。bbox 是像素坐标，没有它就没法在缩放后的 <img> 上定位 */
   widthPx: integer('width_px'),
   heightPx: integer('height_px'),

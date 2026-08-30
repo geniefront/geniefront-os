@@ -418,6 +418,33 @@ describe('走单队列', () => {
     expect(after.called.some((e) => e.queueId === first.queueId)).toBe(true);
   });
 
+  it('⭐ Kiosk 选中的项目价格与时长原样进入前台队列', async () => {
+    __resetRateLimit();
+    const [service] = await withTenant(tenant, (tx) => tx<{
+      id: string; duration_min: number; base_price_cents: number;
+    }[]>`
+      select id, duration_min, base_price_cents from services
+      where location_id = ${NAIL_LOC} and active
+      order by sort limit 1`);
+    const joined = await kiosk('POST', '/v1/kiosk/walk-in', {
+      name: '价格时长透传测试', serviceId: service!.id, idempotencyKey: randomUUID(),
+    });
+    expect(joined.statusCode).toBe(200);
+
+    const queue = await withTenant(tenant, (tx) => loadQueue(tx, ctx, todayDate()));
+    const entry = queue.waiting.find((item) => item.queueId === joined.json().queueId);
+    expect(entry).toMatchObject({
+      serviceId: service!.id,
+      serviceDurationMin: service!.duration_min,
+      servicePriceCents: service!.base_price_cents,
+    });
+    expect(entry!.items?.[0]).toMatchObject({
+      serviceId: service!.id,
+      durationMin: service!.duration_min,
+      basePriceCents: service!.base_price_cents,
+    });
+  });
+
   it('⭐ 标记「走了」必须给原因 —— 等太久走的是老板最该看到的数', async () => {
     const q = await withTenant(tenant, (tx) => loadQueue(tx, ctx, todayDate()));
     const target = q.waiting[0]!;

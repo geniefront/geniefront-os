@@ -69,6 +69,18 @@ const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const SPA_ORG  = '22222222-2222-4222-8222-222222222222';
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const SPA_LOC  = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+const SEED_USER_EMAILS = [
+  'amy@example.test',
+  'linh@example.test',
+  'kim@example.test',
+  'tran@example.test',
+  'mai@example.test',
+  'mia@example.test',
+  'yan@example.test',
+  'hua@example.test',
+  'bo@example.test',
+  'owner@example.test',
+] as const;
 
 const MASSAGE_OPTIONS = [
   {
@@ -214,9 +226,12 @@ async function main() {
     ]) {
       console.log('Cleaning table:', t);
       if (t === '__users__') {
-        await tx`delete from users where email like '%@example.test'`;
+        // Only remove identities owned by this seed. Other isolated utilities
+        // (for example setup:test:reset) also use @example.test and may still
+        // have valid memberships outside the two fixed demo organizations.
+        await tx`delete from users where lower(email) = any(${SEED_USER_EMAILS})`;
         if (process.env.SEED_SKIP_AUTH === '1') {
-          await tx`delete from auth.users where email like '%@example.test'`;
+          await tx`delete from auth.users where lower(email) = any(${SEED_USER_EMAILS})`;
         }
       } else if (t === 'sms_consent' || t === 'sms_inbound' || t === 'sms_outbox' || t === 'email_outbox') {
         await tx.unsafe(`delete from ${t}`);
@@ -468,11 +483,42 @@ async function main() {
       const email = `${p.name.toLowerCase()}@example.test`;
       const authId = await upsertAuthUser(email, p.name);
       if (process.env.SEED_SKIP_AUTH === '1') {
-        await tx`insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data)
-          values (${authId}, ${email}, now(), ${J({ full_name: p.name })})
-          on conflict (id) do update set email = excluded.email,
+        // Local isolated Supabase still needs a complete password identity;
+        // a row containing only id/email cannot sign in through GoTrue.
+        await tx`insert into auth.users
+          (instance_id, id, aud, role, email, encrypted_password,
+           email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+           created_at, updated_at, confirmation_token, recovery_token,
+           email_change_token_new, email_change, email_change_token_current,
+           phone_change, phone_change_token, reauthentication_token,
+           email_change_confirm_status)
+          values
+          ('00000000-0000-0000-0000-000000000000', ${authId},
+           'authenticated', 'authenticated', ${email},
+           crypt(${DEV_PASSWORD}, gen_salt('bf')), now(),
+           ${J({ provider: 'email', providers: ['email'] })},
+           ${J({ full_name: p.name })}, now(), now(), '', '', '', '', '',
+           '', '', '', 0)
+          on conflict (id) do update set
+            aud = excluded.aud,
+            role = excluded.role,
+            email = excluded.email,
+            encrypted_password = excluded.encrypted_password,
             email_confirmed_at = excluded.email_confirmed_at,
-            raw_user_meta_data = excluded.raw_user_meta_data`;
+            raw_app_meta_data = excluded.raw_app_meta_data,
+            raw_user_meta_data = excluded.raw_user_meta_data,
+            updated_at = excluded.updated_at`;
+        await tx`insert into auth.identities
+          (provider_id, user_id, identity_data, provider,
+           last_sign_in_at, created_at, updated_at)
+          values
+          (${authId}, ${authId},
+           ${J({ sub: authId, email, email_verified: true, phone_verified: false })},
+           'email', now(), now(), now())
+          on conflict (provider_id, provider) do update set
+            user_id = excluded.user_id,
+            identity_data = excluded.identity_data,
+            updated_at = excluded.updated_at`;
       }
       const [u] = await tx<{ id: string }[]>`
         insert into users (id, email, full_name, locale)

@@ -58,7 +58,7 @@ import {
   useAddTicketItem, useFinishTicketItem, useOpenTicket, useStartTicketItem, useTicketsList,
 } from '@/features/tickets/api';
 import { useCloseTicket, centsToDollars, dollarsToCents, verifyGiftCard } from '@/features/checkout/api';
-import { useRoomsQuery, useSetResourceStatus } from '@/features/rooms/api';
+import { useRoomsQuery } from '@/features/rooms/api';
 import { useRotationQuery } from '@/features/rotation/api';
 import { QUEUE_LEFT_REASONS } from '@/features/queue/types';
 import type { QueueEntry, QueueLeftReason, QueueStatus } from '@/features/queue/types';
@@ -322,7 +322,6 @@ function QueueContent() {
   const addTicketItemMutation = useAddTicketItem();
   const startTicketItemMutation = useStartTicketItem();
   const finishTicketItemMutation = useFinishTicketItem();
-  const setResourceStatusMutation = useSetResourceStatus();
   const shareFormMutation = useShareForm();
   const [formShares, setFormShares] = useState<Record<string, FormShareResult>>({});
 
@@ -607,6 +606,14 @@ function QueueContent() {
 
     // 1. Queue entries (waiting, called, seated)
     if (queue) {
+      const serviceFacts = (entry: QueueEntry) => ({
+        durationMin: entry.items?.length
+          ? entry.items.reduce((total, service) => total + service.durationMin, 0)
+          : entry.serviceDurationMin ?? 45,
+        priceCents: entry.items?.length
+          ? entry.items.reduce((total, service) => total + service.basePriceCents, 0)
+          : entry.servicePriceCents ?? 0,
+      });
       queue.waiting.forEach((q) => {
         if (q.appointmentId && ticketApptIds.has(q.appointmentId)) return;
         if (q.appointmentId) queuedApptIds.add(q.appointmentId);
@@ -621,8 +628,7 @@ function QueueContent() {
           phone: formatPhoneDisplay(q.phoneDisplay),
           serviceName: q.serviceName || '常规服务',
           serviceId: q.serviceId,
-          durationMin: 45,
-          priceCents: 0,
+          ...serviceFacts(q),
           staffName: override?.staffName || q.staffName,
           staffId: override?.staffId || q.staffId,
           roomId: override?.roomId,
@@ -652,8 +658,7 @@ function QueueContent() {
           phone: formatPhoneDisplay(q.phoneDisplay),
           serviceName: q.serviceName || '常规服务',
           serviceId: q.serviceId,
-          durationMin: 45,
-          priceCents: 0,
+          ...serviceFacts(q),
           staffName: override?.staffName || q.staffName,
           staffId: override?.staffId || q.staffId,
           roomId: override?.roomId,
@@ -683,8 +688,7 @@ function QueueContent() {
           phone: formatPhoneDisplay(q.phoneDisplay),
           serviceName: q.serviceName || '服务中项目',
           serviceId: q.serviceId,
-          durationMin: 60,
-          priceCents: 0,
+          ...serviceFacts(q),
           staffName: override?.staffName || q.staffName,
           staffId: override?.staffId || q.staffId,
           roomId: override?.roomId,
@@ -847,7 +851,7 @@ function QueueContent() {
   const isSyncing = join.isPending || update.isPending || closeTicketMutation.isPending
     || openTicketMutation.isPending || addTicketItemMutation.isPending
     || startTicketItemMutation.isPending
-    || finishTicketItemMutation.isPending || setResourceStatusMutation.isPending
+    || finishTicketItemMutation.isPending
     || rollbackStageMutation.isPending || isRefreshing;
 
   // Refresh All Operations Data
@@ -1193,15 +1197,6 @@ function QueueContent() {
       if (item.queueId) {
         await update.mutateAsync({ queueId: item.queueId, status: 'seated' });
       }
-      if (roomId) {
-        await setResourceStatusMutation.mutateAsync({
-          resourceId: roomId,
-          status: 'in_service',
-          guestName: item.customerName,
-          serviceName: item.serviceName,
-        });
-      }
-
       setStartServiceModal((prev) => ({ ...prev, isOpen: false, item: null }));
       toast.success(t('queue.quSeated', { p0: item.customerName }), {
         description: t('queue.quSeatedDetail', { p0: assignedStaff?.name || '已指派', p1: assignedRoom?.name || '指定房间', p2: startTime, p3: serviceDurationMin }),

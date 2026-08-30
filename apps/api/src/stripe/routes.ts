@@ -61,6 +61,32 @@ const STRIPE_WEBHOOK_PERMISSIONS: readonly Permission[] = ['billing.manage'];
 interface Tenant { orgId: string; locationId: string }
 
 /**
+ * Atomically claim a Stripe event for processing.
+ *
+ * A fresh or retryable event returns true. Processed events, active leases and
+ * concurrent losers return false. Keeping this outside the route makes the
+ * crash-recovery contract directly testable against PostgreSQL.
+ */
+export async function claimStripeEvent(
+  event: Pick<Stripe.Event, 'id' | 'type'>,
+  t: Tenant,
+): Promise<boolean> {
+  const claimed = await withTenant(
+    { orgId: t.orgId, locationId: t.locationId, membershipId: null },
+    (tx) => tx<{ id: string }[]>`
+      insert into stripe_events (id, type, location_id, status, attempt_started_at)
+      values (${event.id}, ${event.type}, ${t.locationId}, 'processing', now())
+      on conflict (id) do update
+        set status = 'processing', error = null, processed_at = null,
+            attempt_started_at = now()
+        where stripe_events.status = 'failed'
+           or (stripe_events.status = 'processing'
+               and stripe_events.attempt_started_at < now() - interval '10 minutes')
+      returning id`);
+  return claimed.length > 0;
+}
+
+/**
  * 组一个系统上下文。
  *
  * `membershipId: null` —— webhook 背后**没有人**。硬塞一个真实 membership
@@ -528,21 +554,13 @@ export function registerStripeRoutes(
      * 这次是我们亏钱，反过来（扣费重复）就是多收客户的钱。
      * 两个方向都不能接受。
      *
-     * ⚠️ `status='failed'` 的行允许被重试（ON CONFLICT DO UPDATE WHERE status='failed'）：
-     * 处理失败的事件不删行，而是标记 failed；Stripe 重投时这里重新「认领」，
-     * 让它再走一次 handleEvent。
+     * ⚠️ failed 或已处理超过 10 分钟的 processing 行允许被重试：
+     * 后者覆盖进程在 insert 后、完成前崩溃的情况。没有租约的话，那条事件会
+     * 永久停在 processing，此后每次 Stripe 重投都被误判成 duplicate。
      */
-    const claimed = await withTenant(
-      { orgId: t.orgId, locationId: t.locationId, membershipId: null },
-      (tx) => tx<{ id: string }[]>`
-        insert into stripe_events (id, type, location_id, status)
-        values (${event.id}, ${event.type}, ${t.locationId}, 'processing')
-        on conflict (id) do update
-          set status = 'processing', error = null, processed_at = null
-          where stripe_events.status = 'failed'
-        returning id`);
+    const claimed = await claimStripeEvent(event, t);
 
-    if (claimed.length === 0) {
+    if (!claimed) {
       return { ok: true, duplicate: true };
     }
 

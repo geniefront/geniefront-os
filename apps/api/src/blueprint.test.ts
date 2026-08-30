@@ -14,7 +14,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { withTenant, closeDb } from '@gf/db';
+import { withTenant, closeDb, jsonb } from '@gf/db';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
 import { loadBlueprint } from './queries/blueprint';
@@ -217,6 +217,49 @@ describe('逐项复核', () => {
 });
 
 describe('回填落地', () => {
+  it('官网草案把门店资料和勾选员工放在同一事务落地，即使没有项目也能完成', async () => {
+    const [before] = await withTenant(tenant, (tx) => tx<{
+      name: unknown; phone: string | null; address_street: string | null;
+      business_hours: unknown; settings: unknown; business_type: string;
+    }[]>`select name, phone, address_street, business_type, business_hours, settings
+          from locations where id = ${NAIL_LOC}`);
+    const { blueprintId } = await run<{ blueprintId: string }>('blueprint.createDraft', {
+      label: 'Website import test',
+      sources: [{ seq: 0, kind: 'website', sourceUrl: 'https://example.com', storagePath: null, widthPx: null, heightPx: null }],
+    });
+    await run('blueprint.saveExtraction', {
+      blueprintId, items: [], unresolved: [],
+      locationProposal: {
+        name: 'Imported Spa', phone: '+16175550123', addressStreet: '88 Test Street',
+        businessType: 'massage', businessHours: { mon: { open: '09:00', close: '18:00' } },
+        staff: [{ name: 'Amy', role: 'Massage Therapist' }],
+      },
+      usage: { tokens: 100, costMillicents: 10, imagesOk: 0, imagesFailed: 0, feature: 'website_onboarding' },
+    });
+
+    const out = await run<{ createdServiceIds: string[]; createdStaffIds: string[]; locationApplied: boolean }>(
+      'blueprint.apply', { blueprintId, allowNoServices: true, applyLocationProposal: true, staffProposalIndexes: [0] });
+    expect(out.createdServiceIds).toEqual([]);
+    expect(out.createdStaffIds).toHaveLength(1);
+    expect(out.locationApplied).toBe(true);
+
+    const [after] = await withTenant(tenant, (tx) => tx<{
+      phone: string; address_street: string; business_type: string; confirmed: boolean;
+    }[]>`select phone, address_street, business_type,
+          (settings ? 'profile_confirmed_at') as confirmed
+          from locations where id = ${NAIL_LOC}`);
+    expect(after).toMatchObject({ phone: '+16175550123', address_street: '88 Test Street', business_type: 'massage', confirmed: true });
+
+    await withTenant(tenant, async (tx) => {
+      await tx`delete from rotation_participants where membership_id = any(${out.createdStaffIds}::uuid[])`;
+      await tx`delete from memberships where id = any(${out.createdStaffIds}::uuid[])`;
+      await tx`update locations set name = ${jsonb(before!.name)}::jsonb, phone = ${before!.phone},
+        address_street = ${before!.address_street}, business_type = ${before!.business_type},
+        business_hours = ${jsonb(before!.business_hours)}::jsonb,
+        settings = ${jsonb(before!.settings)}::jsonb where id = ${NAIL_LOC}`;
+    });
+  });
+
   it('只建勾中的，且没印时长的按兜底值建', async () => {
     const id = await freshDraft();
     await run('blueprint.reviewAll',

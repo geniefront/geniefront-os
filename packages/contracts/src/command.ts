@@ -99,9 +99,19 @@ export function formatPhoneInput(input: string | null | undefined): string {
   if (!input) return '';
   const raw = String(input).trim();
   const digits = raw.replace(/\D/g, '');
-  const national = digits.length > 10 && digits.startsWith('1')
-    ? digits.slice(1, 11)
-    : digits.slice(0, 10);
+  const explicitInternational = raw.startsWith('+') || raw.startsWith('00');
+  const internationalDigits = raw.startsWith('00') ? digits.slice(2) : digits;
+
+  // The shared UI format is North-American national notation. Do not apply it
+  // to another country's E.164 number: doing so silently changes +84… into a
+  // plausible-looking but unusable US number.
+  if (explicitInternational && !internationalDigits.startsWith('1')) {
+    return internationalDigits ? `+${internationalDigits.slice(0, 15)}` : '';
+  }
+
+  const national = internationalDigits.length > 10 && internationalDigits.startsWith('1')
+    ? internationalDigits.slice(1, 11)
+    : internationalDigits.slice(0, 10);
 
   if (national.length === 0) return '';
   if (national.length <= 3) return `(${national}`;

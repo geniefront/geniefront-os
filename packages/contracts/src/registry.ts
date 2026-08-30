@@ -21,6 +21,7 @@ import { GIFTCARD_COMMANDS } from './commands/giftcard.js';
 import { NOTIFY_COMMANDS } from './commands/notify.js';
 import { STOREFRONT_COMMANDS } from './commands/storefront.js';
 import { YELP_COMMANDS } from './commands/yelp.js';
+import { GOOGLE_COMMANDS } from './commands/google.js';
 import { KIOSK_COMMANDS } from './commands/kiosk.js';
 import { BILLING_COMMANDS } from './commands/billing.js';
 import { AI_COMMANDS } from './commands/ai.js';
@@ -35,7 +36,7 @@ const ALL: readonly AnyCommandDef[] = [
   ...APPOINTMENT_COMMANDS, ...ROTATION_COMMANDS, ...TICKET_COMMANDS, ...SETUP_COMMANDS,
   ...PAYROLL_COMMANDS, ...DAYCLOSE_COMMANDS, ...SHIFT_COMMANDS, ...STAFF_COMMANDS,
   ...BLUEPRINT_COMMANDS, ...PHONE_COMMANDS,
-  ...GIFTCARD_COMMANDS, ...NOTIFY_COMMANDS, ...STOREFRONT_COMMANDS, ...YELP_COMMANDS, ...KIOSK_COMMANDS,
+  ...GIFTCARD_COMMANDS, ...NOTIFY_COMMANDS, ...STOREFRONT_COMMANDS, ...YELP_COMMANDS, ...GOOGLE_COMMANDS, ...KIOSK_COMMANDS,
   ...BILLING_COMMANDS, ...AI_COMMANDS,
   ...CUSTOMER_COMMANDS, ...SMS_COMMANDS, ...RESOURCE_COMMANDS, ...MARKETING_COMMANDS,
   ...PROFILE_COMMANDS, ...NOTIFICATION_COMMANDS,

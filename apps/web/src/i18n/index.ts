@@ -17,6 +17,7 @@ import { crm } from './crm';
 import { settings } from './settings';
 import { healthForms } from './healthForms';
 import { tech } from './tech';
+import { setup } from './setup';
 import { UI_LANGUAGES } from './types';
 import type { Language } from './types';
 
@@ -37,6 +38,7 @@ const dict = {
   ...settings,
   ...healthForms,
   ...tech,
+  ...setup,
 };
 
 export type TranslationKey = keyof typeof dict;
@@ -61,4 +63,3 @@ export const translations = Object.fromEntries(
 
 /** 供完整性测试与字典瘦身脚本使用：全部已定义的 key。 */
 export const ALL_TRANSLATION_KEYS = Object.keys(dict) as TranslationKey[];
-

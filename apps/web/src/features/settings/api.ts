@@ -143,6 +143,26 @@ export function useSaveStaffProfile() {
   });
 }
 
+export function useFinishSetup() {
+  const queryClient = useQueryClient();
+  const { membershipId, reloadLocations } = useSession();
+
+  return useMutation({
+    mutationFn: async () => {
+      const res = await runCommand<{ locationId: string; status: string }>(
+        'location.finishSetup',
+        {},
+        membershipId!,
+      );
+      return res.result;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: settingsKeys.desk(membershipId) });
+      await reloadLocations();
+    },
+  });
+}
+
 export function useSetRotationParticipation() {
   const queryClient = useQueryClient();
   const { membershipId } = useSession();

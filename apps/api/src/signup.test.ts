@@ -76,6 +76,7 @@ async function unclaim(): Promise<void> {
     await tx`delete from membership_roles where membership_id in (
                select id from memberships where location_id = ${tenant.locationId})`;
     await tx`delete from staff_profiles where location_id = ${tenant.locationId}`;
+    await tx`delete from services where location_id = ${tenant.locationId}`;
     await tx`delete from memberships where location_id = ${tenant.locationId}`;
     await tx`delete from role_permissions where role_id in (
                select id from roles where location_id = ${tenant.locationId})`;
@@ -91,6 +92,7 @@ async function unclaim(): Promise<void> {
      */
     await tx`update locations set
                status = 'setup', timezone = 'America/Chicago', business_type = 'nail',
+               business_hours = '{}'::jsonb,
                settings = settings - 'profile_confirmed_at'
              where id = ${tenant.locationId}`;
     await tx`delete from command_idempotency where location_id = ${tenant.locationId}`;
@@ -282,10 +284,27 @@ describe('B · 认领门店', () => {
 });
 
 describe('C · 向导完成', () => {
-  it('finishSetup 把 setup 变 active，再点一次也不报错', async () => {
+  it('资料没齐时拒绝开店；齐全后变 active，再点一次也不报错', async () => {
     const [m] = await withTenant({ ...tenant, membershipId: null }, (tx) =>
       tx<{ id: string }[]>`select id from memberships where location_id = ${tenant.locationId}`);
     const ctx = await buildContext({ userId: OWNER_USER, membershipId: m!.id });
+
+    await expect(dispatch('location.finishSetup', {}, ctx)).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      details: { reason: 'setup_incomplete' },
+    });
+
+    await withTenant({ ...tenant, membershipId: m!.id }, async (tx) => {
+      await tx`update locations set
+        settings = jsonb_set(settings, '{profile_confirmed_at}', to_jsonb(now()::text)),
+        business_hours = '{"mon":{"open":"09:00","close":"18:00"}}'::jsonb
+        where id = ${tenant.locationId}`;
+      await tx`update staff_profiles set is_bookable = true
+        where location_id = ${tenant.locationId}`;
+      await tx`insert into services
+        (org_id, location_id, name, duration_min, base_price_cents, active)
+        values (${tenant.orgId}, ${tenant.locationId}, '{"en":"Test service"}'::jsonb, 60, 5000, true)`;
+    });
 
     const first = await dispatch<{ status: string }>('location.finishSetup', {}, ctx);
     expect(first.result.status).toBe('active');

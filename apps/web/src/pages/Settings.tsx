@@ -612,7 +612,10 @@ export function Settings() {
     try {
       await saveServiceMutation.mutateAsync({
         serviceId: editingService?.id,
-        name: serviceNameZh.trim(),
+        name: {
+          'zh-Hans': serviceNameZh.trim(),
+          en: serviceNameEn.trim() || serviceNameZh.trim(),
+        },
         durationMin: parseInt(serviceDuration, 10) || 30,
         basePriceCents: dollarsToCents(servicePrice),
         taxable: serviceTaxable,

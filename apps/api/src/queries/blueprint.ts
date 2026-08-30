@@ -61,8 +61,9 @@ export interface BlueprintView {
   extractedAt: string | null;
   appliedAt: string | null;
   unresolved: Array<{ field: string; question: string }>;
+  locationProposal: Record<string, unknown>;
   sources: Array<{
-    seq: number; storagePath: string | null;
+    seq: number; kind: string; storagePath: string | null; sourceUrl: string | null;
     widthPx: number | null; heightPx: number | null;
   }>;
   items: BlueprintItemView[];
@@ -77,19 +78,19 @@ export async function loadBlueprint(
   tx: postgres.TransactionSql, ctx: CommandContext, blueprintId: string,
 ): Promise<BlueprintView | null> {
   const [bp] = await tx<{
-    id: string; status: string; label: string | null;
+    id: string; status: string; label: string | null; location_proposal: unknown;
     extracted_at: string | Date | null; applied_at: string | Date | null; unresolved: unknown;
   }[]>`
-    select id, status, label, extracted_at, applied_at, unresolved
+    select id, status, label, extracted_at, applied_at, unresolved, location_proposal
     from shop_blueprints
     where id = ${blueprintId} and location_id = ${ctx.locationId}`;
   if (!bp) return null;
 
   const sources = await tx<{
-    seq: number; storage_path: string | null;
+    seq: number; kind: string; storage_path: string | null; source_url: string | null;
     width_px: number | null; height_px: number | null;
   }[]>`
-    select seq, storage_path, width_px, height_px
+    select seq, kind, storage_path, source_url, width_px, height_px
     from blueprint_sources where blueprint_id = ${blueprintId} order by seq`;
 
   const rows = await tx<{
@@ -134,8 +135,9 @@ export async function loadBlueprint(
     extractedAt: bp.extracted_at ? parseTs(bp.extracted_at).toISOString() : null,
     appliedAt: bp.applied_at ? parseTs(bp.applied_at).toISOString() : null,
     unresolved: (bp.unresolved as BlueprintView['unresolved']) ?? [],
+    locationProposal: (bp.location_proposal as Record<string, unknown>) ?? {},
     sources: sources.map((s) => ({
-      seq: s.seq, storagePath: s.storage_path,
+      seq: s.seq, kind: s.kind, storagePath: s.storage_path, sourceUrl: s.source_url,
       widthPx: s.width_px, heightPx: s.height_px,
     })),
     items,

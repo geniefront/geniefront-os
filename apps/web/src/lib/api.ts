@@ -149,21 +149,40 @@ export interface LocationMembership {
   isBookable?: boolean;
 }
 
+export interface ClaimableStore {
+  locationId: string;
+  shopName: string;
+  plan: string;
+}
+
+export interface LocationsResponse {
+  locations: LocationMembership[];
+  claimable: ClaimableStore | null;
+}
+
 /**
- * 门店选择器数据源。登录后的第一个调用。
+ * 门店选择器与待开通门店数据源。登录后的第一个调用。
  *
  * ⚠️ 该请求**不带** `X-Membership-Id`：调用它的目的正是确定应当使用哪一个
- * membership。服务端以 JWT 中的 user id 为准，前端无法影响返回的门店集合。
+ * membership 或是否有待认领的已付费门店。服务端以 JWT 中的 user id 为准。
  */
-export async function listLocations(): Promise<LocationMembership[]> {
+export async function fetchLocationsAndClaimable(): Promise<LocationsResponse> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new ApiError('UNAUTHENTICATED', {}, false, 401);
   const res = await fetch(`${API_BASE}/v1/me/locations`, {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
   });
-  const body = await parse<{ locations: LocationMembership[] }>(res);
-  return body.locations;
+  const body = await parse<{ locations: LocationMembership[]; claimable?: ClaimableStore | null }>(res);
+  return {
+    locations: body.locations ?? [],
+    claimable: body.claimable ?? null,
+  };
+}
+
+export async function listLocations(): Promise<LocationMembership[]> {
+  const res = await fetchLocationsAndClaimable();
+  return res.locations;
 }
 
 /**
