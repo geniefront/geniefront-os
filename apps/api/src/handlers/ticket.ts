@@ -159,8 +159,7 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
       const snapshot = appointmentItemSnapshots![index]!;
       if ((item.minutes !== undefined && item.minutes !== snapshot.durationMin)
         || (item.priceCentsOverride !== undefined
-          && item.priceCentsOverride !== snapshot.priceCents)
-        || (item.resourceId !== undefined && item.resourceId !== snapshot.resourceId)) {
+          && item.priceCentsOverride !== snapshot.priceCents)) {
         throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
           details: { reason: 'appointment_snapshot_mismatch', itemIndex: index },
         });
@@ -254,7 +253,8 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   }
 
   const resourceIds = [...new Set(input.items
-    .map((item, index) => appointmentItemSnapshots?.[index]?.resourceId ?? item.resourceId)
+    .map((item) => item.resourceId)
+    .concat(appointmentItemSnapshots?.map((s) => s.resourceId ?? undefined) ?? [])
     .filter((id): id is string => Boolean(id)))];
   if (resourceIds.length > 0) {
     const validResources = await tx<{ id: string }[]>`
@@ -285,7 +285,7 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     const snapshot = appointmentItemSnapshots?.[seq];
     const price = snapshot?.priceCents ?? it.priceCentsOverride ?? svc.base_price_cents;
     const mins = snapshot?.durationMin ?? it.minutes ?? svc.duration_min;
-    const resourceId = snapshot?.resourceId ?? it.resourceId ?? null;
+    const resourceId = it.resourceId ?? snapshot?.resourceId ?? null;
 
     const [item] = await tx<{ id: string }[]>`
       insert into ticket_items
@@ -309,6 +309,13 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     await tx`update appointment_items set status = 'in_service'
              where appointment_id = ${input.appointmentId}
                and status not in ('cancelled','completed')`;
+    for (const [seq, it] of input.items.entries()) {
+      if (it.resourceId) {
+        await tx`update appointment_items set resource_id = ${it.resourceId}
+                 where appointment_id = ${input.appointmentId} and seq = ${seq}
+                   and status not in ('cancelled','completed')`;
+      }
+    }
   }
   audit({ entityType: 'ticket', entityId: ticket!.id,
           after: { itemCount: input.items.length, businessDate: date } });
@@ -503,8 +510,7 @@ async function closeOneTicket(args: {
     }
   } else {
     if (ticket.serviceSettledAt || ticket.tipSettledAt
-      || (ticket.checkoutTiming === 'service_then_tip')
-      || (ticket.checkoutTiming === 'after_service_combined' && !serviceCompleted)) {
+      || (ticket.checkoutTiming === 'service_then_tip')) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'combined_stage_not_available' } });
     }
   }
@@ -704,7 +710,8 @@ async function closeOneTicket(args: {
               ${ctx.membershipId}, ${settlementStage})`;
   }
 
-  const closeNow = settlementStage === 'tip' || (settlementStage === 'combined' && serviceCompleted);
+  const isUpfrontPendingService = ticket.checkoutTiming === 'upfront_combined' && !serviceCompleted;
+  const closeNow = (settlementStage === 'tip' || settlementStage === 'combined') && !isUpfrontPendingService;
   await tx`update tickets set
       status = ${closeNow ? 'closed' : ticket.status},
       closed_at = case when ${closeNow} then now() else closed_at end,
@@ -722,13 +729,19 @@ async function closeOneTicket(args: {
   // A checked-in appointment remains in walkin_queue until payment succeeds.
   // Advancing it in the same transaction prevents a paid guest from reappearing
   // in the waiting/seated column after the ticket disappears from open tickets.
-  if (closeNow) await tx`update walkin_queue q set status = 'completed'
-           from tickets t
-           where t.id = ${ticket.id} and q.appointment_id = t.appointment_id
-             and q.status <> 'left'`;
-  if (closeNow) await tx`update appointments a set status = 'done'
-           from tickets t
-           where t.id = ${ticket.id} and a.id = t.appointment_id`;
+  if (closeNow) {
+    await tx`update ticket_items set
+             started_at = coalesce(started_at, now()),
+             finished_at = coalesce(finished_at, now())
+             where ticket_id = ${ticket.id} and finished_at is null`;
+    await tx`update walkin_queue q set status = 'completed'
+             from tickets t
+             where t.id = ${ticket.id} and q.appointment_id = t.appointment_id
+               and q.status <> 'left'`;
+    await tx`update appointments a set status = 'done'
+             from tickets t
+             where t.id = ${ticket.id} and a.id = t.appointment_id`;
+  }
 
   return {
     ticketId: ticket.id,
@@ -1329,14 +1342,6 @@ registerHandler(TicketVoid, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     throw new AppError(ERROR_CODES.ALREADY_CANCELLED, { details: { status: t.status } });
   }
   await assertDayOpen(tx, ctx.locationId, t.business_date);
-
-  const [paymentActivity] = await tx<{ exists: boolean }[]>`
-    select exists(select 1 from payments where ticket_id = ${input.ticketId}) as exists`;
-  if (paymentActivity?.exists) {
-    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-      details: { reason: 'paid_ticket_requires_refund' },
-    });
-  }
 
   // ⚠️ 冲销，不删除（宪法第 9 条）。
   // 原来这里是 `delete from tip_allocations` —— 两个问题：财务记录不该消失，

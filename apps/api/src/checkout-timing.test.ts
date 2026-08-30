@@ -19,8 +19,8 @@ const setupCommand = source('../../../packages/contracts/src/commands/setup.ts')
 const ticketCommand = source('../../../packages/contracts/src/commands/ticket.ts');
 
 describe('checkout timing contract (database integration deferred)', () => {
-  it('C: rejects incomplete after-service combined settlement and keeps ticket.close combined', () => {
-    expect(ticketHandler).toContain("ticket.checkoutTiming === 'after_service_combined' && !serviceCompleted");
+  it('C: rejects service_then_tip stage on combined settlement and keeps ticket.close combined', () => {
+    expect(ticketHandler).toContain("ticket.checkoutTiming === 'service_then_tip'");
     expect(ticketCommand).toContain("paymentStage: z.literal('combined').default('combined')");
   });
 
