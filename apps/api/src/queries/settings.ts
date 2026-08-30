@@ -35,6 +35,7 @@ export interface CheckoutSettingsDto {
   receiptFooterMessage: string;
   autoPrintReceipt: boolean;
   autoSendSmsReceipt: boolean;
+  checkoutTiming: 'service_then_tip' | 'upfront_combined' | 'after_service_combined';
 }
 
 export interface IntakeWaiverDto {
@@ -87,11 +88,12 @@ export async function loadCheckoutSettings(
     receipt_footer_message: string | null;
     auto_print_receipt: boolean;
     auto_send_sms_receipt: boolean;
+    checkout_timing: string;
   }[]>`
     select sales_tax_rate_percent, tax_calculation_mode,
            suggested_tip_percentages, allow_custom_tip,
            default_cash_float_cents, receipt_footer_message,
-           auto_print_receipt, auto_send_sms_receipt
+           auto_print_receipt, auto_send_sms_receipt, checkout_timing
     from location_checkout_settings
     where location_id = ${ctx.locationId}`;
 
@@ -105,6 +107,7 @@ export async function loadCheckoutSettings(
       receiptFooterMessage: row.receipt_footer_message ?? '感谢您的光临！',
       autoPrintReceipt: row.auto_print_receipt ?? true,
       autoSendSmsReceipt: row.auto_send_sms_receipt ?? true,
+      checkoutTiming: (row.checkout_timing as CheckoutSettingsDto['checkoutTiming']) || 'after_service_combined',
     };
   }
 
@@ -122,6 +125,7 @@ export async function loadCheckoutSettings(
     receiptFooterMessage: (raw['receiptFooterMessage'] ?? raw['receipt_footer_message'] ?? '感谢您的光临！') as string,
     autoPrintReceipt: raw['autoPrintReceipt'] !== false && raw['auto_print_receipt'] !== false,
     autoSendSmsReceipt: raw['autoSendSmsReceipt'] !== false && raw['auto_send_sms_receipt'] !== false,
+    checkoutTiming: (raw['checkoutTiming'] ?? raw['checkout_timing'] ?? 'after_service_combined') as CheckoutSettingsDto['checkoutTiming'],
   };
 }
 

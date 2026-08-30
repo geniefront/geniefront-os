@@ -53,6 +53,10 @@ export const tickets = pgTable('tickets', {
   openedAt: timestamp('opened_at', { withTimezone: true }).notNull().defaultNow(),
   closedAt: timestamp('closed_at', { withTimezone: true }),
   openedBy: uuid('opened_by'),
+  /** Opening-time snapshot: store setting changes must not alter a live visit. */
+  checkoutTimingSnapshot: text('checkout_timing_snapshot').notNull().default('after_service_combined'),
+  serviceSettledAt: timestamp('service_settled_at', { withTimezone: true }),
+  tipSettledAt: timestamp('tip_settled_at', { withTimezone: true }),
   closedBy: uuid('closed_by'),
   subtotalCents: integer('subtotal_cents').notNull().default(0),
   discountCents: integer('discount_cents').notNull().default(0),
@@ -79,7 +83,7 @@ export const tickets = pgTable('tickets', {
   index('tickets_group_idx').on(t.groupId),
   uniqueIndex('tickets_one_live_per_appointment_idx')
     .on(t.appointmentId)
-    .where(sql`${t.appointmentId} is not null and ${t.status} <> 'voided'`),
+    .where(sql`${t.appointmentId} is not null and ${t.status} not in ('voided', 'refunded')`),
 ]);
 
 export const ticketItems = pgTable('ticket_items', {
@@ -138,6 +142,8 @@ export const payments = pgTable('payments', {
   /** ⚠️ 含小费的收款总额（刷卡机小票上的那个数）。服务净额 = amount − tip */
   amountCents: integer('amount_cents').notNull(),
   tipCents: integer('tip_cents').notNull().default(0),
+  /** service | tip | combined; a ticket can settle each stage only once. */
+  stage: text('stage').notNull().default('combined'),
   /**
    * ⭐ 客人递过来多少现金。刷卡时为 null。
    * 记它是为了日结对得上：不记的话，「不用找了」的那几块钱会凭空出现在抽屉里。

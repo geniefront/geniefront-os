@@ -22,6 +22,7 @@ export const locationCheckoutSettings = pgTable('location_checkout_settings', {
   receiptFooterMessage: text('receipt_footer_message'),
   autoPrintReceipt: boolean('auto_print_receipt').notNull().default(true),
   autoSendSmsReceipt: boolean('auto_send_sms_receipt').notNull().default(true),
+  checkoutTiming: text('checkout_timing').notNull().default('after_service_combined'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

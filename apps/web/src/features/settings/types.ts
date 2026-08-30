@@ -110,6 +110,7 @@ export interface CheckoutSettings {
   receiptFooterMessage: string;
   autoPrintReceipt: boolean;
   autoSendSmsReceipt: boolean;
+  checkoutTiming: 'service_then_tip' | 'upfront_combined' | 'after_service_combined';
 }
 
 export interface HardwareIntakeConfig {
@@ -255,6 +256,7 @@ export interface SaveCheckoutInput {
   receiptFooterMessage?: string | null;
   autoPrintReceipt?: boolean;
   autoSendSmsReceipt?: boolean;
+  checkoutTiming?: 'service_then_tip' | 'upfront_combined' | 'after_service_combined';
 }
 
 export interface Apply10DlcInput {

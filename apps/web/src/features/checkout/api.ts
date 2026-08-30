@@ -7,7 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, runCommand } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import type { CloseResult, OpenTicketsView, PaymentLine } from './types';
+import type { CloseResult, OpenTicketsView, PaymentLine, PaymentStage } from './types';
 
 export const checkoutKeys = {
   openTickets: (membershipId: string | null) => ['desk', 'tickets', membershipId] as const,
@@ -42,6 +42,7 @@ export interface CloseTicketInput {
   }>;
   notes?: string;
   idempotencyKey?: string;
+  paymentStage?: PaymentStage;
 }
 
 export function useCloseTicket() {
@@ -55,9 +56,10 @@ export function useCloseTicket() {
      */
     mutationFn: async (input: CloseTicketInput) =>
       (await runCommand<CloseResult>(
-        'ticket.close',
+        'ticket.pay',
         {
           ticketId: input.ticketId,
+          paymentStage: input.paymentStage ?? 'combined',
           payments: input.payments.map((p) => ({
             method: p.method,
             amountCents: p.amountCents,

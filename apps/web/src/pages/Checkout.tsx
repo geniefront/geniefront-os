@@ -16,6 +16,7 @@ import {
   dollarsToCents, centsToDollars,
 } from '@/features/checkout/api';
 import { PAYMENT_METHODS } from '@/features/checkout/types';
+import { paymentStageFor } from '@/features/checkout/types';
 import type { OpenTicket, PaymentLine, PaymentMethod } from '@/features/checkout/types';
 import { useSchedule, UNASSIGNED_STAFF_ID } from '@/context/ScheduleContext';
 import { Card } from '@/components/ui/Card';
@@ -186,6 +187,7 @@ function CheckoutContent() {
     () => allTickets.find((x) => x.ticketId === selectedId) ?? filteredTickets[0] ?? null,
     [allTickets, selectedId, filteredTickets],
   );
+  const paymentStage = selected ? paymentStageFor(selected) : null;
 
   // 监听 URL 中的 ticketId 自动选中
   useEffect(() => {
@@ -198,6 +200,20 @@ function CheckoutContent() {
       selectTicket(filteredTickets[0]);
     }
   }, [urlTicketId, allTickets, filteredTickets]);
+
+  // A 模式从项目款阶段切到小费阶段时，清掉上一阶段的本金支付行。
+  useEffect(() => {
+    if (!selected || paymentStage !== 'tip') return;
+    setDiscountInput('');
+    setLines([{
+      method: 'card',
+      baseCents: 0,
+      tipCents: 0,
+      changeCents: 0,
+      keepChange: false,
+    }]);
+    setIdempotencyKey(crypto.randomUUID());
+  }, [selected?.ticketId, paymentStage]);
 
   // 参与本单的所有技师列表与项目明细归集
   const staffAssignments = useMemo(() => {
@@ -253,22 +269,23 @@ function CheckoutContent() {
   }, [data?.checkoutSettings]);
 
   // 折扣与基础应付
-  const discountCents = canDiscount ? Math.max(0, dollarsToCents(discountInput)) : 0;
+  const discountCents = canDiscount && paymentStage !== 'tip' ? Math.max(0, dollarsToCents(discountInput)) : 0;
   const baseSubtotalCents = selected?.subtotalCents ?? 0;
   const afterDiscountCents = Math.max(0, baseSubtotalCents - discountCents);
 
   // 税费计算
-  const taxCents = enableTax
+  const taxCents = enableTax && paymentStage !== 'tip'
     ? Math.round(afterDiscountCents * (parseFloat(taxRatePercent || '0') / 100))
     : 0;
 
   // 计算小费分配
   const totalTipCents = useMemo(() => {
+    if (paymentStage === 'service') return 0;
     if (tipMode === 'total_split') {
       return Math.max(0, dollarsToCents(totalTipInput));
     }
     return Object.values(customStaffTips).reduce((sum, val) => sum + Math.max(0, dollarsToCents(val || '0')), 0);
-  }, [tipMode, totalTipInput, customStaffTips]);
+  }, [paymentStage, tipMode, totalTipInput, customStaffTips]);
 
   // 各技师分配到的小费明细
   const staffTipAllocations = useMemo(() => {
@@ -308,12 +325,12 @@ function CheckoutContent() {
 
   // 刷卡手续费计算
   const hasCardPayment = lines.some((l) => l.method === 'card');
-  const cardSurchargeCents = enableCardSurcharge && hasCardPayment
+  const cardSurchargeCents = enableCardSurcharge && hasCardPayment && paymentStage !== 'tip'
     ? Math.round((afterDiscountCents + taxCents + totalTipCents) * (parseFloat(cardSurchargePercent || '0') / 100))
     : 0;
 
   // 应收总额（含税、加项、手续费、折扣后）
-  const totalDueCents = afterDiscountCents + taxCents + cardSurchargeCents;
+  const totalDueCents = paymentStage === 'tip' ? 0 : afterDiscountCents + taxCents + cardSurchargeCents;
 
   const paidBaseCents = lines.reduce((sum, l) => sum + l.baseCents, 0);
   const paidTipCents = lines.reduce((sum, l) => sum + l.tipCents, 0);
@@ -327,10 +344,11 @@ function CheckoutContent() {
     setCustomStaffTips({});
     const rate = enableTax ? parseFloat(taxRatePercent || '0') / 100 : 0;
     const estTax = Math.round(ticket.subtotalCents * rate);
+    const stage = paymentStageFor(ticket);
     setLines([
       {
         method: 'card',
-        baseCents: ticket.subtotalCents + estTax,
+        baseCents: stage === 'tip' ? 0 : ticket.subtotalCents + estTax,
         tipCents: 0,
         changeCents: 0,
         keepChange: false,
@@ -425,6 +443,10 @@ function CheckoutContent() {
 
   async function settle() {
     if (!selected) return;
+    if (!paymentStage) {
+      toast.danger(t('checkout.stageUnavailable'));
+      return;
+    }
     if (remainingCents !== 0) {
       toast.danger(t('checkout.paymentShort', { p0: centsToDollars(remainingCents) }));
       return;
@@ -440,9 +462,13 @@ function CheckoutContent() {
     }
 
     try {
+      const payments = paymentStage === 'tip' && totalTipCents === 0
+        ? []
+        : lines.map(toPaymentLine);
       const result = await close.mutateAsync({
         ticketId: selected.ticketId,
-        payments: lines.map(toPaymentLine),
+        payments,
+        paymentStage,
         discountCents,
         taxCents,
         taxRateBp: Math.round(parseFloat(taxRatePercent || '0') * 100),
@@ -461,7 +487,7 @@ function CheckoutContent() {
       const allocationText = staffTipAllocations
         .map((a) => `${a.staffName} (小费 $${centsToDollars(a.allocatedTipCents)})`)
         .join(' · ');
-      toast.success(t('checkout.checkoutSucceeded'), {
+      toast.success(t(paymentStage === 'service' ? 'checkout.servicePaymentSucceeded' : 'checkout.checkoutSucceeded'), {
         description: allocationText || `$${centsToDollars(result.totalCents)}`,
       });
 
@@ -469,7 +495,8 @@ function CheckoutContent() {
       setReceiptDestination('');
       setReceiptModalOpen(true);
 
-      setSelectedId(null);
+      if (paymentStage === 'service') setIdempotencyKey(crypto.randomUUID());
+      else setSelectedId(null);
     } catch (err) {
       toast.danger(t('saveFailed'), {
         description: err instanceof Error ? err.message : undefined,
@@ -659,8 +686,13 @@ function CheckoutContent() {
                     {t('checkout.ticketNo')}{(selected.ticketId || '').slice(0, 8)}
                   </Badge>
                   <Badge variant="success" className="text-[10px] font-bold">
-                    
-                    {t('checkout.finishedPendingPay')}
+                    {paymentStage === 'service'
+                      ? t('checkout.stageService')
+                      : paymentStage === 'tip'
+                        ? t('checkout.stageTip')
+                        : paymentStage === 'combined'
+                          ? t('checkout.stageCombined')
+                          : t('checkout.stageWaiting')}
                   </Badge>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-2">
@@ -686,6 +718,19 @@ function CheckoutContent() {
 
           {/* 可滚动的高密度结账内容 */}
           <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar bg-slate-50/40">
+            <div className={cn(
+              'rounded-xl border px-4 py-3 text-xs font-medium',
+              paymentStage ? 'border-teal-200 bg-teal-50 text-teal-900' : 'border-amber-200 bg-amber-50 text-amber-900',
+            )}>
+              {paymentStage === 'service' && t('checkout.stageServiceHint')}
+              {paymentStage === 'tip' && t('checkout.stageTipHint')}
+              {paymentStage === 'combined' && selected.checkoutTiming === 'upfront_combined' && t('checkout.stageUpfrontHint')}
+              {paymentStage === 'combined' && selected.checkoutTiming === 'after_service_combined' && t('checkout.stageAfterHint')}
+              {!paymentStage && (selected.serviceSettledAt
+                ? t('checkout.stagePaidWaitingCompletion')
+                : t('checkout.stageWaitingCompletion'))}
+            </div>
+
             {/* 1. 项目、加项、包厢、多技师分工明细卡片 */}
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
               <div className="flex items-center justify-between">
@@ -741,6 +786,7 @@ function CheckoutContent() {
             </div>
 
             {/* 2. 多技师小费分配与分成计算器 */}
+            {paymentStage !== 'service' && (
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
@@ -876,8 +922,10 @@ function CheckoutContent() {
                 </div>
               </div>
             </div>
+            )}
 
             {/* 3. 税费与信用卡手续费配置 */}
+            {paymentStage !== 'tip' && (
             <div className="grid grid-cols-2 gap-3">
               {/* Sales Tax */}
               <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm space-y-2 text-xs">
@@ -948,6 +996,7 @@ function CheckoutContent() {
                 )}
               </div>
             </div>
+            )}
 
             {/* 4. 费用汇总清单 */}
             <div className="rounded-2xl border border-slate-200 p-4 space-y-2.5 bg-white shadow-sm text-xs">
@@ -956,7 +1005,7 @@ function CheckoutContent() {
                 <span className="font-mono font-bold text-slate-800">${centsToDollars(baseSubtotalCents)}</span>
               </div>
 
-              {canDiscount && (
+              {canDiscount && paymentStage !== 'tip' && (
                 <div className="flex justify-between items-center text-slate-600">
                   <span className="flex items-center gap-1">
                     <Percent className="w-3.5 h-3.5 text-teal-600" />
@@ -1021,7 +1070,7 @@ function CheckoutContent() {
                         })}
                         className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                       >
-                        {PAYMENT_METHODS.map((m) => (
+                        {PAYMENT_METHODS.filter((m) => paymentStage !== 'tip' || m !== 'gift_card').map((m) => (
                           <option key={m} value={m}>{t(METHOD_LABELS[m])}</option>
                         ))}
                       </select>
@@ -1049,6 +1098,7 @@ function CheckoutContent() {
                           onChange={(e) => patchLine(index, { baseCents: dollarsToCents(e.target.value) })}
                           placeholder="0.00"
                           className="font-mono text-xs font-bold"
+                          disabled={paymentStage === 'tip'}
                         />
                       </div>
                       <div>
@@ -1061,6 +1111,7 @@ function CheckoutContent() {
                           onChange={(e) => patchLine(index, { tipCents: dollarsToCents(e.target.value) })}
                           placeholder="0.00"
                           className="font-mono text-xs font-bold text-teal-700"
+                          disabled={paymentStage === 'service'}
                         />
                       </div>
                     </div>
@@ -1085,7 +1136,14 @@ function CheckoutContent() {
                           <Input
                             inputMode="decimal"
                             value={line.tenderedCents !== undefined ? centsToDollars(line.tenderedCents) : ''}
-                            onChange={(e) => patchLine(index, { tenderedCents: dollarsToCents(e.target.value) })}
+                            onChange={(e) => {
+                              const tenderedCents = dollarsToCents(e.target.value);
+                              patchLine(index, {
+                                tenderedCents,
+                                changeCents: Math.max(0, tenderedCents - chargedCents(line)),
+                                keepChange: false,
+                              });
+                            }}
                             placeholder="0.00"
                             className="font-mono text-xs"
                           />
@@ -1098,6 +1156,7 @@ function CheckoutContent() {
                                 ${centsToDollars(line.keepChange ? 0 : changeDue)}
                               </span>
                             </div>
+                            {paymentStage !== 'service' && (
                             <label className="flex items-start gap-2 cursor-pointer p-2 bg-emerald-50/60 rounded-xl border border-emerald-200">
                               <input
                                 type="checkbox"
@@ -1116,6 +1175,7 @@ function CheckoutContent() {
                                 {t('checkout.keepChange')}
                               </span>
                             </label>
+                            )}
                           </>
                         )}
                       </div>
@@ -1202,11 +1262,15 @@ function CheckoutContent() {
               permission="ticket.write"
               size="lg"
               isPending={close.isPending}
-              isDisabled={remainingCents !== 0}
+              isDisabled={remainingCents !== 0 || !paymentStage}
               className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold h-12 text-sm rounded-xl shadow-lg"
               onClick={() => void settle()}
             >
-              {t('settle') || t('checkout.confirmCheckout')} (${centsToDollars(chargedTotalCents)})
+              {paymentStage === 'service'
+                ? t('checkout.collectServicePayment')
+                : paymentStage === 'tip'
+                  ? t('checkout.collectTipOrNoTip')
+                  : t('checkout.confirmCheckout')} (${centsToDollars(chargedTotalCents)})
             </GuardedButton>
           </div>
         </Card>

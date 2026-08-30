@@ -68,6 +68,11 @@ async function createAppointment(): Promise<string> {
 const run = <T>(command: string, input: unknown, key: string = randomUUID()) =>
   dispatch<T>(command, input, ctx, { idempotencyKey: key });
 
+const setCheckoutTiming = (timing: 'service_then_tip' | 'upfront_combined' | 'after_service_combined') =>
+  withTenant(tenant, (tx) => tx`insert into location_checkout_settings (location_id, checkout_timing)
+    values (${LOCATION_ID}, ${timing})
+    on conflict (location_id) do update set checkout_timing = excluded.checkout_timing`);
+
 beforeAll(async () => {
   const [staff] = await withTenant(tenant, (tx) => tx<{ id: string; user_id: string }[]>`
     select m.id, m.user_id from memberships m
@@ -106,6 +111,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   const ids = appointmentIds.splice(0);
+  await setCheckoutTiming('after_service_combined');
   if (ids.length === 0) return;
   await withTenant(tenant, async (tx) => {
     const credits = await tx<{
@@ -260,6 +266,72 @@ describe('预约到收银的真实闭环', () => {
       queue_status: 'completed',
       ticket_customer_id: customerId,
     });
+  });
+
+  it('先收项目款，完工后可确认无小费并关单', async () => {
+    await setCheckoutTiming('service_then_tip');
+    const appointmentId = await createAppointment();
+    await run('queue.join', { appointmentId, source: 'desk' }, `checkin-a-${appointmentId}`);
+    const opened = await run<{
+      ticketId: string; ticketItemIds: string[]; subtotalCents: number;
+    }>('ticket.open', {
+      appointmentId,
+      customerId: null,
+      items: [{ serviceId, membershipId, minutes: 45 }],
+    }, `timing-a-${appointmentId}`);
+
+    await run('ticket.pay', {
+      ticketId: opened.result.ticketId,
+      paymentStage: 'service',
+      payments: [{ method: 'card', amountCents: opened.result.subtotalCents, tipCents: 0 }],
+    }, `timing-a-service-${appointmentId}`);
+    await expect(run('ticket.addItem', {
+      ticketId: opened.result.ticketId, serviceId, membershipId,
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+
+    await run('ticket.finishItem', { ticketItemId: opened.result.ticketItemIds[0]!, membershipId });
+    await run('ticket.pay', {
+      ticketId: opened.result.ticketId,
+      paymentStage: 'tip',
+      payments: [],
+    }, `timing-a-tip-${appointmentId}`);
+
+    const [closed] = await withTenant(tenant, (tx) => tx<{
+      status: string; service_settled_at: string | null; tip_settled_at: string | null;
+    }[]>`select status, service_settled_at::text, tip_settled_at::text
+          from tickets where id = ${opened.result.ticketId}`);
+    expect(closed?.status).toBe('closed');
+    expect(closed?.service_settled_at).toBeTruthy();
+    expect(closed?.tip_settled_at).toBeTruthy();
+    await setCheckoutTiming('after_service_combined');
+  });
+
+  it('开工前合并收款，完工时自动关单且不重复收款', async () => {
+    await setCheckoutTiming('upfront_combined');
+    const appointmentId = await createAppointment();
+    await run('queue.join', { appointmentId, source: 'desk' }, `checkin-b-${appointmentId}`);
+    const opened = await run<{
+      ticketId: string; ticketItemIds: string[]; subtotalCents: number;
+    }>('ticket.open', {
+      appointmentId,
+      customerId: null,
+      items: [{ serviceId, membershipId, minutes: 45 }],
+    }, `timing-b-${appointmentId}`);
+
+    await run('ticket.pay', {
+      ticketId: opened.result.ticketId,
+      paymentStage: 'combined',
+      payments: [{ method: 'card', amountCents: opened.result.subtotalCents, tipCents: 0 }],
+    }, `timing-b-pay-${appointmentId}`);
+    const [paid] = await withTenant(tenant, (tx) => tx<{ status: string }[]>`
+      select status from tickets where id = ${opened.result.ticketId}`);
+    expect(paid?.status).toBe('in_service');
+
+    await run('ticket.finishItem', { ticketItemId: opened.result.ticketItemIds[0]!, membershipId });
+    const [closed] = await withTenant(tenant, (tx) => tx<{ status: string }[]>`
+      select status from tickets where id = ${opened.result.ticketId}`);
+    expect(closed?.status).toBe('closed');
+    await setCheckoutTiming('after_service_combined');
   });
 
   it('相同幂等键重放只开一张单，不同键也不能开第二张活跃单', async () => {
@@ -450,6 +522,11 @@ describe('预约到收银的真实闭环', () => {
       items: [{ serviceId, membershipId, minutes: 45 }],
     }, `credit-open-${suffix}-${randomUUID()}`)).result;
     const [first, second] = await Promise.all([open('a'), open('b')]);
+    const openItems = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      select id from ticket_items where ticket_id in (${first.ticketId}, ${second.ticketId})`);
+    for (const item of openItems) {
+      await run('ticket.finishItem', { ticketItemId: item.id });
+    }
     await withTenant(tenant, (tx) => tx`insert into customer_credit_ledger
       (org_id, location_id, kind, subject_id, customer_id, entry, amount_cents,
        balance_after_cents, reason, actor_membership_id, idem_key, meta)

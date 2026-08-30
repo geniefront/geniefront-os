@@ -457,6 +457,8 @@ export const SaveCheckoutSettings = defineCommand({
     receiptFooterMessage: z.string().max(1000).optional().nullable(),
     autoPrintReceipt: z.boolean().default(true),
     autoSendSmsReceipt: z.boolean().default(true),
+    checkoutTiming: z.enum(['service_then_tip', 'upfront_combined', 'after_service_combined'])
+      .default('after_service_combined'),
   }),
   output: z.object({ locationId: uuid }),
   permission: 'settings.manage',

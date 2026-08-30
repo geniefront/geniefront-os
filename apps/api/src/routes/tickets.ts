@@ -34,8 +34,9 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           sales_tax_rate_percent: string;
           tax_calculation_mode: string;
           suggested_tip_percentages: number[];
+          checkout_timing: string;
         }[]>`
-          select sales_tax_rate_percent::text, tax_calculation_mode, suggested_tip_percentages
+          select sales_tax_rate_percent::text, tax_calculation_mode, suggested_tip_percentages, checkout_timing
           from location_checkout_settings
           where location_id = ${ctx.locationId}`;
 
@@ -43,10 +44,12 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           salesTaxRatePercent: checkoutSettingsRow?.sales_tax_rate_percent ?? '8.8750',
           taxCalculationMode: (checkoutSettingsRow?.tax_calculation_mode ?? 'exclusive') as 'exclusive' | 'inclusive',
           suggestedTipPercentages: checkoutSettingsRow?.suggested_tip_percentages ?? [15, 18, 20, 25],
+          checkoutTiming: checkoutSettingsRow?.checkout_timing ?? 'after_service_combined',
         };
 
         const rows = await tx<{
           ticket_id: string; appointment_id: string | null; status: string;
+          checkout_timing_snapshot: string; service_settled_at: string | null; tip_settled_at: string | null;
           customer_name: string | null; walk_in_name: string | null;
           group_id: string | null; group_label: string | null; business_date: string;
           subtotal_cents: number; discount_cents: number; tax_cents: number; total_cents: number;
@@ -55,6 +58,8 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           staff_name: unknown; membership_id: string;
         }[]>`
           select t.id as ticket_id, t.appointment_id, t.status,
+                  t.checkout_timing_snapshot, t.service_settled_at::text as service_settled_at,
+                  t.tip_settled_at::text as tip_settled_at,
                   c.display_name as customer_name, t.walk_in_name,
                   t.group_id, g.label as group_label,
                   t.business_date::text as business_date,
@@ -85,6 +90,8 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           ticketId: string; appointmentId: string | null; status: string; customerName: string;
           subtotalCents: number; discountCents: number; taxCents: number; totalCents: number;
           groupId: string | null; groupLabel: string | null;
+          checkoutTiming: string; serviceSettledAt: string | null; tipSettledAt: string | null;
+          serviceCompleted: boolean;
           businessDate: string; daysAgo: number;
           items: Array<Record<string, unknown>>;
         }>();
@@ -105,6 +112,10 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
             taxCents: r.tax_cents,
             totalCents: r.total_cents,
             groupId: r.group_id, groupLabel: r.group_label,
+            checkoutTiming: r.checkout_timing_snapshot,
+            serviceSettledAt: r.service_settled_at,
+            tipSettledAt: r.tip_settled_at,
+            serviceCompleted: r.finished_at !== null,
             businessDate: r.business_date,
             daysAgo: daysAgoOf(r.business_date),
             items: [],
@@ -114,6 +125,7 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
             durationMin: r.duration_min, staffName: pickText(r.staff_name, ctx.locale),
             membershipId: r.membership_id, startedAt: r.started_at, finishedAt: r.finished_at,
           });
+          t.serviceCompleted = t.serviceCompleted && r.finished_at !== null;
           map.set(r.ticket_id, t);
         }
         const tickets = [...map.values()];

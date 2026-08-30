@@ -23,6 +23,10 @@ export interface OpenTicket {
   discountCents?: number;
   taxCents?: number;
   totalCents?: number;
+  checkoutTiming: 'service_then_tip' | 'upfront_combined' | 'after_service_combined';
+  serviceSettledAt: string | null;
+  tipSettledAt: string | null;
+  serviceCompleted: boolean;
   /** 同行客人合单时非空，结账可整组一起收。 */
   groupId: string | null;
   groupLabel: string | null;
@@ -39,6 +43,7 @@ export interface OpenTicketsView {
     salesTaxRatePercent: string;
     taxCalculationMode: 'exclusive' | 'inclusive';
     suggestedTipPercentages: number[];
+    checkoutTiming: 'service_then_tip' | 'upfront_combined' | 'after_service_combined';
   };
   staleCount?: number;
 }
@@ -92,6 +97,22 @@ export interface CloseResult {
   tipCents: number;
   /** 小费分配结果。前台需当场看到每位技师分到多少。 */
   allocations: CloseAllocation[];
+}
+
+export type PaymentStage = 'service' | 'tip' | 'combined';
+
+export function paymentStageFor(ticket: OpenTicket): PaymentStage | null {
+  if (ticket.checkoutTiming === 'service_then_tip') {
+    if (!ticket.serviceSettledAt && !ticket.serviceCompleted) return 'service';
+    if (ticket.serviceSettledAt && ticket.serviceCompleted && !ticket.tipSettledAt) return 'tip';
+    return null;
+  }
+  if (ticket.checkoutTiming === 'upfront_combined') {
+    return ticket.serviceSettledAt || ticket.tipSettledAt ? null : 'combined';
+  }
+  return ticket.serviceCompleted && !ticket.serviceSettledAt && !ticket.tipSettledAt
+    ? 'combined'
+    : null;
 }
 
 export interface GiftCardVerifyResult {

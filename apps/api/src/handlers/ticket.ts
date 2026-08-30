@@ -169,7 +169,7 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
 
     const [existing] = await tx<{ id: string; status: string }[]>`
       select id, status from tickets
-      where appointment_id = ${appointment.id} and status <> 'voided'
+      where appointment_id = ${appointment.id} and status not in ('voided', 'refunded')
       limit 1`;
     if (existing) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
@@ -264,13 +264,18 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     }
   }
 
+  const [checkout] = await tx<{ checkout_timing: string }[]>`
+    select checkout_timing from location_checkout_settings
+    where location_id = ${ctx.locationId}`;
+  const checkoutTiming = checkout?.checkout_timing ?? 'after_service_combined';
+
   const [ticket] = await tx<{ id: string }[]>`
     insert into tickets
       (org_id, location_id, business_date, customer_id, walk_in_name, appointment_id,
-       group_id, status, opened_by)
+       group_id, status, opened_by, checkout_timing_snapshot)
     values (${ctx.orgId}, ${ctx.locationId}, ${date}, ${customerId},
             ${walkInName}, ${input.appointmentId ?? null},
-            ${input.groupId ?? null}, 'in_service', ${ctx.membershipId})
+            ${input.groupId ?? null}, 'in_service', ${ctx.membershipId}, ${checkoutTiming})
     returning id`;
 
   const ticketItemIds: string[] = [];
@@ -320,12 +325,17 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
 
 registerHandler(TicketAddItem, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketAddItem.input._type>) => {
-  const [t] = await tx<{ status: string }[]>`
-    select status from tickets where id = ${input.ticketId} for update`;
+  const [t] = await tx<{ status: string; service_settled_at: string | null }[]>`
+    select status, service_settled_at from tickets where id = ${input.ticketId} for update`;
   if (!t) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket' } });
   // 已结账的单不能再加项 —— 要改就得先作废重开，否则金额和已发的小费对不上
-  if (t.status === 'closed' || t.status === 'voided') {
+  if (t.status === 'closed' || t.status === 'voided' || t.status === 'refunded') {
     throw new AppError(ERROR_CODES.TICKET_ALREADY_CLOSED, { details: { status: t.status } });
+  }
+  if (t.service_settled_at) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'ticket_items_frozen_after_service_settlement' },
+    });
   }
 
   const [svc] = await tx<{ name: unknown; duration_min: number; base_price_cents: number }[]>`
@@ -376,29 +386,39 @@ registerHandler(TicketAddItem, async ({ input, ctx, tx, audit, emit }: HandlerAr
 /** 一张单在结账那一刻需要知道的一切 */
 interface TicketForClose {
   id: string;
+  status: string;
   subtotalCents: number;
+  totalCents: number;
   businessDate: string;
   groupId: string | null;
   customerId: string | null;
+  checkoutTiming: 'service_then_tip' | 'upfront_combined' | 'after_service_combined';
+  serviceSettledAt: string | null;
+  tipSettledAt: string | null;
 }
 
 async function loadTicketForClose(
   tx: postgres.TransactionSql, ticketId: string,
 ): Promise<TicketForClose> {
   const [t] = await tx<{
-    id: string; status: string; subtotal: number; business_date: string; group_id: string | null;
-    customer_id: string | null;
+    id: string; status: string; subtotal: number; total_cents: number; business_date: string; group_id: string | null;
+    customer_id: string | null; checkout_timing_snapshot: TicketForClose['checkoutTiming'];
+    service_settled_at: string | null; tip_settled_at: string | null;
   }[]>`
-    select id, status, subtotal_cents as subtotal,
-           business_date::text as business_date, group_id, customer_id
-    from tickets where id = ${ticketId}`;
+    select id, status, subtotal_cents as subtotal, total_cents,
+           business_date::text as business_date, group_id, customer_id,
+           checkout_timing_snapshot, service_settled_at::text as service_settled_at,
+           tip_settled_at::text as tip_settled_at
+    from tickets where id = ${ticketId} for update`;
   if (!t) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket', ticketId } });
-  if (t.status === 'closed' || t.status === 'voided') {
+  if (t.status === 'closed' || t.status === 'voided' || t.status === 'refunded') {
     throw new AppError(ERROR_CODES.TICKET_ALREADY_CLOSED, { details: { ticketId, status: t.status } });
   }
   return {
-    id: t.id, subtotalCents: t.subtotal,
+    id: t.id, status: t.status, subtotalCents: t.subtotal, totalCents: t.total_cents,
     businessDate: t.business_date, groupId: t.group_id, customerId: t.customer_id,
+    checkoutTiming: t.checkout_timing_snapshot,
+    serviceSettledAt: t.service_settled_at, tipSettledAt: t.tip_settled_at,
   };
 }
 
@@ -417,6 +437,7 @@ interface PaymentIn {
 
 export interface CloseOutcome {
   ticketId: string;
+  closed: boolean;
   totalCents: number;
   tipCents: number;
   allocations: Array<{
@@ -451,14 +472,50 @@ async function closeOneTicket(args: {
   loaded: LoadedPlans;
   groupPaymentId?: string;
   payerTicketId?: string;
+  settlementStage?: 'service' | 'tip' | 'combined';
 }): Promise<CloseOutcome> {
   const { tx, ctx, ticket, payments, discountCents, taxCents = 0, surchargeCents = 0, tipSplits, loaded } = args;
+  const settlementStage = args.settlementStage ?? 'combined';
+  const [completion] = await tx<{ complete: boolean }[]>`
+    select not exists(
+      select 1 from ticket_items where ticket_id = ${ticket.id} and finished_at is null
+    ) as complete`;
+  const serviceCompleted = completion?.complete ?? false;
+
+  if (settlementStage === 'service') {
+    if (ticket.checkoutTiming !== 'service_then_tip' || ticket.serviceSettledAt || ticket.tipSettledAt
+      || serviceCompleted) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'service_stage_not_available' } });
+    }
+    if (payments.some((p) => p.tipCents !== 0)) {
+      throw new AppError(ERROR_CODES.PAYMENT_MISMATCH, { details: { reason: 'service_stage_tip_must_be_zero' } });
+    }
+  } else if (settlementStage === 'tip') {
+    if (ticket.checkoutTiming !== 'service_then_tip' || !ticket.serviceSettledAt || ticket.tipSettledAt
+      || !serviceCompleted || discountCents !== 0 || taxCents !== 0 || surchargeCents !== 0) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'tip_stage_not_available' } });
+    }
+    if (payments.some((p) => ['gift_card', 'customer_credit'].includes(p.method))) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'stored_value_cannot_pay_tip' } });
+    }
+    if (payments.some((p) => p.amountCents === 0)) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'zero_tip_payment_not_allowed' } });
+    }
+  } else {
+    if (ticket.serviceSettledAt || ticket.tipSettledAt
+      || (ticket.checkoutTiming === 'service_then_tip')
+      || (ticket.checkoutTiming === 'after_service_combined' && !serviceCompleted)) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'combined_stage_not_available' } });
+    }
+  }
 
   const cashTip = payments.filter((p) => p.method === 'cash').reduce((s, p) => s + p.tipCents, 0);
   const cardTip = payments.filter((p) => p.method !== 'cash').reduce((s, p) => s + p.tipCents, 0);
   const totalTip = cashTip + cardTip;
   const paidTotal = payments.reduce((s, p) => s + p.amountCents, 0);
-  const shouldBe = ticket.subtotalCents - discountCents + taxCents + totalTip + surchargeCents;
+  const shouldBe = settlementStage === 'tip'
+    ? totalTip
+    : ticket.subtotalCents - discountCents + taxCents + totalTip + surchargeCents;
 
   // 收多了收少了当场拦下。
   if (paidTotal !== shouldBe) {
@@ -628,7 +685,7 @@ async function closeOneTicket(args: {
   }
 
   // ── 提成落账 ──────────────────────────────────────────────────────────────
-  const earnings = await writeCommissionEarnings({
+  const earnings = settlementStage === 'tip' ? [] : await writeCommissionEarnings({
     tx, ctx, ticketId: ticket.id, businessDate: ticket.businessDate,
     rows: lines as unknown as TicketRevenueRow[],
     ticketDiscountCents: discountCents + giftCardCommissionCut,
@@ -639,40 +696,52 @@ async function closeOneTicket(args: {
   for (const p of payments) {
     await tx`insert into payments
       (org_id, location_id, ticket_id, method, amount_cents, tip_cents,
-       tendered_cents, change_cents, keep_change, group_payment_id, payer_ticket_id, taken_by)
+       tendered_cents, change_cents, keep_change, group_payment_id, payer_ticket_id, taken_by, stage)
       values (${ctx.orgId}, ${ctx.locationId}, ${ticket.id}, ${p.method},
               ${p.amountCents}, ${p.tipCents},
               ${p.tenderedCents ?? null}, ${p.changeCents}, ${p.keepChange},
               ${args.groupPaymentId ?? null}, ${args.payerTicketId ?? null},
-              ${ctx.membershipId})`;
+              ${ctx.membershipId}, ${settlementStage})`;
   }
 
+  const closeNow = settlementStage === 'tip' || (settlementStage === 'combined' && serviceCompleted);
   await tx`update tickets set
-      status = 'closed', closed_at = now(), closed_by = ${ctx.membershipId},
-      discount_cents = ${discountCents},
-      tax_cents = ${taxCents},
-      surcharge_cents = ${surchargeCents},
-      tip_cents = ${totalTip},
-      total_cents = ${paidTotal},
-      tip_policy_version = ${version}
+      status = ${closeNow ? 'closed' : ticket.status},
+      closed_at = case when ${closeNow} then now() else closed_at end,
+      closed_by = case when ${closeNow} then ${ctx.membershipId} else closed_by end,
+      discount_cents = case when ${settlementStage} = 'tip' then discount_cents else ${discountCents} end,
+      tax_cents = case when ${settlementStage} = 'tip' then tax_cents else ${taxCents} end,
+      surcharge_cents = case when ${settlementStage} = 'tip' then surcharge_cents else ${surchargeCents} end,
+      tip_cents = case when ${settlementStage} = 'tip' then tip_cents + ${totalTip} else ${totalTip} end,
+      total_cents = case when ${settlementStage} = 'tip' then total_cents + ${paidTotal} else ${paidTotal} end,
+      tip_policy_version = ${version},
+      service_settled_at = case when ${settlementStage} in ('service', 'combined') then now() else service_settled_at end,
+      tip_settled_at = case when ${settlementStage} in ('tip', 'combined') then now() else tip_settled_at end
     where id = ${ticket.id}`;
 
   // A checked-in appointment remains in walkin_queue until payment succeeds.
   // Advancing it in the same transaction prevents a paid guest from reappearing
   // in the waiting/seated column after the ticket disappears from open tickets.
-  await tx`update walkin_queue q set status = 'completed'
+  if (closeNow) await tx`update walkin_queue q set status = 'completed'
            from tickets t
            where t.id = ${ticket.id} and q.appointment_id = t.appointment_id
              and q.status <> 'left'`;
-  await tx`update appointments a set status = 'done'
+  if (closeNow) await tx`update appointments a set status = 'done'
            from tickets t
            where t.id = ${ticket.id} and a.id = t.appointment_id`;
 
-  return { ticketId: ticket.id, totalCents: paidTotal, tipCents: totalTip, allocations: out, earnings };
+  return {
+    ticketId: ticket.id,
+    totalCents: settlementStage === 'tip' ? ticket.totalCents + paidTotal : paidTotal,
+    closed: closeNow,
+    tipCents: totalTip,
+    allocations: out,
+    earnings,
+  };
 }
 
 const handleTicketCloseOrPay = async ({ input, ctx, tx, audit, emit }: HandlerArgs<
-  typeof TicketClose.input._type>) => {
+  typeof TicketPay.input._type>) => {
   const ticket = await loadTicketForClose(tx, input.ticketId);
   await assertDayOpen(tx, ctx.locationId, ticket.businessDate);
   const loaded = await loadPlans(tx, ctx.locationId);
@@ -684,18 +753,19 @@ const handleTicketCloseOrPay = async ({ input, ctx, tx, audit, emit }: HandlerAr
     surchargeCents: input.surchargeCents,
     tipSplits: input.tipSplits,
     loaded,
+    settlementStage: input.paymentStage,
   });
 
-  // 审计留动作不留金额：只记「结了、几种支付方式、分给几个人」
+  // 审计仅留状态转换；金额仍完全由 command auditRedact 处理。
   audit({
     entityType: 'ticket', entityId: input.ticketId,
     after: {
-      status: 'closed',
+      settlementStage: input.paymentStage,
+      status: r.closed ? 'closed' : ticket.status,
+      closed: r.closed,
       methods: input.payments.map((p) => p.method),
       keepChange: input.payments.some((p) => p.keepChange),
       allocationCount: r.allocations.length,
-      taxCents: input.taxCents ?? 0,
-      surchargeCents: input.surchargeCents ?? 0,
     },
   });
 
@@ -719,21 +789,32 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
     id: string; status: string; subtotal_cents: number; discount_cents: number;
     tax_cents: number; surcharge_cents: number; service_charge_cents: number;
     tip_cents: number; total_cents: number; refund_cents: number; business_date: string;
-    customer_id: string | null;
+    customer_id: string | null; service_settled_at: string | null;
   }[]>`
     select id, status, subtotal_cents, discount_cents, tax_cents, surcharge_cents,
            service_charge_cents, tip_cents, total_cents, refund_cents,
-           business_date::text as business_date, customer_id
+           business_date::text as business_date, customer_id,
+           service_settled_at::text as service_settled_at
     from tickets
     where id = ${input.ticketId} and location_id = ${ctx.locationId} for update`;
 
   if (!t) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket' } });
-  if (t.status !== 'closed' && t.status !== 'refunded') {
+  const prepaidActivity = t.service_settled_at !== null && t.status !== 'closed' && t.status !== 'refunded';
+  if (t.status !== 'closed' && t.status !== 'refunded' && !prepaidActivity) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
       details: { reason: 'ticket_not_paid', status: t.status },
     });
   }
   await assertDayOpen(tx, ctx.locationId, t.business_date);
+
+  // A/B have already created financial records before fulfillment.  They may
+  // only be cancelled by returning the entire recorded amount; partial refunds
+  // would leave an active service with a partially reversed ledger.
+  if (prepaidActivity && input.refundAmountCents !== t.total_cents - t.refund_cents) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'prepaid_ticket_requires_full_refund' },
+    });
+  }
 
   if (t.refund_cents + input.refundAmountCents > t.total_cents) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'refund_exceeds_total' } });
@@ -758,6 +839,12 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
       coalesce(sum(gift_card_cents) filter (where method = 'original_payment'), 0)::int as original_gift,
       coalesce(sum(customer_credit_cents) filter (where method = 'original_payment'), 0)::int as original_credit
     from ticket_refunds where ticket_id = ${t.id}`;
+
+  if (prepaidActivity && input.refundTipCents !== t.tip_cents - (already?.tip ?? 0)) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'prepaid_ticket_requires_full_refund' },
+    });
+  }
 
   const serviceTotal = Math.max(0, t.subtotal_cents - t.discount_cents);
   const feeTotal = t.surcharge_cents + t.service_charge_cents;
@@ -948,6 +1035,14 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
     await tx`update earnings
                set reversed_at = now(), reversed_by = ${ctx.membershipId}
              where ticket_id = ${t.id} and reversed_at is null`;
+    await tx`update appointments a set status = 'cancelled'
+             from tickets ticket where ticket.id = ${t.id} and a.id = ticket.appointment_id`;
+    await tx`update appointment_items ai set status = 'cancelled'
+             from tickets ticket where ticket.id = ${t.id} and ai.appointment_id = ticket.appointment_id
+               and ai.status <> 'completed'`;
+    await tx`update walkin_queue q set status = 'left', left_at = now()
+             from tickets ticket where ticket.id = ${t.id}
+               and q.appointment_id = ticket.appointment_id and q.status <> 'left'`;
   } else {
     const cumulativeServiceRefund = (already?.service ?? 0) + serviceCents;
     if (serviceCents > 0) {
@@ -1228,12 +1323,20 @@ registerHandler(TicketVoid, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     status: string; business_date: string; appointment_id: string | null;
   }[]>`
     select status, business_date::text as business_date, appointment_id
-    from tickets where id = ${input.ticketId}`;
+    from tickets where id = ${input.ticketId} for update`;
   if (!t) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket' } });
-  if (t.status === 'voided') {
+  if (t.status === 'voided' || t.status === 'refunded') {
     throw new AppError(ERROR_CODES.ALREADY_CANCELLED, { details: { status: t.status } });
   }
   await assertDayOpen(tx, ctx.locationId, t.business_date);
+
+  const [paymentActivity] = await tx<{ exists: boolean }[]>`
+    select exists(select 1 from payments where ticket_id = ${input.ticketId}) as exists`;
+  if (paymentActivity?.exists) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'paid_ticket_requires_refund' },
+    });
+  }
 
   // ⚠️ 冲销，不删除（宪法第 9 条）。
   // 原来这里是 `delete from tip_allocations` —— 两个问题：财务记录不该消失，

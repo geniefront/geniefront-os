@@ -86,7 +86,7 @@ registerHandler(TicketStartItem, async ({ input, ctx, tx, audit, emit }: Handler
     from ticket_items ti join tickets t on t.id = ti.ticket_id
     where ti.id = ${input.ticketItemId}`;
   if (!row) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket_item' } });
-  if (row.status === 'closed' || row.status === 'voided') {
+  if (row.status === 'closed' || row.status === 'voided' || row.status === 'refunded') {
     throw new AppError(ERROR_CODES.TICKET_ALREADY_CLOSED, { details: { status: row.status } });
   }
   await assertCanActOnTicketItem(tx, ctx, row.id, input.membershipId);
@@ -148,13 +148,16 @@ registerHandler(TicketFinishItem, async ({ input, ctx, tx, audit, emit }: Handle
   const [row] = await tx<{
     id: string; ticket_id: string; started_at: string | null; finished_at: string | null;
     status: string; business_date: string; resource_id: string | null;
+    checkout_timing_snapshot: string; service_settled_at: string | null; tip_settled_at: string | null;
   }[]>`
     select ti.id, ti.ticket_id, ti.started_at, ti.finished_at, t.status, ti.resource_id,
+           t.checkout_timing_snapshot, t.service_settled_at::text as service_settled_at,
+           t.tip_settled_at::text as tip_settled_at,
            t.business_date::text as business_date
     from ticket_items ti join tickets t on t.id = ti.ticket_id
     where ti.id = ${input.ticketItemId}`;
   if (!row) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket_item' } });
-  if (row.status === 'closed' || row.status === 'voided') {
+  if (row.status === 'closed' || row.status === 'voided' || row.status === 'refunded') {
     throw new AppError(ERROR_CODES.TICKET_ALREADY_CLOSED, { details: { status: row.status } });
   }
   await assertCanActOnTicketItem(tx, ctx, row.id, input.membershipId);
@@ -189,7 +192,12 @@ registerHandler(TicketFinishItem, async ({ input, ctx, tx, audit, emit }: Handle
   }
 
   if (done) {
-    await tx`update tickets set status = 'ready_to_pay'
+    const prepaidCombined = row.checkout_timing_snapshot === 'upfront_combined'
+      && row.service_settled_at !== null && row.tip_settled_at !== null;
+    await tx`update tickets set
+        status = ${prepaidCombined ? 'closed' : 'ready_to_pay'},
+        closed_at = case when ${prepaidCombined} then now() else closed_at end,
+        closed_by = case when ${prepaidCombined} then ${ctx.membershipId} else closed_by end
              where id = ${row.ticket_id} and status = 'in_service'`;
     await tx`update appointments a set status = 'done'
              from tickets t
@@ -198,6 +206,11 @@ registerHandler(TicketFinishItem, async ({ input, ctx, tx, audit, emit }: Handle
              from tickets t
              where t.id = ${row.ticket_id} and ai.appointment_id = t.appointment_id
                and ai.status <> 'cancelled'`;
+    if (prepaidCombined) {
+      await tx`update walkin_queue q set status = 'completed'
+               from tickets t where t.id = ${row.ticket_id}
+                 and q.appointment_id = t.appointment_id and q.status <> 'left'`;
+    }
   }
 
   audit({

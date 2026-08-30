@@ -604,16 +604,17 @@ registerHandler(SaveCheckoutSettings, async ({ input, ctx, tx, audit }: HandlerA
   const footer = input.receiptFooterMessage ?? null;
   const autoPrint = input.autoPrintReceipt !== undefined ? input.autoPrintReceipt : true;
   const autoSms = input.autoSendSmsReceipt !== undefined ? input.autoSendSmsReceipt : true;
+  const checkoutTiming = input.checkoutTiming ?? 'after_service_combined';
 
   await tx`
     insert into location_checkout_settings (
       location_id, sales_tax_rate_percent, tax_calculation_mode,
       suggested_tip_percentages, allow_custom_tip, default_cash_float_cents,
-      receipt_footer_message, auto_print_receipt, auto_send_sms_receipt, updated_at
+      receipt_footer_message, auto_print_receipt, auto_send_sms_receipt, checkout_timing, updated_at
     ) values (
       ${ctx.locationId}, ${taxRate}, ${taxMode},
       ${tips}, ${allowCustom}, ${cashFloat},
-      ${footer}, ${autoPrint}, ${autoSms}, now()
+      ${footer}, ${autoPrint}, ${autoSms}, ${checkoutTiming}, now()
     )
     on conflict (location_id) do update set
       sales_tax_rate_percent = excluded.sales_tax_rate_percent,
@@ -624,6 +625,7 @@ registerHandler(SaveCheckoutSettings, async ({ input, ctx, tx, audit }: HandlerA
       receipt_footer_message = excluded.receipt_footer_message,
       auto_print_receipt = excluded.auto_print_receipt,
       auto_send_sms_receipt = excluded.auto_send_sms_receipt,
+      checkout_timing = excluded.checkout_timing,
       updated_at = now()`;
 
   // 也冗余到 locations.settings['checkout'] 方便轻量读取
@@ -636,6 +638,7 @@ registerHandler(SaveCheckoutSettings, async ({ input, ctx, tx, audit }: HandlerA
     receiptFooterMessage: footer,
     autoPrintReceipt: autoPrint,
     autoSendSmsReceipt: autoSms,
+    checkoutTiming,
   };
 
   await tx`update locations set

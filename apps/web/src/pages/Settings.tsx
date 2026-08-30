@@ -291,6 +291,7 @@ export function Settings() {
   const [receiptFooter, setReceiptFooter] = useState('');
   const [autoPrintReceipt, setAutoPrintReceipt] = useState(false);
   const [autoSendSmsReceipt, setAutoSendSmsReceipt] = useState(false);
+  const [checkoutTiming, setCheckoutTiming] = useState<'service_then_tip' | 'upfront_combined' | 'after_service_combined'>('after_service_combined');
 
   // 4. 在线预约与排班规则
   const [onlineEnabled, setOnlineEnabled] = useState(false);
@@ -406,6 +407,7 @@ export function Settings() {
         setReceiptFooter(settings.checkout.receiptFooterMessage ?? '');
         if (settings.checkout.autoPrintReceipt !== undefined) setAutoPrintReceipt(settings.checkout.autoPrintReceipt);
         if (settings.checkout.autoSendSmsReceipt !== undefined) setAutoSendSmsReceipt(settings.checkout.autoSendSmsReceipt);
+        if (settings.checkout.checkoutTiming) setCheckoutTiming(settings.checkout.checkoutTiming);
       }
       if (settings.guest?.onlineBooking) {
         setOnlineEnabled(Boolean(settings.guest.onlineBooking.enabled));
@@ -549,6 +551,7 @@ export function Settings() {
         receiptFooterMessage: receiptFooter.trim() || null,
         autoPrintReceipt,
         autoSendSmsReceipt,
+        checkoutTiming,
       });
       toast.success(t('settings.stCheckoutSaved'));
     } catch (err: any) {
@@ -1305,6 +1308,41 @@ export function Settings() {
                   </Button>
                 }
               >
+                <SettingsRow
+                  label={t('settings.stCheckoutTiming')}
+                  description={t('settings.stCheckoutTimingDesc')}
+                  alignTop
+                >
+                  <div className="grid gap-2 max-w-xl">
+                    {([
+                      ['service_then_tip', 'settings.stTimingServiceThenTip', 'settings.stTimingServiceThenTipDesc'],
+                      ['upfront_combined', 'settings.stTimingUpfrontCombined', 'settings.stTimingUpfrontCombinedDesc'],
+                      ['after_service_combined', 'settings.stTimingAfterCombined', 'settings.stTimingAfterCombinedDesc'],
+                    ] as const).map(([value, label, description]) => (
+                      <label
+                        key={value}
+                        className={cn(
+                          'flex gap-3 rounded-xl border p-3 cursor-pointer transition-colors',
+                          checkoutTiming === value ? 'border-teal-500 bg-teal-50' : 'border-slate-200 hover:bg-slate-50',
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="checkoutTiming"
+                          checked={checkoutTiming === value}
+                          onChange={() => setCheckoutTiming(value)}
+                          className="mt-0.5 text-teal-600 focus:ring-teal-500"
+                        />
+                        <span>
+                          <span className="block text-xs font-bold text-slate-900">{t(label)}</span>
+                          <span className="block mt-0.5 text-[11px] leading-5 text-slate-500">{t(description)}</span>
+                        </span>
+                      </label>
+                    ))}
+                    <p className="text-[11px] text-amber-700">{t('settings.stCheckoutTimingSnapshotHint')}</p>
+                  </div>
+                </SettingsRow>
+
                 <SettingsRow
                   label={t('settings.stTaxRate')}
                   description={t('settings.stTaxRateDesc')}

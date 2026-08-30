@@ -146,7 +146,7 @@ describe('⭐ 技师在床边先看到哪一句', () => {
     customer_locale: null, service_name: '深层按摩 90 分钟', duration_min: 90,
     started_at: null, finished_at: null, resource_name: '3 号房',
     is_request: false, details: null, prefs: null, cust_notes: null, allergies: null,
-    ticket_status: 'in_service', tip_cash: 0, tip_card: 0, direct_cash: 0,
+    ticket_status: 'in_service', tip_settled_at: null, tip_cash: 0, tip_card: 0, direct_cash: 0,
     payout_settled: false,
     ...over,
   });
@@ -250,6 +250,7 @@ describe('开始 / 完成', () => {
     }, ctx);
     const [item] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
       select id from ticket_items where ticket_id = ${t.ticketId}`);
+    await run('ticket.finishItem', { ticketItemId: item!.id }, ctx);
     await run('ticket.close', {
       ticketId: t.ticketId,
       payments: [{ method: 'cash', amountCents: t.subtotalCents, tipCents: 0 }],

@@ -118,6 +118,7 @@ export interface TaskRow {
   allergies: Record<string, unknown> | null;
   service_notes?: unknown;
   ticket_status: string;
+  tip_settled_at: string | null;
   tip_cash: number;
   tip_card: number;
   direct_cash: number;
@@ -221,7 +222,7 @@ export function buildTask(
       cashCents: r.tip_cash,
       cardCents: r.tip_card,
       directCashCents: r.direct_cash,
-      status: r.ticket_status !== 'closed' && r.direct_cash === 0
+      status: !r.tip_settled_at && r.direct_cash === 0
         ? 'awaiting_checkout'
         : r.tip_cash === 0 && r.tip_card === 0
           ? 'no_tip'
@@ -255,6 +256,7 @@ export async function loadStaffToday(
            ti.started_at, ti.finished_at, ti.details,
            ai.is_request, coalesce(item_resource.name, appointment_resource.name) as resource_name,
            cp.profile as prefs, cp.allergies, t.status as ticket_status,
+           t.tip_settled_at::text as tip_settled_at,
            coalesce(tips.tip_cash, 0)::int as tip_cash,
            coalesce(tips.tip_card, 0)::int as tip_card,
            coalesce(tips.direct_cash, 0)::int as direct_cash,

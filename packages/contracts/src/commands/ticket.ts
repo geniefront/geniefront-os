@@ -21,6 +21,7 @@ import { defineCommand, uuid, cents } from '../command.js';
  * batch total 就永远差出这一笔，而那正是日结要发现的那种差额。
  */
 export const paymentMethod = z.enum(['cash', 'card', 'external', 'gift_card', 'customer_credit']);
+export const paymentStage = z.enum(['service', 'tip', 'combined']);
 
 export const voidReason = z.enum([
   'duplicate_booking', 'walk_out', 'guest_changed_mind',
@@ -173,6 +174,8 @@ export const TicketClose = defineCommand({
       commissionCents: cents,
     })).optional(),
     notes: z.string().max(2000).optional(),
+    /** Legacy close is intentionally the after-service combined entry point. */
+    paymentStage: z.literal('combined').default('combined'),
   }),
   output: z.object({
     ticketId: uuid,
@@ -200,7 +203,10 @@ export const TicketClose = defineCommand({
 
 export const TicketPay = defineCommand({
   name: 'ticket.pay',
-  input: TicketClose.input,
+  input: TicketClose.input.extend({
+    payments: z.array(paymentLine).max(5),
+    paymentStage: paymentStage.default('combined'),
+  }),
   output: TicketClose.output,
   permission: 'ticket.write',
   ai: {
