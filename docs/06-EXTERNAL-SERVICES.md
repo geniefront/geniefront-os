@@ -36,7 +36,7 @@
 | 服务 | 用途 | 密钥 / 配置项 | 备注 |
 | :--- | :--- | :--- | :--- |
 | **Cloudflare Turnstile** | 公开预约页面的防刷单 / 防机器人 | `TURNSTILE_SITE_KEY`<br>`TURNSTILE_SECRET_KEY` | 免费，体验优于 reCAPTCHA |
-| **Stripe** | B2B SaaS 收费：门店月费（`essential` $99 / `growth` $199）+ 预充值（积分 / 语音分钟两种，**不可互换**） | `STRIPE_PUBLIC_KEY`<br>`STRIPE_SECRET_KEY`<br>`STRIPE_WEBHOOK_SECRET` | 需完成业务主体认证。**一个 org = 一个 Customer，每家店一个 subscription item**（`02` §1）。副驾额度与电话分钟是**两个独立的计量项**，不能合并成一个"额度" |
+| **Stripe** | B2B SaaS 收费：门店月费（`essential` $99 / `growth` $199）+ 预充值（积分 / 语音分钟两种，**不可互换**） | `STRIPE_PUBLISHABLE_KEY`<br>`STRIPE_SECRET_KEY`<br>`STRIPE_WEBHOOK_SECRET`<br>`STRIPE_PRICE_ESSENTIAL`<br>`STRIPE_PRICE_GROWTH` | 需完成业务主体认证。**一个 org = 一个 Customer，每家店一个 subscription item**（`02` §1）。公开开户 Checkout 由 `POST /v1/public/signup-checkout` 创建，webhook **只有** `POST /v1/stripe/webhook`。营销回跳用 `MARKETING_BASE_URL`，desk 激活用 `APP_BASE_URL` |
 | **Google Maps API**<br>*(可选)* | 创建门店时输入名称即自动填入地址、营业时间 | `GOOGLE_MAPS_API_KEY`（Places API） | 需在 GCP 开启并限制 HTTP Referer |
 | **Yelp Fusion API**<br>*(Phase 2)* | ⭐ **开店一键填充**：店名 + 邮编搜到店，自动带出地址/电话/营业时间/评分。同一个 key 还提供权威的 `rating` / `review_count` | `YELP_CLIENT_ID`<br>`YELP_API_KEY` | ⚠️ `/reviews` 端点**只返回 3 条、正文截断到约 160 字**，做不了完整口碑分析 —— 那部分靠 Bright Data（`05` §8） |
 | **Bright Data**<br>*(Phase 3)* | 抓取 **Google**（以及需要时的 Yelp）完整评价正文，Top 50 | `BRIGHT_DATA_API_KEY` | 配合 BullMQ Cron 每日抓取，增量对比后才调用 LLM |

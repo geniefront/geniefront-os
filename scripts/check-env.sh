@@ -345,6 +345,28 @@ if [[ -n "${VAPI_API_KEY:-}" && -n "${VAPI_PUBLIC_KEY:-}" \
   bad "VAPI_API_KEY 和 VAPI_PUBLIC_KEY 填成了同一个"
 fi
 
+if [[ -n "${MARKETING_BASE_URL:-}" ]]; then
+  if [[ "$MARKETING_BASE_URL" == *geniefront.app* ]]; then
+    bad "MARKETING_BASE_URL 用了 .app —— 公开站是 geniefront.com"
+  elif [[ "$MARKETING_BASE_URL" == *desk.geniefront.com* ]]; then
+    bad "MARKETING_BASE_URL 填成了 desk —— 那是 APP_BASE_URL"
+  elif [[ "$MARKETING_BASE_URL" =~ ^https?:// ]]; then
+    ok "MARKETING_BASE_URL  ${D}${MARKETING_BASE_URL}${N}"
+  else
+    bad "MARKETING_BASE_URL 不是 http(s) URL"
+  fi
+else
+  skip "MARKETING_BASE_URL 未填（apps/marketing Checkout 回跳需要）"
+fi
+
+if [[ -n "${APP_BASE_URL:-}" ]]; then
+  if [[ "$APP_BASE_URL" == *geniefront.app* ]]; then
+    bad "APP_BASE_URL 用了 .app —— desk 是 desk.geniefront.com"
+  else
+    ok "APP_BASE_URL  ${D}${APP_BASE_URL}${N}"
+  fi
+fi
+
 if [[ -n "${STRIPE_SECRET_KEY:-}" ]]; then
   if [[ "$STRIPE_SECRET_KEY" == sk_live_* ]]; then
     echo "  ${Y}!${N} ${Y}STRIPE_SECRET_KEY 是 live key —— 开发环境请用 sk_test_${N}"

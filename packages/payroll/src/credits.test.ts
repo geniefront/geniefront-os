@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   creditsFor, minutesFor, MILLICENTS_PER_CREDIT,
-  PLAN_QUOTAS, planQuota, includedFor,
+  PLAN_QUOTAS, PLAN_PRICES_CENTS, PLANS, planQuota, includedFor,
   TOPUP_PRICE_CENTS, TOPUP_UNITS, unitsPerTopup,
   allocateQuota, shouldAutoTopup, applyEntry, replayBalance, findLedgerBreak,
   TOPUP_COOLDOWN_MS, MAX_TOPUP_FAILURES, DEFAULT_TOPUP_THRESHOLD,
@@ -89,6 +89,14 @@ describe('语音按分钟向上取整', () => {
 // ─────────────────────────────────────────────────────────────────── 套餐
 
 describe('套餐额度', () => {
+  it('canonical plans 只有 essential / growth，月费 $99 / $199', () => {
+    expect(PLANS).toEqual(['essential', 'growth']);
+    expect(PLAN_PRICES_CENTS.essential).toBe(9900);
+    expect(PLAN_PRICES_CENTS.growth).toBe(19900);
+    expect('starter' in PLAN_PRICES_CENTS).toBe(false);
+    expect('enterprise' in PLAN_PRICES_CENTS).toBe(false);
+  });
+
   it('Essential 500 积分 + 60 分钟；Growth 1200 + 500', () => {
     expect(PLAN_QUOTAS.essential).toEqual({ credits: 500, voiceMinutes: 60 });
     expect(PLAN_QUOTAS.growth).toEqual({ credits: 1200, voiceMinutes: 500 });

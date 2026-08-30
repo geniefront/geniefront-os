@@ -49,6 +49,7 @@ import { registerKioskRoutes } from './kiosk/routes';
 import { registerPublicRoutes } from './public/routes';
 import { registerFormLinkRoutes } from './public/formRoutes';
 import { registerStripeRoutes } from './stripe/routes';
+import { registerSignupCheckoutRoutes } from './signup/routes';
 import { registerCopilotRoutes } from './copilot/routes';
 import { registerAuthRoutes } from './auth/routes';
 import { registerPasswordResetRoutes } from './auth/passwordReset';
@@ -243,6 +244,7 @@ export function buildServer(): FastifyInstance {
 
   // ── 外部与特化路由 ─────────────────────────────────────────────────────────
   registerStripeRoutes(app, ctxFromHeaders);
+  registerSignupCheckoutRoutes(app);
   registerCopilotRoutes(app, ctxFromHeaders);
   registerAuthRoutes(app);
   registerPasswordResetRoutes(app);

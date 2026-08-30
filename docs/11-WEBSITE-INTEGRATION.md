@@ -1,31 +1,38 @@
 # 11 · 官网 ↔ 系统 的对接契约
 
-> **写给做官网的那个 AI。** 官网是独立仓库、独立部署，和这个系统之间
-> **只有一个接触面：Stripe Checkout 的 metadata**。
+> **写给做官网的那个 AI。** 最小公开入口现在是本仓的 `apps/marketing`。
+> 它和系统之间**只有一个接触面：Stripe Checkout 的 metadata**。
+> 浏览器不再拿 Stripe Secret、也不再自己建 Session。
 >
-> 这一份只讲那个接触面。读完就能开工，不需要读这个仓库的其它文档。
+> 这一份只讲那个接触面。读完就能开工。
+
+**状态（2026-08-30）：** `POST /v1/public/signup-checkout` 已实现。官网只提交
+`shopName` / `ownerEmail` / `plan`。服务端选择 Price ID、metadata、试用天数
+和回跳地址。Webhook 仍然只有 `POST /v1/stripe/webhook`。
 
 ---
 
 ## 1. 分工：谁做什么
 
 ```
-官网（你做）                          这个系统（已经在了）
+apps/marketing                         这个系统
 ─────────────────────────────        ─────────────────────────────
-落地页 / 定价页 / 试算
-建 Stripe Checkout Session  ──────►  Stripe
-   （带 metadata，见 §3）
-付款成功页「请查收邮件」                 ◄────── webhook（我们收）
+落地页 / 定价页 / 店名+邮箱
+POST /v1/public/signup-checkout  ──►  API 建 Stripe Checkout Session
+                                      （metadata 见 §3，Price ID 见环境变量）
+跳到 Stripe Hosted Checkout
+成功页「请查收邮件」                     ◄────── webhook（我们收）
                                      建 org + 门店 + 账单账户
                                      发激活邮件
                                      老板点链接 → 开店向导 → 开始用
 ```
 
-### ⛔ 官网**不要**做的四件事
+### ⛔ 官网**不要**做的五件事
 
 | 不要做 | 为什么 |
 | :--- | :--- |
 | **不要处理 Stripe webhook** | webhook 归我们收。两边都收必然出现「官网以为开好了、我们这边没开」，而钱已经收了 —— 那种投诉查起来极痛苦 |
+| **不要拿 STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET** | Checkout Session 由 API 建。密钥进浏览器就是事故 |
 | **不要建账号、不要收密码** | 身份由 Supabase Auth 管。官网收了密码就等于多一个泄露面，而且和真正的账号体系对不上 |
 | **不要自己发「欢迎」邮件** | 激活邮件由我们发（里面带一次性登录链接）。官网再发一封，老板会拿着错的那封点进死链 |
 | **不要显示「立即登录」按钮** | 付款那一刻账号还不存在。付款成功页只能说「**查收邮件**」（见 §5） |
@@ -33,6 +40,9 @@
 ---
 
 ## 2. 套餐与 Price id
+
+展示价（整数分）的唯一代码源是 `@gf/payroll` 的 `PLAN_PRICES_CENTS` /
+`PLAN_QUOTAS`。Stripe Price ID **只存在服务端环境变量里**，不进前端。
 
 | 套餐 | 月费 | 含 AI 积分 | 含 AI 语音 | 环境变量 |
 | :--- | :--- | :--- | :--- | :--- |
@@ -57,6 +67,20 @@
 
 这是**整个对接的全部内容**。少一个字段，我们就建不出门店，而钱已经收了。
 
+公开入口：
+
+```
+POST /v1/public/signup-checkout
+{ "shopName": "Lotus Nails", "ownerEmail": "owner@shop.com", "plan": "essential" }
+→ { "url": "https://checkout.stripe.com/c/pay/cs_test_…" }
+```
+
+浏览器**不许**传 Stripe Price ID、customer id、org/location id、任意 metadata、
+试用天数、或回跳 URL。服务端用 `STRIPE_PRICE_ESSENTIAL` / `STRIPE_PRICE_GROWTH`
+和 `MARKETING_BASE_URL` 自己填。
+
+服务端实际创建的 Session 等价于：
+
 ```js
 const session = await stripe.checkout.sessions.create({
   mode: 'subscription',
@@ -68,10 +92,10 @@ const session = await stripe.checkout.sessions.create({
   subscription_data: { trial_period_days: 7, metadata: { gf_signup: '1' } },
 
   // ⭐ 必填。激活邮件发到这里，而**收到激活邮件的人就是这家店的老板**
-  customer_email: form.email,
+  customer_email: form.email,           // = canonical gf_owner_email
 
-  success_url: 'https://geniefront.com/welcome?s={CHECKOUT_SESSION_ID}',
-  cancel_url:  'https://geniefront.com/pricing',
+  success_url: `${process.env.MARKETING_BASE_URL}/signup/success?session_id={CHECKOUT_SESSION_ID}`,
+  cancel_url:  `${process.env.MARKETING_BASE_URL}/signup/cancel`,
 
   metadata: {
     gf_signup: '1',                       // ⭐ 没有这个我们会当成老客户续费
@@ -188,13 +212,21 @@ const session = await stripe.checkout.sessions.create({
 
 ## 8. 需要的凭据
 
-官网只需要 Stripe 的：
+`apps/marketing` **不需要**任何 Stripe 密钥。它只调公开 API。
+
+API / 运维需要：
 
 ```
-STRIPE_SECRET_KEY          # 建 Checkout Session
+STRIPE_SECRET_KEY          # 建 Checkout Session（只在 API）
+STRIPE_WEBHOOK_SECRET      # 只给 POST /v1/stripe/webhook
 STRIPE_PRICE_ESSENTIAL     # price_xxx
 STRIPE_PRICE_GROWTH        # price_xxx
+MARKETING_BASE_URL         # https://www.geniefront.com （本地 http://localhost:5180）
+APP_BASE_URL               # https://desk.geniefront.com （激活信 /activate）
 ```
 
-⛔ **官网不需要也不应该拿到**：`STRIPE_WEBHOOK_SECRET`（webhook 归我们）、
+Supabase Auth Redirect URLs 白名单必须包含 desk 的 `/activate` 和 `/reset-password`
+（`07` §A1b）。不要填 marketing 域名去接激活信。
+
+⛔ **官网不需要也不应该拿到**：`STRIPE_SECRET_KEY`、`STRIPE_WEBHOOK_SECRET`、
 任何 Supabase 的 key、任何我们数据库的连接串。

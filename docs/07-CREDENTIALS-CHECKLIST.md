@@ -73,13 +73,14 @@ Create Credentials → **OAuth client ID** → Web application
 - Authentication → URL Configuration → **Redirect URLs** 白名单里加上前端的落地页：
 
   ```
-  http://localhost:5190/**          # 本地开发
-  https://app.geniefront.com/**     # 生产
+  http://localhost:5177/**              # 本地 desk（apps/web）
+  https://desk.geniefront.com/**        # 生产 desk。不要填 .app
   ```
 
   ⭐ 这条白名单**同时管三样东西**的落地页，少一个就少一条能用的路：
   Google 登录回跳、激活邮件的 `/activate`、忘记密码的 `/reset-password`。
   上面那个 `/**` 通配一次覆盖掉，但如果你收紧成逐条列举，三条都要列。
+  Marketing（`apps/marketing`）不接激活信，不必加进这条白名单。
 
   ⚠️ 不在白名单里的 `redirectTo`，Supabase 会**静默换成 Site URL** ——
   表现是「登录成功但跳回了首页，一直登不进后台」。
@@ -161,7 +162,9 @@ FROM_EMAIL=noreply@mail.你的域名
 |---|---|---|---|
 | **Telnyx** ⭐ | 号码 + 语音 + **AI Assistant 对话** + （Phase 2.5）短信 | `TELNYX_API_KEY`<br>`TELNYX_PUBLIC_KEY`<br>`TELNYX_PHONE_NUMBER`<br>`TELNYX_ASSISTANT_ID`<br>`TELNYX_MESSAGING_PROFILE_ID` | ⚠️ **`TELNYX_PUBLIC_KEY` 最容易漏**：它不是调 API 的，是**验证打进来的 webhook 是不是真的来自 Telnyx**（Ed25519）。没有它，任何人都能伪造一条"客人预约了明天三点"进复核队列（`09` §3） |
 | ~~Twilio / Vapi~~ | 已否决 | —— | 语音回退路径**已作废**。⚠️ 但 **Twilio 的 10DLC 申请不要注销**，直到 Telnyx 批下来（`09` §1.1） |
-| **Stripe** | 向门店收订阅费 | `STRIPE_SECRET_KEY`<br>`STRIPE_PUBLISHABLE_KEY`<br>`STRIPE_WEBHOOK_SECRET` | ⚠️ **需要公司实体 + EIN 做业务认证**，见 D1。先用 test key 开发 |
+| **Stripe** | 向门店收订阅费 | `STRIPE_SECRET_KEY`<br>`STRIPE_PUBLISHABLE_KEY`<br>`STRIPE_WEBHOOK_SECRET`<br>`STRIPE_PRICE_ESSENTIAL`<br>`STRIPE_PRICE_GROWTH` | ⚠️ **需要公司实体 + EIN 做业务认证**，见 D1。先用 test key 开发。Secret / webhook secret **只进 API**，不要进 `apps/marketing` |
+| **Marketing origin** | 公开开户 Checkout 回跳 | `MARKETING_BASE_URL` | `https://www.geniefront.com`（本地 `http://localhost:5180`）。**不是** desk，也不是 `.app` |
+| **Desk origin** | 激活信 / 重置密码落地 | `APP_BASE_URL` | `https://desk.geniefront.com`。Supabase Redirect URLs 白名单必须含 `/activate` 与 `/reset-password` |
 | **Cloudflare Turnstile** | 公开预约页防刷 | `TURNSTILE_SITE_KEY`<br>`TURNSTILE_SECRET_KEY` | 免费，在 Cloudflare 控制台建 |
 | **Google Maps**（可选） | 开店时自动填地址/营业时间 | `GOOGLE_MAPS_API_KEY` | Places API，记得限制 Referer |
 
@@ -239,9 +242,13 @@ TWILIO_AUTH_TOKEN=
 TWILIO_PHONE_NUMBER=
 VAPI_API_KEY=
 VAPI_PUBLIC_KEY=
-STRIPE_SECRET_KEY=
+STRIPE_SECRET_KEY=               # 只进 API，不要进 apps/marketing
 STRIPE_PUBLISHABLE_KEY=
-STRIPE_WEBHOOK_SECRET=
+STRIPE_WEBHOOK_SECRET=           # 只给 POST /v1/stripe/webhook
+STRIPE_PRICE_ESSENTIAL=
+STRIPE_PRICE_GROWTH=
+APP_BASE_URL=                    # https://desk.geniefront.com
+MARKETING_BASE_URL=              # https://www.geniefront.com
 TURNSTILE_SITE_KEY=
 TURNSTILE_SECRET_KEY=
 GOOGLE_MAPS_API_KEY=

@@ -15,7 +15,8 @@
 | Setup 浏览器验收 | 已完成 | 真实保存门店资料、刷新恢复、项目、可接单员工与正式开店，完成后自动进入后台且 `/setup` 回退正确 |
 | 开店后 Web/技师/Kiosk 回归 | 本地关键链路已完成 | Kiosk 取号 → 前台分配 → 技师完成 → 前台现金结账 → 归档已走通；价格/时长透传与工位状态重复写入问题已修复 |
 | 两个生产长期测试账号 | 方案已确定，等待隔离 Stripe test 入口 | `signup-smoke@geniefront.com` 与 `ops-smoke@geniefront.com`；不得使用当前官网 live Checkout 做冒烟测试 |
-| 官网重制 | 后置 | 现官网先保持运行；模板 `geniefront-os-marketing-template` 在核心链路验收后接入正式 Checkout 契约 |
+| 官网重制 | 后置 | 最终营销站仍后置。最小生产入口是本仓 `apps/marketing`：定价 → `POST /v1/public/signup-checkout` → Stripe Hosted Checkout → 现有 webhook 建店 |
+| 数据库迁移 | 生产仍需 | `0072`（invoice tenant）· `0073`（10DLC internal review）· `0074`（platform console）。本批**不改**这些迁移 |
 
 ## 2. 逐段验收
 
@@ -110,11 +111,12 @@
 2. 为 Stripe test mode 准备独立的 staging/test API 回调域名，创建 Webhook endpoint，并把其签名 secret 只配置到该环境。
 3. 创建并保留 `ops-smoke@geniefront.com` 运营回归店，再用 `signup-smoke@geniefront.com` 从 test Checkout 完整跑真实邮件激活链路。
 4. 补齐预约改期/取消、退款、日结、断网与移动端矩阵，保存验收证据和回滚点。
-5. 官网从 `geniefront-os-marketing-template` 开始重制；前端只提交套餐标识，金额和 Stripe Price 始终由 API 决定。
+5. 最小开户入口是 `apps/marketing`（`pnpm dev:marketing`，端口 5180）。前端只提交 `shopName` / `ownerEmail` / `plan`；金额展示来自 `@gf/payroll` 的 `PLAN_PRICES_CENTS`，Stripe Price 始终由 API 的 `STRIPE_PRICE_*` 决定。最终营销站（模板 `geniefront-os-marketing-template`）仍后置。
 
 ## 8. 部署与回滚提醒
 
 - `0070_onboarding_import_sources.sql` 和 `0071_stripe_event_retry_lease.sql` 必须先于新 API 流量完成迁移。
+- 生产仍需已经落地的 `0072`、`0073`、`0074`。本批不修改这些迁移。
 - Web、API 与数据库应作为同一发布批次；若回滚 API，不要回滚这两项向后兼容的新增表/字段迁移。
 - Test 与 live Stripe key、Price、Webhook secret 必须分环境保存，禁止把 secret 提交到 Git 或发到聊天记录。
 - 发布后先观察 signup、Stripe webhook、claim、finish setup、ticket start/finish 与 checkout 的错误率，再开放 test Checkout 冒烟入口。

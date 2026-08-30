@@ -622,12 +622,26 @@ GET /v1/me/summary?from=2026-08-19&to=2026-08-25
 | `POST /v1/blueprint/:id/translate` | `catalog.manage` + `ai.use` | 项目名多语言补齐 |
 | `POST /v1/blueprint/plan-regions` | `catalog.manage` | 大牌子分块规划 |
 | `POST /v1/storefront/:id/generate` | `settings.manage` + `ai.use` | ⭐ 建站工单 → **AI 出三版**（批 8） |
-| `POST /v1/billing/checkout` | `billing.manage` | 开订阅（**首次自动带 7 天试用**） |
+| `POST /v1/public/signup-checkout` | 无（公开） | 营销站开户：服务端建 Stripe Hosted Checkout。body 只有 `shopName` / `ownerEmail` / `plan` |
+| `POST /v1/billing/checkout` | `billing.manage` | 已有门店开订阅（**首次自动带 7 天试用**） |
 | `POST /v1/billing/add-store` | `billing.manage` | ⭐ 开第二家店（批 4） |
 | `POST /v1/billing/payment-method` | `billing.manage` | 绑卡（Stripe 托管页） |
 | `POST /v1/billing/topup` | `billing.manage` | 充额度 |
 | `POST /v1/ai/copilot` | `ai.use` | 前台副驾 |
 | `POST /v1/setup/claim` | — | 认领门店（**不要 `X-Membership-Id`**，那一刻还没有） |
+
+### 7.0 公开营销开户 Checkout
+
+```jsonc
+POST /v1/public/signup-checkout
+{ "shopName": "Lotus Nails", "ownerEmail": "owner@shop.com", "plan": "essential" }
+→ { "url": "https://checkout.stripe.com/c/pay/cs_test_…" }
+```
+
+- **不要令牌。** CORS 走 `*.geniefront.com` / localhost，不是 `/public/` 那种任意 origin。
+- `plan` 只能是 `essential` | `growth`。`starter` / `enterprise` / 任意 Price ID 一律 400。
+- 回跳 URL 由 `MARKETING_BASE_URL` 拼：`/signup/success`、`/signup/cancel`。
+- 建店仍然只走 `POST /v1/stripe/webhook`。本路由不发邮件、不建 org。
 
 ### 7.1 图片上传的规矩（extract）
 

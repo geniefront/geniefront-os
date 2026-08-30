@@ -7,10 +7,26 @@
  */
 
 export const DEFAULT_APP_BASE_URL = 'https://desk.geniefront.com';
+export const DEFAULT_MARKETING_BASE_URL = 'https://www.geniefront.com';
 export const DEFAULT_PORTAL_RETURN_PATH = '/settings?tab=billing';
+export const SIGNUP_SUCCESS_PATH = '/signup/success?session_id={CHECKOUT_SESSION_ID}';
+export const SIGNUP_CANCEL_PATH = '/signup/cancel';
 
 export function appBaseUrl(): string {
   return (process.env['APP_BASE_URL'] ?? DEFAULT_APP_BASE_URL).replace(/\/+$/, '');
+}
+
+/** Public marketing origin. Never taken from request input. */
+export function marketingBaseUrl(): string {
+  return (process.env['MARKETING_BASE_URL'] ?? DEFAULT_MARKETING_BASE_URL).replace(/\/+$/, '');
+}
+
+export function signupReturnUrls(): { successUrl: string; cancelUrl: string } {
+  const base = marketingBaseUrl();
+  return {
+    successUrl: `${base}${SIGNUP_SUCCESS_PATH}`,
+    cancelUrl: `${base}${SIGNUP_CANCEL_PATH}`,
+  };
 }
 
 /** 只认站内相对路径。协议、协议相对、或带 host 的一律丢掉。 */

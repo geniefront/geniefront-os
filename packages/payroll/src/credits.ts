@@ -68,6 +68,18 @@ export type Plan = (typeof PLANS)[number];
 export const isPlan = (v: unknown): v is Plan =>
   typeof v === 'string' && (PLANS as readonly string[]).includes(v);
 
+/**
+ * Public display prices in integer cents (decision 8 / docs/11).
+ *
+ * Stripe Price IDs stay in env (`STRIPE_PRICE_ESSENTIAL` / `STRIPE_PRICE_GROWTH`).
+ * These cents are what marketing and emails may render. They must never be sent
+ * to Stripe as a custom amount — Checkout always uses `priceIdFor(plan)`.
+ */
+export const PLAN_PRICES_CENTS: Record<Plan, number> = {
+  essential: 9900,
+  growth: 19900,
+};
+
 export interface PlanQuota {
   /** 每期含多少 AI 积分 */
   credits: number;

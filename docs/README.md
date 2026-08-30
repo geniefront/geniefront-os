@@ -42,7 +42,7 @@ Monorepo 仓库结构：`apps/`（多端应用）与 `packages/`（共享业务�
 ### 2. 🖥️ 前端与多端系统
 | 编号 | 文档 | 核心内容 |
 |---|---|---|
-| **16** | **[`16-FRONTEND-GUIDE.md`](16-FRONTEND-GUIDE.md)** | ⭐⭐ **前端系统开发指南与交接**：终端架构（`web` / `ios` / `ipad`）、前后端契约、6 大开发规范、11 大真数据避坑指南、对标 Kuee 路线图 |
+| **16** | **[`16-FRONTEND-GUIDE.md`](16-FRONTEND-GUIDE.md)** | ⭐⭐ **前端系统开发指南与交接**：终端架构（`web` / `ios` / `ipad`）、前后端契约、6 大开发规范、11 大真数据避坑指南、对标 Kuee 路线图。公开营销站是独立应用 `apps/marketing` |
 | **22** | [`22-SETUP-WORKSPACE-HANDOFF.md`](22-SETUP-WORKSPACE-HANDOFF.md) | 首次开店独立页面、服务端状态门禁、四步营业最小流程与验证记录 |
 | **23** | [`23-PURCHASE-TO-OPEN-CHECKLIST.md`](23-PURCHASE-TO-OPEN-CHECKLIST.md) | 购买、订阅、激活、开店及两个长期测试账号的逐项验收与上线清单 |
 
@@ -76,6 +76,9 @@ Monorepo 仓库结构：`apps/`（多端应用）与 `packages/`（共享业务�
 ```bash
 # 启动 API 服务
 pnpm --filter @gf/api dev
+
+# 启动公开营销 / 开户站（端口 5180）
+pnpm dev:marketing
 
 # 启动统一 Web 前端
 pnpm --filter @gf/web dev
