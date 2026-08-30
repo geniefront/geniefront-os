@@ -47,6 +47,7 @@ const HealthForms = lazy(() => import('./pages/HealthForms').then((m) => ({ defa
 const CompletedHealthForm = lazy(() => import('./pages/CompletedHealthForm').then((m) => ({ default: m.CompletedHealthForm })));
 const Profile = lazy(() => import('./pages/Profile').then((m) => ({ default: m.Profile })));
 const Notifications = lazy(() => import('./pages/Notifications').then((m) => ({ default: m.Notifications })));
+const SetupWizard = lazy(() => import('./pages/SetupWizard').then((m) => ({ default: m.SetupWizard })));
 const UnderConstruction = lazy(() => import('./pages/UnderConstruction').then((m) => ({ default: m.UnderConstruction })));
 const PublicHealthForm = lazy(() => import('./pages/PublicHealthForm').then((m) => ({ default: m.PublicHealthForm })));
 const Layout = lazy(() => import('./components/Layout').then((m) => ({ default: m.Layout })));
@@ -92,7 +93,7 @@ function SuspendedOutlet() {
  * 发起带店请求。
  */
 function SessionGate() {
-  const { status, activePortal, isPureTech, isTechCapable } = useSession();
+  const { status, activePortal, isPureTech, isTechCapable, membership } = useSession();
   const { ready: translationsReady } = useLanguage();
 
   if (status === 'loading') {
@@ -206,6 +207,8 @@ function SessionGate() {
             element={
               activePortal === 'tech' ? (
                 <Navigate to="/tech/today" replace />
+              ) : membership?.locationStatus === 'setup' ? (
+                <Navigate to="/setup" replace />
               ) : (
                 <Navigate to="/dashboard" replace />
               )
@@ -214,6 +217,7 @@ function SessionGate() {
 
           {/* Group 1: Dashboard & Analytics */}
           <Route path="dashboard" element={isPureTech || (activePortal === 'tech' && isTechCapable) ? <Navigate to="/tech/today" replace /> : <Dashboard />} />
+          <Route path="setup" element={<SetupWizard />} />
           <Route path="business-data" element={<BusinessData />} />
           <Route path="community" element={<UnderConstruction titleKey="community" />} />
           <Route path="subscription" element={<Navigate to="/settings?tab=billing" replace />} />
