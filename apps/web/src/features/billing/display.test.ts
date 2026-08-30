@@ -11,6 +11,7 @@ import {
   planNavBadge,
   PORTAL_RETURN_PATH,
   statusBadgeVariant,
+  stripeHostedUrl,
   stripePortalUrl,
   subscriptionStatusKey,
 } from './display';
@@ -64,6 +65,9 @@ describe('Stripe 门户 URL', () => {
   it('合法 https URL 才打开', () => {
     expect(stripePortalUrl({ url: 'https://billing.stripe.com/session/abc' }))
       .toBe('https://billing.stripe.com/session/abc');
+    expect(stripeHostedUrl({ url: 'https://checkout.stripe.com/c/pay/cs_test' }))
+      .toBe('https://checkout.stripe.com/c/pay/cs_test');
+    expect(stripeHostedUrl({ url: null })).toBeNull();
   });
 
   it('前端回跳是相对路径 /settings?tab=billing', () => {
@@ -89,5 +93,9 @@ describe('Settings 账单写路径不再包含假套餐', () => {
     expect(panel).not.toMatch(/stPlanEnterprise/);
     expect(panel).not.toMatch(/INV-2026/);
     expect(panel).not.toMatch(/setConfirmChangePlan/);
+    expect(panel).not.toMatch(/billing\.buyAddon/);
+    expect(panel).not.toMatch(/useBuyAddonMutation/);
+    expect(api).not.toMatch(/billing\.buyAddon/);
+    expect(api).not.toMatch(/useBuyAddonMutation/);
   });
 });

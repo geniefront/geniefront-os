@@ -99,6 +99,11 @@ export function stripePortalUrl(res: { url?: string | null } | null | undefined)
   return safeHttpsUrl(res?.url);
 }
 
+/** Checkout setup / topup hosted pages use the same https-only rule as Portal. */
+export function stripeHostedUrl(res: { url?: string | null } | null | undefined): string | null {
+  return stripePortalUrl(res);
+}
+
 export function isRelativeAppPath(value: string | undefined): value is string {
   return Boolean(value && value.startsWith('/') && !value.startsWith('//') && !value.includes('://'));
 }

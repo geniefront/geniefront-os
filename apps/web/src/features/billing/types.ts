@@ -72,13 +72,12 @@ export interface TaxProfile {
   billingEmail: string;
 }
 
-export interface BuyAddonInput {
-  addonType: 'voice_minutes_100' | 'copilot_credits_500' | 'marketing_sms_1000';
-  priceCents: number;
-}
-
 export interface SaveTaxProfileInput {
   legalEntityName: string;
   taxId: string;
   billingEmail: string;
 }
+
+export type TopupResponse =
+  | { ok: true; unit: QuotaUnit; units: number; balanceAfter: number }
+  | { ok: false; pending: true; status: string };

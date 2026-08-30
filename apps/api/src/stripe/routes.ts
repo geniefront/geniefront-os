@@ -15,8 +15,9 @@
  *
  * 它**没有登录用户** —— 没有 Bearer token、没有 X-Membership-Id。
  * 身份证明只有一个 HMAC 签名，所以第一件事永远是验签（verify.ts）。
- * 定位门店靠 Stripe metadata 里的 `gf_location_id`，那是我们自己在
- * 创建对象时写进去的，不是客户端能塞的东西。
+ * 定位门店先靠 Stripe metadata 里的 `gf_location_id`（我们自己写进去的）。
+ * 发票事件经常没有这份 metadata，再按我们存过的 subscription/customer
+ * 映射回门店。浏览器输不进这条路。
  *
  * ## 绝不碰卡号
  *
@@ -43,6 +44,7 @@ import {
 } from './client';
 import { maybeAutoTopup } from '../billing/autoTopup';
 import { safePortalReturnUrl, safeReturnUrls } from './returnUrl';
+import { resolveWebhookTenant } from './tenant';
 import { renderTrialEnding, formatWhen } from '../email/render';
 import {
   isSignupSession, provisionFromSession, backfillStripeMetadata, sendActivationOnce,
@@ -538,7 +540,7 @@ export function registerStripeRoutes(
 
     const t = signup
       ? { orgId: signup.orgId, locationId: signup.locationId }
-      : tenantFromEvent(event);
+      : await resolveWebhookTenant(event);
     if (!t) {
       // 认不出门店就照常 200。返回 4xx 的话 Stripe 会一直重投 ——
       // 而一条我们本来就处理不了的事件，重投一百次还是处理不了
@@ -844,25 +846,5 @@ export function registerStripeRoutes(
   }
 }
 
-/**
- * 从事件里挖出门店。
- *
- * 顺序是「对象自己的 metadata → 关联对象的 metadata」——
- * 我们在创建每一个 Stripe 对象时都写了 `gf_location_id`，
- * 但订阅的发票事件是 Stripe 自己生成的，只带得上订阅的那一份。
- */
-function tenantFromEvent(event: Stripe.Event): Tenant | null {
-  const obj = event.data.object as { metadata?: Record<string, string> | null };
-  return tenantFromMetadata(obj?.metadata);
-}
-
-function tenantFromMetadata(meta: Record<string, string> | null | undefined): Tenant | null {
-  const locationId = meta?.['gf_location_id'];
-  const orgId = meta?.['gf_org_id'];
-  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!locationId || !orgId || !UUID.test(locationId) || !UUID.test(orgId)) return null;
-  return { orgId, locationId };
-}
-
-export { maybeAutoTopup, safeReturnUrls, safePortalReturnUrl };
+export { maybeAutoTopup, safeReturnUrls, safePortalReturnUrl, resolveWebhookTenant };
 export type { QuotaUnit };

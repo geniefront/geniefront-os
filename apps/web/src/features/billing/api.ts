@@ -7,8 +7,9 @@ import type {
   SetAutoTopupInput,
   BillingInvoicesResponse,
   TaxProfile,
-  BuyAddonInput,
   SaveTaxProfileInput,
+  QuotaUnit,
+  TopupResponse,
 } from "./types";
 
 export const billingKeys = {
@@ -63,32 +64,6 @@ export function useSetAutoTopup() {
   });
 }
 
-export function useBuyAddonMutation() {
-  const { membershipId } = useSession();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (input: BuyAddonInput) => {
-      const res = await runCommand<{
-        success: boolean;
-        addonType: string;
-        priceCents: number;
-        invoiceId: string;
-        invoiceNumber: string;
-      }>(
-        "billing.buyAddon",
-        input,
-        membershipId!,
-      );
-      return res;
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["desk", "billing"] });
-      void queryClient.invalidateQueries({ queryKey: ["desk", "billing", "invoices"] });
-    },
-  });
-}
-
 export function useSaveTaxProfileMutation() {
   const { membershipId } = useSession();
   const queryClient = useQueryClient();
@@ -121,6 +96,40 @@ export function useCreateBillingPortalSession() {
         { headers: { "X-Membership-Id": membershipId! } },
       );
       return res;
+    },
+  });
+}
+
+export function useCreatePaymentMethodSession() {
+  const { membershipId } = useSession();
+
+  return useMutation({
+    mutationFn: async (returnPath?: string | void) => {
+      const candidate = typeof returnPath === 'string' ? returnPath : undefined;
+      const path = isRelativeAppPath(candidate) ? candidate : PORTAL_RETURN_PATH;
+      return apiPost<{ url: string | null; sessionId?: string }>(
+        "/v1/billing/payment-method",
+        { successUrl: path, cancelUrl: path },
+        { headers: { "X-Membership-Id": membershipId! } },
+      );
+    },
+  });
+}
+
+export function useCreateTopup() {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (unit: QuotaUnit) => {
+      return apiPost<TopupResponse>(
+        "/v1/billing/topup",
+        { unit },
+        { headers: { "X-Membership-Id": membershipId! } },
+      );
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["desk", "billing"] });
     },
   });
 }
