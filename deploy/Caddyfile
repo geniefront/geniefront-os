@@ -36,6 +36,20 @@ https://api.geniefront.com, https://desk.geniefront.com {
 			health_interval 10s
 		}
 	}
+	handle /public/* {
+		reverse_proxy api:3000 {
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+			health_uri /health
+			health_interval 10s
+		}
+	}
+	handle /api/* {
+		reverse_proxy api:3000 {
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+			health_uri /health
+			health_interval 10s
+		}
+	}
 	handle /health {
 		reverse_proxy api:3000
 	}
@@ -68,6 +82,20 @@ https://kiosk.geniefront.com {
 	tls /etc/caddy/origin.pem /etc/caddy/origin.key
 
 	handle /v1/* {
+		reverse_proxy api:3000 {
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+			health_uri /health
+			health_interval 10s
+		}
+	}
+	handle /public/* {
+		reverse_proxy api:3000 {
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+			health_uri /health
+			health_interval 10s
+		}
+	}
+	handle /api/* {
 		reverse_proxy api:3000 {
 			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
 			health_uri /health
