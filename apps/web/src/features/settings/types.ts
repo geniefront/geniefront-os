@@ -138,6 +138,7 @@ export interface TenDlcStatusInfo {
   optInMethod?: string | null;
   sampleMessages?: string[];
   submittedAt?: string | null;
+  submittedByMembershipId?: string | null;
   reviewedAt?: string | null;
   notes?: string | null;
 }

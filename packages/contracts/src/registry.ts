@@ -25,6 +25,7 @@ import { GOOGLE_COMMANDS } from './commands/google.js';
 import { KIOSK_COMMANDS } from './commands/kiosk.js';
 import { BILLING_COMMANDS } from './commands/billing.js';
 import { AI_COMMANDS } from './commands/ai.js';
+import { ANALYTICS_COMMANDS } from './commands/analytics.js';
 import { CUSTOMER_COMMANDS } from './commands/customer.js';
 import { SMS_COMMANDS } from './commands/sms.js';
 import { RESOURCE_COMMANDS } from './commands/resource.js';
@@ -37,7 +38,7 @@ const ALL: readonly AnyCommandDef[] = [
   ...PAYROLL_COMMANDS, ...DAYCLOSE_COMMANDS, ...SHIFT_COMMANDS, ...STAFF_COMMANDS,
   ...BLUEPRINT_COMMANDS, ...PHONE_COMMANDS,
   ...GIFTCARD_COMMANDS, ...NOTIFY_COMMANDS, ...STOREFRONT_COMMANDS, ...YELP_COMMANDS, ...GOOGLE_COMMANDS, ...KIOSK_COMMANDS,
-  ...BILLING_COMMANDS, ...AI_COMMANDS,
+  ...BILLING_COMMANDS, ...AI_COMMANDS, ...ANALYTICS_COMMANDS,
   ...CUSTOMER_COMMANDS, ...SMS_COMMANDS, ...RESOURCE_COMMANDS, ...MARKETING_COMMANDS,
   ...PROFILE_COMMANDS, ...NOTIFICATION_COMMANDS,
 ];

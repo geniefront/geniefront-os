@@ -486,10 +486,15 @@ export const Apply10Dlc = defineCommand({
     sampleMessage1: z.string().optional(),
     sampleMessage2: z.string().optional(),
   }),
-  output: z.object({ locationId: uuid, status: z.string(), submittedAt: z.string() }),
+  output: z.object({
+    locationId: uuid,
+    /** Internal GenieFront review state. pending_review is not a carrier/TCR filing. */
+    status: z.enum(['pending_review']),
+    submittedAt: z.string(),
+  }),
   permission: 'settings.manage',
   ai: {
-    description: '提交 10DLC 品牌认证资质代办信息（IRS 税号、执照地址、短信样例等）。',
+    description: '把 10DLC 申请资料交给 GenieFront 内部审核。不会向 TCR 或运营商提交。',
     confirm: 'always',
   },
   reversible: false,

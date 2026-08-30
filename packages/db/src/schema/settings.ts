@@ -7,6 +7,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { locations } from './tenancy';
+import { memberships } from './identity';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
@@ -57,7 +58,8 @@ export const locationIntakeTemplates = pgTable('location_intake_templates', {
 
 export const location10DlcRegistrations = pgTable('location_10dlc_registrations', {
   locationId: uuid('location_id').primaryKey().references(() => locations.id, { onDelete: 'cascade' }),
-  status: text('status').notNull().default('not_submitted'), // not_submitted | pending_review | approved | rejected
+  // Internal GenieFront review: not_submitted | pending_review | approved | rejected
+  status: text('status').notNull().default('not_submitted'),
   legalBusinessName: text('legal_business_name'),
   ein: text('ein'),
   businessStructure: text('business_structure').notNull().default('llc'),
@@ -71,6 +73,7 @@ export const location10DlcRegistrations = pgTable('location_10dlc_registrations'
   sampleMessage2: text('sample_message_2'),
   sampleMessages: text('sample_messages').array().notNull().default(sql`'{}'::text[]`),
   submittedAt: timestamp('submitted_at', { withTimezone: true }),
+  submittedByMembershipId: uuid('submitted_by_membership_id').references(() => memberships.id),
   reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
   notes: text('notes'),
   createdAt: createdAt(),

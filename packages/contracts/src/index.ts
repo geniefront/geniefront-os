@@ -21,6 +21,7 @@ export * from './commands/google.js';
 export * from './commands/kiosk.js';
 export * from './commands/billing.js';
 export * from './commands/ai.js';
+export * from './commands/analytics.js';
 export * from './commands/customer.js';
 export * from './commands/sms.js';
 export * from './commands/resource.js';

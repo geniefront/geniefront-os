@@ -29,8 +29,12 @@ vi.mock('@/features/comms/api', () => ({
   useSendDirectSms: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
+const tenDlcState = vi.hoisted(() => ({
+  status: 'approved' as 'approved' | 'pending_review' | 'not_submitted',
+}));
+
 vi.mock('@/features/settings/api', () => ({
-  useDeskSettingsQuery: () => ({ data: { tenDlc: { status: 'approved' } } }),
+  useDeskSettingsQuery: () => ({ data: { tenDlc: { status: tenDlcState.status } } }),
 }));
 
 vi.mock('@/lib/session', () => ({
@@ -55,6 +59,7 @@ describe('Messages refresh copy', () => {
     toast.success.mockReset();
     toast.danger.mockReset();
     refetch.mockReset();
+    tenDlcState.status = 'approved';
     smsState.isLoading = false;
     smsState.isError = false;
     smsState.error = null;
@@ -77,5 +82,14 @@ describe('Messages refresh copy', () => {
     await user.click(screen.getByRole('button', { name: /刷新|Refresh/i }));
     await waitFor(() => expect(toast.danger).toHaveBeenCalled());
     expect(toast.success).not.toHaveBeenCalled();
+  });
+});
+
+describe('Messages 10DLC pending banner', () => {
+  it('describes GenieFront internal review, not a carrier filing', () => {
+    tenDlcState.status = 'pending_review';
+    renderPage();
+    expect(document.body.textContent).toMatch(/GenieFront/);
+    expect(document.body.textContent).not.toMatch(/filing on your behalf|向运营商代办报备/i);
   });
 });

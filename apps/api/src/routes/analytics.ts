@@ -2,7 +2,7 @@
  * 多维经营数据分析路由
  *
  * 从 server.ts 拆出来，原来在 L2154-L2249。
- * 全部需要 `report.view`，只做数据查询，没有写操作。
+ * 读接口需要 `report.view`。生成摘要会在模型返回后走 `analytics.saveBusinessSummary`。
  */
 
 import type { FastifyInstance } from 'fastify';

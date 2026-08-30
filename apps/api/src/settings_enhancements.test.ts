@@ -199,30 +199,56 @@ describe('系统设置增强模块与全新 REST API 接口测试', () => {
     });
   });
 
-  // 5. 10DLC 品牌认证资质申请
+  // 5. 10DLC 品牌认证资质申请（内部审核，不是运营商提交）
   describe('5. 10DLC 品牌认证资质申请', () => {
-    it('POST /api/desk/settings/10dlc/apply 与 GET /api/desk/settings/10dlc/status', async () => {
+    const payload = {
+      legalBusinessName: 'Lotus Spa & Wellness LLC',
+      ein: '12-3456789',
+      businessStructure: 'llc',
+      registeredAddress: '128 E 56th St, New York, NY 10022',
+      repName: 'Emily Zhang',
+      repTitle: 'Store Owner',
+      repEmail: 'owner@lotusspanyc.com',
+      repPhone: '+12125808888',
+      optInMethod: '顾客在官网预约勾选同意，或在 iPad 签到签署',
+      sampleMessages: ['Lotus Spa: Hi {Name}, your appointment is confirmed.'],
+    };
+
+    it('POST 持久化申请，状态是内部 pending_review，并记下提交人', async () => {
       const postRes = await app.inject({
         method: 'POST',
         url: '/api/desk/settings/10dlc/apply',
         headers: { [STAFF_TOKEN_HEADER]: staffToken },
-        payload: {
-          legalBusinessName: 'Lotus Spa & Wellness LLC',
-          ein: '12-3456789',
-          businessStructure: 'llc',
-          registeredAddress: '128 E 56th St, New York, NY 10022',
-          repName: 'Emily Zhang',
-          repTitle: 'Store Owner',
-          repEmail: 'owner@lotusspanyc.com',
-          repPhone: '+12125808888',
-          optInMethod: '顾客在官网预约勾选同意，或在 iPad 签到签署',
-          sampleMessages: ['Lotus Spa: Hi {Name}, your appointment is confirmed.'],
-        },
+        payload,
       });
 
       expect(postRes.statusCode).toBe(200);
       expect(postRes.json().status).toBe('pending_review');
+      expect(postRes.json().status).not.toMatch(/carrier|tcr|approved|complete/i);
 
+      const row = await withTenant(tenant, (tx) => tx<{
+        status: string;
+        legal_business_name: string;
+        submitted_by_membership_id: string | null;
+      }[]>`
+        select status, legal_business_name, submitted_by_membership_id
+        from location_10dlc_registrations
+        where location_id = ${NAIL_LOC}`);
+      expect(row[0]!.status).toBe('pending_review');
+      expect(row[0]!.legal_business_name).toBe('Lotus Spa & Wellness LLC');
+      expect(row[0]!.submitted_by_membership_id).toBe(ownerMembershipId);
+
+      const audits = await withTenant(tenant, (tx) => tx<{ command: string; after: Record<string, unknown> }[]>`
+        select command, after from audit_log
+        where location_id = ${NAIL_LOC} and command = 'settings.apply10dlc'
+          and entity_id = ${NAIL_LOC}
+        order by id desc limit 1`);
+      expect(audits).toHaveLength(1);
+      expect(audits[0]!.command).toBe('settings.apply10dlc');
+      expect(audits[0]!.after['status']).toBe('pending_review');
+    });
+
+    it('reload GET 仍返回 pending_review 与已提交资料', async () => {
       const getRes = await app.inject({
         method: 'GET',
         url: '/api/desk/settings/10dlc/status',
@@ -234,6 +260,23 @@ describe('系统设置增强模块与全新 REST API 接口测试', () => {
       expect(data.status).toBe('pending_review');
       expect(data.legalBusinessName).toBe('Lotus Spa & Wellness LLC');
       expect(data.ein).toBe('12-3456789');
+      expect(data.submittedByMembershipId).toBe(ownerMembershipId);
+    });
+
+    it('settings.apply10dlc 走命令总线，不调用 Telnyx/TCR', async () => {
+      const { result } = await dispatch<{ status: string }>(
+        'settings.apply10dlc',
+        payload,
+        ownerCtx,
+      );
+      expect(result.status).toBe('pending_review');
+
+      const handlerSrc = await import('node:fs/promises').then((fs) =>
+        fs.readFile(new URL('./handlers/setup.ts', import.meta.url), 'utf8'));
+      const start = handlerSrc.indexOf('registerHandler(Apply10Dlc');
+      const end = handlerSrc.indexOf('registerHandler(SaveIntakeWaiver', start);
+      const chunk = handlerSrc.slice(start, end === -1 ? undefined : end);
+      expect(chunk).not.toMatch(/from ['"][^'"]*telnyx|telnyx\.|await fetch\(/i);
     });
   });
 

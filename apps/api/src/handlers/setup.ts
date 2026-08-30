@@ -688,26 +688,28 @@ registerHandler(SaveCheckoutSettings, async ({ input, ctx, tx, audit }: HandlerA
   return { locationId: ctx.locationId };
 });
 
-// ───────────────────────────────────────────── 10DLC 资质代办申请
+// ───────────────────────────────────────────── 10DLC 内部审核申请
+// 只把资料落在本店。不调用 Telnyx / TCR / 运营商。pending_review = GenieFront 内部待审。
 registerHandler(Apply10Dlc, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof Apply10Dlc.input._type>) => {
   const messages = input.sampleMessages && input.sampleMessages.length > 0
     ? input.sampleMessages
     : [input.sampleMessage1, input.sampleMessage2].filter(Boolean) as string[];
+  const submittedByMembershipId = ctx.membershipId;
 
-  const [row] = await tx<{ id: string; submitted_at: string }[]>`
+  const [row] = await tx<{ submitted_at: string }[]>`
     insert into location_10dlc_registrations (
       location_id, status, legal_business_name, ein, business_structure,
       registered_address, rep_name, rep_title, rep_email, rep_phone,
       opt_in_method, sample_message_1, sample_message_2, sample_messages,
-      submitted_at, updated_at
+      submitted_at, submitted_by_membership_id, updated_at
     ) values (
       ${ctx.locationId}, 'pending_review', ${input.legalBusinessName}, ${input.ein},
       ${input.businessStructure}, ${input.registeredAddress}, ${input.repName},
       ${input.repTitle}, ${input.repEmail}, ${input.repPhone},
       ${input.optInMethod ?? null}, ${input.sampleMessage1 ?? messages[0] ?? null},
       ${input.sampleMessage2 ?? messages[1] ?? null}, ${messages},
-      now(), now()
+      now(), ${submittedByMembershipId}, now()
     )
     on conflict (location_id) do update set
       status = 'pending_review',
@@ -724,17 +726,24 @@ registerHandler(Apply10Dlc, async ({ input, ctx, tx, audit }: HandlerArgs<
       sample_message_2 = excluded.sample_message_2,
       sample_messages = excluded.sample_messages,
       submitted_at = now(),
+      submitted_by_membership_id = excluded.submitted_by_membership_id,
       updated_at = now()
-    returning location_id, submitted_at::text`;
+    returning submitted_at::text`;
 
   audit({
     entityType: 'location_10dlc', entityId: ctx.locationId,
-    after: { status: 'pending_review', ein: input.ein, legalBusinessName: input.legalBusinessName },
+    after: {
+      status: 'pending_review',
+      reviewKind: 'internal_geniefront',
+      ein: input.ein,
+      legalBusinessName: input.legalBusinessName,
+      submittedByMembershipId,
+    },
   });
 
   return {
     locationId: ctx.locationId,
-    status: 'pending_review',
+    status: 'pending_review' as const,
     submittedAt: row?.submitted_at ?? new Date().toISOString(),
   };
 });

@@ -34,6 +34,7 @@ import './handlers/google';
 import './handlers/kiosk';
 import './handlers/billing';
 import './handlers/ai';
+import './handlers/analytics';
 import './handlers/customer';
 import './handlers/sms';
 import './handlers/resource';

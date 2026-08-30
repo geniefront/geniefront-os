@@ -63,6 +63,7 @@ export interface TenDlcDto {
   optInMethod?: string | null;
   sampleMessages?: string[];
   submittedAt?: string | null;
+  submittedByMembershipId?: string | null;
   reviewedAt?: string | null;
   notes?: string | null;
 }
@@ -194,6 +195,7 @@ export async function load10DlcStatus(
     opt_in_method: string | null;
     sample_messages: string[] | null;
     submitted_at: string | null;
+    submitted_by_membership_id: string | null;
     reviewed_at: string | null;
     notes: string | null;
   }[]>`
@@ -201,6 +203,7 @@ export async function load10DlcStatus(
            registered_address, rep_name, rep_title, rep_email, rep_phone,
            opt_in_method, sample_messages,
            submitted_at::text as submitted_at,
+           submitted_by_membership_id,
            reviewed_at::text as reviewed_at,
            notes
     from location_10dlc_registrations
@@ -220,6 +223,7 @@ export async function load10DlcStatus(
       optInMethod: row.opt_in_method,
       sampleMessages: row.sample_messages ?? [],
       submittedAt: row.submitted_at,
+      submittedByMembershipId: row.submitted_by_membership_id,
       reviewedAt: row.reviewed_at,
       notes: row.notes,
     };

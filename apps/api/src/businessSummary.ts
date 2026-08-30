@@ -1,8 +1,12 @@
 import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import { businessSummarySchema, generateBusinessSummary, type BusinessSummary } from '@gf/ai';
-import { jsonb, withTenant } from '@gf/db';
-import type { CommandContext } from '@gf/contracts';
+import { withTenant } from '@gf/db';
+import { AppError, ERROR_CODES, type CommandContext } from '@gf/contracts';
+import { dispatch } from './bus';
+
+/** Same frozen statuses as bus.ts. Checked before the model call so we do not burn tokens on a frozen shop. Dispatch still enforces freeze on the write. */
+const FROZEN_STATUSES = new Set(['past_due', 'canceled', 'unpaid', 'incomplete_expired']);
 
 interface SummaryFacts {
   periodStart: string;
@@ -53,10 +57,12 @@ async function loadFacts(tx: postgres.TransactionSql, ctx: CommandContext): Prom
 }
 
 export async function generateAndSaveBusinessSummary(ctx: CommandContext, apiKey: string): Promise<BusinessSummary & { generatedAt: string }> {
-  // ── ① 一个事务里完成「读数据 + 查缓存」──────────────────────────────────
-  // 原来的三个独立 withTenant 调用之间有竞态窗口，而且每次都要重新
-  // set_config(app.org_id/location_id)。合并为两步：一次读、一次写。
-  const { facts, hash, cachedEntry } = await withTenant(ctx, async (tx) => {
+  if (!ctx.permissions.has('report.view')) {
+    throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
+  }
+
+  // ── ① 读事实 + 查缓存。不在这里写库。──────────────────────────────────
+  const { facts, hash, cachedEntry, frozenStatus } = await withTenant(ctx, async (tx) => {
     const facts = await loadFacts(tx, ctx);
     const canonical = JSON.stringify({ locale: ctx.locale, facts });
     const hash = createHash('sha256').update(canonical).digest('hex');
@@ -67,10 +73,18 @@ export async function generateAndSaveBusinessSummary(ctx: CommandContext, apiKey
         and generator_version = 'claude-sonnet-5'
       order by generated_at desc limit 1`;
 
-    return { facts, hash, cachedEntry: cached ?? null };
+    const [acct] = await tx<{ status: string }[]>`
+      select subscription_status as status
+      from billing_accounts where location_id = ${ctx.locationId}`;
+
+    return {
+      facts,
+      hash,
+      cachedEntry: cached ?? null,
+      frozenStatus: acct?.status ?? null,
+    };
   });
 
-  // 缓存命中
   if (cachedEntry) {
     const cachedContent = businessSummarySchema.safeParse(cachedEntry.content);
     if (cachedContent.success) {
@@ -78,27 +92,34 @@ export async function generateAndSaveBusinessSummary(ctx: CommandContext, apiKey
     }
   }
 
+  if (frozenStatus && FROZEN_STATUSES.has(frozenStatus)) {
+    throw new AppError(ERROR_CODES.SUBSCRIPTION_PAST_DUE, {
+      details: { command: 'analytics.saveBusinessSummary', subscriptionStatus: frozenStatus },
+    });
+  }
 
-  // ── ② AI 调用在事务外 ————————————————————————————————————————————————
-  // AI 可能需要几秒钟，在事务内会持续占用一个连接和快照。
+  // ── ② AI 调用在事务外 ───────────────────────────────────────────────
   const generated = await generateBusinessSummary({ apiKey, facts, locale: ctx.locale });
 
-  // ── ③ 写入结果 ———————————————————————————————————————————————————————
-  const [saved] = await withTenant(ctx, (tx) => tx<{ generated_at: string }[]>`
-    insert into ai_business_summaries
-      (org_id, location_id, period_start, period_end, generator, generator_version,
-       input_facts_sha256, input_record_count, content)
-    values (${ctx.orgId}, ${ctx.locationId}, ${facts.periodStart}, ${facts.periodEnd},
-      'anthropic', ${generated.model}, ${hash}, ${facts.tickets}, ${jsonb(generated.content)}::jsonb)
-    on conflict (location_id, input_facts_sha256, generator_version) do nothing
-    returning generated_at::text`);
+  // ── ③ 写入走命令总线：权限、冻结、租户事务、审计 ─────────────────────
+  const { result } = await dispatch<BusinessSummary & { generatedAt: string; summaryId: string }>(
+    'analytics.saveBusinessSummary',
+    {
+      periodStart: facts.periodStart,
+      periodEnd: facts.periodEnd,
+      generator: 'anthropic',
+      generatorVersion: generated.model,
+      inputFactsSha256: hash,
+      inputRecordCount: facts.tickets,
+      content: generated.content,
+    },
+    ctx,
+  );
 
-  if (saved) return { ...generated.content, generatedAt: saved.generated_at };
-
-  // 并发写入时 ON CONFLICT DO NOTHING，捞出赢家的时间戳
-  const [winner] = await withTenant(ctx, (tx) => tx<{ generated_at: string }[]>`
-    select generated_at::text as generated_at from ai_business_summaries
-    where location_id = ${ctx.locationId} and input_facts_sha256 = ${hash}
-      and generator_version = ${generated.model}`);
-  return { ...generated.content, generatedAt: winner!.generated_at };
+  return {
+    highlights: result.highlights,
+    risks: result.risks,
+    actions: result.actions,
+    generatedAt: result.generatedAt,
+  };
 }

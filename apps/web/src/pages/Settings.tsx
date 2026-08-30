@@ -687,7 +687,11 @@ export function Settings() {
         optInMethod: optInMethod.trim() || undefined,
         sampleMessages: [sampleMsg1.trim(), sampleMsg2.trim()].filter(Boolean),
       });
-      setTenDlcStatus('pending_review');
+      if (res.status === 'pending_review' || res.status === 'approved' || res.status === 'rejected') {
+        setTenDlcStatus(res.status);
+      } else {
+        setTenDlcStatus('pending_review');
+      }
       toast.success(t('settings.st10dlcSubmitted'));
     } catch (err: any) {
       toast.danger(errorMessage(err));
