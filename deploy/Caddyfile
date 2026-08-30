@@ -128,3 +128,54 @@ https://kiosk.geniefront.com {
 	}
 }
 
+
+# ── Platform Operator Console ────────────────────────────────────────────────
+https://ops.geniefront.com {
+	tls /etc/caddy/origin.pem /etc/caddy/origin.key
+
+	handle /v1/* {
+		reverse_proxy api:3000 {
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+			health_uri /health
+			health_interval 10s
+		}
+	}
+	handle /public/* {
+		reverse_proxy api:3000 {
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+			health_uri /health
+			health_interval 10s
+		}
+	}
+	handle /api/* {
+		reverse_proxy api:3000 {
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+			health_uri /health
+			health_interval 10s
+		}
+	}
+	handle /health {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		root * /srv/platform
+		file_server
+		try_files {path} /index.html
+	}
+
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
