@@ -58,7 +58,7 @@ export const locationIntakeTemplates = pgTable('location_intake_templates', {
 
 export const location10DlcRegistrations = pgTable('location_10dlc_registrations', {
   locationId: uuid('location_id').primaryKey().references(() => locations.id, { onDelete: 'cascade' }),
-  // Internal GenieFront review: not_submitted | pending_review | approved | rejected
+  // Internal GenieFront review: not_submitted | pending_review | under_review | approved | rejected
   status: text('status').notNull().default('not_submitted'),
   legalBusinessName: text('legal_business_name'),
   ein: text('ein'),

@@ -19,3 +19,4 @@ export * from './pairing';
 export * from './settings';
 export * from './notifications';
 export * from './operations';
+export * from './platform';

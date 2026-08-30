@@ -41,6 +41,7 @@ import './handlers/resource';
 import './handlers/marketing';
 import './handlers/profile';
 import './handlers/notification';
+import './handlers/support';
 
 // ── 外部与子系统路由注册 ───────────────────────────────────────────────────
 import { registerTelnyxRoutes } from './telnyx/routes';
@@ -75,6 +76,7 @@ import { registerTicketsRoutes } from './routes/tickets';
 import { registerStaffRoutes } from './routes/staff';
 import { registerAiRoutes } from './routes/ai';
 import { registerMiscRoutes } from './routes/misc';
+import { registerPlatformRoutes } from './platform/routes';
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({
@@ -237,6 +239,7 @@ export function buildServer(): FastifyInstance {
   registerFormsRoutes(app, ctxFromHeaders);
   registerOrdersRoutes(app, ctxFromHeaders);
   registerMiscRoutes(app, ctxFromHeaders);
+  registerPlatformRoutes(app);
 
   // ── 外部与特化路由 ─────────────────────────────────────────────────────────
   registerStripeRoutes(app, ctxFromHeaders);

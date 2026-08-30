@@ -338,7 +338,7 @@ export const auditLog = pgTable('audit_log', {
   orgId: uuid('org_id').notNull(),
   locationId: uuid('location_id'),
   actorId: uuid('actor_id'),
-  actorKind: text('actor_kind').notNull().default('user'), // user|ai|system|api
+  actorKind: text('actor_kind').notNull().default('user'), // user|ai|system|api|platform
   command: text('command').notNull(),
   entityType: text('entity_type'),
   entityId: uuid('entity_id'),

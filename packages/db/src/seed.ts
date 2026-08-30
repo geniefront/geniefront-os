@@ -34,6 +34,8 @@ async function upsertAuthUser(email: string, fullName: string): Promise<string> 
     const fixed: Record<string, string> = {
       'owner@example.test': '196f0ab4-cd94-45cc-8109-2c414e966828',
       'mia@example.test': 'd84f499d-4100-4791-a0ae-dca645aa2661',
+      'ops@geniefront.test': '33333333-3333-4333-8333-333333333333',
+      'exops@geniefront.test': '44444444-4444-4444-8444-444444444444',
     };
     return fixed[email] ?? deterministicUuid(email);
   }
@@ -80,7 +82,14 @@ const SEED_USER_EMAILS = [
   'hua@example.test',
   'bo@example.test',
   'owner@example.test',
+  'ops@geniefront.test',
+  'exops@geniefront.test',
 ] as const;
+
+const OPS_USER = '33333333-3333-4333-8333-333333333333';
+const EXOPS_USER = '44444444-4444-4444-8444-444444444444';
+const OPS_OPERATOR_ID = '55555555-5555-4555-8555-555555555555';
+const EXOPS_OPERATOR_ID = '66666666-6666-4666-8666-666666666666';
 
 const MASSAGE_OPTIONS = [
   {
@@ -193,6 +202,7 @@ async function main() {
     // 1. 幂等倒序清理
     for (const t of [
       'ai_business_summaries',
+      'support_request_notes', 'support_requests',
       'day_close_events', 'ticket_refunds', 'ticket_service_notes', 'resource_occupancies',
       'in_app_notifications', 'user_notification_preferences', 'user_device_sessions',
       'location_webhooks', 'location_10dlc_registrations', 'location_intake_templates',
@@ -208,7 +218,7 @@ async function main() {
       'call_drafts', 'phone_calls', 'phone_lines', 'sms_inbound', 'sms_consent', 'sms_outbox', 'email_outbox',
       'credit_ledger', 'usage_events', 'stripe_events', 'billing_invoices', 'billing_accounts', 'location_subscriptions',
       'pairing_sessions', 'discount_reasons', 'notification_rules', 'notification_templates',
-      'storefront_drafts', 'storefront_briefs', 'blueprint_items', 'blueprint_sources', 'shop_blueprints',
+      'storefront_revisions', 'storefront_drafts', 'storefront_briefs', 'blueprint_items', 'blueprint_sources', 'shop_blueprints',
       'location_reviews', 'location_review_stats', 'review_summaries',
       'shifts', 'shift_templates', 'compensation_plans',
       'appointment_item_blocks', 'appointment_items', 'appointments',
@@ -220,12 +230,15 @@ async function main() {
       'device_tokens', 'membership_roles', 'permission_overrides',
       'memberships', 'role_permissions', 'roles',
       'user_last_location',
+      'platform_operators',
       '__users__',
       'location_allowed_origins', 'location_features', 'signup_intents',
       'locations',
     ]) {
       console.log('Cleaning table:', t);
-      if (t === '__users__') {
+      if (t === 'platform_operators') {
+        await tx`delete from platform_operators`;
+      } else if (t === '__users__') {
         // Only remove identities owned by this seed. Other isolated utilities
         // (for example setup:test:reset) also use @example.test and may still
         // have valid memberships outside the two fixed demo organizations.
@@ -543,6 +556,59 @@ async function main() {
                  values (${m!.id}, ${skillIds[k]!})`;
       }
     }
+    // GenieFront operators. No customer membership — guessing the platform
+    // URL as a store owner must not grant access.
+    for (const op of [
+      { id: OPS_USER, email: 'ops@geniefront.test', name: 'GenieFront Ops', operatorId: OPS_OPERATOR_ID, role: 'super_admin', status: 'active', revokedAt: null as string | null },
+      { id: EXOPS_USER, email: 'exops@geniefront.test', name: 'Former Ops', operatorId: EXOPS_OPERATOR_ID, role: 'support', status: 'revoked', revokedAt: '2026-01-01T00:00:00.000Z' },
+    ] as const) {
+      const authId = await upsertAuthUser(op.email, op.name);
+      if (process.env.SEED_SKIP_AUTH === '1') {
+        await tx`insert into auth.users
+          (instance_id, id, aud, role, email, encrypted_password,
+           email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+           created_at, updated_at, confirmation_token, recovery_token,
+           email_change_token_new, email_change, email_change_token_current,
+           phone_change, phone_change_token, reauthentication_token,
+           email_change_confirm_status)
+          values
+          ('00000000-0000-0000-0000-000000000000', ${authId},
+           'authenticated', 'authenticated', ${op.email},
+           crypt(${DEV_PASSWORD}, gen_salt('bf')), now(),
+           ${J({ provider: 'email', providers: ['email'] })},
+           ${J({ full_name: op.name })}, now(), now(), '', '', '', '', '',
+           '', '', '', 0)
+          on conflict (id) do update set
+            aud = excluded.aud,
+            role = excluded.role,
+            email = excluded.email,
+            encrypted_password = excluded.encrypted_password,
+            email_confirmed_at = excluded.email_confirmed_at,
+            raw_app_meta_data = excluded.raw_app_meta_data,
+            raw_user_meta_data = excluded.raw_user_meta_data,
+            updated_at = excluded.updated_at`;
+        await tx`insert into auth.identities
+          (provider_id, user_id, identity_data, provider,
+           last_sign_in_at, created_at, updated_at)
+          values
+          (${authId}, ${authId},
+           ${J({ sub: authId, email: op.email, email_verified: true, phone_verified: false })},
+           'email', now(), now(), now())
+          on conflict (provider_id, provider) do update set
+            user_id = excluded.user_id,
+            identity_data = excluded.identity_data,
+            updated_at = excluded.updated_at`;
+      }
+      await tx`insert into users (id, email, full_name, locale)
+        values (${authId}, ${op.email}, ${op.name}, 'en')
+        on conflict (id) do update set email = excluded.email, full_name = excluded.full_name`;
+      await tx`insert into platform_operators (id, user_id, role, status, notes, revoked_at)
+        values (
+          ${op.operatorId}, ${authId}, ${op.role}, ${op.status},
+          'seed operator', ${op.revokedAt}
+        )`;
+    }
+
     console.log('4. 客户与偏好创建...');
     const customersData = [
       { org: NAIL_ORG, loc: NAIL_LOC, name: 'Lisa Chen', phone: '+19175550142', email: 'lisa.chen@example.com', vip: 3, src: 'desk', allergies: ['penicillin'], pref: { oil: 'lavender', quiet: true } },

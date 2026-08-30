@@ -28,6 +28,8 @@ export * from './commands/resource.js';
 export * from './commands/marketing.js';
 export * from './commands/profile.js';
 export * from './commands/notifications.js';
+export * from './commands/support.js';
+export * from './commands/platform.js';
 export * from './aiSchema.js';
 export * from './healthForms.js';
 

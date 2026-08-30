@@ -8,6 +8,7 @@ GenieFront 多端应用集合。前端按终端形态划分为 **Web 统一端�
 | `ipad/` | **iPad 平板端**（前台触屏调度 / 自助签到 Kiosk） | 触屏大尺寸工作台 / 骨架 |
 | `ios/` | **iOS 移动端**（技师接单打卡 / 老板移动看板） | 移动端原生/跨端 App / 骨架 |
 | `api/` | **Fastify 后端服务** | Fastify + Supabase + 命令总线 |
+| [`platform/`](./platform) | **GenieFront 内部运营后台**（超管 / 客服，非客户应用） | React 19 + Vite + Tailwind · **Phase 1 MVP** |
 
 > 详细开发规范与前后端契约见：[`docs/16-FRONTEND-GUIDE.md`](../docs/16-FRONTEND-GUIDE.md)。
 

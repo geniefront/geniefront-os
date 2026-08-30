@@ -14,6 +14,7 @@
     "dev:front-desk": "pnpm --filter @gf/web dev",
     "dev:ipad": "pnpm --filter @gf/ipad dev",
     "dev:kiosk": "pnpm --filter @gf/ipad dev",
+    "dev:platform": "pnpm --filter @gf/platform dev",
     "typecheck": "turbo run typecheck",
     "test": "pnpm --filter @gf/db test && pnpm --filter '!@gf/db' test",
     "test:unit": "pnpm --filter '!@gf/api' --filter '!@gf/db' test",

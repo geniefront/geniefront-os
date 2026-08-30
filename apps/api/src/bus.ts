@@ -190,7 +190,7 @@ export const registeredCommands = (): AnyCommandDef[] => [...handlers.values()].
  * 那是个把自己锁在门外的死结。`setup.` 同理：认领门店这一步
  * 发生在订阅刚建出来、webhook 还没回来的那几秒。
  */
-const WRITE_ALLOWED_WHILE_PAST_DUE = ['billing.', 'setup.'] as const;
+const WRITE_ALLOWED_WHILE_PAST_DUE = ['billing.', 'setup.', 'support.'] as const;
 
 /**
  * 订阅欠费 → **冻结写入，读操作照常**（批 1，docs/03 Phase 2.9）。

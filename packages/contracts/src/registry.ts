@@ -32,6 +32,7 @@ import { RESOURCE_COMMANDS } from './commands/resource.js';
 import { MARKETING_COMMANDS } from './commands/marketing.js';
 import { PROFILE_COMMANDS } from './commands/profile.js';
 import { NOTIFICATION_COMMANDS } from './commands/notifications.js';
+import { SUPPORT_COMMANDS } from './commands/support.js';
 
 const ALL: readonly AnyCommandDef[] = [
   ...APPOINTMENT_COMMANDS, ...ROTATION_COMMANDS, ...TICKET_COMMANDS, ...SETUP_COMMANDS,
@@ -40,7 +41,7 @@ const ALL: readonly AnyCommandDef[] = [
   ...GIFTCARD_COMMANDS, ...NOTIFY_COMMANDS, ...STOREFRONT_COMMANDS, ...YELP_COMMANDS, ...GOOGLE_COMMANDS, ...KIOSK_COMMANDS,
   ...BILLING_COMMANDS, ...AI_COMMANDS, ...ANALYTICS_COMMANDS,
   ...CUSTOMER_COMMANDS, ...SMS_COMMANDS, ...RESOURCE_COMMANDS, ...MARKETING_COMMANDS,
-  ...PROFILE_COMMANDS, ...NOTIFICATION_COMMANDS,
+  ...PROFILE_COMMANDS, ...NOTIFICATION_COMMANDS, ...SUPPORT_COMMANDS,
 ];
 
 export const COMMAND_REGISTRY: ReadonlyMap<string, AnyCommandDef> = new Map(

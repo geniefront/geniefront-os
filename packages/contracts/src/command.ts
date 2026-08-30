@@ -193,7 +193,7 @@ export interface CommandContext {
   membershipId: string | null;
   permissions: ReadonlySet<Permission>;
   /** 'user' = 人在操作；'ai' = 副驾代操作（权限已收窄为操作人的子集） */
-  actorKind: 'user' | 'ai' | 'system' | 'api';
+  actorKind: 'user' | 'ai' | 'system' | 'api' | 'platform';
   locale: Locale;
   /** 门店时区，用于营业日边界计算 */
   timezone: string;

@@ -7,7 +7,8 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
-import { sql, withTenant, closeDb } from './client';
+import { sql, withTenant, withUser, closeDb } from './client';
+import { PLATFORM_OPS_USER_ID, PLATFORM_EXOPS_USER_ID } from './platform';
 
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const SPA_ORG  = '22222222-2222-4222-8222-222222222222';
@@ -437,5 +438,76 @@ describe('⭐ 钱的守护约束（Phase 1b）', () => {
                              start_min, end_min, break_min)
          values (${SPA_ORG}, ${SPA_LOC}, ${m!.membership_id}, '2026-09-03', 1080, 1560, 0)
          on conflict do nothing`);
+  });
+});
+
+describe('platform operator isolation (sql/0074)', () => {
+  const OWNER_USER = '196f0ab4-cd94-45cc-8109-2c414e966828';
+
+  it('FORCE RLS remains on platform tables', async () => {
+    const rows = await sql<{ relname: string; forced: boolean }[]>`
+      select c.relname, c.relforcerowsecurity as forced
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public'
+        and c.relname in ('platform_operators', 'support_requests', 'support_request_notes')`;
+    expect(rows.length).toBe(3);
+    expect(rows.every((r) => r.forced)).toBe(true);
+  });
+
+  it('app_user still has no BYPASSRLS', async () => {
+    const [r] = await sql<{ bypass: boolean }[]>`
+      select rolbypassrls as bypass from pg_roles where rolname = current_user`;
+    expect(r?.bypass).toBe(false);
+  });
+
+  it('store owner is not a platform operator', async () => {
+    const [row] = await withUser(OWNER_USER, (tx) =>
+      tx<{ role: string | null }[]>`select gf_platform_operator_role() as role`);
+    expect(row?.role).toBeNull();
+  });
+
+  it('revoked operator is not a platform operator', async () => {
+    const [row] = await withUser(PLATFORM_EXOPS_USER_ID, (tx) =>
+      tx<{ role: string | null }[]>`select gf_platform_operator_role() as role`);
+    expect(row?.role).toBeNull();
+  });
+
+  it('seeded operator role is super_admin', async () => {
+    const [row] = await withUser(PLATFORM_OPS_USER_ID, (tx) =>
+      tx<{ role: string | null }[]>`select gf_platform_operator_role() as role`);
+    expect(row?.role).toBe('super_admin');
+  });
+
+  it('store owner cannot execute the cross-tenant store search', async () => {
+    await expect(
+      withUser(OWNER_USER, (tx) =>
+        tx`select gf_platform_search_stores('', 10, 0)`),
+    ).rejects.toThrow(/not_platform_operator|permission denied|42501/i);
+  });
+
+  it('authorized operator can see both seed stores through the platform function', async () => {
+    const [row] = await withUser(PLATFORM_OPS_USER_ID, (tx) =>
+      tx<{ data: { total: number; items: Array<{ orgId: string }> } }[]>`
+        select gf_platform_search_stores('', 50, 0) as data`);
+    expect(row!.data.total).toBeGreaterThanOrEqual(2);
+    const orgs = new Set(row!.data.items.map((i) => i.orgId));
+    expect(orgs.has(NAIL_ORG)).toBe(true);
+    expect(orgs.has(SPA_ORG)).toBe(true);
+  });
+
+  it('ordinary tenant context cannot read platform_operators', async () => {
+    const rows = await withTenant(
+      { orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null },
+      (tx) => tx<{ n: number }[]>`select count(*)::int as n from platform_operators`);
+    expect(rows[0]!.n).toBe(0);
+  });
+
+  it('app_user cannot insert platform_operators', async () => {
+    await expect(
+      withUser(OWNER_USER, (tx) => tx`
+        insert into platform_operators (user_id, role)
+        values (${OWNER_USER}, 'super_admin')`),
+    ).rejects.toThrow();
   });
 });
