@@ -20,6 +20,17 @@ export const ERROR_CODES = {
    * 他的经营数据是他的，欠费不是没收数据的理由。
    */
   SUBSCRIPTION_PAST_DUE: 'SUBSCRIPTION_PAST_DUE',
+  /**
+   * AI 额度用尽（AUD-03）。
+   *
+   * ⚠️ 和 SUBSCRIPTION_PAST_DUE 分开是有意的：前者是「你欠费了」，
+   * 这一条是「你付着钱但这个月的量用完了」。老板要做的事完全不同
+   * （一个去换卡，一个去买额度包），错误码合并会让界面只能说一句
+   * 「有点问题」。
+   */
+  AI_QUOTA_EXHAUSTED: 'AI_QUOTA_EXHAUSTED',
+  /** 同一门店的 AI 调用过于频繁（AUD-03）。 */
+  AI_RATE_LIMITED: 'AI_RATE_LIMITED',
 
   // 输入
   VALIDATION_FAILED: 'VALIDATION_FAILED',
@@ -134,6 +145,8 @@ export const httpStatusFor: Record<ErrorCode, number> = {
   MEMBERSHIP_INACTIVE: 403,
   LOCATION_SUSPENDED: 403,
   SUBSCRIPTION_PAST_DUE: 402,
+  AI_QUOTA_EXHAUSTED: 402,
+  AI_RATE_LIMITED: 429,
   VALIDATION_FAILED: 400,
   NOT_FOUND: 404,
   IDEMPOTENCY_KEY_REUSED: 409,

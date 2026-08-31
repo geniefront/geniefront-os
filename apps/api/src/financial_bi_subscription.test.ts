@@ -21,6 +21,7 @@ import { loadDayClose } from './queries/money';
 import { loadHeatmap, loadRfmCustomers, loadTopServices, loadCopilotSummary } from './queries/analytics';
 import { loadEarningsEstimates, loadEarningsEstimate, loadClawbacks } from './queries/payouts';
 import { loadBillingInvoices, loadTaxProfile } from './queries/billingInvoices';
+import { dispatchSystem } from './test/systemDispatch';
 
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -166,7 +167,7 @@ describe('财务与数据核心模块 API 完整增改测试', () => {
   // ───────────────────────────────────────────────────────── 模块四：SaaS 订阅与算力资源中心
   describe('4. SaaS 订阅与算力资源中心 (/subscription)', () => {
     it('billing.changePlan 拒绝本地改套餐，不写入付费状态', async () => {
-      await expect(dispatch(
+      await expect(dispatchSystem(
         'billing.changePlan',
         { targetPlan: 'growth', billingCycle: 'monthly' },
         ownerCtx,
@@ -177,7 +178,7 @@ describe('财务与数据核心模块 API 完整增改测试', () => {
     });
 
     it('billing.buyAddon 拒绝本地入账，不写入额度或发票', async () => {
-      await expect(dispatch(
+      await expect(dispatchSystem(
         'billing.buyAddon',
         { addonType: 'voice_minutes_100', priceCents: 2500 },
         ownerCtx,

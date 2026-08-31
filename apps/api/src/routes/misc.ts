@@ -6,6 +6,7 @@
  * - 来电转录与通话记录 (/v1/desk/calls)
  * - 客户上行退订/咨询短信 (/v1/desk/sms-inbound)
  * - Yelp 门店信息搜寻 (/v1/desk/yelp/search)
+ * - 本店自己提的客服工单与状态 (/v1/desk/support/requests)
  */
 
 import type { FastifyInstance } from 'fastify';
@@ -16,6 +17,7 @@ import { searchGooglePlaces, getGooglePlace } from '../integrations/googlePlaces
 import { loadCallDrafts } from '../queries/callDrafts';
 import { loadCalls } from '../queries/calls';
 import { loadInboundSms } from '../queries/smsInbound';
+import { loadMySupportRequests } from '../queries/support';
 import type { CtxFromHeaders } from './utils';
 
 export function registerMiscRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHeaders): void {
@@ -98,4 +100,23 @@ export function registerMiscRoutes(app: FastifyInstance, ctxFromHeaders: CtxFrom
     }
     return { businesses: await searchBusinesses({ term, location }, { apiKey }) };
   });
+
+  /**
+   * 本店自己提的客服工单（AUD-08）。
+   *
+   * ⛔ 只返回工单主表。`support_request_notes` 是运营的内部备注，
+   * 这里一个字都不碰 —— sql/0077 已经把那张表的 RLS 收成「必须是运营」，
+   * 但查询层也不该提到它（两道都在，改错一处不会漏）。
+   *
+   * 权限用 `settings.manage`：提工单的是老板/店长，工单里往往有账务和
+   * 合同上的话，不该让全店员工都看见。
+   */
+  app.get('/v1/desk/support/requests', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+    }
+    return withTenant(ctx, (tx) => loadMySupportRequests(tx, ctx));
+  });
+
 }

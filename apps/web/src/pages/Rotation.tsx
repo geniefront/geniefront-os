@@ -75,6 +75,7 @@ import type {
   RotationPolicy,
   FullRotationEvent,
 } from '@/features/rotation/types';
+import { useBusinessDay } from '@/lib/time';
 
 // 常用Pass Turn预设原因
 const SKIP_REASONS = [
@@ -107,16 +108,16 @@ interface DragReorderGraphicState {
 function RotationContent() {
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
-  const { context, membershipId } = useSession();
-  const timezone = context?.timezone;
-  const todayStr = timezone ? instantToWallDate(new Date().toISOString(), timezone) : '';
-  const yesterdayStr = todayStr ? shiftDate(todayStr, -1) : '';
+  const { membershipId } = useSession();
+  // 轮牌是按**营业日**存的（turn_events.business_date）。凌晨那几个小时
+  // 用日历日的话，前台会看到一块空板，而昨晚的轮牌顺序其实还在（AUD-13）。
+  const { ready: dayReady, today: todayStr, yesterday: yesterdayStr } = useBusinessDay();
 
   const [selectedDate, setSelectedDate] = useState('');
   useEffect(() => {
-    if (!timezone) return;
-    setSelectedDate(instantToWallDate(new Date().toISOString(), timezone));
-  }, [timezone, membershipId]);
+    if (!dayReady) return;
+    setSelectedDate(todayStr);
+  }, [dayReady, todayStr, membershipId]);
 
   const isToday = !selectedDate || selectedDate === todayStr;
 

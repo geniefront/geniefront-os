@@ -16,6 +16,8 @@ import { defineCommand } from '../command.js';
 
 export const RecordAiAssist = defineCommand({
   name: 'ai.recordAssist',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
   input: z.object({
     /** desk_copilot | price_list_vision | … 出成本报表时按它分组 */
     feature: z.string().min(1).max(40),

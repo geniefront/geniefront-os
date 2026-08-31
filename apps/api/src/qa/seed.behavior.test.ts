@@ -15,6 +15,7 @@ import { requirePlatformOperator } from '../platform/auth';
 import '../handlers/setup';
 import '../handlers/billing';
 import '../handlers/staff';
+import { dispatchSystem } from '../test/systemDispatch';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 
@@ -71,7 +72,7 @@ describe('Seed V2 behavioral invariants', () => {
       code: ERROR_CODES.SUBSCRIPTION_PAST_DUE,
     });
 
-    const recovered = await dispatch<{ subscriptionStatus: string }>(
+    const recovered = await dispatchSystem<{ subscriptionStatus: string }>(
       'billing.syncSubscription',
       { plan: 'growth', subscriptionStatus: 'active' },
       ctx,

@@ -12,6 +12,7 @@ import {
 import { buildContext } from './actor';
 import { dispatch } from './bus';
 import { issueStaffSession, STAFF_TOKEN_HEADER } from './auth/staffSession';
+import { dispatchSystem } from './test/systemDispatch';
 
 const OWNER_USER = '196f0ab4-cd94-45cc-8109-2c414e966828';
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
@@ -215,10 +216,10 @@ describe('platform billing is read-only for paid state', () => {
     expect(missingBuy.statusCode).toBe(404);
 
     const ctx = await buildContext({ userId: OWNER_USER, membershipId: ownerMembershipId });
-    await expect(dispatch('billing.changePlan', { targetPlan: 'growth' }, ctx)).rejects.toMatchObject({
+    await expect(dispatchSystem('billing.changePlan', { targetPlan: 'growth' }, ctx)).rejects.toMatchObject({
       details: { reason: 'use_checkout_or_portal', command: 'billing.changePlan' },
     });
-    await expect(dispatch('billing.buyAddon', { addonType: 'voice_minutes_100', priceCents: 2500 }, ctx)).rejects.toMatchObject({
+    await expect(dispatchSystem('billing.buyAddon', { addonType: 'voice_minutes_100', priceCents: 2500 }, ctx)).rejects.toMatchObject({
       details: { reason: 'use_checkout_or_portal', command: 'billing.buyAddon' },
     });
   });

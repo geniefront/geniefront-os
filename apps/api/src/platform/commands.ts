@@ -130,6 +130,9 @@ export async function updateSupportRequest(
             when ${resolved} then coalesce(resolved_at, now())
             else null
           end,
+          -- AUD-08：客户那边靠这一列显示「客服在处理」。
+          -- 备注内容不给，只给「有人动过、什么时候」。
+          last_operator_update_at = now(),
           updated_at = now()
         where id = ${input.requestId}`;
 
@@ -169,6 +172,12 @@ export async function addSupportNote(
         values
           (${orgId}, ${locationId}, ${input.requestId}, ${operator.operatorId}, ${input.body})
         returning id, created_at`;
+
+      // 加备注也算「客服动过了」（AUD-08）。内容仍然不外露。
+      await tx`
+        update support_requests
+        set last_operator_update_at = now(), updated_at = now()
+        where id = ${input.requestId}`;
 
       await writePlatformAudit(tx, operator, {
         orgId, locationId,

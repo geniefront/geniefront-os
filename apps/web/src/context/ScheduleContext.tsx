@@ -30,6 +30,7 @@ import { serviceColor } from '@/features/schedule/colors';
 import type {
   DaySnapshot, DayService, DayStaff, DayResource, CancelReason,
 } from '@/features/schedule/types';
+import { useBusinessDay } from '@/lib/time';
 
 /** 未指派技师的虚拟列。服务端以 `membershipId === null` 表示。 */
 export const UNASSIGNED_STAFF_ID = '__unassigned__';
@@ -119,20 +120,20 @@ function normalizeStatus(raw: string): ItemStatus {
 }
 
 export function ScheduleProvider({ children }: { children: ReactNode }) {
-  const { context, membershipId } = useSession();
-  const timezone = context?.timezone;
-
+  const { membershipId } = useSession();
   /**
-   * 默认日期取门店时区下的今天，而非浏览器本地日期或 UTC。
-   * 时区尚未就绪时不猜测日期，避免首屏用 UTC 营业日打出错误的 `?date=`。
+   * 默认日期取门店的**营业日**今天 —— 不是浏览器本地日期、不是 UTC、
+   * 也不是门店时区的日历日（AUD-13）。
+   *
+   * 时区/cutoff 尚未就绪时不猜日期：先猜一个再纠正，会让首屏用错误的
+   * `?date=` 打一发请求，而那正是 QA-008 留下的尾巴。
    */
-  const [currentDate, setCurrentDate] = useState(() => (
-    timezone ? instantToWallDate(new Date().toISOString(), timezone) : ''
-  ));
+  const { ready: dayReady, today: businessToday, timezone } = useBusinessDay();
+  const [currentDate, setCurrentDate] = useState(() => (dayReady ? businessToday : ''));
   useEffect(() => {
-    if (!timezone) return;
-    setCurrentDate(instantToWallDate(new Date().toISOString(), timezone));
-  }, [timezone, membershipId]);
+    if (!dayReady) return;
+    setCurrentDate(businessToday);
+  }, [dayReady, businessToday, membershipId]);
 
   const query = useDaySnapshot(currentDate);
   const snapshot = query.data;
@@ -179,7 +180,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     timezone: snapshot?.timezone ?? timezone ?? '',
     openMin: snapshot?.openMin ?? 9 * 60,
     closeMin: snapshot?.closeMin ?? 21 * 60,
-  }), [currentDate, snapshot, query.isLoading, query.error, query.refetch, items, staff, context]);
+  }), [currentDate, snapshot, query.isLoading, query.error, query.refetch, items, staff, timezone]);
 
   return <ScheduleContext.Provider value={value}>{children}</ScheduleContext.Provider>;
 }

@@ -17,6 +17,7 @@ import { businessDateOf } from '@gf/scheduling';
 import { parseTs, ts, jsonb } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
 import { assertDayOpen } from '../money';
+import { hashPin, verifyPin } from '../auth/pin';
 
 async function bizDate(tx: postgres.TransactionSql, locationId: string): Promise<string> {
   const [loc] = await tx<{ tz: string; cutoff: string }[]>`
@@ -319,11 +320,16 @@ registerHandler(StaffRecordDirectCashTip, async ({ input, ctx, tx, audit, emit }
 
 // ─────────────────────────────────────────────────────────────── 打卡
 
-/** PIN 只存 hash。和密码一个道理：泄库时不该能直接拿去打卡 */
-function pinHash(membershipId: string, pin: string): string {
-  return createHash('sha256').update(`${membershipId}:${pin}`).digest('hex');
-}
-
+/**
+ * 校验打卡 PIN。
+ *
+ * ⚠️ 这里以前自己算 `sha256(membershipId + ':' + pin)`，而写入方
+ * （`staff.setPin`）用的是 `sha256('gf_pin_salt_' + pin)` —— **两者永远不匹配**，
+ * 也就是说设过 PIN 的技师从此打不了卡（AUD-11）。
+ * 现在写和读共用 `auth/pin.ts` 一个模块，不可能再漂开。
+ *
+ * 历史记录在校验通过时就地升级成 scrypt 格式，技师无感。
+ */
 async function assertPin(
   tx: postgres.TransactionSql, membershipId: string, pin: string | undefined,
 ): Promise<void> {
@@ -335,11 +341,15 @@ async function assertPin(
       details: { reason: '这位技师设了 PIN，打卡要输 PIN' },
     });
   }
-  const a = Buffer.from(pinHash(membershipId, pin), 'hex');
-  const b = Buffer.from(row.pin_hash, 'hex');
-  // 定长比较：PIN 只有四位，时序差异足以被用来一位一位试出来
-  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+
+  const verdict = await verifyPin(pin, row.pin_hash, membershipId);
+  if (!verdict.ok) {
     throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { reason: 'PIN 不对' } });
+  }
+  if (verdict.needsRehash) {
+    await tx`
+      update staff_profiles set pin_hash = ${await hashPin(pin)}
+      where membership_id = ${membershipId}`;
   }
 }
 
@@ -462,7 +472,6 @@ registerHandler(SetMyLocale, async ({ input, ctx, tx, audit }: HandlerArgs<
   return { locale: input.locale };
 });
 
-export { pinHash };
 
 // ─────────────────────────────────────────────────── 员工花名册（sql/0031）
 

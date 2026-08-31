@@ -34,6 +34,7 @@ import './handlers/billing';
  * 跨文件的脏数据是最难查的一类失败，测试要选**不留痕**的命令。
  */
 import './handlers/staff';
+import { dispatchSystem } from './test/systemDispatch';
 
 /**
  * 用足疗店（SPA）而不是美甲店：**只有 owner 有 `billing.manage`**，
@@ -50,6 +51,20 @@ let ctx: Awaited<ReturnType<typeof buildContext>>;
 
 const run = async <T>(name: string, input: unknown, key?: string): Promise<T> =>
   (await dispatch<T>(name, input, ctx, key ? { idempotencyKey: key } : {})).result;
+
+/**
+ * ⭐ 系统自有命令（AUD-01）。
+ *
+ * 计费状态的写入方在生产里是 **Stripe webhook / 扣款回执**，不是老板的浏览器。
+ * 这个套件以前用上面那个 `run` 直接调 `billing.syncSubscription`，
+ * 于是「老板能把自己写成 growth/active」在测试里看起来完全正常 ——
+ * 那正是审计里那条 P0 一路绿灯的原因。
+ *
+ * 分成两个 helper 之后，「租户能不能调」重新变成一个可以被断言的问题，
+ * 断言写在 `systemOnly.test.ts`。
+ */
+const runSystem = async <T>(name: string, input: unknown, key?: string): Promise<T> =>
+  (await dispatchSystem<T>(name, input, ctx, key ? { idempotencyKey: key } : {})).result;
 
 /**
  * 每个用例开头把账户复位。
@@ -260,13 +275,13 @@ describe('充值入账', () => {
       stripePaymentIntentId: pi, trigger: 'manual',
     };
 
-    const a = await run<{ balanceAfter: number; alreadyRecorded: boolean }>(
+    const a = await runSystem<{ balanceAfter: number; alreadyRecorded: boolean }>(
       'billing.recordTopup', body, `topup-${pi}`);
     expect(a).toMatchObject({ alreadyRecorded: false, balanceAfter: 1000 });
 
     // webhook 那条路会用一个不同的幂等键走同一条命令 ——
     // 总线的幂等挡不住它，所以命令自己按 PaymentIntent 再去一次重
-    const b = await run<{ balanceAfter: number; alreadyRecorded: boolean }>(
+    const b = await runSystem<{ balanceAfter: number; alreadyRecorded: boolean }>(
       'billing.recordTopup', body, `webhook-${pi}`);
     expect(b).toMatchObject({ alreadyRecorded: true, balanceAfter: 1000 });
 
@@ -276,7 +291,7 @@ describe('充值入账', () => {
   it('⭐ 充分钟不会加到积分上', async () => {
     await resetBilling();
     const pi = `pi_min_${Date.now()}`;
-    await run('billing.recordTopup', {
+    await runSystem('billing.recordTopup', {
       unit: 'voice_minute', units: TOPUP_UNITS.voice_minute, paidCents: 5000,
       stripePaymentIntentId: pi, trigger: 'manual',
     }, `topup-${pi}`);
@@ -287,9 +302,9 @@ describe('充值入账', () => {
 
   it('充值把那一种额度的失败计数清零 —— 这张卡现在是好的', async () => {
     await resetBilling();
-    await run('billing.recordTopupFailure', { unit: 'credit', reason: 'card_declined' });
+    await runSystem('billing.recordTopupFailure', { unit: 'credit', reason: 'card_declined' });
     const pi = `pi_ok_${Date.now()}`;
-    await run('billing.recordTopup', {
+    await runSystem('billing.recordTopup', {
       unit: 'credit', units: 1000, paidCents: 5000,
       stripePaymentIntentId: pi, trigger: 'auto',
     }, `topup-${pi}`);
@@ -297,7 +312,7 @@ describe('充值入账', () => {
   });
 
   it('充值数量必须为正 —— 「充值 −1000」不能混进账本', async () => {
-    await expect(run('billing.recordTopup', {
+    await expect(runSystem('billing.recordTopup', {
       unit: 'credit', units: -1000, paidCents: 5000,
       stripePaymentIntentId: null, trigger: 'manual',
     }, `bad-${Date.now()}`)).rejects.toThrow();
@@ -310,7 +325,7 @@ describe('自动续充', () => {
   /** 把某一种额度摆成「该充了」的样子：套餐内用完 + 余额低 + 有卡 */
   async function arm(unit: 'credit' | 'voice_minute'): Promise<void> {
     await resetBilling();
-    await run('billing.savePaymentMethod',
+    await runSystem('billing.savePaymentMethod',
       { paymentMethodId: 'pm_test_4242', label: 'Visa ···· 4242' });
     const col = unit === 'credit' ? 'included_credits_used' : 'included_minutes_used';
     await withTenant(tenant, (tx) => tx`
@@ -321,28 +336,28 @@ describe('自动续充', () => {
 
   it('该充的时候认领成功', async () => {
     await arm('credit');
-    const claim = await run<{ charge: boolean; units: number | null; priceCents: number | null }>(
+    const claim = await runSystem<{ charge: boolean; units: number | null; priceCents: number | null }>(
       'billing.claimAutoTopup', { unit: 'credit' });
     expect(claim).toMatchObject({ charge: true, units: 1000, priceCents: 5000 });
   });
 
   it('⭐ 套餐内还有额度就不充 —— 否则刚续期的账户会被白扣一笔 $50', async () => {
     await resetBilling();
-    await run('billing.savePaymentMethod', { paymentMethodId: 'pm_x', label: 'Visa' });
+    await runSystem('billing.savePaymentMethod', { paymentMethodId: 'pm_x', label: 'Visa' });
     await withTenant(tenant, (tx) => tx`
       update billing_accounts set stripe_customer_id = 'cus_test'
       where location_id = ${SPA_LOC}`);
     await run('billing.setAutoTopup', { unit: 'credit', enabled: true, thresholdUnits: 50 });
 
-    const claim = await run<{ charge: boolean; reason: string | null }>(
+    const claim = await runSystem<{ charge: boolean; reason: string | null }>(
       'billing.claimAutoTopup', { unit: 'credit' });
     expect(claim).toMatchObject({ charge: false, reason: 'included_remaining' });
   });
 
   it('⭐ 认领一次之后进冷却 —— 不然一晚上能触发几十次扣款尝试', async () => {
     await arm('credit');
-    await run('billing.claimAutoTopup', { unit: 'credit' });
-    const second = await run<{ charge: boolean; reason: string | null }>(
+    await runSystem('billing.claimAutoTopup', { unit: 'credit' });
+    const second = await runSystem<{ charge: boolean; reason: string | null }>(
       'billing.claimAutoTopup', { unit: 'credit' });
     expect(second).toMatchObject({ charge: false, reason: 'cooling_down' });
   });
@@ -350,7 +365,7 @@ describe('自动续充', () => {
   it('⭐ 并发认领只有一个成功 —— 否则老板一分钟内被扣两次 $50', async () => {
     await arm('credit');
     const results = await Promise.all(Array.from({ length: 4 }, () =>
-      run<{ charge: boolean }>('billing.claimAutoTopup', { unit: 'credit' })));
+      runSystem<{ charge: boolean }>('billing.claimAutoTopup', { unit: 'credit' })));
     expect(results.filter((r) => r.charge)).toHaveLength(1);
   });
 
@@ -363,8 +378,8 @@ describe('自动续充', () => {
     await run('billing.setAutoTopup',
       { unit: 'voice_minute', enabled: true, thresholdUnits: 20 });
 
-    await run('billing.claimAutoTopup', { unit: 'credit' });      // 积分进冷却
-    const minutes = await run<{ charge: boolean; units: number | null }>(
+    await runSystem('billing.claimAutoTopup', { unit: 'credit' });      // 积分进冷却
+    const minutes = await runSystem<{ charge: boolean; units: number | null }>(
       'billing.claimAutoTopup', { unit: 'voice_minute' });
     expect(minutes).toMatchObject({ charge: true, units: 200 });   // 分钟不受影响
   });
@@ -375,15 +390,15 @@ describe('自动续充', () => {
       update billing_accounts set included_credits_used = 99999
       where location_id = ${SPA_LOC}`);
     await run('billing.setAutoTopup', { unit: 'credit', enabled: true, thresholdUnits: 50 });
-    const claim = await run<{ charge: boolean; reason: string | null }>(
+    const claim = await runSystem<{ charge: boolean; reason: string | null }>(
       'billing.claimAutoTopup', { unit: 'credit' });
     expect(claim).toMatchObject({ charge: false, reason: 'no_payment_method' });
   });
 
   it('⭐ 订阅停了就不再充值', async () => {
     await arm('credit');
-    await run('billing.syncSubscription', { subscriptionStatus: 'canceled' });
-    const claim = await run<{ charge: boolean; reason: string | null }>(
+    await runSystem('billing.syncSubscription', { subscriptionStatus: 'canceled' });
+    const claim = await runSystem<{ charge: boolean; reason: string | null }>(
       'billing.claimAutoTopup', { unit: 'credit' });
     // 客户已经在走流失流程，这时候扣他一笔 $50 是最容易变成投诉和拒付的操作
     expect(claim).toMatchObject({ charge: false, reason: 'subscription_inactive' });
@@ -393,7 +408,7 @@ describe('自动续充', () => {
     await arm('credit');
     let last = { failures: 0, disabled: false };
     for (let i = 0; i < MAX_TOPUP_FAILURES; i++) {
-      last = await run('billing.recordTopupFailure', { unit: 'credit', reason: 'card_declined' });
+      last = await runSystem('billing.recordTopupFailure', { unit: 'credit', reason: 'card_declined' });
     }
     expect(last.disabled).toBe(true);
     expect((await quota('credit')).autoTopup.enabled).toBe(false);
@@ -404,7 +419,7 @@ describe('自动续充', () => {
   it('⭐ 重新打开时清零失败计数 —— 老板刚换了卡，不该还被旧卡的失败挡着', async () => {
     await arm('credit');
     for (let i = 0; i < MAX_TOPUP_FAILURES; i++) {
-      await run('billing.recordTopupFailure', { unit: 'credit', reason: 'card_declined' });
+      await runSystem('billing.recordTopupFailure', { unit: 'credit', reason: 'card_declined' });
     }
     const out = await run<{ failuresReset: boolean }>('billing.setAutoTopup',
       { unit: 'credit', enabled: true, thresholdUnits: 80 });
@@ -414,9 +429,9 @@ describe('自动续充', () => {
 
   it('换一张卡把两种额度的失败计数都清零', async () => {
     await arm('credit');
-    await run('billing.recordTopupFailure', { unit: 'credit', reason: 'expired_card' });
-    await run('billing.recordTopupFailure', { unit: 'voice_minute', reason: 'expired_card' });
-    await run('billing.savePaymentMethod',
+    await runSystem('billing.recordTopupFailure', { unit: 'credit', reason: 'expired_card' });
+    await runSystem('billing.recordTopupFailure', { unit: 'voice_minute', reason: 'expired_card' });
+    await runSystem('billing.savePaymentMethod',
       { paymentMethodId: 'pm_test_5555', label: 'Mastercard ···· 5555' });
     expect((await quota('credit')).autoTopup.failures).toBe(0);
     expect((await quota('voice_minute')).autoTopup.failures).toBe(0);
@@ -433,10 +448,10 @@ describe('自动续充', () => {
 describe('订阅同步', () => {
   it('局部更新：这次不知道的字段不动', async () => {
     await resetBilling();
-    await run('billing.syncSubscription',
+    await runSystem('billing.syncSubscription',
       { stripeCustomerId: 'cus_x', plan: 'growth', subscriptionStatus: 'active' });
     // 建 Checkout 时那次同步只带 customerId —— 不能把套餐和状态抹回默认值
-    await run('billing.syncSubscription', { stripeCustomerId: 'cus_x' });
+    await runSystem('billing.syncSubscription', { stripeCustomerId: 'cus_x' });
 
     const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
     expect(view!.plan).toBe('growth');
@@ -446,7 +461,7 @@ describe('订阅同步', () => {
   it('⭐ 续期把套餐内额度清零 —— 时机跟着 Stripe 走，不自己数日子', async () => {
     await resetBilling();
     const t0 = new Date(Date.now() + 30 * 86400_000).toISOString();
-    await run('billing.syncSubscription',
+    await runSystem('billing.syncSubscription',
       { subscriptionStatus: 'active', currentPeriodEnd: t0 });
 
     // 用掉一些额度
@@ -456,7 +471,7 @@ describe('订阅同步', () => {
 
     // 续期：period_end 往后走
     const t1 = new Date(Date.now() + 60 * 86400_000).toISOString();
-    await run('billing.syncSubscription',
+    await runSystem('billing.syncSubscription',
       { subscriptionStatus: 'active', currentPeriodEnd: t1 });
 
     expect((await quota('credit')).included.used).toBe(0);
@@ -466,7 +481,7 @@ describe('订阅同步', () => {
   it('⭐ 重投的旧事件不清零 —— 那等于白送客户一整期额度', async () => {
     await resetBilling();
     const late = new Date(Date.now() + 60 * 86400_000).toISOString();
-    await run('billing.syncSubscription',
+    await runSystem('billing.syncSubscription',
       { subscriptionStatus: 'active', currentPeriodEnd: late });
     await withTenant(tenant, (tx) => tx`
       update billing_accounts set included_credits_used = 77
@@ -474,7 +489,7 @@ describe('订阅同步', () => {
 
     // Stripe 偶尔重投一条更早的事件。照着它清零就是白送一期
     const early = new Date(Date.now() + 30 * 86400_000).toISOString();
-    await run('billing.syncSubscription',
+    await runSystem('billing.syncSubscription',
       { subscriptionStatus: 'active', currentPeriodEnd: early });
 
     expect((await quota('credit')).included.used).toBe(77);
@@ -482,10 +497,10 @@ describe('订阅同步', () => {
 
   it('⭐ 认不出的 price 传 null → 套餐保持不变，不会被静默降档', async () => {
     await resetBilling();
-    await run('billing.syncSubscription', { plan: 'growth', subscriptionStatus: 'active' });
+    await runSystem('billing.syncSubscription', { plan: 'growth', subscriptionStatus: 'active' });
     // planForPriceId 认不出来时返回 null。写成 essential 的话，
     // 一个付 Growth 钱的客户会被降档，而账单上看不出来
-    await run('billing.syncSubscription', { plan: null, subscriptionStatus: 'active' });
+    await runSystem('billing.syncSubscription', { plan: null, subscriptionStatus: 'active' });
 
     const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
     expect(view!.plan).toBe('growth');
@@ -499,7 +514,7 @@ describe('七天免费试用（批 1）', () => {
 
   it('试用期内额度按 TRIAL_QUOTA 算，不是套餐额度', async () => {
     await resetBilling();
-    await run('billing.syncSubscription', {
+    await runSystem('billing.syncSubscription', {
       subscriptionStatus: 'trialing', plan: 'growth', trialEndsAt: inDays(5),
     });
 
@@ -515,7 +530,7 @@ describe('七天免费试用（批 1）', () => {
   it('⭐ 试用到期那一刻起按套餐额度算 —— 判据是时间不是 status', async () => {
     await resetBilling();
     // status 还留在 trialing（webhook 还没回来），但 trial_ends_at 已经过去了
-    await run('billing.syncSubscription', {
+    await runSystem('billing.syncSubscription', {
       subscriptionStatus: 'trialing', plan: 'growth', trialEndsAt: inDays(-1),
     });
 
@@ -526,11 +541,11 @@ describe('七天免费试用（批 1）', () => {
 
   it('转正时 trialEndsAt 传 null → 真的写回 null，不留旧值', async () => {
     await resetBilling();
-    await run('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: inDays(3) });
+    await runSystem('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: inDays(3) });
     expect((await withTenant(tenant, (tx) => loadBilling(tx, ctx)))!.trialEndsAt).not.toBeNull();
 
     // Stripe 扣款成功之后订阅上就没有 trial_end 了
-    await run('billing.syncSubscription', { subscriptionStatus: 'active', trialEndsAt: null });
+    await runSystem('billing.syncSubscription', { subscriptionStatus: 'active', trialEndsAt: null });
 
     const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
     expect(view!.trialEndsAt).toBeNull();
@@ -540,21 +555,21 @@ describe('七天免费试用（批 1）', () => {
   it('不带 trialEndsAt 的局部更新不动它 —— 建 Checkout 那次只带 customerId', async () => {
     await resetBilling();
     const end = inDays(4);
-    await run('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: end });
-    await run('billing.syncSubscription', { stripeCustomerId: 'cus_trial' });
+    await runSystem('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: end });
+    await runSystem('billing.syncSubscription', { stripeCustomerId: 'cus_trial' });
 
     expect((await withTenant(tenant, (tx) => loadBilling(tx, ctx)))!.trialing).toBe(true);
   });
 
   it('⭐ 换了一段试用 → 提醒信的去重标记清掉，新的那段还能再发一封', async () => {
     await resetBilling();
-    await run('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: inDays(3) });
+    await runSystem('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: inDays(3) });
     await withTenant(tenant, (tx) => tx`
       update billing_accounts set trial_will_end_notified_at = now()
       where location_id = ${SPA_LOC}`);
 
     // 到期时间变了 = 这是另一段试用
-    await run('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: inDays(9) });
+    await runSystem('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: inDays(9) });
 
     const [row] = await withTenant(tenant, (tx) => tx<{ n: Date | null }[]>`
       select trial_will_end_notified_at as n from billing_accounts
@@ -565,13 +580,13 @@ describe('七天免费试用（批 1）', () => {
   it('到期时间没变 → 去重标记保留，不会重复发信', async () => {
     await resetBilling();
     const end = inDays(3);
-    await run('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: end });
+    await runSystem('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: end });
     await withTenant(tenant, (tx) => tx`
       update billing_accounts set trial_will_end_notified_at = now()
       where location_id = ${SPA_LOC}`);
 
     // Stripe 重投同一条事件
-    await run('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: end });
+    await runSystem('billing.syncSubscription', { subscriptionStatus: 'trialing', trialEndsAt: end });
 
     const [row] = await withTenant(tenant, (tx) => tx<{ n: Date | null }[]>`
       select trial_will_end_notified_at as n from billing_accounts
@@ -600,7 +615,7 @@ describe('欠费冻结写入（批 1）', () => {
     await setStatus('past_due');
 
     // 这一条必须能过：它是唯一的自救通道
-    await run('billing.syncSubscription', { subscriptionStatus: 'active' });
+    await runSystem('billing.syncSubscription', { subscriptionStatus: 'active' });
 
     const view = await withTenant(tenant, (tx) => loadBilling(tx, ctx));
     expect(view!.subscriptionStatus).toBe('active');
@@ -690,7 +705,7 @@ describe('本地命令不得发明付费状态（P0-1 / P0-2）', () => {
     await resetBilling();
     const before = await snapshotPaidState();
 
-    await expect(run('billing.changePlan', {
+    await expect(runSystem('billing.changePlan', {
       targetPlan: 'growth',
       billingCycle: 'monthly',
     })).rejects.toMatchObject(refuse);
@@ -706,7 +721,7 @@ describe('本地命令不得发明付费状态（P0-1 / P0-2）', () => {
     const before = await snapshotPaidState();
     expect(before.subscriptionStatus).toBe('past_due');
 
-    await expect(run('billing.changePlan', {
+    await expect(runSystem('billing.changePlan', {
       targetPlan: 'growth',
       billingCycle: 'monthly',
     })).rejects.toMatchObject(refuse);
@@ -720,12 +735,12 @@ describe('本地命令不得发明付费状态（P0-1 / P0-2）', () => {
     await resetBilling();
     const before = await snapshotPaidState();
 
-    await expect(run('billing.buyAddon', {
+    await expect(runSystem('billing.buyAddon', {
       addonType: 'voice_minutes_100',
       priceCents: 2500,
     })).rejects.toMatchObject(refuse);
 
-    await expect(run('billing.buyAddon', {
+    await expect(runSystem('billing.buyAddon', {
       addonType: 'copilot_credits_500',
       priceCents: 4900,
     })).rejects.toMatchObject(refuse);
@@ -740,7 +755,7 @@ describe('本地命令不得发明付费状态（P0-1 / P0-2）', () => {
     await setStatus('past_due');
     const before = await snapshotPaidState();
 
-    await expect(run('billing.buyAddon', {
+    await expect(runSystem('billing.buyAddon', {
       addonType: 'marketing_sms_1000',
       priceCents: 3900,
     })).rejects.toMatchObject(refuse);
@@ -756,7 +771,7 @@ describe('本地命令不得发明付费状态（P0-1 / P0-2）', () => {
     await resetBilling();
     const essentialIncluded = (await quota('credit')).included.total;
 
-    await run('billing.syncSubscription', {
+    await runSystem('billing.syncSubscription', {
       plan: 'growth',
       subscriptionStatus: 'active',
       stripeCustomerId: 'cus_p0_batch1',
@@ -770,7 +785,7 @@ describe('本地命令不得发明付费状态（P0-1 / P0-2）', () => {
       .toBeGreaterThan(essentialIncluded);
 
     const pi = `pi_p0_${Date.now()}`;
-    const topup = await run<{ balanceAfter: number; alreadyRecorded: boolean }>(
+    const topup = await runSystem<{ balanceAfter: number; alreadyRecorded: boolean }>(
       'billing.recordTopup',
       {
         unit: 'credit', units: TOPUP_UNITS.credit, paidCents: 5000,
@@ -782,10 +797,10 @@ describe('本地命令不得发明付费状态（P0-1 / P0-2）', () => {
     expect((await quota('credit')).balance).toBe(1000);
     expect((await quota('voice_minute')).balance).toBe(0);
 
-    await run('billing.syncSubscription', { subscriptionStatus: 'past_due' });
+    await runSystem('billing.syncSubscription', { subscriptionStatus: 'past_due' });
     expect((await withTenant(tenant, (tx) => loadBilling(tx, ctx)))!.subscriptionStatus)
       .toBe('past_due');
-    await run('billing.syncSubscription', { subscriptionStatus: 'active' });
+    await runSystem('billing.syncSubscription', { subscriptionStatus: 'active' });
     expect((await withTenant(tenant, (tx) => loadBilling(tx, ctx)))!.subscriptionStatus)
       .toBe('active');
   });
@@ -795,7 +810,7 @@ describe('账本只追加（宪法第 9 条）', () => {
   it('⭐ app_user 改不动已经写下的账本行', async () => {
     await resetBilling();
     const pi = `pi_lock_${Date.now()}`;
-    await run('billing.recordTopup', {
+    await runSystem('billing.recordTopup', {
       unit: 'credit', units: 1000, paidCents: 5000,
       stripePaymentIntentId: pi, trigger: 'manual',
     }, `topup-${pi}`);

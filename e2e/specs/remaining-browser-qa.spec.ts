@@ -187,7 +187,12 @@ test.describe('remaining browser QA matrix', () => {
     expect(unexplained, `unexpected 4xx after login:\n${unexplained.map((item) => `${item.method} ${item.status} ${item.url}`).join('\n')}`).toEqual([]);
   });
 
-  test('Today on Rotation uses UTC while shop-timezone Today stays on the previous evening', async ({ page }) => {
+  /*
+   * ⚠️ 这两条停在 20:15 / 21:30 —— **cutoff 之后**，此时营业日恰好等于
+   * 门店时区的日历日，所以它们只能证明时区那一半是对的。
+   * cutoff 那一半（当地午夜到 04:00 的那个窗口）在 `business-day.spec.ts`。
+   */
+  test('QA-008: every desk Today control uses the shop timezone (evening, after the cutoff)', async ({ page }) => {
     const frozen = '2026-08-31T00:15:00.000Z';
     const shopZone = 'America/New_York';
     const shopToday = wallDate(frozen, shopZone);
@@ -233,7 +238,7 @@ test.describe('remaining browser QA matrix', () => {
     expect.soft(dayCloseYesterday).toBe('2026-08-29');
   });
 
-  test('Schedule Today follows the browser timezone, not the West shop timezone, after midnight Eastern', async ({ page }) => {
+  test('QA-008: West shop Today uses its own timezone, not the browser timezone', async ({ page }) => {
     const frozen = '2026-08-31T04:30:00.000Z';
     const shopZone = 'America/Los_Angeles';
     const browserZone = 'America/New_York';

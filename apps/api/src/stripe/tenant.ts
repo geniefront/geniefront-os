@@ -103,10 +103,36 @@ function invoiceRelatedMetadata(obj: Record<string, unknown>): Array<Record<stri
   ];
 }
 
+/**
+ * `payment_method.*` 事件的租户解析（AUD-02 / AUD-07）。
+ *
+ * ⚠️ **detached 事件里 `customer` 已经是 null 了** —— 卡都摘了，
+ * Stripe 自然不再挂客户。旧的客户 id 在 `data.previous_attributes.customer`。
+ * 只读 `obj.customer` 的话，这类事件永远认不出租户、被静默忽略，
+ * 而那恰恰是「卡没了要清本地投影」最需要收到的一条。
+ *
+ * 两个来源都只当作**查询键**，最终仍然过
+ * `findBillingTenantByStripeRefs`：命中多于一行就不返回，绝不猜。
+ */
+function paymentMethodCustomerId(event: Stripe.Event, obj: Record<string, unknown>): string | null {
+  const current = stripeId(obj['customer']);
+  if (current) return current;
+  const prev = (event.data as { previous_attributes?: unknown }).previous_attributes;
+  if (prev && typeof prev === 'object') {
+    return stripeId((prev as { customer?: unknown }).customer);
+  }
+  return null;
+}
+
 export async function resolveWebhookTenant(event: Stripe.Event): Promise<WebhookTenant | null> {
   const obj = event.data.object as unknown as Record<string, unknown>;
   const direct = tenantFromMetadata(asStringMeta(obj) ?? undefined);
   if (direct) return direct;
+
+  if (event.type.startsWith('payment_method.') || obj['object'] === 'payment_method') {
+    const customerId = paymentMethodCustomerId(event, obj);
+    return findBillingTenantByStripeRefs({ subscriptionId: null, customerId });
+  }
 
   if (!isInvoiceLike(event, obj)) return null;
 

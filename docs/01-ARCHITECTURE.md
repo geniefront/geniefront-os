@@ -186,6 +186,57 @@ export const RescheduleAppointment = defineCommand({
 
 只读查询可以直接执行不用确认。写操作默认要确认，熟练用户可以在设置里把低风险命令设为免确认。
 
+### 3.1 系统自有命令（`system: true`）⭐
+
+**2026-08-31 加的一条，起因是一个能复现的 P0。**
+
+`POST /v1/commands/:name` 按名字执行任意已注册命令，而总线里唯一的门是
+「你有没有 `def.permission`」。`billing.syncSubscription` 的 permission 是
+`billing.manage`，而 owner 预设正好有 —— 于是**一条 curl 就能把自己的门店
+写成 growth/active，再一条就能凭空造出十万积分**。两条都实测复现过。
+
+原来标「内部」的方式是 `ai: { exposed: false }`。那个字段**只管 AI 工具生成，
+从来不影响 HTTP 路由** —— 标记有了，没有任何东西强制它。
+
+所以判据换成 `CommandDef.system`：
+
+| 这条命令记的是 | 谁能调 | 例子 |
+|---|---|---|
+| **租户的意图** | 浏览器、AI（权限内） | `appointment.create`、`ticket.pay` |
+| **外部系统已经发生的事实** | 只有服务端编排，验完外部凭据之后 | `billing.recordTopup`（Stripe 扣款回执）、`billing.syncSubscription`（webhook 验签）、`ai.recordAssist`（模型调用回执） |
+
+判据只有一句：**如果租户能直接调它，他能不能凭空写出一个没有发生过的事实？**
+能，就是 `system: true`。
+
+**两道，都失败即拒：**
+
+1. `apps/api/src/server.ts` —— HTTP 入口在解析身份**之前**就拒掉。
+2. `apps/api/src/bus.ts` —— `dispatch()` 要求调用方显式给
+   `systemOrigin`（`stripe_webhook` / `anthropic_usage` / `telnyx_call` …），
+   而且这一步排在**入参校验之前**：排在后面的话，body 拼错的调用会先拿到
+   `VALIDATION_FAILED`，于是「这条命令我到底能不能调」变成一个可以试探出来的问题。
+
+第一道挡的是今天已知的那个入口。而「按名字执行任意命令」这种泛化入口出现过
+一次就可能再出现第二次（AI 工具、批量接口、内部代理），那时第一道不会自动
+跟着长出来 —— 第二道会：新写的调用点不声明来源就跑不通。
+
+⚠️ 这**不是**第二套权限。权限照常检查。它约束的是**入口**，
+执行仍然走同一条总线：审计、幂等、RLS、订阅闸门一条都不少（宪法第 1 条没被绕开）。
+
+回归在 `apps/api/src/systemOnly.test.ts`，断言的对象是**注册表本身** ——
+新加一条内部命令而忘了标 `system`，套件当场红。
+
+### 3.2 命令处理器之外不许写业务表 ⭐
+
+宪法第 1 条是唯一一条长期没有可执行检查的规则，于是四条 desk 路由悄悄长出了
+裸 SQL 写入（改预约备注、改客户关联、重填健康表、推进建站工单状态）。
+它们各自丢掉了审计、幂等和欠费冻结 —— 而因为读也用 `withTenant`，
+写混进去看起来毫无违和。
+
+`scripts/lint-guards.sh` 第 9 条现在会拦下它。允许名单只有系统路径
+（`handlers/`、`stripe/`、`signup/`、`platform/`、`auth/`、`kiosk/routes.ts` 等），
+每一处都有明确理由。
+
 **AI 上下文（Context Builder）**：不要让 LLM 自己写 SQL。提供一个 `getFloorSnapshot(locationId)` 只读工具，返回一份精炼的现场快照（今天的预约、在岗技师、轮牌顺序、空房间、等位队列），几 KB 以内，让模型一次拿到全局。这比给它 20 个零碎工具效果好得多。
 
 ---
@@ -217,6 +268,15 @@ user (全局唯一) ──< membership (user × location × 角色) >── loca
   - **生产环境那一把只进 CI Secret**，不落任何 `.env` 文件
   - 危险之处在于它是静默的：业务查询走了 service_role 就绕过 RLS，**你写的租户隔离测试会全部通过但毫无意义**，直到线上串了数据才暴露
 - 索引统一以 `(org_id, location_id, ...)` 打头
+- **外键不受 RLS 约束** ⭐：Postgres 的外键检查以**表 owner 身份**执行。
+  `appointments.customer_id references customers(id)` 这种单列外键，
+  写一个别家 org 的 uuid 是能写进去的 —— 写进去之后读路径被 RLS 滤成 NULL，
+  客人在界面上凭空消失，库里留一条跨租户引用，全程无报错。
+  凡是指向租户数据的外键都要带上 org：`(org_id, customer_id) → customers(org_id, id)`（sql/0076）
+- **依赖跨租户可见性的检查必须 SECURITY DEFINER** ⭐：反过来的坑。
+  一个「这个 Stripe id 是不是已经属于别的 org」的触发器，如果跟着 `app_user` 跑，
+  它要找的正是被 RLS 滤掉的那些行 —— 检查**永远为假**，看起来有防护实际没有。
+  用 postgres 身份手工验证是看不出来的，只有以 `app_user` 身份跑的测试能抓到（sql/0081）
 - 大表（`appointments`、`ticket_items`、`audit_log`、`messages`）预留**按月分区**，Phase 3 再切
 - 1000 店 × 100 单/天 ≈ 3600 万预约/年 —— 单个 Postgres 完全扛得住，**不要过早分库**
 
@@ -361,6 +421,36 @@ rotation_participants         -- (location_id, business_date, membership_id, in_
 **「预约默认都同意」**：公开预约 API / AI 电话创建的预约，只要没撞资源硬约束就直接接受；容量超限只在前台看板上高亮成待关注，**不拒绝客人**。
 
 **前台强行覆盖**：任何软约束前台都可点"仍要安排"，引擎放行并记录操作人 + 原因。硬约束（资源冲突）不给覆盖入口，只提示"3 号房 15:00–16:00 已被占用"并列出可选房间。
+
+### 7.2 营业日：Desk 的「今天」不是日历上的今天 ⭐
+
+**2026-08-31 定的口径（AUD-13）：Desk 上一切 Today / Yesterday
+都是门店的营业日，含 `business_day_cutoff`。**
+
+```
+America/New_York，cutoff 04:00
+  2026-08-31 01:30 EDT  →  营业今天 2026-08-30，营业昨天 2026-08-29
+  2026-08-31 04:00 EDT  →  营业今天 2026-08-31
+```
+
+凌晨一点半那一单属于昨晚那一场生意 —— 这不是技术偏好，是门店自己数钱的方式。
+
+**判据只有一份**：`businessDateOf` @ `packages/scheduling/src/business-day.ts`，
+服务端和前端共用。前端入口是 `useBusinessDay()` @ `apps/web/src/lib/time.ts`，
+cutoff 由 `GET /v1/me/context` 的 `businessDayCutoff` 下发。
+
+⚠️ **不许再写第二份日期实现**，也不许用 `toISOString().slice(0, 10)`
+或浏览器本地日历语义 —— 前后端各写一份的结果必然是在 DST 那两天分叉。
+
+⚠️ **只修时区不修 cutoff 是个陷阱**，而且已经踩过一次：
+QA-008 把所有日期控件从 UTC/浏览器本地改成了「门店时区的日历日」，
+看起来彻底解决了时区问题。但营业日和门店时区的日历日**每天有几个小时不相等**，
+而不相等的那几个小时正是前台封账的时刻。表现是日结页显示
+「今天在营业」且全部为零，当晚真实的钱在前一个日期下。
+
+⭐ 更要命的是**测试也会跟着漏**：任何把时钟停在营业时间的用例，
+两种实现都通过。要抓住它，时钟必须停在**当地午夜到 cutoff 之间**
+（`e2e/specs/business-day.spec.ts`、`apps/web/src/lib/time.test.ts`）。
 
 #### 第四层：营业时间（sql/0046）⭐
 

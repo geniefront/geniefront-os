@@ -92,6 +92,7 @@ import {
 } from '@/features/schedule/appointmentDetail';
 import { useLocationTechPresence } from '@/features/tech/lib/useLocationTechPresence';
 import { rankStaffCandidates } from '@/features/queue/assignment';
+import { useBusinessDay } from '@/lib/time';
 
 /** 回退反向流转原因映射 */
 const ROLLBACK_REASONS = [
@@ -287,7 +288,8 @@ function QueueContent() {
 
   const { context } = useSession();
   const timezone = context?.timezone || 'America/New_York';
-  const todayDate = useMemo(() => instantToWallDate(new Date().toISOString(), timezone), [timezone]);
+  // 排队/操作板锁定「今天」= 营业日的今天（AUD-13）。
+  const { today: todayDate } = useBusinessDay();
   const { data: todaySnapshot, isLoading: scheduleLoading, refetch: refetchSchedule } = useDaySnapshot(todayDate);
 
   const services = useMemo(() => todaySnapshot?.services ?? [], [todaySnapshot]);

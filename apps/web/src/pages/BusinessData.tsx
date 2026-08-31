@@ -54,6 +54,7 @@ import {
 import { exportToCSV } from "@/lib/exportUtils";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PageLoading, PageError } from "@/components/ui/QueryState";
+import { shiftDate, useBusinessDay } from '@/lib/time';
 
 const PIE_COLORS = ["#0D9488", "#3B82F6", "#F59E0B", "#8B5CF6", "#EC4899", "#64748B"];
 const CHANNEL_COLORS = ["#0D9488", "#0284C7", "#8B5CF6", "#F59E0B", "#10B981"];
@@ -72,20 +73,22 @@ export function BusinessData() {
   const [rangePreset, setRangePreset] = useState<"7d" | "30d" | "90d" | "thisMonth">("30d");
   const [activeTab, setActiveTab] = useState<"revenue" | "customers" | "categories" | "staff" | "copilot">("revenue");
 
+  /**
+   * 报表区间的右端是**营业日的今天**（AUD-13）。
+   *
+   * 原来是 `new Date().toISOString().slice(0, 10)` —— 那是 UTC 的日历日，
+   * 纽约时间晚上八点它就已经跳到明天了，于是「最近 7 天」实际取的是
+   * 今天 + 未来一天 + 过去六天，而报表里凭空多出一列空数据。
+   */
+  const { today: businessToday } = useBusinessDay();
   const { from, to } = useMemo(() => {
-    const today = new Date();
-    const toStr = today.toISOString().slice(0, 10);
-    const past = new Date(today);
-    if (rangePreset === "7d") past.setDate(past.getDate() - 7);
-    else if (rangePreset === "30d") past.setDate(past.getDate() - 30);
-    else if (rangePreset === "90d") past.setDate(past.getDate() - 90);
-    else {
-      // 本月第一天
-      past.setDate(1);
+    if (!businessToday) return { from: '', to: '' };
+    if (rangePreset === "thisMonth") {
+      return { from: `${businessToday.slice(0, 7)}-01`, to: businessToday };
     }
-    const fromStr = past.toISOString().slice(0, 10);
-    return { from: fromStr, to: toStr };
-  }, [rangePreset]);
+    const days = rangePreset === "7d" ? 7 : rangePreset === "30d" ? 30 : 90;
+    return { from: shiftDate(businessToday, -days), to: businessToday };
+  }, [rangePreset, businessToday]);
 
   const revenueQ = useRevenueTrendsQuery(from, to, "day");
   const customersQ = useCustomerRetentionQuery(from, to);

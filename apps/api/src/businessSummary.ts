@@ -113,8 +113,7 @@ export async function generateAndSaveBusinessSummary(ctx: CommandContext, apiKey
       inputRecordCount: facts.tickets,
       content: generated.content,
     },
-    ctx,
-  );
+    ctx, { systemOrigin: 'anthropic_usage' });
 
   return {
     highlights: result.highlights,

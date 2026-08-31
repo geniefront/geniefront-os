@@ -24,6 +24,7 @@ import { dispatch } from './bus';
 import { provisionFromSession } from './signup/webhook';
 import type { Stripe } from './stripe/client';
 import './handlers/setup';
+import { dispatchSystem } from './test/systemDispatch';
 
 /** 固定的自测 session。真实的 session id 长这样：cs_test_a1B2… */
 const SESSION = 'cs_test_gf_selftest_signup';
@@ -239,7 +240,7 @@ describe('B · 认领门店', () => {
 
   it('认领之后能进 desk，而且拿到的是 owner 的全部权限', async () => {
     const intent = await claimableIntentFor(OWNER_USER);
-    const out = await dispatch<{ membershipId: string }>(
+    const out = await dispatchSystem<{ membershipId: string }>(
       'setup.claimLocation', { intentId: intent!.intentId }, claimCtx(OWNER_USER));
 
     const ctx = await buildContext({ userId: OWNER_USER, membershipId: out.result.membershipId });
@@ -260,7 +261,7 @@ describe('B · 认领门店', () => {
       tx<{ id: string }[]>`select id from signup_intents where location_id = ${tenant.locationId}`);
 
     await expect(
-      dispatch('setup.claimLocation', { intentId: si!.id }, claimCtx(OTHER_USER)),
+      dispatchSystem('setup.claimLocation', { intentId: si!.id }, claimCtx(OTHER_USER)),
     ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
 
     // 而且没有第二条 membership 被造出来

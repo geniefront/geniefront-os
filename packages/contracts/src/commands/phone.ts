@@ -39,6 +39,8 @@ export const draftDismissReason = z.enum([
  */
 export const DraftFromCall = defineCommand({
   name: 'call.draftAppointment',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
   input: z.object({
     /** Telnyx 的 call_session_id。用来把草案和通话计费对上 */
     providerCallId: z.string().max(120).optional(),
@@ -159,6 +161,8 @@ export const ReviewCallDraft = defineCommand({
  */
 export const AttachCallTranscript = defineCommand({
   name: 'call.attachTranscript',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
   input: z.object({
     /** 和 `call.record` 同一个：Telnyx 的 call_session_id */
     providerCallId: z.string().max(120),
@@ -186,6 +190,8 @@ export const AttachCallTranscript = defineCommand({
 
 export const RecordCall = defineCommand({
   name: 'call.record',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
   input: z.object({
     providerCallId: z.string().max(120),
     fromE164: z.string().max(24).optional(),

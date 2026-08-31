@@ -116,6 +116,56 @@ export type CtxFromHeaders = (req: {
   user?: { userId: string }; headers: Record<string, unknown>; ip: string;
 }) => Promise<CommandContext>;
 
+/**
+ * 核对一个 Stripe customer 到底属不属于这家门店（AUD-02）。
+ *
+ * ## 为什么本地那一列不够
+ *
+ * `billing_accounts.stripe_customer_id` 是**我们写的**。门户会话一旦按它开出去，
+ * 拿到的是那个 customer 名下的全部东西：历史发票、卡的品牌与后四位、
+ * 账单地址，以及**退订按钮**。也就是说这一列的可信度直接等于
+ * 「谁能写它」——而在 AUD-01 修好之前，答案是「任何一个老板」。
+ *
+ * 所以判据换成 Stripe 自己的 metadata：`gf_location_id` 是建 customer 时
+ * 我们写进去的（`ensureCustomer`），它只可能由服务端产生。
+ *
+ * ⚠️ **老 customer 可能没有这个 metadata**（计费上线早于回填那一版）。
+ * 那种情况不能一刀切拒绝 —— 会把一批老店锁在账单页外面。
+ * 判定分三档：
+ *   · metadata 指向**别的门店** → 拒。这是唯一真正危险的情况
+ *   · metadata 指向本店         → 放行
+ *   · metadata 缺失             → 放行，但记一条 warn 供回填
+ *
+ * 换句话说：我们拦的是「指错了」，不是「没标过」。
+ */
+export async function assertStripeCustomerBelongsTo(
+  customerId: string,
+  locationId: string,
+  log?: { warn: (o: unknown, m: string) => void },
+): Promise<void> {
+  let customer: Stripe.Customer | Stripe.DeletedCustomer;
+  try {
+    customer = await stripeClient().customers.retrieve(customerId);
+  } catch (e) {
+    throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, {
+      details: { service: 'stripe', reason: declineReason(e) },
+    });
+  }
+  if (customer.deleted) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, { details: { reason: 'stripe_customer_deleted' } });
+  }
+  const owner = (customer.metadata ?? {})['gf_location_id'];
+  if (!owner) {
+    log?.warn({ customerId, locationId }, 'stripe customer without gf_location_id metadata');
+    return;
+  }
+  if (owner !== locationId) {
+    throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+      details: { reason: 'stripe_customer_location_mismatch' },
+    });
+  }
+}
+
 export function registerStripeRoutes(
   app: FastifyInstance,
   ctxFromHeaders: CtxFromHeaders,
@@ -174,7 +224,7 @@ export function registerStripeRoutes(
 
     // 立刻落库：建完客户就崩掉的话，下次会再建一个 ——
     // 而 Stripe 上两个同名客户各挂一半数据，是最难收拾的一种脏
-    await dispatch('billing.syncSubscription', { stripeCustomerId: customer.id }, ctx);
+    await dispatch('billing.syncSubscription', { stripeCustomerId: customer.id }, ctx, { systemOrigin: 'stripe_webhook' });
     return customer.id;
   }
 
@@ -312,7 +362,7 @@ export function registerStripeRoutes(
       stripeSubscriptionId: existing.sub,
       plan,
       subscriptionStatus: 'active',
-    }, newCtx);
+    }, newCtx, { systemOrigin: 'stripe_webhook' });
 
     await withTenant(
       { orgId: ctx.orgId, locationId: newLoc, membershipId: null },
@@ -391,6 +441,9 @@ export function registerStripeRoutes(
       });
     }
 
+    // ⭐ 归属必须问 Stripe，不能只信本地那一列（AUD-02）。
+    await assertStripeCustomerBelongsTo(acct.stripe_customer_id, ctx.locationId, req.log);
+
     const returnUrl = safePortalReturnUrl(req.body?.returnUrl);
     try {
       const session = await stripeClient().billingPortal.sessions.create({
@@ -438,6 +491,10 @@ export function registerStripeRoutes(
       });
     }
 
+    // 扣款之前先确认这个 customer 真的是本店的（AUD-02）。
+    // 门户那条路泄漏的是别人的账单，这条路直接是**对别人的卡发起扣款**。
+    await assertStripeCustomerBelongsTo(acct.stripe_customer_id, ctx.locationId, req.log);
+
     let paymentIntentId: string;
     // 手动充值的幂等键：location + unit + 当前时间戳毫秒。
     // 每次充值是独立操作（区别于 add-store 用固定 locationId），
@@ -480,8 +537,7 @@ export function registerStripeRoutes(
         stripePaymentIntentId: paymentIntentId, trigger: 'manual',
       },
       ctx,
-      { idempotencyKey: `topup-${paymentIntentId}` },
-    );
+      { idempotencyKey: `topup-${paymentIntentId}` , systemOrigin: 'stripe_payment_intent' });
 
     return { ok: true, unit, units, balanceAfter: out.result.balanceAfter };
   });
@@ -665,6 +721,32 @@ export function registerStripeRoutes(
        * 这里只做一件事：留一条能查的记录。老板打电话来问
        * 「我的卡怎么被拒了」，客服要答得出是哪一天、哪张卡、什么原因。
        */
+      /**
+       * 卡被摘掉（AUD-07）。
+       *
+       * 不等下一条 `customer.subscription.updated` 才对齐：那可能是一个月后
+       * 的续费事件，中间这一个月界面一直显示一张不存在的卡，
+       * 而自动续充也会一直拿它去扣。
+       */
+      case 'payment_method.detached': {
+        const pm = event.data.object;
+        // 只清**这一张**。摘的是另一张卡的话什么都不做 ——
+        // 无条件清空会在「换卡」这个最常见的动作里把新卡也抹掉
+        // （Stripe 的顺序是先 attach 新卡、再 detach 旧卡）。
+        const [acct] = await withTenant(
+          { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: null },
+          (tx) => tx<{ pm: string | null }[]>`
+            select default_payment_method_id as pm from billing_accounts
+            where location_id = ${ctx.locationId}`);
+        if (acct?.pm !== pm.id) return 'payment_method_not_current';
+
+        await dispatch('billing.savePaymentMethod', {
+          paymentMethodId: null,
+          label: null,
+        }, ctx, { systemOrigin: 'stripe_webhook' });
+        return 'payment_method_detached';
+      }
+
       case 'invoice.payment_failed': {
         const inv = event.data.object;
         app.log.warn({
@@ -698,7 +780,7 @@ export function registerStripeRoutes(
           paidCents: pi.amount_received || pi.amount,
           stripePaymentIntentId: pi.id,
           trigger: kind === 'auto_topup' ? 'auto' : 'manual',
-        }, ctx, { idempotencyKey: `topup-${pi.id}` });
+        }, ctx, { idempotencyKey: `topup-${pi.id}`, systemOrigin: 'stripe_payment_intent' });
         return 'topup_recorded';
       }
 
@@ -711,7 +793,7 @@ export function registerStripeRoutes(
           unit,
           reason: pi.last_payment_error?.decline_code
             ?? pi.last_payment_error?.code ?? 'payment_failed',
-        }, ctx);
+        }, ctx, { systemOrigin: 'stripe_payment_intent' });
         return 'topup_failure_recorded';
       }
 
@@ -747,7 +829,7 @@ export function registerStripeRoutes(
     await dispatch('billing.savePaymentMethod', {
       paymentMethodId: pmId,
       label: paymentMethodLabel(pm),
-    }, ctx);
+    }, ctx, { systemOrigin: 'stripe_webhook' });
   }
 
   /** 订阅对象 → 本地账户状态 */
@@ -842,7 +924,7 @@ export function registerStripeRoutes(
       // 不能 `?? undefined` 留着旧值（那会让客服看到一个早就过期的日期）
       trialEndsAt: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
       sourceEventId: eventId,
-    }, ctx);
+    }, ctx, { systemOrigin: 'stripe_webhook' });
 
     // Stripe remains paid-state truth for the card on file. Checkout subscription
     // mode sets subscription.default_payment_method; setup-mode Checkout writes
@@ -851,14 +933,82 @@ export function registerStripeRoutes(
   }
 
   /**
-   * Project Stripe's default payment method onto billing_accounts through the
-   * existing `billing.savePaymentMethod` writer. No local paid-state invention.
+   * 把 Stripe 那边的默认支付方式投影到 `billing_accounts`，**双向**（AUD-07）。
+   *
+   * ## 原来只有一个方向
+   *
+   * `if (!resolved) return;` —— Stripe 有卡就写下来，Stripe 没卡就什么都不做。
+   * 于是老板在 Stripe 客户门户里把卡删了之后：
+   *   · 界面继续显示「Visa ···· 4242」，而 Stripe 那边一张卡都没有
+   *   · 自动续充继续拿这个已经 detach 的 pm 去扣，一路失败到熔断
+   *
+   * 那次修复（QA-004）针对的是「投影缺失」，所以只补了「有 → 写」。
+   * 但不变量是**本地投影等于 Stripe**，等号两边都要成立。
+   *
+   * ## 为什么订阅上没有卡不等于客户没有卡
+   *
+   * Checkout 的 subscription 模式会设 `subscription.default_payment_method`；
+   * 而 setup 模式绑卡走的是 `customer.invoice_settings.default_payment_method`，
+   * 订阅那一列**一直是空的**。只看订阅就清空的话，
+   * 每来一条 `customer.subscription.updated` 都会把 setup 模式绑的卡抹掉一次。
+   *
+   * 所以判据是两级：订阅上没有 → 再问客户；两边都没有 → 才真的清空。
    */
+  /**
+   * 客户级默认支付方式。setup 模式绑的卡落在这里，不在订阅上。
+   *
+   * 取不到（网络抖动、权限、客户被删）时返回 `undefined` 而不是 null ——
+   * 调用方据此**保持原样**，不清空。把「问不到」当成「没有」会在
+   * 一次 Stripe 抖动之后把老板的卡从界面上抹掉。
+   */
+  async function customerDefaultPaymentMethod(
+    customer: Stripe.Subscription['customer'],
+  ): Promise<{ id: string; label: string | null } | null | undefined> {
+    const customerId = typeof customer === 'string' ? customer : customer?.id;
+    if (!customerId) return undefined;
+    let c: Stripe.Customer | Stripe.DeletedCustomer;
+    try {
+      c = await stripeClient().customers.retrieve(customerId);
+    } catch {
+      // 问不到 ≠ 没有。返回 undefined 让调用方保持原样。
+      return undefined;
+    }
+    if (c.deleted) return undefined;
+    const out = stripeDefaultPaymentMethod(c.invoice_settings?.default_payment_method ?? null);
+    if (!out) return null;          // 问到了，答案是「没有」
+    if (out.label) return out;
+    try {
+      const full = await stripeClient().paymentMethods.retrieve(out.id);
+      return { id: out.id, label: paymentMethodLabel(full) };
+    } catch {
+      // id 是 Stripe 事实，label 只是显示用
+      return out;
+    }
+  }
+
   async function persistStripeDefaultPaymentMethod(
     sub: Stripe.Subscription, ctx: CommandContext,
   ): Promise<void> {
-    const resolved = stripeDefaultPaymentMethod(sub.default_payment_method);
-    if (!resolved) return;
+    let resolved = stripeDefaultPaymentMethod(sub.default_payment_method);
+
+    if (!resolved) {
+      const fromCustomer = await customerDefaultPaymentMethod(sub.customer);
+      // undefined = 问不到（Stripe 抖了 / 客户被删）。什么都不做，保持原样 ——
+      // 一次网络抖动不该把老板界面上的卡抹掉。
+      if (fromCustomer === undefined) return;
+      resolved = fromCustomer;
+    }
+
+    if (!resolved) {
+      // 订阅上没有、客户上也没有 = Stripe 真的没有卡了（多半是老板在
+      // 客户门户里把卡删了）。把本地投影清掉，等号两边才成立。
+      // `billing.savePaymentMethod` 接受 null，并会把 label 一起清干净。
+      await dispatch('billing.savePaymentMethod', {
+        paymentMethodId: null,
+        label: null,
+      }, ctx, { systemOrigin: 'stripe_webhook' });
+      return;
+    }
 
     let label = resolved.label;
     if (!label) {
@@ -874,7 +1024,7 @@ export function registerStripeRoutes(
     await dispatch('billing.savePaymentMethod', {
       paymentMethodId: resolved.id,
       label,
-    }, ctx);
+    }, ctx, { systemOrigin: 'stripe_webhook' });
   }
 }
 

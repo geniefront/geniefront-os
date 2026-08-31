@@ -45,6 +45,29 @@ export interface CommandDef<TInput extends z.ZodTypeAny, TOutput extends z.ZodTy
    * 宪法第 17 条：ticket / payment 的金额字段不进 audit_log。
    */
   auditRedact?: readonly string[];
+  /**
+   * ⭐ **系统自有命令**（AUD-01）。
+   *
+   * `true` 表示这条命令记录的是一个**已经在外部系统里发生过的事实**
+   * （Stripe 扣款成功、订阅状态变化、AI 调用已产生成本），
+   * 而不是租户可以自行发起的意图。
+   *
+   * 判据只有一条：**如果租户能直接调它，他就能凭空写出一个没有发生过的事实。**
+   * `billing.syncSubscription` 能把自己写成 growth/active，
+   * `billing.recordTopup` 能凭空造出十万积分 —— 两者都不需要 Stripe 参与。
+   *
+   * 加这个字段之前，「内部命令」这件事只由 `ai.exposed: false` 表达，
+   * 而那个字段**只管 AI 工具生成，完全不影响 HTTP 路由** ——
+   * 于是每一条内部计费命令都能被任何持有 `billing.manage` 的老板
+   * 从 `POST /v1/commands/:name` 直接调用（实测可复现）。
+   *
+   * 语义边界要说清楚：这**不是**第二套权限，权限照常检查。
+   * 它约束的是**入口**：系统自有命令只能由服务端编排代码在
+   * 验完外部凭据（Stripe 验签、Stripe 扣款回执、模型调用回执）之后调用，
+   * 永远不能由浏览器直接点名调用。执行仍然走同一条总线 ——
+   * 审计、幂等、RLS、订阅闸门一条都不少（宪法第 1 条没有被绕开）。
+   */
+  system?: boolean;
 }
 
 export function defineCommand<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny>(

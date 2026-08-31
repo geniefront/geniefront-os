@@ -192,12 +192,39 @@ export function buildServer(): FastifyInstance {
 
   // ── 命令入口 ───────────────────────────────────────────────────────────────
   const commandNames = new Set(registeredCommands().map((c) => c.name));
+
+  /**
+   * ⭐ 系统自有命令**不接受浏览器点名调用**（AUD-01）。
+   *
+   * 这条路由是「按名字执行任意已注册命令」，而总线的权限检查只问一句
+   * 「你有没有 def.permission」。于是 `billing.syncSubscription`
+   * （permission = `billing.manage`，而 owner 预设正好有）就等于
+   * **一个让老板自己把套餐写成 growth/active 的接口** —— 实测可复现：
+   * 一条 curl 拿到不付钱的付费版，再一条凭空造出十万积分。
+   *
+   * `ai.exposed: false` 挡不住它：那个字段只管 AI 工具生成，
+   * 从来不影响 HTTP 路由。判据因此挪到 `def.system` 上。
+   *
+   * 挡在入口而不是只挡在总线里，是因为合法编排必须继续走得通：
+   * `/v1/billing/topup` 是在 Stripe 真的扣款成功之后、拿着老板的 ctx
+   * 去记那一笔的。能不能执行由**谁在调**决定，不是由**谁登录了**决定。
+   */
+  const systemOnlyCommands = new Set(
+    registeredCommands().filter((c) => c.system === true).map((c) => c.name),
+  );
   const ENQUEUES_NOTIFICATIONS = new Set(['appointment.create']);
 
   const handleCommand = async (req: FastifyRequest<{ Params: { name: string } }>, reply: FastifyReply) => {
     const name = req.params.name;
     if (!commandNames.has(name)) {
       throw new AppError(ERROR_CODES.NOT_FOUND, { details: { command: name } });
+    }
+    if (systemOnlyCommands.has(name)) {
+      // 先于任何身份解析拒绝：这条命令对**所有**租户身份都不可达，
+      // 拒绝的理由和调用者是谁无关。
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+        details: { command: name, reason: 'system_only_command' },
+      });
     }
     const ctx = await ctxFromHeaders(req);
 
@@ -260,6 +287,8 @@ export function buildServer(): FastifyInstance {
       permission: c.permission,
       reversible: c.reversible,
       idempotency: c.idempotency,
+      // 目录里标出来：客户端据此知道这条命令不该出现在任何按钮后面
+      system: c.system === true,
       ai: c.ai,
     })),
   }));

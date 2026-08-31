@@ -26,6 +26,7 @@ import {
 } from '@gf/ai';
 import { dispatch } from '../bus';
 import { maybeAutoTopup } from '../billing/autoTopup';
+import { assertAiAdmission } from '../billing/aiAdmission';
 import { loadBlueprint, listBlueprints } from '../queries/blueprint';
 import type { CtxFromHeaders } from './utils';
 import { fetchWebsitePages } from '../onboarding/websiteFetch';
@@ -44,6 +45,9 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
     const url = req.body?.url?.trim() ?? '';
     const apiKey = process.env['ANTHROPIC_API_KEY'];
     if (!apiKey) throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
+    // ⛔ 准入闸门（AUD-03）：欠费 / 额度耗尽 / 刷得太快，都在这里挡下，
+    // **一次 token 都不花**。放在紧挨模型调用的上一行，中间不留任何 IO。
+    await assertAiAdmission(ctx);
     const pages = await fetchWebsitePages(url);
     const extracted = await extractWebsite(pages, { apiKey, locale: req.body?.locale ?? ctx.locale });
     const created = await dispatch<{ blueprintId: string }>('blueprint.createDraft', {
@@ -88,6 +92,9 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
       throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
     }
 
+    // ⛔ 准入闸门（AUD-03）：欠费 / 额度耗尽 / 刷得太快，都在这里挡下，
+    // **一次 token 都不花**。放在紧挨模型调用的上一行，中间不留任何 IO。
+    await assertAiAdmission(ctx);
     const generated = await generateHealthFormQuestions({
       prompt,
       actionType: req.body?.actionType ?? 'generate_specialty',
@@ -102,7 +109,7 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
       costMillicents: cost,
       rounds: 1,
       hadProposal: true,
-    }, ctx);
+    }, ctx, { systemOrigin: 'anthropic_usage' });
     void maybeAutoTopup(ctx, 'credit', req.log);
     return { questions: generated.questions, model: generated.model };
   });
@@ -155,6 +162,9 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
       where location_id = ${ctx.locationId} and active = true and is_addon = false
       order by sort, base_price_cents limit 40`);
 
+    // ⛔ 准入闸门（AUD-03）：欠费 / 额度耗尽 / 刷得太快，都在这里挡下，
+    // **一次 token 都不花**。放在紧挨模型调用的上一行，中间不留任何 IO。
+    await assertAiAdmission(ctx);
     const result = await generateStorefrontDrafts({
       shopName: pickText(row.shop_name, ctx.locale, ''),
       businessType: row.business_type,
@@ -182,21 +192,19 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
     }
 
     const cost = costMillicents(result.usage, SONNET_5_RATES);
-    await withTenant(tenant, async (tx) => {
-      await tx`delete from storefront_drafts where brief_id = ${row.id}`;
-      for (const d of result.drafts) {
-        await tx`
-          insert into storefront_drafts
-            (org_id, location_id, brief_id, variant, content,
-             model, input_tokens, output_tokens, cost_millicents)
-          values (${ctx.orgId}, ${ctx.locationId}, ${row.id}, ${d.variant},
-                  ${jsonb(d.content)}::jsonb, ${result.model},
-                  ${result.usage.inputTokens}, ${result.usage.outputTokens}, ${cost})`;
-      }
-      await tx`
-        update storefront_briefs set status = 'drafted', drafted_at = now(), updated_at = now()
-        where id = ${row.id}`;
-    });
+    // ⚠️ 草案落库 + 工单状态推进走命令（AUD-04）。原来是三条裸 SQL，
+    // 于是一次工单状态机推进在 audit_log 里什么都没留下。
+    await dispatch('storefront.saveDrafts', {
+      briefId: row.id,
+      model: result.model,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+      costMillicents: cost,
+      drafts: result.drafts.map((d) => ({
+        variant: d.variant,
+        content: d.content as unknown as Record<string, unknown>,
+      })),
+    }, ctx, { systemOrigin: 'anthropic_usage' });
 
     await dispatch('ai.recordAssist', {
       feature: 'storefront_generation',
@@ -205,7 +213,7 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
       costMillicents: cost,
       rounds: 1,
       hadProposal: true,
-    }, ctx);
+    }, ctx, { systemOrigin: 'anthropic_usage' });
     void maybeAutoTopup(ctx, 'credit', req.log);
 
     return {
@@ -280,6 +288,9 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
         throw new AppError(ERROR_CODES.BLUEPRINT_FROZEN, { details: { status: view.status } });
       }
 
+      // ⛔ 准入闸门（AUD-03）：欠费 / 额度耗尽 / 刷得太快，都在这里挡下，
+      // **一次 token 都不花**。放在紧挨模型调用的上一行，中间不留任何 IO。
+      await assertAiAdmission(ctx);
       const result = await extractPriceList(images, {
         apiKey,
         ...(body?.locale ? { locale: body.locale } : {}),
@@ -306,8 +317,7 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
             imagesFailed: result.perImage.length - ok,
           },
         },
-        ctx,
-      );
+        ctx, { systemOrigin: 'anthropic_usage' });
 
       void maybeAutoTopup(ctx, 'credit', req.log);
 
@@ -344,6 +354,9 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
       });
     }
 
+    // ⛔ 准入闸门（AUD-03）：欠费 / 额度耗尽 / 刷得太快，都在这里挡下，
+    // **一次 token 都不花**。放在紧挨模型调用的上一行，中间不留任何 IO。
+    await assertAiAdmission(ctx);
     const r = await planRegions({
       seq: 0, base64: im.base64, mediaType: im.mediaType as ImageMediaType,
       widthPx: im.widthPx, heightPx: im.heightPx,
@@ -354,7 +367,7 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
       model: REGION_MODEL,
       tokens: billableTokens(r.usage),
       costMillicents: costMillicents(r.usage, REGION_RATES),
-    }, ctx);
+    }, ctx, { systemOrigin: 'anthropic_usage' });
     void maybeAutoTopup(ctx, 'credit', req.log);
 
     const usable = !r.error && shouldChunk(r.regions) && r.coverage.ok;
@@ -407,6 +420,9 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
         return { blueprintId: req.params.id, filledItems: 0, filledCells: 0, rejected: null, credits: 0 };
       }
 
+      // ⛔ 准入闸门（AUD-03）：欠费 / 额度耗尽 / 刷得太快，都在这里挡下，
+      // **一次 token 都不花**。放在紧挨模型调用的上一行，中间不留任何 IO。
+      await assertAiAdmission(ctx);
       const t = await translateNames(candidates, { apiKey });
       if (t.error) {
         throw new AppError(ERROR_CODES.EXTRACTION_FAILED, { details: { stage: 'translate', reason: t.error } });
@@ -422,8 +438,7 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
             costMillicents: costMillicents(t.usage, TRANSLATE_RATES),
           },
         },
-        ctx,
-      );
+        ctx, { systemOrigin: 'anthropic_usage' });
 
       void maybeAutoTopup(ctx, 'credit', req.log);
 

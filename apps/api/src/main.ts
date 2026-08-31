@@ -9,6 +9,7 @@
 
 import { buildServer } from './server';
 import { startCallReconciler } from './telnyx/schedule';
+import { startRetentionJob } from './ops/retention';
 
 const app = buildServer();
 
@@ -16,6 +17,9 @@ const app = buildServer();
 // ⚠️ 只在真正的入口起 —— 测试里 buildServer() 会被建很多次，
 // 每次都挂一个定时器的话，一跑测试就是几十个后台任务在抢同一批会话
 startCallReconciler(app);
+
+// 幂等表保留期清理（AUD-09）。同上：只在真正的入口挂定时器。
+startRetentionJob(app);
 const port = Number(process.env.PORT ?? 3000);
 
 // 滚动部署时要优雅退出：tini 转发 SIGTERM 过来，

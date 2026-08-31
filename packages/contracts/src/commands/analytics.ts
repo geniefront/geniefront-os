@@ -16,6 +16,8 @@ export const businessSummaryContentSchema = z.object({
 
 export const SaveBusinessSummary = defineCommand({
   name: 'analytics.saveBusinessSummary',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
   input: z.object({
     periodStart: z.string().min(8).max(32),
     periodEnd: z.string().min(8).max(32),

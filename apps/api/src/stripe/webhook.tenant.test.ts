@@ -213,17 +213,60 @@ describe('invoice tenant resolution', () => {
     })).toBeNull();
   });
 
-  it('ambiguous shared subscription id is ignored, not guessed', async () => {
+  /**
+   * ⭐ AUD-02：跨 org 共用一个 Stripe id 现在**根本写不进去**。
+   *
+   * 这条用例原来是「写进去两行，然后断言解析器不猜」——
+   * 那是第二道防线。第一道现在也有了（sql/0080 的触发器），
+   * 于是断言的对象从「解析器的行为」变成了「这种状态不可达」。
+   *
+   * 为什么这件事要紧：能写进去的话，把受害门店的 `sub_…` 抄进自己这一行
+   * 就能让**对方的发票事件从此认不出租户**，续费/欠费状态静默停更，
+   * 两边都不会收到任何报错。
+   */
+  it('cross-org Stripe id sharing is rejected by the database', async () => {
     await setStripeRefs(SPA, { customer: 'cus_shared_batch4', subscription: 'sub_shared_batch4' });
-    await setStripeRefs(NAIL, { customer: 'cus_shared_batch4', subscription: 'sub_shared_batch4' });
     try {
+      await expect(
+        setStripeRefs(NAIL, { customer: 'cus_shared_batch4', subscription: 'sub_shared_batch4' }),
+      ).rejects.toThrow(/已属于另一个 org|already/i);
+
+      // 第二道仍然在：真正未知的 id 一律返回 null，绝不猜
       expect(await findBillingTenantByStripeRefs({
-        subscriptionId: 'sub_shared_batch4',
-        customerId: 'cus_shared_batch4',
+        subscriptionId: 'sub_never_seen_batch4',
+        customerId: 'cus_never_seen_batch4',
       })).toBeNull();
     } finally {
       await setStripeRefs(SPA, { customer: SPA_CUS, subscription: SPA_SUB });
       await setStripeRefs(NAIL, { customer: NAIL_CUS, subscription: NAIL_SUB });
+    }
+  });
+
+  /**
+   * 同一个 org 的多家门店**故意**共用一个 Stripe 客户和一条订阅
+   * （一个老板一张卡一张账单，见 `handlers/setup.ts`）。
+   *
+   * 0072 版本的解析器在「命中多于一行」时一律返回 null —— 也就是说
+   * **多店老板的发票事件一直认不出租户**，从来没人从这个角度看过。
+   * 现在同 org 的多行不算歧义：取该 org 建得最早的那家店作为计费锚点。
+   */
+  it('same-org multi-location sharing resolves to one anchor location', async () => {
+    const [sibling] = await withTenant({ ...SPA, membershipId: null },
+      (tx) => tx<{ id: string }[]>`
+        select id from locations where org_id = ${SPA_ORG} and id <> ${SPA_LOC} limit 1`);
+    if (!sibling) return;   // 种子里这个 org 只有一家店时无从验证
+
+    await setStripeRefs({ orgId: SPA_ORG, locationId: sibling.id },
+      { customer: SPA_CUS, subscription: SPA_SUB });
+    try {
+      const t = await findBillingTenantByStripeRefs({
+        subscriptionId: SPA_SUB, customerId: SPA_CUS,
+      });
+      expect(t, '多店共用不该被当成歧义').not.toBeNull();
+      expect(t!.orgId).toBe(SPA_ORG);
+    } finally {
+      await setStripeRefs({ orgId: SPA_ORG, locationId: sibling.id },
+        { customer: null, subscription: null });
     }
   });
 });

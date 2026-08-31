@@ -695,8 +695,7 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
         notes: str(body['notes']),
       },
       ctx,
-      { idempotencyKey: callId ? `telnyx-draft-${callId}` : crypto.randomUUID() },
-    );
+      { idempotencyKey: callId ? `telnyx-draft-${callId}` : crypto.randomUUID() , systemOrigin: 'telnyx_call' });
 
     return {
       ok: true,
@@ -835,10 +834,10 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
       gateReason,
       notes: str(body['notes']),
       confidenceBp: num(body['confidence_bp']) ?? 10000,
-    }, ctx, {
+    }, ctx, { ...({
       idempotencyKey: callId
         ? `telnyx-${kind}-${callId}` : crypto.randomUUID(),
-    });
+    }), systemOrigin: 'telnyx_call' });
 
     return {
       ok: true,
@@ -1302,8 +1301,7 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
         outcome: str(payload['hangup_cause']) === 'normal_clearing' ? 'completed' : 'failed',
       },
       ctx,
-      { idempotencyKey: `telnyx-hangup-${callId}` },
-    );
+      { idempotencyKey: `telnyx-hangup-${callId}` , systemOrigin: 'telnyx_call' });
 
     // ⭐ 电话也会烧余额，挂机记完账顺手看一眼要不要自动续充（事务外）。
     // ⚠️ 换一个上下文：电话那个 actor 的四条权限里**没有** billing.manage ——

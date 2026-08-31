@@ -57,6 +57,7 @@ import { useErrorMessage } from '@/lib/errorMessage';
 import { exportToCSV, exportToExcel } from '@/lib/exportUtils';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
+import { useBusinessDay } from '@/lib/time';
 
 // 纸币面额列表
 const BILL_DENOMINATIONS = [
@@ -81,15 +82,21 @@ export function DayClose() {
   const storeTime = useStoreTime();
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
-  const { context, membershipId } = useSession();
-  const timezone = context?.timezone;
-  const defaultDate = timezone ? instantToWallDate(new Date().toISOString(), timezone) : '';
+  const { membershipId } = useSession();
+  /**
+   * ⭐ 日结是**唯一一个**「今天」错了就直接影响钱的页面（AUD-13）。
+   *
+   * 前台在打烊后封账，而打烊常常已经是凌晨一两点 —— 那一刻按日历日算
+   * 会翻到下一天：页面显示「今天在营业」、金额全是零，
+   * 当晚真实的营业额落在前一个日期下，前台封不了账。
+   */
+  const { ready: dayReady, today: defaultDate, yesterday: yesterdayDate } = useBusinessDay();
 
   const [selectedDate, setSelectedDate] = useState('');
   useEffect(() => {
-    if (!timezone) return;
-    setSelectedDate(instantToWallDate(new Date().toISOString(), timezone));
-  }, [timezone, membershipId]);
+    if (!dayReady) return;
+    setSelectedDate(defaultDate);
+  }, [dayReady, defaultDate, membershipId]);
   const [activeTab, setActiveTab] = useState<'overview' | 'counter' | 'tips' | 'audit'>('overview');
 
   const { data: dayClose, isLoading, error, refetch } = useDayCloseQuery(selectedDate);
@@ -432,8 +439,8 @@ export function DayClose() {
               <button
                 type="button"
                 onClick={() => {
-                  if (!defaultDate) return;
-                  setSelectedDate(shiftDate(defaultDate, -1));
+                  if (!yesterdayDate) return;
+                  setSelectedDate(yesterdayDate);
                 }}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-100 transition-all"
               >

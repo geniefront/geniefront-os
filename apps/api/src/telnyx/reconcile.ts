@@ -98,7 +98,7 @@ export async function reconcileCalls(args: {
         // 调过 book_appointment 的算「办成了事」；只查不订也算 completed ——
         // 「有没有订上」看 tools_used 就知道，不该塞进 outcome 这个维度
         outcome: 'completed',
-      }, ctx, { idempotencyKey: `telnyx-hangup-${providerCallId}` });
+      }, ctx, { idempotencyKey: `telnyx-hangup-${providerCallId}`, systemOrigin: 'telnyx_call' });
 
       /*
        * ⚠️ 补料必须是**另一条命令**：上面那条的幂等键和 webhook 那条腿
@@ -111,7 +111,7 @@ export async function reconcileCalls(args: {
         conversationId: c.id,
         transcript,
         toolsUsed: c.toolsUsed,
-      }, ctx, { idempotencyKey: `telnyx-conv-${c.id}` });
+      }, ctx, { idempotencyKey: `telnyx-conv-${c.id}`, systemOrigin: 'telnyx_call' });
 
       out.recorded++;
 

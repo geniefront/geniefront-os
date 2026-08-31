@@ -551,15 +551,41 @@ registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
         select (((now() at time zone ${ctx.timezone})::date + (${tpl.valid_days})::int)::text) as value`;
   const expiresOn = expiry?.value ?? null;
 
+  /**
+   * 前台代客重填时的版本链（AUD-04）。
+   *
+   * ⚠️ 先把上一版**锁住再读**：两个前台同时点重填的话，
+   * 不加锁会各自读到同一个 version，写出两条 version=2 的记录，
+   * 而 `is_latest` 也会有两条为真 —— 那时候「最新那一份」就没有答案了。
+   */
+  let previous: { id: string; version: number } | null = null;
+  if (input.supersedePrevious) {
+    const [prev] = await tx<{ id: string; version: number }[]>`
+      select id, version from form_submissions
+      where location_id = ${ctx.locationId}
+        and template_id = ${tpl.id}
+        and (${customerId ?? null}::uuid is null or customer_id = ${customerId ?? null})
+        and (${input.appointmentId ?? null}::uuid is null
+             or appointment_id = ${input.appointmentId ?? null})
+        and is_latest = true
+      order by version desc
+      limit 1
+      for update`;
+    previous = prev ?? null;
+  }
+  const nextVersion = (previous?.version ?? 0) + 1;
+
   const [row] = await tx<{ id: string }[]>`
     insert into form_submissions
       (org_id, location_id, customer_id, template_id, template_version,
+       version, is_latest,
        answers_encrypted, enc_alg,
        signature_url, signature_encrypted, signed_at, signer_name, signer_relation,
        ip, user_agent, locale, source, on_behalf_by, expires_on, share_link_id,
        appointment_id, queue_id)
     values (${ctx.orgId}, ${ctx.locationId}, ${customerId},
             ${tpl.id}, ${tpl.version},
+            ${nextVersion}, true,
             ${encrypted}, ${ENC_ALG},
             ${null}, ${encryptedSignature},
             ${input.signatureDataUrl ? tx`now()` : null},
@@ -569,6 +595,13 @@ registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
             ${expiresOn}::date, ${input.shareLinkId ?? null},
             ${input.appointmentId ?? null}, ${input.queueId ?? null})
     returning id`;
+
+  if (previous) {
+    await tx`
+      update form_submissions
+      set is_latest = false, superseded_by = ${row!.id}
+      where id = ${previous.id} and location_id = ${ctx.locationId}`;
+  }
 
   // 顾客完成预约关联表单后，立即向本店前台广播应用内通知。
   // 通知只包含操作所需元数据，不包含任何健康答案。
@@ -620,10 +653,18 @@ registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
       // 部位本身也是健康信息的一半（「避开右膝」= 右膝有事）
       syncedAreas: synced?.areaCount ?? 0,
       syncedHealthFlag: synced?.healthFlag ?? false,
+      // 代客重填必须留痕：顶掉了哪一份、这是第几版
+      version: nextVersion,
+      supersededId: previous?.id ?? null,
     },
   });
 
-  return { submissionId: row!.id, expiresOn };
+  return {
+    submissionId: row!.id,
+    expiresOn,
+    version: nextVersion,
+    supersededId: previous?.id ?? null,
+  };
 });
 
 // ─────────────────────────────────────────── 健康表 → 客户档案（02 §5）

@@ -21,6 +21,7 @@ import {
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { useQueryClient } from '@tanstack/react-query';
+import { clearCache } from './offline';
 import {
   fetchMembershipContext, fetchLocationsAndClaimable, setActiveMembershipId, setUnauthenticatedHandler,
   setCommandGuard, claimLocation,
@@ -239,8 +240,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     writeStoredPortal(null);
     setPortalPreference(null);
+    writeStoredMembershipId(null);
+    /*
+     * ⭐ 退出必须把本地租户数据一起带走（AUD-12）。
+     *
+     * 内存里的 TanStack 缓存由下面那个 membership 变化的 effect 清掉；
+     * 但**离线看板的 IndexedDB 快照原来没人清** —— 里面是今日预约、
+     * 排队和工单，含客人姓名与手机号，退出之后一直留在磁盘上。
+     * 前台那台电脑是共用的。
+     *
+     * 顺序：先清本地，再调 signOut。反过来的话，`onAuthStateChange`
+     * 会先把组件卸载掉，清理就不一定跑得完。
+     */
+    queryClient.clear();
+    await clearCache();
     await supabase.auth.signOut();
-  }, []);
+  }, [queryClient]);
 
   const permissionSet = useMemo(
     () => new Set(context?.permissions ?? []),

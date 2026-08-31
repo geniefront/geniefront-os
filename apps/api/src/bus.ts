@@ -58,6 +58,22 @@ export function registerHandler<TIn extends ZodTypeAny, TOut extends ZodTypeAny>
 export interface DispatchOptions {
   /** 幂等键。def.idempotency === 'required' 时必须给 */
   idempotencyKey?: string;
+  /**
+   * ⭐ 系统自有命令的**调用来源声明**（AUD-01 第二道）。
+   *
+   * `def.system === true` 的命令必须带这个字段，否则直接拒。写的是
+   * 「我核验过什么外部凭据才来记这一笔」—— 例如 `stripe_webhook`、
+   * `stripe_payment_intent`、`anthropic_usage`。
+   *
+   * 为什么要有第二道：第一道（server.ts 的路由拦截）挡的是**今天已知的
+   * 那一个入口**。而「按名字执行任意命令」这种泛化入口出现过一次，
+   * 就可能再出现第二次（AI 工具、批量接口、内部代理）。那时候第一道不会
+   * 自动跟着长出来，而这一道会：新写的调用点不显式声明来源就跑不通，
+   * **失败方向是拒绝而不是放行**。
+   *
+   * 它不是权限、也不是密钥 —— 只有服务端代码写得出来，浏览器无从传入。
+   */
+  systemOrigin?: string;
 }
 
 export interface DispatchResult<T> {
@@ -77,6 +93,19 @@ export async function dispatch<T = unknown>(
   const reg = handlers.get(commandName);
   if (!reg) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { command: commandName } });
   const { def, handler } = reg;
+
+  // ── 0. 系统自有命令：必须显式声明调用来源（AUD-01）─────────────────────
+  //
+  // ⚠️ **排在入参校验之前**，这一步的顺序是有讲究的：
+  // 放在校验之后的话，「拒不拒」会取决于攻击者有没有把 body 拼对 ——
+  // 一个 body 拼错的调用会先拿到 VALIDATION_FAILED，
+  // 于是「这条命令我到底能不能调」变成了一个可以被试探出来的问题。
+  // 也排在权限检查之前：这不是「权限不够」，是「这条路根本不对外」。
+  if (def.system === true && !opts.systemOrigin) {
+    throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+      details: { command: commandName, reason: 'system_only_command' },
+    });
+  }
 
   // ── 1. 入参校验 ───────────────────────────────────────────────────────────
   const parsed = def.input.safeParse(rawInput);

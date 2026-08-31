@@ -17,6 +17,7 @@ import {
 import {
   loadDeskNotifications, loadDeskNotificationStats,
 } from './queries/notifications';
+import { dispatchSystem } from './test/systemDispatch';
 
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -211,7 +212,15 @@ describe('个人资料与通知中心全量功能后端测试', () => {
     let createdNotifId: string;
 
     it('notification.create 能够创建应用内通知', async () => {
-      const res = await dispatch<{ notificationId: string }>(
+      /**
+       * ⭐ `notification.create` 是系统自有命令（AUD-06）。
+       *
+       * 原来它一条权限都没声明，而 `recipientUserId` 留空就是全店广播 ——
+       * 任何一个登录的技师都能发一条「GenieFront 系统通知」冒充平台说话。
+       * 现在只能由服务端编排（预约创建、扣款失败等）触发，
+       * 所以测试也必须走系统入口，而不是假装租户能调它。
+       */
+      const res = await dispatchSystem<{ notificationId: string }>(
         'notification.create',
         {
           category: 'bookings',

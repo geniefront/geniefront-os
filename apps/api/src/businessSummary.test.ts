@@ -14,6 +14,7 @@ import { dispatch } from './bus';
 import { generateAndSaveBusinessSummary } from './businessSummary';
 import { buildServer } from './server';
 import { issueStaffSession, STAFF_TOKEN_HEADER } from './auth/staffSession';
+import { dispatchSystem } from './test/systemDispatch';
 
 vi.mock('@gf/ai', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@gf/ai')>();
@@ -135,7 +136,7 @@ describe('analytics copilot summary generate (P2-8)', () => {
     expect(generateBusinessSummaryMock).not.toHaveBeenCalled();
     expect(await countSummaries(NAIL_LOC, NAIL_ORG)).toBe(before);
 
-    await expect(dispatch('analytics.saveBusinessSummary', {
+    await expect(dispatchSystem('analytics.saveBusinessSummary', {
       periodStart: '2026-08-01',
       periodEnd: '2026-08-30',
       generator: 'anthropic',
@@ -151,7 +152,7 @@ describe('analytics copilot summary generate (P2-8)', () => {
     await generateAndSaveBusinessSummary(ctxAt('vi'), 'test-key');
     expect(await countSummaries(SPA_LOC, SPA_ORG)).toBe(spaBefore);
 
-    const { result } = await dispatch<{ summaryId: string }>(
+    const { result } = await dispatchSystem<{ summaryId: string }>(
       'analytics.saveBusinessSummary',
       {
         periodStart: '2026-08-01',
@@ -181,7 +182,7 @@ describe('analytics copilot summary generate (P2-8)', () => {
       expect(generateBusinessSummaryMock).not.toHaveBeenCalled();
       expect(await countSummaries(NAIL_LOC, NAIL_ORG)).toBe(before);
 
-      await expect(dispatch('analytics.saveBusinessSummary', {
+      await expect(dispatchSystem('analytics.saveBusinessSummary', {
         periodStart: '2026-08-01',
         periodEnd: '2026-08-30',
         generator: 'anthropic',

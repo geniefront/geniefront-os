@@ -13,7 +13,7 @@
 
 import {
   SaveStorefrontBrief, SubmitStorefrontBrief, WithdrawStorefrontBrief, ChooseStorefrontDraft,
-  AddStorefrontRevision, RequestStorefrontLaunch,
+  AddStorefrontRevision, RequestStorefrontLaunch, SaveStorefrontDrafts,
   AppError, ERROR_CODES,
 } from '@gf/contracts';
 import { jsonb, parseTs } from '@gf/db';
@@ -233,4 +233,64 @@ registerHandler(RequestStorefrontLaunch, async ({ ctx, tx, audit }: HandlerArgs<
     after: { status: brief.status, launchRequestedAt: at },
   });
   return { briefId: brief.id, status: brief.status, launchRequestedAt: at };
+});
+
+
+// ─────────────────────────────────────── AI 草案落库 + 工单推进（AUD-04）
+
+/**
+ * 把 AI 出的三版草案落库，并把工单从 `submitted` 推到 `drafted`。
+ *
+ * 原来这三条 SQL（delete / insert / update status）直接写在
+ * `/v1/storefront/:id/generate` 里。那是一次**工单状态机推进**，
+ * 却没有任何审计条目 —— 「这家店的建站单什么时候出的草案、谁触发的、
+ * 花了多少钱」在系统里查不到，而这三个问题客服都会被问到。
+ *
+ * ⭐ 状态判定放在这里、在同一个事务里：路由那边先读一次 status 再写，
+ * 中间有缝 —— 两个人同时点生成会写出两套草案。
+ */
+registerHandler(SaveStorefrontDrafts, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SaveStorefrontDrafts.input._type>) => {
+  const [brief] = await tx<{ id: string; status: string }[]>`
+    select id, status from storefront_briefs
+    where id = ${input.briefId} and location_id = ${ctx.locationId}
+    for update`;
+  if (!brief) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'storefront_brief' } });
+  }
+  if (brief.status !== 'submitted' && brief.status !== 'drafted') {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'brief_not_submitted', status: brief.status },
+    });
+  }
+
+  await tx`delete from storefront_drafts where brief_id = ${brief.id}`;
+  for (const d of input.drafts) {
+    await tx`
+      insert into storefront_drafts
+        (org_id, location_id, brief_id, variant, content,
+         model, input_tokens, output_tokens, cost_millicents)
+      values (${ctx.orgId}, ${ctx.locationId}, ${brief.id}, ${d.variant},
+              ${jsonb(d.content)}::jsonb, ${input.model},
+              ${input.inputTokens}, ${input.outputTokens}, ${input.costMillicents})`;
+  }
+  await tx`
+    update storefront_briefs
+    set status = 'drafted', drafted_at = now(), updated_at = now()
+    where id = ${brief.id}`;
+
+  audit({
+    entityType: 'storefront_brief', entityId: brief.id,
+    before: { status: brief.status },
+    // ⚠️ 只记「几版、什么模型、多少钱」，不把草案正文塞进审计 ——
+    // 那是几十 KB 的营销文案，进 audit_log 只会把它撑爆
+    after: {
+      status: 'drafted',
+      variants: input.drafts.map((d) => d.variant),
+      model: input.model,
+      costMillicents: input.costMillicents,
+    },
+  });
+
+  return { briefId: brief.id, status: 'drafted' as const, savedDrafts: input.drafts.length };
 });

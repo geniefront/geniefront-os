@@ -219,9 +219,70 @@ export const AppointmentCancel = defineCommand({
   idempotency: 'optional',
 });
 
+
+/**
+ * 前台给技师留的「服务前提示」（AUD-04）。
+ *
+ * 原来这是 `POST /v1/desk/appointments/:id/service-brief` 里的一条裸
+ * `update appointments set notes = …` —— 于是它**没有审计、没有幂等、
+ * 也不受欠费冻结约束**。一条改客人备注的写操作在系统里查不到是谁改的，
+ * 这和「老板端的『谁改的』直接来自命令总线」那条设计前提是矛盾的。
+ */
+export const AppointmentSaveServiceBrief = defineCommand({
+  name: 'appointment.saveServiceBrief',
+  input: z.object({
+    appointmentId: uuid,
+    note: z.string().trim().max(2000),
+  }),
+  output: z.object({
+    appointmentId: uuid,
+    note: z.string().nullable(),
+  }),
+  permission: 'appointment.write',
+  ai: {
+    description: '为一条预约写下给技师看的服务前提示（例如指甲偏薄、怕痒）。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+/**
+ * 把一条预约（或散客排队记录）关联到某位客户档案（AUD-04 / AUD-05）。
+ *
+ * ⚠️ 这条命令**必须校验 customerId 属于本 org**。
+ * `appointments.customer_id` 的外键是 `references customers(id)`，没有 org 谓词，
+ * 而 Postgres 的外键检查是以表 owner 身份跑的、**绕过 RLS** ——
+ * 也就是说裸写一个别家门店的 customer uuid 是能写进去的。
+ * 写进去之后所有读路径都被 RLS 过滤成 NULL：客人在界面上凭空消失，
+ * 而库里留着一条跨租户的引用。校验放在这里，DB 侧另有一道复合外键兜底。
+ */
+export const AppointmentAssignCustomer = defineCommand({
+  name: 'appointment.assignCustomer',
+  input: z.object({
+    /** 可以是 appointments.id，也可以是 walkin_queue.id */
+    appointmentId: uuid,
+    customerId: uuid.nullable().optional(),
+    walkInName: z.string().trim().max(120).nullable().optional(),
+  }),
+  output: z.object({
+    appointmentId: uuid,
+    customerId: uuid.nullable(),
+  }),
+  permission: 'appointment.write',
+  ai: {
+    description: '把一条预约或排队记录关联到某位客户档案，或改写散客姓名。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
 export const APPOINTMENT_COMMANDS = [
   AppointmentCreate,
   AppointmentReschedule,
   AppointmentAddItem,
   AppointmentCancel,
+  AppointmentSaveServiceBrief,
+  AppointmentAssignCustomer,
 ] as const;

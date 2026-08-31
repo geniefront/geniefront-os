@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import {
@@ -59,6 +59,7 @@ import { useSession } from '@/lib/session';
 import { instantToWallDate, shiftDate } from '@/lib/time';
 import { cn } from '@/lib/utils';
 import type { CustomerReviewItem } from './DashboardReviewsData';
+import { useBusinessDay } from '@/lib/time';
 
 export function DashboardContent() {
   const { t, language } = useLanguage();
@@ -66,9 +67,14 @@ export function DashboardContent() {
   const { context, membership } = useSession();
   const timezone = context?.timezone || 'America/New_York';
 
-  // 选中的营业日期（默认今天，支持切换查看昨天/明天）
-  const realTodayStr = useMemo(() => instantToWallDate(new Date().toISOString(), timezone), [timezone]);
+  // 选中的营业日期（默认今天，支持切换查看昨天/明天）。
+  // ⚠️ 「今天」是**营业日**，不是日历日 —— 凌晨的单还属于昨晚那一场（AUD-13）。
+  const { today: realTodayStr } = useBusinessDay();
   const [selectedDate, setSelectedDate] = useState<string>(realTodayStr);
+  useEffect(() => {
+    // 会话就绪后把默认日期对齐到营业日；用户已经手动翻过页就不动它
+    if (realTodayStr && !selectedDate) setSelectedDate(realTodayStr);
+  }, [realTodayStr, selectedDate]);
 
   const isToday = selectedDate === realTodayStr;
 

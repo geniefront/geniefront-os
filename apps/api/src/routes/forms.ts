@@ -13,6 +13,7 @@ import {
   AppError, ERROR_CODES, type CommandContext,
 } from '@gf/contracts';
 import { withTenant } from '@gf/db';
+import { dispatch } from '../bus';
 import { loadForms, readSubmission, loadAppointmentForms } from '../queries/forms';
 import { loadFormKey, encryptAnswers } from '../kiosk/crypto';
 import type { CtxFromHeaders } from './utils';
@@ -92,75 +93,52 @@ export function registerFormsRoutes(app: FastifyInstance, ctxFromHeaders: CtxFro
   app.post<{
     Body: {
       templateId: string;
-      customerId?: string;
-      appointmentId?: string;
+      customerId?: string | null;
+      appointmentId?: string | null;
       answers: Record<string, unknown>;
       signerName?: string;
-      signerRelation?: string;
+      signerRelation?: 'self' | 'guardian';
       signatureUrl?: string;
     };
   }>('/v1/desk/forms/re-submit', async (req) => {
     const ctx = await ctxFromHeaders(req);
-    if (!ctx.permissions.has('appointment.write') && !ctx.permissions.has('customer.write')) {
-      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'appointment.write' } });
-    }
-    const { templateId, customerId, appointmentId, answers, signerName, signerRelation, signatureUrl } = req.body;
-    if (!templateId || !answers) {
-      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'missing_template_or_answers' } });
-    }
-
-    // ⚠️ signatureUrl 校验：只允许 https: 和 data:（签名图片可以是 base64 内联）。
-    if (signatureUrl) {
-      let parsedUrl: URL;
-      try { parsedUrl = new URL(signatureUrl); } catch {
-        throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'signature_url_invalid' } });
-      }
-      if (!['https:', 'data:'].includes(parsedUrl.protocol)) {
-        throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-          details: { reason: 'signature_url_protocol', allowed: ['https', 'data'] },
-        });
-      }
+    const b = req.body;
+    if (!b?.templateId || !b.answers) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'missing_template_or_answers' },
+      });
     }
 
-    return withTenant(ctx, async (tx) => {
-      const key = loadFormKey(process.env['FORM_ENCRYPTION_KEY']);
-      const encrypted = encryptAnswers(answers, key);
+    /**
+     * ⚠️ 这条路由以前自己写 `insert into form_submissions`（AUD-04）——
+     * 一份**签过字的健康表**可以被前台改写，而 audit_log 里一条都没有。
+     * 健康表恰恰是「谁在什么时候代客改了什么」必须查得到的那一类数据。
+     *
+     * 现在转给 `form.submit`（`supersedePrevious: true`）。
+     * 顺带修掉两个原来自带的毛病：
+     *   · 原来只加密答案，**签名图是明文入库的**；命令那一侧两样都加密
+     *   · 原来写死 `template_version = 1`，和模板真实版本对不上
+     */
+    const out = await dispatch<{
+      submissionId: string; expiresOn: string | null;
+      version: number; supersededId: string | null;
+    }>('form.submit', {
+      templateId: b.templateId,
+      customerId: b.customerId ?? null,
+      appointmentId: b.appointmentId ?? null,
+      answers: b.answers,
+      ...(b.signatureUrl ? { signatureDataUrl: b.signatureUrl } : {}),
+      signerName: b.signerName ?? '',
+      signerRelation: b.signerRelation ?? 'self',
+      locale: ctx.locale,
+      source: 'desk',
+      supersedePrevious: true,
+    }, ctx);
 
-      const [prev] = await tx<{ id: string; version: number }[]>`
-        select id, version from form_submissions
-        where location_id = ${ctx.locationId}
-          and template_id = ${templateId}
-          and (${customerId ?? null}::uuid is null or customer_id = ${customerId ?? null})
-          and (${appointmentId ?? null}::uuid is null or appointment_id = ${appointmentId ?? null})
-          and is_latest = true
-        order by version desc limit 1`;
-
-      const nextVersion = (prev?.version ?? 0) + 1;
-
-      const [ins] = await tx<{ id: string }[]>`
-        insert into form_submissions (
-          org_id, location_id, customer_id, appointment_id, template_id, template_version,
-          version, is_latest, answers_encrypted, enc_alg, signature_url, signed_at,
-          signer_name, signer_relation, source, on_behalf_by
-        ) values (
-          ${ctx.orgId}, ${ctx.locationId}, ${customerId ?? null}, ${appointmentId ?? null},
-          ${templateId}, 1, ${nextVersion}, true, ${encrypted}, 'aes-256-gcm.v1',
-          ${signatureUrl ?? null}, now(), ${signerName ?? null}, ${signerRelation ?? 'self'},
-          'desk', ${ctx.membershipId}
-        ) returning id`;
-
-      if (prev) {
-        await tx`
-          update form_submissions
-          set is_latest = false, superseded_by = ${ins!.id}
-          where id = ${prev.id}`;
-      }
-
-      return {
-        submissionId: ins!.id,
-        version: nextVersion,
-        isLatest: true,
-      };
-    });
+    return {
+      submissionId: out.result.submissionId,
+      version: out.result.version,
+      isLatest: true,
+    };
   });
 }

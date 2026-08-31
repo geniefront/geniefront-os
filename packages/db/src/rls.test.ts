@@ -150,7 +150,20 @@ describe('宪法第 5 条：新表不许漏开 RLS', () => {
     expect(rows.map((r) => r.relname)).toEqual([]);
   });
 
-  it('⭐ 每张开了 RLS 的业务表都真的有 tenant_isolation 策略', async () => {
+  /**
+   * 有 org_id 的表必须有一条隔离策略。
+   *
+   * 认两个名字，都**不比租户隔离更松**：
+   *   · `tenant_isolation`  —— `org_id = app_org_id()`
+   *   · `operator_only`     —— 更窄：要求 active 的 platform_operators
+   *     （`support_request_notes`，sql/0077 / AUD-08：那是运营写给自己看的
+   *      内部备注，按 org 隔离等于「客户看得到写他的那些话」）
+   *
+   * ⚠️ 往这个名单里加名字之前先想清楚：这里每多一个名字，
+   * 都是在声明「那条策略至少和租户隔离一样严」。加一个更松的进来，
+   * 这条测试就从此什么都不保证了。
+   */
+  it('⭐ 每张开了 RLS 的业务表都真的有隔离策略', async () => {
     const rows = await sql<{ relname: string }[]>`
       select c.relname from pg_class c
       join pg_namespace n on n.oid = c.relnamespace
@@ -158,10 +171,31 @@ describe('宪法第 5 条：新表不许漏开 RLS', () => {
       where n.nspname = 'public' and c.relkind = 'r'
         and not exists (
           select 1 from pg_policy p
-          where p.polrelid = c.oid and p.polname = 'tenant_isolation')
+          where p.polrelid = c.oid
+            and p.polname in ('tenant_isolation', 'operator_only'))
       order by c.relname`;
     // 开了 RLS 但没有策略 = 拒绝一切，比泄露安全但同样是 bug
     expect(rows.map((r) => r.relname)).toEqual([]);
+  });
+
+  /**
+   * AUD-08：`support_request_notes` 对**租户**必须是空的。
+   *
+   * 表注释一直写着「Not shown to customers」，而策略却是 `org_id = app_org_id()` ——
+   * 也就是说客户读得到运营写他的内部备注。今天没漏出去的唯一原因是
+   * desk 侧还没有查询读它，那是碰巧，不是隔离。
+   */
+  it('⭐ 运营内部备注：租户上下文一行都读不到', async () => {
+    const rows = await sql<{ polname: string; qual: string }[]>`
+      select p.polname, pg_get_expr(p.polqual, p.polrelid) as qual
+      from pg_policy p
+      where p.polrelid = 'support_request_notes'::regclass`;
+    expect(rows.length).toBeGreaterThan(0);
+    // 每一条策略都必须要求运营身份；不能有任何一条只看 org
+    for (const r of rows) {
+      expect(r.qual, `策略 ${r.polname} 没有要求运营身份`)
+        .toContain('gf_platform_operator_role');
+    }
   });
 
   it('anon/authenticated/public 没有 public 业务表权限', async () => {

@@ -88,6 +88,8 @@ export const SetAutoTopup = defineCommand({
  */
 export const SyncSubscription = defineCommand({
   name: 'billing.syncSubscription',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
   input: z.object({
     stripeCustomerId: z.string().max(80).nullable().optional(),
     stripeSubscriptionId: z.string().max(80).nullable().optional(),
@@ -126,6 +128,8 @@ export const SyncSubscription = defineCommand({
  */
 export const SavePaymentMethod = defineCommand({
   name: 'billing.savePaymentMethod',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
   input: z.object({
     paymentMethodId: z.string().max(80).nullable(),
     /** 给人看的一句话，例如 `Visa ···· 4242`。只是显示，不参与判断 */
@@ -155,6 +159,8 @@ export const SavePaymentMethod = defineCommand({
  */
 export const RecordTopup = defineCommand({
   name: 'billing.recordTopup',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
   input: z.object({
     unit: quotaUnit,
     /** 买到多少单位（$50 = 1000 积分 或 200 分钟） */
@@ -196,6 +202,8 @@ export const RecordTopup = defineCommand({
  */
 export const ClaimAutoTopup = defineCommand({
   name: 'billing.claimAutoTopup',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
   input: z.object({ unit: quotaUnit }),
   output: z.object({
     charge: z.boolean(),
@@ -227,6 +235,8 @@ export const ClaimAutoTopup = defineCommand({
  */
 export const RecordTopupFailure = defineCommand({
   name: 'billing.recordTopupFailure',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
   input: z.object({
     unit: quotaUnit,
     /** Stripe 的 decline_code / code。**不是**给客人看的原文 */
@@ -255,6 +265,8 @@ export const RecordTopupFailure = defineCommand({
  */
 export const BillingChangePlan = defineCommand({
   name: 'billing.changePlan',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
   input: z.object({
     targetPlan: z.enum(['starter', 'growth', 'enterprise', 'essential']),
     billingCycle: z.enum(['monthly', 'annual']).default('monthly'),
@@ -283,6 +295,8 @@ export const BillingChangePlan = defineCommand({
  */
 export const BillingBuyAddon = defineCommand({
   name: 'billing.buyAddon',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
   input: z.object({
     addonType: z.enum(['voice_minutes_100', 'copilot_credits_500', 'marketing_sms_1000']),
     priceCents: cents.positive(),

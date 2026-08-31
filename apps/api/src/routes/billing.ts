@@ -41,7 +41,7 @@ export function registerBillingRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
   app.post<{ Body: { targetPlan: 'starter' | 'growth' | 'enterprise' | 'essential'; billingCycle?: 'monthly' | 'annual' } }>(
     '/v1/desk/billing/change-plan', async (req) => {
       const ctx = await ctxFromHeaders(req);
-      const res = await dispatch('billing.changePlan', req.body, ctx);
+      const res = await dispatch('billing.changePlan', req.body, ctx, { systemOrigin: 'billing_route_refusal' });
       return res.result;
     }
   );
@@ -49,7 +49,7 @@ export function registerBillingRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
   app.post<{ Body: { addonType: 'voice_minutes_100' | 'copilot_credits_500' | 'marketing_sms_1000'; priceCents: number } }>(
     '/v1/desk/billing/buy-addon', async (req) => {
       const ctx = await ctxFromHeaders(req);
-      const res = await dispatch('billing.buyAddon', req.body, ctx);
+      const res = await dispatch('billing.buyAddon', req.body, ctx, { systemOrigin: 'billing_route_refusal' });
       return res.result;
     }
   );

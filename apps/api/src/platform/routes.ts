@@ -25,6 +25,7 @@ import {
   platformListAudit,
 } from '@gf/db';
 import { stripeClient } from '../stripe/client';
+import { assertStripeCustomerBelongsTo } from '../stripe/routes';
 import { safeRelativePath } from '../stripe/returnUrl';
 import { requirePlatformOperator, mapPlatformReadError } from './auth';
 import {
@@ -107,6 +108,10 @@ export function registerPlatformRoutes(app: FastifyInstance): void {
       if (!customerId) {
         throw new AppError(ERROR_CODES.NOT_FOUND, { details: { reason: 'stripe_customer_not_found' } });
       }
+      // 运营侧同样核对归属（AUD-02）：这里的 locationId 是操作员点开的那家店，
+      // 核对的是「这个 customer 属不属于那家店」，不是「属不属于操作员」。
+      await assertStripeCustomerBelongsTo(customerId, locationId, req.log);
+
       const path = safeRelativePath(req.body?.returnUrl, `/stores/${locationId}`);
       try {
         const session = await stripeClient().billingPortal.sessions.create({

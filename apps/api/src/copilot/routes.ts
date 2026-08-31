@@ -33,6 +33,7 @@ import {
   type ReadOnlyTool, type CopilotImageInput,
 } from '@gf/ai';
 import { dispatch } from '../bus';
+import { assertAiAdmission } from '../billing/aiAdmission';
 import { loadFloorSnapshot } from '../queries/floorSnapshot';
 import { loadSlotContext, summariseSlots } from '../queries/slots';
 import { loadRooms } from '../queries/rooms';
@@ -124,6 +125,10 @@ export function registerCopilotRoutes(
           mediaType: req.body.image.mediaType ?? 'image/png',
         }
       : undefined;
+
+    // ⛔ 准入闸门（AUD-03）。放在本地关键词直答**之后**：那条路根本不调模型、
+    // 也不计积分，没有理由让一家额度用尽的店连「今天几点关门」都问不了。
+    await assertAiAdmission(ctx);
 
     const result = await askCopilot({
       apiKey,
@@ -288,6 +293,21 @@ export function registerCopilotRoutes(
       : undefined;
 
     let streamedText = '';
+
+    // ⛔ 准入闸门（AUD-03）。流式那条路和非流式走的是同一个模型、同一份账，
+    // 少一处就等于留了一个绕过口 —— 而且是更好用的那个（前台默认走流式）。
+    try {
+      await assertAiAdmission(ctx);
+    } catch (e) {
+      // SSE 已经握手了，不能再改 HTTP 状态码；把错误码原样发到事件流里，
+      // 前端按 code 显示「额度用完了」还是「订阅欠费」。
+      sendEvent({
+        type: 'error',
+        error: e instanceof AppError ? e.code : 'INTERNAL',
+      });
+      reply.raw.end();
+      return;
+    }
 
     const result = await askCopilot({
       apiKey,
@@ -1167,8 +1187,7 @@ export function registerCopilotRoutes(
           rounds: usage.rounds,
           hadProposal: usage.hadProposal,
         },
-        ctx,
-      );
+        ctx, { systemOrigin: 'anthropic_usage' });
       return out.result.chargedCents;
     } catch (e) {
       log.warn({ err: e, locationId: ctx.locationId }, 'failed to record copilot usage');

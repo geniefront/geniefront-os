@@ -245,10 +245,30 @@ export const SubmitForm = defineCommand({
      * 自己的签名挂到别的链接名下。
      */
     shareLinkId: uuid.nullable().optional(),
+    /**
+     * 前台代客重填（AUD-04）。
+     *
+     * 置 true 时：新记录的 `version` = 上一版 + 1，上一版被标成
+     * `is_latest = false` 且 `superseded_by` 指向新记录。
+     *
+     * ⚠️ 这一段逻辑原来长在 `POST /v1/desk/forms/re-submit` 里，
+     * 用的是一组裸 SQL —— 于是**一份签过字的健康表可以被改写，
+     * 而 audit_log 里一条记录都没有**。健康表恰恰是「谁在什么时候
+     * 代客改了什么」必须查得到的那一类数据。
+     *
+     * 合并进 `form.submit` 而不是新开一条命令：`form_submissions`
+     * 的写入方只能有一个，两个写入方迟早会在加密、模板版本、
+     * 有效期这三件事上漂开。
+     */
+    supersedePrevious: z.boolean().default(false),
   }),
   output: z.object({
     submissionId: uuid,
     expiresOn: z.string().nullable(),
+    /** 这一份是第几版。首次提交是 1。 */
+    version: z.number().int().min(1),
+    /** 被这一份顶掉的上一版（没有就是 null）。 */
+    supersededId: uuid.nullable(),
   }),
   permission: 'form.submit',
   ai: {

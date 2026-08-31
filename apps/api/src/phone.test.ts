@@ -21,6 +21,7 @@ import { loadCallDrafts } from './queries/callDrafts';
 import { loadCalls } from './queries/calls';
 import { buildServer } from './server';
 import './handlers/phone';
+import { dispatchSystem } from './test/systemDispatch';
 
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -189,6 +190,10 @@ const sysCtx = (): typeof ctx => ({
 
 const runAsPhone = async <T>(name: string, input: unknown, key: string = randomUUID()) =>
   (await dispatch<T>(name, input, sysCtx(), { idempotencyKey: key })).result;
+
+/** 系统自有命令（AUD-01）：通话记录由 Telnyx 回调驱动，不由任何登录用户发起。 */
+const runAsPhoneSystem = async <T>(name: string, input: unknown, key: string = randomUUID()) =>
+  (await dispatchSystem<T>(name, input, sysCtx(), { idempotencyKey: key })).result;
 
 /** 造一条带合法签名的 Telnyx 请求 */
 function telnyxCall(url: string, payload: unknown, opts: { badSig?: boolean; skewSec?: number } = {}) {
@@ -519,11 +524,11 @@ describe('通话记录：计量 / 转录 / 转接（sql/0037）', () => {
      * 语音分钟**。所以补料必须是不碰钱的另一条命令。
      */
     const id = callId();
-    await runAsPhone('call.record', {
+    await runAsPhoneSystem('call.record', {
       providerCallId: id, durationSeconds: 90, outcome: 'completed',
     }, `telnyx-hangup-${id}`);
 
-    const out = await runAsPhone<{ updated: boolean }>('call.attachTranscript', {
+    const out = await runAsPhoneSystem<{ updated: boolean }>('call.attachTranscript', {
       providerCallId: id,
       conversationId: `conv-${id}`,
       transcript: [
@@ -550,7 +555,7 @@ describe('通话记录：计量 / 转录 / 转接（sql/0037）', () => {
 
   it('补到一通不存在的电话上 → 什么都不做，不凭空插一行', async () => {
     // 插了就会出现「有转录、没时长、没扣过分钟」的幽灵通话
-    const out = await runAsPhone<{ updated: boolean; callId: string | null }>(
+    const out = await runAsPhoneSystem<{ updated: boolean; callId: string | null }>(
       'call.attachTranscript', { providerCallId: `ghost-${randomUUID()}` });
     expect(out.updated).toBe(false);
     expect(out.callId).toBeNull();
@@ -562,10 +567,10 @@ describe('通话记录：计量 / 转录 / 转接（sql/0037）', () => {
       select count(*)::int as n from usage_events
       where location_id = ${NAIL_LOC} and kind = 'ai_call_min'`);
 
-    await runAsPhone('call.record', {
+    await runAsPhoneSystem('call.record', {
       providerCallId: id, durationSeconds: 120, outcome: 'completed',
     }, `telnyx-hangup-${id}`);
-    await runAsPhone('call.attachTranscript', {
+    await runAsPhoneSystem('call.attachTranscript', {
       providerCallId: id, transcript: [{ role: 'user', text: 'hi' }],
     });
 
@@ -577,11 +582,11 @@ describe('通话记录：计量 / 转录 / 转接（sql/0037）', () => {
 
   it('前台读得到转录，但来电号码按 customer.view_contact 脱敏', async () => {
     const id = callId();
-    await runAsPhone('call.record', {
+    await runAsPhoneSystem('call.record', {
       providerCallId: id, fromE164: '+16175551234',
       durationSeconds: 60, outcome: 'completed',
     }, `telnyx-hangup-${id}`);
-    await runAsPhone('call.attachTranscript', {
+    await runAsPhoneSystem('call.attachTranscript', {
       providerCallId: id,
       transcript: [{ role: 'assistant', text: "You're all set." }],
       toolsUsed: ['book_appointment'],
@@ -1021,7 +1026,7 @@ describe('店家的两个号码（09 §2 接入方式）', () => {
 describe('通话计费', () => {
   it('分钟数向上取整，落进 ai_call_min（与 ai_assist 分开，决策 8）', async () => {
     const callId = `bill-${randomUUID()}`;
-    const out = await runAsPhone<{ billedMinutes: number }>('call.record', {
+    const out = await runAsPhoneSystem<{ billedMinutes: number }>('call.record', {
       providerCallId: callId, durationSeconds: 95, outcome: 'completed',
     }, `rec-${callId}`);
 
@@ -1037,8 +1042,8 @@ describe('通话计费', () => {
   it('⭐ webhook 重投不会把分钟数记两遍 —— 那是直接给客户多收钱', async () => {
     const callId = `dup-bill-${randomUUID()}`;
     const key = `rec-${callId}`;
-    await runAsPhone('call.record', { providerCallId: callId, durationSeconds: 120 }, key);
-    await runAsPhone('call.record', { providerCallId: callId, durationSeconds: 120 }, key);
+    await runAsPhoneSystem('call.record', { providerCallId: callId, durationSeconds: 120 }, key);
+    await runAsPhoneSystem('call.record', { providerCallId: callId, durationSeconds: 120 }, key);
 
     const evs = await withTenant(tenant, (tx) => tx<{ qty: number }[]>`
       select qty from usage_events
@@ -1053,7 +1058,7 @@ describe('通话计费', () => {
     else process.env['TELNYX_RATE_PER_MIN_MILLICENTS'] = rate;
     const callId = `rate-${randomUUID()}`;
     try {
-      await runAsPhone('call.record', {
+      await runAsPhoneSystem('call.record', {
         providerCallId: callId, durationSeconds, outcome: 'completed',
       }, `rec-${callId}`);
     } finally {

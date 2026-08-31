@@ -76,6 +76,8 @@ export const CreateBlueprintDraft = defineCommand({
  */
 export const SaveBlueprintExtraction = defineCommand({
   name: 'blueprint.saveExtraction',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
   input: z.object({
     blueprintId: uuid,
     items: z.array(draftItem).max(300),
@@ -128,6 +130,8 @@ export const SaveBlueprintExtraction = defineCommand({
  */
 export const SaveBlueprintTranslations = defineCommand({
   name: 'blueprint.saveTranslations',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
   input: z.object({
     blueprintId: uuid,
     translations: z.array(z.object({

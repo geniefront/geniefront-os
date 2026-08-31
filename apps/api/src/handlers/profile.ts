@@ -2,7 +2,6 @@
  * 个人资料、安全 PIN 码与设备会话命令处理器
  */
 
-import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import {
   UpdateUserProfile,
@@ -15,10 +14,14 @@ import {
 } from '@gf/contracts';
 import { jsonb } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
+import { hashPin } from '../auth/pin';
 
-export function hashPin(pin: string): string {
-  return createHash('sha256').update(`gf_pin_salt_${pin}`, 'utf8').digest('hex');
-}
+/**
+ * ⚠️ 这里以前是 `sha256('gf_pin_salt_' + pin)` —— 全局盐、单轮（AUD-11）。
+ * 实现已经挪到 `auth/pin.ts`：每行一个随机盐 + scrypt，
+ * 而且写入方和校验方从此共用同一个模块（原来两边算法不一样，永远对不上）。
+ */
+export { hashPin };
 
 async function resolveUserId(
   tx: postgres.TransactionSql,
@@ -126,12 +129,21 @@ registerHandler(SetStaffPin, async ({ input, ctx, tx, audit }: HandlerArgs<
     throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'staff.manage' } });
   }
 
-  const hashed = hashPin(input.pin);
+  const hashed = await hashPin(input.pin);
 
+  /**
+   * ⚠️ 必须按 **location** 收窄，不能只按 membership_id（AUD-06）。
+   *
+   * RLS 挡的是跨 org，挡不住同一个 org 内的跨门店：一个在 A 店有
+   * `staff.manage` 的店长，能给 B 店某位技师设 PIN，而 PIN 就是那台
+   * 共享 iPad 上的身份切换凭据。`staff.manage` 是**门店级**授权，
+   * 不是集团级。
+   */
   const [row] = await tx<{ membership_id: string }[]>`
     update staff_profiles set
       pin_hash = ${hashed}
     where membership_id = ${targetMembershipId}
+      and location_id = ${ctx.locationId}
     returning membership_id`;
 
   if (!row) {

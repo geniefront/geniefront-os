@@ -127,6 +127,45 @@ for config in apps/api/vitest.config.ts packages/db/vitest.config.ts; do
 done
 
 
+# ── 9. 业务表的写入只能发生在命令处理器里 ───────────────────────────────────
+# 宪法第 1 条是唯一一条以前没有可执行检查的规则，于是四条 desk 路由
+# 悄悄长出了裸 SQL 写入（AUD-04）：改预约备注、改客户关联、重填健康表、
+# 推进建站工单状态。它们各自丢掉了审计、幂等和欠费冻结，
+# 而且因为「读也用 withTenant」，写混进去看起来毫无违和。
+#
+# 允许名单只有几处，每一处都有明确理由：
+#   handlers/     命令处理器本身
+#   bus.ts        幂等表
+#   audit.ts      审计表（append-only）
+#   platform/     运营侧写入，走 writePlatformAudit
+#   signup/ stripe/ auth/ queries/pairing.ts kiosk/routes.ts
+#                 系统路径：没有登录用户，写的是自己的会话/事件表
+#   test/ tidy.ts qa/  测试与开发工具
+WRITE_RE='(insert[[:space:]]+into|delete[[:space:]]+from|update[[:space:]]+[a-z_]+[[:space:]]+set)'
+hits=$(grep -rnE $SRC -i "$WRITE_RE" apps/api/src 2>/dev/null \
+  | grep -v '\.test\.ts:' \
+  | grep -vE '^apps/api/src/(handlers|platform|signup|stripe|auth|email|notify|sms|telnyx|forms|onboarding|test|qa|ops|integrations|copilot)/' \
+  | grep -vE '^apps/api/src/(bus|audit|money|tidy|businessSummary)\.ts:' \
+  | grep -vE '^apps/api/src/(queries/pairing|queries/forms|kiosk/routes|billing/usage|public/routes|public/formRoutes)\.ts:' \
+  | grep -vE ':[0-9]+:[[:space:]]*(//|\*|--)' \
+  || true)
+[[ -n "$hits" ]] && report \
+  "命令处理器之外出现了业务表写入" \
+  "宪法第 1 条：所有写操作必须是命令（有名字、权限、幂等、审计）" \
+  "把这段写入搬进 apps/api/src/handlers/ 的一条命令，路由只做 HTTP 形状适配。" \
+  "$hits"
+
+# ── 10. 调模型之前必须过准入闸门 ─────────────────────────────────────────────
+# AUD-03：判据是**位置**不是数量（见 scripts/check-ai-gate.mjs 的头注释）。
+if command -v node >/dev/null 2>&1; then
+  hits=$(node scripts/check-ai-gate.mjs 2>&1 || true)
+  [[ -n "$hits" ]] && report \
+    "有模型调用没有被 AI 准入闸门覆盖" \
+    "AUD-03：欠费 / 额度耗尽 / 限频必须挡在花掉第一个 token 之前" \
+    "在该调用紧邻的上一行加 await assertAiAdmission(ctx)。" \
+    "$hits"
+fi
+
 echo
 if [[ $FAIL -eq 0 ]]; then
   echo "${G}✓ 全部通过${N}"

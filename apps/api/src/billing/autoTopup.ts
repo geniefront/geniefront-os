@@ -79,7 +79,7 @@ export async function maybeAutoTopup(
 
   try {
     // ── 1. 认领（事务内：拿锁 → 判断 → 占位）─────────────────────────────
-    const claim = await dispatch<ClaimResult>('billing.claimAutoTopup', { unit }, ctx);
+    const claim = await dispatch<ClaimResult>('billing.claimAutoTopup', { unit }, ctx, { systemOrigin: 'auto_topup_orchestrator' });
     if (!claim.result.charge) {
       return { unit, charged: false, reason: claim.result.reason ?? 'skipped' };
     }
@@ -146,8 +146,7 @@ export async function maybeAutoTopup(
         stripePaymentIntentId: paymentIntentId, trigger: 'auto',
       },
       ctx,
-      { idempotencyKey: `topup-${paymentIntentId}` },
-    );
+      { idempotencyKey: `topup-${paymentIntentId}` , systemOrigin: 'stripe_payment_intent' });
 
     log.info({
       locationId: ctx.locationId, unit, units, priceCents,
@@ -166,7 +165,7 @@ async function recordFailure(
   ctx: CommandContext, unit: QuotaUnit, reason: string, log: Logger,
 ): Promise<void> {
   try {
-    await dispatch('billing.recordTopupFailure', { unit, reason }, ctx);
+    await dispatch('billing.recordTopupFailure', { unit, reason }, ctx, { systemOrigin: 'stripe_payment_intent' });
   } catch (e) {
     log.warn({ err: e, locationId: ctx.locationId, unit }, 'failed to record topup failure');
   }

@@ -19,6 +19,7 @@ import { buildContext } from './actor';
 import { dispatch } from './bus';
 import { loadBlueprint } from './queries/blueprint';
 import './handlers/blueprint';
+import { dispatchSystem } from './test/systemDispatch';
 
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -79,6 +80,10 @@ afterAll(async () => {
 const run = async <T>(name: string, input: unknown, key = randomUUID()) =>
   (await dispatch<T>(name, input, ctx, { idempotencyKey: key })).result;
 
+/** 系统自有命令（AUD-01）：`blueprint.saveExtraction` 记的是一次已经发生的模型调用。 */
+const runSystem = async <T>(name: string, input: unknown, key = randomUUID()) =>
+  (await dispatchSystem<T>(name, input, ctx, { idempotencyKey: key })).result;
+
 /** 一份「模型刚返回」的提取结果：两个能建的项目、一条说明、一行看不清的 */
 function extractionPayload(blueprintId: string) {
   const item = (over: Record<string, unknown> = {}) => ({
@@ -112,7 +117,7 @@ async function freshDraft(): Promise<string> {
   const { blueprintId } = await run<{ blueprintId: string }>('blueprint.createDraft', {
     sources: [{ seq: 0, storagePath: null, widthPx: 2000, heightPx: 1400 }],
   });
-  await run('blueprint.saveExtraction', extractionPayload(blueprintId));
+  await runSystem('blueprint.saveExtraction', extractionPayload(blueprintId));
   return blueprintId;
 }
 
@@ -166,7 +171,7 @@ describe('提取结果落进草案', () => {
 
   it('重跑提取会覆盖上一次，不是叠加两份', async () => {
     const id = await freshDraft();
-    await run('blueprint.saveExtraction', {
+    await runSystem('blueprint.saveExtraction', {
       ...extractionPayload(id),
       items: [extractionPayload(id).items[0]!],
     });
@@ -227,7 +232,7 @@ describe('回填落地', () => {
       label: 'Website import test',
       sources: [{ seq: 0, kind: 'website', sourceUrl: 'https://example.com', storagePath: null, widthPx: null, heightPx: null }],
     });
-    await run('blueprint.saveExtraction', {
+    await runSystem('blueprint.saveExtraction', {
       blueprintId, items: [], unresolved: [],
       locationProposal: {
         name: 'Imported Spa', phone: '+16175550123', addressStreet: '88 Test Street',

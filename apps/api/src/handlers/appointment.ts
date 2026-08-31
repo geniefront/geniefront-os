@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import {
   AppointmentCreate, AppointmentAddItem, AppointmentCancel, AppointmentReschedule,
+  AppointmentSaveServiceBrief, AppointmentAssignCustomer,
   AppError, ERROR_CODES, pickText,
 } from '@gf/contracts';
 import { renderConfirm, formatWhen } from '../email/render';
@@ -1170,3 +1171,129 @@ async function notifyAppointmentChange(
     locale: row.locale,
   });
 }
+
+
+// ─────────────────────────────────────────── 服务前提示 / 客户关联（AUD-04）
+
+/**
+ * 服务前提示。
+ *
+ * 从 `POST /v1/desk/appointments/:id/service-brief` 的裸 SQL 搬过来。
+ * 搬过来之后白拿三样东西，一样都不是可选的：
+ * 审计（谁改的）、幂等（网络差的门店重试安全）、欠费冻结（总线统一管）。
+ */
+registerHandler(AppointmentSaveServiceBrief, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof AppointmentSaveServiceBrief.input._type>) => {
+  const note = input.note.trim() || null;
+
+  const [before] = await tx<{ notes: string | null }[]>`
+    select notes from appointments
+    where id = ${input.appointmentId} and location_id = ${ctx.locationId}`;
+  if (!before) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, {
+      details: { entity: 'appointment', id: input.appointmentId },
+    });
+  }
+
+  await tx`
+    update appointments set notes = ${note}
+    where id = ${input.appointmentId} and location_id = ${ctx.locationId}`;
+
+  audit({
+    entityType: 'appointment', entityId: input.appointmentId,
+    before: { note: before.notes },
+    after: { note },
+  });
+
+  return { appointmentId: input.appointmentId, note };
+});
+
+/**
+ * 把预约 / 排队记录关联到客户档案。
+ *
+ * ⭐ **这条命令存在的主要理由是那句 `assertCustomerInOrg`**（AUD-05）。
+ *
+ * `appointments.customer_id` 的外键是 `references customers(id)`，
+ * 没有 org 谓词；而 Postgres 的外键检查以表 owner 身份执行，**不受 RLS 约束**。
+ * 于是「写一个别家门店的 customer uuid」在数据库看来完全合法。
+ * 写进去之后所有读路径都被 RLS 过滤成 NULL —— 客人在界面上凭空消失，
+ * 库里留一条跨租户引用，而且没有任何报错。
+ *
+ * 校验必须在**写之前**做，不能指望读的时候发现。
+ */
+registerHandler(AppointmentAssignCustomer, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof AppointmentAssignCustomer.input._type>) => {
+  const customerId = input.customerId ?? null;
+  const walkInName = input.walkInName === undefined
+    ? undefined
+    : (input.walkInName?.trim() || null);
+
+  if (customerId) {
+    const [owned] = await tx<{ id: string }[]>`
+      select id from customers
+      where id = ${customerId} and org_id = ${ctx.orgId}`;
+    // 找不到 = 不存在，或者属于别家。两者返回同一个错误，防枚举。
+    if (!owned) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, {
+        details: { entity: 'customer', id: customerId },
+      });
+    }
+  }
+
+  const [appt] = await tx<{ id: string; customer_id: string | null; walk_in_name: string | null }[]>`
+    select id, customer_id, walk_in_name from appointments
+    where id = ${input.appointmentId} and location_id = ${ctx.locationId}`;
+
+  if (appt) {
+    await tx`
+      update appointments set
+        customer_id = coalesce(${customerId}, customer_id),
+        walk_in_name = coalesce(${walkInName ?? null}, walk_in_name)
+      where id = ${appt.id} and location_id = ${ctx.locationId}`;
+    if (customerId) {
+      await tx`
+        update walkin_queue set customer_id = ${customerId}
+        where appointment_id = ${appt.id} and location_id = ${ctx.locationId}`;
+    }
+    audit({
+      entityType: 'appointment', entityId: appt.id,
+      before: { customerId: appt.customer_id, walkInName: appt.walk_in_name },
+      after: { customerId: customerId ?? appt.customer_id, walkInName: walkInName ?? appt.walk_in_name },
+    });
+    return { appointmentId: appt.id, customerId: customerId ?? appt.customer_id };
+  }
+
+  // 不是 appointments.id 的话，再按 walkin_queue.id 试一次 ——
+  // 前台那一屏的两种卡片用的是同一个「打开详情」入口
+  const [wq] = await tx<{
+    id: string; appointment_id: string | null; customer_id: string | null; walk_in_name: string | null;
+  }[]>`
+    select id, appointment_id, customer_id, walk_in_name from walkin_queue
+    where id = ${input.appointmentId} and location_id = ${ctx.locationId}`;
+  if (!wq) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, {
+      details: { entity: 'appointment', id: input.appointmentId },
+    });
+  }
+
+  if (wq.appointment_id && customerId) {
+    await tx`
+      update appointments set customer_id = ${customerId}
+      where id = ${wq.appointment_id} and location_id = ${ctx.locationId}`;
+  }
+  if (customerId || walkInName !== undefined) {
+    await tx`
+      update walkin_queue set
+        customer_id = coalesce(${customerId}, customer_id),
+        walk_in_name = coalesce(${walkInName ?? null}, walk_in_name)
+      where id = ${wq.id} and location_id = ${ctx.locationId}`;
+  }
+
+  audit({
+    entityType: 'walkin_queue', entityId: wq.id,
+    before: { customerId: wq.customer_id, walkInName: wq.walk_in_name },
+    after: { customerId: customerId ?? wq.customer_id, walkInName: walkInName ?? wq.walk_in_name },
+  });
+
+  return { appointmentId: wq.id, customerId: customerId ?? wq.customer_id };
+});

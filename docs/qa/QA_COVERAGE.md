@@ -107,3 +107,87 @@ The artifact directories are intentionally git-ignored; the reports preserve the
 - `past_due` catalog/appointment write freeze in the UI (API Seed V2 behavioral test covers `SUBSCRIPTION_PAST_DUE`).
 - iPad/kiosk and `apps/ios` (deferred).
 - Auto-topup **editable** threshold control (not exposed; treated as intentional).
+
+---
+
+# Coverage added by the independent final audit (2026-08-31)
+
+## New regression suites
+
+| File | Covers | Cases |
+| --- | --- | ---: |
+| `apps/api/src/systemOnly.test.ts` | AUD-01 — system-only command authorization | 8 |
+| `apps/api/src/aiAdmission.test.ts` | AUD-03 — AI admission gate | 8 |
+| `apps/api/src/auditFixes.test.ts` | AUD-04/05/06/09/11/13 | 17 |
+| `e2e/specs/business-day.spec.ts` | AUD-13 — clock frozen inside the cutoff window | 3 |
+| `apps/api/src/test/systemDispatch.ts` | shared seam separating tenant vs system invocation | — |
+
+Existing suites updated so they no longer normalize the defect: `billing.test.ts`,
+`blueprint.test.ts`, `phone.test.ts`, `giftcard.test.ts`, `signup.test.ts`,
+`platform.test.ts`, `businessSummary.test.ts`, `financial_bi_subscription.test.ts`,
+`qa/seed.behavior.test.ts`, `profile_and_notifications.test.ts`,
+`stripe/webhook.tenant.test.ts`, `packages/db/src/rls.test.ts`,
+`apps/web/src/pages/Support.test.tsx`.
+
+## New executable guards (`pnpm lint:guards`)
+
+| # | Rule | Verified to fire |
+| --- | --- | --- |
+| 9 | No business-table writes outside `handlers/` — the first executable check for 宪法第 1 条 | Yes: injected a raw `update appointments` and the build went red |
+| 10 | Every model call has `assertAiAdmission` above it (`scripts/check-ai-gate.mjs`) | Yes: removed one gate and the build went red — and on first run it found a genuinely ungated streaming `askCopilot` |
+
+Both guards were deliberately negative-tested. A guard that has never been observed
+failing is not yet evidence of anything.
+
+## Coverage status delta
+
+| Area | Before | After |
+| --- | --- | --- |
+| Tenant reachability of internal commands | untested — the suite *performed* the exploit | whole-registry assertion; new unmarked internal commands fail the build |
+| AI spend admission | untested (no such concept) | 8 cases + positional lint guard |
+| Command-bus bypass | untested | lint guard + audit-row assertions |
+| Cross-org customer FK | read isolation only | write rejection at app and DB layers |
+| Notification permissions | untested | role-boundary cases for tech vs owner |
+| Stripe PM projection | one-directional | both directions incl. detach, and blip-tolerance |
+| Support notes confidentiality | none | RLS policy shape assertion + UI absence assertion |
+| Idempotency retention | none | replay-inside-window and purge-outside-window |
+| PIN hashing | none | salt uniqueness, non-legacy format, dual legacy migration |
+| SMS inbound isolation | query discipline only | proven at RLS with two orgs |
+| Desk "today" / "yesterday" | timezone only; both QA-008 clock cases sit **after** the cutoff, where either implementation passes | business day incl. cutoff, across NY before/at/after, LA before, DST spring & fall, plus 3 browser cases frozen **inside** the cutoff window |
+
+## Verification ledger (2026-08-31 fix pass)
+
+| Check | Result |
+| --- | --- |
+| `@gf/api` | **775 passed** (52 files) |
+| `@gf/web` | **169 passed** (32 files) |
+| `@gf/db` | **73 passed** (4 files) |
+| `@gf/marketing` | **14 passed** (3 files) |
+| `@gf/platform` | no unit test files (unchanged) |
+| Typechecks api/web/db/platform/marketing | pass |
+| Builds web/platform/marketing | pass |
+| `pnpm lint:guards` | pass (10 rules) |
+| `git diff --check` | pass for all audit-fix files |
+| Playwright | **34 passed / 34** (31 prior + 3 new AUD-13 clock cases) |
+| FORCE RLS | 106/106 tables enabled **and** forced; `app_user` has no BYPASSRLS |
+| AUD-01 exploit replay | blocked at both layers; billing row unchanged; signed system path still works |
+
+## Baseline honesty note
+
+Before the fix pass the API suite was **38 failed / 741** on this machine, not the
+741-green recorded on 2026-08-30. 35 of those were a clock-dependent seed defect
+(fixed, see QA_FINDINGS "Fixed in passing") and 3 were caused by this pass's own
+schema change (corrected). The two runs were compared file-by-file rather than by
+totals, because a total that moves for two reasons at once explains nothing.
+
+
+## AUD-13 addendum (2026-08-31)
+
+`apps/web/src/lib/time.test.ts` grew to **26 cases**. The ones that matter are the ones
+inside the cutoff window — the rest of the suite could not distinguish "shop timezone
+calendar day" from "shop business day", because outside that window they are the same
+string.
+
+Two Playwright titles were corrected: they described the QA-008 *defect*
+("uses UTC…", "follows the browser timezone…") rather than the behaviour they now guard.
+A passing test whose name states the bug is worse than no name at all.

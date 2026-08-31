@@ -9,7 +9,7 @@
  * 营业日边界的实现复用 `@gf/scheduling`，与服务端同一份代码 ——
  * 前后端各写一份的结果必然是在 DST 那两天分叉。
  */
-import { wallClock } from '@gf/scheduling';
+import { businessDateOf, wallClock } from '@gf/scheduling';
 
 /** 一天的分钟总数。日历网格以门店墙上时间的分钟数为坐标。 */
 export const MINUTES_PER_DAY = 24 * 60;
@@ -77,6 +77,36 @@ export function formatWallTime(minutes: number): string {
   const h = Math.floor(normalized / 60);
   const m = normalized % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+/**
+ * ── 营业日（AUD-13）─────────────────────────────────────────────────────────
+ *
+ * ⚠️ **门店的「今天」不是日历上的今天。**
+ *
+ * 营业日在 `business_day_cutoff`（多数店 03:00–04:00）才翻页：
+ * 纽约时间 2026-08-31 01:30，营业日仍然是 **2026-08-30** ——
+ * 凌晨一点半那单属于昨晚那一场生意，不属于新的一天。
+ *
+ * QA-008 把所有日期控件从 UTC / 浏览器本地改成了 `instantToWallDate(门店时区)`，
+ * 修好了时区那一半，**没有修 cutoff 那一半**。结果是前端和服务端每天
+ * 有四个小时对不上：`GET /v1/desk/day` 返回的 `businessDate` 是营业日，
+ * 而界面上的「今天」是日历日。表现出来就是打烊后（凌晨）日结页显示
+ * 「今天在营业」且全部为零，而当天真实的钱在前一个日期下面 ——
+ * 前台在最需要封账的那一刻封不了账。
+ *
+ * 实现直接复用 `@gf/scheduling` 的 `businessDateOf`，和服务端**同一份代码**。
+ * 前后端各写一份的结果必然是在 DST 那两天分叉（宪法第 8 条）。
+ */
+
+/** 门店此刻的营业日。`cutoff` 形如 `HH:MM`。 */
+export function businessDateAt(iso: string, timezone: string, cutoff: string): string {
+  return businessDateOf(new Date(iso), timezone, cutoff);
+}
+
+/** 门店此刻的「今天」。 */
+export function businessToday(timezone: string, cutoff: string, now: Date = new Date()): string {
+  return businessDateOf(now, timezone, cutoff);
 }
 
 /** `YYYY-MM-DD` ± n 天。纯日期算术，不涉及时区。 */
@@ -159,4 +189,51 @@ export function useStoreTime() {
   );
 
   return { dateTime, date, time, timeZone, locale };
+}
+
+
+/**
+ * 门店营业日的读取入口 —— **所有 Desk 的「今天 / 昨天」都必须走它**（AUD-13）。
+ *
+ * 集中成一个 hook 而不是让每个页面自己调 `businessToday(tz, cutoff)`，
+ * 理由和 `useStoreTime` 一样：散着写的话，迟早有一个页面漏传 cutoff，
+ * 而漏传的表现是「大部分时候是对的」—— 每天只错四个小时，
+ * 在白天的任何一次测试里都看不出来。
+ *
+ * ⚠️ 会话尚未就绪时 `ready` 为 false、`today` 为空字符串。
+ * 调用方必须据此**不发请求**，而不是先用一个猜的日期打一发 ——
+ * 那正是 QA-008 里 `?date=` 打出错误营业日的成因。
+ */
+export function useBusinessDay(): {
+  ready: boolean;
+  timezone: string;
+  cutoff: string;
+  /** 门店营业日的今天。会话未就绪时是空字符串。 */
+  today: string;
+  /** 上一个营业日。 */
+  yesterday: string;
+  /** 任意时刻属于哪个营业日。 */
+  dateOf: (iso: string) => string;
+} {
+  const { context } = useSession();
+  const timezone = context?.timezone ?? '';
+  // 缺省 00:00 = 日历日语义：宁可退回改动前的行为，也不要猜一个 cutoff
+  const cutoff = context?.businessDayCutoff ?? '00:00';
+  const ready = Boolean(timezone);
+
+  const today = ready ? businessToday(timezone, cutoff) : '';
+
+  const dateOf = useCallback(
+    (iso: string) => (ready ? businessDateAt(iso, timezone, cutoff) : ''),
+    [ready, timezone, cutoff],
+  );
+
+  return {
+    ready,
+    timezone,
+    cutoff,
+    today,
+    yesterday: today ? shiftDate(today, -1) : '',
+    dateOf,
+  };
 }

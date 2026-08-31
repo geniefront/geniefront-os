@@ -60,6 +60,7 @@ import {
   PRESET_USER_AVATARS,
   PRESET_AVATAR_GRADIENTS,
 } from '@/lib/avatarPresets';
+import { useBusinessDay } from '@/lib/time';
 
 const AppointmentDrawer = lazy(() => import('./AppointmentDrawer').then((module) => ({ default: module.AppointmentDrawer })));
 const CopilotDrawer = lazy(() => import('./CopilotDrawer').then((module) => ({ default: module.CopilotDrawer })));
@@ -168,6 +169,7 @@ export function Layout() {
   const location = useLocation();
   const { t, language, setLanguage } = useLanguage();
   const { membership, locations, session, isOnline, clearMembership, signOut, isTechCapable, switchPortal, can } = useSession();
+  const { today: businessToday } = useBusinessDay();
   const canManageSettings = can('settings.manage') || can('staff.manage');
 
   const storeName = membership ? pickText(membership.locationName, language) : '—';
@@ -374,8 +376,8 @@ export function Layout() {
                         onClick={() => {
                           setMobileNavOpen(false);
                           if (item.path === '/schedule') {
-                            const today = instantToWallDate(new Date().toISOString(), timezone);
-                            setCurrentDate(today);
+                            // 营业日的今天，不是日历日（AUD-13）
+                            if (businessToday) setCurrentDate(businessToday);
                           }
                         }}
                         className={cn(

@@ -24,7 +24,7 @@ import { CANCEL_REASONS } from '@/features/schedule/types';
 import {
   isOverridableConflict, OVERRIDE_REASONS, type Override,
 } from '@/features/schedule/api';
-import { formatWallTime, instantToWallDate, instantToWallMinutes, wallMinutesToInstant } from '@/lib/time';
+import { formatWallTime, instantToWallDate, instantToWallMinutes, useBusinessDay, wallMinutesToInstant } from '@/lib/time';
 import { gridBounds } from '@/features/schedule/gridBounds';
 import { useDaysRange } from '@/features/schedule/api';
 import { useCanWrite } from '@/lib/permissions';
@@ -301,7 +301,17 @@ function ScheduleContent() {
     const timer = setInterval(() => setNowIso(new Date().toISOString()), 60_000);
     return () => clearInterval(timer);
   }, []);
-  const todayStr = timezone ? instantToWallDate(nowIso, timezone) : '';
+  /**
+   * ⭐ 「今天」是**营业日**的今天（AUD-13）。
+   *
+   * 日程表本身就是按营业日取数的（`?date=`），所以「今天」这一列、
+   * 「今天」按钮、月视图上那个高亮圈必须用同一个口径 ——
+   * 否则凌晨打开日程表，高亮的是明天那一格，而数据是昨晚那一天的。
+   *
+   * 现在线的位置仍然用墙上时间的分钟数：它回答的是「此刻在这一列的哪个高度」，
+   * 那是个时刻问题，不是日期问题。
+   */
+  const { today: todayStr } = useBusinessDay();
   const currentMins = timezone ? instantToWallMinutes(nowIso, timezone) : 0;
 
   // Auto-scroll to current time on initial load

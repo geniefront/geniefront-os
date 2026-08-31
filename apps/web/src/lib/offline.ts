@@ -41,6 +41,40 @@ export async function cache(key: string, value: unknown): Promise<void> {
   }
 }
 
+/**
+ * 退出登录时把本地快照整个删掉（AUD-12）。
+ *
+ * ## 为什么必须删
+ *
+ * 每一次成功的 GET 都会把响应写进这里 —— 今日预约、排队、工单，
+ * **含客人姓名和手机号**。缓存键带了 membershipId，所以换店/换人
+ * 在应用里读不到上一份；但数据本身一直躺在磁盘上，退出登录也不清。
+ *
+ * 前台那台电脑是共用的，笔记本会丢。而这个产品为了防挖客，
+ * 连技师端看到的手机号都是打码的 —— 那条纪律和「明文快照永久留在
+ * 浏览器里」放在一起是矛盾的。
+ *
+ * ## 为什么是删库不是删 key
+ *
+ * 逐个删 key 要先知道有哪些 key，而 key 里带着 membershipId ——
+ * 退出的时候恰恰是最不该再去枚举这些东西的时刻。整库删掉，没有遗漏的可能。
+ */
+export async function clearCache(): Promise<void> {
+  try {
+    // 先关掉可能还开着的连接，否则 deleteDatabase 会被 blocked 一直挂着
+    const req = indexedDB.deleteDatabase(DB);
+    await new Promise<void>((res) => {
+      req.onsuccess = () => res();
+      req.onerror = () => res();
+      // blocked：别的标签页还开着这个库。不等它 —— 那个标签页自己退出时也会删，
+      // 而在这里干等会让「退出登录」这个按钮看起来卡住了
+      req.onblocked = () => res();
+    });
+  } catch {
+    // 隐私模式下 IndexedDB 可能整个不可用。清不掉也不该挡住退出。
+  }
+}
+
 export async function readCache<T>(key: string): Promise<{ value: T; at: number } | null> {
   try {
     const db = await open();

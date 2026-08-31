@@ -54,11 +54,17 @@ https://api.geniefront.com, https://desk.geniefront.com {
 		reverse_proxy api:3000
 	}
 
-	# 2. 前端 SPA 静态页面与资源
-	handle {
+	
+	# 2. 静态资源（防止 CDN 缓存中毒）
+	handle /assets/* {
 		root * /srv/web
 		file_server
-		try_files {path} /index.html
+	}
+	# 3. 前端 SPA 路由
+	handle {
+		root * /srv/web
+		try_files {path} {path}/ /index.html
+		file_server
 	}
 
 	encode zstd gzip

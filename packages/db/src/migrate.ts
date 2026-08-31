@@ -107,16 +107,32 @@ async function assertRlsCoverage() {
     );
   }
 
+  /**
+   * 有 `org_id` 的表必须有一条隔离策略。
+   *
+   * 认两个名字，都不放宽任何东西：
+   *
+   *   · `tenant_isolation`  —— `org_id = app_org_id()`，绝大多数表
+   *   · `operator_only`     —— **比租户隔离更窄**：要求
+   *     `gf_platform_operator_role() is not null`，租户上下文一行都读不到。
+   *     `support_request_notes` 用它（sql/0077，AUD-08）：那是运营的内部
+   *     备注，按 org 隔离等于「客户看得到写他的那些话」。
+   *
+   * ⚠️ 往这个名单里加名字之前先想清楚：这里认的每一个名字都是在说
+   * 「这条策略至少和租户隔离一样严」。加一个更松的进来，
+   * 这项检查就从此什么都不保证了。
+   */
   const noPolicy = await adminSql<{ relname: string }[]>`
     select c.relname from pg_class c
     join pg_namespace n on n.oid = c.relnamespace
     join pg_attribute a on a.attrelid = c.oid and a.attname = 'org_id' and a.attnum > 0
     where n.nspname = 'public' and c.relkind = 'r'
       and not exists (
-        select 1 from pg_policy p where p.polrelid = c.oid and p.polname = 'tenant_isolation')
+        select 1 from pg_policy p where p.polrelid = c.oid
+          and p.polname in ('tenant_isolation', 'operator_only'))
     order by c.relname`;
   if (noPolicy.length > 0) {
-    throw new Error(`这些表开了 RLS 但没有 tenant_isolation 策略：${noPolicy.map((m) => m.relname).join(', ')}`);
+    throw new Error(`这些表开了 RLS 但没有隔离策略：${noPolicy.map((m) => m.relname).join(', ')}`);
   }
   console.log('✓ RLS 覆盖检查通过');
 }

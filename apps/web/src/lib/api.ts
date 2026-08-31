@@ -201,6 +201,8 @@ export interface MembershipContext {
   locationId: string;
   locale: string;
   timezone: string;
+  /** `HH:MM` 营业日翻页时刻。门店的「今天」由它决定，不是日历日（AUD-13）。 */
+  businessDayCutoff: string;
   permissions: string[];
 }
 

@@ -113,7 +113,44 @@ export const RequestStorefrontLaunch = defineCommand({
   idempotency: 'optional',
 });
 
+
+/**
+ * 把 AI 出的三版草案落库，并把工单推进到 `drafted`（AUD-04）。
+ *
+ * 原来这一步是 `/v1/storefront/:id/generate` 里的三条裸 SQL
+ * （delete drafts / insert drafts / update briefs set status='drafted'）。
+ * 那是一次**工单状态机推进**，却没有审计条目 —— 「这家店的建站单是什么时候
+ * 出的草案、谁触发的」在系统里查不到。
+ *
+ * ⭐ 系统自有：草案内容是一次已经发生的模型调用的产物，
+ * 不是租户可以自行编造的输入。
+ */
+export const SaveStorefrontDrafts = defineCommand({
+  name: 'storefront.saveDrafts',
+  system: true,
+  input: z.object({
+    briefId: uuid,
+    model: z.string().max(120),
+    inputTokens: z.number().int().min(0),
+    outputTokens: z.number().int().min(0),
+    costMillicents: z.number().int().min(0),
+    drafts: z.array(z.object({
+      variant: z.string().max(40),
+      content: z.record(z.unknown()),
+    })).min(1).max(5),
+  }),
+  output: z.object({
+    briefId: uuid,
+    status: z.literal('drafted'),
+    savedDrafts: z.number().int(),
+  }),
+  permission: 'settings.manage',
+  ai: { description: '（内部）保存 AI 生成的微店草案。', confirm: 'always', exposed: false },
+  reversible: false,
+  idempotency: 'optional',
+});
+
 export const STOREFRONT_COMMANDS = [
   SaveStorefrontBrief, SubmitStorefrontBrief, WithdrawStorefrontBrief, ChooseStorefrontDraft,
-  AddStorefrontRevision, RequestStorefrontLaunch,
+  AddStorefrontRevision, RequestStorefrontLaunch, SaveStorefrontDrafts,
 ] as const;

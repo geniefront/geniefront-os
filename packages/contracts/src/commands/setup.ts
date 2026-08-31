@@ -161,6 +161,8 @@ export const SaveBusinessHours = defineCommand({
  */
 export const ClaimLocation = defineCommand({
   name: 'setup.claimLocation',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
   input: z.object({ intentId: uuid }),
   output: z.object({
     membershipId: uuid, locationId: uuid, orgId: uuid,

@@ -16,6 +16,7 @@ import {
   AppError, ERROR_CODES, actingMembership,
 } from '@gf/contracts';
 import { withTenant } from '@gf/db';
+import { dispatch } from '../bus';
 import { businessDateOf } from '@gf/scheduling';
 import { loadDay } from '../queries/day';
 import { loadMonth } from '../queries/month';
@@ -129,26 +130,20 @@ export function registerScheduleRoutes(app: FastifyInstance, ctxFromHeaders: Ctx
   });
 
   // ── 前台维护技师服务前提示 ───────────────────────────────────────────────
+  //
+  // ⚠️ 这两条路由以前直接 `update appointments set …`（AUD-04）。
+  // 裸写等于绕过总线，白丢三样：审计、幂等、欠费冻结。
+  // 现在只做 HTTP 形状的适配，业务写入一律转给命令。
   app.post<{ Params: { id: string }; Body: unknown }>(
     '/v1/desk/appointments/:id/service-brief', async (req) => {
       const ctx = await ctxFromHeaders(req);
-      if (!ctx.permissions.has('appointment.write')) {
-        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'appointment.write' } });
-      }
       const body = z.object({ note: z.string().trim().max(2_000) }).parse(req.body);
-      return withTenant(ctx, async (tx) => {
-        const rows = await tx<{ id: string }[]>`
-          update appointments
-          set notes = ${body.note || null}
-          where id = ${req.params.id} and location_id = ${ctx.locationId}
-          returning id`;
-        if (!rows[0]) {
-          throw new AppError(ERROR_CODES.NOT_FOUND, {
-            details: { entity: 'appointment', id: req.params.id },
-          });
-        }
-        return { appointmentId: rows[0].id, note: body.note || null };
-      });
+      const out = await dispatch<{ appointmentId: string; note: string | null }>(
+        'appointment.saveServiceBrief',
+        { appointmentId: req.params.id, note: body.note },
+        ctx,
+      );
+      return out.result;
     },
   );
 
@@ -156,56 +151,16 @@ export function registerScheduleRoutes(app: FastifyInstance, ctxFromHeaders: Ctx
   app.post<{ Params: { id: string }; Body: unknown }>(
     '/v1/desk/appointments/:id/customer', async (req) => {
       const ctx = await ctxFromHeaders(req);
-      if (!ctx.permissions.has('appointment.write')) {
-        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'appointment.write' } });
-      }
       const body = z.object({
         customerId: z.string().uuid().nullable().optional(),
         walkInName: z.string().max(120).nullable().optional(),
       }).parse(req.body);
-
-      return withTenant(ctx, async (tx) => {
-        const rows = await tx<{ id: string; customer_id: string | null }[]>`
-          update appointments set
-            customer_id = coalesce(${body.customerId !== undefined ? body.customerId : null}, customer_id),
-            walk_in_name = coalesce(${body.walkInName !== undefined ? body.walkInName : null}, walk_in_name)
-          where id = ${req.params.id} and location_id = ${ctx.locationId}
-          returning id, customer_id`;
-
-        if (rows[0]) {
-          if (body.customerId) {
-            await tx`
-              update walkin_queue
-              set customer_id = ${body.customerId}
-              where appointment_id = ${req.params.id} and location_id = ${ctx.locationId}`;
-          }
-          return { appointmentId: rows[0].id, customerId: rows[0].customer_id };
-        }
-
-        // 若不是 appointments.id，检查是否为 walkin_queue 记录 id
-        const [wq] = await tx<{ id: string; appointment_id: string | null }[]>`
-          select id, appointment_id from walkin_queue
-          where id = ${req.params.id} and location_id = ${ctx.locationId}`;
-        if (!wq) {
-          throw new AppError(ERROR_CODES.NOT_FOUND, {
-            details: { entity: 'appointment', id: req.params.id },
-          });
-        }
-        if (wq.appointment_id && body.customerId) {
-          await tx`
-            update appointments
-            set customer_id = ${body.customerId}
-            where id = ${wq.appointment_id} and location_id = ${ctx.locationId}`;
-        }
-        if (body.customerId || body.walkInName) {
-          await tx`
-            update walkin_queue set
-              customer_id = coalesce(${body.customerId !== undefined ? body.customerId : null}, customer_id),
-              walk_in_name = coalesce(${body.walkInName !== undefined ? body.walkInName : null}, walk_in_name)
-            where id = ${wq.id} and location_id = ${ctx.locationId}`;
-        }
-        return { appointmentId: wq.id, customerId: body.customerId ?? null };
-      });
+      const out = await dispatch<{ appointmentId: string; customerId: string | null }>(
+        'appointment.assignCustomer',
+        { appointmentId: req.params.id, ...body },
+        ctx,
+      );
+      return out.result;
     },
   );
 }

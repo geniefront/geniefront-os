@@ -666,10 +666,30 @@ async function main() {
     }
 
     // 11. 日期区间：覆盖过去 14 天、今天、未来 14 天（共 29 天）
+    /**
+     * ⚠️ 锚点必须是**营业日**，不是日历日。
+     *
+     * 门店的营业日在 `business_day_cutoff`（这里是凌晨 3–4 点）才翻页：
+     * 纽约时间 01:11 属于**前一天**的营业日。而这个函数原来直接取日历日期，
+     * 于是 `dates[14]`（「今天」）比应用认定的营业日晚一天，
+     * 而 `dates[13]` —— 也就是应用眼里的「今天」—— 被种子写成了
+     * `day_closes.status = 'closed'`。
+     *
+     * 后果是：**每天凌晨 0 点到 4 点之间跑测试，任何写"今天"的用例都会
+     * 撞上 `business day … is closed`**（kiosk / core_loop / notify / phone
+     * 共 35 条）。白天跑全绿，半夜跑全红，而失败信息指向业务规则，
+     * 看不出是种子数据的时间锚点错了。
+     *
+     * 这里按最保守的 cutoff（4 小时）回退。种子里两家店是 03:00 / 04:00，
+     * 取大的那个：早退一小时最多让「今天」少一天数据，
+     * 而晚退一小时就会重新踩回上面那个坑。
+     */
+    const CUTOFF_HOURS = 4;
     const getDatesRange = (tz: string, pastDays: number, futureDays: number): string[] => {
+      const anchor = new Date(Date.now() - CUTOFF_HOURS * 3600_000);
       const today = new Intl.DateTimeFormat('en-CA', {
         timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-      }).format(new Date());
+      }).format(anchor);
       const dates: string[] = [];
       for (let i = -pastDays; i <= futureDays; i++) {
         const d = new Date(`${today}T12:00:00Z`);
