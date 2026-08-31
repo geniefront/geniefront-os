@@ -36,6 +36,23 @@ export async function purgeCommandIdempotency(retainHours = DEFAULT_RETAIN_HOURS
   return rows[0]?.removed ?? 0;
 }
 
+/** 测试消息保留 7 天。一周足够覆盖「上周五那次演示到底发了什么」。 */
+const DEFAULT_CAPTURED_RETAIN_DAYS = 7;
+
+/**
+ * 删掉过了保留期的 captured 测试消息（sql/0082）。
+ *
+ * ⚠️ 数据库函数里 `where status = 'captured'` 是硬条件：真发出去的记录
+ * 一行都不会被碰 —— 那是「我们对客人说过什么」的凭据。
+ */
+export async function purgeCapturedMessages(
+  retainDays = DEFAULT_CAPTURED_RETAIN_DAYS,
+): Promise<number> {
+  const rows = await sql<{ removed: number }[]>`
+    select gf_purge_captured_messages(${retainDays}) as removed`;
+  return rows[0]?.removed ?? 0;
+}
+
 /**
  * 挂上定时清理。
  *
@@ -47,6 +64,8 @@ export function startRetentionJob(app: FastifyInstance): void {
   const hours = Number(process.env['IDEMPOTENCY_RETAIN_HOURS'] ?? DEFAULT_RETAIN_HOURS);
   const intervalMs = Number(process.env['RETENTION_INTERVAL_MS'] ?? DEFAULT_INTERVAL_MS);
 
+  const days = Number(process.env['CAPTURED_MESSAGE_RETAIN_DAYS'] ?? DEFAULT_CAPTURED_RETAIN_DAYS);
+
   const run = async (): Promise<void> => {
     try {
       const removed = await purgeCommandIdempotency(hours);
@@ -56,6 +75,15 @@ export function startRetentionJob(app: FastifyInstance): void {
     } catch (e) {
       // 清理失败不该影响服务。表涨大是慢性问题，重启一次进程不是解法
       app.log.warn({ err: e }, 'command_idempotency retention failed');
+    }
+
+    try {
+      // 只记条数，不记收件人也不记正文 —— 测试消息里有客人的邮箱、手机号
+      // 和一次性链接，那些东西不进普通应用日志（要看内容就去测试收件箱）
+      const removed = await purgeCapturedMessages(days);
+      app.log.info({ removed, retainDays: days }, 'captured message retention');
+    } catch (e) {
+      app.log.warn({ err: e }, 'captured message retention failed');
     }
   };
 

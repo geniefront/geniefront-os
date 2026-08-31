@@ -66,11 +66,21 @@ export async function flushSms(
 
       await withTenant(tenant, async (tx) => {
         if (res.ok) {
+          // ⭐ captured ≠ sent:capture 模式下这条**没有真的发出去**。
+          // 混成 sent 的话,staging 上「发信成功率」会是一个假的 100%
           await tx`
             update sms_outbox
-            set status = 'sent', sent_at = now(), provider_id = ${res.providerId ?? null},
+            set status = ${res.captured ? 'captured' : 'sent'},
+                sent_at = now(), provider_id = ${res.providerId ?? null},
                 attempts = attempts + 1
             where id = ${r.id}`;
+
+          /**
+           * ⚠️ capture 不计量。没走运营商就没有这笔成本 ——
+           * 记进去的话 staging 的用量会污染「这家店这个月花了多少钱」
+           * 这个数字,而那个数字是要拿去对账的。
+           */
+          if (res.captured) return;
 
           /**
            * 计量。**qty 是 segment 数,不是条数**(sms/segments.ts 那段)。

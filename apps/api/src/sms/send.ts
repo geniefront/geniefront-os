@@ -8,6 +8,9 @@
  * 明确解除了,第 14 条没有。
  */
 
+import { randomUUID } from 'node:crypto';
+import { isCaptureMode } from '../comms/mode';
+
 const ENDPOINT = 'https://api.telnyx.com/v2/messages';
 
 export interface SmsResult {
@@ -16,13 +19,25 @@ export interface SmsResult {
   error?: string;
   /** 重试也没用(号码本身不对、被运营商永久拒收) */
   permanent?: boolean;
+  /** capture 模式:**没有真的发出去**,只留在发件箱里供测试查看 */
+  captured?: boolean;
 }
 
+/**
+ * capture 模式和测试进程里也算「配好了」—— 否则 `flushSms()` 会在第一行
+ * 就 return,发件箱里的短信永远停在 pending,测试收件箱是空的。
+ */
 export function smsConfigured(): boolean {
+  if (isCaptureMode() || process.env['NODE_ENV'] === 'test') return true;
   return Boolean(process.env['TELNYX_API_KEY'] && process.env['TELNYX_SMS_FROM']);
 }
 
-export const smsFrom = (): string => process.env['TELNYX_SMS_FROM'] ?? '';
+/**
+ * 发件号码。capture 模式下可能一个号都没配 —— 给一个显眼的占位值,
+ * 免得测试收件箱里那一列是空白,让人以为是数据丢了。
+ */
+export const smsFrom = (): string => process.env['TELNYX_SMS_FROM']
+  ?? (isCaptureMode() ? '+10000000000' : '');
 
 export async function sendSms(msg: { to: string; text: string }): Promise<SmsResult> {
   /**
@@ -36,8 +51,10 @@ export async function sendSms(msg: { to: string; text: string }): Promise<SmsRes
    * 拦在这里而不是拦在 flush：这样入队、渲染、分段、计量那几步照常被测到，
    * 只有「真的打出去」这一下是假的。
    */
-  if (process.env['NODE_ENV'] === 'test') {
-    return { ok: true, providerId: `test-${Date.now()}` };
+  if (process.env['NODE_ENV'] === 'test' || isCaptureMode()) {
+    // captured ≠ sent:这条**没有真的发出去**。混成 sent 的话,
+    // staging 上「发信成功率」这个数字会变成一个假的 100%
+    return { ok: true, captured: true, providerId: `capture:${randomUUID()}` };
   }
 
   const key = process.env['TELNYX_API_KEY'];

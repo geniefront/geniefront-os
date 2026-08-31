@@ -58,6 +58,8 @@ export async function platformSend<T>(method: string, path: string, body?: unkno
 
 export type OperatorSession = {
   operator: { userId: string; operatorId: string; role: string; email: string | null };
+  /** Environment + delivery mode. The test inbox uses this to explain an empty list. */
+  comms?: { env: string; deliveryMode: 'live' | 'capture' };
 };
 
 export type StoreRow = {

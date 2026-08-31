@@ -123,3 +123,43 @@ export async function platformListAudit(
         ${offset}::int
       ) as data`);
 }
+
+/**
+ * 测试收件箱（sql/0082）。
+ *
+ * capture 模式下发出去的邮件与短信留在原来的发件箱里，这里跨租户读出来 ——
+ * 运营的人要看的是「刚才那笔单发了什么」，而那笔单在哪家店他不一定知道。
+ */
+export async function platformTestInbox(
+  userId: string,
+  args: {
+    channel?: string | null;
+    status?: string | null;
+    search?: string | null;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<unknown> {
+  const limit = args.limit ?? 50;
+  const offset = args.offset ?? 0;
+  return callJson(userId, (tx) =>
+    tx<{ data: unknown }[]>`
+      select gf_platform_test_inbox(
+        ${args.channel ?? null},
+        ${args.status ?? null},
+        ${args.search ?? null},
+        ${limit}::int,
+        ${offset}::int
+      ) as data`);
+}
+
+/** 单封详情：完整正文（邮件含 HTML）与抽出来的链接。 */
+export async function platformTestMessage(
+  userId: string,
+  channel: 'email' | 'sms',
+  id: string,
+): Promise<unknown> {
+  return callJson(userId, (tx) =>
+    tx<{ data: unknown }[]>`
+      select gf_platform_test_message(${channel}, ${id}::uuid) as data`);
+}

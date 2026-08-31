@@ -23,10 +23,13 @@ import {
   platformListStorefrontRequests,
   platformStorefrontDetail,
   platformListAudit,
+  platformTestInbox,
+  platformTestMessage,
 } from '@gf/db';
 import { stripeClient } from '../stripe/client';
 import { assertStripeCustomerBelongsTo } from '../stripe/routes';
 import { safeRelativePath } from '../stripe/returnUrl';
+import { deliveryMode } from '../comms/mode';
 import { requirePlatformOperator, mapPlatformReadError } from './auth';
 import {
   review10DlcForLocation,
@@ -72,7 +75,12 @@ async function read<T>(fn: () => Promise<T>): Promise<T> {
 export function registerPlatformRoutes(app: FastifyInstance): void {
   app.get('/v1/platform/session', async (req) => {
     const op = await operatorFrom(req);
-    return { operator: { userId: op.userId, operatorId: op.operatorId, role: op.role, email: op.email } };
+    return {
+      operator: { userId: op.userId, operatorId: op.operatorId, role: op.role, email: op.email },
+      // 测试收件箱那一页要靠这两个值解释「为什么这里是空的」：
+      // capture 没开的话新消息是真发出去的，收件箱里当然什么都不会新增
+      comms: { env: process.env['GF_ENV'] ?? 'unknown', deliveryMode: deliveryMode() },
+    };
   });
 
   app.get('/v1/platform/dashboard', async (req) => {
@@ -245,6 +253,42 @@ export function registerPlatformRoutes(app: FastifyInstance): void {
         { ...(req.body as object), revisionId },
         req.ip,
       );
+    },
+  );
+
+  /**
+   * 测试收件箱（sql/0082）。local / staging 上 capture 下来的邮件与短信。
+   *
+   * ⭐ 这条接口同时是 E2E 的取件口：跑完一笔下单之后，测试脚本按收件人
+   * 查出那封激活信，把 `links[0]` 点开 —— 否则「带链接的邮件」这一整类
+   * 流程在自动化里根本走不通。
+   *
+   * ⚠️ 和其余运营台接口一样受 platform_operators 保护。信里有客人的
+   * 邮箱、手机号和一次性链接，这不是一个可以「反正是测试数据」就放开的东西。
+   */
+  app.get('/v1/platform/test-inbox', async (req) => {
+    const op = await operatorFrom(req);
+    const q = req.query as Record<string, string | undefined>;
+    const paging = parseOrThrow(page, { limit: q['limit'], offset: q['offset'] });
+    const channel = parseOrThrow(z.enum(['email', 'sms']).optional(), q['channel'] || undefined);
+    return read(() => platformTestInbox(op.userId, {
+      channel: channel ?? null,
+      status: q['status'] ?? null,
+      search: q['search'] ?? null,
+      limit: paging.limit ?? 50,
+      offset: paging.offset ?? 0,
+    }));
+  });
+
+  app.get<{ Params: { channel: string; id: string } }>(
+    '/v1/platform/test-inbox/:channel/:id',
+    async (req) => {
+      const op = await operatorFrom(req);
+      const channel = parseOrThrow(z.enum(['email', 'sms']), req.params.channel);
+      const id = parseOrThrow(uuid, req.params.id);
+      const detail = await read(() => platformTestMessage(op.userId, channel, id));
+      if (!detail) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'test_message' } });
+      return detail;
     },
   );
 

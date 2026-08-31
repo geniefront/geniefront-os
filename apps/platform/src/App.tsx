@@ -14,6 +14,7 @@ import { TenDlcDetail } from './pages/TenDlcDetail';
 import { WebsiteRequests } from './pages/WebsiteRequests';
 import { WebsiteRequestDetail } from './pages/WebsiteRequestDetail';
 import { Audit } from './pages/Audit';
+import { TestInbox } from './pages/TestInbox';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
@@ -50,6 +51,7 @@ function SessionGate() {
         <Route path="/website-requests" element={<WebsiteRequests />} />
         <Route path="/website-requests/:briefId" element={<WebsiteRequestDetail />} />
         <Route path="/audit" element={<Audit />} />
+        <Route path="/test-inbox" element={<TestInbox />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

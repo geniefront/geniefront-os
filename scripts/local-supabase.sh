@@ -65,6 +65,12 @@ case "$ACTION" in
         echo "${key}=$(stripe_value "$key")"
       done
       echo "FORM_ENCRYPTION_KEY=${form_key}"
+      # 本机没有真实收件人：邮件与短信不出网，留在发件箱里，
+      # 运营台「Test Inbox」那一页看（packages/db/sql/0082）
+      echo 'COMMUNICATION_DELIVERY_MODE=capture'
+      echo 'MAILPIT_URL=http://127.0.0.1:55324'
+      echo 'STAGING_OTP_CODE=424242'
+      echo 'STAGING_OTP_PHONES=+1617555*'
     } > .env.local
     chmod 600 .env.local
 

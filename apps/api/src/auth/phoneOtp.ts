@@ -28,10 +28,67 @@
  * 开店和用店都不受影响。
  */
 
+import { timingSafeEqual } from 'node:crypto';
 import { AppError, ERROR_CODES } from '@gf/contracts';
 import type { Locale } from '@gf/contracts';
+import { isProductionEnv } from '../comms/mode';
 
 type Provider = 'twilio' | 'telnyx';
+
+// ──────────────────────────────────────────────── staging 固定验证码（测试用）
+
+/**
+ * ## 为什么必须做这一件事
+ *
+ * Twilio Verify **没有 Test Credentials 这条路**：它不像 Programmable SMS
+ * 那样有一组「假装发出去了」的测试凭据，验证码只会真的发到真手机上。
+ * 于是 staging 上「技师用手机号上机」这条路在自动化里根本走不通 ——
+ * 要么每次找个真人念验证码，要么这条路就永远没被测过。
+ *
+ * 所以在**应用侧**做一个测试 provider：白名单里的号码用固定验证码。
+ *
+ * ## 三道锁，缺一不可
+ *
+ *   1. `GF_ENV` 不是 production（`comms/mode.ts`：GF_ENV 缺失时按生产处理）
+ *   2. `STAGING_OTP_CODE` 显式配了，且是 4–8 位数字
+ *   3. 这个号码在 `STAGING_OTP_PHONES` 白名单里 —— **没有默认白名单**
+ *
+ * 第 3 条是重点：不限号码的话，这个开关等于「任何人的手机号都能用固定码
+ * 登录」，而 staging 上是有真实店主数据的。白名单支持前缀（`+1617555*`），
+ * 因为测试号段是一批而不是一个。
+ *
+ * ⚠️ 生产环境只要检测到 `STAGING_OTP_CODE` 就**拒绝启动**
+ * （`assertCommunicationSafety`）—— 这一条不能只靠「记得别配」。
+ */
+function stagingOtpCode(env = process.env): string | null {
+  if (isProductionEnv(env)) return null;
+  const code = env['STAGING_OTP_CODE'];
+  if (!code || !/^\d{4,8}$/.test(code)) return null;
+  return code;
+}
+
+/** 白名单：整号或以 `*` 结尾的前缀，逗号分隔。 */
+function stagingOtpAllows(phoneE164: string, env = process.env): boolean {
+  const raw = env['STAGING_OTP_PHONES'];
+  if (!raw) return false;
+  return raw.split(',').map((s) => s.trim()).filter(Boolean).some((entry) => (
+    entry.endsWith('*')
+      ? phoneE164.startsWith(entry.slice(0, -1))
+      : phoneE164 === entry
+  ));
+}
+
+/** 这个号码走不走测试 provider。三道锁全开才算。 */
+export function stagingOtpApplies(phoneE164: string, env = process.env): boolean {
+  return stagingOtpCode(env) !== null && stagingOtpAllows(phoneE164, env);
+}
+
+/** 定长比较。验证码短，逐字符早退的比较是能被计时区分出来的。 */
+function sameCode(a: string, b: string): boolean {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+}
 
 /**
  * 用哪家。
@@ -50,7 +107,8 @@ export function otpProvider(): Provider | null {
 }
 
 export function verifyConfigured(): boolean {
-  return otpProvider() !== null;
+  // staging 上配了固定验证码，这条路就是通的 —— 哪怕一家供应商都没接
+  return otpProvider() !== null || stagingOtpCode() !== null;
 }
 
 function notConfigured(): AppError {
@@ -142,6 +200,14 @@ function telnyxErrorCode(json: Record<string, unknown>): string | null {
  * 给任意号码发短信的接口 —— 既花钱，又是一个能被用来骚扰别人的东西。
  */
 export async function sendPhoneCode(phoneE164: string, locale?: Locale): Promise<void> {
+  /**
+   * 测试 provider：什么都不发，直接当成功。
+   *
+   * ⚠️ 这里**不把验证码写进任何地方**（日志、发件箱都不写）：它是配置里的
+   * 一个常量，跑测试的人本来就知道。写出来只会多一个泄漏点。
+   */
+  if (stagingOtpApplies(phoneE164)) return;
+
   const p = otpProvider();
   if (!p) throw notConfigured();
 
@@ -182,6 +248,14 @@ export async function sendPhoneCode(phoneE164: string, locale?: Locale): Promise
  * 后者他重输一百次也没用。
  */
 export async function checkPhoneCode(phoneE164: string, code: string): Promise<boolean> {
+  /**
+   * 测试 provider。⚠️ 判到这里就**不再往下走真供应商**：
+   * 白名单里的号码在 staging 上永远只认这个固定码，
+   * 免得出现「有时通过有时不通过」这种最难查的状态。
+   */
+  const staged = stagingOtpCode();
+  if (staged && stagingOtpAllows(phoneE164)) return sameCode(code, staged);
+
   const p = otpProvider();
   if (!p) throw notConfigured();
 

@@ -34,6 +34,8 @@
     "test:unit": "pnpm --filter '!@gf/api' --filter '!@gf/db' test",
     "test:e2e": "GF_QA_ALLOW_RESET=1 NODE_ENV=test playwright test",
     "test:e2e:ui": "GF_QA_ALLOW_RESET=1 NODE_ENV=test playwright test --ui",
+    "diagnose:comms:local": "bash scripts/run-env.sh local pnpm --filter @gf/db exec tsx src/ops/diagnoseComms.ts",
+    "diagnose:comms:staging": "bash scripts/run-env.sh staging pnpm --filter @gf/db exec tsx src/ops/diagnoseComms.ts",
     "lint:guards": "bash scripts/lint-guards.sh",
     "check:env": "bash scripts/check-env.sh",
     "db:generate": "pnpm --filter @gf/db generate",

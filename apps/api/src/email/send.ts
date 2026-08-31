@@ -8,6 +8,9 @@
  * 把单也回滚掉）是荒谬的（宪法第 14 条：增强项永不成为阻断点）。
  */
 
+import { randomUUID } from 'node:crypto';
+import { isCaptureMode, mailpitEndpoint } from '../comms/mode';
+
 const ENDPOINT = 'https://api.resend.com/emails';
 
 export interface SendResult {
@@ -16,15 +19,68 @@ export interface SendResult {
   error?: string;
   /** 这一封是不是**重试也没用**（地址本身是错的） */
   permanent?: boolean;
+  /** capture 模式：**没有真的发出去**，只留在发件箱里供测试查看 */
+  captured?: boolean;
 }
 
+/**
+ * capture 模式和测试进程里也算「配好了」—— 否则 `flushEmails()` 会在
+ * 第一行就 return，发件箱里的信永远停在 pending，测试收件箱是空的，
+ * 而这一页存在的意义正是让人看见这些信。
+ */
 export function emailConfigured(): boolean {
+  if (isCaptureMode() || process.env['NODE_ENV'] === 'test') return true;
   return Boolean(process.env['RESEND_API_KEY'] && process.env['FROM_EMAIL']);
+}
+
+/**
+ * capture：不出网，只回一个本地凭证。
+ *
+ * 顺手往本机 Mailpit 投一份（配了 `MAILPIT_URL` 才投），这样本地开发能在
+ * 一个真的邮件客户端里看排版和链接。**投不投得进去都不影响结果** ——
+ * 发件箱里那一整封才是凭据，Mailpit 只是个方便看的窗口。
+ */
+async function captureEmail(msg: {
+  to: string; subject: string; html: string; text: string;
+}): Promise<SendResult> {
+  const endpoint = mailpitEndpoint();
+  if (endpoint) {
+    try {
+      await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          From: { Email: 'capture@geniefront.test', Name: 'GenieFront capture' },
+          To: [{ Email: msg.to }],
+          Subject: msg.subject,
+          HTML: msg.html,
+          Text: msg.text,
+        }),
+        signal: AbortSignal.timeout(5_000),
+      });
+    } catch {
+      // 本机没开 Mailpit 是常态，不值得留痕
+    }
+  }
+  return { ok: true, captured: true, providerId: `capture:${randomUUID()}` };
 }
 
 export async function sendEmail(msg: {
   to: string; subject: string; html: string; text: string;
 }): Promise<SendResult> {
+  /**
+   * 🔴 **capture 模式与测试进程里一封都不许真发。**
+   *
+   * `.env` 在测试进程里是加载的（vitest.shared 的 loadEnv），所以
+   * `RESEND_API_KEY` 在测试里是有值的 —— 不拦的话，每跑一遍测试就往
+   * 一批 `@example.test` 的地址真发一批信：烧配额，而且投递失败率会
+   * 拖垮 `mail.geniefront.com` 这个域的发信信誉。
+   *
+   * 拦在这里而不是拦在 flush：入队、渲染、去重、重试计数那几步照常被测到，
+   * 只有「真的打出去」这一下是假的（和 `sms/send.ts` 同一条纪律）。
+   */
+  if (isCaptureMode() || process.env['NODE_ENV'] === 'test') return captureEmail(msg);
+
   const key = process.env['RESEND_API_KEY'];
   const from = process.env['FROM_EMAIL'];
   if (!key || !from) return { ok: false, error: 'not_configured' };

@@ -10,6 +10,22 @@
 import { buildServer } from './server';
 import { startCallReconciler } from './telnyx/schedule';
 import { startRetentionJob } from './ops/retention';
+import { assertCommunicationSafety } from './comms/mode';
+
+/**
+ * ⭐ 在建服务之前就拦。
+ *
+ * capture 模式和固定 OTP 在生产的失败都是**静默**的：信被吞掉、验证码人人可用，
+ * 没有任何一条日志会让人发现。静默失败只能用「起不来」来防
+ * （`comms/mode.ts` 的长注释）。放在这里而不是 `buildServer()` 里：
+ * 测试会建很多次服务，那里抛异常等于把整个测试套件绑在环境变量上。
+ */
+try {
+  assertCommunicationSafety();
+} catch (e) {
+  console.error(e instanceof Error ? e.message : e);
+  process.exit(1);
+}
 
 const app = buildServer();
 

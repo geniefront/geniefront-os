@@ -47,9 +47,13 @@ export async function flushEmails(
 
       await withTenant(tenant, (tx) => {
         if (res.ok) {
+          // ⭐ captured ≠ sent：capture 模式下这封**没有真的发出去**。
+          // 混成 sent 的话，staging 上「发信成功率」会是一个假的 100%，
+          // 而真正的投递故障就藏在这个 100% 底下（sql/0082）
           return tx`
             update email_outbox
-            set status = 'sent', sent_at = now(), provider_id = ${res.providerId ?? null},
+            set status = ${res.captured ? 'captured' : 'sent'},
+                sent_at = now(), provider_id = ${res.providerId ?? null},
                 attempts = attempts + 1
             where id = ${r.id}`;
         }

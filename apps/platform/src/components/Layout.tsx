@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import {
-  LayoutDashboard, Store, LifeBuoy, ShieldCheck, Globe, ScrollText, LogOut,
+  LayoutDashboard, Store, LifeBuoy, ShieldCheck, Globe, ScrollText, Inbox, LogOut,
 } from 'lucide-react';
 import { usePlatformSession } from '@/lib/session';
 
@@ -11,6 +11,7 @@ const NAV = [
   { to: '/10dlc', label: '10DLC', icon: ShieldCheck },
   { to: '/website-requests', label: 'Website Requests', icon: Globe },
   { to: '/audit', label: 'Audit', icon: ScrollText },
+  { to: '/test-inbox', label: 'Test Inbox', icon: Inbox },
 ];
 
 export function Layout() {

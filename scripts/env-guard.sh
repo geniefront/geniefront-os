@@ -61,6 +61,13 @@ case "$TARGET" in
       || bad "staging 必须使用 Stripe test keys"
     [[ "$app_url" == *staging* && "$app_base" == *staging* && "$api_base" == *staging* ]] \
       || bad "staging 的公开 URL 必须使用 staging 域名"
+    # 固定验证码没有白名单等于「任何号码都能用一个常量登录」，
+    # 而 staging 上是有真实店主数据的
+    if [[ -n "$(get STAGING_OTP_CODE)" ]]; then
+      [[ -n "$(get STAGING_OTP_PHONES)" ]] \
+        || bad "配了 STAGING_OTP_CODE 就必须配 STAGING_OTP_PHONES 白名单"
+      [[ "$(get STAGING_OTP_CODE)" =~ ^[0-9]{4,8}$ ]] || bad "STAGING_OTP_CODE 必须是 4–8 位数字"
+    fi
     if [[ -f "${ROOT}/.env.production" ]]; then
       prod_sb=$(ENV_FILE="${ROOT}/.env.production"; grep '^SUPABASE_URL=' "$ENV_FILE" | tail -1 | cut -d= -f2-)
       prod_db=$(ENV_FILE="${ROOT}/.env.production"; grep '^DATABASE_URL=' "$ENV_FILE" | tail -1 | cut -d= -f2-)
@@ -69,6 +76,15 @@ case "$TARGET" in
     fi
     ;;
   production)
+    # 🔴 通信测试开关一旦漏进生产就是**静默故障**：capture 会把所有确认信、
+    # 收据、提醒吞掉而不报错；固定 OTP 等于人人可上机。应用启动时也拦
+    # （apps/api/src/comms/mode.ts 的 assertCommunicationSafety），
+    # 但这里要更早拦下 —— 到那一步已经在往生产推了。
+    for key in STAGING_OTP_CODE STAGING_OTP_PHONES MAILPIT_URL; do
+      [[ -z "$(get "$key")" ]] || bad "production 不允许配置 ${key}（只属于 local/staging）"
+    done
+    delivery=$(get COMMUNICATION_DELIVERY_MODE)
+    [[ "$delivery" != "capture" ]] || bad "production 的 COMMUNICATION_DELIVERY_MODE 不能是 capture"
     [[ "$supabase_url" == https://*.supabase.co ]] || bad "production 必须使用托管 Supabase"
     [[ "$stripe_secret" == sk_live_* && "$stripe_public" == pk_live_* ]] \
       || bad "production 必须使用 Stripe live keys"
