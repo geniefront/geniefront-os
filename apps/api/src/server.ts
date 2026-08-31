@@ -30,6 +30,7 @@ import './handlers/giftcard';
 import './handlers/notify';
 import './handlers/storefront';
 import './handlers/yelp';
+import './handlers/reviews';
 import './handlers/google';
 import './handlers/kiosk';
 import './handlers/billing';

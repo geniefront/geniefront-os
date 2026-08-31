@@ -97,3 +97,39 @@ export const reviewSummaries = pgTable('review_summaries', {
 }, (t) => [
   index('review_summaries_recent').on(t.locationId, t.generatedAt),
 ]);
+
+/**
+ * 一次外部评价采集的运行记录（sql/0084）。
+ *
+ * Bright Data 的采集是异步的：触发只返回一个 `snapshotId`，结果要在数分钟后
+ * 另行下载。这一行就是那条状态机的持久化 —— 它不落库，已经产生费用的抓取
+ * 就再也取不回来，而下一轮定时任务会重新触发一次，同一批数据计费两次。
+ *
+ * 同时它也是排障的唯一依据：采集失败在老板端表现为「最近没有新评价」，
+ * 与真的没人写评价无法区分，只有可查询的运行记录能把两者分开。
+ */
+export const reviewSyncRuns = pgTable('review_sync_runs', {
+  id: id(),
+  orgId: orgCol(),
+  locationId: locCol(),
+  platform: text('platform').notNull(),          // google | yelp
+  source: text('source').notNull(),              // bright_data | yelp_fusion | google_places
+  status: text('status').notNull().default('running'), // running | done | failed
+  snapshotId: text('snapshot_id'),
+  requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+  attempts: integer('attempts').notNull().default(0),
+  fetchedCount: integer('fetched_count').notNull().default(0),
+  /** 去重之后真正新写入的条数。长期为 0 说明增量正常，不是故障 */
+  insertedCount: integer('inserted_count').notNull().default(0),
+  skippedCount: integer('skipped_count').notNull().default(0),
+  error: text('error'),
+  /** 抓取费用，单位毫分（1/1000 分），与 @gf/ai 的成本口径一致 */
+  costMillicents: integer('cost_millicents').notNull().default(0),
+  meta: jsonb('meta').notNull().default(sql`'{}'::jsonb`),
+}, (t) => [
+  index('review_sync_runs_recent').on(t.locationId, t.platform, t.requestedAt),
+  // 一家店一个平台同时只允许一次进行中的采集 —— 这是费用约束，不是整洁性约束
+  uniqueIndex('review_sync_runs_one_active').on(t.locationId, t.platform)
+    .where(sql`status = 'running'`),
+]);

@@ -10,3 +10,4 @@ export * from './formShare';
 export * from './sms';
 export * from './staffSession';
 export * from './platform';
+export * from './reviewSync';

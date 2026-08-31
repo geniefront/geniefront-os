@@ -93,3 +93,63 @@ export async function getBusiness(
     `/businesses/${encodeURIComponent(businessId)}`, opts);
   return mapBusiness(data);
 }
+
+/**
+ * 一家店的评价（Fusion `/businesses/{id}/reviews`）。
+ *
+ * ⚠️ **这个端点只返回 3 条，正文截断到约 160 字**（06-EXTERNAL-SERVICES）。
+ * 它做不了完整的口碑分析 —— 那要靠 Bright Data。留着它是因为它免费、稳定，
+ * 在还没开抓取的门店里也能让口碑页面有东西看。
+ *
+ * ⭐ 返回的每一条都必须以 `isExcerpt: true` 入库。少了这个标记，
+ * AI 摘要会对着被切掉的半句话下结论（05 §8.3）。
+ */
+export async function getBusinessReviews(
+  businessId: string,
+  opts: YelpClientOptions & { locale?: string },
+): Promise<YelpReviewExcerpt[]> {
+  const q = new URLSearchParams({ limit: '3', sort_by: 'newest' });
+  if (opts.locale) q.set('locale', opts.locale);
+
+  const data = await call<{ reviews?: YelpFusionReview[] }>(
+    `/businesses/${encodeURIComponent(businessId)}/reviews?${q.toString()}`, opts);
+
+  return (data.reviews ?? [])
+    .filter((r): r is YelpFusionReview & { id: string } => typeof r.id === 'string' && r.id.length > 0)
+    .map((r) => ({
+      externalId: r.id,
+      rating: typeof r.rating === 'number' && r.rating >= 1 && r.rating <= 5
+        ? Math.round(r.rating) : null,
+      authorName: r.user?.name?.trim() || null,
+      content: r.text?.trim() || null,
+      // ⚠️ 恒为 true：这个端点给的正文本来就是截断的
+      isExcerpt: true,
+      url: r.url ?? null,
+      postedAt: r.time_created
+        // Yelp 给的是 "2026-08-01 12:00:00"（商家本地时间，无时区）。
+        // 补 Z 当 UTC 处理会引入几小时误差，但它只影响排序的相邻两条，
+        // 而把它当成 null 会丢掉「这条是什么时候写的」——后者代价更大
+        ? new Date(r.time_created.replace(' ', 'T') + 'Z').toISOString()
+        : null,
+    }));
+}
+
+interface YelpFusionReview {
+  id?: string;
+  rating?: number;
+  text?: string;
+  url?: string;
+  time_created?: string;
+  user?: { name?: string };
+}
+
+export interface YelpReviewExcerpt {
+  externalId: string;
+  rating: number | null;
+  authorName: string | null;
+  content: string | null;
+  /** 恒为 true —— Fusion 的正文是截断的 */
+  isExcerpt: boolean;
+  url: string | null;
+  postedAt: string | null;
+}

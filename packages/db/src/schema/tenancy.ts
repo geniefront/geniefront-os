@@ -60,6 +60,11 @@ export const locations = pgTable('locations', {
   yelpBusinessId: text('yelp_business_id'),
   googlePlaceId: text('google_place_id'),
   /**
+   * Bright Data 抓取 Google 评价的入参门店页 URL（sql/0084）。
+   * 为空时由 `googlePlaceId` 拼出官方跳转形式。
+   */
+  googleMapsUrl: text('google_maps_url'),
+  /**
    * settings.capacity（01 §7.1）：
    *   { slot_minutes: 15, max_concurrent_per_slot: null, overbook: "warn" }
    *   max_concurrent_per_slot = null → 自动取该时段在岗且 is_bookable 的员工数

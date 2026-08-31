@@ -12,7 +12,12 @@
 
 import { readFileSync } from 'node:fs';
 
-const FILES = ['apps/api/src/routes/ai.ts', 'apps/api/src/copilot/routes.ts'];
+const FILES = [
+  'apps/api/src/routes/ai.ts',
+  'apps/api/src/copilot/routes.ts',
+  // 后台任务同样要过闸门：没有人盯着，一个循环能把欠费门店的余额扣成很深的负数
+  'apps/api/src/reviews/analyze.ts',
+];
 
 /** 会真的产生 Anthropic 费用的调用。加新的模型封装时要同步加到这里。 */
 const MODEL_CALLS = [
@@ -23,6 +28,8 @@ const MODEL_CALLS = [
   'translateNames',
   'planRegions',
   'askCopilot',
+  'analyzeReviews',
+  'summarizeReviews',
 ];
 
 const LOOKBACK = 20;

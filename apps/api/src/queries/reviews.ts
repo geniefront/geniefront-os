@@ -151,3 +151,94 @@ export async function loadReviewsSummary(
     }),
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 采集配置与同步日志（05 §8）
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ReviewSourcesDto {
+  googlePlaceId: string | null;
+  googleMapsUrl: string | null;
+  yelpBusinessId: string | null;
+  /** 缺哪一项就抓不到哪个平台 —— 设置页要能直接告诉老板还差什么 */
+  googleReady: boolean;
+  yelpReady: boolean;
+}
+
+export async function loadReviewSources(
+  tx: postgres.TransactionSql,
+  ctx: CommandContext,
+): Promise<ReviewSourcesDto> {
+  const [row] = await tx<{
+    google_place_id: string | null; google_maps_url: string | null; yelp_business_id: string | null;
+  }[]>`
+    select google_place_id, google_maps_url, yelp_business_id
+    from locations where id = ${ctx.locationId}`;
+
+  return {
+    googlePlaceId: row?.google_place_id ?? null,
+    googleMapsUrl: row?.google_maps_url ?? null,
+    yelpBusinessId: row?.yelp_business_id ?? null,
+    googleReady: Boolean(row?.google_maps_url || row?.google_place_id),
+    yelpReady: Boolean(row?.yelp_business_id),
+  };
+}
+
+export interface ReviewSyncRunDto {
+  id: string;
+  platform: string;
+  source: string;
+  status: string;
+  requestedAt: string;
+  finishedAt: string | null;
+  attempts: number;
+  fetched: number;
+  inserted: number;
+  skipped: number;
+  /** 抓取花费，单位毫分（1/1000 分）。前端要显示成分时自己除，不在这里丢精度 */
+  costMillicents: number;
+  error: string | null;
+}
+
+/**
+ * 最近的同步记录。
+ *
+ * ⚠️ 不返回 `snapshot_id`：它是 Bright Data 侧的凭据性标识，
+ * 拿到它的人可以直接向 Bright Data 拉走这次抓取的全部结果。
+ * 排障要用它时去查库，不从 HTTP 接口吐出来。
+ */
+export async function loadReviewSyncRuns(
+  tx: postgres.TransactionSql,
+  ctx: CommandContext,
+  limit: number,
+): Promise<ReviewSyncRunDto[]> {
+  const rows = await tx<{
+    id: string; platform: string; source: string; status: string;
+    requested_at: string; finished_at: string | null; attempts: number;
+    fetched_count: number; inserted_count: number; skipped_count: number;
+    cost_millicents: number; error: string | null;
+  }[]>`
+    select id, platform, source, status,
+           requested_at::text as requested_at, finished_at::text as finished_at,
+           attempts, fetched_count, inserted_count, skipped_count,
+           cost_millicents, error
+    from review_sync_runs
+    where location_id = ${ctx.locationId}
+    order by requested_at desc
+    limit ${limit}`;
+
+  return rows.map((row) => ({
+    id: row.id,
+    platform: row.platform,
+    source: row.source,
+    status: row.status,
+    requestedAt: row.requested_at,
+    finishedAt: row.finished_at,
+    attempts: row.attempts,
+    fetched: row.fetched_count,
+    inserted: row.inserted_count,
+    skipped: row.skipped_count,
+    costMillicents: row.cost_millicents,
+    error: row.error,
+  }));
+}

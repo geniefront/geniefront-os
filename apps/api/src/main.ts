@@ -10,6 +10,7 @@
 import { buildServer } from './server';
 import { startCallReconciler } from './telnyx/schedule';
 import { startRetentionJob } from './ops/retention';
+import { startReviewSyncJob } from './reviews/job';
 import { assertCommunicationSafety } from './comms/mode';
 
 /**
@@ -36,6 +37,11 @@ startCallReconciler(app);
 
 // 幂等表保留期清理（AUD-09）。同上：只在真正的入口挂定时器。
 startRetentionJob(app);
+
+// 外部评价采集（sql/0084，05 §8）。默认关，`REVIEW_SYNC_INTERVAL_MINUTES=60` 打开。
+// ⚠️ 打开之前先用 staging 的 POST /v1/desk/reviews/sync 把整条链路验一遍 ——
+// 这条任务每一轮都真花钱（Bright Data 按记录条数计费）。
+startReviewSyncJob(app);
 const port = Number(process.env.PORT ?? 3000);
 
 // 滚动部署时要优雅退出：tini 转发 SIGTERM 过来，

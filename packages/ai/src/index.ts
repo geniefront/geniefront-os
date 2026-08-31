@@ -13,3 +13,4 @@ export * from './storefront';
 export * from './businessSummary';
 export * from './healthForms';
 export * from './website';
+export * from './reviews';

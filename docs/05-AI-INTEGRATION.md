@@ -549,6 +549,43 @@ Fusion 给的正文经常断在半句话上。**不告诉模型的话，它会�
 
 这些结构化建议会展示在老板端的“运营看板”上。由于这属于非实时、容错率较高的分析任务，失败可以自动重试。
 
+### 8.4 落地实现（✅ 已实现）
+
+| 环节 | 代码 |
+|---|---|
+| Bright Data 客户端与字段归一化 | `packages/brightdata`（trigger / progress / snapshot 三段式，字段别名兼容） |
+| Yelp Fusion 评分与 3 条截断评价 | `packages/yelp`（`getBusiness` / `getBusinessReviews`） |
+| 采集状态机 | `apps/api/src/reviews/sync.ts` |
+| 平台权威评分刷新 | `apps/api/src/reviews/stats.ts` |
+| 情感分析与摘要 | `packages/ai/src/reviews.ts` + `apps/api/src/reviews/analyze.ts` |
+| 每日定时任务 | `apps/api/src/reviews/job.ts`（默认关，`REVIEW_SYNC_INTERVAL_MINUTES`） |
+| 写库命令 | `apps/api/src/handlers/reviews.ts`（七条，全部 `system: true`） |
+| 表与跨租户枚举 | `packages/db/sql/0084_review_sync.sql` |
+
+**采集是异步的**，所以一次同步横跨多轮调用：登记（占住唯一索引）→ 触发 →
+轮询进度 → 就绪后下载入库 → 收尾。每一轮调用只推进一步，定时任务、
+staging 手动入口、失败重试走的是同一条代码路径。
+
+三条不能省的纪律：
+
+1. **先登记再触发**。`review_sync_runs` 上有 `(location, platform) where status='running'`
+   的唯一索引，登记这一步同时是占位 —— 并发的第二次同步在花钱之前就失败。
+2. **必须有超时**（`REVIEW_SYNC_TIMEOUT_MINUTES`）。一次永远不会 ready 的快照
+   会把这家店的同步永久堵死，而表现只是「评价从某天起不再更新」。
+3. **抓第二次不覆盖人工与 AI 的结果**。冲突时只补正文、评分与链接，
+   `status` / `ai_sentiment` / `ai_highlights` / 技师关联一律不动。
+
+上线顺序（staging 先走一遍，再开定时任务）：
+
+```
+POST /v1/desk/reviews/sync   { "platform": "google" }   # 立即产生抓取费用
+GET  /v1/desk/reviews/sync-runs                          # 看条数、费用、错误
+```
+
+`GET/PUT /v1/desk/reviews/sources` 配置 Google Place / Maps URL 与 Yelp Business ID
+（开店向导的 Yelp 一键填充会顺带写入 `yelp_business_id`）。
+
+
 ---
 
 ## 9. AI 自我改进（Phase 3，但现在就要埋数据）

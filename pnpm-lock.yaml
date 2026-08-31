@@ -38,6 +38,9 @@ importers:
       '@gf/ai':
         specifier: workspace:*
         version: link:../../packages/ai
+      '@gf/brightdata':
+        specifier: workspace:*
+        version: link:../../packages/brightdata
       '@gf/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -366,6 +369,12 @@ importers:
       zod:
         specifier: ^3.24.1
         version: 3.25.76
+
+  packages/brightdata:
+    dependencies:
+      '@gf/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/contracts:
     dependencies:
