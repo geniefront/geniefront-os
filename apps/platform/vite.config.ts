@@ -6,6 +6,12 @@ import { defineConfig, loadEnv } from 'vite';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, '../..'), '');
+  const qaMode = mode === 'qa';
+  if (qaMode && (process.env.GF_QA_ALLOW_RESET !== '1' || env['DATABASE_TEST_TARGET'] !== 'isolated')) {
+    throw new Error('QA Vite mode requires GF_QA_ALLOW_RESET=1 and DATABASE_TEST_TARGET=isolated');
+  }
+  const supabaseUrl = qaMode ? env['TEST_SUPABASE_URL'] : env['SUPABASE_URL'];
+  const supabaseAnonKey = qaMode ? env['TEST_SUPABASE_ANON_KEY'] : env['SUPABASE_ANON_KEY'];
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
@@ -19,9 +25,9 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
     },
     define: {
-      __SUPABASE_URL__: JSON.stringify(env['SUPABASE_URL']),
-      __SUPABASE_ANON_KEY__: JSON.stringify(env['SUPABASE_ANON_KEY']),
-      __API_BASE__: JSON.stringify(env['VITE_API_BASE'] ?? 'http://localhost:3000'),
+      __SUPABASE_URL__: JSON.stringify(supabaseUrl),
+      __SUPABASE_ANON_KEY__: JSON.stringify(supabaseAnonKey),
+      __API_BASE__: JSON.stringify(qaMode ? 'http://127.0.0.1:3000' : (env['VITE_API_BASE'] ?? 'http://localhost:3000')),
     },
   };
 });

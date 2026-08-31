@@ -52,9 +52,8 @@ import {
 } from '@/features/dayclose/api';
 import { dollarsToCents, centsToDollars, toDisplayDollars } from '@/features/checkout/api';
 import { useSession } from '@/lib/session';
-import { useStoreTime } from '@/lib/time';
+import { instantToWallDate, shiftDate, useStoreTime } from '@/lib/time';
 import { useErrorMessage } from '@/lib/errorMessage';
-import { instantToWallDate } from '@/lib/time';
 import { exportToCSV, exportToExcel } from '@/lib/exportUtils';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
@@ -82,11 +81,15 @@ export function DayClose() {
   const storeTime = useStoreTime();
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
-  const { context } = useSession();
-  const timezone = context?.timezone || 'America/New_York';
-  const defaultDate = instantToWallDate(new Date().toISOString(), timezone);
+  const { context, membershipId } = useSession();
+  const timezone = context?.timezone;
+  const defaultDate = timezone ? instantToWallDate(new Date().toISOString(), timezone) : '';
 
-  const [selectedDate, setSelectedDate] = useState<string>(defaultDate);
+  const [selectedDate, setSelectedDate] = useState('');
+  useEffect(() => {
+    if (!timezone) return;
+    setSelectedDate(instantToWallDate(new Date().toISOString(), timezone));
+  }, [timezone, membershipId]);
   const [activeTab, setActiveTab] = useState<'overview' | 'counter' | 'tips' | 'audit'>('overview');
 
   const { data: dayClose, isLoading, error, refetch } = useDayCloseQuery(selectedDate);
@@ -281,11 +284,9 @@ export function DayClose() {
     }
   };
 
-  // 切换日期
-  const shiftDate = (days: number) => {
-    const d = new Date(selectedDate);
-    d.setDate(d.getDate() + days);
-    setSelectedDate(d.toISOString().slice(0, 10));
+  const shiftSelectedDate = (days: number) => {
+    if (!selectedDate) return;
+    setSelectedDate(shiftDate(selectedDate, days));
   };
 
   if (isLoading && !dayClose) {
@@ -397,7 +398,7 @@ export function DayClose() {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 text-slate-600 hover:bg-white rounded-lg"
-                onClick={() => shiftDate(-1)}
+                onClick={() => shiftSelectedDate(-1)}
                 title={t('checkout.dcPrevDay')}
               >
                 <ChevronLeft className="w-4 h-4" />
@@ -410,7 +411,7 @@ export function DayClose() {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 text-slate-600 hover:bg-white rounded-lg"
-                onClick={() => shiftDate(1)}
+                onClick={() => shiftSelectedDate(1)}
                 title={t('checkout.dcNextDay')}
               >
                 <ChevronRight className="w-4 h-4" />
@@ -431,9 +432,8 @@ export function DayClose() {
               <button
                 type="button"
                 onClick={() => {
-                  const y = new Date();
-                  y.setDate(y.getDate() - 1);
-                  setSelectedDate(y.toISOString().slice(0, 10));
+                  if (!defaultDate) return;
+                  setSelectedDate(shiftDate(defaultDate, -1));
                 }}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-100 transition-all"
               >

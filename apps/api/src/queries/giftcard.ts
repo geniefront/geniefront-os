@@ -31,7 +31,7 @@ export async function loadGiftCards(
     limit?: number | undefined;
     offset?: number | undefined;
   } = {},
-): Promise<{ total: number; rows: GiftCardRowDto[] }> {
+): Promise<{ total: number; rows: GiftCardRowDto[]; giftCards: GiftCardRowDto[] }> {
   const limit = Math.min(200, Math.max(1, params.limit ?? 50));
   const offset = Math.max(0, params.offset ?? 0);
   const q = params.q?.trim() ?? '';
@@ -95,7 +95,7 @@ export async function loadGiftCards(
     createdAt: r.created_at,
   }));
 
-  return { total, rows: dtoList };
+  return { total, rows: dtoList, giftCards: dtoList };
 }
 
 export interface GiftCardVerifyDto {

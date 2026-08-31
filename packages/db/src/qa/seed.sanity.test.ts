@@ -135,6 +135,38 @@ describe('Seed V2 sanity', () => {
     expect(row?.notes ?? '').not.toMatch(/carrier submitted|starts the carrier review|filed with the US TCR/i);
   });
 
+  it('growth_active projects a Stripe-equivalent default payment method', async () => {
+    await runQaSeed('growth_active');
+    const [row] = await adminSql<{
+      default_payment_method_id: string | null; payment_method_label: string | null;
+    }[]>`
+      select default_payment_method_id, payment_method_label
+      from billing_accounts where location_id = ${qaUuid('loc:growth_active:main')}`;
+    expect(row?.default_payment_method_id).toMatch(/^pm_qa_/);
+    expect(row?.payment_method_label).toBe('Visa ···· 4242');
+  });
+
+  it('busy_shop in-service visits have a started unfinished ticket item', async () => {
+    await runQaSeed('busy_shop');
+    const loc = qaUuid('loc:busy_shop:main');
+    const visits = await adminSql<{
+      appointment_status: string; ticket_status: string;
+      started_at: Date | string | null; finished_at: Date | string | null;
+    }[]>`
+      select a.status as appointment_status, t.status as ticket_status,
+             ti.started_at, ti.finished_at
+      from appointments a
+      join tickets t on t.appointment_id = a.id
+      join ticket_items ti on ti.ticket_id = t.id
+      where a.location_id = ${loc} and a.status = 'in_service'`;
+    expect(visits.length).toBeGreaterThan(0);
+    for (const visit of visits) {
+      expect(visit.ticket_status).toBe('in_service');
+      expect(visit.started_at).not.toBeNull();
+      expect(visit.finished_at).toBeNull();
+    }
+  });
+
   it('gift_card_shop ledger sum equals card balances', async () => {
     const { snapshot } = await runQaSeed('gift_card_shop');
     expect(snapshot.giftCardCount).toBe(1);
@@ -166,6 +198,7 @@ describe('Seed V2 sanity', () => {
   it.each([
     'fresh_owner',
     'setup_incomplete',
+    'growth_setup',
     'empty_shop',
     'busy_shop',
     'storefront_pending',

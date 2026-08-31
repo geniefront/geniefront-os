@@ -7,9 +7,10 @@ Date: 2026-08-30
 - **Batches 1–7.5:** complete and accepted.
 - **Real Stripe TEST commercial E2E:** PASS (`docs/qa/COMMERCIAL_E2E.md`). Path: marketing → Stripe TEST Checkout → signed webhook → provisioning → activation → claim → setup → desk → Billing.
 - **Original audit issue counts:** zero remaining as open launch defects from Batches 1–7.5 (see `FUNCTIONAL_AUDIT.md` / `LAUNCH_BLOCKERS.md` for the historical record).
-- **Seed V2:** introduced (`packages/db/src/qa`, `docs/qa/TEST_DATA_AUDIT.md`, `docs/qa/SEED_SCENARIOS.md`). Scenario-selectable QA reset/seed, production-refused.
+- **Seed V2:** introduced (`packages/db/src/qa`, `docs/qa/TEST_DATA_AUDIT.md`, `docs/qa/SEED_SCENARIOS.md`). Scenario-selectable QA reset/seed, production-refused. Seed V2 sanity extended for in-service started-item invariants and paid-shop payment-method projection.
 - **apps/ios:** deferred.
-- **Playwright / browser exploratory QA:** **NOT YET DONE.** Do not start until Seed V2 is accepted.
+- **Playwright / browser exploratory QA:** remaining matrix completed. QA-001…QA-008 are FIXED / VERIFIED. Open counted findings: P0=0, P1=0, P2=0, P3=0.
+- **QA counts after final fix pass:** P0=0, P1=0 open, P2=0 open, P3=0. QA-007 support double-submit uses a sync ref lock plus command idempotency. QA-008 desk Today/Yesterday uses shop IANA timezone via `apps/web/src/lib/time.ts`.
 
 ## Production migrations still required
 

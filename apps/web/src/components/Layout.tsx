@@ -34,6 +34,7 @@ import {
   Package,
   User,
   ClipboardList,
+  LifeBuoy,
 } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
 import { UI_LANGUAGES as LANGUAGES } from '@/i18n/types';
@@ -79,6 +80,7 @@ const GLOBAL_COMMANDS = [
   { path: '/business-data', label: '经营数据分析', en: 'Business Analytics', desc: '全店营收、客单价与技师工时报表', keywords: 'shuju fenxi reports 数据 报表' },
   { path: '/payouts', label: '薪资与提成核算', en: 'Payroll & Commissions', desc: '业绩提成计算与薪资账单明细', keywords: 'xinzi payroll commission 薪资 提成' },
   { path: '/settings', label: '门店系统设置', en: 'Store Settings', desc: '营业时间、硬件设备与权限配置', keywords: 'shezhi settings config 设置 门店' },
+  { path: '/support', label: '支持请求', en: 'Support request', desc: '向 GenieFront 提交支持请求', keywords: 'support bangzhu help 支持 帮助' },
   { path: '/profile', label: '个人资料与安全', en: 'Personal Profile & Security', desc: '修改密码、POS PIN码与个人信息', keywords: 'profile gerenziliao mima pin 个人资料 密码' },
   { path: '/notifications', label: '通知中心与动态', en: 'Notification Center', desc: '查看全部业务通知、排班与对账提醒', keywords: 'tongzhi notifications alerts 消息 通知' },
 ];
@@ -165,7 +167,8 @@ export function Layout() {
   
   const location = useLocation();
   const { t, language, setLanguage } = useLanguage();
-  const { membership, locations, session, isOnline, clearMembership, signOut, isTechCapable, switchPortal } = useSession();
+  const { membership, locations, session, isOnline, clearMembership, signOut, isTechCapable, switchPortal, can } = useSession();
+  const canManageSettings = can('settings.manage') || can('staff.manage');
 
   const storeName = membership ? pickText(membership.locationName, language) : '—';
   /** 多店账号才提供切店入口；单店账号不暴露该概念。 */
@@ -173,8 +176,9 @@ export function Layout() {
 
   // 全局容错模糊搜索命令
   const searchResults = useMemo(() => {
-    if (!globalQuery.trim()) return GLOBAL_COMMANDS.slice(0, 6);
-    return fuzzySearch(GLOBAL_COMMANDS, globalQuery, {
+    const commands = GLOBAL_COMMANDS.filter((item) => item.path !== '/settings' || canManageSettings);
+    if (!globalQuery.trim()) return commands.slice(0, 6);
+    return fuzzySearch(commands, globalQuery, {
       keys: [
         { name: 'label', weight: 0.5 },
         { name: 'en', weight: 0.3 },
@@ -183,7 +187,7 @@ export function Layout() {
       ],
       threshold: 0.45,
     });
-  }, [globalQuery]);
+  }, [globalQuery, canManageSettings]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -267,7 +271,10 @@ export function Layout() {
         { name: t('communicationLogs') || '沟通日志', icon: History, path: '/communication-logs' },
         { name: t('storefrontBuilder') || '微店建站', icon: Globe, path: '/storefront-builder' },
         { name: t('settings.healthForms'), icon: ClipboardList, path: '/health-forms' },
-        { name: t('settings') || '系统设置', icon: Settings, path: '/settings' },
+        { name: t('support') || 'Support', icon: LifeBuoy, path: '/support' },
+        ...(canManageSettings
+          ? [{ name: t('settings') || '系统设置', icon: Settings, path: '/settings' }]
+          : []),
         { name: t('profile') || '个人资料', icon: User, path: '/profile' },
       ],
     },
@@ -461,7 +468,10 @@ export function Layout() {
           {profileOpen && (
             <div className={cn("absolute bg-white rounded-xl shadow-lg border border-slate-100 py-1 z-dropdown", collapsed ? "left-full ml-2 bottom-0 w-48" : "bottom-full mb-2 left-4 right-4")}>
               <Link to="/profile" className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 font-medium" onClick={() => setProfileOpen(false)}>{t('profile')}</Link>
-              <Link to="/settings" className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 font-medium" onClick={() => setProfileOpen(false)}>{t('settings')}</Link>
+              {canManageSettings && (
+                <Link to="/settings" className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 font-medium" onClick={() => setProfileOpen(false)}>{t('settings')}</Link>
+              )}
+              <Link to="/support" className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 font-medium" onClick={() => setProfileOpen(false)}>{t('support')}</Link>
               <div className="h-px bg-slate-100 my-1"></div>
               <button
                 type="button"

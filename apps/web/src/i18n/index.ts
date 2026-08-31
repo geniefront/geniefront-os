@@ -18,6 +18,7 @@ import { settings } from './settings';
 import { healthForms } from './healthForms';
 import { tech } from './tech';
 import { setup } from './setup';
+import { support } from './support';
 import { UI_LANGUAGES } from './types';
 import type { Language } from './types';
 
@@ -39,6 +40,7 @@ const dict = {
   ...healthForms,
   ...tech,
   ...setup,
+  ...support,
 };
 
 export type TranslationKey = keyof typeof dict;

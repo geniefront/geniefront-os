@@ -73,6 +73,12 @@ vi.mock('@/components/ui/ImageUploader', () => ({
   ImageUploader: () => null,
 }));
 
+vi.mock('@/lib/permissions', () => ({
+  useCan: () => true,
+  useCanAny: () => true,
+  useCanWrite: () => true,
+}));
+
 vi.mock('@/features/settings/api', () => ({
   useDeskSettingsQuery: () => settingsState,
   useDeskBillingQuery: () => ({ data: null }),

@@ -101,3 +101,24 @@ export async function applyRecordedTopupFixture(
     )`;
   await tx`update billing_accounts set ${tx(col)} = ${after} where id = ${acct.id}`;
 }
+
+/**
+ * Same columns as `billing.savePaymentMethod` after Stripe Checkout attached a
+ * default payment method. Namespaced `pm_qa_*` so it cannot be confused with a
+ * live PaymentMethod. Never used as a shortcut for billing.changePlan.
+ */
+export async function applySavedPaymentMethodFixture(
+  tx: postgres.TransactionSql,
+  args: {
+    locationId: string;
+    scenarioKey: string;
+    label?: string;
+  },
+): Promise<void> {
+  const paymentMethodId = `pm_qa_${args.scenarioKey.replace(/[^a-z0-9]/gi, '').slice(0, 24)}`;
+  await tx`
+    update billing_accounts set
+      default_payment_method_id = ${paymentMethodId},
+      payment_method_label = ${args.label ?? 'Visa ···· 4242'}
+    where location_id = ${args.locationId}`;
+}

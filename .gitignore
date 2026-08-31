@@ -7,6 +7,9 @@ dist/
 build/
 .turbo/
 coverage/
+artifacts/playwright/
+playwright-report/
+test-results/
 
 *.log
 .DS_Store

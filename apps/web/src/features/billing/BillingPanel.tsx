@@ -175,8 +175,10 @@ export function BillingPanel() {
                       : t('settings.stPortalHint')}
                 </p>
                 <p className="text-xs text-teal-100/80">
-                  {billing.paymentMethodLabel
-                    ? t('settings.stPaymentMethod', { p0: billing.paymentMethodLabel })
+                  {hasPaymentMethod
+                    ? (billing.paymentMethodLabel
+                      ? t('settings.stPaymentMethod', { p0: billing.paymentMethodLabel })
+                      : t('settings.stPaymentMethodOnFile'))
                     : t('settings.stNoPaymentMethod')}
                 </p>
               </div>

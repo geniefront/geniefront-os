@@ -58,12 +58,13 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       import('./i18n/schedule'), import('./i18n/queue'), import('./i18n/rotation'),
       import('./i18n/checkout'), import('./i18n/finance'), import('./i18n/crm'),
       import('./i18n/settings'), import('./i18n/healthForms'), import('./i18n/tech'), import('./i18n/setup'),
-    ]).then(([schedule, queue, rotation, checkout, finance, crm, settings, healthForms, tech, setup]) => {
+      import('./i18n/support'),
+    ]).then(([schedule, queue, rotation, checkout, finance, crm, settings, healthForms, tech, setup, support]) => {
       if (cancelled) return;
       const merged: DomainDict = {
         ...common, ...schedule.schedule, ...queue.queue, ...rotation.rotation,
         ...checkout.checkout, ...finance.finance, ...crm.crm, ...settings.settings,
-        ...healthForms.healthForms, ...tech.tech, ...setup.setup,
+        ...healthForms.healthForms, ...tech.tech, ...setup.setup, ...support.support,
       };
       setTranslations(flatten(merged));
       setReady(true);

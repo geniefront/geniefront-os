@@ -78,7 +78,7 @@ export async function openTicket(
     serviceKey: string;
     appointmentId: string;
     openedAt: Date;
-    status: 'open' | 'closed';
+    status: 'open' | 'closed' | 'in_service';
     closed?: { method: 'cash' | 'card'; tipCents: number };
   },
 ): Promise<{ ticketId: string; totalCents: number }> {
@@ -107,13 +107,15 @@ export async function openTicket(
     )`;
 
   const itemId = qaUuid(`ti:${args.scenario}:${args.loc.key}:${args.key}`);
+  const startedAt = args.status === 'in_service' ? iso(args.openedAt) : null;
   await tx`insert into ticket_items (
       id, org_id, location_id, ticket_id, service_id, kind, name_snapshot,
-      unit_price_cents, total_cents, duration_min
+      unit_price_cents, total_cents, duration_min, started_at
     ) values (
       ${itemId}, ${args.loc.orgId}, ${args.loc.locationId}, ${ticketId},
       ${args.catalog.serviceIds[args.serviceKey]!}, 'service', ${meta.name},
-      ${meta.priceCents}, ${meta.priceCents}, ${meta.durationMin}
+      ${meta.priceCents}, ${meta.priceCents}, ${meta.durationMin},
+      ${startedAt}::timestamptz
     )`;
   await tx`insert into ticket_item_staff (org_id, ticket_item_id, membership_id, role, minutes)
     values (${args.loc.orgId}, ${itemId}, ${staff.membershipId}, 'primary', ${meta.durationMin})`;

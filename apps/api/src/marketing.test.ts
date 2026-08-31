@@ -190,6 +190,8 @@ describe('礼品卡列表 (Giftcards Query)', () => {
     const res = await withTenant(tenant, (tx) => loadGiftCards(tx, ownerCtx, { limit: 10 }));
     expect(res).toHaveProperty('total');
     expect(res).toHaveProperty('rows');
+    expect(res).toHaveProperty('giftCards');
     expect(Array.isArray(res.rows)).toBe(true);
+    expect(res.giftCards).toEqual(res.rows);
   });
 });

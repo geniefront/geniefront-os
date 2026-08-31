@@ -56,6 +56,13 @@ Login email is `qa+<id>@example.test` unless stated.
 - Permitted: remaining setup commands
 - Forbidden: assuming desk is the daily driver
 
+### 2a. `growth_setup`
+
+- Same incomplete setup shape as `setup_incomplete`, with Growth / trialing billing
+- Claimed Growth signup intent and an empty catalog
+- Login: `qa+growth_setup@example.test`
+- Permitted: the complete Growth SetupWizard browser journey
+
 ### 3. `empty_shop`
 
 - Owner, location `status=active`
@@ -143,6 +150,7 @@ Login email is `qa+<id>@example.test` unless stated.
 
 ### 14. `ten_dlc_pending`
 
+- Tenant login: `qa+ten_dlc_pending@example.test`; active internal reviewer: `qa+ten_dlc_pending.operator@example.test`
 - `location_10dlc_registrations.status=pending_review`
 - Notes state internal GenieFront review; **not** TCR/carrier submitted
 - Permitted: platform internal review actions
@@ -156,6 +164,7 @@ Login email is `qa+<id>@example.test` unless stated.
 
 ### 16. `support_request_open`
 
+- Tenant login: `qa+support_request_open@example.test`; active internal operator: `qa+support_request_open.operator@example.test`
 - Three requests: `open`, `in_progress`, `resolved` (`resolved_at` set on resolved)
 - `open` is the `support.submitRequest` shape
 - Permitted: customer sees open; platform updates status

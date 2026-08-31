@@ -119,6 +119,28 @@ export function paymentMethodLabel(pm: Stripe.PaymentMethod | null | undefined):
 }
 
 /**
+ * Stripe's default payment method on a Subscription (or an already-retrieved
+ * PaymentMethod). `null` means Stripe has none — callers must not invent one.
+ */
+export type StripePaymentMethodRef =
+  | string
+  | Pick<Stripe.PaymentMethod, 'id' | 'type' | 'card'>
+  | null
+  | undefined;
+
+export function stripeDefaultPaymentMethod(
+  raw: StripePaymentMethodRef,
+): { id: string; label: string | null } | null {
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    const id = raw.trim();
+    return id.length > 0 ? { id, label: null } : null;
+  }
+  if (!raw.id) return null;
+  return { id: raw.id, label: paymentMethodLabel(raw as Stripe.PaymentMethod) };
+}
+
+/**
  * 从 Stripe 的错误里挑一句能给老板看的话。
  *
  * ⚠️ **绝不把 Stripe 的原始报错原样抛给前台** —— 里面可能带我们的

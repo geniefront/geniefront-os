@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { useSearchParams } from 'react-router-dom';
 import { useLanguage } from '@/LanguageContext';
+import { useCan } from '@/lib/permissions';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { cn, formatPhoneDisplay, formatPhoneInput } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -218,9 +220,11 @@ export function Settings() {
   const { t } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
   const currentTab = searchParams.get('tab') || 'store';
+  const canManageSettings = useCan('settings.manage') || useCan('staff.manage');
+  const canManageBilling = useCan('billing.manage');
 
-  const { data: settings, isLoading, error, refetch } = useDeskSettingsQuery();
-  const { data: billingData } = useDeskBillingQuery();
+  const { data: settings, isLoading, error, refetch } = useDeskSettingsQuery({ enabled: canManageSettings });
+  const { data: billingData } = useDeskBillingQuery({ enabled: canManageBilling });
   const billing = billingData?.billing ?? null;
 
   // Mutations
@@ -744,6 +748,18 @@ export function Settings() {
       toast.danger(errorMessage(err));
     }
   };
+
+  if (!canManageSettings) {
+    return (
+      <div className="max-w-4xl mx-auto w-full py-16 px-4">
+        <EmptyState
+          icon={<ShieldAlert className="w-12 h-12 text-amber-500" />}
+          title={t('settings.stAccessDenied')}
+          description={t('settings.stAccessDeniedDesc')}
+        />
+      </div>
+    );
+  }
 
   if (isLoading && !settings) {
     return <PageLoading title={t('settings.stLoading')} description={t('settings.stLoadingDesc')} />;

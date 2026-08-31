@@ -9,7 +9,7 @@ import {
   createAppointment, issueGiftCard, joinQueue, openTicket, prepareDayCloseCount,
 } from './lifecycle';
 import { seedCatalog, seedTodayShifts, type ShopCatalog } from './shopData';
-import { applyRecordedTopupFixture, applyStripeSyncFixture } from './stripeFixture';
+import { applyRecordedTopupFixture, applySavedPaymentMethodFixture, applyStripeSyncFixture } from './stripeFixture';
 import type { CanonicalPlan, LocationStatus, QaScenarioId, RoleKey, SubscriptionStatus } from './types';
 
 function staff(
@@ -94,6 +94,14 @@ async function withBilling(
     clock,
     scenarioKey: `${tenant.scenario}-${locKey}`,
   });
+  // Paid (non-trial) Stripe Checkout leaves a default payment method on the
+  // subscription. Project the same columns as billing.savePaymentMethod.
+  if (status === 'active' || status === 'past_due') {
+    await applySavedPaymentMethodFixture(tx, {
+      locationId: loc.locationId,
+      scenarioKey: `${tenant.scenario}-${locKey}`,
+    });
+  }
   if (topup) {
     await applyRecordedTopupFixture(tx, {
       orgId: loc.orgId,
@@ -125,6 +133,10 @@ export const SCENARIO_SPECS: Record<QaScenarioId, () => QaTenantSpec | null> = {
   setup_incomplete: () => shop('setup_incomplete', {
     orgName: 'QA Setup Incomplete',
     nameEn: 'Setup Nails', nameZh: '配置中', slug: 'qa-setup-incomplete', status: 'setup',
+  }),
+  growth_setup: () => shop('growth_setup', {
+    orgName: 'QA Growth Setup',
+    nameEn: 'Growth Setup Nails', nameZh: '增长配置店', slug: 'qa-growth-setup', status: 'setup',
   }),
   empty_shop: () => shop('empty_shop', {
     orgName: 'QA Empty Shop',
@@ -280,9 +292,21 @@ export async function populateScenario(
   const tenant = await bootstrapTenant(tx, spec);
   const main = tenant.locations[Object.keys(tenant.locations)[0]!]!;
 
+  if (scenario === 'ten_dlc_pending' || scenario === 'support_request_open') {
+    await seedPlatformOperator(tx, {
+      scenario,
+      email: qaEmail(`${scenario}.operator`),
+      fullName: scenario === 'ten_dlc_pending' ? 'QA 10DLC Operator' : 'QA Support Operator',
+      role: 'super_admin',
+      status: 'active',
+      clock,
+    });
+  }
+
   const billing: Partial<Record<QaScenarioId, { plan: CanonicalPlan; status: SubscriptionStatus; topup?: boolean }>> = {
     fresh_owner: { plan: 'essential', status: 'trialing' },
     setup_incomplete: { plan: 'essential', status: 'trialing' },
+    growth_setup: { plan: 'growth', status: 'trialing' },
     empty_shop: { plan: 'essential', status: 'trialing' },
     essential_trial: { plan: 'essential', status: 'trialing' },
     growth_active: { plan: 'growth', status: 'active' },
@@ -306,8 +330,8 @@ export async function populateScenario(
     }
   }
 
-  if (scenario === 'fresh_owner' || scenario === 'setup_incomplete') {
-    await recordClaimedSignup(tx, tenant, main, 'essential');
+  if (scenario === 'fresh_owner' || scenario === 'setup_incomplete' || scenario === 'growth_setup') {
+    await recordClaimedSignup(tx, tenant, main, scenario === 'growth_setup' ? 'growth' : 'essential');
   }
 
   if (scenario === 'empty_shop') {
@@ -355,7 +379,7 @@ export async function populateScenario(
     await openTicket(tx, {
       scenario, loc: main, catalog, clock, key: 'inservice',
       customerKey: 'emily', staffKey: 'tech2', serviceKey: 'basic_mani',
-      appointmentId: inService.appointmentId, openedAt: inService.startsAt, status: 'open',
+      appointmentId: inService.appointmentId, openedAt: inService.startsAt, status: 'in_service',
     });
     const queued = await createAppointment(tx, {
       scenario, loc: main, catalog, clock, key: 'queue',

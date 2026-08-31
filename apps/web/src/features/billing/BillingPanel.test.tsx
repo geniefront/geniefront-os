@@ -246,6 +246,20 @@ describe('BillingPanel 真实计费状态', () => {
     open.mockRestore();
   });
 
+  it('hasPaymentMethod 为真但没有标签时仍不当成未绑卡', () => {
+    billingState.data = {
+      billing: essentialTrial({
+        hasPaymentMethod: true,
+        paymentMethodLabel: null,
+      }),
+      autoTopup: null,
+    };
+    renderPanel();
+    expect(screen.getByText('已绑定支付方式')).toBeInTheDocument();
+    expect(screen.queryByText('尚未绑定银行卡')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '添加支付方式' })).not.toBeInTheDocument();
+  });
+
   it('已有支付方式时如实显示标签，不提供绑卡按钮', () => {
     billingState.data = {
       billing: essentialTrial({

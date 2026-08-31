@@ -65,7 +65,7 @@ export function useDaySnapshot(date: string) {
     queryKey: scheduleKeys.day(membershipId, date),
     queryFn: () => apiGet<DaySnapshot>(`/v1/desk/day?date=${encodeURIComponent(date)}`),
     // 门店未就绪时不得发起带店请求，否则服务端返回 VALIDATION_FAILED。
-    enabled: status === 'ready' && membershipId !== null,
+    enabled: status === 'ready' && membershipId !== null && Boolean(date),
   });
 }
 

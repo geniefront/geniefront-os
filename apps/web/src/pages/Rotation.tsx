@@ -65,6 +65,8 @@ import {
 } from '@/features/rotation/api';
 import { fuzzySearch } from '@/lib/fuzzySearch';
 import { useErrorMessage } from '@/lib/errorMessage';
+import { useSession } from '@/lib/session';
+import { instantToWallDate, shiftDate } from '@/lib/time';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
 import type {
@@ -105,12 +107,16 @@ interface DragReorderGraphicState {
 function RotationContent() {
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
+  const { context, membershipId } = useSession();
+  const timezone = context?.timezone;
+  const todayStr = timezone ? instantToWallDate(new Date().toISOString(), timezone) : '';
+  const yesterdayStr = todayStr ? shiftDate(todayStr, -1) : '';
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const yesterdayStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-
-  // 当前查询营业日（默认为今天）
-  const [selectedDate, setSelectedDate] = useState<string>(todayStr);
+  const [selectedDate, setSelectedDate] = useState('');
+  useEffect(() => {
+    if (!timezone) return;
+    setSelectedDate(instantToWallDate(new Date().toISOString(), timezone));
+  }, [timezone, membershipId]);
 
   const isToday = !selectedDate || selectedDate === todayStr;
 

@@ -17,7 +17,7 @@
  * 前端不得自行推算冲突 —— 那是把权威判定抄了第二份，且必然与服务端分叉。
  */
 import {
-  createContext, useContext, useMemo, useState, type ReactNode,
+  createContext, useContext, useEffect, useMemo, useState, type ReactNode,
 } from 'react';
 import { useSession } from '@/lib/session';
 import { instantToWallMinutes, instantToWallDate, formatWallTime } from '@/lib/time';
@@ -119,17 +119,20 @@ function normalizeStatus(raw: string): ItemStatus {
 }
 
 export function ScheduleProvider({ children }: { children: ReactNode }) {
-  const { context } = useSession();
+  const { context, membershipId } = useSession();
+  const timezone = context?.timezone;
 
   /**
-   * 默认日期取门店时区下的今天，而非浏览器本地日期。
-   * 门店在西海岸而设备时区为东部时，本地「今天」可能已是门店的明天。
+   * 默认日期取门店时区下的今天，而非浏览器本地日期或 UTC。
+   * 时区尚未就绪时不猜测日期，避免首屏用 UTC 营业日打出错误的 `?date=`。
    */
-  const [currentDate, setCurrentDate] = useState(() => {
-    const tz = context?.timezone;
-    if (!tz) return new Date().toISOString().slice(0, 10);
-    return instantToWallDate(new Date().toISOString(), tz);
-  });
+  const [currentDate, setCurrentDate] = useState(() => (
+    timezone ? instantToWallDate(new Date().toISOString(), timezone) : ''
+  ));
+  useEffect(() => {
+    if (!timezone) return;
+    setCurrentDate(instantToWallDate(new Date().toISOString(), timezone));
+  }, [timezone, membershipId]);
 
   const query = useDaySnapshot(currentDate);
   const snapshot = query.data;
@@ -173,7 +176,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     staff,
     resources: snapshot?.resources ?? [],
     items,
-    timezone: snapshot?.timezone ?? context?.timezone ?? 'UTC',
+    timezone: snapshot?.timezone ?? timezone ?? '',
     openMin: snapshot?.openMin ?? 9 * 60,
     closeMin: snapshot?.closeMin ?? 21 * 60,
   }), [currentDate, snapshot, query.isLoading, query.error, query.refetch, items, staff, context]);

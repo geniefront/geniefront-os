@@ -28,6 +28,17 @@ describe('instantToWallDate', () => {
     // UTC 已是 26 日凌晨，但纽约仍是 25 日晚间
     expect(instantToWallDate('2026-08-26T03:30:00.000Z', NY)).toBe('2026-08-25');
   });
+
+  it('UTC 午夜之后纽约仍是前一个营业日', () => {
+    expect(instantToWallDate('2026-08-31T00:15:00.000Z', NY)).toBe('2026-08-30');
+    expect(shiftDate(instantToWallDate('2026-08-31T00:15:00.000Z', NY), -1)).toBe('2026-08-29');
+  });
+
+  it('纽约已跨日时洛杉矶仍是前一个营业日', () => {
+    expect(instantToWallDate('2026-08-31T04:30:00.000Z', NY)).toBe('2026-08-31');
+    expect(instantToWallDate('2026-08-31T04:30:00.000Z', LA)).toBe('2026-08-30');
+    expect(shiftDate(instantToWallDate('2026-08-31T04:30:00.000Z', LA), -1)).toBe('2026-08-29');
+  });
 });
 
 describe('wallMinutesToInstant', () => {
@@ -65,6 +76,13 @@ describe('wallMinutesToInstant', () => {
         expect(instantToWallMinutes(iso, NY)).toBe(m);
       }
     }
+  });
+
+  it('DST 日的营业日分量仍按门店墙上日期，不按 UTC', () => {
+    // 春季 02:00 跳到 03:00 之后，纽约墙上仍是 3 月 8 日
+    expect(instantToWallDate('2026-03-08T07:30:00.000Z', NY)).toBe('2026-03-08');
+    // 秋季 01:00 重复的那一小时仍是 11 月 1 日
+    expect(instantToWallDate('2026-11-01T06:30:00.000Z', NY)).toBe('2026-11-01');
   });
 });
 

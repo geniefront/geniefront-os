@@ -80,6 +80,8 @@ export interface LoyaltyQueryResponse {
 
 export interface GiftCardsQueryResponse {
   giftCards: GiftCardView[];
+  total?: number;
+  rows?: GiftCardView[];
 }
 
 export interface SavePackageTemplateInput {

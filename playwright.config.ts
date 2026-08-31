@@ -1,0 +1,77 @@
+import { defineConfig, devices } from '@playwright/test';
+import {
+  API_URL, MARKETING_URL, PLATFORM_URL, WEB_URL, qaEnvironment, rootDir,
+} from './e2e/env';
+
+export default defineConfig({
+  testDir: './e2e/specs',
+  outputDir: './artifacts/playwright/test-results',
+  fullyParallel: false,
+  workers: 1,
+  retries: 0,
+  timeout: 60_000,
+  actionTimeout: 10_000,
+  navigationTimeout: 15_000,
+  expect: { timeout: 10_000 },
+  forbidOnly: Boolean(process.env.CI),
+  reporter: [
+    ['line'],
+    ['html', { outputFolder: 'artifacts/playwright/report', open: 'never' }],
+    ['json', { outputFile: 'artifacts/playwright/results.json' }],
+  ],
+  use: {
+    ...devices['Desktop Chrome'],
+    baseURL: WEB_URL,
+    locale: 'en-US',
+    timezoneId: 'America/New_York',
+    colorScheme: 'light',
+    screenshot: 'only-on-failure',
+    trace: 'on',
+    video: 'retain-on-failure',
+  },
+  projects: [
+    { name: 'chromium', use: { browserName: 'chromium' } },
+  ],
+  webServer: [
+    {
+      command: 'pnpm --filter @gf/api exec tsx src/main.ts',
+      cwd: rootDir,
+      env: qaEnvironment,
+      url: `${API_URL}/health`,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      command: 'pnpm --filter @gf/web exec vite --host 127.0.0.1 --mode qa',
+      cwd: rootDir,
+      env: qaEnvironment,
+      url: WEB_URL,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      command: 'pnpm --filter @gf/platform exec vite --host 127.0.0.1 --mode qa',
+      cwd: rootDir,
+      env: qaEnvironment,
+      url: PLATFORM_URL,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      command: 'pnpm --filter @gf/marketing exec vite --host 127.0.0.1 --mode qa',
+      cwd: rootDir,
+      env: qaEnvironment,
+      url: MARKETING_URL,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  ],
+});

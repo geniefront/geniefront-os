@@ -70,6 +70,7 @@ function subscriptionEvent(over: {
   status?: string;
   customer?: string;
   subscriptionId?: string;
+  defaultPaymentMethod?: unknown;
 }): Stripe.Event {
   return {
     id: over.id,
@@ -82,6 +83,7 @@ function subscriptionEvent(over: {
         customer: over.customer ?? 'cus_batch4_sync',
         status: over.status ?? 'active',
         trial_end: null,
+        default_payment_method: over.defaultPaymentMethod ?? null,
         items: { data: [{ current_period_end: 1_789_000_000 }] },
         metadata: {
           gf_location_id: over.locationId,
@@ -112,9 +114,12 @@ async function snapshot(tenant: { orgId: string; locationId: string }) {
     stripe_subscription_id: string | null;
     credit_balance: number;
     voice_minute_balance: number;
+    default_payment_method_id: string | null;
+    payment_method_label: string | null;
   }[]>`
     select plan, subscription_status, stripe_customer_id, stripe_subscription_id,
-           credit_balance, voice_minute_balance
+           credit_balance, voice_minute_balance,
+           default_payment_method_id, payment_method_label
     from billing_accounts
     where location_id = ${tenant.locationId}`);
   return row!;
@@ -332,5 +337,48 @@ describe('signed invoice webhook HTTP', () => {
     expect(res.json()).toMatchObject({ ok: true, handled: 'subscription_synced' });
     expect((await snapshot(SPA)).subscription_status).toBe('past_due');
     expect(await snapshot(NAIL)).toEqual(beforeB);
+  });
+
+  it('subscription sync projects Stripe default_payment_method via billing.savePaymentMethod', async () => {
+    const beforeB = await snapshot(NAIL);
+    const res = await postWebhook(subscriptionEvent({
+      id: eventId('pm_sync'),
+      locationId: SPA_LOC,
+      orgId: SPA_ORG,
+      status: 'active',
+      customer: SPA_CUS,
+      subscriptionId: SPA_SUB,
+      defaultPaymentMethod: {
+        id: 'pm_qa_webhook_4242',
+        object: 'payment_method',
+        type: 'card',
+        card: { brand: 'visa', last4: '4242' },
+      },
+    }));
+    expect(res.json()).toMatchObject({ ok: true, handled: 'subscription_synced' });
+    const after = await snapshot(SPA);
+    expect(after.subscription_status).toBe('active');
+    expect(after.default_payment_method_id).toBe('pm_qa_webhook_4242');
+    expect(after.payment_method_label).toBe('Visa ···· 4242');
+    expect(await snapshot(NAIL)).toEqual(beforeB);
+  });
+
+  it('subscription sync does not invent a payment method when Stripe has none', async () => {
+    await withTenant({ ...SPA, membershipId: null }, (tx) => tx`
+      update billing_accounts
+      set default_payment_method_id = null, payment_method_label = null
+      where location_id = ${SPA_LOC}`);
+    const res = await postWebhook(subscriptionEvent({
+      id: eventId('pm_absent'),
+      locationId: SPA_LOC,
+      orgId: SPA_ORG,
+      status: 'active',
+      customer: SPA_CUS,
+      subscriptionId: SPA_SUB,
+    }));
+    expect(res.json()).toMatchObject({ ok: true, handled: 'subscription_synced' });
+    const after = await snapshot(SPA);
+    expect(after.default_payment_method_id).toBeNull();
+    expect(after.payment_method_label).toBeNull();
   });
 });

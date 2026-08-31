@@ -40,7 +40,7 @@ import { rawBodyOf } from '../rawBody';
 import { verifyStripeSignature, STRIPE_SIGNATURE_HEADER } from './verify';
 import {
   stripeClient, priceIdFor, planForPriceId, mapSubscriptionStatus,
-  paymentMethodLabel, declineReason, isPlan, type Stripe,
+  paymentMethodLabel, stripeDefaultPaymentMethod, declineReason, isPlan, type Stripe,
 } from './client';
 import { maybeAutoTopup } from '../billing/autoTopup';
 import { safePortalReturnUrl, safeReturnUrls } from './returnUrl';
@@ -842,6 +842,38 @@ export function registerStripeRoutes(
       // 不能 `?? undefined` 留着旧值（那会让客服看到一个早就过期的日期）
       trialEndsAt: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
       sourceEventId: eventId,
+    }, ctx);
+
+    // Stripe remains paid-state truth for the card on file. Checkout subscription
+    // mode sets subscription.default_payment_method; setup-mode Checkout writes
+    // the same local columns via billing.savePaymentMethod. Do not invent a PM.
+    await persistStripeDefaultPaymentMethod(sub, ctx);
+  }
+
+  /**
+   * Project Stripe's default payment method onto billing_accounts through the
+   * existing `billing.savePaymentMethod` writer. No local paid-state invention.
+   */
+  async function persistStripeDefaultPaymentMethod(
+    sub: Stripe.Subscription, ctx: CommandContext,
+  ): Promise<void> {
+    const resolved = stripeDefaultPaymentMethod(sub.default_payment_method);
+    if (!resolved) return;
+
+    let label = resolved.label;
+    if (!label) {
+      try {
+        const pm = await stripeClient().paymentMethods.retrieve(resolved.id);
+        label = paymentMethodLabel(pm);
+      } catch {
+        // Id is Stripe truth. Label is display-only; retrieve may be unavailable
+        // in signed-webhook unit tests that expand the payment method inline.
+      }
+    }
+
+    await dispatch('billing.savePaymentMethod', {
+      paymentMethodId: resolved.id,
+      label,
     }, ctx);
   }
 }

@@ -31,21 +31,21 @@ export const settingsKeys = {
   billing: (membershipId: string | null) => ['desk', 'billing', membershipId] as const,
 };
 
-export function useDeskSettingsQuery() {
+export function useDeskSettingsQuery(opts?: { enabled?: boolean }) {
   const { membershipId, status } = useSession();
   return useQuery({
     queryKey: settingsKeys.desk(membershipId),
     queryFn: () => apiGet<DeskSettings>('/v1/desk/settings'),
-    enabled: status === 'ready' && membershipId !== null,
+    enabled: (opts?.enabled ?? true) && status === 'ready' && membershipId !== null,
   });
 }
 
-export function useDeskBillingQuery() {
+export function useDeskBillingQuery(opts?: { enabled?: boolean }) {
   const { membershipId, status } = useSession();
   return useQuery({
     queryKey: settingsKeys.billing(membershipId),
     queryFn: () => apiGet<BillingResponse>('/v1/desk/billing'),
-    enabled: status === 'ready' && membershipId !== null,
+    enabled: (opts?.enabled ?? true) && status === 'ready' && membershipId !== null,
   });
 }
 

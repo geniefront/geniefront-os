@@ -24,7 +24,7 @@ import { CANCEL_REASONS } from '@/features/schedule/types';
 import {
   isOverridableConflict, OVERRIDE_REASONS, type Override,
 } from '@/features/schedule/api';
-import { wallMinutesToInstant } from '@/lib/time';
+import { formatWallTime, instantToWallDate, instantToWallMinutes, wallMinutesToInstant } from '@/lib/time';
 import { gridBounds } from '@/features/schedule/gridBounds';
 import { useDaysRange } from '@/features/schedule/api';
 import { useCanWrite } from '@/lib/permissions';
@@ -296,13 +296,13 @@ function ScheduleContent() {
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const [realToday, setRealToday] = useState(new Date());
+  const [nowIso, setNowIso] = useState(() => new Date().toISOString());
   useEffect(() => {
-    const timer = setInterval(() => setRealToday(new Date()), 60000);
+    const timer = setInterval(() => setNowIso(new Date().toISOString()), 60_000);
     return () => clearInterval(timer);
   }, []);
-  const todayStr = `${realToday.getFullYear()}-${String(realToday.getMonth()+1).padStart(2,'0')}-${String(realToday.getDate()).padStart(2,'0')}`;
-  const currentMins = realToday.getHours() * 60 + realToday.getMinutes();
+  const todayStr = timezone ? instantToWallDate(nowIso, timezone) : '';
+  const currentMins = timezone ? instantToWallMinutes(nowIso, timezone) : 0;
 
   // Auto-scroll to current time on initial load
   useEffect(() => {
@@ -971,7 +971,7 @@ function ScheduleContent() {
                               <div className="absolute left-0 right-0 z-50 pointer-events-none" style={{ top: `${lineTop}px` }}>
                                 <div className="absolute left-0 right-0 border-t-[1.5px] border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]" />
                                 <div className="absolute left-0 -top-2.5 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm">
-                                  {realToday.getHours().toString().padStart(2,'0')}:{realToday.getMinutes().toString().padStart(2,'0')}
+                                  {formatWallTime(currentMins)}
                                 </div>
                                 <div className="absolute -left-1 -top-1 w-2 h-2 rounded-full bg-red-500" />
                               </div>

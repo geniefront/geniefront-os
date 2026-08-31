@@ -11,6 +11,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { withTenant, closeDb } from '@gf/db';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
+import { loadGiftCards } from './queries/giftcard';
 import './handlers/giftcard';
 import './handlers/ticket';
 import './handlers/billing';
@@ -139,6 +140,29 @@ describe('核销', () => {
     const out = await run<{ appliedCents: number }>('giftcard.redeem',
       { code: c.code.replace(/-/g, '').toLowerCase(), dueCents: 2000 });
     expect(out.appliedCents).toBe(2000);
+  });
+});
+
+describe('发卡后列表投影', () => {
+  it('POST giftcard.issue 后 GET 列表含同一张卡', async () => {
+    const issued = await run<{ giftCardId: string; code: string }>(
+      'giftcard.issue',
+      { faceValueCents: 10000, salePriceCents: 8000, recipientName: 'Lisa Park' },
+    );
+    const [row] = await withTenant(tenant, (tx) => tx<{
+      id: string; org_id: string; location_id: string; code: string;
+    }[]>`
+      select id, org_id, location_id, code from gift_cards where id = ${issued.giftCardId}`);
+    expect(row).toMatchObject({
+      id: issued.giftCardId,
+      org_id: SPA_ORG,
+      location_id: SPA_LOC,
+      code: issued.code,
+    });
+
+    const listed = await withTenant(tenant, (tx) => loadGiftCards(tx, ctx, { limit: 50 }));
+    expect(listed.giftCards).toEqual(listed.rows);
+    expect(listed.giftCards.some((card) => card.id === issued.giftCardId && card.code === issued.code)).toBe(true);
   });
 });
 

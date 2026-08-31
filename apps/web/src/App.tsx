@@ -9,6 +9,7 @@ import { ScheduleProvider } from './context/ScheduleContext';
 import { AuthLayout } from './components/AuthLayout';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { isTechWorkspaceOnly } from './features/tech/lib/access';
+import { RequireAnyPermission } from './components/RequireAnyPermission';
 
 /*
  * 登录页静态引入；认证后的主壳层单独拆包。未登录访问不应下载后台导航、
@@ -43,6 +44,7 @@ const Calls = lazy(() => import('./pages/Calls').then((m) => ({ default: m.Calls
 const Messages = lazy(() => import('./pages/Messages').then((m) => ({ default: m.Messages })));
 const CommunicationLogs = lazy(() => import('./pages/CommunicationLogs').then((m) => ({ default: m.CommunicationLogs })));
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })));
+const Support = lazy(() => import('./pages/Support').then((m) => ({ default: m.Support })));
 const StorefrontBuilder = lazy(() => import('./pages/StorefrontBuilder').then((m) => ({ default: m.StorefrontBuilder })));
 const HealthForms = lazy(() => import('./pages/HealthForms').then((m) => ({ default: m.HealthForms })));
 const CompletedHealthForm = lazy(() => import('./pages/CompletedHealthForm').then((m) => ({ default: m.CompletedHealthForm })));
@@ -366,7 +368,15 @@ function SessionGate() {
           <Route path="communication-logs" element={<CommunicationLogs />} />
 
           {/* Group 6: System Settings & Hardware */}
-          <Route path="settings" element={<Settings />} />
+          <Route
+            path="settings"
+            element={
+              <RequireAnyPermission permissions={['settings.manage', 'staff.manage']}>
+                <Settings />
+              </RequireAnyPermission>
+            }
+          />
+          <Route path="support" element={<Support />} />
           <Route path="storefront-builder" element={<StorefrontBuilder />} />
           <Route path="hardware-server" element={<Navigate to="/settings?tab=hardware" replace />} />
           <Route path="health-forms" element={<HealthForms />} />

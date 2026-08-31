@@ -168,7 +168,7 @@ function MarketingContent() {
   const rawPackages = packagesQ.data?.templates ?? [];
   const userPackages = packagesQ.data?.userPackages ?? [];
   const rawCoupons = couponsQ.data?.coupons ?? [];
-  const rawGiftCards = giftCardsQ.data?.giftCards ?? [];
+  const rawGiftCards = giftCardsQ.data?.giftCards ?? giftCardsQ.data?.rows ?? [];
   const rules = loyaltyQ.data?.rules;
   const rawCustomers = loyaltyQ.data?.customers ?? [];
 
@@ -413,6 +413,7 @@ function MarketingContent() {
         recipientName: gcRecipient.trim() || undefined,
         recipientNote: gcPurchaser.trim() ? `购买人: ${gcPurchaser.trim()}` : undefined,
       });
+      await giftCardsQ.refetch();
       toast.success(t('crm.mktGiftCardIssued', { p0: res?.code || 'GC-88992' }));
       setGiftModalOpen(false);
       setGcRecipient('');

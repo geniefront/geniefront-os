@@ -1,6 +1,7 @@
 export const QA_SCENARIO_IDS = [
   'fresh_owner',
   'setup_incomplete',
+  'growth_setup',
   'empty_shop',
   'essential_trial',
   'growth_active',

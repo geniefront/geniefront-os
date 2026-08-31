@@ -41,9 +41,8 @@ export function SetupWizard() {
   };
 
   const renderStep = () => {
-    const next = () => goTo(activeIndex + 1);
     switch (activeStep.id) {
-      case 'store': return <StoreStepForm onSaved={next} />;
+      case 'store': return <StoreStepForm onSaved={() => setActiveStepId('catalog')} />;
       case 'catalog': return <CatalogStepForm onSaved={() => undefined} />;
       case 'team': return <TeamStepForm onSaved={() => undefined} />;
       case 'launch': return <LaunchStep onGoToStep={setActiveStepId} />;

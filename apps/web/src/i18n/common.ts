@@ -36,6 +36,7 @@ export const common = {
   messages: { 'zh-Hans': '消息沟通', en: 'Messages', ko: '메시지', es: 'Mensajes', vi: 'Tin nhắn' },
   communicationLogs: { 'zh-Hans': '沟通日志', en: 'Communication Logs', ko: '통신 로그', es: 'Registros de Comunicación', vi: 'Nhật ký Giao tiếp' },
   settings: { 'zh-Hans': '系统设置', en: 'Store Settings', ko: '설정', es: 'Configuración', vi: 'Cài đặt' },
+  support: { 'zh-Hans': '支持', en: 'Support', ko: '지원', es: 'Soporte', vi: 'Hỗ trợ' },
   storefrontBuilder: { 'zh-Hans': '微店建站', en: 'Storefront', ko: '스토어프론트 빌더', es: 'Constructor de Tienda', vi: 'Tạo Cửa hàng' },
   hardwareServer: { 'zh-Hans': '硬件设备', en: 'Hardware / Kiosk', ko: '하드웨어 서버', es: 'Servidor de Hardware', vi: 'Máy chủ Phần cứng' },
   profile: { 'zh-Hans': '个人资料', en: 'Profile', ko: '프로필', es: 'Perfil', vi: 'Hồ sơ' },

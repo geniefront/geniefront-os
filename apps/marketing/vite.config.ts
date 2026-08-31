@@ -6,6 +6,10 @@ import { defineConfig, loadEnv } from 'vite';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, '../..'), '');
+  const qaMode = mode === 'qa';
+  if (qaMode && (process.env.GF_QA_ALLOW_RESET !== '1' || env['DATABASE_TEST_TARGET'] !== 'isolated')) {
+    throw new Error('QA Vite mode requires GF_QA_ALLOW_RESET=1 and DATABASE_TEST_TARGET=isolated');
+  }
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
@@ -21,7 +25,7 @@ export default defineConfig(({ mode }) => {
       restoreMocks: true,
     },
     define: {
-      __API_BASE__: JSON.stringify(env['VITE_API_BASE'] ?? 'http://localhost:3000'),
+      __API_BASE__: JSON.stringify(qaMode ? 'http://127.0.0.1:3000' : (env['VITE_API_BASE'] ?? 'http://localhost:3000')),
     },
   };
 });
