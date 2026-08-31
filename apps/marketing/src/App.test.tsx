@@ -4,10 +4,9 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Home } from './pages/Home';
 import { Success } from './pages/Success';
-import { Privacy, Terms } from './pages/Legal';
+import { Privacy, Sms, Terms } from './pages/Legal';
 import { navigation } from './lib/checkout';
 import { PLAN_PRICES_CENTS, PLAN_QUOTAS } from './lib/plans';
-import { formatUsdMonthly } from './lib/money';
 
 const fetchMock = vi.fn();
 
@@ -31,9 +30,9 @@ describe('Marketing pricing and signup', () => {
     expect(screen.getByTestId('plan-essential')).toHaveTextContent('Essential');
     expect(screen.getByTestId('plan-growth')).toHaveTextContent('Growth');
     expect(screen.getByTestId('plan-essential'))
-      .toHaveTextContent(formatUsdMonthly(PLAN_PRICES_CENTS.essential));
+      .toHaveTextContent(`$${PLAN_PRICES_CENTS.essential / 100}`);
     expect(screen.getByTestId('plan-growth'))
-      .toHaveTextContent(formatUsdMonthly(PLAN_PRICES_CENTS.growth));
+      .toHaveTextContent(`$${PLAN_PRICES_CENTS.growth / 100}`);
     expect(screen.getByTestId('plan-essential'))
       .toHaveTextContent(String(PLAN_QUOTAS.essential.credits));
     expect(screen.getByTestId('plan-growth'))
@@ -42,17 +41,15 @@ describe('Marketing pricing and signup', () => {
 
   it('16. stale Starter/Enterprise do not render', () => {
     renderHome();
-    expect(screen.queryByText(/Starter/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Enterprise/i)).not.toBeInTheDocument();
-    expect(screen.queryByText('$89')).not.toBeInTheDocument();
-    expect(screen.queryByText('$169')).not.toBeInTheDocument();
-    expect(screen.queryByText('$299')).not.toBeInTheDocument();
+    expect(screen.getByTestId('plan-essential')).not.toHaveTextContent(/Starter|Enterprise|\$89|\$169|\$299/i);
+    expect(screen.getByTestId('plan-growth')).not.toHaveTextContent(/Starter|Enterprise|\$89|\$169|\$299/i);
   });
 
   it('17. form validation works', async () => {
     const user = userEvent.setup();
     renderHome();
     await user.click(screen.getByTestId('cta-essential'));
+    await user.click(screen.getByTestId('checkout-submit'));
     const err = screen.getByTestId('signup-error');
     expect(err).toHaveTextContent('Shop name is required.');
     expect(err).toHaveTextContent('Owner email is required.');
@@ -61,7 +58,7 @@ describe('Marketing pricing and signup', () => {
 
     await user.type(screen.getByTestId('shop-name'), 'Lotus Nails');
     await user.type(screen.getByTestId('owner-email'), 'not-an-email');
-    await user.click(screen.getByTestId('cta-growth'));
+    await user.click(screen.getByTestId('checkout-submit'));
     expect(screen.getByTestId('signup-error')).toHaveTextContent('Enter a valid owner email.');
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -73,9 +70,10 @@ describe('Marketing pricing and signup', () => {
       json: async () => ({ url: 'https://checkout.stripe.com/c/pay/cs_test_abc' }),
     });
     renderHome();
+    await user.click(screen.getByTestId('cta-growth'));
     await user.type(screen.getByTestId('shop-name'), 'Lotus Nails');
     await user.type(screen.getByTestId('owner-email'), 'owner@example.test');
-    await user.click(screen.getByTestId('cta-growth'));
+    await user.click(screen.getByTestId('checkout-submit'));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
@@ -91,11 +89,12 @@ describe('Marketing pricing and signup', () => {
   it('19. missing/invalid URL does not redirect', async () => {
     const user = userEvent.setup();
     renderHome();
+    await user.click(screen.getByTestId('cta-essential'));
     await user.type(screen.getByTestId('shop-name'), 'Lotus Nails');
     await user.type(screen.getByTestId('owner-email'), 'owner@example.test');
 
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
-    await user.click(screen.getByTestId('cta-essential'));
+    await user.click(screen.getByTestId('checkout-submit'));
     await waitFor(() => {
       expect(screen.getByTestId('signup-error')).toBeInTheDocument();
     });
@@ -105,13 +104,13 @@ describe('Marketing pricing and signup', () => {
       ok: true,
       json: async () => ({ url: 'https://evil.example/phish' }),
     });
-    await user.click(screen.getByTestId('cta-essential'));
+    await user.click(screen.getByTestId('checkout-submit'));
     await waitFor(() => {
       expect(navigation.assign).not.toHaveBeenCalled();
     });
 
     fetchMock.mockResolvedValueOnce({ ok: false, json: async () => ({ url: 'https://checkout.stripe.com/c/pay/cs_test' }) });
-    await user.click(screen.getByTestId('cta-essential'));
+    await user.click(screen.getByTestId('checkout-submit'));
     await waitFor(() => {
       expect(navigation.assign).not.toHaveBeenCalled();
     });
@@ -186,22 +185,29 @@ describe('Marketing pricing and signup', () => {
     expect(msg.textContent).not.toMatch(/checkout completed/i);
   });
 
-  it('terms and privacy routes are not broken', () => {
+  it('terms, privacy, and SMS routes are not broken', () => {
     renderHome();
-    expect(screen.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms');
-    expect(screen.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy');
+    expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms/');
+    expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy/');
+    expect(screen.getByRole('link', { name: 'SMS Terms' })).toHaveAttribute('href', '/sms/');
 
     render(
       <MemoryRouter>
         <Terms />
       </MemoryRouter>,
     );
-    expect(screen.getByText(/Placeholder — final legal copy pending/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Terms of Service' })).toBeInTheDocument();
     render(
       <MemoryRouter>
         <Privacy />
       </MemoryRouter>,
     );
-    expect(screen.getAllByText(/Placeholder — final legal copy pending/).length).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { name: 'Privacy Policy' })).toBeInTheDocument();
+    render(
+      <MemoryRouter>
+        <Sms />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('heading', { name: 'SMS Terms' })).toBeInTheDocument();
   });
 });

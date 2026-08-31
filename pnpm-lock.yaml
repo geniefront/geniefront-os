@@ -147,6 +147,9 @@ importers:
       '@gf/payroll':
         specifier: workspace:*
         version: link:../../packages/payroll
+      lucide-react:
+        specifier: ^0.546.0
+        version: 0.546.0(react@19.2.8)
       react:
         specifier: ^19.0.1
         version: 19.2.8
