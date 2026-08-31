@@ -19,6 +19,16 @@ export interface ReviewSummaryDto {
   };
   aiSummary: {
     overview: string;
+    /**
+     * 结论的可信度（05 §8.3）。摘录占比过高或样本太少时是 `low`，
+     * 老板端必须在结论旁标出「样本不完整，仅供参考」—— 否则一个由三条
+     * 截断评价归纳出来的建议，看起来和三十条完整评价归纳出来的一模一样。
+     */
+    confidence: 'low' | 'medium' | 'high' | null;
+    /** 摘要里有多少比例来自被平台截断的正文 */
+    excerptRatioBp: number;
+    /** 这份摘要是什么时候生成的。为空 = 还没跑过 */
+    generatedAt: string | null;
     topKeywords: Array<{ tag: string; count: number; sentiment: 'positive' | 'warning' | 'neutral' }>;
     actionableSuggestions: Array<{ type: 'warning' | 'tip'; title: string; description: string }>;
     topStaff: Array<{
@@ -94,8 +104,12 @@ export async function loadReviewsSummary(
     ? Number(((positiveCount / rated.length) * 100).toFixed(1))
     : 0;
   const now = Date.now();
-  const [summary] = await tx<{ content: unknown }[]>`
-    select summary_content as content from review_summaries
+  const [summary] = await tx<{
+    content: unknown; excerpt_ratio_bp: number; generated_at: string;
+  }[]>`
+    select summary_content as content, excerpt_ratio_bp,
+           generated_at::text as generated_at
+    from review_summaries
     where location_id = ${ctx.locationId} order by generated_at desc limit 1`;
   const summaryContent = summary?.content && typeof summary.content === 'object'
     ? summary.content as Record<string, unknown> : {};
@@ -126,6 +140,13 @@ export async function loadReviewsSummary(
     },
     aiSummary: {
       overview,
+      // 认不出的取值一律当成「没有」而不是猜一个 medium：
+      // 可信度标签本身就是用来降低轻信的，默认值不能反过来抬高它
+      confidence: ['low', 'medium', 'high'].includes(String(summaryContent['confidence']))
+        ? summaryContent['confidence'] as 'low' | 'medium' | 'high'
+        : null,
+      excerptRatioBp: summary?.excerpt_ratio_bp ?? 0,
+      generatedAt: summary?.generated_at ?? null,
       topKeywords,
       actionableSuggestions: suggestions,
       topStaff: [],

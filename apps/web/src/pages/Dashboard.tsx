@@ -53,6 +53,7 @@ import { useTicketsList } from '@/features/tickets/api';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ReviewConfidenceBadge } from '@/features/reviews/ReviewSourcesPanel';
 import { formatI18n } from '@/lib/utils';
 import { pickText } from '@gf/contracts';
 import { useSession } from '@/lib/session';
@@ -219,6 +220,13 @@ export function DashboardContent() {
       satisfactionRate: reviewsData?.satisfactionRate ?? 0,
       aiSummary: {
         overview: formatI18n(reviewsData?.aiSummary?.overview, language),
+        /**
+         * ⚠️ 可信度必须跟着结论一起显示（05 §8.3）。
+         *
+         * 一份由三条被平台截断的评价归纳出来的建议，和三十条完整评价归纳出来的
+         * 在页面上长得一模一样 —— 老板按前者去改排班，代价是真实的。
+         */
+        confidence: reviewsData?.aiSummary?.confidence ?? null,
         topKeywords: reviewsData?.aiSummary?.topKeywords ?? [],
         topStaff: reviewsData?.aiSummary?.topStaff ?? [],
         actionableSuggestions: reviewsData?.aiSummary?.actionableSuggestions ?? [],
@@ -1002,6 +1010,7 @@ export function DashboardContent() {
           <div className="flex items-center gap-1.5 font-bold text-purple-950 text-xs">
             <Sparkles className="w-3.5 h-3.5 text-purple-600" />
             <span>{t('finance.dashAiSummary')}</span>
+            <ReviewConfidenceBadge confidence={reviewsSummary.aiSummary.confidence} />
           </div>
           <p className="text-xs text-purple-900 leading-relaxed font-medium">
             {reviewsSummary.aiSummary.overview}

@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/Badge';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
 import { ImageUploader } from '@/components/ui/ImageUploader';
+import { ReviewSourcesPanel } from '@/features/reviews/ReviewSourcesPanel';
 import {
   Store,
   Scissors,
@@ -53,6 +54,7 @@ import {
   Phone,
   Printer,
   Sparkle,
+  Star,
 } from 'lucide-react';
 import { toast } from '@heroui/react';
 import {
@@ -139,6 +141,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'ai_phone', label: 'AI 电话语音助手', icon: PhoneCall },
       { id: '10dlc', label: '10DLC 短信资质代办', icon: ShieldCheck, badge: '合规认证' },
+      { id: 'reviews', label: '外部口碑采集', icon: Star },
     ],
   },
   {
@@ -2264,6 +2267,11 @@ export function Settings() {
           {currentTab === 'hardware' && (
             <HardwareServer embedded />
           )}
+
+          {/* ============================================================ */}
+          {/* TAB: 外部口碑采集 (reviews) —— Google / Yelp 评价抓取与同步记录 */}
+          {/* ============================================================ */}
+          {currentTab === 'reviews' && <ReviewSourcesPanel />}
 
           {/* ============================================================ */}
           {/* TAB 10: 网站插件与 API (integrations) */}
