@@ -1,11 +1,11 @@
-# 生产编排。每台 VPS 各跑一份，两台之间不需要任何通信
+# staging / production 共用编排；环境与域名由部署脚本显式注入。
 # —— 实时扇出在 Supabase 侧，状态全在托管层（宪法第 10 条）。
 
 services:
   api:
     image: geniefront/api:${TAG:-latest}
     restart: unless-stopped
-    env_file: [/opt/geniefront/.env]
+    env_file: ["${RUNTIME_ENV_FILE:-.env}"]
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -28,14 +28,21 @@ services:
     # 只有它对外。TLS 证书由 Cloudflare 到边缘那一段负责，
     # 这里做 origin 侧的 HTTPS（Cloudflare 回源走 Full strict）。
     ports: ["80:80", "443:443"]
+    environment:
+      API_HOST: ${API_HOST:?API_HOST required}
+      DESK_HOST: ${DESK_HOST:?DESK_HOST required}
+      KIOSK_HOST: ${KIOSK_HOST:?KIOSK_HOST required}
+      PLATFORM_HOST: ${PLATFORM_HOST:?PLATFORM_HOST required}
+      MARKETING_HOST: ${MARKETING_HOST:?MARKETING_HOST required}
+      MARKETING_WWW_HOST: ${MARKETING_WWW_HOST:?MARKETING_WWW_HOST required}
     volumes:
-      - /opt/geniefront/Caddyfile:/etc/caddy/Caddyfile:ro
-      - /opt/geniefront/origin.pem:/etc/caddy/origin.pem:ro
-      - /opt/geniefront/origin.key:/etc/caddy/origin.key:ro
-      - /opt/geniefront/web:/srv/web:ro
-      - /opt/geniefront/kiosk:/srv/kiosk:ro
-      - /opt/geniefront/platform:/srv/platform:ro
-      - /opt/geniefront/marketing:/srv/marketing:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./origin.pem:/etc/caddy/origin.pem:ro
+      - ./origin.key:/etc/caddy/origin.key:ro
+      - ./web:/srv/web:ro
+      - ./kiosk:/srv/kiosk:ro
+      - ./platform:/srv/platform:ro
+      - ./marketing:/srv/marketing:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on: [api]

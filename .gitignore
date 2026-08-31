@@ -1,6 +1,9 @@
 .env
 .env.*
 !.env.example
+!.env.local.example
+!.env.staging.example
+!.env.production.example
 
 node_modules/
 dist/
@@ -16,6 +19,7 @@ test-results/
 .idea/
 .vscode/
 deploy/certs/origin.key
+deploy/certs/origin.id
 
 # 手工联调的临时产物（Telnyx/xAI assistant 配置、录音样本）
 /test_*.json

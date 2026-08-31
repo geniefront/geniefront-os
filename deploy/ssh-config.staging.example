@@ -1,0 +1,13 @@
+# Use the bootstrap alias once; provision.sh creates ubuntu and then disables root SSH.
+Host gf-staging-bootstrap
+  HostName 64.44.115.20
+  User root
+  IdentityFile ~/.ssh/geniefront-staging
+  IdentitiesOnly yes
+
+Host gf-staging
+  HostName 64.44.115.20
+  User ubuntu
+  IdentityFile ~/.ssh/geniefront-staging
+  IdentitiesOnly yes
+  ServerAliveInterval 30

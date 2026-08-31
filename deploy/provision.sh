@@ -9,13 +9,31 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-APP_USER=ubuntu
-APP_DIR=/opt/geniefront
+APP_USER="${APP_USER:-ubuntu}"
+APP_DIR="${APP_DIR:-/opt/geniefront}"
 log() { echo "  ▸ $*"; }
 
 [[ $EUID -eq 0 ]] || { echo "要用 sudo 跑"; exit 1; }
 
-# ── 0. 关密码登录之前，先确认这个账号真的装了公钥 ─────────────────────────────
+# ── 0. 准备应用账号，再确认它真的装了公钥 ───────────────────────────────────
+# 新 VPS 往往只有 root。把控制台注入 root 的公钥复制给专用账号，随后再关 root SSH。
+if ! id "$APP_USER" >/dev/null 2>&1; then
+  useradd --create-home --shell /bin/bash "$APP_USER"
+  install -d -o "$APP_USER" -g "$APP_USER" -m 0700 "/home/${APP_USER}/.ssh"
+  if [[ -n "${APP_PUBLIC_KEY_FILE:-}" && -s "${APP_PUBLIC_KEY_FILE}" ]]; then
+    install -o "$APP_USER" -g "$APP_USER" -m 0600 \
+      "${APP_PUBLIC_KEY_FILE}" "/home/${APP_USER}/.ssh/authorized_keys"
+  elif [[ -s /root/.ssh/authorized_keys ]]; then
+    install -o "$APP_USER" -g "$APP_USER" -m 0600 \
+      /root/.ssh/authorized_keys "/home/${APP_USER}/.ssh/authorized_keys"
+  fi
+elif [[ -n "${APP_PUBLIC_KEY_FILE:-}" && -s "${APP_PUBLIC_KEY_FILE}" ]]; then
+  install -d -o "$APP_USER" -g "$APP_USER" -m 0700 "/home/${APP_USER}/.ssh"
+  install -o "$APP_USER" -g "$APP_USER" -m 0600 \
+    "${APP_PUBLIC_KEY_FILE}" "/home/${APP_USER}/.ssh/authorized_keys"
+fi
+
+# 关密码登录之前，先确认这个账号真的装了公钥。
 # 顺序反了就会把自己锁在门外，而 OVH 的救援模式要走控制台，很麻烦。
 AUTH_KEYS="/home/${APP_USER}/.ssh/authorized_keys"
 if [[ ! -s "$AUTH_KEYS" ]]; then
@@ -35,7 +53,15 @@ $APT update
 # 用发行版自带的 docker.io（29.x，与官方源同代）而不是挂第三方源：
 # 少一个 apt 源，而且能被已启用的 unattended-upgrades 一起打补丁。
 $APT install -y \
-  ufw fail2ban docker.io docker-compose-v2 ca-certificates curl jq >/dev/null
+  sudo ufw fail2ban docker.io docker-compose-v2 ca-certificates curl jq openssl >/dev/null
+
+# 云主机部署账号没有本地密码；提供密钥登录后的 sudo 管理能力。
+usermod -aG sudo "$APP_USER"
+cat > "/etc/sudoers.d/90-geniefront-${APP_USER}" <<CONF
+${APP_USER} ALL=(ALL:ALL) NOPASSWD:ALL
+CONF
+chmod 0440 "/etc/sudoers.d/90-geniefront-${APP_USER}"
+visudo -cf "/etc/sudoers.d/90-geniefront-${APP_USER}" >/dev/null
 
 # ── 2. 防火墙 ────────────────────────────────────────────────────────────────
 # 先放行 22 再启用，顺序不能反。

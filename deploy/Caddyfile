@@ -4,7 +4,6 @@
 # 两台机器轮询同一个域名时会互抢 HTTP-01 challenge，证书容易反复失败。
 # Origin CA 证书两台共用一张，零协调。代价是它只被 Cloudflare 信任 ——
 # 对回源来说这正是想要的。
-
 {
 	admin off
 	# 没有 ACME，关掉自动 HTTPS 的证书申请，只保留端口管理
@@ -25,7 +24,7 @@
 }
 
 # ── 正式入口 ───────────────────────────────────────────────────────────────
-https://api.geniefront.com, https://desk.geniefront.com {
+https://{$API_HOST}, https://{$DESK_HOST} {
 	tls /etc/caddy/origin.pem /etc/caddy/origin.key
 
 	# 1. API 路由与健康检查转发给 Fastify
@@ -54,16 +53,17 @@ https://api.geniefront.com, https://desk.geniefront.com {
 		reverse_proxy api:3000
 	}
 
-	
 	# 2. 静态资源（防止 CDN 缓存中毒）
 	handle /assets/* {
 		root * /srv/web
+		header Cache-Control "public, max-age=31536000, immutable"
 		file_server
 	}
 	# 3. 前端 SPA 路由
 	handle {
 		root * /srv/web
 		try_files {path} {path}/ /index.html
+		header Cache-Control "no-cache"
 		file_server
 	}
 
@@ -84,7 +84,7 @@ https://api.geniefront.com, https://desk.geniefront.com {
 }
 
 # ── iPad Kiosk 顾客自助终端 ────────────────────────────────────────────────
-https://kiosk.geniefront.com {
+https://{$KIOSK_HOST} {
 	tls /etc/caddy/origin.pem /etc/caddy/origin.key
 
 	handle /v1/* {
@@ -112,10 +112,17 @@ https://kiosk.geniefront.com {
 		reverse_proxy api:3000
 	}
 
+	handle /assets/* {
+		root * /srv/kiosk
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
 	handle {
 		root * /srv/kiosk
-		file_server
 		try_files {path} /index.html
+		header Cache-Control "no-cache"
+		file_server
 	}
 
 	encode zstd gzip
@@ -134,9 +141,8 @@ https://kiosk.geniefront.com {
 	}
 }
 
-
 # ── Platform Operator Console ────────────────────────────────────────────────
-https://ops.geniefront.com {
+https://{$PLATFORM_HOST} {
 	tls /etc/caddy/origin.pem /etc/caddy/origin.key
 
 	handle /v1/* {
@@ -164,10 +170,17 @@ https://ops.geniefront.com {
 		reverse_proxy api:3000
 	}
 
+	handle /assets/* {
+		root * /srv/platform
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
 	handle {
 		root * /srv/platform
-		file_server
 		try_files {path} /index.html
+		header Cache-Control "no-cache"
+		file_server
 	}
 
 	encode zstd gzip
@@ -187,7 +200,7 @@ https://ops.geniefront.com {
 }
 
 # ── Marketing Website ─────────────────────────────────────────────────────────
-https://geniefront.com, https://www.geniefront.com {
+https://{$MARKETING_HOST}, https://{$MARKETING_WWW_HOST} {
 	tls /etc/caddy/origin.pem /etc/caddy/origin.key
 
 	handle /v1/* {
@@ -215,10 +228,17 @@ https://geniefront.com, https://www.geniefront.com {
 		reverse_proxy api:3000
 	}
 
+	handle /assets/* {
+		root * /srv/marketing
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
 	handle {
 		root * /srv/marketing
-		file_server
 		try_files {path} /index.html
+		header Cache-Control "no-cache"
+		file_server
 	}
 
 	encode zstd gzip

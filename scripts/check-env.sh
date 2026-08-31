@@ -10,7 +10,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="${ROOT}/.env"
+ENV_FILE="${ENV_FILE:-${ROOT}/.env}"
 FORMAT_ONLY=0
 [[ "${1:-}" == "--format-only" ]] && FORMAT_ONLY=1
 
@@ -64,7 +64,7 @@ api_check() {
   local label="$1"; shift
   [[ $FORMAT_ONLY -eq 1 ]] && return 0
   local code
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$@" 2>/dev/null)
+  code=$(curl -g -s -o /dev/null -w '%{http_code}' --max-time 15 "$@" 2>/dev/null)
   case "$code" in
     2*) echo "      ${G}↳ ${label} 实测通过 (HTTP $code)${N}"; return 0 ;;
     000) echo "      ${Y}↳ ${label} 连不上（网络或超时）${N}"; return 1 ;;
@@ -255,8 +255,8 @@ if check_format RESEND_API_KEY '^re_[A-Za-z0-9_-]{20,}$' \
   api_check "Resend API" -H "Authorization: Bearer ${RESEND_API_KEY}" \
     https://api.resend.com/domains
 fi
-if check_format FROM_EMAIL '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' \
-  '一个完整邮箱地址，域名必须已在 Resend 验证通过' \
+if check_format FROM_EMAIL '^([^<]+<)?[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}>?$' \
+  '一个完整邮箱地址或 Display Name <email@domain.com>，域名必须已在 Resend 验证通过' \
   '建议用子域：noreply@mail.你的域名'; then
   if [[ "$FROM_EMAIL" == *"@gmail.com" || "$FROM_EMAIL" == *"@qq.com" || "$FROM_EMAIL" == *"@163.com" ]]; then
     bad "FROM_EMAIL 用了公共邮箱域名，Resend 发不出去"
