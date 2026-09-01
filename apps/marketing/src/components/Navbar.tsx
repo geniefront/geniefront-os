@@ -33,12 +33,8 @@ export const Navbar: React.FC = () => {
   return (
     <header className={`fixed inset-x-0 top-0 z-40 border-b transition-all ${scrolled ? 'border-[#dfe5df] bg-[#f7f8f3]/95 shadow-sm backdrop-blur-xl' : 'border-transparent bg-[#f7f8f3]/75 backdrop-blur-md'}`}>
       <div className="site-shell flex h-[72px] items-center justify-between">
-        <a href="#top" className="flex items-center gap-3 rounded-xl" aria-label="GenieFront OS home">
-          <span className="brand-mark font-serif-brand text-xl font-semibold" aria-hidden="true">G</span>
-          <span className="leading-none">
-            <span className="block text-[15px] font-extrabold tracking-[-0.03em] text-[#102a2e]">GenieFront</span>
-            <span className="mt-1 block text-[9px] font-bold uppercase tracking-[0.2em] text-[#5b6f72]">Shop operating system</span>
-          </span>
+        <a href="#top" className="flex items-center rounded-xl" aria-label="GenieFront OS home">
+          <img src="/brand/geniefront-logo.svg" alt="GenieFront" className="h-9 w-auto sm:h-10" />
         </a>
 
         <nav className="hidden items-center gap-7 lg:flex" aria-label="Main navigation">

@@ -320,7 +320,7 @@ export function Layout() {
             <div
               className={`w-7 h-7 ${storeAvatar?.bg || 'bg-teal-600'} rounded-lg flex items-center justify-center text-white text-sm shadow-sm shrink-0 select-none`}
             >
-              {storeAvatar?.icon || <Sparkles className="w-4 h-4" />}
+              {storeAvatar?.icon || <img src="/brand/geniefront-icon-white.svg" alt="" className="h-4 w-4" />}
             </div>
           )}
 

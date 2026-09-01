@@ -9,12 +9,9 @@ export const Footer: React.FC = () => {
   return (
     <footer className="border-t border-[#26494c] bg-[#0c292d] text-white">
       <div className="site-shell py-14 sm:py-16">
-        <div className="grid gap-10 border-b border-white/10 pb-12 lg:grid-cols-[1.2fr_0.8fr_0.8fr]">
+        <div className="grid gap-10 border-b border-white/10 pb-12 md:grid-cols-2 lg:grid-cols-[1.25fr_0.72fr_0.78fr_0.62fr]">
           <div>
-            <div className="flex items-center gap-3">
-              <span className="brand-mark bg-white font-serif-brand text-xl font-semibold text-[#0c292d]" aria-hidden="true">G</span>
-              <div><div className="text-base font-extrabold">GenieFront OS</div><div className="mt-1 text-[9px] font-bold uppercase tracking-[0.18em] text-white/45">Shop operating system</div></div>
-            </div>
+            <img src="/brand/geniefront-logo-on-dark.svg" alt="GenieFront" className="h-10 w-auto" />
             <p className="mt-5 max-w-md text-sm font-medium leading-6 text-white/60">{t.footer.brandBio}</p>
             <div className="mt-6 flex flex-wrap gap-2">
               {languageOptions.map((language) => (
@@ -41,6 +38,14 @@ export const Footer: React.FC = () => {
               <li><a href="mailto:privacy@geniefront.com" className="hover:text-white">privacy@geniefront.com</a></li>
               <li><a href="mailto:legal@geniefront.com" className="hover:text-white">legal@geniefront.com</a></li>
             </ul>
+          </div>
+
+          <div>
+            <h3 className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#7de0c3]">WeChat support</h3>
+            <div className="mt-4 w-fit rounded-2xl bg-white p-2 shadow-lg">
+              <img src="/brand/wechat-qr.jpg" alt="GenieFront WeChat support QR code" className="h-28 w-28 rounded-xl object-cover" />
+            </div>
+            <p className="mt-3 text-[10px] font-semibold leading-4 text-white/45">Scan to add GenieFront<br />微信扫码联系我们</p>
           </div>
         </div>
 

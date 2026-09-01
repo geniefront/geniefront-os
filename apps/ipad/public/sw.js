@@ -1,9 +1,14 @@
-const CACHE_NAME = 'gf-kiosk-v2';
+const CACHE_NAME = 'gf-kiosk-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.webmanifest',
   '/icon.svg',
+  '/brand/geniefront-icon.svg',
+  '/brand/geniefront-favicon.svg',
+  '/brand/geniefront-app-icon-180.png',
+  '/brand/geniefront-app-icon-192.png',
+  '/brand/geniefront-app-icon-512.png',
 ];
 
 self.addEventListener('install', (event) => {

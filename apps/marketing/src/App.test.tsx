@@ -43,6 +43,11 @@ describe('Marketing pricing and signup', () => {
     renderHome();
     expect(screen.getByTestId('plan-essential')).not.toHaveTextContent(/Starter|Enterprise|\$89|\$169|\$299/i);
     expect(screen.getByTestId('plan-growth')).not.toHaveTextContent(/Starter|Enterprise|\$89|\$169|\$299/i);
+    expect(screen.getByTestId('plan-essential')).toHaveTextContent('Free Managed Website Creation Included');
+    expect(screen.getByTestId('plan-growth')).toHaveTextContent('Free Managed Website Creation Included');
+    expect(screen.getByTestId('plan-essential')).toHaveTextContent('AI Customer Service Configuration Included');
+    expect(screen.getByTestId('plan-growth')).toHaveTextContent('AI Customer Service Configuration Included');
+    expect(screen.getByTestId('plan-growth')).toHaveTextContent('VIP Professional 1-to-1 Technical Support');
   });
 
   it('17. form validation works', async () => {

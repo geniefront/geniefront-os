@@ -23,7 +23,7 @@ export function Login() {
     <div className="min-h-screen grid place-items-center bg-slate-950 text-white">
       <form onSubmit={(e) => void submit(e)} className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
         <div>
-          <div className="text-xs uppercase tracking-widest text-teal-400">GenieFront</div>
+          <img src="/brand/geniefront-logo-on-dark.svg" alt="GenieFront" className="mb-3 h-8 w-auto" />
           <h1 className="text-xl font-semibold">Operator sign in</h1>
           <p className="text-sm text-slate-400 mt-1">Internal console. Store owner accounts are denied.</p>
         </div>

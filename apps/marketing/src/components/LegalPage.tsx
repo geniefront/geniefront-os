@@ -249,9 +249,8 @@ export const LegalPage = ({ kind }: { kind: LegalKind }) => {
     <div className="legal-body min-h-screen bg-[#f7f8f3]">
       <header className="border-b border-[#dfe5df] bg-[#f7f8f3]/95 backdrop-blur-xl">
         <div className="site-shell flex h-[72px] items-center justify-between">
-          <a href="/" className="flex items-center gap-3 rounded-xl" aria-label="GenieFront home">
-            <span className="brand-mark font-serif-brand text-xl font-semibold" aria-hidden="true">G</span>
-            <span className="text-[15px] font-extrabold tracking-[-0.03em] text-[#102a2e]">GenieFront</span>
+          <a href="/" className="flex items-center rounded-xl" aria-label="GenieFront home">
+            <img src="/brand/geniefront-logo.svg" alt="GenieFront" className="h-9 w-auto" />
           </a>
           <nav className="hidden items-center gap-5 sm:flex" aria-label="Legal pages">
             <a href="/sms/" className={`text-xs font-bold ${kind === 'sms' ? 'text-[#096b61]' : 'text-[#53676a]'}`}>SMS Terms</a>

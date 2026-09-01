@@ -4,8 +4,17 @@
  * API requests and writes are deliberately excluded. A delayed start/finish or
  * punch is more dangerous than an explicit offline failure in a live store.
  */
-const CACHE_NAME = 'gf-web-shell-v1';
-const SHELL = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png'];
+const CACHE_NAME = 'gf-web-shell-v2';
+const SHELL = [
+  '/',
+  '/manifest.webmanifest',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/brand/geniefront-logo.svg',
+  '/brand/geniefront-icon.svg',
+  '/brand/geniefront-icon-white.svg',
+  '/brand/geniefront-favicon.svg',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

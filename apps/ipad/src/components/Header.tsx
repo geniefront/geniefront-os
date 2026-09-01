@@ -4,7 +4,7 @@ import { useDeviceAuth } from '../context/DeviceAuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { UI_LANGUAGES } from '../i18n/dict';
 import type { Language } from '../types';
-import { Globe, Wifi, WifiOff, Calendar, Store, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Globe, Wifi, WifiOff, Calendar, RotateCcw, AlertTriangle } from 'lucide-react';
 
 export const Header: React.FC = () => {
   const { storeInfo, isPaired } = useDeviceAuth();
@@ -30,8 +30,8 @@ export const Header: React.FC = () => {
       <header className="w-full bg-white/95 backdrop-blur-md border-b border-slate-200/90 px-6 sm:px-8 py-3.5 flex items-center justify-between z-30 shrink-0 select-none shadow-xs">
         {/* 门店名称与状态 */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-teal-600 flex items-center justify-center shadow-sm text-white">
-            <Store className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-2xl bg-[#F2FAF3] flex items-center justify-center shadow-sm border border-[#d8eadb]">
+            <img src="/brand/geniefront-icon.svg" alt="" className="h-7 w-7" />
           </div>
           <div>
             <div className="flex items-center gap-2">

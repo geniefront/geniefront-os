@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, Globe2, LogOut, Settings2, Sparkles, Store } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, Globe2, LogOut, Settings2, Store } from 'lucide-react';
 import { pickText } from '@gf/contracts';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -54,8 +54,8 @@ export function SetupWizard() {
       <header className="border-b border-slate-200/80 bg-white/95">
         <div className="mx-auto flex h-20 max-w-[1180px] items-center justify-between gap-4 px-5 md:px-8">
           <div className="flex items-center gap-3">
-            <span className="grid size-10 place-items-center rounded-xl bg-teal-600 text-white shadow-sm"><Sparkles className="size-5" /></span>
-            <div><p className="text-lg font-extrabold tracking-tight text-teal-950">GenieFront</p><p className="text-[11px] font-medium text-slate-500">{t('setupWorkspaceLabel')}</p></div>
+            <img src="/brand/geniefront-logo.svg" alt="GenieFront" className="h-9 w-auto" />
+            <p className="hidden text-[11px] font-medium text-slate-500 sm:block">{t('setupWorkspaceLabel')}</p>
           </div>
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">

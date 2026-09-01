@@ -20,7 +20,7 @@ export function Layout() {
     <div className="min-h-screen grid grid-cols-[240px_1fr]">
       <aside className="bg-slate-950 text-slate-200 flex flex-col">
         <div className="px-5 py-5 border-b border-slate-800">
-          <div className="text-xs uppercase tracking-widest text-teal-400">GenieFront</div>
+          <img src="/brand/geniefront-logo-on-dark.svg" alt="GenieFront" className="h-7 w-auto" />
           <div className="font-semibold text-lg">Ops console</div>
           <div className="mt-2 text-xs text-slate-400 truncate">
             {operator?.email} · {operator?.role}

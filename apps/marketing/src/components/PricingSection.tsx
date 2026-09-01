@@ -49,9 +49,6 @@ export const PricingSection: React.FC = () => {
                   <span className="text-slate-600 font-bold text-xs uppercase tracking-wider">
                     {plans.essential.name}
                   </span>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                    Base Edition
-                  </span>
                 </div>
 
                 <div className="flex items-baseline gap-1 mb-3">
@@ -64,9 +61,6 @@ export const PricingSection: React.FC = () => {
                 </p>
 
                 <div className="space-y-3 pt-4 border-t border-slate-100">
-                  <div className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                    Included Features:
-                  </div>
                   <ul className="space-y-3 text-xs sm:text-sm text-slate-600">
                     {plans.essential.features.map((feat, i) => (
                       <li key={i} className="flex items-start gap-2.5">
@@ -104,9 +98,6 @@ export const PricingSection: React.FC = () => {
                   <span className="text-blue-600 font-bold text-xs uppercase tracking-wider">
                     {plans.growth.name}
                   </span>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                    Full AI Power
-                  </span>
                 </div>
 
                 <div className="flex items-baseline gap-1 mb-3">
@@ -119,9 +110,6 @@ export const PricingSection: React.FC = () => {
                 </p>
 
                 <div className="space-y-3 pt-4 border-t border-slate-100">
-                  <div className="text-xs font-bold text-blue-700 uppercase tracking-wider">
-                    Everything in Essential, plus:
-                  </div>
                   <ul className="space-y-3 text-xs sm:text-sm text-slate-700">
                     {plans.growth.features.map((feat, i) => (
                       <li key={i} className="flex items-start gap-2.5">
