@@ -15,7 +15,10 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { measure, segmentsOf } from './sms/segments';
 import { classify, KEYWORDS } from './sms/keywords';
-import { renderConfirmSms, renderHelpSms, smsShopName, prettyPhone } from './sms/render';
+import {
+  renderConfirmSms, renderHelpSms, smsShopName, prettyPhone,
+  withComplianceFooter, SENDER, OPT_OUT_NOTICE,
+} from './sms/render';
 import { loadInboundSms } from './queries/smsInbound';
 import { withTenant, closeDb, recordInboundSms, setSmsConsent } from '@gf/db';
 import { buildContext } from './actor';
@@ -112,7 +115,6 @@ describe('文案', () => {
     shopName: { en: 'Lotus Nails', 'zh-Hans': '莲花美甲' },
     serviceName: 'Gel Manicure',
     whenText: 'Wed Aug 26, 12:30 PM',
-    confirmationCode: 'LO-4K2P',
     shopPhone: '+16175550142',
   };
 
@@ -176,16 +178,24 @@ describe('文案', () => {
     expect(body).not.toContain(' at ');
   });
 
-  it('确认码和电话都进正文，电话是能直接念的格式', () => {
+  it('电话进正文，且是能直接念的格式', () => {
     const body = renderConfirmSms(base);
-    expect(body).toContain('LO-4K2P');
     expect(body).toContain('(617) 555-0142');
     expect(prettyPhone('+16175550142')).toBe('(617) 555-0142');
     expect(prettyPhone(null)).toBeNull();
   });
 
-  it('没确认码、没电话也要能发出去', () => {
-    const body = renderConfirmSms({ ...base, confirmationCode: null, shopPhone: null });
+  /**
+   * ⭐ 预约码不进短信（2026-09-01 店主定）——
+   * 前台在 iPad 上用手机号就查得到，而它要占掉可用长度的十六分之一。
+   */
+  it('🔴 正文里不出现预约码', () => {
+    const body = renderConfirmSms(base);
+    expect(body).not.toContain('Code');
+  });
+
+  it('没电话也要能发出去', () => {
+    const body = renderConfirmSms({ ...base, shopPhone: null });
     expect(measure(body).segments).toBe(1);
     expect(body).toContain('Call the salon');
   });
@@ -314,5 +324,33 @@ describe('入站短信列表（docs/09 §5.3）', () => {
 
     const out = await withTenant(tenant, (tx) => loadInboundSms(tx, ctx, 14));
     expect(out.messages.some((x) => x.fromE164 === stranger)).toBe(false);
+  });
+});
+
+
+describe('合规兜底：署名与退订说明', () => {
+  /**
+   * ⭐ 前台手打的短信此前既无署名也无退订说明。两者都不是可选项：
+   * 发送号是平台号、10DLC 注册品牌是 GenieFront，收件人无法由号码识别
+   * 发送方；而退订是平台级行为，缺失即构成合规缺陷。
+   */
+  it('自由文本补齐署名与退订说明', () => {
+    const out = withComplianceFooter('Your table is ready.');
+    expect(out.startsWith(`${SENDER}:`)).toBe(true);
+    expect(out.endsWith(OPT_OUT_NOTICE)).toBe(true);
+  });
+
+  it('已经带了的不重复添加 —— 模板类短信自身已带', () => {
+    const once = renderConfirmSms({
+      shopName: { en: 'Lotus Nails' }, shopSlug: 'lotus-nails-a1b2c3',
+      serviceName: 'Gel Manicure', whenText: 'Wed Aug 26, 12:30 PM',
+      shopPhone: '+16175550142',
+    });
+    expect(withComplianceFooter(once)).toBe(once);
+  });
+
+  it('大小写不同的 STOP 说明也认得出，不会加第二条', () => {
+    const out = withComplianceFooter('Hi there. reply stop to opt out.');
+    expect(out.match(/reply\s+stop/gi)?.length).toBe(1);
   });
 });

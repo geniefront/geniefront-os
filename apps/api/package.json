@@ -8,6 +8,7 @@
     "dev": "tsx watch --env-file=../../.env src/main.ts",
     "dev:raw": "tsx watch src/main.ts",
     "tidy": "tsx --env-file=../../.env src/tidy.ts",
+    "marketing-domain": "tsx --env-file=../../.env src/ops/marketingDomainCli.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

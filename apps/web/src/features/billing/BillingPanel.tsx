@@ -15,6 +15,8 @@ import {
   useInvoicesQuery,
   useSetAutoTopup,
 } from './api';
+import { useDeskSettingsQuery, useSetEmailLocale } from '@/features/settings/api';
+import type { EmailLocale } from '@/features/settings/types';
 import {
   formatIsoDate,
   formatUsdFromCents,
@@ -30,6 +32,22 @@ import {
 } from './display';
 import type { QuotaUnit, QuotaView } from './types';
 
+/**
+ * 账单类邮件的可选语言。
+ *
+ * ⚠️ 与界面语言（个人资料里那一项）刻意分开：界面语言会随操作者变化，
+ * 而账单邮件的收件人恒为店主本人。
+ * ⚠️ 顾客侧的邮件与短信恒为英语，不受此处影响。
+ */
+const EMAIL_LOCALES: Array<{ value: EmailLocale; label: string }> = [
+  { value: 'en', label: 'English' },
+  { value: 'zh-Hans', label: '简体中文' },
+  { value: 'zh-Hant', label: '繁體中文' },
+  { value: 'ko', label: '한국어' },
+  { value: 'vi', label: 'Tiếng Việt' },
+  { value: 'es', label: 'Español' },
+];
+
 function usagePercent(quota: QuotaView | undefined): number {
   if (!quota?.included || quota.included.total <= 0) return 0;
   return Math.min(100, Math.round((quota.included.used / quota.included.total) * 100));
@@ -44,6 +62,9 @@ export function BillingPanel() {
   const paymentMethodMutation = useCreatePaymentMethodSession();
   const topupMutation = useCreateTopup();
   const autoTopupMutation = useSetAutoTopup();
+  const deskSettingsQuery = useDeskSettingsQuery();
+  const emailLocaleMutation = useSetEmailLocale();
+  const emailLocale: EmailLocale = deskSettingsQuery.data?.emailLocale ?? 'en';
   const [pendingTopupUnit, setPendingTopupUnit] = useState<QuotaUnit | null>(null);
   const [savingAutoTopupUnit, setSavingAutoTopupUnit] = useState<QuotaUnit | null>(null);
 
@@ -351,6 +372,37 @@ export function BillingPanel() {
                   })}
                 </div>
               )}
+            </div>
+
+            {/* ── 账单邮件语言 ─────────────────────────────────────── */}
+            <div className="mt-8 pt-6 border-t border-slate-100">
+              <label
+                htmlFor="billing-email-locale"
+                className="text-xs font-bold text-slate-900 block mb-1"
+              >
+                {t('settings.stBillingEmailLanguage')}
+              </label>
+              <p className="text-xs text-slate-500 mb-3">
+                {t('settings.stBillingEmailLanguageHint')}
+              </p>
+              <select
+                id="billing-email-locale"
+                className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white
+                           focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-60"
+                value={emailLocale}
+                disabled={emailLocaleMutation.isPending}
+                onChange={(e) => {
+                  const next = e.target.value as EmailLocale;
+                  emailLocaleMutation.mutate(next, {
+                    onSuccess: () => toast.success(t('settings.stBillingEmailLanguageSaved')),
+                    onError: (err) => toast.danger(errorMessage(err)),
+                  });
+                }}
+              >
+                {EMAIL_LOCALES.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
             </div>
           </>
         )}

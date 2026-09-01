@@ -16,6 +16,15 @@ import { sendSms, smsConfigured } from './send';
 const BATCH = 5;
 const MAX_ATTEMPTS = 3;
 
+/**
+ * 商业性短信的可投递窗口，门店本地时间。
+ *
+ * TCPA 的红线是 08:00–21:00；此处取的正是该区间，不额外收窄 ——
+ * 收窄意味着把一部分本可合法送达的营销短信推到次日，而店主对此无从预期。
+ */
+const QUIET_START_HOUR = 8;
+const QUIET_END_HOUR = 21;
+
 /** Telnyx 美国 outbound 单价,毫分/段。没配就记 0 并留 unitPricePending */
 function rateMillicents(): number {
   const v = Number(process.env['TELNYX_SMS_RATE_MILLICENTS'] ?? '450');
@@ -29,15 +38,35 @@ export async function flushSms(
   if (!smsConfigured()) return;
 
   try {
+    /*
+     * ⭐ 静默时段的判定放在 **SQL 里**，用门店时区。
+     *
+     * TCPA 限制商业性短信只能在收件人当地 08:00–21:00 之间发送。判定在
+     * 投递前而非入队时进行，因为时区与夏令时在这两个时刻之间可能变化。
+     *
+     * ⚠️ 只对 `quiet_hours = true` 的行生效。事务性短信（顾客本人刚下的单
+     * 的确认）不受此限 —— 晚上十点下的单拖到次日早八点才确认，等于确认
+     * 没有发生。
+     *
+     * ⚠️ 窗口外的行**保持 pending**，不改状态、不计 attempts：下一轮补发
+     * 扫描会重新取到它们。标成 failed 会让一条本该在早上发出去的短信
+     * 永久消失。
+     */
     const rows = await withTenant(tenant, (tx) => tx<{
       id: string; to_e164: string; body: string; segments: number;
       attempts: number; kind: string;
     }[]>`
-      select id, to_e164, body, segments, attempts, kind
-      from sms_outbox
-      where location_id = ${tenant.locationId}
-        and status = 'pending' and attempts < ${MAX_ATTEMPTS}
-      order by created_at
+      select o.id, o.to_e164, o.body, o.segments, o.attempts, o.kind
+      from sms_outbox o
+      join locations l on l.id = o.location_id
+      where o.location_id = ${tenant.locationId}
+        and o.status = 'pending' and o.attempts < ${MAX_ATTEMPTS}
+        and (
+          o.quiet_hours = false
+          or extract(hour from (now() at time zone l.timezone))
+               between ${QUIET_START_HOUR} and ${QUIET_END_HOUR - 1}
+        )
+      order by o.created_at
       limit ${BATCH}`);
     if (rows.length === 0) return;
 

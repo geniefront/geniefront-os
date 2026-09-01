@@ -199,19 +199,3 @@ export function useRefundTicket() {
   });
 }
 
-export function useSendReceipt() {
-  const { membershipId } = useSession();
-
-  return useMutation({
-    mutationFn: async ({ ticketId, channel, destination }: {
-      ticketId: string;
-      channel: 'sms' | 'email';
-      destination?: string;
-    }) => (await runCommand<{
-      ticketId: string;
-      channel: 'sms' | 'email';
-      destination: string;
-      outboxId: string;
-    }>('ticket.sendReceipt', { ticketId, channel, destination }, membershipId!)).result,
-  });
-}

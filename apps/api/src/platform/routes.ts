@@ -11,11 +11,14 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { AppError, ERROR_CODES, PlatformReview10DlcInput } from '@gf/contracts';
+import {
+  AppError, ERROR_CODES, PlatformReview10DlcInput, PlatformSetMarketingEmailInput,
+} from '@gf/contracts';
 import {
   platformDashboardCounts,
   platformSearchStores,
   platformStoreDetail,
+  platformMessagingPanel,
   platformListSupportRequests,
   platformSupportRequestDetail,
   platformList10Dlc,
@@ -28,11 +31,12 @@ import {
 } from '@gf/db';
 import { stripeClient } from '../stripe/client';
 import { assertStripeCustomerBelongsTo } from '../stripe/routes';
-import { safeRelativePath } from '../stripe/returnUrl';
+import { safeRelativePath } from '../links';
 import { deliveryMode } from '../comms/mode';
 import { requirePlatformOperator, mapPlatformReadError } from './auth';
 import {
   review10DlcForLocation,
+  setMarketingEmailForLocation,
   updateSupportRequest,
   addSupportNote,
   updateStorefrontBrief,
@@ -142,6 +146,42 @@ export function registerPlatformRoutes(app: FastifyInstance): void {
       }
     },
   );
+
+  /**
+   * 这家店的外发消息卡在哪一道闸门（只读）。
+   *
+   * 与门店详情分开一个请求：详情那份是两百行的聚合函数，为两个字段去改它
+   * 风险不对等（sql/0089 的文件头）。
+   */
+  app.get<{ Params: { locationId: string } }>(
+    '/v1/platform/stores/:locationId/messaging', async (req) => {
+    const op = await operatorFrom(req);
+    const locationId = parseOrThrow(uuid, req.params.locationId);
+    const panel = await read(() => platformMessagingPanel(op.userId, locationId));
+    if (!panel) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
+    return panel;
+  });
+
+  /**
+   * 人工配完 Resend 与 DNS 之后，用这一条告诉后端「可以发营销邮件了」。
+   *
+   * ⚠️ 不接受手填地址 —— 服务端会去问 Resend 域名验没验过，验过了才写库。
+   * 详见 `commands.ts` 的 `setMarketingEmailForLocation`。
+   */
+  app.post<{ Params: { locationId: string } }>(
+    '/v1/platform/stores/:locationId/marketing-email', async (req) => {
+    const op = await operatorFrom(req);
+    const locationId = parseOrThrow(uuid, req.params.locationId);
+    const body = parseOrThrow(
+      PlatformSetMarketingEmailInput.omit({ locationId: true }), req.body ?? {});
+    const panel = await read(() => platformMessagingPanel(op.userId, locationId)) as
+      { orgId?: string; slug?: string } | null;
+    if (!panel?.orgId || !panel.slug) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
+    }
+    return setMarketingEmailForLocation(
+      op, panel.orgId, panel.slug, { ...body, locationId }, req.ip);
+  });
 
   app.get('/v1/platform/support-requests', async (req) => {
     const op = await operatorFrom(req);

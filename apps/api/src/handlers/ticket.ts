@@ -8,7 +8,7 @@
 import type postgres from 'postgres';
 import {
   TicketOpen, TicketAddItem, TicketClose, TicketPay, TicketVoid,
-  TicketGroup, TicketUngroup, TicketCloseGroup, TicketSendReceipt, TicketRefund,
+  TicketGroup, TicketUngroup, TicketCloseGroup, TicketRefund,
   AppError, ERROR_CODES, type CommandContext, pickText
 } from '@gf/contracts';
 import {
@@ -17,12 +17,9 @@ import {
   TipPolicyError, type ServiceLine, type TipPolicy,
 } from '@gf/payroll';
 import { businessDateOf } from '@gf/scheduling';
-import { jsonb, smsOptedOut } from '@gf/db';
+import { jsonb } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
 import { redeemForTicket } from './giftcard';
-import { segmentsOf } from '../sms/segments';
-import { flushSms } from '../sms/flush';
-import { flushEmails } from '../email/flush';
 import {
   loadPlans, writeCommissionEarnings, writeTipEarning, assertDayOpen,
   type LoadedPlans, type TicketRevenueRow,
@@ -1405,136 +1402,15 @@ registerHandler(TicketVoid, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   return { ticketId: input.ticketId, status: 'voided' as const };
 });
 
-registerHandler(TicketSendReceipt, async ({ input, ctx, tx, audit }) => {
-  const [t] = await tx<{
-    id: string; total_cents: number; subtotal_cents: number;
-    discount_cents: number; tax_cents: number; tip_cents: number;
-    customer_id: string | null; walk_in_name: string | null;
-    business_date: string;
-  }[]>`
-    select id, total_cents, subtotal_cents, discount_cents, tax_cents, tip_cents,
-           customer_id, walk_in_name, business_date::text as business_date
-    from tickets where id = ${input.ticketId} and location_id = ${ctx.locationId}`;
+/*
+ * ⚠️ `ticket.sendReceipt` 已于 2026-09-01 整体移除（店主定）。
+ *
+ * 消费小票不再通过短信或邮件发送，只保留打印。移除的是**整条命令**而不是
+ * 加一个开关：留着一条永远返回错误的命令，前台仍会看到那个按钮、点下去
+ * 拿到一句报错，而她无从判断这是故障还是设计。
+ *
+ * 一并移除的还有 `location_checkout_settings.auto_send_sms_receipt` 的
+ * 界面入口与 `checkout.receipt*` 那组文案。数据库那一列保留 —— 删列要停机，
+ * 而它现在没有任何读取方。
+ */
 
-  if (!t) {
-    throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket', id: input.ticketId } });
-  }
-
-  // 查询工单项目
-  const items = await tx<{ name_snapshot: string; total_cents: number }[]>`
-    select name_snapshot, total_cents from ticket_items where ticket_id = ${t.id}`;
-
-  let custPhone: string | null = null;
-  let custEmail: string | null = null;
-  let custName: string = t.walk_in_name ?? 'Valued Guest';
-
-  if (t.customer_id) {
-    const [c] = await tx<{ phone_e164: string | null; email: string | null; display_name: string | null }[]>`
-      select phone_e164, email, display_name from customers where id = ${t.customer_id}`;
-    if (c) {
-      custPhone = c.phone_e164;
-      custEmail = c.email;
-      if (c.display_name) custName = c.display_name;
-    }
-  }
-
-  const [loc] = await tx<{ name: unknown }[]>`
-    select name from locations where id = ${ctx.locationId}`;
-  const storeName = pickText(loc?.name, ctx.locale, 'Lotus Nails');
-
-  let outboxId = '';
-  let finalDestination = input.destination?.trim() ?? '';
-
-  if (input.channel === 'sms') {
-    if (!finalDestination) {
-      finalDestination = custPhone ?? '';
-    }
-    if (!finalDestination) {
-      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-        details: { reason: 'missing_destination_phone' },
-      });
-    }
-
-    const itemsSummary = items.map((i) => `${i.name_snapshot} ($${(i.total_cents / 100).toFixed(2)})`).join(', ');
-    const totalFormatted = `$${(t.total_cents / 100).toFixed(2)}`;
-    const body = `${storeName}: Thank you ${custName}! Receipt for ${t.business_date}. Items: ${itemsSummary}. Total: ${totalFormatted}.`;
-
-    const segments = segmentsOf(body);
-    const isOptedOut = await smsOptedOut(finalDestination);
-    const status: 'suppressed' | 'pending' = isOptedOut ? 'suppressed' : 'pending';
-    const fromE164 = process.env['TELNYX_SMS_FROM'] ?? '+18005550199';
-
-    const [out] = await tx<{ id: string }[]>`
-      insert into sms_outbox (
-        org_id, location_id, kind, to_e164, from_e164, body, segments,
-        entity_type, entity_id, status, last_error
-      ) values (
-        ${ctx.orgId}, ${ctx.locationId}, 'direct_message', ${finalDestination},
-        ${fromE164}, ${body}, ${segments}, 'ticket', ${t.id},
-        ${status}, ${isOptedOut ? 'opted_out' : null}
-      )
-      returning id`;
-
-    outboxId = out!.id;
-
-    if (status === 'pending') {
-      void flushSms({
-        orgId: ctx.orgId,
-        locationId: ctx.locationId,
-        membershipId: ctx.membershipId,
-      });
-    }
-  } else {
-    // Email channel
-    if (!finalDestination) {
-      finalDestination = custEmail ?? '';
-    }
-    if (!finalDestination) {
-      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-        details: { reason: 'missing_destination_email' },
-      });
-    }
-
-    const subject = `${storeName} Receipt - Ticket #${t.id.slice(0, 8)}`;
-    const itemsSummary = items.map((i) => `${i.name_snapshot}: $${(i.total_cents / 100).toFixed(2)}`).join('\n');
-    const body = `Thank you for visiting ${storeName}!\n\nDate: ${t.business_date}\n\nItems:\n${itemsSummary}\n\nSubtotal: $${(t.subtotal_cents / 100).toFixed(2)}\nDiscount: -$${(t.discount_cents / 100).toFixed(2)}\nTax: $${(t.tax_cents / 100).toFixed(2)}\nTip: $${(t.tip_cents / 100).toFixed(2)}\nTotal Paid: $${(t.total_cents / 100).toFixed(2)}\n\nWe look forward to seeing you again soon!`;
-
-    const bodyHtml = `<p>Thank you for visiting <strong>${storeName}</strong>!</p><p><strong>Date:</strong> ${t.business_date}</p><pre>${itemsSummary}</pre><p><strong>Total Paid:</strong> $${(t.total_cents / 100).toFixed(2)}</p>`;
-
-    const [out] = await tx<{ id: string }[]>`
-      insert into email_outbox (
-        org_id, location_id, kind, to_email, subject, body_html, body_text,
-        entity_type, entity_id, status
-      ) values (
-        ${ctx.orgId}, ${ctx.locationId}, 'receipt', ${finalDestination},
-        ${subject}, ${bodyHtml}, ${body}, 'ticket', ${t.id}, 'pending'
-      )
-      returning id`;
-
-    outboxId = out!.id;
-
-    void flushEmails({
-      orgId: ctx.orgId,
-      locationId: ctx.locationId,
-      membershipId: ctx.membershipId,
-    });
-  }
-
-  audit({
-    entityType: 'ticket_receipt',
-    entityId: t.id,
-    before: {},
-    after: {
-      channel: input.channel,
-      destination: finalDestination,
-      outboxId,
-    },
-  });
-
-  return {
-    ticketId: t.id,
-    channel: input.channel,
-    destination: finalDestination,
-    outboxId,
-  };
-});

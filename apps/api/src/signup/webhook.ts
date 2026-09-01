@@ -20,6 +20,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { provisionTenant, withTenant } from '@gf/db';
 import { stripeClient, type Stripe } from '../stripe/client';
 import { sendActivationEmail, activationRedirectUrl } from './activation';
+import { ownerLocaleFromStripe } from '../email/locale';
 
 export interface SignupOutcome {
   orgId: string;
@@ -63,12 +64,24 @@ function emailsAgree(session: Stripe.Checkout.Session, claimed: string): boolean
 
 function readMetadata(session: Stripe.Checkout.Session): SignupMetadata {
   const m = session.metadata ?? {};
+  /*
+   * ⭐ 语言以**会话对象上的 `locale`** 为准，metadata 只作回退。
+   *
+   * 该字段即结账页实际渲染所用的语言（由 `signup/checkout.ts` 显式下发）。
+   * 以它为准而非 metadata，是因为 metadata 可能因历史版本缺失或被人工改动，
+   * 而 `session.locale` 由 Stripe 自身记录，与店主当时看到的页面一一对应。
+   *
+   * 二者皆不可用时回退 `'en'` —— 店主确认的默认语言。
+   */
+  const locale = ownerLocaleFromStripe(session.locale)
+    ?? ownerLocaleFromStripe(m['gf_locale'])
+    ?? 'en';
   return {
     shopName: m['gf_shop_name'] ?? '',
     ownerEmail: m['gf_owner_email'] ?? '',
     businessType: m['gf_business_type'] ?? '',
     timezone: m['gf_timezone'] ?? '',
-    locale: m['gf_locale'] ?? '',
+    locale,
     plan: m['gf_plan'] ?? '',
     phone: m['gf_phone'] || null,
   };

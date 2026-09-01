@@ -20,6 +20,7 @@ import { dispatch } from '../bus';
 import {
   loadDeskSettings, loadCheckoutSettings, load10DlcStatus, loadIntakeWaiver, loadWebhooks,
 } from '../queries/settings';
+import { loadNotificationSettings } from '../queries/notificationSettings';
 import type { CtxFromHeaders } from './utils';
 
 export function registerSettingsRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHeaders): void {
@@ -34,6 +35,22 @@ export function registerSettingsRoutes(app: FastifyInstance, ctxFromHeaders: Ctx
   };
   app.get('/v1/desk/settings', handleDeskSettings);
   app.get('/api/desk/settings', handleDeskSettings);
+
+  /**
+   * 外发通知的配置：12 个事件的规则、在用的模板、节日日程，以及**闸门状态**。
+   *
+   * ⚠️ 闸门状态是这一页最要紧的一半。只给开关不给闸门，店主打开之后唯一能
+   * 得到的反馈是「什么也没发生」—— 而那不会报错（`queries/notificationSettings.ts`）。
+   */
+  const handleNotificationSettings = async (req: FastifyRequest) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+    }
+    return withTenant(ctx, (tx) => loadNotificationSettings(tx, ctx));
+  };
+  app.get('/v1/desk/settings/notifications', handleNotificationSettings);
+  app.get('/api/desk/settings/notifications', handleNotificationSettings);
 
   const handleSaveLocation = async (req: FastifyRequest<{ Body: Record<string, unknown> }>) => {
     const ctx = await ctxFromHeaders(req);

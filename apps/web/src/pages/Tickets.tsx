@@ -49,7 +49,6 @@ import {
   useVoidTicket,
   useRefundTicket,
   useOrdersQuery,
-  useSendReceipt,
 } from '@/features/tickets/api';
 import type { TicketSummary, VoidReason } from '@/features/tickets/types';
 import { exportToCSV, exportToExcel } from '@/lib/exportUtils';
@@ -123,7 +122,6 @@ function TicketsContent() {
   const { data, isLoading, error, refetch: refetchTickets } = useTicketsList();
   const voidMutation = useVoidTicket();
   const refundMutation = useRefundTicket();
-  const sendReceiptMutation = useSendReceipt();
 
   // 1. 筛选状态控制
   const [searchTerm, setSearchTerm] = useState('');
@@ -1202,30 +1200,6 @@ function TicketsContent() {
                 <span>Print Receipt</span>
               </Button>
               <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="text-xs font-bold gap-1 text-teal-700 bg-teal-50 border-teal-200 hover:bg-teal-100"
-                  isPending={sendReceiptMutation.isPending}
-                  onClick={async () => {
-                    try {
-                      const result = await sendReceiptMutation.mutateAsync({
-                        ticketId: selectedRecord.ticketId,
-                        channel: 'sms',
-                        ...(selectedRecord.customerPhone ? { destination: selectedRecord.customerPhone } : {}),
-                      });
-                      toast.success(t('checkout.tkReceiptSent', {
-                        p0: selectedRecord.customerName || t('checkout.walkInGuest'),
-                        p1: result.destination,
-                      }));
-                    } catch (err) {
-                      toast.danger(errorMessage(err));
-                    }
-                  }}
-                >
-                  <Send className="w-3.5 h-3.5 text-teal-600" />
-                  <span>{t('checkout.tkSendReceipt')}</span>
-                </Button>
                 {selectedRecord.status === 'completed' && (
                   <Button
                     size="sm"

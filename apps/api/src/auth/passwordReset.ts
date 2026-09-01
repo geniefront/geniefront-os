@@ -44,13 +44,12 @@ import { checkRateLimits } from '../public/rateLimit';
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 /**
- * 落地页。**域名一律用我们自己配的，不接受任何外部输入**
- * （和 `signup/activation.ts` 的 `activationRedirectUrl` 同一条纪律）。
+ * 落地页。**域名与路径一律取自服务端配置，不接受任何外部输入**
+ * （与 `signup/activation.ts` 的 `activationRedirectUrl` 同一条纪律），
+ * 并由 `links.ts` 按环境分流。
  */
-export function resetRedirectUrl(): string {
-  const base = (process.env['APP_BASE_URL'] ?? 'https://desk.geniefront.com').replace(/\/+$/, '');
-  return `${base}/reset-password`;
-}
+import { resetRedirectUrl } from '../links';
+export { resetRedirectUrl };
 
 /** 限频 key 里不放明文邮箱 —— 那会把客户名单一份份寄进第三方的 Redis */
 const emailKey = (email: string): string =>

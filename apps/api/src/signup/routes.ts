@@ -4,7 +4,12 @@ import { lookupSignupSession } from './sessionStatus';
 
 export function registerSignupCheckoutRoutes(app: FastifyInstance): void {
   app.post('/v1/public/signup-checkout', async (req) => {
-    return createSignupCheckout(req.body, { ip: req.ip, log: req.log });
+    return createSignupCheckout(req.body, {
+      ip: req.ip,
+      // 结账页语言由此决定，并沿用为店主账单邮件的默认语言
+      acceptLanguage: req.headers['accept-language'],
+      log: req.log,
+    });
   });
 
   /**

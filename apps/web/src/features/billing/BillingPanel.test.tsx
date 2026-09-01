@@ -78,6 +78,20 @@ vi.mock('./api', () => ({
   useSetAutoTopup: () => autoTopupState,
 }));
 
+/**
+ * 账单邮件语言那一项走的是 settings 的查询与命令，此处一并替身 ——
+ * 它们内部要 `useSession()`，而本测试不套 SessionProvider。
+ */
+const emailLocaleMutate = vi.fn();
+const deskSettingsState = { data: { emailLocale: 'en' as const } };
+vi.mock('@/features/settings/api', () => ({
+  useDeskSettingsQuery: () => deskSettingsState,
+  useSetEmailLocale: () => ({
+    isPending: false,
+    mutate: (...args: unknown[]) => emailLocaleMutate(...args),
+  }),
+}));
+
 function quota(
   unit: 'credit' | 'voice_minute',
   used: number,

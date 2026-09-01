@@ -40,9 +40,7 @@ export function emailConfigured(): boolean {
  * 一个真的邮件客户端里看排版和链接。**投不投得进去都不影响结果** ——
  * 发件箱里那一整封才是凭据，Mailpit 只是个方便看的窗口。
  */
-async function captureEmail(msg: {
-  to: string; subject: string; html: string; text: string;
-}): Promise<SendResult> {
+async function captureEmail(msg: OutgoingEmail): Promise<SendResult> {
   const endpoint = mailpitEndpoint();
   if (endpoint) {
     try {
@@ -65,9 +63,32 @@ async function captureEmail(msg: {
   return { ok: true, captured: true, providerId: `capture:${randomUUID()}` };
 }
 
-export async function sendEmail(msg: {
-  to: string; subject: string; html: string; text: string;
-}): Promise<SendResult> {
+export interface OutgoingEmail {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+  /**
+   * 一键退订地址（RFC 8058）。**仅营销类邮件有值**。
+   *
+   * 有值时写两个头：`List-Unsubscribe` 指向该地址，`List-Unsubscribe-Post`
+   * 声明其支持一键退订。缺了后一个，Gmail 与 Outlook 不会在界面上显示
+   * 「取消订阅」按钮 —— 收件人于是只能点「举报垃圾邮件」，而那会直接
+   * 损害发信域名的信誉。
+   */
+  unsubscribeUrl?: string | null;
+  /**
+   * 覆盖发件地址。**仅营销邮件有值**（门店自己的
+   * `marketing_email_from`，须已在 Resend 完成域名验证）。
+   *
+   * ⚠️ 事务性邮件一律用平台的 `FROM_EMAIL`。用平台域名群发商业邮件，
+   * 投诉率与退信率会算到平台头上 —— 一家店的营销邮件被举报，受损的是
+   * 所有门店事务性邮件的送达率。
+   */
+  from?: string | null;
+}
+
+export async function sendEmail(msg: OutgoingEmail): Promise<SendResult> {
   /**
    * 🔴 **capture 模式与测试进程里一封都不许真发。**
    *
@@ -91,7 +112,16 @@ export async function sendEmail(msg: {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from, to: [msg.to], subject: msg.subject, html: msg.html, text: msg.text,
+        from: msg.from || from,
+        to: [msg.to], subject: msg.subject, html: msg.html, text: msg.text,
+        ...(msg.unsubscribeUrl
+          ? {
+              headers: {
+                'List-Unsubscribe': `<${msg.unsubscribeUrl}>`,
+                'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+              },
+            }
+          : {}),
       }),
       signal: AbortSignal.timeout(15_000),
     });

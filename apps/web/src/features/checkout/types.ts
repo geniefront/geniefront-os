@@ -124,15 +124,4 @@ export interface GiftCardVerifyResult {
   status: string;
 }
 
-export interface SendTicketReceiptInput {
-  ticketId: string;
-  channel: 'sms' | 'email';
-  destination?: string;
-}
 
-export interface SendTicketReceiptResult {
-  ticketId: string;
-  channel: 'sms' | 'email';
-  destination: string;
-  outboxId: string;
-}

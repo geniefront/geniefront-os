@@ -4,6 +4,8 @@ import {
 } from '@gf/contracts';
 import { jsonb } from '@gf/db';
 import { registerHandler } from '../bus';
+import { enqueueDirectSms } from '../sms/direct';
+import { flushSms } from '../sms/flush';
 
 // ─────────────────────────────────────────────────────────── customer.saveProfile
 
@@ -346,42 +348,51 @@ registerHandler(customerSendSms, async ({ input, ctx, tx, audit, emit }) => {
     });
   }
 
-  const [loc] = await tx<{ phone: string | null }[]>`
-    select phone from locations where id = ${ctx.locationId}`;
-  const fromPhone = loc?.phone || '+15550000000';
-
-  const segments = Math.max(1, Math.ceil(input.body.length / 160));
-
-  const [row] = await tx<{ id: string }[]>`
-    insert into sms_outbox (
-      org_id, location_id, kind, to_e164, from_e164, body, segments,
-      entity_type, entity_id, status, attempts, created_at
-    ) values (
-      ${ctx.orgId}, ${ctx.locationId}, 'direct_message', ${cust.phone_e164}, ${fromPhone},
-      ${input.body}, ${segments}, 'customer', ${cust.id},
-      'pending', 0, now()
-    )
-    returning id`;
+  /*
+   * ⚠️ 入队一律走 `enqueueDirectSms`。
+   *
+   * 此前本处自行实现，与 `sms.sendDirect` 存在三项不一致，且三项均有确定
+   * 后果：发件号取门店座机（未在 10DLC 注册）、不检查退订、分段计数用
+   * `Math.ceil(len/160)`（对 UCS-2 内容低估一倍以上，而计费按段记录）。
+   * 详见 `sms/direct.ts` 文件头。
+   */
+  const res = await enqueueDirectSms(tx, {
+    orgId: ctx.orgId,
+    locationId: ctx.locationId,
+    toE164: cust.phone_e164,
+    body: input.body,
+    entityType: 'customer',
+    entityId: cust.id,
+  });
 
   audit({
     entityType: 'customer_sms',
     entityId: cust.id,
     after: {
-      outboxId: row!.id,
+      outboxId: res.outboxId,
       phone: cust.phone_e164,
-      bodyPreview: input.body.slice(0, 50),
-      segments,
+      bodyPreview: res.body.slice(0, 50),
+      segments: res.segments,
+      status: res.status,
     },
   });
 
   emit({ type: 'sms.sent', entityId: cust.id });
 
+  if (res.status === 'pending') {
+    void flushSms({
+      orgId: ctx.orgId,
+      locationId: ctx.locationId,
+      membershipId: ctx.membershipId,
+    });
+  }
+
   return {
-    outboxId: row!.id,
+    outboxId: res.outboxId,
     customerId: cust.id,
     phone: cust.phone_e164,
-    segments,
-    status: 'pending' as const,
+    segments: res.segments,
+    status: res.status,
   };
 });
 

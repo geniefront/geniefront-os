@@ -324,27 +324,6 @@ export const TicketCloseGroup = defineCommand({
   auditRedact: MONEY_PATHS,
 });
 
-export const TicketSendReceipt = defineCommand({
-  name: 'ticket.sendReceipt',
-  input: z.object({
-    ticketId: uuid,
-    channel: z.enum(['sms', 'email']),
-    destination: z.string().optional(),
-  }),
-  output: z.object({
-    ticketId: uuid,
-    channel: z.enum(['sms', 'email']),
-    destination: z.string(),
-    outboxId: uuid,
-  }),
-  permission: 'ticket.write',
-  ai: {
-    description: '通过短信或邮件向客人发送电子小票。',
-    confirm: 'always',
-  },
-  reversible: false,
-  idempotency: 'optional',
-});
 
 export const TicketRefund = defineCommand({
   name: 'ticket.refund',
@@ -375,5 +354,5 @@ export const TicketRefund = defineCommand({
 
 export const TICKET_COMMANDS = [
   TicketOpen, TicketAddItem, TicketClose, TicketPay, TicketVoid,
-  TicketGroup, TicketUngroup, TicketCloseGroup, TicketSendReceipt, TicketRefund,
+  TicketGroup, TicketUngroup, TicketCloseGroup, TicketRefund,
 ] as const;

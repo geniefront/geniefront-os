@@ -11,7 +11,7 @@ import {
   SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
   SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
-  SaveCheckoutSettings, Apply10Dlc, SaveIntakeWaiver, SaveWebhooks,
+  SaveCheckoutSettings, Apply10Dlc, SaveIntakeWaiver, SaveWebhooks, SetEmailLocale,
   ROLE_PRESETS,
   AppError, ERROR_CODES, pickText,
 } from '@gf/contracts';
@@ -268,6 +268,8 @@ registerHandler(SaveLocationProfile, async ({ input, ctx, tx, audit }: HandlerAr
       address_state = coalesce(${input.addressState ?? null}, address_state),
       address_zip = coalesce(${input.addressZip ?? null}, address_zip),
       business_day_cutoff = coalesce(${input.businessDayCutoff ?? null}::time, business_day_cutoff),
+      appointment_email_copy_to_shop = coalesce(
+        ${input.appointmentEmailCopyToShop ?? null}, appointment_email_copy_to_shop),
       /**
        * ⭐ 记一句「老板亲眼确认过这几项」。
        */
@@ -285,6 +287,8 @@ registerHandler(SaveLocationProfile, async ({ input, ctx, tx, audit }: HandlerAr
       ...(input.slug ? { slug: input.slug } : {}),
       ...(input.phone ? { phone: input.phone } : {}),
       ...(input.email ? { email: input.email } : {}),
+      ...(input.appointmentEmailCopyToShop !== undefined
+        ? { appointmentEmailCopyToShop: input.appointmentEmailCopyToShop } : {}),
     },
   });
   return { locationId: ctx.locationId };
@@ -802,4 +806,31 @@ registerHandler(SaveWebhooks, async ({ input, ctx, tx, audit }: HandlerArgs<
   });
 
   return { locationId: ctx.locationId, webhookId: row!.id };
+});
+
+// ─────────────────────────────────────────────────────── 店主邮件语言
+
+/**
+ * `org.setEmailLocale` —— 改 `organizations.default_locale`。
+ *
+ * ⚠️ 该列是**店主计费类邮件语言**的唯一事实源（`email/locale.ts`），
+ * 与 `users.locale`（界面语言，按人存）是两件事，禁止合并。
+ *
+ * ⚠️ 顾客侧邮件与短信恒为英语，不受本设置影响。
+ */
+registerHandler(SetEmailLocale, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SetEmailLocale.input._type>) => {
+  const [before] = await tx<{ locale: string | null }[]>`
+    select default_locale as locale from organizations where id = ${ctx.orgId}`;
+
+  await tx`
+    update organizations set default_locale = ${input.locale} where id = ${ctx.orgId}`;
+
+  audit({
+    entityType: 'organization', entityId: ctx.orgId,
+    before: { emailLocale: before?.locale ?? null },
+    after: { emailLocale: input.locale },
+  });
+
+  return { locale: input.locale };
 });

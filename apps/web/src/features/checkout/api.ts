@@ -122,18 +122,6 @@ export async function verifyGiftCard(code: string): Promise<import('./types').Gi
   );
 }
 
-export function useSendTicketReceipt() {
-  const { membershipId } = useSession();
-
-  return useMutation({
-    mutationFn: async (input: import('./types').SendTicketReceiptInput) =>
-      (await runCommand<import('./types').SendTicketReceiptResult>(
-        'ticket.sendReceipt',
-        input,
-        membershipId!,
-      )).result,
-  });
-}
 
 /**
  * 金额解析：把用户输入的美元字符串转为整数分。

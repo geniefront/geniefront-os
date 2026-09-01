@@ -20,6 +20,11 @@ export interface LocationSettings {
   status: string;
   hasAddress: boolean;
   profileConfirmedAt: string | null;
+  /**
+   * 预约确认 / 改期 / 取消 / 提醒的邮件是否抄送门店自己一份。
+   * ⚠️ 抄送地址取上面的 `email`，为空则不抄送。
+   */
+  appointmentEmailCopyToShop?: boolean;
 }
 
 export interface ServiceItem {
@@ -151,8 +156,18 @@ export interface WebhookConfigItem {
   createdAt: string;
 }
 
+/**
+ * 发给店主的账单类邮件用哪种语言。
+ *
+ * ⚠️ 与界面语言（`staff.setLocale`，按人存）是两件事。
+ * 顾客侧的邮件与短信恒为英语，不受该设置影响。
+ */
+export type EmailLocale = 'en' | 'zh-Hans' | 'zh-Hant' | 'ko' | 'vi' | 'es';
+
 export interface DeskSettings {
   location: LocationSettings;
+  /** 账单类邮件的语言。事实源是 organizations.default_locale */
+  emailLocale?: EmailLocale;
   services: ServiceItem[];
   staff: StaffItem[];
   levels: StaffLevelItem[];
@@ -178,6 +193,7 @@ export interface SaveLocationProfileInput {
   addressState?: string;
   addressZip?: string;
   businessDayCutoff?: string;
+  appointmentEmailCopyToShop?: boolean;
 }
 
 export interface SaveBusinessHoursInput {

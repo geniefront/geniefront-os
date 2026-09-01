@@ -45,7 +45,8 @@ import {
   paymentMethodLabel, stripeDefaultPaymentMethod, declineReason, isPlan, type Stripe,
 } from './client';
 import { maybeAutoTopup } from '../billing/autoTopup';
-import { safePortalReturnUrl, safeReturnUrls } from './returnUrl';
+import { billingPortalUrl, safePortalReturnUrl, safeReturnUrls } from '../links';
+import { isZhLocale, ownerLocaleOf, type OwnerLocale } from '../email/locale';
 import { resolveWebhookTenant } from './tenant';
 import {
   renderTrialEnding, renderPaymentFailed, renderSubscriptionCanceled, formatWhen,
@@ -1086,7 +1087,9 @@ export function registerStripeRoutes(
         shopName: shop.shopName,
         amountText: `$${(inv.amount_due / 100).toFixed(2)}`,
         nextAttemptText: inv.next_payment_attempt
-          ? formatWhen(new Date(inv.next_payment_attempt * 1000).toISOString(), shop.timezone)
+          ? formatWhen(
+              new Date(inv.next_payment_attempt * 1000).toISOString(),
+              shop.timezone, shop.locale)
           : null,
         billingUrl: billingPortalUrl(),
         locale: shop.locale,
@@ -1111,8 +1114,10 @@ export function registerStripeRoutes(
       entityId: stableUuid(`cancel:${args.subscriptionId}:${args.endsAtIso ?? ''}`),
       render: (shop) => renderSubscriptionCanceled({
         shopName: shop.shopName,
+        // ⚠️ null 交由模板按语言给兜底文案；此前在这里硬写中文串，
+        //    英文信里会出现「当期结束时」
         endsAtText: args.endsAtIso
-          ? formatWhen(args.endsAtIso, shop.timezone) : '当期结束时',
+          ? formatWhen(args.endsAtIso, shop.timezone, shop.locale) : null,
         atPeriodEnd: args.atPeriodEnd,
         billingUrl: billingPortalUrl(),
         locale: shop.locale,
@@ -1177,7 +1182,8 @@ export function registerStripeRoutes(
     email: string;
     shopName: string;
     timezone: string;
-    locale: string;
+    /** 店主的邮件语言。事实源是 `organizations.default_locale`（`email/locale.ts`） */
+    locale: OwnerLocale;
     accountId: string;
     plan: string;
   }
@@ -1214,20 +1220,25 @@ export function registerStripeRoutes(
     if (!acct) return null;
 
     const nameObj = (loc?.name ?? {}) as Record<string, string>;
+    const locale = ownerLocaleOf(loc?.default_locale);
+    /*
+     * ⚠️ 店名按**收件人的语言**取，英语优先。
+     *
+     * 此前的取值顺序是 `zh-Hans` 优先且兜底为中文的「你的门店」——
+     * 于是一封英文账单邮件的标题与正文里出现中文店名。
+     */
+    const preferred = isZhLocale(locale)
+      ? (nameObj['zh-Hans'] ?? nameObj['zh-Hant'] ?? nameObj['en'])
+      : (nameObj['en'] ?? nameObj['zh-Hans']);
     return {
       email: owner.email,
-      shopName: nameObj['zh-Hans'] ?? nameObj['en'] ?? Object.values(nameObj)[0] ?? '你的门店',
+      shopName: preferred ?? Object.values(nameObj)[0]
+        ?? (isZhLocale(locale) ? '你的门店' : 'your shop'),
       timezone: loc?.timezone ?? 'UTC',
-      locale: loc?.default_locale ?? 'en',
+      locale,
       accountId: acct.id,
       plan: acct.plan,
     };
-  }
-
-  /** 老板自助管理订阅的入口。信里唯一的可点动作 */
-  function billingPortalUrl(): string {
-    return `${(process.env['APP_BASE_URL'] ?? 'https://desk.geniefront.com')
-      .replace(/\/+$/, '')}/?tab=billing`;
   }
 
   /**
@@ -1306,13 +1317,21 @@ export function registerStripeRoutes(
         return false;
       }
 
+      /*
+       * ⚠️ 日期与金额文案均按**收件人的语言**生成。
+       * 此前 `formatWhen` 缺省 `zh-CN`、`monthlyText` 硬写「每月 $99」，
+       * 两者在英文分支中原样出现，构成一封中英混排的账单邮件。
+       */
+      const zh = isZhLocale(shop.locale);
+      const monthlyUsd = shop.plan === 'growth' ? 199 : 99;
       const msg = renderTrialEnding({
         shopName: shop.shopName,
         chargeDateText: sub.trial_end
-          ? formatWhen(new Date(sub.trial_end * 1000).toISOString(), shop.timezone)
-          : '试用结束当天',
+          ? formatWhen(new Date(sub.trial_end * 1000).toISOString(),
+                       shop.timezone, shop.locale)
+          : (zh ? '试用结束当天' : 'the last day of your trial'),
         planLabel: shop.plan === 'growth' ? 'Growth' : 'Essential',
-        monthlyText: shop.plan === 'growth' ? '每月 $199' : '每月 $99',
+        monthlyText: zh ? `每月 $${monthlyUsd}` : `$${monthlyUsd}/month`,
         billingUrl: billingPortalUrl(),
         locale: shop.locale,
       });

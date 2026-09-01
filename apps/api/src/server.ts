@@ -54,6 +54,8 @@ import { registerSignupCheckoutRoutes } from './signup/routes';
 import { registerCopilotRoutes } from './copilot/routes';
 import { registerAuthRoutes } from './auth/routes';
 import { registerPasswordResetRoutes } from './auth/passwordReset';
+import { registerEmailUnsubscribeRoutes } from './email/unsubscribeRoutes';
+import { registerResendWebhook } from './email/resendWebhook';
 import { staffContextFromToken, STAFF_TOKEN_HEADER } from './auth/staffSession';
 import { registerRawBodyParser } from './rawBody';
 import { flushEmails } from './email/flush';
@@ -213,7 +215,24 @@ export function buildServer(): FastifyInstance {
   const systemOnlyCommands = new Set(
     registeredCommands().filter((c) => c.system === true).map((c) => c.name),
   );
-  const ENQUEUES_NOTIFICATIONS = new Set(['appointment.create']);
+  /**
+   * 这些命令会往发件箱里写东西，写完立刻投递一次。
+   *
+   * ⚠️ 漏一个的表现是**安静的**：信躺在队里，直到这家店下一次执行清单里
+   * 的某条命令才被顺带发出去 —— 一条取消通知可能因此晚几个小时。
+   * `appointment.reschedule` / `appointment.cancel`（批 8 起会发通知）与
+   * `form.share` 此前都不在清单里。
+   *
+   * ⚠️ 这份清单是**快路径**，不是唯一保障。真正的兜底是
+   * `ops/outboxSweep.ts` 的定时扫描 —— 计费类的信由 Stripe webhook 写入，
+   * 根本不经过这条命令总线。
+   */
+  const ENQUEUES_NOTIFICATIONS = new Set([
+    'appointment.create',
+    'appointment.reschedule',
+    'appointment.cancel',
+    'form.share',
+  ]);
 
   const handleCommand = async (req: FastifyRequest<{ Params: { name: string } }>, reply: FastifyReply) => {
     const name = req.params.name;
@@ -276,6 +295,10 @@ export function buildServer(): FastifyInstance {
   registerCopilotRoutes(app, ctxFromHeaders);
   registerAuthRoutes(app);
   registerPasswordResetRoutes(app);
+  // 营销邮件退订。无需登录 —— CAN-SPAM 要求退订不得设置额外门槛
+  registerEmailUnsubscribeRoutes(app);
+  // Resend 的投递回调：退信与投诉回流（sql/0091）。自带 Svix 验签
+  registerResendWebhook(app);
   registerKioskRoutes(app);
   registerTelnyxRoutes(app);
   registerPublicRoutes(app);

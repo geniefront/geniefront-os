@@ -15,7 +15,9 @@
 import type { FastifyInstance } from 'fastify';
 
 /** 这些前缀下的请求体保持原文，由路由自己验签后再 JSON.parse */
-export const RAW_BODY_PREFIXES = ['/v1/telnyx/', '/v1/stripe/'] as const;
+export const RAW_BODY_PREFIXES = [
+  '/v1/telnyx/', '/v1/stripe/', '/v1/webhooks/resend',
+] as const;
 
 /** 原文包装。路由从 `req.body.raw` 取字节 */
 export interface RawBody { raw: string }

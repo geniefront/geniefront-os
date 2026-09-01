@@ -14,6 +14,8 @@ import {
   AppError, ERROR_CODES, pickText,
 } from '@gf/contracts';
 import { renderConfirm, formatWhen } from '../email/render';
+import { manageBookingUrl } from '../links';
+import { enqueueShopCopy } from '../email/shopCopy';
 import { renderConfirmSms } from '../sms/render';
 import { segmentsOf } from '../sms/segments';
 import { smsConfigured, smsFrom } from '../sms/send';
@@ -322,7 +324,7 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
 
   await enqueueConfirmEmail(tx, ctx, appt!.id, itemIds[0] ?? null,
     input.guest?.manageToken ?? null);
-  await enqueueConfirmSms(tx, ctx, appt!.id, itemIds[0] ?? null, input.guest?.confirmationCode ?? null);
+  await enqueueConfirmSms(tx, ctx, appt!.id, itemIds[0] ?? null);
 
   // 审计由总线统一落库并做金额脱敏
   audit({
@@ -441,12 +443,12 @@ async function enqueueConfirmEmail(
   const [row] = await tx<{
     email: string | null; customer_name: unknown; phone: string | null;
     service_name: unknown; staff_name: unknown;
-    starts_at: string; shop_name: unknown; timezone: string;
+    starts_at: string; shop_name: unknown; timezone: string; public_key: string;
   }[]>`
     select c.email, c.display_name as customer_name, c.phone_e164 as phone,
            s.name as service_name, sp.display_name as staff_name,
            ai.starts_at::text as starts_at,
-           l.name as shop_name, l.timezone
+           l.name as shop_name, l.timezone, l.public_key
     from appointment_items ai
     join appointments a on a.id = ai.appointment_id
     join locations l on l.id = a.location_id
@@ -472,17 +474,32 @@ async function enqueueConfirmEmail(
    * ⚠️ **没留手机号的单不放链接。** 那种单验不了后四位，令牌就又变回单因素了 ——
    * 那条路只留给官网（建单响应里返回过一次令牌），不进邮件。
    */
+  /*
+   * ⚠️ 链接由 `links.ts` 的 `manageBookingUrl()` 构造，禁止在此处拼接：
+   *
+   *   · origin 必须是**对外预约页**（`BOOKING_PAGE_ORIGIN`）。此前取的是
+   *     `APP_BASE_URL`，即员工工作台 —— 顾客点开只会落到登录页；
+   *   · 必须携带门店 `public_key`。该页面调用公开预约 API，每一次请求都
+   *     要求 `X-GF-Public-Key` 头，缺少该参数时页面无法完成任何请求；
+   *   · 兜底值按环境分流，staging 发出的邮件不得指向生产站点。
+   */
   const manageUrl = manageToken && row!.phone
-    ? `${(process.env['APP_BASE_URL'] ?? 'https://desk.geniefront.com').replace(/\/+$/, '')}`
-      + `/b/${appointmentId}?t=${encodeURIComponent(manageToken)}`
+    ? manageBookingUrl({
+        appointmentId, manageToken, publicKey: row!.public_key,
+      })
     : null;
 
+  /*
+   * ⚠️ 顾客侧邮件**恒为英语**（`email/render.ts` 文件头的语言策略）。
+   * 门店名、服务名、技师名一律按 `'en'` 取，不跟随 `ctx.locale` ——
+   * 后者是当前操作员的界面语言，与收件人无关。
+   */
   const msg = renderConfirm({
-    customerName: pickText(row!.customer_name, ctx.locale, '您'),
-    shopName: pickText(row!.shop_name, ctx.locale, ''),
-    serviceName: pickText(row!.service_name, ctx.locale, '预约'),
-    whenText: formatWhen(new Date(row!.starts_at).toISOString(), row!.timezone),
-    staffName: row!.staff_name ? pickText(row!.staff_name, ctx.locale) : null,
+    customerName: pickText(row!.customer_name, 'en', 'there'),
+    shopName: pickText(row!.shop_name, 'en', ''),
+    serviceName: pickText(row!.service_name, 'en', 'your appointment'),
+    whenText: formatWhen(new Date(row!.starts_at).toISOString(), row!.timezone, 'en-US'),
+    staffName: row!.staff_name ? pickText(row!.staff_name, 'en') : null,
     shopPhone: line?.e164 ?? null,
     manageUrl,
   });
@@ -497,6 +514,19 @@ async function enqueueConfirmEmail(
             ${msg.subject}, ${msg.html}, ${msg.text},
             'appointment', ${appointmentId})
     on conflict (entity_type, entity_id, kind) do nothing`;
+
+  // 抄送门店一份（默认开，可在设置里关）。正文与顾客那一封逐字相同
+  await enqueueShopCopy(tx, {
+    orgId: ctx.orgId,
+    locationId: ctx.locationId,
+    kind: 'appointment_confirm',
+    entityType: 'appointment',
+    entityId: appointmentId,
+    subject: msg.subject,
+    html: msg.html,
+    text: msg.text,
+    customerEmail: to,
+  });
 }
 
 
@@ -519,7 +549,7 @@ async function enqueueConfirmEmail(
  */
 async function enqueueConfirmSms(
   tx: HandlerArgs<Input>['tx'], ctx: HandlerArgs<Input>['ctx'],
-  appointmentId: string, firstItemId: string | null, confirmationCode: string | null,
+  appointmentId: string, firstItemId: string | null,
 ): Promise<void> {
   if (!smsConfigured() || !firstItemId) return;
 
@@ -555,7 +585,6 @@ async function enqueueConfirmSms(
     shopSlug: row!.shop_slug,
     serviceName: pickText(row!.service_name, 'en', 'your appointment'),
     whenText: formatWhenSms(new Date(row!.starts_at).toISOString(), row!.timezone),
-    confirmationCode,
     shopPhone: line?.e164 ?? null,
   });
 
@@ -1112,11 +1141,11 @@ async function notifyAppointmentChange(
 ): Promise<void> {
   const [row] = await tx<{
     email: string | null; phone: string | null; customer_name: unknown;
-    locale: string | null; shop_name: unknown; timezone: string;
+    shop_name: unknown; timezone: string;
     service_name: unknown; staff_name: unknown; staff_phone: string | null;
     starts_at: string;
   }[]>`
-    select c.email, c.phone_e164 as phone, c.display_name as customer_name, c.locale,
+    select c.email, c.phone_e164 as phone, c.display_name as customer_name,
            l.name as shop_name, l.timezone,
            s.name as service_name, sp.display_name as staff_name,
            u.phone as staff_phone,
@@ -1137,24 +1166,44 @@ async function notifyAppointmentChange(
     select e164 from phone_lines
     where location_id = ${ctx.locationId} and purpose = 'main' and active limit 1`;
 
-  const when = formatWhen(
+  /*
+   * ⚠️ 模板变量**全部按英语取值**，且时间用短信格式化函数。
+   *
+   * 同一组变量会同时喂给邮件与短信两个渠道，因此其中任何一个非 GSM-7 字符
+   * 都会使整条短信从 GSM-7 退化为 UCS-2（每段 70 字符，计费翻倍，
+   * `sms/segments.ts`）。此前的实现有两个来源会引入中文：
+   *
+   *   · `formatWhen()` 的 locale 缺省为 `zh-CN`，生成「9月1日 周一 下午2:30」；
+   *   · `pickText(..., ctx.locale, ...)` 跟随**当前操作员**的界面语言 ——
+   *     前台把界面切成中文，顾客收到的短信随之变成中文。
+   *
+   * 两者均与收件人无关，故一律锁定英语。
+   */
+  const when = formatWhenSms(
     new Date(args.newStartsAt ?? row.starts_at).toISOString(), row.timezone);
   const vars = {
-    customer_name: pickText(row.customer_name, ctx.locale, ''),
-    shop_name: pickText(row.shop_name, ctx.locale, ''),
-    service_name: pickText(row.service_name, ctx.locale, ''),
-    staff_name: row.staff_name ? pickText(row.staff_name, ctx.locale, '') : '',
+    customer_name: pickText(row.customer_name, 'en', ''),
+    shop_name: pickText(row.shop_name, 'en', ''),
+    service_name: pickText(row.service_name, 'en', ''),
+    staff_name: row.staff_name ? pickText(row.staff_name, 'en', '') : '',
     when,
     old_when: args.oldStartsAt
-      ? formatWhen(new Date(args.oldStartsAt).toISOString(), row.timezone) : '',
+      ? formatWhenSms(new Date(args.oldStartsAt).toISOString(), row.timezone) : '',
     shop_phone: line?.e164 ?? '',
   };
 
+  /*
+   * ⚠️ 模板语言锁定 `'en'`，不使用 `customers.locale`。
+   *
+   * 顾客侧的邮件与短信恒为英语（`email/render.ts` 文件头）。按顾客档案
+   * 选模板时，只要店主配过一份中文模板，`locale = 'zh-Hans'` 的顾客收到的
+   * 就是中文 —— 邮件与短信皆然。
+   */
   await notifyEvent(tx, ctx, {
     event: args.event,
     entityType: 'appointment', entityId: args.appointmentId,
     vars, toEmail: row.email, toPhone: row.phone,
-    locale: row.locale,
+    locale: 'en',
   });
 
   /*
@@ -1164,11 +1213,18 @@ async function notifyAppointmentChange(
    * `appointment` 的话，后写的那条会被 `on conflict do nothing` 吞掉 ——
    * 表现是「客人收到了，技师没收到」，而日志里看不出任何异常。
    */
+  /*
+   * ⚠️ 技师侧同样锁 `'en'`。
+   *
+   * 此前传的是 `row.locale`，即**顾客**的语言 —— 技师因此按顾客的语言
+   * 收到通知。技师侧仅走短信渠道，而短信恒为英语；待日后按渠道分别渲染
+   * 变量之后，技师邮件可再改为跟随其本人的界面语言。
+   */
   await notifyEvent(tx, ctx, {
     event: args.staffEvent,
     entityType: 'appointment_staff', entityId: args.appointmentId,
     vars, toEmail: null, toPhone: row.staff_phone,
-    locale: row.locale,
+    locale: 'en',
   });
 }
 

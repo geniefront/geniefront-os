@@ -10,6 +10,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
+import { formIntakeUrl } from '../links';
 
 export function generateFormToken(): string {
   return `fs_${randomBytes(32).toString('base64url')}`;
@@ -20,19 +21,15 @@ export function hashFormToken(token: string): string {
 }
 
 /**
- * 客人点开的那个地址。
+ * 顾客打开的填表地址。
  *
- * ⭐ 令牌走 **query 而不是 path**：`?t=` 这个形状和自助取消
- * （`/public/v1/bookings/:id?t=`）、门店官网（`?k=pk_…`）一致，
- * 而且前端不需要路由 —— 那一页是个静态 SPA，读一下 location.search 就够了。
+ * ⭐ 令牌走 **query 而非 path**：该形状与自助改期
+ * （`/b/:id?t=`）、门店官网（`?k=pk_…`）保持一致，且前端无需额外路由 ——
+ * 该页面为静态 SPA，读取 `location.search` 即可。
+ *
+ * ⚠️ origin 与路径一律由 `links.ts` 构造，禁止在此处手动拼接：
+ * 兜底值若写成生产域名，local 与 staging 发出的邮件将指向生产站点。
  */
 export function formShareUrl(token: string): string {
-  const base = (
-    process.env['FORM_BASE_URL'] ??
-    process.env['APP_BASE_URL'] ??
-    'https://desk.geniefront.com'
-  ).replace(/\/+$/, '');
-  // 顾客填单页已经合并进 apps/web；`intake` 只是稳定路由占位，
-  // 真正允许填写哪些模板仍完全由一次性 fs_ 令牌决定。
-  return `${base}/forms/intake?t=${encodeURIComponent(token)}`;
+  return formIntakeUrl(token);
 }

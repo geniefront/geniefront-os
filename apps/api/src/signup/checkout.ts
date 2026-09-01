@@ -14,7 +14,10 @@ import { sql } from '@gf/db';
 import { TRIAL_DAYS, isPlan, type Plan } from '@gf/payroll';
 import { checkRateLimits } from '../public/rateLimit';
 import { declineReason, priceIdFor, stripeClient, type Stripe } from '../stripe/client';
-import { signupReturnUrls } from '../stripe/returnUrl';
+import { signupReturnUrls } from '../links';
+import {
+  ownerLocaleFromAcceptLanguage, stripeLocaleFor, type OwnerLocale,
+} from '../email/locale';
 
 export const SignupCheckoutInput = z.object({
   shopName: z.string().trim().min(1).max(80),
@@ -27,6 +30,12 @@ export type SignupCheckoutInput = z.infer<typeof SignupCheckoutInput>;
 export const SIGNUP_CHECKOUT_DEFAULTS = {
   businessType: 'nail',
   timezone: 'America/New_York',
+  /**
+   * ⚠️ 仅在无法推断浏览器语言时使用。语言的实际取值见
+   * `createSignupCheckout` 中的 `ownerLocale` —— 此前该常量被无条件写入
+   * `gf_locale`，导致 `organizations.default_locale` 永远是 `'en'`，
+   * 「结账页语言即邮件语言」这条规则实际从未生效。
+   */
   locale: 'en',
 } as const;
 
@@ -93,7 +102,12 @@ async function hasSignedUpBefore(canonicalEmail: string): Promise<boolean> {
 
 export async function createSignupCheckout(
   input: unknown,
-  ctx: { ip: string; log?: { warn: (o: unknown, m: string) => void } },
+  ctx: {
+    ip: string;
+    /** 浏览器的 `Accept-Language`，用于决定结账页与后续账单邮件的语言 */
+    acceptLanguage?: string | undefined;
+    log?: { warn: (o: unknown, m: string) => void };
+  },
 ): Promise<{ url: string }> {
   const parsed = SignupCheckoutInput.safeParse(input);
   if (!parsed.success) {
@@ -132,12 +146,25 @@ export async function createSignupCheckout(
   const price = priceIdFor(plan);
   const repeatCustomer = await hasSignedUpBefore(ownerEmail);
 
+  /**
+   * ⭐ 结账页语言 = 店主邮件语言（2026-09-01 店主确认）。
+   *
+   * 由浏览器 `Accept-Language` 推断，**显式下发**给 Stripe，再由 webhook
+   * 从会话对象回读写入 `organizations.default_locale`。不使用 `auto`：
+   * 那样 Checkout Session 的 `locale` 字段回读到的仍是 `'auto'`，
+   * 页面实际渲染成哪种语言无从查证（`email/locale.ts`）。
+   *
+   * 店主之后可在后台「邮件语言」中改（命令 `org.setEmailLocale`）。
+   */
+  const ownerLocale: OwnerLocale = ownerLocaleFromAcceptLanguage(ctx.acceptLanguage);
+
   let session: Pick<Stripe.Checkout.Session, 'id' | 'url'>;
   try {
     session = await createCheckoutSession({
       mode: 'subscription',
       line_items: [{ price, quantity: 1 }],
       customer_email: ownerEmail,
+      locale: stripeLocaleFor(ownerLocale),
       success_url: successUrl,
       cancel_url: cancelUrl,
       metadata: {
@@ -147,7 +174,7 @@ export async function createSignupCheckout(
         gf_owner_email: ownerEmail,
         gf_business_type: SIGNUP_CHECKOUT_DEFAULTS.businessType,
         gf_timezone: SIGNUP_CHECKOUT_DEFAULTS.timezone,
-        gf_locale: SIGNUP_CHECKOUT_DEFAULTS.locale,
+        gf_locale: ownerLocale,
       },
       subscription_data: {
         /**

@@ -30,7 +30,7 @@ import {
   RotateCcw,
   AlertCircle,
   Clock,
-  ShieldCheck,
+  ShieldCheck, Bell,
   ShieldAlert,
   FileText,
   CheckCircle2,
@@ -75,6 +75,7 @@ import {
   useSaveWebhooks,
 } from '@/features/settings/api';
 import { BillingPanel } from '@/features/billing/BillingPanel';
+import { NotificationSettingsPanel } from '@/features/notifications/NotificationSettingsPanel';
 import { planNavBadge } from '@/features/billing/display';
 import type {
   ServiceItem,
@@ -141,6 +142,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'ai_phone', label: 'AI 电话语音助手', icon: PhoneCall },
       { id: '10dlc', label: '10DLC 短信资质代办', icon: ShieldCheck, badge: '合规认证' },
+      { id: 'notifications', label: '顾客通知与营销', icon: Bell },
       { id: 'reviews', label: '外部口碑采集', icon: Star },
     ],
   },
@@ -254,6 +256,7 @@ export function Settings() {
   const [customStoreLogoUrl, setCustomStoreLogoUrl] = useState('');
   const [storePhone, setStorePhone] = useState('');
   const [storeEmail, setStoreEmail] = useState('');
+  const [apptEmailCopyToShop, setApptEmailCopyToShop] = useState(true);
   const [storeAddressStreet, setStoreAddressStreet] = useState('');
   const [storeCity, setStoreCity] = useState('');
   const [storeState, setStoreState] = useState('');
@@ -287,7 +290,6 @@ export function Settings() {
   const [cashDrawerFloat, setCashDrawerFloat] = useState('0.00');
   const [receiptFooter, setReceiptFooter] = useState('');
   const [autoPrintReceipt, setAutoPrintReceipt] = useState(false);
-  const [autoSendSmsReceipt, setAutoSendSmsReceipt] = useState(false);
   const [checkoutTiming, setCheckoutTiming] = useState<'service_then_tip' | 'upfront_combined' | 'after_service_combined'>('after_service_combined');
 
   // 4. 在线预约与排班规则
@@ -383,6 +385,7 @@ export function Settings() {
         if (settings.location.businessType) setBusinessType(settings.location.businessType as any);
         setStorePhone(formatPhoneDisplay(settings.location.phone) ?? '');
         setStoreEmail(settings.location.email ?? '');
+        setApptEmailCopyToShop(settings.location.appointmentEmailCopyToShop ?? true);
         setStoreAddressStreet(settings.location.addressStreet ?? '');
         setStoreCity(settings.location.addressCity ?? '');
         setStoreState(settings.location.addressState ?? '');
@@ -402,7 +405,6 @@ export function Settings() {
         }
         setReceiptFooter(settings.checkout.receiptFooterMessage ?? '');
         if (settings.checkout.autoPrintReceipt !== undefined) setAutoPrintReceipt(settings.checkout.autoPrintReceipt);
-        if (settings.checkout.autoSendSmsReceipt !== undefined) setAutoSendSmsReceipt(settings.checkout.autoSendSmsReceipt);
         if (settings.checkout.checkoutTiming) setCheckoutTiming(settings.checkout.checkoutTiming);
       }
       if (settings.guest?.onlineBooking) {
@@ -518,6 +520,7 @@ export function Settings() {
         addressState: storeState.trim() || undefined,
         addressZip: storeZip.trim() || undefined,
         businessDayCutoff: storeCutoff.trim() || undefined,
+        appointmentEmailCopyToShop: apptEmailCopyToShop,
       });
       toast.success(t('settings.stStoreSaved'));
     } catch (err: any) {
@@ -546,7 +549,6 @@ export function Settings() {
         defaultCashFloatCents: dollarsToCents(cashDrawerFloat),
         receiptFooterMessage: receiptFooter.trim() || null,
         autoPrintReceipt,
-        autoSendSmsReceipt,
         checkoutTiming,
       });
       toast.success(t('settings.stCheckoutSaved'));
@@ -1086,6 +1088,19 @@ export function Settings() {
                       <Mail className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                     </div>
                   </div>
+                  {/* 预约邮件抄送门店。地址就是上面这个门店邮箱 */}
+                  <label className="flex items-start gap-2 cursor-pointer text-slate-700 mt-3">
+                    <input
+                      type="checkbox"
+                      checked={apptEmailCopyToShop}
+                      onChange={(e) => setApptEmailCopyToShop(e.target.checked)}
+                      className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 w-4 h-4 mt-0.5"
+                    />
+                    <span className="text-xs">
+                      <span className="font-bold block">{t('settings.stApptEmailCopy')}</span>
+                      <span className="text-slate-500">{t('settings.stApptEmailCopyDesc')}</span>
+                    </span>
+                  </label>
                 </SettingsRow>
 
                 <SettingsRow
@@ -1484,15 +1499,6 @@ export function Settings() {
                         className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 w-4 h-4"
                       />
                       <span>{t('settings.stAutoPrint')}</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={autoSendSmsReceipt}
-                        onChange={(e) => setAutoSendSmsReceipt(e.target.checked)}
-                        className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 w-4 h-4"
-                      />
-                      <span>{t('settings.stAutoSms')}</span>
                     </label>
                   </div>
                 </SettingsRow>
@@ -2408,6 +2414,11 @@ export function Settings() {
               </SettingsCard>
             </div>
           )}
+
+          {/* ============================================================ */}
+          {/* TAB: 顾客通知与营销 (notifications) */}
+          {/* ============================================================ */}
+          {currentTab === 'notifications' && <NotificationSettingsPanel />}
 
           {/* ============================================================ */}
           {/* TAB 11: SaaS 订阅方案与账单 (billing) */}

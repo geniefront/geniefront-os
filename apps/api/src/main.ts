@@ -10,6 +10,9 @@
 import { buildServer } from './server';
 import { startCallReconciler } from './telnyx/schedule';
 import { startRetentionJob } from './ops/retention';
+import { startReminderJob } from './notify/reminder';
+import { startOutboxSweepJob } from './ops/outboxSweep';
+import { startMarketingJob } from './notify/marketing';
 import { startReviewSyncJob } from './reviews/job';
 import { assertCommunicationSafety } from './comms/mode';
 
@@ -37,6 +40,16 @@ startCallReconciler(app);
 
 // 幂等表保留期清理（AUD-09）。同上：只在真正的入口挂定时器。
 startRetentionJob(app);
+// 次日预约提醒。判定口径在 sql/0088 的 gf_appointments_due_for_reminder()
+startReminderJob(app);
+// 发件箱兜底扫描。计费类的信没有任何业务动作会触发投递（sql/0090）
+startOutboxSweepJob(app);
+/*
+ * 营销四事件（生日 / 节日 / 唤回 / 求评）。
+ * ⚠️ 接上不等于会发出去：每一条仍要过完规则、订阅、10DLC、发件域名
+ * 与静默时段那几道闸门（`notify/marketing.ts` 文件头）。
+ */
+startMarketingJob(app);
 
 // 外部评价采集（sql/0084，05 §8）。默认关，`REVIEW_SYNC_INTERVAL_MINUTES=60` 打开。
 // ⚠️ 打开之前先用 staging 的 POST /v1/desk/reviews/sync 把整条链路验一遍 ——

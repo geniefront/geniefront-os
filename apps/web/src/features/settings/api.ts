@@ -24,6 +24,7 @@ import type {
   Apply10DlcInput,
   SaveIntakeWaiverInput,
   SaveWebhooksInput,
+  EmailLocale,
 } from './types';
 
 export const settingsKeys = {
@@ -46,6 +47,27 @@ export function useDeskBillingQuery(opts?: { enabled?: boolean }) {
     queryKey: settingsKeys.billing(membershipId),
     queryFn: () => apiGet<BillingResponse>('/v1/desk/billing'),
     enabled: (opts?.enabled ?? true) && status === 'ready' && membershipId !== null,
+  });
+}
+
+/**
+ * 修改账单类邮件的语言。
+ *
+ * ⚠️ 权限是 `billing.manage`（仅 owner 持有）—— 这些邮件里是他的卡与账单。
+ * ⚠️ 只影响发给店主的邮件；顾客侧的邮件与短信恒为英语。
+ */
+export function useSetEmailLocale() {
+  const queryClient = useQueryClient();
+  const { membershipId } = useSession();
+
+  return useMutation({
+    mutationFn: async (locale: EmailLocale) => {
+      const res = await runCommand('org.setEmailLocale', { locale }, membershipId!);
+      return res;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: settingsKeys.desk(membershipId) });
+    },
   });
 }
 

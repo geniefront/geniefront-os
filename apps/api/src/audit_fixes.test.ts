@@ -125,53 +125,11 @@ describe('审计后端修复专项测试', () => {
     });
   });
 
-  describe('2. 电子小票发送命令 (ticket.sendReceipt)', () => {
-    it('通过 SMS 发送电子小票，自动入 sms_outbox', async () => {
-      const res = await dispatch<{ ticketId: string; channel: string; destination: string; outboxId: string }>(
-        'ticket.sendReceipt',
-        {
-          ticketId: testTicketId,
-          channel: 'sms',
-          destination: '+16175558888',
-        },
-        ownerCtx,
-      );
-
-      expect(res.result.ticketId).toBe(testTicketId);
-      expect(res.result.channel).toBe('sms');
-      expect(res.result.destination).toBe('+16175558888');
-      expect(res.result.outboxId).toBeDefined();
-
-      const [outbox] = await withTenant(tenant, (tx) => tx<{ id: string; body: string }[]>`
-        select id, body from sms_outbox where id = ${res.result.outboxId}`);
-      expect(outbox).toBeDefined();
-      expect(outbox!.body).toContain('Receipt');
-    });
-
-    it('通过 Email 发送电子小票，自动入 email_outbox', async () => {
-      const res = await dispatch<{ ticketId: string; channel: string; destination: string; outboxId: string }>(
-        'ticket.sendReceipt',
-        {
-          ticketId: testTicketId,
-          channel: 'email',
-          destination: 'customer@example.com',
-        },
-        ownerCtx,
-      );
-
-      expect(res.result.ticketId).toBe(testTicketId);
-      expect(res.result.channel).toBe('email');
-      expect(res.result.destination).toBe('customer@example.com');
-      expect(res.result.outboxId).toBeDefined();
-
-      const [outbox] = await withTenant(tenant, (tx) => tx<{ id: string; subject: string; body_html: string }[]>`
-        select id, subject, body_html from email_outbox where id = ${res.result.outboxId}`);
-      expect(outbox).toBeDefined();
-      expect(outbox!.subject).toContain('Receipt');
-      expect(outbox!.body_html).toContain('Thank you for visiting');
-      expect(outbox!.body_html).toContain('63.00');
-    });
-  });
+  /*
+   * 「2. 电子小票发送命令」整组已随 `ticket.sendReceipt` 于 2026-09-01 移除
+   * （店主定：消费小票不再走短信与邮件，只保留打印）。
+   * 命令本身已从契约中删除，因此这里没有可测的对象。
+   */
 
   describe('3. 预约详情穿透查询 (loadAppointmentDetail)', () => {
     it('返回预约单据、客户信息及项目列表', async () => {

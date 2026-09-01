@@ -18,6 +18,7 @@
 import {
   SaveDiscountReason, ApplyDiscount, VoidDiscount,
   SaveNotificationTemplate, ToggleNotificationRule,
+  SaveMarketingHoliday, DeleteMarketingHoliday,
   templateVariables, EVENT_VARIABLES,
   AppError, ERROR_CODES,
 } from '@gf/contracts';
@@ -291,4 +292,62 @@ registerHandler(ToggleNotificationRule, async ({ input, ctx, tx, audit }: Handle
              channels: input.channels, offsetMin: input.offsetMin },
   });
   return { eventKey: input.eventKey, enabled: input.enabled };
+});
+
+// ─────────────────────────────────────────────────────── 节日营销日程
+
+/**
+ * 新增或修改一个节日。
+ *
+ * ⚠️ 同一家店同一天只留一条（`marketing_holidays_uidx`）：两条一起发，
+ * 顾客一天收两封。撞车时按 `send_on` 覆盖，而不是报错 —— 店主改名字
+ * （「Thanksgiving」→「Thanksgiving Sale」）走的正是这条路。
+ */
+registerHandler(SaveMarketingHoliday, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SaveMarketingHoliday.input._type>) => {
+  const [row] = input.holidayId
+    ? await tx<{ id: string }[]>`
+        update marketing_holidays set
+          name = ${input.name}, send_on = ${input.sendOn}::date,
+          enabled = ${input.enabled}, updated_at = now()
+        where id = ${input.holidayId} and location_id = ${ctx.locationId}
+        returning id`
+    : await tx<{ id: string }[]>`
+        insert into marketing_holidays (org_id, location_id, name, send_on, enabled)
+        values (${ctx.orgId}, ${ctx.locationId}, ${input.name},
+                ${input.sendOn}::date, ${input.enabled})
+        on conflict (location_id, send_on) do update set
+          name = excluded.name, enabled = excluded.enabled, updated_at = now()
+        returning id`;
+
+  if (!row) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, {
+      details: { entity: 'marketing_holiday', id: input.holidayId },
+    });
+  }
+
+  audit({
+    entityType: 'marketing_holiday', entityId: row.id,
+    after: { name: input.name, sendOn: input.sendOn, enabled: input.enabled },
+  });
+  return { holidayId: row.id, sendOn: input.sendOn };
+});
+
+registerHandler(DeleteMarketingHoliday, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof DeleteMarketingHoliday.input._type>) => {
+  const [row] = await tx<{ id: string; name: string; send_on: string }[]>`
+    delete from marketing_holidays
+    where id = ${input.holidayId} and location_id = ${ctx.locationId}
+    returning id, name, send_on::text as send_on`;
+  if (!row) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, {
+      details: { entity: 'marketing_holiday', id: input.holidayId },
+    });
+  }
+  audit({
+    entityType: 'marketing_holiday', entityId: row.id,
+    before: { name: row.name, sendOn: row.send_on },
+    after: { deleted: true },
+  });
+  return { holidayId: row.id };
 });

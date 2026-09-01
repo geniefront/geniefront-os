@@ -50,6 +50,20 @@ export async function platformStoreDetail(userId: string, locationId: string): P
     tx<{ data: unknown }[]>`select gf_platform_store_detail(${locationId}::uuid) as data`);
 }
 
+/**
+ * 这家店的外发消息卡在哪一道闸门（sql/0089）。
+ *
+ * 与 `platformStoreDetail` 分开是有意的：那一份是两百行的聚合，为两个字段
+ * 去改它等于把整份函数体重抄一遍，抄错一个列名不会报错、只会让运营台上
+ * 某一块静默变空。
+ */
+export async function platformMessagingPanel(
+  userId: string, locationId: string,
+): Promise<unknown> {
+  return callJson(userId, (tx) =>
+    tx<{ data: unknown }[]>`select gf_platform_messaging_panel(${locationId}::uuid) as data`);
+}
+
 export async function platformListSupportRequests(
   userId: string,
   status: string | null,

@@ -12,7 +12,7 @@ import { fuzzySearch } from '@/lib/fuzzySearch';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { Search } from 'lucide-react';
 import {
-  useOpenTickets, useCloseTicket, useVoidTicket, useSendTicketReceipt, verifyGiftCard,
+  useOpenTickets, useCloseTicket, useVoidTicket, verifyGiftCard,
   dollarsToCents, centsToDollars,
 } from '@/features/checkout/api';
 import { PAYMENT_METHODS } from '@/features/checkout/types';
@@ -109,7 +109,6 @@ function CheckoutContent() {
   const { data, isLoading, error, refetch } = useOpenTickets();
   const close = useCloseTicket();
   const voidTicketMut = useVoidTicket();
-  const sendReceiptMut = useSendTicketReceipt();
   const canDiscount = useCanWrite('ticket.discount');
 
   // 1. 工单状态筛选（默认：只看已完工 ready_to_pay / done）
@@ -145,10 +144,6 @@ function CheckoutContent() {
   const [voidNote, setVoidNote] = useState('');
 
   // 发送电子小票弹窗
-  const [receiptModalOpen, setReceiptModalOpen] = useState(false);
-  const [receiptTicketId, setReceiptTicketId] = useState<string | null>(null);
-  const [receiptChannel, setReceiptChannel] = useState<'sms' | 'email'>('sms');
-  const [receiptDestination, setReceiptDestination] = useState('');
 
   const allTickets = data?.tickets ?? [];
 
@@ -426,20 +421,6 @@ function CheckoutContent() {
     }
   }
 
-  async function handleSendReceipt() {
-    if (!receiptTicketId) return;
-    try {
-      const res = await sendReceiptMut.mutateAsync({
-        ticketId: receiptTicketId,
-        channel: receiptChannel,
-        destination: receiptDestination.trim() || undefined,
-      });
-      toast.success(t('checkout.receiptSent', { p0: res.destination }));
-      setReceiptModalOpen(false);
-    } catch (err: any) {
-      toast.danger(errorMessage(err));
-    }
-  }
 
   async function settle() {
     if (!selected) return;
@@ -491,10 +472,10 @@ function CheckoutContent() {
         description: allocationText || `$${centsToDollars(result.totalCents)}`,
       });
 
-      setReceiptTicketId(selected.ticketId);
-      setReceiptDestination('');
-      setReceiptModalOpen(true);
-
+      /*
+       * ⚠️ 结账后不再弹「发送电子小票」——
+       * 小票的短信与邮件已于 2026-09-01 整体取消，只保留打印（店主定）。
+       */
       if (paymentStage === 'service') setIdempotencyKey(crypto.randomUUID());
       else setSelectedId(null);
     } catch (err) {
@@ -1329,84 +1310,6 @@ function CheckoutContent() {
         </Modal>
       )}
 
-      {/* 结账后发送电子小票 Modal */}
-      {receiptModalOpen && (
-        <Modal
-          isOpen={receiptModalOpen}
-          onOpenChange={setReceiptModalOpen}
-          title={t('checkout.receiptModalTitle')}
-          footer={
-            <div className="flex justify-end gap-2 w-full">
-              <Button variant="secondary" onClick={() => setReceiptModalOpen(false)}>
-                
-                {t('checkout.receiptSkip')}
-              </Button>
-              <Button
-                className="bg-teal-600 hover:bg-teal-700 text-white font-bold gap-1.5"
-                disabled={sendReceiptMut.isPending}
-                onClick={handleSendReceipt}
-              >
-                <Send className="w-3.5 h-3.5" />
-                {sendReceiptMut.isPending ? t('checkout.receiptSending') : t('checkout.receiptSend')}
-              </Button>
-            </div>
-          }
-        >
-          <div className="space-y-4 text-xs py-2">
-            <div className="flex items-center gap-2 p-3 bg-teal-50 border border-teal-200 rounded-xl text-teal-800 font-medium">
-              <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0" />
-              <span>{t('checkout.receiptBody')}</span>
-            </div>
-
-            <div>
-              <label className="block font-bold text-slate-700 mb-1.5">{t('checkout.receiptChannel')}</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setReceiptChannel('sms')}
-                  className={cn(
-                    'p-2.5 rounded-xl border text-left font-bold transition-all',
-                    receiptChannel === 'sms'
-                      ? 'border-teal-600 bg-teal-50 text-teal-800 ring-2 ring-teal-500/20'
-                      : 'border-slate-200 text-slate-600 hover:bg-slate-50',
-                  )}
-                >
-                  
-                  {t('checkout.receiptSms')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setReceiptChannel('email')}
-                  className={cn(
-                    'p-2.5 rounded-xl border text-left font-bold transition-all',
-                    receiptChannel === 'email'
-                      ? 'border-teal-600 bg-teal-50 text-teal-800 ring-2 ring-teal-500/20'
-                      : 'border-slate-200 text-slate-600 hover:bg-slate-50',
-                  )}
-                >
-                  
-                  {t('checkout.receiptEmailOption')}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="block font-bold text-slate-700 mb-1.5">
-                {receiptChannel === 'sms' ? t('checkout.receiptPhone') : t('checkout.receiptEmail')}  {t('checkout.receiptAutoFill')}
-              </label>
-              <Input
-                value={receiptDestination}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setReceiptDestination(receiptChannel === 'sms' ? formatPhoneInput(val) : val);
-                }}
-                placeholder={receiptChannel === 'sms' ? '(212) 555-1234' : 'customer@example.com'}
-                maxLength={receiptChannel === 'sms' ? 14 : undefined}
-              />
-            </div>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }

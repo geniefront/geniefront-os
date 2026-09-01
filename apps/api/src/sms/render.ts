@@ -72,6 +72,12 @@ export function smsShopName(name: unknown, slug?: string | null, fallback = 'Sal
  */
 export const SENDER = 'GenieFront';
 
+/**
+ * 退订说明。CTIA 要求至少出现在第一条中；本系统**每条都带** ——
+ * 一年到店两次的顾客不会记得自己订阅过什么。
+ */
+export const OPT_OUT_NOTICE = 'Reply STOP to opt out.';
+
 /** 美式电话显示:+16175550142 → (617) 555-0142。给客人看的号要能直接念 */
 export function prettyPhone(e164: string | null): string | null {
   if (!e164) return null;
@@ -88,15 +94,20 @@ export interface ConfirmSms {
   serviceName: string;
   /** 已按门店时区格式化好,如 `Wed Aug 26, 12:30 PM` */
   whenText: string;
-  confirmationCode: string | null;
   shopPhone: string | null;
 }
 
 /**
  * 预约确认。
  *
- * 结构是刻意的:**署名开头**(客人一眼知道谁发的,不然像诈骗短信)、
- * 在哪家店、时间和项目、确认码、改期打电话、退订说明。
+ * 结构是刻意的:**署名开头**（顾客一眼知道谁发的，否则形似诈骗短信）、
+ * 在哪家店、时间与项目、改期打电话、退订说明。
+ *
+ * ## ⚠️ 不放预约码（2026-09-01 店主定）
+ *
+ * 预约码仍然存在（`appointments.confirmation_code`，官网建单的返回里有，
+ * 前台也能按它搜），但**不进短信** —— 前台在 iPad 上用手机号就查得到，
+ * 而每条短信里那 10 个字符要占掉可用长度的十六分之一。
  *
  * ## ⭐ 署名是 GenieFront,不是店名（2026-08-24 店主定）
  *
@@ -121,7 +132,6 @@ export interface ConfirmSms {
 export function renderConfirmSms(d: ConfirmSms): string {
   const fullShop = smsShopName(d.shopName, d.shopSlug ?? null, '');
   const phone = prettyPhone(d.shopPhone);
-  const code = d.confirmationCode ? ` Code ${d.confirmationCode}.` : '';
   const call = phone ? ` To change call ${phone}.` : ' Call the salon to change.';
   const build = (service: string, shop: string) => {
     // 店名一个字都拼不出来时（连 slug 都没有）就不写「at …」——
@@ -134,8 +144,8 @@ export function renderConfirmSms(d: ConfirmSms): string {
      * 「You're booked at X for Y on Z」→「Booked at X - Y, Z」省下 11 个，
      * 常见的那条落在 150 上下，谁都不用砍。
      */
-    return `${SENDER}: Booked${at} ${service}, ${d.whenText}.${code}${call}`
-      + ' Reply STOP to opt out.';
+    return `${SENDER}: Booked${at} ${service}, ${d.whenText}.${call}`
+      + ` ${OPT_OUT_NOTICE}`;
   };
 
   /**
@@ -186,5 +196,27 @@ export function renderConfirmSms(d: ConfirmSms): string {
  */
 export function renderHelpSms(): string {
   return `${SENDER}: appointment confirmations for your salon. `
-    + 'Msg&data rates may apply. Reply STOP to opt out. Help: support@geniefront.com';
+    + `Msg&data rates may apply. ${OPT_OUT_NOTICE} Help: support@geniefront.com`;
+}
+
+
+/**
+ * 给任意一条外发短信补齐**品牌署名**与**退订说明**。
+ *
+ * ## 为什么自由文本也必须补
+ *
+ * 前台手打的短信（`sms.sendDirect` / `customer.sendSms`）此前既无署名也无
+ * 退订说明。两者都不是可选项：
+ *
+ *   · **署名**：发送号为平台号，10DLC 注册品牌是 GenieFront。收件人无法
+ *     由号码识别发送方时，该消息在运营商侧更易被判定为欺骗性流量；
+ *   · **退订说明**：退订是平台级行为，缺失即构成合规缺陷。
+ *
+ * ⚠️ 已包含时不重复添加 —— 模板类短信（`renderConfirmSms` 等）自身已带。
+ */
+export function withComplianceFooter(body: string): string {
+  let out = body.trim();
+  if (!out.startsWith(`${SENDER}:`)) out = `${SENDER}: ${out}`;
+  if (!/reply\s+stop/i.test(out)) out = `${out} ${OPT_OUT_NOTICE}`;
+  return out;
 }

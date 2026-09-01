@@ -885,12 +885,20 @@ registerHandler(ShareForm, async ({ input, ctx, tx, audit }: HandlerArgs<
      * 而这里还多一层：信里带着令牌，发信时再拼一次等于把令牌
      * 多经手一遍，而它只该被拼一次。
      */
+    /*
+     * ⚠️ 顾客侧邮件**恒为英语**（`email/render.ts` 文件头的语言策略）。
+     *
+     * `input.locale` 决定的是**表单本身**渲染成哪种语言（顾客在填表页看到
+     * 的问题文本），与这封邀请信的语言无关；此前店名与表单标题按它取值，
+     * 而正文因遗漏 `locale` 参数落入中文分支 —— 结果是一封店名随顾客语言
+     * 变化、正文却锁死中文的邮件。
+     */
     const msg = renderFormInvite({
-      customerName: cust?.display_name ?? '您好',
-      shopName: pickText(shop!.name, input.locale, ''),
-      formTitles: rows.map((r) => pickText(r.title, input.locale, '健康表')),
+      customerName: cust?.display_name ?? 'there',
+      shopName: pickText(shop!.name, 'en', ''),
+      formTitles: rows.map((r) => pickText(r.title, 'en', 'intake form')),
       url: formShareUrl(token),
-      expiresText: formatWhen(expiresAt.toISOString(), shop!.tz),
+      expiresText: formatWhen(expiresAt.toISOString(), shop!.tz, 'en-US'),
       shopPhone: line?.e164 ?? null,
     });
 

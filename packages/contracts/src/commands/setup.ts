@@ -203,11 +203,17 @@ export const SaveLocationProfile = defineCommand({
     address: z.any().optional(),
     /** 营业日边界。足疗店开到凌晨要设 03:00，美甲店 04:00 都行（00 §1.5.1） */
     businessDayCutoff: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+    /**
+     * 预约确认 / 改期 / 取消 / 提醒的邮件是否抄送门店自己一份（默认开）。
+     *
+     * ⚠️ 抄送地址取门店的 `email`；该字段为空时不抄送，也不报错。
+     */
+    appointmentEmailCopyToShop: z.boolean().optional(),
   }),
   output: z.object({ locationId: uuid }),
   permission: 'settings.manage',
   ai: {
-    description: '修改门店的店名、短码 slug、时区、业态、电话、邮箱、街道地址与营业日边界。',
+    description: '修改门店的店名、短码 slug、时区、业态、电话、邮箱、街道地址、营业日边界，以及预约邮件是否抄送门店。',
     confirm: 'always',
   },
   reversible: true,
@@ -544,9 +550,44 @@ export const SaveWebhooks = defineCommand({
   idempotency: 'optional',
 });
 
+/**
+ * 店主邮件语言。
+ *
+ * ## 与 `staff.setLocale` 的区别
+ *
+ * `staff.setLocale` 改的是 `users.locale` / `staff_profiles.locale`，即
+ * **界面语言，按人存**（同一家店的前台与技师各自不同）。本命令改的是
+ * `organizations.default_locale`，即**发给店主的计费类邮件**用哪种语言。
+ *
+ * 两者必须分开：界面语言会随操作者变化，而账单邮件的收件人恒为店主本人。
+ * 若共用一列，一位技师在共享 iPad 上切换界面语言就会改掉账单邮件的语言。
+ *
+ * ## ⚠️ 不影响顾客侧
+ *
+ * 面向顾客的邮件与短信**恒为英语**，不受本设置影响
+ * （`apps/api/src/email/render.ts` 文件头的语言策略）。
+ *
+ * 默认值在开户时由 Stripe 结账页的语言决定（`signup/checkout.ts`）。
+ * 权限取 `billing.manage`（仅 owner 持有）—— 这封信里是他的卡与账单。
+ */
+export const SetEmailLocale = defineCommand({
+  name: 'org.setEmailLocale',
+  input: z.object({
+    locale: z.enum(['en', 'zh-Hans', 'zh-Hant', 'ko', 'vi', 'es']),
+  }),
+  output: z.object({ locale: z.string() }),
+  permission: 'billing.manage',
+  ai: {
+    description: '设置发给店主的账单与订阅类邮件使用哪种语言。不影响发给顾客的邮件与短信（那些恒为英语）。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
 export const SETUP_COMMANDS = [
   SaveService, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
   SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
-  SaveCheckoutSettings, Apply10Dlc, SaveIntakeWaiver, SaveWebhooks,
+  SaveCheckoutSettings, Apply10Dlc, SaveIntakeWaiver, SaveWebhooks, SetEmailLocale,
 ] as const;

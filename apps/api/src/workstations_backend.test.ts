@@ -211,7 +211,18 @@ describe('五大核心中台工作台后端 API 完整增改验证测试', () =>
       expect(vipRes.rows.every((r) => r.vipLevel > 0)).toBe(true);
     });
 
-    it('customer.sendSms 发送营销短信入库 outbox', async () => {
+    it('customer.sendSms 发送短信入库 outbox', async () => {
+      /*
+       * ⚠️ 自 2026-09-01 起，前台手打短信要门店自己的 10DLC **获批**之后
+       * 才受理（`sms/gate.ts`）。这里先把状态摆好，否则测的就不是
+       * 「入库对不对」而是「闸门拦住了吗」——后者有专门的测试
+       * （`sms_direct.test.ts` 的「10DLC 闸门」一组）。
+       */
+      await withTenant(tenant, (tx) => tx`
+        insert into location_10dlc_registrations (location_id, status)
+        values (${NAIL_LOC}, 'approved')
+        on conflict (location_id) do update set status = 'approved'`);
+
       const smsRes = await dispatch<{ outboxId: string; customerId: string; status: string; segments: number }>(
         'customer.sendSms',
         {

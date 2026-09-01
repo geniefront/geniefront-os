@@ -267,6 +267,7 @@ export async function loadDeskSettings(
     has_address: boolean; profile_confirmed_at: string | null;
     settings: unknown;
     slug: string; phone: string | null; email: string | null;
+    appointment_email_copy_to_shop: boolean;
     address_street: string | null; address_city: string | null;
     address_state: string | null; address_zip: string | null;
     address: Record<string, unknown> | null;
@@ -275,7 +276,7 @@ export async function loadDeskSettings(
            business_day_cutoff::text as cutoff, status,
            (address is not null or yelp_business_id is not null or address_street is not null) as has_address,
            settings->>'profile_confirmed_at' as profile_confirmed_at,
-           settings, slug, phone, email,
+           settings, slug, phone, email, appointment_email_copy_to_shop,
            address_street, address_city, address_state, address_zip,
            address
     from locations where id = ${ctx.locationId}`;
@@ -291,6 +292,16 @@ export async function loadDeskSettings(
              from service_skill_requirements ssr where ssr.service_id = s.id), '{}') as required_skill_ids
     from services s where s.location_id = ${ctx.locationId}
     order by s.active desc, s.sort, s.name->>'en'`;
+
+  /*
+   * 店主邮件语言。事实源是 `organizations.default_locale`（`email/locale.ts`）。
+   *
+   * ⚠️ 与 `users.locale`（界面语言，按人存）是两件事：前者决定发给店主的
+   * 账单类邮件用哪种语言，后者只影响当前登录者看到的界面。
+   * 顾客侧的邮件与短信恒为英语，不受该设置影响。
+   */
+  const [org] = await tx<{ default_locale: string | null }[]>`
+    select default_locale from organizations where id = ${ctx.orgId}`;
 
   const date = businessDateOf(new Date(), loc!.timezone, loc!.cutoff);
   const staff = await tx<{
@@ -370,7 +381,11 @@ export async function loadDeskSettings(
       status: loc!.status,
       hasAddress: loc!.has_address,
       profileConfirmedAt: loc!.profile_confirmed_at,
+      /** 预约类邮件是否抄送门店自己一份 */
+      appointmentEmailCopyToShop: loc!.appointment_email_copy_to_shop,
     },
+    /** 发给店主的账单类邮件用哪种语言。顾客侧恒为英语，与此无关 */
+    emailLocale: org?.default_locale ?? 'en',
     checkout,
     guest: {
       publicKey: web!.public_key,

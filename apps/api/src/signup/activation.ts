@@ -32,11 +32,15 @@ export interface ActivationTarget {
   redirectTo: string;
 }
 
-/** 激活链接的落点。域名一律用我们自己配的，不接受任何外部输入 */
-export function activationRedirectUrl(): string {
-  const base = (process.env['APP_BASE_URL'] ?? 'https://desk.geniefront.com').replace(/\/+$/, '');
-  return `${base}/activate`;
-}
+/**
+ * 激活链接的落点。
+ *
+ * ⚠️ 由 `links.ts` 统一构造：域名与路径均取自服务端配置，不接受任何外部
+ * 输入，且按环境分流 —— staging 发出的激活信不得指向生产站点。
+ *
+ * 此处保留一层再导出，是为了让「激活流程的落点」在本文件中可被检索到。
+ */
+export { activationRedirectUrl } from '../links';
 
 /**
  * 发一封激活信。

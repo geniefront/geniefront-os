@@ -13,7 +13,7 @@
  * 这时候业务已经成了；这里抛出去只会把一个成功的操作显示成失败。
  */
 
-import { withTenant } from '@gf/db';
+import { withTenant, emailSuppressedSet, normalizeSuppressionEmail } from '@gf/db';
 import { sendEmail, emailConfigured } from './send';
 import type { FastifyBaseLogger } from 'fastify';
 
@@ -32,17 +32,54 @@ export async function flushEmails(
     const rows = await withTenant(tenant, (tx) => tx<{
       id: string; to_email: string; subject: string;
       body_html: string; body_text: string; attempts: number;
+      unsubscribe_url: string | null; from_email: string | null;
     }[]>`
-      select id, to_email, subject, body_html, body_text, attempts
+      select id, to_email, subject, body_html, body_text, attempts,
+             unsubscribe_url, from_email
       from email_outbox
       where location_id = ${tenant.locationId}
         and status = 'pending' and attempts < ${MAX_ATTEMPTS}
       order by created_at
       limit ${BATCH}`);
 
+    if (rows.length === 0) return;
+
+    /**
+     * ⭐ 发之前**统一查一次抑制名单**（0091）。
+     *
+     * 与短信侧的退订判定同一个位置、同一条理由：入队的那一刻这个地址
+     * 可能还是好的，而两者之间隔着几秒到几分钟。硬退过或投诉过的地址
+     * 再发一次，扣的是**发信域名的信誉** —— 而信誉掉下去之后受损的是所有
+     * 门店的事务性邮件送达率，那件事没有任何人会来投诉。
+     */
+    const suppressed = await emailSuppressedSet(rows.map((r) => r.to_email));
+
     for (const r of rows) {
+      if (suppressed.has(normalizeSuppressionEmail(r.to_email))) {
+        /*
+         * ⚠️ `failed` 而不是 `sent`。这一封确实没发出去，而把它记成成功
+         * 会让「发信成功率」这个数字永远难看不了，掩盖真正的投递故障。
+         *
+         * 也不留在 pending：抑制是永久的，留着只会让补发扫描每一轮都
+         * 重新捡起它。
+         */
+        await withTenant(tenant, (tx) => tx`
+          update email_outbox
+          set status = 'failed', last_error = 'suppressed',
+              attempts = attempts + 1
+          where id = ${r.id}`);
+        log?.info({ outboxId: r.id }, 'email suppressed: bounced or complained before');
+        continue;
+      }
+
+      /*
+       * ⚠️ 退订地址在**入队时**就已算好并存进 outbox（0086）。
+       * 在此处现拼的话，令牌会多经手一遍，而它只应被拼一次。
+       */
       const res = await sendEmail({
         to: r.to_email, subject: r.subject, html: r.body_html, text: r.body_text,
+        unsubscribeUrl: r.unsubscribe_url,
+        from: r.from_email,
       });
 
       await withTenant(tenant, (tx) => {

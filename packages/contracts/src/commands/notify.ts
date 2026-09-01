@@ -114,7 +114,50 @@ export const ToggleNotificationRule = defineCommand({
   idempotency: 'optional',
 });
 
+/**
+ * 节日营销的日程。
+ *
+ * ## 为什么只有节日需要人来定
+ *
+ * 生日、唤回、求评都能从既有数据推出触发时刻；节日不能 ——「感恩节」是哪天、
+ * 中文店要不要发中秋，系统无从判断。`{{holiday_name}}` 这个模板变量的存在
+ * 本身就说明了这一点：它要一个名字。
+ *
+ * ⚠️ 同一家店同一天只留一条：两条一起发，顾客一天收两封。
+ */
+export const SaveMarketingHoliday = defineCommand({
+  name: 'marketing.saveHoliday',
+  input: z.object({
+    /** 不传 = 新增；传了 = 改这一条 */
+    holidayId: uuid.optional(),
+    /** 填进 {{holiday_name}} 的名字。⚠️ 顾客看得到，所以要英文 */
+    name: z.string().trim().min(1).max(60),
+    /** 门店本地日期，`YYYY-MM-DD` */
+    sendOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式应为 YYYY-MM-DD'),
+    enabled: z.boolean().default(true),
+  }),
+  output: z.object({ holidayId: uuid, sendOn: z.string() }),
+  permission: 'settings.manage',
+  ai: {
+    description: '新增或修改一个节日营销日程（哪一天、叫什么）。不影响是否真的发出去 —— 那还要过营销的几道闸门。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+export const DeleteMarketingHoliday = defineCommand({
+  name: 'marketing.deleteHoliday',
+  input: z.object({ holidayId: uuid }),
+  output: z.object({ holidayId: uuid }),
+  permission: 'settings.manage',
+  ai: { description: '删掉一个节日营销日程。', confirm: 'always' },
+  reversible: false,
+  idempotency: 'optional',
+});
+
 export const NOTIFY_COMMANDS = [
   SaveDiscountReason, ApplyDiscount, VoidDiscount,
   SaveNotificationTemplate, ToggleNotificationRule,
+  SaveMarketingHoliday, DeleteMarketingHoliday,
 ] as const;
