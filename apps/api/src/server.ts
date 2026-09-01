@@ -55,6 +55,7 @@ import { registerCopilotRoutes } from './copilot/routes';
 import { registerAuthRoutes } from './auth/routes';
 import { registerPasswordResetRoutes } from './auth/passwordReset';
 import { registerEmailUnsubscribeRoutes } from './email/unsubscribeRoutes';
+import { registerSesWebhook } from './email/snsWebhook';
 import { registerResendWebhook } from './email/resendWebhook';
 import { staffContextFromToken, STAFF_TOKEN_HEADER } from './auth/staffSession';
 import { registerRawBodyParser } from './rawBody';
@@ -297,8 +298,16 @@ export function buildServer(): FastifyInstance {
   registerPasswordResetRoutes(app);
   // 营销邮件退订。无需登录 —— CAN-SPAM 要求退订不得设置额外门槛
   registerEmailUnsubscribeRoutes(app);
-  // Resend 的投递回调：退信与投诉回流（sql/0091）。自带 Svix 验签
-  registerResendWebhook(app);
+  /*
+   * 投递回调：退信与投诉回流（sql/0091）。
+   *
+   * ⚠️ 两家供应商的路由**始终都注册**，各自靠自己的凭据把关（没配就一律 401）。
+   * 不按 `EMAIL_PROVIDER` 只注册一条：切换供应商之后，旧供应商仍会为切换前发出的
+   * 邮件投递回调（退信可能晚几小时到几天），摘掉旧路由等于把那批退信丢掉，
+   * 而丢掉的正是最该进抑制名单的地址。
+   */
+  registerResendWebhook(app);   // Svix HMAC
+  registerSesWebhook(app);      // SNS X.509
   registerKioskRoutes(app);
   registerTelnyxRoutes(app);
   registerPublicRoutes(app);

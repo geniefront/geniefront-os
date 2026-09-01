@@ -69,7 +69,7 @@
 ### 账号 A：购买/订阅/激活/开店
 
 - 每轮测试后归档上一间带 `smoke_test_account=purchase_activation` 标记的测试店，保留 Stripe 与审计记录，不硬删除。
-- 账号必须使用可收邮件的专用别名；不能使用 `@example.test`，因为必须验收真实激活信。
+- 账号必须使用可收邮件的专用别名；不能使用 `@maildrop.cc`，因为必须验收真实激活信。
 - 默认使用 Stripe test mode；如果生产域名目前只接 live mode，先提供独立 staging Checkout，避免制造真实收费、退款和财务噪音。
 - 每轮从 Checkout 开始，不能用数据库脚本伪造“已付款”来替代购买验收。
 

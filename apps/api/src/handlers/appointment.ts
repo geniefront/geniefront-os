@@ -14,6 +14,7 @@ import {
   AppError, ERROR_CODES, pickText,
 } from '@gf/contracts';
 import { renderConfirm, formatWhen } from '../email/render';
+import { emailConfigured } from '../email/send';
 import { manageBookingUrl } from '../links';
 import { enqueueShopCopy } from '../email/shopCopy';
 import { renderConfirmSms } from '../sms/render';
@@ -613,9 +614,15 @@ function formatWhenSms(iso: string, timezone: string): string {
   return `${date}, ${time}`;
 }
 
-/** 邮件没配好就整条路不走 —— 没必要往 outbox 里堆永远发不出去的行 */
+/**
+ * 邮件未配置时整条路不走 —— 没必要往 outbox 里堆永远发不出去的行。
+ *
+ * ⚠️ 判据复用 `email/send.ts` 的 `emailConfigured()`，不在此处重复拼一遍条件。
+ * 两处各写一份的话，capture 模式与测试进程这两个例外只会被其中一处照顾到，
+ * 而表现是「测试收件箱永远是空的」，且看不出与本函数有关。
+ */
 function input_hasCustomerEmailSupport(): boolean {
-  return Boolean(process.env['RESEND_API_KEY'] && process.env['FROM_EMAIL']);
+  return emailConfigured();
 }
 
 /**

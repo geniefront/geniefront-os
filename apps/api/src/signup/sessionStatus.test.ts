@@ -30,7 +30,7 @@ function session(over: Record<string, unknown> = {}): Stripe.Checkout.Session {
       gf_signup: '1',
       gf_plan: 'essential',
       gf_shop_name: 'Lotus Nails',
-      gf_owner_email: 'owner@example.test',
+      gf_owner_email: 'owner@maildrop.cc',
     },
     ...over,
   } as unknown as Stripe.Checkout.Session;
@@ -114,7 +114,7 @@ describe('GET /v1/public/signup-session', () => {
     const body = JSON.stringify(r.json());
     expect(body).not.toContain('sk_');
     expect(body).not.toContain('whsec_');
-    expect(body).not.toContain('owner@example.test');
+    expect(body).not.toContain('owner@maildrop.cc');
     expect(body).not.toContain('sub_test_signup');
   });
 

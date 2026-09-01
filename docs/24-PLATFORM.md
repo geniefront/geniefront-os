@@ -12,8 +12,8 @@ A customer owner/manager membership is **not** a platform role. Access is never 
 
 Seed (test/dev only):
 
-- `ops@geniefront.test` — active `super_admin`
-- `exops@geniefront.test` — revoked `support`
+- `ops@maildrop.cc` — active `super_admin`
+- `exops@maildrop.cc` — revoked `support`
 
 Production operators are inserted as the migration role (postgres). `app_user` can only `SELECT` its own row.
 

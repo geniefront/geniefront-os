@@ -26,9 +26,9 @@ pnpm db:tidy
 
 | 邮箱 | 角色 | 权限 / 门店 |
 |---|---|---|
-| `mia@example.test` | `front_desk` | 前台（24条权限）· Lotus Nails & Spa (`America/New_York`) |
-| `amy@example.test` | `manager` 兼 `tech` | 店长兼技师 · Lotus Nails & Spa |
-| `owner@example.test` | `owner` | 老板 · Golden Foot Spa |
+| `mia@maildrop.cc` | `front_desk` | 前台（24条权限）· Lotus Nails & Spa (`America/New_York`) |
+| `amy@maildrop.cc` | `manager` 兼 `tech` | 店长兼技师 · Lotus Nails & Spa |
+| `owner@maildrop.cc` | `owner` | 老板 · Golden Foot Spa |
 
 ### 可重复测试开店 Setup
 
@@ -38,7 +38,7 @@ pnpm db:tidy
 pnpm setup:test:reset
 ```
 
-随后使用 `setup@example.test` / `GenieSetup!2026` 登录，Web 会自动进入 `/setup`。每次想从头再测就重新运行命令；上一轮门店会被关闭而不是删除，因此不会伪造或抹掉付款与审计历史。可通过根目录 `.env` 的 `SETUP_TEST_EMAIL`、`SETUP_TEST_PASSWORD` 覆盖账号，邮箱必须使用 `@example.test`。
+随后使用 `setup@maildrop.cc` / `GenieSetup!2026` 登录，Web 会自动进入 `/setup`。每次想从头再测就重新运行命令；上一轮门店会被关闭而不是删除，因此不会伪造或抹掉付款与审计历史。可通过根目录 `.env` 的 `SETUP_TEST_EMAIL`、`SETUP_TEST_PASSWORD` 覆盖账号，邮箱必须使用 `@maildrop.cc`。
 
 ### 首次开店的路由门禁
 

@@ -47,7 +47,17 @@ const TABLES_IN_ORDER = [
   'locations',
 ] as const;
 
-const QA_EMAIL_LIKE = 'qa+%@example.test';
+const QA_EMAIL_LIKE = 'qa-%@maildrop.cc';
+/**
+ * 2026-09-01 之前 QA 账号用的是 `qa+…@example.test`。
+ *
+ * ⚠️ 不一并清的话，域名切换之后第一遍重置只匹配新样式，旧的 QA 用户原样留在
+ * `users` / `auth.users` 里 —— 它们仍带着 membership 与角色，表现是「某条命令
+ * 莫名其妙 PERMISSION_DENIED」，而现象与 QA 重置毫无关联。
+ *
+ * 这一条可在所有环境重置过一遍之后删除。
+ */
+const QA_EMAIL_LIKE_LEGACY = 'qa+%@example.test';
 
 export async function enableSeedReset(tx: postgres.TransactionSql): Promise<void> {
   await tx`select set_config('app.seed_reset', 'on', true)`;
@@ -114,7 +124,8 @@ export async function wipeQaTenants(tx: postgres.TransactionSql): Promise<void> 
   await tx`delete from platform_operators where notes = 'qa-seed-v2'`;
 
   const qaUsers = await tx<{ id: string }[]>`
-    select id from users where lower(email) like ${QA_EMAIL_LIKE}`;
+    select id from users
+    where lower(email) like ${QA_EMAIL_LIKE} or lower(email) like ${QA_EMAIL_LIKE_LEGACY}`;
   const userIds = qaUsers.map((u) => u.id);
   if (userIds.length > 0) {
     await tx`delete from user_last_location where user_id = any(${userIds})`;
@@ -122,7 +133,10 @@ export async function wipeQaTenants(tx: postgres.TransactionSql): Promise<void> 
   }
   if (process.env.SEED_SKIP_AUTH === '1') {
     await tx`delete from auth.identities
-      where user_id in (select id from auth.users where lower(email) like ${QA_EMAIL_LIKE})`;
-    await tx`delete from auth.users where lower(email) like ${QA_EMAIL_LIKE}`;
+      where user_id in (
+        select id from auth.users
+        where lower(email) like ${QA_EMAIL_LIKE} or lower(email) like ${QA_EMAIL_LIKE_LEGACY})`;
+    await tx`delete from auth.users
+             where lower(email) like ${QA_EMAIL_LIKE} or lower(email) like ${QA_EMAIL_LIKE_LEGACY}`;
   }
 }

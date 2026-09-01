@@ -8,7 +8,7 @@
 --     一律不发 —— 判定在 `apps/api/src/sms/gate.ts`，本迁移不涉及。
 --  2. **营销邮件需要门店专属发件域名**，在 Resend 完成验证之前不发。
 --     发件地址存 `locations.marketing_email_from`（例如
---     `promo@oasisspa.geniefront.com`）；为空即视为未就绪。
+--     `oasisspa@mkt.geniefront.com`）；为空即视为未就绪。
 --  3. **消费小票的短信与邮件取消**，只保留打印。
 --  4. **预约类邮件抄送店家一份**，默认开，可在设置里关。
 --
@@ -25,7 +25,7 @@ alter table locations
 
 comment on column locations.marketing_email_from is
   '营销邮件的发件地址，须是 Resend 中已完成域名验证的地址'
-  '（如 promo@oasisspa.geniefront.com）。'
+  '（如 oasisspa@mkt.geniefront.com）。'
   '⚠️ 为空 = 未就绪，营销邮件一律不发（0088）。'
   '事务性邮件不走这一列，用平台的 FROM_EMAIL。';
 

@@ -22,7 +22,7 @@
  * ## 邮件正文在哪改
  *
  * **Supabase 控制台 → Authentication → Email Templates → Magic Link。**
- * ⚠️ 不要再用 Resend 补发一封「欢迎」信：两封信里只有一封的链接是活的，
+ * ⚠️ 不要再用 SES 补发一封「欢迎」信：两封信里只有一封的链接是活的，
  * 老板会点错那封，然后以为系统坏了（docs/12 §2.2）。
  */
 

@@ -23,7 +23,7 @@ try {
     join locations l on l.id = ba.location_id
     join memberships m on m.location_id = l.id
     join users u on u.id = m.user_id
-    where u.email like 'gf-e2e-%@example.com'
+    where u.email like 'gf-e2e-%@maildrop.cc'
     order by u.email
   `;
 

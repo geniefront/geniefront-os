@@ -36,10 +36,10 @@ function deterministicUuid(seed: string): string {
 async function upsertAuthUser(email: string, fullName: string): Promise<string> {
   if (process.env.SEED_SKIP_AUTH === '1') {
     const fixed: Record<string, string> = {
-      'owner@example.test': '196f0ab4-cd94-45cc-8109-2c414e966828',
-      'mia@example.test': 'd84f499d-4100-4791-a0ae-dca645aa2661',
-      'ops@geniefront.test': '33333333-3333-4333-8333-333333333333',
-      'exops@geniefront.test': '44444444-4444-4444-8444-444444444444',
+      'owner@maildrop.cc': '196f0ab4-cd94-45cc-8109-2c414e966828',
+      'mia@maildrop.cc': 'd84f499d-4100-4791-a0ae-dca645aa2661',
+      'ops@maildrop.cc': '33333333-3333-4333-8333-333333333333',
+      'exops@maildrop.cc': '44444444-4444-4444-8444-444444444444',
     };
     return fixed[email] ?? deterministicUuid(email);
   }
@@ -76,18 +76,18 @@ const SPA_ORG  = '22222222-2222-4222-8222-222222222222';
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const SPA_LOC  = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
 const SEED_USER_EMAILS = [
-  'amy@example.test',
-  'linh@example.test',
-  'kim@example.test',
-  'tran@example.test',
-  'mai@example.test',
-  'mia@example.test',
-  'yan@example.test',
-  'hua@example.test',
-  'bo@example.test',
-  'owner@example.test',
-  'ops@geniefront.test',
-  'exops@geniefront.test',
+  'amy@maildrop.cc',
+  'linh@maildrop.cc',
+  'kim@maildrop.cc',
+  'tran@maildrop.cc',
+  'mai@maildrop.cc',
+  'mia@maildrop.cc',
+  'yan@maildrop.cc',
+  'hua@maildrop.cc',
+  'bo@maildrop.cc',
+  'owner@maildrop.cc',
+  'ops@maildrop.cc',
+  'exops@maildrop.cc',
 ] as const;
 
 const OPS_USER = '33333333-3333-4333-8333-333333333333';
@@ -244,11 +244,19 @@ async function main() {
         await tx`delete from platform_operators`;
       } else if (t === '__users__') {
         // Only remove identities owned by this seed. Other isolated utilities
-        // (for example setup:test:reset) also use @example.test and may still
+        // (for example setup:test:reset) also use @maildrop.cc and may still
         // have valid memberships outside the two fixed demo organizations.
-        await tx`delete from users where lower(email) = any(${SEED_USER_EMAILS})`;
+        //
+        // ⚠️ LEGACY_SEED_USER_EMAILS 是 2026-09-01 之前的 @example.test 版本。
+        //    不一并删的话，那次域名切换之后第一遍重跑种子只会删掉新地址，旧的
+        //    users / auth.users 行原样留下 —— 它们仍带着 membership 与角色，
+        //    表现是「某条命令莫名其妙 PERMISSION_DENIED」，而现象与种子无关，
+        //    排查方向会整个跑偏。这一段可在所有环境重跑过一遍之后删除。
+        const legacy = SEED_USER_EMAILS.map((e) => e.replace(/@maildrop\.cc$/, '@example.test'));
+        await tx`delete from users where lower(email) = any(${[...SEED_USER_EMAILS, ...legacy]})`;
         if (process.env.SEED_SKIP_AUTH === '1') {
-          await tx`delete from auth.users where lower(email) = any(${SEED_USER_EMAILS})`;
+          await tx`delete from auth.users
+                   where lower(email) = any(${[...SEED_USER_EMAILS, ...legacy]})`;
         }
       } else if (t === 'sms_consent' || t === 'sms_inbound' || t === 'sms_outbox' || t === 'email_outbox') {
         await tx.unsafe(`delete from ${t}`);
@@ -274,6 +282,27 @@ async function main() {
       }
     }
     await tx`delete from organizations where id in (${NAIL_ORG}, ${SPA_ORG})`;
+
+    /*
+     * ⚠️ 自助开户自测租户（`signup.test.ts`）用固定的 checkout session id，
+     * 因此它建的 org **不在上面这两个种子 org 里，永远不会被清掉** ——
+     * 那正是设计意图：第二次跑走的是幂等那条路，顺带把幂等也验一遍。
+     *
+     * 代价是 2026-09-01 那次邮箱域名切换（@example.test → @maildrop.cc）
+     * 留下了一批对不上的行：`signup_intents.owner_email` 还是旧域名，而
+     * `auth.users` 已经按新域名重建。`gf_claimable_intent` 比的正是这两者，
+     * 于是「谁都认领不了这家自测店」，而报错停在一个与邮箱毫无关系的
+     * `expected undefined`。
+     *
+     * ⚠️ 只改邮箱域名，不删行：付款留档不能删（`signup.test.ts` 的 `unclaim()`
+     * 注释写着同一条）。谓词收得很紧 —— 旧域名只可能出现在测试数据里。
+     * 这一段可在所有环境重跑过一遍之后删除。
+     */
+    await tx`
+      update signup_intents
+      set owner_email = replace(lower(owner_email), '@example.test', '@maildrop.cc')
+      where lower(owner_email) like '%@example.test'`;
+
     console.log('✓ 旧数据清理完毕');
 
     // 2. 机构与门店
@@ -518,7 +547,7 @@ async function main() {
     console.log('3. 员工与技能创建...');
     const memberIds: Record<string, string> = {};
     for (const p of staff) {
-      const email = `${p.name.toLowerCase()}@example.test`;
+      const email = `${p.name.toLowerCase()}@maildrop.cc`;
       const authId = await upsertAuthUser(email, p.name);
       if (process.env.SEED_SKIP_AUTH === '1') {
         // Local isolated Supabase still needs a complete password identity;
@@ -584,8 +613,8 @@ async function main() {
     // GenieFront operators. No customer membership — guessing the platform
     // URL as a store owner must not grant access.
     for (const op of [
-      { id: OPS_USER, email: 'ops@geniefront.test', name: 'GenieFront Ops', operatorId: OPS_OPERATOR_ID, role: 'super_admin', status: 'active', revokedAt: null as string | null },
-      { id: EXOPS_USER, email: 'exops@geniefront.test', name: 'Former Ops', operatorId: EXOPS_OPERATOR_ID, role: 'support', status: 'revoked', revokedAt: '2026-01-01T00:00:00.000Z' },
+      { id: OPS_USER, email: 'ops@maildrop.cc', name: 'GenieFront Ops', operatorId: OPS_OPERATOR_ID, role: 'super_admin', status: 'active', revokedAt: null as string | null },
+      { id: EXOPS_USER, email: 'exops@maildrop.cc', name: 'Former Ops', operatorId: EXOPS_OPERATOR_ID, role: 'support', status: 'revoked', revokedAt: '2026-01-01T00:00:00.000Z' },
     ] as const) {
       const authId = await upsertAuthUser(op.email, op.name);
       if (process.env.SEED_SKIP_AUTH === '1') {
@@ -636,25 +665,25 @@ async function main() {
 
     console.log('4. 客户与偏好创建...');
     const customersData = [
-      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Lisa Chen', phone: '+19175550142', email: 'lisa.chen@example.com', vip: 3, src: 'desk', allergies: ['penicillin'], pref: { oil: 'lavender', quiet: true } },
-      { org: NAIL_ORG, loc: NAIL_LOC, name: '张女士', phone: '+19175550188', email: 'meilan.zhang@example.com', vip: 2, src: 'walkin', allergies: ['latex'], pref: { pressure: 2, avoid: 'lower_back' } },
-      { org: NAIL_ORG, loc: NAIL_LOC, name: '张建国', phone: '+19175550188', email: 'jianguo.zhang@example.com', vip: 1, src: 'walkin', allergies: [], pref: { quiet: true } },
-      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Emily Johnson', phone: '+16175550211', email: 'emily.j@example.com', vip: 2, src: 'web', allergies: [], pref: { shape: 'almond', oil: 'sweet_orange' } },
-      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Jessica Taylor', phone: '+16175550233', email: 'jessica.t@example.com', vip: 1, src: 'phone_ai', allergies: [], pref: { hotStone: true } },
-      { org: NAIL_ORG, loc: NAIL_LOC, name: 'David Miller', phone: '+16175550255', email: 'david.m@example.com', vip: 0, src: 'walkin', allergies: [], pref: {} },
-      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Sophia Williams', phone: '+12125550301', email: 'sophia.w@example.com', vip: 1, src: 'web', allergies: [], pref: { nailArt: true } },
-      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Michael Brown', phone: '+12125550302', email: 'mbrown@example.com', vip: 0, src: 'walkin', allergies: [], pref: {} },
-      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Amanda White', phone: '+12125550303', email: 'amanda.white@example.com', vip: 2, src: 'desk', allergies: [], pref: { paraffin: true } },
-      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Chloe Martinez', phone: '+12125550305', email: 'chloe.m@example.com', vip: 1, src: 'web', allergies: [], pref: {} },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Lisa Chen', phone: '+19175550142', email: 'lisa.chen@maildrop.cc', vip: 3, src: 'desk', allergies: ['penicillin'], pref: { oil: 'lavender', quiet: true } },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: '张女士', phone: '+19175550188', email: 'meilan.zhang@maildrop.cc', vip: 2, src: 'walkin', allergies: ['latex'], pref: { pressure: 2, avoid: 'lower_back' } },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: '张建国', phone: '+19175550188', email: 'jianguo.zhang@maildrop.cc', vip: 1, src: 'walkin', allergies: [], pref: { quiet: true } },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Emily Johnson', phone: '+16175550211', email: 'emily.j@maildrop.cc', vip: 2, src: 'web', allergies: [], pref: { shape: 'almond', oil: 'sweet_orange' } },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Jessica Taylor', phone: '+16175550233', email: 'jessica.t@maildrop.cc', vip: 1, src: 'phone_ai', allergies: [], pref: { hotStone: true } },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'David Miller', phone: '+16175550255', email: 'david.m@maildrop.cc', vip: 0, src: 'walkin', allergies: [], pref: {} },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Sophia Williams', phone: '+12125550301', email: 'sophia.w@maildrop.cc', vip: 1, src: 'web', allergies: [], pref: { nailArt: true } },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Michael Brown', phone: '+12125550302', email: 'mbrown@maildrop.cc', vip: 0, src: 'walkin', allergies: [], pref: {} },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Amanda White', phone: '+12125550303', email: 'amanda.white@maildrop.cc', vip: 2, src: 'desk', allergies: [], pref: { paraffin: true } },
+      { org: NAIL_ORG, loc: NAIL_LOC, name: 'Chloe Martinez', phone: '+12125550305', email: 'chloe.m@maildrop.cc', vip: 1, src: 'web', allergies: [], pref: {} },
 
-      { org: SPA_ORG, loc: SPA_LOC, name: '陈伟 (David Chen)', phone: '+16265550102', email: 'david.chen@example.com', vip: 3, src: 'desk', allergies: [], pref: { pressure: 5, focus: 'neck_shoulder' } },
-      { org: SPA_ORG, loc: SPA_LOC, name: '王明 (Wang Ming)', phone: '+16265550101', email: 'wang.ming@example.com', vip: 2, src: 'phone_ai', allergies: [], pref: { pressure: 4, oil: 'eucalyptus' } },
-      { org: SPA_ORG, loc: SPA_LOC, name: 'Robert Lee', phone: '+16265550104', email: 'robert.lee@example.com', vip: 1, src: 'walkin', allergies: [], pref: { quiet: true } },
-      { org: SPA_ORG, loc: SPA_LOC, name: 'Hannah Davis', phone: '+13235550401', email: 'hannah.d@example.com', vip: 1, src: 'web', allergies: ['peanut_oil'], pref: { pressure: 2 } },
-      { org: SPA_ORG, loc: SPA_LOC, name: 'James Wilson', phone: '+13235550402', email: 'jwilson@example.com', vip: 0, src: 'walkin', allergies: [], pref: { cupping: true } },
-      { org: SPA_ORG, loc: SPA_LOC, name: 'Grace Liu', phone: '+13235550403', email: 'grace.liu@example.com', vip: 2, src: 'desk', allergies: [], pref: { prenatal: true, oil: 'lavender' } },
-      { org: SPA_ORG, loc: SPA_LOC, name: 'Kevin Zhang', phone: '+13235550404', email: 'kevin.z@example.com', vip: 1, src: 'phone_ai', allergies: [], pref: { pressure: 5 } },
-      { org: SPA_ORG, loc: SPA_LOC, name: 'Olivia Moore', phone: '+13235550405', email: 'olivia.m@example.com', vip: 0, src: 'web', allergies: [], pref: {} },
+      { org: SPA_ORG, loc: SPA_LOC, name: '陈伟 (David Chen)', phone: '+16265550102', email: 'david.chen@maildrop.cc', vip: 3, src: 'desk', allergies: [], pref: { pressure: 5, focus: 'neck_shoulder' } },
+      { org: SPA_ORG, loc: SPA_LOC, name: '王明 (Wang Ming)', phone: '+16265550101', email: 'wang.ming@maildrop.cc', vip: 2, src: 'phone_ai', allergies: [], pref: { pressure: 4, oil: 'eucalyptus' } },
+      { org: SPA_ORG, loc: SPA_LOC, name: 'Robert Lee', phone: '+16265550104', email: 'robert.lee@maildrop.cc', vip: 1, src: 'walkin', allergies: [], pref: { quiet: true } },
+      { org: SPA_ORG, loc: SPA_LOC, name: 'Hannah Davis', phone: '+13235550401', email: 'hannah.d@maildrop.cc', vip: 1, src: 'web', allergies: ['peanut_oil'], pref: { pressure: 2 } },
+      { org: SPA_ORG, loc: SPA_LOC, name: 'James Wilson', phone: '+13235550402', email: 'jwilson@maildrop.cc', vip: 0, src: 'walkin', allergies: [], pref: { cupping: true } },
+      { org: SPA_ORG, loc: SPA_LOC, name: 'Grace Liu', phone: '+13235550403', email: 'grace.liu@maildrop.cc', vip: 2, src: 'desk', allergies: [], pref: { prenatal: true, oil: 'lavender' } },
+      { org: SPA_ORG, loc: SPA_LOC, name: 'Kevin Zhang', phone: '+13235550404', email: 'kevin.z@maildrop.cc', vip: 1, src: 'phone_ai', allergies: [], pref: { pressure: 5 } },
+      { org: SPA_ORG, loc: SPA_LOC, name: 'Olivia Moore', phone: '+13235550405', email: 'olivia.m@maildrop.cc', vip: 0, src: 'web', allergies: [], pref: {} },
     ];
 
     const customerIds: Record<string, string> = {};

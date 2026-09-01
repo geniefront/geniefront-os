@@ -49,7 +49,7 @@ describe('customer.saveProfile', () => {
       {
         name: '王小美',
         phoneE164: testPhone1,
-        email: 'xiaomei@example.com',
+        email: 'xiaomei@maildrop.cc',
         vipLevel: 2,
         birthday: '1995-06-18',
         tags: ['新客', '高客单'],
@@ -66,7 +66,7 @@ describe('customer.saveProfile', () => {
     const detail = await withTenant(tenant, (tx) => loadCustomerDetail(tx, ownerCtx, res.result.customerId));
     expect(detail?.displayName).toBe('王小美');
     expect(detail?.phone).toBe(testPhone1);
-    expect(detail?.email).toBe('xiaomei@example.com');
+    expect(detail?.email).toBe('xiaomei@maildrop.cc');
     expect(detail?.vipLevel).toBe(2);
     expect(detail?.tags).toEqual(['新客', '高客单']);
   });

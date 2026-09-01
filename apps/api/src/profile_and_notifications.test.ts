@@ -30,13 +30,39 @@ let ownerUserId: string;
 let ownerMembershipId: string;
 const ownerTenant = () => ({ ...tenant, userId: ownerUserId });
 
-beforeAll(async () => {
-  const staffMembers = await withTenant(tenant, (tx) => tx<{ id: string; user_id: string }[]>`
+/**
+ * 取一个**指定角色**的 membership。
+ *
+ * ⚠️ 原来这里是不带 order by 的 `limit 1`，取到谁完全由物理行序决定 ——
+ * 而本文件后面整组用例（`notification.*`、资料修改）都需要 `settings.manage`。
+ * 取到一个技师时，五条用例一起报 PERMISSION_DENIED，而报错内容与「行序」
+ * 毫无关联，排查方向会整个跑偏。
+ *
+ * 这一点在 2026-09-01 换种子邮箱域名时被触发：删除与重新插入改变了行序，
+ * 于是一次与权限毫不相干的改动让这一组用例集体变红。
+ *
+ * 与 `auditFixes.test.ts` 的 `ctxForRole` 同一个写法。
+ */
+async function membershipWithRole(
+  role: string,
+): Promise<{ id: string; user_id: string } | null> {
+  const [m] = await withTenant(tenant, (tx) => tx<{ id: string; user_id: string }[]>`
     select m.id, m.user_id from memberships m
-    where m.location_id = ${NAIL_LOC} and m.status = 'active' and m.user_id is not null
+    join membership_roles mr on mr.membership_id = m.id
+    join roles r on r.id = mr.role_id
+    where m.location_id = ${NAIL_LOC} and m.status = 'active'
+      and m.user_id is not null and r.key = ${role}
+    order by m.id
     limit 1`);
-  ownerMembershipId = staffMembers[0]!.id;
-  ownerUserId = staffMembers[0]!.user_id;
+  return m ?? null;
+}
+
+beforeAll(async () => {
+  // 美甲店里权限最大的那个（种子里是 manager，owner 挂在足疗店）
+  const owner = (await membershipWithRole('manager')) ?? (await membershipWithRole('owner'));
+  if (!owner) throw new Error('种子里找不到带 manager/owner 角色的 membership');
+  ownerMembershipId = owner.id;
+  ownerUserId = owner.user_id;
 
   ownerCtx = await buildContext({ userId: ownerUserId, membershipId: ownerMembershipId });
 

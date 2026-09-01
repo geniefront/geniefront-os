@@ -23,5 +23,5 @@ export function publicKeyFor(locationId: string): string {
 }
 
 export function qaEmail(local: string): string {
-  return `qa+${local}@example.test`;
+  return `qa-${local}@maildrop.cc`;
 }

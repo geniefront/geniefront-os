@@ -78,7 +78,7 @@ beforeAll(async () => {
         (org_id, primary_location_id, display_name, phone_e164, email,
          marketing_sms_opt_in, marketing_email_opt_in)
       values (${NAIL_ORG}, ${NAIL_LOC}, 'Policy Test', '+16175557777',
-              'policy-test@example.test', true, true)
+              'policy-test@maildrop.cc', true, true)
       returning id`;
     customerId = c!.id;
   });
@@ -201,7 +201,7 @@ describe('营销邮件的发件域名闸门', () => {
       return notifyEvent(tx, ctx, {
         event: 'winback',
         entityType: 'customer', entityId: freshEntity(),
-        vars: VARS, toEmail: 'policy-test@example.test', toPhone: null,
+        vars: VARS, toEmail: 'policy-test@maildrop.cc', toPhone: null,
         customerId, locale: 'en',
       });
     });
@@ -211,13 +211,13 @@ describe('营销邮件的发件域名闸门', () => {
   it('配好之后才发，且发件人写的是门店那个地址', async () => {
     const entityId = freshEntity();
     const queued = await withTenant(tenant, async (tx) => {
-      await tx`update locations set marketing_email_from = 'promo@oasisspa.geniefront.com'
+      await tx`update locations set marketing_email_from = 'oasisspa@mkt.geniefront.com'
                where id = ${NAIL_LOC}`;
       await setRule(tx, 'winback', ['email']);
       return notifyEvent(tx, ctx, {
         event: 'winback',
         entityType: 'customer', entityId,
-        vars: VARS, toEmail: 'policy-test@example.test', toPhone: null,
+        vars: VARS, toEmail: 'policy-test@maildrop.cc', toPhone: null,
         customerId, locale: 'en',
       });
     });
@@ -228,7 +228,7 @@ describe('营销邮件的发件域名闸门', () => {
     }[]>`
       select from_email, unsubscribe_url from email_outbox
       where entity_id = ${entityId}`);
-    expect(row?.from_email).toBe('promo@oasisspa.geniefront.com');
+    expect(row?.from_email).toBe('oasisspa@mkt.geniefront.com');
     // 商业邮件必须带退订入口
     expect(row?.unsubscribe_url).toContain('/public/v1/email/unsubscribe');
   });
@@ -240,13 +240,13 @@ describe('营销邮件的发件域名闸门', () => {
   it('⭐ 预约类邮件不占用门店发件地址', async () => {
     const entityId = freshEntity();
     await withTenant(tenant, async (tx) => {
-      await tx`update locations set marketing_email_from = 'promo@oasisspa.geniefront.com'
+      await tx`update locations set marketing_email_from = 'oasisspa@mkt.geniefront.com'
                where id = ${NAIL_LOC}`;
       await setRule(tx, 'appointment_changed', ['email']);
       await notifyEvent(tx, ctx, {
         event: 'appointment_changed',
         entityType: 'customer', entityId,
-        vars: VARS, toEmail: 'policy-test@example.test', toPhone: null,
+        vars: VARS, toEmail: 'policy-test@maildrop.cc', toPhone: null,
         locale: 'en',
       });
     });
@@ -266,13 +266,13 @@ describe('预约邮件抄送门店', () => {
     const entityId = freshEntity();
     await withTenant(tenant, async (tx) => {
       await tx`update locations set appointment_email_copy_to_shop = true,
-                                    email = 'shop@example.test'
+                                    email = 'shop@maildrop.cc'
                where id = ${NAIL_LOC}`;
       await setRule(tx, 'appointment_changed', ['email']);
       await notifyEvent(tx, ctx, {
         event: 'appointment_changed',
         entityType: 'customer', entityId,
-        vars: VARS, toEmail: 'policy-test@example.test', toPhone: null,
+        vars: VARS, toEmail: 'policy-test@maildrop.cc', toPhone: null,
         locale: 'en',
       });
     });
@@ -287,7 +287,7 @@ describe('预约邮件抄送门店', () => {
     const cust = rows.find((r) => r.entity_type === 'customer')!;
     const shop = rows.find((r) => r.entity_type === 'customer_shop')!;
 
-    expect(shop.to_email).toBe('shop@example.test');
+    expect(shop.to_email).toBe('shop@maildrop.cc');
     // 正文逐字相同 —— 顾客打电话来问「你们信上写的几点」时要对得上
     expect(shop.body_text).toBe(cust.body_text);
     expect(shop.subject).toBe(`Copy: ${cust.subject}`);
@@ -297,13 +297,13 @@ describe('预约邮件抄送门店', () => {
     const entityId = freshEntity();
     await withTenant(tenant, async (tx) => {
       await tx`update locations set appointment_email_copy_to_shop = false,
-                                    email = 'shop@example.test'
+                                    email = 'shop@maildrop.cc'
                where id = ${NAIL_LOC}`;
       await setRule(tx, 'appointment_changed', ['email']);
       await notifyEvent(tx, ctx, {
         event: 'appointment_changed',
         entityType: 'customer', entityId,
-        vars: VARS, toEmail: 'policy-test@example.test', toPhone: null,
+        vars: VARS, toEmail: 'policy-test@maildrop.cc', toPhone: null,
         locale: 'en',
       });
     });
@@ -317,13 +317,13 @@ describe('预约邮件抄送门店', () => {
     const entityId = freshEntity();
     await withTenant(tenant, async (tx) => {
       await tx`update locations set appointment_email_copy_to_shop = true,
-                                    email = 'policy-test@example.test'
+                                    email = 'policy-test@maildrop.cc'
                where id = ${NAIL_LOC}`;
       await setRule(tx, 'appointment_changed', ['email']);
       await notifyEvent(tx, ctx, {
         event: 'appointment_changed',
         entityType: 'customer', entityId,
-        vars: VARS, toEmail: 'policy-test@example.test', toPhone: null,
+        vars: VARS, toEmail: 'policy-test@maildrop.cc', toPhone: null,
         locale: 'en',
       });
     });
@@ -337,14 +337,14 @@ describe('预约邮件抄送门店', () => {
     const entityId = freshEntity();
     await withTenant(tenant, async (tx) => {
       await tx`update locations set appointment_email_copy_to_shop = true,
-                                    email = 'shop@example.test',
-                                    marketing_email_from = 'promo@oasisspa.geniefront.com'
+                                    email = 'shop@maildrop.cc',
+                                    marketing_email_from = 'oasisspa@mkt.geniefront.com'
                where id = ${NAIL_LOC}`;
       await setRule(tx, 'winback', ['email']);
       await notifyEvent(tx, ctx, {
         event: 'winback',
         entityType: 'customer', entityId,
-        vars: VARS, toEmail: 'policy-test@example.test', toPhone: null,
+        vars: VARS, toEmail: 'policy-test@maildrop.cc', toPhone: null,
         customerId, locale: 'en',
       });
     });

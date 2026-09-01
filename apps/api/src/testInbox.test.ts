@@ -35,7 +35,7 @@ vi.mock('./auth', async (importOriginal) => {
 const { buildServer } = await import('./server');
 
 let app: ReturnType<typeof buildServer>;
-const recipient = `qa+${randomUUID().slice(0, 8)}@example.test`;
+const recipient = `qa-${randomUUID().slice(0, 8)}@maildrop.cc`;
 const link = 'https://staging-desk.geniefront.com/a/CAPTURE-LINK';
 let emailId: string;
 
@@ -67,7 +67,7 @@ function asUser(userId: string, email?: string) {
 
 describe('测试收件箱', () => {
   it('⚠️ 店主看不到 —— 收件箱是跨租户的，只属于运营人员', async () => {
-    asUser(OWNER_USER, 'owner@example.test');
+    asUser(OWNER_USER, 'owner@maildrop.cc');
     const r = await app.inject({ method: 'GET', url: '/v1/platform/test-inbox' });
     expect(r.statusCode).toBe(403);
     expect(r.json().details.reason).toBe('not_platform_operator');
@@ -80,7 +80,7 @@ describe('测试收件箱', () => {
   });
 
   it('⭐ 运营人员按收件人查得到，且链接被抽了出来（E2E 的取件口）', async () => {
-    asUser(PLATFORM_OPS_USER_ID, 'ops@geniefront.test');
+    asUser(PLATFORM_OPS_USER_ID, 'ops@maildrop.cc');
     const r = await app.inject({
       method: 'GET',
       url: `/v1/platform/test-inbox?search=${encodeURIComponent(recipient)}`,
@@ -98,7 +98,7 @@ describe('测试收件箱', () => {
   });
 
   it('详情返回整封正文，含 HTML', async () => {
-    asUser(PLATFORM_OPS_USER_ID, 'ops@geniefront.test');
+    asUser(PLATFORM_OPS_USER_ID, 'ops@maildrop.cc');
     const r = await app.inject({ method: 'GET', url: `/v1/platform/test-inbox/email/${emailId}` });
     expect(r.statusCode).toBe(200);
     const d = r.json() as { bodyText: string; bodyHtml: string; links: string[] };
@@ -109,7 +109,7 @@ describe('测试收件箱', () => {
   });
 
   it('session 带出当前环境与投递模式（这一页靠它解释「为什么是空的」）', async () => {
-    asUser(PLATFORM_OPS_USER_ID, 'ops@geniefront.test');
+    asUser(PLATFORM_OPS_USER_ID, 'ops@maildrop.cc');
     const r = await app.inject({ method: 'GET', url: '/v1/platform/session' });
     expect(r.statusCode).toBe(200);
     expect(r.json().comms.deliveryMode).toMatch(/^(live|capture)$/);
@@ -123,7 +123,7 @@ describe('保留期清理', () => {
         insert into email_outbox (org_id, location_id, kind, to_email, subject,
                                   body_html, body_text, entity_type, entity_id,
                                   status, attempts, created_at, sent_at)
-        values (${NAIL_ORG}, ${NAIL_LOC}, 'receipt', ${`sent+${randomUUID().slice(0, 8)}@example.test`},
+        values (${NAIL_ORG}, ${NAIL_LOC}, 'receipt', ${`sent+${randomUUID().slice(0, 8)}@maildrop.cc`},
                 'Receipt', '<p>r</p>', 'r', 'ticket', ${randomUUID()},
                 'sent', 1, now() - interval '90 days', now() - interval '90 days')
         returning id`;
@@ -135,7 +135,7 @@ describe('保留期清理', () => {
         insert into email_outbox (org_id, location_id, kind, to_email, subject,
                                   body_html, body_text, entity_type, entity_id,
                                   status, attempts, created_at)
-        values (${NAIL_ORG}, ${NAIL_LOC}, 'receipt', ${`old+${randomUUID().slice(0, 8)}@example.test`},
+        values (${NAIL_ORG}, ${NAIL_LOC}, 'receipt', ${`old+${randomUUID().slice(0, 8)}@maildrop.cc`},
                 'Old capture', '<p>c</p>', 'c', 'ticket', ${randomUUID()},
                 'captured', 1, now() - interval '90 days')
         returning id`;

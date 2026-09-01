@@ -70,7 +70,7 @@ export async function runOutboxSweep(
     try {
       /*
        * ⚠️ 串行 await，不是 `void`。这是兜底路径，跑得慢没关系；
-       * 而一次性对一百个租户并发发信会把 Resend / Telnyx 的限频撞满，
+       * 而一次性对一百个租户并发发信会把 SES / Telnyx 的限频撞满，
        * 那时失败的不只是这一批。
        */
       if (Number(row.email_pending) > 0) await flushEmails(tenant, app.log as never);

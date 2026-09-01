@@ -62,7 +62,7 @@ describe('邮件 kind 白名单', () => {
       event: 'appointment_reminder',
       entityType: 'appointment', entityId: crypto.randomUUID(),
       vars: { shop_name: 'Lotus Nails', when: 'Wed Aug 26, 12:30 PM', shop_phone: '(617) 555-0142' },
-      toEmail: 'reminder-probe@example.test', toPhone: null,
+      toEmail: 'reminder-probe@maildrop.cc', toPhone: null,
       locale: 'en',
     }));
     expect(queued).toBe(1);
@@ -75,7 +75,7 @@ describe('邮件 kind 白名单', () => {
         insert into email_outbox
           (org_id, location_id, kind, to_email, subject, body_html, body_text,
            entity_type, entity_id)
-        values (${NAIL_ORG}, ${NAIL_LOC}, ${kind}, 'k@example.test',
+        values (${NAIL_ORG}, ${NAIL_LOC}, ${kind}, 'k@maildrop.cc',
                 's', 'h', 't', 'kindprobe', ${crypto.randomUUID()})`),
       ).resolves.toBeDefined();
     }
@@ -90,7 +90,7 @@ describe('邮件 kind 白名单', () => {
       insert into email_outbox
         (org_id, location_id, kind, to_email, subject, body_html, body_text,
          entity_type, entity_id)
-      values (${NAIL_ORG}, ${NAIL_LOC}, 'receipt', 'r@example.test',
+      values (${NAIL_ORG}, ${NAIL_LOC}, 'receipt', 'r@maildrop.cc',
               's', 'h', 't', 'kindprobe', ${crypto.randomUUID()})`),
     ).resolves.toBeDefined();
   });
@@ -108,7 +108,7 @@ describe('兜底投递扫描', () => {
       insert into email_outbox
         (org_id, location_id, kind, to_email, subject, body_html, body_text,
          entity_type, entity_id, created_at)
-      values (${NAIL_ORG}, ${NAIL_LOC}, 'payment_failed', 'owner@example.test',
+      values (${NAIL_ORG}, ${NAIL_LOC}, 'payment_failed', 'owner@maildrop.cc',
               'payment failed', 'h', 't', 'billing_invoice', ${entityId},
               now() - interval '10 minutes')`);
 
@@ -131,7 +131,7 @@ describe('兜底投递扫描', () => {
       insert into email_outbox
         (org_id, location_id, kind, to_email, subject, body_html, body_text,
          entity_type, entity_id)
-      values (${NAIL_ORG}, ${NAIL_LOC}, 'platform_notice', 'fresh@example.test',
+      values (${NAIL_ORG}, ${NAIL_LOC}, 'platform_notice', 'fresh@maildrop.cc',
               'fresh', 'h', 't', 'freshprobe', ${entityId})`);
 
     await runOutboxSweep(log, { minAgeSec: 600 });

@@ -75,7 +75,7 @@ afterEach(() => {
 
 const valid = {
   shopName: 'Lotus Nails',
-  ownerEmail: 'owner@example.test',
+  ownerEmail: 'owner@maildrop.cc',
   plan: 'essential' as const,
 };
 
@@ -144,7 +144,7 @@ describe('POST /v1/public/signup-checkout', () => {
     const meta = created[0]?.metadata ?? {};
     expect(meta['gf_signup']).toBe('1');
     expect(meta['gf_shop_name']).toBe('Lotus Nails');
-    expect(meta['gf_owner_email']).toBe('owner@example.test');
+    expect(meta['gf_owner_email']).toBe('owner@maildrop.cc');
     expect(meta['gf_plan']).toBe('essential');
     expect(meta['gf_location_id']).toBeUndefined();
     expect(meta['gf_org_id']).toBeUndefined();
@@ -162,7 +162,7 @@ describe('POST /v1/public/signup-checkout', () => {
    * 时而算首次、时而算老客 —— 那种用例会在别人改了别的文件之后莫名其妙地红。
    */
   it('7b. 首次开户给七天试用，同一个邮箱再来一次就不给', async () => {
-    const fresh = `trial-${crypto.randomUUID()}@example.test`;
+    const fresh = `trial-${crypto.randomUUID()}@maildrop.cc`;
     const r = await post({ ...valid, ownerEmail: fresh });
     expect(r.statusCode).toBe(200);
     expect(created[0]?.subscription_data?.trial_period_days).toBe(TRIAL_DAYS);

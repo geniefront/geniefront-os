@@ -17,7 +17,7 @@
 | **Cloudflare** | DNS、TLS、WAF、**Pages**（desk / staff / kiosk 静态构建产物）；生产环境的 **Load Balancing + `/health` 健康探针** | `CLOUDFLARE_API_TOKEN`<br>`CLOUDFLARE_ZONE_ID` | Load Balancing 是**单独付费订阅**（约 $5/月起），只在生产双实例时需要 |
 | **应用主机** | 跑 Fastify Docker 镜像。**生产 2 台实例，开发 1 台** | SSH / 部署密钥 | 无状态，实例之间不需要任何通信（实时扇出在 Supabase 侧） |
 | **Anthropic API** | 规则 JSON 生成、价目表视觉提取、前台自然语言副驾、多语言翻译 | `ANTHROPIC_API_KEY` | 需绑卡预充值。模型 ID 用 **`claude-opus-5` / `claude-sonnet-5` / `claude-haiku-4-5`**，不带日期后缀。视觉提取必须用有视觉能力的 Opus 5 / Sonnet 5（`05` §5、§7） |
-| **Resend / SendGrid** | 开店邀请邮件、Magic Link 无密码登录、短信上线前的预约确认通知 | `RESEND_API_KEY`<br>`FROM_EMAIL` | **关键前置**：必须在 Cloudflare 处配置好发信域名的 DKIM / SPF / DMARC 记录，否则进垃圾箱 |
+| **Resend**（当前在用）<br>**AWS SES**（待命） | 开店邀请邮件、Magic Link 无密码登录、短信上线前的预约确认通知 | `EMAIL_PROVIDER`<br>`RESEND_API_KEY`<br>`RESEND_WEBHOOK_SECRET`<br>`FROM_EMAIL`<br>`CUSTOMER_FROM_EMAIL`<br>`MARKETING_EMAIL_DOMAIN` | **关键前置**：三个发件域（`notify.` / `appointment.` / `mkt.`）的 DKIM 必须在**当前供应商**处验证通过。⚠️ SES 账号仍在沙箱，脱离前不要把 `EMAIL_PROVIDER` 改成 `ses`（docs/26 §5.1）|
 
 ---
 
@@ -64,6 +64,6 @@
 - [ ] `SUPABASE_URL` & `SUPABASE_ANON_KEY`（dev 项目）
 - [ ] `DATABASE_URL`（受限角色 `app_user`，用于命令总线连库）
 - [ ] `ANTHROPIC_API_KEY`
-- [ ] `RESEND_API_KEY` + 发信域名 DKIM/SPF/DMARC 配置完成
+- [ ] Resend 凭据 + 三个发信域名 DKIM 全绿 + `RESEND_WEBHOOK_SECRET` 已配（否则退信不回流）
 
 **Phase 1a / 1b / 1c 都不需要**：Redis（1b 才接）、Telnyx、Stripe、Turnstile、Bright Data。

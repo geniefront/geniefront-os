@@ -13,7 +13,7 @@
  *   2. 这位顾客**明示订阅**过营销（`marketing_sms_opt_in` /
  *      `marketing_email_opt_in`）；
  *   3. 短信：门店自己的 10DLC 已 `approved`（`sms/gate.ts`）；
- *   4. 邮件：门店专属发件域名已在 Resend 验证（`locations.marketing_email_from`）；
+ *   4. 邮件：门店专属发件域名已在 SES 验证（`locations.marketing_email_from`）；
  *   5. 短信还要落在门店本地 08:00–21:00 之内（TCPA，`sms/flush.ts`）。
  *
  * 也就是说，把这个调度器接上**不会**让任何一家店突然开始发营销 ——

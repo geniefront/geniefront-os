@@ -5,6 +5,13 @@
  * POST /v1/webhooks/resend
  * ```
  *
+ * ⚠️ 本系统同时保留了 SES 侧的同一条链路（`snsWebhook.ts`，`/v1/webhooks/ses`）。
+ * 两条路由**始终都注册**，各自靠自己的凭据把关：没配 `RESEND_WEBHOOK_SECRET`
+ * 时这一条一律 401，没配 `SES_SNS_TOPIC_ARN` 时那一条一律 401。之所以不按
+ * `EMAIL_PROVIDER` 只注册一条：切换供应商之后，旧供应商仍会为切换前发出的邮件
+ * 投递回调（退信可能晚几小时到几天），把旧路由摘掉等于把那批退信丢掉，
+ * 而丢掉的正是最该进抑制名单的地址。
+ *
  * ## 为什么必须接
  *
  * 不接的话，系统对一封信的下场**一无所知**：`email_outbox.status` 停在

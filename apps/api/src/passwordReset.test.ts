@@ -64,10 +64,10 @@ const post = (email: unknown, ip = '203.0.113.7') =>
 
 describe('响应永远只有一种', () => {
   it('正常地址 → 200 { ok: true }，并且真的去发了', async () => {
-    const r = await post('owner@example.test');
+    const r = await post('owner@maildrop.cc');
     expect(r.statusCode).toBe(200);
     expect(r.json()).toEqual({ ok: true });
-    expect(calls.map((c) => c.email)).toEqual(['owner@example.test']);
+    expect(calls.map((c) => c.email)).toEqual(['owner@maildrop.cc']);
   });
 
   it('⭐ 根本不是邮箱 → 一样的 200，一样的 body，只是不发信', async () => {
@@ -85,7 +85,7 @@ describe('响应永远只有一种', () => {
 
   it('⭐ 上游挂了也返回 ok —— 不能让响应泄露「这次和上次不一样」', async () => {
     upstreamOk = false;
-    const r = await post('nobody-at-all@example.test');
+    const r = await post('nobody-at-all@maildrop.cc');
     expect(r.statusCode).toBe(200);
     expect(r.json()).toEqual({ ok: true });
   });
@@ -128,7 +128,7 @@ describe('落地页与限频', () => {
     await app.inject({
       method: 'POST', url: '/v1/auth/password/reset',
       headers: { 'content-type': 'application/json' },
-      payload: { email: 'owner@example.test', redirectTo: 'https://evil.example/steal' },
+      payload: { email: 'owner@maildrop.cc', redirectTo: 'https://evil.example/steal' },
     });
     expect(calls).toHaveLength(1);
     // redirect_to 是 URL 编码过的，解开再看
@@ -138,21 +138,21 @@ describe('落地页与限频', () => {
   });
 
   it('同一个地址打太多次 → 429，而 429 不泄露账号存不存在', async () => {
-    for (let i = 0; i < 5; i++) expect((await post('spam@example.test')).statusCode).toBe(200);
-    const r = await post('spam@example.test');
+    for (let i = 0; i < 5; i++) expect((await post('spam@maildrop.cc')).statusCode).toBe(200);
+    const r = await post('spam@maildrop.cc');
     expect(r.statusCode).toBe(429);
     expect(r.json().code).toBe('RATE_LIMITED');
     expect(r.json().details.retryAfterSec).toBeGreaterThan(0);
     // ⚠️ 拦下之后不该再去发信 —— 挡住的正是发信本身
-    expect(calls.filter((c) => c.email === 'spam@example.test')).toHaveLength(5);
+    expect(calls.filter((c) => c.email === 'spam@maildrop.cc')).toHaveLength(5);
   });
 
   it('同一个 IP 打太多个不同地址 → 也会被拦（发信配额是店里的钱）', async () => {
     for (let i = 0; i < 10; i++) {
-      expect((await post(`u${i}@example.test`, '198.51.100.9')).statusCode).toBe(200);
+      expect((await post(`u${i}@maildrop.cc`, '198.51.100.9')).statusCode).toBe(200);
     }
-    expect((await post('u99@example.test', '198.51.100.9')).statusCode).toBe(429);
+    expect((await post('u99@maildrop.cc', '198.51.100.9')).statusCode).toBe(429);
     // 换个 IP 就不受影响 —— 一整间店共用出口 IP 是常态，但那是另一个网络
-    expect((await post('u99@example.test', '198.51.100.10')).statusCode).toBe(200);
+    expect((await post('u99@maildrop.cc', '198.51.100.10')).statusCode).toBe(200);
   });
 });

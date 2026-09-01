@@ -11,7 +11,7 @@ import { adminDatabaseSource, adminSql } from './admin';
 import { createQaClock } from './qa/clock';
 import { applyStripeSyncFixture } from './qa/stripeFixture';
 
-const TEST_EMAIL = process.env.SETUP_TEST_EMAIL ?? 'setup@example.test';
+const TEST_EMAIL = process.env.SETUP_TEST_EMAIL ?? 'setup@maildrop.cc';
 const TEST_PASSWORD = process.env.SETUP_TEST_PASSWORD ?? 'GenieSetup!2026';
 const TEST_NAME = 'Setup Test Owner';
 const SUPABASE_URL = (process.env.SUPABASE_URL ?? '').replace(/\/$/, '');
@@ -26,8 +26,8 @@ function requireEnvironment(): void {
   if (!SUPABASE_URL || !SERVICE_KEY) {
     throw new Error('缺少 SUPABASE_URL 或 SUPABASE_SERVICE_ROLE_KEY，请先补齐根目录 .env。');
   }
-  if (!TEST_EMAIL.toLowerCase().endsWith('@example.test')) {
-    throw new Error('SETUP_TEST_EMAIL 必须使用 @example.test，避免误重置真实用户。');
+  if (!TEST_EMAIL.toLowerCase().endsWith('@maildrop.cc')) {
+    throw new Error('SETUP_TEST_EMAIL 必须使用 @maildrop.cc，避免误重置真实用户。');
   }
   if (TEST_PASSWORD.length < 10) throw new Error('SETUP_TEST_PASSWORD 至少需要 10 个字符。');
 }
@@ -78,7 +78,7 @@ async function createFreshSetup(authUser: AuthUser): Promise<{ locationId: strin
 
   return adminSql.begin(async (tx) => {
     // Archive only tenants created by this utility. No real shop can match both
-    // the marker and the enforced @example.test owner email.
+    // the marker and the enforced @maildrop.cc owner email.
     const previous = await tx<{ org_id: string; location_id: string }[]>`
       select org_id, location_id from signup_intents
       where lower(owner_email) = lower(${TEST_EMAIL})

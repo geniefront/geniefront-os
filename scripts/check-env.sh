@@ -42,6 +42,10 @@ ok()   { echo "  ${G}✓${N} $1"; PASS=$((PASS+1)); }
 bad()  { echo "  ${R}✗${N} $1"; FAIL=$((FAIL+1)); }
 skip() { echo "  ${D}–${N} ${D}$1${N}"; SKIP=$((SKIP+1)); }
 hint() { echo "      ${Y}→ $1${N}"; }
+# ⚠️ warn 不计入 FAIL：这些配漏了脚本仍能跑通，但线上会静默出问题
+#    （例如没有配置集时，退信永远不回流，而表现与一切正常完全相同）
+warn() { echo "  ${Y}!${N} $1"; SKIP=$((SKIP+1)); }
+note() { echo "  ${D}·${N} ${D}$1${N}"; }
 
 # check_format <var> <regex> <期望描述> <常见错误提示>
 check_format() {
@@ -248,21 +252,77 @@ if [[ -n "${CLOUDFLARE_ACCOUNT_ID:-}" && -n "${CLOUDFLARE_ZONE_ID:-}" \
 fi
 echo
 
-# ─────────────────────────────────────────────────────────── Resend
-echo "${B}A4 · Resend${N}"
-if check_format RESEND_API_KEY '^re_[A-Za-z0-9_-]{20,}$' \
-  're_ 开头，后面约 30 字符'; then
-  api_check "Resend API" -H "Authorization: Bearer ${RESEND_API_KEY}" \
-    https://api.resend.com/domains
-fi
-if check_format FROM_EMAIL '^([^<]+<)?[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}>?$' \
-  '一个完整邮箱地址或 Display Name <email@domain.com>，域名必须已在 Resend 验证通过' \
-  '建议用子域：noreply@mail.你的域名'; then
-  if [[ "$FROM_EMAIL" == *"@gmail.com" || "$FROM_EMAIL" == *"@qq.com" || "$FROM_EMAIL" == *"@163.com" ]]; then
-    bad "FROM_EMAIL 用了公共邮箱域名，Resend 发不出去"
-    hint "必须用你自己的、已验证 DKIM/SPF 的域名"
+# ─────────────────────────────────────────────────────────── 邮件
+PROVIDER="$(printf '%s' "${EMAIL_PROVIDER:-resend}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+[[ "$PROVIDER" == "ses" ]] || PROVIDER="resend"   # 认不出的值回退 resend（与代码一致）
+echo "${B}A4 · 邮件（供应商：${PROVIDER}）${N}"
+
+if [[ "$PROVIDER" == "resend" ]]; then
+  if check_format RESEND_API_KEY '^re_[A-Za-z0-9_-]{20,}$' \
+    're_ 开头，后面约 30 字符'; then
+    api_check "Resend API" -H "Authorization: Bearer ${RESEND_API_KEY}" \
+      https://api.resend.com/domains
   fi
+  # ⚠️ 没配 = POST /v1/webhooks/resend 一律 401 = 退信与投诉永远不回流，
+  #    而现象与「一切正常」完全相同
+  if [[ -z "${RESEND_WEBHOOK_SECRET:-}" ]]; then
+    warn "RESEND_WEBHOOK_SECRET 未填 —— 投递回调会被一律拒收"
+    hint "退信与投诉不会回流，抑制名单永远是空的，而这件事没有任何报错"
+  fi
+else
+  check_format AWS_ACCESS_KEY_ID '^AKIA[A-Z0-9]{16}$' \
+    'AKIA 开头，共 20 字符大写字母与数字'
+  check_format AWS_SECRET_ACCESS_KEY '^.{40}$' \
+    '40 字符（含 / 与 +，在 .env 里建议加引号）'
+
+  # ⚠️⚠️ SES 的发件身份、抑制名单、配置集与发送配额**全部按区域独立**：区域填错时
+  # 凭据合法、调用成功，只是那个区域里一个域名身份都没有 —— 现象是「所有邮件
+  # 都被拒，而 AWS 控制台里域名全绿」。本项目 SES 侧的验证在 us-east-2。
+  if check_format AWS_REGION '^[a-z]{2}-[a-z]+-[0-9]$' '形如 us-east-2'; then
+    if [[ "$AWS_REGION" != "us-east-2" ]]; then
+      warn "AWS_REGION=${AWS_REGION}，而本项目 SES 侧的域名验证在 us-east-2"
+      hint "SES 的身份按区域独立。填错时不会报错，只会「所有邮件都被拒而域名全绿」"
+    fi
+  fi
+  [[ -n "${SES_CONFIGURATION_SET:-}" ]] || {
+    warn "SES_CONFIGURATION_SET 未填 —— 发出的邮件不会产生投递事件"
+    hint "退信与投诉不会回流，抑制名单永远是空的，而这件事没有任何报错"; }
+  [[ -n "${SES_SNS_TOPIC_ARN:-}" ]] || \
+    warn "SES_SNS_TOPIC_ARN 未填 —— POST /v1/webhooks/ses 会一律拒收"
+
+  # ⚠️ SES 账号长期处于沙箱时，只有已验证的收件地址能收到邮件。
+  #    这条查不了（要签名调用），由 diagnose:comms 负责。
+  note "SES 是否已脱离沙箱查不了：跑 pnpm diagnose:comms:staging"
 fi
+
+EMAIL_RE='^([^<]+<)?[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}>?$'
+for var in FROM_EMAIL CUSTOMER_FROM_EMAIL; do
+  val="${!var:-}"
+  if [[ "$var" == "CUSTOMER_FROM_EMAIL" && -z "$val" ]]; then
+    warn "CUSTOMER_FROM_EMAIL 未填 —— 顾客邮件会回落到 FROM_EMAIL 的域"
+    hint "两类邮件共用一个域时，账单与平台通知的投诉会拉低预约确认的送达率"
+    continue
+  fi
+  if check_format "$var" "$EMAIL_RE" \
+    '一个完整邮箱地址或 Display Name <email@domain.com>，域名必须已在当前供应商验证通过' \
+    '店家事务用 notify. 子域，客户事务用 appointment. 子域'; then
+    if [[ "$val" == *"@gmail.com" || "$val" == *"@qq.com" || "$val" == *"@163.com" ]]; then
+      bad "$var 用了公共邮箱域名，发不出去"
+      hint "必须用你自己的、已验证 DKIM 的域名"
+    fi
+  fi
+done
+
+# ⚠️ 2026-09-02 由 MARKETING_EMAIL_ROOT_DOMAIN 改名而来。旧值是根域
+#    （geniefront.com），沿用它会从一个没验证的域发营销邮件，整批退信。
+if [[ -n "${MARKETING_EMAIL_ROOT_DOMAIN:-}" ]]; then
+  bad "MARKETING_EMAIL_ROOT_DOMAIN 已废弃，请改用 MARKETING_EMAIL_DOMAIN"
+  hint "旧变量的值是根域；新变量是营销发件域本身（mkt.你的域名）"
+fi
+check_format MARKETING_EMAIL_DOMAIN '^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' \
+  '营销发件域本身，例如 mkt.geniefront.com'
+
+note "发件域是否真的验证通过、以及投递回调通不通，跑 pnpm diagnose:comms:staging"
 echo
 
 # ─────────────────────────────────────────────────────────── 后续阶段

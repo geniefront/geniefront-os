@@ -90,7 +90,7 @@ test.describe('remaining browser QA matrix', () => {
     await page.getByPlaceholder('128 E 56th St, New York, NY 10022').fill('200 QA Avenue, New York, NY 10001');
     await page.getByPlaceholder('Emily Zhang').fill('Growth Owner');
     await page.getByPlaceholder('Store Owner / Manager').fill('Owner');
-    await page.getByPlaceholder('owner@lotusspanyc.com').fill('qa+growth_active@example.test');
+    await page.getByPlaceholder('owner@lotusspanyc.com').fill('qa-growth_active@maildrop.cc');
     await page.getByPlaceholder('(212) 580-8888').fill('(212) 555-0100');
     await page.getByRole('button', { name: /Submit the 10DLC application for GenieFront review|提交 10DLC 申请给 GenieFront 审核/ }).click();
     const confirmSubmit = page.getByRole('button', { name: /Submit for review|确认提交审核/ });

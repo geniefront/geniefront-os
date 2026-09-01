@@ -55,7 +55,7 @@ export async function snapshotQa(
   const emails = await tx<{ email: string }[]>`
     select distinct lower(u.email) as email
     from users u
-    where lower(u.email) like ${`qa+${scenario}%@example.test`}
+    where lower(u.email) like ${`qa-${scenario}%@maildrop.cc`}
     order by 1`;
 
   const roles = await tx<{ key: string }[]>`

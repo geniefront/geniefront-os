@@ -13,7 +13,7 @@ GF_QA_ALLOW_RESET=1 DATABASE_TEST_TARGET=isolated \
 ```
 
 Password for every QA auth user: `GenieQa!2026`  
-Emails: `qa+<scenario>@example.test` (plus `.owner` / `.tech` / `.front_desk` suffixes where noted).
+Emails: `qa-<scenario>@maildrop.cc` (plus `.owner` / `.tech` / `.front_desk` suffixes where noted).
 
 Clock: `QA_NOW` (ISO-8601) freezes “now”. Unset → `Date.now()`.  
 Business dates use the location IANA timezone, never the machine zone. Default shop zone: `America/New_York`. Multi-location west shop: `America/Los_Angeles`.
@@ -37,11 +37,11 @@ Identity inserts preserve RLS relationships (`org_id` / `location_id` / `user_id
 
 ## Scenario catalog
 
-Login email is `qa+<id>@example.test` unless stated.
+Login email is `qa-<id>@maildrop.cc` unless stated.
 
 ### 1. `fresh_owner`
 
-- User: QA Owner (`qa+fresh_owner@example.test`), owner
+- User: QA Owner (`qa-fresh_owner@maildrop.cc`), owner
 - Org / location: one shop, `America/New_York`, `locations.status=setup`
 - Plan / sub: essential / trialing, trial end in the future (TRIAL_DAYS)
 - Setup: claimed signup intent, **no catalog**
@@ -60,7 +60,7 @@ Login email is `qa+<id>@example.test` unless stated.
 
 - Same incomplete setup shape as `setup_incomplete`, with Growth / trialing billing
 - Claimed Growth signup intent and an empty catalog
-- Login: `qa+growth_setup@example.test`
+- Login: `qa-growth_setup@maildrop.cc`
 - Permitted: the complete Growth SetupWizard browser journey
 
 ### 3. `empty_shop`
@@ -105,22 +105,22 @@ Login email is `qa+<id>@example.test` unless stated.
 
 ### 8. `owner`
 
-- Login is the owner (`qa+owner@example.test`)
+- Login is the owner (`qa-owner@maildrop.cc`)
 - Active Growth shop with a tech on staff
 - Permitted: `billing.manage`, `settings.manage`, `dayclose.manage`
 - Forbidden: confusing this user with platform ops
 
 ### 9. `manager_or_front_desk`
 
-- Login: `qa+manager_or_front_desk@example.test` with **front_desk only**
-- Hidden owner: `qa+manager_or_front_desk.owner@example.test`
+- Login: `qa-manager_or_front_desk@maildrop.cc` with **front_desk only**
+- Hidden owner: `qa-manager_or_front_desk.owner@maildrop.cc`
 - Permitted: tickets, queue, day-close (desk-only), appointments
 - Forbidden: `billing.manage`, platform console
 
 ### 10. `tech_only`
 
-- Login: `qa+tech_only@example.test` with **tech only**
-- Hidden owner: `qa+tech_only.owner@example.test`
+- Login: `qa-tech_only@maildrop.cc` with **tech only**
+- Hidden owner: `qa-tech_only.owner@maildrop.cc`
 - Permitted: `ticket.write`, `appointment.read`, own payroll
 - Forbidden: `settings.manage`, `billing.manage`, `dayclose.manage`, `staff.manage`
 
@@ -150,7 +150,7 @@ Login email is `qa+<id>@example.test` unless stated.
 
 ### 14. `ten_dlc_pending`
 
-- Tenant login: `qa+ten_dlc_pending@example.test`; active internal reviewer: `qa+ten_dlc_pending.operator@example.test`
+- Tenant login: `qa-ten_dlc_pending@maildrop.cc`; active internal reviewer: `qa-ten_dlc_pending.operator@maildrop.cc`
 - `location_10dlc_registrations.status=pending_review`
 - Notes state internal GenieFront review; **not** TCR/carrier submitted
 - Permitted: platform internal review actions
@@ -164,7 +164,7 @@ Login email is `qa+<id>@example.test` unless stated.
 
 ### 16. `support_request_open`
 
-- Tenant login: `qa+support_request_open@example.test`; active internal operator: `qa+support_request_open.operator@example.test`
+- Tenant login: `qa-support_request_open@maildrop.cc`; active internal operator: `qa-support_request_open.operator@maildrop.cc`
 - Three requests: `open`, `in_progress`, `resolved` (`resolved_at` set on resolved)
 - `open` is the `support.submitRequest` shape
 - Permitted: customer sees open; platform updates status
@@ -172,7 +172,7 @@ Login email is `qa+<id>@example.test` unless stated.
 
 ### 17. `platform_operator`
 
-- User `qa+platform_operator@example.test`
+- User `qa-platform_operator@maildrop.cc`
 - `platform_operators.role=super_admin`, `status=active`
 - **No** shop membership
 - Permitted: `/v1/platform` session
@@ -180,7 +180,7 @@ Login email is `qa+<id>@example.test` unless stated.
 
 ### 18. `revoked_platform_operator`
 
-- User `qa+revoked_platform_operator@example.test`
+- User `qa-revoked_platform_operator@maildrop.cc`
 - `status=revoked`, `revoked_at` = clock − 30 days
 - Permitted: none on platform
 - Forbidden: treating former ops email as authorized

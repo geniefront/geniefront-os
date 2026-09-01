@@ -137,7 +137,7 @@ intent（比对的是 `auth.users` 里那一行的邮箱），前端传 id 回�
 POST /v1/auth/password/reset          ← 不要 Authorization，不要 X-Membership-Id
 Content-Type: application/json
 
-{ "email": "owner@example.com" }
+{ "email": "owner@maildrop.cc" }
 ```
 
 **响应永远是 `200 { "ok": true }`。** 邮箱不存在、格式不对、上游挂了 ——
@@ -1326,7 +1326,7 @@ set -a && . ./.env && set +a
 
 TOKEN=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
   -H "apikey: $SUPABASE_ANON_KEY" -H "Content-Type: application/json" \
-  -d '{"email":"mia@example.test","password":"GenieDev!2026"}' \
+  -d '{"email":"mia@maildrop.cc","password":"GenieDev!2026"}' \
   | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
 
 curl -s http://127.0.0.1:3000/v1/me/locations -H "Authorization: Bearer $TOKEN"
@@ -1349,12 +1349,12 @@ curl -s "http://127.0.0.1:3000/v1/desk/day?date=2026-08-27" \
 
 | 邮箱 | 角色 | 门店 |
 | :--- | :--- | :--- |
-| `mia@example.test` | `front_desk` | Lotus Nails & Spa |
-| `amy@example.test` | `manager` **兼** `tech` | Lotus Nails & Spa |
-| `mai@example.test` | `senior_tech` | Lotus Nails & Spa |
-| `tran@` / `kim@` / `linh@example.test` | `tech` | Lotus Nails & Spa |
-| `owner@example.test` | `owner` | Golden Foot Spa（测多店 / 计费用） |
-| `yan@` / `bo@` / `hua@example.test` | `tech` | Golden Foot Spa |
+| `mia@maildrop.cc` | `front_desk` | Lotus Nails & Spa |
+| `amy@maildrop.cc` | `manager` **兼** `tech` | Lotus Nails & Spa |
+| `mai@maildrop.cc` | `senior_tech` | Lotus Nails & Spa |
+| `tran@` / `kim@` / `linh@maildrop.cc` | `tech` | Lotus Nails & Spa |
+| `owner@maildrop.cc` | `owner` | Golden Foot Spa（测多店 / 计费用） |
+| `yan@` / `bo@` / `hua@maildrop.cc` | `tech` | Golden Foot Spa |
 
 > 云端 Supabase 项目里**已经 seed 好了**，不需要再跑 `pnpm db:seed`。
 > ⚠️ 而且**不要跑** —— 种子会解绑 Golden Foot Spa 上那个真实的 Telnyx 号

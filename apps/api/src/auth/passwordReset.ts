@@ -2,7 +2,7 @@
  * 忘记密码 → 发一封重置邮件
  *
  * ```
- * POST /v1/auth/password/reset   { "email": "owner@example.com" }
+ * POST /v1/auth/password/reset   { "email": "owner@maildrop.cc" }
  * → 200 { "ok": true }           ← 永远是这个，不管这个邮箱在不在
  * ```
  *

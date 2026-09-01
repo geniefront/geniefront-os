@@ -16,7 +16,7 @@ vi.mock('react-router-dom', async () => {
 
 const mockSessionState = {
   session: {
-    user: { id: 'user-1', email: 'owner@example.com' },
+    user: { id: 'user-1', email: 'owner@maildrop.cc' },
   } as any,
   claimable: {
     locationId: 'loc-1',
@@ -55,7 +55,7 @@ describe('Activate 首次开店与密码设置页面', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSessionState.session = {
-      user: { id: 'user-1', email: 'owner@example.com' },
+      user: { id: 'user-1', email: 'owner@maildrop.cc' },
     } as any;
     mockSessionState.claimable = {
       locationId: 'loc-1',
@@ -71,7 +71,7 @@ describe('Activate 首次开店与密码设置页面', () => {
 
     expect(screen.getByText('Lotus Spa')).toBeInTheDocument();
     expect(screen.getByText('设置店主账号密码')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('owner@example.com')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('owner@maildrop.cc')).toBeInTheDocument();
     expect(screen.getByLabelText(/店主姓名/)).toHaveValue('owner');
   });
 

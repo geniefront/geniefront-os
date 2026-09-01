@@ -47,7 +47,7 @@ beforeAll(async () => {
   const dynamicPhone = `+1617${Math.floor(1000000 + Math.random() * 9000000)}`;
   const [cust] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
     insert into customers (org_id, primary_location_id, display_name, phone_e164, email, vip_level)
-    values (${NAIL_ORG}, ${NAIL_LOC}, '工作台测试客', ${dynamicPhone}, 'ws-test@example.com', 2)
+    values (${NAIL_ORG}, ${NAIL_LOC}, '工作台测试客', ${dynamicPhone}, 'ws-test@maildrop.cc', 2)
     returning id`);
   testCustomerId = cust!.id;
 

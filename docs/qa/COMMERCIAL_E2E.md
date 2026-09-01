@@ -19,7 +19,7 @@ All active keys and hosts used for this run were TEST / local / non-production.
 | Stripe webhook secret | real test-mode (Stripe CLI) | `stripe listen --forward-to 127.0.0.1:3000/v1/stripe/webhook`; CLI signing secret matched the local `STRIPE_WEBHOOK_SECRET` |
 | Database | local isolated Postgres | `127.0.0.1:54322` (`DATABASE_TEST_TARGET=isolated`). Remote DEV Supabase was **not** written. Production project `qiuyubvhirjtglonbkon` stayed commented out |
 | Supabase Auth | local | `http://127.0.0.1:54321`; GoTrue `SITE_URL` / redirect allow-list updated locally so `/activate` on desk `localhost:5177` is accepted |
-| Email | local capture | Mailpit/Inbucket `http://127.0.0.1:54324`. Addresses were `*@example.test` only |
+| Email | local capture | Mailpit/Inbucket `http://127.0.0.1:54324`. Addresses were `*@maildrop.cc` only |
 | API | local | `http://127.0.0.1:3000`, `NODE_ENV=development` |
 | Marketing | local | `http://localhost:5180` |
 | Desk (`apps/web`) | local | `http://localhost:5177` |
@@ -58,14 +58,14 @@ This commercial run used the **local isolated** database.
 | Field | Value |
 | --- | --- |
 | Shop | `E2E Essential 1788123807` |
-| Owner email | `gf-e2e-ess-1788123807@example.test` |
+| Owner email | `gf-e2e-ess-1788123807@maildrop.cc` |
 | Plan requested | `essential` |
 | Checkout Session | `cs_test_a1JLtssKfbNYYwLRNTdvpHabHoTZy7o5LaMfRDKOoMMtowB0H1y0LCIPO8` |
 | livemode | `false` |
 | Price | `price_1U5FREJDnwqCtyJGe1pVlXUZ` ($99, TEST) |
 | `gf_signup` | `1` |
 | `gf_shop_name` | `E2E Essential 1788123807` |
-| `gf_owner_email` | `gf-e2e-ess-1788123807@example.test` |
+| `gf_owner_email` | `gf-e2e-ess-1788123807@maildrop.cc` |
 | `gf_plan` | `essential` |
 | `customer_email` | same as `gf_owner_email` |
 | Payment method | Stripe test card `4242 4242 4242 4242` |
@@ -115,7 +115,7 @@ After replay: still **1** `signup_intents` row and **1** location for that shop 
 
 Local Mailpit captured one magic-link mail:
 
-- To: `gf-e2e-ess-1788123807@example.test`
+- To: `gf-e2e-ess-1788123807@maildrop.cc`
 - Subject: `Your sign-in link`
 - Link: `http://127.0.0.1:54321/auth/v1/verify?token=…&type=magiclink&redirect_to=http://localhost:5177/activate`
 
@@ -130,7 +130,7 @@ Opening the magic link landed on `http://localhost:5177/activate`, password was 
 | Owner membership | `bd8654f0-319d-448f-8386-f4da27fcfd41` role `owner` on location `32575293-300c-4583-b2f0-d05ec835a39c` |
 | Claim SQL | `gf_signup_intent_for_user` / `setup.claimLocation` — not bypassed |
 | Owner re-claim | `404 no_claimable_signup` |
-| Unrelated user `gf-e2e-unrelated-1788123807@example.test` | `404 no_claimable_signup` |
+| Unrelated user `gf-e2e-unrelated-1788123807@maildrop.cc` | `404 no_claimable_signup` |
 
 ## 10. Setup
 
@@ -148,11 +148,11 @@ Via authenticated commands (same APIs the Setup UI uses):
 
 - After activation the browser was on `/setup` (SessionGate resolved; correct location).
 - Password login landed on `/dashboard`, then `/settings?tab=billing`.
-- Desk chrome showed `E2E Essential 1788123807`, owner `gf-e2e-ess-1788123807@example.test`, status 正常营运中.
+- Desk chrome showed `E2E Essential 1788123807`, owner `gf-e2e-ess-1788123807@maildrop.cc`, status 正常营运中.
 - After finishSetup, `GET /v1/desk/day` → 200 with this tenant’s staff/services only:
   - staff: `Ava Tech`, owner
   - services: `Classic Manicure`
-  - no Lotus / Selftest / `owner@example.test` seed leakage
+  - no Lotus / Selftest / `owner@maildrop.cc` seed leakage
 - Customer Portal: `POST /v1/billing/portal-session` → `https://billing.stripe.com/p/session?secret=test…`
 - One browser console 404 (resource load) was seen; no 5xx from desk APIs.
 
@@ -183,7 +183,7 @@ Created from `apps/marketing` UI (`cta-growth`).
 | Field | Value |
 | --- | --- |
 | Shop | `E2E Growth 1788124326` |
-| Owner email | `gf-e2e-growth-1788124326@example.test` |
+| Owner email | `gf-e2e-growth-1788124326@maildrop.cc` |
 | Checkout Session | `cs_test_a1VSm1UHGkbjyIuiNCR3CCW245BA9YziZZgf2FdlZ4VyMEzea8kLULZ2UE` |
 | livemode | `false` |
 | Price | `price_1U5FRZJDnwqCtyJGeJpplvcw` ($199, TEST) |

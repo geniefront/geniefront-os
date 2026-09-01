@@ -87,7 +87,7 @@ describe('platform API authorization', () => {
   });
 
   it('2. authenticated store owner cannot access platform API', async () => {
-    asUser(OWNER_USER, 'owner@example.test');
+    asUser(OWNER_USER, 'owner@maildrop.cc');
     const r = await app.inject({ method: 'GET', url: '/v1/platform/session' });
     expect(r.statusCode).toBe(403);
     expect(r.json().code).toBe('PERMISSION_DENIED');
@@ -95,7 +95,7 @@ describe('platform API authorization', () => {
   });
 
   it('revoked operator cannot access platform API', async () => {
-    asUser(PLATFORM_EXOPS_USER_ID, 'exops@geniefront.test');
+    asUser(PLATFORM_EXOPS_USER_ID, 'exops@maildrop.cc');
     const r = await app.inject({ method: 'GET', url: '/v1/platform/stores' });
     expect(r.statusCode).toBe(403);
     expect(r.json().details.reason).toBe('not_platform_operator');
@@ -112,7 +112,7 @@ describe('platform API authorization', () => {
   });
 
   it('3. authorized platform operator can access platform', async () => {
-    asUser(PLATFORM_OPS_USER_ID, 'ops@geniefront.test');
+    asUser(PLATFORM_OPS_USER_ID, 'ops@maildrop.cc');
     const r = await app.inject({ method: 'GET', url: '/v1/platform/session' });
     expect(r.statusCode).toBe(200);
     expect(r.json().operator.role).toBe('super_admin');
@@ -122,7 +122,7 @@ describe('platform API authorization', () => {
 
 describe('platform cross-tenant reads', () => {
   it('4. operator can query multiple stores only through platform endpoints', async () => {
-    asUser(PLATFORM_OPS_USER_ID, 'ops@geniefront.test');
+    asUser(PLATFORM_OPS_USER_ID, 'ops@maildrop.cc');
     const r = await app.inject({ method: 'GET', url: '/v1/platform/stores?q=' });
     expect(r.statusCode).toBe(200);
     const body = r.json() as { total: number; items: Array<{ orgId: string; locationId: string }> };
@@ -133,7 +133,7 @@ describe('platform cross-tenant reads', () => {
   });
 
   it('owner search by email does not grant platform access', async () => {
-    asUser(OWNER_USER, 'owner@example.test');
+    asUser(OWNER_USER, 'owner@maildrop.cc');
     const r = await app.inject({ method: 'GET', url: '/v1/platform/stores?q=lotus' });
     expect(r.statusCode).toBe(403);
   });
@@ -149,7 +149,7 @@ describe('platform cross-tenant reads', () => {
   });
 
   it('10. arbitrary tenant id from a non-platform user does not become cross-tenant access', async () => {
-    asUser(OWNER_USER, 'owner@example.test');
+    asUser(OWNER_USER, 'owner@maildrop.cc');
     const r = await app.inject({
       method: 'GET',
       url: `/v1/platform/stores/${SPA_LOC}`,
@@ -165,7 +165,7 @@ describe('platform cross-tenant reads', () => {
 
 describe('platform billing is read-only for paid state', () => {
   it('6. platform billing view does not mutate subscription paid state', async () => {
-    asUser(PLATFORM_OPS_USER_ID, 'ops@geniefront.test');
+    asUser(PLATFORM_OPS_USER_ID, 'ops@maildrop.cc');
     await withTenant(
       { orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null },
       (tx) => tx`
@@ -200,7 +200,7 @@ describe('platform billing is read-only for paid state', () => {
   });
 
   it('7. platform cannot invoke disabled local billing.changePlan / billing.buyAddon', async () => {
-    asUser(PLATFORM_OPS_USER_ID, 'ops@geniefront.test');
+    asUser(PLATFORM_OPS_USER_ID, 'ops@maildrop.cc');
     const missingChange = await app.inject({
       method: 'POST',
       url: `/v1/platform/stores/${NAIL_LOC}/billing/change-plan`,
@@ -245,7 +245,7 @@ describe('platform mutations are audited', () => {
       },
     );
 
-    asUser(PLATFORM_OPS_USER_ID, 'ops@geniefront.test');
+    asUser(PLATFORM_OPS_USER_ID, 'ops@maildrop.cc');
     const r = await app.inject({
       method: 'POST',
       url: `/v1/platform/10dlc/${SPA_LOC}/review`,
@@ -276,7 +276,7 @@ describe('platform mutations are audited', () => {
       ctx,
     );
 
-    asUser(PLATFORM_OPS_USER_ID, 'ops@geniefront.test');
+    asUser(PLATFORM_OPS_USER_ID, 'ops@maildrop.cc');
     const r = await app.inject({
       method: 'PATCH',
       url: `/v1/platform/support-requests/${created.result.requestId}`,
@@ -298,7 +298,7 @@ describe('platform mutations are audited', () => {
   });
 
   it('11. no secrets/tokens are returned unnecessarily', async () => {
-    asUser(PLATFORM_OPS_USER_ID, 'ops@geniefront.test');
+    asUser(PLATFORM_OPS_USER_ID, 'ops@maildrop.cc');
     const r = await app.inject({ method: 'GET', url: `/v1/platform/stores/${NAIL_LOC}` });
     expect(r.statusCode).toBe(200);
     const body = JSON.stringify(r.json());
@@ -313,7 +313,7 @@ describe('platform mutations are audited', () => {
 
 describe('dashboard counts are real queries', () => {
   it('returns the documented counters', async () => {
-    asUser(PLATFORM_OPS_USER_ID, 'ops@geniefront.test');
+    asUser(PLATFORM_OPS_USER_ID, 'ops@maildrop.cc');
     const r = await app.inject({ method: 'GET', url: '/v1/platform/dashboard' });
     expect(r.statusCode).toBe(200);
     const body = r.json() as Record<string, number>;

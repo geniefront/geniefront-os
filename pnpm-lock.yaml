@@ -38,6 +38,9 @@ importers:
       '@gf/ai':
         specifier: workspace:*
         version: link:../../packages/ai
+      '@gf/aws':
+        specifier: workspace:*
+        version: link:../../packages/aws
       '@gf/brightdata':
         specifier: workspace:*
         version: link:../../packages/brightdata
@@ -373,6 +376,8 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
 
+  packages/aws: {}
+
   packages/brightdata:
     dependencies:
       '@gf/contracts':
@@ -387,6 +392,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@gf/aws':
+        specifier: workspace:*
+        version: link:../aws
       '@gf/contracts':
         specifier: workspace:*
         version: link:../contracts

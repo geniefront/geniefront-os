@@ -7,7 +7,8 @@
 
 ## 1. 为什么需要
 
-测试账号收不到东西：`+1617555xxxx` 收不到短信，`qa+xxx@example.test` 收不到邮件。
+测试账号看不到东西：`+1617555xxxx` 收不到短信；`qa-xxx@maildrop.cc` 虽然能收信，
+但那是一个**公开的一次性收件箱**，任何知道地址的人都能读，不能用来核对真实内容。
 结果是「客人收到的确认信长什么样、里面那条链接点不点得开」在上线前**从来没人真正看过一眼**，
 E2E 也验不了任何一条带链接的流程。
 
@@ -105,7 +106,8 @@ Twilio Verify **没有 Test Credentials 这条路**（不像 Programmable SMS）
 pnpm diagnose:comms:staging
 ```
 
-只读，一次看三段：配置、发件箱状态与 `last_error`、Resend 域名验证。三段的失败现象在门店那头
+只读，一次看三段：配置、发件箱状态与 `last_error`、SES 账号与域名身份（含沙箱状态与
+配置集事件目标）。三段的失败现象在门店那头
 是同一个（客人没收到信），但原因完全不同：
 
 | 现象 | 说明 |
@@ -116,7 +118,7 @@ pnpm diagnose:comms:staging
 | 行是 `captured` | capture 模式，本来就没打算发出去 |
 
 **2026-08-31 的一次实测**（staging）：`email_outbox` **一行都没有**，
-`sms_outbox` 有 1 条 `sent`；Resend key 有效，`mail.geniefront.com` 已验证。
+`sms_outbox` 有 1 条 `sent`；Resend key 有效，`notify.` / `appointment.` / `mkt.` 三个域已验证。
 也就是说当时「staging 收不到邮件」不是发信链路坏了 —— 业务邮件根本没产生过，
 真正没收到的是 **Supabase Auth 的激活信**，那条路见上面第 5 节。
 
@@ -147,7 +149,7 @@ pnpm diagnose:comms:staging
 ### 运营账号
 
 staging 原先 `platform_operators` **一行都没有**，任何人都打不开运营台。
-现已按 seed 的口径建了一个：`ops@geniefront.test` / `GenieDev!2026`，super_admin，
+现已按 seed 的口径建了一个：`ops@maildrop.cc` / `GenieDev!2026`，super_admin，
 只存在于 staging。要再加人就照 `packages/db/src/seed.ts` 里那段写
 （auth.users + auth.identities + users + platform_operators 四张表）。
 
@@ -183,7 +185,7 @@ Realtime 频道授权与 Storage 对象策略都在这个身份下调它（0011/
 ### 激活邮件 → Mailtrap Sandbox
 
 按 `signup/activation.ts` 的口径调 `/auth/v1/otp`（`create_user: true`）给
-`qa-activate-…@example.test`：HTTP 200，auth 日志出现
+`qa-activate-…@maildrop.cc`：HTTP 200，auth 日志出现
 `user_confirmation_requested`，`auth.users.confirmation_sent_at` 第一次被写上
 （GoTrue 只有在 mailer 没报错时才会写这一列，也就是 Mailtrap 收下了这封信）。
 邮件长什么样要在 Mailtrap 的 inbox 里看 —— 那把凭据不在仓库里，脚本这边验不到。
@@ -194,7 +196,7 @@ Realtime 频道授权与 Storage 对象策略都在这个身份下调它（0011/
 （`customer.saveProfile` → `appointment.create`）：
 
 - `email_outbox` 与 `sms_outbox` 各多一行，**两行都是 `captured`**、
-  `provider_id = capture:…` —— Resend 和 Telnyx 都没被调用
+  `provider_id = capture:…` —— SES 和 Telnyx 都没被调用
 - 运营台接口按收件人查得到，详情返回整封正文与 HTML
 - `usage_events` 没有产生短信计费行
 

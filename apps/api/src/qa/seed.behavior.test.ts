@@ -25,7 +25,7 @@ function qaUuid(seed: string): string {
 }
 
 function qaEmail(local: string): string {
-  return `qa+${local}@example.test`;
+  return `qa-${local}@maildrop.cc`;
 }
 
 function seed(scenario: string): void {

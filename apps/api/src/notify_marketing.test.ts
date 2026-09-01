@@ -41,7 +41,7 @@ async function makeCustomer(opts: {
         (org_id, primary_location_id, display_name, email, birthday,
          blocked_at, marketing_email_opt_in)
       select ${NAIL_ORG}, ${NAIL_LOC}, 'Campaign Test',
-             ${`camp-${crypto.randomUUID().slice(0, 8)}@example.test`},
+             ${`camp-${crypto.randomUUID().slice(0, 8)}@maildrop.cc`},
              ${opts.birthdayOffsetDays === undefined ? null
                : sql`(((now() at time zone ${timezone})::date
                        + ${opts.birthdayOffsetDays}::int) - interval '30 years')::date`},
@@ -104,7 +104,7 @@ afterAll(async () => {
     /*
      * ⚠️ 建出来的工单**不删**：`app_user` 对 `tickets` 没有 delete 权限
      * （工单是财务凭据，只能作废不能删）。挂着工单的顾客因此也删不掉 ——
-     * 外键拦着。这几行 `@example.test` 的测试数据留在库里是可以接受的：
+     * 外键拦着。这几行 `@maildrop.cc` 的测试数据留在库里是可以接受的：
      * 每条断言都按具体 id 判定，不受残留影响。
      */
     if (madeCustomers.length > 0) {

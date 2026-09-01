@@ -44,13 +44,13 @@ beforeAll(async () => {
 
   const [custA] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
     insert into customers (org_id, primary_location_id, display_name, phone_e164, email, vip_level)
-    values (${NAIL_ORG}, ${NAIL_LOC}, '主档案客户', ${dynamicPhoneA}, 'cust-a@example.com', 1)
+    values (${NAIL_ORG}, ${NAIL_LOC}, '主档案客户', ${dynamicPhoneA}, 'cust-a@maildrop.cc', 1)
     returning id`);
   testCustomerAId = custA!.id;
 
   const [custB] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
     insert into customers (org_id, primary_location_id, display_name, phone_e164, email, vip_level)
-    values (${NAIL_ORG}, ${NAIL_LOC}, '副档案客户(待合并)', ${dynamicPhoneB}, 'cust-b@example.com', 0)
+    values (${NAIL_ORG}, ${NAIL_LOC}, '副档案客户(待合并)', ${dynamicPhoneB}, 'cust-b@maildrop.cc', 0)
     returning id`);
   testCustomerBId = custB!.id;
 

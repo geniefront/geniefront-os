@@ -163,9 +163,9 @@ export function registerPlatformRoutes(app: FastifyInstance): void {
   });
 
   /**
-   * 人工配完 Resend 与 DNS 之后，用这一条告诉后端「可以发营销邮件了」。
+   * 配置完 SES 域名身份与 DNS 之后，用这一条告诉后端「可以发营销邮件了」。
    *
-   * ⚠️ 不接受手填地址 —— 服务端会去问 Resend 域名验没验过，验过了才写库。
+   * ⚠️ 不接受手填地址 —— 服务端会去问 SES 域名验没验过，验过了才写库。
    * 详见 `commands.ts` 的 `setMarketingEmailForLocation`。
    */
   app.post<{ Params: { locationId: string } }>(

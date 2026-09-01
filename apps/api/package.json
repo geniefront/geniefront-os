@@ -15,6 +15,7 @@
   "dependencies": {
     "@fastify/cors": "^11.3.0",
     "@gf/ai": "workspace:*",
+    "@gf/aws": "workspace:*",
     "@gf/brightdata": "workspace:*",
     "@gf/contracts": "workspace:*",
     "@gf/db": "workspace:*",

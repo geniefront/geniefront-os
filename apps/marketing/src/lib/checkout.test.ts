@@ -15,6 +15,6 @@ describe('checkout helpers', () => {
   it('validates shop name and email before calling the API', () => {
     expect(validateSignupForm({ shopName: '', ownerEmail: '' }).length).toBeGreaterThan(0);
     expect(validateSignupForm({ shopName: 'Lotus', ownerEmail: 'bad' })).toContain('Enter a valid owner email.');
-    expect(validateSignupForm({ shopName: 'Lotus', ownerEmail: 'owner@example.test' })).toEqual([]);
+    expect(validateSignupForm({ shopName: 'Lotus', ownerEmail: 'owner@maildrop.cc' })).toEqual([]);
   });
 });

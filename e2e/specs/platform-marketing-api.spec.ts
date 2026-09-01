@@ -51,13 +51,13 @@ test.describe('API, platform, and marketing surfaces', () => {
     await expect(page.getByTestId('plan-essential')).toContainText('$99');
     await expect(page.getByTestId('plan-growth')).toContainText('$199');
     await page.getByTestId('shop-name').fill('QA Essential Signup');
-    await page.getByTestId('owner-email').fill('essential-signup@example.test');
+    await page.getByTestId('owner-email').fill('essential-signup@maildrop.cc');
     await page.getByTestId('cta-essential').click();
     await expect(page.getByRole('heading', { name: 'Stripe TEST signup checkout' })).toBeVisible();
 
     await page.goto('http://127.0.0.1:5180/');
     await page.getByTestId('shop-name').fill('QA Growth Signup');
-    await page.getByTestId('owner-email').fill('growth-signup@example.test');
+    await page.getByTestId('owner-email').fill('growth-signup@maildrop.cc');
     await page.getByTestId('cta-growth').click();
     await expect(page.getByRole('heading', { name: 'Stripe TEST signup checkout' })).toBeVisible();
     expect(submittedPlans).toEqual(['essential', 'growth']);

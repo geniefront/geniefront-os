@@ -173,13 +173,15 @@ export function StoreDetail() {
 }
 
 /**
- * 外发消息面板 —— 运营在人工配完 Resend 与 DNS 之后，从这里告诉后端
- * 「这家店可以发营销邮件了」。
+ * 外发消息面板 —— 运营从这里告诉后端「这家店可以发营销邮件了」。
  *
- * ⚠️ 这里**没有输入框让人填地址**。手填意味着一个笔误就把营销邮件指到一个
- * 不存在的地址上，而后果不是报错、是整批退信，退信率同样计入发信域名信誉。
- * 因此只有一个按钮：让服务端去问 Resend「这个域名验过没有」，验过了才写库。
- * 没通过时把要加的 DNS 记录原样显示出来。
+ * ⚠️ 这里**没有输入框让人填地址**。手填意味着一个笔误就把营销邮件指向一个
+ * 不存在的地址，而后果不是报错、是整批退信，退信率同样计入发信域名信誉。
+ * 因此只有一个按钮：让服务端去问当前邮件供应商「营销域验过没有」，
+ * 验过了才写库。
+ *
+ * 营销域是**所有门店共用的一个域**（`mkt.geniefront.com`），门店身份体现在
+ * 本地部分上 —— 因此这里不需要任何 DNS 操作，也没有逐店的域名要建。
  */
 function MessagingPanel({ locationId }: { locationId: string }) {
   const qc = useQueryClient();
@@ -252,7 +254,7 @@ function MessagingPanel({ locationId }: { locationId: string }) {
           onClick={() => act.mutate('check')}
           className="rounded-lg bg-slate-900 text-white px-3 py-1.5 text-sm disabled:opacity-60"
         >
-          {act.isPending ? '正在向 Resend 核验…' : '检查 Resend 并启用'}
+          {act.isPending ? '正在核验…' : '检查并启用'}
         </button>
         {emailOpen ? (
           <button
@@ -267,9 +269,10 @@ function MessagingPanel({ locationId }: { locationId: string }) {
       </div>
 
       <p className="text-xs text-slate-500">
-        顺序：① 在 Resend 建 domain 并在 Cloudflare 加 SPF / DKIM / DMARC（Proxy 关掉）
-        → ② 回到这里点「检查 Resend 并启用」。核验通过才会写库 —— 这个按钮核验的是
-        事实，不是你的声明。
+        点「检查并启用」即可：服务端会先向当前邮件供应商核实营销发件域确为
+        verified，通过了才写库 —— 这个按钮核验的是事实，不是你的声明。
+        营销域是所有门店共用的，不需要为这家店做任何 DNS 操作。
+        每次启用都会重新核验一遍：域名可能在两次之间被供应商停用，而停用不会有任何通知。
       </p>
 
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
@@ -280,7 +283,7 @@ function MessagingPanel({ locationId }: { locationId: string }) {
             已启用：{result.marketingEmailFrom}（{result.domain} 状态 {result.domainStatus}）
           </p>
         ) : result.domainStatus === 'disabled' ? (
-          <p className="text-sm text-slate-700">已停用，营销邮件立刻停发。Resend 上的域名没有动。</p>
+          <p className="text-sm text-slate-700">已停用，营销邮件立刻停发。供应商侧未做任何改动。</p>
         ) : (
           <div className="text-sm space-y-2">
             <p className="text-amber-800">

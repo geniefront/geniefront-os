@@ -119,15 +119,38 @@ CLOUDFLARE_ZONE_ID=...
 
 ---
 
-### A4 · Resend — 邮件（Magic Link 登录靠它）
+### A4 · 邮件（Magic Link 登录靠它）
 
-1. [resend.com](https://resend.com) 注册，Add Domain 用**子域**：`mail.你的域名`（别用主域，出问题不牵连主域声誉）
-2. Resend 会给 3 条 DNS 记录（DKIM / SPF / DMARC）→ 在 Cloudflare 加上 → 等验证变绿
+当前供应商是 **Resend**；AWS SES 的整套实现已就位，但账号仍在沙箱，
+脱离沙箱后把 `EMAIL_PROVIDER` 改成 `ses` 即可切换（docs/26 §5.1）。
+
+1. [resend.com](https://resend.com) → API Keys → Create API Key（Full access）
+2. Add Domain 建**三个子域**（别用主域，出问题不牵连主域声誉）：
+
+   | 域 | 用途 |
+   | :-- | :-- |
+   | `notify.你的域名` | 店家事务：订阅、账单、平台通知 |
+   | `appointment.你的域名` | 客户事务：预约确认 / 变更 / 提醒、表单邀请 |
+   | `mkt.你的域名` | 客户营销：所有门店共用，门店身份在本地部分上 |
+
+3. 每个域 Resend 会给几条 DNS 记录 → 在 Cloudflare 加上（**Proxy 关掉**）→ 等验证变绿
+4. Webhooks → Add Endpoint → `https://api.你的域名/v1/webhooks/resend`，
+   订阅 `email.delivered` / `email.delivery_delayed` / `email.bounced` /
+   `email.complained`，把 `whsec_…` 填进 `RESEND_WEBHOOK_SECRET`
 
 ```bash
+EMAIL_PROVIDER=resend
 RESEND_API_KEY=re_...
-FROM_EMAIL=noreply@mail.你的域名
+RESEND_WEBHOOK_SECRET=whsec_...
+FROM_EMAIL=noreply@notify.你的域名
+CUSTOMER_FROM_EMAIL=noreply@appointment.你的域名
+MARKETING_EMAIL_DOMAIN=mkt.你的域名
 ```
+
+> ⚠️ **第 4 步不能省。** 不接投递回调的话，系统对一封信的下场一无所知：
+> 一个早已不存在的邮箱每次预约都再退信一次，一位点过「举报垃圾邮件」的顾客
+> 下个月照样收到营销邮件 —— 两者都直接扣发信域名的信誉，而**表现与
+> 「一切正常」完全相同**，不会有任何报错。
 
 > ⚠️ **这一项要提前做**，DNS 传播 + 域名声誉预热要时间。短信推迟到门店 ≥ 10 家了（`03` 决策 11），
 > 所以 **Phase 0/1 阶段所有通知和登录都压在邮件上**，它挂了整个登录就挂了。
@@ -225,8 +248,12 @@ SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=       # dev 项目的；只给迁移/种子脚本用，apps/** 不许读
 DATABASE_URL=                    # 受限角色 app_user，transaction pooler
 ANTHROPIC_API_KEY=
+EMAIL_PROVIDER=resend
 RESEND_API_KEY=
+RESEND_WEBHOOK_SECRET=
 FROM_EMAIL=
+CUSTOMER_FROM_EMAIL=
+MARKETING_EMAIL_DOMAIN=
 CLOUDFLARE_API_TOKEN=
 CLOUDFLARE_ACCOUNT_ID=
 CLOUDFLARE_ZONE_ID=
@@ -266,7 +293,7 @@ BRIGHT_DATA_API_KEY=
 - [ ] `SUPABASE_URL` + `SUPABASE_ANON_KEY` + `DATABASE_URL`（dev 项目）
 - [ ] `ANTHROPIC_API_KEY`
 - [ ] 域名 + `CLOUDFLARE_API_TOKEN` / `ACCOUNT_ID` / `ZONE_ID`
-- [ ] `RESEND_API_KEY` + `FROM_EMAIL`（发信域名 DNS 验证通过）
+- [ ] `RESEND_API_KEY` / `RESEND_WEBHOOK_SECRET` + 三个发信域名（DKIM 验证通过）
 - [ ] 开发服务器 SSH（或先在本机跑，服务器晚几天也行）
 
 **其中真正卡住不能动的只有前两项** —— Supabase 和 Anthropic。域名/邮件/服务器可以边写边补。

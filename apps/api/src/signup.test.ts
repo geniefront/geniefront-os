@@ -29,10 +29,10 @@ import { dispatchSystem } from './test/systemDispatch';
 /** 固定的自测 session。真实的 session id 长这样：cs_test_a1B2… */
 const SESSION = 'cs_test_gf_selftest_signup';
 /** 认领用的账号：种子里的足疗店老板（auth.users 里邮箱已验证） */
-const OWNER_EMAIL = 'owner@example.test';
+const OWNER_EMAIL = 'owner@maildrop.cc';
 const OWNER_USER = '196f0ab4-cd94-45cc-8109-2c414e966828';
 /** 「另一个人」：拿他的 user id 去认领同一家店，必须什么都拿不到 */
-const OTHER_USER = 'd84f499d-4100-4791-a0ae-dca645aa2661'; // mia@example.test
+const OTHER_USER = 'd84f499d-4100-4791-a0ae-dca645aa2661'; // mia@maildrop.cc
 
 const log = (): { logger: FastifyBaseLogger; errors: unknown[] } => {
   const errors: unknown[] = [];
@@ -167,7 +167,7 @@ describe('A · 建租户', () => {
     const { logger, errors } = log();
     const evil = session({
       id: 'cs_test_gf_selftest_mismatch',
-      customer_email: 'attacker@example.test',
+      customer_email: 'attacker@maildrop.cc',
     });
 
     const out = await provisionFromSession(evil, logger);
@@ -188,7 +188,7 @@ describe('A · 建租户', () => {
     const out = await provisionTenant({
       checkoutSessionId: s,
       shopName: '  水疗小店  ',
-      ownerEmail: 'NOBODY@Example.test',
+      ownerEmail: 'NOBODY@Maildrop.cc',
       businessType: '按摩',            // 不在五个值里
       timezone: 'Mars/Olympus',        // 不是 IANA
       locale: 'fr',                    // 不在六个值里
@@ -211,7 +211,7 @@ describe('A · 建租户', () => {
     expect(si!.metadata['business_type_fallback']).toBe('按摩');
     expect(si!.metadata['locale_fallback']).toBe('fr');
     // 邮箱一律小写存：比对时不区分大小写
-    expect(si!.owner_email).toBe('nobody@example.test');
+    expect(si!.owner_email).toBe('nobody@maildrop.cc');
   });
 });
 
@@ -378,7 +378,7 @@ describe('D · Google 登录：邮箱规范化', () => {
   it('喂进去的东西不成形也不能炸 —— 这个函数在认领那条路的 where 里', async () => {
     expect(await canon(null)).toBeNull();
     expect(await canon('nonsense')).toBe('nonsense');
-    expect(await canon('  Mixed@Example.TEST ')).toBe('mixed@example.test');
+    expect(await canon('  Mixed@MailDrop.CC ')).toBe('mixed@maildrop.cc');
   });
 
   it('可认领的那一家要带店名 —— 登录后那一屏要写「你有一家 XX 等着开通」', async () => {

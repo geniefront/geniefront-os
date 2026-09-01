@@ -15,5 +15,5 @@ export async function seedScenario(scenario: string): Promise<void> {
 }
 
 export function qaEmail(scenario: string): string {
-  return `qa+${scenario}@example.test`;
+  return `qa-${scenario}@maildrop.cc`;
 }

@@ -32,10 +32,10 @@ export async function flushEmails(
     const rows = await withTenant(tenant, (tx) => tx<{
       id: string; to_email: string; subject: string;
       body_html: string; body_text: string; attempts: number;
-      unsubscribe_url: string | null; from_email: string | null;
+      unsubscribe_url: string | null; from_email: string | null; kind: string;
     }[]>`
       select id, to_email, subject, body_html, body_text, attempts,
-             unsubscribe_url, from_email
+             unsubscribe_url, from_email, kind
       from email_outbox
       where location_id = ${tenant.locationId}
         and status = 'pending' and attempts < ${MAX_ATTEMPTS}
@@ -75,11 +75,16 @@ export async function flushEmails(
       /*
        * ⚠️ 退订地址在**入队时**就已算好并存进 outbox（0086）。
        * 在此处现拼的话，令牌会多经手一遍，而它只应被拼一次。
+       *
+       * ⚠️ `kind` 参与发件地址的选择：客户事务邮件走 app 子域，店家事务邮件
+       * 走 mail 子域（见 `email/send.ts` 文件头「三个发件域名的划分」）。
+       * `from_email` 非空时优先使用它 —— 那是门店专属的营销发件地址。
        */
       const res = await sendEmail({
         to: r.to_email, subject: r.subject, html: r.body_html, text: r.body_text,
         unsubscribeUrl: r.unsubscribe_url,
         from: r.from_email,
+        kind: r.kind,
       });
 
       await withTenant(tenant, (tx) => {

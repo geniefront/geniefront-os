@@ -15,7 +15,7 @@ pnpm --filter @gf/api dev
 pnpm --filter @gf/web dev
 ```
 
-- 种子账号：`mia@example.test` / `GenieDev!2026`（Lotus Nails 前台）
+- 种子账号：`mia@maildrop.cc` / `GenieDev!2026`（Lotus Nails 前台）
 - 数据重置：`pnpm db:tidy`（勿用 `db:seed`）
 - 质量检查：`pnpm --filter @gf/web typecheck && pnpm --filter @gf/web test`
 

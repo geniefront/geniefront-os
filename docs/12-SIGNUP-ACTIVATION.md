@@ -94,7 +94,7 @@ await supabase.auth.signInWithOtp({
   能成为一家已付费门店的老板。这条链路的强度必须和登录一样，
   那就别自己发明
 - 邮件正文在 **Supabase 控制台的 Magic Link 模板**里改成欢迎语。
-  ⚠️ **不要再用 Resend 补发一封「欢迎」**：两封邮件里只有一封的链接是活的，
+  ⚠️ **不要再用 SES 补发一封「欢迎」**：两封邮件里只有一封的链接是活的，
   老板会点错那封然后以为系统坏了
 
 ---
@@ -369,7 +369,7 @@ Google provider + 把前端落地页加进 Redirect URLs 白名单。**dev 和 p
 ## 8. 忘记密码（2026-08-26）
 
 ```
-POST /v1/auth/password/reset   { "email": "owner@example.com" }
+POST /v1/auth/password/reset   { "email": "owner@maildrop.cc" }
 → 200 { "ok": true }           ← 永远是这个
 ```
 

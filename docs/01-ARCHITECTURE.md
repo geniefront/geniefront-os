@@ -509,7 +509,7 @@ turn_events: (location, business_date, staff_id, delta, reason, ticket_id, actor
 ## 10. 通讯与通知（解耦设计）
 
 - **阶段解耦**：
-  - **Phase 1b 基础通知**：基于邮件（Resend/SES）发送预约确认/变更 + 前台手工电话回呼 + 网页 Magic Link 查看。
+  - **Phase 1b 基础通知**：基于邮件（AWS SES）发送预约确认/变更 + 前台手工电话回呼 + 网页 Magic Link 查看。
   - **Phase 2.5 短信独立专项期**：**门店数 ≥ 10 家且 10DLC 审核完成后**才上线短信自动化（确认、提醒、叫号、唤醒）。核心业务不被短信审批卡住，代码里在此之前不写任何短信依赖。
 - 统一 `messaging` 服务：模板（多语言）→ 渲染 → 发送 → 回执 → 入库
 - **同意管理**：`consents` 表记录 channel / purpose(transactional|marketing) / 时间 / 来源 / IP / 文本版本
@@ -539,7 +539,7 @@ turn_events: (location, business_date, staff_id, delta, reason, ticket_id, actor
 | 应用实例（2 台同时挂） | 服务中断 | 容器守护自动重启；两台放在**不同机房/可用区** |
 | **Supabase** | **全站不可用（核心单点）** | 单区托管，区域性故障只能等。**SLA 别承诺 99.99%**。PITR 分钟级恢复 + 每季度真做一次恢复演练（`04` §10） |
 | Upstash Redis / BullMQ | 定时提醒延迟 | 队列持久化，恢复后补发；**不影响任何同步写路径** |
-| 邮件商 (Resend) | 提醒延迟 | 队列自动重试 + 死信告警 |
+| 邮件商 (AWS SES) | 提醒延迟 | 队列自动重试 + 死信告警 |
 | AI 电话商 (Telnyx) | 电话转人工 | 降级到语音信箱或前台回呼工单 |
 
 ### 门店断网：不遮罩、不关页面，切只读看板 ⭐

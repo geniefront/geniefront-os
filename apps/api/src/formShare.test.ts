@@ -417,19 +417,19 @@ describe('存储：前台那张列表', () => {
   });
 
   it('⭐ 没有 customer.view_contact 时邮箱是打码的', async () => {
-    await share({ channel: 'email', email: 'amy@example.test' });
+    await share({ channel: 'email', email: 'amy@maildrop.cc' });
     const narrow = {
       ...ctx, permissions: new Set(['customer.read']),
     } as typeof ctx;
     const data = await withTenant(tenant, (tx) => loadForms(tx, narrow, { days: 1 }));
     const withEmail = data.shares.find((s) => s.sentTo !== null);
-    expect(withEmail!.sentTo).toBe('a••••@example.test');
+    expect(withEmail!.sentTo).toBe('a••••@maildrop.cc');
   });
 });
 
 describe('分享：邮件', () => {
   it('渲染好才入队 —— outbox 那一行就是那封信本身', async () => {
-    const s = await share({ channel: 'email', email: 'amy@example.test' });
+    const s = await share({ channel: 'email', email: 'amy@maildrop.cc' });
     expect(s.emailQueued).toBe(true);
 
     const [mail] = await withTenant(tenant, (tx) => tx<{
@@ -438,7 +438,7 @@ describe('分享：邮件', () => {
       select to_email, subject, body_text, kind from email_outbox
       where entity_type = 'form_share' and entity_id = ${s.shareId}`);
     expect(mail!.kind).toBe('form_invite');
-    expect(mail!.to_email).toBe('amy@example.test');
+    expect(mail!.to_email).toBe('amy@maildrop.cc');
     // ⭐ 信里带的是**那一条**令牌，不是发信时再拼一次
     expect(mail!.body_text).toContain(s.token);
   });

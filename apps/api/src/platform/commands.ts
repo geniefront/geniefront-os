@@ -27,8 +27,8 @@ import { parseTs, withTenant } from '@gf/db';
 import type { PlatformOperator } from './auth';
 import { writePlatformAudit } from './audit';
 import {
-  listDomains, verifyDomain, getDomain,
-  domainLabelFromSlug, marketingDomainFor, marketingAddressFor, formatDnsInstructions,
+  marketingDomainStatus, marketingDomain,
+  domainLabelFromSlug, marketingAddressFor, explainDomainProblem,
 } from '../email/marketingDomain';
 
 const TEN_DLC_STATUS: Record<
@@ -277,26 +277,29 @@ export async function updateStorefrontRevision(
 // ═══════════════════════════════════════════ 营销邮件的门店专属发件地址
 
 /**
- * `platform.setMarketingEmail` —— 运营在人工配完 Resend 与 DNS 之后，
- * 用这一条告诉后端「这家店可以发营销邮件了」。
+ * `platform.setMarketingEmail` —— 运营用这一条告诉后端「这家店可以发营销邮件了」。
  *
- * ## ⭐ 不接受运营手填地址，只接受「去问 Resend」
+ * ## ⭐ 不接受运营手填地址，只接受「去问供应商」
  *
- * 手填意味着一个笔误就把营销邮件指到一个不存在的地址上，而后果不是报错，
- * 是**整批退信** —— 退信率同样计入发信域名信誉，且当时没有任何人会察觉。
- * 因此启用只有一种走法：服务端调 Resend 的 domains 接口，确认该域名
- * `status = 'verified'`，通过了才写 `locations.marketing_email_from`。
+ * 手填意味着一个笔误就把营销邮件指向一个不存在的地址，而后果不是报错，
+ * 是**整批退信** —— 退信率同样计入发信域名信誉，且当时不会有任何人察觉。
+ * 因此启用只有一种路径：服务端向当前邮件供应商核实营销域
+ * （`MARKETING_EMAIL_DOMAIN`，当前 `mkt.geniefront.com`）确为 `verified`，
+ * 通过后才写 `locations.marketing_email_from`。
  *
- * 也就是说这一条**核验的是事实，不是运营的声明**。运营点这个按钮表达的
- * 是「我配完了，你去查一下」，而不是「我保证配好了」。
+ * 也就是说这一条**核验的是事实，而非运营的声明**。
+ *
+ * ⚠️ 核验的对象是**所有门店共用的那一个营销域**，不是这家店专属的东西
+ * （2026-09-02 起营销域只有一个，门店身份体现在本地部分上）。因此它答的是
+ * 「营销通道整体是否可用」—— 一家店验过之后下一家仍要再验一次，是有意的：
+ * 域名可能在两次之间被供应商停用，而停用不会有任何通知。
  *
  * ## 权限
  *
- * 只有 `super_admin`。`support` 是给客服看数据的那一档，而这一条会改变
- * 一家店往外发商业邮件的能力。
+ * 仅限 `super_admin`。`support` 是供客服查阅数据的档位，而本命令会改变
+ * 一家门店对外发送商业邮件的能力。
  *
- * ⚠️ 本命令**不动 Resend 上的域名**：不建、不删、不改。建域名与加 DNS
- * 是人工步骤（`ops/marketingDomainCli.ts` 或 Resend 控制台）。
+ * ⚠️ 本命令**不修改供应商侧的任何配置**：不创建、不删除、不变更域名。
  */
 export async function setMarketingEmailForLocation(
   operator: PlatformOperator,
@@ -325,7 +328,7 @@ export async function setMarketingEmailForLocation(
       details: { reason: 'cannot_derive_label', slug },
     });
   }
-  const domain = marketingDomainFor(label);
+  const domain = marketingDomain();
   const address = marketingAddressFor(label);
   const tenant = {
     orgId, locationId: input.locationId, membershipId: null, userId: operator.userId,
@@ -358,24 +361,10 @@ export async function setMarketingEmailForLocation(
   }
 
   /*
-   * ⚠️ 先问 Resend，再写库。顺序反过来的话，核验失败时那一列已经被写上，
-   * 而它的语义是「已就绪」—— 营销邮件会在 DNS 还没生效时发出去。
+   * ⚠️ 先核验供应商，再写库。顺序颠倒的话，核验失败时该列已被写入，
+   * 而它的语义是「已就绪」—— 营销邮件会从一个不可用的域发出去。
    */
-  const { data } = await listDomains();
-  const found = data.find((d) => d.name === domain);
-  if (!found) {
-    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-      details: { reason: 'domain_not_in_resend', domain },
-    });
-  }
-
-  await verifyDomain(found.id).catch(() => {
-    /*
-     * verify 本身失败不算致命：它只是让 Resend 立刻去查一次 DNS。
-     * 下面那次 getDomain 拿到的状态才是判据。
-     */
-  });
-  const fresh = await getDomain(found.id);
+  const fresh = await marketingDomainStatus();
 
   if (fresh.status !== 'verified') {
     return {
@@ -383,7 +372,7 @@ export async function setMarketingEmailForLocation(
       marketingEmailFrom: null,
       domain,
       domainStatus: fresh.status,
-      dnsInstructions: formatDnsInstructions(fresh),
+      dnsInstructions: explainDomainProblem(fresh),
     };
   }
 

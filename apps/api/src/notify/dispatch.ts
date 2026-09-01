@@ -109,7 +109,7 @@ export async function notifyEvent(
    *
    * 用平台的 `FROM_EMAIL` 群发商业邮件，会把投诉率与退信率算到平台域名
    * 头上 —— 一家店的营销邮件被举报，受损的是所有门店的事务性邮件送达率。
-   * 因此营销邮件必须从门店自己的、已在 Resend 完成验证的地址发出
+   * 因此营销邮件必须从门店自己的、已在 SES 完成验证的地址发出
    * （`locations.marketing_email_from`，sql/0088）。为空即视为未就绪。
    */
   let marketingEmailFrom: string | null = null;

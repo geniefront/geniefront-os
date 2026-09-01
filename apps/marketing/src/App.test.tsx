@@ -77,7 +77,7 @@ describe('Marketing pricing and signup', () => {
     renderHome();
     await user.click(screen.getByTestId('cta-growth'));
     await user.type(screen.getByTestId('shop-name'), 'Lotus Nails');
-    await user.type(screen.getByTestId('owner-email'), 'owner@example.test');
+    await user.type(screen.getByTestId('owner-email'), 'owner@maildrop.cc');
     await user.click(screen.getByTestId('checkout-submit'));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -85,7 +85,7 @@ describe('Marketing pricing and signup', () => {
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toEqual({
       shopName: 'Lotus Nails',
-      ownerEmail: 'owner@example.test',
+      ownerEmail: 'owner@maildrop.cc',
       plan: 'growth',
     });
     expect(navigation.assign).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_test_abc');
@@ -96,7 +96,7 @@ describe('Marketing pricing and signup', () => {
     renderHome();
     await user.click(screen.getByTestId('cta-essential'));
     await user.type(screen.getByTestId('shop-name'), 'Lotus Nails');
-    await user.type(screen.getByTestId('owner-email'), 'owner@example.test');
+    await user.type(screen.getByTestId('owner-email'), 'owner@maildrop.cc');
 
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
     await user.click(screen.getByTestId('checkout-submit'));

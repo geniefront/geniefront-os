@@ -338,7 +338,7 @@ Content-Type: application/json
   "customer": {
     "name": "Amy Chen",                // 1–120 字符
     "phone": "+16175550199",           // ⭐ E.164。见下
-    "email": "amy@example.com",        // 可选，但强烈建议收（确认信更可靠）
+    "email": "amy@maildrop.cc",        // 可选，但强烈建议收（确认信更可靠）
     "smsOptIn": false                  // ⭐ 见下，默认必须是 false
   },
   "items": [
