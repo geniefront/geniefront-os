@@ -1,19 +1,27 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { ArrowLeft, XCircle } from 'lucide-react';
 
 export function Cancel() {
+  useEffect(() => {
+    document.title = 'Checkout canceled · GenieFront';
+  }, []);
+
   return (
-    <main className="min-h-screen grid place-items-center px-6">
-      <div className="max-w-lg space-y-4 text-center">
-        <h1 className="text-3xl font-semibold">Checkout canceled</h1>
-        <p className="text-slate-600">
+    <main className="hero-grid min-h-screen grid place-items-center bg-[#f7f8f3] px-6 py-16">
+      <div className="w-full max-w-xl rounded-[28px] border border-[#dfe5df] bg-white p-7 text-center shadow-[0_28px_70px_rgba(12,41,45,0.12)] sm:p-10">
+        <img src="/brand/geniefront-logo.svg" alt="GenieFront" className="mx-auto h-10 w-auto" />
+        <XCircle className="mx-auto mt-8 h-11 w-11 text-[#e86f37]" />
+        <h1 className="font-serif-brand mt-5 text-4xl font-medium tracking-[-0.04em] text-[#102a2e]">Checkout canceled</h1>
+        <p className="mt-4 text-base font-medium leading-7 text-[#53676a]">
           No shop was created. You can return to pricing and try again.
         </p>
         <Link
           to="/#pricing"
           data-testid="retry-pricing"
-          className="inline-flex min-h-11 items-center rounded-xl bg-teal-700 px-4 text-white"
+          className="primary-button mt-7"
         >
-          Back to pricing
+          <ArrowLeft className="h-4 w-4" />Back to pricing
         </Link>
       </div>
     </main>

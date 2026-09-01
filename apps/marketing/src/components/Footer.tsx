@@ -5,6 +5,14 @@ import { languageOptions } from '../translations';
 
 export const Footer: React.FC = () => {
   const { t, currentLang, setLanguage } = useLanguage();
+  const productHrefs = ['#product', '#single-pc', '#ai-features', '#ai-features', '#staff-kiosk', '#staff-kiosk'];
+  const legalCopy = {
+    en: ['Privacy Policy', 'Terms of Service', 'SMS Terms', 'WeChat support', 'Scan to add GenieFront'],
+    'zh-CN': ['隐私政策', '服务条款', '短信条款', '微信支持', '微信扫码联系我们'],
+    vi: ['Chính sách quyền riêng tư', 'Điều khoản dịch vụ', 'Điều khoản SMS', 'Hỗ trợ WeChat', 'Quét để thêm GenieFront'],
+    ko: ['개인정보 처리방침', '서비스 약관', 'SMS 약관', 'WeChat 지원', '스캔하여 GenieFront 추가'],
+    es: ['Política de privacidad', 'Términos del servicio', 'Términos de SMS', 'Soporte por WeChat', 'Escanea para agregar GenieFront'],
+  }[currentLang];
 
   return (
     <footer className="border-t border-[#26494c] bg-[#0c292d] text-white">
@@ -25,33 +33,33 @@ export const Footer: React.FC = () => {
           <div>
             <h3 className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#7de0c3]">{t.footer.productCol.title}</h3>
             <ul className="mt-4 space-y-3 text-xs font-bold text-white/60">
-              {t.footer.productCol.items.slice(0, 6).map((item) => <li key={item}><a href="#product" className="hover:text-white">{item}</a></li>)}
+              {t.footer.productCol.items.slice(0, 6).map((item, index) => <li key={item}><a href={productHrefs[index]} className="hover:text-white">{item}</a></li>)}
             </ul>
           </div>
 
           <div>
             <h3 className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#7de0c3]">Jaysen Labs LLC</h3>
             <ul className="mt-4 space-y-3 text-xs font-bold text-white/60">
-              <li><a href="/privacy/" className="inline-flex items-center gap-1 hover:text-white">Privacy Policy<ArrowUpRight className="h-3 w-3" /></a></li>
-              <li><a href="/terms/" className="inline-flex items-center gap-1 hover:text-white">Terms of Service<ArrowUpRight className="h-3 w-3" /></a></li>
-              <li><a href="/sms/" className="inline-flex items-center gap-1 hover:text-white">SMS Terms<ArrowUpRight className="h-3 w-3" /></a></li>
+              <li><a href="/privacy/" className="inline-flex items-center gap-1 hover:text-white">{legalCopy[0]}<ArrowUpRight className="h-3 w-3" /></a></li>
+              <li><a href="/terms/" className="inline-flex items-center gap-1 hover:text-white">{legalCopy[1]}<ArrowUpRight className="h-3 w-3" /></a></li>
+              <li><a href="/sms/" className="inline-flex items-center gap-1 hover:text-white">{legalCopy[2]}<ArrowUpRight className="h-3 w-3" /></a></li>
               <li><a href="mailto:privacy@geniefront.com" className="hover:text-white">privacy@geniefront.com</a></li>
               <li><a href="mailto:legal@geniefront.com" className="hover:text-white">legal@geniefront.com</a></li>
             </ul>
           </div>
 
           <div>
-            <h3 className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#7de0c3]">WeChat support</h3>
+            <h3 className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#7de0c3]">{legalCopy[3]}</h3>
             <div className="mt-4 w-fit rounded-2xl bg-white p-2 shadow-lg">
               <img src="/brand/wechat-qr.jpg" alt="GenieFront WeChat support QR code" className="h-28 w-28 rounded-xl object-cover" />
             </div>
-            <p className="mt-3 text-[10px] font-semibold leading-4 text-white/45">Scan to add GenieFront<br />微信扫码联系我们</p>
+            <p className="mt-3 text-[10px] font-semibold leading-4 text-white/45">{legalCopy[4]}<br />微信扫码联系我们</p>
           </div>
         </div>
 
         <div className="flex flex-col gap-4 pt-7 text-[10px] font-semibold leading-5 text-white/40 md:flex-row md:items-end md:justify-between">
           <p className="max-w-2xl">{t.footer.disclaimer}</p>
-          <p className="shrink-0">© 2026 Jaysen Labs LLC · GenieFront</p>
+          <p className="shrink-0">{t.footer.copyright}</p>
         </div>
       </div>
     </footer>

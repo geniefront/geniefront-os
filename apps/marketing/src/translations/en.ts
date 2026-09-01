@@ -500,7 +500,7 @@ export const en: TranslationSchema = {
       ],
     },
     disclaimer: 'GenieFront OS is an operational management software platform. It does not process merchant payments, hold merchant funds, or provide medical diagnosis.',
-    copyright: '© 2026 GenieFront OS Inc. All rights reserved. Built for Asian-owned beauty & wellness businesses in the United States.',
+    copyright: '© 2026 Jaysen Labs LLC. All rights reserved.',
   },
   modal: {
     trialTitle: 'Start Your 7-Day Free Trial',

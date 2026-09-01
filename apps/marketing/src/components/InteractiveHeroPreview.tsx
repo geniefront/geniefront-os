@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Bot, Check, Clock3, RotateCcw, Sparkles, UsersRound } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import type { LanguageCode } from '../types/i18n';
+import { uiText } from '../translations/ui';
 
 type DemoState = 'ready' | 'confirmed' | 'undone';
 
@@ -53,6 +54,7 @@ const baseStaff = [
 export const InteractiveHeroPreview: React.FC = () => {
   const { t, currentLang } = useLanguage();
   const labels = demoLabels[currentLang];
+  const ui = uiText[currentLang];
   const [selectedPrompt, setSelectedPrompt] = useState(0);
   const [state, setState] = useState<DemoState>('ready');
   const [staff, setStaff] = useState(baseStaff);
@@ -128,7 +130,7 @@ export const InteractiveHeroPreview: React.FC = () => {
               <span className="grid h-8 w-8 place-items-center rounded-xl bg-[#102a2e] text-white"><Bot className="h-4 w-4" /></span>
               <div>
                 <div className="text-[11px] font-extrabold text-[#20383b]">{labels.proposal}</div>
-                <div className="text-[9px] font-bold uppercase tracking-[0.11em] text-[#708184]">Human approval required</div>
+                <div className="text-[9px] font-bold uppercase tracking-[0.11em] text-[#708184]">{ui.humanApproval}</div>
               </div>
             </div>
 

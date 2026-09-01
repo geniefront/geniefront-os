@@ -500,7 +500,7 @@ export const es: TranslationSchema = {
       ],
     },
     disclaimer: 'GenieFront OS es una plataforma de software de gestión operativa. No procesa pagos bancarios, no custodia fondos ni provee diagnósticos médicos.',
-    copyright: '© 2026 GenieFront OS Inc. Todos los derechos reservados. Diseñado para profesionales de la belleza y bienestar en EE. UU.',
+    copyright: '© 2026 Jaysen Labs LLC. Todos los derechos reservados.',
   },
   modal: {
     trialTitle: 'Comienza Tu Prueba Gratis de 7 Días',

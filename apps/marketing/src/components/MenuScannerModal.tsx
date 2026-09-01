@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Camera, Check, Sparkles, X } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
+import { uiText } from '../translations/ui';
 
 export const MenuScannerModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
-  const { t } = useLanguage();
+  const { t, currentLang } = useLanguage();
+  const ui = uiText[currentLang];
   const [scanning, setScanning] = useState(false);
   const [approved, setApproved] = useState([true, true, false]);
 
@@ -30,7 +32,7 @@ export const MenuScannerModal = ({ isOpen, onClose }: { isOpen: boolean; onClose
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-[#0c292d]/65 p-4 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div className="relative w-full max-w-2xl overflow-hidden rounded-[26px] bg-[#fbfcf9] p-6 shadow-2xl sm:p-8" role="dialog" aria-modal="true" aria-labelledby="scanner-title">
-        <button type="button" onClick={onClose} className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-xl border border-[#dfe5df] bg-white" aria-label="Close"><X className="h-4 w-4" /></button>
+        <button type="button" onClick={onClose} className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-xl border border-[#dfe5df] bg-white" aria-label={ui.close}><X className="h-4 w-4" /></button>
         <div className="eyebrow"><Camera className="h-3.5 w-3.5" />{t.aiSection.menuOnboarding.badge}</div>
         <h2 id="scanner-title" className="font-serif-brand mt-5 pr-10 text-4xl font-medium tracking-[-0.04em] text-[#102a2e]">{t.aiSection.menuOnboarding.title}</h2>
         <p className="mt-3 max-w-xl text-sm font-medium leading-6 text-[#647679]">{t.aiSection.menuOnboarding.desc}</p>

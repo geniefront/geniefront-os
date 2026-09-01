@@ -500,7 +500,7 @@ export const ko: TranslationSchema = {
       ],
     },
     disclaimer: 'GenieFront OS는 매장 운영 관리 소프트웨어이며, 가맹점 결제 처리, 자금 보관, 의료 진단 서비스를 제공하지 않습니다.',
-    copyright: '© 2026 GenieFront OS Inc. All rights reserved. 미국 아시안 뷰티 & 웰니스 소상공인을 위해 정성을 다해 제작되었습니다.',
+    copyright: '© 2026 Jaysen Labs LLC. All rights reserved.',
   },
   modal: {
     trialTitle: '7일 무료 체험 시작하기',

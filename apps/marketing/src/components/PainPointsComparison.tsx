@@ -81,15 +81,15 @@ export const PainPointsComparison: React.FC = () => {
           </div>
 
           {/* Column 3: GenieFront OS (Hero Winner Column) */}
-          <div className="rounded-2xl bg-gradient-to-b from-blue-50/80 via-white to-white border-2 border-blue-600 p-6 sm:p-7 flex flex-col justify-between text-slate-900 shadow-xl relative md:-translate-y-2">
+          <div className="rounded-2xl bg-gradient-to-b from-[#edf8f3] via-white to-white border-2 border-[#096b61] p-6 sm:p-7 flex flex-col justify-between text-slate-900 shadow-xl relative md:-translate-y-2">
             {/* Top Recommended Tag */}
-            <div className="absolute -top-3.5 right-6 px-3 py-1 rounded-full bg-blue-600 text-white text-[10px] font-extrabold tracking-wider uppercase shadow-md">
+            <div className="absolute -top-3.5 right-6 px-3 py-1 rounded-full bg-[#096b61] text-white text-[10px] font-extrabold tracking-wider uppercase shadow-md">
               Purpose-Built for Asian Shops
             </div>
 
             <div>
-              <div className="flex items-center gap-2 text-blue-600 mb-2">
-                <Sparkles className="w-5 h-5 text-blue-600" />
+              <div className="flex items-center gap-2 text-[#096b61] mb-2">
+                <Sparkles className="w-5 h-5 text-[#096b61]" />
                 <h3 className="font-bold text-xl text-slate-900">{cols.geniefront.title}</h3>
               </div>
               <p className="text-xs text-slate-600 mb-6 leading-relaxed">
@@ -109,7 +109,7 @@ export const PainPointsComparison: React.FC = () => {
               <button
                 id="comparison-start-trial-btn"
                 onClick={() => openTrialModal()}
-                className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md shadow-blue-500/20 transition-all active:scale-98"
+                className="w-full py-3 px-4 rounded-xl bg-[#096b61] hover:bg-[#064b46] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md shadow-[#096b61]/20 transition-all active:scale-98"
               >
                 <span>{t.nav.startTrial}</span>
                 <ArrowRight className="w-4 h-4 text-white" />

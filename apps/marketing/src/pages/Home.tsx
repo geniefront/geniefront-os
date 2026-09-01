@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AiCopilotShowcase } from '../components/AiCopilotShowcase';
 import { CtaSection } from '../components/CtaSection';
 import { DailyWorkflowTimeline } from '../components/DailyWorkflowTimeline';
@@ -16,14 +16,47 @@ import { SinglePcFrontDeskSection } from '../components/SinglePcFrontDeskSection
 import { StaffPwaAndKioskSection } from '../components/StaffPwaAndKioskSection';
 import { TrialModal } from '../components/TrialModal';
 import { LanguageProvider } from '../context/LanguageContext';
+import { useLanguage } from '../context/LanguageContext';
+import { uiText } from '../translations/ui';
 
 function LandingPage() {
+  const { currentLang } = useLanguage();
+  const ui = uiText[currentLang];
   const [isMenuScannerOpen, setIsMenuScannerOpen] = useState(false);
+
+  useEffect(() => {
+    const sections = Array.from(document.querySelectorAll<HTMLElement>('main > section'));
+    sections.forEach((section, index) => {
+      section.classList.add('reveal-section');
+      section.style.setProperty('--reveal-order', String(index));
+    });
+
+    if (!('IntersectionObserver' in window)) {
+      sections.forEach((section) => section.classList.add('is-visible'));
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible');
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { rootMargin: '0px 0px -10% 0px', threshold: 0.08 },
+    );
+
+    sections.forEach((section) => observer.observe(section));
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#f7f8f3] text-[#102a2e] font-sans antialiased">
+      <a className="skip-link" href="#main-content">{ui.skipToContent}</a>
       <Navbar />
-      <main>
+      <main id="main-content">
         <Hero />
         <IndustryGrid />
         <PainPointsComparison />

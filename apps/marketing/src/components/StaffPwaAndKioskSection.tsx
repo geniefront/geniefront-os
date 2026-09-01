@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useLanguage } from '../context/LanguageContext';
+import { uiText } from '../translations/ui';
 import { 
   Smartphone, 
   Tablet, 
@@ -15,7 +16,8 @@ import {
 } from 'lucide-react';
 
 export const StaffPwaAndKioskSection: React.FC = () => {
-  const { t } = useLanguage();
+  const { t, currentLang } = useLanguage();
+  const ui = uiText[currentLang];
   const [selectedStaffLang, setSelectedStaffLang] = useState<'vi' | 'zh' | 'en' | 'es' | 'ko'>('vi');
   const [isChimeActive, setIsChimeActive] = useState(false);
   const [serviceTimer, setServiceTimer] = useState('48:15');
@@ -42,7 +44,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold uppercase tracking-wider mb-3">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#edf8f3] border border-[#b9d6cc] text-[#096b61] text-xs font-bold uppercase tracking-wider mb-3">
             <Smartphone className="w-3.5 h-3.5" />
             <span>{t.staffAndKiosk.badge}</span>
           </div>
@@ -61,14 +63,14 @@ export const StaffPwaAndKioskSection: React.FC = () => {
             <div>
               <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-xl bg-[#d9f2e8] text-[#096b61] flex items-center justify-center">
                     <Smartphone className="w-5 h-5" />
                   </div>
                   <div>
                     <h3 className="font-bold text-lg text-slate-900">
                       {t.staffAndKiosk.staffPwa.title}
                     </h3>
-                    <p className="text-xs text-slate-500">No App Store downloads • Instant Web PWA</p>
+                    <p className="text-xs text-slate-500">{ui.staffPwaMeta}</p>
                   </div>
                 </div>
 
@@ -77,7 +79,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                   <button
                     onClick={() => setSelectedStaffLang('vi')}
                     className={`px-2 py-1 rounded-lg font-bold transition-colors ${
-                      selectedStaffLang === 'vi' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50'
+                      selectedStaffLang === 'vi' ? 'bg-[#096b61] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
                     🇻🇳 VI
@@ -85,7 +87,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                   <button
                     onClick={() => setSelectedStaffLang('zh')}
                     className={`px-2 py-1 rounded-lg font-bold transition-colors ${
-                      selectedStaffLang === 'zh' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50'
+                      selectedStaffLang === 'zh' ? 'bg-[#096b61] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
                     🇨🇳 中文
@@ -93,7 +95,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                   <button
                     onClick={() => setSelectedStaffLang('en')}
                     className={`px-2 py-1 rounded-lg font-bold transition-colors ${
-                      selectedStaffLang === 'en' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50'
+                      selectedStaffLang === 'en' ? 'bg-[#096b61] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
                     🇺🇸 EN
@@ -101,7 +103,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                   <button
                     onClick={() => setSelectedStaffLang('es')}
                     className={`px-2 py-1 rounded-lg font-bold transition-colors ${
-                      selectedStaffLang === 'es' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50'
+                      selectedStaffLang === 'es' ? 'bg-[#096b61] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
                     🇪🇸 ES
@@ -109,7 +111,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                   <button
                     onClick={() => setSelectedStaffLang('ko')}
                     className={`px-2 py-1 rounded-lg font-bold transition-colors ${
-                      selectedStaffLang === 'ko' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50'
+                      selectedStaffLang === 'ko' ? 'bg-[#096b61] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
                     🇰🇷 KO
@@ -120,8 +122,8 @@ export const StaffPwaAndKioskSection: React.FC = () => {
               {/* Realistic Mobile Task Card Screen */}
               <div className="mt-4 p-4 rounded-2xl bg-slate-900 border border-slate-800 text-white shadow-md">
                 <div className="flex items-center justify-between pb-2.5 border-b border-slate-800 text-xs">
-                  <div className="flex items-center gap-1.5 text-blue-400">
-                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                  <div className="flex items-center gap-1.5 text-[#7de0c3]">
+                    <span className="w-2 h-2 rounded-full bg-[#edf8f3]0 animate-pulse" />
                     <span className="font-bold">
                       {selectedStaffLang === 'vi' && 'Phiếu nhiệm vụ: Lily V.'}
                       {selectedStaffLang === 'zh' && '技师任务卡: Lily V.'}
@@ -147,7 +149,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-sm font-extrabold text-white">David K. (Walk-in)</div>
-                      <div className="text-xs text-blue-300 font-medium">
+                      <div className="text-xs text-[#a6ead6] font-medium">
                         {selectedStaffLang === 'vi' && 'Phòng 2 • 60p Massage Body + Đá nóng'}
                         {selectedStaffLang === 'zh' && '2号房 • 60分钟身体按摩 + 热石'}
                         {selectedStaffLang === 'en' && 'Room 2 • 60m Body Massage + Hot Stone'}
@@ -182,7 +184,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
 
                   {/* Big Tactile Action Buttons (Glove & Wet-Hand Friendly) */}
                   <div className="pt-2 grid grid-cols-2 gap-2">
-                    <button className="py-3 px-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs text-center shadow-md active:scale-95 transition-colors">
+                    <button className="py-3 px-2 rounded-xl bg-[#096b61] hover:bg-[#064b46] text-white font-extrabold text-xs text-center shadow-md active:scale-95 transition-colors">
                       {selectedStaffLang === 'vi' && 'Bắt đầu làm (Start)'}
                       {selectedStaffLang === 'zh' && '开始服务 (Start)'}
                       {selectedStaffLang === 'en' && 'Start Session'}
@@ -217,17 +219,17 @@ export const StaffPwaAndKioskSection: React.FC = () => {
             <div>
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-xl bg-[#d9f2e8] text-[#096b61] flex items-center justify-center">
                     <Tablet className="w-5 h-5" />
                   </div>
                   <div>
                     <h3 className="font-bold text-lg text-slate-900">
                       {t.staffAndKiosk.kiosk.title}
                     </h3>
-                    <p className="text-xs text-slate-500">Walk-in Intake • Pain Map • Digital Consent</p>
+                    <p className="text-xs text-slate-500">{ui.kioskMeta}</p>
                   </div>
                 </div>
-                <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-[#edf8f3] text-[#096b61] border border-[#b9d6cc]">
                   iPad Kiosk Mode
                 </span>
               </div>
@@ -235,9 +237,9 @@ export const StaffPwaAndKioskSection: React.FC = () => {
               {/* Interactive Body Pain Map Simulation */}
               <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3 shadow-2xs">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-900">
-                  <span>1. Tap Areas of Discomfort or Pain Focus:</span>
-                  <span className="text-[11px] text-blue-600 font-bold">
-                    {selectedPainPoints.length} Area(s) Selected
+                  <span>1. {ui.painPrompt}</span>
+                  <span className="text-[11px] text-[#096b61] font-bold">
+                    {selectedPainPoints.length} {ui.selectedAreas}
                   </span>
                 </div>
 
@@ -256,7 +258,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                         onClick={() => togglePainPoint(part.id)}
                         className={`p-2 rounded-xl border text-center transition-all ${
                           isSelected
-                            ? 'bg-blue-600 text-white border-blue-600 font-bold shadow-xs'
+                            ? 'bg-[#096b61] text-white border-[#096b61] font-bold shadow-xs'
                             : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                         }`}
                       >
@@ -269,7 +271,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                 {/* Pressure Selector */}
                 <div className="pt-2 border-t border-slate-100">
                   <div className="text-xs font-semibold text-slate-900 mb-1.5">
-                    2. Desired Pressure Level:
+                    2. {ui.pressurePrompt}
                   </div>
                   <div className="grid grid-cols-3 gap-1.5 text-xs">
                     {(['Soft', 'Medium', 'Deep / Firm'] as const).map((lvl) => (
@@ -278,7 +280,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                         onClick={() => setSelectedPressure(lvl)}
                         className={`p-1.5 rounded-lg border text-center font-medium transition-colors ${
                           selectedPressure === lvl
-                            ? 'bg-blue-600 text-white border-blue-600 font-bold'
+                            ? 'bg-[#096b61] text-white border-[#096b61] font-bold'
                             : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                         }`}
                       >
@@ -291,10 +293,10 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                 {/* Digital Signature & Safety Checklist */}
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
                   <div className="flex items-center gap-1.5">
-                    <FileSignature className="w-4 h-4 text-blue-600" />
-                    <span>Digital Waiver Signed</span>
+                    <FileSignature className="w-4 h-4 text-[#096b61]" />
+                    <span>{ui.signedWaiver}</span>
                   </div>
-                  <span className="text-emerald-700 font-bold">✓ AES-256 Encrypted</span>
+                  <span className="text-emerald-700 font-bold">✓ {ui.encrypted}</span>
                 </div>
               </div>
 

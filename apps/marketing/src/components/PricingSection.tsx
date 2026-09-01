@@ -22,7 +22,7 @@ export const PricingSection: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold uppercase tracking-wider mb-3">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#edf8f3] border border-[#b9d6cc] text-[#096b61] text-xs font-bold uppercase tracking-wider mb-3">
             <CreditCard className="w-3.5 h-3.5" />
             <span>{t.pricing.badge}</span>
           </div>
@@ -34,7 +34,7 @@ export const PricingSection: React.FC = () => {
           </p>
 
           <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 shadow-2xs">
-            <ShieldCheck className="w-4 h-4 text-blue-600" />
+            <ShieldCheck className="w-4 h-4 text-[#096b61]" />
             <span>{t.pricing.perLocationNotice}</span>
           </div>
         </div>
@@ -64,7 +64,7 @@ export const PricingSection: React.FC = () => {
                   <ul className="space-y-3 text-xs sm:text-sm text-slate-600">
                     {plans.essential.features.map((feat, i) => (
                       <li key={i} className="flex items-start gap-2.5">
-                        <Check className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                        <Check className="w-4 h-4 text-[#096b61] shrink-0 mt-0.5" />
                         <span>{feat}</span>
                       </li>
                     ))}
@@ -86,16 +86,16 @@ export const PricingSection: React.FC = () => {
             </div>
 
             {/* Plan 2: Growth ($199/mo) - Highlighted with Blue Brand Border */}
-            <div data-testid="plan-growth" className="flex flex-col justify-between bg-white p-8 rounded-2xl border-2 border-blue-600 shadow-md relative">
+            <div data-testid="plan-growth" className="flex flex-col justify-between bg-white p-8 rounded-2xl border-2 border-[#096b61] shadow-md relative">
               {/* Badge */}
-              <div className="absolute -top-3 right-6 px-3.5 py-1 rounded-full bg-blue-600 text-white text-xs font-extrabold tracking-wider uppercase shadow-md flex items-center gap-1.5">
+              <div className="absolute -top-3 right-6 px-3.5 py-1 rounded-full bg-[#096b61] text-white text-xs font-extrabold tracking-wider uppercase shadow-md flex items-center gap-1.5">
                 <Flame className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
                 <span>{plans.growth.badge}</span>
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-blue-600 font-bold text-xs uppercase tracking-wider">
+                  <span className="text-[#096b61] font-bold text-xs uppercase tracking-wider">
                     {plans.growth.name}
                   </span>
                 </div>
@@ -126,7 +126,7 @@ export const PricingSection: React.FC = () => {
                   id="pricing-growth-trial-btn"
                   data-testid="cta-growth"
                   onClick={() => openTrialModal('nail', 'growth')}
-                  className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md shadow-blue-600/20 transition-all active:scale-98"
+                  className="w-full py-3 px-4 rounded-xl bg-[#096b61] hover:bg-[#064b46] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md shadow-[#096b61]/20 transition-all active:scale-98"
                 >
                   <span>{plans.growth.cta}</span>
                   <ArrowRight className="w-4 h-4 text-white" />
@@ -141,7 +141,7 @@ export const PricingSection: React.FC = () => {
           {/* Top-up Credits */}
           <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs">
             <div className="flex items-center gap-2.5 mb-2 text-slate-900">
-              <Layers className="w-5 h-5 text-blue-600" />
+              <Layers className="w-5 h-5 text-[#096b61]" />
               <h4 className="font-bold text-base">{t.pricing.additions.topupTitle}</h4>
             </div>
             <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-2">
@@ -168,12 +168,12 @@ export const PricingSection: React.FC = () => {
         <div className="max-w-5xl mx-auto bg-slate-50/80 border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs">
           <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
             <div className="space-y-2 max-w-2xl">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-bold border border-blue-200">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#edf8f3] text-[#096b61] text-xs font-bold border border-[#b9d6cc]">
                 <Globe className="w-3.5 h-3.5" />
                 <span>{t.pricing.storefront.badge}</span>
               </div>
               <h4 className="text-xl sm:text-2xl font-bold text-slate-900">
-                {t.pricing.storefront.title} — <span className="text-blue-600">{t.pricing.storefront.price}</span>
+                {t.pricing.storefront.title} — <span className="text-[#096b61]">{t.pricing.storefront.price}</span>
                 <span className="text-xs font-normal text-slate-500 ml-2">{t.pricing.storefront.hosting}</span>
               </h4>
               <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
@@ -183,7 +183,7 @@ export const PricingSection: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 text-xs text-slate-700">
                 {t.pricing.storefront.points.map((pt, i) => (
                   <div key={i} className="flex items-center gap-1.5">
-                    <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <Check className="w-3.5 h-3.5 text-[#096b61] shrink-0" />
                     <span>{pt}</span>
                   </div>
                 ))}

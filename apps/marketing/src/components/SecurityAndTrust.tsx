@@ -30,7 +30,7 @@ export const SecurityAndTrust: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold uppercase tracking-wider mb-3">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#edf8f3] border border-[#b9d6cc] text-[#096b61] text-xs font-bold uppercase tracking-wider mb-3">
             <ShieldCheck className="w-3.5 h-3.5" />
             <span>{t.security.badge}</span>
           </div>
@@ -49,9 +49,9 @@ export const SecurityAndTrust: React.FC = () => {
             return (
               <div
                 key={idx}
-                className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs hover:border-blue-400 hover:shadow-md transition-all"
+                className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs hover:border-[#80b9a8] hover:shadow-md transition-all"
               >
-                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-4 border border-blue-100">
+                <div className="w-10 h-10 rounded-xl bg-[#edf8f3] text-[#096b61] flex items-center justify-center mb-4 border border-[#d9f2e8]">
                   <Icon className="w-5 h-5" />
                 </div>
                 <h3 className="font-bold text-base text-slate-900 mb-2">{item.title}</h3>
@@ -82,7 +82,7 @@ export const SecurityAndTrust: React.FC = () => {
 
         {/* Compliance and Reality Honesty Notice */}
         <div className="p-4 rounded-xl bg-white border border-slate-200 text-center text-xs text-slate-600 leading-relaxed max-w-3xl mx-auto shadow-2xs">
-          <span className="font-bold text-blue-600">✦ </span>
+          <span className="font-bold text-[#096b61]">✦ </span>
           {t.security.complianceNote}
         </div>
       </div>

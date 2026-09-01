@@ -20,7 +20,7 @@ export const IndustryGrid: React.FC = () => {
     <section id="industries" className="border-y border-[#dfe5df] bg-white py-20 sm:py-24">
       <div className="site-shell">
         <div className="grid gap-10 lg:grid-cols-[0.72fr_1.28fr] lg:gap-16">
-          <div>
+          <div className="min-w-0">
             <div className="eyebrow"><Sparkles className="h-3.5 w-3.5" />{t.industries.badge}</div>
             <h2 className="font-serif-brand mt-5 text-4xl font-medium leading-[1.03] tracking-[-0.04em] text-[#102a2e] sm:text-5xl">{t.industries.title}</h2>
             <p className="mt-5 text-sm font-medium leading-7 text-[#647679]">{t.industries.subtitle}</p>
@@ -38,7 +38,7 @@ export const IndustryGrid: React.FC = () => {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-[28px] border border-[#dfe5df] bg-[#f7f8f3]">
+          <div className="min-w-0 overflow-hidden rounded-[28px] border border-[#dfe5df] bg-[#f7f8f3]">
             <div className="flex items-center gap-4 border-b border-[#dfe5df] bg-[#0c292d] px-6 py-5 text-white sm:px-8">
               <span className="grid h-11 w-11 place-items-center rounded-2xl bg-white/10"><SelectedIcon className="h-5 w-5 text-[#7de0c3]" /></span>
               <div><h3 className="text-lg font-extrabold">{selected.name}</h3><p className="mt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">{selected.enName}</p></div>

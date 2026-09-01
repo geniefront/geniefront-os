@@ -500,7 +500,7 @@ export const zhCN: TranslationSchema = {
       ],
     },
     disclaimer: 'GenieFront OS 是一款门店运营管理系统，不处理商家交易结算、不持有商家资金、也不提供任何医疗诊断服务。',
-    copyright: '© 2026 GenieFront OS Inc. 保留所有权利。专为美国亚裔美业及健康服务门店匠心打造。',
+    copyright: '© 2026 Jaysen Labs LLC。保留所有权利。',
   },
   modal: {
     trialTitle: '开启 7 天免费试用',

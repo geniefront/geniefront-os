@@ -19,6 +19,16 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: { port: 5180, strictPort: true },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules/lucide-react')) return 'icons';
+            if (id.includes('node_modules/react') || id.includes('node_modules/react-router')) return 'react-vendor';
+          },
+        },
+      },
+    },
     test: {
       environment: 'jsdom',
       setupFiles: ['./vitest.setup.ts'],

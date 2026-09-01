@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ArrowUpRight, Check, ChevronDown, Globe2, Menu, X } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { languageOptions } from '../translations';
+import { uiText } from '../translations/ui';
 import type { LanguageCode } from '../types/i18n';
 
 export const Navbar: React.FC = () => {
@@ -12,11 +13,20 @@ export const Navbar: React.FC = () => {
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 16);
+    handleScroll();
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => event.key === 'Escape' && setMobileOpen(false);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [mobileOpen]);
+
   const current = languageOptions.find((language) => language.code === currentLang) || languageOptions[0];
+  const ui = uiText[currentLang];
 
   const handleLanguageChange = (code: LanguageCode) => {
     setLanguage(code);
@@ -31,13 +41,13 @@ export const Navbar: React.FC = () => {
   ];
 
   return (
-    <header className={`fixed inset-x-0 top-0 z-40 border-b transition-all ${scrolled ? 'border-[#dfe5df] bg-[#f7f8f3]/95 shadow-sm backdrop-blur-xl' : 'border-transparent bg-[#f7f8f3]/75 backdrop-blur-md'}`}>
+    <header className={`fixed inset-x-0 top-0 z-40 border-b transition-all duration-300 ${scrolled ? 'border-[#dfe5df] bg-[#f7f8f3]/95 shadow-sm backdrop-blur-xl' : 'border-transparent bg-[#f7f8f3]/82 backdrop-blur-md'}`}>
       <div className="site-shell flex h-[72px] items-center justify-between">
         <a href="#top" className="flex items-center rounded-xl" aria-label="GenieFront OS home">
           <img src="/brand/geniefront-logo.svg" alt="GenieFront" className="h-9 w-auto sm:h-10" />
         </a>
 
-        <nav className="hidden items-center gap-7 lg:flex" aria-label="Main navigation">
+        <nav className="hidden items-center gap-7 lg:flex" aria-label={ui.primaryNavigation}>
           {navLinks.map((link) => (
             <a key={link.href} href={link.href} className="text-[13px] font-bold text-[#53676a] transition-colors hover:text-[#096b61]">
               {link.label}
@@ -50,7 +60,7 @@ export const Navbar: React.FC = () => {
             <button
               type="button"
               onClick={() => setLanguageOpen((value) => !value)}
-              className="flex h-10 items-center gap-2 rounded-xl border border-[#dfe5df] bg-white/80 px-3 text-xs font-bold text-[#20383b] hover:bg-white"
+              className="flex h-10 items-center gap-2 rounded-xl border border-[#dfe5df] bg-white/80 px-3 text-xs font-bold text-[#20383b] transition hover:border-[#b9d6cc] hover:bg-white"
               aria-expanded={languageOpen}
               aria-haspopup="menu"
             >
@@ -62,7 +72,7 @@ export const Navbar: React.FC = () => {
 
             {languageOpen && (
               <>
-                <button className="fixed inset-0 z-10 cursor-default" aria-label="Close language menu" onClick={() => setLanguageOpen(false)} />
+                <button className="fixed inset-0 z-10 cursor-default" aria-label={ui.close} onClick={() => setLanguageOpen(false)} />
                 <div className="absolute right-0 z-20 mt-2 w-52 overflow-hidden rounded-2xl border border-[#dfe5df] bg-white p-2 shadow-2xl" role="menu">
                   {languageOptions.map((language) => (
                     <button
@@ -82,19 +92,21 @@ export const Navbar: React.FC = () => {
             )}
           </div>
 
-          <button type="button" onClick={() => openTrialModal()} className="primary-button hidden h-10 min-h-0 px-4 sm:inline-flex">
-            {t.nav.startTrial}<ArrowUpRight className="h-4 w-4" />
-          </button>
+          <span className="hidden sm:inline-flex">
+            <button type="button" onClick={() => openTrialModal()} className="primary-button h-10 min-h-0 px-4">
+              {t.nav.startTrial}<ArrowUpRight className="h-4 w-4" />
+            </button>
+          </span>
 
-          <button type="button" onClick={() => setMobileOpen((value) => !value)} className="grid h-10 w-10 place-items-center rounded-xl border border-[#dfe5df] bg-white lg:hidden" aria-label="Toggle navigation" aria-expanded={mobileOpen}>
+          <button type="button" onClick={() => setMobileOpen((value) => !value)} className="grid h-10 w-10 place-items-center rounded-xl border border-[#dfe5df] bg-white transition hover:border-[#b9d6cc] lg:hidden" aria-label={mobileOpen ? ui.closeNavigation : ui.openNavigation} aria-expanded={mobileOpen} aria-controls="mobile-navigation">
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         </div>
       </div>
 
       {mobileOpen && (
-        <div className="border-t border-[#dfe5df] bg-[#f7f8f3] px-4 py-4 lg:hidden">
-          <nav className="site-shell flex flex-col gap-1" aria-label="Mobile navigation">
+        <div id="mobile-navigation" className="mobile-menu-enter border-t border-[#dfe5df] bg-[#f7f8f3]/98 px-4 py-4 shadow-xl lg:hidden">
+          <nav className="site-shell flex flex-col gap-1" aria-label={ui.mobileNavigation}>
             {navLinks.map((link) => (
               <a key={link.href} href={link.href} onClick={() => setMobileOpen(false)} className="rounded-xl px-3 py-3 text-sm font-bold text-[#20383b] hover:bg-white">
                 {link.label}

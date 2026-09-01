@@ -500,7 +500,7 @@ export const vi: TranslationSchema = {
       ],
     },
     disclaimer: 'GenieFront OS là phần mềm quản lý vận hành tiệm, không thực lý thanh toán thẻ thay thế máy POS, không giữ tiền tiệm và không cung cấp dịch vụ chẩn đoán y tế.',
-    copyright: '© 2026 GenieFront OS Inc. Bảo lưu mọi quyền. Tận tâm phục vụ cộng đồng tiệm nail & spa tại Hoa Kỳ.',
+    copyright: '© 2026 Jaysen Labs LLC. Bảo lưu mọi quyền.',
   },
   modal: {
     trialTitle: 'Bắt Đầu Dùng Thử Miễn Phí 7 Ngày',
