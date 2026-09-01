@@ -67,10 +67,10 @@ export const SinglePcFrontDeskSection: React.FC = () => {
           <div className="space-y-1 text-center sm:text-left">
             <h4 className="text-lg font-bold text-slate-900 flex items-center justify-center sm:justify-start gap-2">
               <ShieldCheck className="w-5 h-5 text-[#096b61]" />
-              Zero Hardware Dependency
+              {t.singlePcSection.badge}
             </h4>
             <p className="text-xs sm:text-sm text-slate-600 max-w-xl">
-              No need to buy 10 iPads or force your therapists to buy new phones. Everything can be operated smoothly from your existing front desk Windows or Mac desktop.
+              {t.singlePcSection.desc}
             </p>
           </div>
           <button

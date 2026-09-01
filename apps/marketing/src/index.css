@@ -28,6 +28,10 @@
     background: var(--paper);
   }
 
+  html[lang='zh-CN'] {
+    font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+  }
+
   body {
     margin: 0;
     min-width: 320px;
@@ -133,9 +137,17 @@
 .display-title em { color: var(--brand); font-weight: 500; }
 
 html[lang='zh-CN'] .display-title {
+  font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
   font-size: clamp(2.9rem, 4.1vw, 4.4rem);
+  font-weight: 600;
   letter-spacing: -0.035em;
   line-height: 1.03;
+}
+
+html[lang='zh-CN'] .font-serif-brand {
+  font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.025em;
 }
 
 html[lang='ko'] .display-title {

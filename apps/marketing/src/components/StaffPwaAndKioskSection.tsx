@@ -25,6 +25,20 @@ export const StaffPwaAndKioskSection: React.FC = () => {
   // Interactive Pain Map Body Points
   const [selectedPainPoints, setSelectedPainPoints] = useState<string[]>(['neck', 'lowerBack']);
   const [selectedPressure, setSelectedPressure] = useState<'Soft' | 'Medium' | 'Deep / Firm'>('Deep / Firm');
+  const staffLabels = {
+    vi: { ring: 'Thử chuông', chiming: 'Đang phát chuông 🔔', turn: 'Lượt hiện tại', round: '1,0 lượt' },
+    zh: { ring: '测试提示音', chiming: '正在播放提示音 🔔', turn: '当前轮次', round: '1.0 轮' },
+    en: { ring: 'Test chime', chiming: 'Chiming 🔔', turn: 'Turn count', round: '1.0 round' },
+    es: { ring: 'Probar aviso', chiming: 'Sonando 🔔', turn: 'Turno actual', round: '1,0 turno' },
+    ko: { ring: '알림음 테스트', chiming: '알림음 재생 중 🔔', turn: '현재 순번', round: '1.0회' },
+  }[selectedStaffLang];
+  const kioskLabels = {
+    en: { mode: 'iPad kiosk mode', parts: ['Head & scalp', 'Neck & shoulders', 'Lower back', 'Feet / soles'], pressure: ['Soft', 'Medium', 'Deep / firm'] },
+    'zh-CN': { mode: 'iPad 自助登记模式', parts: ['头部与头皮', '颈部与肩部', '腰部', '足部与足底'], pressure: ['轻柔', '适中', '较强'] },
+    vi: { mode: 'Chế độ kiosk iPad', parts: ['Đầu và da đầu', 'Cổ và vai', 'Lưng dưới', 'Bàn chân'], pressure: ['Nhẹ', 'Vừa', 'Mạnh'] },
+    ko: { mode: 'iPad 키오스크 모드', parts: ['머리와 두피', '목과 어깨', '허리', '발과 발바닥'], pressure: ['약하게', '보통', '강하게'] },
+    es: { mode: 'Modo kiosco de iPad', parts: ['Cabeza y cuero cabelludo', 'Cuello y hombros', 'Zona lumbar', 'Pies y plantas'], pressure: ['Suave', 'Media', 'Firme'] },
+  }[currentLang];
 
   const togglePainPoint = (point: string) => {
     if (selectedPainPoints.includes(point)) {
@@ -123,7 +137,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
               <div className="mt-4 p-4 rounded-2xl bg-slate-900 border border-slate-800 text-white shadow-md">
                 <div className="flex items-center justify-between pb-2.5 border-b border-slate-800 text-xs">
                   <div className="flex items-center gap-1.5 text-[#7de0c3]">
-                    <span className="w-2 h-2 rounded-full bg-[#edf8f3]0 animate-pulse" />
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                     <span className="font-bold">
                       {selectedStaffLang === 'vi' && 'Phiếu nhiệm vụ: Lily V.'}
                       {selectedStaffLang === 'zh' && '技师任务卡: Lily V.'}
@@ -141,7 +155,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                     }`}
                   >
                     <Volume2 className="w-3.5 h-3.5 text-amber-400" />
-                    <span>{isChimeActive ? 'Chiming 🔔' : 'Test Ring'}</span>
+                    <span>{isChimeActive ? staffLabels.chiming : staffLabels.ring}</span>
                   </button>
                 </div>
 
@@ -158,8 +172,8 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-xs text-slate-400 font-mono">Turn Count</div>
-                      <div className="text-sm font-bold text-amber-400 font-mono">1.0 Round</div>
+                      <div className="text-xs text-slate-400 font-mono">{staffLabels.turn}</div>
+                      <div className="text-sm font-bold text-amber-400 font-mono">{staffLabels.round}</div>
                     </div>
                   </div>
 
@@ -230,7 +244,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                   </div>
                 </div>
                 <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-[#edf8f3] text-[#096b61] border border-[#b9d6cc]">
-                  iPad Kiosk Mode
+                  {kioskLabels.mode}
                 </span>
               </div>
 
@@ -246,10 +260,10 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                 {/* Body Area Toggle Buttons */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-xs">
                   {[
-                    { id: 'head', label: 'Head & Scalp (头部)' },
-                    { id: 'neck', label: 'Neck & Traps (颈肩)' },
-                    { id: 'lowerBack', label: 'Lower Back (腰部)' },
-                    { id: 'feet', label: 'Feet / Soles (足底)' },
+                    { id: 'head', label: kioskLabels.parts[0] },
+                    { id: 'neck', label: kioskLabels.parts[1] },
+                    { id: 'lowerBack', label: kioskLabels.parts[2] },
+                    { id: 'feet', label: kioskLabels.parts[3] },
                   ].map((part) => {
                     const isSelected = selectedPainPoints.includes(part.id);
                     return (
@@ -274,7 +288,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                     2. {ui.pressurePrompt}
                   </div>
                   <div className="grid grid-cols-3 gap-1.5 text-xs">
-                    {(['Soft', 'Medium', 'Deep / Firm'] as const).map((lvl) => (
+                    {(['Soft', 'Medium', 'Deep / Firm'] as const).map((lvl, index) => (
                       <button
                         key={lvl}
                         onClick={() => setSelectedPressure(lvl)}
@@ -284,7 +298,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                             : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                         }`}
                       >
-                        {lvl}
+                        {kioskLabels.pressure[index]}
                       </button>
                     ))}
                   </div>

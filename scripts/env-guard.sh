@@ -26,6 +26,34 @@ bad() { echo "  ✗ $*"; fail=1; }
 ok() { echo "  ✓ $*"; }
 require() { [[ -n "$(get "$1")" ]] || bad "$1 未配置"; }
 
+check_stripe_price() {
+  local label="$1" price_id="$2" expected_amount="$3" expected_livemode="$4"
+  local payload actual_id active livemode currency unit_amount interval
+
+  command -v curl >/dev/null 2>&1 || { bad "缺少 curl，无法校验 Stripe ${label} 价格"; return; }
+  command -v jq >/dev/null 2>&1 || { bad "缺少 jq，无法校验 Stripe ${label} 价格"; return; }
+
+  if ! payload=$(curl --fail --silent --show-error --max-time 15 \
+    -u "${stripe_secret}:" "https://api.stripe.com/v1/prices/${price_id}"); then
+    bad "Stripe ${label} 价格无法通过当前环境密钥读取"
+    return
+  fi
+
+  actual_id=$(jq -r '.id // empty' <<<"$payload")
+  active=$(jq -r '.active // false' <<<"$payload")
+  livemode=$(jq -r '.livemode // false' <<<"$payload")
+  currency=$(jq -r '.currency // empty' <<<"$payload")
+  unit_amount=$(jq -r '.unit_amount // empty' <<<"$payload")
+  interval=$(jq -r '.recurring.interval // empty' <<<"$payload")
+
+  [[ "$actual_id" == "$price_id" ]] || bad "Stripe ${label} 返回了非预期价格对象"
+  [[ "$active" == "true" ]] || bad "Stripe ${label} 价格必须处于启用状态"
+  [[ "$livemode" == "$expected_livemode" ]] || bad "Stripe ${label} 价格模式与 ${TARGET} 环境不一致"
+  [[ "$currency" == "usd" ]] || bad "Stripe ${label} 价格币种必须为 USD"
+  [[ "$unit_amount" == "$expected_amount" ]] || bad "Stripe ${label} 价格金额配置错误"
+  [[ "$interval" == "month" ]] || bad "Stripe ${label} 必须是月度订阅价格"
+}
+
 echo "检查 ${TARGET} 环境：${ENV_FILE}"
 [[ "$(get GF_ENV)" == "$TARGET" ]] || bad "GF_ENV 必须是 ${TARGET}"
 for key in APP_JWT_SECRET SUPABASE_URL SUPABASE_ANON_KEY DATABASE_URL \
@@ -99,6 +127,13 @@ case "$TARGET" in
     fi
     ;;
 esac
+
+if [[ "$TARGET" == "staging" || "$TARGET" == "production" ]]; then
+  expected_livemode=false
+  [[ "$TARGET" == "production" ]] && expected_livemode=true
+  check_stripe_price "Essential" "$(get STRIPE_PRICE_ESSENTIAL)" 9900 "$expected_livemode"
+  check_stripe_price "Growth" "$(get STRIPE_PRICE_GROWTH)" 19900 "$expected_livemode"
+fi
 
 if [[ $fail -ne 0 ]]; then
   echo "环境检查失败；没有执行任何部署或数据库操作。"

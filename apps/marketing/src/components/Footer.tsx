@@ -53,7 +53,7 @@ export const Footer: React.FC = () => {
             <div className="mt-4 w-fit rounded-2xl bg-white p-2 shadow-lg">
               <img src="/brand/wechat-qr.jpg" alt="GenieFront WeChat support QR code" className="h-28 w-28 rounded-xl object-cover" />
             </div>
-            <p className="mt-3 text-[10px] font-semibold leading-4 text-white/45">{legalCopy[4]}<br />微信扫码联系我们</p>
+            <p className="mt-3 text-[10px] font-semibold leading-4 text-white/45">{legalCopy[4]}</p>
           </div>
         </div>
 

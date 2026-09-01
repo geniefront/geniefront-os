@@ -51,9 +51,6 @@ export const PainPointsComparison: React.FC = () => {
                 ))}
               </ul>
             </div>
-            <div className="mt-8 pt-4 border-t border-slate-100 text-[11px] font-semibold text-center text-slate-400">
-              High Operational Friction & Daily Stress
-            </div>
           </div>
 
           {/* Column 2: Generic Western SaaS */}
@@ -75,18 +72,10 @@ export const PainPointsComparison: React.FC = () => {
                 ))}
               </ul>
             </div>
-            <div className="mt-8 pt-4 border-t border-slate-100 text-[11px] font-semibold text-center text-slate-400">
-              Expensive Per-Seat Penalties & Wrong Fit
-            </div>
           </div>
 
           {/* Column 3: GenieFront OS (Hero Winner Column) */}
           <div className="rounded-2xl bg-gradient-to-b from-[#edf8f3] via-white to-white border-2 border-[#096b61] p-6 sm:p-7 flex flex-col justify-between text-slate-900 shadow-xl relative md:-translate-y-2">
-            {/* Top Recommended Tag */}
-            <div className="absolute -top-3.5 right-6 px-3 py-1 rounded-full bg-[#096b61] text-white text-[10px] font-extrabold tracking-wider uppercase shadow-md">
-              Purpose-Built for Asian Shops
-            </div>
-
             <div>
               <div className="flex items-center gap-2 text-[#096b61] mb-2">
                 <Sparkles className="w-5 h-5 text-[#096b61]" />
