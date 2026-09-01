@@ -201,13 +201,24 @@ export interface QuotaDecision {
  */
 export function allocateQuota(
   amount: number,
-  opts: { plan: string; unit: QuotaUnit; includedUsed: number; balance: number },
+  opts: {
+    plan: string; unit: QuotaUnit; includedUsed: number; balance: number;
+    /**
+     * 本期套餐内额度的总数。调用方算好了就传进来。
+     *
+     * ⭐ 不传的话这里按 `plan` 现算，而那个算法**不知道账户在不在试用期**，
+     * 也不知道它有没有接过计费 —— 于是试用期会按整档套餐（500）而不是
+     * 试用档（150）扣，一家从没订阅过的店会拿到一整份 Essential 额度。
+     * 判据只应该有一处（`includedTotalOf`），这个参数就是那一处的出口。
+     */
+    includedTotal?: number;
+  },
 ): QuotaDecision {
   if (!Number.isInteger(amount) || amount < 0) {
     throw new Error(`额度只用非负整数，收到：${amount}`);
   }
 
-  const included = includedFor(opts.plan, opts.unit);
+  const included = opts.includedTotal ?? includedFor(opts.plan, opts.unit);
   const includedLeft = Math.max(0, included - opts.includedUsed);
 
   const fromIncluded = Math.min(amount, includedLeft);

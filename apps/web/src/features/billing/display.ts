@@ -43,6 +43,10 @@ export function subscriptionStatusKey(
       return 'settings.stStatusCanceled';
     case 'trialing':
       return 'settings.stStatusTrial';
+    // 从未接过计费（sql/0085）。和「已取消」是两回事：那家店从来没订过，
+    // 界面上要给的是「去订阅」而不是「去恢复」
+    case 'none':
+      return 'settings.stStatusNone';
     default:
       return 'settings.stStatusUnknown';
   }
@@ -59,6 +63,39 @@ export function statusBadgeVariant(
   }
   if (status === 'canceled') return 'secondary';
   return 'outline';
+}
+
+/**
+ * 订阅那一栏第二行该写什么。
+ *
+ * ⭐ 顺序是判据本身，不能调：**期末取消排在续期之前**。
+ * 反过来的话，一个已经点了取消的账户会被显示成「本期结束日 X」——
+ * 而那句话在老板读来是「X 日会自动续费」，正好和事实相反。
+ */
+export function subscriptionNotice(
+  billing: {
+    trialing: boolean; trialEndsAt: string | null;
+    cancelAtPeriodEnd: boolean; cancelAt: string | null;
+    currentPeriodEnd: string | null; subscriptionStatus: string;
+  } | null,
+): { key: TranslationKey; date: string | null } {
+  if (!billing) return { key: 'settings.stPortalHint', date: null };
+  if (billing.subscriptionStatus === 'none') {
+    return { key: 'settings.stNoSubscriptionHint', date: null };
+  }
+  if (billing.cancelAtPeriodEnd) {
+    return {
+      key: 'settings.stCancelsOn',
+      date: billing.cancelAt ?? billing.currentPeriodEnd,
+    };
+  }
+  if (billing.trialing && billing.trialEndsAt) {
+    return { key: 'settings.stTrialEnds', date: billing.trialEndsAt };
+  }
+  if (billing.currentPeriodEnd) {
+    return { key: 'settings.stRenewsOn', date: billing.currentPeriodEnd };
+  }
+  return { key: 'settings.stPortalHint', date: null };
 }
 
 export function invoiceStatusKey(status: string | null | undefined): TranslationKey {

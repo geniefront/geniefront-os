@@ -37,8 +37,17 @@ import { AppError, ERROR_CODES, type CommandContext } from '@gf/contracts';
 import { withTenant } from '@gf/db';
 import { includedFor, type QuotaUnit } from '@gf/payroll';
 
-/** 欠费冻结的状态集合。和 `bus.ts` 的 FROZEN_STATUSES 是同一份判据。 */
-const FROZEN_STATUSES = new Set(['past_due', 'canceled', 'unpaid', 'incomplete_expired']);
+/**
+ * 欠费冻结的状态集合。和 `bus.ts` 的 FROZEN_STATUSES 是同一份判据。
+ *
+ * ⚠️ 只列**本地真的会出现**的值。`mapSubscriptionStatus` 把 Stripe 的七八种
+ * 状态收敛成四态（none 由我们自己写），`unpaid` / `incomplete_expired`
+ * 永远进不了库 —— 留在集合里会让人以为它们是活的判据。
+ *
+ * `none`（从未接过计费）**不在这里**：门店是真的，老板只是还没接上计费，
+ * 把前台挡在门外解决不了任何问题。它的约束是「套餐内额度为 0」，在下面。
+ */
+const FROZEN_STATUSES = new Set(['past_due', 'canceled']);
 
 /**
  * 每家门店的 AI 调用限频。
@@ -126,7 +135,15 @@ export async function assertAiAdmission(
 
   const used = unit === 'credit' ? acct.included_credits_used : acct.included_minutes_used;
   const balance = unit === 'credit' ? acct.credit_balance : acct.voice_minute_balance;
-  const includedRemaining = Math.max(0, includedFor(acct.plan, unit, trialing) - used);
+  /**
+   * ⚠️ `none` = 从未接过计费 → 套餐内额度是 **0**（sql/0085）。
+   * 判据和 `handlers/billing.ts` 的 `includedTotalOf` 必须一致：
+   * 两处漂开的结果是「准入放行了但扣费时发现没额度」，账本会出现
+   * 一笔没人解释得清的负数。
+   */
+  const includedTotal = acct.subscription_status === 'none'
+    ? 0 : includedFor(acct.plan, unit, trialing);
+  const includedRemaining = Math.max(0, includedTotal - used);
 
   if (includedRemaining <= 0 && balance <= 0) {
     throw new AppError(ERROR_CODES.AI_QUOTA_EXHAUSTED, {

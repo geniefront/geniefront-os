@@ -271,6 +271,13 @@ describe('invoice tenant resolution', () => {
   });
 });
 
+/**
+ * ⚠️ `handled` 从 `invoice_failure_logged` 变成 `invoice_failure_notified`（0085）。
+ *
+ * 扣款失败原来只写一行日志 —— 于是老板得到的唯一信号是第二天早上前台
+ * 开不了单。现在这条路会把发票落库并给 owner 入队一封信；
+ * 找不到 owner 邮箱时才退回 `invoice_failure_logged`。
+ */
 describe('signed invoice webhook HTTP', () => {
   it('invoice with direct metadata is handled for that tenant', async () => {
     const res = await postWebhook(invoiceEvent({
@@ -278,7 +285,7 @@ describe('signed invoice webhook HTTP', () => {
       metadata: { gf_location_id: SPA_LOC, gf_org_id: SPA_ORG },
     }));
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ ok: true, handled: 'invoice_failure_logged' });
+    expect(res.json()).toMatchObject({ ok: true, handled: 'invoice_failure_notified' });
     const [row] = await withTenant({ ...SPA, membershipId: null }, (tx) => tx<{ location_id: string }[]>`
       select location_id from stripe_events where id = ${eventId('http_meta')}`);
     expect(row?.location_id).toBe(SPA_LOC);
@@ -291,7 +298,7 @@ describe('signed invoice webhook HTTP', () => {
       customer: SPA_CUS,
     }));
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ ok: true, handled: 'invoice_failure_logged' });
+    expect(res.json()).toMatchObject({ ok: true, handled: 'invoice_failure_notified' });
   });
 
   it('unknown invoice is ignored, not assigned', async () => {
@@ -316,7 +323,7 @@ describe('signed invoice webhook HTTP', () => {
       subscription: SPA_SUB,
       customer: SPA_CUS,
     }));
-    expect(invoiceRes.json()).toMatchObject({ ok: true, handled: 'invoice_failure_logged' });
+    expect(invoiceRes.json()).toMatchObject({ ok: true, handled: 'invoice_failure_notified' });
 
     const syncRes = await postWebhook(subscriptionEvent({
       id: eventId('iso_sub'),
@@ -361,7 +368,7 @@ describe('signed invoice webhook HTTP', () => {
       metadata: { gf_location_id: SPA_LOC, gf_org_id: SPA_ORG },
     });
     const first = await postWebhook(ev);
-    expect(first.json()).toMatchObject({ ok: true, handled: 'invoice_failure_logged' });
+    expect(first.json()).toMatchObject({ ok: true, handled: 'invoice_failure_notified' });
     const second = await postWebhook(ev);
     expect(second.statusCode).toBe(200);
     expect(second.json()).toEqual({ ok: true, duplicate: true });
@@ -423,5 +430,71 @@ describe('signed invoice webhook HTTP', () => {
     const after = await snapshot(SPA);
     expect(after.default_payment_method_id).toBeNull();
     expect(after.payment_method_label).toBeNull();
+  });
+});
+
+/**
+ * ⭐ `customer.subscription.*` 的租户兜底（0085）。
+ *
+ * 修复之前这类事件**只认 metadata**。而那份 metadata 是开户之后由
+ * `backfillStripeMetadata` 回写上去的，回写失败时只记一条日志 ——
+ * 于是这家店此后的每一条续费、欠费、退订事件都被静默丢弃并回 200，
+ * 一个月后才会有人发现「这家店的订阅状态从来没变过」。
+ */
+describe('subscription event tenant fallback', () => {
+  function bareSubscriptionEvent(over: {
+    id: string; subscriptionId?: string | null; customer?: string | null;
+  }): Stripe.Event {
+    return {
+      id: over.id,
+      object: 'event',
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: over.subscriptionId ?? 'sub_batch4_bare',
+          object: 'subscription',
+          customer: over.customer ?? null,
+          status: 'active',
+          trial_end: null,
+          // ⚠️ metadata 是空的 —— 这正是回写失败之后的样子
+          metadata: {},
+          items: { data: [{ id: 'si_bare', current_period_end: 1_789_000_000 }] },
+        },
+      },
+    } as unknown as Stripe.Event;
+  }
+
+  it('⭐ metadata 丢了也能按 subscription id 认回门店', async () => {
+    expect(await resolveWebhookTenant(bareSubscriptionEvent({
+      id: eventId('sub_fallback'), subscriptionId: SPA_SUB, customer: SPA_CUS,
+    }))).toEqual(SPA);
+  });
+
+  it('只有 customer id 时同样认得回来', async () => {
+    expect(await resolveWebhookTenant(bareSubscriptionEvent({
+      id: eventId('cus_fallback'), subscriptionId: 'sub_never_stored', customer: NAIL_CUS,
+    }))).toEqual(NAIL);
+  });
+
+  it('两个 id 都不认识时仍然不猜', async () => {
+    expect(await resolveWebhookTenant(bareSubscriptionEvent({
+      id: eventId('none_fallback'),
+      subscriptionId: UNKNOWN_SUB, customer: UNKNOWN_CUS,
+    }))).toBeNull();
+  });
+
+  it('退款事件按 customer 认门店（charge 上没有我们的 metadata）', async () => {
+    const refund = {
+      id: eventId('refund'),
+      object: 'event',
+      type: 'charge.refunded',
+      data: {
+        object: {
+          id: 'ch_batch4_refund', object: 'charge',
+          customer: SPA_CUS, payment_intent: 'pi_batch4_refund', metadata: {},
+        },
+      },
+    } as unknown as Stripe.Event;
+    expect(await resolveWebhookTenant(refund)).toEqual(SPA);
   });
 });

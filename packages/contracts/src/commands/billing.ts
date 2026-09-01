@@ -35,7 +35,16 @@ export type QuotaUnitInput = z.infer<typeof quotaUnit>;
 
 /** 和 Stripe 后台的产品名对齐：Essential $99 / Growth $199 */
 export const billingPlan = z.enum(['essential', 'growth']);
-export const subscriptionStatus = z.enum(['trialing', 'active', 'past_due', 'canceled']);
+/**
+ * `none` = 从未接过计费（迁移 0085）。
+ *
+ * 它和 `trialing` 必须分开：计费账户行会在任何一次记账时被自动建出来，
+ * 默认值原来是 `trialing` —— 于是一家从没进过 Stripe 的门店会按
+ * essential 档白拿一整份套餐内额度。`none` 不冻结写入，只把套餐内额度归零。
+ */
+export const subscriptionStatus = z.enum([
+  'none', 'trialing', 'active', 'past_due', 'canceled',
+]);
 
 // ─────────────────────────────────────────────────────────────── 老板可见
 
@@ -101,6 +110,36 @@ export const SyncSubscription = defineCommand({
      * `null` = 明确清空（试用转正了，Stripe 那边 trial_end 就没了）。
      */
     trialEndsAt: z.string().datetime({ offset: true }).nullable().optional(),
+
+    /**
+     * 期末取消（sql/0085）。**布尔类语义**：`undefined` = 没带这个信息，
+     * 保持原样；`true` / `false` 都是明确的事实。
+     *
+     * ⚠️ 老板在客户门户点「取消」时，Stripe 的 status **仍然是 active** ——
+     * 只有这两列能表达「还能用，但到期即止」。
+     */
+    cancelAtPeriodEnd: z.boolean().optional(),
+    cancelAt: z.string().datetime({ offset: true }).nullable().optional(),
+
+    /**
+     * ⭐ 这条订阅上每个 item 分别属于哪家门店（sql/0085）。
+     *
+     * 多店共用同一条订阅，一家店一个 item。没有这一份映射的话，
+     * 一条 `customer.subscription.updated` 只能落到解析出来的那一家店上，
+     * 而**兄弟门店的订阅状态从此永不更新** —— 老板退订之后第二家店
+     * 仍然是 active，继续免费开单、继续烧 AI 额度。
+     *
+     * 给了这一份，命令就能把状态广播给同一条订阅上的每一家店，
+     * 同时让每家店按**自己那个 item** 落套餐与账期。
+     */
+    items: z.array(z.object({
+      locationId: uuid,
+      subscriptionItemId: z.string().max(80),
+      /** 认不出的 price 给 null —— 语义同 plan：保持原样，不静默降档 */
+      plan: billingPlan.nullable().optional(),
+      currentPeriodEnd: z.string().datetime({ offset: true }).nullable().optional(),
+    })).max(200).optional(),
+
     sourceEventId: z.string().max(80).nullable().optional(),
   }),
   output: z.object({
@@ -109,6 +148,8 @@ export const SyncSubscription = defineCommand({
     subscriptionStatus: z.string(),
     /** 续期时套餐内额度被清零了 */
     includedReset: z.boolean(),
+    /** 这次一并同步了几家兄弟门店（多店共用一条订阅时 > 0） */
+    siblingsSynced: z.number().int(),
   }),
   permission: 'billing.manage',
   ai: {
@@ -259,6 +300,90 @@ export const RecordTopupFailure = defineCommand({
 });
 
 /**
+ * 把一张 Stripe 发票落库（sql/0085）。
+ *
+ * ## 为什么要存一份
+ *
+ * `billing_invoices` 从 0052 起**只有读的一侧**，没有任何一条 webhook
+ * 往里写 —— 于是「订阅发票」那一页永远是空的，而老板问的第一个问题
+ * 就是「上个月扣的那 $99 有没有单据」。
+ *
+ * ## 存什么、不存什么
+ *
+ * 只存对账要用的那几个字段 + 一个 `hostedInvoiceUrl`。
+ * **不自己排版 PDF**：税、优惠、按比例摊分这些 Stripe 已经算好了，
+ * 我们再算一遍必然对不上，而对不上的那几分钱会让老板怀疑整套账。
+ *
+ * 幂等键是 `stripeInvoiceId` —— invoice.* 同样是「至少一次」投递。
+ */
+export const RecordInvoice = defineCommand({
+  name: 'billing.recordInvoice',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
+  input: z.object({
+    stripeInvoiceId: z.string().max(80),
+    invoiceNumber: z.string().max(80),
+    /** 账期，给人看的一行字，例如 `2026-08-01 – 2026-08-31` */
+    period: z.string().max(80),
+    description: z.string().max(200),
+    amountCents: cents,
+    status: z.enum(['paid', 'pending', 'failed']),
+    /** 发票日期（YYYY-MM-DD）。存文本是为了和 0052 建表时的口径一致 */
+    date: z.string().max(20),
+    hostedInvoiceUrl: z.string().max(500).nullable().optional(),
+    receiptPdfUrl: z.string().max(500).nullable().optional(),
+  }),
+  output: z.object({
+    invoiceId: uuid,
+    alreadyRecorded: z.boolean(),
+  }),
+  permission: 'billing.manage',
+  ai: {
+    description: '（内部）把一张 Stripe 发票记进本地发票表。',
+    confirm: 'always',
+    exposed: false,
+  },
+  reversible: false,
+  idempotency: 'optional',
+});
+
+/**
+ * 冲销一笔已经入账的充值（退款或拒付）。
+ *
+ * ⭐ **写一条反向流水，不改原来那一行。** 账本是只追加的（sql/0018 的
+ * `ledger_append_only` 触发器连 update 都不给）—— 「为什么少了 1000 积分」
+ * 这个问题必须能从流水上一眼看出来，而不是靠猜。
+ *
+ * ⚠️ 余额允许被冲成负数。客户拿走了额度又把钱要了回去，那个负数
+ * 就是事实本身；抹平它等于替他把账做平（见 `allocateQuota` 的长注释）。
+ */
+export const RecordTopupReversal = defineCommand({
+  name: 'billing.recordTopupReversal',
+  /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
+  system: true,
+  input: z.object({
+    /** 被冲销的那一笔充值的 PaymentIntent。找不到对应流水就什么都不做 */
+    stripePaymentIntentId: z.string().max(80),
+    /** refund = 退款；dispute = 拒付。两者的客服话术完全不同 */
+    reason: z.enum(['refund', 'dispute']),
+  }),
+  output: z.object({
+    reversed: z.boolean(),
+    unit: quotaUnit.nullable(),
+    units: z.number().int().nullable(),
+    balanceAfter: z.number().int().nullable(),
+  }),
+  permission: 'billing.manage',
+  ai: {
+    description: '（内部）为一笔被退款或拒付的充值写一条反向流水。',
+    confirm: 'always',
+    exposed: false,
+  },
+  reversible: false,
+  idempotency: 'optional',
+});
+
+/**
  * Kept registered for API compatibility. The handler refuses without
  * mutating paid state until a Stripe Checkout / Portal path exists.
  * Do not reimplement as a local writer of plan or invoices.
@@ -347,4 +472,6 @@ export const BILLING_COMMANDS = [
   BillingChangePlan,
   BillingBuyAddon,
   BillingSaveTaxProfile,
+  RecordInvoice,
+  RecordTopupReversal,
 ] as const;

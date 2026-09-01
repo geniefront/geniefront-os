@@ -25,6 +25,7 @@ import type { CommandContext } from '@gf/contracts';
 import type postgres from 'postgres';
 import {
   ensureAccount, appendLedger, balanceOf, includedUsedOf, includedRemainingOf,
+  includedTotalOf,
 } from '../handlers/billing';
 
 export interface QuotaChargeInput {
@@ -76,6 +77,13 @@ export async function chargeQuota(
     unit: input.unit,
     includedUsed: includedUsedOf(acct, input.unit),
     balance: balanceOf(acct, input.unit),
+    /**
+     * ⚠️ 套餐内总数必须由 `includedTotalOf` 给，不能让纯函数按 plan 现算：
+     * 那个算法不知道账户在不在试用期，也不知道它有没有接过计费 ——
+     * 结果是试用期按整档套餐扣（500 而不是 150），而一家从未订阅的店
+     * 会拿到一整份 Essential 额度。
+     */
+    includedTotal: includedTotalOf(acct, input.unit),
   });
 
   // 套餐内那部分：只加计数，不动账本

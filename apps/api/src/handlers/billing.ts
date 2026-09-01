@@ -23,6 +23,7 @@ import {
   SetAutoTopup, SyncSubscription, SavePaymentMethod,
   RecordTopup, ClaimAutoTopup, RecordTopupFailure,
   BillingChangePlan, BillingBuyAddon, BillingSaveTaxProfile,
+  RecordInvoice, RecordTopupReversal,
   AppError, ERROR_CODES, type CommandContext,
 } from '@gf/contracts';
 import { ts } from '@gf/db';
@@ -36,11 +37,17 @@ import type postgres from 'postgres';
 
 export interface AccountRow {
   id: string;
+  /** 兄弟门店广播要用（多店共用一条订阅时按 location 分派 item） */
+  org_id: string;
+  location_id: string;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
+  stripe_subscription_item_id: string | null;
   plan: string;
   subscription_status: string;
   current_period_end: string | Date | null;
+  cancel_at_period_end: boolean;
+  cancel_at: string | Date | null;
   trial_ends_at: string | Date | null;
   trial_will_end_notified_at: string | Date | null;
   default_payment_method_id: string | null;
@@ -101,8 +108,22 @@ export const includedUsedOf = (row: AccountRow, unit: QuotaUnit): number =>
 export const isTrialing = (row: Pick<AccountRow, 'trial_ends_at'>, now = new Date()): boolean =>
   row.trial_ends_at !== null && new Date(ts(row.trial_ends_at)).getTime() > now.getTime();
 
+/**
+ * ⭐ 本期套餐内额度的总数。**这是唯一一处判据。**
+ *
+ * 三档，顺序不能反：
+ *   · `none`（从未接过计费）→ **0**。计费账户行会在任何一次记账时被自动
+ *     建出来，默认状态原来是 `trialing` —— 于是一家从没进过 Stripe 的门店
+ *     会按 essential 档白拿 500 积分 + 60 语音分钟，而且因为
+ *     `current_period_end` 为空还永不清零（sql/0085）
+ *   · 试用期 → 试用档（150 / 20），不是整档套餐
+ *   · 其余 → 套餐档
+ */
+export const includedTotalOf = (row: AccountRow, unit: QuotaUnit): number =>
+  (row.subscription_status === 'none' ? 0 : includedFor(row.plan, unit, isTrialing(row)));
+
 export const includedRemainingOf = (row: AccountRow, unit: QuotaUnit): number =>
-  Math.max(0, includedFor(row.plan, unit, isTrialing(row)) - includedUsedOf(row, unit));
+  Math.max(0, includedTotalOf(row, unit) - includedUsedOf(row, unit));
 
 /** postgres.js 回来的 timestamptz 可能是字符串（见 @gf/db 的 parseTs 注释） */
 const toDate = (v: string | Date | null): Date | null => {
@@ -250,6 +271,79 @@ registerHandler(SetAutoTopup, async ({ input, ctx, tx, audit }: HandlerArgs<
 
 // ───────────────────────────────────────────────────────────── 订阅状态同步
 
+/** 一份订阅事实，落到**一行**账户上。同一条订阅上的每家店各算一份 */
+interface SubscriptionPatch {
+  customerId: string | null;
+  subscriptionId: string | null;
+  subscriptionItemId: string | null;
+  status: string;
+  plan: string;
+  periodEnd: string | null;
+  trialEndsAt: string | null;
+  cancelAtPeriodEnd: boolean;
+  cancelAt: string | null;
+}
+
+/**
+ * 把一份订阅事实写进一行账户，并回答「这次算不算续期」。
+ *
+ * 抽出来是因为**多店共用同一条订阅**：一条 `customer.subscription.updated`
+ * 要同时落到这条订阅上的每一家店。写两遍的话，续期清零、试用提醒去重
+ * 这些判断迟早会在两处漂开，而漂开的表现是「有的店清零了有的没清」。
+ */
+async function applySubscriptionToRow(
+  tx: postgres.TransactionSql,
+  row: AccountRow,
+  patch: SubscriptionPatch,
+): Promise<{ renewed: boolean }> {
+  /**
+   * 试用结束时刻变了 = 换了一段试用，提醒信的去重标记要跟着清掉。
+   *
+   * ⚠️ **按毫秒比，不能按字符串比。** 入参是 ISO 串，库里那个是
+   * Postgres round-trip 回来的 —— 同一个时刻两边的小数位和时区写法都可能
+   * 不一样，字符串比会把「没变」判成「变了」，于是每一条重投的
+   * trial_will_end 都会重新发一封信。
+   */
+  const msOf = (v: string | null): number | null => (v === null ? null : new Date(v).getTime());
+  const trialChanged = msOf(patch.trialEndsAt)
+    !== msOf(row.trial_ends_at === null ? null : ts(row.trial_ends_at));
+
+  /**
+   * ⭐ **续期就把两种套餐内额度都清零。**
+   *
+   * 清零的时机跟着 Stripe 的 `current_period_end` 走，不自己数日子 ——
+   * 自己数就一定会和 Stripe 的账单周期漂开，而漂开之后
+   * 「这个月到底还剩几次」谁也说不清，客户和我们各算各的。
+   *
+   * ⚠️ 只有**往后走**才算续期。Stripe 偶尔会重投一条旧事件，
+   * 那条里的 period_end 比库里的早 —— 照着它清零等于白送客户一整期额度。
+   */
+  const prevEnd = row.current_period_end ? new Date(ts(row.current_period_end)).getTime() : 0;
+  const nextEnd = patch.periodEnd ? new Date(patch.periodEnd).getTime() : 0;
+  const renewed = nextEnd > prevEnd && prevEnd > 0;
+
+  await tx`
+    update billing_accounts set
+      stripe_customer_id = ${patch.customerId},
+      stripe_subscription_id = ${patch.subscriptionId},
+      stripe_subscription_item_id = ${patch.subscriptionItemId},
+      plan = ${patch.plan},
+      subscription_status = ${patch.status},
+      current_period_end = ${patch.periodEnd}::timestamptz,
+      cancel_at_period_end = ${patch.cancelAtPeriodEnd},
+      cancel_at = ${patch.cancelAt}::timestamptz,
+      trial_ends_at = ${patch.trialEndsAt}::timestamptz,
+      trial_will_end_notified_at = ${trialChanged
+        ? null : (row.trial_will_end_notified_at === null
+          ? null : ts(row.trial_will_end_notified_at))}::timestamptz,
+      included_credits_used = ${renewed ? 0 : row.included_credits_used},
+      included_minutes_used = ${renewed ? 0 : row.included_minutes_used},
+      included_period_start = ${renewed ? tx`now()` : tx`included_period_start`}
+    where id = ${row.id}`;
+
+  return { renewed };
+}
+
 registerHandler(SyncSubscription, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof SyncSubscription.input._type>) => {
   const acct = await ensureAccount(tx, ctx, { forUpdate: true });
@@ -266,75 +360,97 @@ registerHandler(SyncSubscription, async ({ input, ctx, tx, audit }: HandlerArgs<
   const clearable = <T>(next: T | null | undefined, cur: T | null): T | null =>
     next === undefined ? cur : (next ?? null);
 
-  const plan = input.plan ?? acct.plan;
   const status = input.subscriptionStatus ?? acct.subscription_status;
   const customerId = clearable(input.stripeCustomerId, acct.stripe_customer_id);
   const subscriptionId = clearable(input.stripeSubscriptionId, acct.stripe_subscription_id);
 
   // 时间参数一律先转成字符串再配 ::timestamptz（见 @gf/db 的 ts() 注释）
-  const periodEnd: string | null = input.currentPeriodEnd === undefined
-    ? (acct.current_period_end === null ? null : ts(acct.current_period_end))
-    : (input.currentPeriodEnd === null ? null : ts(new Date(input.currentPeriodEnd)));
+  const isoOf = (v: string | null | undefined, cur: string | Date | null): string | null =>
+    v === undefined ? (cur === null ? null : ts(cur)) : (v === null ? null : ts(new Date(v)));
 
   /**
    * 试用结束时刻。**id 类语义**：`null` = 明确清空。
    *
    * 试用一旦转正，Stripe 的 `trial_end` 就不再出现在订阅对象上，
-   * 这时候必须真的写回 null —— 留着旧值的话 `isTrialing()` 会一直
-   * 拿它和 now 比，虽然结果也是 false，但「这家店试用到什么时候」
-   * 这个问题在客服那边会得到一个早就过期的答案。
+   * 这时候必须真的写回 null —— 留着旧值的话「这家店试用到什么时候」
+   * 在客服那边会得到一个早就过期的答案。
    */
-  const trialEndsAt: string | null = input.trialEndsAt === undefined
-    ? (acct.trial_ends_at === null ? null : ts(acct.trial_ends_at))
-    : (input.trialEndsAt === null ? null : ts(new Date(input.trialEndsAt)));
+  const trialEndsAt = isoOf(input.trialEndsAt, acct.trial_ends_at);
+  const cancelAtPeriodEnd = input.cancelAtPeriodEnd ?? acct.cancel_at_period_end;
+  const cancelAt = isoOf(input.cancelAt, acct.cancel_at);
 
   /**
-   * 试用结束时刻变了 = 换了一段试用，提醒信的去重标记要跟着清掉。
+   * ⭐ 这条订阅上，哪个 item 属于哪家门店。
    *
-   * ⚠️ **按毫秒比，不能按字符串比。** 入参是客户端给的 ISO 串，
-   * 库里那个是 Postgres round-trip 回来的 —— 同一个时刻两边的
-   * 小数位和时区写法都可能不一样，字符串比会把「没变」判成「变了」，
-   * 于是每一条重投的 trial_will_end 都会重新发一封信。
+   * 没有这一份映射时，退化成「所有店共用顶层的 plan / period」——
+   * 那正是单店的情形，也是所有历史调用点的形状。
    */
-  const msOf = (v: string | null): number | null => (v === null ? null : new Date(v).getTime());
-  const trialChanged = msOf(trialEndsAt)
-    !== msOf(acct.trial_ends_at === null ? null : ts(acct.trial_ends_at));
+  const itemByLocation = new Map(
+    (input.items ?? []).map((it) => [it.locationId, it] as const),
+  );
+
+  /** 一行账户该落什么套餐与账期：先看它自己的 item，没有再退回顶层 */
+  const patchFor = (row: AccountRow): SubscriptionPatch => {
+    const own = itemByLocation.get(row.location_id);
+    return {
+      customerId,
+      subscriptionId,
+      subscriptionItemId: own?.subscriptionItemId ?? row.stripe_subscription_item_id ?? null,
+      status,
+      plan: own?.plan ?? input.plan ?? row.plan,
+      periodEnd: own?.currentPeriodEnd !== undefined
+        ? isoOf(own.currentPeriodEnd, row.current_period_end)
+        : isoOf(input.currentPeriodEnd, row.current_period_end),
+      trialEndsAt,
+      cancelAtPeriodEnd,
+      cancelAt,
+    };
+  };
+
+  const anchorPatch = patchFor(acct);
+  const { renewed } = await applySubscriptionToRow(tx, acct, anchorPatch);
 
   /**
-   * ⭐ **续期就把两种套餐内额度都清零。**
+   * ⭐ **兄弟门店。** 多店经营共用同一条订阅（一个老板一张卡一张账单），
+   * 而一条 `customer.subscription.*` 事件只解析得出**一家**门店。
    *
-   * 清零的时机跟着 Stripe 的 `current_period_end` 走，不自己数日子 ——
-   * 自己数就一定会和 Stripe 的账单周期漂开，而漂开之后
-   * 「这个月到底还剩几次」谁也说不清，客户和我们各算各的。
+   * 不广播的话：老板退订之后只有锚点店变成 canceled，第二家店永远停在
+   * active —— 写入闸门（bus.ts）和 AI 准入（billing/aiAdmission.ts）都是
+   * 按 location 读自己那一行的，于是那家店退订之后继续开单、继续烧 AI 额度。
+   * 这是直接的收入泄漏，而且账面上完全看不出来。
    *
-   * ⚠️ 只有**往后走**才算续期。Stripe 偶尔会重投一条旧事件，
-   * 那条里的 period_end 比库里的早 —— 照着它清零等于白送客户一整期额度。
+   * 范围限定在**同一个 org**：跨 org 共用一个 Stripe 对象是 AUD-02 描述的
+   * 串账，sql/0080 的触发器已经在数据库层禁掉了，这里不需要也不应该兜底。
    */
-  const prevEnd = acct.current_period_end ? new Date(ts(acct.current_period_end)).getTime() : 0;
-  const nextEnd = periodEnd ? new Date(periodEnd).getTime() : 0;
-  const renewed = nextEnd > prevEnd && prevEnd > 0;
+  const siblingIds = new Set<string>(itemByLocation.keys());
+  siblingIds.delete(ctx.locationId);
 
-  await tx`
-    update billing_accounts set
-      stripe_customer_id = ${customerId},
-      stripe_subscription_id = ${subscriptionId},
-      plan = ${plan},
-      subscription_status = ${status},
-      current_period_end = ${periodEnd}::timestamptz,
-      trial_ends_at = ${trialEndsAt}::timestamptz,
-      trial_will_end_notified_at = ${trialChanged
-        ? null : (acct.trial_will_end_notified_at === null
-          ? null : ts(acct.trial_will_end_notified_at))}::timestamptz,
-      included_credits_used = ${renewed ? 0 : acct.included_credits_used},
-      included_minutes_used = ${renewed ? 0 : acct.included_minutes_used},
-      included_period_start = ${renewed ? tx`now()` : tx`included_period_start`}
-    where id = ${acct.id}`;
+  const siblings = subscriptionId || siblingIds.size > 0
+    ? await tx<AccountRow[]>`
+        select * from billing_accounts
+        where org_id = ${ctx.orgId}
+          and location_id <> ${ctx.locationId}
+          and (
+            (${subscriptionId}::text is not null
+              and stripe_subscription_id = ${subscriptionId})
+            or location_id = any(${[...siblingIds]}::uuid[])
+          )
+        -- ⚠️ 排序不是为了好看，是为了**固定加锁顺序**。同一条订阅上
+        -- 两条事件并发到达时（例如续费与改档），锚点行先锁、兄弟行按
+        -- location_id 依次锁 —— 顺序不固定的话两个事务会互相等对方那一行。
+        order by location_id
+        for update`
+    : [];
+
+  for (const row of siblings) {
+    await applySubscriptionToRow(tx, row, patchFor(row));
+  }
 
   audit({
     entityType: 'billing_account', entityId: acct.id,
     before: { plan: acct.plan, status: acct.subscription_status },
     after: {
-      plan, status,
+      plan: anchorPatch.plan, status,
       hasCustomer: Boolean(customerId),
       hasSubscription: Boolean(subscriptionId),
       sourceEventId: input.sourceEventId ?? null,
@@ -342,10 +458,19 @@ registerHandler(SyncSubscription, async ({ input, ctx, tx, audit }: HandlerArgs<
       includedReset: renewed,
       // 试用起止也留痕：「我什么时候被扣的第一笔钱」是客服第一个被问到的问题
       trialEndsAt,
+      cancelAtPeriodEnd,
+      // 一条事件同步了几家店。多店老板的账单纠纷第一句就是「哪几家店受影响」
+      siblingsSynced: siblings.length,
     },
   });
 
-  return { accountId: acct.id, plan, subscriptionStatus: status, includedReset: renewed };
+  return {
+    accountId: acct.id,
+    plan: anchorPatch.plan,
+    subscriptionStatus: status,
+    includedReset: renewed,
+    siblingsSynced: siblings.length,
+  };
 });
 
 // ───────────────────────────────────────────────────────────────── 支付方式
@@ -581,6 +706,149 @@ registerHandler(BillingSaveTaxProfile, async ({ input, ctx, tx, audit }: Handler
   });
 
   return { saved: true };
+});
+
+// ─────────────────────────────────────────────────────────────────── 发票
+
+/**
+ * 把一张 Stripe 发票落库。
+ *
+ * ⚠️ 幂等靠 `stripe_invoice_id` 的部分唯一索引（sql/0085）：
+ * `invoice.paid` 同样是「至少一次」投递，不去重的话老板的发票列表里
+ * 会出现两张一模一样的单据，而他会以为自己被扣了两次。
+ */
+registerHandler(RecordInvoice, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof RecordInvoice.input._type>) => {
+  const [existing] = await tx<{ id: string }[]>`
+    select id from billing_invoices
+    where stripe_invoice_id = ${input.stripeInvoiceId} limit 1`;
+
+  if (existing) {
+    // 状态可能从 pending 变成 paid（先开票后付款），所以要更新而不是直接返回
+    await tx`
+      update billing_invoices set
+        status = ${input.status},
+        amount_cents = ${input.amountCents},
+        hosted_invoice_url = ${input.hostedInvoiceUrl ?? null},
+        receipt_pdf_url = ${input.receiptPdfUrl ?? null}
+      where id = ${existing.id}`;
+    audit({
+      entityType: 'billing_invoice', entityId: existing.id,
+      after: { stripeInvoiceId: input.stripeInvoiceId, status: input.status, updated: true },
+    });
+    return { invoiceId: existing.id, alreadyRecorded: true };
+  }
+
+  const [row] = await tx<{ id: string }[]>`
+    insert into billing_invoices
+      (org_id, location_id, invoice_number, period, description, amount_cents,
+       status, date, receipt_pdf_url, stripe_invoice_id, hosted_invoice_url)
+    values (${ctx.orgId}, ${ctx.locationId}, ${input.invoiceNumber}, ${input.period},
+            ${input.description}, ${input.amountCents}, ${input.status}, ${input.date},
+            ${input.receiptPdfUrl ?? null}, ${input.stripeInvoiceId},
+            ${input.hostedInvoiceUrl ?? null})
+    on conflict (stripe_invoice_id) where stripe_invoice_id is not null do nothing
+    returning id`;
+
+  // 并发插入被 on conflict 挡住时 returning 是空的 —— 那说明另一条路已经写了
+  if (!row) {
+    const [now] = await tx<{ id: string }[]>`
+      select id from billing_invoices
+      where stripe_invoice_id = ${input.stripeInvoiceId} limit 1`;
+    return { invoiceId: now!.id, alreadyRecorded: true };
+  }
+
+  audit({
+    entityType: 'billing_invoice', entityId: row.id,
+    after: {
+      stripeInvoiceId: input.stripeInvoiceId, status: input.status,
+      amountCents: input.amountCents, period: input.period,
+    },
+  });
+
+  return { invoiceId: row.id, alreadyRecorded: false };
+});
+
+// ───────────────────────────────────────────────────────── 充值冲销（退款/拒付）
+
+/**
+ * 一笔充值被退款或拒付：**写一条反向流水**。
+ *
+ * ⭐ 不改原来那一行 —— 账本只追加（sql/0018 的 `ledger_append_only` 触发器
+ * 连 update 都不给）。「为什么少了 1000 积分」这个问题必须能从流水上
+ * 一眼看出来。
+ *
+ * ⚠️ 余额允许被冲成负数。客户拿走了额度又把钱要了回去，那个负数就是
+ * 事实本身；抹平它等于替他把账做平。
+ */
+registerHandler(RecordTopupReversal, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof RecordTopupReversal.input._type>) => {
+  const acct = await ensureAccount(tx, ctx, { forUpdate: true });
+
+  // 原始那一笔。找不到 = 这笔钱从来没在我们这边入过账（例如订阅月费的
+  // 退款），什么都不做 —— 凭空扣一笔额度比不扣更糟
+  const [origin] = await tx<{ unit: string; amount: number }[]>`
+    select unit, amount from credit_ledger
+    where location_id = ${ctx.locationId}
+      and stripe_payment_intent_id = ${input.stripePaymentIntentId}
+      and kind = 'topup'
+    limit 1`;
+
+  if (!origin) {
+    audit({
+      entityType: 'billing_account', entityId: acct.id,
+      after: {
+        reversal: 'skipped', reason: 'no_matching_topup',
+        stripePaymentIntentId: input.stripePaymentIntentId,
+      },
+    });
+    return { reversed: false, unit: null, units: null, balanceAfter: null };
+  }
+
+  // 已经冲过了。退款和拒付可能先后各来一条事件，第二条不该再扣一次
+  const [dupe] = await tx<{ id: string }[]>`
+    select id from credit_ledger
+    where location_id = ${ctx.locationId}
+      and stripe_payment_intent_id = ${input.stripePaymentIntentId}
+      and kind = 'reversal'
+    limit 1`;
+
+  if (dupe) {
+    // ⚠️ 这一支也要留痕：命令总线要求每条命令至少登记一条审计（宪法第 1 条），
+    // 而「为什么第二次拒付没有再扣额度」本来就是客服要答的问题
+    audit({
+      entityType: 'credit_ledger', entityId: dupe.id,
+      after: {
+        reversal: 'already_reversed', reason: input.reason,
+        stripePaymentIntentId: input.stripePaymentIntentId,
+      },
+    });
+    return {
+      reversed: false, unit: origin.unit as QuotaUnit,
+      units: null, balanceAfter: balanceOf(acct, origin.unit as QuotaUnit),
+    };
+  }
+
+  const unit = origin.unit as QuotaUnit;
+  const { balanceAfter } = await appendLedger(tx, ctx, acct, {
+    kind: 'reversal',
+    unit,
+    amount: -origin.amount,
+    source: 'stripe',
+    stripePaymentIntentId: input.stripePaymentIntentId,
+    // 冲销必须写原因（applyEntry 会挡住没写原因的那一条）
+    reason: input.reason === 'dispute' ? '拒付冲销（chargeback）' : '退款冲销',
+  });
+
+  audit({
+    entityType: 'billing_account', entityId: acct.id,
+    after: {
+      reversal: input.reason, unit, units: origin.amount, balanceAfter,
+      stripePaymentIntentId: input.stripePaymentIntentId,
+    },
+  });
+
+  return { reversed: true, unit, units: origin.amount, balanceAfter };
 });
 
 export { unitsPerTopup, TOPUP_PRICE_CENTS };

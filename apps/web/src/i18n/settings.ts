@@ -587,6 +587,12 @@ export const settings = {
   'settings.stStatusPastDue': { 'zh-Hans': '已逾期', en: 'Past due', ko: '연체', es: 'Vencida', vi: 'Quá hạn' },
   'settings.stStatusCanceled': { 'zh-Hans': '已取消', en: 'Canceled', ko: '취소됨', es: 'Cancelada', vi: 'Đã hủy' },
   'settings.stStatusUnknown': { 'zh-Hans': '状态未知', en: 'Unknown status', ko: '상태 불명', es: 'Estado desconocido', vi: 'Trạng thái không rõ' },
+  // 从未接过计费（sql/0085 的 subscription_status = 'none'）：能开单，但 AI 额度为 0
+  'settings.stStatusNone': { 'zh-Hans': '未订阅', en: 'Not subscribed', ko: '미구독', es: 'Sin suscripción', vi: 'Chưa đăng ký' },
+  // ⚠️ 期末取消时 Stripe 的 status 仍然是 active —— 这一句是界面上唯一说清
+  // 「什么时候真的停」的地方，不显示的话老板会在到期那天突然发现全店冻结
+  'settings.stCancelsOn': { 'zh-Hans': '已取消，{p0} 到期后转为只读', en: 'Cancelled — read-only after {p0}', ko: '해지됨 — {p0} 이후 읽기 전용', es: 'Cancelada: solo lectura después del {p0}', vi: 'Đã hủy — chỉ đọc sau {p0}' },
+  'settings.stNoSubscriptionHint': { 'zh-Hans': '这家店还没有订阅，AI 额度为 0', en: 'This location has no subscription yet — AI quota is 0', ko: '이 매장은 아직 구독이 없습니다 — AI 한도 0', es: 'Esta tienda aún no tiene suscripción: cuota de IA en 0', vi: 'Cửa hàng này chưa đăng ký — hạn mức AI bằng 0' },
   'settings.stManageSubscription': { 'zh-Hans': '管理订阅与支付', en: 'Manage subscription & payment', ko: '구독 및 결제 관리', es: 'Gestionar suscripción y pago', vi: 'Quản lý thuê bao và thanh toán' },
   'settings.stPortalUrlMissing': { 'zh-Hans': '未能打开 Stripe 账单门户，请稍后重试。', en: 'Could not open the Stripe billing portal. Please try again.', ko: 'Stripe 결제 포털을 열 수 없습니다. 잠시 후 다시 시도하세요.', es: 'No se pudo abrir el portal de facturación de Stripe. Inténtalo de nuevo.', vi: 'Không mở được cổng thanh toán Stripe. Hãy thử lại sau.' },
   'settings.stNoInvoices': { 'zh-Hans': '暂无发票', en: 'No invoices yet', ko: '인보이스가 없습니다', es: 'Aún no hay facturas', vi: 'Chưa có hóa đơn' },

@@ -103,6 +103,8 @@ function essentialTrial(over: Partial<BillingView> = {}): BillingView {
     hasSubscription: true,
     trialEndsAt: '2026-09-07T00:00:00.000Z',
     trialing: true,
+    cancelAtPeriodEnd: false,
+    cancelAt: null,
     hasPaymentMethod: false,
     paymentMethodLabel: null,
     topupPriceCents: 5000,

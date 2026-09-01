@@ -26,6 +26,7 @@ import {
   stripeHostedUrl,
   stripePortalUrl,
   subscriptionStatusKey,
+  subscriptionNotice,
 } from './display';
 import type { QuotaUnit, QuotaView } from './types';
 
@@ -57,6 +58,12 @@ export function BillingPanel() {
   const badgeVariant = statusBadgeVariant(billing?.subscriptionStatus, trialing);
   const trialEnds = formatIsoDate(billing?.trialEndsAt);
   const periodEnd = formatIsoDate(billing?.currentPeriodEnd);
+  /**
+   * ⚠️ 期末取消时 Stripe 的 status **仍然是 active** —— 只有这一位能表达
+   * 「还能用，但到期即止」。不显示的话老板会在到期那天突然发现全店冻结。
+   */
+  const cancelPending = billing?.cancelAtPeriodEnd === true;
+  const notice = subscriptionNotice(billing);
   const pastDue = !trialing && (billing?.subscriptionStatus === 'past_due'
     || billing?.subscriptionStatus === 'unpaid'
     || billing?.subscriptionStatus === 'incomplete_expired');
@@ -153,7 +160,7 @@ export function BillingPanel() {
           <>
             <div
               className={`p-5 rounded-2xl text-white shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 ${
-                pastDue
+                pastDue || cancelPending
                   ? 'bg-gradient-to-r from-amber-900 to-slate-900'
                   : canceled
                     ? 'bg-gradient-to-r from-slate-700 to-slate-900'
@@ -167,12 +174,10 @@ export function BillingPanel() {
                 <h3 className="text-xl font-black text-white">
                   {t(planLabelKey(billing.plan))} · {t(statusKey)}
                 </h3>
-                <p className="text-xs text-teal-100/80">
-                  {trialing && trialEnds
-                    ? t('settings.stTrialEnds', { p0: trialEnds })
-                    : periodEnd
-                      ? t('settings.stRenewsOn', { p0: periodEnd })
-                      : t('settings.stPortalHint')}
+                <p className={`text-xs ${cancelPending ? 'text-amber-200 font-bold' : 'text-teal-100/80'}`}>
+                  {notice.date
+                    ? t(notice.key, { p0: formatIsoDate(notice.date) ?? '' })
+                    : t(notice.key)}
                 </p>
                 <p className="text-xs text-teal-100/80">
                   {hasPaymentMethod

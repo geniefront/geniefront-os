@@ -26,6 +26,7 @@
  * 「Visa ···· 4242」。碰一下 PCI 范围，合规成本就是另一个量级。
  */
 
+import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import {
   AppError, ERROR_CODES,
@@ -33,7 +34,8 @@ import {
 } from '@gf/contracts';
 import { withTenant } from '@gf/db';
 import {
-  unitsPerTopup, TOPUP_PRICE_CENTS, isQuotaUnit, TRIAL_DAYS, type QuotaUnit,
+  unitsPerTopup, TOPUP_PRICE_CENTS, isQuotaUnit, TRIAL_DAYS, TOPUP_COOLDOWN_MS,
+  type QuotaUnit,
 } from '@gf/payroll';
 import { dispatch } from '../bus';
 import { rawBodyOf } from '../rawBody';
@@ -45,9 +47,12 @@ import {
 import { maybeAutoTopup } from '../billing/autoTopup';
 import { safePortalReturnUrl, safeReturnUrls } from './returnUrl';
 import { resolveWebhookTenant } from './tenant';
-import { renderTrialEnding, formatWhen } from '../email/render';
+import {
+  renderTrialEnding, renderPaymentFailed, renderSubscriptionCanceled, formatWhen,
+} from '../email/render';
 import {
   isSignupSession, provisionFromSession, backfillStripeMetadata, sendActivationOnce,
+  cancelDanglingSignupSubscription,
   type SignupOutcome,
 } from '../signup/webhook';
 import '../handlers/billing';
@@ -60,6 +65,20 @@ import '../handlers/billing';
  * 改不了预约、看不到客人、开不了单。
  */
 const STRIPE_WEBHOOK_PERMISSIONS: readonly Permission[] = ['billing.manage'];
+
+/**
+ * 把任意一个 Stripe id 稳定地映射成一个 uuid。
+ *
+ * `email_outbox.entity_id` 是 uuid 列（sql/0029），而我们要去重的东西
+ * （发票、一次退订）在 Stripe 那边是字符串 id。md5 的 32 个十六进制位
+ * 正好排成 uuid 的形状 —— 这里要的只是「同一个输入永远得到同一个键」，
+ * 不需要密码学强度，也不参与任何安全判断。
+ */
+export function stableUuid(seed: string): string {
+  const hex = createHash('md5').update(seed, 'utf8').digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-`
+    + `${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 interface Tenant { orgId: string; locationId: string }
 
@@ -117,7 +136,7 @@ export type CtxFromHeaders = (req: {
 }) => Promise<CommandContext>;
 
 /**
- * 核对一个 Stripe customer 到底属不属于这家门店（AUD-02）。
+ * 核对一个 Stripe customer 到底属不属于**这个组织**（AUD-02）。
  *
  * ## 为什么本地那一列不够
  *
@@ -126,21 +145,31 @@ export type CtxFromHeaders = (req: {
  * 账单地址，以及**退订按钮**。也就是说这一列的可信度直接等于
  * 「谁能写它」——而在 AUD-01 修好之前，答案是「任何一个老板」。
  *
- * 所以判据换成 Stripe 自己的 metadata：`gf_location_id` 是建 customer 时
- * 我们写进去的（`ensureCustomer`），它只可能由服务端产生。
+ * 所以判据换成 Stripe 自己的 metadata：`gf_org_id` / `gf_location_id`
+ * 是建 customer 时我们写进去的（`ensureCustomer`），只可能由服务端产生。
  *
- * ⚠️ **老 customer 可能没有这个 metadata**（计费上线早于回填那一版）。
- * 那种情况不能一刀切拒绝 —— 会把一批老店锁在账单页外面。
- * 判定分三档：
- *   · metadata 指向**别的门店** → 拒。这是唯一真正危险的情况
- *   · metadata 指向本店         → 放行
- *   · metadata 缺失             → 放行，但记一条 warn 供回填
+ * ## ⭐ 判据是 org，不是 location
  *
- * 换句话说：我们拦的是「指错了」，不是「没标过」。
+ * 多店经营**故意共用同一个 Stripe 客户**（一个老板一张卡一张账单，
+ * 见 `/v1/billing/add-store`）。而 customer 上的 `gf_location_id` 永远是
+ * **建它的那一家店**。按 location 比的话，第二家店的老板点「管理订阅」
+ * 和「充值」必然被判成越权 —— 而他要管的正是自己那张卡。
+ *
+ * 真正要拦的攻击是「把**别家 org** 的 cus_ 写进自己这一行」，
+ * 那条边界是 org（sql/0080 的触发器守的也是这一条）。
+ *
+ * ⚠️ **老 customer 可能只写了 `gf_location_id`**（计费上线早于回填那一版）。
+ * 判定因此分四档：
+ *   · 有 gf_org_id 且指向别的 org → 拒。这是唯一真正危险的情况
+ *   · 有 gf_org_id 且指向本 org   → 放行
+ *   · 只有 gf_location_id         → 查那家店在不在本 org（RLS 天然只看得到本 org）
+ *   · 两个都缺                    → 放行，但记一条 warn 供回填
+ *
+ * 换句话说：我们拦的是「指到别人家了」，不是「没标过」。
  */
 export async function assertStripeCustomerBelongsTo(
   customerId: string,
-  locationId: string,
+  tenant: { orgId: string; locationId: string },
   log?: { warn: (o: unknown, m: string) => void },
 ): Promise<void> {
   let customer: Stripe.Customer | Stripe.DeletedCustomer;
@@ -154,16 +183,35 @@ export async function assertStripeCustomerBelongsTo(
   if (customer.deleted) {
     throw new AppError(ERROR_CODES.NOT_FOUND, { details: { reason: 'stripe_customer_deleted' } });
   }
-  const owner = (customer.metadata ?? {})['gf_location_id'];
-  if (!owner) {
-    log?.warn({ customerId, locationId }, 'stripe customer without gf_location_id metadata');
-    return;
+  const meta = customer.metadata ?? {};
+  const ownerOrg = meta['gf_org_id'];
+  const ownerLocation = meta['gf_location_id'];
+
+  if (ownerOrg) {
+    if (ownerOrg === tenant.orgId) return;
+    throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+      details: { reason: 'stripe_customer_org_mismatch' },
+    });
   }
-  if (owner !== locationId) {
+
+  if (ownerLocation) {
+    if (ownerLocation === tenant.locationId) return;
+    /*
+     * 只标了 location 的老 customer。那家店在不在本 org，问数据库 ——
+     * RLS 只让我们看得见本 org 的门店，所以「查得到」本身就是答案。
+     */
+    const [sibling] = await withTenant(
+      { orgId: tenant.orgId, locationId: tenant.locationId, membershipId: null },
+      (tx) => tx<{ id: string }[]>`
+        select id from locations
+        where id = ${ownerLocation} and org_id = ${tenant.orgId}`);
+    if (sibling) return;
     throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
       details: { reason: 'stripe_customer_location_mismatch' },
     });
   }
+
+  log?.warn({ customerId, orgId: tenant.orgId }, 'stripe customer without gf_org_id metadata');
 }
 
 export function registerStripeRoutes(
@@ -181,19 +229,49 @@ export function registerStripeRoutes(
   }
 
   /**
-   * 这家店订阅过没有 —— 决定这次 Checkout 给不给七天试用。
-   *
-   * 两列都为空才算「从来没有过」。只看 `stripe_subscription_id` 不够：
-   * 退订之后那一列会被清空，而 `trial_ends_at` 留着历史值 ——
-   * 那正是「这家伙已经用过一次试用」的证据。
+   * 这家店当前的计费账户。订阅入口的三个判断都要用它。
    */
-  async function everSubscribed(ctx: CommandContext): Promise<boolean> {
+  async function billingAccountOf(ctx: CommandContext): Promise<{
+    sub: string | null; cust: string | null; status: string;
+    trial: Date | string | null; cancelAtPeriodEnd: boolean;
+  } | null> {
     const [acct] = await withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
-      (tx) => tx<{ sub: string | null; trial: Date | null }[]>`
-        select stripe_subscription_id as sub, trial_ends_at as trial
+      (tx) => tx<{
+        sub: string | null; cust: string | null; status: string;
+        trial: Date | string | null; cancelAtPeriodEnd: boolean;
+      }[]>`
+        select stripe_subscription_id as sub, stripe_customer_id as cust,
+               subscription_status as status, trial_ends_at as trial,
+               cancel_at_period_end as "cancelAtPeriodEnd"
         from billing_accounts where location_id = ${ctx.locationId}`);
-    return Boolean(acct?.sub) || Boolean(acct?.trial);
+    return acct ?? null;
+  }
+
+  /**
+   * 这个**组织**订阅过没有 —— 决定这次 Checkout 给不给七天试用。
+   *
+   * ⚠️ 判据是 org 而不是单店：一个老板开第二家店时，他早就用过试用了。
+   * 按店判的话，「开一家新店」就是一张无限续杯的试用券。
+   *
+   * 三个证据任意一条成立就算用过：
+   *   · 组织里任何一家店有过 subscription id
+   *   · 任何一家店有过 `trial_ends_at`（退订会清 id，但历史试用时刻留着 ——
+   *     那正是「这家伙已经用过一次试用」的证据）
+   *   · 任何一家店的状态不是 `none`
+   */
+  async function everSubscribed(ctx: CommandContext): Promise<boolean> {
+    const [row] = await withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => tx<{ used: boolean }[]>`
+        select exists (
+          select 1 from billing_accounts
+          where org_id = ${ctx.orgId}
+            and (stripe_subscription_id is not null
+              or trial_ends_at is not null
+              or subscription_status <> 'none')
+        ) as used`);
+    return Boolean(row?.used);
   }
 
   /**
@@ -245,12 +323,34 @@ export function registerStripeRoutes(
     const { successUrl, cancelUrl } = safeReturnUrls(req.body);
 
     /**
-     * ⭐ 试用只给**第一次订阅**的店。
+     * ⭐⭐ **已经有生效订阅的店不能再走这条路。**
      *
-     * 判据是「这家店的账户上有没有过 subscription id」，不是
-     * 「现在是不是 active」—— 退订过又回来的老客户 `stripe_subscription_id`
-     * 会被清空，但 `trial_ends_at` 还留着历史值，那才是真正的判据。
-     * 两个都为空才算真的没订阅过。
+     * Stripe 的 Checkout（subscription 模式）**不会去改已有的订阅，它新建
+     * 一条**。于是「换个套餐再点一次订阅」的结果是：
+     *   · 这家店名下有两条订阅，两条都在每月扣款
+     *   · 而本地 `stripe_subscription_id` 被新那条覆盖，
+     *     旧那条从此**在我们的账面上不存在**，直到客户看信用卡账单
+     *
+     * 改档、退订、换卡一律走客户门户（`/v1/billing/portal-session`）——
+     * 那是 Stripe 托管的、能正确处理按比例计费与生效时间的那一条路。
+     */
+    const existing = await billingAccountOf(ctx);
+    if (existing?.sub && ['active', 'trialing', 'past_due'].includes(existing.status)) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: {
+          reason: 'already_subscribed',
+          subscriptionStatus: existing.status,
+          hint: '改套餐或退订请走客户门户 /v1/billing/portal-session',
+        },
+      });
+    }
+
+    /**
+     * ⭐ 试用只给**第一次订阅**的组织。
+     *
+     * 判据不是「现在是不是 active」—— 退订过又回来的老客户
+     * `stripe_subscription_id` 可能已经被清空，但 `trial_ends_at`
+     * 还留着历史值，那才是真正的证据。见 `everSubscribed`。
      */
     const hadSubscription = await everSubscribed(ctx);
 
@@ -280,6 +380,16 @@ export function registerStripeRoutes(
         ...(hadSubscription ? {} : { trial_period_days: TRIAL_DAYS }),
         metadata: { gf_location_id: ctx.locationId, gf_org_id: ctx.orgId },
       },
+    }, {
+      /**
+       * ⚠️ 幂等键按「门店 + 套餐 + 十分钟窗口」分桶。
+       *
+       * 老板在网络慢的时候会连点两次「订阅」，而两个 Checkout session
+       * 都完成的话就是**两条订阅**。Stripe 的幂等缓存 24 小时后失效，
+       * 分桶保证他十分钟后真想重来时不会被旧的缓存挡住。
+       */
+      idempotencyKey: `gf-checkout-${ctx.locationId}-${plan}-${
+        Math.floor(Date.now() / 600_000)}`,
     });
 
     return { url: session.url, sessionId: session.id };
@@ -324,21 +434,41 @@ export function registerStripeRoutes(
 
     const newLoc = created.result.locationId;
 
-    // ② 找到这个 org 现有的订阅。没有就说清楚 —— 第一家店都还没订阅，
-    //    第二家店的计费无处可加
+    /*
+     * ② 找到这个 org 现有的**生效**订阅。没有就说清楚 —— 第一家店都还没订阅，
+     *    第二家店的计费无处可加。
+     *
+     * ⚠️ 必须过滤状态。退订之后 `stripe_subscription_id` 是**留着的**
+     * （webhook 靠它定位租户），不过滤的话这里会挑中一条已经取消的订阅，
+     * 然后 `subscriptionItems.create` 当场报错 —— 而门店已经建好了，
+     * 老板看到的是「建店失败」而其实店已经在那儿了。
+     *
+     * `past_due` 也不接：往一条正在催款的订阅上加 item，只会让那张
+     * 本来就扣不动的卡再多欠一笔。
+     */
     const [existing] = await withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
       (tx) => tx<{ sub: string | null; cust: string | null }[]>`
         select stripe_subscription_id as sub, stripe_customer_id as cust
         from billing_accounts
-        where org_id = ${ctx.orgId} and stripe_subscription_id is not null
+        where org_id = ${ctx.orgId}
+          and stripe_subscription_id is not null
+          and subscription_status in ('active', 'trialing')
+          and cancel_at_period_end = false
+        order by created_at asc
         limit 1`);
 
     if (!existing?.sub) {
       return {
         ...created.result,
         billing: 'not_linked',
-        note: '门店已建好，但这个组织还没有生效的订阅 —— 先给第一家店订阅，再回来加计费。',
+        /**
+         * ⚠️ 这家店此刻是 `subscription_status = 'none'`（sql/0085）——
+         * 能开单、能排班，但**套餐内 AI 额度是 0**。老板接上订阅之后
+         * webhook 会把状态和额度一起带过来。
+         */
+        note: '门店已建好，但这个组织还没有生效的订阅 —— 先给第一家店订阅，再回来加计费。'
+          + '在那之前这家店的 AI 额度为 0。',
       };
     }
 
@@ -362,6 +492,14 @@ export function registerStripeRoutes(
       stripeSubscriptionId: existing.sub,
       plan,
       subscriptionStatus: 'active',
+      /**
+       * ⭐ 新店那个 item 的 id 必须当场落库（sql/0085）。
+       *
+       * 后续每一条 `customer.subscription.updated` 都要按 item 把套餐和
+       * 账期拆回每一家店 —— 没有这一列的话，只能取 `items.data[0]`，
+       * 而 Stripe 不保证列表顺序：主店的套餐会被这家新店的档位改掉。
+       */
+      items: [{ locationId: newLoc, subscriptionItemId: item.id, plan }],
     }, newCtx, { systemOrigin: 'stripe_webhook' });
 
     await withTenant(
@@ -442,7 +580,8 @@ export function registerStripeRoutes(
     }
 
     // ⭐ 归属必须问 Stripe，不能只信本地那一列（AUD-02）。
-    await assertStripeCustomerBelongsTo(acct.stripe_customer_id, ctx.locationId, req.log);
+    await assertStripeCustomerBelongsTo(
+      acct.stripe_customer_id, { orgId: ctx.orgId, locationId: ctx.locationId }, req.log);
 
     const returnUrl = safePortalReturnUrl(req.body?.returnUrl);
     try {
@@ -493,14 +632,23 @@ export function registerStripeRoutes(
 
     // 扣款之前先确认这个 customer 真的是本店的（AUD-02）。
     // 门户那条路泄漏的是别人的账单，这条路直接是**对别人的卡发起扣款**。
-    await assertStripeCustomerBelongsTo(acct.stripe_customer_id, ctx.locationId, req.log);
+    await assertStripeCustomerBelongsTo(
+      acct.stripe_customer_id, { orgId: ctx.orgId, locationId: ctx.locationId }, req.log);
 
     let paymentIntentId: string;
-    // 手动充值的幂等键：location + unit + 当前时间戳毫秒。
-    // 每次充值是独立操作（区别于 add-store 用固定 locationId），
-    // 所以用时间戳保证不同次充值不会互相命中 Stripe 的幂等缓存。
-    // Stripe 的 idempotency_key 在 24h 后自动失效，不会永久占位。
-    const topupIdempotencyKey = `topup-${ctx.locationId}-${unit}-${Date.now()}`;
+    /**
+     * 手动充值的幂等键：**按门店 + 额度 + 冷却窗口分桶**。
+     *
+     * ⚠️ 原来这里用的是 `Date.now()` 的毫秒值。两次点击几乎必然落在不同
+     * 毫秒上，于是「手抖点了两下」= **两笔 $50**。自动续充那条路有
+     * advisory lock 和冷却窗口挡着，手动这条什么都没有。
+     *
+     * 分桶用的是同一个 `TOPUP_COOLDOWN_MS`（十分钟）：窗口内重复点击命中
+     * Stripe 的幂等缓存，只扣一次；十分钟后他真想再充一次也充得上。
+     * Stripe 的幂等键 24 小时后自动失效，不会永久占位。
+     */
+    const topupIdempotencyKey =
+      `gf-manual-topup-${ctx.locationId}-${unit}-${Math.floor(Date.now() / TOPUP_COOLDOWN_MS)}`;
     try {
       const pi = await stripeClient().paymentIntents.create({
         amount: TOPUP_PRICE_CENTS,
@@ -588,7 +736,15 @@ export function registerStripeRoutes(
       const session = event.data.object;
       signup = await provisionFromSession(session, req.log);
       if (!signup) {
-        // 邮箱不一致 → 拒绝，一行都不写。照常 200：重投一百次答案也一样
+        /**
+         * 邮箱不一致 → 拒绝，一行都不写。照常 200：重投一百次答案也一样。
+         *
+         * ⭐ 但**必须把那条订阅取消掉**。原来这里只是返回 —— 于是
+         * Stripe 那边留着一条活的订阅（还带着试用），到期照扣，
+         * 而我们这边一家店都没有：钱收了，服务不存在。
+         * 取消失败只记日志：这一条已经是补救，不该让它把整条 webhook 拖成失败。
+         */
+        await cancelDanglingSignupSubscription(session, req.log);
         return { ok: true, rejected: 'owner_email_mismatch' };
       }
       await backfillStripeMetadata(session, signup, req.log);
@@ -695,7 +851,34 @@ export function registerStripeRoutes(
       case 'customer.subscription.created':
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
-        await syncSubscription(event.data.object, ctx, event.id);
+        const sub = event.data.object;
+        await syncSubscription(sub, ctx, event.id);
+
+        /**
+         * ⭐ 退订要发信，而且**期末取消那一档最不能省**。
+         *
+         * 老板在客户门户点完取消，Stripe 给的是 `cancel_at_period_end = true`
+         * 而 status 仍然是 active —— 界面上这家店还能正常用。他很容易
+         * 以为没点成功而再点一次，或者打电话来问。这封信是唯一说清
+         * 「什么时候真的停」的地方。
+         *
+         * 去重键带上取消时刻：同一次取消重投一百遍只有一封，
+         * 而「退订 → 恢复 → 再退订」还发得出第二封。
+         */
+        const canceledNow = event.type === 'customer.subscription.deleted'
+          || sub.cancel_at_period_end === true;
+        if (canceledNow) {
+          const endsAtSec = sub.cancel_at
+            ?? sub.canceled_at
+            ?? sub.items?.data?.[0]?.current_period_end
+            ?? null;
+          const sent = await sendSubscriptionCanceled(ctx, {
+            subscriptionId: sub.id,
+            atPeriodEnd: event.type !== 'customer.subscription.deleted',
+            endsAtIso: endsAtSec ? new Date(endsAtSec * 1000).toISOString() : null,
+          });
+          return sent ? 'subscription_canceled_notified' : 'subscription_synced';
+        }
         return 'subscription_synced';
       }
 
@@ -747,6 +930,32 @@ export function registerStripeRoutes(
         return 'payment_method_detached';
       }
 
+      /**
+       * 订阅发票扣款成功。
+       *
+       * `billing_invoices` 从 0052 起**只有读的一侧** —— 没有任何一条
+       * webhook 往里写，所以「订阅发票」那一页一直是空的，而老板问的
+       * 第一个问题就是「上个月扣的那 $99 有没有单据」。
+       *
+       * ⚠️ 金额、税、按比例摊分**一律照抄 Stripe**，不自己算。
+       * 自己算一定会差几分钱，而对不上的那几分钱会让他怀疑整套账。
+       */
+      case 'invoice.paid':
+      case 'invoice.payment_succeeded': {
+        await recordInvoice(event.data.object, ctx, 'paid');
+        return 'invoice_recorded';
+      }
+
+      /**
+       * 扣款失败。**不在这里停服** —— 订阅状态会由 Stripe 随后的
+       * `customer.subscription.updated` 带成 `past_due`，冻结由那条统一处理。
+       *
+       * 这里做两件事：
+       *   1. 把这张发票记成 failed，客服要答得出是哪一天、多少钱
+       *   2. ⭐ **给老板发信**。这封信原来是没有的 —— 于是扣款失败之后
+       *      他得到的唯一信号是第二天早上前台开不了单，而那时候他既不知道
+       *      为什么，也不知道该做什么
+       */
       case 'invoice.payment_failed': {
         const inv = event.data.object;
         app.log.warn({
@@ -756,7 +965,30 @@ export function registerStripeRoutes(
           amountDue: inv.amount_due,
           nextAttempt: inv.next_payment_attempt,
         }, 'subscription invoice payment failed');
-        return 'invoice_failure_logged';
+
+        const recorded = await recordInvoice(inv, ctx, 'failed');
+        const sent = await sendPaymentFailed(ctx, inv, recorded);
+        return sent ? 'invoice_failure_notified' : 'invoice_failure_logged';
+      }
+
+      /**
+       * 退款与拒付：把当初入账的那一笔额度**冲销掉**。
+       *
+       * ⚠️ 不冲销的话，客户把钱要了回去而额度还留在账上 —— 这是拿被盗的卡
+       * 充值再拒付的标准玩法，而额度已经被烧成真金白银的 token 了。
+       *
+       * 认不出对应充值流水时什么都不做（订阅月费的退款走的就是这一支），
+       * 凭空扣一笔额度比不扣更糟。
+       */
+      case 'charge.refunded':
+      case 'charge.dispute.created': {
+        const paymentIntentId = disputedPaymentIntent(event);
+        if (!paymentIntentId) return 'ignored_no_payment_intent';
+        const out = await dispatch<{ reversed: boolean }>('billing.recordTopupReversal', {
+          stripePaymentIntentId: paymentIntentId,
+          reason: event.type === 'charge.dispute.created' ? 'dispute' : 'refund',
+        }, ctx, { systemOrigin: 'stripe_payment_intent' });
+        return out.result.reversed ? 'topup_reversed' : 'reversal_not_applicable';
       }
 
       case 'payment_intent.succeeded': {
@@ -802,6 +1034,109 @@ export function registerStripeRoutes(
     }
   }
 
+  // ── 发票与通知 ────────────────────────────────────────────────────────────
+
+  /** Stripe 的秒级时间戳 → `YYYY-MM-DD`。发票表那两列存的是文本（sql/0052） */
+  function ymd(sec: number | null | undefined): string {
+    return new Date((sec ?? Math.floor(Date.now() / 1000)) * 1000)
+      .toISOString().slice(0, 10);
+  }
+
+  /**
+   * 把一张 Stripe 发票落库，返回本地那一行的 id。
+   *
+   * ⚠️ 金额分两种取法：付成功了看 `amount_paid`，失败了看 `amount_due` ——
+   * 失败的发票 `amount_paid` 是 0，照它记的话老板会看到一张 $0 的失败单，
+   * 而他真正想知道的是「这次没扣上的是 $99」。
+   */
+  async function recordInvoice(
+    inv: Stripe.Invoice, ctx: CommandContext, status: 'paid' | 'failed',
+  ): Promise<string | null> {
+    if (!inv.id) return null;
+    const line = inv.lines?.data?.[0];
+    const out = await dispatch<{ invoiceId: string }>('billing.recordInvoice', {
+      stripeInvoiceId: inv.id,
+      invoiceNumber: inv.number ?? inv.id,
+      period: `${ymd(inv.period_start)} – ${ymd(inv.period_end)}`,
+      description: (line?.description ?? 'GenieFront subscription').slice(0, 200),
+      amountCents: status === 'paid' ? inv.amount_paid : inv.amount_due,
+      status,
+      date: ymd(inv.created),
+      hostedInvoiceUrl: inv.hosted_invoice_url ?? null,
+      receiptPdfUrl: inv.invoice_pdf ?? null,
+    }, ctx, { systemOrigin: 'stripe_webhook' });
+    return out.result.invoiceId;
+  }
+
+  /**
+   * 扣款失败通知，**一张发票一封**。
+   *
+   * 去重键用本地发票行的 id：Stripe 每次自动重试都会再发一条
+   * `invoice.payment_failed`，而老板不需要为同一张单收四封一样的信。
+   */
+  async function sendPaymentFailed(
+    ctx: CommandContext, inv: Stripe.Invoice, invoiceRowId: string | null,
+  ): Promise<boolean> {
+    if (!invoiceRowId) return false;
+    return queueOwnerEmail(ctx, {
+      kind: 'payment_failed',
+      entityType: 'billing_invoice',
+      entityId: invoiceRowId,
+      render: (shop) => renderPaymentFailed({
+        shopName: shop.shopName,
+        amountText: `$${(inv.amount_due / 100).toFixed(2)}`,
+        nextAttemptText: inv.next_payment_attempt
+          ? formatWhen(new Date(inv.next_payment_attempt * 1000).toISOString(), shop.timezone)
+          : null,
+        billingUrl: billingPortalUrl(),
+        locale: shop.locale,
+      }),
+    });
+  }
+
+  /**
+   * 退订通知。
+   *
+   * ⚠️ 去重键是「订阅 id + 终止时刻」而不是门店 id：后者会让
+   * 「退订 → 恢复 → 再退订」的第二封信永远发不出去，而那恰恰是
+   * 老板最需要确认的一次。
+   */
+  async function sendSubscriptionCanceled(
+    ctx: CommandContext,
+    args: { subscriptionId: string; atPeriodEnd: boolean; endsAtIso: string | null },
+  ): Promise<boolean> {
+    return queueOwnerEmail(ctx, {
+      kind: 'subscription_canceled',
+      entityType: 'billing_account',
+      entityId: stableUuid(`cancel:${args.subscriptionId}:${args.endsAtIso ?? ''}`),
+      render: (shop) => renderSubscriptionCanceled({
+        shopName: shop.shopName,
+        endsAtText: args.endsAtIso
+          ? formatWhen(args.endsAtIso, shop.timezone) : '当期结束时',
+        atPeriodEnd: args.atPeriodEnd,
+        billingUrl: billingPortalUrl(),
+        locale: shop.locale,
+      }),
+    });
+  }
+
+  /**
+   * 从 `charge.refunded` / `charge.dispute.created` 里挖出 PaymentIntent id。
+   *
+   * 两个事件的 `data.object` 不是同一种东西（一个是 Charge，一个是 Dispute），
+   * 但两者都带 `payment_intent` —— 而那正是我们记账时用的那个 id。
+   */
+  function disputedPaymentIntent(event: Stripe.Event): string | null {
+    const obj = event.data.object as unknown as { payment_intent?: unknown };
+    const pi = obj.payment_intent;
+    if (typeof pi === 'string' && pi.length > 0) return pi;
+    if (pi && typeof pi === 'object' && 'id' in pi) {
+      const id = (pi as { id?: unknown }).id;
+      if (typeof id === 'string' && id.length > 0) return id;
+    }
+    return null;
+  }
+
   /** 绑卡完成：把 SetupIntent 上那张卡记成默认支付方式 */
   async function savePaymentMethodFromSetup(
     session: Stripe.Checkout.Session, ctx: CommandContext,
@@ -832,6 +1167,115 @@ export function registerStripeRoutes(
     }, ctx, { systemOrigin: 'stripe_webhook' });
   }
 
+  /**
+   * 一封计费通知信的收件人与门店信息。
+   *
+   * ⭐ 收件人**只认 owner**。找不到就不发 —— 宁可不发，也不要发给一个
+   * 「我们猜的」邮箱（那可能是某位前台，而信里写的是老板的卡和账单）。
+   */
+  interface OwnerShop {
+    email: string;
+    shopName: string;
+    timezone: string;
+    locale: string;
+    accountId: string;
+    plan: string;
+  }
+
+  async function ownerShopOf(
+    tx: import('postgres').TransactionSql, locationId: string,
+  ): Promise<OwnerShop | null> {
+    const [owner] = await tx<{ email: string | null }[]>`
+      select u.email
+      from memberships m
+      join users u on u.id = m.user_id
+      join membership_roles mr on mr.membership_id = m.id
+      join roles r on r.id = mr.role_id
+      where m.location_id = ${locationId}
+        and r.key = 'owner' and m.user_id is not null and u.email is not null
+      order by m.created_at asc
+      limit 1`;
+    if (!owner?.email) return null;
+
+    /*
+     * ⚠️ 语言在**组织**上（`organizations.default_locale`），门店表没有这一列。
+     * 取不到就退回英语 —— 一封信的语言选错，比因为一次 join 失败而
+     * 整封信发不出去要轻得多。
+     */
+    const [loc] = await tx<{
+      name: unknown; timezone: string; default_locale: string | null;
+    }[]>`
+      select l.name, l.timezone, o.default_locale
+      from locations l
+      join organizations o on o.id = l.org_id
+      where l.id = ${locationId}`;
+    const [acct] = await tx<{ id: string; plan: string }[]>`
+      select id, plan from billing_accounts where location_id = ${locationId}`;
+    if (!acct) return null;
+
+    const nameObj = (loc?.name ?? {}) as Record<string, string>;
+    return {
+      email: owner.email,
+      shopName: nameObj['zh-Hans'] ?? nameObj['en'] ?? Object.values(nameObj)[0] ?? '你的门店',
+      timezone: loc?.timezone ?? 'UTC',
+      locale: loc?.default_locale ?? 'en',
+      accountId: acct.id,
+      plan: acct.plan,
+    };
+  }
+
+  /** 老板自助管理订阅的入口。信里唯一的可点动作 */
+  function billingPortalUrl(): string {
+    return `${(process.env['APP_BASE_URL'] ?? 'https://desk.geniefront.com')
+      .replace(/\/+$/, '')}/?tab=billing`;
+  }
+
+  /**
+   * 往发件箱里放一封计费通知，**同一件事只放一封**。
+   *
+   * 去重靠 `email_outbox` 上的唯一索引 `(entity_type, entity_id, kind)`
+   * （sql/0029）。`entityId` 由调用方给一个**每件事一个**的 uuid ——
+   * 发票用发票行 id，退订用「订阅 id + 取消时刻」的 md5，
+   * 这样下一次退订还能再发一封，而同一次退订重投一百遍也只有一封。
+   *
+   * ⚠️ 发不出去**不算这条 webhook 失败**：订阅状态已经落库、门店该冻的
+   * 已经冻了，为一封信让 Stripe 反复重投一件已经做完的事是错的。
+   */
+  async function queueOwnerEmail(
+    ctx: CommandContext,
+    args: {
+      kind: 'payment_failed' | 'subscription_canceled';
+      entityType: string;
+      /** 每件事一个的 uuid。同一件事重投时命中唯一索引，不会重复入队 */
+      entityId: string;
+      render: (shop: OwnerShop) => { subject: string; html: string; text: string };
+    },
+  ): Promise<boolean> {
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: null },
+      async (tx) => {
+        const shop = await ownerShopOf(tx, ctx.locationId);
+        if (!shop) {
+          app.log.warn({ locationId: ctx.locationId, kind: args.kind },
+                       'billing notice: 找不到 owner 邮箱，不发信');
+          return false;
+        }
+        const msg = args.render(shop);
+        const inserted = await tx<{ id: string }[]>`
+          insert into email_outbox
+            (org_id, location_id, kind, to_email, subject, body_html, body_text,
+             entity_type, entity_id)
+          values (${ctx.orgId}, ${ctx.locationId}, ${args.kind}, ${shop.email},
+                  ${msg.subject}, ${msg.html}, ${msg.text},
+                  ${args.entityType}, ${args.entityId}::uuid)
+          on conflict (entity_type, entity_id, kind) do nothing
+          returning id`;
+        return inserted.length > 0;
+      },
+    );
+  }
+
+
   /** 订阅对象 → 本地账户状态 */
   /**
    * 试用到期提醒信 —— **一次订阅只发一封**。
@@ -849,44 +1293,28 @@ export function registerStripeRoutes(
 
     return withTenant(tenant, async (tx) => {
       // ① 抢占。只有抢到那一行的人往下走
-      const [claimed] = await tx<{ id: string; plan: string }[]>`
+      const [claimed] = await tx<{ id: string }[]>`
         update billing_accounts set trial_will_end_notified_at = now()
         where location_id = ${ctx.locationId} and trial_will_end_notified_at is null
-        returning id, plan`;
+        returning id`;
       if (!claimed) return false;
 
-      // ② 收件人 = 这家店的 owner。找不到就不发 —— 宁可不发，
-      //    也不要发给一个「我们猜的」邮箱（那可能是某位前台）
-      const [owner] = await tx<{ email: string | null }[]>`
-        select u.email
-        from memberships m
-        join users u on u.id = m.user_id
-        join membership_roles mr on mr.membership_id = m.id
-        join roles r on r.id = mr.role_id
-        where m.location_id = ${ctx.locationId}
-          and r.key = 'owner' and m.user_id is not null and u.email is not null
-        order by m.created_at asc
-        limit 1`;
-      if (!owner?.email) {
+      // ② 收件人 = 这家店的 owner。找不到就不发（见 ownerShopOf 的注释）
+      const shop = await ownerShopOf(tx, ctx.locationId);
+      if (!shop) {
         app.log.warn({ locationId: ctx.locationId }, 'trial ending: 找不到 owner 邮箱，不发信');
         return false;
       }
 
-      const [loc] = await tx<{ name: unknown; timezone: string }[]>`
-        select name, timezone from locations where id = ${ctx.locationId}`;
-      const nameObj = (loc?.name ?? {}) as Record<string, string>;
-      const shopName = nameObj['zh-Hans'] ?? nameObj['en'] ?? Object.values(nameObj)[0] ?? '你的门店';
-
-      const plan = claimed.plan;
       const msg = renderTrialEnding({
-        shopName,
+        shopName: shop.shopName,
         chargeDateText: sub.trial_end
-          ? formatWhen(new Date(sub.trial_end * 1000).toISOString(), loc?.timezone ?? 'UTC')
+          ? formatWhen(new Date(sub.trial_end * 1000).toISOString(), shop.timezone)
           : '试用结束当天',
-        planLabel: plan === 'growth' ? 'Growth' : 'Essential',
-        monthlyText: plan === 'growth' ? '每月 $199' : '每月 $99',
-        billingUrl: `${(process.env['APP_BASE_URL'] ?? 'https://desk.geniefront.com')
-          .replace(/\/+$/, '')}/?tab=billing`,
+        planLabel: shop.plan === 'growth' ? 'Growth' : 'Essential',
+        monthlyText: shop.plan === 'growth' ? '每月 $199' : '每月 $99',
+        billingUrl: billingPortalUrl(),
+        locale: shop.locale,
       });
 
       // ③ 入队。唯一索引 (entity_type, entity_id, kind) 是第二道保险 ——
@@ -895,7 +1323,7 @@ export function registerStripeRoutes(
         insert into email_outbox
           (org_id, location_id, kind, to_email, subject, body_html, body_text,
            entity_type, entity_id)
-        values (${ctx.orgId}, ${ctx.locationId}, 'trial_ending', ${owner.email},
+        values (${ctx.orgId}, ${ctx.locationId}, 'trial_ending', ${shop.email},
                 ${msg.subject}, ${msg.html}, ${msg.text},
                 'billing_account', ${claimed.id})
         on conflict (entity_type, entity_id, kind) do nothing`;
@@ -904,10 +1332,57 @@ export function registerStripeRoutes(
     });
   }
 
+  /**
+   * 这条订阅上，每个 item 分别属于哪家门店。
+   *
+   * ⭐ 多店经营共用**同一条订阅**，一家店一个 item（`/v1/billing/add-store`）。
+   * 我们在建 item 时把 `gf_location_id` 写进了它的 metadata，这里读回来。
+   *
+   * ⚠️ 只认**认得出门店**的那些 item。认不出的（历史 item、手工在 Stripe
+   * 后台加的）不进这份映射 —— 猜一个门店去改它的套餐，比不改糟得多。
+   */
+  function itemsByLocation(sub: Stripe.Subscription): Array<{
+    locationId: string; subscriptionItemId: string;
+    plan: 'essential' | 'growth' | null; currentPeriodEnd: string | null;
+  }> {
+    const out: Array<{
+      locationId: string; subscriptionItemId: string;
+      plan: 'essential' | 'growth' | null; currentPeriodEnd: string | null;
+    }> = [];
+    for (const item of sub.items?.data ?? []) {
+      const locationId = item.metadata?.['gf_location_id'];
+      if (!locationId) continue;
+      out.push({
+        locationId,
+        subscriptionItemId: item.id,
+        plan: planForPriceId(item.price?.id),
+        currentPeriodEnd: item.current_period_end
+          ? new Date(item.current_period_end * 1000).toISOString() : null,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * 挑出**这家店**的那个 item。
+   *
+   * ⚠️ 退化到 `items.data[0]` 只在「这条订阅只有一个 item」时才是对的。
+   * 多 item 时 Stripe 不保证列表顺序，取 `[0]` 会让主店的套餐被第二家店的
+   * item 静默改掉 —— 而账单上看不出来，只有额度会突然变多或变少。
+   */
+  function itemForLocation(
+    sub: Stripe.Subscription, locationId: string,
+  ): Stripe.SubscriptionItem | undefined {
+    const items = sub.items?.data ?? [];
+    const own = items.find((i) => i.metadata?.['gf_location_id'] === locationId);
+    if (own) return own;
+    return items.length === 1 ? items[0] : undefined;
+  }
+
   async function syncSubscription(
     sub: Stripe.Subscription, ctx: CommandContext, eventId: string,
   ): Promise<void> {
-    const item = sub.items?.data?.[0];
+    const item = itemForLocation(sub, ctx.locationId);
     const plan = planForPriceId(item?.price?.id);
     // 当期结束时刻在 item 上（Stripe 2025 之后的 API 把它从 subscription 挪下来了）
     const periodEndSec = item?.current_period_end;
@@ -923,6 +1398,21 @@ export function registerStripeRoutes(
       // 试用转正之后 Stripe 就不再给 trial_end 了 —— 这时候要真的写回 null，
       // 不能 `?? undefined` 留着旧值（那会让客服看到一个早就过期的日期）
       trialEndsAt: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
+      /**
+       * ⭐ 期末取消。Stripe 在这种情况下 **status 仍然是 active** ——
+       * 只有这两列能表达「还能用，但到期即止」。不镜像的话界面会一直
+       * 显示「下次扣款 X 日」，直到那天突然全店冻结。
+       */
+      cancelAtPeriodEnd: sub.cancel_at_period_end === true,
+      cancelAt: sub.cancel_at ? new Date(sub.cancel_at * 1000).toISOString() : null,
+      /**
+       * ⭐⭐ 整条订阅上每家店的 item。**兄弟门店全靠它。**
+       *
+       * 一条 `customer.subscription.*` 只解析得出一家门店（metadata 里写的
+       * 那一家）。不把这份映射交给命令的话，多店老板退订之后只有锚点店
+       * 变成 canceled，第二家店永远停在 active —— 继续开单、继续烧 AI 额度。
+       */
+      items: itemsByLocation(sub),
       sourceEventId: eventId,
     }, ctx, { systemOrigin: 'stripe_webhook' });
 

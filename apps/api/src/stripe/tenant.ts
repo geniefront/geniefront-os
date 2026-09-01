@@ -124,6 +124,26 @@ function paymentMethodCustomerId(event: Stripe.Event, obj: Record<string, unknow
   return null;
 }
 
+/**
+ * `customer.subscription.*` 的兜底（订阅 id / 客户 id → 门店）。
+ *
+ * ⚠️ 原来这类事件**只认 metadata**。而那份 metadata 是开户之后由
+ * `backfillStripeMetadata` 回写上去的，回写失败时只记一条日志 ——
+ * 于是这家店此后的**每一条续费、欠费、退订事件都被静默丢弃并回 200**，
+ * 一个月后才会有人发现「这家店的订阅状态从来没变过」。
+ *
+ * 兜底走的是同一个「命中多于一个 org 就不返回」的查询函数（sql/0080），
+ * 所以它不会猜：认不出来仍然是认不出来，只是不再因为一次回写失败而全瞎。
+ */
+function subscriptionStripeRefs(obj: Record<string, unknown>): {
+  subscriptionId: string | null; customerId: string | null;
+} {
+  return {
+    subscriptionId: stripeId(obj['id']),
+    customerId: stripeId(obj['customer']),
+  };
+}
+
 export async function resolveWebhookTenant(event: Stripe.Event): Promise<WebhookTenant | null> {
   const obj = event.data.object as unknown as Record<string, unknown>;
   const direct = tenantFromMetadata(asStringMeta(obj) ?? undefined);
@@ -132,6 +152,21 @@ export async function resolveWebhookTenant(event: Stripe.Event): Promise<Webhook
   if (event.type.startsWith('payment_method.') || obj['object'] === 'payment_method') {
     const customerId = paymentMethodCustomerId(event, obj);
     return findBillingTenantByStripeRefs({ subscriptionId: null, customerId });
+  }
+
+  if (event.type.startsWith('customer.subscription.') || obj['object'] === 'subscription') {
+    return findBillingTenantByStripeRefs(subscriptionStripeRefs(obj));
+  }
+
+  /*
+   * `charge.*`（退款、拒付）挂在 PaymentIntent 上，而我们自己发起的每一笔
+   * 扣款都写了 gf_ metadata —— 走到这里说明是订阅月费那种由 Stripe 生成的
+   * charge，按客户 id 兜底。
+   */
+  if (event.type.startsWith('charge.') || obj['object'] === 'charge') {
+    return findBillingTenantByStripeRefs({
+      subscriptionId: null, customerId: stripeId(obj['customer']),
+    });
   }
 
   if (!isInvoiceLike(event, obj)) return null;

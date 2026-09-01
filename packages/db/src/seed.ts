@@ -328,6 +328,27 @@ async function main() {
           gift_card: { commission_basis: 'face' },
         })})`;
 
+    /*
+     * 两家种子店都是**在订阅中的付费门店**。
+     *
+     * ⭐ 这一段是 0085 之后必须有的。`billing_accounts.subscription_status`
+     * 的默认值从 `trialing` 改成了 `none`（「从未接过计费」），而 `none`
+     * 的套餐内 AI 额度是 0 —— 不显式建这两行的话，账户行会在第一次记账时
+     * 被自动建成 `none`，然后整个种子环境里的副驾、拍照开店、AI 电话
+     * 全部报 `AI_QUOTA_EXHAUSTED`。
+     *
+     * 而现实里这两家是营业中的店，营业中的店就是付了钱的店。种子照着现实建。
+     */
+    await tx`insert into billing_accounts
+      (org_id, location_id, plan, subscription_status, current_period_end)
+      values
+      (${NAIL_ORG}, ${NAIL_LOC}, 'essential', 'active', now() + interval '20 days'),
+      (${SPA_ORG},  ${SPA_LOC},  'essential', 'active', now() + interval '20 days')
+      on conflict (location_id) do update
+      set plan = excluded.plan,
+          subscription_status = excluded.subscription_status,
+          current_period_end = excluded.current_period_end`;
+
     // 3. 资源（工位与房间）
     const [roomType] = await tx<{ id: string }[]>`
       insert into resource_types (org_id, location_id, key, name)

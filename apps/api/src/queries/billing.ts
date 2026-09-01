@@ -64,6 +64,17 @@ export interface BillingView {
   /** 现在是不是在试用期内。界面上要显示「还剩 N 天」和首次扣款日 */
   trialing: boolean;
 
+  /**
+   * ⭐ 老板已经在客户门户点了取消，订阅到期即止（sql/0085）。
+   *
+   * ⚠️ 这种情况下 `subscriptionStatus` **仍然是 active** —— 界面必须
+   * 据此把「下次扣款 X 日」换成「X 日到期，之后转为只读」，
+   * 否则老板会在到期那天突然发现全店冻结。
+   */
+  cancelAtPeriodEnd: boolean;
+  /** 期末取消的确切时刻。cancelAtPeriodEnd 为 false 时为 null */
+  cancelAt: string | null;
+
   hasPaymentMethod: boolean;
   paymentMethodLabel: string | null;
 
@@ -138,9 +149,16 @@ export async function loadBilling(
   const quotaOf = (unit: QuotaUnit): QuotaView => {
     const isCredit = unit === 'credit';
     const used = isCredit ? a.included_credits_used : a.included_minutes_used;
-    // 试用期显示的是试用额度，不是套餐额度 —— 否则老板看到「本期含 500 积分」
-    // 而实际扣到 150 就没了，会当成 bug 报过来
-    const total = includedFor(a.plan, unit, trialingNow);
+    /*
+     * 试用期显示的是试用额度，不是套餐额度 —— 否则老板看到「本期含 500 积分」
+     * 而实际扣到 150 就没了，会当成 bug 报过来。
+     *
+     * ⚠️ `none`（从未接过计费）显示 0，和 `handlers/billing.ts` 的
+     * `includedTotalOf` 是同一份判据。界面上显示 500 而实际一次都调不了，
+     * 比显示 0 更糟。
+     */
+    const total = a.subscription_status === 'none'
+      ? 0 : includedFor(a.plan, unit, trialingNow);
     const cached = isCredit ? a.credit_balance : a.voice_minute_balance;
     const ledger = replayBalance(entries, unit);
 
@@ -177,7 +195,13 @@ export async function loadBilling(
     subscriptionStatus: a.subscription_status,
     currentPeriodEnd: a.current_period_end
       ? parseTs(a.current_period_end).toISOString() : null,
-    hasSubscription: Boolean(a.stripe_subscription_id),
+    /*
+     * ⚠️ 退订之后 `stripe_subscription_id` 是**留着的**（webhook 靠它定位
+     * 租户），所以「有没有订阅」不能只看那一列 —— 否则退订之后界面还是
+     * 「已订阅」，老板找不到重新订阅的入口。
+     */
+    hasSubscription: Boolean(a.stripe_subscription_id)
+      && a.subscription_status !== 'canceled' && a.subscription_status !== 'none',
 
     /**
      * 试用状态（批 1）。
@@ -188,6 +212,9 @@ export async function loadBilling(
      */
     trialEndsAt: a.trial_ends_at ? parseTs(a.trial_ends_at).toISOString() : null,
     trialing: trialingNow,
+
+    cancelAtPeriodEnd: a.cancel_at_period_end === true,
+    cancelAt: a.cancel_at ? parseTs(a.cancel_at).toISOString() : null,
 
     hasPaymentMethod: Boolean(a.default_payment_method_id),
     paymentMethodLabel: a.payment_method_label,
@@ -214,6 +241,7 @@ interface AccountFields {
   plan: string; subscription_status: string;
   current_period_end: string | Date | null; stripe_subscription_id: string | null;
   trial_ends_at: string | Date | null;
+  cancel_at_period_end: boolean; cancel_at: string | Date | null;
   default_payment_method_id: string | null; payment_method_label: string | null;
   credit_balance: number; voice_minute_balance: number;
   included_credits_used: number; included_minutes_used: number;

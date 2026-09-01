@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { uiText } from '../translations/ui';
 import { 
@@ -18,26 +18,28 @@ import {
 export const StaffPwaAndKioskSection: React.FC = () => {
   const { t, currentLang } = useLanguage();
   const ui = uiText[currentLang];
-  const [selectedStaffLang, setSelectedStaffLang] = useState<'vi' | 'zh' | 'en' | 'es' | 'ko'>('vi');
+  const [selectedStaffLang, setSelectedStaffLang] = useState<'vi' | 'zh' | 'en' | 'es' | 'ko'>(currentLang === 'zh-CN' ? 'zh' : currentLang);
   const [isChimeActive, setIsChimeActive] = useState(false);
-  const [serviceTimer, setServiceTimer] = useState('48:15');
+  const [serviceSeconds, setServiceSeconds] = useState(48 * 60 + 15);
+  const [servicePhase, setServicePhase] = useState<'assigned' | 'active' | 'complete'>('assigned');
+  const [kioskSubmitted, setKioskSubmitted] = useState(false);
 
   // Interactive Pain Map Body Points
   const [selectedPainPoints, setSelectedPainPoints] = useState<string[]>(['neck', 'lowerBack']);
   const [selectedPressure, setSelectedPressure] = useState<'Soft' | 'Medium' | 'Deep / Firm'>('Deep / Firm');
   const staffLabels = {
-    vi: { ring: 'Thử chuông', chiming: 'Đang phát chuông 🔔', turn: 'Lượt hiện tại', round: '1,0 lượt' },
-    zh: { ring: '测试提示音', chiming: '正在播放提示音 🔔', turn: '当前轮次', round: '1.0 轮' },
-    en: { ring: 'Test chime', chiming: 'Chiming 🔔', turn: 'Turn count', round: '1.0 round' },
-    es: { ring: 'Probar aviso', chiming: 'Sonando 🔔', turn: 'Turno actual', round: '1,0 turno' },
-    ko: { ring: '알림음 테스트', chiming: '알림음 재생 중 🔔', turn: '현재 순번', round: '1.0회' },
+    vi: { ring: 'Thử chuông', chiming: 'Đang phát chuông 🔔', turn: 'Lượt hiện tại', round: '1,0 lượt', assigned: 'Đã giao việc', active: 'Đang phục vụ', complete: 'Đã hoàn thành', start: 'Bắt đầu', done: 'Hoàn thành', reset: 'Đặt lại' },
+    zh: { ring: '测试提示音', chiming: '正在播放提示音 🔔', turn: '当前轮次', round: '1.0 轮', assigned: '等待开始', active: '服务进行中', complete: '服务已完成', start: '开始服务', done: '完成服务', reset: '重置演示' },
+    en: { ring: 'Test chime', chiming: 'Chiming 🔔', turn: 'Turn count', round: '1.0 round', assigned: 'Assigned', active: 'In service', complete: 'Completed', start: 'Start service', done: 'Complete', reset: 'Reset demo' },
+    es: { ring: 'Probar aviso', chiming: 'Sonando 🔔', turn: 'Turno actual', round: '1,0 turno', assigned: 'Asignado', active: 'En servicio', complete: 'Completado', start: 'Iniciar', done: 'Completar', reset: 'Reiniciar' },
+    ko: { ring: '알림음 테스트', chiming: '알림음 재생 중 🔔', turn: '현재 순번', round: '1.0회', assigned: '배정됨', active: '서비스 중', complete: '완료됨', start: '서비스 시작', done: '완료', reset: '초기화' },
   }[selectedStaffLang];
   const kioskLabels = {
-    en: { mode: 'iPad kiosk mode', parts: ['Head & scalp', 'Neck & shoulders', 'Lower back', 'Feet / soles'], pressure: ['Soft', 'Medium', 'Deep / firm'] },
-    'zh-CN': { mode: 'iPad 自助登记模式', parts: ['头部与头皮', '颈部与肩部', '腰部', '足部与足底'], pressure: ['轻柔', '适中', '较强'] },
-    vi: { mode: 'Chế độ kiosk iPad', parts: ['Đầu và da đầu', 'Cổ và vai', 'Lưng dưới', 'Bàn chân'], pressure: ['Nhẹ', 'Vừa', 'Mạnh'] },
-    ko: { mode: 'iPad 키오스크 모드', parts: ['머리와 두피', '목과 어깨', '허리', '발과 발바닥'], pressure: ['약하게', '보통', '강하게'] },
-    es: { mode: 'Modo kiosco de iPad', parts: ['Cabeza y cuero cabelludo', 'Cuello y hombros', 'Zona lumbar', 'Pies y plantas'], pressure: ['Suave', 'Media', 'Firme'] },
+    en: { mode: 'iPad kiosk mode', parts: ['Head & scalp', 'Neck & shoulders', 'Lower back', 'Feet / soles'], pressure: ['Soft', 'Medium', 'Deep / firm'], submit: 'Submit intake', submitted: 'Intake synced to front desk', steps: ['Profile', 'Preferences', 'Consent'] },
+    'zh-CN': { mode: 'iPad 自助登记模式', parts: ['头部与头皮', '颈部与肩部', '腰部', '足部与足底'], pressure: ['轻柔', '适中', '较强'], submit: '提交登记信息', submitted: '登记信息已同步至前台', steps: ['基本信息', '服务偏好', '知情同意'] },
+    vi: { mode: 'Chế độ kiosk iPad', parts: ['Đầu và da đầu', 'Cổ và vai', 'Lưng dưới', 'Bàn chân'], pressure: ['Nhẹ', 'Vừa', 'Mạnh'], submit: 'Gửi thông tin', submitted: 'Đã đồng bộ tới lễ tân', steps: ['Hồ sơ', 'Sở thích', 'Đồng ý'] },
+    ko: { mode: 'iPad 키오스크 모드', parts: ['머리와 두피', '목과 어깨', '허리', '발과 발바닥'], pressure: ['약하게', '보통', '강하게'], submit: '접수 제출', submitted: '프런트에 동기화됨', steps: ['정보', '선호도', '동의'] },
+    es: { mode: 'Modo kiosco de iPad', parts: ['Cabeza y cuero cabelludo', 'Cuello y hombros', 'Zona lumbar', 'Pies y plantas'], pressure: ['Suave', 'Media', 'Firme'], submit: 'Enviar registro', submitted: 'Registro sincronizado con recepción', steps: ['Perfil', 'Preferencias', 'Consentimiento'] },
   }[currentLang];
 
   const togglePainPoint = (point: string) => {
@@ -52,6 +54,19 @@ export const StaffPwaAndKioskSection: React.FC = () => {
     setIsChimeActive(true);
     setTimeout(() => setIsChimeActive(false), 2000);
   };
+
+  useEffect(() => {
+    if (servicePhase !== 'active') return;
+    const timer = window.setInterval(() => setServiceSeconds((seconds) => Math.max(0, seconds - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [servicePhase]);
+
+  useEffect(() => {
+    setSelectedStaffLang(currentLang === 'zh-CN' ? 'zh' : currentLang);
+  }, [currentLang]);
+
+  const timerDisplay = `${String(Math.floor(serviceSeconds / 60)).padStart(2, '0')}:${String(serviceSeconds % 60).padStart(2, '0')}`;
+  const phaseLabel = staffLabels[servicePhase];
 
   return (
     <section id="staff-kiosk" className="py-20 bg-white border-t border-slate-200">
@@ -73,7 +88,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
         {/* 2-Column Hardware & Software Interactive Displays */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
           {/* Left Column: Multilingual Staff PWA Card Simulation */}
-          <div className="lg:col-span-6 rounded-3xl bg-slate-50/60 border border-slate-200 p-6 sm:p-8 flex flex-col justify-between shadow-xs">
+          <div className="demo-window lg:col-span-6 flex flex-col justify-between bg-slate-50/60 p-6 sm:p-8">
             <div>
               <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                 <div className="flex items-center gap-2.5">
@@ -134,7 +149,8 @@ export const StaffPwaAndKioskSection: React.FC = () => {
               </div>
 
               {/* Realistic Mobile Task Card Screen */}
-              <div className="mt-4 p-4 rounded-2xl bg-slate-900 border border-slate-800 text-white shadow-md">
+              <div className="relative mx-auto mt-5 w-full max-w-[430px] rounded-[30px] border-[6px] border-[#1d292b] bg-slate-950 p-4 text-white shadow-[0_24px_48px_rgba(12,41,45,.22)]">
+                <div className="absolute left-1/2 top-0 h-4 w-24 -translate-x-1/2 rounded-b-xl bg-[#1d292b]" />
                 <div className="flex items-center justify-between pb-2.5 border-b border-slate-800 text-xs">
                   <div className="flex items-center gap-1.5 text-[#7de0c3]">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -160,6 +176,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                 </div>
 
                 <div className="py-3 space-y-2">
+                  <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900 px-3 py-2"><span className={`text-[10px] font-extrabold ${servicePhase === 'complete' ? 'text-emerald-400' : 'text-[#a6ead6]'}`}>{phaseLabel}</span><span className="font-mono text-sm font-bold text-white">{timerDisplay}</span></div>
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-sm font-extrabold text-white">David K. (Walk-in)</div>
@@ -198,19 +215,11 @@ export const StaffPwaAndKioskSection: React.FC = () => {
 
                   {/* Big Tactile Action Buttons (Glove & Wet-Hand Friendly) */}
                   <div className="pt-2 grid grid-cols-2 gap-2">
-                    <button className="py-3 px-2 rounded-xl bg-[#096b61] hover:bg-[#064b46] text-white font-extrabold text-xs text-center shadow-md active:scale-95 transition-colors">
-                      {selectedStaffLang === 'vi' && 'Bắt đầu làm (Start)'}
-                      {selectedStaffLang === 'zh' && '开始服务 (Start)'}
-                      {selectedStaffLang === 'en' && 'Start Session'}
-                      {selectedStaffLang === 'es' && 'Iniciar Sesión'}
-                      {selectedStaffLang === 'ko' && '서비스 시작 (Start)'}
+                    <button onClick={() => { if (servicePhase === 'assigned') setServicePhase('active'); else if (servicePhase === 'complete') { setServicePhase('assigned'); setServiceSeconds(48 * 60 + 15); } }} disabled={servicePhase === 'active'} className="py-3 px-2 rounded-xl bg-[#096b61] hover:bg-[#064b46] disabled:bg-slate-700 disabled:text-slate-400 text-white font-extrabold text-xs text-center shadow-md active:scale-95 transition-colors">
+                      {servicePhase === 'complete' ? staffLabels.reset : staffLabels.start}
                     </button>
-                    <button className="py-3 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-extrabold text-xs text-center border border-slate-700 active:scale-95 transition-colors">
-                      {selectedStaffLang === 'vi' && 'Hoàn thành (Finish)'}
-                      {selectedStaffLang === 'zh' && '服务完成 (Done)'}
-                      {selectedStaffLang === 'en' && 'Complete'}
-                      {selectedStaffLang === 'es' && 'Completado'}
-                      {selectedStaffLang === 'ko' && '완료 (Done)'}
+                    <button onClick={() => setServicePhase('complete')} disabled={servicePhase !== 'active'} className="py-3 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-45 text-slate-200 font-extrabold text-xs text-center border border-slate-700 active:scale-95 transition-colors">
+                      {staffLabels.done}
                     </button>
                   </div>
                 </div>
@@ -229,7 +238,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
           </div>
 
           {/* Right Column: iPad Intake Kiosk & Body Pain Map Simulation */}
-          <div className="lg:col-span-6 rounded-3xl bg-slate-50/60 border border-slate-200 p-6 sm:p-8 flex flex-col justify-between shadow-xs">
+          <div className="demo-window lg:col-span-6 flex flex-col justify-between bg-slate-50/60 p-6 sm:p-8">
             <div>
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2.5">
@@ -249,7 +258,8 @@ export const StaffPwaAndKioskSection: React.FC = () => {
               </div>
 
               {/* Interactive Body Pain Map Simulation */}
-              <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3 shadow-2xs">
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3 shadow-[0_16px_36px_rgba(20,52,54,.08)]">
+                <div className="grid grid-cols-3 gap-2 border-b border-slate-100 pb-3">{kioskLabels.steps.map((step, index) => <div key={step} className="flex items-center gap-1.5"><span className={`grid h-5 w-5 place-items-center rounded-full text-[9px] font-extrabold ${index < 2 || kioskSubmitted ? 'bg-[#096b61] text-white' : 'bg-slate-100 text-slate-500'}`}>{index + 1}</span><span className="truncate text-[9px] font-bold text-slate-500">{step}</span></div>)}</div>
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-900">
                   <span>1. {ui.painPrompt}</span>
                   <span className="text-[11px] text-[#096b61] font-bold">
@@ -312,6 +322,7 @@ export const StaffPwaAndKioskSection: React.FC = () => {
                   </div>
                   <span className="text-emerald-700 font-bold">✓ {ui.encrypted}</span>
                 </div>
+                <button type="button" onClick={() => setKioskSubmitted(true)} className={`w-full rounded-xl px-4 py-3 text-xs font-extrabold transition ${kioskSubmitted ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'bg-[#096b61] text-white hover:bg-[#064b46]'}`}>{kioskSubmitted ? `✓ ${kioskLabels.submitted}` : kioskLabels.submit}</button>
               </div>
 
               {/* Bullet Features */}

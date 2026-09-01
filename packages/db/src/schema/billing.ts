@@ -51,9 +51,32 @@ export const billingAccounts = pgTable('billing_accounts', {
   billingCycle: text('billing_cycle').notNull().default('monthly'),
   /** 企业开票与纳税人识别号 */
   taxProfile: jsonb('tax_profile'),
-  /** trialing | active | past_due | canceled */
-  subscriptionStatus: text('subscription_status').notNull().default('trialing'),
+  /**
+   * none | trialing | active | past_due | canceled（迁移 0085 加了 none）
+   *
+   * `none` = 从未接过计费。它和 `trialing` 必须分开：默认值原来是 trialing，
+   * 而 `ensureAccount` 会在任何一次记账时自动建行 —— 于是一家从没进过
+   * Stripe 的门店会按 essential 档白拿一整份套餐内额度，而且永不清零。
+   */
+  subscriptionStatus: text('subscription_status').notNull().default('none'),
   currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+
+  /**
+   * 这家门店在订阅上的那个 item（迁移 0085）。
+   *
+   * ⭐ 多店共用**同一条订阅**，每家店是其中一个 item。没有这一列的话，
+   * webhook 只能取 `sub.items.data[0]` —— 而 Stripe 不保证列表顺序，
+   * 主店的套餐会被第二家店的 item 静默改掉。
+   */
+  stripeSubscriptionItemId: text('stripe_subscription_item_id'),
+  /**
+   * 老板已经在客户门户点了取消，订阅到期即止（迁移 0085）。
+   *
+   * ⚠️ 这种情况下 Stripe 的 status **仍然是 active**。不镜像这一列，
+   * 界面会一直显示「下次扣款 X 日」直到那天突然全店冻结。
+   */
+  cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+  cancelAt: timestamp('cancel_at', { withTimezone: true }),
 
   /**
    * 自动续充要用的那张卡。
@@ -257,6 +280,10 @@ export const billingInvoices = pgTable('billing_invoices', {
   status: text('status').notNull().default('paid'), // paid | pending | failed
   date: text('date').notNull(),
   receiptPdfUrl: text('receipt_pdf_url'),
+  /** Stripe invoice id。invoice.* 是至少一次投递，这是唯一的幂等依据（0085） */
+  stripeInvoiceId: text('stripe_invoice_id'),
+  /** Stripe 托管的发票页。老板点「查看发票」跳到这里，我们不自己排版 */
+  hostedInvoiceUrl: text('hosted_invoice_url'),
   createdAt: createdAt(),
 }, (t) => [
   index('billing_invoices_org_idx').on(t.orgId, t.createdAt),

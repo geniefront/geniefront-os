@@ -263,5 +263,13 @@ async function assertSubscriptionAllowsWrite(
  *
  * `trialing` 和 `active` 放行。`canceled` 也冻 —— 主动退订之后
  * 数据保留、只读可用，这和欠费是同一种处理。
+ *
+ * `none`（从未接过计费）**放行**：种子店、开发库、以及自助加店时组织
+ * 还没有生效订阅的那种店都属于这一档。它们的约束是「套餐内 AI 额度为 0」
+ * （handlers/billing.ts 的 `includedTotalOf`），不是把前台挡在门外。
+ *
+ * ⚠️ 只列**本地真的会出现**的值。`mapSubscriptionStatus` 已经把 Stripe 的
+ * `unpaid` / `incomplete_expired` 收敛成 past_due / canceled，
+ * 把它们留在集合里会让人误以为那是活的判据。
  */
-const FROZEN_STATUSES = new Set(['past_due', 'canceled', 'unpaid', 'incomplete_expired']);
+const FROZEN_STATUSES = new Set(['past_due', 'canceled']);

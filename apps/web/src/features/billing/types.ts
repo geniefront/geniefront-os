@@ -33,6 +33,14 @@ export interface BillingView {
   hasSubscription: boolean;
   trialEndsAt: string | null;
   trialing: boolean;
+  /**
+   * 老板已在客户门户点了取消，订阅到期即止。
+   *
+   * ⚠️ 这种情况下 `subscriptionStatus` 仍然是 `active` —— 界面必须据此
+   * 把「本期结束日」换成「到期后转为只读」。
+   */
+  cancelAtPeriodEnd: boolean;
+  cancelAt: string | null;
   hasPaymentMethod: boolean;
   paymentMethodLabel: string | null;
   topupPriceCents: number;

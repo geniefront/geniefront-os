@@ -113,12 +113,19 @@ export function registerPlatformRoutes(app: FastifyInstance): void {
         billing?: { stripeCustomerId?: string | null };
       } | null;
       const customerId = detail?.billing?.stripeCustomerId;
-      if (!customerId) {
+      const orgId = detail?.overview?.orgId;
+      if (!customerId || !orgId) {
         throw new AppError(ERROR_CODES.NOT_FOUND, { details: { reason: 'stripe_customer_not_found' } });
       }
-      // 运营侧同样核对归属（AUD-02）：这里的 locationId 是操作员点开的那家店，
-      // 核对的是「这个 customer 属不属于那家店」，不是「属不属于操作员」。
-      await assertStripeCustomerBelongsTo(customerId, locationId, req.log);
+      /*
+       * 运营侧同样核对归属（AUD-02）：核对的是「这个 customer 属不属于
+       * 这家店所在的**组织**」，不是「属不属于操作员」。
+       *
+       * ⚠️ 按 org 而不是按 location —— 多店经营共用同一个 Stripe 客户，
+       * 而 customer 的 metadata 指向的是建它的那一家店。按 location 比的话，
+       * 运营台点开第二家店时会拿到一个看不懂的 403。
+       */
+      await assertStripeCustomerBelongsTo(customerId, { orgId, locationId }, req.log);
 
       const path = safeRelativePath(req.body?.returnUrl, `/stores/${locationId}`);
       try {

@@ -67,6 +67,30 @@ function emailRateKey(email: string): string {
   return createHash('sha256').update(`gf-signup:${email}`, 'utf8').digest('hex').slice(0, 32);
 }
 
+/**
+ * 这个邮箱开过户没有 —— 决定这次给不给七天试用。
+ *
+ * ⭐ 原来这条公开通道**无条件**给 `trial_period_days`，而「只给第一次」
+ * 的判据只存在于站内那条路（`/v1/billing/checkout` 的 `everSubscribed`）。
+ * 于是同一个人退订之后再开一次，又是七天，无限循环。
+ *
+ * 判据落在 `signup_intents`（每一次成功开户一行）。那张表受 RLS 保护，
+ * 而开户是**未登录**的公开请求，所以走 sql/0085 那个只回答布尔值的
+ * SECURITY DEFINER 函数 —— 它不返回门店、不返回时间，枚举不出任何东西。
+ *
+ * ⚠️ 查不到就当**没开过**（放行试用）。反过来（查询失败就不给试用）
+ * 会在一次数据库抖动里把所有新客的试用都吞掉，而那是我们最不想丢的转化。
+ */
+async function hasSignedUpBefore(canonicalEmail: string): Promise<boolean> {
+  try {
+    const [row] = await sql<{ seen: boolean }[]>`
+      select public.gf_signup_email_seen(${canonicalEmail}) as seen`;
+    return row?.seen === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function createSignupCheckout(
   input: unknown,
   ctx: { ip: string; log?: { warn: (o: unknown, m: string) => void } },
@@ -106,6 +130,7 @@ export async function createSignupCheckout(
 
   const { successUrl, cancelUrl } = signupReturnUrls();
   const price = priceIdFor(plan);
+  const repeatCustomer = await hasSignedUpBefore(ownerEmail);
 
   let session: Pick<Stripe.Checkout.Session, 'id' | 'url'>;
   try {
@@ -125,7 +150,11 @@ export async function createSignupCheckout(
         gf_locale: SIGNUP_CHECKOUT_DEFAULTS.locale,
       },
       subscription_data: {
-        trial_period_days: TRIAL_DAYS,
+        /**
+         * ⭐ 七天试用**只给第一次**。Stripe 不替我们判这个 ——
+         * `trial_period_days` 给了就生效，所以判据必须在这里。
+         */
+        ...(repeatCustomer ? {} : { trial_period_days: TRIAL_DAYS }),
         metadata: { gf_signup: '1' },
       },
     });

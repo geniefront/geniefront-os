@@ -280,3 +280,147 @@ export function renderTrialEnding(d: TrialEndingData): Rendered {
 
   return { subject: `${d.shopName}: 3 days left in your free trial`, html, text };
 }
+
+// ───────────────────────────────────────────────────────────── 扣款失败
+
+export interface PaymentFailedData {
+  shopName: string;
+  /** 这次没扣上多少钱，已经格式化好，如「$99.00」 */
+  amountText: string;
+  /** 已经按门店时区格式化好的下次自动重试时间。null = 不再自动重试 */
+  nextAttemptText: string | null;
+  /** 老板自助更新支付方式的入口（Stripe Customer Portal 的落地页） */
+  billingUrl: string;
+  locale?: string;
+}
+
+/**
+ * 扣款失败通知。
+ *
+ * ⭐ 这封信是**必须有**的：扣款失败之后 Stripe 会把订阅带成 `past_due`，
+ * 而我们据此冻结全店写入。没有这封信的话，老板得到的唯一信号是
+ * 第二天早上前台开不了单 —— 而那时候他既不知道为什么，也不知道该做什么。
+ *
+ * ⚠️ 信里**不写卡的任何信息**（品牌、后四位、失败码都不写）。
+ * 邮件会被转发、会被截图；而「去更新支付方式」这一个动作已经足够。
+ */
+export function renderPaymentFailed(d: PaymentFailedData): Rendered {
+  const isZh = d.locale?.startsWith('zh');
+
+  if (isZh) {
+    const retry = d.nextAttemptText
+      ? `我们会在 ${d.nextAttemptText} 自动再试一次。`
+      : '这是最后一次尝试，需要你手动处理。';
+    const text = [
+      `${d.shopName}：订阅扣款失败`,
+      '',
+      `金额：${d.amountText}`,
+      retry,
+      '',
+      `请更新支付方式：${d.billingUrl}`,
+      '',
+      '⚠️ 在扣款成功之前，这家店只能查看数据，不能开单、不能改预约。',
+    ].join('\n');
+
+    const html = [
+      `<p><strong>${esc(d.shopName)}：订阅扣款失败。</strong></p>`,
+      `<p>金额：${esc(d.amountText)}<br>${esc(retry)}</p>`,
+      `<p>请更新支付方式：<a href="${esc(d.billingUrl)}">${esc(d.billingUrl)}</a></p>`,
+      '<p>⚠️ 在扣款成功之前，这家店只能查看数据，不能开单、不能改预约。</p>',
+    ].join('\n');
+
+    return { subject: `${d.shopName}：订阅扣款失败，请更新支付方式`, html, text };
+  }
+
+  const retry = d.nextAttemptText
+    ? `We will automatically retry on ${d.nextAttemptText}.`
+    : 'This was the final attempt — please update your card to continue.';
+  const text = [
+    `${d.shopName}: subscription payment failed`,
+    '',
+    `Amount: ${d.amountText}`,
+    retry,
+    '',
+    `Update your payment method: ${d.billingUrl}`,
+    '',
+    'Until payment succeeds this location is read-only: no new tickets, no booking changes.',
+  ].join('\n');
+
+  const html = [
+    `<p><strong>${esc(d.shopName)}: subscription payment failed.</strong></p>`,
+    `<p>Amount: ${esc(d.amountText)}<br>${esc(retry)}</p>`,
+    `<p>Update your payment method: <a href="${esc(d.billingUrl)}">${esc(d.billingUrl)}</a></p>`,
+    '<p>Until payment succeeds this location is read-only: '
+      + 'no new tickets, no booking changes.</p>',
+  ].join('\n');
+
+  return { subject: `${d.shopName}: payment failed — update your card`, html, text };
+}
+
+// ───────────────────────────────────────────────────────────── 订阅已取消
+
+export interface SubscriptionCanceledData {
+  shopName: string;
+  /** 已经按门店时区格式化好的服务终止时刻 */
+  endsAtText: string;
+  /** true = 期末取消，当前周期还能用完；false = 已经立即终止 */
+  atPeriodEnd: boolean;
+  billingUrl: string;
+  locale?: string;
+}
+
+/**
+ * 退订确认信。
+ *
+ * ⭐ 期末取消时**必须发**：老板点完取消，界面上这家店还能正常用，
+ * 他很容易以为没点成功而再点一次（或者打电话来问）。这封信是唯一
+ * 说清「什么时候真的停」的地方。
+ */
+export function renderSubscriptionCanceled(d: SubscriptionCanceledData): Rendered {
+  const isZh = d.locale?.startsWith('zh');
+
+  if (isZh) {
+    const when = d.atPeriodEnd
+      ? `当前计费周期结束（${d.endsAtText}）之前一切照常，之后这家店转为只读。`
+      : `订阅已于 ${d.endsAtText} 终止，这家店现在是只读状态。`;
+    const text = [
+      `${d.shopName}：订阅已取消`,
+      '',
+      when,
+      '',
+      '数据不会被删除，随时可以恢复订阅：',
+      d.billingUrl,
+    ].join('\n');
+
+    const html = [
+      `<p><strong>${esc(d.shopName)}：订阅已取消。</strong></p>`,
+      `<p>${esc(when)}</p>`,
+      `<p>数据不会被删除，随时可以恢复订阅：`
+        + `<a href="${esc(d.billingUrl)}">${esc(d.billingUrl)}</a></p>`,
+    ].join('\n');
+
+    return { subject: `${d.shopName}：订阅已取消`, html, text };
+  }
+
+  const when = d.atPeriodEnd
+    ? `Everything keeps working until the end of the current billing period (${d.endsAtText}), `
+      + 'after which this location becomes read-only.'
+    : `The subscription ended on ${d.endsAtText}; this location is now read-only.`;
+  const text = [
+    `${d.shopName}: subscription cancelled`,
+    '',
+    when,
+    '',
+    'Your data is kept. You can resubscribe at any time:',
+    d.billingUrl,
+  ].join('\n');
+
+  const html = [
+    `<p><strong>${esc(d.shopName)}: subscription cancelled.</strong></p>`,
+    `<p>${esc(when)}</p>`,
+    `<p>Your data is kept. You can resubscribe at any time: `
+      + `<a href="${esc(d.billingUrl)}">${esc(d.billingUrl)}</a></p>`,
+  ].join('\n');
+
+  return { subject: `${d.shopName}: subscription cancelled`, html, text };
+}

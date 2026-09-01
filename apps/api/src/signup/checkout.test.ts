@@ -5,7 +5,7 @@
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { closeDb } from '@gf/db';
+import { closeDb, withTenant } from '@gf/db';
 import { TRIAL_DAYS } from '@gf/payroll';
 import { buildServer } from '../server';
 import { __resetRateLimit } from '../public/rateLimit';
@@ -15,6 +15,10 @@ import {
   createSignupCheckout,
 } from './checkout';
 import type { Stripe } from '../stripe/client';
+
+/** 种子里的美甲店。7b 那条用例要往 signup_intents 里放一行，得挂在真实门店上 */
+const SEED_ORG = '11111111-1111-4111-8111-111111111111';
+const SEED_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 
 const ESSENTIAL_PRICE = 'price_test_essential_99';
 const GROWTH_PRICE = 'price_test_growth_199';
@@ -144,8 +148,47 @@ describe('POST /v1/public/signup-checkout', () => {
     expect(meta['gf_plan']).toBe('essential');
     expect(meta['gf_location_id']).toBeUndefined();
     expect(meta['gf_org_id']).toBeUndefined();
-    expect(created[0]?.subscription_data?.trial_period_days).toBe(TRIAL_DAYS);
     expect(created[0]?.subscription_data?.metadata?.['gf_signup']).toBe('1');
+  });
+
+  /**
+   * ⭐ 七天试用**只给第一次**（sql/0085 的 `gf_signup_email_seen`）。
+   *
+   * 原来这条公开通道无条件给 `trial_period_days`，而「只给第一次」的判据
+   * 只存在于站内那条路。于是同一个人退订之后再开一次又是七天，无限循环。
+   *
+   * ⚠️ 邮箱必须是**这次跑独有的**：判据落在 `signup_intents` 上，
+   * 而那张表里的历史行（种子、别的用例开过的户）会让一个固定邮箱
+   * 时而算首次、时而算老客 —— 那种用例会在别人改了别的文件之后莫名其妙地红。
+   */
+  it('7b. 首次开户给七天试用，同一个邮箱再来一次就不给', async () => {
+    const fresh = `trial-${crypto.randomUUID()}@example.test`;
+    const r = await post({ ...valid, ownerEmail: fresh });
+    expect(r.statusCode).toBe(200);
+    expect(created[0]?.subscription_data?.trial_period_days).toBe(TRIAL_DAYS);
+
+    // 这个邮箱真的开过户之后（signup_intents 里有行），第二次不再给试用
+    await withTenant(
+      { orgId: SEED_ORG, locationId: SEED_LOC, membershipId: null },
+      (tx) => tx`
+        insert into signup_intents
+          (checkout_session_id, org_id, location_id, owner_email, plan)
+        values (${`cs_trial_${crypto.randomUUID()}`}, ${SEED_ORG}, ${SEED_LOC},
+                ${fresh}, 'essential')`);
+
+    created = [];
+    const again = await post({ ...valid, ownerEmail: fresh });
+    expect(again.statusCode).toBe(200);
+    expect(created[0]?.subscription_data?.trial_period_days).toBeUndefined();
+    // metadata 照旧完整 —— 少给试用不等于少给别的
+    expect(created[0]?.subscription_data?.metadata?.['gf_signup']).toBe('1');
+
+    /*
+     * ⚠️ 这一行**不清理**：`signup_intents` 对 app_user 是禁止 delete 的
+     * （sql/0030：付款留档只追加）。上面那个邮箱带了本次跑独有的 uuid，
+     * 留在库里对任何其他用例都不可见；而每次跑测试都会重新种子，
+     * 它也不会一直累积。
+     */
   });
 
   it('8. customer_email equals canonical owner email', async () => {

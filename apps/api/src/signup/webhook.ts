@@ -115,6 +115,34 @@ export async function provisionFromSession(
 }
 
 /**
+ * 开户被拒之后，把那条订阅取消掉。
+ *
+ * ⭐ 只在 `provisionFromSession` 返回 null（邮箱不一致）时走这条路。
+ * 那一刻的事实是：**钱已经收了（或者试用已经开始），而门店一家都没建**。
+ * 不取消的话，Stripe 那边留着一条活订阅，到期照扣，客户下个月看到
+ * 一笔他既没有账号也没有门店的账单 —— 那是最难解释的一种投诉。
+ *
+ * ⚠️ 失败只记日志。调用方已经决定回 200（重投一百次答案也一样），
+ * 为一次取消失败让整条 webhook 反复重投是错的；这一行日志足够人工补。
+ */
+export async function cancelDanglingSignupSubscription(
+  session: Stripe.Checkout.Session,
+  log: FastifyBaseLogger,
+): Promise<void> {
+  const subId = typeof session.subscription === 'string'
+    ? session.subscription : session.subscription?.id;
+  if (!subId) return;
+  try {
+    await stripeClient().subscriptions.cancel(subId);
+    log.warn({ session: session.id, subscription: subId },
+             'signup rejected: 已取消这条无主订阅');
+  } catch (e) {
+    log.error({ err: e, session: session.id, subscription: subId },
+              'signup rejected: 取消无主订阅失败 —— 需要人工在 Stripe 后台处理');
+  }
+}
+
+/**
  * 把门店 id 回写到 Stripe 的客户与订阅上。
  *
  * ⭐ **后续每一条事件都靠它定位门店。** 官网建 session 的时候写不了
