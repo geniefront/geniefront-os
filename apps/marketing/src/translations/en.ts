@@ -209,8 +209,8 @@ export const en: TranslationSchema = {
   },
   aiSection: {
     badge: 'AI-Native Automation',
-    title: 'AI Photo Onboarding & Front Desk Copilot',
-    subtitle: 'Modern AI designed to assist your team, not replace human judgment.',
+    title: 'AI Menu Setup, Front Desk Copilot & Voice Booking',
+    subtitle: 'From menu setup and live operations to inbound booking calls, AI reduces front-desk workload while preserving human approval and handoff.',
     menuOnboarding: {
       title: 'AI Photo Menu Onboarding',
       badge: 'Zero Manual Entry',

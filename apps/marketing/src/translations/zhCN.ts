@@ -209,8 +209,8 @@ export const zhCN: TranslationSchema = {
   },
   aiSection: {
     badge: 'AI 原生辅助',
-    title: 'AI 拍照开店与 AI 前台副驾',
-    subtitle: '将 AI 用于提升前台效率，同时通过人工确认机制保留最终决策权。',
+    title: 'AI 拍照开店、前台副驾与语音预约',
+    subtitle: '从菜单建档、现场调度到来电预约，AI 提升前台效率；关键操作始终保留人工确认与转接机制。',
     menuOnboarding: {
       title: 'AI 拍照快速开店',
       badge: '无需繁琐手动打字',

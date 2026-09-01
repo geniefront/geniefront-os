@@ -209,8 +209,8 @@ export const vi: TranslationSchema = {
   },
   aiSection: {
     badge: 'Công Nghệ AI Thực Tế',
-    title: 'AI Chụp Ảnh Menu Lên Món & Trợ Lý Lễ Tân AI',
-    subtitle: 'Ứng dụng AI để giúp bạn rảnh tay, nhưng quyền quyết định cuối cùng luôn thuộc về con người.',
+    title: 'AI Thiết Lập Menu, Trợ Lý Lễ Tân & Đặt Lịch Bằng Giọng Nói',
+    subtitle: 'Từ thiết lập menu, vận hành trực tiếp đến cuộc gọi đặt lịch, AI giảm tải cho lễ tân nhưng vẫn giữ bước duyệt và chuyển giao cho con người.',
     menuOnboarding: {
       title: 'Chụp Ảnh Bảng Giá Tạo Menu Tự Động',
       badge: 'Không Cần Gõ Tay Từng Chữ',

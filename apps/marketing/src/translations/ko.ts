@@ -209,8 +209,8 @@ export const ko: TranslationSchema = {
   },
   aiSection: {
     badge: '실용적인 AI 어시스턴트',
-    title: 'AI 사진 메뉴판 등록 & AI 프론트 코파일럿',
-    subtitle: '사람의 판단을 대체하는 것이 아니라, 프론트 데스크의 손발이 되어주는 AI.',
+    title: 'AI 메뉴 설정, 프런트 코파일럿 및 음성 예약',
+    subtitle: '메뉴 설정과 현장 운영부터 예약 전화까지 AI가 프런트 업무를 줄이고, 중요한 작업은 사람의 승인과 연결 절차를 유지합니다.',
     menuOnboarding: {
       title: 'AI 사진 촬영 메뉴판 자동 생성',
       badge: '수동 타이핑 제로',

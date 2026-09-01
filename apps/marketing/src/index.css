@@ -244,8 +244,13 @@ main section article:hover {
 .demo-empty-state { display: grid; min-height: 260px; place-items: center; align-content: center; gap: 12px; color: #708184; font-size: 11px; font-weight: 800; }
 .scan-beam { position: absolute; z-index: 2; left: 6%; right: 6%; height: 2px; background: #19b88a; box-shadow: 0 0 18px 5px rgba(25,184,138,.28); animation: scan-document 1.25s ease-in-out infinite; }
 .demo-result-enter { animation: demo-result 220ms ease-out both; }
+.voice-wave { display: flex; height: 16px; align-items: center; gap: 2px; }
+.voice-wave span { width: 2px; height: 40%; border-radius: 999px; background: #55c3a5; animation: voice-level 720ms ease-in-out infinite alternate; }
+.voice-wave span:nth-child(2n) { height: 85%; }
+.voice-wave span:nth-child(3n) { height: 60%; }
 @keyframes scan-document { 0% { top: 8%; opacity: .45; } 50% { opacity: 1; } 100% { top: 90%; opacity: .45; } }
 @keyframes demo-result { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes voice-level { from { transform: scaleY(.5); opacity: .55; } to { transform: scaleY(1.25); opacity: 1; } }
 
 @keyframes demo-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }

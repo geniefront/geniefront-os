@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { uiText } from '../translations/ui';
+import { AiVoiceBookingDemo } from './AiVoiceBookingDemo';
 import { 
   Sparkles, 
   Camera, 
@@ -226,6 +227,7 @@ export const AiCopilotShowcase: React.FC<AiCopilotShowcaseProps> = ({ onOpenMenu
             </div>
           </div>
         </div>
+        <AiVoiceBookingDemo />
       </div>
     </section>
   );

@@ -209,8 +209,8 @@ export const es: TranslationSchema = {
   },
   aiSection: {
     badge: 'Automatización con IA Práctica',
-    title: 'Creación de Menú por Foto y Copiloto de Recepción con IA',
-    subtitle: 'Inteligencia artificial diseñada para asistir a tu equipo, no para reemplazar el criterio humano.',
+    title: 'Menú con IA, Copiloto de Recepción y Reservas por Voz',
+    subtitle: 'Desde la configuración del menú y la operación en vivo hasta las llamadas de reserva, la IA reduce la carga de recepción manteniendo la aprobación y transferencia humanas.',
     menuOnboarding: {
       title: 'Creación de Menú con Foto de tu Lista de Precios',
       badge: 'Cero Escritura Manual',
