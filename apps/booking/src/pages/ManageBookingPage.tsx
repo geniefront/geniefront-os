@@ -7,7 +7,7 @@ import {
   type Availability, type ManagedBooking, type Shop,
 } from '../lib/api';
 import {
-  dateOf, datePage, DAY_PAGE, duration, money, pageOffsetForDate, timeOf, todayIn,
+  bookableDateCount, bookingToday, dateOf, datePage, DAY_PAGE, duration, money, pageOffsetForDate, timeOf,
 } from '../lib/format';
 import { Btn, Card, Loading, Note, PhoneLink, Shell } from '../components/Chrome';
 import { manageTokenFromHash } from '../lib/manageToken';
@@ -305,7 +305,7 @@ function ReschedulePanel({
   onAuthFail: () => void;
   onDone: () => Promise<void>;
 }) {
-  const [date, setDate] = useState(() => todayIn(booking.timezone));
+  const [date, setDate] = useState(() => bookingToday(booking.timezone, shop.businessDayCutoff));
   const [avail, setAvail] = useState<(Availability & { canReschedule?: boolean; reason?: string | null }) | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -351,7 +351,7 @@ function ReschedulePanel({
     }
   }
 
-  const start = todayIn(booking.timezone);
+  const start = bookingToday(booking.timezone, shop.businessDayCutoff);
   const horizon = Math.max(1, shop.onlineBooking.maxDaysAhead);
   const [offset, setOffset] = useState(() => pageOffsetForDate(start, horizon, date));
   const days = datePage(start, horizon, offset);
@@ -378,7 +378,7 @@ function ReschedulePanel({
             {d.slice(8)}
           </button>
         ))}
-        {offset + DAY_PAGE < horizon && (
+        {offset + DAY_PAGE < bookableDateCount(horizon) && (
           <button type="button" data-testid="later-days"
             onClick={() => setOffset(offset + DAY_PAGE)}
             className="min-h-12 min-w-16 rounded-2xl border border-[var(--line)] px-3 text-sm">

@@ -29,6 +29,7 @@ const shop: Shop = {
   slug: 'lotus-nails',
   timezone: 'America/New_York',
   currency: 'USD',
+  businessDayCutoff: '04:00',
   phone: '+12125550100',
   address: null,
   businessHours: {},

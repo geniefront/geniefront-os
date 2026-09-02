@@ -37,13 +37,19 @@ export function todayIn(timezone: string): string {
   }).format(new Date());
 }
 
+import {
+  addCalendarDays, bookableDateCount, businessDateOf,
+} from '@gf/scheduling';
+
+export {
+  bookableDateCount, isBookableDate, lastBookableDate,
+} from '@gf/scheduling';
+
 export function addDays(date: string, days: number): string {
-  const d = new Date(`${date}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
+  return addCalendarDays(date, days);
 }
 
-/** Visible day-strip page size. The search horizon is shop.maxDaysAhead. */
+/** Visible day-strip page size. The search horizon is shop.maxDaysAhead (inclusive). */
 export const DAY_PAGE = 14;
 
 export function diffDays(from: string, to: string): number {
@@ -52,18 +58,29 @@ export function diffDays(from: string, to: string): number {
   return Math.round((b - a) / 86_400_000);
 }
 
-export function datePage(start: string, horizon: number, offset: number): string[] {
-  const h = Math.max(1, Math.floor(horizon));
-  const page = Math.min(DAY_PAGE, h);
-  const maxOffset = Math.max(0, h - page);
+export function bookingToday(timezone: string, cutoff?: string | null): string {
+  if (cutoff && /^\d{2}:\d{2}/.test(cutoff)) {
+    return businessDateOf(new Date(), timezone, cutoff);
+  }
+  return todayIn(timezone);
+}
+
+/**
+ * Page the inclusive window today .. today+maxDaysAhead.
+ * `maxDaysAhead` is the last offset, not the date count.
+ */
+export function datePage(start: string, maxDaysAhead: number, offset: number): string[] {
+  const total = bookableDateCount(maxDaysAhead);
+  const page = Math.min(DAY_PAGE, total);
+  const maxOffset = Math.max(0, total - page);
   const o = Math.min(Math.max(0, offset), maxOffset);
   return Array.from({ length: page }, (_, i) => addDays(start, o + i));
 }
 
-export function pageOffsetForDate(start: string, horizon: number, date: string): number {
-  const h = Math.max(1, Math.floor(horizon));
-  const page = Math.min(DAY_PAGE, h);
-  const maxOffset = Math.max(0, h - page);
+export function pageOffsetForDate(start: string, maxDaysAhead: number, date: string): number {
+  const total = bookableDateCount(maxDaysAhead);
+  const page = Math.min(DAY_PAGE, total);
+  const maxOffset = Math.max(0, total - page);
   const selected = Math.max(0, diffDays(start, date));
   const aligned = Math.floor(selected / page) * page;
   return Math.min(aligned, maxOffset);

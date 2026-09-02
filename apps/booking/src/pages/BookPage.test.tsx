@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type Availability, type Catalog, type Shop } from '../lib/api';
-import { addDays, todayIn } from '../lib/format';
+import { addDays, bookingToday, lastBookableDate, todayIn } from '../lib/format';
 import { BookPage } from './BookPage';
 
 const getHostedShop = vi.fn();
@@ -33,6 +33,7 @@ const shop: Shop = {
   slug: 'lotus-nails',
   timezone: 'America/New_York',
   currency: 'USD',
+  businessDayCutoff: '04:00',
   phone: '+12125550100',
   address: { line1: '1 Main St' },
   businessHours: {},
@@ -163,6 +164,24 @@ describe('BookPage', () => {
     await screen.findByText('Pick a time');
     expect(screen.getByTestId(`day-${far}`)).toBeInTheDocument();
     expect(screen.getByTestId('later-days')).toBeInTheDocument();
+  });
+
+  it('searches today+maxDaysAhead inclusive', async () => {
+    const user = userEvent.setup();
+    const start = bookingToday(shop.timezone, shop.businessDayCutoff);
+    const last = lastBookableDate(start, shop.onlineBooking.maxDaysAhead);
+    getAvailability.mockImplementation(async (q: { date: string }) => {
+      if (q.date === last) return avail({ date: last, slots: [{ startsAt: nySlot, staff: null }] });
+      return avail({ date: q.date, slots: [] });
+    });
+    renderBook();
+    await screen.findByText('Choose a service');
+    await user.click(screen.getByTestId('service-svc-1'));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await waitFor(() => {
+      const dates = getAvailability.mock.calls.map((c) => (c[0] as { date: string }).date);
+      expect(dates).toContain(last);
+    });
   });
 
   it('shows slot times in the shop timezone', async () => {

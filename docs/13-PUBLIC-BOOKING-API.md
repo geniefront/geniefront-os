@@ -181,6 +181,7 @@ X-GF-Public-Key: pk_3f9a2b1c
   "slug": "lotus-nails",
   "timezone": "America/New_York",     // ⭐ IANA。所有时间都按这个显示
   "currency": "USD",
+  "businessDayCutoff": "04:00",       // 营业日边界。早于它的时刻仍算前一天
   "phone": "+16175550142",
   "address": { "line1": "…", "city": "Boston", "state": "MA", "postalCode": "02118" },
   "businessHours": {
@@ -191,7 +192,7 @@ X-GF-Public-Key: pk_3f9a2b1c
   "locales": ["en"],                   // 门店默认语言（v1 只返回这一个）
   "onlineBooking": {
     "enabled": true,
-    "maxDaysAhead": 60,                // 只能订未来 60 天内
+    "maxDaysAhead": 60,                // 最后一天 = 今天的营业日 + 60（含两端）
     "minMinutesAhead": 120,            // ⭐ 两小时内的不让在线订，见下
     "requirePhoneVerification": false, // true 时多一步短信验证码，见 §6.5
     "cancelCutoffHours": 4,            // 开始前 4 小时内不能自助取消
@@ -203,6 +204,11 @@ X-GF-Public-Key: pk_3f9a2b1c
 }
 ```
 
+> **`maxDaysAhead` 是最后一天的偏移，不是天数。** 今天的营业日
+> （`businessDateOf(now, timezone, businessDayCutoff)`）和
+> `today + maxDaysAhead` 都可以订。空档、托管改期空档、日历、建单和
+> 自助改期用同一条边界。墙钟日期在 cutoff 之前仍算前一个营业日。
+>
 > **`minMinutesAhead` 为什么存在**：网上订「20 分钟后」的单，前台十有八九
 > 还没看到人就到了。这不是技术问题是运营问题 —— 太急的单让客人打电话，
 > 电话那头能当场说「你现在过来要等 15 分钟」。

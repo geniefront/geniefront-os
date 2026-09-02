@@ -7,8 +7,8 @@ import {
 } from '../lib/api';
 import { isEmbedded, reportBooked, reportHeight } from '../lib/embed';
 import {
-  addDays, dateOf, datePage, DAY_PAGE, duration, money, pageOffsetForDate,
-  prettyPhone, timeOf, toE164, todayIn,
+  addDays, bookableDateCount, bookingToday, dateOf, datePage, DAY_PAGE, duration, money,
+  pageOffsetForDate, prettyPhone, timeOf, toE164,
 } from '../lib/format';
 import { saveLastBooking } from '../lib/session';
 import { hostedManagePath } from '../lib/manageToken';
@@ -95,10 +95,9 @@ export function BookPage() {
   }, [queryClient]);
 
   async function findFirstDay(
-    serviceId: string, addonIds: string[], staffId: string | null, tz: string, horizon: number,
+    serviceId: string, addonIds: string[], staffId: string | null, start: string, horizon: number,
   ) {
-    const start = todayIn(tz);
-    const days = Math.max(1, horizon);
+    const days = bookableDateCount(horizon);
     for (let i = 0; i < days; i++) {
       const date = addDays(start, i);
       const a = await loadSlots(date, serviceId, addonIds, staffId);
@@ -110,8 +109,9 @@ export function BookPage() {
   async function pickService(serviceId: string, addonIds: string[]) {
     if (!shop) return;
     setDraft({ serviceId, addonIds, staffId: null, date: null, startsAt: null });
+    const start = bookingToday(shop.timezone, shop.businessDayCutoff);
     const date = await findFirstDay(
-      serviceId, addonIds, null, shop.timezone, shop.onlineBooking.maxDaysAhead,
+      serviceId, addonIds, null, start, shop.onlineBooking.maxDaysAhead,
     );
     setDraft((d) => ({ ...d, date }));
     setStep('specialist');
@@ -119,8 +119,9 @@ export function BookPage() {
 
   async function pickStaff(staffId: string | null) {
     if (!shop || !draft.serviceId) return;
+    const start = bookingToday(shop.timezone, shop.businessDayCutoff);
     const date = await findFirstDay(
-      draft.serviceId, draft.addonIds, staffId, shop.timezone, shop.onlineBooking.maxDaysAhead,
+      draft.serviceId, draft.addonIds, staffId, start, shop.onlineBooking.maxDaysAhead,
     );
     setDraft((d) => ({ ...d, staffId, date, startsAt: null }));
     setStep('time');
@@ -425,7 +426,7 @@ function TimeStep({
   onSlot: (startsAt: string) => void;
   onBack: () => void;
 }) {
-  const start = todayIn(shop.timezone);
+  const start = bookingToday(shop.timezone, shop.businessDayCutoff);
   const horizon = Math.max(1, shop.onlineBooking.maxDaysAhead);
   const [offset, setOffset] = useState(
     () => pageOffsetForDate(start, horizon, draft.date ?? start),
@@ -452,7 +453,7 @@ function TimeStep({
               {d.slice(8)}
             </button>
           ))}
-          {offset + DAY_PAGE < horizon && (
+          {offset + DAY_PAGE < bookableDateCount(horizon) && (
             <button type="button" data-testid="later-days"
               onClick={() => setOffset(offset + DAY_PAGE)}
               className="min-h-14 min-w-16 rounded-2xl border border-[var(--line)] px-3 text-sm">

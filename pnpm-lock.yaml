@@ -87,6 +87,9 @@ importers:
 
   apps/booking:
     dependencies:
+      '@gf/scheduling':
+        specifier: workspace:*
+        version: link:../../packages/scheduling
       '@tanstack/react-query':
         specifier: ^5.62.11
         version: 5.101.4(react@19.2.8)

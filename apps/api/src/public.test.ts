@@ -19,7 +19,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { withTenant, closeDb } from '@gf/db';
-import { businessDateOf, wallMinuteToInstant } from '@gf/scheduling';
+import { businessDateOf, lastBookableDate, wallMinuteToInstant } from '@gf/scheduling';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
 import { buildServer } from './server';
@@ -52,6 +52,7 @@ let originId = '';
 /** 排了班的那几天。用例之间不许抢同一格，否则第二个会撞上容量上限 */
 let bookDate = '';
 let shopTz = '';
+let shopCutoff = '';
 
 /**
  * 发一个**没人用过**的时刻。
@@ -198,7 +199,8 @@ beforeAll(async () => {
   staffId = staff[0]!.membership_id;
 
   shopTz = shop[0]!.tz;
-  const today = businessDateOf(new Date(), shopTz, shop[0]!.cutoff);
+  shopCutoff = shop[0]!.cutoff;
+  const today = businessDateOf(new Date(), shopTz, shopCutoff);
   // Seed already contains future bookings for the next 14 days. Start after
   // that window so this suite tests its own capacity, not demo appointments.
   bookDate = addDays(today, 16);
@@ -371,6 +373,7 @@ describe('读', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.timezone).toBe('America/New_York');
+    expect(body.businessDayCutoff).toMatch(/^\d{2}:\d{2}/);
     expect(body.onlineBooking.enabled).toBe(true);
     expect(body.onlineBooking.minMinutesAhead).toBe(120);
   });
@@ -436,6 +439,61 @@ describe('读', () => {
     const res = await get(`/public/v1/availability?date=${far}&serviceId=${serviceId}`);
     expect(res.statusCode).toBe(400);
     expect(res.json().details.reason).toBe('date_out_of_window');
+  });
+
+  it('allows today+maxDaysAhead and rejects the next business date', async () => {
+    const today = businessDateOf(new Date(), shopTz, shopCutoff);
+    const last = lastBookableDate(today, 60);
+    const after = addDays(last, 1);
+    const ok = await get(`/public/v1/availability?date=${last}&serviceId=${serviceId}`);
+    expect(ok.statusCode).not.toBe(400);
+    expect(ok.json().details?.reason).not.toBe('date_out_of_window');
+    const denied = await get(`/public/v1/availability?date=${after}&serviceId=${serviceId}`);
+    expect(denied.statusCode).toBe(400);
+    expect(denied.json().details.reason).toBe('date_out_of_window');
+
+    const wall = new Intl.DateTimeFormat('en-CA', {
+      timeZone: shopTz, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+    if (wall !== today) {
+      const wallLast = lastBookableDate(wall, 60);
+      if (wallLast > last) {
+        const viaWall = await get(`/public/v1/availability?date=${wallLast}&serviceId=${serviceId}`);
+        expect(viaWall.statusCode).toBe(400);
+        expect(viaWall.json().details.reason).toBe('date_out_of_window');
+      }
+    }
+
+    __resetRateLimit();
+    const tooFar = wallMinuteToInstant(after, shopTz, 12 * 60).toISOString();
+    const booked = await post('/public/v1/bookings',
+      bookingPayload({ items: [{ serviceId, addonIds: [], staffId: null, startsAt: tooFar }] }),
+      { 'idempotency-key': randomUUID() });
+    expect(booked.statusCode).toBe(400);
+    expect(booked.json().details.reason).toBe('date_out_of_window');
+
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    expect(made.statusCode).toBe(201);
+    const moved = await post(`/public/v1/bookings/${made.json().bookingId}/reschedule`, {
+      manageToken: made.json().manageToken, last4: last4(), startsAt: tooFar,
+    });
+    expect(moved.statusCode).toBe(400);
+    expect(moved.json().details.reason).toBe('date_out_of_window');
+
+    const hostedLast = await app.inject({
+      method: 'POST', url: '/public/v1/hosted/availability',
+      payload: { slug: 'lotus-nails', manageToken: made.json().manageToken, date: last },
+      headers: { origin: 'https://book.geniefront.com' },
+    });
+    expect(hostedLast.statusCode).not.toBe(400);
+    const hostedAfter = await app.inject({
+      method: 'POST', url: '/public/v1/hosted/availability',
+      payload: { slug: 'lotus-nails', manageToken: made.json().manageToken, date: after },
+      headers: { origin: 'https://book.geniefront.com' },
+    });
+    expect(hostedAfter.statusCode).toBe(400);
+    expect(hostedAfter.json().details.reason).toBe('date_out_of_window');
   });
 });
 

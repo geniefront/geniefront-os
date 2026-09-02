@@ -68,6 +68,7 @@ export interface Shop {
   slug: string;
   timezone: string;
   currency: string;
+  businessDayCutoff?: string;
   phone: string | null;
   address: Record<string, string> | string | null;
   businessHours: Record<string, { open: string; close: string } | null>;

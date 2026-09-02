@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@gf/scheduling": "workspace:*",
     "@tanstack/react-query": "^5.62.11",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",

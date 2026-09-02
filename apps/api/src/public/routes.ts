@@ -27,7 +27,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError, ERROR_CODES, pickText, phoneE164 } from '@gf/contracts';
 import { withTenant, ts, parseTs, type PublicShopRow } from '@gf/db';
-import { businessDateOf, wallMinuteToInstant } from '@gf/scheduling';
+import { businessDateOf, isBookableDate, wallMinuteToInstant } from '@gf/scheduling';
 import { dispatch } from '../bus';
 import { loadSlotContext } from '../queries/slots';
 import { flushEmails } from '../email/flush';
@@ -72,6 +72,7 @@ function publicShopPayload(shop: PublicShopRow, locale: string) {
     slug: shop.slug,
     timezone: shop.timezone,
     currency: shop.currency,
+    businessDayCutoff: shop.businessDayCutoff,
     phone: shop.phone,
     address: shop.address,
     businessHours: shop.businessHours,
@@ -221,7 +222,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
     assertOriginAllowed(originOf(req), shop);
 
     const today = businessDateOf(new Date(), shop.timezone, shop.businessDayCutoff);
-    if (parsed.data.date < today || parsed.data.date > addDays(today, shop.onlineBooking.maxDaysAhead)) {
+    if (!isBookableDate(parsed.data.date, today, shop.onlineBooking.maxDaysAhead)) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { reason: 'date_out_of_window', maxDaysAhead: shop.onlineBooking.maxDaysAhead },
       });
@@ -321,7 +322,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
       ? req.query.excludeBookingId! : null;
 
     const today = businessDateOf(new Date(), shop.timezone, shop.businessDayCutoff);
-    if (date < today || date > addDays(today, shop.onlineBooking.maxDaysAhead)) {
+    if (!isBookableDate(date, today, shop.onlineBooking.maxDaysAhead)) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { reason: 'date_out_of_window', maxDaysAhead: shop.onlineBooking.maxDaysAhead },
       });
@@ -437,9 +438,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
         await assertNotSquatting(tx, shop, body.customer.phone);
 
         const earliest = Date.now() + shop.onlineBooking.minMinutesAhead * 60_000;
-        const latestDate = addDays(
-          businessDateOf(new Date(), shop.timezone, shop.businessDayCutoff),
-          shop.onlineBooking.maxDaysAhead);
+        const today = businessDateOf(new Date(), shop.timezone, shop.businessDayCutoff);
 
         const items = [];
         for (const item of body.items) {
@@ -452,9 +451,10 @@ export function registerPublicRoutes(app: FastifyInstance): void {
               details: { reason: 'too_soon', minMinutesAhead: shop.onlineBooking.minMinutesAhead },
             });
           }
-          if (businessDateOf(startsAt, shop.timezone, shop.businessDayCutoff) > latestDate) {
+          const itemDate = businessDateOf(startsAt, shop.timezone, shop.businessDayCutoff);
+          if (!isBookableDate(itemDate, today, shop.onlineBooking.maxDaysAhead)) {
             throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-              details: { reason: 'date_out_of_window' },
+              details: { reason: 'date_out_of_window', maxDaysAhead: shop.onlineBooking.maxDaysAhead },
             });
           }
           if (item.staffId) await assertBookableStaff(tx, shop, item.staffId);
@@ -670,7 +670,9 @@ export function registerPublicRoutes(app: FastifyInstance): void {
                      shopPhone: shop.phone },
         });
       }
-      if (aheadMin > cfg.maxDaysAhead * 24 * 60) {
+      const today = businessDateOf(new Date(), shop.timezone, shop.businessDayCutoff);
+      const targetDate = businessDateOf(target, shop.timezone, shop.businessDayCutoff);
+      if (!isBookableDate(targetDate, today, cfg.maxDaysAhead)) {
         throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
           details: { reason: 'date_out_of_window', maxDaysAhead: cfg.maxDaysAhead },
         });
@@ -1007,13 +1009,6 @@ function dedupeByStart(slots: readonly { startsAt: Date }[]) {
     out.push({ startsAt: s.startsAt.toISOString(), staff: null });
   }
   return out;
-}
-
-/** `YYYY-MM-DD` + n 天。纯日期算术，不碰时区 —— 两边都是营业日字符串 */
-function addDays(date: string, days: number): string {
-  const d = new Date(`${date}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
 }
 
 export { PUBLIC_KEY_HEADER };

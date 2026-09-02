@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, datePage, DAY_PAGE, pageOffsetForDate } from './format';
+import { addDays, bookableDateCount, datePage, DAY_PAGE, lastBookableDate, pageOffsetForDate } from './format';
 
 describe('datePage', () => {
   it('pages a horizon larger than 14 days instead of capping search at 14', () => {
@@ -11,5 +11,13 @@ describe('datePage', () => {
     expect(datePage(start, 60, 14)).toHaveLength(14);
     expect(pageOffsetForDate(start, 60, '2026-09-21')).toBe(14);
     expect(addDays(start, 20)).toBe('2026-09-21');
+  });
+
+  it('includes today+maxDaysAhead as the last bookable date', () => {
+    const start = '2026-09-01';
+    expect(bookableDateCount(60)).toBe(61);
+    expect(lastBookableDate(start, 60)).toBe('2026-10-31');
+    const lastPage = datePage(start, 60, pageOffsetForDate(start, 60, lastBookableDate(start, 60)));
+    expect(lastPage.at(-1)).toBe('2026-10-31');
   });
 });
