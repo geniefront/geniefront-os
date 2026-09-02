@@ -499,6 +499,37 @@ describe('建预约', () => {
     const rows = await withTenant(tenant, (tx) => tx`
       select 1 from sms_outbox where entity_id = ${out.appointmentId}`);
     expect(rows.length).toBe(0);
+
+    const [appt] = await withTenant(tenant, (tx) => tx<{ digest: string | null }[]>`
+      select manage_token_digest as digest from appointments where id = ${out.appointmentId}`);
+    expect(appt?.digest).toBeNull();
+  });
+
+  it('desk appointment with a phone stores a digest and does not return the raw token', async () => {
+    const [cust] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      select id from customers where org_id = ${NAIL_ORG} and phone_e164 is not null limit 1`);
+    const out = await dispatch<{ appointmentId: string }>(
+      'appointment.create',
+      {
+        customerId: cust!.id,
+        items: [{ serviceId, addonIds: [], membershipId: null, startsAt: nextSlot(), details: {} }],
+        partySize: 1,
+        source: 'desk',
+      },
+      ctx,
+      { idempotencyKey: randomUUID() },
+    );
+    expect(out.result).not.toHaveProperty('manageToken');
+    const [row] = await withTenant(tenant, (tx) => tx<{
+      digest: string | null; after: Record<string, unknown>;
+    }[]>`
+      select a.manage_token_digest as digest, al.after
+        from appointments a
+        join audit_log al on al.entity_id = a.id and al.command = 'appointment.create'
+       where a.id = ${out.result.appointmentId}`);
+    expect(row?.digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(row?.after)).not.toMatch(/mt_/);
+    expect(row?.after).not.toHaveProperty('manageToken');
   });
 
   it('⭐ 同一个幂等键提交两次 → 只建出一条，第二次 200', async () => {

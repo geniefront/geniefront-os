@@ -7,7 +7,6 @@
  *   门店  → 同上
  */
 
-import { createHash } from 'node:crypto';
 import {
   AppointmentCreate, AppointmentAddItem, AppointmentCancel, AppointmentReschedule,
   AppointmentSaveServiceBrief, AppointmentAssignCustomer,
@@ -15,7 +14,8 @@ import {
 } from '@gf/contracts';
 import { renderConfirm, formatWhen } from '../email/render';
 import { emailConfigured } from '../email/send';
-import { manageBookingUrl } from '../links';
+import { hostedManageBookingUrl } from '../links';
+import { generateManageToken, hashManageToken } from '../public/bookingToken';
 import { enqueueShopCopy } from '../email/shopCopy';
 import { renderConfirmSms } from '../sms/render';
 import { segmentsOf } from '../sms/segments';
@@ -269,6 +269,21 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
     ? await resolveGuestCustomer(tx, ctx, input.guest.customer)
     : input.customerId;
 
+  /**
+   * Desk / phone-manual appointments with a real customer phone get a
+   * manage token inside this transaction. Web and phone-AI already pass
+   * guest.manageToken. Walk-ins without a phone do not get a link.
+   * The raw token never enters command output or audit.
+   */
+  let issuedManageToken = input.guest?.manageToken ?? null;
+  if (!issuedManageToken && customerId
+      && (input.source === 'desk' || input.source === 'phone_manual')) {
+    const [cust] = await tx<{ phone: string | null }[]>`
+      select phone_e164 as phone from customers where id = ${customerId}`;
+    if (cust?.phone) issuedManageToken = generateManageToken();
+  }
+  const manageDigest = issuedManageToken ? hashManageToken(issuedManageToken) : null;
+
   // ── 写库 ─────────────────────────────────────────────────────────────────
   const [appt] = await tx<{ id: string }[]>`
     insert into appointments
@@ -280,7 +295,7 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
        ${businessDate}, ${ts(windowStart)}::timestamptz, ${ts(windowEnd)}::timestamptz, ${input.source},
        ${input.partySize}, ${input.notes ?? null}, ${ctx.membershipId}, null,
        ${input.guest?.confirmationCode ?? null},
-       ${input.guest ? createHash('sha256').update(input.guest.manageToken, 'utf8').digest('hex') : null},
+       ${manageDigest},
        ${input.isBackfill ?? false}, ${input.backfillReason ?? null}, ${input.backfillNotes ?? null})
     returning id`;
 
@@ -323,8 +338,7 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
     }
   }
 
-  await enqueueConfirmEmail(tx, ctx, appt!.id, itemIds[0] ?? null,
-    input.guest?.manageToken ?? null);
+  await enqueueConfirmEmail(tx, ctx, appt!.id, itemIds[0] ?? null, issuedManageToken);
   await enqueueConfirmSms(tx, ctx, appt!.id, itemIds[0] ?? null);
 
   // 审计由总线统一落库并做金额脱敏
@@ -444,12 +458,12 @@ async function enqueueConfirmEmail(
   const [row] = await tx<{
     email: string | null; customer_name: unknown; phone: string | null;
     service_name: unknown; staff_name: unknown;
-    starts_at: string; shop_name: unknown; timezone: string; public_key: string;
+    starts_at: string; shop_name: unknown; timezone: string; slug: string;
   }[]>`
     select c.email, c.display_name as customer_name, c.phone_e164 as phone,
            s.name as service_name, sp.display_name as staff_name,
            ai.starts_at::text as starts_at,
-           l.name as shop_name, l.timezone, l.public_key
+           l.name as shop_name, l.timezone, l.slug
     from appointment_items ai
     join appointments a on a.id = ai.appointment_id
     join locations l on l.id = a.location_id
@@ -485,9 +499,7 @@ async function enqueueConfirmEmail(
    *   · 兜底值按环境分流，staging 发出的邮件不得指向生产站点。
    */
   const manageUrl = manageToken && row!.phone
-    ? manageBookingUrl({
-        appointmentId, manageToken, publicKey: row!.public_key,
-      })
+    ? hostedManageBookingUrl({ shopSlug: row!.slug, manageToken })
     : null;
 
   /*
