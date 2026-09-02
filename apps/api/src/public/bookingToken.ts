@@ -67,32 +67,86 @@ export function sameDigest(a: string, b: string): boolean {
  * 1. Issuance still generates a random `mt_…` token.
  * 2. Store SHA-256 digest for lookup and validation (unchanged).
  * 3. Store AES-256-GCM ciphertext of the raw token in
- *    `appointments.manage_token_wrapped`. Key is HKDF-SHA-256 of
- *    `APP_JWT_SECRET` with info `gf-manage-token-wrap:v1`.
- * 4. Task 8 unwraps inside the notification enqueue path, passes the raw
- *    token to `hostedManageBookingUrl`, and must not log it.
+ *    `appointments.manage_token_wrapped`.
+ * 4. Unwrap keyring (first match wins on wrap; unwrap tries every key):
+ *      MANAGE_TOKEN_WRAP_KEY            dedicated current (info dedicated:v1)
+ *      MANAGE_TOKEN_WRAP_KEY_PREVIOUS   dedicated previous
+ *      APP_JWT_SECRET                   legacy current (info gf-manage-token-wrap:v1)
+ *      APP_JWT_SECRET_PREVIOUS          legacy previous, for JWT rotation
  * 5. If wrap/unwrap is impossible (missing secret, legacy row, corrupt
  *    blob, digest mismatch): omit `manage_url`. Never mint a replacement.
  *
  * Blob format: `[12-byte IV][16-byte GCM tag][ciphertext]`.
  *
- * Task 8 acceptance tests (implement then, not here):
- *   · appointment_changed / cancelled / reminder / confirm include the same
- *     `/l/{slug}#g/{token}` as issuance when unwrap succeeds;
- *   · missing wrap or failed unwrap omits manage_url rather than rotating;
- *   · raw token is absent from audit, structured logs, and analytics;
- *   · previously issued confirmation links keep working.
+ * Rotating APP_JWT_SECRET: keep the old value in APP_JWT_SECRET_PREVIOUS
+ * (or introduce MANAGE_TOKEN_WRAP_KEY first, then rotate JWT freely).
+ * Rotating the dedicated wrap key: keep the old value in
+ * MANAGE_TOKEN_WRAP_KEY_PREVIOUS until every live wrap has been rewritten.
  */
-const WRAP_INFO = 'gf-manage-token-wrap:v1';
+const WRAP_INFO_JWT = 'gf-manage-token-wrap:v1';
+const WRAP_INFO_DEDICATED = 'gf-manage-token-wrap:dedicated:v1';
 const WRAP_IV_BYTES = 12;
 const WRAP_TAG_BYTES = 16;
+const MIN_WRAP_SECRET = 32;
 
 type Env = Record<string, string | undefined>;
 
+interface WrapKey {
+  label: string;
+  key: Buffer;
+}
+
+function deriveWrapKey(secret: string, info: string): Buffer {
+  return Buffer.from(hkdfSync('sha256', secret, '', info, 32));
+}
+
+function wrapKeyring(env: Env = process.env): WrapKey[] {
+  const keys: WrapKey[] = [];
+  const push = (label: string, secret: string | undefined, info: string) => {
+    if (secret && secret.length >= MIN_WRAP_SECRET) {
+      keys.push({ label, key: deriveWrapKey(secret, info) });
+    }
+  };
+  push('dedicated', env['MANAGE_TOKEN_WRAP_KEY'], WRAP_INFO_DEDICATED);
+  push('dedicated-prev', env['MANAGE_TOKEN_WRAP_KEY_PREVIOUS'], WRAP_INFO_DEDICATED);
+  push('jwt', env['APP_JWT_SECRET'], WRAP_INFO_JWT);
+  push('jwt-prev', env['APP_JWT_SECRET_PREVIOUS'], WRAP_INFO_JWT);
+  return keys;
+}
+
 function wrapKey(env: Env = process.env): Buffer | null {
-  const secret = env['APP_JWT_SECRET'];
-  if (!secret) return null;
-  return Buffer.from(hkdfSync('sha256', secret, '', WRAP_INFO, 32));
+  return wrapKeyring(env)[0]?.key ?? null;
+}
+
+function isGuardedEnv(env: Env): boolean {
+  const gf = env['GF_ENV'];
+  if (gf) return gf === 'production' || gf === 'staging';
+  return env['NODE_ENV'] === 'production';
+}
+
+/**
+ * Deploy/startup guard: wrap secrets must be strong enough to derive AES-256.
+ * Local/test may omit them (wrap then returns null and manage URLs are omitted).
+ */
+export function assertManageTokenWrapSafety(env: Env = process.env): void {
+  if (!isGuardedEnv(env)) return;
+  const jwt = env['APP_JWT_SECRET'] ?? '';
+  if (jwt.length < MIN_WRAP_SECRET) {
+    throw new Error(
+      `APP_JWT_SECRET must be at least ${MIN_WRAP_SECRET} characters `
+      + `(got ${jwt.length}). It still unwraps legacy manage-token wraps.`,
+    );
+  }
+  for (const name of [
+    'MANAGE_TOKEN_WRAP_KEY', 'MANAGE_TOKEN_WRAP_KEY_PREVIOUS', 'APP_JWT_SECRET_PREVIOUS',
+  ] as const) {
+    const v = env[name];
+    if (v && v.length > 0 && v.length < MIN_WRAP_SECRET) {
+      throw new Error(
+        `${name} is too short (${v.length} characters). Use at least ${MIN_WRAP_SECRET}.`,
+      );
+    }
+  }
 }
 
 function asBuffer(value: Buffer | Uint8Array): Buffer {
@@ -120,22 +174,23 @@ export function unwrapManageToken(
   digest: string,
   env: Env = process.env,
 ): string | null {
-  const key = wrapKey(env);
-  if (!key || !wrapped || !digest) return null;
+  if (!wrapped || !digest) return null;
   const blob = asBuffer(wrapped);
   if (blob.length < WRAP_IV_BYTES + WRAP_TAG_BYTES + 1) return null;
-  try {
-    const iv = blob.subarray(0, WRAP_IV_BYTES);
-    const tag = blob.subarray(WRAP_IV_BYTES, WRAP_IV_BYTES + WRAP_TAG_BYTES);
-    const body = blob.subarray(WRAP_IV_BYTES + WRAP_TAG_BYTES);
-    const decipher = createDecipheriv('aes-256-gcm', key, iv);
-    decipher.setAuthTag(tag);
-    const token = Buffer.concat([decipher.update(body), decipher.final()]).toString('utf8');
-    if (!sameDigest(hashManageToken(token), digest)) return null;
-    return token;
-  } catch {
-    return null;
+  for (const { key } of wrapKeyring(env)) {
+    try {
+      const iv = blob.subarray(0, WRAP_IV_BYTES);
+      const tag = blob.subarray(WRAP_IV_BYTES, WRAP_IV_BYTES + WRAP_TAG_BYTES);
+      const body = blob.subarray(WRAP_IV_BYTES + WRAP_TAG_BYTES);
+      const decipher = createDecipheriv('aes-256-gcm', key, iv);
+      decipher.setAuthTag(tag);
+      const token = Buffer.concat([decipher.update(body), decipher.final()]).toString('utf8');
+      if (sameDigest(hashManageToken(token), digest)) return token;
+    } catch {
+      /* try the next key */
+    }
   }
+  return null;
 }
 
 /**

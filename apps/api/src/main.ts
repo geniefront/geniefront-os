@@ -16,6 +16,7 @@ import { startMarketingJob } from './notify/marketing';
 import { startReviewSyncJob } from './reviews/job';
 import { assertCommunicationSafety } from './comms/mode';
 import { assertOutboundLinkSafety } from './links';
+import { assertManageTokenWrapSafety } from './public/bookingToken';
 
 /**
  * ⭐ 在建服务之前就拦。
@@ -28,6 +29,7 @@ import { assertOutboundLinkSafety } from './links';
 try {
   assertCommunicationSafety();
   assertOutboundLinkSafety();
+  assertManageTokenWrapSafety();
 } catch (e) {
   console.error(e instanceof Error ? e.message : e);
   process.exit(1);

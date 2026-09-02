@@ -61,6 +61,14 @@ for key in APP_JWT_SECRET SUPABASE_URL SUPABASE_ANON_KEY DATABASE_URL \
   STRIPE_WEBHOOK_SECRET STRIPE_PRICE_ESSENTIAL STRIPE_PRICE_GROWTH FORM_ENCRYPTION_KEY; do
   require "$key"
 done
+jwt="$(get APP_JWT_SECRET)"
+[[ ${#jwt} -ge 32 ]] || bad "APP_JWT_SECRET 太短（${#jwt} 字符，至少 32）"
+for key in MANAGE_TOKEN_WRAP_KEY MANAGE_TOKEN_WRAP_KEY_PREVIOUS APP_JWT_SECRET_PREVIOUS; do
+  val="$(get "$key")"
+  if [[ -n "$val" && ${#val} -lt 32 ]]; then
+    bad "${key} 太短（${#val} 字符，至少 32）"
+  fi
+done
 
 stripe_secret=$(get STRIPE_SECRET_KEY)
 stripe_public=$(get STRIPE_PUBLISHABLE_KEY)

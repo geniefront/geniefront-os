@@ -31,6 +31,7 @@ import {
 } from './public/bookingToken';
 import { segmentsOf } from './sms/segments';
 import { hostedManageBookingUrl } from './links';
+import { guestManageLink } from './notify/manageUrl';
 import './handlers/setup';
 import './handlers/shift';
 
@@ -1524,6 +1525,134 @@ describe('hosted manage token resolution', () => {
     expect(booking.durationMin).toBe(items[0]!.duration_min);
     expect(booking.durationMin).not.toBe(items[0]!.duration_min + items[1]!.duration_min);
     expect(booking.items).toHaveLength(2);
+  });
+
+  it('confirm, changed, cancelled, and reminder carry the same token', async () => {
+    __resetRateLimit();
+    const prev = process.env['BOOKING_MANAGE_PAGE_ENABLED'];
+    process.env['BOOKING_MANAGE_PAGE_ENABLED'] = '1';
+    try {
+      for (const eventKey of ['appointment_changed', 'appointment_cancelled', 'appointment_reminder']) {
+        await run('notification.toggleRule', {
+          eventKey, enabled: true, channels: ['sms', 'email'], offsetMin: 0,
+        });
+      }
+      const payload = bookingPayload();
+      Object.assign(payload.customer as { email?: string }, {
+        email: 'same-token@maildrop.cc',
+      });
+      const made = await post('/public/v1/bookings', payload, { 'idempotency-key': randomUUID() });
+      expect(made.statusCode).toBe(201);
+      const token = made.json().manageToken as string;
+      const id = made.json().bookingId as string;
+      const url = hostedManageBookingUrl({ shopSlug: 'lotus-nails', manageToken: token })!;
+
+      const [confirmMail] = await withTenant(tenant, (tx) => tx<{ html: string; text: string }[]>`
+        select body_html as html, body_text as text from email_outbox
+        where entity_id = ${id} and kind = 'appointment_confirm'`);
+      const [confirmSms] = await withTenant(tenant, (tx) => tx<{ body: string }[]>`
+        select body from sms_outbox
+        where entity_id = ${id} and kind = 'appointment_confirm'`);
+      expect(confirmMail!.text).toContain(url);
+      expect(confirmSms!.body).toContain(url);
+
+      const moved = await post(`/public/v1/bookings/${id}/reschedule`, {
+        manageToken: token, last4: last4(), startsAt: nextSlot(),
+      });
+      expect(moved.statusCode).toBe(200);
+      const [changedMail] = await withTenant(tenant, (tx) => tx<{ text: string }[]>`
+        select body_text as text from email_outbox
+        where entity_id = ${id} and kind = 'appointment_changed'`);
+      const [changedSms] = await withTenant(tenant, (tx) => tx<{ body: string }[]>`
+        select body from sms_outbox
+        where entity_id = ${id} and kind = 'appointment_changed'`);
+      expect(`${changedMail?.text ?? ''}\n${changedSms?.body ?? ''}`).toContain(url);
+
+      const other = bookingPayload();
+      Object.assign(other.customer as { email?: string }, { email: 'cancel-token@maildrop.cc' });
+      const made2 = await post('/public/v1/bookings', other, { 'idempotency-key': randomUUID() });
+      expect(made2.statusCode).toBe(201);
+      const token2 = made2.json().manageToken as string;
+      const id2 = made2.json().bookingId as string;
+      const url2 = hostedManageBookingUrl({ shopSlug: 'lotus-nails', manageToken: token2 })!;
+      const cancelled = await post(`/public/v1/bookings/${id2}/cancel`, {
+        manageToken: token2, last4: last4(),
+      });
+      expect(cancelled.statusCode).toBe(200);
+      // Cancelled maps to outbox kind appointment_changed (sql check whitelist).
+      const [cancelMail] = await withTenant(tenant, (tx) => tx<{ text: string }[]>`
+        select body_text as text from email_outbox
+        where entity_id = ${id2} and kind = 'appointment_changed'`);
+      const [cancelSms] = await withTenant(tenant, (tx) => tx<{ body: string }[]>`
+        select body from sms_outbox
+        where entity_id = ${id2} and kind = 'appointment_changed'`);
+      expect(`${cancelMail?.text ?? ''}\n${cancelSms?.body ?? ''}`).toContain(url2);
+
+      const [wrap] = await withTenant(tenant, (tx) => tx<{
+        digest: string; wrapped: Buffer | Uint8Array | null;
+      }[]>`
+        select manage_token_digest as digest, manage_token_wrapped as wrapped
+          from appointments where id = ${id}`);
+      expect(guestManageLink({
+        shopSlug: 'lotus-nails', wrapped: wrap!.wrapped, digest: wrap!.digest,
+      })).toBe(url);
+      expect(guestManageLink({
+        shopSlug: 'lotus-nails', wrapped: wrap!.wrapped, digest: wrap!.digest,
+      })).toContain(token);
+    } finally {
+      if (prev === undefined) delete process.env['BOOKING_MANAGE_PAGE_ENABLED'];
+      else process.env['BOOKING_MANAGE_PAGE_ENABLED'] = prev;
+    }
+  });
+
+  it('corrupt or missing wrap omits the manage link without rotating the token', async () => {
+    __resetRateLimit();
+    const prev = process.env['BOOKING_MANAGE_PAGE_ENABLED'];
+    process.env['BOOKING_MANAGE_PAGE_ENABLED'] = '1';
+    try {
+      const payload = bookingPayload();
+      Object.assign(payload.customer as { email?: string }, {
+        email: 'corrupt-wrap@maildrop.cc',
+      });
+      const made = await post('/public/v1/bookings', payload, { 'idempotency-key': randomUUID() });
+      expect(made.statusCode).toBe(201);
+      const token = made.json().manageToken as string;
+      const id = made.json().bookingId as string;
+      const [before] = await withTenant(tenant, (tx) => tx<{ digest: string }[]>`
+        select manage_token_digest as digest from appointments where id = ${id}`);
+
+      await withTenant(tenant, (tx) => tx`
+        update appointments set manage_token_wrapped = decode('00', 'hex') where id = ${id}`);
+      const moved = await post(`/public/v1/bookings/${id}/reschedule`, {
+        manageToken: token, last4: last4(), startsAt: nextSlot(),
+      });
+      expect(moved.statusCode).toBe(200);
+      const [changedSms] = await withTenant(tenant, (tx) => tx<{ body: string }[]>`
+        select body from sms_outbox
+        where entity_id = ${id} and kind = 'appointment_changed'`);
+      expect(changedSms?.body ?? '').not.toContain(token);
+      expect(changedSms?.body ?? '').not.toContain('#g/');
+
+      await withTenant(tenant, (tx) => tx`
+        update appointments set manage_token_wrapped = null where id = ${id}`);
+      const cancelled = await post(`/public/v1/bookings/${id}/cancel`, {
+        manageToken: token, last4: last4(),
+      });
+      expect(cancelled.statusCode).toBe(200);
+      const [cancelSms] = await withTenant(tenant, (tx) => tx<{ body: string }[]>`
+        select body from sms_outbox
+        where entity_id = ${id} and kind = 'appointment_cancelled'`);
+      expect(cancelSms?.body ?? '').not.toContain(token);
+      expect(cancelSms?.body ?? '').not.toContain('#g/');
+
+      const [after] = await withTenant(tenant, (tx) => tx<{ digest: string }[]>`
+        select manage_token_digest as digest from appointments where id = ${id}`);
+      expect(after!.digest).toBe(before!.digest);
+      expect(after!.digest).toBe(hashManageToken(token));
+    } finally {
+      if (prev === undefined) delete process.env['BOOKING_MANAGE_PAGE_ENABLED'];
+      else process.env['BOOKING_MANAGE_PAGE_ENABLED'] = prev;
+    }
   });
 
   it('stores a wrapped manage token that unwraps to the issued raw token', async () => {
