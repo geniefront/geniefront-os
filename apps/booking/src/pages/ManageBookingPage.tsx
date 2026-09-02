@@ -7,7 +7,7 @@ import {
   type Availability, type ManagedBooking, type Shop,
 } from '../lib/api';
 import {
-  addDays, dateOf, datePage, DAY_PAGE, duration, money, pageOffsetForDate, timeOf, todayIn,
+  dateOf, datePage, DAY_PAGE, duration, money, pageOffsetForDate, timeOf, todayIn,
 } from '../lib/format';
 import { Btn, Card, Loading, Note, PhoneLink, Shell } from '../components/Chrome';
 import { manageTokenFromHash } from '../lib/manageToken';
