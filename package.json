@@ -16,6 +16,7 @@
     "dev:kiosk": "pnpm --filter @gf/ipad dev",
     "dev:platform": "pnpm --filter @gf/platform dev",
     "dev:marketing": "pnpm --filter @gf/marketing dev",
+    "dev:booking": "pnpm --filter @gf/booking dev",
     "local:setup": "bash scripts/local-supabase.sh setup",
     "local:start": "bash scripts/local-supabase.sh start",
     "local:stop": "bash scripts/local-supabase.sh stop",
