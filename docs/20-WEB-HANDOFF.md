@@ -1,5 +1,12 @@
 # apps/web 整改交接
 
+## 2026-09-02 · Hosted booking
+
+`apps/booking` is live in this repo at `book.geniefront.com/{slug}` (local `http://127.0.0.1:5176/{slug}`). Management is `/l/{slug}/g/{token}`. Keep `BOOKING_MANAGE_PAGE_ENABLED` off until that production route is deployed and verified. Full customer accounts remain out of scope. Phone verification (§6.5) remains deferred.
+
+---
+
+
 > 交接时间 2026-08-28。上一轮完成了后台管理前端的多语言改造、假数据清除、打包优化与测试补强。
 > 本文只写**接手者需要知道的**：待办、必须遵守的约定、以及几个会让人踩坑的地方。
 

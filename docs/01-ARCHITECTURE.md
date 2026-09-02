@@ -577,7 +577,7 @@ turn_events: (location, business_date, staff_id, delta, reason, ticket_id, actor
 
 | 层 | 有没有 | 是什么 |
 | :--- | :--- | :--- |
-| **默认层** | ✅ 已完成 | `apps/booking` —— 黑白 / 毛玻璃两套外观，URL 参数可调，可嵌 iframe 也可独立打开。开箱即用，不需要店主做任何设计动作 |
+| **默认层** | ✅ 已完成 | `apps/booking` at `book.geniefront.com/{slug}` — hosted booking plus `/l/{slug}/g/{token}` management. Works without a shop website. Third-party sites may still iframe with a public key. |
 | **配置层** | ⛔ **故意不做** | 店主不能自己调颜色、改排版、拖组件 |
 | **定制层** | 🚧 批 8 | **建站工单**（`storefront_briefs`）—— 店主填一张结构化需求单，AI 出三版，人工精修后上线。见 `docs/17` |
 

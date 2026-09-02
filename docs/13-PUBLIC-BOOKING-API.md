@@ -11,18 +11,28 @@
 
 ---
 
-## 0. 实现状态（2026-08-21）
+## 0. 实现状态（2026-09-02）
 
-✅ **接口已经实现并跑通**（`apps/api/src/public/`，38 项测试）。
+✅ **接口已经实现并跑通**（`apps/api/src/public/`）。
 
-⭐ **而且已经有一张现成的预约页了**（`apps/booking`，默认黑白极简，
-另有毛玻璃可选，手机优先，可嵌 iframe 也可独立打开，外观全由 URL 参数控制）。**多数情况下你不需要读这份文档的
-§4–§7** —— 贴一段 iframe 就完事，见 **[§10](#10-用现成的那张页面最省事)**。
+⭐ **托管预约页 `apps/booking` 已恢复**，部署在 `book.geniefront.com`：
+
+```text
+https://book.geniefront.com/{shop-slug}
+https://book.geniefront.com/l/{shop-slug}/g/{opaque-manage-token}
+```
+
+没有独立官网的店用 slug 链接即可。第三方自定义网站仍可用 public key iframe / API（§10、§3）。
+管理链接在 `BOOKING_MANAGE_PAGE_ENABLED=1` 之后才会写入新的短信/邮件；此前发出的确认仍引导打电话。
+完整客户账号、支付方式、会员与跨预约历史**故意不做**。
+
+**多数情况下你不需要读这份文档的
+§4–§7** —— 贴一段 iframe 或用托管 slug 链接就完事，见 **[§10](#10-用现成的那张页面最省事)**。
 自己做 UI 再来读 §4。
 
 | | |
 | :--- | :--- |
-| ⭐ **现成的预约页** `apps/booking`（黑白 / 毛玻璃两套外观，URL 参数可调，见 §10） | ✅ |
+| ⭐ **现成的预约页** `apps/booking`（slug 托管 + 可选 public-key iframe） | ✅ |
 | `GET /public/v1/shop` / `services` / `availability` | ✅ |
 | `POST /public/v1/bookings`、`GET`/`POST …/:id[/cancel]` | ✅ |
 | Turnstile 校验、三维度限频、蜜罐、未完成预约上限 | ✅ |
@@ -794,9 +804,8 @@ POST /public/v1/bookings       { …, verifyToken }
 
 ## 10. 用现成的那张页面（最省事）
 
-`apps/booking` 是一张做好的预约页 —— **默认黑白（Square Appointments 那一路）、
-手机优先、深浅色自适应**，接的就是上面 §4 那几条接口。
-**长什么样由 URL 参数决定**（§10.4），改一行 `src=` 就换一套。
+`apps/booking` 是一张做好的预约页 —— **手机优先、英文客人界面**，接的就是上面 §4 那几条接口。
+商店的规范地址是 `https://book.geniefront.com/{slug}`。第三方网站仍可用 `?k=pk_…` iframe（下面）。
 
 它有两种活法，你挑一种：
 
@@ -813,7 +822,7 @@ POST /public/v1/bookings       { …, verifyToken }
 | | 从哪来 |
 | :--- | :--- |
 | **门店标识** `pk_…` | 老板在门店系统里 **⚙ 开店配置 → 🌐 官网对接**，点「复制这串标识」 |
-| **页面地址** | `https://book.geniefront.com/`（生产）<br>本地开发 `http://localhost:5176/` |
+| **页面地址** | `https://book.geniefront.com/{slug}`（生产托管）<br>本地开发 `http://localhost:5176/{slug}`<br>第三方 iframe 仍可用 `?k=pk_…` |
 
 ⚠️ 那串 `pk_…` **不是密码**，它本来就要写进你的 HTML。别当密钥藏。
 
@@ -967,3 +976,26 @@ dispatch 的入参都是路由自己拼的。想扩大它的人，改的是
 `public/publicAuth.ts` 文件头那段注释描述的边界 —— 先读那段。
 
 ---
+
+## 12. Hosted booking rollout
+
+Keep `BOOKING_MANAGE_PAGE_ENABLED` off until the production manage route is verified.
+
+1. Merge API/DB work with the flag still empty.
+2. Deploy `apps/booking` to staging (`BOOKING_HOST=staging-book.geniefront.com`).
+3. Staging E2E: slug booking, shop-timezone display, 409 stale slot, last-four reschedule/cancel, cancelled rebook, SMS capture of `/l/{slug}/g/{token}` only after the flag is on in staging.
+4. Deploy booking to production while message links remain off.
+5. Verify production `/{slug}` and `/l/{slug}/g/{token}` with a test tenant.
+6. Set `BOOKING_MANAGE_PAGE_ENABLED=1` only after that route is live.
+7. Pilot one shop, then expand.
+
+Rollback: turning the flag off stops **new** messages from getting manage links. Previously issued links keep working if the booking app stays deployed. Turning off online booking blocks new bookings but not view/cancel/reschedule of existing ones.
+
+E2E still owed before flag-on (browser, not this commit):
+
+- shop with no website copies its URL and books on mobile
+- guest in Los Angeles books a New York shop; displayed times stay New York
+- stale slot 409 reloads availability
+- two guests compete for one slot; one succeeds
+- SMS provider failure leaves the appointment committed
+- booking iframe resizes; management page refuses framing

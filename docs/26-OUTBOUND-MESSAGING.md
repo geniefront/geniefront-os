@@ -273,7 +273,7 @@ AWS 控制台 → SES → Account dashboard → Request production access。
 
 | 项 | 说明 |
 | :--- | :--- |
-| 自助改期页 `/b/:id` | 后端与链接构造就绪，缺前端页面。上线后置 `BOOKING_MANAGE_PAGE_ENABLED=1`。计划做成类似托管预约页的形态，上线之后再说 |
+| 自助改期页 `/l/{slug}/g/{token}` | 前端与 API 已就绪。新短信/邮件里的 `manage_url` 仍由 `BOOKING_MANAGE_PAGE_ENABLED` 控制；生产路由验证前保持关闭。 |
 | 短信侧的投递回执 | Telnyx 的 DLR 回调没接，短信只有「交出去了」没有「送达了」。邮件侧这一半见 §5 |
 
 ---

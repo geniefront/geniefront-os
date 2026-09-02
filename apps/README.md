@@ -10,7 +10,7 @@ GenieFront 多端应用集合。前端按终端形态划分为 **Web 统一端�
 | `api/` | **Fastify 后端服务** | Fastify + Supabase + 命令总线 |
 | [`platform/`](./platform) | **GenieFront 内部运营后台**（超管 / 客服，非客户应用） | React 19 + Vite + Tailwind · **Phase 1 MVP** |
 | [`marketing/`](./marketing) | **公开营销 / 自助开户**（落地定价 → Stripe Hosted Checkout） | React 19 + Vite + Tailwind · **最小生产入口**，不是最终官网 |
-| [`booking/`](./booking) | **托管预约页** `book.geniefront.com/{slug}` | React 19 + Vite + Tailwind · 客人自助预约与管理入口 |
+| [`booking/`](./booking) | **托管预约页** `book.geniefront.com/{slug}` and `/l/{slug}/g/{token}` | React 19 + Vite + Tailwind · English guest booking; manage links stay off until `BOOKING_MANAGE_PAGE_ENABLED=1` |
 
 > 详细开发规范与前后端契约见：[`docs/16-FRONTEND-GUIDE.md`](../docs/16-FRONTEND-GUIDE.md)。
 
