@@ -19,6 +19,7 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/l/:slug/g/:token" element={<ManageBookingPage />} />
+        <Route path="/l/:slug" element={<ManageBookingPage />} />
         <Route path="/:slug" element={<BookPage />} />
         <Route path="*" element={<MissingShop />} />
       </Routes>

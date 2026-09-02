@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import {
   ApiError, cancelManagedBooking, getAvailability, getHostedShop,
   loadManagedBooking, rescheduleManagedBooking, setPublicKey,
@@ -8,13 +8,16 @@ import {
 } from '../lib/api';
 import { addDays, dateOf, duration, money, timeOf, todayIn } from '../lib/format';
 import { Btn, Card, Loading, Note, PhoneLink, Shell } from '../components/Chrome';
+import { manageTokenFromHash } from '../lib/manageToken';
 
 type View = 'detail' | 'reschedule' | 'cancel';
 
 export function ManageBookingPage() {
-  const { slug, token } = useParams();
-  const tokenRef = useRef(token ?? '');
-  tokenRef.current = token ?? '';
+  const { slug, token: pathToken } = useParams();
+  const location = useLocation();
+  const token = pathToken || manageTokenFromHash(location.hash);
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
 
   useEffect(() => {
     let robots = document.querySelector('meta[name="robots"]');

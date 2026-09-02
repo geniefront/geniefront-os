@@ -8,6 +8,7 @@ import {
 import { isEmbedded, reportBooked, reportHeight } from '../lib/embed';
 import { addDays, dateOf, duration, money, prettyPhone, timeOf, toE164, todayIn } from '../lib/format';
 import { saveLastBooking } from '../lib/session';
+import { hostedManagePath } from '../lib/manageToken';
 import { loadTurnstile, type TurnstileApi } from '../lib/turnstile';
 import {
   Btn, CallShop, Card, Dock, Loading, Note, PhoneLink, Shell, Topbar, type BookStep,
@@ -616,7 +617,7 @@ function SuccessStep({
       )}
       {done.manageToken && (
         <p className="mt-3">
-          <Link className="font-semibold text-[var(--brand)] underline" to={`/l/${slug}/g/${done.manageToken}`}>
+          <Link className="font-semibold text-[var(--brand)] underline" to={hostedManagePath(slug, done.manageToken)}>
             View, reschedule, or cancel
           </Link>
         </p>

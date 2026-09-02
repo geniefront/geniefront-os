@@ -82,10 +82,17 @@ import { registerStaffRoutes } from './routes/staff';
 import { registerAiRoutes } from './routes/ai';
 import { registerMiscRoutes } from './routes/misc';
 import { registerPlatformRoutes } from './platform/routes';
+import { LOGGER_REDACT_PATHS } from './logRedact';
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({
-    logger: { level: process.env.LOG_LEVEL ?? 'info' },
+    logger: {
+      level: process.env.LOG_LEVEL ?? 'info',
+      redact: {
+        paths: [...LOGGER_REDACT_PATHS],
+        censor: '[redacted]',
+      },
+    },
     // Cloudflare 在前面，真实 IP 在 CF-Connecting-IP / X-Forwarded-For
     trustProxy: true,
     bodyLimit: 1_000_000,

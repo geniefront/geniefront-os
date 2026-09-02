@@ -321,7 +321,14 @@ https://{$BOOKING_HOST} {
 		-Server
 	}
 
-	log {
+	# Issued manage URLs keep the token in the fragment (#g/...), so
+	# Cloudflare, Logpush, and this access log never see it on the
+	# request line. Discard /l/* entirely so a leftover path-shaped
+	# /l/{slug}/g/{token} request is not captured either.
+	@booking_access {
+		not path /l /l/*
+	}
+	log @booking_access {
 		output stdout
 		format json
 	}

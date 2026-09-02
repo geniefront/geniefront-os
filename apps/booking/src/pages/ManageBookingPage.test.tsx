@@ -75,13 +75,14 @@ function boot(over: Partial<ManageBootstrap['booking']> = {}): ManageBootstrap {
   };
 }
 
-function renderManage(path = '/l/lotus-nails/g/mt_secret') {
+function renderManage(path = '/l/lotus-nails#g/mt_secret') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/l/:slug/g/:token" element={<ManageBookingPage />} />
+          <Route path="/l/:slug" element={<ManageBookingPage />} />
           <Route path="/:slug" element={<div>rebook</div>} />
         </Routes>
       </MemoryRouter>
@@ -104,6 +105,19 @@ beforeEach(() => {
 });
 
 describe('ManageBookingPage', () => {
+  it('bootstraps from the fragment token and still accepts the old path', async () => {
+    const hash = renderManage('/l/lotus-nails#g/mt_secret');
+    await screen.findByText('Gel Manicure');
+    expect(loadManagedBooking).toHaveBeenCalledWith('lotus-nails', 'mt_secret', 'en');
+    hash.unmount();
+
+    loadManagedBooking.mockClear();
+    const legacy = renderManage('/l/lotus-nails/g/mt_legacy');
+    await screen.findByText('Gel Manicure');
+    expect(loadManagedBooking).toHaveBeenCalledWith('lotus-nails', 'mt_legacy', 'en');
+    legacy.unmount();
+  });
+
   it('asks for last four before mutations and does not persist it', async () => {
     const user = userEvent.setup();
     renderManage();

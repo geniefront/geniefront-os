@@ -76,7 +76,7 @@ function renderBook() {
       <MemoryRouter initialEntries={['/lotus-nails']}>
         <Routes>
           <Route path="/:slug" element={<BookPage />} />
-          <Route path="/l/:slug/g/:token" element={<div>manage</div>} />
+          <Route path="/l/:slug" element={<div>manage</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -230,5 +230,7 @@ describe('BookPage', () => {
     expect(stored).toContain('mt_abc');
     expect(stored).not.toContain('Amy Chen');
     expect(stored).not.toContain('6175550199');
+    const manage = screen.getByRole('link', { name: /view, reschedule, or cancel/i });
+    expect(manage.getAttribute('href')).toBe('/l/lotus-nails#g/mt_abc');
   });
 });

@@ -170,7 +170,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
     };
   });
 
-  // Token bootstrap for /l/{slug}/g/{token}. Token is in the JSON body so
+  // Token bootstrap for /l/{slug}#g/{token}. Token is in the JSON body so
   // access logs never contain it.
   // Referrer-Policy on this JSON response is not sufficient: the HTML
   // management document (Task 7) and Caddy/deploy headers (Task 10) must

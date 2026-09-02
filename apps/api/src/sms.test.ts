@@ -151,7 +151,7 @@ describe('文案', () => {
   });
 
   it('a manage URL is GSM-7, may use more than one segment, and never says Reply CANCEL', () => {
-    const url = 'https://book.geniefront.com/l/golden-lotus-nails/g/mt_abcdefghijklmnopqrstuvwx';
+    const url = 'https://book.geniefront.com/l/golden-lotus-nails#g/mt_abcdefghijklmnopqrstuvwx';
     const body = renderConfirmSms({ ...base, manageUrl: url });
     const m = measure(body);
     expect(m.encoding).toBe('GSM-7');

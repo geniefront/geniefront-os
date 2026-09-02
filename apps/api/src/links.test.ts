@@ -273,16 +273,34 @@ describe('具名链接与前端路由一致', () => {
     expect(url).not.toContain(DEFAULT_APP_BASE_URL);
   });
 
-  it('canonical hosted manage URL has slug + token and no public key or appointment id', () => {
+  it('canonical hosted manage URL keeps the token in the fragment, not the path', () => {
     setEnv({ GF_ENV: 'production', BOOKING_MANAGE_PAGE_ENABLED: '1' });
     const url = hostedManageBookingUrl({ shopSlug: 'lotus-nails', manageToken: 'mt_secret' });
-    expect(url).toBe(`${DEFAULT_BOOKING_PAGE_ORIGIN}/l/lotus-nails/g/mt_secret`);
+    expect(url).toBe(`${DEFAULT_BOOKING_PAGE_ORIGIN}/l/lotus-nails#g/mt_secret`);
+    const parsed = new URL(url!);
+    expect(parsed.pathname).toBe('/l/lotus-nails');
+    expect(parsed.pathname).not.toContain('mt_');
+    expect(parsed.hash).toBe('#g/mt_secret');
     expect(url).not.toContain('pk_');
     expect(url).not.toMatch(/\/b\//);
     expect(hostedManageBookingUrl(
       { shopSlug: 'lotus-nails', manageToken: 'mt_secret' },
       { GF_ENV: 'production' },
     )).toBeNull();
+  });
+
+  it('booking Caddy vhost skips /l access logs and keeps frame/referrer protections', () => {
+    const caddy = readFileSync(join(here, '../../../deploy/Caddyfile'), 'utf8');
+    const booking = caddy.slice(caddy.indexOf('https://{$BOOKING_HOST}'));
+    expect(booking).toContain('@manage path /l /l/*');
+    expect(booking).toContain('X-Frame-Options DENY');
+    expect(booking).toContain("Content-Security-Policy \"frame-ancestors 'none'\"");
+    expect(booking).toContain('Referrer-Policy "no-referrer"');
+    expect(booking).toMatch(/@booking_access[\s\S]*not path \/l \/l\/\*/);
+    expect(booking).toMatch(/log @booking_access/);
+    const logBlocks = [...booking.matchAll(/\n\tlog(?:\s+\S+)?\s*\{/g)];
+    expect(logBlocks).toHaveLength(1);
+    expect(logBlocks[0]![0]).toContain('@booking_access');
   });
 
   /**

@@ -273,7 +273,7 @@ AWS 控制台 → SES → Account dashboard → Request production access。
 
 | 项 | 说明 |
 | :--- | :--- |
-| 自助改期页 `/l/{slug}/g/{token}` | 前端与 API 已就绪。新短信/邮件里的 `manage_url` 仍由 `BOOKING_MANAGE_PAGE_ENABLED` 控制；生产路由验证前保持关闭。 |
+| 自助改期页 `/l/{slug}#g/{token}` | 前端与 API 已就绪。令牌在 fragment 里，不进 Caddy/Cloudflare 访问日志。新短信/邮件里的 `manage_url` 仍由 `BOOKING_MANAGE_PAGE_ENABLED` 控制；生产路由验证前保持关闭。 |
 | 短信侧的投递回执 | Telnyx 的 DLR 回调没接，短信只有「交出去了」没有「送达了」。邮件侧这一半见 §5 |
 
 ---

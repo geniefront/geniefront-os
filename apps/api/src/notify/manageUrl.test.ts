@@ -16,7 +16,7 @@ describe('guestManageLink', () => {
       const digest = hashManageToken(token);
       const wrapped = wrapManageToken(token)!;
       const url = guestManageLink({ shopSlug: 'lotus-nails', wrapped, digest });
-      expect(url).toBe(`https://book.geniefront.com/l/lotus-nails/g/${token}`);
+      expect(url).toBe(`https://book.geniefront.com/l/lotus-nails#g/${token}`);
       expect(guestManageLink({ shopSlug: 'lotus-nails', wrapped, digest: hashManageToken('mt_other') }))
         .toBeNull();
       expect(guestManageLink({ shopSlug: 'lotus-nails' })).toBeNull();

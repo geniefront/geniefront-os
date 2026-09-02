@@ -2,7 +2,7 @@
 
 ## 2026-09-02 · Hosted booking
 
-`apps/booking` is live in this repo at `book.geniefront.com/{slug}` (local `http://127.0.0.1:5176/{slug}`). Management is `/l/{slug}/g/{token}`. Keep `BOOKING_MANAGE_PAGE_ENABLED` off until that production route is deployed and verified. Full customer accounts remain out of scope. Phone verification (§6.5) remains deferred.
+`apps/booking` is live in this repo at `book.geniefront.com/{slug}` (local `http://127.0.0.1:5176/{slug}`). Management is `/l/{slug}#g/{token}` so the raw token never enters Caddy or Cloudflare request URIs. Keep `BOOKING_MANAGE_PAGE_ENABLED` off until that production route is deployed and verified. Full customer accounts remain out of scope. Phone verification (§6.5) remains deferred.
 
 ---
 

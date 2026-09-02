@@ -191,7 +191,11 @@ export const PATHS = {
   formIntake: '/forms/intake',
   /** 顾客自助改期 / 取消页，由对外预约页承载 */
   manageBooking: '/b',
-  /** Canonical hosted manage path: /l/{slug}/g/{token} */
+  /**
+   * Canonical hosted manage path: /l/{slug}#g/{token}.
+   * The token stays in the fragment so Caddy, Cloudflare, and access logs
+   * never see it on the request line.
+   */
   hostedManageBooking: '/l',
   /** 营销邮件退订页，由对外预约页承载（无需登录） */
   emailUnsubscribe: '/unsubscribe',
@@ -273,8 +277,14 @@ export function manageBookingUrl(
 }
 
 /**
- * Canonical guest manage URL. Token is in the path; public key and
- * appointment id are not. Still gated by BOOKING_MANAGE_PAGE_ENABLED.
+ * Canonical guest manage URL. Token is in the fragment (`#g/{token}`),
+ * not the request path. Public key and appointment id are not included.
+ * Still gated by BOOKING_MANAGE_PAGE_ENABLED.
+ *
+ * Fragments are not sent to the origin, so Caddy JSON access logs and
+ * Cloudflare/Logpush request URIs cannot capture the raw token. The
+ * booking app still accepts the older `/l/{slug}/g/{token}` path as a
+ * client-side fallback; that path is never issued.
  */
 export function hostedManageBookingUrl(
   args: { shopSlug: string; manageToken: string },
@@ -282,7 +292,7 @@ export function hostedManageBookingUrl(
 ): string | null {
   if (!bookingManagePageEnabled(env)) return null;
   return `${bookingPageOrigin(env)}${PATHS.hostedManageBooking}/${
-    encodeURIComponent(args.shopSlug)}/g/${encodeURIComponent(args.manageToken)}`;
+    encodeURIComponent(args.shopSlug)}#g/${encodeURIComponent(args.manageToken)}`;
 }
 
 /**

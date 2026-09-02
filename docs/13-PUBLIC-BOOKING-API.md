@@ -19,7 +19,7 @@
 
 ```text
 https://book.geniefront.com/{shop-slug}
-https://book.geniefront.com/l/{shop-slug}/g/{opaque-manage-token}
+https://book.geniefront.com/l/{shop-slug}#g/{opaque-manage-token}
 ```
 
 没有独立官网的店用 slug 链接即可。第三方自定义网站仍可用 public key iframe / API（§10、§3）。
@@ -983,9 +983,9 @@ Keep `BOOKING_MANAGE_PAGE_ENABLED` off until the production manage route is veri
 
 1. Merge API/DB work with the flag still empty.
 2. Deploy `apps/booking` to staging (`BOOKING_HOST=staging-book.geniefront.com`).
-3. Staging E2E: slug booking, shop-timezone display, 409 stale slot, last-four reschedule/cancel, cancelled rebook, SMS capture of `/l/{slug}/g/{token}` only after the flag is on in staging.
+3. Staging E2E: slug booking, shop-timezone display, 409 stale slot, last-four reschedule/cancel, cancelled rebook, SMS capture of `/l/{slug}#g/{token}` only after the flag is on in staging.
 4. Deploy booking to production while message links remain off.
-5. Verify production `/{slug}` and `/l/{slug}/g/{token}` with a test tenant.
+5. Verify production `/{slug}` and `/l/{slug}#g/{token}` with a test tenant.
 6. Set `BOOKING_MANAGE_PAGE_ENABLED=1` only after that route is live.
 7. Pilot one shop, then expand.
 

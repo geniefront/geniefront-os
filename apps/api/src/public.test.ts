@@ -30,6 +30,7 @@ import {
   generateConfirmationCode, generateManageToken, hashManageToken, unwrapManageToken,
 } from './public/bookingToken';
 import { segmentsOf } from './sms/segments';
+import { hostedManageBookingUrl } from './links';
 import './handlers/setup';
 import './handlers/shift';
 
@@ -587,7 +588,7 @@ describe('建预约', () => {
       delete from customers where id = ${cust!.id}`);
   });
 
-  it('canonical email manage URL is /l/{slug}/g/{token} when the page flag is on', async () => {
+  it('canonical email manage URL is /l/{slug}#g/{token} when the page flag is on', async () => {
     __resetRateLimit();
     /**
      * Task 4 is backend/token issuance only. SMS still does not embed the
@@ -597,13 +598,9 @@ describe('建预约', () => {
     const prev = process.env['BOOKING_MANAGE_PAGE_ENABLED'];
     process.env['BOOKING_MANAGE_PAGE_ENABLED'] = '1';
     try {
-      const payload = bookingPayload({
-        customer: {
-          name: 'Amy Chen',
-          phone: lastPhone,
-          email: 'guest-manage-url@maildrop.cc',
-          smsOptIn: false,
-        },
+      const payload = bookingPayload();
+      Object.assign(payload.customer as { email?: string }, {
+        email: 'guest-manage-url@maildrop.cc',
       });
       const made = await post('/public/v1/bookings', payload, { 'idempotency-key': randomUUID() });
       expect(made.statusCode).toBe(201);
@@ -612,15 +609,16 @@ describe('建预约', () => {
         select body_html as html, body_text as text from email_outbox
         where entity_id = ${made.json().bookingId} and kind = 'appointment_confirm'`);
       expect(mail).toBeTruthy();
-      expect(mail!.html).toContain('/l/lotus-nails/g/');
+      expect(mail!.html).toContain('/l/lotus-nails#g/');
       expect(mail!.html).toContain(token);
+      expect(mail!.html).not.toContain('/l/lotus-nails/g/');
       expect(mail!.html).not.toContain('/b/');
       expect(mail!.html).not.toContain('k=pk_');
-      expect(mail!.text).toContain(`/l/lotus-nails/g/${token}`);
+      expect(mail!.text).toContain(`/l/lotus-nails#g/${token}`);
       const [sms] = await withTenant(tenant, (tx) => tx<{ body: string; segments: number }[]>`
         select body, segments from sms_outbox
         where entity_id = ${made.json().bookingId} and kind = 'appointment_confirm'`);
-      expect(sms?.body ?? '').toContain(`/l/lotus-nails/g/${token}`);
+      expect(sms?.body ?? '').toContain(`/l/lotus-nails#g/${token}`);
       expect(sms!.body.toUpperCase()).not.toContain('REPLY CANCEL');
       expect(sms!.segments).toBeGreaterThanOrEqual(2);
       expect(sms!.segments).toBe(segmentsOf(sms!.body));
@@ -1325,6 +1323,35 @@ describe('hosted manage token resolution', () => {
     expect(body.booking).not.toHaveProperty('email');
     expect(body.booking).not.toHaveProperty('orgId');
     expect(body.booking).not.toHaveProperty('locationId');
+  });
+
+  it('raw manage token is absent from the issued URL path, audit, and manage JSON', async () => {
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    expect(made.statusCode).toBe(201);
+    const token = made.json().manageToken as string;
+    const prev = process.env['BOOKING_MANAGE_PAGE_ENABLED'];
+    process.env['BOOKING_MANAGE_PAGE_ENABLED'] = '1';
+    try {
+      const url = hostedManageBookingUrl({ shopSlug: 'lotus-nails', manageToken: token })!;
+      const parsed = new URL(url);
+      expect(parsed.pathname).toBe('/l/lotus-nails');
+      expect(parsed.pathname).not.toContain(token);
+      expect(parsed.hash).toBe(`#g/${token}`);
+    } finally {
+      if (prev === undefined) delete process.env['BOOKING_MANAGE_PAGE_ENABLED'];
+      else process.env['BOOKING_MANAGE_PAGE_ENABLED'] = prev;
+    }
+
+    const boot = await managePost({ slug: 'lotus-nails', manageToken: token });
+    expect(boot.statusCode).toBe(200);
+    expect(JSON.stringify(boot.json())).not.toContain(token);
+
+    const [audit] = await withTenant(tenant, (tx) => tx<{ after: unknown }[]>`
+      select after from audit_log
+      where entity_id = ${made.json().bookingId} and command = 'appointment.create'`);
+    expect(JSON.stringify(audit?.after ?? {})).not.toMatch(/mt_/);
+    expect(JSON.stringify(audit?.after ?? {})).not.toContain(token);
   });
 
   it('wrong token and wrong-shop token share the same 404', async () => {

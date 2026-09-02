@@ -50,7 +50,7 @@ export function sameDigest(a: string, b: string): boolean {
  *
  * The database stores only `manage_token_digest`. SHA-256 is not reversible,
  * so a later merchant-initiated reschedule, cancellation, or reminder cannot
- * rebuild `https://book.geniefront.com/l/{slug}/g/{token}` from the row.
+ * rebuild `https://book.geniefront.com/l/{slug}#g/{token}` from the row.
  *
  * Rejected alternatives:
  *   · Mint a new token at notification time — invalidates the confirmation
@@ -78,7 +78,7 @@ export function sameDigest(a: string, b: string): boolean {
  *
  * Task 8 acceptance tests (implement then, not here):
  *   · appointment_changed / cancelled / reminder / confirm include the same
- *     `/l/{slug}/g/{token}` as issuance when unwrap succeeds;
+ *     `/l/{slug}#g/{token}` as issuance when unwrap succeeds;
  *   · missing wrap or failed unwrap omits manage_url rather than rotating;
  *   · raw token is absent from audit, structured logs, and analytics;
  *   · previously issued confirmation links keep working.
