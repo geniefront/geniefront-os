@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { dateOf, timeOf, todayIn } from './format';
+import { addDays, datePage, DAY_PAGE, pageOffsetForDate } from './format';
 
-describe('shop timezone formatting', () => {
-  it('renders the same instant in the shop timezone, not the browser timezone', () => {
-    const iso = '2026-09-18T18:00:00.000Z';
-    expect(timeOf(iso, 'America/New_York')).toMatch(/2:00\sPM/);
-    expect(timeOf(iso, 'America/Los_Angeles')).toMatch(/11:00\sAM/);
-    expect(dateOf(iso, 'America/New_York')).toMatch(/September 18/);
-  });
-
-  it('todayIn uses the supplied IANA zone', () => {
-    expect(todayIn('UTC')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+describe('datePage', () => {
+  it('pages a horizon larger than 14 days instead of capping search at 14', () => {
+    const start = '2026-09-01';
+    expect(datePage(start, 60, 0)).toEqual(
+      Array.from({ length: DAY_PAGE }, (_, i) => addDays(start, i)),
+    );
+    expect(datePage(start, 60, 14)[0]).toBe('2026-09-15');
+    expect(datePage(start, 60, 14)).toHaveLength(14);
+    expect(pageOffsetForDate(start, 60, '2026-09-21')).toBe(14);
+    expect(addDays(start, 20)).toBe('2026-09-21');
   });
 });

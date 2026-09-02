@@ -159,6 +159,16 @@ describe('ManageBookingPage', () => {
     expect(screen.getByText('Book again')).toBeInTheDocument();
   });
 
+  it('pages the manage calendar past 14 days when maxDaysAhead is greater', async () => {
+    const user = userEvent.setup();
+    renderManage();
+    await screen.findByTestId('last4');
+    await user.type(screen.getByTestId('last4'), '4821');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Reschedule' }));
+    expect(screen.getByTestId('later-days')).toBeInTheDocument();
+  });
+
   it('updates the displayed time after a successful reschedule', async () => {
     const user = userEvent.setup();
     rescheduleManagedBooking.mockResolvedValue({

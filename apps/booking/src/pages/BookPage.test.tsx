@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type Availability, type Catalog, type Shop } from '../lib/api';
+import { addDays, todayIn } from '../lib/format';
 import { BookPage } from './BookPage';
 
 const getHostedShop = vi.fn();
@@ -139,6 +140,29 @@ describe('BookPage', () => {
       const last = getAvailability.mock.calls.at(-1)?.[0] as { staffId: string | null };
       expect(last.staffId).toBe('st-1');
     });
+  });
+
+  it('searches past 14 days when maxDaysAhead is greater', async () => {
+    const user = userEvent.setup();
+    const start = todayIn(shop.timezone);
+    const far = addDays(start, 20);
+    getAvailability.mockImplementation(async (q: { date: string }) => {
+      if (q.date === far) return avail({ date: far, slots: [{ startsAt: nySlot, staff: null }] });
+      return avail({ date: q.date, slots: [] });
+    });
+    renderBook();
+    await screen.findByText('Choose a service');
+    await user.click(screen.getByTestId('service-svc-1'));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await screen.findByText('Choose a specialist');
+    await waitFor(() => {
+      const dates = getAvailability.mock.calls.map((c) => (c[0] as { date: string }).date);
+      expect(dates).toContain(far);
+    });
+    await user.click(screen.getByTestId('staff-any'));
+    await screen.findByText('Pick a time');
+    expect(screen.getByTestId(`day-${far}`)).toBeInTheDocument();
+    expect(screen.getByTestId('later-days')).toBeInTheDocument();
   });
 
   it('shows slot times in the shop timezone', async () => {

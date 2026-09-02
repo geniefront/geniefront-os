@@ -43,6 +43,32 @@ export function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Visible day-strip page size. The search horizon is shop.maxDaysAhead. */
+export const DAY_PAGE = 14;
+
+export function diffDays(from: string, to: string): number {
+  const a = new Date(`${from}T12:00:00Z`).getTime();
+  const b = new Date(`${to}T12:00:00Z`).getTime();
+  return Math.round((b - a) / 86_400_000);
+}
+
+export function datePage(start: string, horizon: number, offset: number): string[] {
+  const h = Math.max(1, Math.floor(horizon));
+  const page = Math.min(DAY_PAGE, h);
+  const maxOffset = Math.max(0, h - page);
+  const o = Math.min(Math.max(0, offset), maxOffset);
+  return Array.from({ length: page }, (_, i) => addDays(start, o + i));
+}
+
+export function pageOffsetForDate(start: string, horizon: number, date: string): number {
+  const h = Math.max(1, Math.floor(horizon));
+  const page = Math.min(DAY_PAGE, h);
+  const maxOffset = Math.max(0, h - page);
+  const selected = Math.max(0, diffDays(start, date));
+  const aligned = Math.floor(selected / page) * page;
+  return Math.min(aligned, maxOffset);
+}
+
 export function toE164(raw: string): string | null {
   const d = raw.replace(/\D/g, '');
   if (d.length === 10) return `+1${d}`;

@@ -6,7 +6,10 @@ import {
   type Availability, type BookInput, type Catalog, type Service, type Shop,
 } from '../lib/api';
 import { isEmbedded, reportBooked, reportHeight } from '../lib/embed';
-import { addDays, dateOf, duration, money, prettyPhone, timeOf, toE164, todayIn } from '../lib/format';
+import {
+  addDays, dateOf, datePage, DAY_PAGE, duration, money, pageOffsetForDate,
+  prettyPhone, timeOf, toE164, todayIn,
+} from '../lib/format';
 import { saveLastBooking } from '../lib/session';
 import { hostedManagePath } from '../lib/manageToken';
 import { loadTurnstile, type TurnstileApi } from '../lib/turnstile';
@@ -91,9 +94,12 @@ export function BookPage() {
     }
   }, [queryClient]);
 
-  async function findFirstDay(serviceId: string, addonIds: string[], staffId: string | null, tz: string) {
+  async function findFirstDay(
+    serviceId: string, addonIds: string[], staffId: string | null, tz: string, horizon: number,
+  ) {
     const start = todayIn(tz);
-    for (let i = 0; i < 14; i++) {
+    const days = Math.max(1, horizon);
+    for (let i = 0; i < days; i++) {
       const date = addDays(start, i);
       const a = await loadSlots(date, serviceId, addonIds, staffId);
       if (a && a.slots.length > 0) return date;
@@ -104,14 +110,18 @@ export function BookPage() {
   async function pickService(serviceId: string, addonIds: string[]) {
     if (!shop) return;
     setDraft({ serviceId, addonIds, staffId: null, date: null, startsAt: null });
-    const date = await findFirstDay(serviceId, addonIds, null, shop.timezone);
+    const date = await findFirstDay(
+      serviceId, addonIds, null, shop.timezone, shop.onlineBooking.maxDaysAhead,
+    );
     setDraft((d) => ({ ...d, date }));
     setStep('specialist');
   }
 
   async function pickStaff(staffId: string | null) {
     if (!shop || !draft.serviceId) return;
-    const date = await findFirstDay(draft.serviceId, draft.addonIds, staffId, shop.timezone);
+    const date = await findFirstDay(
+      draft.serviceId, draft.addonIds, staffId, shop.timezone, shop.onlineBooking.maxDaysAhead,
+    );
     setDraft((d) => ({ ...d, staffId, date, startsAt: null }));
     setStep('time');
   }
@@ -416,13 +426,24 @@ function TimeStep({
   onBack: () => void;
 }) {
   const start = todayIn(shop.timezone);
-  const days = Array.from({ length: Math.min(14, shop.onlineBooking.maxDaysAhead) }, (_, i) => addDays(start, i));
+  const horizon = Math.max(1, shop.onlineBooking.maxDaysAhead);
+  const [offset, setOffset] = useState(
+    () => pageOffsetForDate(start, horizon, draft.date ?? start),
+  );
+  const days = datePage(start, horizon, offset);
   return (
     <>
       <Card>
         <h2 className="text-xl font-bold">Pick a time</h2>
         <p className="mt-1 text-sm text-[var(--muted)]">Times are shown in {shop.timezone.replace(/_/g, ' ')}.</p>
         <div className="mt-4 flex gap-2 overflow-x-auto pb-2" data-testid="day-strip">
+          {offset > 0 && (
+            <button type="button" data-testid="earlier-days"
+              onClick={() => setOffset(Math.max(0, offset - DAY_PAGE))}
+              className="min-h-14 min-w-16 rounded-2xl border border-[var(--line)] px-3 text-sm">
+              Earlier
+            </button>
+          )}
           {days.map((d) => (
             <button key={d} type="button" data-testid={`day-${d}`} onClick={() => onDate(d)}
               className={`min-h-14 min-w-16 rounded-2xl border px-3 text-sm ${
@@ -431,6 +452,13 @@ function TimeStep({
               {d.slice(8)}
             </button>
           ))}
+          {offset + DAY_PAGE < horizon && (
+            <button type="button" data-testid="later-days"
+              onClick={() => setOffset(offset + DAY_PAGE)}
+              className="min-h-14 min-w-16 rounded-2xl border border-[var(--line)] px-3 text-sm">
+              Later
+            </button>
+          )}
         </div>
         {busy ? <Loading /> : (
           <ul className="mt-4 grid grid-cols-3 gap-2" data-testid="slots">

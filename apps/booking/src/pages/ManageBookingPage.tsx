@@ -6,7 +6,9 @@ import {
   loadManagedBooking, rescheduleManagedBooking, setPublicKey,
   type Availability, type ManagedBooking, type Shop,
 } from '../lib/api';
-import { addDays, dateOf, duration, money, timeOf, todayIn } from '../lib/format';
+import {
+  addDays, dateOf, datePage, DAY_PAGE, duration, money, pageOffsetForDate, timeOf, todayIn,
+} from '../lib/format';
 import { Btn, Card, Loading, Note, PhoneLink, Shell } from '../components/Chrome';
 import { manageTokenFromHash } from '../lib/manageToken';
 
@@ -350,7 +352,9 @@ function ReschedulePanel({
   }
 
   const start = todayIn(booking.timezone);
-  const days = Array.from({ length: 14 }, (_, i) => addDays(start, i));
+  const horizon = Math.max(1, shop.onlineBooking.maxDaysAhead);
+  const [offset, setOffset] = useState(() => pageOffsetForDate(start, horizon, date));
+  const days = datePage(start, horizon, offset);
 
   return (
     <Card className="mt-5">
@@ -358,7 +362,14 @@ function ReschedulePanel({
       <p className="mt-1 text-sm text-[var(--muted)]">
         Current time and price are not reused for a new booking. Times are {booking.timezone.replace(/_/g, ' ')}.
       </p>
-      <div className="mt-4 flex gap-2 overflow-x-auto pb-2">
+      <div className="mt-4 flex gap-2 overflow-x-auto pb-2" data-testid="manage-day-strip">
+        {offset > 0 && (
+          <button type="button" data-testid="earlier-days"
+            onClick={() => setOffset(Math.max(0, offset - DAY_PAGE))}
+            className="min-h-12 min-w-16 rounded-2xl border border-[var(--line)] px-3 text-sm">
+            Earlier
+          </button>
+        )}
         {days.map((d) => (
           <button key={d} type="button" onClick={() => setDate(d)}
             className={`min-h-12 min-w-16 rounded-2xl border px-3 text-sm ${
@@ -367,6 +378,13 @@ function ReschedulePanel({
             {d.slice(8)}
           </button>
         ))}
+        {offset + DAY_PAGE < horizon && (
+          <button type="button" data-testid="later-days"
+            onClick={() => setOffset(offset + DAY_PAGE)}
+            className="min-h-12 min-w-16 rounded-2xl border border-[var(--line)] px-3 text-sm">
+            Later
+          </button>
+        )}
       </div>
       {loading ? <Loading /> : (
         <ul className="mt-4 grid grid-cols-3 gap-2">
