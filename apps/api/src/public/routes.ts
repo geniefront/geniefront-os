@@ -32,7 +32,10 @@ import { dispatch } from '../bus';
 import { loadSlotContext } from '../queries/slots';
 import { flushEmails } from '../email/flush';
 import { flushSms } from '../sms/flush';
-import { resolveShop, resolveHostedShop, assertOriginAllowed, publicContext, PUBLIC_KEY_HEADER } from './publicAuth';
+import {
+  resolveShop, resolveHostedShop, resolveManagedBooking,
+  assertOriginAllowed, publicContext, PUBLIC_KEY_HEADER,
+} from './publicAuth';
 import { assertHuman } from './turnstile';
 import { checkRateLimits } from './rateLimit';
 import {
@@ -131,6 +134,12 @@ const rescheduleBody = z.object({
   turnstileToken: z.string().min(1).max(4096).optional(),
 });
 
+const hostedManageBody = z.object({
+  slug: z.string().min(1).max(80),
+  manageToken: z.string().min(8).max(200),
+  locale: z.string().max(16).optional(),
+});
+
 export function registerPublicRoutes(app: FastifyInstance): void {
   // ── 1. 门店信息 ───────────────────────────────────────────────────────────
   //
@@ -156,6 +165,56 @@ export function registerPublicRoutes(app: FastifyInstance): void {
       ...publicShopPayload(shop, localeOf(req.query.locale, shop)),
       publicKey: shop.publicKey,
     };
+  });
+
+  // Token bootstrap for /l/{slug}/g/{token}. Token is in the JSON body so
+  // access logs never contain it. Referrer-Policy is set here; the SPA also
+  // sends it on the HTML document (Task 7 / Task 10).
+  app.post<{ Body: unknown }>('/public/v1/hosted/manage', async (req, reply) => {
+    reply.header('Referrer-Policy', 'no-referrer');
+    const parsed = hostedManageBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'booking' } });
+    }
+    const { shop, ref } = await resolveManagedBooking(
+      parsed.data.slug, parsed.data.manageToken);
+    assertOriginAllowed(originOf(req), shop);
+    const locale = localeOf(parsed.data.locale, shop);
+
+    return withTenant(
+      { orgId: shop.orgId, locationId: shop.locationId, membershipId: null },
+      async (tx) => {
+        const [appt] = await tx<{
+          id: string; status: string; starts_at: string; confirmation_code: string | null;
+        }[]>`
+          select id, status, starts_at::text as starts_at, confirmation_code
+            from appointments
+           where id = ${ref.appointmentId} and location_id = ${shop.locationId}`;
+        if (!appt) {
+          throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'booking' } });
+        }
+        const items = await tx<{ name: unknown; starts_at: string; duration_min: number }[]>`
+          select s.name, ai.starts_at::text as starts_at, ai.duration_min
+            from appointment_items ai
+            join services s on s.id = ai.service_id
+           where ai.appointment_id = ${appt.id} order by ai.seq`;
+        return {
+          publicKey: shop.publicKey,
+          shop: publicShopPayload(shop, locale),
+          booking: {
+            bookingId: appt.id,
+            confirmationCode: appt.confirmation_code,
+            status: appt.status,
+            startsAt: appt.starts_at,
+            timezone: shop.timezone,
+            items: items.map((i) => ({
+              name: pickText(i.name, locale),
+              startsAt: i.starts_at,
+              durationMin: i.duration_min,
+            })),
+          },
+        };
+      });
   });
 
   // ── 2. 可在线预约的项目 ───────────────────────────────────────────────────

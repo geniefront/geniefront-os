@@ -6,6 +6,7 @@ export * from './billingLookup';
 export * from './phone';
 export * from './device';
 export * from './publicBooking';
+export * from './bookingManage';
 export * from './formShare';
 export * from './sms';
 export * from './emailSuppression';

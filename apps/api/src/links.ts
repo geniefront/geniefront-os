@@ -191,6 +191,8 @@ export const PATHS = {
   formIntake: '/forms/intake',
   /** 顾客自助改期 / 取消页，由对外预约页承载 */
   manageBooking: '/b',
+  /** Canonical hosted manage path: /l/{slug}/g/{token} */
+  hostedManageBooking: '/l',
   /** 营销邮件退订页，由对外预约页承载（无需登录） */
   emailUnsubscribe: '/unsubscribe',
   /**
@@ -268,6 +270,19 @@ export function manageBookingUrl(
   const q = new URLSearchParams({ t: args.manageToken, k: args.publicKey });
   return `${bookingPageOrigin(env)}${PATHS.manageBooking}/${
     encodeURIComponent(args.appointmentId)}?${q.toString()}`;
+}
+
+/**
+ * Canonical guest manage URL. Token is in the path; public key and
+ * appointment id are not. Still gated by BOOKING_MANAGE_PAGE_ENABLED.
+ */
+export function hostedManageBookingUrl(
+  args: { shopSlug: string; manageToken: string },
+  env: Env = process.env,
+): string | null {
+  if (!bookingManagePageEnabled(env)) return null;
+  return `${bookingPageOrigin(env)}${PATHS.hostedManageBooking}/${
+    encodeURIComponent(args.shopSlug)}/g/${encodeURIComponent(args.manageToken)}`;
 }
 
 /**

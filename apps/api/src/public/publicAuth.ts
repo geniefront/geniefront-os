@@ -33,10 +33,14 @@
  */
 
 import {
-  AppError, ERROR_CODES,
+  AppError, ERROR_CODES, parseShopSlug,
   type CommandContext, type Locale, type Permission,
 } from '@gf/contracts';
-import { withPublicKey, withPublicSlug, type PublicShopRow } from '@gf/db';
+import {
+  withPublicKey, withPublicSlug, lookupByManageDigest,
+  type PublicShopRow, type ManagedBookingRef,
+} from '@gf/db';
+import { hashManageToken } from './bookingToken';
 import { originAllowed, isHostedBookingOrigin } from './origin';
 
 export const PUBLIC_KEY_HEADER = 'x-gf-public-key';
@@ -104,6 +108,36 @@ export async function resolveHostedShop(rawSlug: string): Promise<PublicShopRow>
     throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'shop' } });
   }
   return shop;
+}
+
+const managedNotFound = () =>
+  new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'booking' } });
+
+/**
+ * Resolve a manage token against a hosted slug. Wrong token, wrong shop,
+ * missing appointment, and disabled shop all look the same.
+ * The raw token is hashed immediately and never placed on the error object.
+ */
+export async function resolveManagedBooking(
+  rawSlug: string,
+  rawToken: string,
+): Promise<{ shop: PublicShopRow; ref: ManagedBookingRef }> {
+  if (!rawToken || rawToken.length < 8) throw managedNotFound();
+  const parsed = parseShopSlug(rawSlug);
+  if (!parsed.ok) throw managedNotFound();
+
+  const ref = await lookupByManageDigest(hashManageToken(rawToken)).catch(() => null);
+  if (!ref || ref.slug !== parsed.slug) throw managedNotFound();
+  if (['suspended', 'closed', 'setup'].includes(ref.locationStatus)) {
+    throw managedNotFound();
+  }
+
+  const shop = await withPublicSlug(parsed.slug).catch(() => null);
+  if (!shop || shop.locationId !== ref.locationId) throw managedNotFound();
+  if (['suspended', 'closed', 'setup'].includes(shop.locationStatus)) {
+    throw managedNotFound();
+  }
+  return { shop, ref };
 }
 
 /**

@@ -20,6 +20,7 @@ import {
   formBaseUrl,
   formIntakeUrl,
   gfEnv,
+  hostedManageBookingUrl,
   manageBookingUrl,
   marketingBaseUrl,
   resetRedirectUrl,
@@ -270,6 +271,18 @@ describe('具名链接与前端路由一致', () => {
     expect(url).toBe(`${DEFAULT_BOOKING_PAGE_ORIGIN}/b/a1?t=mt_x&k=pk_1234`);
     // 员工工作台不承载该页面：指过去只会落到登录页
     expect(url).not.toContain(DEFAULT_APP_BASE_URL);
+  });
+
+  it('canonical hosted manage URL has slug + token and no public key or appointment id', () => {
+    setEnv({ GF_ENV: 'production', BOOKING_MANAGE_PAGE_ENABLED: '1' });
+    const url = hostedManageBookingUrl({ shopSlug: 'lotus-nails', manageToken: 'mt_secret' });
+    expect(url).toBe(`${DEFAULT_BOOKING_PAGE_ORIGIN}/l/lotus-nails/g/mt_secret`);
+    expect(url).not.toContain('pk_');
+    expect(url).not.toMatch(/\/b\//);
+    expect(hostedManageBookingUrl(
+      { shopSlug: 'lotus-nails', manageToken: 'mt_secret' },
+      { GF_ENV: 'production' },
+    )).toBeNull();
   });
 
   /**

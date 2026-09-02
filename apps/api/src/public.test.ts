@@ -1114,3 +1114,60 @@ describe('hosted shop slug', () => {
     }
   });
 });
+
+describe('hosted manage token resolution', () => {
+  const managePost = (body: object) => app.inject({
+    method: 'POST',
+    url: '/public/v1/hosted/manage',
+    payload: body,
+    headers: { origin: 'https://book.geniefront.com' },
+  }) as unknown as Promise<Injected>;
+
+  it('resolves a valid token to exactly one appointment and shop', async () => {
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    expect(made.statusCode).toBe(201);
+    const token = made.json().manageToken as string;
+    const shop = await withTenant(tenant, (tx) => tx<{ slug: string }[]>`
+      select slug from locations where id = ${NAIL_LOC}`);
+    const res = await managePost({ slug: shop[0]!.slug, manageToken: token });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['referrer-policy']).toBe('no-referrer');
+    const body = res.json();
+    expect(body.booking.bookingId).toBe(made.json().bookingId);
+    expect(body.booking.status).toBe('booked');
+    expect(body.shop.slug).toBe(shop[0]!.slug);
+    expect(JSON.stringify(body)).not.toContain(token);
+    expect(body).not.toHaveProperty('phone');
+    expect(body.booking).not.toHaveProperty('phone');
+  });
+
+  it('wrong token and wrong-shop token share the same 404', async () => {
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const token = made.json().manageToken as string;
+    const missing = await managePost({ slug: 'lotus-nails', manageToken: generateManageToken() });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().code).toBe('NOT_FOUND');
+    expect(JSON.stringify(missing.json())).not.toMatch(/mt_/);
+
+    const cross = await managePost({ slug: 'golden-foot', manageToken: token });
+    expect(cross.statusCode).toBe(404);
+    expect(cross.json()).toEqual(missing.json());
+  });
+
+  it('cancelled appointments remain resolvable', async () => {
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const token = made.json().manageToken as string;
+    const id = made.json().bookingId as string;
+    const cancel = await post(`/public/v1/bookings/${id}/cancel`,
+      { manageToken: token, last4: last4() });
+    expect(cancel.statusCode).toBe(200);
+
+    const res = await managePost({ slug: 'lotus-nails', manageToken: token });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().booking.status).toBe('cancelled');
+    expect(res.json().booking.bookingId).toBe(id);
+  });
+});
