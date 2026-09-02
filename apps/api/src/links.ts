@@ -58,7 +58,7 @@ const FALLBACK: Record<GfEnv, Record<Site, string>> = {
     app: 'https://staging-desk.geniefront.com',
     marketing: 'https://staging.geniefront.com',
     form: 'https://staging-desk.geniefront.com',
-    booking: 'https://staging-desk.geniefront.com',
+    booking: 'https://staging-book.geniefront.com',
   },
   production: {
     app: 'https://desk.geniefront.com',

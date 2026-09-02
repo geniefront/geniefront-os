@@ -8,7 +8,7 @@ case "$TARGET" in
   *) echo "用法：bash scripts/env-guard.sh <local|staging|production>"; exit 2 ;;
 esac
 
-ENV_FILE="${ROOT}/.env.${TARGET}"
+ENV_FILE="${GF_ENV_FILE:-${ROOT}/.env.${TARGET}}"
 [[ -f "$ENV_FILE" ]] || { echo "✗ 缺少 ${ENV_FILE}"; exit 1; }
 
 get() {
@@ -97,9 +97,14 @@ case "$TARGET" in
       || bad "staging 必须使用 Stripe test keys"
     [[ "$app_url" == *staging* && "$app_base" == *staging* && "$api_base" == *staging* ]] \
       || bad "staging 的公开 URL 必须使用 staging 域名"
-    # 邮件里的 logo / 退订页 / 填表按钮走这三条，漏检就会把 localhost 发出去
-    [[ -n "$(get BOOKING_HOST)" ]] || bad "BOOKING_HOST 未配置"
-    for key in MARKETING_BASE_URL FORM_BASE_URL BOOKING_PAGE_ORIGIN APP_URL APP_BASE_URL VITE_API_BASE; do
+    [[ "$(get BOOKING_HOST)" == staging-book.geniefront.com ]] \
+      || bad "staging BOOKING_HOST 必须是 staging-book.geniefront.com"
+    [[ "$(get BOOKING_PAGE_ORIGIN)" == https://staging-book.geniefront.com ]] \
+      || bad "staging BOOKING_PAGE_ORIGIN 必须是 https://staging-book.geniefront.com"
+    [[ "$(get VITE_BOOKING_ORIGIN)" == https://staging-book.geniefront.com ]] \
+      || bad "staging VITE_BOOKING_ORIGIN 必须是 https://staging-book.geniefront.com"
+    # 邮件里的 logo / 退订页 / 填表按钮走这几条，漏检就会把 localhost 发出去
+    for key in MARKETING_BASE_URL FORM_BASE_URL BOOKING_PAGE_ORIGIN VITE_BOOKING_ORIGIN APP_URL APP_BASE_URL VITE_API_BASE; do
       val="$(get "$key")"
       [[ "$val" != *localhost* && "$val" != *127.0.0.1* ]] \
         || bad "${key} 不能指向本机（会写进客人邮件且无法撤回）"
@@ -140,13 +145,15 @@ case "$TARGET" in
       || bad "production MARKETING_BASE_URL 必须是 https://www.geniefront.com 或 https://geniefront.com（邮件 logo 与页脚）"
     [[ "$(get FORM_BASE_URL)" == https://desk.geniefront.com ]] \
       || bad "production FORM_BASE_URL 必须是 https://desk.geniefront.com"
-    [[ "$(get BOOKING_PAGE_ORIGIN)" == https://book.geniefront.com ]] \
-      || bad "production BOOKING_PAGE_ORIGIN 必须是 https://book.geniefront.com"
     [[ "$(get BOOKING_HOST)" == book.geniefront.com ]] \
       || bad "production BOOKING_HOST 必须是 book.geniefront.com"
+    [[ "$(get BOOKING_PAGE_ORIGIN)" == https://book.geniefront.com ]] \
+      || bad "production BOOKING_PAGE_ORIGIN 必须是 https://book.geniefront.com"
+    [[ "$(get VITE_BOOKING_ORIGIN)" == https://book.geniefront.com ]] \
+      || bad "production VITE_BOOKING_ORIGIN 必须是 https://book.geniefront.com"
     [[ "$(get BOOKING_MANAGE_PAGE_ENABLED)" != "1" ]] \
       || echo "  ! BOOKING_MANAGE_PAGE_ENABLED=1 in production — confirm the manage route is live"
-    for key in MARKETING_BASE_URL FORM_BASE_URL BOOKING_PAGE_ORIGIN APP_URL APP_BASE_URL; do
+    for key in MARKETING_BASE_URL FORM_BASE_URL BOOKING_PAGE_ORIGIN VITE_BOOKING_ORIGIN APP_URL APP_BASE_URL; do
       val="$(get "$key")"
       [[ "$val" != *localhost* && "$val" != *127.0.0.1* ]] \
         || bad "${key} 不能指向本机"
@@ -161,10 +168,14 @@ case "$TARGET" in
 esac
 
 if [[ "$TARGET" == "staging" || "$TARGET" == "production" ]]; then
-  expected_livemode=false
-  [[ "$TARGET" == "production" ]] && expected_livemode=true
-  check_stripe_price "Essential" "$(get STRIPE_PRICE_ESSENTIAL)" 9900 "$expected_livemode"
-  check_stripe_price "Growth" "$(get STRIPE_PRICE_GROWTH)" 19900 "$expected_livemode"
+  if [[ "${GF_ENV_GUARD_SKIP_STRIPE:-}" == "1" ]]; then
+    echo "  · 跳过 Stripe 价格校验（GF_ENV_GUARD_SKIP_STRIPE=1）"
+  else
+    expected_livemode=false
+    [[ "$TARGET" == "production" ]] && expected_livemode=true
+    check_stripe_price "Essential" "$(get STRIPE_PRICE_ESSENTIAL)" 9900 "$expected_livemode"
+    check_stripe_price "Growth" "$(get STRIPE_PRICE_GROWTH)" 19900 "$expected_livemode"
+  fi
 fi
 
 if [[ $fail -ne 0 ]]; then

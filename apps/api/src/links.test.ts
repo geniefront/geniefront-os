@@ -130,12 +130,12 @@ describe('邮件对外链接不得跨环境泄漏', () => {
     );
   });
 
-  it('staging 打开自助改期页时，链接也在 staging-desk，不带本机', () => {
+  it('staging 打开自助改期页时，链接在 staging-book，不带本机', () => {
     setEnv({ GF_ENV: 'staging', BOOKING_MANAGE_PAGE_ENABLED: '1' });
     const url = manageBookingUrl({
       appointmentId: 'a1', manageToken: 'mt_x', publicKey: 'pk_1',
     });
-    expect(url).toBe('https://staging-desk.geniefront.com/b/a1?t=mt_x&k=pk_1');
+    expect(url).toBe('https://staging-book.geniefront.com/b/a1?t=mt_x&k=pk_1');
     expectNoLoopback(url!);
   });
 
@@ -193,7 +193,7 @@ describe('邮件对外链接不得跨环境泄漏', () => {
     });
     const confirmHrefs = hrefs(confirm.html);
     expect(confirmHrefs).toContain('https://staging.geniefront.com');
-    expect(confirm.html).toContain('https://staging-desk.geniefront.com/b/a1?t=mt_x&amp;k=pk_1');
+    expect(confirm.html).toContain('https://staging-book.geniefront.com/b/a1?t=mt_x&amp;k=pk_1');
     expect(confirm.html).toContain('https://staging.geniefront.com/brand/geniefront-logo-email.png');
 
     const invite = renderFormInvite({
