@@ -278,16 +278,24 @@ describe('宪法第 16 条：手机号不是唯一键', () => {
 
 const SPA_LOC = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
 
+/**
+ * Capacity fixtures must not share a seed business date.
+ * Seed V1 writes tickets for the rolling past/future window; deleting those
+ * appointments trips tickets_appointment_id_appointments_id_fk.
+ */
+const CAPACITY_DAY = '2099-06-15';
+
 /** 在足疗店造一张预约，返回 appointment_items 的插入用参数 */
 async function bookInRoom(
   tx: Parameters<Parameters<typeof withTenant>[1]>[0],
   args: { resourceId: string; membershipId: string; startHour: number; hours?: number },
 ) {
+  const start = `${CAPACITY_DAY} ${String(args.startHour).padStart(2, '0')}:00:00+00`;
+  const end = `${CAPACITY_DAY} ${String(args.startHour + (args.hours ?? 1)).padStart(2, '0')}:00:00+00`;
   const [appt] = await tx<{ id: string }[]>`
     insert into appointments (org_id, location_id, business_date, starts_at, ends_at)
-    values (${SPA_ORG}, ${SPA_LOC}, '2026-09-01',
-            ${`2026-09-01 ${String(args.startHour).padStart(2, '0')}:00:00+00`}::timestamptz,
-            ${`2026-09-01 ${String(args.startHour + (args.hours ?? 1)).padStart(2, '0')}:00:00+00`}::timestamptz)
+    values (${SPA_ORG}, ${SPA_LOC}, ${CAPACITY_DAY},
+            ${start}::timestamptz, ${end}::timestamptz)
     returning id`;
   const [svc] = await tx<{ id: string }[]>`
     select id from services where location_id = ${SPA_LOC} limit 1`;
@@ -296,9 +304,7 @@ async function bookInRoom(
       (org_id, location_id, appointment_id, service_id, membership_id, resource_id,
        starts_at, ends_at, price_cents_snapshot, duration_min)
     values (${SPA_ORG}, ${SPA_LOC}, ${appt!.id}, ${svc!.id}, ${args.membershipId},
-            ${args.resourceId},
-            ${`2026-09-01 ${String(args.startHour).padStart(2, '0')}:00:00+00`}::timestamptz,
-            ${`2026-09-01 ${String(args.startHour + (args.hours ?? 1)).padStart(2, '0')}:00:00+00`}::timestamptz,
+            ${args.resourceId}, ${start}::timestamptz, ${end}::timestamptz,
             4000, 60)`;
 }
 
@@ -319,7 +325,7 @@ describe('⭐ 房间多容量（一间房同时服务多人多技师）', () => 
 
   const clean = () => withTenant(
     { orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null },
-    (tx) => tx`delete from appointments where business_date = '2026-09-01'`);
+    (tx) => tx`delete from appointments where business_date = ${CAPACITY_DAY}`);
 
   // 每个用例自己清一遍：容量测试之间互相污染的话，失败信息会指向错的那一条
   beforeEach(async () => { await clean(); });
@@ -349,7 +355,7 @@ describe('⭐ 房间多容量（一间房同时服务多人多技师）', () => 
       const [n] = await tx<{ n: number }[]>`
         select count(*)::int as n from appointment_items ai
         join appointments a on a.id = ai.appointment_id
-        where ai.resource_id = ${roomId} and a.business_date = '2026-09-01'`;
+        where ai.resource_id = ${roomId} and a.business_date = ${CAPACITY_DAY}`;
       expect(n!.n).toBe(3);
     });
     // 第四个还是要被拦下 —— 容量是硬的，不是软告警
@@ -369,7 +375,7 @@ describe('⭐ 房间多容量（一间房同时服务多人多技师）', () => 
       const [n] = await tx<{ n: number }[]>`
         select count(*)::int as n from appointment_items ai
         join appointments a on a.id = ai.appointment_id
-        where ai.resource_id = ${roomId} and a.business_date = '2026-09-01'`;
+        where ai.resource_id = ${roomId} and a.business_date = ${CAPACITY_DAY}`;
       expect(n!.n).toBe(2);
     });
     await clean();
