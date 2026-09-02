@@ -14,6 +14,7 @@ export const ko: TranslationSchema = {
     pricing: '요금제',
     faq: '자주 묻는 질문',
     startTrial: '7일 무료 체험 시작',
+    signIn: '로그인',
     demoTag: '데모 모드',
   },
   hero: {

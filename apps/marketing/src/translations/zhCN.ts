@@ -14,6 +14,7 @@ export const zhCN: TranslationSchema = {
     pricing: '价格方案',
     faq: '常见问题',
     startTrial: '免费试用 7 天',
+    signIn: '登录',
     demoTag: '演示模式',
   },
   hero: {

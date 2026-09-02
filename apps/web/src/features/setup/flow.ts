@@ -33,7 +33,7 @@ export const SETUP_STEPS: SetupStep[] = [
     icon: Store,
     title: '确认门店资料',
     shortTitle: '门店资料',
-    description: '确认店名、地址、电话、时区和营业时间。',
+    description: '可从 Yelp 或官网导入公开资料，再确认店名、地址、电话、时区和营业时间。',
     required: true,
   },
   {
@@ -42,7 +42,7 @@ export const SETUP_STEPS: SetupStep[] = [
     icon: Scissors,
     title: '设置项目与价格',
     shortTitle: '项目价格',
-    description: '建立至少一个可售项目，先确认名称、价格和服务时长。',
+    description: '可拍照识别价目表，或手工建立至少一个可售项目。',
     required: true,
   },
   {

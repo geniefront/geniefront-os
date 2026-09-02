@@ -36,6 +36,13 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       __API_BASE__: JSON.stringify(qaMode ? 'http://127.0.0.1:3000' : (env['VITE_API_BASE'] ?? 'http://localhost:3000')),
+      __DESK_BASE__: JSON.stringify((() => {
+        const configured = env['APP_BASE_URL']?.replace(/\/+$/, '');
+        if (configured) return configured;
+        if (env['GF_ENV'] === 'production') return 'https://desk.geniefront.com';
+        if (env['GF_ENV'] === 'staging') return 'https://staging-desk.geniefront.com';
+        return 'http://127.0.0.1:5177';
+      })()),
     },
   };
 });

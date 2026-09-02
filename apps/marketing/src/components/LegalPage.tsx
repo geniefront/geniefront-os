@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
+import { deskLoginUrl } from '../lib/desk';
 
 export type LegalKind = 'privacy' | 'terms' | 'sms';
 
@@ -257,7 +258,10 @@ export const LegalPage = ({ kind }: { kind: LegalKind }) => {
             <a href="/privacy/" className={`text-xs font-bold ${kind === 'privacy' ? 'text-[#096b61]' : 'text-[#53676a]'}`}>Privacy</a>
             <a href="/terms/" className={`text-xs font-bold ${kind === 'terms' ? 'text-[#096b61]' : 'text-[#53676a]'}`}>Terms</a>
           </nav>
-          <a href="/" className="secondary-button h-10 min-h-0 px-3 text-xs"><ArrowLeft className="h-4 w-4" />Home</a>
+          <div className="flex items-center gap-2">
+            <a href={deskLoginUrl()} data-testid="legal-sign-in" className="inline-flex h-10 items-center rounded-xl px-3 text-xs font-bold text-[#096b61] hover:bg-white">Sign in</a>
+            <a href="/" className="secondary-button h-10 min-h-0 px-3 text-xs"><ArrowLeft className="h-4 w-4" />Home</a>
+          </div>
         </div>
       </header>
 
@@ -290,7 +294,7 @@ export const LegalPage = ({ kind }: { kind: LegalKind }) => {
       <footer className="border-t border-[#dfe5df] bg-white">
         <div className="site-shell flex flex-col gap-4 py-8 text-xs font-semibold text-[#708184] sm:flex-row sm:items-center sm:justify-between">
           <span>© 2026 Jaysen Labs LLC. GenieFront is operated by Jaysen Labs LLC.</span>
-          <div className="flex gap-4"><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a><a href="/sms/">SMS Terms</a></div>
+          <div className="flex flex-wrap gap-4"><a href={deskLoginUrl()}>Sign in</a><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a><a href="/sms/">SMS Terms</a></div>
         </div>
       </footer>
     </div>

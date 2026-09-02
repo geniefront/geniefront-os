@@ -14,6 +14,7 @@ export const en: TranslationSchema = {
     pricing: 'Pricing',
     faq: 'FAQ',
     startTrial: 'Start 7-Day Free Trial',
+    signIn: 'Sign in',
     demoTag: 'Demo Mode',
   },
   hero: {

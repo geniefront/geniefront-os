@@ -73,9 +73,16 @@ Create Credentials → **OAuth client ID** → Web application
 - Authentication → URL Configuration → **Redirect URLs** 白名单里加上前端的落地页：
 
   ```
-  http://localhost:5177/**              # 本地 desk（apps/web）
-  https://desk.geniefront.com/**        # 生产 desk。不要填 .app
+  http://127.0.0.1:5177/**                      # 本地 desk
+  http://localhost:5177/**                      # 本地 desk（有人会敲 localhost）
+  https://staging-desk.geniefront.com/**        # staging desk。漏了会被静默换成 Site URL（localhost）
+  https://desk.geniefront.com/**                # 生产 desk。不要填 .app
   ```
+
+  ⭐ **Site URL** 必须是该环境的 desk 域名（staging 项目填
+  `https://staging-desk.geniefront.com`，生产填 `https://desk.geniefront.com`）。
+  不要留 `http://127.0.0.1:5177`：不在白名单里的 `redirect_to` 会静默换成 Site URL，
+  表现就是 staging 激活信「Your sign-in link」里带着 localhost。
 
   ⭐ 这条白名单**同时管三样东西**的落地页，少一个就少一条能用的路：
   Google 登录回跳、激活邮件的 `/activate`、忘记密码的 `/reset-password`。

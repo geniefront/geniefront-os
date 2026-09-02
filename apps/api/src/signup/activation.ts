@@ -40,7 +40,31 @@ export interface ActivationTarget {
  *
  * 此处保留一层再导出，是为了让「激活流程的落点」在本文件中可被检索到。
  */
+import { gfEnv } from '../links';
 export { activationRedirectUrl } from '../links';
+
+/**
+ * GoTrue 会把不在 Redirect URLs 白名单里的 `redirect_to` **静默换成 Site URL**。
+ * Site URL 若还是 localhost，staging 发出的「Your sign-in link」里就是本机地址。
+ * 这边至少拒绝主动传本机落点；白名单必须在 Supabase 控制台配 staging-desk。
+ */
+export function assertSafeAuthRedirect(redirectTo: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(redirectTo);
+  } catch {
+    throw new Error(`activation redirect_to 不是合法 URL：${redirectTo}`);
+  }
+  const loopback = parsed.hostname === '127.0.0.1'
+    || parsed.hostname === 'localhost' || parsed.hostname === '::1';
+  if (gfEnv() !== 'local' && loopback) {
+    throw new Error(
+      `activation redirect_to 在 GF_ENV=${gfEnv()} 下不能是本机地址（${redirectTo}）。`
+      + '把 APP_BASE_URL 配成该环境的 desk 域名。',
+    );
+  }
+  return redirectTo;
+}
 
 /**
  * 发一封激活信。
@@ -59,9 +83,16 @@ export async function sendActivationEmail(t: ActivationTarget): Promise<
   const anon = process.env['SUPABASE_ANON_KEY'];
   if (!url || !anon) return { ok: false, reason: 'supabase_env_missing' };
 
+  let redirectTo: string;
+  try {
+    redirectTo = assertSafeAuthRedirect(t.redirectTo);
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message.slice(0, 200) : 'bad_redirect' };
+  }
+
   try {
     const res = await fetch(
-      `${url.replace(/\/+$/, '')}/auth/v1/otp?redirect_to=${encodeURIComponent(t.redirectTo)}`,
+      `${url.replace(/\/+$/, '')}/auth/v1/otp?redirect_to=${encodeURIComponent(redirectTo)}`,
       {
         method: 'POST',
         headers: { apikey: anon, Authorization: `Bearer ${anon}`, 'Content-Type': 'application/json' },

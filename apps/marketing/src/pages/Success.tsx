@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { CheckCircle2, Clock3, ShieldAlert } from 'lucide-react';
 import { TRIAL_DAYS } from '../lib/plans';
 import { lookupSignupSession, readCheckoutSessionId, type PublicSignupStatus } from '../lib/signupStatus';
+import { deskLoginUrl } from '../lib/desk';
 
 const COPY: Record<PublicSignupStatus, { title: string; message: string; hint?: string }> = {
   confirmed: {
@@ -70,6 +71,7 @@ export function Success() {
           <p className="mt-3 text-sm leading-6 text-[#708184]">{copy.hint}</p>
         )}
         <Link to="/" className="primary-button mt-7">Back to GenieFront</Link>
+        <a href={deskLoginUrl()} className="mt-4 text-sm font-bold text-[#096b61]">Sign in</a>
       </div>
     </main>
   );

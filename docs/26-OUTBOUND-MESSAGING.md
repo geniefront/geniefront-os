@@ -39,70 +39,23 @@
 
 位置：**Supabase 控制台 → Authentication → Email Templates**。
 
-### 3.1 Magic Link（激活信 —— 店主收到的第一封）
+### 3.1 Magic Link（激活 / 登录信）
 
-Subject：
+事实源是仓库里的 HTML，不要在控制台里手改后再和仓库分叉：
 
-```
-Activate your GenieFront account
-```
+- 正文：`supabase/templates/magic_link.html`
+- 主题：`Sign in to GenieFront`
+- 推到托管项目：`SUPABASE_ACCESS_TOKEN=sbp_… node scripts/push-auth-email-templates.mjs`
 
-Body：
-
-```html
-<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.7;color:#211e1b;max-width:520px">
-  <p>Your GenieFront account is ready.</p>
-  <p>Click below to activate it and open your dashboard. This link can only be used once.</p>
-  <p style="margin:28px 0">
-    <a href="{{ .ConfirmationURL }}"
-       style="display:inline-block;background:#0f0f0f;color:#fff;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:600">
-      Activate my account
-    </a>
-  </p>
-  <p style="color:#6b635a;font-size:14px">
-    If the button does not work, copy this link into your browser:<br>
-    <span style="word-break:break-all">{{ .ConfirmationURL }}</span>
-  </p>
-  <p style="color:#6b635a;font-size:14px">
-    If you did not sign up for GenieFront, you can ignore this email.
-  </p>
-  <p style="color:#6b635a;font-size:14px">— GenieFront</p>
-</div>
-```
+本地 `supabase start` 走 `config.toml` 的 `auth.email.template.magic_link`。
+Logo 用 `{{ .SiteURL }}/brand/geniefront-logo-email.png`，所以 Site URL 必须是
+desk 域名（staging-desk / desk），不能是 localhost。
 
 ### 3.2 Reset Password（忘记密码）
 
-Subject：
-
-```
-Reset your GenieFront password
-```
-
-Body：
-
-```html
-<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.7;color:#211e1b;max-width:520px">
-  <p>We received a request to reset your GenieFront password.</p>
-  <p style="margin:28px 0">
-    <a href="{{ .ConfirmationURL }}"
-       style="display:inline-block;background:#0f0f0f;color:#fff;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:600">
-      Set a new password
-    </a>
-  </p>
-  <p style="color:#6b635a;font-size:14px">
-    If the button does not work, copy this link into your browser:<br>
-    <span style="word-break:break-all">{{ .ConfirmationURL }}</span>
-  </p>
-  <p style="color:#6b635a;font-size:14px">
-    <strong>Signed up with Google?</strong> You may not have a password —
-    go back to the sign-in page and use the Google button instead.
-  </p>
-  <p style="color:#6b635a;font-size:14px">
-    If you did not request this, you can ignore this email; your password will not change.
-  </p>
-  <p style="color:#6b635a;font-size:14px">— GenieFront</p>
-</div>
-```
+- 正文：`supabase/templates/recovery.html`
+- 主题：`Reset your GenieFront password`
+- 同一条 push 脚本会一起推。保留「Signed up with Google?」那段（见 `auth/passwordReset.ts`）。
 
 > ⭐ 「Signed up with Google?」那一段不是客套话。用 Google 注册的店主没有密码，
 > 点了忘记密码之后 Supabase **仍然会发信**，点进去能设一个密码 —— 这个行为是
@@ -111,10 +64,11 @@ Body：
 
 ### 3.3 ⚠️ 两条约束
 
-1. **Redirect URLs 白名单要三套环境都加**：
+1. **Redirect URLs 白名单要三套环境都加**，**Site URL 不要留 localhost**：
    `http://127.0.0.1:5177/**`、`https://staging-desk.geniefront.com/**`、
-   `https://desk.geniefront.com/**`。少加一个的表现是「点激活链接跳到
-   `?error=redirect_to_not_allowed`」。
+   `https://desk.geniefront.com/**`。
+   不在白名单里的 `redirect_to` 会被**静默换成 Site URL**。Site URL 若是
+   `http://127.0.0.1:5177`，staging 发出的「Your sign-in link」里就是 localhost。
 2. **不要再用 SES 补发一封「欢迎」信。** 两封信里只有一封的链接是活的，
    店主会点错那封，然后以为系统坏了（docs/12 §2.2）。
 

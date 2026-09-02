@@ -24,6 +24,18 @@ function renderHome() {
   );
 }
 
+describe('Marketing sign-in', () => {
+  it('home nav and footer link to the desk login origin', () => {
+    renderHome();
+    const links = screen.getAllByRole('link', { name: /^sign in$/i });
+    expect(links.length).toBeGreaterThanOrEqual(2);
+    for (const link of links) {
+      expect(link.getAttribute('href')).toMatch(/\/$/);
+      expect(link.getAttribute('href')).not.toContain('localhost:5180');
+    }
+  });
+});
+
 describe('Marketing pricing and signup', () => {
   it('15. both canonical plans render', () => {
     renderHome();

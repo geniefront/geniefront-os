@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { REQUIRED_SETUP_STEP_IDS, SETUP_STEPS } from './flow';
+import { CATALOG_IMPORT_SOURCES, STORE_IMPORT_SOURCES } from './importSources';
 
 describe('setup flow', () => {
   it('keeps the four launch-critical setup steps in order', () => {
@@ -25,5 +26,10 @@ describe('setup flow', () => {
     expect(copy).not.toContain('读卡器');
     expect(copy).not.toContain('通知');
     expect(copy).not.toContain('主页');
+  });
+
+  it('store import is Yelp/website; catalog import is price-list photos', () => {
+    expect([...STORE_IMPORT_SOURCES]).toEqual(['yelp', 'website']);
+    expect([...CATALOG_IMPORT_SOURCES]).toEqual(['menu']);
   });
 });

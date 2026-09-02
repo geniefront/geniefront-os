@@ -21,6 +21,7 @@ export interface TranslationSchema {
     pricing: string;
     faq: string;
     startTrial: string;
+    signIn: string;
     demoTag: string;
   };
   hero: {

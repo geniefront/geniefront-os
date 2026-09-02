@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, XCircle } from 'lucide-react';
+import { deskLoginUrl } from '../lib/desk';
 
 export function Cancel() {
   useEffect(() => {
@@ -23,6 +24,7 @@ export function Cancel() {
         >
           <ArrowLeft className="h-4 w-4" />Back to pricing
         </Link>
+        <a href={deskLoginUrl()} className="mt-4 text-sm font-bold text-[#096b61]">Sign in</a>
       </div>
     </main>
   );

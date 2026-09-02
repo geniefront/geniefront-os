@@ -2,6 +2,7 @@ import React from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { languageOptions } from '../translations';
+import { deskLoginUrl } from '../lib/desk';
 
 export const Footer: React.FC = () => {
   const { t, currentLang, setLanguage } = useLanguage();
@@ -34,6 +35,7 @@ export const Footer: React.FC = () => {
             <h3 className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#7de0c3]">{t.footer.productCol.title}</h3>
             <ul className="mt-4 space-y-3 text-xs font-bold text-white/60">
               {t.footer.productCol.items.slice(0, 6).map((item, index) => <li key={item}><a href={productHrefs[index]} className="hover:text-white">{item}</a></li>)}
+              <li><a href={deskLoginUrl()} data-testid="footer-sign-in" className="hover:text-white">{t.nav.signIn}</a></li>
             </ul>
           </div>
 

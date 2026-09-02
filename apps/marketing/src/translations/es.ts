@@ -14,6 +14,7 @@ export const es: TranslationSchema = {
     pricing: 'Precios',
     faq: 'Preguntas Frecuentes',
     startTrial: 'Prueba Gratis de 7 Días',
+    signIn: 'Iniciar sesión',
     demoTag: 'Modo Demo',
   },
   hero: {

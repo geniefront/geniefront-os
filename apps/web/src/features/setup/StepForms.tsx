@@ -27,6 +27,8 @@ import {
   useSaveStaffProfile,
 } from '@/features/settings/api';
 import type { DeskSettings } from '@/features/settings/types';
+import { ImportWorkspace } from '@/features/setup/ImportWorkspace';
+import { useLanguage } from '@/LanguageContext';
 
 const fieldClass = 'h-11 text-sm';
 const selectClass = 'h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20';
@@ -95,6 +97,7 @@ const DAYS = [
 ] as const;
 
 export function StoreStepForm({ onSaved }: { onSaved: () => void }) {
+  const { t } = useLanguage();
   const { data } = useDeskSettingsQuery();
   const saveProfile = useSaveLocationProfile();
   const saveHours = useSaveBusinessHours();
@@ -142,7 +145,9 @@ export function StoreStepForm({ onSaved }: { onSaved: () => void }) {
 
   return (
     <div className="space-y-6">
-      <StepHeading eyebrow="第 1 步" title="确认门店资料" description="时区和营业时间会直接影响预约、通知、报表与日结，请务必亲眼确认。" />
+      <StepHeading eyebrow="第 1 步" title="确认门店资料" description="可先从 Yelp 或官网导入公开资料，再核对时区和营业时间。这两项会直接影响预约、通知、报表与日结。" />
+      <ImportWorkspace mode="store" initialName={form.name} initialPlace={form.addressZip || form.addressCity} />
+      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">{t('setupImportOrManual')}</p>
       <div className="grid gap-4 md:grid-cols-2">
         <Field label="店铺名称"><Input className={fieldClass} value={form.name} onChange={(e) => update('name', e.target.value)} /></Field>
         <Field label="主营行业">
@@ -197,6 +202,7 @@ export function StoreStepForm({ onSaved }: { onSaved: () => void }) {
 }
 
 export function CatalogStepForm({ onSaved }: { onSaved: () => void }) {
+  const { t } = useLanguage();
   const { data } = useDeskSettingsQuery();
   const saveService = useSaveService();
   const [name, setName] = useState('');
@@ -229,7 +235,9 @@ export function CatalogStepForm({ onSaved }: { onSaved: () => void }) {
 
   return (
     <div className="space-y-6">
-      <StepHeading eyebrow="第 2 步" title="设置项目与价格" description="先建立最常用的项目，之后可以在系统设置中继续补分类、技能和加项。" />
+      <StepHeading eyebrow="第 2 步" title="设置项目与价格" description="可以拍照识别价目表，AI 只生成待确认草案。也可以在下方手工添加最常用的项目。" />
+      <ImportWorkspace mode="catalog" />
+      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">{t('setupImportOrManual')}</p>
       <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-5 md:grid-cols-[1.4fr_.7fr_.7fr_auto]">
         <Field label="项目名称"><Input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：60 分钟足底按摩" /></Field>
         <Field label="价格（美元）"><Input className={fieldClass} type="number" min="0" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="65.00" /></Field>

@@ -4,6 +4,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { languageOptions } from '../translations';
 import { uiText } from '../translations/ui';
 import type { LanguageCode } from '../types/i18n';
+import { deskLoginUrl } from '../lib/desk';
 
 export const Navbar: React.FC = () => {
   const { currentLang, setLanguage, t, openTrialModal } = useLanguage();
@@ -92,6 +93,14 @@ export const Navbar: React.FC = () => {
             )}
           </div>
 
+          <a
+            href={deskLoginUrl()}
+            data-testid="nav-sign-in"
+            className="inline-flex h-10 min-h-10 items-center rounded-xl px-3 text-[13px] font-bold text-[#096b61] transition hover:bg-white/80"
+          >
+            {t.nav.signIn}
+          </a>
+
           <span className="hidden sm:inline-flex">
             <button type="button" onClick={() => openTrialModal()} className="primary-button h-10 min-h-0 px-4">
               {t.nav.startTrial}<ArrowUpRight className="h-4 w-4" />
@@ -112,6 +121,14 @@ export const Navbar: React.FC = () => {
                 {link.label}
               </a>
             ))}
+            <a
+              href={deskLoginUrl()}
+              data-testid="nav-sign-in-mobile"
+              onClick={() => setMobileOpen(false)}
+              className="mt-2 rounded-xl px-3 py-3 text-sm font-bold text-[#096b61] hover:bg-white"
+            >
+              {t.nav.signIn}
+            </a>
             <button type="button" onClick={() => { setMobileOpen(false); openTrialModal(); }} className="primary-button mt-2 w-full">
               {t.nav.startTrial}<ArrowUpRight className="h-4 w-4" />
             </button>

@@ -14,6 +14,7 @@ export const vi: TranslationSchema = {
     pricing: 'Bảng Giá',
     faq: 'Hỏi Đáp (FAQ)',
     startTrial: 'Dùng Thử Miễn Phí 7 Ngày',
+    signIn: 'Đăng nhập',
     demoTag: 'Chế Độ Demo',
   },
   hero: {
