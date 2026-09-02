@@ -26,7 +26,9 @@ import { buildServer } from './server';
 import { __setTurnstileVerifierForTests } from './public/turnstile';
 import { __resetRateLimit } from './public/rateLimit';
 import { normalizeOrigin, originAllowed, isHostedBookingOrigin } from './public/origin';
-import { generateConfirmationCode, generateManageToken, hashManageToken } from './public/bookingToken';
+import {
+  generateConfirmationCode, generateManageToken, hashManageToken, unwrapManageToken,
+} from './public/bookingToken';
 import './handlers/setup';
 import './handlers/shift';
 
@@ -135,6 +137,9 @@ function bookingPayload(over: Record<string, unknown> = {}) {
 
 beforeAll(async () => {
   process.env['NODE_ENV'] = 'test';
+  if (!process.env['APP_JWT_SECRET'] || process.env['APP_JWT_SECRET'].length < 32) {
+    process.env['APP_JWT_SECRET'] = 'public-booking-test-secret-at-least-32-chars';
+  }
   __setTurnstileVerifierForTests(async ({ token }) => {
     // 同一个 token 用第二次一律失败 —— Cloudflare 就是这个行为，
     // 而「重试时忘了 reset widget」是官网那边最容易犯的错
@@ -720,18 +725,39 @@ describe('建预约', () => {
   it('加项挂在主项目上照常能订，时长按两者之和落库', async () => {
     if (!addonId) return;
     __resetRateLimit();
+    const prices = await withTenant(tenant, (tx) => tx<{ id: string; price: number }[]>`
+      select id, base_price_cents as price from services
+      where id = any(${[serviceId, addonId]})`);
+    const byId = new Map(prices.map((p) => [p.id, p.price]));
+    const expectedCents = byId.get(serviceId)! + byId.get(addonId)!;
+
     const res = await post('/public/v1/bookings',
       bookingPayload({ items: [{ serviceId, addonIds: [addonId], staffId: null, startsAt: nextSlot() }] }),
       { 'idempotency-key': randomUUID() });
     expect(res.statusCode).toBe(201);
 
     const [item] = await withTenant(tenant, (tx) => tx<{
-      addon_ids: string[]; duration_min: number;
+      addon_ids: string[]; duration_min: number; price_cents_snapshot: number;
     }[]>`
-      select addon_ids, duration_min from appointment_items
+      select addon_ids, duration_min, price_cents_snapshot from appointment_items
       where appointment_id = ${res.json().bookingId}`);
     expect(item!.addon_ids).toContain(addonId);
     expect(item!.duration_min).toBe(res.json().durationMin);
+    expect(item!.price_cents_snapshot).toBe(expectedCents);
+
+    const shop = await withTenant(tenant, (tx) => tx<{ slug: string }[]>`
+      select slug from locations where id = ${NAIL_LOC}`);
+    const detail = await app.inject({
+      method: 'POST',
+      url: '/public/v1/hosted/manage',
+      payload: { slug: shop[0]!.slug, manageToken: res.json().manageToken },
+      headers: { origin: 'https://book.geniefront.com' },
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().booking.priceCents).toBe(expectedCents);
+    expect(detail.json().booking.priceCents).toBe(
+      byId.get(serviceId)! + byId.get(addonId)!,
+    );
   });
 
   it('太急的单不让在线订，让他打电话', async () => {
@@ -1049,6 +1075,32 @@ describe('自助改期（批 2）', () => {
     expect(res.statusCode).toBe(409);
   });
 
+  it('completed and no_show appointments cannot be cancelled or rescheduled', async () => {
+    for (const status of ['completed', 'no_show'] as const) {
+      __resetRateLimit();
+      const made = await post('/public/v1/bookings', bookingPayload(),
+        { 'idempotency-key': randomUUID() });
+      const { bookingId, manageToken } = made.json();
+      const l4 = last4();
+      await withTenant(tenant, (tx) => tx`
+        update appointments set status = ${status} where id = ${bookingId}`);
+
+      const cancel = await post(`/public/v1/bookings/${bookingId}/cancel`,
+        { manageToken, last4: l4 });
+      expect(cancel.statusCode).toBe(403);
+      expect(cancel.json().details.reason).toBe('not_mutable');
+
+      const reschedule = await post(`/public/v1/bookings/${bookingId}/reschedule`,
+        { manageToken, last4: l4, startsAt: nextSlot() });
+      expect(reschedule.statusCode).toBe(403);
+      expect(reschedule.json().details.reason).toBe('not_mutable');
+
+      const [row] = await withTenant(tenant, (tx) => tx<{ status: string }[]>`
+        select status from appointments where id = ${bookingId}`);
+      expect(row!.status).toBe(status);
+    }
+  });
+
   it('老板关掉改期开关之后这条路就没了（取消不受影响）', async () => {
     __resetRateLimit();
     const made = await post('/public/v1/bookings', bookingPayload(),
@@ -1350,5 +1402,115 @@ describe('hosted manage token resolution', () => {
       expect(res.json().booking.actions.reason).toBe('not_mutable');
       expect(res.json().booking.items[0].name).toBeTruthy();
     }
+  });
+
+  it('top-level timing uses the appointment window, not item sequence', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    expect(made.statusCode).toBe(201);
+    const id = made.json().bookingId as string;
+    const token = made.json().manageToken as string;
+
+    // Keep both items inside the original business day, but reverse seq vs time:
+    // seq 0 starts later, seq 1 starts earlier.
+    await withTenant(tenant, async (tx) => {
+      const [item] = await tx<{ id: string }[]>`
+        select id from appointment_items where appointment_id = ${id}`;
+      await tx`update appointment_items set seq = 1 where id = ${item!.id}`;
+      await tx`
+        insert into appointment_items
+          (org_id, location_id, appointment_id, service_id, addon_ids, membership_id,
+           is_request, resource_id, starts_at, ends_at, price_cents_snapshot,
+           duration_min, seq, details)
+        select org_id, location_id, appointment_id, service_id, addon_ids, membership_id,
+               is_request, resource_id,
+               starts_at + interval '60 minutes',
+               ends_at + interval '60 minutes',
+               price_cents_snapshot, duration_min, 0, details
+          from appointment_items where id = ${item!.id}`;
+      await tx`
+        update appointments set
+          starts_at = (select min(starts_at) from appointment_items where appointment_id = ${id}),
+          ends_at = (select max(ends_at) from appointment_items where appointment_id = ${id})
+        where id = ${id}`;
+    });
+
+    const [appt] = await withTenant(tenant, (tx) => tx<{
+      starts_at: string; ends_at: string;
+    }[]>`
+      select starts_at::text as starts_at, ends_at::text as ends_at
+        from appointments where id = ${id}`);
+    const items = await withTenant(tenant, (tx) => tx<{
+      seq: number; starts_at: string; ends_at: string; duration_min: number;
+    }[]>`
+      select seq, starts_at::text as starts_at, ends_at::text as ends_at, duration_min
+        from appointment_items where appointment_id = ${id} order by seq`);
+    expect(items).toHaveLength(2);
+    expect(items[0]!.starts_at).not.toBe(items[1]!.starts_at);
+    expect(Date.parse(items[0]!.starts_at)).toBeGreaterThan(Date.parse(items[1]!.starts_at));
+
+    const res = await managePost({ slug: 'lotus-nails', manageToken: token });
+    expect(res.statusCode).toBe(200);
+    const booking = res.json().booking;
+    expect(Date.parse(booking.startsAt)).toBe(Date.parse(appt!.starts_at));
+    expect(Date.parse(booking.endsAt)).toBe(Date.parse(appt!.ends_at));
+    expect(Date.parse(booking.startsAt)).not.toBe(Date.parse(items[0]!.starts_at));
+    const elapsed = Math.round(
+      (Date.parse(appt!.ends_at) - Date.parse(appt!.starts_at)) / 60_000);
+    expect(booking.durationMin).toBe(elapsed);
+    const summed = items.reduce((n, i) => n + i.duration_min, 0);
+    expect(booking.durationMin).not.toBe(summed);
+    expect(booking.items[0].startsAt).not.toBe(booking.items[1].startsAt);
+  });
+
+  it('simultaneous party items keep item durations but use the shared window', async () => {
+    __resetRateLimit();
+    const start = nextSlot();
+    const made = await post('/public/v1/bookings',
+      bookingPayload({
+        items: [
+          { serviceId, addonIds: [], staffId: null, startsAt: start },
+          { serviceId, addonIds: [], staffId: null, startsAt: start },
+        ],
+        partySize: 2,
+      }),
+      { 'idempotency-key': randomUUID() });
+    expect(made.statusCode).toBe(201);
+    const id = made.json().bookingId as string;
+    const token = made.json().manageToken as string;
+    const [appt] = await withTenant(tenant, (tx) => tx<{
+      starts_at: string; ends_at: string;
+    }[]>`
+      select starts_at::text as starts_at, ends_at::text as ends_at
+        from appointments where id = ${id}`);
+    const items = await withTenant(tenant, (tx) => tx<{ duration_min: number }[]>`
+      select duration_min from appointment_items where appointment_id = ${id}`);
+    const res = await managePost({ slug: 'lotus-nails', manageToken: token });
+    const booking = res.json().booking;
+    const elapsed = Math.round(
+      (Date.parse(appt!.ends_at) - Date.parse(appt!.starts_at)) / 60_000);
+    expect(booking.durationMin).toBe(elapsed);
+    expect(booking.durationMin).toBe(items[0]!.duration_min);
+    expect(booking.durationMin).not.toBe(items[0]!.duration_min + items[1]!.duration_min);
+    expect(booking.items).toHaveLength(2);
+  });
+
+  it('stores a wrapped manage token that unwraps to the issued raw token', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    expect(made.statusCode).toBe(201);
+    const token = made.json().manageToken as string;
+    const [row] = await withTenant(tenant, (tx) => tx<{
+      digest: string; wrapped: Buffer | Uint8Array | null;
+    }[]>`
+      select manage_token_digest as digest, manage_token_wrapped as wrapped
+        from appointments where id = ${made.json().bookingId}`);
+    expect(row?.digest).toBe(hashManageToken(token));
+    expect(row?.wrapped).toBeTruthy();
+    const wrapped = Buffer.from(row!.wrapped as Buffer);
+    expect(wrapped.includes(Buffer.from(token, 'utf8'))).toBe(false);
+    expect(unwrapManageToken(wrapped, row!.digest)).toBe(token);
   });
 });

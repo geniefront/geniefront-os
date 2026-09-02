@@ -15,7 +15,7 @@ import {
 import { renderConfirm, formatWhen } from '../email/render';
 import { emailConfigured } from '../email/send';
 import { hostedManageBookingUrl } from '../links';
-import { generateManageToken, hashManageToken } from '../public/bookingToken';
+import { generateManageToken, hashManageToken, wrapManageToken } from '../public/bookingToken';
 import { enqueueShopCopy } from '../email/shopCopy';
 import { renderConfirmSms } from '../sms/render';
 import { segmentsOf } from '../sms/segments';
@@ -283,19 +283,21 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
     if (cust?.phone) issuedManageToken = generateManageToken();
   }
   const manageDigest = issuedManageToken ? hashManageToken(issuedManageToken) : null;
+  const manageWrapped = issuedManageToken ? wrapManageToken(issuedManageToken) : null;
 
   // ── 写库 ─────────────────────────────────────────────────────────────────
   const [appt] = await tx<{ id: string }[]>`
     insert into appointments
       (org_id, location_id, customer_id, walk_in_name, business_date,
        starts_at, ends_at, source, party_size, notes, created_by, idempotency_key,
-       confirmation_code, manage_token_digest, is_backfill, backfill_reason, backfill_notes)
+       confirmation_code, manage_token_digest, manage_token_wrapped,
+       is_backfill, backfill_reason, backfill_notes)
     values
       (${ctx.orgId}, ${ctx.locationId}, ${customerId}, ${input.walkInName ?? null},
        ${businessDate}, ${ts(windowStart)}::timestamptz, ${ts(windowEnd)}::timestamptz, ${input.source},
        ${input.partySize}, ${input.notes ?? null}, ${ctx.membershipId}, null,
        ${input.guest?.confirmationCode ?? null},
-       ${manageDigest},
+       ${manageDigest}, ${manageWrapped},
        ${input.isBackfill ?? false}, ${input.backfillReason ?? null}, ${input.backfillNotes ?? null})
     returning id`;
 
@@ -1217,6 +1219,11 @@ async function notifyAppointmentChange(
    */
   const when = formatWhenSms(
     new Date(args.newStartsAt ?? row.starts_at).toISOString(), row.timezone);
+  /*
+   * Task 8: add `manage_url` from `unwrapManageToken(wrapped, digest)` +
+   * `hostedManageBookingUrl`. Do not mint a replacement token. Omit the
+   * variable when unwrap is impossible so previously issued links stay valid.
+   */
   const vars = {
     customer_name: pickText(row.customer_name, 'en', ''),
     shop_name: pickText(row.shop_name, 'en', ''),

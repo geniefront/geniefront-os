@@ -16,6 +16,8 @@ import { jsonb } from '@gf/db';
 const ALWAYS_REDACT = [
   'pinHash', 'pin_hash', 'tokenHash', 'token_hash',
   'password', 'answersEncrypted', 'answers_encrypted',
+  'manageToken', 'manage_token',
+  'manageTokenWrapped', 'manage_token_wrapped',
 ];
 
 /**

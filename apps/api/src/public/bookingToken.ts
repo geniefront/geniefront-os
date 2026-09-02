@@ -23,7 +23,9 @@
  * 把这条路堵死的结果是他直接不来（no-show），那比取消更糟。
  */
 
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import {
+  createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes, timingSafeEqual,
+} from 'node:crypto';
 
 /** 明文令牌：`mt_` + 32 字节随机。前缀是为了在日志里一眼认出来 */
 export function generateManageToken(): string {
@@ -39,6 +41,101 @@ export function sameDigest(a: string, b: string): boolean {
   const ba = Buffer.from(a, 'utf8');
   const bb = Buffer.from(b, 'utf8');
   return ba.length === bb.length && timingSafeEqual(ba, bb);
+}
+
+/**
+ * Reconstructable manage URL for later notifications (Task 8 design lock).
+ *
+ * ## Why wrap exists
+ *
+ * The database stores only `manage_token_digest`. SHA-256 is not reversible,
+ * so a later merchant-initiated reschedule, cancellation, or reminder cannot
+ * rebuild `https://book.geniefront.com/l/{slug}/g/{token}` from the row.
+ *
+ * Rejected alternatives:
+ *   · Mint a new token at notification time — invalidates the confirmation
+ *     link the guest already has.
+ *   · Store the raw token — a dump of appointments would become a pile of
+ *     live management URLs.
+ *   · Put the raw token in audit / application logs / analytics — the token
+ *     is an authorization secret.
+ *   · Switch lookup to a deterministic HMAC(appointmentId) — changes the
+ *     validation contract and cannot recover already-issued random tokens.
+ *
+ * ## Design
+ *
+ * 1. Issuance still generates a random `mt_…` token.
+ * 2. Store SHA-256 digest for lookup and validation (unchanged).
+ * 3. Store AES-256-GCM ciphertext of the raw token in
+ *    `appointments.manage_token_wrapped`. Key is HKDF-SHA-256 of
+ *    `APP_JWT_SECRET` with info `gf-manage-token-wrap:v1`.
+ * 4. Task 8 unwraps inside the notification enqueue path, passes the raw
+ *    token to `hostedManageBookingUrl`, and must not log it.
+ * 5. If wrap/unwrap is impossible (missing secret, legacy row, corrupt
+ *    blob, digest mismatch): omit `manage_url`. Never mint a replacement.
+ *
+ * Blob format: `[12-byte IV][16-byte GCM tag][ciphertext]`.
+ *
+ * Task 8 acceptance tests (implement then, not here):
+ *   · appointment_changed / cancelled / reminder / confirm include the same
+ *     `/l/{slug}/g/{token}` as issuance when unwrap succeeds;
+ *   · missing wrap or failed unwrap omits manage_url rather than rotating;
+ *   · raw token is absent from audit, structured logs, and analytics;
+ *   · previously issued confirmation links keep working.
+ */
+const WRAP_INFO = 'gf-manage-token-wrap:v1';
+const WRAP_IV_BYTES = 12;
+const WRAP_TAG_BYTES = 16;
+
+type Env = Record<string, string | undefined>;
+
+function wrapKey(env: Env = process.env): Buffer | null {
+  const secret = env['APP_JWT_SECRET'];
+  if (!secret) return null;
+  return Buffer.from(hkdfSync('sha256', secret, '', WRAP_INFO, 32));
+}
+
+function asBuffer(value: Buffer | Uint8Array): Buffer {
+  return Buffer.isBuffer(value) ? value : Buffer.from(value);
+}
+
+/** Encrypt a raw manage token for later reconstruction. Null if no wrap key. */
+export function wrapManageToken(token: string, env: Env = process.env): Buffer | null {
+  const key = wrapKey(env);
+  if (!key) return null;
+  const iv = randomBytes(WRAP_IV_BYTES);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const body = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), body]);
+}
+
+/**
+ * Recover the raw manage token for Task 8 URL construction.
+ *
+ * Returns null on any failure. Callers must omit `manage_url` rather than
+ * mint a new token. Never log `wrapped` or the returned token.
+ */
+export function unwrapManageToken(
+  wrapped: Buffer | Uint8Array | null | undefined,
+  digest: string,
+  env: Env = process.env,
+): string | null {
+  const key = wrapKey(env);
+  if (!key || !wrapped || !digest) return null;
+  const blob = asBuffer(wrapped);
+  if (blob.length < WRAP_IV_BYTES + WRAP_TAG_BYTES + 1) return null;
+  try {
+    const iv = blob.subarray(0, WRAP_IV_BYTES);
+    const tag = blob.subarray(WRAP_IV_BYTES, WRAP_IV_BYTES + WRAP_TAG_BYTES);
+    const body = blob.subarray(WRAP_IV_BYTES + WRAP_TAG_BYTES);
+    const decipher = createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    const token = Buffer.concat([decipher.update(body), decipher.final()]).toString('utf8');
+    if (!sameDigest(hashManageToken(token), digest)) return null;
+    return token;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -9,11 +9,16 @@
 
 import {
   pgTable, uuid, text, jsonb, boolean, integer, timestamp, date, index, primaryKey,
+  customType,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { organizations, locations } from './tenancy';
 import { skills } from './identity';
 import { memberships } from './identity';
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => 'bytea',
+});
 
 const id = () => uuid('id').primaryKey().defaultRandom();
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
@@ -221,6 +226,14 @@ export const appointments = pgTable('appointments', {
    */
   confirmationCode: text('confirmation_code'),
   manageTokenDigest: text('manage_token_digest'),
+  /**
+   * AES-256-GCM wrap of the raw manage token (sql/0099).
+   *
+   * Authorization still uses the digest. This blob exists so Task 8 can
+   * reconstruct `manage_url` for later notifications without storing the
+   * raw token in logs or audit, and without minting a second token.
+   */
+  manageTokenWrapped: bytea('manage_token_wrapped'),
   /**
    * 客人自己在网上改过几次期（sql/0040，批 2）。
    *

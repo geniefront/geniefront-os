@@ -15,7 +15,7 @@ export interface GuestActions {
   rescheduleCountLeft: number | null;
 }
 
-export function guestActions(args: {
+export interface GuestPolicyArgs {
   status: string;
   startsAt: string;
   now?: Date;
@@ -24,37 +24,85 @@ export function guestActions(args: {
   rescheduleCutoffHours: number;
   selfRescheduleMax: number;
   selfRescheduleCount: number;
-}): GuestActions {
+}
+
+/**
+ * Shared guest-cancel rule used by both the detail `actions` payload and the
+ * public cancel route.
+ *
+ * `cancelled` returns null so the route can stay idempotent. The detail UI
+ * still hides cancel because `guestActions` requires status `booked`.
+ */
+export function guestCancelBlockReason(args: GuestPolicyArgs): string | null {
+  if (args.status === 'cancelled') return null;
+  if (args.status !== 'booked') return 'not_mutable';
   const now = (args.now ?? new Date()).getTime();
   const start = new Date(args.startsAt).getTime();
-  const booked = args.status === 'booked';
-  const cancelOk = booked && start - now >= args.cancelCutoffHours * 3600_000;
+  if (start - now < args.cancelCutoffHours * 3600_000) return 'cancel_cutoff_passed';
+  return null;
+}
+
+/** Shared guest-reschedule rule. Detail flags and the mutation route agree. */
+export function guestRescheduleBlockReason(args: GuestPolicyArgs): string | null {
+  if (args.status === 'cancelled') return 'already_cancelled';
+  if (args.status !== 'booked') return 'not_mutable';
+  if (!args.rescheduleEnabled) return 'reschedule_disabled';
   const underLimit = args.selfRescheduleMax === 0
     || args.selfRescheduleCount < args.selfRescheduleMax;
-  const rescheduleOk = booked
-    && args.rescheduleEnabled
-    && underLimit
-    && start - now >= args.rescheduleCutoffHours * 3600_000;
+  if (!underLimit) return 'reschedule_limit_reached';
+  const now = (args.now ?? new Date()).getTime();
+  const start = new Date(args.startsAt).getTime();
+  if (start - now < args.rescheduleCutoffHours * 3600_000) {
+    return 'reschedule_cutoff_passed';
+  }
+  return null;
+}
+
+export function guestActions(args: GuestPolicyArgs): GuestActions {
+  const cancelBlock = guestCancelBlockReason(args);
+  const rescheduleBlock = guestRescheduleBlockReason(args);
+  const booked = args.status === 'booked';
+  const canCancel = booked && cancelBlock === null;
+  const canReschedule = rescheduleBlock === null;
 
   let reason: string | null = null;
   if (!booked) reason = 'not_mutable';
-  else if (!args.rescheduleEnabled && !cancelOk) reason = 'reschedule_disabled';
-  else if (!underLimit && !cancelOk) reason = 'reschedule_limit_reached';
-  else if (!rescheduleOk && !cancelOk) reason = 'cutoff_passed';
-  else if (!cancelOk) reason = 'cancel_cutoff_passed';
-  else if (!args.rescheduleEnabled) reason = 'reschedule_disabled';
-  else if (!underLimit) reason = 'reschedule_limit_reached';
-  else if (!rescheduleOk) reason = 'reschedule_cutoff_passed';
+  else if (!args.rescheduleEnabled && !canCancel) reason = 'reschedule_disabled';
+  else if (rescheduleBlock === 'reschedule_limit_reached' && !canCancel) {
+    reason = 'reschedule_limit_reached';
+  } else if (!canReschedule && !canCancel) reason = 'cutoff_passed';
+  else if (!canCancel) reason = 'cancel_cutoff_passed';
+  else if (rescheduleBlock === 'reschedule_disabled') reason = 'reschedule_disabled';
+  else if (rescheduleBlock === 'reschedule_limit_reached') reason = 'reschedule_limit_reached';
+  else if (rescheduleBlock) reason = 'reschedule_cutoff_passed';
 
   return {
-    canReschedule: rescheduleOk,
-    canCancel: cancelOk,
+    canReschedule,
+    canCancel,
     canRebook: true,
     reason,
     rescheduleCountLeft: args.selfRescheduleMax > 0
       ? Math.max(0, args.selfRescheduleMax - args.selfRescheduleCount)
       : null,
   };
+}
+
+/**
+ * Top-level booking window comes from `appointments.starts_at/ends_at`.
+ * Item sequence is not a time order (simultaneous party items, or seq that
+ * does not match end time). Never substitute the current clock.
+ */
+export function bookingWindow(appt: { starts_at: string; ends_at: string }): {
+  startsAt: string;
+  endsAt: string;
+  durationMin: number;
+} {
+  const startMs = Date.parse(appt.starts_at);
+  const endMs = Date.parse(appt.ends_at);
+  const durationMin = Number.isFinite(startMs) && Number.isFinite(endMs)
+    ? Math.max(0, Math.round((endMs - startMs) / 60_000))
+    : 0;
+  return { startsAt: appt.starts_at, endsAt: appt.ends_at, durationMin };
 }
 
 export async function loadManagedBookingDetail(
@@ -66,8 +114,10 @@ export async function loadManagedBookingDetail(
   const [appt] = await tx<{
     id: string; status: string; confirmation_code: string | null;
     self_reschedule_count: number;
+    starts_at: string; ends_at: string;
   }[]>`
-    select id, status, confirmation_code, self_reschedule_count
+    select id, status, confirmation_code, self_reschedule_count,
+           starts_at::text as starts_at, ends_at::text as ends_at
       from appointments
      where id = ${appointmentId} and location_id = ${shop.locationId}`;
   if (!appt) return null;
@@ -93,10 +143,7 @@ export async function loadManagedBookingDetail(
     select id, name from services where id = any(${addonIds})`;
   const addonName = new Map(addonRows.map((r) => [r.id, pickText(r.name, locale)]));
 
-  const first = items[0];
-  const startsAt = first?.starts_at ?? new Date().toISOString();
-  const endsAt = items.at(-1)?.ends_at ?? startsAt;
-  const durationMin = items.reduce((n, i) => n + i.duration_min, 0);
+  const { startsAt, endsAt, durationMin } = bookingWindow(appt);
   const priceCents = items.reduce((n, i) => n + i.price_cents_snapshot, 0);
   const cfg = shop.onlineBooking;
   const actions = guestActions({
@@ -118,7 +165,7 @@ export async function loadManagedBookingDetail(
     timezone: shop.timezone,
     durationMin,
     priceCents,
-    specialistName: first?.specialist ? pickText(first.specialist, locale) : null,
+    specialistName: items[0]?.specialist ? pickText(items[0].specialist, locale) : null,
     items: items.map((i) => ({
       name: pickText(i.name, locale),
       addonNames: (i.addon_ids ?? []).map((id) => addonName.get(id)).filter(Boolean),

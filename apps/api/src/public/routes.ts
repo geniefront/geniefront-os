@@ -36,7 +36,9 @@ import {
   resolveShop, resolveHostedShop, resolveManagedBooking,
   assertOriginAllowed, publicContext, PUBLIC_KEY_HEADER,
 } from './publicAuth';
-import { loadManagedBookingDetail } from './managedDetail';
+import {
+  guestCancelBlockReason, guestRescheduleBlockReason, loadManagedBookingDetail,
+} from './managedDetail';
 import { assertHuman } from './turnstile';
 import { checkRateLimits } from './rateLimit';
 import {
@@ -410,7 +412,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
 
         const items = [];
         for (const item of body.items) {
-          const { durationMin } = await priceAndDuration(
+          const { durationMin, priceCents } = await priceAndDuration(
             tx, shop, item.serviceId, item.addonIds);
 
           const startsAt = new Date(item.startsAt);
@@ -436,6 +438,8 @@ export function registerPublicRoutes(app: FastifyInstance): void {
             startsAt: startsAt.toISOString(),
             details: {},
             durationMin,
+            // Trusted server total (base + add-ons). Never a client-supplied price.
+            priceCentsOverride: priceCents,
           });
         }
         return items;
@@ -561,12 +565,23 @@ export function registerPublicRoutes(app: FastifyInstance): void {
 
       if (appt.status === 'cancelled') return { bookingId: appt.id, status: 'cancelled' };
 
-      const cutoffMs = shop.onlineBooking.cancelCutoffHours * 3600_000;
-      if (new Date(appt.starts_at).getTime() - Date.now() < cutoffMs) {
+      const cfg = shop.onlineBooking;
+      const cancelBlock = guestCancelBlockReason({
+        status: appt.status,
+        startsAt: appt.starts_at,
+        cancelCutoffHours: cfg.cancelCutoffHours,
+        rescheduleEnabled: cfg.rescheduleEnabled,
+        rescheduleCutoffHours: cfg.rescheduleCutoffHours,
+        selfRescheduleMax: cfg.selfRescheduleMax,
+        selfRescheduleCount: appt.self_reschedule_count,
+      });
+      if (cancelBlock) {
         throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
           details: {
-            reason: 'cancel_cutoff_passed',
-            cancelCutoffHours: shop.onlineBooking.cancelCutoffHours,
+            reason: cancelBlock,
+            ...(cancelBlock === 'cancel_cutoff_passed'
+              ? { cancelCutoffHours: cfg.cancelCutoffHours }
+              : {}),
             shopPhone: shop.phone,
           },
         });
@@ -599,11 +614,6 @@ export function registerPublicRoutes(app: FastifyInstance): void {
       assertOriginAllowed(originOf(req), shop, { forWrite: true });
 
       const cfg = shop.onlineBooking;
-      if (!cfg.rescheduleEnabled) {
-        throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
-          details: { reason: 'reschedule_disabled', shopPhone: shop.phone },
-        });
-      }
 
       const parsed = rescheduleBody.safeParse(req.body ?? {});
       if (!parsed.success) {
@@ -641,26 +651,32 @@ export function registerPublicRoutes(app: FastifyInstance): void {
 
       await assertLast4(shop, appt, parsed.data.last4);
 
-      if (appt.status === 'cancelled') {
+      const rescheduleBlock = guestRescheduleBlockReason({
+        status: appt.status,
+        startsAt: appt.starts_at,
+        cancelCutoffHours: cfg.cancelCutoffHours,
+        rescheduleEnabled: cfg.rescheduleEnabled,
+        rescheduleCutoffHours: cfg.rescheduleCutoffHours,
+        selfRescheduleMax: cfg.selfRescheduleMax,
+        selfRescheduleCount: appt.self_reschedule_count,
+      });
+      if (rescheduleBlock === 'already_cancelled') {
         throw new AppError(ERROR_CODES.ALREADY_CANCELLED, {
           details: { bookingId: appt.id, shopPhone: shop.phone },
         });
       }
-
-      // 原单太近了不让改 —— 那时候技师可能已经在准备了，该打电话
-      const cutoffMs = cfg.rescheduleCutoffHours * 3600_000;
-      if (new Date(appt.starts_at).getTime() - Date.now() < cutoffMs) {
+      if (rescheduleBlock) {
         throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
-          details: { reason: 'reschedule_cutoff_passed',
-                     rescheduleCutoffHours: cfg.rescheduleCutoffHours, shopPhone: shop.phone },
-        });
-      }
-
-      // 改够次数了让他打电话。0 = 不限次
-      if (cfg.selfRescheduleMax > 0 && appt.self_reschedule_count >= cfg.selfRescheduleMax) {
-        throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
-          details: { reason: 'reschedule_limit_reached',
-                     selfRescheduleMax: cfg.selfRescheduleMax, shopPhone: shop.phone },
+          details: {
+            reason: rescheduleBlock,
+            ...(rescheduleBlock === 'reschedule_cutoff_passed'
+              ? { rescheduleCutoffHours: cfg.rescheduleCutoffHours }
+              : {}),
+            ...(rescheduleBlock === 'reschedule_limit_reached'
+              ? { selfRescheduleMax: cfg.selfRescheduleMax }
+              : {}),
+            shopPhone: shop.phone,
+          },
         });
       }
 
@@ -696,7 +712,9 @@ export function registerPublicRoutes(app: FastifyInstance): void {
 type Tx = Parameters<Parameters<typeof withTenant>[1]>[0];
 
 /**
- * 项目与加项的时长（和价格，价格只用来兜底校验，最终以 handler 取的库值为准）。
+ * 项目与加项的时长和价格。价格是服务端可信快照（主项目 + 加项），
+ * 通过 `priceCentsOverride` 写入 `appointment_items.price_cents_snapshot`。
+ * 公开入口不接受客人传来的价格。
  *
  * ⚠️ 每一个 id 都必须是**本店、在架、且勾了 online_bookable** 的。
  * 老板故意不勾的项目不能通过「知道 id 就能订」的路绕回来（docs/13 §4.2）。
