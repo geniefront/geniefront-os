@@ -57,6 +57,9 @@ export default defineConfig(({ mode }) => {
       __SUPABASE_URL__: JSON.stringify(supabaseUrl),
       __SUPABASE_ANON_KEY__: JSON.stringify(supabaseAnonKey),
       __API_BASE__: JSON.stringify(qaMode ? 'http://127.0.0.1:3000' : (env['VITE_API_BASE'] ?? 'http://localhost:3000')),
+      __BOOKING_ORIGIN__: JSON.stringify(
+        (env['VITE_BOOKING_ORIGIN'] || env['BOOKING_PAGE_ORIGIN'] || '').split(',')[0].trim().replace(/\/$/, ''),
+      ),
     },
   };
 });

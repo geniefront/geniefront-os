@@ -14,6 +14,8 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
 import { ImageUploader } from '@/components/ui/ImageUploader';
 import { ReviewSourcesPanel } from '@/features/reviews/ReviewSourcesPanel';
+import { HostedBookingChannelCard } from '@/features/settings/HostedBookingChannelCard';
+import { bookingPageOrigin } from '@/features/settings/hostedBookingUrl';
 import {
   Store,
   Scissors,
@@ -1511,6 +1513,23 @@ export function Settings() {
           {/* ============================================================ */}
           {currentTab === 'booking' && (
             <div className="space-y-6">
+              <HostedBookingChannelCard
+                origin={bookingPageOrigin()}
+                slug={storeSlug}
+                bookableCount={settings?.guest.onlineBookableCount ?? 0}
+                saving={saveLocationMutation.isPending}
+                slugError={null}
+                onSaveSlug={async (next) => {
+                  try {
+                    await saveLocationMutation.mutateAsync({ slug: next || undefined });
+                    setStoreSlug(next);
+                    toast.success(t('settings.hostedSlugSaved'));
+                  } catch (err: unknown) {
+                    toast.danger(errorMessage(err));
+                    throw err;
+                  }
+                }}
+              />
               <SettingsCard
                 title={t('settings.stBookingTitle')}
                 description={t('settings.stBookingDesc')}
