@@ -1,7 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { Card, Shell } from './components/Chrome';
 import { BookPage } from './pages/BookPage';
-import { ManagePlaceholderPage } from './pages/ManagePlaceholderPage';
+import { ManageBookingPage } from './pages/ManageBookingPage';
 
 function MissingShop() {
   return (
@@ -18,7 +18,7 @@ export function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/l/:slug/g/:token" element={<ManagePlaceholderPage />} />
+        <Route path="/l/:slug/g/:token" element={<ManageBookingPage />} />
         <Route path="/:slug" element={<BookPage />} />
         <Route path="*" element={<MissingShop />} />
       </Routes>

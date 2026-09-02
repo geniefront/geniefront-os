@@ -36,7 +36,7 @@ async function call<T>(
   method: 'GET' | 'POST', path: string, body?: unknown, idem?: string,
 ): Promise<T> {
   const key = getPublicKey();
-  if (!key && !path.startsWith('/public/v1/hosted/shops/')) {
+  if (!key && !path.startsWith('/public/v1/hosted/')) {
     throw new ApiError('NO_PUBLIC_KEY', 400);
   }
 
@@ -141,13 +141,80 @@ export const getServices = (locale = 'en') =>
   call<Catalog>('GET', `/public/v1/services?locale=${encodeURIComponent(locale)}`);
 
 export const getAvailability = (
-  q: { date: string; serviceId: string; addonIds?: readonly string[]; staffId?: string | null },
+  q: {
+    date: string; serviceId: string; addonIds?: readonly string[];
+    staffId?: string | null; excludeBookingId?: string | null;
+  },
 ) =>
   call<Availability>('GET', `/public/v1/availability?${new URLSearchParams({
     date: q.date, serviceId: q.serviceId,
     ...(q.addonIds?.length ? { addonIds: q.addonIds.join(',') } : {}),
     ...(q.staffId ? { staffId: q.staffId } : {}),
+    ...(q.excludeBookingId ? { excludeBookingId: q.excludeBookingId } : {}),
   })}`);
 
 export const book = (input: BookInput, idem: string) =>
   call<Booked>('POST', '/public/v1/bookings', input, idem);
+
+export interface GuestActions {
+  canReschedule: boolean;
+  canCancel: boolean;
+  canRebook: boolean;
+  reason: string | null;
+  rescheduleCountLeft: number | null;
+}
+
+export interface ManagedBooking {
+  bookingId: string;
+  confirmationCode: string | null;
+  status: string;
+  startsAt: string;
+  endsAt: string;
+  timezone: string;
+  durationMin: number;
+  priceCents: number;
+  specialistName: string | null;
+  items: Array<{
+    serviceId: string;
+    name: string;
+    addonIds: string[];
+    addonNames: string[];
+    startsAt: string;
+    endsAt: string;
+    durationMin: number;
+    priceCents: number;
+    specialistName: string | null;
+  }>;
+  policy: {
+    cancelCutoffHours: number;
+    rescheduleEnabled: boolean;
+    rescheduleCutoffHours: number;
+    selfRescheduleMax: number;
+  };
+  actions: GuestActions;
+}
+
+export interface ManageBootstrap {
+  publicKey: string;
+  shop: Shop;
+  booking: ManagedBooking;
+}
+
+export const loadManagedBooking = (slug: string, manageToken: string, locale = 'en') =>
+  call<ManageBootstrap>('POST', '/public/v1/hosted/manage', { slug, manageToken, locale });
+
+export const cancelManagedBooking = (
+  bookingId: string, manageToken: string, last4?: string,
+) =>
+  call<{ bookingId: string; status: string }>(
+    'POST', `/public/v1/bookings/${bookingId}/cancel`,
+    { manageToken, ...(last4 ? { last4 } : {}) },
+  );
+
+export const rescheduleManagedBooking = (
+  bookingId: string,
+  args: { manageToken: string; last4?: string; startsAt: string },
+) =>
+  call<{ bookingId: string; status: string; startsAt: string; rescheduleCountLeft: number | null }>(
+    'POST', `/public/v1/bookings/${bookingId}/reschedule`, args,
+  );

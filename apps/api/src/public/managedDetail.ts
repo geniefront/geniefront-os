@@ -123,12 +123,12 @@ export async function loadManagedBookingDetail(
   if (!appt) return null;
 
   const items = await tx<{
-    name: unknown; addon_ids: string[];
+    service_id: string; name: unknown; addon_ids: string[];
     starts_at: string; ends_at: string;
     duration_min: number; price_cents_snapshot: number;
     specialist: unknown;
   }[]>`
-    select s.name, ai.addon_ids,
+    select s.id as service_id, s.name, ai.addon_ids,
            ai.starts_at::text as starts_at, ai.ends_at::text as ends_at,
            ai.duration_min, ai.price_cents_snapshot,
            sp.display_name as specialist
@@ -167,7 +167,9 @@ export async function loadManagedBookingDetail(
     priceCents,
     specialistName: items[0]?.specialist ? pickText(items[0].specialist, locale) : null,
     items: items.map((i) => ({
+      serviceId: i.service_id,
       name: pickText(i.name, locale),
+      addonIds: i.addon_ids ?? [],
       addonNames: (i.addon_ids ?? []).map((id) => addonName.get(id)).filter(Boolean),
       startsAt: i.starts_at,
       endsAt: i.ends_at,
