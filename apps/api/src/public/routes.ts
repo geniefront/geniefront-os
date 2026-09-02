@@ -36,6 +36,7 @@ import {
   resolveShop, resolveHostedShop, resolveManagedBooking,
   assertOriginAllowed, publicContext, PUBLIC_KEY_HEADER,
 } from './publicAuth';
+import { loadManagedBookingDetail } from './managedDetail';
 import { assertHuman } from './turnstile';
 import { checkRateLimits } from './rateLimit';
 import {
@@ -168,8 +169,10 @@ export function registerPublicRoutes(app: FastifyInstance): void {
   });
 
   // Token bootstrap for /l/{slug}/g/{token}. Token is in the JSON body so
-  // access logs never contain it. Referrer-Policy is set here; the SPA also
-  // sends it on the HTML document (Task 7 / Task 10).
+  // access logs never contain it.
+  // Referrer-Policy on this JSON response is not sufficient: the HTML
+  // management document (Task 7) and Caddy/deploy headers (Task 10) must
+  // also send Referrer-Policy: no-referrer and refuse framing.
   app.post<{ Body: unknown }>('/public/v1/hosted/manage', async (req, reply) => {
     reply.header('Referrer-Policy', 'no-referrer');
     const parsed = hostedManageBody.safeParse(req.body ?? {});
@@ -184,35 +187,14 @@ export function registerPublicRoutes(app: FastifyInstance): void {
     return withTenant(
       { orgId: shop.orgId, locationId: shop.locationId, membershipId: null },
       async (tx) => {
-        const [appt] = await tx<{
-          id: string; status: string; starts_at: string; confirmation_code: string | null;
-        }[]>`
-          select id, status, starts_at::text as starts_at, confirmation_code
-            from appointments
-           where id = ${ref.appointmentId} and location_id = ${shop.locationId}`;
-        if (!appt) {
+        const booking = await loadManagedBookingDetail(tx, shop, ref.appointmentId, locale);
+        if (!booking) {
           throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'booking' } });
         }
-        const items = await tx<{ name: unknown; starts_at: string; duration_min: number }[]>`
-          select s.name, ai.starts_at::text as starts_at, ai.duration_min
-            from appointment_items ai
-            join services s on s.id = ai.service_id
-           where ai.appointment_id = ${appt.id} order by ai.seq`;
         return {
           publicKey: shop.publicKey,
           shop: publicShopPayload(shop, locale),
-          booking: {
-            bookingId: appt.id,
-            confirmationCode: appt.confirmation_code,
-            status: appt.status,
-            startsAt: appt.starts_at,
-            timezone: shop.timezone,
-            items: items.map((i) => ({
-              name: pickText(i.name, locale),
-              startsAt: i.starts_at,
-              durationMin: i.duration_min,
-            })),
-          },
+          booking,
         };
       });
   });

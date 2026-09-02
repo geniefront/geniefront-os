@@ -690,6 +690,10 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit }: HandlerArgs
     });
   }
 
+  // Capture service/time/staff/phone before items are marked cancelled.
+  // Filtering `status <> 'cancelled'` after the update makes those joins null.
+  const snapshot = await loadChangeNotifySnapshot(tx, appt.id);
+
   await tx`update appointments set
       status = 'cancelled',
       cancelled_at = now(),
@@ -707,6 +711,7 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit }: HandlerArgs
     staffEvent: 'staff_cancelled',
     oldStartsAt: null,
     newStartsAt: null,
+    snapshot,
   });
 
   audit({
@@ -1147,6 +1152,37 @@ registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: Hand
  * ⚠️ 整个函数**不抛错**。这是有意的 —— 通知失败绝不该让一条已经
  * 生效的改期回滚（那会变成「客人以为改好了，其实没改」，比不通知糟得多）。
  */
+type ChangeNotifySnapshot = {
+  email: string | null; phone: string | null; customer_name: unknown;
+  shop_name: unknown; timezone: string;
+  service_name: unknown; staff_name: unknown; staff_phone: string | null;
+  starts_at: string;
+};
+
+async function loadChangeNotifySnapshot(
+  tx: HandlerArgs<unknown>['tx'],
+  appointmentId: string,
+): Promise<ChangeNotifySnapshot | null> {
+  const [row] = await tx<ChangeNotifySnapshot[]>`
+    select c.email, c.phone_e164 as phone, c.display_name as customer_name,
+           l.name as shop_name, l.timezone,
+           s.name as service_name, sp.display_name as staff_name,
+           u.phone as staff_phone,
+           ai.starts_at::text as starts_at
+    from appointments a
+    join locations l on l.id = a.location_id
+    left join appointment_items ai on ai.appointment_id = a.id
+    left join customers c on c.id = a.customer_id
+    left join services s on s.id = ai.service_id
+    left join staff_profiles sp on sp.membership_id = ai.membership_id
+    left join memberships m on m.id = ai.membership_id
+    left join users u on u.id = m.user_id
+    where a.id = ${appointmentId}
+    order by ai.seq
+    limit 1`;
+  return row ?? null;
+}
+
 async function notifyAppointmentChange(
   tx: HandlerArgs<unknown>['tx'],
   ctx: HandlerArgs<unknown>['ctx'],
@@ -1156,29 +1192,10 @@ async function notifyAppointmentChange(
     staffEvent: 'staff_changed' | 'staff_cancelled';
     oldStartsAt: string | null;
     newStartsAt: string | null;
+    snapshot?: ChangeNotifySnapshot | null;
   },
 ): Promise<void> {
-  const [row] = await tx<{
-    email: string | null; phone: string | null; customer_name: unknown;
-    shop_name: unknown; timezone: string;
-    service_name: unknown; staff_name: unknown; staff_phone: string | null;
-    starts_at: string;
-  }[]>`
-    select c.email, c.phone_e164 as phone, c.display_name as customer_name,
-           l.name as shop_name, l.timezone,
-           s.name as service_name, sp.display_name as staff_name,
-           u.phone as staff_phone,
-           ai.starts_at::text as starts_at
-    from appointments a
-    join locations l on l.id = a.location_id
-    left join appointment_items ai on ai.appointment_id = a.id and ai.status <> 'cancelled'
-    left join customers c on c.id = a.customer_id
-    left join services s on s.id = ai.service_id
-    left join staff_profiles sp on sp.membership_id = ai.membership_id
-    left join memberships m on m.id = ai.membership_id
-    left join users u on u.id = m.user_id
-    where a.id = ${args.appointmentId}
-    limit 1`;
+  const row = args.snapshot ?? await loadChangeNotifySnapshot(tx, args.appointmentId);
   if (!row) return;
 
   const [line] = await tx<{ e164: string }[]>`

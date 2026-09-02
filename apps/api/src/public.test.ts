@@ -530,6 +530,96 @@ describe('建预约', () => {
     expect(row?.digest).toMatch(/^[0-9a-f]{64}$/);
     expect(JSON.stringify(row?.after)).not.toMatch(/mt_/);
     expect(row?.after).not.toHaveProperty('manageToken');
+    await withTenant(tenant, (tx) => tx`
+      delete from appointments where id = ${out.result.appointmentId}`);
+  });
+
+  it('phone_manual appointment with a phone also stores a digest', async () => {
+    const [cust] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      select id from customers where org_id = ${NAIL_ORG} and phone_e164 is not null limit 1`);
+    const out = await dispatch<{ appointmentId: string }>(
+      'appointment.create',
+      {
+        customerId: cust!.id,
+        items: [{ serviceId, addonIds: [], membershipId: null, startsAt: nextSlot(), details: {} }],
+        partySize: 1,
+        source: 'phone_manual',
+      },
+      ctx,
+      { idempotencyKey: randomUUID() },
+    );
+    expect(out.result).not.toHaveProperty('manageToken');
+    const [row] = await withTenant(tenant, (tx) => tx<{ digest: string | null }[]>`
+      select manage_token_digest as digest from appointments where id = ${out.result.appointmentId}`);
+    expect(row?.digest).toMatch(/^[0-9a-f]{64}$/);
+    await withTenant(tenant, (tx) => tx`
+      delete from appointments where id = ${out.result.appointmentId}`);
+  });
+
+  it('desk appointment for a customer without a phone does not get a manage digest', async () => {
+    const [cust] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      insert into customers (org_id, primary_location_id, display_name, source)
+      values (${NAIL_ORG}, ${NAIL_LOC}, 'No Phone Guest', 'desk')
+      returning id`);
+    const out = await dispatch<{ appointmentId: string }>(
+      'appointment.create',
+      {
+        customerId: cust!.id,
+        items: [{ serviceId, addonIds: [], membershipId: null, startsAt: nextSlot(), details: {} }],
+        partySize: 1,
+        source: 'desk',
+      },
+      ctx,
+      { idempotencyKey: randomUUID() },
+    );
+    const [row] = await withTenant(tenant, (tx) => tx<{ digest: string | null }[]>`
+      select manage_token_digest as digest from appointments where id = ${out.result.appointmentId}`);
+    expect(row?.digest).toBeNull();
+    await withTenant(tenant, (tx) => tx`
+      delete from appointments where id = ${out.result.appointmentId}`);
+    await withTenant(tenant, (tx) => tx`
+      delete from customers where id = ${cust!.id}`);
+  });
+
+  it('canonical email manage URL is /l/{slug}/g/{token} when the page flag is on', async () => {
+    __resetRateLimit();
+    /**
+     * Task 4 is backend/token issuance only. SMS still does not embed the
+     * manage link (Task 8). Email uses hostedManageBookingUrl, which is
+     * null until BOOKING_MANAGE_PAGE_ENABLED=1.
+     */
+    const prev = process.env['BOOKING_MANAGE_PAGE_ENABLED'];
+    process.env['BOOKING_MANAGE_PAGE_ENABLED'] = '1';
+    try {
+      const payload = bookingPayload({
+        customer: {
+          name: 'Amy Chen',
+          phone: lastPhone,
+          email: 'guest-manage-url@maildrop.cc',
+          smsOptIn: false,
+        },
+      });
+      const made = await post('/public/v1/bookings', payload, { 'idempotency-key': randomUUID() });
+      expect(made.statusCode).toBe(201);
+      const token = made.json().manageToken as string;
+      const [mail] = await withTenant(tenant, (tx) => tx<{ html: string; text: string }[]>`
+        select body_html as html, body_text as text from email_outbox
+        where entity_id = ${made.json().bookingId} and kind = 'appointment_confirm'`);
+      expect(mail).toBeTruthy();
+      expect(mail!.html).toContain('/l/lotus-nails/g/');
+      expect(mail!.html).toContain(token);
+      expect(mail!.html).not.toContain('/b/');
+      expect(mail!.html).not.toContain('k=pk_');
+      expect(mail!.text).toContain(`/l/lotus-nails/g/${token}`);
+      const [sms] = await withTenant(tenant, (tx) => tx<{ body: string }[]>`
+        select body from sms_outbox
+        where entity_id = ${made.json().bookingId} and kind = 'appointment_confirm'`);
+      // Task 8 owns SMS manage_url. Token issuance is complete; delivery is not.
+      expect(sms?.body ?? '').not.toContain('/l/');
+    } finally {
+      if (prev === undefined) delete process.env['BOOKING_MANAGE_PAGE_ENABLED'];
+      else process.env['BOOKING_MANAGE_PAGE_ENABLED'] = prev;
+    }
   });
 
   it('⭐ 同一个幂等键提交两次 → 只建出一条，第二次 200', async () => {
@@ -1168,9 +1258,18 @@ describe('hosted manage token resolution', () => {
     expect(body.booking.bookingId).toBe(made.json().bookingId);
     expect(body.booking.status).toBe('booked');
     expect(body.shop.slug).toBe(shop[0]!.slug);
+    expect(body.booking.actions.canReschedule).toBe(true);
+    expect(body.booking.actions.canCancel).toBe(true);
+    expect(body.booking.actions.canRebook).toBe(true);
+    expect(typeof body.booking.priceCents).toBe('number');
+    expect(body.booking.policy.cancelCutoffHours).toBeGreaterThan(0);
     expect(JSON.stringify(body)).not.toContain(token);
+    expect(JSON.stringify(body)).not.toContain(lastPhone);
     expect(body).not.toHaveProperty('phone');
     expect(body.booking).not.toHaveProperty('phone');
+    expect(body.booking).not.toHaveProperty('email');
+    expect(body.booking).not.toHaveProperty('orgId');
+    expect(body.booking).not.toHaveProperty('locationId');
   });
 
   it('wrong token and wrong-shop token share the same 404', async () => {
@@ -1187,6 +1286,32 @@ describe('hosted manage token resolution', () => {
     expect(cross.json()).toEqual(missing.json());
   });
 
+  it('setup, suspended, and closed shops share the same manage 404 as a missing token', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const token = made.json().manageToken as string;
+    const missing = await managePost({ slug: 'lotus-nails', manageToken: generateManageToken() });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().code).toBe('NOT_FOUND');
+    expect(missing.json().details).toEqual({ entity: 'booking' });
+
+    const [shop] = await withTenant(tenant, (tx) => tx<{ status: string }[]>`
+      select status from locations where id = ${NAIL_LOC}`);
+    try {
+      for (const status of ['setup', 'suspended', 'closed'] as const) {
+        await withTenant(tenant, (tx) => tx`
+          update locations set status = ${status} where id = ${NAIL_LOC}`);
+        const res = await managePost({ slug: 'lotus-nails', manageToken: token });
+        expect(res.statusCode).toBe(404);
+        expect(res.json()).toEqual(missing.json());
+      }
+    } finally {
+      await withTenant(tenant, (tx) => tx`
+        update locations set status = ${shop!.status} where id = ${NAIL_LOC}`);
+    }
+  });
+
   it('cancelled appointments remain resolvable', async () => {
     const made = await post('/public/v1/bookings', bookingPayload(),
       { 'idempotency-key': randomUUID() });
@@ -1200,5 +1325,30 @@ describe('hosted manage token resolution', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().booking.status).toBe('cancelled');
     expect(res.json().booking.bookingId).toBe(id);
+    expect(res.json().booking.actions.canReschedule).toBe(false);
+    expect(res.json().booking.actions.canCancel).toBe(false);
+    expect(res.json().booking.actions.canRebook).toBe(true);
+    expect(res.json().booking.actions.reason).toBe('not_mutable');
+    expect(res.json().booking.items[0].name).toBeTruthy();
+    expect(res.json().booking.startsAt).toBeTruthy();
+  });
+
+  it('completed and no_show appointments are read-only and still show service/time', async () => {
+    for (const status of ['completed', 'no_show'] as const) {
+      __resetRateLimit();
+      const made = await post('/public/v1/bookings', bookingPayload(),
+        { 'idempotency-key': randomUUID() });
+      const token = made.json().manageToken as string;
+      const id = made.json().bookingId as string;
+      await withTenant(tenant, (tx) => tx`
+        update appointments set status = ${status} where id = ${id}`);
+      const res = await managePost({ slug: 'lotus-nails', manageToken: token });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().booking.status).toBe(status);
+      expect(res.json().booking.actions.canReschedule).toBe(false);
+      expect(res.json().booking.actions.canCancel).toBe(false);
+      expect(res.json().booking.actions.reason).toBe('not_mutable');
+      expect(res.json().booking.items[0].name).toBeTruthy();
+    }
   });
 });
