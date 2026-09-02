@@ -66,15 +66,15 @@ let slotSeq = 0;
 // 这个文件的班表夹具会给 bookDate 起 DAYS 天全部灌上 published 班 ——
 // 而 phone.test.ts 靠「第 22 天没人排班」来测「那天没空档 → 往后找三天」。
 // 我把 DAYS 从 14 拉到 40 那次，正好盖住了它，表现是一个完全无关的文件红了。
-const PER_DAY = 7;
+const PER_DAY = 13;
 const DAYS = 14;
 function nextSlot(): string {
   const i = slotSeq++;
   if (i >= PER_DAY * DAYS) throw new Error('测试用的空档发完了 —— 调大 DAYS');
   const day = addDays(bookDate, Math.floor(i / PER_DAY));
-  // 10:30 起每小时一格，到 16:30。Seed has Sunday opening at 10:00,
+  // 10:30 起每半小时一格，到 16:30。Seed has Sunday opening at 10:00,
   // so these slots are inside both the published shift and business hours.
-  const minute = 10 * 60 + 30 + (i % PER_DAY) * 60;
+  const minute = 10 * 60 + 30 + (i % PER_DAY) * 30;
   return wallMinuteToInstant(day, shopTz, minute).toISOString();
 }
 
@@ -1948,6 +1948,58 @@ describe('hosted managed availability', () => {
     expect(pub.statusCode).toBe(200);
     expect(pub.json().durationMin).toBe(svc!.duration_min);
     expect(managed.json().durationMin).toBeGreaterThan(pub.json().durationMin);
+  });
+
+  it('partially cancelled items do not occupy managed availability', async () => {
+    __resetRateLimit();
+    const [sp] = await withTenant(tenant, (tx) => tx<{ n: number }[]>`
+      select max_concurrent_appointments::int as n from staff_profiles
+      where membership_id = ${staffId}`);
+    const cap = Math.max(1, sp?.n ?? 1);
+    const [svc] = await withTenant(tenant, (tx) => tx<{ duration_min: number }[]>`
+      select duration_min from services where id = ${serviceId}`);
+    // Isolated wall times on the last fixture day. nextSlot() is a 30-min
+    // grid; a prior multi-item booking on a max_concurrent=1 specialist
+    // overlaps the next sequential slot and 409s this setup.
+    const day = addDays(bookDate, DAYS - 1);
+    const tA = wallMinuteToInstant(day, shopTz, 11 * 60).toISOString();
+    const tB = wallMinuteToInstant(day, shopTz, 11 * 60 + svc!.duration_min + 15).toISOString();
+    const a = await post('/public/v1/bookings', bookingPayload({
+      items: [{ serviceId, addonIds: [], staffId, startsAt: tA }],
+    }), { 'idempotency-key': randomUUID() });
+    expect(a.statusCode, a.body).toBe(201);
+    const others: string[] = [];
+    for (let i = 0; i < cap; i++) {
+      __resetRateLimit();
+      const b = await post('/public/v1/bookings', bookingPayload({
+        items: [{ serviceId, addonIds: [], staffId, startsAt: tB }],
+      }), { 'idempotency-key': randomUUID() });
+      expect(b.statusCode, b.body).toBe(201);
+      others.push(b.json().bookingId as string);
+    }
+
+    const [row] = await withTenant(tenant, (tx) => tx<{ day: string }[]>`
+      select business_date::text as day from appointments where id = ${a.json().bookingId}`);
+    const before = await availPost({
+      slug: 'lotus-nails', manageToken: a.json().manageToken, date: row!.day,
+    });
+    expect(before.statusCode).toBe(200);
+    const blocked = (before.json().slots as Array<{ startsAt: string }>)
+      .some((s) => Date.parse(s.startsAt) === Date.parse(tB));
+    expect(blocked).toBe(false);
+    expect(others).toHaveLength(cap);
+    const cancelledId = others[0]!;
+
+    await withTenant(tenant, (tx) => tx`
+      update appointment_items set status = 'cancelled'
+      where appointment_id = ${cancelledId}`);
+
+    const after = await availPost({
+      slug: 'lotus-nails', manageToken: a.json().manageToken, date: row!.day,
+    });
+    expect(after.statusCode).toBe(200);
+    expect((after.json().slots as Array<{ startsAt: string }>)
+      .some((s) => Date.parse(s.startsAt) === Date.parse(tB))).toBe(true);
   });
 
   it('wrong token stays a generic 404', async () => {

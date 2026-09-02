@@ -143,7 +143,11 @@ export async function loadManagedAvailability(
       join appointments a on a.id = ai.appointment_id
      where a.location_id = ${shop.locationId}
        and a.business_date = ${date}
-       and a.status <> 'cancelled'
+       -- Same occupancy as appointment.reschedule / sql/0008: only live items.
+       -- Cancelled items on a still-booked appointment (partial cancel) and
+       -- completed / no-show rows must not block a future slot.
+       and ai.status in ('booked', 'in_service')
+       and a.status not in ('cancelled', 'completed', 'no_show')
        and a.id <> ${appointmentId}`;
 
   const busyBy = new Map<string, Interval[]>();
