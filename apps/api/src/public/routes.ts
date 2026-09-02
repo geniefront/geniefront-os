@@ -801,6 +801,16 @@ async function assertNotSquatting(tx: Tx, shop: PublicShopRow, phone: string): P
 }
 
 /**
+ * Sources that may receive a guest manage token and therefore must be able
+ * to cancel / reschedule through the public routes. Hosted manage-detail
+ * lookup does not filter on source; mutations used to, which 404'd desk
+ * and phone-manual links after the detail page loaded.
+ *
+ * Walk-in / kiosk / repeat never mint a manage token, so they stay out.
+ */
+const GUEST_MANAGE_SOURCES = ['web', 'phone_ai', 'desk', 'phone_manual'] as const;
+
+/**
  * 凭 manage token 取一条预约。
  *
  * ⚠️ 令牌不对、预约不存在、不是这家店的 —— **一律 404，措辞一致**。
@@ -828,7 +838,8 @@ async function loadOwnBooking(
            c.phone_e164 as phone
     from appointments a
     left join customers c on c.id = a.customer_id
-    where a.id = ${id} and a.location_id = ${shop.locationId} and a.source = 'web'`;
+    where a.id = ${id} and a.location_id = ${shop.locationId}
+      and a.source in ${tx(GUEST_MANAGE_SOURCES)}`;
 
   if (!row?.manage_token_digest) throw notFound;
   if (!sameDigest(row.manage_token_digest, hashManageToken(token))) throw notFound;

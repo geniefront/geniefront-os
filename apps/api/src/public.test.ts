@@ -16,7 +16,7 @@
  * `docs/13 §9` 的联调里走一次 —— 那一段只有真发一次才算数。
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { withTenant, closeDb } from '@gf/db';
 import { businessDateOf, wallMinuteToInstant } from '@gf/scheduling';
@@ -1515,5 +1515,157 @@ describe('hosted manage token resolution', () => {
     const wrapped = Buffer.from(row!.wrapped as Buffer);
     expect(wrapped.includes(Buffer.from(token, 'utf8'))).toBe(false);
     expect(unwrapManageToken(wrapped, row!.digest)).toBe(token);
+  });
+});
+
+describe('guest manage mutations for desk, phone_manual, and phone_ai', () => {
+  const managePost = (body: object) => app.inject({
+    method: 'POST',
+    url: '/public/v1/hosted/manage',
+    payload: body,
+    headers: { origin: 'https://book.geniefront.com' },
+  }) as unknown as Promise<Injected>;
+
+  async function unwrapIssuedToken(appointmentId: string): Promise<string> {
+    const [row] = await withTenant(tenant, (tx) => tx<{
+      digest: string; wrapped: Buffer | Uint8Array | null;
+    }[]>`
+      select manage_token_digest as digest, manage_token_wrapped as wrapped
+        from appointments where id = ${appointmentId}`);
+    const token = unwrapManageToken(row?.wrapped, row!.digest);
+    if (!token) throw new Error('expected a reconstructable manage token');
+    return token;
+  }
+
+  async function createDeskLike(
+    source: 'desk' | 'phone_manual',
+  ): Promise<{ id: string; token: string; last4: string; slug: string; phone: string }> {
+    const [cust] = await withTenant(tenant, (tx) => tx<{ id: string; phone: string }[]>`
+      select id, phone_e164 as phone from customers
+      where org_id = ${NAIL_ORG} and phone_e164 is not null
+      order by id limit 1`);
+    const out = await dispatch<{ appointmentId: string }>(
+      'appointment.create',
+      {
+        customerId: cust!.id,
+        items: [{ serviceId, addonIds: [], membershipId: null, startsAt: nextSlot(), details: {} }],
+        partySize: 1,
+        source,
+      },
+      ctx,
+      { idempotencyKey: randomUUID() },
+    );
+    const id = out.result.appointmentId;
+    const token = await unwrapIssuedToken(id);
+    const [shop] = await withTenant(tenant, (tx) => tx<{ slug: string }[]>`
+      select slug from locations where id = ${NAIL_LOC}`);
+    return {
+      id, token, last4: cust!.phone.slice(-4), slug: shop!.slug, phone: cust!.phone,
+    };
+  }
+
+  afterEach(async () => {
+    // Desk / phone_manual tests leave rows outside the web-only beforeAll cleanup.
+    await withTenant(tenant, (tx) => tx`
+      delete from appointments
+      where location_id = ${NAIL_LOC}
+        and source in ('desk', 'phone_manual', 'phone_ai')
+        and business_date >= ${bookDate}
+        and manage_token_digest is not null`);
+  });
+
+  it('desk appointment can bootstrap, cancel, and reschedule', async () => {
+    const made = await createDeskLike('desk');
+    const boot = await managePost({ slug: made.slug, manageToken: made.token });
+    expect(boot.statusCode).toBe(200);
+    expect(boot.json().booking.bookingId).toBe(made.id);
+    expect(boot.json().booking.actions.canCancel).toBe(true);
+    expect(boot.json().booking.actions.canReschedule).toBe(true);
+
+    const moved = await post(`/public/v1/bookings/${made.id}/reschedule`, {
+      manageToken: made.token, last4: made.last4, startsAt: nextSlot(),
+    });
+    expect(moved.statusCode).toBe(200);
+    expect(moved.json().status).toBe('booked');
+
+    const cancelled = await post(`/public/v1/bookings/${made.id}/cancel`, {
+      manageToken: made.token, last4: made.last4,
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json().status).toBe('cancelled');
+  });
+
+  it('phone_manual appointment can bootstrap, cancel, and reschedule', async () => {
+    const made = await createDeskLike('phone_manual');
+    const boot = await managePost({ slug: made.slug, manageToken: made.token });
+    expect(boot.statusCode).toBe(200);
+    expect(boot.json().booking.bookingId).toBe(made.id);
+
+    const moved = await post(`/public/v1/bookings/${made.id}/reschedule`, {
+      manageToken: made.token, last4: made.last4, startsAt: nextSlot(),
+    });
+    expect(moved.statusCode).toBe(200);
+
+    const cancelled = await post(`/public/v1/bookings/${made.id}/cancel`, {
+      manageToken: made.token, last4: made.last4,
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json().status).toBe('cancelled');
+  });
+
+  it('phone_ai appointment can bootstrap and cancel', async () => {
+    const token = generateManageToken();
+    const phone = `+1617333${String(Math.floor(Math.random() * 9000) + 1000)}`;
+    const out = await dispatch<{ appointmentId: string }>(
+      'appointment.create',
+      {
+        customerId: null,
+        items: [{ serviceId, addonIds: [], membershipId: null, startsAt: nextSlot(), details: {} }],
+        partySize: 1,
+        source: 'phone_ai',
+        guest: {
+          confirmationCode: generateConfirmationCode('Lotus'),
+          manageToken: token,
+          customer: { name: 'Phone AI Guest', phoneE164: phone, smsOptIn: false },
+        },
+      },
+      ctx,
+      { idempotencyKey: randomUUID() },
+    );
+    const id = out.result.appointmentId;
+    const boot = await managePost({ slug: 'lotus-nails', manageToken: token });
+    expect(boot.statusCode).toBe(200);
+    expect(boot.json().booking.bookingId).toBe(id);
+
+    const cancelled = await post(`/public/v1/bookings/${id}/cancel`, {
+      manageToken: token, last4: phone.slice(-4),
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json().status).toBe('cancelled');
+  });
+
+  it('wrong token and wrong shop remain a generic 404 for desk bookings', async () => {
+    const made = await createDeskLike('desk');
+    const missing = await managePost({
+      slug: made.slug, manageToken: generateManageToken(),
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().code).toBe('NOT_FOUND');
+    expect(missing.json().details).toEqual({ entity: 'booking' });
+    expect(JSON.stringify(missing.json())).not.toMatch(/mt_/);
+
+    const cross = await managePost({ slug: 'golden-foot', manageToken: made.token });
+    expect(cross.statusCode).toBe(404);
+    expect(cross.json()).toEqual(missing.json());
+
+    const wrongCancel = await post(`/public/v1/bookings/${made.id}/cancel`, {
+      manageToken: generateManageToken(), last4: made.last4,
+    });
+    expect(wrongCancel.statusCode).toBe(404);
+    expect(wrongCancel.json()).toMatchObject({ code: 'NOT_FOUND', details: { entity: 'booking' } });
+
+    const [row] = await withTenant(tenant, (tx) => tx<{ status: string }[]>`
+      select status from appointments where id = ${made.id}`);
+    expect(row!.status).toBe('booked');
   });
 });
