@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -9,9 +9,15 @@ import {
   DEFAULT_PORTAL_RETURN_PATH,
   PATHS,
   activationRedirectUrl,
+  apiBaseUrl,
+  appBaseUrl,
+  assertOutboundLinkSafety,
   billingPortalUrl,
   bookingPageOrigin,
+  emailLogoUrl,
+  emailUnsubscribePostUrl,
   emailUnsubscribeUrl,
+  formBaseUrl,
   formIntakeUrl,
   gfEnv,
   manageBookingUrl,
@@ -22,10 +28,12 @@ import {
   safeReturnUrls,
   signupReturnUrls,
 } from './links';
+import { renderConfirm, renderFormInvite, renderTrialEnding } from './email/render';
+import { renderMarketingEmail } from './email/layout';
 
 const KEYS = [
-  'GF_ENV', 'APP_BASE_URL', 'MARKETING_BASE_URL', 'FORM_BASE_URL', 'BOOKING_PAGE_ORIGIN',
-  'BOOKING_MANAGE_PAGE_ENABLED',
+  'GF_ENV', 'APP_URL', 'APP_BASE_URL', 'MARKETING_BASE_URL', 'FORM_BASE_URL',
+  'BOOKING_PAGE_ORIGIN', 'BOOKING_MANAGE_PAGE_ENABLED',
 ] as const;
 
 const original = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
@@ -67,6 +75,161 @@ describe('环境分流', () => {
   it('BOOKING_PAGE_ORIGIN 允许逗号分隔多值，构造链接时取第一个', () => {
     setEnv({ BOOKING_PAGE_ORIGIN: 'https://book.a.test, https://book.b.test' });
     expect(bookingPageOrigin()).toBe('https://book.a.test');
+  });
+});
+
+function hrefs(html: string): string[] {
+  return [...html.matchAll(/href="([^"]+)"/g)].map((m) => m[1]!);
+}
+
+function expectNoLoopback(url: string): void {
+  expect(url, url).not.toMatch(/127\.0\.0\.1|localhost|0\.0\.0\.0/i);
+}
+
+describe('邮件对外链接不得跨环境泄漏', () => {
+  it('staging 缺省时每一条对外链接都落在 staging 域名，绝不是本机', () => {
+    setEnv({ GF_ENV: 'staging' });
+    const urls = [
+      appBaseUrl(),
+      marketingBaseUrl(),
+      formBaseUrl(),
+      bookingPageOrigin(),
+      apiBaseUrl(),
+      billingPortalUrl(),
+      emailLogoUrl(),
+      emailUnsubscribeUrl('tok_1'),
+      emailUnsubscribePostUrl('tok_1'),
+      formIntakeUrl('fs_abc'),
+      activationRedirectUrl(),
+      resetRedirectUrl(),
+    ];
+    for (const url of urls) {
+      expectNoLoopback(url);
+      expect(url.startsWith('https://'), url).toBe(true);
+      expect(url, url).toContain('staging');
+      expect(url, url).not.toContain('//desk.geniefront.com');
+      expect(url, url).not.toContain('//api.geniefront.com');
+      expect(url, url).not.toContain('//www.geniefront.com');
+      expect(url, url).not.toContain('//book.geniefront.com');
+    }
+    expect(emailUnsubscribeUrl('tok_1')).toBe(
+      'https://staging-desk.geniefront.com/unsubscribe?t=tok_1',
+    );
+    expect(emailUnsubscribePostUrl('tok_1')).toBe(
+      'https://staging-api.geniefront.com/public/v1/email/unsubscribe?t=tok_1',
+    );
+    expect(emailLogoUrl()).toBe(
+      'https://staging.geniefront.com/brand/geniefront-logo-email.png',
+    );
+    expect(billingPortalUrl()).toBe(
+      'https://staging-desk.geniefront.com/settings?tab=billing',
+    );
+    expect(formIntakeUrl('fs_abc')).toBe(
+      'https://staging-desk.geniefront.com/forms/intake?t=fs_abc',
+    );
+  });
+
+  it('staging 打开自助改期页时，链接也在 staging-desk，不带本机', () => {
+    setEnv({ GF_ENV: 'staging', BOOKING_MANAGE_PAGE_ENABLED: '1' });
+    const url = manageBookingUrl({
+      appointmentId: 'a1', manageToken: 'mt_x', publicKey: 'pk_1',
+    });
+    expect(url).toBe('https://staging-desk.geniefront.com/b/a1?t=mt_x&k=pk_1');
+    expectNoLoopback(url!);
+  });
+
+  it('staging 配了 localhost 的营销域 / 退订域 / API，构造时直接抛', () => {
+    setEnv({ GF_ENV: 'staging', MARKETING_BASE_URL: 'http://127.0.0.1:5175' });
+    expect(() => marketingBaseUrl()).toThrow(/本机/);
+    expect(() => emailLogoUrl()).toThrow(/本机/);
+
+    setEnv({ GF_ENV: 'staging', APP_BASE_URL: 'http://localhost:5177' });
+    expect(() => emailUnsubscribeUrl('t')).toThrow(/本机/);
+
+    setEnv({ GF_ENV: 'staging', BOOKING_PAGE_ORIGIN: 'http://localhost:5177', BOOKING_MANAGE_PAGE_ENABLED: '1' });
+    expect(() => manageBookingUrl({
+      appointmentId: 'a1', manageToken: 'mt', publicKey: 'pk',
+    })).toThrow(/本机/);
+
+    setEnv({ GF_ENV: 'staging', APP_URL: 'http://127.0.0.1:3000' });
+    expect(() => emailUnsubscribePostUrl('t')).toThrow(/本机/);
+
+    setEnv({ GF_ENV: 'staging', FORM_BASE_URL: 'http://127.0.0.1:5177' });
+    expect(() => formIntakeUrl('fs_x')).toThrow(/本机/);
+  });
+
+  it('assertOutboundLinkSafety：staging 配了本机 origin 拒绝启动', () => {
+    setEnv({ GF_ENV: 'staging' });
+    expect(() => assertOutboundLinkSafety()).not.toThrow();
+
+    setEnv({ GF_ENV: 'staging', MARKETING_BASE_URL: 'http://127.0.0.1:5175' });
+    expect(() => assertOutboundLinkSafety()).toThrow(/MARKETING_BASE_URL/);
+  });
+
+  it('production 缺省链接落在生产域名', () => {
+    setEnv({ GF_ENV: 'production' });
+    expect(emailUnsubscribeUrl('t')).toBe(`${DEFAULT_APP_BASE_URL}/unsubscribe?t=t`);
+    expect(emailUnsubscribePostUrl('t')).toBe(
+      'https://api.geniefront.com/public/v1/email/unsubscribe?t=t',
+    );
+    expect(emailLogoUrl()).toBe(`${DEFAULT_MARKETING_BASE_URL}${PATHS.emailLogo}`);
+    expectNoLoopback(emailLogoUrl());
+  });
+
+  it('⭐ staging 渲染出来的每一封信，每一个 href 都不是本机', () => {
+    setEnv({ GF_ENV: 'staging', BOOKING_MANAGE_PAGE_ENABLED: '1' });
+
+    const confirm = renderConfirm({
+      customerName: 'Jessica',
+      shopName: 'Oasis Nails',
+      serviceName: 'Gel Manicure',
+      whenText: 'Wed, Aug 20, 2:30 PM',
+      staffName: 'Kim',
+      shopPhone: '+15125550100',
+      manageUrl: manageBookingUrl({
+        appointmentId: 'a1', manageToken: 'mt_x', publicKey: 'pk_1',
+      }),
+    });
+    const confirmHrefs = hrefs(confirm.html);
+    expect(confirmHrefs).toContain('https://staging.geniefront.com');
+    expect(confirm.html).toContain('https://staging-desk.geniefront.com/b/a1?t=mt_x&amp;k=pk_1');
+    expect(confirm.html).toContain('https://staging.geniefront.com/brand/geniefront-logo-email.png');
+
+    const invite = renderFormInvite({
+      customerName: 'Jessica',
+      shopName: 'Oasis Nails',
+      formTitles: ['Waiver'],
+      url: formIntakeUrl('fs_abc'),
+      expiresText: 'Wed, Aug 26, 10:00 AM',
+      shopPhone: '+15125550100',
+    });
+    expect(hrefs(invite.html)).toContain(
+      'https://staging-desk.geniefront.com/forms/intake?t=fs_abc',
+    );
+
+    const trial = renderTrialEnding({
+      shopName: 'Oasis Nails',
+      chargeDateText: 'Tue, Sep 1',
+      planLabel: 'Essential',
+      monthlyText: '$99/month',
+      billingUrl: billingPortalUrl(),
+      locale: 'en',
+    });
+    expect(hrefs(trial.html)).toContain(
+      'https://staging-desk.geniefront.com/settings?tab=billing',
+    );
+
+    const unsub = emailUnsubscribeUrl('u_1');
+    const marketing = renderMarketingEmail('Happy birthday', unsub);
+    expect(hrefs(marketing.html)).toContain(
+      'https://staging-desk.geniefront.com/unsubscribe?t=u_1',
+    );
+    expect(marketing.text).toContain('https://staging-desk.geniefront.com/unsubscribe?t=u_1');
+
+    for (const html of [confirm.html, invite.html, trial.html, marketing.html]) {
+      expectNoLoopback(html);
+      for (const href of hrefs(html)) expectNoLoopback(href);
+    }
   });
 });
 
@@ -123,9 +286,19 @@ describe('具名链接与前端路由一致', () => {
     expect(appTsx).not.toContain('path="/b/:');
   });
 
-  it('退订链接不落在需要登录的工作台上', () => {
+  it('邮件 logo 走营销站 PNG，文件真实存在', () => {
     setEnv({ GF_ENV: 'production' });
-    expect(emailUnsubscribeUrl('u_1')).toBe(`${DEFAULT_BOOKING_PAGE_ORIGIN}/unsubscribe?t=u_1`);
+    expect(emailLogoUrl()).toBe(`${DEFAULT_MARKETING_BASE_URL}${PATHS.emailLogo}`);
+    expect(PATHS.emailLogo.endsWith('.png')).toBe(true);
+    const logo = join(here, '../../marketing/public/brand/geniefront-logo-email.png');
+    expect(existsSync(logo)).toBe(true);
+  });
+
+  it('退订页挂在 desk 公开路由，不要求登录，也不走尚未托管 SPA 的 book 域名', () => {
+    setEnv({ GF_ENV: 'production' });
+    expect(emailUnsubscribeUrl('u_1')).toBe(`${DEFAULT_APP_BASE_URL}/unsubscribe?t=u_1`);
+    expect(emailUnsubscribeUrl('u_1')).not.toContain('book.geniefront.com');
+    expect(appTsx).toContain("/unsubscribe");
   });
 
   it('令牌做 URL 编码', () => {

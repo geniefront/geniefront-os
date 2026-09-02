@@ -31,6 +31,7 @@ import { smsFrom } from '../sms/send';
 import { withComplianceFooter } from '../sms/render';
 import { tenDlcApproved, usesPlatformBrand } from '../sms/gate';
 import { mintUnsubscribeToken } from '../email/unsubscribe';
+import { renderMarketingEmail, renderTemplatedEmailHtml } from '../email/layout';
 import { enqueueShopCopy } from '../email/shopCopy';
 import { emailUnsubscribePostUrl, emailUnsubscribeUrl } from '../links';
 
@@ -187,17 +188,16 @@ export async function notifyEvent(
        */
       let unsubscribeUrl: string | null = null;
       let text = body;
-      let html = escapeHtml(body);
+      let html = renderTemplatedEmailHtml(body);
       if (marketing) {
         const token = args.customerId
           ? mintUnsubscribeToken({ customerId: args.customerId, orgId: ctx.orgId })
           : null;
         if (!token) continue;
         unsubscribeUrl = emailUnsubscribePostUrl(token);
-        const pageUrl = emailUnsubscribeUrl(token);
-        text = `${body}\n\n---\nDon't want these emails? Unsubscribe: ${pageUrl}`;
-        html = `${html}<hr><p style="color:#6b635a;font-size:13px">`
-          + `Don't want these emails? <a href="${escapeHtml(pageUrl)}">Unsubscribe</a>.</p>`;
+        const rendered = renderMarketingEmail(body, emailUnsubscribeUrl(token));
+        text = rendered.text;
+        html = rendered.html;
       }
 
       await tx`
@@ -298,7 +298,3 @@ function outboxKind(event: NotificationEvent): string {
   if (event === 'appointment_reminder') return 'appointment_reminder';
   return 'appointment_changed';
 }
-
-const escapeHtml = (s: string) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-   .replace(/"/g, '&quot;').replace(/\n/g, '<br>');

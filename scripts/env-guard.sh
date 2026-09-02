@@ -89,6 +89,14 @@ case "$TARGET" in
       || bad "staging 必须使用 Stripe test keys"
     [[ "$app_url" == *staging* && "$app_base" == *staging* && "$api_base" == *staging* ]] \
       || bad "staging 的公开 URL 必须使用 staging 域名"
+    # 邮件里的 logo / 退订页 / 填表按钮走这三条，漏检就会把 localhost 发出去
+    for key in MARKETING_BASE_URL FORM_BASE_URL BOOKING_PAGE_ORIGIN APP_URL APP_BASE_URL VITE_API_BASE; do
+      val="$(get "$key")"
+      [[ "$val" != *localhost* && "$val" != *127.0.0.1* ]] \
+        || bad "${key} 不能指向本机（会写进客人邮件且无法撤回）"
+      [[ "$val" == https://* ]] || bad "${key} 必须是 https"
+      [[ "$val" == *staging* ]] || bad "${key} 必须使用 staging 域名"
+    done
     # 固定验证码没有白名单等于「任何号码都能用一个常量登录」，
     # 而 staging 上是有真实店主数据的
     if [[ -n "$(get STAGING_OTP_CODE)" ]]; then
@@ -119,6 +127,17 @@ case "$TARGET" in
     [[ "$app_url" == https://api.geniefront.com ]] || bad "production APP_URL 必须是 https://api.geniefront.com"
     [[ "$app_base" == https://desk.geniefront.com ]] || bad "production APP_BASE_URL 必须是 https://desk.geniefront.com"
     [[ "$api_base" == https://api.geniefront.com ]] || bad "production VITE_API_BASE 必须是 https://api.geniefront.com"
+    [[ "$(get MARKETING_BASE_URL)" == https://www.geniefront.com ]] \
+      || bad "production MARKETING_BASE_URL 必须是 https://www.geniefront.com（邮件 logo 与页脚）"
+    [[ "$(get FORM_BASE_URL)" == https://desk.geniefront.com ]] \
+      || bad "production FORM_BASE_URL 必须是 https://desk.geniefront.com"
+    [[ "$(get BOOKING_PAGE_ORIGIN)" == https://book.geniefront.com ]] \
+      || bad "production BOOKING_PAGE_ORIGIN 必须是 https://book.geniefront.com"
+    for key in MARKETING_BASE_URL FORM_BASE_URL BOOKING_PAGE_ORIGIN APP_URL APP_BASE_URL; do
+      val="$(get "$key")"
+      [[ "$val" != *localhost* && "$val" != *127.0.0.1* ]] \
+        || bad "${key} 不能指向本机"
+    done
     if [[ -f "${ROOT}/.env.staging" ]]; then
       stage_sb=$(grep '^SUPABASE_URL=' "${ROOT}/.env.staging" | tail -1 | cut -d= -f2-)
       stage_db=$(grep '^DATABASE_URL=' "${ROOT}/.env.staging" | tail -1 | cut -d= -f2-)

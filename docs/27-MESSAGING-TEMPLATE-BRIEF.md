@@ -14,10 +14,12 @@
 
 | 你要改的 | 在哪 | 备注 |
 | :--- | :--- | :--- |
+| **共用邮件容器** | `apps/api/src/email/layout.ts` | 品牌壳：薄荷顶条 + PNG logo + 600px 白卡片 |
 | **事务性邮件排版（HTML）** | `apps/api/src/email/render.ts` | 内联样式，5 个模板 |
 | **事务性短信文案** | `apps/api/src/sms/render.ts` | 1 个模板 + 合规页脚 |
-| **可被店主编辑的模板文案** | `packages/db/sql/0086_…sql` 第 130 行起 | 12 个事件 × email/sms |
-| **营销邮件的 HTML 排版** | `apps/api/src/notify/dispatch.ts:190` | ⚠️ 当前**没有排版**，见 §6.1 |
+| **可被店主编辑的模板文案** | `packages/db/sql/0086_…sql` 第 130 行起 | 12 个事件 × email/sms；存量默认行由 `0093` 刷新 |
+| **营销邮件的 HTML 排版** | `apps/api/src/notify/dispatch.ts` | 套 `EMAIL_WRAP`，营销另附退订页脚 |
+| **退订页** | `apps/web/src/pages/Unsubscribe.tsx` | 公开，无需登录 |
 | **店主看的编辑界面** | `apps/web/src/pages/Notifications.tsx` | 759 行 |
 
 🔴 **动手之前必读 §5（硬约束）。** 那一节里每一条违反了都不会报错，
@@ -79,24 +81,16 @@
 统一返回 `{ subject, html, text }`。**HTML 与纯文本两份都要维护** ——
 `text` 不是可选的降级，很多客户端与所有反垃圾评分都会读它。
 
-| 函数 | 行 | 收件人 | 语言 | 有无容器样式 |
-| :--- | :--- | :--- | :--- | :--- |
-| `renderConfirm` | 61 | 顾客 · 预约确认 | 仅英语 | ✅ 有 `WRAP` |
-| `renderFormInvite` | 119 | 顾客 · 到店前填表 | 仅英语 | ✅ 有 `WRAP` |
-| `renderTrialEnding` | 186 | 店主 · 试用还剩 3 天 | 中/英双语 | ❌ 裸 `<p>` |
-| `renderPaymentFailed` | 256 | 店主 · 扣款失败 | 中/英双语 | ❌ 裸 `<p>` |
-| `renderSubscriptionCanceled` | 325 | 店主 · 订阅已取消 | 中/英双语 | ❌ 裸 `<p>` |
+| 函数 | 收件人 | 语言 | 容器 |
+| :--- | :--- | :--- | :--- |
+| `renderConfirm` | 顾客 · 预约确认 | 仅英语 | `EMAIL_WRAP` + 明细表 + 改期按钮 |
+| `renderFormInvite` | 顾客 · 到店前填表 | 仅英语 | `EMAIL_WRAP` + 填表按钮 |
+| `renderTrialEnding` | 店主 · 试用还剩 3 天 | 中/英双语 | `EMAIL_WRAP` + 管理订阅按钮 |
+| `renderPaymentFailed` | 店主 · 扣款失败 | 中/英双语 | `EMAIL_WRAP` + 更新支付按钮 |
+| `renderSubscriptionCanceled` | 店主 · 订阅已取消 | 中/英双语 | `EMAIL_WRAP` + 恢复订阅按钮 |
 
-样式只有两个常量（第 33–35 行），没有共享 layout：
-
-```ts
-const WRAP  = 'font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;'
-            + 'line-height:1.7;color:#211e1b;max-width:520px';
-const MUTED = 'color:#6b635a;font-size:14px';
-```
-
-⚠️ **店主侧那三封连 `WRAP` 都没有**，是裸 `<p>` 拼出来的 —— 在邮件客户端里
-就是浏览器默认样式。要统一排版，这三封是最明显的短板。
+容器样式在 `apps/api/src/email/layout.ts`（`EMAIL_WRAP` / `EMAIL_MUTED` / `EMAIL_BTN`），
+路径 A 与路径 B 共用。
 
 #### 各模板的入参（改文案时能用的字段）
 
@@ -184,6 +178,7 @@ GenieFront: Booked at <店名> - <项目>, <时间>. To change call <电话>. Re
 | 文件 | 行数 | 内容 |
 | :--- | :--- | :--- |
 | `apps/web/src/pages/Notifications.tsx` | 759 | 通知中心主页 · 模板编辑器在这 |
+| `apps/web/src/pages/Unsubscribe.tsx` | — | 营销邮件退订公开页（无需登录） |
 | `apps/web/src/features/notifications/NotificationSettingsPanel.tsx` | 394 | 通知规则开关 |
 | `apps/web/src/features/notifications/api.ts` / `settingsApi.ts` | — | 对应的数据层 |
 | `apps/web/src/pages/CommunicationLogs.tsx` | — | 发件记录 |
@@ -271,45 +266,25 @@ CTIA 要求至少出现在第一条里，我们**每条都带** —— 一年来
 
 ## 6. 已知缺陷（按建议优先级）
 
-### 6.1 🔴 营销邮件没有任何排版
+### 6.1 ✅ 营销邮件排版（2026-09-02）
 
-`notify/dispatch.ts:190` 把数据库模板转成 HTML 的方式是：
+路径 B 经 `email/layout.ts` 的 `renderTemplatedEmailHtml` /
+`renderMarketingEmail` 套与路径 A 相同的 `EMAIL_WRAP` 容器。
+店主模板仍按纯文本转义，换行转 `<br>`。
 
-```ts
-let html = escapeHtml(body);   // escapeHtml 内含 .replace(/\n/g, '<br>')
-```
+### 6.2 ✅ 退订页（2026-09-02）
 
-也就是说**群发出去的营销邮件是一坨没有格式的纯文本**，只有换行。
-事务性邮件（路径 A）有内联样式，营销邮件（路径 B）没有 —— 而营销邮件
-恰恰是最需要排版的那一类。
+`apps/web` 公开路由 `/unsubscribe?t=`（`SessionGate` 最前面，无需登录）。
+`GET /public/v1/email/unsubscribe` **只读**，`POST` 才执行退订。
 
-修的位置是 `dispatch.ts` 那段拼装逻辑，**不是** SQL 里的文案。
-建议给路径 B 也套一个与 `render.ts` 的 `WRAP` 一致的容器。
+邮件页脚链到 desk 的公开页 `${APP_BASE_URL}/unsubscribe?t=<token>`
+（生产 `https://desk.geniefront.com/unsubscribe`）。Gmail 一键退订走
+`POST ${APP_URL}/public/v1/email/unsubscribe`。
 
-⚠️ 改的时候注意 `escapeHtml` 是同一个函数（`dispatch.ts:302`），
-而它同时服务于「转义」和「换行转 `<br>`」两件事。短信侧不能经过它
-（`renderTemplate` 的注释写明：在那里转义会让短信出现 `&amp;`）。
+### 6.3 ✅ 店主侧三封邮件容器样式（2026-09-02）
 
-### 6.2 🔴 退订页不存在
-
-邮件页脚链到 `${BOOKING_PAGE_ORIGIN}/unsubscribe?t=<token>`
-（`apps/api/src/links.ts:151`，生产环境即 `https://book.geniefront.com/unsubscribe`）。
-
-仓库里**没有任何应用提供这个路由** —— `apps/` 下没有 storefront 应用，
-marketing app 里也没有这条路径。
-
-- ✅ 一键退订（`List-Unsubscribe` 头 → POST 到 API）是通的，
-  Gmail / Outlook 界面上那个按钮能用；
-- 🔴 **邮件正文里那条链接点了会 404**。
-
-CAN-SPAM 要求正文里提供可用的退订方式，这条需要补一个页面。
-后端已就绪：`GET /public/v1/email/unsubscribe?t=` 用来确认令牌，
-`POST` 同址执行退订（`apps/api/src/email/unsubscribeRoutes.ts`）。
-
-### 6.3 店主侧三封邮件没有容器样式
-
-见 §2.1。`renderTrialEnding` / `renderPaymentFailed` /
-`renderSubscriptionCanceled` 是裸 `<p>`，在客户端里是浏览器默认样式。
+`renderTrialEnding` / `renderPaymentFailed` / `renderSubscriptionCanceled`
+套 `EMAIL_WRAP`，并带「管理订阅 / 更新支付方式 / 恢复订阅」按钮。
 
 ### 6.4 三个事件有模板但永不触发
 

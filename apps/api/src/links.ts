@@ -90,12 +90,41 @@ const ENV_KEY: Record<Site, string> = {
   booking: 'BOOKING_PAGE_ORIGIN',
 };
 
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1';
+}
+
+/**
+ * staging / production 发出去的链接无法撤回。本机地址一旦写进邮件，
+ * 客人点开打到的是**他自己的电脑**，表现为「链接坏了」，而发信一侧
+ * 没有任何报错。local 允许 loopback；其余环境必须是 https 公网 origin。
+ */
+function assertPublicOrigin(url: string, env: Env, what: string): string {
+  if (gfEnv(env) === 'local') return url;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`${what} 不是合法 URL：${url}`);
+  }
+  if (isLoopbackHost(parsed.hostname)) {
+    throw new Error(
+      `${what} 在 GF_ENV=${gfEnv(env)} 下不能是本机地址（${url}）。`
+      + 'staging/production 的邮件无法撤回，点开等于打到客人自己的电脑。',
+    );
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`${what} 在 GF_ENV=${gfEnv(env)} 下必须是 https（${url}）`);
+  }
+  return url;
+}
+
 /** 去掉末尾斜杠。`BOOKING_PAGE_ORIGIN` 允许逗号分隔多值，构造链接时取第一个。 */
 function originOf(site: Site, env: Env = process.env): string {
   const raw = env[ENV_KEY[site]];
   const first = raw?.split(',')[0]?.trim();
-  const base = first && first.length > 0 ? first : FALLBACK[gfEnv(env)][site];
-  return base.replace(/\/+$/, '');
+  const base = (first && first.length > 0 ? first : FALLBACK[gfEnv(env)][site]).replace(/\/+$/, '');
+  return assertPublicOrigin(base, env, ENV_KEY[site]);
 }
 
 // ─────────────────────────────────────────────────────────────── origin
@@ -123,8 +152,23 @@ export function formBaseUrl(env: Env = process.env): string {
  */
 export function apiBaseUrl(env: Env = process.env): string {
   const raw = env['APP_URL'];
-  const base = raw && raw.length > 0 ? raw : API_FALLBACK[gfEnv(env)];
-  return base.replace(/\/+$/, '');
+  const base = (raw && raw.length > 0 ? raw : API_FALLBACK[gfEnv(env)]).replace(/\/+$/, '');
+  return assertPublicOrigin(base, env, 'APP_URL');
+}
+
+/**
+ * 启动闸门：把所有会写进邮件的 origin 先算一遍。
+ *
+ * 算的过程会走 `assertPublicOrigin`。配错时进程起不来，而不是等第一封
+ * 确认信带着 `http://127.0.0.1` 发出去之后才被客人发现。
+ */
+export function assertOutboundLinkSafety(env: Env = process.env): void {
+  if (gfEnv(env) === 'local') return;
+  appBaseUrl(env);
+  marketingBaseUrl(env);
+  formBaseUrl(env);
+  bookingPageOrigin(env);
+  apiBaseUrl(env);
 }
 
 /** 门店对外预约页。生产环境为独立域名 book.geniefront.com。 */
@@ -149,7 +193,17 @@ export const PATHS = {
   manageBooking: '/b',
   /** 营销邮件退订页，由对外预约页承载（无需登录） */
   emailUnsubscribe: '/unsubscribe',
+  /**
+   * 邮件抬头 logo。PNG 而不是 SVG：Outlook 等客户端不渲染 SVG。
+   * 文件在 `apps/marketing/public/brand/geniefront-logo-email.png`。
+   */
+  emailLogo: '/brand/geniefront-logo-email.png',
 } as const;
+
+/** 邮件 HTML 里 logo 的绝对地址。走营销站 origin，按环境分流。 */
+export function emailLogoUrl(env: Env = process.env): string {
+  return `${marketingBaseUrl(env)}${PATHS.emailLogo}`;
+}
 
 // ────────────────────────────────────────────────────────────── 具名链接
 
@@ -217,13 +271,15 @@ export function manageBookingUrl(
 }
 
 /**
- * 营销邮件退订链接。
+ * 营销邮件退订页。
  *
- * ⚠️ 承载方为对外预约页而非工作台：退订操作不得要求收件人登录
- * （CAN-SPAM 要求退订流程不得设置额外门槛）。
+ * 页面挂在 `apps/web` 的公开路由 `/unsubscribe`（登录门禁之前）。
+ * origin 因此取 **desk**（`APP_BASE_URL`），不是 `BOOKING_PAGE_ORIGIN`：
+ * 生产的 book.geniefront.com 当前不托管这份 SPA，链过去会 404。
+ * 公开路由不要求登录，CAN-SPAM 的「不得设门槛」仍然满足。
  */
 export function emailUnsubscribeUrl(token: string, env: Env = process.env): string {
-  return `${bookingPageOrigin(env)}${PATHS.emailUnsubscribe}?t=${encodeURIComponent(token)}`;
+  return `${appBaseUrl(env)}${PATHS.emailUnsubscribe}?t=${encodeURIComponent(token)}`;
 }
 
 /**

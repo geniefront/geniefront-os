@@ -10,6 +10,7 @@ import {
   renderTrialEnding, renderPaymentFailed, renderSubscriptionCanceled,
   formatWhen,
 } from './render';
+import { EMAIL_WRAP } from './layout';
 
 const base = {
   customerName: 'Jessica',
@@ -56,7 +57,20 @@ describe('顾客侧 · 预约确认信', () => {
 
   it('没店里电话时也要告诉顾客怎么改期', () => {
     const r = renderConfirm({ ...base, shopPhone: null });
-    expect(r.text).toContain('call the store');
+    expect(r.text).toContain('call the salon');
+  });
+
+  it('套上品牌壳：logo、薄荷顶条、给了 manageUrl 才出现按钮', () => {
+    const r = renderConfirm(base);
+    expect(r.html).toContain(EMAIL_WRAP);
+    expect(r.html).toContain('alt="GenieFront"');
+    expect(r.html).toContain('geniefront-logo-email.png');
+    expect(r.html).toContain('#9BCDA3');
+    expect(r.text).toContain("You're booked at");
+
+    const url = 'https://book.geniefront.com/b/appt-1?t=mt_x&k=pk_1';
+    const withLink = renderConfirm({ ...base, manageUrl: url });
+    expect(withLink.html).toContain('Reschedule or cancel');
   });
 
   it('给了 manageUrl 才出现可点链接，且链接原样保留', () => {
@@ -66,7 +80,8 @@ describe('顾客侧 · 预约确认信', () => {
     expect(r.text).toContain(url);
 
     const none = renderConfirm({ ...base, manageUrl: null });
-    expect(none.html).not.toMatch(/href=/);
+    expect(none.html).not.toContain('/b/');
+    expect(none.html).not.toContain('Reschedule or cancel');
     expect(none.text).not.toMatch(/https?:\/\//);
   });
 
@@ -199,5 +214,29 @@ describe('店主侧 · 计费类邮件', () => {
     });
     expect(m.text).toContain('/settings?tab=billing');
     expect(m.text).not.toContain('/?tab=billing');
+  });
+
+  it('店主三封都套共用容器，并且有可点按钮，不再是裸 <p>', () => {
+    const trial = renderTrialEnding({
+      shopName: 'Oasis Nails', chargeDateText: 'Tue, Sep 1, 2:30 PM',
+      planLabel: 'Essential', monthlyText: '$99/month',
+      billingUrl, locale: 'en',
+    });
+    const failed = renderPaymentFailed({
+      shopName: 'Oasis Nails', amountText: '$99.00',
+      nextAttemptText: null, billingUrl, locale: 'en',
+    });
+    const cancelled = renderSubscriptionCanceled({
+      shopName: 'Oasis Nails', endsAtText: 'Wed, Oct 1',
+      atPeriodEnd: true, billingUrl, locale: 'en',
+    });
+    for (const m of [trial, failed, cancelled]) {
+      expect(m.html).toContain(EMAIL_WRAP);
+      expect(m.html).toContain('alt="GenieFront"');
+      expect(m.html).toContain('display:inline-block');
+    }
+    expect(trial.html).toContain('Manage billing');
+    expect(failed.html).toContain('Update payment method');
+    expect(cancelled.html).toContain('Resubscribe');
   });
 });

@@ -21,17 +21,18 @@
 
 import type { OwnerLocale } from './locale';
 import { isZhLocale, intlLocale } from './locale';
-
-const esc = (s: string) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-   .replace(/"/g, '&quot;');
+import {
+  EMAIL_MUTED,
+  emailButton,
+  emailDetailTable,
+  emailHeading,
+  escapeHtml as esc,
+  wrapEmailHtml,
+} from './layout';
 
 export interface Rendered { subject: string; html: string; text: string; }
 
-/** 面向顾客的邮件统一使用的正文容器样式。 */
-const WRAP = 'font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;'
-  + 'line-height:1.7;color:#211e1b;max-width:520px';
-const MUTED = 'color:#6b635a;font-size:14px';
+const muted = (s: string) => `<p style="${EMAIL_MUTED}">${s}</p>`;
 
 // ═══════════════════════════════════════════════════ 顾客侧 · 预约确认
 
@@ -64,16 +65,16 @@ export function renderConfirm(d: ConfirmData): Rendered {
     ? [
         `Reschedule or cancel: ${d.manageUrl}`,
         '(Enter the last 4 digits of your phone number)',
-        d.shopPhone ? `Or call us at ${d.shopPhone}.` : 'Or call the store.',
+        d.shopPhone ? `Or call us at ${d.shopPhone}.` : 'Or call the salon.',
       ].join('\n')
     : (d.shopPhone
         ? `To reschedule or cancel, please call ${d.shopPhone}.`
-        : 'To reschedule or cancel, please call the store.');
+        : 'To reschedule or cancel, please call the salon.');
 
   const text = [
     `Hi ${d.customerName},`,
     ``,
-    `Your appointment at ${d.shopName} has been confirmed:`,
+    `You're booked at ${d.shopName}.`,
     ``,
     `  Service: ${d.serviceName}`,
     `  Time: ${d.whenText}`,
@@ -81,25 +82,33 @@ export function renderConfirm(d: ConfirmData): Rendered {
     ``,
     call,
     ``,
-    `— ${d.shopName}`,
+    `See you then,`,
+    `${d.shopName}`,
   ].join('\n');
 
-  const html = `<div style="${WRAP}">
-<p>Hi ${esc(d.customerName)},</p>
-<p>Your appointment at <strong>${esc(d.shopName)}</strong> is confirmed:</p>
-<table style="border-collapse:collapse;margin:16px 0">
-<tr><td style="padding:4px 16px 4px 0;color:#6b635a">Service</td><td><strong>${esc(d.serviceName)}</strong></td></tr>
-<tr><td style="padding:4px 16px 4px 0;color:#6b635a">Time</td><td><strong>${esc(d.whenText)}</strong></td></tr>
-${d.staffName ? `<tr><td style="padding:4px 16px 4px 0;color:#6b635a">Specialist</td><td>${esc(d.staffName)}</td></tr>` : ''}
-</table>
-${d.manageUrl ? `<p style="font-size:15px"><a href="${esc(d.manageUrl)}" style="color:#0f5f57">Reschedule or Cancel</a>
-<span style="color:#6b635a;font-size:13px">(Enter last 4 digits of your phone)</span></p>
-<p style="${MUTED}">${d.shopPhone ? `Or call ${esc(d.shopPhone)}.` : 'Or call the store.'}</p>`
-  : `<p style="${MUTED}">${esc(call)}</p>`}
-<p style="${MUTED}">— ${esc(d.shopName)}</p>
-</div>`;
+  const rows: Array<readonly [string, string]> = [
+    ['Service', d.serviceName],
+    ['Time', d.whenText],
+  ];
+  if (d.staffName) rows.push(['Specialist', d.staffName]);
 
-  return { subject: `Appointment Confirmed · ${d.whenText} · ${d.shopName}`, html, text };
+  const action = d.manageUrl
+    ? emailButton(d.manageUrl, 'Reschedule or cancel')
+      + muted('(Enter the last 4 digits of your phone)')
+      + muted(d.shopPhone ? `Or call ${esc(d.shopPhone)}.` : 'Or call the salon.')
+    : muted(esc(call));
+
+  const html = wrapEmailHtml([
+    emailHeading('Appointment confirmed', `You're booked at ${esc(d.shopName)}`),
+    `<p style="margin:0 0 16px">Hi ${esc(d.customerName)},</p>`,
+    emailDetailTable(rows),
+    action,
+    muted(`See you then,<br>${esc(d.shopName)}`),
+  ].join('\n'), {
+    preheader: `You're booked at ${d.shopName} · ${d.whenText}`,
+  });
+
+  return { subject: `Appointment confirmed · ${d.whenText} · ${d.shopName}`, html, text };
 }
 
 // ═══════════════════════════════════════════════════ 顾客侧 · 到店前填表
@@ -119,34 +128,34 @@ export interface FormInviteData {
 export function renderFormInvite(d: FormInviteData): Rendered {
   const list = d.formTitles.join(', ');
   const call = d.shopPhone
-    ? `If you have questions, please call ${d.shopPhone} or complete it at our front desk upon arrival.`
-    : 'If you have questions, please call us or complete it at our front desk upon arrival.';
+    ? `Questions? Call ${d.shopPhone}, or we can help you at the front desk.`
+    : 'Questions? Call us, or we can help you at the front desk.';
 
   const text = [
     `Hi ${d.customerName},`,
     ``,
-    `${d.shopName} invites you to take two minutes to complete your ${list} before your visit.`,
+    `${d.shopName} would like you to complete your ${list} before you arrive. It takes about two minutes.`,
     ``,
     `  ${d.url}`,
     ``,
-    `This link is valid until ${d.expiresText} and will expire once submitted.`,
+    `This link works until ${d.expiresText}, and expires once you submit.`,
     call,
     ``,
     `— ${d.shopName}`,
   ].join('\n');
 
-  const html = `<div style="${WRAP}">
-<p>Hi ${esc(d.customerName)},</p>
-<p><strong>${esc(d.shopName)}</strong> invites you to take two minutes to complete your ${esc(list)} before your visit.</p>
-<p style="margin:24px 0">
-  <a href="${esc(d.url)}" style="display:inline-block;background:#0f0f0f;color:#fff;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:600">Fill Out Form</a>
-</p>
-<p style="${MUTED}">Link is valid until ${esc(d.expiresText)}.</p>
-<p style="${MUTED}">${esc(call)}</p>
-<p style="${MUTED}">— ${esc(d.shopName)}</p>
-</div>`;
+  const html = wrapEmailHtml([
+    emailHeading('Before you arrive', `Complete your form for ${esc(d.shopName)}`),
+    `<p style="margin:0 0 16px">Hi ${esc(d.customerName)},</p>`,
+    `<p style="margin:0 0 8px">${esc(d.shopName)} would like you to complete your ${esc(list)} before you arrive. It takes about two minutes.</p>`,
+    emailButton(d.url, 'Fill out form'),
+    muted(`This link works until ${esc(d.expiresText)}.`),
+    muted(esc(call)),
+  ].join('\n'), {
+    preheader: `Complete your form before your visit to ${d.shopName}`,
+  });
 
-  return { subject: `Please complete your intake form before your visit · ${d.shopName}`, html, text };
+  return { subject: `Please complete your form before your visit · ${d.shopName}`, html, text };
 }
 
 // ═══════════════════════════════════════════════════════════ 时间格式化
@@ -196,14 +205,14 @@ export function renderTrialEnding(d: TrialEndingData): Rendered {
       '取消后当前试用期仍可使用至最后一天，不会产生补扣。',
     ].join('\n');
 
-    const html = [
-      `<p>${esc(d.shopName)}：免费试用还有 3 天。</p>`,
-      `<p><strong>首次扣款：${esc(d.chargeDateText)}</strong><br>`,
+    const html = wrapEmailHtml([
+      emailHeading('订阅', `${esc(d.shopName)}：免费试用还有 3 天`),
+      `<p>首次扣款：<strong>${esc(d.chargeDateText)}</strong><br>`,
       `套餐：${esc(d.planLabel)}，${esc(d.monthlyText)}</p>`,
       '<p>无需任何操作，到期将自动续订。</p>',
-      `<p>变更套餐或取消：<a href="${esc(d.billingUrl)}">${esc(d.billingUrl)}</a><br>`,
-      '取消后当前试用期仍可使用至最后一天，不会产生补扣。</p>',
-    ].join('\n');
+      emailButton(d.billingUrl, '管理订阅'),
+      muted('取消后当前试用期仍可使用至最后一天，不会产生补扣。'),
+    ].join('\n'), { variant: 'owner', zh: true });
 
     return { subject: `${d.shopName}：免费试用还有 3 天`, html, text };
   }
@@ -214,19 +223,19 @@ export function renderTrialEnding(d: TrialEndingData): Rendered {
     `First charge date: ${d.chargeDateText}`,
     `Plan: ${d.planLabel}, ${d.monthlyText}`,
     '',
-    'No action needed, your subscription will automatically continue.',
+    'No action needed — your subscription will continue automatically.',
     `To manage your plan or cancel: ${d.billingUrl}`,
-    'If cancelled, your trial remains active until the last day with no unexpected charges.',
+    'If you cancel, your trial stays active until the last day. No extra charges.',
   ].join('\n');
 
-  const html = [
-    `<p>${esc(d.shopName)}: 3 days left in your free trial.</p>`,
-    `<p><strong>First charge date: ${esc(d.chargeDateText)}</strong><br>`,
+  const html = wrapEmailHtml([
+    emailHeading('Billing', `${esc(d.shopName)}: 3 days left in your free trial`),
+    `<p>First charge date: <strong>${esc(d.chargeDateText)}</strong><br>`,
     `Plan: ${esc(d.planLabel)}, ${esc(d.monthlyText)}</p>`,
-    '<p>No action needed, your subscription will automatically continue.</p>',
-    `<p>Manage or cancel: <a href="${esc(d.billingUrl)}">${esc(d.billingUrl)}</a><br>`,
-    'If cancelled, your trial remains active until the last day with no unexpected charges.</p>',
-  ].join('\n');
+    '<p>No action needed — your subscription will continue automatically.</p>',
+    emailButton(d.billingUrl, 'Manage billing'),
+    muted('If you cancel, your trial stays active until the last day. No extra charges.'),
+  ].join('\n'), { variant: 'owner' });
 
   return { subject: `${d.shopName}: 3 days left in your free trial`, html, text };
 }
@@ -266,15 +275,15 @@ export function renderPaymentFailed(d: PaymentFailedData): Rendered {
       '',
       `请更新支付方式：${d.billingUrl}`,
       '',
-      '⚠️ 在扣款成功之前，本门店仅可查看数据，无法开单，也无法修改预约。',
+      '在扣款成功之前，本门店仅可查看数据，无法开单，也无法修改预约。',
     ].join('\n');
 
-    const html = [
-      `<p><strong>${esc(d.shopName)}：订阅扣款失败。</strong></p>`,
+    const html = wrapEmailHtml([
+      emailHeading('需要处理', `${esc(d.shopName)}：订阅扣款失败`),
       `<p>金额：${esc(d.amountText)}<br>${esc(retry)}</p>`,
-      `<p>请更新支付方式：<a href="${esc(d.billingUrl)}">${esc(d.billingUrl)}</a></p>`,
-      '<p>⚠️ 在扣款成功之前，本门店仅可查看数据，无法开单，也无法修改预约。</p>',
-    ].join('\n');
+      emailButton(d.billingUrl, '更新支付方式'),
+      muted('在扣款成功之前，本门店仅可查看数据，无法开单，也无法修改预约。'),
+    ].join('\n'), { variant: 'owner', zh: true });
 
     return { subject: `${d.shopName}：订阅扣款失败，请更新支付方式`, html, text };
   }
@@ -293,13 +302,12 @@ export function renderPaymentFailed(d: PaymentFailedData): Rendered {
     'Until payment succeeds this location is read-only: no new tickets, no booking changes.',
   ].join('\n');
 
-  const html = [
-    `<p><strong>${esc(d.shopName)}: subscription payment failed.</strong></p>`,
+  const html = wrapEmailHtml([
+    emailHeading('Action required', `${esc(d.shopName)}: subscription payment failed`),
     `<p>Amount: ${esc(d.amountText)}<br>${esc(retry)}</p>`,
-    `<p>Update your payment method: <a href="${esc(d.billingUrl)}">${esc(d.billingUrl)}</a></p>`,
-    '<p>Until payment succeeds this location is read-only: '
-      + 'no new tickets, no booking changes.</p>',
-  ].join('\n');
+    emailButton(d.billingUrl, 'Update payment method'),
+    muted('Until payment succeeds this location is read-only: no new tickets, no booking changes.'),
+  ].join('\n'), { variant: 'owner' });
 
   return { subject: `${d.shopName}: payment failed — update your card`, html, text };
 }
@@ -337,12 +345,12 @@ export function renderSubscriptionCanceled(d: SubscriptionCanceledData): Rendere
       d.billingUrl,
     ].join('\n');
 
-    const html = [
-      `<p><strong>${esc(d.shopName)}：订阅已取消。</strong></p>`,
+    const html = wrapEmailHtml([
+      emailHeading('订阅', `${esc(d.shopName)}：订阅已取消`),
       `<p>${esc(when)}</p>`,
-      `<p>数据不会被删除，您可以随时恢复订阅：`
-        + `<a href="${esc(d.billingUrl)}">${esc(d.billingUrl)}</a></p>`,
-    ].join('\n');
+      '<p>数据不会被删除，您可以随时恢复订阅。</p>',
+      emailButton(d.billingUrl, '恢复订阅'),
+    ].join('\n'), { variant: 'owner', zh: true });
 
     return { subject: `${d.shopName}：订阅已取消`, html, text };
   }
@@ -361,12 +369,12 @@ export function renderSubscriptionCanceled(d: SubscriptionCanceledData): Rendere
     d.billingUrl,
   ].join('\n');
 
-  const html = [
-    `<p><strong>${esc(d.shopName)}: subscription cancelled.</strong></p>`,
+  const html = wrapEmailHtml([
+    emailHeading('Billing', `${esc(d.shopName)}: subscription cancelled`),
     `<p>${esc(when)}</p>`,
-    `<p>Your data is kept. You can resubscribe at any time: `
-      + `<a href="${esc(d.billingUrl)}">${esc(d.billingUrl)}</a></p>`,
-  ].join('\n');
+    '<p>Your data is kept. You can resubscribe at any time.</p>',
+    emailButton(d.billingUrl, 'Resubscribe'),
+  ].join('\n'), { variant: 'owner' });
 
   return { subject: `${d.shopName}: subscription cancelled`, html, text };
 }

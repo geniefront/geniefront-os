@@ -13,6 +13,7 @@
 
 import { describe, it, expect, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { renderTemplate } from '@gf/contracts';
 import { measure, segmentsOf } from './sms/segments';
 import { classify, KEYWORDS } from './sms/keywords';
 import {
@@ -227,6 +228,32 @@ describe('文案', () => {
     });
     // 砍到下限之后剩下的部分仍然认得出是个项目名
     expect(/B{16,}/.test(body)).toBe(true);
+  });
+
+  it('默认短信模板在最坏变量下仍是 GSM-7', () => {
+    const worst: Record<string, string> = {
+      shop_name: 'Golden Lotus Nails and Day Spa',
+      service_name: 'Deluxe Spa Pedicure with Callus',
+      when: 'Wed Aug 26, 12:30 PM',
+      shop_phone: '(617) 555-0142',
+      customer_name: 'Christopher Alexander',
+      old_when: 'Tue Aug 25, 11:00 AM',
+      days_since: '365',
+      holiday_name: 'Independence Day',
+    };
+    const templates = [
+      'Booked: {{service_name}} at {{shop_name}}, {{when}}. Changes: {{shop_phone}}.',
+      'Your appointment at {{shop_name}} moved to {{when}}. Questions? Call {{shop_phone}}.',
+      'Cancelled: {{shop_name}}, {{when}}. Call {{shop_phone}} to rebook.',
+      'Reminder: {{shop_name}}, {{when}}. Changes: {{shop_phone}}.',
+      'Happy birthday from {{shop_name}}! Call {{shop_phone}} to book.',
+      '{{holiday_name}} greetings from {{shop_name}}! Call {{shop_phone}} to book.',
+      'We miss you at {{shop_name}} - it has been {{days_since}} days. Call {{shop_phone}}.',
+    ];
+    for (const tpl of templates) {
+      const body = withComplianceFooter(renderTemplate(tpl, worst));
+      expect(measure(body).encoding, tpl).toBe('GSM-7');
+    }
   });
 
   it('HELP 回复:身份 + 用途 + 资费 + 退订，一段装得下', () => {

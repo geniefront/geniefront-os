@@ -46,7 +46,19 @@ async function unsubscribe(token: unknown): Promise<void> {
 }
 
 export function registerEmailUnsubscribeRoutes(app: FastifyInstance): void {
-  const handler = async (
+  const peek = async (
+    req: FastifyRequest<{ Querystring: { t?: string } }>,
+  ): Promise<{ ok: true }> => {
+    const verdict = await checkRateLimits(
+      [{ scope: 'email-unsub-ip', id: req.ip, limit: 60, windowSec: 3600 }],
+      req.log,
+    );
+    // 只校验令牌形状，不执行退订。预取 / 打开确认页不得改订阅状态。
+    if (verdict.ok) verifyUnsubscribeToken(req.query?.t);
+    return { ok: true };
+  };
+
+  const confirm = async (
     req: FastifyRequest<{ Querystring: { t?: string } }>,
   ): Promise<{ ok: true }> => {
     const verdict = await checkRateLimits(
@@ -60,6 +72,6 @@ export function registerEmailUnsubscribeRoutes(app: FastifyInstance): void {
     return { ok: true };
   };
 
-  app.post<{ Querystring: { t?: string } }>('/public/v1/email/unsubscribe', handler);
-  app.get<{ Querystring: { t?: string } }>('/public/v1/email/unsubscribe', handler);
+  app.get<{ Querystring: { t?: string } }>('/public/v1/email/unsubscribe', peek);
+  app.post<{ Querystring: { t?: string } }>('/public/v1/email/unsubscribe', confirm);
 }

@@ -233,6 +233,29 @@ describe('营销邮件的发件域名闸门', () => {
     expect(row?.unsubscribe_url).toContain('/public/v1/email/unsubscribe');
   });
 
+  it('营销邮件 HTML 套共用容器，且退订页脚链到公开页', async () => {
+    const entityId = freshEntity();
+    await withTenant(tenant, async (tx) => {
+      await tx`update locations set marketing_email_from = 'oasisspa@mkt.geniefront.com'
+               where id = ${NAIL_LOC}`;
+      await setRule(tx, 'birthday', ['email']);
+      await notifyEvent(tx, ctx, {
+        event: 'birthday',
+        entityType: 'customer', entityId,
+        vars: VARS, toEmail: 'policy-test@maildrop.cc', toPhone: null,
+        customerId, locale: 'en',
+      });
+    });
+    const [row] = await withTenant(tenant, (tx) => tx<{
+      body_html: string; body_text: string;
+    }[]>`select body_html, body_text from email_outbox where entity_id = ${entityId}`);
+    expect(row?.body_html).toContain('max-width:600px');
+    expect(row?.body_html).toContain('alt="GenieFront"');
+    expect(row?.body_html).toContain('Unsubscribe');
+    expect(row?.body_html).toContain('/unsubscribe?t=');
+    expect(row?.body_text).toContain("Don't want these emails?");
+  });
+
   /**
    * ⭐ 事务性邮件不写发件人，投递时用平台的 `FROM_EMAIL`。
    * 写成门店地址的话，一家还没配域名的店连预约确认都发不出去。

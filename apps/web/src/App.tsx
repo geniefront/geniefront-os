@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet, useOutletContext } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useOutletContext, useLocation } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Toast, Spinner } from '@heroui/react';
 import { SessionProvider, useSession } from './lib/session';
@@ -54,6 +54,7 @@ const SetupWizard = lazy(() => import('./pages/SetupWizard').then((m) => ({ defa
 const Activate = lazy(() => import('./pages/Activate').then((m) => ({ default: m.Activate })));
 const ResetPassword = lazy(() => import('./pages/ResetPassword').then((m) => ({ default: m.ResetPassword })));
 const PublicHealthForm = lazy(() => import('./pages/PublicHealthForm').then((m) => ({ default: m.PublicHealthForm })));
+const Unsubscribe = lazy(() => import('./pages/Unsubscribe').then((m) => ({ default: m.Unsubscribe })));
 const Layout = lazy(() => import('./components/Layout').then((m) => ({ default: m.Layout })));
 
 /* 技师端懒加载模块 (3 大核心 Tab) */
@@ -99,6 +100,19 @@ function SuspendedOutlet() {
 function SessionGate() {
   const { status, activePortal, isPureTech, isTechCapable, membership } = useSession();
   const { ready: translationsReady } = useLanguage();
+  const location = useLocation();
+
+  /*
+   * 营销邮件退订是公开页，不能进登录门禁。挂在 SessionGate 最前面，
+   * 避免在未登录 / 选店 / setup / 技师树里各写一遍。
+   */
+  if (location.pathname === '/unsubscribe') {
+    return (
+      <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+        <Unsubscribe />
+      </Suspense>
+    );
+  }
 
   if (status === 'loading') {
     return (
