@@ -140,10 +140,6 @@ export function BookPage() {
         }
         return;
       }
-      if (e.isRateLimited) {
-        setBanner(`Too many attempts. Please wait and try again${shop?.phone ? ', or call the shop' : ''}.`);
-        return;
-      }
       throw e;
     }
   }
@@ -593,6 +589,9 @@ function confirmError(e: unknown, shop: Shop): string {
   if (!(e instanceof ApiError)) return `Something went wrong. Please try again${tail}.`;
   const reason = String(e.details['reason'] ?? '');
   if (reason === 'bot_check_failed') return 'Security check failed. Please try again.';
+  if (e.isRateLimited) {
+    return `Too many attempts. Please wait and try again${shop.phone ? ', or call the shop' : ''}.`;
+  }
   if (reason === 'too_soon') return `That time is too soon. Please call the shop${shop.phone ? ` at ${shop.phone}` : ''}.`;
   if (reason === 'too_many_upcoming') return `You already have several upcoming appointments. Please call the shop${shop.phone ? ` at ${shop.phone}` : ''}.`;
   if (e.status === 0) return `Network problem. Check your connection and try again${tail}.`;

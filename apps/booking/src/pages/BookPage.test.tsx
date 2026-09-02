@@ -212,6 +212,28 @@ describe('BookPage', () => {
     await waitFor(() => expect(reset).toHaveBeenCalledWith('wid-1'));
   });
 
+  it('resets Turnstile after a 429', async () => {
+    const user = userEvent.setup();
+    const reset = vi.fn();
+    loadTurnstile.mockResolvedValue({
+      render: (_el: HTMLElement, opts: Record<string, unknown>) => {
+        (opts['callback'] as (t: string) => void)('turnstile-token');
+        return 'wid-1';
+      },
+      reset,
+      remove: vi.fn(),
+    });
+    book.mockRejectedValueOnce(new ApiError('RATE_LIMITED', 429, { scope: 'ip', retryAfterSec: 60 }));
+    renderBook();
+    await throughToTime(user);
+    await user.click(screen.getByTestId(`slot-${nySlot}`));
+    await user.type(screen.getByLabelText('Name'), 'Amy Chen');
+    await user.type(screen.getByLabelText('Mobile phone'), '6175550199');
+    await user.click(screen.getByRole('button', { name: 'Book appointment' }));
+    await waitFor(() => expect(reset).toHaveBeenCalledWith('wid-1'));
+    expect(await screen.findByText(/too many attempts/i)).toBeInTheDocument();
+  });
+
   it('stores only minimum same-session data on success', async () => {
     const user = userEvent.setup();
     book.mockResolvedValue({
