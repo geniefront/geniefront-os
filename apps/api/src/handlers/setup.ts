@@ -14,6 +14,7 @@ import {
   SaveCheckoutSettings, Apply10Dlc, SaveIntakeWaiver, SaveWebhooks, SetEmailLocale,
   ROLE_PRESETS,
   AppError, ERROR_CODES, pickText,
+  parseShopSlug, shopSlugFromName,
 } from '@gf/contracts';
 import { normalizeOrigin } from '../public/origin';
 import { jsonb } from '@gf/db';
@@ -252,30 +253,57 @@ registerHandler(SaveLocationProfile, async ({ input, ctx, tx, audit }: HandlerAr
     }
   }
 
+  let slug: string | null = null;
+  if (input.slug !== undefined) {
+    const parsed = parseShopSlug(input.slug);
+    if (!parsed.ok) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: parsed.reason, got: input.slug },
+      });
+    }
+    const [hit] = await tx<{ taken: boolean }[]>`
+      select gf_shop_slug_taken(${parsed.slug}, ${ctx.locationId}) as taken`;
+    if (hit?.taken) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'slug_unavailable', slug: parsed.slug },
+      });
+    }
+    slug = parsed.slug;
+  }
+
   const nameJson = typeof input.name === 'string'
     ? jsonb({ en: input.name, 'zh-Hans': input.name })
     : (input.name ? jsonb(input.name) : null);
 
-  await tx`update locations set
-      name = coalesce(${nameJson}::jsonb, name),
-      slug = coalesce(${input.slug ?? null}, slug),
-      timezone = coalesce(${input.timezone ?? null}, timezone),
-      business_type = coalesce(${input.businessType ?? null}, business_type),
-      phone = coalesce(${input.phone ?? null}, phone),
-      email = coalesce(${input.email ?? null}, email),
-      address_street = coalesce(${input.addressStreet ?? null}, address_street),
-      address_city = coalesce(${input.addressCity ?? null}, address_city),
-      address_state = coalesce(${input.addressState ?? null}, address_state),
-      address_zip = coalesce(${input.addressZip ?? null}, address_zip),
-      business_day_cutoff = coalesce(${input.businessDayCutoff ?? null}::time, business_day_cutoff),
-      appointment_email_copy_to_shop = coalesce(
-        ${input.appointmentEmailCopyToShop ?? null}, appointment_email_copy_to_shop),
-      /**
-       * ⭐ 记一句「老板亲眼确认过这几项」。
-       */
-      settings = jsonb_set(settings, '{profile_confirmed_at}', to_jsonb(now()::text)),
-      updated_at = now()
-    where id = ${ctx.locationId}`;
+  try {
+    await tx`update locations set
+        name = coalesce(${nameJson}::jsonb, name),
+        slug = coalesce(${slug}, slug),
+        timezone = coalesce(${input.timezone ?? null}, timezone),
+        business_type = coalesce(${input.businessType ?? null}, business_type),
+        phone = coalesce(${input.phone ?? null}, phone),
+        email = coalesce(${input.email ?? null}, email),
+        address_street = coalesce(${input.addressStreet ?? null}, address_street),
+        address_city = coalesce(${input.addressCity ?? null}, address_city),
+        address_state = coalesce(${input.addressState ?? null}, address_state),
+        address_zip = coalesce(${input.addressZip ?? null}, address_zip),
+        business_day_cutoff = coalesce(${input.businessDayCutoff ?? null}::time, business_day_cutoff),
+        appointment_email_copy_to_shop = coalesce(
+          ${input.appointmentEmailCopyToShop ?? null}, appointment_email_copy_to_shop),
+        /**
+         * ⭐ 记一句「老板亲眼确认过这几项」。
+         */
+        settings = jsonb_set(settings, '{profile_confirmed_at}', to_jsonb(now()::text)),
+        updated_at = now()
+      where id = ${ctx.locationId}`;
+  } catch (e) {
+    if (slug && (e as { code?: string }).code === '23505') {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'slug_unavailable', slug },
+      });
+    }
+    throw e;
+  }
 
   audit({
     entityType: 'location', entityId: ctx.locationId,
@@ -284,7 +312,7 @@ registerHandler(SaveLocationProfile, async ({ input, ctx, tx, audit }: HandlerAr
       timezone: input.timezone ?? cur.timezone,
       businessType: input.businessType ?? cur.business_type,
       ...(input.name ? { name: typeof input.name === 'string' ? input.name : pickText(input.name, ctx.locale) } : {}),
-      ...(input.slug ? { slug: input.slug } : {}),
+      ...(slug ? { slug } : {}),
       ...(input.phone ? { phone: input.phone } : {}),
       ...(input.email ? { email: input.email } : {}),
       ...(input.appointmentEmailCopyToShop !== undefined
@@ -561,8 +589,7 @@ registerHandler(CreateLocation, async ({ input, ctx, tx, audit }: HandlerArgs<
    * ⚠️ 随机后缀不能省。两家「Lotus Spa」是这行的常态（同一个老板
    * 在两条街上各开一家，名字一模一样），纯按名字生成必然撞。
    */
-  const base = input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  const slug = `${(base || 'shop').slice(0, 40)}-${randomUUID().replace(/-/g, '').slice(0, 6)}`;
+  const slug = shopSlugFromName(input.name, randomUUID().replace(/-/g, '').slice(0, 6));
 
   const [loc] = await tx<{ id: string }[]>`
     insert into locations (org_id, name, slug, timezone, business_type, status, settings)

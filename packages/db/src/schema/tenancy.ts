@@ -32,6 +32,12 @@ export const locations = pgTable('locations', {
   id: id(),
   orgId: uuid('org_id').notNull().references(() => organizations.id),
   name: jsonb('name').notNull(),          // i18n
+  /**
+   * 托管预约页路径 book.geniefront.com/{slug}（sql/0095）。
+   *
+   * 平台级唯一，存的是规范化形式：小写 ASCII、字母数字和单个连字符，2–64 位。
+   * ⚠️ 不是密钥 —— 它会出现在公开 URL 里。鉴权不建立在它上面。
+   */
   slug: text('slug').notNull(),
   timezone: text('timezone').notNull(),   // IANA，如 America/New_York
   currency: text('currency').notNull().default('USD'),

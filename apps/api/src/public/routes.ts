@@ -32,7 +32,7 @@ import { dispatch } from '../bus';
 import { loadSlotContext } from '../queries/slots';
 import { flushEmails } from '../email/flush';
 import { flushSms } from '../sms/flush';
-import { resolveShop, assertOriginAllowed, publicContext, PUBLIC_KEY_HEADER } from './publicAuth';
+import { resolveShop, resolveHostedShop, assertOriginAllowed, publicContext, PUBLIC_KEY_HEADER } from './publicAuth';
 import { assertHuman } from './turnstile';
 import { checkRateLimits } from './rateLimit';
 import {
@@ -58,6 +58,30 @@ const localeOf = (q: unknown, shop: PublicShopRow): string =>
 
 const originOf = (req: FastifyRequest): string | undefined =>
   typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
+
+function publicShopPayload(shop: PublicShopRow, locale: string) {
+  return {
+    name: pickText(shop.name, locale),
+    slug: shop.slug,
+    timezone: shop.timezone,
+    currency: shop.currency,
+    phone: shop.phone,
+    address: shop.address,
+    businessHours: shop.businessHours,
+    locales: [shop.defaultLocale],
+    onlineBooking: {
+      enabled: shop.onlineBooking.enabled,
+      maxDaysAhead: shop.onlineBooking.maxDaysAhead,
+      minMinutesAhead: shop.onlineBooking.minMinutesAhead,
+      requirePhoneVerification: shop.onlineBooking.requirePhoneVerification,
+      cancelCutoffHours: shop.onlineBooking.cancelCutoffHours,
+      rescheduleEnabled: shop.onlineBooking.rescheduleEnabled,
+      rescheduleCutoffHours: shop.onlineBooking.rescheduleCutoffHours,
+      selfRescheduleMax: shop.onlineBooking.selfRescheduleMax,
+    },
+    turnstileSiteKey: process.env['TURNSTILE_SITE_KEY'] ?? null,
+  };
+}
 
 // ── 入参 ─────────────────────────────────────────────────────────────────────
 
@@ -116,31 +140,21 @@ export function registerPublicRoutes(app: FastifyInstance): void {
   app.get<{ Querystring: { locale?: string } }>('/public/v1/shop', async (req) => {
     const shop = await resolveShop(req.headers);
     assertOriginAllowed(originOf(req), shop);
-    const locale = localeOf(req.query.locale, shop);
+    return publicShopPayload(shop, localeOf(req.query.locale, shop));
+  });
 
+  // Hosted booking bootstrap: book.geniefront.com/{slug} has no public-key
+  // header. The key is returned because it is already public; the client
+  // keeps it in memory and does not put it back in the canonical URL.
+  app.get<{
+    Params: { slug: string };
+    Querystring: { locale?: string };
+  }>('/public/v1/hosted/shops/:slug', async (req) => {
+    const shop = await resolveHostedShop(req.params.slug);
+    assertOriginAllowed(originOf(req), shop);
     return {
-      name: pickText(shop.name, locale),
-      slug: shop.slug,
-      timezone: shop.timezone,
-      currency: shop.currency,
-      phone: shop.phone,
-      address: shop.address,
-      businessHours: shop.businessHours,
-      locales: [shop.defaultLocale],
-      onlineBooking: {
-        enabled: shop.onlineBooking.enabled,
-        maxDaysAhead: shop.onlineBooking.maxDaysAhead,
-        minMinutesAhead: shop.onlineBooking.minMinutesAhead,
-        requirePhoneVerification: shop.onlineBooking.requirePhoneVerification,
-        cancelCutoffHours: shop.onlineBooking.cancelCutoffHours,
-        // 官网靠这三个决定「我的预约」页面上要不要显示改期按钮（批 2）
-        rescheduleEnabled: shop.onlineBooking.rescheduleEnabled,
-        rescheduleCutoffHours: shop.onlineBooking.rescheduleCutoffHours,
-        selfRescheduleMax: shop.onlineBooking.selfRescheduleMax,
-      },
-      // ⚠️ site key 是公开的（它本来就要出现在官网的 HTML 里）。
-      // secret key 一个字都不往外走
-      turnstileSiteKey: process.env['TURNSTILE_SITE_KEY'] ?? null,
+      ...publicShopPayload(shop, localeOf(req.query.locale, shop)),
+      publicKey: shop.publicKey,
     };
   });
 

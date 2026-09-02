@@ -36,7 +36,7 @@ import {
   AppError, ERROR_CODES,
   type CommandContext, type Locale, type Permission,
 } from '@gf/contracts';
-import { withPublicKey, type PublicShopRow } from '@gf/db';
+import { withPublicKey, withPublicSlug, type PublicShopRow } from '@gf/db';
 import { originAllowed, isHostedBookingOrigin } from './origin';
 
 export const PUBLIC_KEY_HEADER = 'x-gf-public-key';
@@ -89,6 +89,19 @@ export async function resolveShop(
     throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
       details: { reason: 'online_booking_disabled' },
     });
+  }
+  return shop;
+}
+
+/**
+ * Hosted booking bootstrap: slug in the URL, not a public key header.
+ * Same 404 envelope as a missing/disabled shop — do not distinguish.
+ */
+export async function resolveHostedShop(rawSlug: string): Promise<PublicShopRow> {
+  const shop = await withPublicSlug(rawSlug).catch(() => null);
+  if (!shop) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'shop' } });
+  if (['suspended', 'closed', 'setup'].includes(shop.locationStatus)) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'shop' } });
   }
   return shop;
 }

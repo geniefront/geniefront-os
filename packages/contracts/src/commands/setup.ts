@@ -190,7 +190,12 @@ export const SaveLocationProfile = defineCommand({
   name: 'location.saveProfile',
   input: z.object({
     name: i18nText.or(z.string()).optional(),
-    slug: z.string().min(2).max(64).optional(),
+    /**
+     * 托管预约页短码。存库前会规范化（小写、字母数字和单个连字符）。
+     * 平台级唯一；保留路径与非法形状由 handler 以 slug_reserved / slug_invalid 拒绝，
+     * 被占用则以 slug_unavailable 拒绝。
+     */
+    slug: z.string().min(1).max(80).optional(),
     /** IANA 时区名，如 America/New_York */
     timezone: z.string().min(3).max(64).optional(),
     businessType: z.enum(['nail', 'massage', 'foot_spa', 'lash', 'scalp', 'hair', 'mixed']).optional(),

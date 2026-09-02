@@ -13,6 +13,8 @@
  * 认出之后走正常的 withTenant —— 和门口 iPad 一模一样。
  */
 
+import type postgres from 'postgres';
+import { parseShopSlug } from '@gf/contracts';
 import { sql } from './client';
 
 /** `pk_` + 24 位 hex（sql/0033 的触发器保证）。老库里的 8 位在迁移时已换掉 */
@@ -59,6 +61,8 @@ export interface PublicShopRow {
   /** 规范化过的 origin 列表。空数组 = 老板还没填，见 publicAuth.ts 的取舍 */
   allowedOrigins: string[];
   settings: Record<string, unknown>;
+  /** Explicitly public shop identifier. Not a secret. */
+  publicKey: string;
 }
 
 /** settings.online_booking 缺字段时的安全默认值。**enabled 默认 false** */
@@ -104,50 +108,90 @@ export async function withPublicKey(publicKey: string): Promise<PublicShopRow | 
     // 变成「在那个租户里找这家店」—— 找不到还算好的，找到了就是串店
     await tx`select
       set_config('app.public_key',        ${publicKey}, true),
+      set_config('app.public_slug',       '',           true),
       set_config('app.org_id',            '',           true),
       set_config('app.location_id',       '',           true),
       set_config('app.user_id',           '',           true),
       set_config('app.device_token_hash', '',           true)`;
 
-    const rows = await tx<{
-      org_id: string; location_id: string; name: unknown; slug: string;
-      timezone: string; currency: string; cutoff: string; hours: unknown;
-      address: unknown; phone: string | null; loc_status: string;
-      locale: string; settings: unknown;
-    }[]>`
+    const rows = await tx<PublicShopQueryRow[]>`
       select l.org_id, l.id as location_id, l.name, l.slug, l.timezone, l.currency,
              l.business_day_cutoff::text as cutoff, l.business_hours as hours,
              l.address, l.phone, l.status as loc_status,
-             o.default_locale as locale, l.settings
+             o.default_locale as locale, l.settings, l.public_key
       from locations l
       join organizations o on o.id = l.org_id
       where l.public_key = ${publicKey}`;
 
-    const r = rows[0];
-    if (!r) return null;
-
-    const origins = await tx<{ origin: string }[]>`
-      select origin from location_allowed_origins
-      where location_id = ${r.location_id}`;
-
-    const settings = (r.settings ?? {}) as Record<string, unknown>;
-
-    return {
-      orgId: r.org_id,
-      locationId: r.location_id,
-      name: (r.name ?? {}) as Record<string, string>,
-      slug: r.slug,
-      timezone: r.timezone,
-      currency: r.currency,
-      businessDayCutoff: r.cutoff,
-      businessHours: (r.hours ?? {}) as PublicShopRow['businessHours'],
-      address: (r.address ?? null) as Record<string, unknown> | null,
-      phone: r.phone,
-      locationStatus: r.loc_status,
-      defaultLocale: r.locale,
-      onlineBooking: readOnlineBooking(settings),
-      allowedOrigins: origins.map((o) => o.origin),
-      settings,
-    };
+    return hydratePublicShop(tx, rows[0] ?? null);
   }) as Promise<PublicShopRow | null>;
+}
+
+/**
+ * Hosted booking path lookup. Same PublicShopRow as withPublicKey.
+ * Invalid / reserved slugs are indistinguishable from a miss (return null).
+ */
+export async function withPublicSlug(rawSlug: string): Promise<PublicShopRow | null> {
+  const parsed = parseShopSlug(rawSlug);
+  if (!parsed.ok) return null;
+
+  return sql.begin(async (tx) => {
+    await tx`select
+      set_config('app.public_slug',       ${parsed.slug}, true),
+      set_config('app.public_key',        '',           true),
+      set_config('app.org_id',            '',           true),
+      set_config('app.location_id',       '',           true),
+      set_config('app.user_id',           '',           true),
+      set_config('app.device_token_hash', '',           true)`;
+
+    const rows = await tx<PublicShopQueryRow[]>`
+      select l.org_id, l.id as location_id, l.name, l.slug, l.timezone, l.currency,
+             l.business_day_cutoff::text as cutoff, l.business_hours as hours,
+             l.address, l.phone, l.status as loc_status,
+             o.default_locale as locale, l.settings, l.public_key
+      from locations l
+      join organizations o on o.id = l.org_id
+      where l.slug = ${parsed.slug}`;
+
+    return hydratePublicShop(tx, rows[0] ?? null);
+  }) as Promise<PublicShopRow | null>;
+}
+
+interface PublicShopQueryRow {
+  org_id: string; location_id: string; name: unknown; slug: string;
+  timezone: string; currency: string; cutoff: string; hours: unknown;
+  address: unknown; phone: string | null; loc_status: string;
+  locale: string; settings: unknown; public_key: string;
+}
+
+async function hydratePublicShop(
+  tx: postgres.TransactionSql,
+  r: PublicShopQueryRow | null,
+): Promise<PublicShopRow | null> {
+  if (!r) return null;
+
+  const origins = await tx<{ origin: string }[]>`
+    select origin from location_allowed_origins
+    where location_id = ${r.location_id}`;
+
+  const settings = (r.settings ?? {}) as Record<string, unknown>;
+
+  return {
+    orgId: r.org_id,
+    locationId: r.location_id,
+    name: (r.name ?? {}) as Record<string, string>,
+    slug: r.slug,
+    timezone: r.timezone,
+    currency: r.currency,
+    businessDayCutoff: r.cutoff,
+    businessHours: (r.hours ?? {}) as PublicShopRow['businessHours'],
+    address: (r.address ?? null) as Record<string, unknown> | null,
+    phone: r.phone,
+    locationStatus: r.loc_status,
+    defaultLocale: r.locale,
+    onlineBooking: readOnlineBooking(settings),
+    allowedOrigins: origins.map((o) => o.origin),
+    settings,
+    publicKey: r.public_key,
+  };
 }

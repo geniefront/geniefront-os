@@ -1031,3 +1031,86 @@ describe('这串公开 key 到底能干什么', () => {
     expect(row!.n).toBe(0);
   });
 });
+
+describe('hosted shop slug', () => {
+  async function nailShop() {
+    const [row] = await withTenant(tenant, (tx) => tx<{
+      slug: string; public_key: string; status: string;
+    }[]>`
+      select slug, public_key, status from locations where id = ${NAIL_LOC}`);
+    return row!;
+  }
+
+  it('resolves an active shop and returns the public key', async () => {
+    const shop = await nailShop();
+    const res = await app.inject({
+      method: 'GET',
+      url: `/public/v1/hosted/shops/${shop.slug}?locale=en`,
+      headers: { origin: 'https://book.geniefront.com' },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.slug).toBe(shop.slug);
+    expect(body.publicKey).toBe(shop.public_key);
+    expect(body.timezone).toBe('America/New_York');
+    expect(body).not.toHaveProperty('allowedOrigins');
+    expect(body).not.toHaveProperty('settings');
+    expect(body).not.toHaveProperty('orgId');
+    expect(body).not.toHaveProperty('locationId');
+  });
+
+  it('treats case and punctuation variants as the same shop', async () => {
+    const shop = await nailShop();
+    const variant = shop.slug.toUpperCase().replace(/-/g, '_');
+    const res = await app.inject({
+      method: 'GET',
+      url: `/public/v1/hosted/shops/${encodeURIComponent(variant)}`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().publicKey).toBe(shop.public_key);
+  });
+
+  it('missing, setup, suspended, and closed shops share the same 404', async () => {
+    const missing = await app.inject({
+      method: 'GET',
+      url: '/public/v1/hosted/shops/no-such-shop-zzzz',
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().code).toBe('NOT_FOUND');
+    expect(missing.json().details).toEqual({ entity: 'shop' });
+
+    const shop = await nailShop();
+    try {
+      for (const status of ['setup', 'suspended', 'closed'] as const) {
+        await withTenant(tenant, (tx) => tx`
+          update locations set status = ${status} where id = ${NAIL_LOC}`);
+        const res = await app.inject({
+          method: 'GET',
+          url: `/public/v1/hosted/shops/${shop.slug}`,
+        });
+        expect(res.statusCode).toBe(404);
+        expect(res.json()).toEqual(missing.json());
+      }
+    } finally {
+      await withTenant(tenant, (tx) => tx`
+        update locations set status = ${shop.status} where id = ${NAIL_LOC}`);
+    }
+  });
+
+  it('resolved public key cannot call authenticated routes', async () => {
+    const shop = await nailShop();
+    const boot = await app.inject({
+      method: 'GET',
+      url: `/public/v1/hosted/shops/${shop.slug}`,
+    });
+    const key = boot.json().publicKey as string;
+    expect(key).toMatch(/^pk_/);
+    for (const url of ['/v1/desk/day', '/v1/customers/search?q=chen', '/v1/desk/earnings']) {
+      const res = await app.inject({
+        method: 'GET', url,
+        headers: { 'x-gf-public-key': key },
+      });
+      expect(res.statusCode).toBe(401);
+    }
+  });
+});

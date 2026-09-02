@@ -10,6 +10,7 @@ import { businessDateOf } from '@gf/scheduling';
 export interface LocationSettingsDto {
   id: string;
   name: string;
+  /** Globally unique hosted-booking path. Not a secret. */
   slug: string;
   businessType: string;
   phone: string;
