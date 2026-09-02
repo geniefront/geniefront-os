@@ -150,6 +150,19 @@ describe('文案', () => {
     expect(measure(body).segments).toBe(1);
   });
 
+  it('a manage URL is GSM-7, may use more than one segment, and never says Reply CANCEL', () => {
+    const url = 'https://book.geniefront.com/l/golden-lotus-nails/g/mt_abcdefghijklmnopqrstuvwx';
+    const body = renderConfirmSms({ ...base, manageUrl: url });
+    const m = measure(body);
+    expect(m.encoding).toBe('GSM-7');
+    expect(m.segments).toBeGreaterThanOrEqual(2);
+    expect(m.segments).toBe(segmentsOf(body));
+    expect(body).toContain(url);
+    expect(body.toUpperCase()).not.toContain('REPLY CANCEL');
+    expect(body).toContain('Reply STOP to opt out');
+    expect(body.startsWith('GenieFront: ')).toBe(true);
+  });
+
   it('🔴 正文里一个字都不许提「回复 CANCEL」', () => {
     // CANCEL 是运营商强制的**退订**关键词。在预约短信里教客人回 CANCEL
     // 等于亲手让他退订，而他以为自己取消了预约

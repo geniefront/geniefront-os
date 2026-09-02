@@ -16,6 +16,7 @@ import { renderConfirm, formatWhen } from '../email/render';
 import { emailConfigured } from '../email/send';
 import { hostedManageBookingUrl } from '../links';
 import { generateManageToken, hashManageToken, wrapManageToken } from '../public/bookingToken';
+import { guestManageLink, manageUrlVar } from '../notify/manageUrl';
 import { enqueueShopCopy } from '../email/shopCopy';
 import { renderConfirmSms } from '../sms/render';
 import { segmentsOf } from '../sms/segments';
@@ -341,7 +342,7 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
   }
 
   await enqueueConfirmEmail(tx, ctx, appt!.id, itemIds[0] ?? null, issuedManageToken);
-  await enqueueConfirmSms(tx, ctx, appt!.id, itemIds[0] ?? null);
+  await enqueueConfirmSms(tx, ctx, appt!.id, itemIds[0] ?? null, issuedManageToken);
 
   // 审计由总线统一落库并做金额脱敏
   audit({
@@ -565,6 +566,7 @@ async function enqueueConfirmEmail(
 async function enqueueConfirmSms(
   tx: HandlerArgs<Input>['tx'], ctx: HandlerArgs<Input>['ctx'],
   appointmentId: string, firstItemId: string | null,
+  manageToken: string | null,
 ): Promise<void> {
   if (!smsConfigured() || !firstItemId) return;
 
@@ -595,12 +597,16 @@ async function enqueueConfirmSms(
    * 成本翻倍而客人看到的完全一样（`sms/segments.ts`）。
    * 店主 2026-08-22 定：短信只做英文。
    */
+  const manageUrl = manageToken
+    ? hostedManageBookingUrl({ shopSlug: row!.shop_slug, manageToken })
+    : null;
   const body = renderConfirmSms({
     shopName: row!.shop_name,
     shopSlug: row!.shop_slug,
     serviceName: pickText(row!.service_name, 'en', 'your appointment'),
     whenText: formatWhenSms(new Date(row!.starts_at).toISOString(), row!.timezone),
     shopPhone: line?.e164 ?? null,
+    manageUrl,
   });
 
   await tx`
@@ -1156,9 +1162,11 @@ registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: Hand
  */
 type ChangeNotifySnapshot = {
   email: string | null; phone: string | null; customer_name: unknown;
-  shop_name: unknown; timezone: string;
+  shop_name: unknown; timezone: string; slug: string;
   service_name: unknown; staff_name: unknown; staff_phone: string | null;
   starts_at: string;
+  manage_token_digest: string | null;
+  manage_token_wrapped: Buffer | Uint8Array | null;
 };
 
 async function loadChangeNotifySnapshot(
@@ -1167,10 +1175,11 @@ async function loadChangeNotifySnapshot(
 ): Promise<ChangeNotifySnapshot | null> {
   const [row] = await tx<ChangeNotifySnapshot[]>`
     select c.email, c.phone_e164 as phone, c.display_name as customer_name,
-           l.name as shop_name, l.timezone,
+           l.name as shop_name, l.timezone, l.slug,
            s.name as service_name, sp.display_name as staff_name,
            u.phone as staff_phone,
-           ai.starts_at::text as starts_at
+           ai.starts_at::text as starts_at,
+           a.manage_token_digest, a.manage_token_wrapped
     from appointments a
     join locations l on l.id = a.location_id
     left join appointment_items ai on ai.appointment_id = a.id
@@ -1219,11 +1228,11 @@ async function notifyAppointmentChange(
    */
   const when = formatWhenSms(
     new Date(args.newStartsAt ?? row.starts_at).toISOString(), row.timezone);
-  /*
-   * Task 8: add `manage_url` from `unwrapManageToken(wrapped, digest)` +
-   * `hostedManageBookingUrl`. Do not mint a replacement token. Omit the
-   * variable when unwrap is impossible so previously issued links stay valid.
-   */
+  const manageUrl = guestManageLink({
+    shopSlug: row.slug,
+    wrapped: row.manage_token_wrapped,
+    digest: row.manage_token_digest,
+  });
   const vars = {
     customer_name: pickText(row.customer_name, 'en', ''),
     shop_name: pickText(row.shop_name, 'en', ''),
@@ -1233,6 +1242,7 @@ async function notifyAppointmentChange(
     old_when: args.oldStartsAt
       ? formatWhenSms(new Date(args.oldStartsAt).toISOString(), row.timezone) : '',
     shop_phone: line?.e164 ?? '',
+    manage_url: manageUrlVar(manageUrl),
   };
 
   /*

@@ -139,7 +139,8 @@ GenieFront: Booked at <店名> - <项目>, <时间>. To change call <电话>. Re
 ## 3. 数据库模板清单（路径 B）
 
 默认文案在 `packages/db/sql/0086_notification_defaults_and_unsubscribe.sql`
-第 130 行起，`0087_notification_default_sms_length.sql` 是后续收紧短信长度的补丁。
+第 130 行起，`0087` / `0093` / `0100` 是后续只刷新未改过的默认模板的补丁。
+`{{manage_url}}` 只在 `BOOKING_MANAGE_PAGE_ENABLED=1` 且能从 wrap 还原令牌时有值。
 
 变量语法 `{{snake_case}}`，实现在
 `packages/contracts/src/notification.ts:82` 的 `renderTemplate()`。
@@ -151,9 +152,9 @@ GenieFront: Booked at <店名> - <项目>, <时间>. To change call <电话>. Re
 | 事件 | 变量 |
 | :--- | :--- |
 | `appointment_confirm` | `customer_name` `shop_name` `service_name` `when` `staff_name` `shop_phone` `manage_url` |
-| `appointment_changed` | `customer_name` `shop_name` `service_name` `when` `old_when` `staff_name` `shop_phone` |
-| `appointment_cancelled` | `customer_name` `shop_name` `service_name` `when` `shop_phone` |
-| `appointment_reminder` | `customer_name` `shop_name` `service_name` `when` `staff_name` `shop_phone` |
+| `appointment_changed` | `customer_name` `shop_name` `service_name` `when` `old_when` `staff_name` `shop_phone` `manage_url` |
+| `appointment_cancelled` | `customer_name` `shop_name` `service_name` `when` `shop_phone` `manage_url` |
+| `appointment_reminder` | `customer_name` `shop_name` `service_name` `when` `staff_name` `shop_phone` `manage_url` |
 | `staff_pending_confirm` | `staff_name` `customer_name` `service_name` `when` `confirm_url` |
 | `staff_assigned` | `staff_name` `customer_name` `service_name` `when` |
 | `staff_changed` | `staff_name` `customer_name` `service_name` `when` `old_when` |

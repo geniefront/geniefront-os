@@ -55,9 +55,9 @@ export function isNotificationEvent(v: string): v is NotificationEvent {
  */
 export const EVENT_VARIABLES: Record<NotificationEvent, readonly string[]> = {
   appointment_confirm: ['customer_name', 'shop_name', 'service_name', 'when', 'staff_name', 'shop_phone', 'manage_url'],
-  appointment_changed: ['customer_name', 'shop_name', 'service_name', 'when', 'old_when', 'staff_name', 'shop_phone'],
-  appointment_cancelled: ['customer_name', 'shop_name', 'service_name', 'when', 'shop_phone'],
-  appointment_reminder: ['customer_name', 'shop_name', 'service_name', 'when', 'staff_name', 'shop_phone'],
+  appointment_changed: ['customer_name', 'shop_name', 'service_name', 'when', 'old_when', 'staff_name', 'shop_phone', 'manage_url'],
+  appointment_cancelled: ['customer_name', 'shop_name', 'service_name', 'when', 'shop_phone', 'manage_url'],
+  appointment_reminder: ['customer_name', 'shop_name', 'service_name', 'when', 'staff_name', 'shop_phone', 'manage_url'],
   staff_pending_confirm: ['staff_name', 'customer_name', 'service_name', 'when', 'confirm_url'],
   staff_assigned: ['staff_name', 'customer_name', 'service_name', 'when'],
   staff_changed: ['staff_name', 'customer_name', 'service_name', 'when', 'old_when'],

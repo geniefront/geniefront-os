@@ -30,6 +30,7 @@ import type { FastifyInstance } from 'fastify';
 import { sql, withTenant } from '@gf/db';
 import type { CommandContext } from '@gf/contracts';
 import { notifyEvent } from './dispatch';
+import { guestManageLink, manageUrlVar } from './manageUrl';
 import { flushSms } from '../sms/flush';
 import { flushEmails } from '../email/flush';
 import { formatWhen } from '../email/render';
@@ -112,13 +113,16 @@ async function enqueueOneReminder(
 ): Promise<number> {
   const [row] = await tx<{
     email: string | null; phone: string | null; customer_name: unknown;
-    shop_name: unknown; timezone: string; service_name: unknown;
+    shop_name: unknown; timezone: string; slug: string; service_name: unknown;
     staff_name: unknown; starts_at: string;
+    manage_token_digest: string | null;
+    manage_token_wrapped: Buffer | Uint8Array | null;
   }[]>`
     select c.email, c.phone_e164 as phone, c.display_name as customer_name,
-           l.name as shop_name, l.timezone,
+           l.name as shop_name, l.timezone, l.slug,
            s.name as service_name, sp.display_name as staff_name,
-           ai.starts_at::text as starts_at
+           ai.starts_at::text as starts_at,
+           a.manage_token_digest, a.manage_token_wrapped
     from appointments a
     join locations l on l.id = a.location_id
     left join appointment_items ai
@@ -141,6 +145,11 @@ async function enqueueOneReminder(
     staff_name: row.staff_name ? pickText(row.staff_name, 'en', '') : '',
     when: formatWhen(new Date(row.starts_at).toISOString(), row.timezone, 'en-US'),
     shop_phone: line?.e164 ?? '',
+    manage_url: manageUrlVar(guestManageLink({
+      shopSlug: row.slug,
+      wrapped: row.manage_token_wrapped,
+      digest: row.manage_token_digest,
+    })),
   };
 
   /*

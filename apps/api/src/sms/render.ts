@@ -95,6 +95,12 @@ export interface ConfirmSms {
   /** 已按门店时区格式化好,如 `Wed Aug 26, 12:30 PM` */
   whenText: string;
   shopPhone: string | null;
+  /**
+   * Hosted manage URL. Null when the page flag is off or no token exists.
+   * A link makes this message more than one GSM-7 segment; callers must
+   * store `segmentsOf(body)` rather than assume one.
+   */
+  manageUrl?: string | null;
 }
 
 /**
@@ -144,7 +150,8 @@ export function renderConfirmSms(d: ConfirmSms): string {
      * 「You're booked at X for Y on Z」→「Booked at X - Y, Z」省下 11 个，
      * 常见的那条落在 150 上下，谁都不用砍。
      */
-    return `${SENDER}: Booked${at} ${service}, ${d.whenText}.${call}`
+    const manage = d.manageUrl ? ` Manage: ${d.manageUrl}` : '';
+    return `${SENDER}: Booked${at} ${service}, ${d.whenText}.${call}${manage}`
       + ` ${OPT_OUT_NOTICE}`;
   };
 

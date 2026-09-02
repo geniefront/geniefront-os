@@ -307,11 +307,11 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
     // 模板 + 规则都配上 —— 缺任何一个都不发（这本身就是下面一条用例）
     await run('notification.saveTemplate', {
       eventKey: 'appointment_changed', channel: 'sms', locale: 'en',
-      body: 'Hi {{customer_name}}, your {{service_name}} moved to {{when}}.',
+      body: 'Hi {{customer_name}}, your {{service_name}} moved to {{when}}. {{manage_url}}',
     });
     await run('notification.saveTemplate', {
       eventKey: 'appointment_cancelled', channel: 'sms', locale: 'en',
-      body: 'Hi {{customer_name}}, your {{when}} appointment is cancelled.',
+      body: 'Hi {{customer_name}}, your {{when}} appointment is cancelled. {{manage_url}}',
     });
   });
 

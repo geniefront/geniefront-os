@@ -29,6 +29,7 @@ import { normalizeOrigin, originAllowed, isHostedBookingOrigin } from './public/
 import {
   generateConfirmationCode, generateManageToken, hashManageToken, unwrapManageToken,
 } from './public/bookingToken';
+import { segmentsOf } from './sms/segments';
 import './handlers/setup';
 import './handlers/shift';
 
@@ -616,11 +617,13 @@ describe('建预约', () => {
       expect(mail!.html).not.toContain('/b/');
       expect(mail!.html).not.toContain('k=pk_');
       expect(mail!.text).toContain(`/l/lotus-nails/g/${token}`);
-      const [sms] = await withTenant(tenant, (tx) => tx<{ body: string }[]>`
-        select body from sms_outbox
+      const [sms] = await withTenant(tenant, (tx) => tx<{ body: string; segments: number }[]>`
+        select body, segments from sms_outbox
         where entity_id = ${made.json().bookingId} and kind = 'appointment_confirm'`);
-      // Task 8 owns SMS manage_url. Token issuance is complete; delivery is not.
-      expect(sms?.body ?? '').not.toContain('/l/');
+      expect(sms?.body ?? '').toContain(`/l/lotus-nails/g/${token}`);
+      expect(sms!.body.toUpperCase()).not.toContain('REPLY CANCEL');
+      expect(sms!.segments).toBeGreaterThanOrEqual(2);
+      expect(sms!.segments).toBe(segmentsOf(sms!.body));
     } finally {
       if (prev === undefined) delete process.env['BOOKING_MANAGE_PAGE_ENABLED'];
       else process.env['BOOKING_MANAGE_PAGE_ENABLED'] = prev;
