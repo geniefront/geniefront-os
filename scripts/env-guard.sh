@@ -90,6 +90,7 @@ case "$TARGET" in
     [[ "$app_url" == *staging* && "$app_base" == *staging* && "$api_base" == *staging* ]] \
       || bad "staging 的公开 URL 必须使用 staging 域名"
     # 邮件里的 logo / 退订页 / 填表按钮走这三条，漏检就会把 localhost 发出去
+    [[ -n "$(get BOOKING_HOST)" ]] || bad "BOOKING_HOST 未配置"
     for key in MARKETING_BASE_URL FORM_BASE_URL BOOKING_PAGE_ORIGIN APP_URL APP_BASE_URL VITE_API_BASE; do
       val="$(get "$key")"
       [[ "$val" != *localhost* && "$val" != *127.0.0.1* ]] \
@@ -133,6 +134,10 @@ case "$TARGET" in
       || bad "production FORM_BASE_URL 必须是 https://desk.geniefront.com"
     [[ "$(get BOOKING_PAGE_ORIGIN)" == https://book.geniefront.com ]] \
       || bad "production BOOKING_PAGE_ORIGIN 必须是 https://book.geniefront.com"
+    [[ "$(get BOOKING_HOST)" == book.geniefront.com ]] \
+      || bad "production BOOKING_HOST 必须是 book.geniefront.com"
+    [[ "$(get BOOKING_MANAGE_PAGE_ENABLED)" != "1" ]] \
+      || echo "  ! BOOKING_MANAGE_PAGE_ENABLED=1 in production — confirm the manage route is live"
     for key in MARKETING_BASE_URL FORM_BASE_URL BOOKING_PAGE_ORIGIN APP_URL APP_BASE_URL; do
       val="$(get "$key")"
       [[ "$val" != *localhost* && "$val" != *127.0.0.1* ]] \

@@ -52,6 +52,7 @@ KIOSK_HOST="$(get KIOSK_HOST)"
 PLATFORM_HOST="$(get PLATFORM_HOST)"
 MARKETING_HOST="$(get MARKETING_HOST)"
 MARKETING_WWW_HOST="$(get MARKETING_WWW_HOST)"
+BOOKING_HOST="$(get BOOKING_HOST)"
 
 if [[ "$TARGET" == production ]]; then
   API_HOST=${API_HOST:-api.geniefront.com}
@@ -60,9 +61,10 @@ if [[ "$TARGET" == production ]]; then
   PLATFORM_HOST=${PLATFORM_HOST:-ops.geniefront.com}
   MARKETING_HOST=${MARKETING_HOST:-geniefront.com}
   MARKETING_WWW_HOST=${MARKETING_WWW_HOST:-www.geniefront.com}
+  BOOKING_HOST=${BOOKING_HOST:-book.geniefront.com}
 fi
 
-for item in API_HOST DESK_HOST KIOSK_HOST PLATFORM_HOST MARKETING_HOST MARKETING_WWW_HOST; do
+for item in API_HOST DESK_HOST KIOSK_HOST PLATFORM_HOST MARKETING_HOST MARKETING_WWW_HOST BOOKING_HOST; do
   [[ -n "${!item}" ]] || { echo "✗ ${item} 未配置"; exit 1; }
 done
 
@@ -80,7 +82,7 @@ trap 'rm -f "$RUNTIME_ENV"' EXIT
 grep -E '^[A-Z][A-Z0-9_]*=' "$ENV_FILE" | grep -vE "$DENY" > "$RUNTIME_ENV"
 
 # These public routing values are authoritative for both Compose and Caddy.
-for key in GF_ENV NODE_ENV API_HOST DESK_HOST KIOSK_HOST PLATFORM_HOST MARKETING_HOST MARKETING_WWW_HOST; do
+for key in GF_ENV NODE_ENV API_HOST DESK_HOST KIOSK_HOST PLATFORM_HOST MARKETING_HOST MARKETING_WWW_HOST BOOKING_HOST; do
   sed -i '' "/^${key}=/d" "$RUNTIME_ENV" 2>/dev/null || sed -i "/^${key}=/d" "$RUNTIME_ENV"
 done
 {
@@ -92,6 +94,7 @@ done
   echo "PLATFORM_HOST=${PLATFORM_HOST}"
   echo "MARKETING_HOST=${MARKETING_HOST}"
   echo "MARKETING_WWW_HOST=${MARKETING_WWW_HOST}"
+  echo "BOOKING_HOST=${BOOKING_HOST}"
 } >> "$RUNTIME_ENV"
 
 if grep -qE "$DENY" "$RUNTIME_ENV"; then
@@ -104,6 +107,7 @@ pnpm --filter @gf/web exec vite build --mode "$VITE_MODE" >/dev/null
 pnpm --filter @gf/ipad exec vite build --mode "$VITE_MODE" >/dev/null
 pnpm --filter @gf/marketing exec vite build --mode "$VITE_MODE" >/dev/null
 pnpm --filter @gf/platform exec vite build --mode "$VITE_MODE" >/dev/null
+pnpm --filter @gf/booking exec vite build --mode "$VITE_MODE" >/dev/null
 
 log "构建 ${IMAGE}（linux/amd64）"
 docker build -q --platform linux/amd64 --provenance=false \
@@ -120,10 +124,10 @@ for host in "${HOSTS[@]}"; do
   log "同步配置与前端"
   scp -q "$RUNTIME_ENV" "$host:/tmp/gf-runtime.env"
   scp -q deploy/compose.yml deploy/Caddyfile "$host:/tmp/"
-  ssh "$host" "mkdir -p '${REMOTE_DIR}/web' '${REMOTE_DIR}/kiosk' '${REMOTE_DIR}/platform' '${REMOTE_DIR}/marketing'"
+  ssh "$host" "mkdir -p '${REMOTE_DIR}/web' '${REMOTE_DIR}/kiosk' '${REMOTE_DIR}/platform' '${REMOTE_DIR}/marketing' '${REMOTE_DIR}/booking'"
 
   # 哈希资源先上传，index.html 最后覆盖；旧资源暂时保留，避免滚动期间 404。
-  for app in web ipad platform marketing; do
+  for app in web ipad platform marketing booking; do
     case "$app" in
       ipad) remote_app=kiosk ;;
       *) remote_app="$app" ;;
@@ -140,7 +144,7 @@ for host in "${HOSTS[@]}"; do
     rm -f /tmp/gf-runtime.env /tmp/compose.yml /tmp/Caddyfile
     test -s '${REMOTE_DIR}/origin.pem'
     test -s '${REMOTE_DIR}/origin.key'
-    for name in '${API_HOST}' '${DESK_HOST}' '${KIOSK_HOST}' '${PLATFORM_HOST}' '${MARKETING_HOST}'; do
+    for name in '${API_HOST}' '${DESK_HOST}' '${KIOSK_HOST}' '${PLATFORM_HOST}' '${MARKETING_HOST}' '${BOOKING_HOST}'; do
       openssl x509 -in '${REMOTE_DIR}/origin.pem' -noout -checkhost \"\$name\" >/dev/null
     done
     cd '${REMOTE_DIR}'

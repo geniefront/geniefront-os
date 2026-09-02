@@ -35,6 +35,7 @@ services:
       PLATFORM_HOST: ${PLATFORM_HOST:?PLATFORM_HOST required}
       MARKETING_HOST: ${MARKETING_HOST:?MARKETING_HOST required}
       MARKETING_WWW_HOST: ${MARKETING_WWW_HOST:?MARKETING_WWW_HOST required}
+      BOOKING_HOST: ${BOOKING_HOST:?BOOKING_HOST required}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./origin.pem:/etc/caddy/origin.pem:ro
@@ -43,6 +44,7 @@ services:
       - ./kiosk:/srv/kiosk:ro
       - ./platform:/srv/platform:ro
       - ./marketing:/srv/marketing:ro
+      - ./booking:/srv/booking:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on: [api]
