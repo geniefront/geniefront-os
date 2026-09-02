@@ -323,13 +323,15 @@ https://{$BOOKING_HOST} {
 
 	# Issued manage URLs keep the token in the fragment (#g/...), so
 	# Cloudflare, Logpush, and this access log never see it on the
-	# request line. Discard /l/* entirely so a leftover path-shaped
+	# request line. Skip /l and /l/* so a leftover path-shaped
 	# /l/{slug}/g/{token} request is not captured either.
-	@booking_access {
-		not path /l /l/*
-	}
-	log @booking_access {
+	#
+	# `log <name>` names the logger; it is not a request matcher.
+	# Skipping must use log_skip (Caddy 2.8+).
+	log {
 		output stdout
 		format json
 	}
+	@skip_manage path /l /l/*
+	log_skip @skip_manage
 }

@@ -296,11 +296,10 @@ describe('具名链接与前端路由一致', () => {
     expect(booking).toContain('X-Frame-Options DENY');
     expect(booking).toContain("Content-Security-Policy \"frame-ancestors 'none'\"");
     expect(booking).toContain('Referrer-Policy "no-referrer"');
-    expect(booking).toMatch(/@booking_access[\s\S]*not path \/l \/l\/\*/);
-    expect(booking).toMatch(/log @booking_access/);
-    const logBlocks = [...booking.matchAll(/\n\tlog(?:\s+\S+)?\s*\{/g)];
-    expect(logBlocks).toHaveLength(1);
-    expect(logBlocks[0]![0]).toContain('@booking_access');
+    expect(booking).toMatch(/@skip_manage path \/l \/l\/\*/);
+    expect(booking).toMatch(/log_skip @skip_manage/);
+    expect(booking).not.toMatch(/log @booking_access/);
+    expect(booking).not.toMatch(/log @skip_manage/);
   });
 
   /**
