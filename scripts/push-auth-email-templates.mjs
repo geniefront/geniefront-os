@@ -1,13 +1,9 @@
 #!/usr/bin/env node
 /**
- * 把 supabase/templates 里的 Magic Link / Recovery 模板推到托管项目。
- *
- * 需要个人 access token（https://supabase.com/dashboard/account/tokens）：
+ * 把 supabase/templates 里的 Auth 邮件模板推到托管项目。
  *
  *   SUPABASE_ACCESS_TOKEN=sbp_... PROJECT_REF=yfqybhuvzluvrapodahw \
  *     node scripts/push-auth-email-templates.mjs
- *
- * 默认 PROJECT_REF 是 staging 项目。生产另传 PROJECT_REF。
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -22,8 +18,29 @@ if (!token) {
   process.exit(2);
 }
 
-const magic = readFileSync(join(root, 'supabase/templates/magic_link.html'), 'utf8');
-const recovery = readFileSync(join(root, 'supabase/templates/recovery.html'), 'utf8');
+const logoByRef = {
+  yfqybhuvzluvrapodahw: 'https://staging.geniefront.com/brand/geniefront-logo-email.png',
+  qiuyubvhirjtglonbkon: 'https://www.geniefront.com/brand/geniefront-logo-email.png',
+};
+const logo = logoByRef[ref] ?? 'https://www.geniefront.com/brand/geniefront-logo-email.png';
+
+function load(name) {
+  return readFileSync(join(root, 'supabase/templates', name), 'utf8')
+    .replaceAll('{{ .SiteURL }}/brand/geniefront-logo-email.png', logo);
+}
+
+const payload = {
+  mailer_subjects_magic_link: 'Sign in to GenieFront',
+  mailer_templates_magic_link_content: load('magic_link.html'),
+  mailer_subjects_recovery: 'Reset your GenieFront password',
+  mailer_templates_recovery_content: load('recovery.html'),
+  mailer_subjects_confirmation: 'Confirm your GenieFront email',
+  mailer_templates_confirmation_content: load('confirmation.html'),
+  mailer_subjects_invite: 'You are invited to GenieFront',
+  mailer_templates_invite_content: load('invite.html'),
+  mailer_subjects_email_change: 'Confirm your new GenieFront email',
+  mailer_templates_email_change_content: load('email_change.html'),
+};
 
 const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/config/auth`, {
   method: 'PATCH',
@@ -31,12 +48,7 @@ const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/config/auth
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
   },
-  body: JSON.stringify({
-    mailer_subjects_magic_link: 'Sign in to GenieFront',
-    mailer_templates_magic_link_content: magic,
-    mailer_subjects_recovery: 'Reset your GenieFront password',
-    mailer_templates_recovery_content: recovery,
-  }),
+  body: JSON.stringify(payload),
 });
 
 const body = await res.text();
@@ -45,4 +57,5 @@ if (!res.ok) {
   console.error(body.slice(0, 800));
   process.exit(1);
 }
-console.log(`已推到项目 ${ref}：Magic Link + Recovery`);
+console.log(`已推到项目 ${ref}：Magic Link + Recovery + Confirmation + Invite + Email change`);
+console.log(`logo ${logo}`);

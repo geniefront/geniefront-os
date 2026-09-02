@@ -39,23 +39,35 @@
 
 位置：**Supabase 控制台 → Authentication → Email Templates**。
 
-### 3.1 Magic Link（激活 / 登录信）
+部署 desk / api / marketing **不会**改这些模板。它们活在 GoTrue 项目配置里，必须用
+`scripts/push-auth-email-templates.mjs` 显式 PATCH。
+
+### 3.1 五封 Auth 信
 
 事实源是仓库里的 HTML，不要在控制台里手改后再和仓库分叉：
 
-- 正文：`supabase/templates/magic_link.html`
-- 主题：`Sign in to GenieFront`
-- 推到托管项目：`SUPABASE_ACCESS_TOKEN=sbp_… node scripts/push-auth-email-templates.mjs`
+| 类型 | 文件 | 主题 |
+| --- | --- | --- |
+| Magic Link | `supabase/templates/magic_link.html` | Sign in to GenieFront |
+| Recovery | `supabase/templates/recovery.html` | Reset your GenieFront password |
+| Confirmation | `supabase/templates/confirmation.html` | Confirm your GenieFront email |
+| Invite | `supabase/templates/invite.html` | You are invited to GenieFront |
+| Email change | `supabase/templates/email_change.html` | Confirm your new GenieFront email |
 
-本地 `supabase start` 走 `config.toml` 的 `auth.email.template.magic_link`。
-Logo 用 `{{ .SiteURL }}/brand/geniefront-logo-email.png`，所以 Site URL 必须是
-desk 域名（staging-desk / desk），不能是 localhost。
+推到托管项目：
 
-### 3.2 Reset Password（忘记密码）
+```
+SUPABASE_ACCESS_TOKEN=sbp_… PROJECT_REF=yfqybhuvzluvrapodahw \
+  node scripts/push-auth-email-templates.mjs
+```
 
-- 正文：`supabase/templates/recovery.html`
-- 主题：`Reset your GenieFront password`
-- 同一条 push 脚本会一起推。保留「Signed up with Google?」那段（见 `auth/passwordReset.ts`）。
+本地 `supabase start` 走 `config.toml` 的 `auth.email.template.*`。
+仓库 HTML 里 logo 写 `{{ .SiteURL }}/brand/geniefront-logo-email.png`；
+push 脚本会改写成营销站绝对地址（staging.geniefront.com / www.geniefront.com），
+避免 desk 没部署 PNG 时收件箱破图。Site URL 必须是 desk 域名
+（staging-desk / desk），不能是 localhost。
+
+Recovery 保留「Signed up with Google?」那段（见 `auth/passwordReset.ts`）。
 
 > ⭐ 「Signed up with Google?」那一段不是客套话。用 Google 注册的店主没有密码，
 > 点了忘记密码之后 Supabase **仍然会发信**，点进去能设一个密码 —— 这个行为是

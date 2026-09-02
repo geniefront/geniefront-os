@@ -8,7 +8,8 @@
  */
 
 import {
-  CreateBlueprintDraft, SaveBlueprintExtraction, SaveBlueprintTranslations,
+  CreateBlueprintDraft, SaveBlueprintExtraction, SetBlueprintExtractionState,
+  SaveBlueprintTranslations,
   ReviewBlueprintItem,
   ReviewAllBlueprintItems, ReviewBlueprintItems, ApplyBlueprint, DiscardBlueprint,
   AppError, ERROR_CODES, pickText,
@@ -94,6 +95,7 @@ registerHandler(SaveBlueprintExtraction, async ({ input, ctx, tx, audit }: Handl
   await tx`
     update shop_blueprints
     set extracted_at = now(), unresolved = ${jsonb(input.unresolved)}::jsonb,
+        extraction_status = 'done', extraction_error = null,
         location_proposal = coalesce(${input.locationProposal ? jsonb(input.locationProposal) : null}::jsonb, location_proposal)
     where id = ${input.blueprintId}`;
 
@@ -125,7 +127,7 @@ registerHandler(SaveBlueprintExtraction, async ({ input, ctx, tx, audit }: Handl
   // 和上面那条 usage_events **在同一个事务里**：分开的话中间挂掉就会留下
   // 「用量记了但没扣钱」或者反过来，而两种漂移都要到月底对账才发现。
   // 传的是**毫分**不是分（差 10 倍的那个坑，见 billing/usage.ts）。
-  // 拍照开店走 Opus，一张 ~$0.08 → 自然扣 8 积分。
+  // 拍照开店走 Sonnet 5 / effort high，一张 ~$0.05 → 自然扣 5 积分。
   // 用和副驾同一把尺子量，就不需要为它单独定一套规则（`@gf/payroll`）
   const credits = creditsFor(input.usage.costMillicents);
   const charge = await chargeQuota(tx, ctx, {
@@ -152,6 +154,37 @@ registerHandler(SaveBlueprintExtraction, async ({ input, ctx, tx, audit }: Handl
     fromIncluded: charge?.fromIncluded ?? 0,
     fromBalance: charge?.fromBalance ?? 0,
   };
+});
+
+/**
+ * 后台提取任务的状态转移（sql/0094）。
+ *
+ * `running` 只该发生在草案还是 draft 时；`failed` 宽松一点 —— 提取跑的时候
+ * 老板可能已经把草案丢了（discard），这时把状态写成 failed 没有意义也没有
+ * 坏处，不必因为 `mustBeDraft` 抛错污染日志。`done` 不经过这里。
+ */
+registerHandler(SetBlueprintExtractionState, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SetBlueprintExtractionState.input._type>) => {
+  await loadDraft(tx, ctx.locationId, input.blueprintId, { mustBeDraft: input.state === 'running' });
+
+  if (input.state === 'running') {
+    await tx`
+      update shop_blueprints
+      set extraction_status = 'running', extraction_error = null,
+          extraction_started_at = now()
+      where id = ${input.blueprintId}`;
+  } else {
+    await tx`
+      update shop_blueprints
+      set extraction_status = 'failed', extraction_error = ${input.error ?? 'unknown'}
+      where id = ${input.blueprintId}`;
+  }
+
+  audit({
+    entityType: 'blueprint', entityId: input.blueprintId,
+    after: { extractionStatus: input.state, extractionError: input.error ?? null },
+  });
+  return { blueprintId: input.blueprintId, state: input.state };
 });
 
 registerHandler(ReviewBlueprintItem, async ({ input, ctx, tx, audit }: HandlerArgs<

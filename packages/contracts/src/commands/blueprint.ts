@@ -117,6 +117,39 @@ export const SaveBlueprintExtraction = defineCommand({
 });
 
 /**
+ * 标记后台提取任务的状态（sql/0094）。
+ *
+ * `exposed: false` + `system: true` —— 和 `saveExtraction` 同一类：提取改成
+ * 异步之后，路由把校验跑完就返回 202，真正的模型调用在游离的后台任务里进行。
+ * 这条命令负责把 `running` / `failed` 两个转移写进库；`done` 不走这里，它
+ * 由 `saveExtraction` 在写入候选行的**同一个事务**里一起置上，避免出现
+ * 「状态 done 但一行都没有」的中间态。
+ *
+ * 老板不该、也无法调它 —— 给 AI 一条「我说提取好了就是好了」的路，
+ * 正好绕过整条流水线。
+ */
+export const SetBlueprintExtractionState = defineCommand({
+  name: 'blueprint.setExtractionState',
+  /** 系统自有：只能由服务端编排调用（AUD-01）。 */
+  system: true,
+  input: z.object({
+    blueprintId: uuid,
+    state: z.enum(['running', 'failed']),
+    /** state=failed 时的原因串，进 `extraction_error`。running 时忽略。 */
+    error: z.string().max(300).optional(),
+  }),
+  output: z.object({ blueprintId: uuid, state: z.string() }),
+  permission: 'catalog.manage',
+  ai: {
+    description: '（内部）标记拍照开店的后台提取任务状态。',
+    confirm: 'never',
+    exposed: false,
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+/**
  * 把补齐的多语言写进草案（05 §4.4）。
  *
  * `exposed: false` —— 和 `saveExtraction` 同一个理由：它是补齐管线的最后一步，
@@ -293,6 +326,7 @@ export const DiscardBlueprint = defineCommand({
 });
 
 export const BLUEPRINT_COMMANDS = [
-  CreateBlueprintDraft, SaveBlueprintExtraction, SaveBlueprintTranslations, ReviewBlueprintItem,
+  CreateBlueprintDraft, SaveBlueprintExtraction, SetBlueprintExtractionState,
+  SaveBlueprintTranslations, ReviewBlueprintItem,
   ReviewAllBlueprintItems, ReviewBlueprintItems, ApplyBlueprint, DiscardBlueprint,
 ] as const;

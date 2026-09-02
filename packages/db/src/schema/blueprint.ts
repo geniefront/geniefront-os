@@ -48,6 +48,18 @@ export const shopBlueprints = pgTable('shop_blueprints', {
   extractedAt: timestamp('extracted_at', { withTimezone: true }),
   appliedAt: timestamp('applied_at', { withTimezone: true }),
   /**
+   * 后台提取任务的状态（sql/0094）：idle | running | done | failed。
+   * 提取改成异步之后，路由立刻返回 202，确认页轮询这一列。
+   */
+  extractionStatus: text('extraction_status').notNull().default('idle'),
+  /** failed 时的原因（timeout / all_images_failed / 模型返回的 error 串）。 */
+  extractionError: text('extraction_error'),
+  /**
+   * 置 running 的时刻。滚动部署会打断游离的后台任务，读取侧据此把
+   * 「running 且早于阈值」判成 failed/timeout（sql/0094 文件头）。
+   */
+  extractionStartedAt: timestamp('extraction_started_at', { withTimezone: true }),
+  /**
    * AI 主动列出的「它不知道的」（05 §4.2 unresolved）。
    * 这些会变成确认页底部的追问，而不是让模型瞎猜一个值填进去。
    */

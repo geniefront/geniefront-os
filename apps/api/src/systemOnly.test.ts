@@ -59,6 +59,7 @@ const MUST_BE_SYSTEM = [
   'call.attachTranscript',
   'call.draftAppointment',
   'blueprint.saveExtraction',
+  'blueprint.setExtractionState',
   'blueprint.saveTranslations',
   'analytics.saveBusinessSummary',
   'notification.create',

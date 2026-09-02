@@ -226,10 +226,23 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
   });
 
   // ── 拍照开店：提取 ──────────────────────────────────────────────────────
+  //
+  // ⭐ **异步**。密价目表一张要三四十秒，而 Fastify 的 requestTimeout 是 30s、
+  // Cloudflare 回源上限 ~100s —— 同步跑必然 502。所以这里把能同步做的全做完
+  // （权限 / 图片格式 / 草案存在 / 准入闸门，一次 token 都不花），把草案标成
+  // `running`，然后**不 await** 地把模型调用丢进后台，立刻返回 202。
+  //
+  // 后台任务跑完照旧走 `blueprint.saveExtraction` 落库（它会把 `extraction_status`
+  // 置回 `done`）；六张全挂 / 抛异常则 `blueprint.setExtractionState` 置 `failed`。
+  // 确认页轮询 GET /v1/desk/blueprint/:id 看这个状态。
+  //
+  // 进程在提取途中重启（滚动部署）会把这个游离的 Promise 丢掉，草案就停在
+  // `running` —— `loadBlueprint` 用 `extraction_started_at` 把超时的 running
+  // 当成 failed 返回，老板看到的是「重试」而不是无限转圈。
   app.post<{ Params: { id: string } }>(
     '/v1/blueprint/:id/extract',
     { bodyLimit: 32_000_000 },
-    async (req) => {
+    async (req, reply) => {
       const ctx = await ctxFromHeaders(req);
       if (!ctx.permissions.has('catalog.manage')) {
         throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'catalog.manage' } });
@@ -287,49 +300,72 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
       if (view.status !== 'draft') {
         throw new AppError(ERROR_CODES.BLUEPRINT_FROZEN, { details: { status: view.status } });
       }
+      if (view.extractionStatus === 'running') {
+        // 已经有一轮在跑（老板手抖点了两下 / 前一个标签页没关）。
+        // 不再起一轮，直接告诉前端「还在跑，接着轮询」。
+        reply.code(202);
+        return { blueprintId: req.params.id, status: 'running' as const };
+      }
 
       // ⛔ 准入闸门（AUD-03）：欠费 / 额度耗尽 / 刷得太快，都在这里挡下，
       // **一次 token 都不花**。放在紧挨模型调用的上一行，中间不留任何 IO。
       await assertAiAdmission(ctx);
-      const result = await extractPriceList(images, {
-        apiKey,
-        ...(body?.locale ? { locale: body.locale } : {}),
-        log: req.log,
-      });
 
-      const ok = result.perImage.filter((p) => !p.error).length;
-      if (ok === 0) {
-        throw new AppError(ERROR_CODES.EXTRACTION_FAILED, {
-          details: { reasons: result.perImage.map((p) => ({ seq: p.seq, error: p.error })) },
-        });
-      }
+      const blueprintId = req.params.id;
+      const locale = body?.locale;
+      const log = req.log;
 
-      const out = await dispatch<{ blueprintId: string; itemCount: number }>(
-        'blueprint.saveExtraction',
-        {
-          blueprintId: req.params.id,
-          items: result.items,
-          unresolved: result.unresolved,
-          usage: {
-            tokens: billableTokens(result.usage),
-            costMillicents: costMillicents(result.usage),
-            imagesOk: ok,
-            imagesFailed: result.perImage.length - ok,
-          },
-        },
-        ctx, { systemOrigin: 'anthropic_usage' });
+      await dispatch('blueprint.setExtractionState',
+        { blueprintId, state: 'running' },
+        ctx, { systemOrigin: 'blueprint_extract_job' });
 
-      void maybeAutoTopup(ctx, 'credit', req.log);
+      // ⚠️ 不 await。返回 202 之后这个 Promise 独立跑完。
+      // 里面任何一步都不能把异常抛出去 —— 没有请求上下文接住它了。
+      void (async () => {
+        try {
+          const result = await extractPriceList(images, {
+            apiKey,
+            ...(locale ? { locale } : {}),
+            log,
+          });
 
-      return {
-        ...out.result,
-        merged: result.merge.merged,
-        conflicts: result.merge.conflicts,
-        dropped: result.dropped,
-        failedImages: result.perImage
-          .filter((p) => p.error)
-          .map((p) => ({ seq: p.seq, error: p.error })),
-      };
+          const ok = result.perImage.filter((p) => !p.error).length;
+          if (ok === 0) {
+            await dispatch('blueprint.setExtractionState', {
+              blueprintId,
+              state: 'failed',
+              error: result.perImage.map((p) => p.error ?? 'unknown').join(',').slice(0, 300),
+            }, ctx, { systemOrigin: 'blueprint_extract_job' });
+            return;
+          }
+
+          await dispatch('blueprint.saveExtraction', {
+            blueprintId,
+            items: result.items,
+            unresolved: result.unresolved,
+            usage: {
+              tokens: billableTokens(result.usage),
+              costMillicents: costMillicents(result.usage, SONNET_5_RATES),
+              imagesOk: ok,
+              imagesFailed: result.perImage.length - ok,
+              feature: 'price_list_vision',
+              model: 'claude-sonnet-5',
+            },
+          }, ctx, { systemOrigin: 'anthropic_usage' });
+
+          void maybeAutoTopup(ctx, 'credit', log);
+        } catch (e) {
+          log.error({ err: e, blueprintId }, '拍照开店：后台提取失败');
+          await dispatch('blueprint.setExtractionState', {
+            blueprintId,
+            state: 'failed',
+            error: e instanceof Error ? e.message.slice(0, 300) : 'unknown',
+          }, ctx, { systemOrigin: 'blueprint_extract_job' }).catch(() => {});
+        }
+      })();
+
+      reply.code(202);
+      return { blueprintId, status: 'running' as const };
     });
 
   // ── 大牌子分块：第一遍只看结构 ─────────────────────────────────────────────

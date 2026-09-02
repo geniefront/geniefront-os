@@ -19,7 +19,7 @@ import { PRICE_LIST_SYSTEM, priceListUserText } from './prompt.js';
 import { normalizeExtraction, mergeDrafts, type DraftItem, type MergeResult } from './normalize.js';
 import { sumUsage, type TokenUsage } from './cost.js';
 
-/** Opus 5 视觉长边上限（05 §5.1）。超过这个尺寸 API 会自己缩，坐标就不再 1:1。 */
+/** Claude 视觉长边上限（05 §5.1）。超过这个尺寸 API 会自己缩，坐标就不再 1:1。 */
 export const MAX_IMAGE_EDGE_PX = 2576;
 
 export type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp';
@@ -39,7 +39,7 @@ export interface ExtractOptions {
   apiKey: string;
   /** 价目表印的是哪种语言，默认 en */
   locale?: string;
-  /** 单张图的超时。价目表密集时 Opus 5 想得久，给足 */
+  /** 单张图的超时。价目表密集时模型想得久，给足 */
   timeoutMs?: number;
   /** 注入用，测试里替换掉真实客户端 */
   client?: Pick<Anthropic, 'messages'>;
@@ -64,7 +64,21 @@ export interface ExtractResult {
   dropped: number;
 }
 
-const MODEL = 'claude-opus-5';
+/**
+ * claude-sonnet-5 + effort high。
+ *
+ * 一次「模型 × effort」横评（Opus 5/medium、Sonnet 5/high、Sonnet 5/medium
+ * 与 xAI grok-4/4-fast、DeepSeek 视觉模型）里，Sonnet 5/high 是速度赢家：
+ * 单张密价目表 ~30s、方差极小，成本约 Opus 的三分之一，且强制工具调用在
+ * Sonnet 5 上照常可用（schema 有保证）。Sonnet 5/medium 反而更慢、方差大，
+ * 不用。grok 比 Sonnet 慢 30–70%、贵 2–3 倍且行数虚高（疑似过度拆分），
+ * DeepSeek 的 pro/flash 不支持图片、唯一的视觉模型与强制工具调用冲突。
+ *
+ * 提取本身仍是低频高价值场景，但 ~30s 已压在 Fastify requestTimeout 上 ——
+ * 所以路由改成了异步（202 + 后台任务 + 确认页轮询），换模型只是让那条
+ * 后台任务更快更省。
+ */
+const MODEL = 'claude-sonnet-5';
 
 const TOOL: Anthropic.Tool = {
   name: 'record_price_list',
@@ -89,7 +103,7 @@ const TOOL: Anthropic.Tool = {
  * - **系统提示打 cache_control**：它逐字节稳定（含那份行业词汇表），
  *   第二张图开始就是缓存读取，0.1 倍价（05 §6.2）。
  *
- * 用 `.stream()` 而不是 `.create()`：Opus 5 默认开思考，密集价目表
+ * 用 `.stream()` 而不是 `.create()`：Sonnet 5 开 adaptive 思考，密集价目表
  * 一张图可能想很久，非流式会先撞上 SDK 的 HTTP 超时。
  */
 async function extractOne(

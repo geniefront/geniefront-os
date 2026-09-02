@@ -54,12 +54,23 @@ export interface BlueprintItemView {
   edited: boolean;
 }
 
+/**
+ * running 状态活多久之后当它「进程重启把后台任务丢了」（sql/0094）。
+ * 单张 Sonnet 5 / high ~30s，六张串行连缓存命中也就两三分钟；给到 5 分钟
+ * 是留足余量，超过基本就是那个游离 Promise 没了。
+ */
+const EXTRACTION_STALE_MS = 5 * 60 * 1000;
+
 export interface BlueprintView {
   blueprintId: string;
   status: string;
   label: string | null;
   extractedAt: string | null;
   appliedAt: string | null;
+  /** 后台提取任务状态：idle | running | done | failed（sql/0094）。 */
+  extractionStatus: 'idle' | 'running' | 'done' | 'failed';
+  /** failed 时的原因；stale 的 running 会被折成 failed + 'timeout'。 */
+  extractionError: string | null;
   unresolved: Array<{ field: string; question: string }>;
   locationProposal: Record<string, unknown>;
   sources: Array<{
@@ -80,11 +91,24 @@ export async function loadBlueprint(
   const [bp] = await tx<{
     id: string; status: string; label: string | null; location_proposal: unknown;
     extracted_at: string | Date | null; applied_at: string | Date | null; unresolved: unknown;
+    extraction_status: string; extraction_error: string | null;
+    extraction_started_at: string | Date | null;
   }[]>`
-    select id, status, label, extracted_at, applied_at, unresolved, location_proposal
+    select id, status, label, extracted_at, applied_at, unresolved, location_proposal,
+           extraction_status, extraction_error, extraction_started_at
     from shop_blueprints
     where id = ${blueprintId} and location_id = ${ctx.locationId}`;
   if (!bp) return null;
+
+  // 进程在提取途中重启会把游离的后台任务丢掉，草案停在 running。
+  // 读到 running 且开始时刻早于阈值，就当它 timeout —— 前端据此显示「重试」。
+  let extractionStatus = bp.extraction_status as BlueprintView['extractionStatus'];
+  let extractionError = bp.extraction_error;
+  if (extractionStatus === 'running' && bp.extraction_started_at
+      && Date.now() - parseTs(bp.extraction_started_at).getTime() > EXTRACTION_STALE_MS) {
+    extractionStatus = 'failed';
+    extractionError = 'timeout';
+  }
 
   const sources = await tx<{
     seq: number; kind: string; storage_path: string | null; source_url: string | null;
@@ -129,6 +153,8 @@ export async function loadBlueprint(
     blueprintId: bp.id,
     status: bp.status,
     label: bp.label,
+    extractionStatus,
+    extractionError,
     // ⚠️ 走 parseTs 而不是直接 .toISOString()：vitest 把依赖放在 Node 原生 realm、
     // 测试代码放在 vite-node 的 VM realm，postgres.js 在那儿会把 timestamptz
     // 原样交回字符串。直接当 Date 用，测试里炸、生产里好 —— 最难查的那一类。

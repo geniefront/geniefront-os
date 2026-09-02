@@ -1,7 +1,7 @@
-import { useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useState, type ChangeEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from '@heroui/react';
-import { Camera, Check, Globe2, Search, ShieldCheck, Star, Upload } from 'lucide-react';
+import { Camera, Check, Globe2, Loader2, Search, ShieldCheck, Star, Upload } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -59,6 +59,15 @@ interface BlueprintView {
   locationProposal: LocationProposal;
   items: BlueprintItem[];
   unresolved: Array<{ field: string; question: string }>;
+  /** 后台提取任务状态。价目表识别改成异步之后，前端轮询这个字段。 */
+  extractionStatus?: 'idle' | 'running' | 'done' | 'failed';
+  extractionError?: string | null;
+}
+
+/** 价目表识别的后台任务：提交之后进入这个状态，轮询到 done / failed 才退出。 */
+interface ExtractingState {
+  blueprintId: string;
+  startedAt: number;
 }
 
 async function imagePayload(file: File, seq: number) {
@@ -119,17 +128,57 @@ export function ImportWorkspace({
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [acceptedStaff, setAcceptedStaff] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [extracting, setExtracting] = useState<ExtractingState | null>(null);
+  const [extractElapsed, setExtractElapsed] = useState(0);
 
   const toggle = <T,>(setter: (value: Set<T>) => void, current: Set<T>, key: T) => {
     const next = new Set(current);
     if (next.has(key)) next.delete(key); else next.add(key);
     setter(next);
   };
-  const loadBlueprint = (view: BlueprintView) => {
+  const loadBlueprint = useCallback((view: BlueprintView) => {
     setBlueprint(view);
     setAccepted(new Set(view.items.filter((item) => !item.lowConfidence && ['service', 'addon'].includes(item.kind)).map((item) => item.itemId)));
     setAcceptedStaff(new Set());
-  };
+  }, []);
+
+  // 价目表识别是后台任务：POST /extract 立刻返回 202，这里每 2.5s 轮询一次
+  // 草案状态，直到 done（渲染确认页）或 failed（提示并让老板重试）。
+  // 轮询本身出错不致命 —— 下一轮再试；进程重启导致的 running 卡死由服务端
+  // 的 timeout 折算成 failed（见 loadBlueprint 查询）。
+  useEffect(() => {
+    if (!extracting) return undefined;
+    let stopped = false;
+    setExtractElapsed(Math.floor((Date.now() - extracting.startedAt) / 1000));
+    const clock = window.setInterval(
+      () => setExtractElapsed(Math.floor((Date.now() - extracting.startedAt) / 1000)),
+      1000,
+    );
+    const poll = async () => {
+      try {
+        const view = await apiGet<BlueprintView>(`/v1/desk/blueprint/${extracting.blueprintId}`);
+        if (stopped) return;
+        if (view.extractionStatus === 'done') {
+          setExtracting(null);
+          loadBlueprint(view);
+        } else if (view.extractionStatus === 'failed') {
+          setExtracting(null);
+          toast.danger(view.extractionError === 'timeout'
+            ? t('setupImportMenuExtractTimeout')
+            : t('setupImportMenuExtractFailed'));
+        }
+      } catch {
+        // 轮询失败先忽略，下一轮再试
+      }
+    };
+    void poll();
+    const pollTimer = window.setInterval(() => void poll(), 2500);
+    return () => {
+      stopped = true;
+      window.clearInterval(clock);
+      window.clearInterval(pollTimer);
+    };
+  }, [extracting, loadBlueprint, t]);
   const search = async () => {
     if (name.trim().length < 2 || place.trim().length < 3) {
       toast.danger(t('setupImportNeedNamePlace'));
@@ -203,8 +252,10 @@ export function ImportWorkspace({
         label: `价目表 · ${new Date().toLocaleDateString()}`,
         sources: images.map((image) => ({ seq: image.seq, kind: 'price_list_image', storagePath: null, widthPx: image.widthPx, heightPx: image.heightPx })),
       }, membershipId);
+      // 识别是后台任务：这个 POST 立刻返回 202，真正的模型调用在服务端进行。
+      // 不在这里等结果 —— 交给 extracting 状态与轮询（见上面的 useEffect）。
       await apiPost(`/v1/blueprint/${created.result.blueprintId}/extract`, { images, locale: language });
-      loadBlueprint(await apiGet<BlueprintView>(`/v1/desk/blueprint/${created.result.blueprintId}`));
+      setExtracting({ blueprintId: created.result.blueprintId, startedAt: Date.now() });
     } catch (error) {
       toast.danger(errorMessage(error));
     } finally {
@@ -276,6 +327,25 @@ export function ImportWorkspace({
             {busy ? t('setupImportApplying') : t('setupImportApplyFields', { count: businessFields.size })}
           </Button>
         </div>
+      </div>
+    );
+  }
+
+  if (extracting) {
+    return (
+      <div className="space-y-5 rounded-2xl border border-teal-100 bg-teal-50/40 p-5" aria-busy>
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-teal-700">{t('setupImportMenuTitle')}</p>
+          <h3 className="mt-1 text-lg font-extrabold text-slate-950">{t('setupImportMenuExtracting')}</h3>
+        </div>
+        <div className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-5" role="status" aria-live="polite">
+          <Loader2 className="mt-0.5 size-6 shrink-0 animate-spin text-teal-700" aria-hidden />
+          <div className="min-w-0">
+            <p className="font-semibold text-slate-900">{t('setupImportMenuExtractingHint')}</p>
+            <p className="mt-1 text-sm text-slate-500">{t('setupImportMenuExtractingElapsed', { seconds: extractElapsed })}</p>
+          </div>
+        </div>
+        <p className="text-xs leading-5 text-slate-500">{t('setupImportMenuExtractingKeepOpen')}</p>
       </div>
     );
   }
