@@ -6,6 +6,7 @@
 import { pickText } from '@gf/contracts';
 import type { PublicShopRow } from '@gf/db';
 import type postgres from 'postgres';
+import { guestRescheduleShapeReason } from './managedAvailability';
 
 export interface GuestActions {
   canReschedule: boolean;
@@ -24,6 +25,8 @@ export interface GuestPolicyArgs {
   rescheduleCutoffHours: number;
   selfRescheduleMax: number;
   selfRescheduleCount: number;
+  /** When set, guest self-reschedule cannot evaluate this appointment safely. */
+  shapeReason?: string | null;
 }
 
 /**
@@ -46,6 +49,7 @@ export function guestCancelBlockReason(args: GuestPolicyArgs): string | null {
 export function guestRescheduleBlockReason(args: GuestPolicyArgs): string | null {
   if (args.status === 'cancelled') return 'already_cancelled';
   if (args.status !== 'booked') return 'not_mutable';
+  if (args.shapeReason) return args.shapeReason;
   if (!args.rescheduleEnabled) return 'reschedule_disabled';
   const underLimit = args.selfRescheduleMax === 0
     || args.selfRescheduleCount < args.selfRescheduleMax;
@@ -72,6 +76,7 @@ export function guestActions(args: GuestPolicyArgs): GuestActions {
     reason = 'reschedule_limit_reached';
   } else if (!canReschedule && !canCancel) reason = 'cutoff_passed';
   else if (!canCancel) reason = 'cancel_cutoff_passed';
+  else if (rescheduleBlock === 'shape_unsupported') reason = 'shape_unsupported';
   else if (rescheduleBlock === 'reschedule_disabled') reason = 'reschedule_disabled';
   else if (rescheduleBlock === 'reschedule_limit_reached') reason = 'reschedule_limit_reached';
   else if (rescheduleBlock) reason = 'reschedule_cutoff_passed';
@@ -127,11 +132,14 @@ export async function loadManagedBookingDetail(
     starts_at: string; ends_at: string;
     duration_min: number; price_cents_snapshot: number;
     specialist: unknown;
+    membership_id: string | null;
+    resource_id: string | null;
   }[]>`
     select s.id as service_id, s.name, ai.addon_ids,
            ai.starts_at::text as starts_at, ai.ends_at::text as ends_at,
            ai.duration_min, ai.price_cents_snapshot,
-           sp.display_name as specialist
+           sp.display_name as specialist,
+           ai.membership_id, ai.resource_id
       from appointment_items ai
       join services s on s.id = ai.service_id
       left join staff_profiles sp on sp.membership_id = ai.membership_id
@@ -154,6 +162,7 @@ export async function loadManagedBookingDetail(
     rescheduleCutoffHours: cfg.rescheduleCutoffHours,
     selfRescheduleMax: cfg.selfRescheduleMax,
     selfRescheduleCount: appt.self_reschedule_count,
+    shapeReason: guestRescheduleShapeReason(items),
   });
 
   return {

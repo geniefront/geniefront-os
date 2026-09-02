@@ -1696,3 +1696,81 @@ describe('guest manage mutations for desk, phone_manual, and phone_ai', () => {
     expect(row!.status).toBe('booked');
   });
 });
+
+describe('hosted managed availability', () => {
+  const availPost = (body: object) => app.inject({
+    method: 'POST',
+    url: '/public/v1/hosted/availability',
+    payload: body,
+    headers: { origin: 'https://book.geniefront.com' },
+  }) as unknown as Promise<Injected>;
+
+  it('pins named-specialist availability to the original staff', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload({
+      items: [{ serviceId, addonIds: [], staffId, startsAt: nextSlot() }],
+    }), { 'idempotency-key': randomUUID() });
+    expect(made.statusCode).toBe(201);
+    const token = made.json().manageToken as string;
+    const [row] = await withTenant(tenant, (tx) => tx<{ day: string }[]>`
+      select business_date::text as day from appointments where id = ${made.json().bookingId}`);
+    const managed = await availPost({
+      slug: 'lotus-nails', manageToken: token, date: row!.day,
+    });
+    expect(managed.statusCode).toBe(200);
+    expect(managed.json().canReschedule).toBe(true);
+    expect(managed.json().staff.length).toBeGreaterThan(0);
+    expect(managed.json().staff.every((s: { id: string }) => s.id === staffId)).toBe(true);
+    for (const slot of managed.json().slots as Array<{ staff: { id: string } | null }>) {
+      expect(slot.staff?.id).toBe(staffId);
+    }
+
+    const pub = await get(
+      `/public/v1/availability?date=${row!.day}&serviceId=${serviceId}`);
+    expect(pub.statusCode).toBe(200);
+    const pubStaff = pub.json().staff as Array<{ id: string }>;
+    expect(pubStaff.some((s) => s.id !== staffId) || pubStaff.length !== 1).toBe(true);
+  });
+
+  it('multi-item availability uses the full window, not the first item', async () => {
+    __resetRateLimit();
+    const [svc] = await withTenant(tenant, (tx) => tx<{ duration_min: number }[]>`
+      select duration_min from services where id = ${serviceId}`);
+    const t0 = nextSlot();
+    const t1 = new Date(Date.parse(t0) + svc!.duration_min * 60_000).toISOString();
+    const made = await post('/public/v1/bookings', bookingPayload({
+      items: [
+        { serviceId, addonIds: [], staffId, startsAt: t0 },
+        { serviceId, addonIds: [], staffId, startsAt: t1 },
+      ],
+    }), { 'idempotency-key': randomUUID() });
+    expect(made.statusCode).toBe(201);
+    const token = made.json().manageToken as string;
+    const [row] = await withTenant(tenant, (tx) => tx<{ day: string }[]>`
+      select business_date::text as day from appointments where id = ${made.json().bookingId}`);
+    const managed = await availPost({
+      slug: 'lotus-nails', manageToken: token, date: row!.day,
+    });
+    expect(managed.statusCode).toBe(200);
+    expect(managed.json().canReschedule).toBe(true);
+    expect(managed.json().durationMin).toBe(svc!.duration_min * 2);
+
+    const pub = await get(
+      `/public/v1/availability?date=${row!.day}&serviceId=${serviceId}&staffId=${staffId}`
+      + `&excludeBookingId=${made.json().bookingId}`);
+    expect(pub.statusCode).toBe(200);
+    expect(pub.json().durationMin).toBe(svc!.duration_min);
+    expect(managed.json().durationMin).toBeGreaterThan(pub.json().durationMin);
+  });
+
+  it('wrong token stays a generic 404', async () => {
+    const missing = await availPost({
+      slug: 'lotus-nails',
+      manageToken: generateManageToken(),
+      date: bookDate,
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().code).toBe('NOT_FOUND');
+    expect(missing.json().details).toEqual({ entity: 'booking' });
+  });
+});

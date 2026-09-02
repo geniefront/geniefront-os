@@ -10,7 +10,7 @@ const getHostedShop = vi.fn();
 const loadManagedBooking = vi.fn();
 const cancelManagedBooking = vi.fn();
 const rescheduleManagedBooking = vi.fn();
-const getAvailability = vi.fn();
+const getManagedAvailability = vi.fn();
 
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api');
@@ -20,7 +20,7 @@ vi.mock('../lib/api', async () => {
     loadManagedBooking: (...args: unknown[]) => loadManagedBooking(...args),
     cancelManagedBooking: (...args: unknown[]) => cancelManagedBooking(...args),
     rescheduleManagedBooking: (...args: unknown[]) => rescheduleManagedBooking(...args),
-    getAvailability: (...args: unknown[]) => getAvailability(...args),
+    getManagedAvailability: (...args: unknown[]) => getManagedAvailability(...args),
   };
 });
 
@@ -95,10 +95,11 @@ beforeEach(() => {
   loadManagedBooking.mockReset().mockResolvedValue(boot());
   cancelManagedBooking.mockReset();
   rescheduleManagedBooking.mockReset();
-  getAvailability.mockReset().mockResolvedValue({
+  getManagedAvailability.mockReset().mockResolvedValue({
     date: '2026-09-20', timezone: 'America/New_York', durationMin: 45,
-    slots: [{ startsAt: slot, staff: null }],
-    staff: [],
+    canReschedule: true, reason: null,
+    slots: [{ startsAt: slot, staff: { id: 'st-1', displayName: 'Amy' } }],
+    staff: [{ id: 'st-1', displayName: 'Amy', avatarUrl: null }],
   });
   localStorage.clear();
   sessionStorage.clear();
@@ -172,8 +173,8 @@ describe('ManageBookingPage', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     await user.click(screen.getByRole('button', { name: 'Reschedule' }));
     await screen.findByTestId(`reslot-${slot}`);
-    expect(getAvailability.mock.calls[0][0]).toMatchObject({
-      serviceId: 'svc-1', excludeBookingId: 'b1',
+    expect(getManagedAvailability.mock.calls[0][0]).toMatchObject({
+      slug: 'lotus-nails', manageToken: 'mt_secret',
     });
     await user.click(screen.getByTestId(`reslot-${slot}`));
     await user.click(screen.getByRole('button', { name: 'Confirm new time' }));

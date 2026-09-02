@@ -39,6 +39,7 @@ import {
 import {
   guestCancelBlockReason, guestRescheduleBlockReason, loadManagedBookingDetail,
 } from './managedDetail';
+import { loadManagedAvailability } from './managedAvailability';
 import { assertHuman } from './turnstile';
 import { checkRateLimits } from './rateLimit';
 import {
@@ -143,6 +144,12 @@ const hostedManageBody = z.object({
   locale: z.string().max(16).optional(),
 });
 
+const hostedAvailabilityBody = z.object({
+  slug: z.string().min(1).max(80),
+  manageToken: z.string().min(8).max(200),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
 export function registerPublicRoutes(app: FastifyInstance): void {
   // ── 1. 门店信息 ───────────────────────────────────────────────────────────
   //
@@ -199,6 +206,30 @@ export function registerPublicRoutes(app: FastifyInstance): void {
           booking,
         };
       });
+  });
+
+  // Token-scoped availability for guest reschedule. Evaluates the real
+  // appointment (every item, original specialists, relative offsets).
+  app.post<{ Body: unknown }>('/public/v1/hosted/availability', async (req, reply) => {
+    reply.header('Referrer-Policy', 'no-referrer');
+    const parsed = hostedAvailabilityBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'booking' } });
+    }
+    const { shop, ref } = await resolveManagedBooking(
+      parsed.data.slug, parsed.data.manageToken);
+    assertOriginAllowed(originOf(req), shop);
+
+    const today = businessDateOf(new Date(), shop.timezone, shop.businessDayCutoff);
+    if (parsed.data.date < today || parsed.data.date > addDays(today, shop.onlineBooking.maxDaysAhead)) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'date_out_of_window', maxDaysAhead: shop.onlineBooking.maxDaysAhead },
+      });
+    }
+
+    return withTenant(
+      { orgId: shop.orgId, locationId: shop.locationId, membershipId: null },
+      (tx) => loadManagedAvailability(tx, shop, ref.appointmentId, parsed.data.date));
   });
 
   // ── 2. 可在线预约的项目 ───────────────────────────────────────────────────

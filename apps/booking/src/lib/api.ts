@@ -203,6 +203,13 @@ export interface ManageBootstrap {
 export const loadManagedBooking = (slug: string, manageToken: string, locale = 'en') =>
   call<ManageBootstrap>('POST', '/public/v1/hosted/manage', { slug, manageToken, locale });
 
+export const getManagedAvailability = (
+  q: { slug: string; manageToken: string; date: string },
+) =>
+  call<Availability & { canReschedule: boolean; reason: string | null }>(
+    'POST', '/public/v1/hosted/availability', q,
+  );
+
 export const cancelManagedBooking = (
   bookingId: string, manageToken: string, last4?: string,
 ) =>

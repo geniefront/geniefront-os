@@ -67,6 +67,11 @@ describe('guestActions', () => {
     expect(disabled.canReschedule).toBe(false);
     expect(disabled.canCancel).toBe(true);
     expect(disabled.reason).toBe('reschedule_disabled');
+
+    const unsupported = guestActions({ ...booked, shapeReason: 'shape_unsupported' });
+    expect(unsupported.canReschedule).toBe(false);
+    expect(unsupported.canCancel).toBe(true);
+    expect(unsupported.reason).toBe('shape_unsupported');
   });
 });
 

@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import {
-  ApiError, cancelManagedBooking, getAvailability, getHostedShop,
+  ApiError, cancelManagedBooking, getHostedShop, getManagedAvailability,
   loadManagedBooking, rescheduleManagedBooking, setPublicKey,
   type Availability, type ManagedBooking, type Shop,
 } from '../lib/api';
@@ -186,7 +186,7 @@ function ManageBody({
 
       {view === 'reschedule' && (
         <ReschedulePanel
-          shop={shop} booking={booking} token={token} last4={last4}
+          shop={shop} booking={booking} token={token} slug={slug} last4={last4}
           busy={busy} setBusy={setBusy} setGateErr={setGateErr}
           onBack={() => setView('detail')}
           onAuthFail={() => { setVerified(false); setView('detail'); }}
@@ -289,11 +289,12 @@ function CancelPanel({
 }
 
 function ReschedulePanel({
-  shop, booking, token, last4, busy, setBusy, setGateErr, onBack, onAuthFail, onDone,
+  shop, booking, token, slug, last4, busy, setBusy, setGateErr, onBack, onAuthFail, onDone,
 }: {
   shop: Shop;
   booking: ManagedBooking;
   token: string;
+  slug: string;
   last4: string;
   busy: boolean;
   setBusy: (v: boolean) => void;
@@ -302,25 +303,23 @@ function ReschedulePanel({
   onAuthFail: () => void;
   onDone: () => Promise<void>;
 }) {
-  const first = booking.items[0];
   const [date, setDate] = useState(() => todayIn(booking.timezone));
-  const [avail, setAvail] = useState<Availability | null>(null);
+  const [avail, setAvail] = useState<(Availability & { canReschedule?: boolean; reason?: string | null }) | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
-  const serviceId = first?.serviceId ?? null;
-  const addonIds = first?.addonIds ?? [];
 
   useEffect(() => {
-    if (!serviceId) return;
     let alive = true;
     (async () => {
       setLoading(true); setErr(null); setPicked(null);
       try {
-        const a = await getAvailability({
-          date, serviceId, addonIds, excludeBookingId: booking.bookingId,
-        });
-        if (alive) setAvail(a);
+        const a = await getManagedAvailability({ slug, manageToken: token, date });
+        if (!alive) return;
+        setAvail(a);
+        if (a.canReschedule === false) {
+          setErr(reasonCopy(a.reason ?? 'shape_unsupported', shop));
+        }
       } catch {
         if (alive) setErr('Could not load times. Please call the shop.');
       } finally {
@@ -328,7 +327,7 @@ function ReschedulePanel({
       }
     })();
     return () => { alive = false; };
-  }, [serviceId, date, booking.bookingId, addonIds.join(',')]);
+  }, [slug, token, date, shop]);
 
   async function go() {
     if (!picked || busy) return;
@@ -446,6 +445,9 @@ function reasonCopy(reason: string, shop: Shop): string {
   }
   if (reason === 'not_mutable') {
     return 'This appointment can no longer be changed. You can book again below.';
+  }
+  if (reason === 'shape_unsupported') {
+    return `This appointment cannot be rescheduled online. Please call ${shop.phone ?? 'the shop'}.`;
   }
   return 'Please call the shop if you need to make a change.';
 }
