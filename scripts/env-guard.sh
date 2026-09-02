@@ -127,8 +127,8 @@ case "$TARGET" in
     [[ "$app_url" == https://api.geniefront.com ]] || bad "production APP_URL 必须是 https://api.geniefront.com"
     [[ "$app_base" == https://desk.geniefront.com ]] || bad "production APP_BASE_URL 必须是 https://desk.geniefront.com"
     [[ "$api_base" == https://api.geniefront.com ]] || bad "production VITE_API_BASE 必须是 https://api.geniefront.com"
-    [[ "$(get MARKETING_BASE_URL)" == https://www.geniefront.com ]] \
-      || bad "production MARKETING_BASE_URL 必须是 https://www.geniefront.com（邮件 logo 与页脚）"
+    [[ "$(get MARKETING_BASE_URL)" == https://www.geniefront.com || "$(get MARKETING_BASE_URL)" == https://geniefront.com ]] \
+      || bad "production MARKETING_BASE_URL 必须是 https://www.geniefront.com 或 https://geniefront.com（邮件 logo 与页脚）"
     [[ "$(get FORM_BASE_URL)" == https://desk.geniefront.com ]] \
       || bad "production FORM_BASE_URL 必须是 https://desk.geniefront.com"
     [[ "$(get BOOKING_PAGE_ORIGIN)" == https://book.geniefront.com ]] \
