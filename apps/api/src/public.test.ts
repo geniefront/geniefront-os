@@ -1903,3 +1903,178 @@ describe('hosted managed availability', () => {
     expect(missing.json().details).toEqual({ entity: 'booking' });
   });
 });
+
+describe('guest reschedule slot enforcement', () => {
+  const availPost = (body: object) => app.inject({
+    method: 'POST',
+    url: '/public/v1/hosted/availability',
+    payload: body,
+    headers: { origin: 'https://book.geniefront.com' },
+  }) as unknown as Promise<Injected>;
+
+  it('accepts a slot returned by managed availability', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload({
+      items: [{ serviceId, addonIds: [], staffId, startsAt: nextSlot() }],
+    }), { 'idempotency-key': randomUUID() });
+    expect(made.statusCode).toBe(201);
+    const { bookingId, manageToken } = made.json();
+    const [row] = await withTenant(tenant, (tx) => tx<{ day: string }[]>`
+      select business_date::text as day from appointments where id = ${bookingId}`);
+    const avail = await availPost({
+      slug: 'lotus-nails', manageToken, date: row!.day,
+    });
+    expect(avail.statusCode).toBe(200);
+    const current = Date.parse(made.json().startsAt as string);
+    const slot = (avail.json().slots as Array<{ startsAt: string }>)
+      .find((s) => Date.parse(s.startsAt) !== current);
+    expect(slot).toBeTruthy();
+
+    const res = await post(`/public/v1/bookings/${bookingId}/reschedule`, {
+      manageToken, last4: last4(), startsAt: slot!.startsAt,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(Date.parse(res.json().startsAt as string)).toBe(Date.parse(slot!.startsAt));
+  });
+
+  it('rejects a time outside the original specialist published shift', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload({
+      items: [{ serviceId, addonIds: [], staffId, startsAt: nextSlot() }],
+    }), { 'idempotency-key': randomUUID() });
+    expect(made.statusCode).toBe(201);
+    const { bookingId, manageToken } = made.json();
+    const [row] = await withTenant(tenant, (tx) => tx<{ day: string }[]>`
+      select business_date::text as day from appointments where id = ${bookingId}`);
+    const afterShift = wallMinuteToInstant(row!.day, shopTz, 20 * 60).toISOString();
+
+    const res = await post(`/public/v1/bookings/${bookingId}/reschedule`, {
+      manageToken, last4: last4(), startsAt: afterShift,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().details.reason).toBe('slot_unavailable');
+
+    const [unchanged] = await withTenant(tenant, (tx) => tx<{ n: number; start: string }[]>`
+      select self_reschedule_count as n, starts_at::text as start
+        from appointments where id = ${bookingId}`);
+    expect(unchanged!.n).toBe(0);
+    expect(Date.parse(unchanged!.start)).toBe(Date.parse(made.json().startsAt as string));
+  });
+
+  it('rejects an arbitrary time that managed availability did not return', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const { bookingId, manageToken } = made.json();
+    const offGrid = new Date(Date.parse(made.json().startsAt as string) + 7 * 60_000)
+      .toISOString();
+    const res = await post(`/public/v1/bookings/${bookingId}/reschedule`, {
+      manageToken, last4: last4(), startsAt: offGrid,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().details.reason).toBe('slot_unavailable');
+  });
+
+  it('resource-held appointments cannot bypass the UI via the mutation', async () => {
+    const [resource] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      select id from resources where location_id = ${NAIL_LOC} limit 1`);
+    expect(resource).toBeTruthy();
+    const [cust] = await withTenant(tenant, (tx) => tx<{ id: string; phone: string }[]>`
+      select id, phone_e164 as phone from customers
+      where org_id = ${NAIL_ORG} and phone_e164 is not null
+      order by id limit 1`);
+    const out = await dispatch<{ appointmentId: string }>(
+      'appointment.create',
+      {
+        customerId: cust!.id,
+        items: [{
+          serviceId, addonIds: [], membershipId: staffId,
+          resourceId: resource!.id, startsAt: nextSlot(), details: {},
+        }],
+        partySize: 1,
+        source: 'desk',
+      },
+      ctx,
+      { idempotencyKey: randomUUID() },
+    );
+    const id = out.result.appointmentId;
+    const [wrap] = await withTenant(tenant, (tx) => tx<{
+      digest: string; wrapped: Buffer | Uint8Array | null;
+    }[]>`
+      select manage_token_digest as digest, manage_token_wrapped as wrapped
+        from appointments where id = ${id}`);
+    const token = unwrapManageToken(wrap?.wrapped, wrap!.digest)!;
+    const boot = await app.inject({
+      method: 'POST', url: '/public/v1/hosted/manage',
+      payload: { slug: 'lotus-nails', manageToken: token },
+      headers: { origin: 'https://book.geniefront.com' },
+    });
+    expect(boot.statusCode).toBe(200);
+    expect(boot.json().booking.actions.canReschedule).toBe(false);
+    expect(boot.json().booking.actions.reason).toBe('shape_unsupported');
+
+    const res = await post(`/public/v1/bookings/${id}/reschedule`, {
+      manageToken: token, last4: cust!.phone.slice(-4), startsAt: nextSlot(),
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().details.reason).toBe('shape_unsupported');
+    expect(res.json().code).toBe('PERMISSION_DENIED');
+
+    await withTenant(tenant, (tx) => tx`delete from appointments where id = ${id}`);
+  });
+
+  it('keeps multi-item relative offsets after a managed reschedule', async () => {
+    __resetRateLimit();
+    const [svc] = await withTenant(tenant, (tx) => tx<{ duration_min: number }[]>`
+      select duration_min from services where id = ${serviceId}`);
+    const t0 = nextSlot();
+    const t1 = new Date(Date.parse(t0) + svc!.duration_min * 60_000).toISOString();
+    const made = await post('/public/v1/bookings', bookingPayload({
+      items: [
+        { serviceId, addonIds: [], staffId, startsAt: t0 },
+        { serviceId, addonIds: [], staffId, startsAt: t1 },
+      ],
+    }), { 'idempotency-key': randomUUID() });
+    expect(made.statusCode).toBe(201);
+    const { bookingId, manageToken } = made.json();
+    const before = await withTenant(tenant, (tx) => tx<{ starts_at: string }[]>`
+      select starts_at::text as starts_at from appointment_items
+      where appointment_id = ${bookingId} order by starts_at`);
+    const gap = Date.parse(before[1]!.starts_at) - Date.parse(before[0]!.starts_at);
+
+    const [row] = await withTenant(tenant, (tx) => tx<{ day: string }[]>`
+      select business_date::text as day from appointments where id = ${bookingId}`);
+    const avail = await availPost({
+      slug: 'lotus-nails', manageToken, date: row!.day,
+    });
+    expect(avail.statusCode).toBe(200);
+    const current = Date.parse(before[0]!.starts_at);
+    const slot = (avail.json().slots as Array<{ startsAt: string }>)
+      .find((s) => Date.parse(s.startsAt) !== current);
+    expect(slot).toBeTruthy();
+
+    const res = await post(`/public/v1/bookings/${bookingId}/reschedule`, {
+      manageToken, last4: last4(), startsAt: slot!.startsAt,
+    });
+    expect(res.statusCode).toBe(200);
+
+    const after = await withTenant(tenant, (tx) => tx<{ starts_at: string }[]>`
+      select starts_at::text as starts_at from appointment_items
+      where appointment_id = ${bookingId} order by starts_at`);
+    expect(after).toHaveLength(2);
+    expect(Date.parse(after[0]!.starts_at)).toBe(Date.parse(slot!.startsAt));
+    expect(Date.parse(after[1]!.starts_at) - Date.parse(after[0]!.starts_at)).toBe(gap);
+  });
+
+  it('wrong token on reschedule stays a generic 404', async () => {
+    __resetRateLimit();
+    const made = await post('/public/v1/bookings', bookingPayload(),
+      { 'idempotency-key': randomUUID() });
+    const res = await post(`/public/v1/bookings/${made.json().bookingId}/reschedule`, {
+      manageToken: generateManageToken(), last4: last4(), startsAt: nextSlot(),
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('NOT_FOUND');
+    expect(res.json().details).toEqual({ entity: 'booking' });
+  });
+});

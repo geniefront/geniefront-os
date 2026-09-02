@@ -39,7 +39,7 @@ import {
 import {
   guestCancelBlockReason, guestRescheduleBlockReason, loadManagedBookingDetail,
 } from './managedDetail';
-import { loadManagedAvailability } from './managedAvailability';
+import { checkManagedRescheduleSlot, loadManagedAvailability } from './managedAvailability';
 import { assertHuman } from './turnstile';
 import { checkRateLimits } from './rateLimit';
 import {
@@ -708,6 +708,20 @@ export function registerPublicRoutes(app: FastifyInstance): void {
               : {}),
             shopPhone: shop.phone,
           },
+        });
+      }
+
+      const slotCheck = await withTenant(
+        { orgId: shop.orgId, locationId: shop.locationId, membershipId: null },
+        (tx) => checkManagedRescheduleSlot(tx, shop, appt.id, target));
+      if (!slotCheck.ok) {
+        if (slotCheck.kind === 'permission') {
+          throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+            details: { reason: slotCheck.reason, shopPhone: shop.phone },
+          });
+        }
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+          details: { reason: slotCheck.reason, shopPhone: shop.phone },
         });
       }
 

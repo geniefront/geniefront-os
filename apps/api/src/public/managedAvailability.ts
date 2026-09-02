@@ -223,6 +223,41 @@ export async function loadManagedAvailability(
   };
 }
 
+export type ManagedSlotCheck =
+  | { ok: true }
+  | { ok: false; kind: 'permission' | 'validation'; reason: string };
+
+/**
+ * Guest reschedule must land on a slot the token-scoped availability
+ * would display. Do not trust the client `startsAt`.
+ */
+export async function checkManagedRescheduleSlot(
+  tx: postgres.TransactionSql,
+  shop: PublicShopRow,
+  appointmentId: string,
+  startsAt: Date,
+): Promise<ManagedSlotCheck> {
+  const items = await tx<ManagedAvailItem[]>`
+    select membership_id, starts_at::text as starts_at, ends_at::text as ends_at,
+           duration_min, resource_id
+      from appointment_items
+     where appointment_id = ${appointmentId} and status <> 'cancelled'
+     order by starts_at, seq`;
+  const shapeReason = guestRescheduleShapeReason(items);
+  if (shapeReason) return { ok: false, kind: 'permission', reason: shapeReason };
+
+  const date = businessDateOf(startsAt, shop.timezone, shop.businessDayCutoff);
+  const avail = await loadManagedAvailability(tx, shop, appointmentId, date);
+  if (!avail.canReschedule) {
+    return { ok: false, kind: 'permission', reason: avail.reason ?? 'shape_unsupported' };
+  }
+  const want = startsAt.getTime();
+  if (!avail.slots.some((s) => Date.parse(s.startsAt) === want)) {
+    return { ok: false, kind: 'validation', reason: 'slot_unavailable' };
+  }
+  return { ok: true };
+}
+
 function fitsShape(
   shape: Array<{ membershipId: string | null; offsetMin: number; durationMin: number }>,
   startMin: number,
