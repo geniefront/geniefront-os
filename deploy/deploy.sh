@@ -146,6 +146,9 @@ for host in "${HOSTS[@]}"; do
     cd '${REMOTE_DIR}'
     RUNTIME_ENV_FILE=.env TAG='${TAG}' docker compose --env-file .env config -q
     RUNTIME_ENV_FILE=.env TAG='${TAG}' docker compose --env-file .env up -d
+    # Caddyfile is a bind mount and admin is off, so config changes do not
+    # reload in place. Recreate Caddy whenever we ship a new file.
+    RUNTIME_ENV_FILE=.env TAG='${TAG}' docker compose --env-file .env up -d --force-recreate --no-deps caddy
   "
 
   log "等待健康检查"
