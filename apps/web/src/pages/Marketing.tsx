@@ -242,6 +242,7 @@ function MarketingContent() {
   const [issuePackageModalOpen, setIssuePackageModalOpen] = useState(false);
   const [issueTargetPkg, setIssueTargetPkg] = useState<PackageTemplateView | null>(null);
   const [issueCustomerName, setIssueCustomerName] = useState('');
+  const [issueCustomerPhone, setIssueCustomerPhone] = useState('');
   const [issueOverridePrice, setIssueOverridePrice] = useState('');
 
   // 3. 创建优惠券 Modal
@@ -270,7 +271,7 @@ function MarketingContent() {
   const [adjustPointsModalOpen, setAdjustPointsModalOpen] = useState(false);
   const [adjustTargetCustomer, setAdjustTargetCustomer] = useState<{ id: string; name: string; current: number } | null>(null);
   const [adjustDelta, setAdjustDelta] = useState('100');
-  const [adjustReason, setAdjustReason] = useState('活动奖励赠送积分');
+  const [adjustReason, setAdjustReason] = useState(() => t('crm.mktAdjustReasonDefault'));
 
   // 7. 发起即时群发活动 Modal
   const [campaignModalOpen, setCampaignModalOpen] = useState(false);
@@ -325,7 +326,12 @@ function MarketingContent() {
     try {
       await issuePackageMut.mutateAsync({
         templateId: issueTargetPkg.id,
-        customerId: '00000000-0000-0000-0000-000000000002',
+        // 后端按「同名同号」解析真实客户：给了手机号才可能复用老客户，
+        // 否则每次新建一条，事后由前台用 customer.merge 收口。
+        customer: {
+          name: issueCustomerName.trim(),
+          phoneE164: issueCustomerPhone.trim() || undefined,
+        },
         soldPriceCentsOverride: issueOverridePrice.trim()
           ? dollarsToCents(issueOverridePrice)
           : undefined,
@@ -333,6 +339,7 @@ function MarketingContent() {
       toast.success(t('crm.mktPackageSold', { p0: issueCustomerName.trim(), p1: issueTargetPkg.name }));
       setIssuePackageModalOpen(false);
       setIssueCustomerName('');
+      setIssueCustomerPhone('');
       setIssueOverridePrice('');
     } catch (err: any) {
       toast.danger(errorMessage(err));
@@ -342,9 +349,9 @@ function MarketingContent() {
   // 3. 次卡核销一次 (带二次确认)
   const handleRedeemUnitWithConfirm = (up: CustomerPackageView) => {
     setConfirmModal({
-      title: `🎫 确认核销次卡 · ${up.customerName}`,
-      description: `即将为顾客【${up.customerName}】的套餐【${up.templateName}】核销 1 次服务。核销后剩余 ${up.remainingUnits - 1}/${up.totalUnits} 次。`,
-      confirmText: '确认核销 1 次',
+      title: t('crm.mktRedeemConfirmTitle', { p0: up.customerName }),
+      description: t('crm.mktRedeemConfirmDesc', { p0: up.customerName, p1: up.templateName, p2: up.remainingUnits - 1, p3: up.totalUnits }),
+      confirmText: t('crm.mktRedeemConfirmButton'),
       confirmTone: 'emerald',
       onConfirm: async () => {
         try {
@@ -389,9 +396,9 @@ function MarketingContent() {
   // 5. 作废优惠券 (带二次确认)
   const handleVoidCouponWithConfirm = (cpn: CouponTemplateView) => {
     setConfirmModal({
-      title: `🚫 确认作废优惠券 · ${cpn.name}`,
-      description: `作废后券码【${cpn.code}】将立即失效，在线预约与前台收银将无法再核销该券。`,
-      confirmText: '确认作废',
+      title: t('crm.mktVoidCouponConfirmTitle', { p0: cpn.name }),
+      description: t('crm.mktVoidCouponConfirmDesc', { p0: cpn.code }),
+      confirmText: t('crm.mktVoidCouponConfirmButton'),
       confirmTone: 'danger',
       onConfirm: async () => {
         try {
@@ -411,7 +418,7 @@ function MarketingContent() {
         faceValueCents: dollarsToCents(gcFaceValue),
         salePriceCents: dollarsToCents(gcSalePrice),
         recipientName: gcRecipient.trim() || undefined,
-        recipientNote: gcPurchaser.trim() ? `购买人: ${gcPurchaser.trim()}` : undefined,
+        recipientNote: gcPurchaser.trim() ? t('crm.mktGiftCardPurchaserNote', { p0: gcPurchaser.trim() }) : undefined,
       });
       await giftCardsQ.refetch();
       toast.success(t('crm.mktGiftCardIssued', { p0: res?.code || 'GC-88992' }));
@@ -446,9 +453,12 @@ function MarketingContent() {
       await adjustLoyaltyMut.mutateAsync({
         customerId: adjustTargetCustomer.id,
         pointsDelta: delta,
-        reason: adjustReason.trim() || '前台手动调整',
+        reason: adjustReason.trim() || t('crm.mktAdjustReasonManual'),
       });
-      toast.success(t('crm.mktPointsAdjusted', { p0: adjustTargetCustomer.name, p1: delta >= 0 ? `增加 ${delta}` : `扣除 ${Math.abs(delta)}` }));
+      toast.success(t('crm.mktPointsAdjusted', {
+        p0: adjustTargetCustomer.name,
+        p1: delta >= 0 ? t('crm.mktPointsAdded', { p0: delta }) : t('crm.mktPointsDeducted', { p0: Math.abs(delta) }),
+      }));
       setAdjustPointsModalOpen(false);
     } catch (err: any) {
       toast.danger(errorMessage(err));
@@ -735,6 +745,7 @@ function MarketingContent() {
                           onClick={() => {
                             setIssueTargetPkg(pkg);
                             setIssueCustomerName('');
+                            setIssueCustomerPhone('');
                             setIssueOverridePrice(centsToDollars(pkg.priceCents));
                             setIssuePackageModalOpen(true);
                           }}
@@ -1377,7 +1388,18 @@ function MarketingContent() {
 
           <div>
             <label className="block font-bold text-slate-700 uppercase mb-1">
-              
+              {t('crm.mktBuyerPhoneLabel')}
+            </label>
+            <Input
+              value={issueCustomerPhone}
+              onChange={(e) => setIssueCustomerPhone(e.target.value)}
+              placeholder={t('crm.mktBuyerPhonePlaceholder')}
+            />
+          </div>
+
+          <div>
+            <label className="block font-bold text-slate-700 uppercase mb-1">
+
               {t('crm.mktActualAmountLabel')}
             </label>
             <Input

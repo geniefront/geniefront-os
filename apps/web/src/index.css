@@ -67,7 +67,21 @@ div[data-slot="modal-container"] {
  * ── 基础表单与排版样式 ──────────────────────────────────────────────────────
  * 保证表单 label 默认以块级元素呈现，与输入框之间保持标准上下的舒适间距，
  * 避免在网格或行内排版时发生文字和输入框横向黏连挤压的问题。
+ *
+ * ⚠️ 必须包在 `@layer base` 里，不能写成裸规则。
+ *
+ * CSS 层叠层的规则是：**裸规则（不在任何 @layer 里）永远赢过任何
+ * 分层规则，无论层的声明顺序、也无论选择器优先级。** 这条规则原来是
+ * 裸的，于是它赢过了 Tailwind `@layer utilities` 里的 `.flex` /
+ * `.grid` —— 全站任何写了 `<label className="flex ...">` 的地方，
+ * 那个 flex 布局全部静默失效（实测：登录页的「密码 / 忘记密码？」
+ * 两端对齐、设置页 10 处标签、共 62 处组件受影响）。选择器优先级
+ * 完全无关：`.flex` 比 `label` 更具体也没用，分层规则的地位始终
+ * 更低。包进 `@layer base` 之后，它和 Tailwind preflight 处在同一
+ * 优先级梯队，`@layer utilities`（声明顺序在 base 之后）照常胜出。
  */
-label {
-  display: block;
+@layer base {
+  label {
+    display: block;
+  }
 }

@@ -85,6 +85,7 @@ import type {
   CheckoutSettings,
   WebhookConfigItem,
 } from '@/features/settings/types';
+import type { TranslationKey } from '@/i18n';
 import { HardwareServer } from './HardwareServer';
 import { dollarsToCents, centsToDollars } from '@/features/checkout/api';
 import {
@@ -95,70 +96,76 @@ import {
 } from '@/lib/avatarPresets';
 
 // ── 营业日定义 ─────────────────────────────────────────────────────────────
+// ⚠️ 以前这里是 `{ labelZh, labelEn }`，渲染处两个都显示——韩语/西语/
+// 越南语门店看到的永远是「周一 Monday」，从来不是自己的语言。
+// `labelKey` 指向 common.ts 里已有的 mon/tue/…/sun，跟界面语言走。
 const DAYS_OF_WEEK = [
-  { key: 'mon', labelZh: '周一', labelEn: 'Monday' },
-  { key: 'tue', labelZh: '周二', labelEn: 'Tuesday' },
-  { key: 'wed', labelZh: '周三', labelEn: 'Wednesday' },
-  { key: 'thu', labelZh: '周四', labelEn: 'Thursday' },
-  { key: 'fri', labelZh: '周五', labelEn: 'Friday' },
-  { key: 'sat', labelZh: '周六', labelEn: 'Saturday' },
-  { key: 'sun', labelZh: '周日', labelEn: 'Sunday' },
-] as const;
+  { key: 'mon', labelKey: 'mon' },
+  { key: 'tue', labelKey: 'tue' },
+  { key: 'wed', labelKey: 'wed' },
+  { key: 'thu', labelKey: 'thu' },
+  { key: 'fri', labelKey: 'fri' },
+  { key: 'sat', labelKey: 'sat' },
+  { key: 'sun', labelKey: 'sun' },
+] as const satisfies ReadonlyArray<{ key: string; labelKey: TranslationKey }>;
 
 // ── 导航分组与 Tab 定义 ───────────────────────────────────────────────────
+// ⚠️ groupNameKey/labelKey/badgeKey 只存词典键。以前这里大部分分组名写死
+// 英文、唯独最后一组写死中文，条目标签全部写死中文——三种状态混在同一屏，
+// 没有一种真的跟着界面语言走。
 interface NavGroup {
-  groupName: string;
+  groupNameKey: TranslationKey;
   items: {
     id: string;
-    label: string;
+    labelKey: TranslationKey;
     icon: any;
-    badge?: string;
+    badgeKey?: TranslationKey;
     badgeTone?: 'default' | 'success' | 'warning' | 'error';
   }[];
 }
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    groupName: 'Basic Profile',
+    groupNameKey: 'settings.navGroupProfile',
     items: [
-      { id: 'store', label: '门店品牌档案', icon: Store },
-      { id: 'hours', label: '营业时间与作息', icon: Clock },
+      { id: 'store', labelKey: 'settings.navStore', icon: Store },
+      { id: 'hours', labelKey: 'settings.navHours', icon: Clock },
     ],
   },
   {
-    groupName: 'Checkout & Rules',
+    groupNameKey: 'settings.navGroupCheckout',
     items: [
-      { id: 'checkout', label: '收银与小费偏好', icon: Receipt },
-      { id: 'booking', label: '预约与排班规则', icon: CalendarCheck },
+      { id: 'checkout', labelKey: 'settings.navCheckout', icon: Receipt },
+      { id: 'booking', labelKey: 'settings.navBooking', icon: CalendarCheck },
     ],
   },
   {
-    groupName: 'Services & Staff',
+    groupNameKey: 'settings.navGroupServices',
     items: [
-      { id: 'services', label: '服务项目与价目', icon: Scissors },
-      { id: 'staff', label: '员工团队与调度', icon: Users },
+      { id: 'services', labelKey: 'settings.navServices', icon: Scissors },
+      { id: 'staff', labelKey: 'settings.navStaff', icon: Users },
     ],
   },
   {
-    groupName: 'Smart Comms',
+    groupNameKey: 'settings.navGroupComms',
     items: [
-      { id: 'ai_phone', label: 'AI 电话语音助手', icon: PhoneCall },
-      { id: '10dlc', label: '10DLC 短信资质代办', icon: ShieldCheck, badge: '合规认证' },
-      { id: 'notifications', label: '顾客通知与营销', icon: Bell },
-      { id: 'reviews', label: '外部口碑采集', icon: Star },
+      { id: 'ai_phone', labelKey: 'settings.navAiPhone', icon: PhoneCall },
+      { id: '10dlc', labelKey: 'settings.nav10dlc', icon: ShieldCheck, badgeKey: 'settings.nav10dlcBadge' },
+      { id: 'notifications', labelKey: 'settings.navNotifications', icon: Bell },
+      { id: 'reviews', labelKey: 'settings.navReviews', icon: Star },
     ],
   },
   {
-    groupName: 'Hardware & Devices',
+    groupNameKey: 'settings.navGroupHardware',
     items: [
-      { id: 'hardware', label: '设备与顾客副屏', icon: TabletSmartphone },
-      { id: 'integrations', label: '网站插件与 API', icon: Globe },
+      { id: 'hardware', labelKey: 'settings.navHardware', icon: TabletSmartphone },
+      { id: 'integrations', labelKey: 'settings.navIntegrations', icon: Globe },
     ],
   },
   {
-    groupName: '订阅与财务',
+    groupNameKey: 'settings.navGroupBilling',
     items: [
-      { id: 'billing', label: 'SaaS 订阅与算力', icon: CreditCard },
+      { id: 'billing', labelKey: 'settings.navBilling', icon: CreditCard },
     ],
   },
 ];
@@ -827,15 +834,15 @@ export function Settings() {
         <div className="w-full lg:w-64 shrink-0 space-y-4">
           <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-xs space-y-4 sticky top-4">
             {NAV_GROUPS.map((group, idx) => (
-              <div key={group.groupName} className={idx > 0 ? 'pt-3 border-t border-slate-100' : ''}>
+              <div key={group.groupNameKey} className={idx > 0 ? 'pt-3 border-t border-slate-100' : ''}>
                 <div className="px-3 pb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  {group.groupName}
+                  {t(group.groupNameKey)}
                 </div>
                 <div className="space-y-1">
                   {group.items.map((item) => {
                     const Icon = item.icon;
                     const isActive = currentTab === item.id;
-                    const badge = item.id === 'billing' ? planNavBadge(billing?.plan) : item.badge;
+                    const badge = item.id === 'billing' ? planNavBadge(billing?.plan) : (item.badgeKey ? t(item.badgeKey) : undefined);
                     return (
                       <button
                         key={item.id}
@@ -853,7 +860,7 @@ export function Settings() {
                               isActive ? 'text-teal-600' : 'text-slate-400 group-hover:text-slate-600'
                             }`}
                           />
-                          <span className="truncate">{item.label}</span>
+                          <span className="truncate">{t(item.labelKey)}</span>
                         </div>
                         {badge && (
                           <span
@@ -1225,7 +1232,7 @@ export function Settings() {
                 }
               >
                 <div className="space-y-3">
-                  {DAYS_OF_WEEK.map(({ key, labelZh, labelEn }) => {
+                  {DAYS_OF_WEEK.map(({ key, labelKey }) => {
                     const current = businessHours[key];
                     const isOpen = Boolean(current);
 
@@ -1245,8 +1252,7 @@ export function Settings() {
                             }`}
                           />
                           <div>
-                            <span className="font-bold text-slate-800 text-xs">{labelZh}</span>
-                            <span className="text-[11px] text-slate-400 ml-1.5 font-normal">{labelEn}</span>
+                            <span className="font-bold text-slate-800 text-xs">{t(labelKey)}</span>
                           </div>
                         </div>
 

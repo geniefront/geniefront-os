@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod';
-import { defineCommand, uuid, cents, basisPoints } from '../command.js';
+import { defineCommand, uuid, cents, basisPoints, phoneE164 } from '../command.js';
 
 // ─────────────────────────────────────────────────────────── 套餐次卡 (Packages)
 
@@ -44,12 +44,30 @@ export const packageSaveTemplate = defineCommand({
 
 export const packageIssueInput = z.object({
   templateId: uuid,
-  customerId: uuid,
+  /** 已知客户 ID 时直接传；与 `customer` 二选一，两者都给时以此为准。 */
+  customerId: uuid.optional(),
+  /**
+   * 前台只报了客人姓名（可能附手机号）时传这个，由 handler 解析成真实客户。
+   * 与 `customerId` 二选一。
+   *
+   * ⚠️ 绝不按手机号单独自动匹配已有客户（宪法第 16 条）。复用只发生在
+   * 「手机号 + 姓名都一模一样且库里只有一条」时，其余一律新建，事后由
+   * 前台用 `customer.merge` 收口手滑建重的记录。语义对齐 appointment.create
+   * 的 `guest.customer`。
+   */
+  customer: z.object({
+    name: z.string().trim().min(1).max(120),
+    phoneE164: phoneE164.optional(),
+    email: z.string().email().max(200).optional(),
+  }).optional(),
   ticketId: uuid.optional(),
   priceCentsSnapshot: cents.optional(),
   soldPriceCentsOverride: cents.optional(),
   customSessions: z.number().int().min(1).optional(),
   validDays: z.number().int().min(1).optional(),
+}).refine((d) => d.customerId != null || d.customer != null, {
+  message: '缺少 customerId 或 customer（客户姓名）',
+  path: ['customerId'],
 });
 export type PackageIssueInput = z.infer<typeof packageIssueInput>;
 

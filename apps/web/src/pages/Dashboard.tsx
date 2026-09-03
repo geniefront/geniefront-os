@@ -158,7 +158,14 @@ export function DashboardContent() {
   const handleCopyReviewText = async (rev: CustomerReviewItem) => {
     try {
       const stars = '⭐'.repeat(Math.round(rev.rating));
-      const formattedText = `【顾客真实好评分享】\n${stars} ${rev.platformLabel} · ${rev.timeAgo}\n👤 顾客：${rev.customerName}\n💆 服务项目：${rev.serviceName}${rev.technicianName ? `（主理技师：${rev.technicianName}）` : ''}\n💬 评价内容：“${rev.content}”\n✨ 特色亮点：${rev.highlights.join(' · ')}`;
+      const technicianPart = rev.technicianName
+        ? t('finance.dashReviewShareTechnicianPart', { name: rev.technicianName })
+        : '';
+      const formattedText = t('finance.dashReviewShareTemplate', {
+        stars, platform: rev.platformLabel, timeAgo: rev.timeAgo, customer: rev.customerName,
+        service: rev.serviceName, technicianPart, content: rev.content,
+        highlights: rev.highlights.join(' · '),
+      });
       
       await navigator.clipboard.writeText(formattedText);
       setCopiedReviewId(rev.id);

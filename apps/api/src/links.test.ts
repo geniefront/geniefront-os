@@ -310,7 +310,9 @@ describe('具名链接与前端路由一致', () => {
     );
     const booking = caddy.slice(caddy.indexOf('https://{$BOOKING_HOST}'));
     expect(api).toContain('@hosted_json path /public/v1/hosted /public/v1/hosted/*');
-    expect(api).toMatch(/header @hosted_json Referrer-Policy "no-referrer"/);
+    // `>` 延迟赋值：等 reverse_proxy 把 Fastify 的头拷过来之后再覆盖，
+    // 否则 Caddy 和 Fastify 会各发一份同名头（见上面 Caddyfile 里的注释）。
+    expect(api).toMatch(/header @hosted_json >?Referrer-Policy "no-referrer"/);
     expect(api).toContain('@not_hosted_json not path /public/v1/hosted /public/v1/hosted/*');
     expect(api).toMatch(/header @not_hosted_json Referrer-Policy "strict-origin-when-cross-origin"/);
     expect(booking).toContain('Referrer-Policy "no-referrer"');

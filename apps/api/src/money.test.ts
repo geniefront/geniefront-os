@@ -169,27 +169,81 @@ describe('结账落提成流水', () => {
     expect(rows.find((r) => r.kind === 'tip_card')).toBeUndefined();
   });
 
+  /**
+   * ⚠️ 这个用例必须用 `upfront_combined`，不能用默认的结账时机。
+   *
+   * 「作废一张已经落了钱的单」听起来像是「先结账、再作废」，但那条路
+   * 现在是**明确关掉的** —— 已结账的单只能走 `ticket.refund`（见下一个
+   * 用例）。于是问题变成：什么情况下一张单**还没结账**却已经有了
+   * earnings 和小费分配？
+   *
+   * 答案是先收钱后做服务这两种时机：
+   *   · `upfront_combined` 未完工 —— 钱和小费都收了，`closeNow` 是 false
+   *   · `service_then_tip` 的 service 阶段 —— 提成落了，但小费必须为 0
+   *
+   * 前者是唯一能同时产生 earnings 与 tip_allocations 的可作废状态，
+   * 也正是 `ticket.void` 里那段冲销代码真正要伺候的场景。
+   * 用默认时机写这个用例，测到的是一条已经不存在的路。
+   */
   it('⭐ 作废是冲销不是删除 —— 财务记录留着，但不再计入收入', async () => {
+    await withTenant(tenant, (tx) => tx`
+      insert into location_checkout_settings (location_id, checkout_timing)
+      values (${SPA_LOC}, 'upfront_combined')
+      on conflict (location_id) do update set checkout_timing = 'upfront_combined'`);
+    try {
+      const ctx = await ctxFor(owner);
+      // 先收钱后做服务：收完这一笔，单子仍是 open —— 服务还没做完
+      const t = await openTicket(ctx, '作废测试');
+      await run('ticket.close', {
+        ticketId: t.ticketId,
+        payments: [{ method: 'cash', amountCents: t.subtotalCents + 500, tipCents: 500 }],
+      }, ctx);
+
+      const [before] = await withTenant(tenant, (tx) => tx<{ status: string }[]>`
+        select status from tickets where id = ${t.ticketId}`);
+      expect(before!.status).not.toBe('closed');   // 这个用例的前提
+
+      await run('ticket.void', { ticketId: t.ticketId, reason: 'input_error' }, ctx);
+
+      const rows = await withTenant(tenant, (tx) => tx<{ n: number; reversed: number }[]>`
+        select count(*)::int as n,
+               count(*) filter (where reversed_at is not null)::int as reversed
+        from earnings where ticket_id = ${t.ticketId}`);
+      expect(rows[0]!.n).toBeGreaterThan(0);       // 行还在
+      expect(rows[0]!.reversed).toBe(rows[0]!.n);  // 但全都冲销了
+
+      const tips = await withTenant(tenant, (tx) => tx<{ n: number; reversed: number }[]>`
+        select count(*)::int as n,
+               count(*) filter (where reversed_at is not null)::int as reversed
+        from tip_allocations where ticket_id = ${t.ticketId}`);
+      expect(tips[0]!.n).toBeGreaterThan(0);
+      expect(tips[0]!.reversed).toBe(tips[0]!.n);
+    } finally {
+      // 结账时机是门店级设置，漏了这一步后面的用例会莫名其妙地走另一条路
+      await withTenant(tenant, (tx) => tx`
+        update location_checkout_settings
+        set checkout_timing = 'after_service_combined' where location_id = ${SPA_LOC}`);
+    }
+  });
+
+  /**
+   * 已结账的单不许作废。
+   *
+   * 作废是「这一单不该存在」，退款是「这一单存在过，钱退回去」。
+   * 钱已经收了之后只有后者说得通 —— 否则收款行、小费分配和日结现金
+   * 会各自指向一张「从来没发生过」的单。
+   */
+  it('已结账的单不许作废 —— 要退款走 ticket.refund', async () => {
     const ctx = await ctxFor(owner);
-    const t = await openTicket(ctx, '作废测试');
+    const t = await openTicket(ctx, '结账后作废');
     await run('ticket.close', {
       ticketId: t.ticketId,
       payments: [{ method: 'cash', amountCents: t.subtotalCents + 500, tipCents: 500 }],
     }, ctx);
 
-    await run('ticket.void', { ticketId: t.ticketId, reason: 'input_error' }, ctx);
-
-    const rows = await withTenant(tenant, (tx) => tx<{ n: number; reversed: number }[]>`
-      select count(*)::int as n,
-             count(*) filter (where reversed_at is not null)::int as reversed
-      from earnings where ticket_id = ${t.ticketId}`);
-    expect(rows[0]!.n).toBeGreaterThan(0);       // 行还在
-    expect(rows[0]!.reversed).toBe(rows[0]!.n);  // 但全都冲销了
-
-    const tips = await withTenant(tenant, (tx) => tx<{ reversed: number }[]>`
-      select count(*) filter (where reversed_at is not null)::int as reversed
-      from tip_allocations where ticket_id = ${t.ticketId}`);
-    expect(tips[0]!.reversed).toBeGreaterThan(0);
+    await expect(
+      run('ticket.void', { ticketId: t.ticketId, reason: 'input_error' }, ctx),
+    ).rejects.toMatchObject({ code: 'TICKET_ALREADY_CLOSED' });
   });
 
   it('收款额和单据对不上 → 当场拒绝', async () => {

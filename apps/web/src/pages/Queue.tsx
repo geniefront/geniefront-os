@@ -139,14 +139,14 @@ export const AVOID_AREA_TAGS = [
   'Right Knee',
 ];
 
-/** 芳香精油选项 */
-export const AROMA_OIL_OPTIONS = [
-  { id: 'none_pref', label: 'No Preference', desc: '技师推荐' },
-  { id: 'unscented', label: 'Unscented Carrier Oil', desc: '天然温和' },
-  { id: 'lavender', label: '薰衣草', desc: '助眠安神' },
-  { id: 'eucalyptus', label: '尤加利', desc: '畅通呼吸' },
-  { id: 'sweet_orange', label: '甜橙活力', desc: '愉悦抗疲' },
-  { id: 'ginger', label: '生姜暖体', desc: '祛湿温经' },
+/** 芳香精油选项——label/desc 只存词典键，id 是唯一持久化/比对的值 */
+export const AROMA_OIL_OPTIONS: Array<{ id: string; labelKey: TranslationKey; descKey: TranslationKey }> = [
+  { id: 'none_pref', labelKey: 'queue.quOilNoPref', descKey: 'queue.quOilNoPrefDesc' },
+  { id: 'unscented', labelKey: 'queue.quOilUnscented', descKey: 'queue.quOilUnscentedDesc' },
+  { id: 'lavender', labelKey: 'queue.quOilLavender', descKey: 'queue.quOilLavenderDesc' },
+  { id: 'eucalyptus', labelKey: 'queue.quOilEucalyptus', descKey: 'queue.quOilEucalyptusDesc' },
+  { id: 'sweet_orange', labelKey: 'queue.quOilSweetOrange', descKey: 'queue.quOilSweetOrangeDesc' },
+  { id: 'ginger', labelKey: 'queue.quOilGinger', descKey: 'queue.quOilGingerDesc' },
 ];
 
 /** 按摩力度选项 */
@@ -162,12 +162,19 @@ export type KanbanStage = 'booked' | 'waiting' | 'in_service' | 'ready_checkout'
 
 export const STAGE_ORDER: KanbanStage[] = ['booked', 'waiting', 'in_service', 'ready_checkout', 'completed'];
 
-export const STAGE_NAMES: Record<KanbanStage, string> = {
-  booked: '待到店 (预约)',
-  waiting: '候客区 (已到店)',
-  in_service: '服务中 (进行中)',
-  ready_checkout: 'Open / Unpaid (待收银)',
-  completed: 'Completed (已收银)',
+/**
+ * 泳道名字的词典键。
+ *
+ * ⚠️ 这里以前是写死的中文字符串常量，切到英文界面时这五个名字
+ * （运营看板每天都在盯的那块屏）完全不跟着语言走。改成键之后，
+ * 用的地方一律 `t(STAGE_NAME_KEYS[stage])`，不能再直接引用这张表。
+ */
+export const STAGE_NAME_KEYS: Record<KanbanStage, TranslationKey> = {
+  booked: 'queue.quStageNameBooked',
+  waiting: 'queue.quStageNameWaiting',
+  in_service: 'queue.quStageNameInService',
+  ready_checkout: 'queue.quStageNameReadyCheckout',
+  completed: 'queue.quStageNameCompleted',
 };
 
 export interface AddOnItem {
@@ -214,65 +221,73 @@ export interface KanbanItem {
 
 interface ColumnConfig {
   id: KanbanStage;
-  title: string;
-  subtitle: string;
+  titleKey: TranslationKey;
+  subtitleKey: TranslationKey;
   color: string;
   headerBg: string;
   badgeVariant: 'default' | 'secondary' | 'outline' | 'success' | 'warning' | 'error' | 'destructive';
   icon: typeof CalendarDays;
-  dropEffectTitle: string;
+  emptyKey: TranslationKey;
 }
 
+/**
+ * 五个泳道的静态配置（颜色 / 图标）+ 词典键。
+ *
+ * ⚠️ 标题、副标题、空态文案都只存**键**，不存字符串 —— 之前这里是写死的
+ * 中文，英文界面下这块每天都在盯的屏完全不跟着语言走；空态那一句
+ * 更曾经是「前缀 + 未翻译的中文片段 + 后缀」三段拼接，在非中文语言下
+ * 拼出 "No待到店tickets" 这类损坏文案。渲染时统一 `t(col.titleKey)`。
+ */
 const COLUMNS: ColumnConfig[] = [
   {
     id: 'booked',
-    title: '今日预约 / 待到店',
-    subtitle: '今日已排期，等待到店签到',
+    titleKey: 'queue.quColBookedTitle',
+    subtitleKey: 'queue.quColBookedSubtitle',
     color: 'border-sky-300 text-sky-700 bg-sky-50/50',
     headerBg: 'bg-sky-50 text-sky-800 border-sky-200',
     badgeVariant: 'secondary',
     icon: CalendarDays,
-    dropEffectTitle: '待到店',
+    emptyKey: 'queue.quEmptyBooked',
   },
   {
     id: 'waiting',
-    title: '已到店 / 候客区',
-    subtitle: '现场等候安排技师与工位',
+    titleKey: 'queue.quColWaitingTitle',
+    subtitleKey: 'queue.quColWaitingSubtitle',
     color: 'border-amber-300 text-amber-700 bg-amber-50/50',
     headerBg: 'bg-amber-50 text-amber-800 border-amber-200',
     badgeVariant: 'warning',
     icon: Clock,
-    dropEffectTitle: '候客区',
+    emptyKey: 'queue.quEmptyWaiting',
   },
   {
     id: 'in_service',
-    title: '服务中 / 进行中',
-    subtitle: '技师正在服务中',
+    titleKey: 'queue.quColInServiceTitle',
+    subtitleKey: 'queue.quColInServiceSubtitle',
     color: 'border-teal-300 text-teal-700 bg-teal-50/50',
     headerBg: 'bg-teal-50 text-teal-800 border-teal-200',
     badgeVariant: 'success',
     icon: Scissors,
-    dropEffectTitle: '服务中',
+    emptyKey: 'queue.quEmptyInService',
   },
   {
     id: 'ready_checkout',
-    title: 'Open / Unpaid / 待收银',
-    subtitle: '服务完成，等Open / Unpaid出票',
+    titleKey: 'queue.quColReadyCheckoutTitle',
+    subtitleKey: 'queue.quColReadyCheckoutSubtitle',
     color: 'border-purple-300 text-purple-700 bg-purple-50/50',
     headerBg: 'bg-purple-50 text-purple-800 border-purple-200',
     badgeVariant: 'default',
     icon: CreditCard,
-    dropEffectTitle: 'Open / Unpaid',
+    emptyKey: 'queue.quEmptyReadyCheckout',
   },
   {
     id: 'completed',
-    title: '今日已结 / Completed',
-    subtitle: '今日Completed结账单据',
+    titleKey: 'queue.quColCompletedTitle',
+    subtitleKey: 'queue.quColCompletedSubtitle',
     color: 'border-slate-300 text-slate-700 bg-slate-50/50',
     headerBg: 'bg-slate-100 text-slate-800 border-slate-200',
     badgeVariant: 'outline',
     icon: CheckCircle2,
-    dropEffectTitle: 'Completed',
+    emptyKey: 'queue.quEmptyCompleted',
   },
 ];
 
@@ -314,8 +329,8 @@ function QueueContent() {
   const items = useMemo<ScheduleItem[]>(() => {
     if (!todaySnapshot) return [];
     const servicesById = new Map(todaySnapshot.services.map((sv) => [sv.id, sv]));
-    return todaySnapshot.items.map((item) => toScheduleItem(item, todaySnapshot, servicesById));
-  }, [todaySnapshot]);
+    return todaySnapshot.items.map((item) => toScheduleItem(item, todaySnapshot, servicesById, { service: t('service'), customer: t('customer') }));
+  }, [todaySnapshot, t]);
   const { data: queue, isLoading: queueLoading, isError: queueError, error: queueErr, isFetching: queueFetching, refetch: refetchQueue } = useQueue();
   const { data: ticketsData, isLoading: ticketsLoading, refetch: refetchTickets } = useTicketsList();
   const { data: roomsData, isLoading: roomsLoading, refetch: refetchRooms } = useRoomsQuery();
@@ -636,7 +651,7 @@ function QueueContent() {
           ticketNumber: q.ticketNumber,
           customerName: q.displayName,
           phone: formatPhoneDisplay(q.phoneDisplay),
-          serviceName: q.serviceName || '常规服务',
+          serviceName: q.serviceName || t('queue.quGeneralService'),
           serviceId: q.serviceId,
           ...serviceFacts(q),
           staffName: override?.staffName || q.staffName,
@@ -644,7 +659,7 @@ function QueueContent() {
           roomId: override?.roomId,
           roomName: override?.roomName,
           isRequest: false,
-          timeDisplay: `已等候 ${q.waitedMin}m`,
+          timeDisplay: t('queue.quWaitedFor', { p0: q.waitedMin }),
           waitedMin: q.waitedMin,
           overdue: q.overdue,
           pendingForms: q.pendingForms,
@@ -666,7 +681,7 @@ function QueueContent() {
           ticketNumber: q.ticketNumber,
           customerName: q.displayName,
           phone: formatPhoneDisplay(q.phoneDisplay),
-          serviceName: q.serviceName || '常规服务',
+          serviceName: q.serviceName || t('queue.quGeneralService'),
           serviceId: q.serviceId,
           ...serviceFacts(q),
           staffName: override?.staffName || q.staffName,
@@ -674,7 +689,7 @@ function QueueContent() {
           roomId: override?.roomId,
           roomName: override?.roomName,
           isRequest: false,
-          timeDisplay: `已叫号 (${q.waitedMin}m)`,
+          timeDisplay: t('queue.quCalledFor', { p0: q.waitedMin }),
           waitedMin: q.waitedMin,
           overdue: q.overdue,
           pendingForms: q.pendingForms,
@@ -696,7 +711,7 @@ function QueueContent() {
           ticketNumber: q.ticketNumber,
           customerName: q.displayName,
           phone: formatPhoneDisplay(q.phoneDisplay),
-          serviceName: q.serviceName || '服务中项目',
+          serviceName: q.serviceName || t('queue.quInServiceItem'),
           serviceId: q.serviceId,
           ...serviceFacts(q),
           staffName: override?.staffName || q.staffName,
@@ -704,7 +719,7 @@ function QueueContent() {
           roomId: override?.roomId,
           roomName: override?.roomName,
           isRequest: false,
-          timeDisplay: '服务中',
+          timeDisplay: t('queue.quInServiceStatus'),
           notes: override?.notes,
           addOns: override?.addOns,
           rawQueue: q,
@@ -720,7 +735,7 @@ function QueueContent() {
       const staffName =
         matchedStaff && matchedStaff.membershipId !== UNASSIGNED_STAFF_ID
           ? matchedStaff.name
-          : '待分配技师';
+          : t('queue.quStaffUnassignedLong');
 
       if (it.status === 'booked') {
         const override = localOverrides[`appt-${it.id}`];
@@ -778,10 +793,10 @@ function QueueContent() {
           durationMin: it.durationMin,
           priceCents: it.service?.priceCents || 0,
           staffId: it.staffId,
-          staffName: matchedStaff?.name || '技师',
+          staffName: matchedStaff?.name || t('therapistLabel'),
           staffColor: matchedStaff?.color ?? null,
           isRequest: it.isRequest,
-          timeDisplay: `已完工 (${it.endTime})`,
+          timeDisplay: t('queue.quCompletedFor', { p0: it.endTime }),
           rawItem: it,
         });
       }
@@ -797,8 +812,8 @@ function QueueContent() {
           stage: override?.stage || (tk.status === 'ready_to_pay' ? 'ready_checkout' : 'in_service'),
           ticketId: tk.ticketId,
           appointmentId: tk.appointmentId,
-          customerName: formatI18n(tk.customerName, language) || '到店顾客',
-          serviceName: tkItems.map((i: any) => formatI18n(i.name, language)).join(', ') || '综合消费',
+          customerName: formatI18n(tk.customerName, language) || t('queue.quCheckedInGuest'),
+          serviceName: tkItems.map((i: any) => formatI18n(i.name, language)).join(', ') || t('queue.quMixedService'),
           durationMin: tkItems.reduce((acc: number, i: any) => acc + (i.durationMin || 0), 0),
           priceCents: asCents(tk.subtotalCents ?? 0),
           staffName: formatI18n(tkItems[0]?.staffName, language),
@@ -901,7 +916,7 @@ function QueueContent() {
     // 2. 跨阶段跳步拦截 (Cannot skip steps)
     if (targetIndex > sourceIndex + 1) {
       toast.danger(t('queue.quNoStageSkip'), {
-        description: t('queue.quStageOrder', { p0: STAGE_NAMES[item.stage], p1: STAGE_NAMES[STAGE_ORDER[sourceIndex + 1]] }),
+        description: t('queue.quStageOrder', { p0: t(STAGE_NAME_KEYS[item.stage]), p1: t(STAGE_NAME_KEYS[STAGE_ORDER[sourceIndex + 1]]) }),
       });
       return;
     }
@@ -1211,7 +1226,7 @@ function QueueContent() {
       }
       setStartServiceModal((prev) => ({ ...prev, isOpen: false, item: null }));
       toast.success(t('queue.quSeated', { p0: item.customerName }), {
-        description: t('queue.quSeatedDetail', { p0: assignedStaff?.name || '已指派', p1: assignedRoom?.name || '指定房间', p2: startTime, p3: serviceDurationMin }),
+        description: t('queue.quSeatedDetail', { p0: assignedStaff?.name || t('queue.quAssignedFallback'), p1: assignedRoom?.name || t('queue.quDesignatedRoomFallback'), p2: startTime, p3: serviceDurationMin }),
       });
       await Promise.all([refetchQueue(), refetchTickets(), refetchSchedule(), refetchRooms()]);
     } catch (err: any) {
@@ -1455,7 +1470,7 @@ function QueueContent() {
         ...(notes ? { notes } : {}),
       });
       setRollbackModal({ isOpen: false, item: null, fromStage: null, toStage: null, reason: 'entry_error', releaseResources: true, notes: '' });
-      toast.warning(t('queue.quRolledBack', { p0: item.customerName, p1: STAGE_NAMES[toStage] }), {
+      toast.warning(t('queue.quRolledBack', { p0: item.customerName, p1: t(STAGE_NAME_KEYS[toStage]) }), {
         description: t('queue.quRollbackReason', { p0: ROLLBACK_REASONS.find(r => r.id === reason)?.label ?? '' }),
       });
       await Promise.all([refetchQueue(), refetchSchedule(), refetchTickets()]);
@@ -1697,8 +1712,8 @@ function QueueContent() {
                   <div className="flex items-center gap-2">
                     <col.icon className="w-4 h-4 shrink-0" />
                     <div>
-                      <h3 className="font-bold text-xs leading-none">{col.title}</h3>
-                      <p className="text-[10px] text-slate-500 mt-0.5 opacity-80">{col.subtitle}</p>
+                      <h3 className="font-bold text-xs leading-none">{t(col.titleKey)}</h3>
+                      <p className="text-[10px] text-slate-500 mt-0.5 opacity-80">{t(col.subtitleKey)}</p>
                     </div>
                   </div>
                   <Badge variant={col.badgeVariant} className="font-mono text-xs px-2 py-0.5 font-bold">
@@ -1712,7 +1727,7 @@ function QueueContent() {
                     {colItems.length === 0 ? (
                       <div className="h-40 border-2 border-dashed border-slate-200/80 rounded-xl flex flex-col items-center justify-center text-center p-3">
                         <col.icon className="w-6 h-6 text-slate-300 mb-1" />
-                        <span className="text-xs text-slate-400 font-medium">{t('queue.quNoTicketsPrefix')}{col.dropEffectTitle}{t('queue.quNoTicketsSuffix')}</span>
+                        <span className="text-xs text-slate-400 font-medium">{t(col.emptyKey)}</span>
                         <span className="text-[10px] text-slate-400 mt-0.5">{t('queue.quDragInOrder')}</span>
                       </div>
                     ) : (
@@ -2230,8 +2245,8 @@ function QueueContent() {
                             : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
                         )}
                       >
-                        <span className="block font-bold text-xs">{opt.label}</span>
-                        <span className="block text-[10px] text-slate-400">{opt.desc}</span>
+                        <span className="block font-bold text-xs">{t(opt.labelKey)}</span>
+                        <span className="block text-[10px] text-slate-400">{t(opt.descKey)}</span>
                       </button>
                     ))}
                   </div>
@@ -3831,7 +3846,7 @@ function QueueContent() {
                 onClick={handleConfirmRollback}
               >
                 <ArrowLeft className="w-4 h-4" />
-                <span>Confirm Rollback to【{STAGE_NAMES[rollbackModal.toStage]}】</span>
+                <span>{t('queue.quRollbackConfirmTo', { p0: t(STAGE_NAME_KEYS[rollbackModal.toStage]) })}</span>
               </Button>
             </div>
           }
@@ -3841,12 +3856,12 @@ function QueueContent() {
             <div className="p-3 bg-red-50 rounded-2xl border border-red-200 space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-red-950 text-sm">{rollbackModal.item.customerName}</span>
-                <Badge variant="error" className="text-[10px] font-bold">Rollback Operation</Badge>
+                <Badge variant="error" className="text-[10px] font-bold">{t('queue.quRollbackOperationBadge')}</Badge>
               </div>
               <div className="flex items-center gap-2 font-mono text-xs font-bold text-red-800">
-                <span className="p-1 bg-white rounded-lg border border-red-200">{STAGE_NAMES[rollbackModal.fromStage]}</span>
+                <span className="p-1 bg-white rounded-lg border border-red-200">{t(STAGE_NAME_KEYS[rollbackModal.fromStage])}</span>
                 <ArrowLeft className="w-3.5 h-3.5 text-red-600" />
-                <span className="p-1 bg-red-100 rounded-lg border border-red-300 text-red-950">{STAGE_NAMES[rollbackModal.toStage]}</span>
+                <span className="p-1 bg-red-100 rounded-lg border border-red-300 text-red-950">{t(STAGE_NAME_KEYS[rollbackModal.toStage])}</span>
               </div>
               <p className="text-[11px] text-red-700 leading-relaxed pt-1">
                 {rollbackModal.fromStage === 'ready_checkout' && rollbackModal.toStage === 'in_service' && (

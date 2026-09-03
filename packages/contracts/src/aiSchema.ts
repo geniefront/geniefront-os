@@ -112,9 +112,15 @@ export function describeType(schema: z.ZodTypeAny, depth = 0): string {
  * 比 `{customerId:…}` 更像「这个工具要这几个参数」。
  */
 export function describeInput(schema: z.ZodTypeAny): string {
-  const def = (schema as { _def?: { typeName?: string } })._def;
-  if (def?.typeName !== 'ZodObject') return describeType(schema);
-  const shape = (schema as z.ZodObject<z.ZodRawShape>).shape;
+  // 顶层带 .refine()/.superRefine() 的命令，schema 是 ZodEffects 包着 ZodObject；
+  // 先剥到里面的对象，才能保持「不加大括号」的顶层渲染。
+  let inner = schema;
+  while ((inner as { _def?: { typeName?: string } })._def?.typeName === 'ZodEffects') {
+    inner = (inner as z.ZodEffects<z.ZodTypeAny>)._def.schema;
+  }
+  const def = (inner as { _def?: { typeName?: string } })._def;
+  if (def?.typeName !== 'ZodObject') return describeType(inner);
+  const shape = (inner as z.ZodObject<z.ZodRawShape>).shape;
   return Object.entries(shape)
     .map(([k, v]) => `${k}:${describeType(v as z.ZodTypeAny, 1)}`)
     .join(', ');

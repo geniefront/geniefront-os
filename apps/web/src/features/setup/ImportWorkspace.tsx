@@ -249,7 +249,7 @@ export function ImportWorkspace({
     try {
       const images = await Promise.all(files.map((file, index) => imagePayload(file, index)));
       const created = await runCommand<{ blueprintId: string }>('blueprint.createDraft', {
-        label: `价目表 · ${new Date().toLocaleDateString()}`,
+        label: t('setupImportDraftLabel', { p0: new Date().toLocaleDateString() }),
         sources: images.map((image) => ({ seq: image.seq, kind: 'price_list_image', storagePath: null, widthPx: image.widthPx, heightPx: image.heightPx })),
       }, membershipId);
       // 识别是后台任务：这个 POST 立刻返回 202，真正的模型调用在服务端进行。

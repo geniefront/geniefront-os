@@ -48,8 +48,10 @@ import { usePayrollPlansQuery, useSavePayrollPlan } from '@/features/payroll/api
 import { useStaffListQuery, useSaveStaffProfile, useSetEmploymentStatus } from '@/features/staff/api';
 import type { StaffPayrollInfo, PlanKind, CommissionBase } from '@/features/payroll/types';
 import type { StaffDirectoryItem } from '@/features/staff/types';
+import type { TranslationKey } from '@/i18n';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
+import { SampleDataNotice } from '@/components/ui/SampleDataNotice';
 
 // 门店全量标准服务项目定义
 export interface SalonServiceItem {
@@ -99,6 +101,43 @@ const PRESET_JOB_TITLES = ['美甲师', '芳疗理疗师', 'Lashes & Brows师', 
 // 预设职位等级
 const PRESET_LEVELS = ['见习学徒', '初级技师', '中级技师', '资深技师', '首席大师', '技术总监', '店长主管'];
 
+/**
+ * 预设职位 / 职级 / 技能标签的展示译文映射。
+ *
+ * ⚠️ 只翻译**显示的文字**，不改数据本身 —— 下拉框和技能徽章的
+ * value/匹配键仍然是上面那组中文原文，因为它就是存进
+ * `staff_profiles.job_title` / `.level` / `.skills` 的原始值。
+ * 改 value 会让已有员工档案的筛选和「可接项目」比对全部失配。
+ * 查不到映射的自定义职位（老板自己手打的）原样显示，不当作漏译。
+ */
+const PRESET_LABEL_KEYS: Record<string, TranslationKey> = {
+  '美甲师': 'rotation.empRoleNail',
+  '芳疗理疗师': 'rotation.empRoleSpa',
+  'Lashes & Brows师': 'rotation.empRoleLash',
+  'Hair Styling师': 'rotation.empRoleHair',
+  '前台店务收银': 'rotation.empRoleFrontDesk',
+  '门店店长/主管': 'rotation.empRoleManager',
+  '见习学徒': 'rotation.empLevelTrainee',
+  '初级技师': 'rotation.empLevelJunior',
+  '中级技师': 'rotation.empLevelMid',
+  '资深技师': 'rotation.empLevelSenior',
+  '首席大师': 'rotation.empLevelMaster',
+  '技术总监': 'rotation.empLevelDirector',
+  '店长主管': 'rotation.empLevelManager',
+  '日式光疗美甲': 'rotation.empSkillGelNail',
+  '水晶琉璃延长': 'rotation.empSkillCrystalExt',
+  '俄式极致修甲': 'rotation.empSkillRussianMani',
+  '手足精油SPA': 'rotation.empSkillHandFootSpa',
+  '全身芳香开背': 'rotation.empSkillAromaMassage',
+  '火山热石理疗': 'rotation.empSkillHotStone',
+  '足底全息反射': 'rotation.empSkillFootReflex',
+  '头部舒压理疗': 'rotation.empSkillScalpRelax',
+  '日式单根美睫': 'rotation.empSkillLashSingle',
+  '3D云朵开花': 'rotation.empSkillLashVolume',
+  '半永久野生眉': 'rotation.empSkillMicroblading',
+  '染烫色彩造型': 'rotation.empSkillColorPerm',
+};
+
 // 员工档案接口
 export interface StaffMember {
   id: string;
@@ -132,6 +171,11 @@ interface ConfirmModalState {
 function EmployeePerformanceContent() {
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
+  /** 预设职位/职级/技能 → 展示译文；查不到映射（老板自己手打的）原样返回 */
+  const presetLabel = (value: string): string => {
+    const key = PRESET_LABEL_KEYS[value];
+    return key ? t(key) : value;
+  };
   const { data: payrollData, isLoading: isPayrollLoading, isError: isPayrollError, error: payrollErr, refetch: refetchPayroll } = usePayrollPlansQuery();
   const savePlanMutation = useSavePayrollPlan();
 
@@ -313,14 +357,14 @@ function EmployeePerformanceContent() {
       return;
     }
 
-    const actionText = isEditing ? '修改保存' : '新增创建';
+    const actionText = isEditing ? t('rotation.empActionSave') : t('rotation.empActionCreate');
 
     setConfirmModal({
-      title: isEditing ? `✏️ 确认修改员工档案 · ${formName}` : `➕ 确认添加新员工 · ${formName}`,
+      title: isEditing ? t('rotation.empEditConfirmTitle', { p0: formName }) : t('rotation.empAddConfirmTitle', { p0: formName }),
       description: isEditing
-        ? `确认更新员工【${formName}】的职位、职级等级、技能标签（可做 ${formServiceStatus.canDo.length} 项 / 不可做 ${formServiceStatus.cannotDo.length} 项）与薪酬提成吗？`
-        : `确认录入新员工【${formName}】（工号：${formEmployeeNo} · 职位：${formJobTitle} · 职级：${formLevel}）吗？`,
-      confirmText: `确认${actionText}`,
+        ? t('rotation.empEditConfirmDesc', { p0: formName, p1: formServiceStatus.canDo.length, p2: formServiceStatus.cannotDo.length })
+        : t('rotation.empAddConfirmDesc', { p0: formName, p1: formEmployeeNo, p2: presetLabel(formJobTitle), p3: presetLabel(formLevel) }),
+      confirmText: t('rotation.empSaveConfirmButton', { p0: actionText }),
       confirmTone: 'primary',
       onConfirm: async () => {
         const targetStaff = staffList.find((s) => s.id === editingStaffId);
@@ -407,9 +451,9 @@ function EmployeePerformanceContent() {
   // 4. 删除员工档案 (严格二次确认)
   const handleDeleteStaffWithConfirm = (staff: StaffMember) => {
     setConfirmModal({
-      title: `🗑️ 确认删除员工档案 · ${staff.name}`,
-      description: `您确定要彻底删除员工【${staff.name}】（工号：${staff.employeeNo}）吗？删除后该员工将移出员工中心与轮牌列表。`,
-      confirmText: '确认彻底删除',
+      title: t('rotation.empDeleteConfirmTitle', { p0: staff.name }),
+      description: t('rotation.empDeleteConfirmDesc', { p0: staff.name, p1: staff.employeeNo }),
+      confirmText: t('rotation.empDeleteConfirmButton'),
       confirmTone: 'danger',
       onConfirm: async () => {
         setStaffList((prev) => prev.filter((s) => s.id !== staff.id));
@@ -427,15 +471,15 @@ function EmployeePerformanceContent() {
   // 5. 快捷切换在职/休假状态 (带二次确认)
   const handleToggleStatusWithConfirm = (staff: StaffMember, nextStatus: StaffMember['status']) => {
     const statusLabels: Record<string, string> = {
-      active: '在职正常',
-      on_leave: '休假/调休',
-      resigned: '已离职',
+      active: t('rotation.empStatusLabelActive'),
+      on_leave: t('rotation.empStatusLabelOnLeave'),
+      resigned: t('rotation.empStatusLabelResigned'),
     };
 
     setConfirmModal({
-      title: `🔄 确认变更在职状态 · ${staff.name}`,
-      description: `确认将员工【${staff.name}】的状态从「${statusLabels[staff.status]}」变更为「${statusLabels[nextStatus]}」吗？`,
-      confirmText: '确认变更状态',
+      title: t('rotation.empStatusChangeConfirmTitle', { p0: staff.name }),
+      description: t('rotation.empStatusChangeConfirmDesc', { p0: staff.name, p1: statusLabels[staff.status], p2: statusLabels[nextStatus] }),
+      confirmText: t('rotation.empStatusChangeConfirmButton'),
       confirmTone: nextStatus === 'resigned' ? 'warning' : 'primary',
       onConfirm: async () => {
         setStaffList((prev) =>
@@ -592,9 +636,9 @@ function EmployeePerformanceContent() {
             className="h-8 px-2.5 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700"
           >
             <option value="all">{t('rotation.empAllRoles')}</option>
-            {PRESET_JOB_TITLES.map((t) => (
-              <option key={t} value={t}>
-                {t}
+            {PRESET_JOB_TITLES.map((jobTitle) => (
+              <option key={jobTitle} value={jobTitle}>
+                {presetLabel(jobTitle)}
               </option>
             ))}
           </select>
@@ -606,9 +650,9 @@ function EmployeePerformanceContent() {
             className="h-8 px-2.5 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700"
           >
             <option value="all">{t('rotation.empAllLevels')}</option>
-            {PRESET_LEVELS.map((l) => (
-              <option key={l} value={l}>
-                {l}
+            {PRESET_LEVELS.map((level) => (
+              <option key={level} value={level}>
+                {presetLabel(level)}
               </option>
             ))}
           </select>
@@ -638,6 +682,14 @@ function EmployeePerformanceContent() {
           />
         </div>
       </div>
+
+      {/*
+       * ⚠️ 每张员工卡片上的「可接 / 不可接项目」比对的是
+       * SALON_SERVICES_CATALOG —— 一份写死在前端的示例服务目录
+       * （含虚构定价），不是这家店 services 表里的真实项目与价格。
+       * 接入真实数据前必须显式声明，否则会被当成这家店的真实菜单读。
+       */}
+      <SampleDataNotice />
 
       {/* 3. High-Density Staff Cards with Can-Do & Cannot-Do Services */}
       {filteredStaff.length === 0 ? (
@@ -678,10 +730,10 @@ function EmployeePerformanceContent() {
 
                         <div className="flex items-center gap-1.5 text-xs pt-0.5">
                           <Badge className="bg-teal-50 text-teal-900 border-teal-200 font-bold text-[10px]">
-                            {staff.jobTitle}
+                            {presetLabel(staff.jobTitle)}
                           </Badge>
                           <Badge className="bg-purple-50 text-purple-900 border-purple-200 font-bold text-[10px]">
-                            {staff.level}
+                            {presetLabel(staff.level)}
                           </Badge>
                           <span className="text-[11px] text-slate-400">· 📞 {formatPhoneDisplay(staff.phone)}</span>
                         </div>
@@ -979,9 +1031,9 @@ function EmployeePerformanceContent() {
                   onChange={(e) => setFormJobTitle(e.target.value)}
                   className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700"
                 >
-                  {PRESET_JOB_TITLES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
+                  {PRESET_JOB_TITLES.map((jobTitle) => (
+                    <option key={jobTitle} value={jobTitle}>
+                      {presetLabel(jobTitle)}
                     </option>
                   ))}
                 </select>
@@ -989,7 +1041,7 @@ function EmployeePerformanceContent() {
 
               <div>
                 <label className="block font-bold text-slate-700 uppercase mb-1">
-                  
+
                   {t('rotation.empLevelLabel')}
                 </label>
                 <select
@@ -997,9 +1049,9 @@ function EmployeePerformanceContent() {
                   onChange={(e) => setFormLevel(e.target.value)}
                   className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700"
                 >
-                  {PRESET_LEVELS.map((l) => (
-                    <option key={l} value={l}>
-                      {l}
+                  {PRESET_LEVELS.map((level) => (
+                    <option key={level} value={level}>
+                      {presetLabel(level)}
                     </option>
                   ))}
                 </select>
@@ -1030,7 +1082,7 @@ function EmployeePerformanceContent() {
                     }`}
                   >
                     {isSelected && '✓ '}
-                    {skill}
+                    {presetLabel(skill)}
                   </button>
                 );
               })}

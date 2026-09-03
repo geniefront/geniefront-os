@@ -67,6 +67,7 @@ import {
   useSavePersonalNotificationPreferences,
 } from '@/features/profile/api';
 import type { PersonalNotificationPreferences } from '@/features/profile/types';
+import type { TranslationKey } from '@/i18n';
 import { persistRecommendedInAppPrefs } from '@/features/profile/recommendedPrefs';
 
 import {
@@ -94,6 +95,25 @@ const PRESET_SALON_SKILLS = [
   '染烫色彩造型',
 ];
 
+/**
+ * 展示译文映射 —— 只翻译文字，不改 value（原因同 EmployeePerformance.tsx
+ * 里那份一模一样的映射：value 是存进 `staff_profiles.skills` 的原始值）。
+ */
+const PRESET_SKILL_LABEL_KEYS: Record<string, TranslationKey> = {
+  '日式光疗美甲': 'rotation.empSkillGelNail',
+  '水晶琉璃延长': 'rotation.empSkillCrystalExt',
+  '俄式极致修甲': 'rotation.empSkillRussianMani',
+  '手足精油SPA': 'rotation.empSkillHandFootSpa',
+  '火山热石理疗': 'rotation.empSkillHotStone',
+  '全身芳香开背': 'rotation.empSkillAromaMassage',
+  '足底全息反射': 'rotation.empSkillFootReflex',
+  '日式单根美睫': 'rotation.empSkillLashSingle',
+  '3D山茶花美睫': 'rotation.empSkillLashCamellia',
+  '头部舒压理疗': 'rotation.empSkillScalpRelax',
+  '半永久野生眉': 'rotation.empSkillMicroblading',
+  '染烫色彩造型': 'rotation.empSkillColorPerm',
+};
+
 type ConfirmActionType =
   | 'sign_out'
   | 'save_general'
@@ -107,6 +127,10 @@ type ConfirmActionType =
 export function Profile() {
   const errorMessage = useErrorMessage();
   const { t, language, setLanguage } = useLanguage();
+  const presetSkillLabel = (value: string): string => {
+    const key = PRESET_SKILL_LABEL_KEYS[value];
+    return key ? t(key) : value;
+  };
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') || 'general';
 
@@ -209,28 +233,28 @@ export function Profile() {
 
   // Password strength calculation
   const passwordStrength = useMemo(() => {
-    if (!newPassword) return { score: 0, label: '请输入密码', color: 'bg-slate-200' };
+    if (!newPassword) return { score: 0, label: t('settings.profPwEmpty'), color: 'bg-slate-200' };
     let s = 0;
     if (newPassword.length >= 8) s += 1;
     if (/[a-z]/.test(newPassword) && /[A-Z]/.test(newPassword)) s += 1;
     if (/\d/.test(newPassword)) s += 1;
     if (/[^a-zA-Z0-9]/.test(newPassword)) s += 1;
 
-    if (s <= 1) return { score: 1, label: '弱 (建议增加长度与符号)', color: 'bg-red-500' };
-    if (s === 2) return { score: 2, label: '中等', color: 'bg-amber-500' };
-    if (s === 3) return { score: 3, label: '良好', color: 'bg-blue-500' };
-    return { score: 4, label: '强 (高安全性)', color: 'bg-emerald-500' };
-  }, [newPassword]);
+    if (s <= 1) return { score: 1, label: t('settings.profPwWeak'), color: 'bg-red-500' };
+    if (s === 2) return { score: 2, label: t('settings.profPwMedium'), color: 'bg-amber-500' };
+    if (s === 3) return { score: 3, label: t('settings.profPwGood'), color: 'bg-blue-500' };
+    return { score: 4, label: t('settings.profPwStrong'), color: 'bg-emerald-500' };
+  }, [newPassword, t]);
 
   // ── 两步确认触发器 ──────────────────────────────────────────────────────────
   const requestSignOut = () => {
     setConfirmDialogState({
       isOpen: true,
       type: 'sign_out',
-      title: '确认退出系统登录？',
-      description: '退出后当前设备上的会话将被注销，需要重新输入账号密码才能进入工作台。',
+      title: t('settings.profSignOutConfirmTitle'),
+      description: t('settings.profSignOutConfirmDesc'),
       tone: 'danger',
-      confirmLabel: '确认退出',
+      confirmLabel: t('settings.profSignOutConfirmButton'),
     });
   };
 
@@ -242,10 +266,10 @@ export function Profile() {
     setConfirmDialogState({
       isOpen: true,
       type: 'save_general',
-      title: '确认保存个人基本档案更改？',
-      description: `即将更新姓名「${fullName.trim()}」、昵称「${nickname.trim() || '无'}」、手机号与语言设置。`,
+      title: t('settings.profSaveGeneralConfirmTitle'),
+      description: t('settings.profSaveGeneralConfirmDesc', { p0: fullName.trim(), p1: nickname.trim() || t('settings.profNoneValue') }),
       tone: 'default',
-      confirmLabel: '确认保存',
+      confirmLabel: t('settings.profSaveGeneralConfirmButton'),
     });
   };
 
@@ -262,10 +286,10 @@ export function Profile() {
     setConfirmDialogState({
       isOpen: true,
       type: 'change_password',
-      title: '确认更新登录密码？',
-      description: '密码更新后将立即生效，请妥善保管您的新登录凭据。',
+      title: t('settings.profChangePasswordConfirmTitle'),
+      description: t('settings.profChangePasswordConfirmDesc'),
       tone: 'danger',
-      confirmLabel: '确认更新密码',
+      confirmLabel: t('settings.profChangePasswordConfirmButton'),
     });
   };
 
@@ -277,10 +301,10 @@ export function Profile() {
     setConfirmDialogState({
       isOpen: true,
       type: 'set_pin',
-      title: `确认设置 ${pinCode.length} 位 PIN 为快速解锁码？`,
-      description: '设置后，您在前台共享 iPad 或收银终端上无需输入长密码，输入该 PIN 即可秒级切入个人操作台。',
+      title: t('settings.profSetPinConfirmTitle', { p0: pinCode.length }),
+      description: t('settings.profSetPinConfirmDesc'),
       tone: 'default',
-      confirmLabel: '确认保存 PIN',
+      confirmLabel: t('settings.profSetPinConfirmButton'),
     });
   };
 
@@ -288,10 +312,13 @@ export function Profile() {
     setConfirmDialogState({
       isOpen: true,
       type: 'save_provider',
-      title: '确认更新技师接单与技能配置？',
-      description: `即将更新：开放接单状态【${isBookable ? '开启' : '关闭'}】、最大并发【${maxConcurrent}人】及 ${skills.length} 项技能特长。`,
+      title: t('settings.profSaveProviderConfirmTitle'),
+      description: t('settings.profSaveProviderConfirmDesc', {
+        p0: isBookable ? t('settings.profToggleOn') : t('settings.profToggleOff'),
+        p1: maxConcurrent, p2: skills.length,
+      }),
       tone: 'default',
-      confirmLabel: '确认更新',
+      confirmLabel: t('settings.profSaveProviderConfirmButton'),
     });
   };
 
@@ -299,10 +326,10 @@ export function Profile() {
     setConfirmDialogState({
       isOpen: true,
       type: 'save_notifications',
-      title: '确认保存个人通知偏好？',
-      description: '即将更新您的应用内实时推送、短信直达与每日邮件报告通道配置。',
+      title: t('settings.profSaveNotifConfirmTitle'),
+      description: t('settings.profSaveNotifConfirmDesc'),
       tone: 'default',
-      confirmLabel: '确认保存偏好',
+      confirmLabel: t('settings.profSaveNotifConfirmButton'),
     });
   };
 
@@ -310,10 +337,10 @@ export function Profile() {
     setConfirmDialogState({
       isOpen: true,
       type: 'revoke_session',
-      title: `确认强制踢下线设备「${deviceLabel}」？`,
-      description: '强制注销后，该设备上的会话将立即失效并被踢出系统，下次使用需重新登录。',
+      title: t('settings.profRevokeConfirmTitle', { p0: deviceLabel }),
+      description: t('settings.profRevokeConfirmDesc'),
       tone: 'danger',
-      confirmLabel: '确认踢下线',
+      confirmLabel: t('settings.profRevokeConfirmButton'),
       payload: { sessionId },
     });
   };
@@ -322,10 +349,10 @@ export function Profile() {
     setConfirmDialogState({
       isOpen: true,
       type: 'switch_location',
-      title: `确认切换进入门店「${storeName}」？`,
-      description: '切换门店后，工作台将立即载入该门店的排班日历、大堂等位与收银账单数据。',
+      title: t('settings.profSwitchStoreConfirmTitle', { p0: storeName }),
+      description: t('settings.profSwitchStoreConfirmDesc'),
       tone: 'default',
-      confirmLabel: '确认切换',
+      confirmLabel: t('settings.profSwitchStoreConfirmButton'),
       payload: { membershipId: targetMembershipId },
     });
   };
@@ -1272,7 +1299,7 @@ export function Profile() {
                         key={skill}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 text-teal-800 border border-teal-200 text-xs font-bold shadow-xs"
                       >
-                        <span>{skill}</span>
+                        <span>{presetSkillLabel(skill)}</span>
                         <button
                           type="button"
                           onClick={() => handleRemoveSkill(skill)}
@@ -1298,7 +1325,7 @@ export function Profile() {
                           onClick={() => handleAddSkill(preset)}
                           className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-teal-50 hover:text-teal-700 text-slate-600 text-xs font-medium transition-colors border border-slate-200/60"
                         >
-                          + {preset}
+                          + {presetSkillLabel(preset)}
                         </button>
                       ))}
                     </div>

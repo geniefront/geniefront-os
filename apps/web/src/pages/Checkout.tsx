@@ -224,7 +224,7 @@ function CheckoutContent() {
       const staffMember = staff.find((s) => s.membershipId === item.membershipId || s.name === item.staffName);
       const membershipId = item.membershipId || staffMember?.membershipId;
       if (!membershipId) return;
-      const staffName = formatI18n(item.staffName || staffMember?.name, language) || '主理技师';
+      const staffName = formatI18n(item.staffName || staffMember?.name, language) || t('checkout.primaryTherapistFallback');
       const roomName = typeof item.roomName === 'string' ? item.roomName : undefined;
 
       const existing: {
@@ -240,7 +240,7 @@ function CheckoutContent() {
       };
 
       existing.items.push({
-        name: formatI18n(item.name ?? item.name_snapshot ?? item.nameSnapshot, language) || '服务项目',
+        name: formatI18n(item.name ?? item.name_snapshot ?? item.nameSnapshot, language) || t('service'),
         durationMin: item.durationMin ?? 0,
         priceCents: item.totalCents,
         roomName,
@@ -389,14 +389,14 @@ function CheckoutContent() {
       } else {
         patchLine(index, {
           giftCardVerified: false,
-          giftCardError: '无效或已过期的Gift Card',
+          giftCardError: t('checkout.giftCardInvalid'),
         });
         toast.danger(t('checkout.giftCardInvalid'));
       }
     } catch (err: any) {
       patchLine(index, {
         giftCardVerified: false,
-        giftCardError: err.message || '验证失败',
+        giftCardError: err.message || t('checkout.giftCardVerifyFailed'),
       });
       toast.danger(errorMessage(err));
     } finally {
@@ -466,7 +466,7 @@ function CheckoutContent() {
         idempotencyKey,
       });
       const allocationText = staffTipAllocations
-        .map((a) => `${a.staffName} (小费 $${centsToDollars(a.allocatedTipCents)})`)
+        .map((a) => t('checkout.tipAllocationLine', { p0: a.staffName, p1: centsToDollars(a.allocatedTipCents) }))
         .join(' · ');
       toast.success(t(paymentStage === 'service' ? 'checkout.servicePaymentSucceeded' : 'checkout.checkoutSucceeded'), {
         description: allocationText || `$${centsToDollars(result.totalCents)}`,

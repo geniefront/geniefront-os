@@ -54,7 +54,10 @@ export function Payouts() {
               disabled={rows.length === 0}
               onClick={() => exportToCSV(
                 'earnings-estimates',
-                ['员工', '职位', '服务业绩', '佣金估算', '刷卡小费记录', '合计估算'],
+                [
+                  t('finance.payoutsExportStaff'), t('finance.payoutsExportJobTitle'), t('finance.payoutsExportServiceSales'),
+                  t('finance.payoutsExportCommission'), t('finance.payoutsExportCardTips'), t('finance.payoutsExportNetPay'),
+                ],
                 rows.map((row) => [row.name, row.jobTitle, centsToDollars(row.serviceSalesCents),
                   centsToDollars(row.serviceCommissionCents), centsToDollars(row.cardTipsCents),
                   centsToDollars(row.netPayCents)]),

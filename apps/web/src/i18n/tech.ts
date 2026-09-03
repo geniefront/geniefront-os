@@ -1,6 +1,7 @@
-import type { DomainDict } from './types';
-
-export const tech: DomainDict = {
+// ⚠️ 故意不标注 `: DomainDict` —— 理由见 setup.ts 头部注释：那个通用索引
+// 签名会让这个文件的具体键名从 `TranslationKey` 里消失，`t('拼错的键')`
+// 就不再报类型错误。五语齐全的检查交给运行时的 i18n.test.ts。
+export const tech = {
   techPortal: {
     'zh-Hans': '技师工作台',
     en: 'Technician Portal',

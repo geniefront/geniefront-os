@@ -55,11 +55,20 @@ import { exportToCSV } from "@/lib/exportUtils";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PageLoading, PageError } from "@/components/ui/QueryState";
 import { shiftDate, useBusinessDay } from '@/lib/time';
+import type { TranslationKey } from '@/i18n';
 
 const PIE_COLORS = ["#0D9488", "#3B82F6", "#F59E0B", "#8B5CF6", "#EC4899", "#64748B"];
 const CHANNEL_COLORS = ["#0D9488", "#0284C7", "#8B5CF6", "#F59E0B", "#10B981"];
 
+/**
+ * ⚠️ 服务端 `/v1/desk/analytics/heatmap` 的 `matrix` 至今仍以中文
+ * （'周一'…'周日'）作为 JSON 键——这是接口契约本身的问题，不只是这个
+ * 页面的展示问题，改契约要动服务端+这里两处，本次先只改展示：
+ * 这份数组仍用中文去查 `heatmapMatrix`（键不能变），配一份并行的
+ * `DAY_LABEL_KEYS` 只管显示文字，跟 common.ts 已有的 mon/tue/…/sun 词条走。
+ */
 const DAYS_OF_WEEK = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+const DAY_LABEL_KEYS: TranslationKey[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const HOURS_RANGE = ["10:00", "12:00", "14:00", "16:00", "18:00", "20:00"];
 
 export function BusinessData() {
@@ -282,7 +291,10 @@ export function BusinessData() {
                 onClick={async () => {
                   setExporting(true);
                   try {
-                    const headers = ["日期", "服务收入 ($)", "零售收入 ($)", "Gift Card销售 ($)", "净销售额 ($)", "订单单数"];
+                    const headers = [
+                      t("finance.bdExportDate"), t("finance.bdExportServiceRevenue"), t("finance.bdExportRetailRevenue"),
+                      t("finance.bdExportGiftCardSales"), t("finance.bdExportNetSales"), t("finance.bdExportOrderCount"),
+                    ];
                     const rows = chartData.map((d) => [
                       d.name,
                       d.services.toFixed(2),
@@ -593,11 +605,11 @@ export function BusinessData() {
                       </div>
 
                       <div className="space-y-2">
-                        {DAYS_OF_WEEK.map((day) => {
+                        {DAYS_OF_WEEK.map((day, dayIdx) => {
                           const rowScores = (heatmapMatrix as any)?.[day] || [0, 0, 0, 0, 0, 0];
                           return (
                             <div key={day} className="grid grid-cols-7 gap-2 items-center text-xs">
-                              <div className="font-bold text-slate-800 pl-2">{day}</div>
+                              <div className="font-bold text-slate-800 pl-2">{t(DAY_LABEL_KEYS[dayIdx])}</div>
                               {rowScores.map((score: number, i: number) => {
                                 let bgClass = "bg-emerald-50 text-emerald-800 border border-emerald-200";
                                 if (score >= 90) bgClass = "bg-orange-500 text-white font-bold shadow-xs";

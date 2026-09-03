@@ -1,6 +1,18 @@
-import type { DomainDict } from './types';
-
-export const setup: DomainDict = {
+/**
+ * ⚠️ 故意不标注 `: DomainDict`。
+ *
+ * `DomainDict = Record<string, Record<Language, string>>` 是个通用索引签名——
+ * 一旦拿它标注这个对象，TypeScript 就会把这份词典的类型收窄成"任意字符串键"，
+ * 于是 `TranslationKey`（由 `keyof typeof dict` 推出）会丢失这个文件里
+ * 所有的具体键名。后果不是编译失败，而是**更糟**：`t('拼错的键名')`
+ * 不再报类型错误——因为 `t()` 本来就接受 `TranslationKey | string`，
+ * 丢了字面量类型之后随便传什么字符串都能通过类型检查。
+ * StepForms.tsx 整页写死中文能在类型检查下藏这么久，这是原因之一。
+ *
+ * 不标注也不丢「每个词条必须五种语言齐全」的检查——那件事由
+ * `i18n.test.ts` 在运行时做，且做得更准（能报出具体缺哪一种语言）。
+ */
+export const setup = {
   setupNewStore: { 'zh-Hans': '你的新店', en: 'your new store', ko: '새 매장', vi: 'cửa hàng mới', es: 'tu nueva tienda' },
   setupReadyStore: { 'zh-Hans': '准备好 {storeName}', en: 'Get {storeName} ready', ko: '{storeName} 준비하기', vi: 'Chuẩn bị {storeName}', es: 'Prepara {storeName}' },
   setupIntro: { 'zh-Hans': '完成这几项营业必需信息后，系统才会开放后台。网站、通知和其他高级设置可在开店后继续完善。', en: 'Complete these launch-critical details to unlock the admin workspace. Website, notifications, and advanced settings can be added after launch.', ko: '영업에 필요한 항목을 완료해야 관리자 화면이 열립니다. 웹사이트, 알림 및 고급 설정은 오픈 후 추가할 수 있습니다.', vi: 'Hoàn tất các thông tin bắt buộc để mở trang quản trị. Website, thông báo và cài đặt nâng cao có thể thêm sau khi khai trương.', es: 'Completa los datos esenciales para desbloquear el panel. El sitio web, las notificaciones y los ajustes avanzados se pueden añadir después.' },
@@ -71,6 +83,7 @@ export const setup: DomainDict = {
   setupImportDraftTitle: { 'zh-Hans': '逐项确认后再写入', en: 'Confirm each line before it is saved', ko: '저장 전에 항목을 확인하세요', vi: 'Xác nhận từng dòng trước khi lưu', es: 'Confirma cada línea antes de guardar' },
   setupImportDraftCopy: { 'zh-Hans': '低置信度项目默认不勾选。确认后才会进入正式数据。', en: 'Low-confidence lines stay unchecked. Only accepted items become live services.', ko: '신뢰도가 낮은 항목은 기본적으로 선택되지 않습니다. 확인한 항목만 반영됩니다.', vi: 'Dòng độ tin thấp mặc định không chọn. Chỉ mục đã nhận mới thành dịch vụ.', es: 'Las líneas de baja confianza quedan sin marcar. Solo lo aceptado pasa a servicios.' },
   setupImportServices: { 'zh-Hans': '项目与价格', en: 'Services and prices', ko: '서비스와 가격', vi: 'Dịch vụ và giá', es: 'Servicios y precios' },
+  setupImportDraftLabel: { 'zh-Hans': '价目表 · {p0}', en: 'Price list · {p0}', ko: '가격표 · {p0}', vi: 'Bảng giá · {p0}', es: 'Lista de precios · {p0}' },
   setupImportUncategorized: { 'zh-Hans': '未分类', en: 'Uncategorized', ko: '미분류', vi: 'Chưa phân loại', es: 'Sin categoría' },
   setupImportPricePending: { 'zh-Hans': '价格待确认', en: 'Price to confirm', ko: '가격 확인 필요', vi: 'Giá cần xác nhận', es: 'Precio por confirmar' },
   setupImportMinutes: { 'zh-Hans': '{count} 分钟', en: '{count} min', ko: '{count}분', vi: '{count} phút', es: '{count} min' },
@@ -83,4 +96,110 @@ export const setup: DomainDict = {
   setupImportDraftSaved: { 'zh-Hans': '已加入 {services} 个项目。请在下方核对后继续。', en: '{services} services added. Review the list below, then continue.', ko: '서비스 {services}개를 추가했습니다. 아래 목록을 확인하세요.', vi: 'Đã thêm {services} dịch vụ. Kiểm tra danh sách bên dưới.', es: 'Se añadieron {services} servicios. Revisa la lista y continúa.' },
   setupImportSafety: { 'zh-Hans': '任何来源都不会绕过人工确认。官网抓取会拦截内网地址。', en: 'Nothing is written without your confirmation. Website scans block private network addresses.', ko: '확인 없이는 저장되지 않습니다. 웹사이트 스캔은 사설 네트워크 주소를 차단합니다.', vi: 'Không ghi gì nếu bạn chưa xác nhận. Quét website chặn địa chỉ mạng nội bộ.', es: 'Nada se guarda sin tu confirmación. El escaneo web bloquea direcciones de red privada.' },
   setupImportOrManual: { 'zh-Hans': '或在下方手工填写', en: 'Or complete the form below by hand', ko: '또는 아래 양식을 직접 입력', vi: 'Hoặc điền form bên dưới', es: 'O completa el formulario a mano' },
+
+  // ── 开店向导（StepForms.tsx）───────────────────────────────────────────
+  // ⚠️ 这四步向导以前整段写死中文——是种子店老板第一次打开系统看到的
+  // 第一个页面，非中文界面下这一整页完全不跟着语言走。
+  setupSaveContinue: { 'zh-Hans': '保存并继续', en: 'Save & continue', ko: '저장하고 계속', vi: 'Lưu & tiếp tục', es: 'Guardar y continuar' },
+  setupSaving: { 'zh-Hans': '正在保存…', en: 'Saving…', ko: '저장 중…', vi: 'Đang lưu…', es: 'Guardando…' },
+  setupRequiredBadge: { 'zh-Hans': '开店必需', en: 'Required to launch', ko: '오픈 필수', vi: 'Bắt buộc để khai trương', es: 'Necesario para abrir' },
+
+  setupStep1Eyebrow: { 'zh-Hans': '第 1 步', en: 'Step 1', ko: '1단계', vi: 'Bước 1', es: 'Paso 1' },
+  setupStep1Title: { 'zh-Hans': '确认门店资料', en: 'Confirm store details', ko: '매장 정보 확인', vi: 'Xác nhận thông tin cửa hàng', es: 'Confirma los datos del negocio' },
+  setupStep1Desc: { 'zh-Hans': '可先从 Yelp 或官网导入公开资料，再核对时区和营业时间。这两项会直接影响预约、通知、报表与日结。', en: 'You can import public details from Yelp or your website first, then confirm the timezone and business hours — both directly affect bookings, notifications, reports and day close.', ko: 'Yelp나 웹사이트에서 공개 정보를 먼저 가져온 뒤 시간대와 영업시간을 확인하세요. 이 두 가지는 예약, 알림, 리포트, 일일 마감에 직접 영향을 줍니다.', vi: 'Bạn có thể nhập thông tin công khai từ Yelp hoặc website trước, sau đó xác nhận múi giờ và giờ mở cửa — cả hai đều ảnh hưởng trực tiếp đến đặt lịch, thông báo, báo cáo và chốt sổ.', es: 'Puedes importar datos públicos de Yelp o tu web primero y luego confirmar la zona horaria y el horario — ambos afectan directamente a reservas, notificaciones, informes y cierre del día.' },
+  setupStep1MissingName: { 'zh-Hans': '请先填写店名并确认时区', en: 'Please enter the store name and confirm the timezone first', ko: '먼저 매장명을 입력하고 시간대를 확인해 주세요', vi: 'Vui lòng nhập tên cửa hàng và xác nhận múi giờ trước', es: 'Ingresa el nombre de la tienda y confirma la zona horaria primero' },
+  setupStep1MissingHours: { 'zh-Hans': '请至少设置一个营业日', en: 'Please set at least one business day', ko: '최소 하루 이상 영업일을 설정해 주세요', vi: 'Vui lòng đặt ít nhất một ngày mở cửa', es: 'Configura al menos un día de apertura' },
+  setupStep1Saved: { 'zh-Hans': '门店资料与营业时间已保存', en: 'Store details and business hours saved', ko: '매장 정보와 영업시간이 저장되었습니다', vi: 'Đã lưu thông tin cửa hàng và giờ mở cửa', es: 'Datos del negocio y horario guardados' },
+  setupSaveFailed: { 'zh-Hans': '保存失败：{p0}', en: 'Save failed: {p0}', ko: '저장 실패: {p0}', vi: 'Lưu thất bại: {p0}', es: 'Error al guardar: {p0}' },
+  setupAddFailed: { 'zh-Hans': '添加失败：{p0}', en: 'Failed to add: {p0}', ko: '추가 실패: {p0}', vi: 'Thêm thất bại: {p0}', es: 'Error al añadir: {p0}' },
+
+  setupFieldStoreName: { 'zh-Hans': '店铺名称', en: 'Store name', ko: '매장명', vi: 'Tên cửa hàng', es: 'Nombre del negocio' },
+  setupFieldBusinessType: { 'zh-Hans': '主营行业', en: 'Business type', ko: '업종', vi: 'Loại hình kinh doanh', es: 'Tipo de negocio' },
+  setupBizNail: { 'zh-Hans': '美甲 Nail', en: 'Nail', ko: '네일', vi: 'Nail', es: 'Uñas' },
+  setupBizMassage: { 'zh-Hans': '按摩 Massage', en: 'Massage', ko: '마사지', vi: 'Massage', es: 'Masaje' },
+  setupBizFootSpa: { 'zh-Hans': '足疗 Foot Spa', en: 'Foot spa', ko: '발 스파', vi: 'Foot Spa', es: 'Spa de pies' },
+  setupBizLash: { 'zh-Hans': '美睫 Lash', en: 'Lash', ko: '속눈썹', vi: 'Mi', es: 'Pestañas' },
+  setupBizScalp: { 'zh-Hans': '头疗 Scalp', en: 'Scalp', ko: '두피 관리', vi: 'Da đầu', es: 'Cuero cabelludo' },
+  setupBizHair: { 'zh-Hans': '美发 Hair', en: 'Hair', ko: '헤어', vi: 'Tóc', es: 'Cabello' },
+  setupBizMixed: { 'zh-Hans': '综合 Mixed', en: 'Mixed', ko: '복합', vi: 'Tổng hợp', es: 'Mixto' },
+  setupFieldPhone: { 'zh-Hans': '联系电话', en: 'Phone', ko: '연락처', vi: 'Số điện thoại', es: 'Teléfono' },
+  setupFieldEmail: { 'zh-Hans': '联系邮箱', en: 'Email', ko: '이메일', vi: 'Email', es: 'Correo electrónico' },
+  setupFieldStreet: { 'zh-Hans': '街道地址', en: 'Street address', ko: '도로명 주소', vi: 'Địa chỉ', es: 'Dirección' },
+  setupFieldCity: { 'zh-Hans': '城市', en: 'City', ko: '도시', vi: 'Thành phố', es: 'Ciudad' },
+  setupFieldState: { 'zh-Hans': '州', en: 'State', ko: '주', vi: 'Bang', es: 'Estado' },
+  setupFieldZip: { 'zh-Hans': '邮编', en: 'ZIP code', ko: '우편번호', vi: 'Mã bưu điện', es: 'Código postal' },
+  setupFieldTimezone: { 'zh-Hans': '门店时区', en: 'Store timezone', ko: '매장 시간대', vi: 'Múi giờ cửa hàng', es: 'Zona horaria del negocio' },
+  setupTimezoneHint: { 'zh-Hans': '不要直接相信浏览器猜测；VPN 或跨州管理时可能不正确。', en: "Don't rely on the browser's guess — it can be wrong when using a VPN or managing across states.", ko: '브라우저의 자동 추정을 그대로 믿지 마세요. VPN 사용이나 타 주 관리 시 부정확할 수 있습니다.', vi: 'Đừng tin vào phỏng đoán của trình duyệt — có thể sai khi dùng VPN hoặc quản lý liên bang.', es: 'No confíes en la suposición del navegador; puede ser incorrecta con VPN o gestión entre estados.' },
+  setupTzEastern: { 'zh-Hans': '美国东部', en: 'US Eastern', ko: '미국 동부', vi: 'Miền Đông Mỹ', es: 'Este de EE. UU.' },
+  setupTzCentral: { 'zh-Hans': '美国中部', en: 'US Central', ko: '미국 중부', vi: 'Miền Trung Mỹ', es: 'Centro de EE. UU.' },
+  setupTzMountain: { 'zh-Hans': '美国山区', en: 'US Mountain', ko: '미국 산악부', vi: 'Miền núi Mỹ', es: 'Montaña de EE. UU.' },
+  setupTzArizona: { 'zh-Hans': '亚利桑那', en: 'Arizona', ko: '애리조나', vi: 'Arizona', es: 'Arizona' },
+  setupTzPacific: { 'zh-Hans': '美国西部', en: 'US Pacific', ko: '미국 서부', vi: 'Miền Tây Mỹ', es: 'Pacífico de EE. UU.' },
+  setupTzAlaska: { 'zh-Hans': '阿拉斯加', en: 'Alaska', ko: '알래스카', vi: 'Alaska', es: 'Alaska' },
+  setupTzHawaii: { 'zh-Hans': '夏威夷', en: 'Hawaii', ko: '하와이', vi: 'Hawaii', es: 'Hawái' },
+  setupFieldCutoff: { 'zh-Hans': '营业日截止时间', en: 'Business day cutoff', ko: '영업일 마감 시각', vi: 'Giờ chốt ngày kinh doanh', es: 'Corte del día de negocio' },
+  setupCutoffHint: { 'zh-Hans': '凌晨营业的店可设为 03:00 或 04:00。', en: 'Stores open past midnight can set this to 03:00 or 04:00.', ko: '자정 이후까지 영업하는 매장은 03:00 또는 04:00으로 설정하세요.', vi: 'Cửa hàng mở qua nửa đêm có thể đặt 03:00 hoặc 04:00.', es: 'Los negocios abiertos después de medianoche pueden usar 03:00 o 04:00.' },
+  setupWeeklyHoursTitle: { 'zh-Hans': '每周营业时间', en: 'Weekly business hours', ko: '주간 영업시간', vi: 'Giờ mở cửa hàng tuần', es: 'Horario semanal' },
+  setupCopyMondayToAll: { 'zh-Hans': '七天使用周一时间', en: 'Apply Monday to all 7 days', ko: '월요일 시간을 7일에 적용', vi: 'Áp dụng giờ Thứ Hai cho cả 7 ngày', es: 'Aplicar horario del lunes a los 7 días' },
+  setupDayOpen: { 'zh-Hans': '营业', en: 'Open', ko: '영업', vi: 'Mở cửa', es: 'Abierto' },
+  setupDayClosed: { 'zh-Hans': '休息', en: 'Closed', ko: '휴무', vi: 'Nghỉ', es: 'Cerrado' },
+  setupDayNoBooking: { 'zh-Hans': '当天不接受预约', en: 'Not accepting bookings this day', ko: '이 날은 예약을 받지 않습니다', vi: 'Ngày này không nhận đặt lịch', es: 'No se aceptan reservas este día' },
+
+  setupStep2Eyebrow: { 'zh-Hans': '第 2 步', en: 'Step 2', ko: '2단계', vi: 'Bước 2', es: 'Paso 2' },
+  setupStep2Title: { 'zh-Hans': '设置项目与价格', en: 'Set up services & pricing', ko: '서비스 및 가격 설정', vi: 'Thiết lập dịch vụ & giá', es: 'Configura servicios y precios' },
+  setupStep2Desc: { 'zh-Hans': '可以拍照识别价目表，AI 只生成待确认草案。也可以在下方手工添加最常用的项目。', en: "You can photograph your price list and let AI draft a proposal for you to confirm, or add your most common services manually below.", ko: '가격표를 촬영하면 AI가 확인용 초안을 생성합니다. 아래에서 자주 쓰는 서비스를 직접 추가할 수도 있습니다.', vi: 'Bạn có thể chụp ảnh bảng giá để AI tạo bản nháp chờ xác nhận, hoặc thêm thủ công các dịch vụ phổ biến bên dưới.', es: 'Puedes fotografiar tu lista de precios para que la IA genere un borrador a confirmar, o añadir manualmente los servicios más comunes abajo.' },
+  setupStep2MissingFields: { 'zh-Hans': '请填写项目名称、正确价格和时长', en: 'Please enter a service name, valid price and duration', ko: '서비스명, 올바른 가격, 소요 시간을 입력해 주세요', vi: 'Vui lòng nhập tên dịch vụ, giá và thời lượng hợp lệ', es: 'Ingresa el nombre del servicio, un precio válido y la duración' },
+  setupStep2Saved: { 'zh-Hans': '项目已加入项目库', en: 'Service added to the catalog', ko: '서비스가 카탈로그에 추가되었습니다', vi: 'Đã thêm dịch vụ vào danh mục', es: 'Servicio añadido al catálogo' },
+  setupFieldServiceName: { 'zh-Hans': '项目名称', en: 'Service name', ko: '서비스명', vi: 'Tên dịch vụ', es: 'Nombre del servicio' },
+  setupFieldServiceNamePlaceholder: { 'zh-Hans': '例如：60 分钟足底按摩', en: 'e.g. 60-minute foot massage', ko: '예: 60분 발 마사지', vi: 'Ví dụ: Massage chân 60 phút', es: 'p. ej. masaje de pies de 60 minutos' },
+  setupFieldPriceUsd: { 'zh-Hans': '价格（美元）', en: 'Price (USD)', ko: '가격 (USD)', vi: 'Giá (USD)', es: 'Precio (USD)' },
+  setupFieldDurationMin: { 'zh-Hans': '时长（分钟）', en: 'Duration (minutes)', ko: '소요 시간 (분)', vi: 'Thời lượng (phút)', es: 'Duración (minutos)' },
+  setupAddService: { 'zh-Hans': '添加项目', en: 'Add service', ko: '서비스 추가', vi: 'Thêm dịch vụ', es: 'Añadir servicio' },
+  setupCurrentServices: { 'zh-Hans': '当前项目', en: 'Current services', ko: '현재 서비스', vi: 'Dịch vụ hiện tại', es: 'Servicios actuales' },
+  setupServicesEnabledCount: { 'zh-Hans': '{p0} 个启用', en: '{p0} enabled', ko: '{p0}개 활성화', vi: '{p0} đang bật', es: '{p0} activos' },
+  setupMinutesUnit: { 'zh-Hans': '分钟', en: 'min', ko: '분', vi: 'phút', es: 'min' },
+  setupOnlineBookable: { 'zh-Hans': '可网约', en: 'Bookable online', ko: '온라인 예약 가능', vi: 'Có thể đặt online', es: 'Reservable en línea' },
+  setupNoServicesHint: { 'zh-Hans': '至少添加一个项目才能正式开店。', en: 'Add at least one service before you can launch.', ko: '오픈하려면 서비스를 최소 1개 이상 추가해야 합니다.', vi: 'Cần thêm ít nhất một dịch vụ mới có thể khai trương.', es: 'Añade al menos un servicio antes de abrir.' },
+
+  setupStep3Eyebrow: { 'zh-Hans': '第 3 步', en: 'Step 3', ko: '3단계', vi: 'Bước 3', es: 'Paso 3' },
+  setupStep3Title: { 'zh-Hans': '添加员工与排班', en: 'Add staff & scheduling', ko: '직원 및 스케줄 추가', vi: 'Thêm nhân viên & lịch làm', es: 'Añade personal y turnos' },
+  setupStep3Desc: { 'zh-Hans': '先把会接客的人加进来。员工账号、详细班表、技能和房间可以稍后继续完善。', en: 'Start by adding the people who will serve customers. Staff accounts, detailed schedules, skills and rooms can be refined later.', ko: '먼저 고객을 응대할 직원을 추가하세요. 계정, 상세 스케줄, 스킬, 룸 정보는 나중에 보완할 수 있습니다.', vi: 'Trước tiên hãy thêm những người sẽ phục vụ khách. Tài khoản nhân viên, lịch chi tiết, kỹ năng và phòng có thể hoàn thiện sau.', es: 'Empieza añadiendo a quienes atenderán a los clientes. Las cuentas de personal, horarios detallados, habilidades y salas se pueden completar después.' },
+  setupStep3MissingName: { 'zh-Hans': '请填写员工姓名', en: "Please enter the staff member's name", ko: '직원 이름을 입력해 주세요', vi: 'Vui lòng nhập tên nhân viên', es: 'Ingresa el nombre del empleado' },
+  setupStep3Saved: { 'zh-Hans': '员工已添加', en: 'Staff member added', ko: '직원이 추가되었습니다', vi: 'Đã thêm nhân viên', es: 'Empleado añadido' },
+  setupFieldStaffName: { 'zh-Hans': '员工姓名', en: 'Staff name', ko: '직원 이름', vi: 'Tên nhân viên', es: 'Nombre del empleado' },
+  setupAddStaff: { 'zh-Hans': '添加员工', en: 'Add staff', ko: '직원 추가', vi: 'Thêm nhân viên', es: 'Añadir empleado' },
+  setupToggleBookableLabel: { 'zh-Hans': '可以被安排服务', en: 'Can be assigned to services', ko: '서비스 배정 가능', vi: 'Có thể được xếp phục vụ', es: 'Puede asignarse a servicios' },
+  setupToggleBookableDesc: { 'zh-Hans': '前台员工不接客时请关闭。', en: 'Turn off for front-desk staff who never serve customers.', ko: '고객을 직접 응대하지 않는 프런트 직원은 꺼 두세요.', vi: 'Tắt nếu là nhân viên lễ tân không trực tiếp phục vụ khách.', es: 'Desactívalo para personal de recepción que no atiende clientes.' },
+  setupToggleRotationLabel: { 'zh-Hans': '参加 Walk-in 轮牌', en: 'Included in walk-in rotation', ko: '워크인 로테이션 포함', vi: 'Tham gia xoay vòng khách vãng lai', es: 'Incluido en la rotación de clientes sin cita' },
+  setupToggleRotationDesc: { 'zh-Hans': '店长只接点钟、不吃轮牌时请关闭。', en: 'Turn off for managers who only take requested bookings, not walk-in rotation.', ko: '지명 예약만 받고 로테이션에 참여하지 않는 매니저는 꺼 두세요.', vi: 'Tắt nếu quản lý chỉ nhận khách chỉ định, không tham gia xoay vòng.', es: 'Desactívalo para gerentes que solo atienden citas solicitadas, no la rotación.' },
+  setupStaffBookable: { 'zh-Hans': '可接单', en: 'Bookable', ko: '예약 가능', vi: 'Có thể nhận khách', es: 'Disponible' },
+  setupStaffNotBookable: { 'zh-Hans': '不接单', en: 'Not bookable', ko: '예약 불가', vi: 'Không nhận khách', es: 'No disponible' },
+  setupStaffInRotation: { 'zh-Hans': '参加轮牌', en: 'In rotation', ko: '로테이션 참여', vi: 'Tham gia xoay vòng', es: 'En rotación' },
+  setupStaffNotInRotation: { 'zh-Hans': '不参加轮牌', en: 'Not in rotation', ko: '로테이션 미참여', vi: 'Không tham gia xoay vòng', es: 'Fuera de rotación' },
+  setupStaffAccountReady: { 'zh-Hans': '已上机', en: 'Account active', ko: '계정 활성화됨', vi: 'Đã kích hoạt', es: 'Cuenta activa' },
+  setupStaffAccountPending: { 'zh-Hans': '待上机', en: 'Account pending', ko: '계정 대기 중', vi: 'Chờ kích hoạt', es: 'Cuenta pendiente' },
+  setupStaffMinBookableHint: { 'zh-Hans': '至少需要一位"可接单"员工。', en: 'At least one "bookable" staff member is required.', ko: '최소 1명 이상 "예약 가능" 직원이 필요합니다.', vi: 'Cần ít nhất một nhân viên "có thể nhận khách".', es: 'Se necesita al menos un empleado "disponible".' },
+  setupStep3Footer: { 'zh-Hans': '开店后可以在后台继续维护员工账号、详细班表、技能与房间；当前页面只收集正式开店所必需的信息。', en: 'After launch you can keep managing staff accounts, detailed schedules, skills and rooms in the admin panel — this page only collects what launch requires.', ko: '오픈 후에는 관리자 화면에서 직원 계정, 상세 스케줄, 스킬, 룸을 계속 관리할 수 있습니다. 이 페이지는 오픈에 필요한 정보만 수집합니다.', vi: 'Sau khi khai trương, bạn có thể tiếp tục quản lý tài khoản nhân viên, lịch chi tiết, kỹ năng và phòng trong trang quản trị; trang này chỉ thu thập thông tin bắt buộc để khai trương.', es: 'Tras la apertura puedes seguir gestionando cuentas, horarios, habilidades y salas en el panel; esta página solo recoge lo esencial para abrir.' },
+
+  setupStep4Eyebrow: { 'zh-Hans': '第 4 步', en: 'Step 4', ko: '4단계', vi: 'Bước 4', es: 'Paso 4' },
+  setupStep4Title: { 'zh-Hans': '测试并正式开店', en: 'Test & launch', ko: '테스트 및 오픈', vi: 'Kiểm tra & khai trương', es: 'Prueba y abre' },
+  setupStep4Desc: { 'zh-Hans': '系统先检查真正的数据。正式开店不会要求 POS 机器、AI 电话或品牌主页。', en: 'The system checks your real data first. Launching does not require a POS terminal, AI phone line or branded website.', ko: '시스템이 먼저 실제 데이터를 확인합니다. 오픈에는 POS 단말기, AI 전화, 브랜드 홈페이지가 필요하지 않습니다.', vi: 'Hệ thống sẽ kiểm tra dữ liệu thật trước. Khai trương không yêu cầu máy POS, tổng đài AI hay trang thương hiệu.', es: 'El sistema revisa primero tus datos reales. Abrir no requiere terminal POS, línea telefónica con IA ni sitio de marca.' },
+  setupCheckProfileConfirmed: { 'zh-Hans': '门店资料和时区已确认', en: 'Store details and timezone confirmed', ko: '매장 정보와 시간대 확인 완료', vi: 'Đã xác nhận thông tin cửa hàng và múi giờ', es: 'Datos del negocio y zona horaria confirmados' },
+  setupCheckHoursSet: { 'zh-Hans': '至少设置一个营业日', en: 'At least one business day set', ko: '최소 하루 이상 영업일 설정됨', vi: 'Đã đặt ít nhất một ngày mở cửa', es: 'Al menos un día de apertura configurado' },
+  setupCheckServiceActive: { 'zh-Hans': '至少有一个启用项目', ko: '최소 하나의 활성 서비스', en: 'At least one active service', vi: 'Có ít nhất một dịch vụ đang bật', es: 'Al menos un servicio activo' },
+  setupCheckStaffBookable: { 'zh-Hans': '至少有一位可接单员工', en: 'At least one bookable staff member', ko: '최소 한 명의 예약 가능 직원', vi: 'Có ít nhất một nhân viên có thể nhận khách', es: 'Al menos un empleado disponible' },
+  setupCheckDone: { 'zh-Hans': '已完成', en: 'Done', ko: '완료', vi: 'Đã xong', es: 'Listo' },
+  setupCheckPending: { 'zh-Hans': '待完成', en: 'Pending', ko: '대기 중', vi: 'Chưa xong', es: 'Pendiente' },
+  setupGoToStore: { 'zh-Hans': '门店资料', en: 'Store details', ko: '매장 정보', vi: 'Thông tin cửa hàng', es: 'Datos del negocio' },
+  setupGoToCatalog: { 'zh-Hans': '项目价格', en: 'Services & pricing', ko: '서비스 및 가격', vi: 'Dịch vụ & giá', es: 'Servicios y precios' },
+  setupGoToTeam: { 'zh-Hans': '员工排班', en: 'Staff & scheduling', ko: '직원 및 스케줄', vi: 'Nhân viên & lịch làm', es: 'Personal y turnos' },
+  setupTrialRunTitle: { 'zh-Hans': '建议做一次 3 分钟试营业', en: 'We recommend a 3-minute trial run', ko: '3분간 시험 운영을 권장합니다', vi: 'Nên chạy thử vận hành trong 3 phút', es: 'Recomendamos una prueba de 3 minutos' },
+  setupTrialStep1: { 'zh-Hans': '创建一笔测试预约，确认出现在日程。', en: 'Create a test booking and confirm it appears on the schedule.', ko: '테스트 예약을 생성해 일정에 표시되는지 확인하세요.', vi: 'Tạo một lịch hẹn thử để kiểm tra xuất hiện trên lịch.', es: 'Crea una reserva de prueba y confirma que aparece en el horario.' },
+  setupTrialStep2: { 'zh-Hans': '模拟签到、开始服务和完成服务。', en: 'Simulate check-in, starting service, and finishing service.', ko: '체크인, 서비스 시작, 서비스 완료를 시뮬레이션하세요.', vi: 'Mô phỏng check-in, bắt đầu và hoàn tất dịch vụ.', es: 'Simula el registro, inicio y fin del servicio.' },
+  setupTrialStep3: { 'zh-Hans': '用现金方式模拟结账，确认订单和日结数字。', en: 'Simulate a cash checkout and confirm the order and day-close numbers.', ko: '현금 결제를 시뮬레이션하고 주문 및 일일 마감 수치를 확인하세요.', vi: 'Mô phỏng thanh toán tiền mặt và kiểm tra số liệu đơn hàng, chốt sổ.', es: 'Simula un cobro en efectivo y confirma el pedido y el cierre del día.' },
+  setupStep4Footer: { 'zh-Hans': '开店后可在后台创建测试预约，验证完整服务链路。', en: 'After launch you can create test bookings in the admin panel to verify the full flow.', ko: '오픈 후에는 관리자 화면에서 테스트 예약을 만들어 전체 흐름을 검증할 수 있습니다.', vi: 'Sau khi khai trương, bạn có thể tạo lịch hẹn thử trong trang quản trị để kiểm tra toàn bộ quy trình.', es: 'Tras abrir puedes crear reservas de prueba en el panel para verificar todo el flujo.' },
+  setupLaunching: { 'zh-Hans': '正在开通…', en: 'Launching…', ko: '오픈 처리 중…', vi: 'Đang khai trương…', es: 'Abriendo…' },
+  setupLaunchNow: { 'zh-Hans': '正式开店', en: 'Launch now', ko: '지금 오픈', vi: 'Khai trương ngay', es: 'Abrir ahora' },
+  setupLaunched: { 'zh-Hans': '门店已正式开通', en: 'Store is now live', ko: '매장이 오픈되었습니다', vi: 'Cửa hàng đã chính thức khai trương', es: 'La tienda ya está activa' },
+  setupLaunchFailed: { 'zh-Hans': '开店失败：{p0}', en: 'Launch failed: {p0}', ko: '오픈 실패: {p0}', vi: 'Khai trương thất bại: {p0}', es: 'Error al abrir: {p0}' },
 };

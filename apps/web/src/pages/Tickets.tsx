@@ -181,7 +181,7 @@ function TicketsContent() {
         // fallback to businessDate
       }
     }
-    return formatI18n(businessDate, language) || '今日';
+    return formatI18n(businessDate, language) || t('todayLabel');
   };
 
   // 融合后端接口真实订单 + 实时待结工单 + 历史订单记录（超强 null-safety 与多语言防白屏保护）
@@ -215,14 +215,14 @@ function TicketsContent() {
         const paymentMethod = (primaryPayment?.method as any) || 'credit_card';
         const paymentLabel =
           paymentMethod === 'credit_card'
-            ? `信用卡 (*${primaryPayment?.cardLast4 || '4242'})`
+            ? t('paymentCreditCard', { p0: primaryPayment?.cardLast4 || '4242' })
             : paymentMethod === 'cash'
-              ? 'Cash支付'
+              ? t('paymentCash')
               : paymentMethod === 'gift_card'
-                ? 'Gift Card结算'
+                ? t('paymentGiftCard')
                 : paymentMethod === 'package'
-                  ? '次卡核销'
-                  : '多渠道结算';
+                  ? t('paymentPackage')
+                  : t('paymentMixed');
 
         list.push({
           ticketId: row.ticketId,
@@ -230,18 +230,18 @@ function TicketsContent() {
           businessDate: formatI18n(row.businessDate, language) || '',
           createdAt: row.openedAt || new Date().toISOString(),
           completedAt: row.closedAt || undefined,
-          customerName: formatI18n(row.customerName, language) || '到店Walk-in Guest',
+          customerName: formatI18n(row.customerName, language) || t('walkInGuest'),
           customerId: row.customerId || undefined,
           customerPhone: row.customerPhone ? String(row.customerPhone) : undefined,
           customerTier: 'Standard Member',
           status: normalizedStatus,
           items: rowItems.map((it: any, idx: number) => ({
             id: it?.itemId || `it-${idx}`,
-            name: formatI18n(it?.name ?? it?.name_snapshot ?? it?.nameSnapshot, language) || '服务项目',
+            name: formatI18n(it?.name ?? it?.name_snapshot ?? it?.nameSnapshot, language) || t('service'),
             priceCents: asCents(it?.totalCents ?? 0),
             durationMin: Number(it?.durationMin ?? 60),
             staffId: it?.membershipId || '',
-            staffName: formatI18n(it?.staffName ?? it?.staff_name ?? it?.displayName, language) || '主理技师',
+            staffName: formatI18n(it?.staffName ?? it?.staff_name ?? it?.displayName, language) || t('therapistLabel'),
             isAddon: it?.kind === 'addon',
           })),
           subtotalCents: asCents(row.subtotalCents ?? 0),
@@ -258,14 +258,16 @@ function TicketsContent() {
           paymentMethod,
           paymentMethodLabel: formatI18n(paymentLabel, language),
           cardLast4: primaryPayment?.cardLast4 || undefined,
-          cashierName: formatI18n(row.cashierName, language) || '前台',
-          tipSplits: rowTips.map((t: any) => ({
+          cashierName: formatI18n(row.cashierName, language) || t('roleFrontDeskKey'),
+          // ⚠️ 回调参数不能叫 `t` —— 会遮蔽外层 useLanguage() 的翻译函数，
+          // 导致下一行的 t('therapistLabel') 静默调用错误的东西。
+          tipSplits: rowTips.map((tip: any) => ({
             staffId: '',
-            staffName: formatI18n(t?.staffName ?? t?.display_name, language) || '技师',
-            amountCents: asCents(t?.amountCents ?? 0),
+            staffName: formatI18n(tip?.staffName ?? tip?.display_name, language) || t('therapistLabel'),
+            amountCents: asCents(tip?.amountCents ?? 0),
             percentage:
               asCents(row.tipCents ?? 0) > 0
-                ? Math.round((asCents(t?.amountCents ?? 0) / asCents(row.tipCents ?? 1)) * 100)
+                ? Math.round((asCents(tip?.amountCents ?? 0) / asCents(row.tipCents ?? 1)) * 100)
                 : 100,
           })),
           daysAgo: 0,
@@ -298,17 +300,17 @@ function TicketsContent() {
             orderNumber: `ORD-${(tk.ticketId || '').slice(0, 5).toUpperCase()}`,
             businessDate: formatI18n(tk.businessDate || data.businessDate || '2026-08-26', language),
             createdAt: new Date().toISOString(),
-            customerName: formatI18n(tk.customerName, language) || '到店Walk-in Guest',
+            customerName: formatI18n(tk.customerName, language) || t('walkInGuest'),
             customerId: undefined,
             customerTier: 'Standard Member',
             status: 'open',
             items: tkItems.map((item: any, idx: number) => ({
               id: item?.ticketItemId || `item-${idx}`,
-              name: formatI18n(item?.name ?? item?.nameSnapshot ?? item?.name_snapshot, language) || '服务项目',
+              name: formatI18n(item?.name ?? item?.nameSnapshot ?? item?.name_snapshot, language) || t('service'),
               priceCents: asCents(item?.totalCents ?? 0),
               durationMin: Number(item?.durationMin || 60),
               staffId: item?.membershipId || '',
-              staffName: formatI18n(item?.staffName ?? item?.display_name, language) || '未指定技师',
+              staffName: formatI18n(item?.staffName ?? item?.display_name, language) || t('staffUnassigned'),
             })),
             subtotalCents: subtotal,
             discountCents: 0,
@@ -321,8 +323,8 @@ function TicketsContent() {
             refundTaxCents: 0,
             refundFeeCents: 0,
             paymentMethod: 'credit_card',
-            paymentMethodLabel: 'Open / Unpaid收银',
-            cashierName: '前台',
+            paymentMethodLabel: t('readyCheckoutLabel'),
+            cashierName: t('roleFrontDeskKey'),
             tipSplits: [],
             daysAgo: Number(tk.daysAgo ?? 0),
           });
@@ -333,12 +335,20 @@ function TicketsContent() {
     return list;
   }, [data, ordersData, language]);
 
-  // 提取所有技师名单用于筛选器
+  /**
+   * 提取所有技师名单用于筛选器。
+   *
+   * ⚠️ 排除「没有真人接单」的判据是 `staffId` 是否有值，不是把
+   * `staffName` 拿去跟某个中文占位字符串做比较——占位文字现在跟着
+   * 界面语言走（"未指定技师" / "No therapist assigned" / …），
+   * 字符串比较在非中文语言下会静默失效，把占位文案本身当成一个
+   * "技师" 塞进筛选器选项里。
+   */
   const allStaffOptions = useMemo(() => {
     const names = new Set<string>();
     (combinedOrders || []).forEach((o) => {
       (o?.items || []).forEach((it) => {
-        if (it?.staffName && it.staffName !== '未指定技师') {
+        if (it?.staffId && it?.staffName) {
           names.add(it.staffName);
         }
       });
@@ -546,56 +556,56 @@ function TicketsContent() {
     }
 
     const headers = [
-      '订单编号',
-      '工单单号',
-      '营业日期',
-      '顾客姓名',
-      '联系电话',
-      '会员等级',
-      '服务项目明细',
-      '主理技师',
-      '项目原价($)',
-      '优惠折扣($)',
-      '税费($)',
-      '刷卡手续费($)',
-      'Total Tips($)',
-      '技师小费分配',
-      'Total Collected($)',
-      '支付通道',
-      '交易流水/卡号',
-      '收银员',
-      '订单状态',
-      '作废/退款原因及备注',
+      t('checkout.tkExportOrderNumber'),
+      t('checkout.tkExportTicketId'),
+      t('checkout.tkExportBusinessDate'),
+      t('checkout.tkExportCustomerName'),
+      t('checkout.tkExportCustomerPhone'),
+      t('checkout.tkExportCustomerTier'),
+      t('checkout.tkExportLineItems'),
+      t('checkout.tkExportStaff'),
+      t('checkout.tkExportSubtotal'),
+      t('checkout.tkExportDiscount'),
+      t('checkout.tkExportTax'),
+      t('checkout.tkExportSurcharge'),
+      t('checkout.tkExportTotalTips'),
+      t('checkout.tkExportTipSplit'),
+      t('checkout.tkExportTotalCollected'),
+      t('checkout.tkExportPaymentChannel'),
+      t('checkout.tkExportTxnRef'),
+      t('checkout.tkExportCashier'),
+      t('checkout.tkExportStatus'),
+      t('checkout.tkExportVoidNote'),
     ];
 
     const rows = recordsToExport.map((ord) => [
       ord.orderNumber || '',
       ord.ticketId || '',
       ord.businessDate || '',
-      ord.customerName || 'Walk-in Guest',
-      ord.customerPhone || '无电话',
+      ord.customerName || t('walkInGuest'),
+      ord.customerPhone || t('checkout.tkExportNoPhone'),
       ord.customerTier || 'Standard Member',
-      (ord.items || []).map((i) => `${i?.name || '项目'} (${i?.durationMin || 60}m)`).join('; '),
-      (ord.items || []).map((i) => i?.staffName || '技师').join(' / '),
+      (ord.items || []).map((i) => `${i?.name || t('service')} (${i?.durationMin || 60}m)`).join('; '),
+      (ord.items || []).map((i) => i?.staffName || t('staffUnassigned')).join(' / '),
       centsToDollars(ord.subtotalCents),
       centsToDollars(ord.discountCents),
       centsToDollars(ord.taxCents),
       centsToDollars(ord.surchargeCents),
       centsToDollars(ord.tipCents),
       (ord.tipSplits || [])
-        .map((s) => `${s?.staffName || '技师'}: $${centsToDollars(s?.amountCents)}`)
-        .join('; ') || '无',
+        .map((s) => `${s?.staffName || t('therapistLabel')}: $${centsToDollars(s?.amountCents)}`)
+        .join('; ') || t('checkout.tkExportNoTip'),
       centsToDollars(ord.totalPaidCents),
-      ord.paymentMethodLabel || '信用卡',
+      ord.paymentMethodLabel || t('creditCardLabel'),
       ord.cardLast4 ? `*${ord.cardLast4}` : ord.transactionRef || '-',
-      ord.cashierName || '前台',
+      ord.cashierName || t('roleFrontDeskKey'),
       ord.status === 'completed'
-        ? '已结清'
+        ? t('checkout.tkExportStatusCompleted')
         : ord.status === 'open'
-          ? '待收银'
+          ? t('readyCheckoutLabel')
           : ord.status === 'voided'
-            ? 'Voided'
-            : 'Refunded',
+            ? t('statusVoided')
+            : t('statusRefunded'),
       ord.voidReason ? `${ord.voidReason} ${ord.voidNotes ? `(${ord.voidNotes})` : ''}` : ord.notes || '',
     ]);
 
@@ -1076,7 +1086,7 @@ function TicketsContent() {
                             ${centsToDollars(ord.tipCents)}
                           </span>
                           <div className="text-[10px] text-slate-500 truncate max-w-[110px]">
-                            {(ord.tipSplits || []).map((s) => `${s?.staffName || '技师'}: $${centsToDollars(s?.amountCents)}`).join(' · ')}
+                            {(ord.tipSplits || []).map((s) => `${s?.staffName || t('therapistLabel')}: $${centsToDollars(s?.amountCents)}`).join(' · ')}
                           </div>
                         </div>
                       ) : (
@@ -1263,7 +1273,7 @@ function TicketsContent() {
                 </div>
                 <div>
                   <span>{t('checkout.tkReceiptPhone')} </span>
-                  <strong className="font-mono text-slate-900">{selectedRecord.customerPhone ? formatPhoneDisplay(selectedRecord.customerPhone) : 'Walk-in Guest'}</strong>
+                  <strong className="font-mono text-slate-900">{selectedRecord.customerPhone ? formatPhoneDisplay(selectedRecord.customerPhone) : t('walkInGuest')}</strong>
                 </div>
                 <div>
                   <span>{t('checkout.tkReceiptDate')} </span>

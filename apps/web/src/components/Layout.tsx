@@ -66,24 +66,38 @@ const AppointmentDrawer = lazy(() => import('./AppointmentDrawer').then((module)
 const CopilotDrawer = lazy(() => import('./CopilotDrawer').then((module) => ({ default: module.CopilotDrawer })));
 const CreateAppointmentModal = lazy(() => import('./CreateAppointmentModal').then((module) => ({ default: module.CreateAppointmentModal })));
 
-const GLOBAL_COMMANDS = [
-  { path: '/dashboard', label: '概览仪表盘', en: 'Dashboard Overview', desc: '实时业绩与客流口碑分析', keywords: 'overview home yibiaopan 仪表盘' },
-  { path: '/schedule', label: '日程排班安排', en: 'Schedule & Appointments', desc: '技师排班、新建预约与改期', keywords: 'appointment calendar paiban yuyue 日程 预约' },
-  { path: '/queue', label: '运营候客看板', en: 'Live Queue Operations', desc: '进店排查、排队叫号与服务派位', keywords: 'kanban waiting walkin houke jiaohao 看板 候客 叫号' },
-  { path: '/checkout', label: '收银结账与开单', en: 'Checkout & POS Register', desc: '工单结算、小费分账与次卡核销', keywords: 'pos shouyin jiezhang payment 收银 结账 开单' },
-  { path: '/tickets', label: '订单流水记录', en: 'Tickets & Order History', desc: '历史流水查询、作废与重打小票', keywords: 'dingdan jilu orders receipts 订单 记录' },
-  { path: '/rotation', label: '技师轮牌调度', en: 'Staff Rotation & Dispatch', desc: '头牌派位、轮牌规则与请假顶班', keywords: 'lunpai jishi technician staff 轮牌 技师' },
-  { path: '/rooms', label: '房间与床位状态', en: 'Room & Bed Management', desc: '包厢工位占用、翻台与清洁倒计时', keywords: 'fangjian room bed baojian 房间 包厢 床位' },
-  { path: '/customers', label: '客户管理 CRM', en: 'Customer 360 CRM', desc: '档案画像、健康禁忌、消费力与短信', keywords: 'kehu customer vip profile 客户 会员 档案' },
-  { path: '/marketing', label: '营销中心与次卡', en: 'Marketing & Loyalty', desc: '发售次卡、活动优惠券与Gift Card', keywords: 'yingxiao coupon package giftcard cika 营销 优惠券 次卡 Gift Card' },
-  { path: '/employee-performance', label: '员工中心与技能', en: 'Staff Directory & Skills', desc: '员工技能等级、可接项目与档案', keywords: 'yuangong staff performance jineng 员工 技师 技能' },
-  { path: '/day-close', label: '打烊日结封账', en: 'Day Close & Reconciliation', desc: '点钞对账、差异平账与生成 Z 报表', keywords: 'rijie dayclose endofday 日结 打烊' },
-  { path: '/business-data', label: '经营数据分析', en: 'Business Analytics', desc: '全店营收、客单价与技师工时报表', keywords: 'shuju fenxi reports 数据 报表' },
-  { path: '/payouts', label: '薪资与提成核算', en: 'Payroll & Commissions', desc: '业绩提成计算与薪资账单明细', keywords: 'xinzi payroll commission 薪资 提成' },
-  { path: '/settings', label: '门店系统设置', en: 'Store Settings', desc: '营业时间、硬件设备与权限配置', keywords: 'shezhi settings config 设置 门店' },
-  { path: '/support', label: '支持请求', en: 'Support request', desc: '向 GenieFront 提交支持请求', keywords: 'support bangzhu help 支持 帮助' },
-  { path: '/profile', label: '个人资料与安全', en: 'Personal Profile & Security', desc: '修改密码、POS PIN码与个人信息', keywords: 'profile gerenziliao mima pin 个人资料 密码' },
-  { path: '/notifications', label: '通知中心与动态', en: 'Notification Center', desc: '查看全部业务通知、排班与对账提醒', keywords: 'tongzhi notifications alerts 消息 通知' },
+/**
+ * 全局搜索（⌘K）命令面板的路由索引。
+ *
+ * ⚠️ 标题与副标题只存词典键，不存字符串。这里以前是
+ * `{ label: 中文, en: 英文 }` 各写一份、再在渲染处按
+ * `language === 'en' ? cmd.en : cmd.label` 二选一 —— 韩语/西语/越南语
+ * 用户看到的标题是中文，而副标题从来没有分语言，**所有语言**看到的
+ * 都是中文。标题复用侧栏导航已有的词条键，保证同一个页面在两处
+ * 叫法一致；副标题另建一套 `cmdDesc*` 键补上缺的四种语言。
+ * `keywords` 是本地模糊搜索用的拼音/英文别名，不面向用户展示，
+ * 不需要跟着界面语言走。
+ */
+const GLOBAL_COMMANDS: Array<{
+  path: string; titleKey: TranslationKey; descKey: TranslationKey; keywords: string;
+}> = [
+  { path: '/dashboard', titleKey: 'dashboard', descKey: 'cmdDescDashboard', keywords: 'overview home yibiaopan 仪表盘' },
+  { path: '/schedule', titleKey: 'schedule', descKey: 'cmdDescSchedule', keywords: 'appointment calendar paiban yuyue 日程 预约' },
+  { path: '/queue', titleKey: 'queue', descKey: 'cmdDescQueue', keywords: 'kanban waiting walkin houke jiaohao 看板 候客 叫号' },
+  { path: '/checkout', titleKey: 'checkout', descKey: 'cmdDescCheckout', keywords: 'pos shouyin jiezhang payment 收银 结账 开单' },
+  { path: '/tickets', titleKey: 'tickets', descKey: 'cmdDescTickets', keywords: 'dingdan jilu orders receipts 订单 记录' },
+  { path: '/rotation', titleKey: 'rotation', descKey: 'cmdDescRotation', keywords: 'lunpai jishi technician staff 轮牌 技师' },
+  { path: '/rooms', titleKey: 'rooms', descKey: 'cmdDescRooms', keywords: 'fangjian room bed baojian 房间 包厢 床位' },
+  { path: '/customers', titleKey: 'customers', descKey: 'cmdDescCustomers', keywords: 'kehu customer vip profile 客户 会员 档案' },
+  { path: '/marketing', titleKey: 'marketing', descKey: 'cmdDescMarketing', keywords: 'yingxiao coupon package giftcard cika 营销 优惠券 次卡 Gift Card' },
+  { path: '/employee-performance', titleKey: 'employeePerformance', descKey: 'cmdDescEmployeePerformance', keywords: 'yuangong staff performance jineng 员工 技师 技能' },
+  { path: '/day-close', titleKey: 'dayClose', descKey: 'cmdDescDayClose', keywords: 'rijie dayclose endofday 日结 打烊' },
+  { path: '/business-data', titleKey: 'businessData', descKey: 'cmdDescBusinessData', keywords: 'shuju fenxi reports 数据 报表' },
+  { path: '/payouts', titleKey: 'payouts', descKey: 'cmdDescPayouts', keywords: 'xinzi payroll commission 薪资 提成' },
+  { path: '/settings', titleKey: 'settings', descKey: 'cmdDescSettings', keywords: 'shezhi settings config 设置 门店' },
+  { path: '/support', titleKey: 'support', descKey: 'cmdDescSupport', keywords: 'support bangzhu help 支持 帮助' },
+  { path: '/profile', titleKey: 'profile', descKey: 'cmdDescProfile', keywords: 'profile gerenziliao mima pin 个人资料 密码' },
+  { path: '/notifications', titleKey: 'notificationCenter', descKey: 'cmdDescNotificationCenter', keywords: 'tongzhi notifications alerts 消息 通知' },
 ];
 
 export function Layout() {
@@ -177,19 +191,22 @@ export function Layout() {
   const canSwitchLocation = locations.length > 1;
 
   // 全局容错模糊搜索命令
+  // ⚠️ 匹配用的 title/desc 必须是**当前语言下用户实际看到的文字**，
+  // 不能拿词典键本身去比对 —— 否则搜索框里打中文，命中的却是英文界面。
   const searchResults = useMemo(() => {
-    const commands = GLOBAL_COMMANDS.filter((item) => item.path !== '/settings' || canManageSettings);
+    const commands = GLOBAL_COMMANDS
+      .filter((item) => item.path !== '/settings' || canManageSettings)
+      .map((item) => ({ ...item, title: t(item.titleKey), desc: t(item.descKey) }));
     if (!globalQuery.trim()) return commands.slice(0, 6);
     return fuzzySearch(commands, globalQuery, {
       keys: [
-        { name: 'label', weight: 0.5 },
-        { name: 'en', weight: 0.3 },
+        { name: 'title', weight: 0.6 },
         { name: 'desc', weight: 0.2 },
         { name: 'keywords', weight: 0.4 },
       ],
       threshold: 0.45,
     });
-  }, [globalQuery, canManageSettings]);
+  }, [globalQuery, canManageSettings, t]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -584,7 +601,7 @@ export function Layout() {
                       <div>
                         <div className="flex items-center gap-2">
                           <strong className="text-slate-900 text-xs group-hover/item:text-teal-800 font-bold">
-                            {language === 'en' ? cmd.en : cmd.label}
+                            {cmd.title}
                           </strong>
                           <span className="text-[10px] text-slate-400 font-mono">({cmd.path})</span>
                         </div>

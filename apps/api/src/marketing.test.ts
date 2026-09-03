@@ -103,6 +103,35 @@ describe('次卡套餐 (Packages)', () => {
     expect(redeemRes.result.remainingSessions).toBe(9);
     expect(redeemRes.result.redeemedSessions).toBe(1);
   });
+
+  it('前台只报姓名+手机号发售：次卡挂在正确的实名客户名下，不落占位客户', async () => {
+    const buyerName = `次卡实名客户-${Math.floor(Math.random() * 1e6)}`;
+    const buyerPhone = `+1617${Math.floor(1000000 + Math.random() * 9000000)}`;
+
+    const issueRes = await dispatch<{ packageId: string; customerId: string }>(
+      'package.issue',
+      { templateId, customer: { name: buyerName, phoneE164: buyerPhone } },
+      ownerCtx,
+    );
+
+    // 次卡实际挂载的客户，其姓名必须与前台输入一致（而非写死的占位 UUID）
+    const [row] = await withTenant(tenant, (tx) => tx<{ display_name: string; phone_e164: string | null }[]>`
+      select c.display_name, c.phone_e164
+      from customer_packages cp
+      join customers c on c.id = cp.customer_id
+      where cp.id = ${issueRes.result.packageId}`);
+    expect(row?.display_name).toBe(buyerName);
+    expect(row?.phone_e164).toBe(buyerPhone);
+    expect(issueRes.result.customerId).not.toBe('00000000-0000-0000-0000-000000000002');
+
+    // 同名同号再发一张：复用同一个客户，不攒重复记录
+    const again = await dispatch<{ customerId: string }>(
+      'package.issue',
+      { templateId, customer: { name: buyerName, phoneE164: buyerPhone } },
+      ownerCtx,
+    );
+    expect(again.result.customerId).toBe(issueRes.result.customerId);
+  });
 });
 
 describe('优惠券 (Coupons)', () => {

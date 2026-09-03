@@ -349,20 +349,22 @@ export function DayClose() {
                 size="sm"
                 className="gap-1.5 bg-white border-slate-200 shadow-sm text-slate-800"
                 onClick={() => {
-                  const headers = ['分类项目', 'Amount ($)', '说明'];
+                  const headers = [
+                    t('checkout.dcExportCategoryHeader'), t('checkout.dcExportAmountHeader'), t('checkout.dcExportNoteHeader'),
+                  ];
                   const rows = [
-                    ['营业日期', dayClose.businessDate, ''],
-                    ['毛销售额 Gross Sales', centsToDollars(dayClose.money.grossCents), '包含服务、产品与卡券'],
-                    ['折扣折让 Discounts', `-${centsToDollars(dayClose.money.discountCents)}`, ''],
-                    ['税费 Tax', centsToDollars(dayClose.money.taxCents), ''],
-                    ['净销售额 Net Sales', centsToDollars(dayClose.money.netCents), ''],
-                    ['刷卡金额记录 Card Record', centsToDollars(dayClose.money.cardTakeCents), '由门店手工记录，不代表 GenieFront 代收'],
-                    ['Cash实收 Cash Take', centsToDollars(dayClose.money.cashTakeCents), '进入钱箱Cash'],
-                    ['开店备用金 Starting Float', centsToDollars(dayClose.openingFloatCents), ''],
-                    ['应有Cash Expected Cash', centsToDollars(dayClose.expectedCashCents), ''],
-                    ['Counted Cash Counted Cash', centsToDollars(finalCountedCents), ''],
-                    ['Cash溢缺 Variance', centsToDollars(cashVarianceCents), isBalanced ? '平账' : isOver ? '长款' : '短款'],
-                    ['差异原因', varianceReason || '无', ''],
+                    [t('checkout.dcExportBusinessDate'), dayClose.businessDate, ''],
+                    [t('checkout.dcExportGrossSales'), centsToDollars(dayClose.money.grossCents), t('checkout.dcExportGrossSalesNote')],
+                    [t('checkout.dcExportDiscounts'), `-${centsToDollars(dayClose.money.discountCents)}`, ''],
+                    [t('checkout.dcExportTax'), centsToDollars(dayClose.money.taxCents), ''],
+                    [t('checkout.dcExportNetSales'), centsToDollars(dayClose.money.netCents), ''],
+                    [t('checkout.dcExportCardRecord'), centsToDollars(dayClose.money.cardTakeCents), t('checkout.dcExportCardRecordNote')],
+                    [t('checkout.dcExportCashTake'), centsToDollars(dayClose.money.cashTakeCents), t('checkout.dcExportCashTakeNote')],
+                    [t('checkout.dcExportStartingFloat'), centsToDollars(dayClose.openingFloatCents), ''],
+                    [t('checkout.dcExportExpectedCash'), centsToDollars(dayClose.expectedCashCents), ''],
+                    [t('checkout.dcExportCountedCash'), centsToDollars(finalCountedCents), ''],
+                    [t('checkout.dcExportCashVariance'), centsToDollars(cashVarianceCents), isBalanced ? t('checkout.dcExportBalanced') : isOver ? t('checkout.dcExportOver') : t('checkout.dcExportShort')],
+                    [t('checkout.dcExportVarianceReason'), varianceReason || t('checkout.dcExportNone'), ''],
                   ];
                   exportToCSV(`Z-Report-${dayClose.businessDate}`, headers, rows);
                   toast.success(t('checkout.dcCsvExported'));

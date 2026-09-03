@@ -95,7 +95,14 @@ export interface SavePackageTemplateInput {
 }
 
 export interface IssuePackageInput {
-  customerId: string;
+  /** 已知客户 ID 时直接传；与 `customer` 二选一。 */
+  customerId?: string;
+  /** 前台只报了姓名（可选附手机号）时传这个，由后端解析成真实客户。 */
+  customer?: {
+    name: string;
+    phoneE164?: string;
+    email?: string;
+  };
   templateId: string;
   soldPriceCentsOverride?: number;
 }

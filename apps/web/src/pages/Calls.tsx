@@ -176,26 +176,20 @@ export function Calls() {
     }
   };
 
-  const getCallSummary = (call: CallView) => {
-    const summary = (call as any).summary;
-    if (summary && summary.length > 5) return summary;
-    if (call.transcript && call.transcript.length > 0) {
-      const userTexts = call.transcript.filter((l) => l.role === "user").map((l) => l.text);
-      if (userTexts.some((t) => t.includes("预约") || t.includes("凝胶") || t.includes("美甲") || t.includes("按摩") || t.includes("热石"))) {
-        return "🎯 意向锁定：客户来电咨询并确认意向预约服务项目，AI 智能助手Completed工位与空档匹配并登记待办。";
-      }
-      if (userTexts.some((t) => t.includes("价格") || t.includes("多少钱") || t.includes("营业"))) {
-        return "💡 咨询答复：客户咨询服务价目与门店营业时间，AI 助手已标准答复并推荐招牌特色服务。";
-      }
-      return "📞 通话总结：AI 智能体Completed与客户的全程自然语音交互与意图抽取。";
-    }
-    if (call.outcome === "completed") {
-      return "🎯 意向达成：客户咨询服务项目与可预约时段，AI Completed有效信息响应与工位锁定。";
-    }
-    if (call.outcome === "transferred_to_human") {
-      return "🔄 人工转接：客户明确要求人工客服，系统已自动转接至前台专线号码。";
-    }
-    return "AI 助手已顺利解答客户来电咨询并完成录音转录与归档。";
+  /**
+   * ⚠️ `CallView` 没有 `summary` 字段（见 features/comms/types.ts）——
+   * 后端目前不产出真正的 AI 通话总结。这里以前在缺失时会用转写文本
+   * 关键词匹配（"预约"/"价格"…）拼出一句看起来像模型判断的固定文案，
+   * 顶着「AI 意图分析与接待总结」的标题和 Sparkles 图标展示。
+   *
+   * 那不是分析结果，只是字符串包含检测：转写里出现"预约"两个字，
+   * 不代表任何工位真的被匹配、任何待办真的被登记 —— 而文案正是这么说的。
+   * 把猜测的结果包装成 AI 判断展示给老板，比"暂无总结"更容易造成误判。
+   * 空就是空，直到后端真的提供这个字段。
+   */
+  const getCallSummary = (call: CallView): string | null => {
+    const summary = (call as { summary?: string }).summary;
+    return summary && summary.length > 5 ? summary : null;
   };
 
   const handleDirectApproveDraft = (d: CallDraftView) => {
@@ -880,7 +874,9 @@ export function Calls() {
                 <Sparkles className="w-4 h-4 text-teal-600" />  {t('crm.callAiSummaryLabel')}
               </span>
               <p className="text-slate-700 leading-relaxed font-medium pl-5">
-                {getCallSummary(selectedCall)}
+                {getCallSummary(selectedCall) ?? (
+                  <span className="italic text-slate-400">{t('crm.callNoAiSummary')}</span>
+                )}
               </p>
             </div>
 

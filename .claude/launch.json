@@ -2,7 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "api",
+      "name": "api-local",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "run",
+        "dev:api:local"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "api-staging",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
         "--filter",

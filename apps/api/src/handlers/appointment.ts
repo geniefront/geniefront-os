@@ -7,6 +7,7 @@
  *   门店  → 同上
  */
 
+import type postgres from 'postgres';
 import {
   AppointmentCreate, AppointmentAddItem, AppointmentCancel, AppointmentReschedule,
   AppointmentSaveServiceBrief, AppointmentAssignCustomer,
@@ -134,7 +135,48 @@ function assertBusinessHours(args: {
   });
 }
 
+/**
+ * 技师容量的并发闸门。
+ *
+ * ## 为什么必须有这一把锁
+ *
+ * 容量检查是「读一遍当前时段有谁 → 纯函数判断 → 写入」。这三步之间
+ * 没有任何东西阻止**另一个事务做同样的事**：两条并发的官网预约各自
+ * 读到「这个格子是空的」，各自通过 `checkCapacity`，各自插入成功。
+ * 技师被双排，而系统里没有任何痕迹说明它发生过 —— 直到客人到店。
+ *
+ * ⚠️ 数据库那道硬约束**接不住这个场景**：`resource_capacity_guard()`
+ * 第一行就是 `if new.resource_id is null then return new`，而
+ * 「约技师、不指定房间」正是官网预约最常见的形态。`appointment_items`
+ * 上也没有任何针对 `membership_id` 的排他约束 —— 有多技师、多容量、
+ * 可超排三层语义之后，那个约束表达不出来，判断只能留在应用层。
+ * 判断留在应用层，就必须自己把并发窗口关上。
+ *
+ * ## 为什么按门店锁，而不是按技师或按时段
+ *
+ * 按技师锁挡不住门店级容量（`max_concurrent_per_slot`）—— 那一条要看
+ * 全店同时段的总数，锁住 Amy 不妨碍别人把全店排爆。按（门店，营业日）
+ * 锁则要先算出营业日，而改期涉及**两个**营业日（原来的和新的），
+ * 顺序不一致就会死锁。
+ *
+ * 按门店锁最钝也最不会错。代价是同一家店的预约写入串行 —— 对一家
+ * 沙龙来说这是每分钟个位数的量级，而正确性换的是「技师不会被双排」。
+ *
+ * ⚠️ 三个入口（create / reschedule / addItem）**必须都加**，而且都要
+ * 加在任何容量相关读取**之前**：漏一个等于没加，因为漏掉的那条路
+ * 仍然可以和其余两条并发。加在最前面还顺带统一了加锁顺序，
+ * 避免和 `for update` 交叉成环。
+ */
+async function lockBookingCapacity(
+  tx: postgres.TransactionSql, locationId: string,
+): Promise<void> {
+  await tx`select pg_advisory_xact_lock(
+    hashtext(${locationId}), hashtext('appointment.capacity'))`;
+}
+
 registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs<Input>): Promise<Output> => {
+  await lockBookingCapacity(tx, ctx.locationId);
+
   // ── 门店配置 ──────────────────────────────────────────────────────────────
   const [loc] = await tx<{
     timezone: string; cutoff: string; settings: Record<string, unknown>; hours: WeeklyHours;
@@ -766,6 +808,8 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit }: HandlerArgs
 registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof AppointmentReschedule.input._type>
 ): Promise<typeof AppointmentReschedule.output._type> => {
+  await lockBookingCapacity(tx, ctx.locationId);
+
   const [loc] = await tx<{
     timezone: string; cutoff: string; settings: Record<string, unknown>; hours: WeeklyHours;
   }[]>`
@@ -1010,6 +1054,8 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
 registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof AppointmentAddItem.input._type>
 ): Promise<typeof AppointmentAddItem.output._type> => {
+  await lockBookingCapacity(tx, ctx.locationId);
+
   const [appt] = await tx<{ id: string; status: string }[]>`
     select id, status from appointments
     where id = ${input.appointmentId} and location_id = ${ctx.locationId}`;
