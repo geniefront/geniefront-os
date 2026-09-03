@@ -102,12 +102,8 @@ if grep -qE "$DENY" "$RUNTIME_ENV"; then
   exit 1
 fi
 
-log "构建 ${TARGET} 前端"
-pnpm --filter @gf/web exec vite build --mode "$VITE_MODE" >/dev/null
-pnpm --filter @gf/ipad exec vite build --mode "$VITE_MODE" >/dev/null
-pnpm --filter @gf/marketing exec vite build --mode "$VITE_MODE" >/dev/null
-pnpm --filter @gf/platform exec vite build --mode "$VITE_MODE" >/dev/null
-pnpm --filter @gf/booking exec vite build --mode "$VITE_MODE" >/dev/null
+log "构建 ${TARGET} 前端（NODE_ENV=production）"
+bash "${ROOT}/deploy/frontend-build.sh" "$VITE_MODE"
 
 log "构建 ${IMAGE}（linux/amd64）"
 docker build -q --platform linux/amd64 --provenance=false \
