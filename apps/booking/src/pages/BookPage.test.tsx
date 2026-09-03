@@ -298,4 +298,23 @@ describe('BookPage', () => {
     const manage = screen.getByRole('link', { name: /view, reschedule, or cancel/i });
     expect(manage.getAttribute('href')).toBe('/l/lotus-nails#g/mt_abc');
   });
+
+  it('omits the call prompt on success when the shop has no phone', async () => {
+    const user = userEvent.setup();
+    getHostedShop.mockResolvedValue({ ...shop, phone: null });
+    book.mockResolvedValue({
+      bookingId: 'b1', confirmationCode: 'LN-4K2P', manageToken: 'mt_abc',
+      replayed: false, startsAt: nySlot, durationMin: 45, status: 'booked',
+    });
+    renderBook();
+    await throughToTime(user);
+    await user.click(screen.getByTestId(`slot-${nySlot}`));
+    await user.type(screen.getByLabelText('Name'), 'Amy Chen');
+    await user.type(screen.getByLabelText('Mobile phone'), '6175550199');
+    await user.click(screen.getByRole('button', { name: 'Book appointment' }));
+    await screen.findByTestId('confirmation-code');
+
+    expect(screen.getByText('Keep this page or your confirmation text.')).toBeInTheDocument();
+    expect(screen.queryByText(/Questions\? Call/)).not.toBeInTheDocument();
+  });
 });

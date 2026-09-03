@@ -651,7 +651,8 @@ function SuccessStep({
         </p>
       )}
       <p className="mt-3 text-sm text-[var(--muted)]">
-        Keep this page or your confirmation text. Questions? Call <PhoneLink shop={shop} />.
+        Keep this page or your confirmation text.
+        {shop.phone && <> Questions? Call <PhoneLink shop={shop} />.</>}
       </p>
       <div className="mt-5"><Btn onClick={onAgain}>Book another</Btn></div>
     </Card>
