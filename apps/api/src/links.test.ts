@@ -302,6 +302,22 @@ describe('具名链接与前端路由一致', () => {
     expect(booking).not.toMatch(/log @skip_manage/);
   });
 
+  it('API Caddy vhost keeps no-referrer on hosted JSON without weakening HTML manage headers', () => {
+    const caddy = readFileSync(join(here, '../../../deploy/Caddyfile'), 'utf8');
+    const api = caddy.slice(
+      caddy.indexOf('https://{$API_HOST}'),
+      caddy.indexOf('https://{$KIOSK_HOST}'),
+    );
+    const booking = caddy.slice(caddy.indexOf('https://{$BOOKING_HOST}'));
+    expect(api).toContain('@hosted_json path /public/v1/hosted /public/v1/hosted/*');
+    expect(api).toMatch(/header @hosted_json Referrer-Policy "no-referrer"/);
+    expect(api).toContain('@not_hosted_json not path /public/v1/hosted /public/v1/hosted/*');
+    expect(api).toMatch(/header @not_hosted_json Referrer-Policy "strict-origin-when-cross-origin"/);
+    expect(booking).toContain('Referrer-Policy "no-referrer"');
+    expect(booking).toContain('X-Frame-Options DENY');
+    expect(booking).toContain("Content-Security-Policy \"frame-ancestors 'none'\"");
+  });
+
   /**
    * ⭐ `/b/:id` 目前**不在 `apps/web` 的路由表里** —— 后端在批 2 就做完了，
    * 承载它的页面还没上线。此时放链接等于给顾客一个失效的按钮，而模板在
