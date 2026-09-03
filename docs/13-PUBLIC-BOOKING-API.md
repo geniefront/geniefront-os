@@ -985,23 +985,22 @@ dispatch 的入参都是路由自己拼的。想扩大它的人，改的是
 
 ## 12. Hosted booking rollout
 
-Keep `BOOKING_MANAGE_PAGE_ENABLED` off until the production manage route is verified.
+Keep `BOOKING_MANAGE_PAGE_ENABLED` off in **production** until the production manage route is verified **and** a human has completed a real Turnstile booking on staging.
+
+Automated coverage (API, command bus, Playwright without a live CAPTCHA) is **not** a hosted booking POST. Creating an appointment via `appointment.create` or `/public/v1/bookings` with a test verifier does not prove the staging-book form can pass Cloudflare Turnstile. Production stays **no-go** until that human step succeeds.
 
 1. Merge API/DB work with the flag still empty.
-2. Deploy `apps/booking` to staging (`BOOKING_HOST=staging-book.geniefront.com`).
-3. Staging E2E: slug booking, shop-timezone display, 409 stale slot, last-four reschedule/cancel, cancelled rebook, SMS capture of `/l/{slug}#g/{token}` only after the flag is on in staging.
-4. Deploy booking to production while message links remain off.
-5. Verify production `/{slug}` and `/l/{slug}#g/{token}` with a test tenant.
-6. Set `BOOKING_MANAGE_PAGE_ENABLED=1` only after that route is live.
-7. Pilot one shop, then expand.
+2. Deploy `apps/booking` to staging (`BOOKING_HOST=staging-book.geniefront.com`) with the flag still empty; confirm `/{slug}` and `/l/{slug}` shells.
+3. Turn the flag on in staging only. Automated checks may cover manage bootstrap, last-four, reschedule/cancel, 404s, calendar horizon, headers, and captured `manage_url` shape — everything except the CAPTCHA.
+4. Human staging booking (shortest path):
+   1. Open `https://staging-book.geniefront.com/lotus-nails` on a real phone or desktop browser (not headless).
+   2. Pick a service, specialist, and time; fill name + a unique `+1617555…` test number and optional email.
+   3. Complete the visible Turnstile widget and submit **Book appointment**.
+   4. Confirm the success page and that Test Inbox (capture mode) has SMS/email with `https://staging-book.geniefront.com/l/lotus-nails#g/…` only in the fragment.
+   5. Open that link, enter last four, reschedule once, then cancel.
+5. Deploy booking to production while message links remain off.
+6. Verify production `/{slug}` and `/l/{slug}#g/{token}` with a test tenant.
+7. Set production `BOOKING_MANAGE_PAGE_ENABLED=1` only after that route is live **and** step 4 has passed on staging.
+8. Pilot one shop, then expand.
 
 Rollback: turning the flag off stops **new** messages from getting manage links. Previously issued links keep working if the booking app stays deployed. Turning off online booking blocks new bookings but not view/cancel/reschedule of existing ones.
-
-E2E still owed before flag-on (browser, not this commit):
-
-- shop with no website copies its URL and books on mobile
-- guest in Los Angeles books a New York shop; displayed times stay New York
-- stale slot 409 reloads availability
-- two guests compete for one slot; one succeeds
-- SMS provider failure leaves the appointment committed
-- booking iframe resizes; management page refuses framing
