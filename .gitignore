@@ -11,6 +11,9 @@ build/
 .turbo/
 coverage/
 artifacts/playwright/
+# Staging hosted-booking browser dumps. Never store raw manage tokens,
+# guest phones, or emails here.
+artifacts/staging-e2e/
 playwright-report/
 test-results/
 
