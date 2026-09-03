@@ -46,17 +46,18 @@ import {
   useDeleteResource,
 } from '@/features/rooms/api';
 import type { RoomItem, RoomStatus, RoomType, TimelineSlot, RoomSession } from '@/features/rooms/types';
+import type { TranslationKey } from '@/i18n';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
 
 type ViewMode = 'grid' | 'timeline' | 'list';
 
-const MAINTENANCE_PRESETS = [
-  '🔧 设施设备损坏维修',
-  '🧼 深度消杀与卫生防疫',
-  '🔨 软装重装翻新施工',
-  '🚰 水电管道检修维护',
-  '⛔ 店长指定临时停用',
+const MAINTENANCE_PRESET_KEYS: TranslationKey[] = [
+  'queue.roomMaintFacility',
+  'queue.roomMaintCleaning',
+  'queue.roomMaintRenovation',
+  'queue.roomMaintPlumbing',
+  'queue.roomMaintManagerHold',
 ];
 
 function RoomsContent() {
@@ -265,7 +266,7 @@ function RoomsContent() {
       await setStatusMutation.mutateAsync({
         resourceId: maintenanceTarget.id,
         status: 'maintenance',
-        note: maintenanceNote.trim() || '设备检修维护',
+        note: maintenanceNote.trim() || t('queue.roomMaintNoteDefault'),
       });
       toast.success(t('queue.roomSetMaintenance', { p0: maintenanceTarget.name }));
       setMaintenanceModalOpen(false);
@@ -280,13 +281,15 @@ function RoomsContent() {
     if (!seatTarget) return;
     try {
       const parts: string[] = [];
-      if (seatGuestName.trim()) parts.push(`客人: ${seatGuestName.trim()}`);
-      if (seatServiceName.trim()) parts.push(`项目: ${seatServiceName.trim()}`);
+      if (seatGuestName.trim()) parts.push(t('queue.roomSeatGuestPrefix', { p0: seatGuestName.trim() }));
+      if (seatServiceName.trim()) parts.push(t('queue.roomSeatServicePrefix', { p0: seatServiceName.trim() }));
 
       await setStatusMutation.mutateAsync({
         resourceId: seatTarget.id,
         status: 'in_service',
-        note: parts.length > 0 ? `前台安排入座 (${parts.join(', ')})` : '前台直接安排客人入座',
+        note: parts.length > 0
+          ? t('queue.roomSeatManualNote', { p0: parts.join(', ') })
+          : t('queue.roomSeatManualNoteEmpty'),
       });
       toast.success(t('queue.roomSeated', { p0: seatTarget.name }));
       setSeatModalOpen(false);
@@ -1494,20 +1497,23 @@ function RoomsContent() {
               {t('queue.roomMaintPresets')}
             </span>
             <div className="flex flex-wrap gap-1.5">
-              {MAINTENANCE_PRESETS.map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  onClick={() => setMaintenanceNote(preset)}
-                  className={`text-[11px] px-2 py-1 rounded-lg border font-medium transition-all ${
-                    maintenanceNote === preset
-                      ? 'bg-rose-600 text-white border-rose-600 font-bold'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  {preset}
-                </button>
-              ))}
+              {MAINTENANCE_PRESET_KEYS.map((key) => {
+                const preset = t(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setMaintenanceNote(preset)}
+                    className={`text-[11px] px-2 py-1 rounded-lg border font-medium transition-all ${
+                      maintenanceNote === preset
+                        ? 'bg-rose-600 text-white border-rose-600 font-bold'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

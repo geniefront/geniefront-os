@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useLanguage } from '@/LanguageContext';
+import type { TranslationKey } from '@/i18n';
 import {
   X,
   Sparkles,
@@ -63,7 +64,7 @@ function ThinkingAccordion({ steps, isStreaming }: { steps?: string[]; isStreami
     if (!isStreaming) return null;
   }
 
-  const latestStep = steps && steps.length > 0 ? steps[steps.length - 1] : '正在分析...';
+  const latestStep = steps && steps.length > 0 ? steps[steps.length - 1] : t('schedule.copilotAnalyzing');
 
   return (
     <div className="mb-2.5 overflow-hidden rounded-xl border border-teal-500/30 bg-gradient-to-r from-teal-500/10 via-emerald-500/5 to-transparent text-xs transition-all shadow-2xs">
@@ -310,22 +311,20 @@ interface SelectedImageState {
 
 const MAX_SESSION_TURNS = 10;
 
-const DEFAULT_WELCOME_MESSAGE: MessageItem = {
-  id: 'welcome_msg',
-  role: 'assistant',
-  content:
-    '您好！我是前台 AI 副驾。我可以帮您快速分析今日营收与客单价、查询预约空档、设置房间清洁、检索老客档案，或上传外部预约截图自动导入。所有修改操作均需您人工点击确认。',
-  timestamp: Date.now(),
-};
-
-function createInitialSession(initialTitle = '新对话'): CopilotSession {
+/** 欢迎语与默认会话标题都跟着界面语言走，靠调用方传入 `t` —— 这两者都是模块级函数，本身没有 hook 上下文 */
+function createInitialSession(t: (key: TranslationKey, params?: Record<string, string | number>) => string, initialTitle?: string): CopilotSession {
   return {
     id: `session_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    title: initialTitle,
+    title: initialTitle ?? t('schedule.copilotNewChatTitle'),
     createdAt: Date.now(),
     updatedAt: Date.now(),
     userQueryCount: 0,
-    messages: [{ ...DEFAULT_WELCOME_MESSAGE, timestamp: Date.now() }],
+    messages: [{
+      id: 'welcome_msg',
+      role: 'assistant',
+      content: t('schedule.copilotWelcomeMessage'),
+      timestamp: Date.now(),
+    }],
   };
 }
 
@@ -355,7 +354,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
     } catch {
       // ignore
     }
-    return [createInitialSession()];
+    return [createInitialSession(t)];
   });
 
   const [activeSessionId, setActiveSessionId] = useState<string>(() => {
@@ -370,7 +369,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
   const [executingIdx, setExecutingIdx] = useState<number | null>(null);
 
   const activeSession = useMemo(() => {
-    return sessions.find((s) => s.id === activeSessionId) || sessions[0] || createInitialSession();
+    return sessions.find((s) => s.id === activeSessionId) || sessions[0] || createInitialSession(t);
   }, [sessions, activeSessionId]);
 
   useEffect(() => {
@@ -389,8 +388,8 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
     scrollToBottom();
   }, [activeSession.messages, isStreaming]);
 
-  const handleNewSession = (title = '新对话') => {
-    const newSess = createInitialSession(title);
+  const handleNewSession = (title?: string) => {
+    const newSess = createInitialSession(t, title);
     setSessions((prev) => [newSess, ...prev]);
     setActiveSessionId(newSess.id);
     setShowHistory(false);
@@ -411,7 +410,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
     setSessions((prev) => {
       const filtered = prev.filter((s) => s.id !== id);
       if (filtered.length === 0) {
-        const fresh = createInitialSession();
+        const fresh = createInitialSession(t);
         setActiveSessionId(fresh.id);
         return [fresh];
       }
@@ -488,7 +487,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
 
     let targetSession = activeSession;
     if (targetSession.userQueryCount >= MAX_SESSION_TURNS) {
-      const newSess = createInitialSession(query ? query.slice(0, 16) : '预约导入');
+      const newSess = createInitialSession(t, query ? query.slice(0, 16) : t('schedule.copilotImportChatTitle'));
       setSessions((prev) => [newSess, ...prev]);
       setActiveSessionId(newSess.id);
       targetSession = newSess;
@@ -497,14 +496,14 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
 
     const nextCount = targetSession.userQueryCount + 1;
     let newTitle = targetSession.title;
-    if (targetSession.title === '新对话' && query) {
+    if (targetSession.title === t('schedule.copilotNewChatTitle') && query) {
       newTitle = query.slice(0, 16);
     }
 
     const userMsg: MessageItem = {
       id: `msg_${Date.now()}_u`,
       role: 'user',
-      content: query || '【已发送预约截图】',
+      content: query || t('schedule.copilotScreenshotSentPlaceholder'),
       timestamp: Date.now(),
       imagePreview: selectedImage?.previewUrl,
     };
@@ -514,7 +513,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
       id: assistantMsgId,
       role: 'assistant',
       content: '',
-      steps: ['⚡ 正在连接智能引擎...'],
+      steps: [t('schedule.copilotConnecting')],
       isStreaming: true,
       timestamp: Date.now(),
     };
@@ -550,7 +549,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
     try {
       await streamAskCopilot(
         {
-          question: query || '请识别截图中的预约信息',
+          question: query || t('schedule.copilotIdentifyScreenshotPrompt'),
           sessionId: targetSession.id,
           image: imagePayload,
           history,
@@ -617,7 +616,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
                   msgs.push({
                     id: `msg_${Date.now()}_sys`,
                     role: 'system',
-                    content: `💡 当前会话已达 ${MAX_SESSION_TURNS} 次提问上限。下次提问将自动开启新会话。`,
+                    content: t('schedule.copilotSessionLimitReached', { p0: MAX_SESSION_TURNS }),
                     timestamp: Date.now(),
                   });
                 }
@@ -636,7 +635,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
                     if (m.id !== assistantMsgId) return m;
                     return {
                       ...m,
-                      content: m.content || `抱歉，请求处理失败: ${err.message || '未知错误'}`,
+                      content: m.content || t('schedule.copilotProcessFailed', { p0: err.message || t('schedule.copilotUnknownError') }),
                       isStreaming: false,
                     };
                   }),
@@ -658,7 +657,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
               if (m.id !== assistantMsgId) return m;
               return {
                 ...m,
-                content: m.content || `抱歉，请求处理失败: ${err.message || '未知错误'}`,
+                content: m.content || t('schedule.copilotProcessFailed', { p0: err.message || t('schedule.copilotUnknownError') }),
                 isStreaming: false,
               };
             }),
@@ -688,7 +687,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
         void queryClient.invalidateQueries({ queryKey: ['desk', key] });
       }
     } catch (err: any) {
-      toast.danger(t('schedule.copilotExecFailed', { p0: err.message || '权限冲突' }));
+      toast.danger(t('schedule.copilotExecFailed', { p0: err.message || t('schedule.copilotPermissionConflict') }));
     } finally {
       setExecutingIdx(null);
     }
@@ -702,19 +701,19 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
   };
 
   const quickPrompts = [
-    { label: '📊 今日营收与客单价', prompt: '今天目前的营收和客单价怎么样？' },
-    { label: '🧹 房间3设为清洁', prompt: '把房间3标记为打扫中' },
-    { label: '🕒 查明天技师空档', prompt: '查一下明天上午有哪些技师有空档？' },
-    { label: '👥 近60天未到店老客', prompt: '帮我列出近60天未到店的老顾客' },
+    { label: t('schedule.copilotQuickRevenue'), prompt: t('schedule.copilotQuickRevenuePrompt') },
+    { label: t('schedule.copilotQuickCleanRoom'), prompt: t('schedule.copilotQuickCleanRoomPrompt') },
+    { label: t('schedule.copilotQuickAvailability'), prompt: t('schedule.copilotQuickAvailabilityPrompt') },
+    { label: t('schedule.copilotQuickInactiveCustomers'), prompt: t('schedule.copilotQuickInactiveCustomersPrompt') },
   ];
 
   const formatRelativeTime = (ts: number) => {
     const diffMin = Math.floor((Date.now() - ts) / 60000);
-    if (diffMin < 1) return '刚刚';
-    if (diffMin < 60) return `${diffMin}分钟前`;
+    if (diffMin < 1) return t('schedule.copilotJustNow');
+    if (diffMin < 60) return t('schedule.copilotMinutesAgo', { p0: diffMin });
     const diffHours = Math.floor(diffMin / 60);
-    if (diffHours < 24) return `${diffHours}小时前`;
-    return `${Math.floor(diffHours / 24)}天前`;
+    if (diffHours < 24) return t('schedule.copilotHoursAgo', { p0: diffHours });
+    return t('schedule.copilotDaysAgo', { p0: Math.floor(diffHours / 24) });
   };
 
   const renderProposalCard = (proposal: CopilotProposal, msgIndex: number, executed?: boolean) => {
@@ -963,7 +962,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
                   <div className={`flex items-start gap-2.5 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     {m.role === 'assistant' && <div className="w-7 h-7 rounded-full bg-slate-900 text-teal-400 flex items-center justify-center shrink-0 border border-slate-700 mt-0.5 shadow-xs"><Sparkles className="w-3.5 h-3.5" /></div>}
                     <div className={`rounded-2xl px-4 py-3 text-xs leading-relaxed max-w-[88%] shadow-2xs ${m.role === 'user' ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border border-slate-200'}`}>
-                      {m.imagePreview && <div className="rounded-lg overflow-hidden border border-white/20 mb-2 shadow-xs"><img src={m.imagePreview} className="w-full h-auto object-cover max-h-40" /></div>}
+                      {m.imagePreview && <div className="rounded-lg overflow-hidden border border-white/20 mb-2 shadow-xs"><img src={m.imagePreview} alt={t('schedule.copilotScreenshotAlt')} className="w-full h-auto object-cover max-h-40" /></div>}
                       {m.role === 'assistant' && (m.steps && m.steps.length > 0) && (
                         <ThinkingAccordion steps={m.steps} isStreaming={m.isStreaming} />
                       )}
@@ -988,7 +987,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
         {selectedImage && (
           <div className="flex items-center justify-between bg-teal-50 border border-teal-200 rounded-xl p-2 text-xs">
             <div className="flex items-center gap-2 truncate">
-              <img src={selectedImage.previewUrl} className="w-8 h-8 rounded object-cover border" />
+              <img src={selectedImage.previewUrl} alt={selectedImage.name} className="w-8 h-8 rounded object-cover border" />
               <div><span className="font-bold text-teal-900">{selectedImage.name}</span><span className="text-[10px] text-teal-600 block">{t('schedule.copilotScreenshotAttached')}</span></div>
             </div>
             <Trash2 className="w-4 h-4 cursor-pointer text-slate-400 hover:text-rose-600" onClick={() => setSelectedImage(null)} />

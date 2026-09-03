@@ -158,10 +158,12 @@ export function Notifications() {
     setConfirmDialogState({
       isOpen: true,
       type: 'mark_all_read',
-      title: '确认一键Mark All Read？',
-      description: `即将把当前 ${unreadNum > 0 ? `${unreadNum} 条未读` : '全部'} 通知标记为已读状态。`,
+      title: t('notifConfirmMarkAllTitle'),
+      description: unreadNum > 0
+        ? t('notifConfirmMarkAllDescUnread', { p0: unreadNum })
+        : t('notifConfirmMarkAllDescAll'),
       tone: 'default',
-      confirmLabel: '确认全部已读',
+      confirmLabel: t('notifConfirmMarkAllButton'),
     });
   };
 
@@ -169,10 +171,10 @@ export function Notifications() {
     setConfirmDialogState({
       isOpen: true,
       type: 'clear_read',
-      title: '确认Clear All Read通知？',
-      description: '此操作将永久清理通知列表中所有已读条目，未读通知将继续完整保留。',
+      title: t('notifConfirmClearTitle'),
+      description: t('notifConfirmClearDesc'),
       tone: 'danger',
-      confirmLabel: '确认清空已读',
+      confirmLabel: t('notifConfirmClearButton'),
     });
   };
 
@@ -180,10 +182,10 @@ export function Notifications() {
     setConfirmDialogState({
       isOpen: true,
       type: 'delete_single',
-      title: '确认删除该条通知？',
-      description: `即将删除通知「${notif.title}」，删除后将无法找回。`,
+      title: t('notifConfirmDeleteTitle'),
+      description: t('notifConfirmDeleteDesc', { p0: notif.title }),
       tone: 'danger',
-      confirmLabel: '确认删除',
+      confirmLabel: t('notifConfirmDeleteButton'),
       payload: { id: notif.id },
     });
   };
@@ -192,10 +194,10 @@ export function Notifications() {
     setConfirmDialogState({
       isOpen: true,
       type: 'batch_mark_read',
-      title: `确认将选中的 ${selectedIds.length} 条通知标为已读？`,
-      description: '选中的通知将批量转为已读状态并同步更新未读红点计数。',
+      title: t('notifConfirmBatchTitle', { p0: selectedIds.length }),
+      description: t('notifConfirmBatchDesc'),
       tone: 'default',
-      confirmLabel: '确认批量已读',
+      confirmLabel: t('notifConfirmBatchButton'),
     });
   };
 
@@ -203,10 +205,10 @@ export function Notifications() {
     setConfirmDialogState({
       isOpen: true,
       type: 'batch_delete',
-      title: `确认永久删除选中的 ${selectedIds.length} 条通知？`,
-      description: '删除后这些通知将从系统中彻底移除，无法恢复。',
+      title: t('notifConfirmBatchDeleteTitle', { p0: selectedIds.length }),
+      description: t('notifConfirmBatchDeleteDesc'),
       tone: 'danger',
-      confirmLabel: '确认批量删除',
+      confirmLabel: t('notifConfirmBatchDeleteButton'),
     });
   };
 
@@ -284,10 +286,10 @@ export function Notifications() {
       const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
       const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-      if (diffMins < 1) return '刚刚';
-      if (diffMins < 60) return `${diffMins} 分钟前`;
-      if (diffHours < 24) return `${diffHours} 小时前`;
-      if (diffDays < 7) return `${diffDays} 天前`;
+      if (diffMins < 1) return t('relativeJustNow');
+      if (diffMins < 60) return t('relativeMinutesAgo', { p0: diffMins });
+      if (diffHours < 24) return t('relativeHoursAgo', { p0: diffHours });
+      if (diffDays < 7) return t('relativeDaysAgo', { p0: diffDays });
       return storeTime.date(date);
     } catch {
       return isoString;

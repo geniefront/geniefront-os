@@ -164,23 +164,13 @@ export function Messages() {
   };
 
   // 快捷回复话术模板
+  // ⚠️ text 会被直接填进发给客人的短信框——必须跟着界面语言走，
+  // 否则界面选了英文，发出去的短信仍是中文。
   const QUICK_TEMPLATES = [
-    {
-      title: "到店迟到确认",
-      text: "没问题！已为您在排班日历中标记延迟 10 分钟，您的技师已做好接待准备，路途注意安全！",
-    },
-    {
-      title: "泊车与位置指引",
-      text: "您好！本店正后方配有免费客户专属停车位，导航定位至门店后门即可直接驶入。",
-    },
-    {
-      title: "改期协商",
-      text: "收到您的改期诉求，请问您方便调整至本周五下午或者周六上午吗？我们将第一时间为您锁定时段。",
-    },
-    {
-      title: "服务好评关怀",
-      text: "非常感谢您的认可与喜爱！期待下次为您提供更加贴心专业的服务，祝您生活愉快！",
-    },
+    { title: t('crm.msgTemplateLateTitle'), text: t('crm.msgTemplateLateText') },
+    { title: t('crm.msgTemplateParkingTitle'), text: t('crm.msgTemplateParkingText') },
+    { title: t('crm.msgTemplateRescheduleTitle'), text: t('crm.msgTemplateRescheduleText') },
+    { title: t('crm.msgTemplateThanksTitle'), text: t('crm.msgTemplateThanksText') },
   ];
 
   if (isLoading && !data) {

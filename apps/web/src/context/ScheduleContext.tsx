@@ -31,6 +31,7 @@ import type {
   DaySnapshot, DayService, DayStaff, DayResource, CancelReason,
 } from '@/features/schedule/types';
 import { useBusinessDay } from '@/lib/time';
+import { useLanguage } from '@/LanguageContext';
 
 /** 未指派技师的虚拟列。服务端以 `membershipId === null` 表示。 */
 export const UNASSIGNED_STAFF_ID = '__unassigned__';
@@ -121,6 +122,7 @@ function normalizeStatus(raw: string): ItemStatus {
 
 export function ScheduleProvider({ children }: { children: ReactNode }) {
   const { membershipId } = useSession();
+  const { t } = useLanguage();
   /**
    * 默认日期取门店的**营业日**今天 —— 不是浏览器本地日期、不是 UTC、
    * 也不是门店时区的日历日（AUD-13）。
@@ -163,8 +165,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   const items = useMemo<ScheduleItem[]>(() => {
     if (!snapshot) return [];
     const servicesById = new Map(snapshot.services.map((sv) => [sv.id, sv]));
-    return snapshot.items.map((item) => toScheduleItem(item, snapshot, servicesById));
-  }, [snapshot]);
+    return snapshot.items.map((item) => toScheduleItem(item, snapshot, servicesById, { service: t('service'), customer: t('customer') }));
+  }, [snapshot, t]);
 
   const value = useMemo<ScheduleContextValue>(() => ({
     currentDate,
@@ -190,6 +192,8 @@ export function toScheduleItem(
   item: DaySnapshot['items'][number],
   snapshot: DaySnapshot,
   servicesById: Map<string, DayService>,
+  /** 名称缺失时的兜底文案——由调用方按当前语言传入，这里不写死中文 */
+  fallbacks: { service: string; customer: string },
 ): ScheduleItem {
   const startMins = toBusinessDayMinutes(item.startsAt, snapshot);
   const endMins = toBusinessDayMinutes(item.endsAt, snapshot);
@@ -198,9 +202,9 @@ export function toScheduleItem(
     appointmentId: item.appointmentId,
     staffId: item.membershipId ?? UNASSIGNED_STAFF_ID,
     serviceId: item.serviceId,
-    serviceName: formatI18n(item.serviceName) || '服务项目',
+    serviceName: formatI18n(item.serviceName) || fallbacks.service,
     service: servicesById.get(item.serviceId) ?? null,
-    customerName: formatI18n(item.customerName) || '顾客',
+    customerName: formatI18n(item.customerName) || fallbacks.customer,
     startMins,
     endMins,
     durationMin: item.durationMin,
@@ -240,16 +244,18 @@ function toBusinessDayMinutes(iso: string, snapshot: DaySnapshot): number {
  */
 export function useWeekItems(dates: string[]): Map<string, ScheduleItem[]> {
   const results = useDayRange(dates);
+  const { t } = useLanguage();
   return useMemo(() => {
     const byDate = new Map<string, ScheduleItem[]>();
+    const fallbacks = { service: t('service'), customer: t('customer') };
     for (const r of results) {
       const snap = r.data;
       if (!snap) continue;
       const servicesById = new Map(snap.services.map((sv) => [sv.id, sv]));
-      byDate.set(snap.businessDate, snap.items.map((item) => toScheduleItem(item, snap, servicesById)));
+      byDate.set(snap.businessDate, snap.items.map((item) => toScheduleItem(item, snap, servicesById, fallbacks)));
     }
     return byDate;
-  }, [results]);
+  }, [results, t]);
 }
 
 export function useSchedule(): ScheduleContextValue {

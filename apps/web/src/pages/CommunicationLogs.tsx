@@ -78,9 +78,9 @@ export function CommunicationLogs() {
           time: c.startedAt || new Date().toISOString(),
           channel: "voice",
           direction: "inbound",
-          contact: c.fromE164 || "未知来电",
-          category: c.booked ? "AI 电话落单" : isForwarded ? "AI 电话转人工" : "AI 电话咨询",
-          summary: c.outcome || (c.booked ? "AI 电话落单成功" : "常规业务咨询"),
+          contact: c.fromE164 || t('crm.commUnknownCaller'),
+          category: c.booked ? t('crm.commCategoryCallBooked') : isForwarded ? t('crm.commCategoryCallTransferred') : t('crm.commCategoryCallInquiry'),
+          summary: c.outcome || (c.booked ? t('crm.commSummaryCallBooked') : t('crm.commSummaryGeneralInquiry')),
           status: c.booked ? "booked" : isForwarded ? "transferred" : "completed",
           durationSeconds: c.durationSeconds ?? undefined,
         });
@@ -96,7 +96,7 @@ export function CommunicationLogs() {
           direction: "inbound",
           contact: m.fromE164,
           customerName: m.customers[0]?.name,
-          category: m.intent === "opt_out" ? "短信上行退订" : "客户短信回复",
+          category: m.intent === "opt_out" ? t('crm.commCategoryOptOut') : t('crm.commCategoryCustomerReply'),
           summary: m.body,
           status: m.intent === "opt_out" ? "opt_out" : "delivered",
         });
@@ -143,7 +143,7 @@ export function CommunicationLogs() {
   const [confirmExportOpen, setConfirmExportOpen] = useState(false);
 
   const handleExportCsv = () => {
-    const headers = "发生时间,沟通渠道,方向,联络对象,客户姓名,业务分类,内容摘要,状态,运营商SID\n";
+    const headers = `${t('crm.commExportHeaders')}\n`;
     const rows = filtered
       .map(
         (l) =>

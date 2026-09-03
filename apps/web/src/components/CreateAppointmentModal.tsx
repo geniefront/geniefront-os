@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { useLanguage } from '@/LanguageContext';
+import type { TranslationKey } from '@/i18n';
 import { useSchedule, useScheduleMutations, UNASSIGNED_STAFF_ID } from '@/context/ScheduleContext';
 import { isOverridableConflict, OVERRIDE_REASONS, type Override } from '@/features/schedule/api';
 import { wallMinutesToInstant } from '@/lib/time';
@@ -58,23 +59,28 @@ const minsToTime = (mins: number) => {
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 };
 
-const PAST_BOOKING_REASONS = [
-  { id: 'walk_in_backfill', label: '现场到店已服务完成 (事后补录工单)', desc: '客人已经离店或正在服务，前台忙碌现在补录' },
-  { id: 'phone_offline', label: '电话/微信离线预约 (未及时录入系统)', desc: '早前通过电话预约但未录入，现在补登' },
-  { id: 'guest_delayed', label: '顾客迟到/改期 (协商后保留原定时间)', desc: '与顾客沟通确认按原定工时与预约核算' },
-  { id: 'other', label: '其他特殊历史建单原因', desc: '如系统维护或前台交接班补录' },
+/** label/desc 只存词典键，id 是唯一持久化/比对的值 */
+const PAST_BOOKING_REASONS: Array<{ id: string; labelKey: TranslationKey; descKey: TranslationKey }> = [
+  { id: 'walk_in_backfill', labelKey: 'schedule.apptReasonWalkInLabel', descKey: 'schedule.apptReasonWalkInDesc' },
+  { id: 'phone_offline', labelKey: 'schedule.apptReasonPhoneOfflineLabel', descKey: 'schedule.apptReasonPhoneOfflineDesc' },
+  { id: 'guest_delayed', labelKey: 'schedule.apptReasonGuestDelayedLabel', descKey: 'schedule.apptReasonGuestDelayedDesc' },
+  { id: 'other', labelKey: 'schedule.apptReasonOtherLabel', descKey: 'schedule.apptReasonOtherDesc' },
 ];
 
-const formatPastDuration = (mins: number) => {
-  if (mins < 60) return `${mins} 分钟`;
+const formatPastDuration = (mins: number, t: (key: TranslationKey, params?: Record<string, string | number>) => string) => {
+  if (mins < 60) return t('schedule.apptDurationMinutes', { p0: mins });
   const hours = Math.floor(mins / 60);
   const remMins = mins % 60;
   if (hours < 24) {
-    return remMins > 0 ? `${hours} 小时 ${remMins} 分钟` : `${hours} 小时`;
+    return remMins > 0
+      ? t('schedule.apptDurationHoursMinutes', { p0: hours, p1: remMins })
+      : t('schedule.apptDurationHours', { p0: hours });
   }
   const days = Math.floor(hours / 24);
   const remHours = hours % 24;
-  return remHours > 0 ? `${days} 天 ${remHours} 小时` : `${days} 天`;
+  return remHours > 0
+    ? t('schedule.apptDurationDaysHours', { p0: days, p1: remHours })
+    : t('schedule.apptDurationDays', { p0: days });
 };
 
 export function CreateAppointmentModal({
@@ -355,12 +361,12 @@ export function CreateAppointmentModal({
       if (isOverridableConflict(err)) {
         const conflictMsg =
           err.code === 'STAFF_OVER_CAPACITY'
-            ? '所选技师在当前时段已有重叠预约，是否由前台统筹强制放行排单？'
+            ? t('schedule.apptConflictStaffOverCapacity')
             : err.code === 'LOCATION_OVER_CAPACITY'
-            ? '门店在当前时段接待预约已达上限，是否由前台统筹强制放行排单？'
+            ? t('schedule.apptConflictLocationOverCapacity')
             : err.code === 'STAFF_LACKS_SKILL'
-            ? '所选技师可能未标记该服务专长，是否由前台确认继续指派？'
-            : (err.message || '检测到排期容量约束，是否确认放行？');
+            ? t('schedule.apptConflictStaffLacksSkill')
+            : t('schedule.apptConflictGeneric');
         setConflictError({ message: conflictMsg, key: idempotencyKey });
       } else {
         toast.danger(errorMessage(err));
@@ -393,12 +399,13 @@ export function CreateAppointmentModal({
 
   const handleConfirmPastBooking = () => {
     if (!pastTimeConfirmModal) return;
-    const reasonText =
-      PAST_BOOKING_REASONS.find((r) => r.id === pastTimeConfirmModal.reason)?.label || '事后补录预约';
+    const reasonKey = PAST_BOOKING_REASONS.find((r) => r.id === pastTimeConfirmModal.reason)?.labelKey;
+    const reasonText = reasonKey ? t(reasonKey) : t('schedule.apptBackfillReasonDefault');
     const noteSuffix = pastTimeConfirmModal.notes.trim() ? ` · ${pastTimeConfirmModal.notes.trim()}` : '';
+    const backfillNote = t('schedule.apptBackfillNoteWrap', { p0: `${reasonText}${noteSuffix}` });
     const updatedNotes = notes.trim()
-      ? `${notes.trim()} 【补单说明: ${reasonText}${noteSuffix}】`
-      : `【补单说明: ${reasonText}${noteSuffix}】`;
+      ? `${notes.trim()} ${backfillNote}`
+      : backfillNote;
 
     setPastTimeConfirmModal(null);
     void handleSubmit(undefined, undefined, updatedNotes);
@@ -449,7 +456,7 @@ export function CreateAppointmentModal({
               {create.isPending
                 ? t('schedule.apptCreating')
                 : isPastOver30Min
-                ? t('schedule.apptBackfillWarn', { p0: formatPastDuration(pastMinutes) })
+                ? t('schedule.apptBackfillWarn', { p0: formatPastDuration(pastMinutes, t) })
                 : (t('newAppointment') || t('schedule.apptCreateNow'))}
             </Button>
           </div>
@@ -693,7 +700,7 @@ export function CreateAppointmentModal({
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-amber-900">
                     
-                    {t('schedule.apptPastWarn')} {formatPastDuration(pastMinutes)}
+                    {t('schedule.apptPastWarn')} {formatPastDuration(pastMinutes, t)}
                   </span>
                   <Badge variant="warning" className="text-[10px] px-1.5 py-0 font-bold">
                     
@@ -756,7 +763,7 @@ export function CreateAppointmentModal({
                 <span className="font-bold text-amber-950 text-sm">{t('schedule.apptBackfillConfirmTitle')}</span>
                 <Badge variant="error" className="text-[10px] font-bold">
                   
-                  {t('schedule.apptEarlierThanNow')} {formatPastDuration(pastTimeConfirmModal.pastMinutes)}
+                  {t('schedule.apptEarlierThanNow')} {formatPastDuration(pastTimeConfirmModal.pastMinutes, t)}
                 </Badge>
               </div>
               <div className="grid grid-cols-2 gap-2 text-[11px]">
@@ -780,7 +787,7 @@ export function CreateAppointmentModal({
             </div>
 
             <div className="space-y-1.5">
-              <label className="block text-xs font-bold text-slate-800">Select Backfill Reason Category *</label>
+              <label className="block text-xs font-bold text-slate-800">{t('schedule.apptBackfillReasonLabel')}</label>
               <div className="space-y-1.5">
                 {PAST_BOOKING_REASONS.map((r) => (
                   <label
@@ -803,8 +810,8 @@ export function CreateAppointmentModal({
                       className="text-amber-600 focus:ring-amber-500/20 mt-0.5"
                     />
                     <div>
-                      <span className="block font-bold">{r.label}</span>
-                      <span className="block text-[10px] text-slate-500 font-normal">{r.desc}</span>
+                      <span className="block font-bold">{t(r.labelKey)}</span>
+                      <span className="block text-[10px] text-slate-500 font-normal">{t(r.descKey)}</span>
                     </div>
                   </label>
                 ))}

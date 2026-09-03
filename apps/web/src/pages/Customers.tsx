@@ -147,7 +147,7 @@ function CustomersContent() {
   const [smsContent, setSmsContent] = useState('');
 
   // Block reason state
-  const [blockReason, setBlockReason] = useState('多次恶意爽约 No-show');
+  const [blockReason, setBlockReason] = useState(() => t('crm.custBlockReasonDefault'));
 
   // 查询数据
   const listParams = useMemo(() => ({ limit: 200 }), []);
@@ -406,7 +406,10 @@ function CustomersContent() {
       toast.danger(t('crm.custNoExportData'));
       return;
     }
-    const headers = ['客户姓名', 'VIP等级', '联系电话', '到店次数', '距上次到店天数', '爽约次数'];
+    const headers = [
+      t('crm.custExportName'), t('crm.custExportVipLevel'), t('crm.custExportPhone'),
+      t('crm.custExportVisitCount'), t('crm.custExportDaysSinceVisit'), t('crm.custExportNoShowCount'),
+    ];
     const csvContent = [
       headers.join(','),
       ...rows.map((r) => {
@@ -418,7 +421,7 @@ function CustomersContent() {
           r.vipLevel,
           `"${phone}"`,
           r.visitCount,
-          r.daysSinceLastVisit ?? '从未到店',
+          r.daysSinceLastVisit ?? t('crm.custExportNeverVisited'),
           r.noShowCount,
         ].join(',');
       }),
@@ -428,7 +431,7 @@ function CustomersContent() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `GenieFront_客户列表_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `GenieFront_${t('crm.custExportFileSlug')}_${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
     toast.success(t('crm.custExported'));

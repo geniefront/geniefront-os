@@ -62,8 +62,13 @@ describe('多语言字典完整性', () => {
     const ALLOWED = [
       'AI', 'iPad', 'iPhone', 'GenieFront', 'Stripe', 'Google', 'Yelp', 'Telnyx',
       'WiFi', 'SMS', 'CSV', 'PDF', 'API', 'URL', 'QR', 'VIP', 'POS', 'CRM', 'SOAP',
-      'SSL', 'CDN', 'EIN', 'IRS', 'TCR', 'SOC', 'DID', 'LLC', 'RFM', 'GMV', 'AOV',
+      'SSL', 'CDN', 'EIN', 'IRS', 'TCR', 'SOC', 'DID', 'LLC', 'RFM', 'GMV', 'AOV', 'SID',
       'Instagram', 'Safari', 'Kiosk', 'Growth', 'Starter', 'Enterprise', 'Essential', 'SPA',
+      // 门店岗位预设的原始值本就是中英混排（如「Lashes & Brows师」「Hair Styling师」，
+      // 见 EmployeePerformance.tsx 的 PRESET_JOB_TITLES）——这是产品既有的岗位叫法，
+      // 不是翻译损坏；zh-Hans 词条必须原样等于这个值，因为它同时是存进
+      // staff_profiles.job_title 的数据本身。
+      'Brows', 'Styling',
     ];
     const suspects: string[] = [];
     for (const key of ALL_TRANSLATION_KEYS) {

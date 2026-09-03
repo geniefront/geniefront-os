@@ -286,7 +286,7 @@ export function TechTodayPage() {
           <div className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 border border-slate-200/60 text-sm">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-teal-600 text-white font-black flex items-center justify-center text-sm shadow-xs">
-                {currentTask.customerName ? currentTask.customerName.slice(0, 1) : '客'}
+                {currentTask.customerName ? currentTask.customerName.slice(0, 1) : t('customer').slice(0, 1)}
               </div>
               <div>
                 <span className="font-bold text-slate-900">{currentTask.customerName || t('walkInGuest')}</span>

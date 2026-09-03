@@ -82,6 +82,68 @@ registerHandler(packageSaveTemplate, async ({ input, ctx, tx, audit }) => {
   return { templateId: created!.id, created: true };
 });
 
+/**
+ * 校验传入的 customerId 确属本租户且未被合并 / 拉黑，返回同一个 id。
+ */
+const assertCustomer = async (tx: any, ctx: any, customerId: string): Promise<string> => {
+  const [cust] = await tx<{ id: string }[]>`
+    select id from customers
+    where id = ${customerId} and org_id = ${ctx.orgId}
+      and merged_into_id is null and blocked_at is null`;
+  if (!cust) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, {
+      details: { entity: 'customer', id: customerId },
+    });
+  }
+  return cust.id;
+};
+
+/**
+ * 前台发售次卡时只报了客人姓名（可选附手机号），在此解析成真实客户 id。
+ *
+ * 语义完全对齐 appointment.ts 的 resolveGuestCustomer：
+ *   · 仅当「手机号 + 姓名都一模一样且库里只有一条」时复用既有客户；
+ *   · 没给手机号，或匹配到 0 / 多条，一律新建 —— 不猜、不按手机号单独合并
+ *     （宪法第 16 条：猜错会把两个人的消费记录并到一起，且不可逆）。
+ *   · 手滑建重的记录事后由前台用 customer.merge 收口。
+ */
+const resolvePackageCustomer = async (
+  tx: any,
+  ctx: any,
+  c: { name: string; phoneE164?: string; email?: string },
+): Promise<string> => {
+  const name = c.name.trim();
+
+  if (c.phoneE164) {
+    const same = await tx<{ id: string }[]>`
+      select id from customers
+      where org_id = ${ctx.orgId}
+        and phone_e164 = ${c.phoneE164}
+        and lower(trim(display_name)) = lower(${name})
+        and merged_into_id is null
+        and blocked_at is null
+      limit 2`;
+    if (same.length === 1) {
+      // 邮箱只在原来没有时补，不覆盖前台后来维护过的那一版。
+      if (c.email) {
+        await tx`
+          update customers set email = ${c.email}
+          where id = ${same[0]!.id} and (email is null or email = '')`;
+      }
+      return same[0]!.id;
+    }
+  }
+
+  const [row] = await tx<{ id: string }[]>`
+    insert into customers
+      (org_id, primary_location_id, display_name, phone_e164, email, source)
+    values
+      (${ctx.orgId}, ${ctx.locationId}, ${name}, ${c.phoneE164 ?? null},
+       ${c.email ?? null}, 'desk')
+    returning id`;
+  return row!.id;
+};
+
 const handlePackageIssue = async ({ input, ctx, tx, audit }: any) => {
   const [tpl] = await tx<{ id: string; name: unknown; price_cents: number; sessions: number; valid_days: number | null }[]>`
     select id, name, price_cents, sessions, valid_days from package_templates
@@ -92,13 +154,9 @@ const handlePackageIssue = async ({ input, ctx, tx, audit }: any) => {
     });
   }
 
-  const [cust] = await tx<{ id: string }[]>`
-    select id from customers where id = ${input.customerId} and org_id = ${ctx.orgId}`;
-  if (!cust) {
-    throw new AppError(ERROR_CODES.NOT_FOUND, {
-      details: { entity: 'customer', id: input.customerId },
-    });
-  }
+  const customerId = input.customerId
+    ? await assertCustomer(tx, ctx, input.customerId)
+    : await resolvePackageCustomer(tx, ctx, input.customer);
 
   const totalSessions = input.customSessions ?? tpl.sessions;
   const validDays = input.validDays ?? tpl.valid_days;
@@ -110,7 +168,7 @@ const handlePackageIssue = async ({ input, ctx, tx, audit }: any) => {
       org_id, location_id, template_id, customer_id, remaining_sessions,
       total_sessions, status, expires_at, sold_ticket_id
     ) values (
-      ${ctx.orgId}, ${ctx.locationId}, ${tpl.id}, ${input.customerId},
+      ${ctx.orgId}, ${ctx.locationId}, ${tpl.id}, ${customerId},
       ${totalSessions}, ${totalSessions}, 'active', ${expiresAt}, ${input.ticketId ?? null}
     )
     returning id`;
@@ -121,7 +179,7 @@ const handlePackageIssue = async ({ input, ctx, tx, audit }: any) => {
       org_id, location_id, kind, subject_id, customer_id, entry,
       amount_cents, balance_after_cents, ticket_id, actor_membership_id
     ) values (
-      ${ctx.orgId}, ${ctx.locationId}, 'package', ${pkg!.id}, ${input.customerId},
+      ${ctx.orgId}, ${ctx.locationId}, 'package', ${pkg!.id}, ${customerId},
       'issue', ${priceCents}, ${priceCents}, ${input.ticketId ?? null}, ${ctx.membershipId}
     )`;
 
@@ -131,7 +189,7 @@ const handlePackageIssue = async ({ input, ctx, tx, audit }: any) => {
     before: {},
     after: {
       templateId: tpl.id,
-      customerId: input.customerId,
+      customerId,
       totalSessions,
       priceCents,
     },
@@ -139,7 +197,7 @@ const handlePackageIssue = async ({ input, ctx, tx, audit }: any) => {
 
   return {
     packageId: pkg!.id,
-    customerId: input.customerId,
+    customerId,
     totalSessions,
     remainingSessions: totalSessions,
   };

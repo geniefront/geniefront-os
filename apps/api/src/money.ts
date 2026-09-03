@@ -51,7 +51,18 @@ function toPlan(config: Record<string, unknown>): CompensationPlan {
 
 /**
  * 取当前生效的薪酬方案。
- * 每人取自己版本号最大的一条；没有个人方案的走门店默认（membership_id is null）。
+ * 每人取自己当前生效的那一条；没有个人方案的走门店默认（membership_id is null）。
+ *
+ * ⚠️ 排序的第一判据是 `effective_from`，不是 `version`。
+ *
+ * 「哪一版在生效」这件事是**生效时间**说了算的，版本号只是它通常
+ * 恰好同序而已。两者一旦分歧 —— 补录一条早先谈好的旧方案、迁移脚本
+ * 回填历史、或者手工 SQL 修数据 —— 按版本号取就会取到一条**已经被
+ * 更晚的方案取代**的配置，然后照着它发一次工资。
+ *
+ * `version desc` 仍留作次判据：同一时刻生效的两条（并发写入或者
+ * 精确到同一秒的补录）之间要有一个确定的答案，否则同一次结账
+ * 重跑两遍可能落到不同的提成上。
  */
 export async function loadPlans(
   tx: postgres.TransactionSql, locationId: string,
@@ -60,7 +71,7 @@ export async function loadPlans(
     select distinct on (membership_id) membership_id, version, config
     from compensation_plans
     where location_id = ${locationId} and effective_from <= now()
-    order by membership_id, version desc`;
+    order by membership_id, effective_from desc, version desc`;
 
   const plans: Record<string, CompensationPlan> = {};
   const versions: Record<string, number> = {};

@@ -76,13 +76,14 @@ import type {
   FullRotationEvent,
 } from '@/features/rotation/types';
 import { useBusinessDay } from '@/lib/time';
+import type { TranslationKey } from '@/i18n';
 
-// 常用Pass Turn预设原因
-const SKIP_REASONS = [
-  { kind: 'no_skill' as const, label: '💅 客人指定项目技能不匹配' },
-  { kind: 'off' as const, label: '☕ 技师临时离开 / 暂不可接单' },
-  { kind: 'no_skill' as const, label: '🌐 客户语言/指定要求冲突' },
-  { kind: 'off' as const, label: '🩹 身体突发不适，暂离工位' },
+// 常用跳过原因预设
+const SKIP_REASONS: Array<{ kind: 'no_skill' | 'off'; labelKey: TranslationKey }> = [
+  { kind: 'no_skill', labelKey: 'rotation.rotSkipReasonSkillMismatch' },
+  { kind: 'off', labelKey: 'rotation.rotSkipReasonAway' },
+  { kind: 'no_skill', labelKey: 'rotation.rotSkipReasonLanguage' },
+  { kind: 'off', labelKey: 'rotation.rotSkipReasonUnwell' },
 ];
 
 interface ConfirmModalState {
@@ -237,12 +238,20 @@ function RotationContent() {
   }, [rotation?.fullEvents]);
 
   // 历史全天概览指标
+  //
+  // ⚠️ `e.reason` 是服务端 `packages/rotation/src/engine.ts` 的 `RotationReason`
+  // 枚举（'served' / 'request_not_counted' / 'skipped_no_skill' / … 英文
+  // snake_case），从来不是中文短语。这里以前拿 '派单'/'点客'/'插队' 这类中文
+  // 子串去 `.includes()` 匹配，没有一条枚举值真的包含这些字——四项指标里
+  // 三项（派单数、调整数、到店数）一直在计数「零」，只是「skip」恰好和
+  // `skipped_*` 沾边、「request」恰好和 `request_not_counted` 沾边才蒙对。
+  // 枚举值本身很稳定（是记账口径，不是展示文案），改成精确匹配。
   const historyMetrics = useMemo(() => {
-    const totalDispatches = historicalEvents.filter((e) => e.reason.includes('派单') || e.reason.includes('接单') || e.reason.includes('assigned')).length;
-    const clientRequests = historicalEvents.filter((e) => e.reason.includes('点客') || e.reason.includes('request')).length;
-    const totalSkips = historicalEvents.filter((e) => e.reason.includes('Pass Turn') || e.reason.includes('skip')).length;
-    const totalReorders = historicalEvents.filter((e) => e.reason.includes('调整') || e.reason.includes('reorder') || e.reason.includes('插队')).length;
-    const totalCheckIns = historicalEvents.filter((e) => e.reason.includes('到店') || e.reason.includes('check_in')).length;
+    const totalDispatches = historicalEvents.filter((e) => e.reason === 'served').length;
+    const clientRequests = historicalEvents.filter((e) => e.reason === 'request_not_counted').length;
+    const totalSkips = historicalEvents.filter((e) => e.reason === 'skipped_no_skill' || e.reason === 'skipped_off').length;
+    const totalReorders = historicalEvents.filter((e) => e.reason === 'manual_override').length;
+    const totalCheckIns = historicalEvents.filter((e) => e.reason === 'check_in').length;
 
     return {
       totalEvents: historicalEvents.length,
@@ -254,19 +263,19 @@ function RotationContent() {
     };
   }, [historicalEvents]);
 
-  // 过滤后的时间线事件
+  // 过滤后的时间线事件（分类判据同上：匹配真实的英文枚举值，不是中文子串）
   const filteredTimelineEvents = useMemo(() => {
     return historicalEvents.filter((evt) => {
-      if (timelineTypeFilter === 'dispatches' && !evt.reason.includes('派单') && !evt.reason.includes('接单') && !evt.reason.includes('assigned')) {
+      if (timelineTypeFilter === 'dispatches' && evt.reason !== 'served') {
         return false;
       }
-      if (timelineTypeFilter === 'requests' && !evt.reason.includes('点客') && !evt.reason.includes('request')) {
+      if (timelineTypeFilter === 'requests' && evt.reason !== 'request_not_counted') {
         return false;
       }
-      if (timelineTypeFilter === 'skips' && !evt.reason.includes('Pass Turn') && !evt.reason.includes('skip')) {
+      if (timelineTypeFilter === 'skips' && evt.reason !== 'skipped_no_skill' && evt.reason !== 'skipped_off') {
         return false;
       }
-      if (timelineTypeFilter === 'attendance' && !evt.reason.includes('到店') && !evt.reason.includes('下班') && !evt.reason.includes('check')) {
+      if (timelineTypeFilter === 'attendance' && evt.reason !== 'check_in' && evt.reason !== 'check_out') {
         return false;
       }
       if (timelineStaffFilter !== 'all' && evt.staffName !== timelineStaffFilter) {
@@ -447,7 +456,7 @@ function RotationContent() {
       beforeList,
       afterList: reorderedAfterList,
       reason: 'desk_coordination',
-      note: action === 'top' ? '前台一键置顶' : action === 'bottom' ? '前台一键置底' : '前台快速微调',
+      note: action === 'top' ? t('rotation.rotQuickTop') : action === 'bottom' ? t('rotation.rotQuickBottom') : t('rotation.rotQuickAdjust'),
     });
   };
 
@@ -461,10 +470,10 @@ function RotationContent() {
         membershipId: assignTarget.membershipId,
         isRequest: assignIsRequest,
         customerName: assignCustomer.trim() || undefined,
-        note: assignServiceName.trim() ? `服务项目: ${assignServiceName.trim()}` : undefined,
+        note: assignServiceName.trim() ? t('rotation.rotAssignServiceNote', { p0: assignServiceName.trim() }) : undefined,
       });
       toast.success(
-        t('rotation.rotAssigned', { p0: assignTarget.name, p1: assignIsRequest ? ' (点客指定)' : ' (正常轮牌)' }),
+        t('rotation.rotAssigned', { p0: assignTarget.name, p1: t(assignIsRequest ? 'rotation.rotRequestedTurnSuffix' : 'rotation.rotRegularTurnSuffix') }),
       );
       setAssignTarget(null);
       setAssignCustomer('');
@@ -482,7 +491,7 @@ function RotationContent() {
       await skipMutation.mutateAsync({
         membershipId: skipTarget.membershipId,
         kind: skipKind,
-        note: skipNote.trim() || '前台跳过顺位',
+        note: skipNote.trim() || t('rotation.rotSkipNoteDefault'),
       });
       toast.success(t('rotation.rotSkipped', { p0: skipTarget.name }));
       setSkipTarget(null);
@@ -496,18 +505,18 @@ function RotationContent() {
   const handleToggleBreakWithConfirm = (entry: RotationEntry) => {
     const isCurrentlyOnBreak = entry.state === 'on_break';
     setConfirmModal({
-      title: isCurrentlyOnBreak ? `☕ 确认结束小休 · ${entry.name}` : `☕ 确认进入小休暂离 · ${entry.name}`,
+      title: isCurrentlyOnBreak ? t('rotation.rotBreakEndConfirmTitle', { p0: entry.name }) : t('rotation.rotBreakStartConfirmTitle', { p0: entry.name }),
       description: isCurrentlyOnBreak
-        ? `确认技师【${entry.name}】小休结束并重新归队待派吗？`
-        : `确认将技师【${entry.name}】标记为小休暂离吗？小休期间系统自动派单时将跳过该技师。`,
-      confirmText: isCurrentlyOnBreak ? '确认归队' : '确认小休',
+        ? t('rotation.rotBreakEndConfirmDesc', { p0: entry.name })
+        : t('rotation.rotBreakStartConfirmDesc', { p0: entry.name }),
+      confirmText: isCurrentlyOnBreak ? t('rotation.rotBreakEndConfirmButton') : t('rotation.rotBreakStartConfirmButton'),
       confirmTone: isCurrentlyOnBreak ? 'emerald' : 'warning',
       onConfirm: async () => {
         try {
           await setBreakMutation.mutateAsync({
             membershipId: entry.membershipId,
             onBreak: !isCurrentlyOnBreak,
-            note: !isCurrentlyOnBreak ? '技师暂离小休/用餐' : '小休结束归队',
+            note: !isCurrentlyOnBreak ? t('rotation.rotBreakStartNote') : t('rotation.rotBreakEndNote'),
           });
           toast.success(
             !isCurrentlyOnBreak
@@ -527,7 +536,7 @@ function RotationContent() {
     try {
       await checkInMutation.mutateAsync({
         membershipId: checkInTarget.membershipId,
-        note: checkInNote.trim() || '技师到店签到打卡',
+        note: checkInNote.trim() || t('rotation.rotCheckInNoteDefault'),
       });
       toast.success(t('rotation.rotClockedIn', { p0: checkInTarget.name }));
       setCheckInTarget(null);
@@ -543,7 +552,7 @@ function RotationContent() {
     try {
       await checkOutMutation.mutateAsync({
         membershipId: checkOutTarget.membershipId,
-        note: checkOutNote.trim() || '技师打卡下班离店',
+        note: checkOutNote.trim() || t('rotation.rotCheckOutNoteDefault'),
       });
       toast.success(t('rotation.rotClockedOut', { p0: checkOutTarget.name }));
       setCheckOutTarget(null);
@@ -570,11 +579,11 @@ function RotationContent() {
     const nextState = !rotation.policy.enabled;
 
     setConfirmModal({
-      title: nextState ? '🟢 确认开启轮牌系统' : '⚪ 确认暂停轮牌系统',
+      title: nextState ? t('rotation.rotEnableConfirmTitle') : t('rotation.rotDisableConfirmTitle'),
       description: nextState
-        ? '开启后前台将根据公平轮牌算法与技能标签自动排序和推荐派单。'
-        : '暂停后门店将进入自由接单模式，前台可直接自由指派任意技师，不再受排位约束。',
-      confirmText: nextState ? '确认开启轮牌' : '确认暂停轮牌',
+        ? t('rotation.rotEnableConfirmDesc')
+        : t('rotation.rotDisableConfirmDesc'),
+      confirmText: nextState ? t('rotation.rotEnableConfirmButton') : t('rotation.rotDisableConfirmButton'),
       confirmTone: nextState ? 'emerald' : 'warning',
       onConfirm: async () => {
         try {
@@ -1801,23 +1810,26 @@ function RotationContent() {
               {t('rotation.rotSkipReasonLabel')}
             </span>
             <div className="space-y-1.5">
-              {SKIP_REASONS.map((r, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => {
-                    setSkipKind(r.kind);
-                    setSkipNote(r.label);
-                  }}
-                  className={`w-full text-left p-2 rounded-xl border text-xs font-medium transition-all ${
-                    skipNote === r.label
-                      ? 'bg-amber-500 text-white border-amber-600 font-bold'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  {r.label}
-                </button>
-              ))}
+              {SKIP_REASONS.map((r) => {
+                const label = t(r.labelKey);
+                return (
+                  <button
+                    key={r.labelKey}
+                    type="button"
+                    onClick={() => {
+                      setSkipKind(r.kind);
+                      setSkipNote(label);
+                    }}
+                    className={`w-full text-left p-2 rounded-xl border text-xs font-medium transition-all ${
+                      skipNote === label
+                        ? 'bg-amber-500 text-white border-amber-600 font-bold'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

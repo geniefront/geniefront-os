@@ -15,6 +15,8 @@ import { useState } from 'react';
 import { toast } from '@heroui/react';
 import { AlertTriangle, CheckCircle2, Trash2 } from 'lucide-react';
 import { useErrorMessage } from '@/lib/errorMessage';
+import { useLanguage } from '@/LanguageContext';
+import type { TranslationKey } from '@/i18n';
 import {
   useNotificationSettings,
   useToggleNotificationRule,
@@ -25,47 +27,54 @@ import {
   type NotificationSettings,
 } from './settingsApi';
 
-/** 事件分三组显示。与 `packages/contracts/src/notification.ts` 的分组一致。 */
-const GROUPS: Array<{ title: string; hint: string; events: string[] }> = [
+/**
+ * 事件分三组显示。与 `packages/contracts/src/notification.ts` 的分组一致。
+ * title/hint 只存词典键——这块面板以前完全没有接入 useLanguage，不跟界面语言走。
+ */
+const GROUPS: Array<{ titleKey: TranslationKey; hintKey: TranslationKey; events: string[] }> = [
   {
-    title: '顾客 · 预约',
-    hint: '走平台品牌，不受门店 10DLC 状态影响 —— 任何时候都发得出去。',
+    titleKey: 'settings.notifGroupCustomerTitle',
+    hintKey: 'settings.notifGroupCustomerHint',
     events: [
       'appointment_confirm', 'appointment_changed',
       'appointment_cancelled', 'appointment_reminder',
     ],
   },
   {
-    title: '技师',
-    hint: '同属事务性通知，也走平台品牌。收件人是员工不改变这一点。',
+    titleKey: 'settings.notifGroupStaffTitle',
+    hintKey: 'settings.notifGroupStaffHint',
     events: ['staff_pending_confirm', 'staff_assigned', 'staff_changed', 'staff_cancelled'],
   },
   {
-    title: '营销',
-    hint: '商业信息。要门店自己的 10DLC 获批（短信）与专属发件域名（邮件），且顾客必须明示订阅过。',
+    titleKey: 'settings.notifGroupMarketingTitle',
+    hintKey: 'settings.notifGroupMarketingHint',
     events: ['birthday', 'holiday', 'winback', 'review_request'],
   },
 ];
 
-const EVENT_LABEL: Record<string, string> = {
-  appointment_confirm: '预约确认',
-  appointment_changed: '预约修改',
-  appointment_cancelled: '预约取消',
-  appointment_reminder: '次日提醒',
-  staff_pending_confirm: '待技师确认',
-  staff_assigned: '派单给技师',
-  staff_changed: '技师班次变动',
-  staff_cancelled: '技师单被取消',
-  birthday: '生日祝福',
-  holiday: '节日问候',
-  winback: '老顾客唤回',
-  review_request: '邀请评价',
+const EVENT_LABEL_KEYS: Record<string, TranslationKey> = {
+  appointment_confirm: 'settings.notifEventApptConfirm',
+  appointment_changed: 'settings.notifEventApptChanged',
+  appointment_cancelled: 'settings.notifEventApptCancelled',
+  appointment_reminder: 'settings.notifEventApptReminder',
+  staff_pending_confirm: 'settings.notifEventStaffPending',
+  staff_assigned: 'settings.notifEventStaffAssigned',
+  staff_changed: 'settings.notifEventStaffChanged',
+  staff_cancelled: 'settings.notifEventStaffCancelled',
+  birthday: 'settings.notifEventBirthday',
+  holiday: 'settings.notifEventHoliday',
+  winback: 'settings.notifEventWinback',
+  review_request: 'settings.notifEventReviewRequest',
 };
 
-const CHANNEL_LABEL: Record<NotifyChannel, string> = { sms: '短信', email: '邮件' };
+const CHANNEL_LABEL_KEYS: Record<NotifyChannel, TranslationKey> = {
+  sms: 'settings.notifChannelSms',
+  email: 'settings.notifChannelEmail',
+};
 
 export function NotificationSettingsPanel() {
   const errorMessage = useErrorMessage();
+  const { t } = useLanguage();
   const q = useNotificationSettings();
   const toggle = useToggleNotificationRule();
   const saveTemplate = useSaveNotificationTemplate();
@@ -76,9 +85,9 @@ export function NotificationSettingsPanel() {
   const [draft, setDraft] = useState({ subject: '', body: '' });
   const [newHoliday, setNewHoliday] = useState({ name: '', sendOn: '' });
 
-  if (q.isLoading) return <p className="text-sm text-slate-500">Loading…</p>;
+  if (q.isLoading) return <p className="text-sm text-slate-500">{t('loading')}</p>;
   const d = q.data;
-  if (!d) return <p className="text-sm text-red-600">读取失败。</p>;
+  if (!d) return <p className="text-sm text-red-600">{t('settings.notifLoadFailed')}</p>;
 
   const smsOpen = d.gates.tenDlcStatus === 'approved';
   const emailOpen = Boolean(d.gates.marketingEmailFrom);
@@ -88,17 +97,17 @@ export function NotificationSettingsPanel() {
   function blockedReason(eventKey: string, channel: NotifyChannel): string | null {
     if (!isMarketing(eventKey)) return null;
     if (channel === 'sms' && !smsOpen) {
-      return `门店 10DLC 还是「${d!.gates.tenDlcStatus}」，营销短信一条都不会发出去`;
+      return t('settings.notifSmsBlockedByTenDlc', { p0: d!.gates.tenDlcStatus });
     }
     if (channel === 'email' && !emailOpen) {
-      return '还没配专属发件域名，营销邮件一封都不会发出去';
+      return t('settings.notifEmailBlockedNoDomain');
     }
     return null;
   }
 
   function templateFor(eventKey: string, channel: NotifyChannel) {
     return d!.templates.find(
-      (t) => t.eventKey === eventKey && t.channel === channel && t.locale === 'en');
+      (tpl) => tpl.eventKey === eventKey && tpl.channel === channel && tpl.locale === 'en');
   }
 
   async function onToggleChannel(
@@ -124,33 +133,33 @@ export function NotificationSettingsPanel() {
     <div className="space-y-6">
       {/* ── 闸门状态：这一页最要紧的一半 ─────────────────────────── */}
       <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
-        <h3 className="text-sm font-bold text-slate-900">营销消息的两道闸门</h3>
+        <h3 className="text-sm font-bold text-slate-900">{t('settings.notifGatesTitle')}</h3>
         <p className="text-xs text-slate-500">
-          预约类与技师类不受这两道限制，任何时候都在发。下面这两道只管营销。
+          {t('settings.notifGatesDesc')}
         </p>
         <GateRow
           ok={smsOpen}
-          label="营销短信 · 门店 10DLC"
-          detail={smsOpen ? '已获批，营销短信可发' : `当前状态：${d.gates.tenDlcStatus} —— 未获批之前一条都不发`}
+          label={t('settings.notifSmsGateLabel')}
+          detail={smsOpen ? t('settings.notifSmsGateOpen') : t('settings.notifSmsGateClosed', { p0: d.gates.tenDlcStatus })}
         />
         <GateRow
           ok={emailOpen}
-          label="营销邮件 · 专属发件域名"
+          label={t('settings.notifEmailGateLabel')}
           detail={emailOpen
-            ? `已就绪：${d.gates.marketingEmailFrom}`
-            : '还没配 —— 未配之前一封都不发'}
+            ? t('settings.notifEmailGateOpen', { p0: d.gates.marketingEmailFrom ?? '' })
+            : t('settings.notifEmailGateClosed')}
         />
         <p className="text-xs text-slate-500 pt-1">
-          另外两条恒定生效：顾客必须<strong>明示订阅</strong>过营销；营销短信只在门店本地
-          {' '}{d.gates.quietHours.start}:00–{d.gates.quietHours.end}:00 之间投递。
+          {t('settings.notifAlwaysOnRule')}<strong>{t('settings.notifOptInEmphasis')}</strong>{t('settings.notifAlwaysOnRuleMid')}
+          {' '}{d.gates.quietHours.start}:00–{d.gates.quietHours.end}:00{t('settings.notifQuietHoursSuffix')}
         </p>
       </div>
 
       {/* ── 12 个事件 ─────────────────────────────────────────────── */}
       {GROUPS.map((group) => (
-        <div key={group.title} className="rounded-xl border border-slate-200 bg-white p-4">
-          <h3 className="text-sm font-bold text-slate-900">{group.title}</h3>
-          <p className="text-xs text-slate-500 mt-0.5 mb-3">{group.hint}</p>
+        <div key={group.titleKey} className="rounded-xl border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-bold text-slate-900">{t(group.titleKey)}</h3>
+          <p className="text-xs text-slate-500 mt-0.5 mb-3">{t(group.hintKey)}</p>
 
           <div className="space-y-2">
             {group.events.map((eventKey) => {
@@ -160,7 +169,7 @@ export function NotificationSettingsPanel() {
                 <div key={eventKey} className="border-t border-slate-100 pt-2">
                   <div className="flex flex-wrap items-center gap-3">
                     <span className="text-sm font-medium text-slate-900 w-32 shrink-0">
-                      {EVENT_LABEL[eventKey] ?? eventKey}
+                      {EVENT_LABEL_KEYS[eventKey] ? t(EVENT_LABEL_KEYS[eventKey]!) : eventKey}
                     </span>
                     {(['sms', 'email'] as NotifyChannel[]).map((channel) => {
                       const on = rule.channels.includes(channel);
@@ -176,7 +185,7 @@ export function NotificationSettingsPanel() {
                               onChange={() => void onToggleChannel(rule, channel)}
                               className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 w-4 h-4"
                             />
-                            {CHANNEL_LABEL[channel]}
+                            {t(CHANNEL_LABEL_KEYS[channel])}
                           </label>
                           <button
                             type="button"
@@ -188,7 +197,7 @@ export function NotificationSettingsPanel() {
                               setDraft({ subject: tpl.subject ?? '', body: tpl.body });
                             }}
                           >
-                            {tpl ? '改文案' : '无模板'}
+                            {tpl ? t('settings.notifEditTemplate') : t('settings.notifNoTemplate')}
                           </button>
                           {on && blocked ? (
                             <span className="text-xs text-amber-700">⚠️ {blocked}</span>
@@ -217,7 +226,7 @@ export function NotificationSettingsPanel() {
                             active: true,
                           });
                           setEditing(null);
-                          toast.success('已保存新版本');
+                          toast.success(t('settings.notifTemplateSaved'));
                         } catch (e) {
                           toast.danger(errorMessage(e));
                         }
@@ -234,16 +243,15 @@ export function NotificationSettingsPanel() {
       {/* ── 节日日程 ──────────────────────────────────────────────── */}
       <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
         <div>
-          <h3 className="text-sm font-bold text-slate-900">节日日程</h3>
+          <h3 className="text-sm font-bold text-slate-900">{t('settings.notifHolidayScheduleTitle')}</h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            生日、唤回、求评的时机系统能自己推出来；节日不能 —— 哪一天、叫什么，
-            要在这里定。名字会直接出现在顾客收到的文案里，所以用英文。
-            <strong>同一天只能有一个。</strong>
+            {t('settings.notifHolidayScheduleDesc')}
+            {' '}<strong>{t('settings.notifHolidayOnePerDay')}</strong>
           </p>
         </div>
 
         {d.holidays.length === 0 ? (
-          <p className="text-xs text-slate-400">还没有节日日程。</p>
+          <p className="text-xs text-slate-400">{t('settings.notifNoHolidays')}</p>
         ) : (
           <div className="space-y-1">
             {d.holidays.map((h) => (
@@ -251,12 +259,12 @@ export function NotificationSettingsPanel() {
                 <span className="font-mono text-slate-600 w-28 shrink-0">{h.sendOn}</span>
                 <span className="text-slate-900 flex-1">{h.name}</span>
                 <span className={`text-xs ${h.enabled ? 'text-teal-700' : 'text-slate-400'}`}>
-                  {h.enabled ? '启用' : '停用'}
+                  {h.enabled ? t('settings.notifHolidayEnabled') : t('settings.notifHolidayDisabled')}
                 </span>
                 <button
                   type="button"
                   className="text-slate-400 hover:text-red-600"
-                  aria-label={`删除 ${h.name}`}
+                  aria-label={t('settings.notifDeleteHolidayAria', { p0: h.name })}
                   disabled={deleteHoliday.isPending}
                   onClick={async () => {
                     try {
@@ -303,7 +311,7 @@ export function NotificationSettingsPanel() {
               }
             }}
           >
-            添加
+            {t('settings.notifAddHoliday')}
           </button>
         </div>
       </div>
@@ -343,6 +351,7 @@ function TemplateEditor(props: {
   onCancel: () => void;
   onSave: () => void | Promise<void>;
 }) {
+  const { t } = useLanguage();
   const { variables, channel, draft, setDraft, pending } = props;
   return (
     <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
@@ -350,7 +359,7 @@ function TemplateEditor(props: {
         <input
           value={draft.subject}
           onChange={(e) => setDraft({ ...draft, subject: e.target.value })}
-          placeholder="邮件标题"
+          placeholder={t('settings.notifEmailSubjectPlaceholder')}
           className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
         />
       ) : null}
@@ -361,15 +370,13 @@ function TemplateEditor(props: {
         className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-mono"
       />
       <p className="text-xs text-slate-500">
-        可用变量：{variables.map((v) => `{{${v}}}`).join('  ')}
+        {t('settings.notifAvailableVariables', { p0: variables.map((v) => `{{${v}}}`).join('  ') })}
         <br />
-        不认识的变量会渲染成空字符串，不会把花括号发给顾客。
+        {t('settings.notifUnknownVariableNote')}
       </p>
       {channel === 'sms' ? (
         <p className="text-xs text-slate-500">
-          ⚠️ 品牌署名与退订说明由系统自动补，不用写进模板 —— 那两项是合规要求，
-          不能被编辑掉。正文请只用英文：一个中文字符就会让整条短信的容量从 160
-          掉到 70，费用翻倍而顾客看到的完全一样。
+          {t('settings.notifSmsTemplateWarning')}
         </p>
       ) : null}
       <div className="flex gap-2">
@@ -379,14 +386,14 @@ function TemplateEditor(props: {
           onClick={() => void props.onSave()}
           className="rounded-lg bg-teal-600 text-white px-3 py-1.5 text-sm disabled:opacity-50"
         >
-          {pending ? '保存中…' : '保存为新版本'}
+          {pending ? t('settings.notifSaving') : t('settings.notifSaveNewVersion')}
         </button>
         <button
           type="button"
           onClick={props.onCancel}
           className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
         >
-          取消
+          {t('settings.notifCancel')}
         </button>
       </div>
     </div>
