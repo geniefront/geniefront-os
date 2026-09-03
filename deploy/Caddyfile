@@ -80,7 +80,9 @@ https://{$API_HOST}, https://{$DESK_HOST} {
 	# fetched by the booking origin; keep no-referrer so a future document
 	# navigation cannot attach the manage token as a Referer.
 	@hosted_json path /public/v1/hosted /public/v1/hosted/*
-	header @hosted_json Referrer-Policy "no-referrer"
+	# Defer the assignment until after reverse_proxy copies Fastify's headers.
+	# Without `>`, Caddy and Fastify each emit the same header value.
+	header @hosted_json >Referrer-Policy "no-referrer"
 	@not_hosted_json not path /public/v1/hosted /public/v1/hosted/*
 	header @not_hosted_json Referrer-Policy "strict-origin-when-cross-origin"
 

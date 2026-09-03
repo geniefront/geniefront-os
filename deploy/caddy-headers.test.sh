@@ -131,11 +131,17 @@ cat > "${WORKDIR}/Caddyfile" <<'EOF'
 	admin off
 	auto_https off
 }
-# API+desk: site-wide strict-origin must not win on hosted JSON.
+# Simulated Fastify upstream: it already emits no-referrer.
+:8083 {
+	header Referrer-Policy "no-referrer"
+	respond "upstream" 200
+}
+# API+desk: site-wide strict-origin must not win on hosted JSON, and the
+# downstream response must contain exactly one Referrer-Policy value.
 :8080 {
 	@hosted_json path /public/v1/hosted /public/v1/hosted/*
 	handle @hosted_json {
-		respond "hosted-json" 200
+		reverse_proxy 127.0.0.1:8083
 	}
 	handle {
 		respond "other" 200
@@ -145,7 +151,7 @@ cat > "${WORKDIR}/Caddyfile" <<'EOF'
 		-Server
 	}
 	@hosted_json_hdr path /public/v1/hosted /public/v1/hosted/*
-	header @hosted_json_hdr Referrer-Policy "no-referrer"
+	header @hosted_json_hdr >Referrer-Policy "no-referrer"
 	@not_hosted_json not path /public/v1/hosted /public/v1/hosted/*
 	header @not_hosted_json Referrer-Policy "strict-origin-when-cross-origin"
 }
@@ -191,6 +197,11 @@ manage_h=$(hdr http://127.0.0.1:18082/l/lotus-nails)
 echo "$hosted_h" | grep -qi '^referrer-policy: no-referrer$' \
   && echo "✓ hosted JSON Referrer-Policy is no-referrer" \
   || { echo "✗ hosted JSON headers:"; echo "$hosted_h"; exit 1; }
+
+hosted_referrer_count=$(echo "$hosted_h" | grep -ci '^referrer-policy:' || true)
+[[ "$hosted_referrer_count" -eq 1 ]] \
+  && echo "✓ hosted JSON emits one Referrer-Policy header" \
+  || { echo "✗ hosted JSON emitted ${hosted_referrer_count} Referrer-Policy headers"; echo "$hosted_h"; exit 1; }
 
 echo "$other_h" | grep -qi '^referrer-policy: strict-origin-when-cross-origin$' \
   && echo "✓ ordinary API Referrer-Policy stays strict-origin-when-cross-origin" \
