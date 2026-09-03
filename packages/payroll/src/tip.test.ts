@@ -174,6 +174,23 @@ describe('余数归属由店规决定', () => {
     ], policy);
     expect(sum(r)).toBe(1001);
   });
+
+  it('滚入次日小费池 (pool_next_day)', () => {
+    const policy: TipPolicy = {
+      ...DEFAULT_TIP_POLICY, remainderTo: 'pool_next_day',
+    };
+    // 1000 分 3 个人均分：每人 333，余数 1 分滚入次日小费池
+    const r = allocateTip(1000, [
+      line('Amy', 60, 5000),
+      line('Linh', 60, 5000),
+      line('Kim', 60, 5000),
+    ], policy);
+    expect(got(r, 'Amy')).toBe(333);
+    expect(got(r, 'Linh')).toBe(333);
+    expect(got(r, 'Kim')).toBe(333);
+    expect(r.pooledCents).toBe(1);
+    expect(sum(r) + r.pooledCents).toBe(1000);
+  });
 });
 
 describe('可解释性（技师下班要看懂自己为什么分这么多）', () => {

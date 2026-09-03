@@ -38,6 +38,8 @@ import type { CustomerListRow } from '@/features/customers/types';
 import { centsToDollars } from '@/features/checkout/api';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { GuardedButton } from '@/components/ui/GuardedButton';
+import { useCan } from '@/lib/permissions';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -92,6 +94,7 @@ function Money({ cents, hiddenLabel }: { cents: number | null; hiddenLabel: stri
 function CustomersContent() {
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
+  const canViewContact = useCan('customer.view_contact');
 
   // 从 URL 初始化默认选中 ID（如 /customers/cust_123）
   const initialId = useMemo(() => {
@@ -406,16 +409,19 @@ function CustomersContent() {
     const headers = ['客户姓名', 'VIP等级', '联系电话', '到店次数', '距上次到店天数', '爽约次数'];
     const csvContent = [
       headers.join(','),
-      ...rows.map((r) =>
-        [
+      ...rows.map((r) => {
+        const phone = canViewContact
+          ? (r.phone || '')
+          : (r.phone ? r.phone.replace(/(\+?1)?(\d{3})\d{3}(\d{4})/, '$2-***-$3') : '');
+        return [
           `"${r.displayName}"`,
           r.vipLevel,
-          `"${r.phone || ''}"`,
+          `"${phone}"`,
           r.visitCount,
           r.daysSinceLastVisit ?? '从未到店',
           r.noShowCount,
-        ].join(','),
-      ),
+        ].join(',');
+      }),
     ].join('\n');
 
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -444,7 +450,9 @@ function CustomersContent() {
         description={t('crm.custDesc')}
         actions={
           <div className="flex items-center gap-2">
-            <Button
+            <GuardedButton
+              permission="customer.view_contact"
+              fallback="disable"
               variant="secondary"
               size="sm"
               onClick={handleExportCsv}
@@ -452,7 +460,7 @@ function CustomersContent() {
             >
               <Download className="w-3.5 h-3.5 text-slate-600" />
               <span>{t('crm.custExportCsv')}</span>
-            </Button>
+            </GuardedButton>
             <Button
               size="sm"
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-xs gap-1.5"

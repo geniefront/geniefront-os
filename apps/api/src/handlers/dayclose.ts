@@ -122,7 +122,7 @@ export async function loadDayMoney(
            coalesce(sum(tr.customer_credit_cents), 0)::int as credit
     from ticket_refunds tr
     join tickets t on t.id = tr.ticket_id
-    where tr.location_id = ${locationId} and t.business_date = ${date}`;
+    where tr.location_id = ${locationId} and tr.business_date = ${date}`;
 
   const [tips] = await tx<{ cash: number; card: number }[]>`
     select
@@ -507,7 +507,10 @@ registerHandler(FinalizeDay, async ({ input, ctx, tx, audit }: HandlerArgs<
       details: { businessDate: date, thresholdCents: VARIANCE_REASON_THRESHOLD_CENTS },
     });
   }
-  if (row.card_variance !== null && row.card_variance !== 0 && !row.card_reason) {
+  const card = row.card_terminal !== null
+    ? reconcileCard(money.cardTakeCents, row.card_terminal)
+    : null;
+  if (card?.needsReason && !row.card_reason) {
     throw new AppError(ERROR_CODES.VARIANCE_REASON_REQUIRED, {
       details: { businessDate: date, which: 'card' },
     });
@@ -564,7 +567,7 @@ registerHandler(FinalizeDay, async ({ input, ctx, tx, audit }: HandlerArgs<
     cardRefundCents: money.cardRefundCents,
     cardTerminalCents: row.card_terminal,
     cardExpectedCents: money.cardTakeCents,
-    cardVarianceCents: row.card_variance ?? 0,
+    cardVarianceCents: card ? card.varianceCents : (row.card_variance ?? 0),
     grossCents: money.grossCents,
     discountCents: money.discountCents,
     netCents: money.netCents,

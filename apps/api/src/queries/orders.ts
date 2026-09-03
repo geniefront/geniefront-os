@@ -4,6 +4,7 @@
 
 import type postgres from 'postgres';
 import { type CommandContext, asInt } from '@gf/contracts';
+import { maskPhone } from './staff';
 
 export interface OrderItemDto {
   itemId: string;
@@ -235,7 +236,7 @@ export async function loadOrders(
     businessDate: t.business_date,
     status: t.status,
     customerName: t.customer_name ?? t.walk_in_name ?? '散客',
-    customerPhone: t.phone,
+    customerPhone: ctx.permissions.has('customer.view_contact') ? t.phone : maskPhone(t.phone),
     customerId: t.customer_id,
     openedAt: new Date(t.opened_at).toISOString(),
     closedAt: t.closed_at ? new Date(t.closed_at).toISOString() : null,

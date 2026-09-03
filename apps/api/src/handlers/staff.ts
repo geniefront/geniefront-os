@@ -330,6 +330,16 @@ registerHandler(StaffRecordDirectCashTip, async ({ input, ctx, tx, audit, emit }
  *
  * 历史记录在校验通过时就地升级成 scrypt 格式，技师无感。
  */
+interface PinLockout {
+  fails: number;
+  lockedUntil: number;
+}
+const pinLockouts = new Map<string, PinLockout>();
+
+export function __resetPinLockoutsForTest(): void {
+  pinLockouts.clear();
+}
+
 async function assertPin(
   tx: postgres.TransactionSql, membershipId: string, pin: string | undefined,
 ): Promise<void> {
@@ -342,10 +352,44 @@ async function assertPin(
     });
   }
 
+  const now = Date.now();
+  const attempt = pinLockouts.get(membershipId);
+  if (attempt && attempt.lockedUntil > now) {
+    const retryAfterSec = Math.ceil((attempt.lockedUntil - now) / 1000);
+    throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+      details: {
+        reason: 'pin_locked',
+        retryAfterSec,
+        hint: `PIN 码错误次数过多，请在 ${retryAfterSec} 秒后重试`,
+      },
+    });
+  }
+
   const verdict = await verifyPin(pin, row.pin_hash, membershipId);
   if (!verdict.ok) {
-    throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { reason: 'PIN 不对' } });
+    const fails = (attempt?.fails ?? 0) + 1;
+    const lockedUntil = fails >= 5 ? now + 15 * 60 * 1000 : 0;
+    pinLockouts.set(membershipId, { fails, lockedUntil });
+    if (lockedUntil > 0) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+        details: {
+          reason: 'pin_locked',
+          retryAfterSec: 900,
+          hint: 'PIN 码连续输错 5 次，已临时锁定 15 分钟',
+        },
+      });
+    }
+    throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+      details: {
+        reason: 'PIN 不对',
+        remainingAttempts: Math.max(0, 5 - fails),
+      },
+    });
   }
+
+  // 验证通过，清除失败记录
+  pinLockouts.delete(membershipId);
+
   if (verdict.needsRehash) {
     await tx`
       update staff_profiles set pin_hash = ${await hashPin(pin)}

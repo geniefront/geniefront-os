@@ -4,6 +4,7 @@
 
 import type postgres from 'postgres';
 import { pickText, AppError, ERROR_CODES, type CommandContext } from '@gf/contracts';
+import { maskPhone } from './staff';
 
 export interface AppointmentItemDetailDto {
   itemId: string;
@@ -201,7 +202,7 @@ export async function loadAppointmentDetail(
     customer: {
       id: apt.customer_id,
       name: apt.customer_name ?? apt.walk_in_name ?? '客人',
-      phone: apt.customer_phone,
+      phone: ctx.permissions.has('customer.view_contact') ? apt.customer_phone : maskPhone(apt.customer_phone),
       hasHealthForm,
       healthFormSubmissionId,
       allergiesSummary,

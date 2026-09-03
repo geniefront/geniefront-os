@@ -193,18 +193,49 @@ export function Layout() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      const disabled = localStorage.getItem('desk_shortcuts_enabled') === 'false';
+      if (disabled) return;
+
+      const target = e.target as HTMLElement | null;
+      const isInput = target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable
+      );
+
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         globalInputRef.current?.focus();
         setGlobalSearchOpen(true);
+        return;
       }
       if (e.key === 'Escape') {
         setGlobalSearchOpen(false);
+        return;
+      }
+
+      // 仅在非输入状态下触发前台高频快捷键（宪法第 12 条键盘流）
+      if (!isInput && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (e.key === '/') {
+          e.preventDefault();
+          globalInputRef.current?.focus();
+          setGlobalSearchOpen(true);
+        } else if (e.key.toLowerCase() === 'c') {
+          e.preventDefault();
+          navigate('/checkout');
+        } else if (e.key.toLowerCase() === 'r') {
+          e.preventDefault();
+          navigate('/rotation');
+        } else if (e.key.toLowerCase() === 'q') {
+          e.preventDefault();
+          navigate('/queue');
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {

@@ -582,25 +582,37 @@ async function closeOneTicket(args: {
           details: { reason: 'tip_split_mismatch', expected: totalTip, received: splitTotal },
         });
       }
-      for (const split of tipSplits) {
+      const splitCashAmounts = cashTip > 0
+        ? largestRemainderSplit(cashTip, tipSplits.map((s) => s.amountCents))
+        : tipSplits.map(() => 0);
+
+      for (const [idx, split] of tipSplits.entries()) {
         if (split.amountCents <= 0) continue;
-        const src = cardTip > 0 ? 'card' : 'cash';
-        await tx`insert into tip_allocations
-          (org_id, location_id, ticket_id, membership_id, amount_cents, basis, source, policy_version)
-          values (${ctx.orgId}, ${ctx.locationId}, ${ticket.id}, ${split.staffMembershipId},
-                  ${split.amountCents}, ${jsonb({ method: 'custom_split', percentageBp: split.percentageBp })}::jsonb, ${src}, ${version})`;
-        await writeTipEarning({
-          tx, ctx, ticketId: ticket.id, businessDate: ticket.businessDate,
-          membershipId: split.staffMembershipId, amountCents: split.amountCents,
-          source: src, basis: { method: 'custom_split' }, policyVersion: version,
-        });
-        out.push({
-          membershipId: split.staffMembershipId,
-          name: split.staffName ?? '技师',
-          amountCents: split.amountCents,
-          source: src,
-          explain: `自定义分账 $${(split.amountCents / 100).toFixed(2)}`,
-        });
+        const cashPart = splitCashAmounts[idx]!;
+        const cardPart = split.amountCents - cashPart;
+
+        const parts: Array<{ src: 'cash' | 'card'; cents: number }> = [];
+        if (cashPart > 0) parts.push({ src: 'cash', cents: cashPart });
+        if (cardPart > 0) parts.push({ src: 'card', cents: cardPart });
+
+        for (const { src, cents } of parts) {
+          await tx`insert into tip_allocations
+            (org_id, location_id, ticket_id, membership_id, amount_cents, basis, source, policy_version)
+            values (${ctx.orgId}, ${ctx.locationId}, ${ticket.id}, ${split.staffMembershipId},
+                    ${cents}, ${jsonb({ method: 'custom_split', percentageBp: split.percentageBp })}::jsonb, ${src}, ${version})`;
+          await writeTipEarning({
+            tx, ctx, ticketId: ticket.id, businessDate: ticket.businessDate,
+            membershipId: split.staffMembershipId, amountCents: cents,
+            source: src, basis: { method: 'custom_split' }, policyVersion: version,
+          });
+          out.push({
+            membershipId: split.staffMembershipId,
+            name: split.staffName ?? '技师',
+            amountCents: cents,
+            source: src,
+            explain: `自定义分账 $${(cents / 100).toFixed(2)} (${src === 'cash' ? '现金' : '刷卡'})`,
+          });
+        }
       }
     } else {
       // 现金小费与刷卡小费分开算：现金当天发，刷卡进工资（00 §3.1）
@@ -815,7 +827,8 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
       details: { reason: 'ticket_not_paid', status: t.status },
     });
   }
-  await assertDayOpen(tx, ctx.locationId, t.business_date);
+  const refundDate = await bizDate(tx, ctx.locationId);
+  await assertDayOpen(tx, ctx.locationId, refundDate);
 
   // A/B have already created financial records before fulfillment.  They may
   // only be cancelled by returning the entire recorded amount; partial refunds
@@ -837,17 +850,17 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
 
   const [already] = await tx<{
     service: number; tax: number; fee: number; tip: number;
-    original_cash: number; original_card: number; original_gift: number; original_credit: number;
+    refunded_cash: number; refunded_card: number; refunded_gift: number; refunded_credit: number;
   }[]>`
     select
       coalesce(sum(service_cents), 0)::int as service,
       coalesce(sum(tax_cents), 0)::int as tax,
       coalesce(sum(fee_cents), 0)::int as fee,
       coalesce(sum(tip_cents), 0)::int as tip,
-      coalesce(sum(cash_cents) filter (where method = 'original_payment'), 0)::int as original_cash,
-      coalesce(sum(card_cents) filter (where method = 'original_payment'), 0)::int as original_card,
-      coalesce(sum(gift_card_cents) filter (where method = 'original_payment'), 0)::int as original_gift,
-      coalesce(sum(customer_credit_cents) filter (where method = 'original_payment'), 0)::int as original_credit
+      coalesce(sum(cash_cents), 0)::int as refunded_cash,
+      coalesce(sum(card_cents), 0)::int as refunded_card,
+      coalesce(sum(gift_card_cents), 0)::int as refunded_gift,
+      coalesce(sum(customer_credit_cents), 0)::int as refunded_credit
     from ticket_refunds where ticket_id = ${t.id}`;
 
   if (prepaidActivity && input.refundTipCents !== t.tip_cents - (already?.tip ?? 0)) {
@@ -888,10 +901,10 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
         coalesce(sum(amount_cents) filter (where method = 'customer_credit'), 0)::int as credit
       from payments where ticket_id = ${t.id}`;
     const remainingChannels = [
-      Math.max(0, (paid?.cash ?? 0) - (already?.original_cash ?? 0)),
-      Math.max(0, (paid?.card ?? 0) - (already?.original_card ?? 0)),
-      Math.max(0, (paid?.gift ?? 0) - (already?.original_gift ?? 0)),
-      Math.max(0, (paid?.credit ?? 0) - (already?.original_credit ?? 0)),
+      Math.max(0, (paid?.cash ?? 0) - (already?.refunded_cash ?? 0)),
+      Math.max(0, (paid?.card ?? 0) - (already?.refunded_card ?? 0)),
+      Math.max(0, (paid?.gift ?? 0) - (already?.refunded_gift ?? 0)),
+      Math.max(0, (paid?.credit ?? 0) - (already?.refunded_credit ?? 0)),
     ];
     if (remainingChannels.reduce((sum, value) => sum + value, 0) < input.refundAmountCents) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
@@ -910,7 +923,7 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
        cash_cents, card_cents, gift_card_cents, customer_credit_cents,
        method, reason, notes, refunded_by)
     values
-      (${ctx.orgId}, ${ctx.locationId}, ${t.id}, ${t.business_date}, ${input.refundAmountCents},
+      (${ctx.orgId}, ${ctx.locationId}, ${t.id}, ${refundDate}, ${input.refundAmountCents},
        ${serviceCents}, ${taxCents}, ${feeCents}, ${input.refundTipCents},
        ${cashCents}, ${cardCents}, ${giftCardCents}, ${customerCreditCents},
        ${input.refundMethod}, ${input.reason}, ${input.notes ?? null}, ${ctx.membershipId})
@@ -1022,7 +1035,7 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
   if (cashCents > 0) {
     await tx`insert into cash_movements
       (org_id, location_id, business_date, kind, amount_cents, note, actor_id)
-      values (${ctx.orgId}, ${ctx.locationId}, ${t.business_date}, 'refund', ${-cashCents},
+      values (${ctx.orgId}, ${ctx.locationId}, ${refundDate}, 'refund', ${-cashCents},
               ${`Refund ${refund!.id}`}, ${ctx.membershipId})`;
   }
 
@@ -1099,7 +1112,7 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
         await tx`insert into earnings
           (org_id, location_id, membership_id, business_date, kind,
            amount_cents, base_cents, ticket_id, basis)
-          values (${ctx.orgId}, ${ctx.locationId}, ${row.membership_id}, ${t.business_date},
+          values (${ctx.orgId}, ${ctx.locationId}, ${row.membership_id}, ${refundDate},
                   'commission', ${-amountDelta}, ${-baseDelta}, ${t.id},
                   ${jsonb({ refund: true, refundId: refund!.id })}::jsonb)`;
       }
@@ -1142,7 +1155,7 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
         await tx`insert into earnings
           (org_id, location_id, membership_id, business_date, kind,
            amount_cents, base_cents, ticket_id, basis, plan_version)
-          values (${ctx.orgId}, ${ctx.locationId}, ${row.membership_id}, ${t.business_date},
+          values (${ctx.orgId}, ${ctx.locationId}, ${row.membership_id}, ${refundDate},
                   ${row.source === 'cash' ? 'tip_cash' : 'tip_card'}, ${-delta}, 0, ${t.id},
                   ${basis}::jsonb, ${row.policy_version})`;
       }
@@ -1224,16 +1237,18 @@ registerHandler(TicketUngroup, async ({ input, ctx, tx, audit }: HandlerArgs<
  */
 registerHandler(TicketCloseGroup, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketCloseGroup.input._type>) => {
-  const tickets: TicketForClose[] = [];
-  for (const id of input.ticketIds) {
+  const sortedTicketIds = [...input.ticketIds].sort();
+  const ticketsById = new Map<string, TicketForClose>();
+  for (const id of sortedTicketIds) {
     const t = await loadTicketForClose(tx, id);
     if (t.groupId !== input.groupId) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { ticketId: id, reason: '这张单不属于这一组' },
       });
     }
-    tickets.push(t);
+    ticketsById.set(id, t);
   }
+  const tickets = input.ticketIds.map((id) => ticketsById.get(id)!);
   await assertDayOpen(tx, ctx.locationId, tickets[0]!.businessDate);
 
   const subtotals = tickets.map((t) => t.subtotalCents);
@@ -1335,6 +1350,11 @@ registerHandler(TicketVoid, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     select status, business_date::text as business_date, appointment_id
     from tickets where id = ${input.ticketId} for update`;
   if (!t) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket' } });
+  if (t.status === 'closed') {
+    throw new AppError(ERROR_CODES.TICKET_ALREADY_CLOSED, {
+      details: { ticketId: input.ticketId, hint: '已结账工单不可作废，请走退款流程 (ticket.refund)' },
+    });
+  }
   if (t.status === 'voided' || t.status === 'refunded') {
     throw new AppError(ERROR_CODES.ALREADY_CANCELLED, { details: { status: t.status } });
   }

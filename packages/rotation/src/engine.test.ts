@@ -175,6 +175,17 @@ describe('前台手动调序（决策 12：人的判断优先，但必须留痕�
     ]);
     expect(s.entries.find((e) => e.name === 'Kim')!.manualRank).toBeNull();
   });
+
+  it('⭐ 手动排到指定中间位次（manualRank: 2，第 3 位），自然队列正确定位', () => {
+    // staff 默认打卡顺序: Amy, Linh, Kim
+    // 所有人 0 轮，自然顺序为 [Amy, Linh, Kim]
+    // 手动将 Amy 插到 index 2 (第 3 位)
+    const s = computeStanding(staff, [
+      E('Amy', 'manual_override', 0, { manualRank: 2, note: '延后接单' }),
+    ]);
+    expect(order(s)).toEqual(['Linh', 'Kim', 'Amy']);
+    expect(s.entries.find((e) => e.name === 'Amy')!.position).toBe(2);
+  });
 });
 
 describe('可解释性（技师质疑时前台要能说清）', () => {

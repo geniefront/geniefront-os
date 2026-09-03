@@ -247,40 +247,43 @@ export function computeStanding(
   const inQueue = entries.filter((e) =>
     e.state === 'available' || (e.state === 'on_break' && policy.onBreak === 'stay_in_place'));
 
-  inQueue.sort((a, b) => {
-    // 1. 手动指定位次最高优先级
-    if (a.manualRank !== b.manualRank) {
-      if (a.manualRank === null) return 1;
-      if (b.manualRank === null) return -1;
-      return a.manualRank - b.manualRank;
-    }
-
-    // 2. 指定首发技师在轮次相同(0轮)时排最前面
+  const naturalQueue = inQueue.filter((e) => e.manualRank === null);
+  naturalQueue.sort((a, b) => {
+    // 1. 指定首发技师在轮次相同(0轮)时排最前面
     if (policy.startingMode === 'designated_staff' && policy.startingStaffMembershipId) {
       if (a.membershipId === policy.startingStaffMembershipId && a.turnsBp === 0 && b.turnsBp === 0) return -1;
       if (b.membershipId === policy.startingStaffMembershipId && a.turnsBp === 0 && b.turnsBp === 0) return 1;
     }
 
-    // 3. 累计轮次
+    // 2. 累计轮次
     if (a.turnsBp !== b.turnsBp) return a.turnsBp - b.turnsBp;
 
-    // 4. 欠轮优先
+    // 3. 欠轮优先
     if (policy.owedTurnPriority && a.owed !== b.owed) return b.owed - a.owed;
 
-    // 5. 初始打卡顺位
+    // 4. 初始打卡顺位
     return (seed.get(a.membershipId) ?? 0) - (seed.get(b.membershipId) ?? 0);
   });
 
-  inQueue.forEach((e, i) => { e.position = i; });
+  const manualOverrides = inQueue
+    .filter((e) => e.manualRank !== null)
+    .sort((a, b) => a.manualRank! - b.manualRank!);
+
+  for (const item of manualOverrides) {
+    const targetPos = Math.max(0, Math.min(item.manualRank!, naturalQueue.length));
+    naturalQueue.splice(targetPos, 0, item);
+  }
+
+  naturalQueue.forEach((e, i) => { e.position = i; });
 
   // 展示顺序：队列里的按位次，不在队列的排在后面
   const display = [
-    ...inQueue,
-    ...entries.filter((e) => !inQueue.includes(e))
+    ...naturalQueue,
+    ...entries.filter((e) => !naturalQueue.includes(e))
       .sort((a, b) => (seed.get(a.membershipId) ?? 0) - (seed.get(b.membershipId) ?? 0)),
   ];
 
-  const nextUp = inQueue.find((e) => e.state === 'available') ?? null;
+  const nextUp = naturalQueue.find((e) => e.state === 'available') ?? null;
   return { entries: display, nextUp };
 }
 

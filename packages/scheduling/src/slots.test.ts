@@ -173,6 +173,19 @@ describe('findOpenSlots', () => {
     expect(starts.has(600)).toBe(true);
   });
 
+  it('⭐ 物理资源（房间/床位）占满时即使技师有空也不报空档', () => {
+    // 技师空闲，但单人房间只有 1 间且 09:00-10:00 (540-600) 已被占用
+    const out = findOpenSlots({
+      ...base,
+      limit: 50,
+      staff: [staff()],
+      resources: [{ id: 'room-1', capacity: 1, busy: [{ startsAt: at(540), endsAt: at(600) }] }],
+    });
+    const starts = new Set(out.map((s) => s.startMin));
+    expect(starts.has(540)).toBe(false);
+    expect(starts.has(600)).toBe(true);
+  });
+
   it('门店上限没设（null）时按在岗可接客人数算', () => {
     // 两位技师在岗 = 上限 2；已有一单，两位客人一起来就超了
     const busyOne = [{ startsAt: at(540), endsAt: at(600) }];

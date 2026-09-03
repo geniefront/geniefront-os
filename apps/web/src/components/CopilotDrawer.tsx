@@ -682,7 +682,11 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
             : s,
         ),
       );
-      void queryClient.invalidateQueries({ queryKey: ['rooms', 'day', 'schedule', 'appointments', 'floorSnapshot', 'analytics', 'customers', 'queue', 'rotation'] });
+      const targetKeys = ['rooms', 'day', 'schedule', 'appointments', 'floorSnapshot', 'analytics', 'customers', 'queue', 'rotation'];
+      for (const key of targetKeys) {
+        void queryClient.invalidateQueries({ queryKey: [key] });
+        void queryClient.invalidateQueries({ queryKey: ['desk', key] });
+      }
     } catch (err: any) {
       toast.danger(t('schedule.copilotExecFailed', { p0: err.message || '权限冲突' }));
     } finally {

@@ -345,7 +345,6 @@ export interface AppointmentFormVersionDto {
   signedAt: string | null;
   createdAt: string;
   expiresOn: string | null;
-  answers: Record<string, unknown> | null;
   anonymized: boolean;
   locale: string;
 }
@@ -375,15 +374,14 @@ export async function loadAppointmentForms(
 
   const rows = await tx<{
     id: string; template_id: string; template_version: number; title: unknown; template_key: string;
-    version: number; is_latest: boolean; answers_encrypted: Buffer | null;
+    version: number; is_latest: boolean;
     signer_name: string | null; signer_relation: string; signature_url: string | null;
-    signature_encrypted: Buffer | null;
     signed_at: Date | string | null; created_at: Date | string; expires_on: string | null;
     anonymized_at: Date | string | null; locale: string;
   }[]>`
     select s.id, s.template_id, s.template_version, t.title, t.key as template_key,
-           s.version, s.is_latest, s.answers_encrypted,
-           s.signer_name, s.signer_relation, s.signature_url, s.signature_encrypted,
+           s.version, s.is_latest,
+           s.signer_name, s.signer_relation, s.signature_url,
            s.signed_at, s.created_at, s.expires_on::text as expires_on, s.anonymized_at,
            s.locale
     from form_submissions s
@@ -395,41 +393,23 @@ export async function loadAppointmentForms(
       )
     order by s.version desc, s.created_at desc`;
 
-  const key = process.env['FORM_ENCRYPTION_KEY'] ? loadFormKey(process.env['FORM_ENCRYPTION_KEY']) : null;
-
-  const forms: AppointmentFormVersionDto[] = rows.map((r) => {
-    let answers: Record<string, unknown> | null = null;
-    let signatureUrl = r.signature_url;
-    if (r.answers_encrypted && !r.anonymized_at && key) {
-      try {
-        answers = decryptAnswers(r.answers_encrypted, key) as Record<string, unknown>;
-        if (r.signature_encrypted) {
-          signatureUrl = decryptAnswers(r.signature_encrypted, key) as string;
-        }
-      } catch {
-        answers = null;
-        signatureUrl = null;
-      }
-    }
-    return {
-      submissionId: r.id,
-      templateId: r.template_id,
-      templateTitle: (r.title ?? {}) as Record<string, string>,
-      templateKey: r.template_key,
-      templateVersion: r.template_version,
-      version: r.version,
-      isLatest: r.is_latest,
-      signerName: r.signer_name,
-      signerRelation: r.signer_relation,
-      signatureUrl: r.anonymized_at ? null : signatureUrl,
-      signedAt: r.signed_at ? new Date(r.signed_at).toISOString() : null,
-      createdAt: new Date(r.created_at).toISOString(),
-      expiresOn: r.expires_on,
-      answers,
-      anonymized: r.anonymized_at !== null,
-      locale: r.locale,
-    };
-  });
+  const forms: AppointmentFormVersionDto[] = rows.map((r) => ({
+    submissionId: r.id,
+    templateId: r.template_id,
+    templateTitle: (r.title ?? {}) as Record<string, string>,
+    templateKey: r.template_key,
+    templateVersion: r.template_version,
+    version: r.version,
+    isLatest: r.is_latest,
+    signerName: r.signer_name,
+    signerRelation: r.signer_relation,
+    signatureUrl: r.anonymized_at ? null : r.signature_url,
+    signedAt: r.signed_at ? new Date(r.signed_at).toISOString() : null,
+    createdAt: new Date(r.created_at).toISOString(),
+    expiresOn: r.expires_on,
+    anonymized: r.anonymized_at !== null,
+    locale: r.locale,
+  }));
 
   return { forms };
 }

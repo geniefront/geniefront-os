@@ -172,9 +172,14 @@ export function allocateTip(
 
   const cents = [...floors];
   const gotRemainder = new Set<number>();
-  for (const { i } of order) {
-    if (left <= 0) break;
-    cents[i] = cents[i]! + 1; left -= 1; gotRemainder.add(i);
+  let pooledCents = 0;
+  if (policy.remainderTo === 'pool_next_day') {
+    pooledCents = left;
+  } else {
+    for (const { i } of order) {
+      if (left <= 0) break;
+      cents[i] = cents[i]! + 1; left -= 1; gotRemainder.add(i);
+    }
   }
 
   // 余数归属：店规说了算（remainder_to）。上面按小数排序只是保证总额对得上，
@@ -235,7 +240,7 @@ export function allocateTip(
     },
   }));
 
-  return { allocations, pooledCents: 0 };
+  return { allocations, pooledCents };
 }
 
 /** 把 basis 翻译成技师看得懂的一句话 */

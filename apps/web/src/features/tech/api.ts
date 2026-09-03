@@ -61,6 +61,31 @@ export function useTechPunchMutation() {
   });
 }
 
+export function useDeskPunchMutation() {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { targetMembershipId: string; kind: PunchKind; pin?: string }) => (
+      await runCommand<{
+        punchId: string;
+        kind: string;
+        at: string;
+        onDuty: boolean;
+        workedMinutes: number;
+      }>(
+        'timeclock.punch',
+        { kind: args.kind, membershipId: args.targetMembershipId, pin: args.pin },
+        requireMembership(membershipId),
+      )
+    ).result,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'rotation'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'staff'] });
+    },
+  });
+}
+
 export function useTechStartServiceMutation() {
   const { membershipId } = useSession();
   const refresh = useRefreshTechToday();

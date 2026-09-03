@@ -73,6 +73,15 @@ export interface FindSlotsArgs {
     /** 全店当天已占用的时段（含未派技师的） */
     busy: readonly Interval[];
   } | null;
+  /**
+   * ⭐ 物理资源硬约束（房间/床位/美甲台）。
+   * 若物理资源被占满（可用资源数 < partySize），即便技师有空也不可报出空档。
+   */
+  resources?: readonly {
+    id: string;
+    capacity: number;
+    busy: readonly Interval[];
+  }[] | null;
   /** 客人说的时间窗（营业日分钟）。不给就整天找 */
   windowStartMin?: number;
   windowEndMin?: number;
@@ -109,6 +118,7 @@ export function findOpenSlots(args: FindSlotsArgs): OpenSlot[] {
     businessDate, timezone, openMin, closeMin, durationMin, staff,
     slotMinutes = 15, preferredMembershipId = null,
     candidateMembershipIds = null, partySize = 1, location = null,
+    resources = null,
     nowMin, limit = 5, toInstant,
   } = args;
 
@@ -155,6 +165,14 @@ export function findOpenSlots(args: FindSlotsArgs): OpenSlot[] {
     // 一起来的两位客人要两个人接。凑不齐就整个时刻都不报
     if (free.length < party) continue;
     if (location && !locationHasRoom(location, candidate, party, staff.length)) continue;
+
+    if (resources && resources.length > 0) {
+      const freeResources = resources.filter((r) => {
+        const overlapsCount = r.busy.filter((b) => overlaps(candidate, b)).length;
+        return overlapsCount < r.capacity;
+      });
+      if (freeResources.length < Math.min(party, resources.length)) continue;
+    }
 
     for (const s of free) {
       out.push({

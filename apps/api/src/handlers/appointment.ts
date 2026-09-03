@@ -680,7 +680,7 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit }: HandlerArgs
   }[]>`
     select id, status, source, business_date::text as business_date
     from appointments
-    where id = ${input.appointmentId} and location_id = ${ctx.locationId}`;
+    where id = ${input.appointmentId} and location_id = ${ctx.locationId} for update`;
   if (!appt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
 
   if (appt.status === 'cancelled') {
@@ -781,7 +781,7 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
 
   const [appt] = await tx<{ id: string; status: string; starts_at: string }[]>`
     select id, status, starts_at::text as starts_at from appointments
-    where id = ${input.appointmentId} and location_id = ${ctx.locationId}`;
+    where id = ${input.appointmentId} and location_id = ${ctx.locationId} for update`;
   if (!appt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
   if (appt.status === 'cancelled') {
     throw new AppError(ERROR_CODES.ALREADY_CANCELLED, { details: { appointmentId: appt.id } });
