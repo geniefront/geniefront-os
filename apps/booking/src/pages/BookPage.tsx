@@ -14,7 +14,7 @@ import { saveLastBooking } from '../lib/session';
 import { hostedManagePath } from '../lib/manageToken';
 import { loadTurnstile, type TurnstileApi } from '../lib/turnstile';
 import {
-  Btn, CallShop, Card, Dock, Loading, Note, PhoneLink, Shell, Topbar, type BookStep,
+  Btn, CallShop, Card, Dock, Loading, Note, PhoneLink, Progress, Shell, Topbar, type BookStep,
 } from '../components/Chrome';
 import { useLanguage } from '../lib/i18n';
 
@@ -200,10 +200,15 @@ export function BookPage() {
   const addons = catalog?.addons.filter((a) => draft.addonIds.includes(a.id)) ?? [];
 
   return (
-    <div className="md:grid md:grid-cols-[minmax(0,1fr)_280px] md:gap-6">
+    <div className="min-h-screen bg-[var(--paper)]">
+      <div className="bg-[var(--surface)]">
+        <Shell><Topbar shop={shop} step={step} /></Shell>
+      </div>
       <Shell>
-        <Topbar shop={shop} step={step} />
-        {banner && <Note warn>{banner}</Note>}
+        <div className="pt-4 md:hidden"><Progress step={step} /></div>
+        <div className="booking-main">
+          <main className="min-w-0">
+          {banner && <Note warn>{banner}</Note>}
 
         {step === 'services' && (
           catalog
@@ -258,20 +263,22 @@ export function BookPage() {
           />
         )}
 
-        {shop.phone && step !== 'success' && (
-          <p className="mt-6 text-center text-sm text-[var(--muted)]">
-            Questions? Call <PhoneLink shop={shop} />
-          </p>
-        )}
-      </Shell>
+          {shop.phone && step !== 'success' && (
+            <p className="mt-6 text-center text-sm text-[var(--muted)]">
+              Need help? Call <PhoneLink shop={shop} />
+            </p>
+          )}
+          </main>
 
-      {service && step !== 'success' && (
-        <aside className="hidden md:sticky md:top-6 md:mt-6 md:block md:self-start">
-          <Summary shop={shop} service={service} addons={addons} draft={draft} staffName={
-            draft.staffId ? avail?.staff.find((s) => s.id === draft.staffId)?.displayName ?? null : 'Any specialist'
-          } />
-        </aside>
-      )}
+          {service && step !== 'success' && (
+            <aside className="hidden md:block">
+              <Summary shop={shop} service={service} addons={addons} draft={draft} staffName={
+                draft.staffId ? avail?.staff.find((s) => s.id === draft.staffId)?.displayName ?? null : 'Any specialist'
+              } />
+            </aside>
+          )}
+        </div>
+      </Shell>
     </div>
   );
 }
@@ -283,19 +290,59 @@ function Summary({
 }) {
   const mins = service.durationMin + addons.reduce((n, a) => n + a.durationMin, 0);
   const cents = service.priceCents + addons.reduce((n, a) => n + a.priceCents, 0);
+  const address = typeof shop.address === 'string'
+    ? shop.address
+    : shop.address ? Object.values(shop.address).filter(Boolean).join(', ') : '';
   return (
-    <Card>
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">Your appointment</h2>
-      <p className="mt-2 font-semibold">{service.name}</p>
-      {addons.map((a) => <p key={a.id} className="text-sm text-[var(--muted)]">+ {a.name}</p>)}
-      <p className="mt-2 text-sm">{duration(mins)} · {money(cents, shop.currency)}</p>
-      {staffName && <p className="mt-2 text-sm">{staffName}</p>}
-      {draft.startsAt && (
-        <p className="mt-2 text-sm">
-          {dateOf(draft.startsAt, shop.timezone)} · {timeOf(draft.startsAt, shop.timezone)}
-        </p>
-      )}
+    <Card className="summary-card !p-0">
+      <div className="border-b border-[var(--line)] bg-[linear-gradient(145deg,#f3fbfa,#fff)] p-6">
+        <div className="flex items-start gap-3">
+          <div className="brand-mark">{shop.name.slice(0, 1).toUpperCase()}</div>
+          <div>
+            <h2 className="font-bold tracking-[-0.01em]">{shop.name}</h2>
+            {address && <p className="mt-1 text-sm leading-5 text-[var(--muted)]">{address}</p>}
+            {shop.phone && <p className="mt-1 text-sm text-[var(--muted)]">{shop.phone}</p>}
+          </div>
+        </div>
+      </div>
+      <div className="p-6">
+        <p className="step-kicker">Your appointment</p>
+        <div className="mt-4 flex items-start justify-between gap-4">
+          <div>
+            <p className="font-bold">{service.name}</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">{duration(service.durationMin)}</p>
+          </div>
+          <p className="font-bold">{money(service.priceCents, shop.currency)}</p>
+        </div>
+        {addons.map((a) => (
+          <div key={a.id} className="mt-3 flex justify-between gap-3 text-sm text-[var(--muted)]">
+            <span>+ {a.name}</span><span>{money(a.priceCents, shop.currency)}</span>
+          </div>
+        ))}
+        <div className="mt-5 grid gap-3 border-t border-[var(--line)] pt-5 text-sm">
+          {staffName && <SummaryRow icon="person" label="Specialist" value={staffName} />}
+          {draft.startsAt && (
+            <SummaryRow icon="calendar" label="Date & time" value={`${dateOf(draft.startsAt, shop.timezone)} · ${timeOf(draft.startsAt, shop.timezone)}`} />
+          )}
+          {!draft.startsAt && <SummaryRow icon="calendar" label="Date & time" value="Not selected yet" muted />}
+        </div>
+      </div>
+      <div className="flex items-center justify-between border-t border-[var(--line)] bg-[#fbfcfc] px-6 py-5">
+        <div><p className="text-sm text-[var(--muted)]">Total · {duration(mins)}</p><p className="text-xs text-[var(--muted-light)]">Taxes calculated at checkout</p></div>
+        <p className="text-xl font-extrabold">{money(cents, shop.currency)}</p>
+      </div>
     </Card>
+  );
+}
+
+function SummaryRow({ icon, label, value, muted = false }: { icon: 'person' | 'calendar'; label: string; value: string; muted?: boolean }) {
+  return (
+    <div className="flex gap-3">
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--brand-soft)] text-[var(--brand)]" aria-hidden="true">
+        {icon === 'person' ? '◉' : '□'}
+      </span>
+      <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-light)]">{label}</p><p className={muted ? 'text-[var(--muted)]' : 'font-medium'}>{value}</p></div>
+    </div>
   );
 }
 
@@ -314,31 +361,38 @@ function ServiceStep({
 
   return (
     <>
+      <div className="mb-6">
+        <p className="step-kicker">Step 1 of 4</p>
+        <h2 className="text-3xl font-extrabold tracking-[-0.035em]">{t('step.selectService', 'Choose a service')}</h2>
+        <p className="mt-2 text-[var(--muted)]">Select the service you would like to book.</p>
+      </div>
       <Card>
-        <h2 className="text-xl font-bold">{t('step.selectService', 'Choose a service')}</h2>
-        <ul className="mt-4 grid gap-2">
+        <ul className="grid gap-3">
           {catalog.services.map((s) => (
             <li key={s.id}>
               <button
                 type="button"
                 data-testid={`service-${s.id}`}
                 onClick={() => { setServiceId(s.id); setAddonIds([]); }}
-                className={`flex min-h-14 w-full items-center justify-between rounded-2xl border px-4 text-left ${
-                  serviceId === s.id ? 'border-[var(--brand)] bg-[var(--mint)]' : 'border-[var(--line)]'
-                }`}
+                aria-pressed={serviceId === s.id}
+                className="choice-card flex min-h-[82px] w-full items-center justify-between gap-4 rounded-2xl border border-[var(--line)] px-5 py-4 text-left"
               >
-                <span>
-                  <span className="block font-semibold">{s.name}</span>
-                  <span className="text-sm text-[var(--muted)]">{duration(s.durationMin)}</span>
+                <span className="flex min-w-0 items-center gap-4">
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[var(--brand-soft)] text-lg font-bold text-[var(--brand)]" aria-hidden="true">✦</span>
+                  <span className="min-w-0">
+                    <span className="block font-bold">{s.name}</span>
+                    <span className="mt-1 block text-sm text-[var(--muted)]">{s.description || `${duration(s.durationMin)} appointment`}</span>
+                  </span>
                 </span>
-                <span className="font-semibold">{money(s.priceCents, shop.currency)}</span>
+                <span className="shrink-0 text-right"><span className="block font-bold">{money(s.priceCents, shop.currency)}</span><span className="text-sm text-[var(--muted)]">{duration(s.durationMin)}</span></span>
               </button>
             </li>
           ))}
         </ul>
         {service && catalog.addons.length > 0 && (
           <div className="mt-5">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">{t('step.addons', 'Add-ons')}</h3>
+            <h3 className="text-base font-bold">Enhance your service</h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">Optional add-ons can be selected below.</p>
             <ul className="mt-2 grid gap-2">
               {catalog.addons.map((a) => {
                 const on = addonIds.includes(a.id);
@@ -348,18 +402,17 @@ function ServiceStep({
                       type="button"
                       data-testid={`addon-${a.id}`}
                       onClick={() => setAddonIds((ids) => on ? ids.filter((id) => id !== a.id) : [...ids, a.id])}
-                      className={`flex min-h-12 w-full items-center justify-between rounded-2xl border px-4 text-left ${
-                        on ? 'border-[var(--brand)] bg-[var(--mint)]' : 'border-[var(--line)]'
-                      }`}
+                      aria-pressed={on}
+                      className="choice-card flex min-h-14 w-full items-center justify-between rounded-xl border border-[var(--line)] px-4 text-left"
                     >
-                      <span>{a.name}</span>
-                      <span>+{duration(a.durationMin)} · {money(a.priceCents, shop.currency)}</span>
+                      <span className="flex items-center gap-3"><span className={`grid h-5 w-5 place-items-center rounded-md border text-xs ${on ? 'border-[var(--brand)] bg-[var(--brand)] text-white' : 'border-[var(--line-strong)]'}`}>{on ? '✓' : ''}</span>{a.name}</span>
+                      <span className="text-sm text-[var(--muted)]">+{duration(a.durationMin)} · {money(a.priceCents, shop.currency)}</span>
                     </button>
                   </li>
                 );
               })}
             </ul>
-            <p className="mt-3 text-sm text-[var(--muted)]" data-testid="totals">
+            <p className="mt-4 rounded-xl bg-[#f7f9fa] px-4 py-3 text-sm font-semibold text-[var(--muted)]" data-testid="totals">
               {t('step.total', 'Total')} {duration(mins)} · {money(cents, shop.currency)}
             </p>
           </div>
@@ -395,20 +448,28 @@ function SpecialistStep({
   }
   return (
     <>
+      <div className="mb-6">
+        <p className="step-kicker">Step 2 of 4</p>
+        <h2 className="text-3xl font-extrabold tracking-[-0.035em]">{t('step.selectSpecialist', 'Choose a specialist')}</h2>
+        <p className="mt-2 text-[var(--muted)]">Choose who you would like to see, or let us match you with the first available specialist.</p>
+      </div>
       <Card>
-        <h2 className="text-xl font-bold">{t('step.selectSpecialist', 'Choose a specialist')}</h2>
-        <ul className="mt-4 grid gap-2">
+        <ul className="grid gap-3 sm:grid-cols-2">
           <li>
             <button type="button" data-testid="staff-any" onClick={() => onPick(null)}
-              className="flex min-h-14 w-full items-center rounded-2xl border border-[var(--line)] px-4 text-left font-semibold">
-              {t('step.anySpecialist', 'Any available specialist')}
+              className="choice-card flex min-h-[88px] w-full items-center gap-4 rounded-2xl border border-[var(--line)] px-4 text-left">
+              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[var(--brand-soft)] text-lg font-bold text-[var(--brand)]">◎</span>
+              <span><span className="block font-bold">{t('step.anySpecialist', 'Any available specialist')}</span><span className="mt-1 block text-sm text-[var(--muted)]">Best for the earliest time</span></span>
             </button>
           </li>
           {staff.map((s) => (
             <li key={s.id}>
               <button type="button" data-testid={`staff-${s.id}`} onClick={() => onPick(s.id)}
-                className="flex min-h-14 w-full items-center rounded-2xl border border-[var(--line)] px-4 text-left font-semibold">
-                {s.displayName}
+                className="choice-card flex min-h-[88px] w-full items-center gap-4 rounded-2xl border border-[var(--line)] px-4 text-left">
+                {s.avatarUrl
+                  ? <img className="h-12 w-12 shrink-0 rounded-full object-cover" src={s.avatarUrl} alt="" />
+                  : <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#edf0f6] font-bold text-[#56647a]">{s.displayName.slice(0, 1).toUpperCase()}</span>}
+                <span><span className="block font-bold">{s.displayName}</span><span className="mt-1 block text-sm text-[var(--muted)]">Specialist</span></span>
               </button>
             </li>
           ))}
@@ -430,53 +491,71 @@ function TimeStep({
   onSlot: (startsAt: string) => void;
   onBack: () => void;
 }) {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
   const start = bookingToday(shop.timezone, shop.businessDayCutoff);
   const horizon = Math.max(1, shop.onlineBooking.maxDaysAhead);
   const [offset, setOffset] = useState(
     () => pageOffsetForDate(start, horizon, draft.date ?? start),
   );
   const days = datePage(start, horizon, offset);
+  const selectedDate = draft.date ?? days[0] ?? start;
+  const monthLabel = new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(`${selectedDate}T12:00:00Z`));
+  const slotGroups = [
+    { key: 'morning', label: 'Morning', slots: (avail?.slots ?? []).filter((s) => slotPeriod(s.startsAt, shop.timezone) === 'morning') },
+    { key: 'afternoon', label: 'Afternoon', slots: (avail?.slots ?? []).filter((s) => slotPeriod(s.startsAt, shop.timezone) === 'afternoon') },
+    { key: 'evening', label: 'Evening', slots: (avail?.slots ?? []).filter((s) => slotPeriod(s.startsAt, shop.timezone) === 'evening') },
+  ];
   return (
     <>
+      <div className="mb-6">
+        <p className="step-kicker">Step 3 of 4</p>
+        <h2 className="text-3xl font-extrabold tracking-[-0.035em]">{t('step.selectTime', 'Pick a time')}</h2>
+        <p className="mt-2 text-[var(--muted)]">Choose a date and available appointment time.</p>
+      </div>
       <Card>
-        <h2 className="text-xl font-bold">{t('step.selectTime', 'Pick a time')}</h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">Times are shown in {shop.timezone.replace(/_/g, ' ')}.</p>
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-2" data-testid="day-strip">
-          {offset > 0 && (
-            <button type="button" data-testid="earlier-days"
-              onClick={() => setOffset(Math.max(0, offset - DAY_PAGE))}
-              className="min-h-14 min-w-16 rounded-2xl border border-[var(--line)] px-3 text-sm">
-              {t('step.earlier', 'Earlier')}
-            </button>
-          )}
+        <div className="flex items-center justify-between gap-4">
+          <div><h3 className="text-lg font-bold">{monthLabel}</h3><p className="mt-1 text-sm text-[var(--muted)]">Times shown in {shop.timezone.replace(/_/g, ' ')}</p></div>
+          <div className="flex gap-2">
+            <button type="button" data-testid="earlier-days" aria-label={t('step.earlier', 'Earlier')}
+              disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - DAY_PAGE))}
+              className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--line)] text-xl hover:border-[var(--brand)]">‹</button>
+            <button type="button" data-testid="later-days" aria-label={t('step.later', 'Later')}
+              disabled={offset + DAY_PAGE >= bookableDateCount(horizon)} onClick={() => setOffset(offset + DAY_PAGE)}
+              className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--line)] text-xl hover:border-[var(--brand)]">›</button>
+          </div>
+        </div>
+        <div className="mt-5 flex gap-2 overflow-x-auto pb-2" data-testid="day-strip">
           {days.map((d) => (
             <button key={d} type="button" data-testid={`day-${d}`} onClick={() => onDate(d)}
-              className={`min-h-14 min-w-16 rounded-2xl border px-3 text-sm ${
-                draft.date === d ? 'border-[var(--brand)] bg-[var(--mint)]' : 'border-[var(--line)]'
+              className={`min-h-[76px] min-w-[68px] rounded-xl border px-3 text-sm transition ${
+                draft.date === d ? 'border-[var(--brand)] bg-[var(--brand)] text-white shadow-[0_8px_20px_rgba(20,125,120,.2)]' : 'border-[var(--line)] bg-white hover:border-[var(--brand)]'
               }`}>
-              {d.slice(8)}
+              <span className={`block text-xs font-semibold uppercase ${draft.date === d ? 'text-white/75' : 'text-[var(--muted)]'}`}>
+                {new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' }).format(new Date(`${d}T12:00:00Z`))}
+              </span>
+              <span className="mt-1 block text-xl font-extrabold">{Number(d.slice(8))}</span>
             </button>
           ))}
-          {offset + DAY_PAGE < bookableDateCount(horizon) && (
-            <button type="button" data-testid="later-days"
-              onClick={() => setOffset(offset + DAY_PAGE)}
-              className="min-h-14 min-w-16 rounded-2xl border border-[var(--line)] px-3 text-sm">
-              {t('step.later', 'Later')}
-            </button>
-          )}
         </div>
         {busy ? <Loading /> : (
-          <ul className="mt-4 grid grid-cols-3 gap-2" data-testid="slots">
-            {(avail?.slots ?? []).map((s) => (
-              <li key={s.startsAt}>
-                <button type="button" data-testid={`slot-${s.startsAt}`} onClick={() => onSlot(s.startsAt)}
-                  className="min-h-12 w-full rounded-2xl border border-[var(--line)] font-semibold">
-                  {timeOf(s.startsAt, shop.timezone)}
-                </button>
-              </li>
+          <div className="mt-6 grid gap-6" data-testid="slots">
+            {slotGroups.filter((group) => group.slots.length > 0).map((group) => (
+              <section key={group.key}>
+                <div className="mb-3 flex items-center gap-3"><h4 className="text-sm font-bold">{group.label}</h4><span className="h-px flex-1 bg-[var(--line)]" /></div>
+                <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                  {group.slots.map((s) => (
+                    <li key={s.startsAt}>
+                      <button type="button" data-testid={`slot-${s.startsAt}`} onClick={() => onSlot(s.startsAt)}
+                        className="min-h-11 w-full rounded-xl border border-[var(--line-strong)] bg-white font-semibold transition hover:border-[var(--brand)] hover:bg-[var(--brand-soft)] hover:text-[var(--brand-dark)]">
+                        {timeOf(s.startsAt, shop.timezone)}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
         )}
         {!busy && avail && avail.slots.length === 0 && (
           <Note>No times on this day. Try the next available day, or call <PhoneLink shop={shop} />.</Note>
@@ -485,6 +564,15 @@ function TimeStep({
       <Dock><Btn onClick={onBack}>{t('btn.back', 'Back')}</Btn></Dock>
     </>
   );
+}
+
+function slotPeriod(startsAt: string, timezone: string): 'morning' | 'afternoon' | 'evening' {
+  const hour = Number(new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit', hourCycle: 'h23', timeZone: timezone,
+  }).format(new Date(startsAt)));
+  if (hour < 12) return 'morning';
+  if (hour < 18) return 'afternoon';
+  return 'evening';
 }
 
 function ConfirmStep({
@@ -573,32 +661,39 @@ function ConfirmStep({
 
   return (
     <>
+      <div className="mb-6">
+        <p className="step-kicker">Step 4 of 4</p>
+        <h2 className="text-3xl font-extrabold tracking-[-0.035em]">{t('step.confirmDetails', 'Confirm your details')}</h2>
+        <p className="mt-2 text-[var(--muted)]">We’ll send your confirmation and appointment updates here.</p>
+      </div>
       <Card>
-        <h2 className="text-xl font-bold">{t('step.confirmDetails', 'Confirm your details')}</h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          {dateOf(startsAt, shop.timezone)} {timeOf(startsAt, shop.timezone)} · {service.name}
-          {addons.length ? ` + ${addons.map((a) => a.name).join(', ')}` : ''} · {duration(mins)} · {money(cents, shop.currency)}
-        </p>
+        <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl bg-[var(--brand-soft)] px-4 py-3 text-sm text-[var(--brand-dark)]">
+          <span className="font-bold">{dateOf(startsAt, shop.timezone)} at {timeOf(startsAt, shop.timezone)}</span>
+          <span aria-hidden="true">·</span><span>{service.name}</span><span aria-hidden="true">·</span><span>{duration(mins)}</span><span aria-hidden="true">·</span><span className="font-bold">{money(cents, shop.currency)}</span>
+        </div>
         <div className="mt-4 grid gap-3">
+          <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-sm font-semibold">Name
-            <input className="mt-1 min-h-12 w-full rounded-2xl border border-[var(--line)] px-3" value={name}
+            <input className="field-control mt-2" value={name}
               autoComplete="name" maxLength={120} onChange={(e) => setName(e.target.value)} />
           </label>
           <label className="text-sm font-semibold">Mobile phone
-            <input className="mt-1 min-h-12 w-full rounded-2xl border border-[var(--line)] px-3" value={phone}
+            <input className="field-control mt-2" value={phone}
               inputMode="tel" autoComplete="tel" placeholder="(617) 555-0199"
               onChange={(e) => setPhone(prettyPhone(e.target.value))} />
           </label>
+          </div>
           <label className="text-sm font-semibold">Email (optional)
-            <input className="mt-1 min-h-12 w-full rounded-2xl border border-[var(--line)] px-3" value={email}
+            <input className="field-control mt-2" value={email}
               type="email" autoComplete="email" maxLength={200} onChange={(e) => setEmail(e.target.value)} />
           </label>
           <label className="text-sm font-semibold">Notes (optional)
-            <input className="mt-1 min-h-12 w-full rounded-2xl border border-[var(--line)] px-3" value={notes}
-              maxLength={500} onChange={(e) => setNotes(e.target.value)} />
+            <textarea className="field-control mt-2 min-h-24 resize-y py-3" value={notes}
+              maxLength={500} placeholder="Accessibility needs, preferences, or anything we should know"
+              onChange={(e) => setNotes(e.target.value)} />
           </label>
-          <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" className="mt-1 h-5 w-5" checked={smsOptIn}
+          <label className="mt-1 flex items-start gap-3 rounded-xl border border-[var(--line)] bg-[#fbfcfc] p-4 text-sm leading-5 text-[var(--muted)]">
+            <input type="checkbox" className="mt-0.5 h-5 w-5 accent-[var(--brand)]" checked={smsOptIn}
               onChange={(e) => setSmsOptIn(e.target.checked)} />
             <span>I agree to receive marketing texts from {shop.name}. Reply STOP to unsubscribe. Booking confirmation texts are still sent if you leave this unchecked.</span>
           </label>
@@ -643,16 +738,20 @@ function SuccessStep({
 }) {
   const { t } = useLanguage();
   return (
-    <Card>
-      <h2 className="text-xl font-bold">{t('step.booked', 'You are booked')}</h2>
+    <Card className="mx-auto max-w-2xl text-center">
+      <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[var(--brand-soft)] text-3xl font-bold text-[var(--brand)]">✓</div>
+      <p className="step-kicker mt-6">Appointment confirmed</p>
+      <h2 className="text-3xl font-extrabold tracking-[-0.035em]">{t('step.booked', 'You are booked')}</h2>
+      <p className="mx-auto mt-2 max-w-md text-[var(--muted)]">Your appointment has been reserved. We’ve sent the details to your phone.</p>
       {done.confirmationCode && (
-        <p className="mt-3 text-lg" data-testid="confirmation-code">
-          Confirmation code <strong>{done.confirmationCode}</strong>
-        </p>
+        <div className="mx-auto mt-6 max-w-sm rounded-2xl border border-dashed border-[var(--line-strong)] bg-[#fbfcfc] p-4" data-testid="confirmation-code">
+          <p className="text-xs font-bold uppercase tracking-[.12em] text-[var(--muted)]">Confirmation code</p>
+          <p className="mt-1 text-2xl font-extrabold tracking-[.08em]">{done.confirmationCode}</p>
+        </div>
       )}
       {done.manageToken && (
-        <p className="mt-3">
-          <Link className="font-semibold text-[var(--brand)] underline" to={hostedManagePath(slug, done.manageToken)}>
+        <p className="mt-6">
+          <Link className="inline-flex min-h-11 items-center rounded-xl bg-[var(--brand)] px-5 font-semibold text-white hover:bg-[var(--brand-dark)]" to={hostedManagePath(slug, done.manageToken)}>
             View, reschedule, or cancel
           </Link>
         </p>
@@ -661,7 +760,7 @@ function SuccessStep({
         Keep this page or your confirmation text.
         {shop.phone && <> Questions? Call <PhoneLink shop={shop} />.</>}
       </p>
-      <div className="mt-5"><Btn onClick={onAgain}>Book another</Btn></div>
+      <div className="mx-auto mt-5 max-w-sm"><Btn onClick={onAgain}>Book another</Btn></div>
     </Card>
   );
 }

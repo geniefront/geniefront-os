@@ -6,7 +6,7 @@ export type BookStep = typeof STEPS[number] | 'success';
 
 export function Shell({ children }: { children: ReactNode }) {
   return (
-    <div data-shell className="mx-auto min-h-full max-w-5xl px-4 pb-[calc(var(--dock)+24px)] pt-6 md:pb-10">
+    <div data-shell className="mx-auto min-h-full w-full max-w-[1240px] px-4 pb-[calc(var(--dock)+24px)] md:px-8 md:pb-12">
       {children}
     </div>
   );
@@ -14,7 +14,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <section className={`rounded-[var(--radius)] bg-[var(--surface)] p-5 shadow-[var(--shadow)] ${className}`}>
+    <section className={`rounded-[var(--radius)] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-[var(--shadow)] md:p-7 ${className}`}>
       {children}
     </section>
   );
@@ -39,11 +39,17 @@ export function PhoneLink({ shop }: { shop: Pick<Shop, 'phone' | 'name'> }) {
 
 export function Progress({ step }: { step: BookStep }) {
   const idx = STEPS.indexOf(step as typeof STEPS[number]);
+  const labels: Record<(typeof STEPS)[number], string> = {
+    services: 'Services', specialist: 'Specialist', time: 'Date & time', confirm: 'Confirm',
+  };
   return (
-    <ol className="mb-5 flex gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+    <ol className="flex items-center gap-1 overflow-x-auto text-sm font-semibold text-[var(--muted)]" aria-label="Booking progress">
       {STEPS.map((s, i) => (
-        <li key={s} className={i === idx ? 'text-[var(--brand)]' : i < idx ? 'text-[var(--ink)]' : ''}>
-          {i + 1}. {s}
+        <li key={s} className="flex shrink-0 items-center gap-1">
+          {i > 0 && <span className="mx-1 text-[var(--muted-light)]" aria-hidden="true">›</span>}
+          <span className={`rounded-full px-2 py-1 ${i === idx ? 'bg-[var(--brand-soft)] text-[var(--brand)]' : i < idx ? 'text-[var(--ink)]' : ''}`}>
+            {labels[s]}
+          </span>
         </li>
       ))}
     </ol>
@@ -55,21 +61,28 @@ export function Topbar({ shop, step }: { shop: Shop; step: BookStep | null }) {
     ? shop.address
     : shop.address ? Object.values(shop.address).filter(Boolean).join(', ') : '';
   return (
-    <header className="mb-5">
-      <p className="text-sm font-semibold text-[var(--brand)]">Online booking</p>
-      <h1 className="mt-1 text-2xl font-bold tracking-tight">{shop.name}</h1>
-      <p className="mt-1 text-sm text-[var(--muted)]">
-        {[address, shop.phone].filter(Boolean).join(' · ')}
-      </p>
-      {step && step !== 'success' && <div className="mt-4"><Progress step={step} /></div>}
+    <header className="booking-topbar">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="brand-mark" aria-hidden="true">{shop.name.slice(0, 1).toUpperCase()}</div>
+        <div className="min-w-0">
+          <p className="truncate text-base font-bold tracking-[-0.01em] text-[var(--ink)]">{shop.name}</p>
+          <p className="truncate text-xs text-[var(--muted)]">{address || 'Online booking'}</p>
+        </div>
+      </div>
+      {step && step !== 'success' && <div className="hidden md:block"><Progress step={step} /></div>}
+      {shop.phone && (
+        <a className="hidden rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--ink)] transition hover:border-[var(--brand)] hover:text-[var(--brand)] lg:block" href={`tel:${shop.phone}`}>
+          {shop.phone}
+        </a>
+      )}
     </header>
   );
 }
 
 export function Dock({ children }: { children: ReactNode }) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--line)] bg-[var(--surface)]/95 p-3 backdrop-blur md:static md:mt-5 md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
-      <div className="mx-auto flex max-w-5xl gap-3">
+    <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--line)] bg-[var(--surface)]/95 p-3 shadow-[0_-10px_30px_rgba(17,24,39,.06)] backdrop-blur md:static md:mt-5 md:border-0 md:bg-transparent md:p-0 md:shadow-none md:backdrop-blur-none">
+      <div className="mx-auto flex max-w-[760px] gap-3">
         {children}
       </div>
     </div>
@@ -90,10 +103,10 @@ export function Btn({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`min-h-12 flex-1 rounded-2xl px-4 text-base font-semibold ${
+      className={`min-h-12 flex-1 rounded-xl px-5 text-base font-semibold transition duration-200 ${
         primary
-          ? 'bg-[var(--brand)] text-white hover:bg-[var(--brand-dark)]'
-          : 'bg-[var(--mint)] text-[var(--brand-dark)]'
+          ? 'bg-[var(--brand)] text-white shadow-[0_8px_22px_rgba(15,98,91,.22)] hover:-translate-y-0.5 hover:bg-[var(--brand-dark)]'
+          : 'border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] hover:border-[var(--brand)] hover:text-[var(--brand)]'
       }`}
     >
       {children}
