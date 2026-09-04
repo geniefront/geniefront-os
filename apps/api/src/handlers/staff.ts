@@ -333,11 +333,32 @@ registerHandler(StaffRecordDirectCashTip, async ({ input, ctx, tx, audit, emit }
 interface PinLockout {
   fails: number;
   lockedUntil: number;
+  lastAttemptAt: number;
 }
 const pinLockouts = new Map<string, PinLockout>();
+const PIN_LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
+const MAX_PIN_ENTRIES = 5000;
+
+export function pruneExpiredPinLockouts(now: number, force = false): void {
+  if (force || pinLockouts.size > MAX_PIN_ENTRIES || Math.random() < 0.05) {
+    for (const [key, val] of pinLockouts.entries()) {
+      if (now - val.lastAttemptAt > PIN_LOCKOUT_WINDOW_MS && val.lockedUntil <= now) {
+        pinLockouts.delete(key);
+      }
+    }
+  }
+}
 
 export function __resetPinLockoutsForTest(): void {
   pinLockouts.clear();
+}
+
+export function __getPinLockoutForTest(key: string): PinLockout | undefined {
+  return pinLockouts.get(key);
+}
+
+export function __setPinLockoutForTest(key: string, val: PinLockout): void {
+  pinLockouts.set(key, val);
 }
 
 async function assertPin(
@@ -353,6 +374,8 @@ async function assertPin(
   }
 
   const now = Date.now();
+  pruneExpiredPinLockouts(now);
+
   const attempt = pinLockouts.get(membershipId);
   if (attempt && attempt.lockedUntil > now) {
     const retryAfterSec = Math.ceil((attempt.lockedUntil - now) / 1000);
@@ -367,9 +390,11 @@ async function assertPin(
 
   const verdict = await verifyPin(pin, row.pin_hash, membershipId);
   if (!verdict.ok) {
-    const fails = (attempt?.fails ?? 0) + 1;
-    const lockedUntil = fails >= 5 ? now + 15 * 60 * 1000 : 0;
-    pinLockouts.set(membershipId, { fails, lockedUntil });
+    // 超过滑动窗口时间（15分钟）的失败计数自动归零
+    const isWithinWindow = attempt && (now - attempt.lastAttemptAt <= PIN_LOCKOUT_WINDOW_MS);
+    const fails = (isWithinWindow ? attempt.fails : 0) + 1;
+    const lockedUntil = fails >= 5 ? now + PIN_LOCKOUT_WINDOW_MS : 0;
+    pinLockouts.set(membershipId, { fails, lockedUntil, lastAttemptAt: now });
     if (lockedUntil > 0) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
         details: {

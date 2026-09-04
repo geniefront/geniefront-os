@@ -195,6 +195,7 @@ export function useRefundTicket() {
       queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
       queryClient.invalidateQueries({ queryKey: ['desk', 'orders'] });
       queryClient.invalidateQueries({ queryKey: ['desk', 'dayclose'] });
+      queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });
     },
   });
 }

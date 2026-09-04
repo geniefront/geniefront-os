@@ -11,12 +11,14 @@ import {
 } from '../lib/format';
 import { Btn, Card, Loading, Note, PhoneLink, Shell } from '../components/Chrome';
 import { manageTokenFromHash } from '../lib/manageToken';
+import { useLanguage } from '../lib/i18n';
 
 type View = 'detail' | 'reschedule' | 'cancel';
 
 export function ManageBookingPage() {
   const { slug, token: pathToken } = useParams();
   const location = useLocation();
+  const { t, locale } = useLanguage();
   const token = pathToken || manageTokenFromHash(location.hash);
   const tokenRef = useRef(token);
   tokenRef.current = token;
@@ -39,10 +41,10 @@ export function ManageBookingPage() {
   }, []);
 
   const shopQuery = useQuery({
-    queryKey: ['hosted-shop', slug],
+    queryKey: ['hosted-shop', slug, locale],
     enabled: Boolean(slug),
     queryFn: async () => {
-      const s = await getHostedShop(slug!, 'en');
+      const s = await getHostedShop(slug!, locale);
       if (s.publicKey) setPublicKey(s.publicKey);
       document.title = `${s.name} · Appointment`;
       return s;
@@ -50,11 +52,11 @@ export function ManageBookingPage() {
   });
 
   const detailQuery = useQuery({
-    queryKey: ['managed-booking', slug],
+    queryKey: ['managed-booking', slug, token, locale],
     enabled: Boolean(slug && token),
     retry: false,
     queryFn: async () => {
-      const out = await loadManagedBooking(slug!, tokenRef.current, 'en');
+      const out = await loadManagedBooking(slug!, tokenRef.current, locale);
       if (out.publicKey) setPublicKey(out.publicKey);
       document.title = `${out.shop.name} · Appointment`;
       return out;
@@ -105,6 +107,7 @@ function ManageBody({
   slug: string;
 }) {
   const queryClient = useQueryClient();
+  const { t } = useLanguage();
   const [view, setView] = useState<View>('detail');
   const [last4, setLast4] = useState('');
   const [verified, setVerified] = useState(false);
@@ -170,17 +173,17 @@ function ManageBody({
           {mutable && verified && (
             <div className="flex flex-col gap-3 sm:flex-row">
               {booking.actions.canReschedule && (
-                <Btn primary onClick={() => setView('reschedule')}>Reschedule</Btn>
+                <Btn primary onClick={() => setView('reschedule')}>{t('btn.reschedule', 'Reschedule')}</Btn>
               )}
               {booking.actions.canCancel && (
-                <Btn onClick={() => setView('cancel')}>Cancel</Btn>
+                <Btn onClick={() => setView('cancel')}>{t('btn.cancel', 'Cancel')}</Btn>
               )}
             </div>
           )}
           {booking.actions.canRebook && (
             <Link className="min-h-12 rounded-2xl bg-[var(--mint)] px-4 py-3 text-center font-semibold text-[var(--brand-dark)]"
               to={`/${slug}`}>
-              Book again
+              {t('btn.bookAgain', 'Book again')}
             </Link>
           )}
         </div>

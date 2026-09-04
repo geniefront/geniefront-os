@@ -594,11 +594,14 @@ registerHandler(FinalizeDay, async ({ input, ctx, tx, audit }: HandlerArgs<
             'closed', ${jsonb(snapshot)}::jsonb, ${ctx.membershipId})
     returning id`;
 
+  const cardVarianceCents = card ? card.varianceCents : (row.card_variance ?? 0);
+
   await tx`update day_closes set
       status = 'closed',
       close_generation = ${generation},
       expected_cash_cents = ${cash.expectedCents},
       cash_variance_cents = ${cash.varianceCents},
+      card_variance_cents = ${card ? card.varianceCents : row.card_variance},
       gift_card_sold_cents = ${gc?.sold ?? 0},
       gift_card_redeemed_cents = ${gc?.redeemed ?? 0},
       gross_cents = ${money.grossCents},
@@ -629,7 +632,7 @@ registerHandler(FinalizeDay, async ({ input, ctx, tx, audit }: HandlerArgs<
     tipCashCents: money.tipCashCents,
     tipCardCents: money.tipCardCents,
     cashVarianceCents: cash.varianceCents,
-    cardVarianceCents: row.card_variance ?? 0,
+    cardVarianceCents,
   };
 });
 

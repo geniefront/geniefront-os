@@ -16,6 +16,7 @@ import { loadTurnstile, type TurnstileApi } from '../lib/turnstile';
 import {
   Btn, CallShop, Card, Dock, Loading, Note, PhoneLink, Shell, Topbar, type BookStep,
 } from '../components/Chrome';
+import { useLanguage } from '../lib/i18n';
 
 export type Draft = {
   serviceId: string | null;
@@ -34,6 +35,7 @@ export function BookPage() {
   const [params] = useSearchParams();
   const embed = isEmbedded() || params.get('embed') === '1';
 
+  const { t, locale } = useLanguage();
   const queryClient = useQueryClient();
   const [step, setStep] = useState<BookStep>('services');
   const [draft, setDraft] = useState<Draft>(emptyDraft);
@@ -52,19 +54,19 @@ export function BookPage() {
   }, [embed]);
 
   const shopQuery = useQuery({
-    queryKey: ['hosted-shop', slug],
+    queryKey: ['hosted-shop', slug, locale],
     enabled: Boolean(slug),
     queryFn: async () => {
-      const s = await getHostedShop(slug!, 'en');
+      const s = await getHostedShop(slug!, locale);
       if (s.publicKey) setPublicKey(s.publicKey);
       document.title = `${s.name} · Book`;
       return s;
     },
   });
   const catalogQuery = useQuery({
-    queryKey: ['hosted-services', slug, shopQuery.data?.publicKey],
+    queryKey: ['hosted-services', slug, shopQuery.data?.publicKey, locale],
     enabled: Boolean(shopQuery.data?.onlineBooking.enabled && getPublicKey()),
-    queryFn: () => getServices('en'),
+    queryFn: () => getServices(locale),
   });
 
   const shop = shopQuery.data ?? null;
@@ -302,6 +304,7 @@ function ServiceStep({
 }: {
   catalog: Catalog; shop: Shop; onPick: (id: string, addonIds: string[]) => void;
 }) {
+  const { t } = useLanguage();
   const [serviceId, setServiceId] = useState<string | null>(null);
   const [addonIds, setAddonIds] = useState<string[]>([]);
   const service = catalog.services.find((s) => s.id === serviceId) ?? null;
@@ -312,7 +315,7 @@ function ServiceStep({
   return (
     <>
       <Card>
-        <h2 className="text-xl font-bold">Choose a service</h2>
+        <h2 className="text-xl font-bold">{t('step.selectService', 'Choose a service')}</h2>
         <ul className="mt-4 grid gap-2">
           {catalog.services.map((s) => (
             <li key={s.id}>
@@ -335,7 +338,7 @@ function ServiceStep({
         </ul>
         {service && catalog.addons.length > 0 && (
           <div className="mt-5">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">Add-ons</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">{t('step.addons', 'Add-ons')}</h3>
             <ul className="mt-2 grid gap-2">
               {catalog.addons.map((a) => {
                 const on = addonIds.includes(a.id);
@@ -357,14 +360,14 @@ function ServiceStep({
               })}
             </ul>
             <p className="mt-3 text-sm text-[var(--muted)]" data-testid="totals">
-              Total {duration(mins)} · {money(cents, shop.currency)}
+              {t('step.total', 'Total')} {duration(mins)} · {money(cents, shop.currency)}
             </p>
           </div>
         )}
       </Card>
       <Dock>
         <Btn primary disabled={!serviceId} onClick={() => serviceId && onPick(serviceId, addonIds)}>
-          Continue
+          {t('btn.next', 'Continue')}
         </Btn>
       </Dock>
     </>
@@ -380,24 +383,25 @@ function SpecialistStep({
   onPick: (id: string | null) => void;
   onBack: () => void;
 }) {
+  const { t } = useLanguage();
   if (busy && staff.length === 0) return <Card><Loading /></Card>;
   if (staff.length === 0) {
     return (
       <>
         <CallShop shop={shop}>No specialists are available online</CallShop>
-        <Dock><Btn onClick={onBack}>Back</Btn></Dock>
+        <Dock><Btn onClick={onBack}>{t('btn.back', 'Back')}</Btn></Dock>
       </>
     );
   }
   return (
     <>
       <Card>
-        <h2 className="text-xl font-bold">Choose a specialist</h2>
+        <h2 className="text-xl font-bold">{t('step.selectSpecialist', 'Choose a specialist')}</h2>
         <ul className="mt-4 grid gap-2">
           <li>
             <button type="button" data-testid="staff-any" onClick={() => onPick(null)}
               className="flex min-h-14 w-full items-center rounded-2xl border border-[var(--line)] px-4 text-left font-semibold">
-              Any available specialist
+              {t('step.anySpecialist', 'Any available specialist')}
             </button>
           </li>
           {staff.map((s) => (
@@ -410,7 +414,7 @@ function SpecialistStep({
           ))}
         </ul>
       </Card>
-      <Dock><Btn onClick={onBack}>Back</Btn></Dock>
+      <Dock><Btn onClick={onBack}>{t('btn.back', 'Back')}</Btn></Dock>
     </>
   );
 }
@@ -426,6 +430,7 @@ function TimeStep({
   onSlot: (startsAt: string) => void;
   onBack: () => void;
 }) {
+  const { t } = useLanguage();
   const start = bookingToday(shop.timezone, shop.businessDayCutoff);
   const horizon = Math.max(1, shop.onlineBooking.maxDaysAhead);
   const [offset, setOffset] = useState(
@@ -435,14 +440,14 @@ function TimeStep({
   return (
     <>
       <Card>
-        <h2 className="text-xl font-bold">Pick a time</h2>
+        <h2 className="text-xl font-bold">{t('step.selectTime', 'Pick a time')}</h2>
         <p className="mt-1 text-sm text-[var(--muted)]">Times are shown in {shop.timezone.replace(/_/g, ' ')}.</p>
         <div className="mt-4 flex gap-2 overflow-x-auto pb-2" data-testid="day-strip">
           {offset > 0 && (
             <button type="button" data-testid="earlier-days"
               onClick={() => setOffset(Math.max(0, offset - DAY_PAGE))}
               className="min-h-14 min-w-16 rounded-2xl border border-[var(--line)] px-3 text-sm">
-              Earlier
+              {t('step.earlier', 'Earlier')}
             </button>
           )}
           {days.map((d) => (
@@ -457,7 +462,7 @@ function TimeStep({
             <button type="button" data-testid="later-days"
               onClick={() => setOffset(offset + DAY_PAGE)}
               className="min-h-14 min-w-16 rounded-2xl border border-[var(--line)] px-3 text-sm">
-              Later
+              {t('step.later', 'Later')}
             </button>
           )}
         </div>
@@ -477,7 +482,7 @@ function TimeStep({
           <Note>No times on this day. Try the next available day, or call <PhoneLink shop={shop} />.</Note>
         )}
       </Card>
-      <Dock><Btn onClick={onBack}>Back</Btn></Dock>
+      <Dock><Btn onClick={onBack}>{t('btn.back', 'Back')}</Btn></Dock>
     </>
   );
 }
@@ -494,6 +499,7 @@ function ConfirmStep({
   onSubmit: (input: BookInput) => Promise<void>;
   onBack: () => void;
 }) {
+  const { t, locale } = useLanguage();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -540,7 +546,7 @@ function ConfirmStep({
     try {
       await onSubmit({
         turnstileToken: token ?? 'dev',
-        locale: 'en',
+        locale,
         customer: {
           name: name.trim(),
           phone: e164!,
@@ -568,7 +574,7 @@ function ConfirmStep({
   return (
     <>
       <Card>
-        <h2 className="text-xl font-bold">Confirm your details</h2>
+        <h2 className="text-xl font-bold">{t('step.confirmDetails', 'Confirm your details')}</h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
           {dateOf(startsAt, shop.timezone)} {timeOf(startsAt, shop.timezone)} · {service.name}
           {addons.length ? ` + ${addons.map((a) => a.name).join(', ')}` : ''} · {duration(mins)} · {money(cents, shop.currency)}
@@ -604,9 +610,9 @@ function ConfirmStep({
         </div>
       </Card>
       <Dock>
-        <Btn onClick={onBack} disabled={busy}>Back</Btn>
+        <Btn onClick={onBack} disabled={busy}>{t('btn.back', 'Back')}</Btn>
         <Btn primary disabled={!ready || busy} onClick={() => void go()}>
-          {busy ? <span className="spin" /> : 'Book appointment'}
+          {busy ? <span className="spin" /> : t('btn.book', 'Book appointment')}
         </Btn>
       </Dock>
     </>
@@ -635,9 +641,10 @@ function SuccessStep({
   done: { bookingId: string; confirmationCode: string | null; manageToken: string | null };
   onAgain: () => void;
 }) {
+  const { t } = useLanguage();
   return (
     <Card>
-      <h2 className="text-xl font-bold">You are booked</h2>
+      <h2 className="text-xl font-bold">{t('step.booked', 'You are booked')}</h2>
       {done.confirmationCode && (
         <p className="mt-3 text-lg" data-testid="confirmation-code">
           Confirmation code <strong>{done.confirmationCode}</strong>

@@ -80,8 +80,7 @@ export const WalkInPage: React.FC = () => {
   };
 
   const handleSelectService = (serviceId: string | null) => {
-    setGuests((previous) => previous.map((guest) => ({ ...guest, serviceId })));
-    setErrorMsg(null);
+    handleUpdateGuest(activeGuestIdx, { serviceId });
   };
 
   const handleJoinQueue = async (e: React.FormEvent) => {

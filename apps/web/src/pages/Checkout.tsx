@@ -982,7 +982,7 @@ function CheckoutContent() {
             {/* 4. 费用汇总清单 */}
             <div className="rounded-2xl border border-slate-200 p-4 space-y-2.5 bg-white shadow-sm text-xs">
               <div className="flex justify-between text-slate-600">
-                <span>Base Services Subtotal ({selected.items.length}  {t('checkout.itemsCountSuffix')}</span>
+                <span>{t('checkout.baseServicesSubtotal')} ({selected.items.length} {t('checkout.itemsCountSuffix')}</span>
                 <span className="font-mono font-bold text-slate-800">${centsToDollars(baseSubtotalCents)}</span>
               </div>
 
@@ -1004,20 +1004,20 @@ function CheckoutContent() {
 
               {enableTax && (
                 <div className="flex justify-between text-slate-600">
-                  <span>Sales Tax ({taxRatePercent}%)</span>
+                  <span>{t('checkout.salesTax')} ({taxRatePercent}%)</span>
                   <span className="font-mono font-bold text-slate-800">+${centsToDollars(taxCents)}</span>
                 </div>
               )}
 
               {enableCardSurcharge && (
                 <div className="flex justify-between text-purple-700">
-                  <span>Credit Card Processing Fee ({cardSurchargePercent}%)</span>
+                  <span>{t('checkout.cardProcessingFee')} ({cardSurchargePercent}%)</span>
                   <span className="font-mono font-bold">+${centsToDollars(cardSurchargeCents)}</span>
                 </div>
               )}
 
               <div className="pt-2 border-t border-slate-100 flex justify-between items-end">
-                <span className="font-bold text-slate-800 text-sm">Total Due:</span>
+                <span className="font-bold text-slate-800 text-sm">{t('checkout.totalDue')}</span>
                 <span className="text-xl font-black text-teal-700 font-mono">
                   ${centsToDollars(totalDueCents)}
                 </span>
@@ -1035,8 +1035,8 @@ function CheckoutContent() {
 
               {lines.map((line, index) => {
                 const Icon = METHOD_ICONS[line.method];
-                const changeDue = line.tenderedCents !== undefined
-                  ? Math.max(0, line.tenderedCents - chargedCents(line))
+                const rawChangeDue = line.tenderedCents !== undefined
+                  ? Math.max(0, line.tenderedCents - line.baseCents)
                   : 0;
                 return (
                   <div key={index} className="rounded-2xl border border-slate-200 p-4 space-y-3 bg-white shadow-sm">
@@ -1119,43 +1119,41 @@ function CheckoutContent() {
                             value={line.tenderedCents !== undefined ? centsToDollars(line.tenderedCents) : ''}
                             onChange={(e) => {
                               const tenderedCents = dollarsToCents(e.target.value);
+                              const rawChange = Math.max(0, tenderedCents - line.baseCents);
                               patchLine(index, {
                                 tenderedCents,
-                                changeCents: Math.max(0, tenderedCents - chargedCents(line)),
-                                keepChange: false,
+                                changeCents: line.keepChange ? 0 : rawChange,
+                                ...(line.keepChange ? { tipCents: rawChange } : {}),
                               });
                             }}
                             placeholder="0.00"
                             className="font-mono text-xs"
                           />
                         </div>
-                        {changeDue > 0 && (
+                        {(rawChangeDue > 0 || line.keepChange) && (
                           <>
                             <div className="flex justify-between text-xs">
                               <span className="text-slate-600 font-bold">{t('changeDue') || t('checkout.changeDue')}:</span>
                               <span className="font-mono font-black text-emerald-700 text-sm">
-                                ${centsToDollars(line.keepChange ? 0 : changeDue)}
+                                ${centsToDollars(line.keepChange ? 0 : rawChangeDue)}
                               </span>
                             </div>
                             {paymentStage !== 'service' && (
-                            <label className="flex items-start gap-2 cursor-pointer p-2 bg-emerald-50/60 rounded-xl border border-emerald-200">
-                              <input
-                                type="checkbox"
-                                checked={line.keepChange}
-                                onChange={(e) => patchLine(index, {
-                                  keepChange: e.target.checked,
-                                  changeCents: e.target.checked ? 0 : changeDue,
-                                  tipCents: e.target.checked
-                                    ? line.tipCents + changeDue
-                                    : Math.max(0, line.tipCents - changeDue),
-                                })}
-                                className="mt-0.5 w-4 h-4 rounded text-teal-600 focus:ring-teal-500/20"
-                              />
-                              <span className="text-xs text-emerald-900 font-bold">
-                                
-                                {t('checkout.keepChange')}
-                              </span>
-                            </label>
+                              <label className="flex items-start gap-2 cursor-pointer p-2 bg-emerald-50/60 rounded-xl border border-emerald-200">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(line.keepChange)}
+                                  onChange={(e) => patchLine(index, {
+                                    keepChange: e.target.checked,
+                                    changeCents: e.target.checked ? 0 : rawChangeDue,
+                                    tipCents: e.target.checked ? rawChangeDue : 0,
+                                  })}
+                                  className="mt-0.5 w-4 h-4 rounded text-teal-600 focus:ring-teal-500/20"
+                                />
+                                <span className="text-xs text-emerald-900 font-bold">
+                                  {t('checkout.keepChange')}
+                                </span>
+                              </label>
                             )}
                           </>
                         )}

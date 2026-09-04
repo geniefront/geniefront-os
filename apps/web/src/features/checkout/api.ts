@@ -85,6 +85,10 @@ export function useCloseTicket() {
       )).result,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: checkoutKeys.openTickets(membershipId) });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'orders'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'dayclose'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });
     },
   });
 }
@@ -112,6 +116,10 @@ export function useVoidTicket() {
       )).result,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: checkoutKeys.openTickets(membershipId) });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'orders'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'dayclose'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });
     },
   });
 }

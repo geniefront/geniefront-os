@@ -402,7 +402,7 @@ interface TicketForClose {
 }
 
 async function loadTicketForClose(
-  tx: postgres.TransactionSql, ticketId: string,
+  tx: postgres.TransactionSql, ticketId: string, locationId: string,
 ): Promise<TicketForClose> {
   const [t] = await tx<{
     id: string; status: string; subtotal: number; total_cents: number; business_date: string; group_id: string | null;
@@ -413,7 +413,7 @@ async function loadTicketForClose(
            business_date::text as business_date, group_id, customer_id,
            checkout_timing_snapshot, service_settled_at::text as service_settled_at,
            tip_settled_at::text as tip_settled_at
-    from tickets where id = ${ticketId} for update`;
+    from tickets where id = ${ticketId} and location_id = ${locationId} for update`;
   if (!t) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket', ticketId } });
   if (t.status === 'closed' || t.status === 'voided' || t.status === 'refunded') {
     throw new AppError(ERROR_CODES.TICKET_ALREADY_CLOSED, { details: { ticketId, status: t.status } });
@@ -764,7 +764,7 @@ async function closeOneTicket(args: {
 
 const handleTicketCloseOrPay = async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketPay.input._type>) => {
-  const ticket = await loadTicketForClose(tx, input.ticketId);
+  const ticket = await loadTicketForClose(tx, input.ticketId, ctx.locationId);
   await assertDayOpen(tx, ctx.locationId, ticket.businessDate);
   const loaded = await loadPlans(tx, ctx.locationId);
 
@@ -1052,12 +1052,6 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
     where id = ${t.id}`;
 
   if (isFullRefund) {
-    await tx`update tip_allocations
-               set reversed_at = now(), reversed_by = ${ctx.membershipId}
-             where ticket_id = ${t.id} and reversed_at is null`;
-    await tx`update earnings
-               set reversed_at = now(), reversed_by = ${ctx.membershipId}
-             where ticket_id = ${t.id} and reversed_at is null`;
     await tx`update appointments a set status = 'cancelled'
              from tickets ticket where ticket.id = ${t.id} and a.id = ticket.appointment_id`;
     await tx`update appointment_items ai set status = 'cancelled'
@@ -1066,99 +1060,102 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
     await tx`update walkin_queue q set status = 'left', left_at = now()
              from tickets ticket where ticket.id = ${t.id}
                and q.appointment_id = ticket.appointment_id and q.status <> 'left'`;
-  } else {
-    const cumulativeServiceRefund = (already?.service ?? 0) + serviceCents;
-    if (serviceCents > 0) {
-      const commissionRows = await tx<{
-        membership_id: string; amount: number; base: number;
-        refunded_amount: number; refunded_base: number;
-      }[]>`
-        with original as (
-          select membership_id, sum(amount_cents)::int as amount, sum(base_cents)::int as base
-          from earnings
-          where ticket_id = ${t.id} and kind = 'commission'
-            and amount_cents > 0 and reversed_at is null
-          group by membership_id
-        ), refunded as (
-          select membership_id, -sum(amount_cents)::int as amount, -sum(base_cents)::int as base
-          from earnings
-          where ticket_id = ${t.id} and kind = 'commission'
-            and amount_cents < 0 and basis->>'refund' = 'true' and reversed_at is null
-          group by membership_id
-        )
-        select o.membership_id, o.amount, o.base,
-               coalesce(r.amount, 0)::int as refunded_amount,
-               coalesce(r.base, 0)::int as refunded_base
-        from original o left join refunded r using (membership_id)
-        order by o.membership_id`;
-      const totalCommissionBase = commissionRows.reduce((sum, row) => sum + row.base, 0);
-      const targetCommissionBaseTotal = serviceTotal === 0
-        ? 0
-        : Math.round((totalCommissionBase * cumulativeServiceRefund) / serviceTotal);
-      const targetBases = largestRemainderSplit(
-        targetCommissionBaseTotal, commissionRows.map((row) => row.base),
-      );
-      const totalCommission = commissionRows.reduce((sum, row) => sum + row.amount, 0);
-      const targetCommissionTotal = serviceTotal === 0
-        ? 0
-        : Math.round((totalCommission * cumulativeServiceRefund) / serviceTotal);
-      const targetAmounts = largestRemainderSplit(
-        targetCommissionTotal, commissionRows.map((row) => row.amount),
-      );
-      for (const [index, row] of commissionRows.entries()) {
-        const baseDelta = targetBases[index]! - row.refunded_base;
-        const amountDelta = targetAmounts[index]! - row.refunded_amount;
-        if (baseDelta === 0 && amountDelta === 0) continue;
-        await tx`insert into earnings
-          (org_id, location_id, membership_id, business_date, kind,
-           amount_cents, base_cents, ticket_id, basis)
-          values (${ctx.orgId}, ${ctx.locationId}, ${row.membership_id}, ${refundDate},
-                  'commission', ${-amountDelta}, ${-baseDelta}, ${t.id},
-                  ${jsonb({ refund: true, refundId: refund!.id })}::jsonb)`;
-      }
-    }
+  }
 
-    const cumulativeTipRefund = (already?.tip ?? 0) + input.refundTipCents;
-    if (input.refundTipCents > 0) {
-      const tipRows = await tx<{
-        membership_id: string; source: 'cash' | 'card'; amount: number; refunded: number;
-        policy_version: number | null;
-      }[]>`
-        with original as (
-          select membership_id, source, sum(amount_cents)::int as amount,
-                 max(policy_version)::int as policy_version
-          from tip_allocations
-          where ticket_id = ${t.id} and amount_cents > 0 and reversed_at is null
-          group by membership_id, source
-        ), refunded as (
-          select membership_id, source, -sum(amount_cents)::int as amount
-          from tip_allocations
-          where ticket_id = ${t.id} and amount_cents < 0
-            and basis->>'refund' = 'true' and reversed_at is null
-          group by membership_id, source
-        )
-        select o.membership_id, o.source, o.amount, coalesce(r.amount, 0)::int as refunded,
-               o.policy_version
-        from original o left join refunded r using (membership_id, source)
-        order by o.membership_id, o.source`;
-      const targets = largestRemainderSplit(
-        cumulativeTipRefund, tipRows.map((row) => row.amount),
-      );
-      for (const [index, row] of tipRows.entries()) {
-        const delta = targets[index]! - row.refunded;
-        if (delta === 0) continue;
-        const basis = jsonb({ refund: true, refundId: refund!.id });
-        await tx`insert into tip_allocations
-          (org_id, location_id, ticket_id, membership_id, amount_cents, basis, source, policy_version)
-          values (${ctx.orgId}, ${ctx.locationId}, ${t.id}, ${row.membership_id}, ${-delta},
-                  ${basis}::jsonb, ${row.source}, ${row.policy_version})`;
-        await tx`insert into earnings
-          (org_id, location_id, membership_id, business_date, kind,
-           amount_cents, base_cents, ticket_id, basis, plan_version)
-          values (${ctx.orgId}, ${ctx.locationId}, ${row.membership_id}, ${refundDate},
-                  ${row.source === 'cash' ? 'tip_cash' : 'tip_card'}, ${-delta}, 0, ${t.id},
-                  ${basis}::jsonb, ${row.policy_version})`;
-      }
+  // ⚠️ 财务冲销，严禁篡改已打烊封账日的历史日结记录（宪法第 9 条）。
+  // 无论是全额退款还是部分退款，提成与小费的冲销一律作为负向记录写入当前营业日（refundDate），
+  // 保证历史日结报表分文不变，当日工资扣减真实有据。
+  const cumulativeServiceRefund = (already?.service ?? 0) + serviceCents;
+  if (serviceCents > 0) {
+    const commissionRows = await tx<{
+      membership_id: string; amount: number; base: number;
+      refunded_amount: number; refunded_base: number;
+    }[]>`
+      with original as (
+        select membership_id, sum(amount_cents)::int as amount, sum(base_cents)::int as base
+        from earnings
+        where ticket_id = ${t.id} and kind = 'commission'
+          and amount_cents > 0 and reversed_at is null
+        group by membership_id
+      ), refunded as (
+        select membership_id, -sum(amount_cents)::int as amount, -sum(base_cents)::int as base
+        from earnings
+        where ticket_id = ${t.id} and kind = 'commission'
+          and amount_cents < 0 and basis->>'refund' = 'true' and reversed_at is null
+        group by membership_id
+      )
+      select o.membership_id, o.amount, o.base,
+             coalesce(r.amount, 0)::int as refunded_amount,
+             coalesce(r.base, 0)::int as refunded_base
+      from original o left join refunded r using (membership_id)
+      order by o.membership_id`;
+    const totalCommissionBase = commissionRows.reduce((sum, row) => sum + row.base, 0);
+    const targetCommissionBaseTotal = serviceTotal === 0
+      ? 0
+      : Math.round((totalCommissionBase * cumulativeServiceRefund) / serviceTotal);
+    const targetBases = largestRemainderSplit(
+      targetCommissionBaseTotal, commissionRows.map((row) => row.base),
+    );
+    const totalCommission = commissionRows.reduce((sum, row) => sum + row.amount, 0);
+    const targetCommissionTotal = serviceTotal === 0
+      ? 0
+      : Math.round((totalCommission * cumulativeServiceRefund) / serviceTotal);
+    const targetAmounts = largestRemainderSplit(
+      targetCommissionTotal, commissionRows.map((row) => row.amount),
+    );
+    for (const [index, row] of commissionRows.entries()) {
+      const baseDelta = targetBases[index]! - row.refunded_base;
+      const amountDelta = targetAmounts[index]! - row.refunded_amount;
+      if (baseDelta === 0 && amountDelta === 0) continue;
+      await tx`insert into earnings
+        (org_id, location_id, membership_id, business_date, kind,
+         amount_cents, base_cents, ticket_id, basis)
+        values (${ctx.orgId}, ${ctx.locationId}, ${row.membership_id}, ${refundDate},
+                'commission', ${-amountDelta}, ${-baseDelta}, ${t.id},
+                ${jsonb({ refund: true, refundId: refund!.id })}::jsonb)`;
+    }
+  }
+
+  const cumulativeTipRefund = (already?.tip ?? 0) + input.refundTipCents;
+  if (input.refundTipCents > 0) {
+    const tipRows = await tx<{
+      membership_id: string; source: 'cash' | 'card'; amount: number; refunded: number;
+      policy_version: number | null;
+    }[]>`
+      with original as (
+        select membership_id, source, sum(amount_cents)::int as amount,
+               max(policy_version)::int as policy_version
+        from tip_allocations
+        where ticket_id = ${t.id} and amount_cents > 0 and reversed_at is null
+        group by membership_id, source
+      ), refunded as (
+        select membership_id, source, -sum(amount_cents)::int as amount
+        from tip_allocations
+        where ticket_id = ${t.id} and amount_cents < 0
+          and basis->>'refund' = 'true' and reversed_at is null
+        group by membership_id, source
+      )
+      select o.membership_id, o.source, o.amount, coalesce(r.amount, 0)::int as refunded,
+             o.policy_version
+      from original o left join refunded r using (membership_id, source)
+      order by o.membership_id, o.source`;
+    const targets = largestRemainderSplit(
+      cumulativeTipRefund, tipRows.map((row) => row.amount),
+    );
+    for (const [index, row] of tipRows.entries()) {
+      const delta = targets[index]! - row.refunded;
+      if (delta === 0) continue;
+      const basis = jsonb({ refund: true, refundId: refund!.id });
+      await tx`insert into tip_allocations
+        (org_id, location_id, ticket_id, membership_id, amount_cents, basis, source, policy_version)
+        values (${ctx.orgId}, ${ctx.locationId}, ${t.id}, ${row.membership_id}, ${-delta},
+                ${basis}::jsonb, ${row.source}, ${row.policy_version})`;
+      await tx`insert into earnings
+        (org_id, location_id, membership_id, business_date, kind,
+         amount_cents, base_cents, ticket_id, basis, plan_version)
+        values (${ctx.orgId}, ${ctx.locationId}, ${row.membership_id}, ${refundDate},
+                ${row.source === 'cash' ? 'tip_cash' : 'tip_card'}, ${-delta}, 0, ${t.id},
+                ${basis}::jsonb, ${row.policy_version})`;
     }
   }
 
@@ -1203,7 +1200,7 @@ registerHandler(TicketGroup, async ({ input, ctx, tx, audit }: HandlerArgs<
   // 已结账的单不能改组：那会让「谁付的钱」这条线索指向一个当时不存在的组
   const rows = await tx<{ id: string }[]>`
     update tickets set group_id = ${groupId}
-    where id = any(${input.ticketIds}) and status not in ('closed','voided')
+    where id = any(${input.ticketIds}) and location_id = ${ctx.locationId} and status not in ('closed','voided')
     returning id`;
 
   if (rows.length === 0) {
@@ -1221,7 +1218,7 @@ registerHandler(TicketUngroup, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof TicketUngroup.input._type>) => {
   const [row] = await tx<{ group_id: string | null }[]>`
     update tickets set group_id = null
-    where id = ${input.ticketId} and status not in ('closed','voided')
+    where id = ${input.ticketId} and location_id = ${ctx.locationId} and status not in ('closed','voided')
     returning group_id`;
   if (!row) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket' } });
   audit({ entityType: 'ticket', entityId: input.ticketId, after: { groupId: null } });
@@ -1240,7 +1237,7 @@ registerHandler(TicketCloseGroup, async ({ input, ctx, tx, audit, emit }: Handle
   const sortedTicketIds = [...input.ticketIds].sort();
   const ticketsById = new Map<string, TicketForClose>();
   for (const id of sortedTicketIds) {
-    const t = await loadTicketForClose(tx, id);
+    const t = await loadTicketForClose(tx, id, ctx.locationId);
     if (t.groupId !== input.groupId) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { ticketId: id, reason: '这张单不属于这一组' },
@@ -1348,7 +1345,7 @@ registerHandler(TicketVoid, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     status: string; business_date: string; appointment_id: string | null;
   }[]>`
     select status, business_date::text as business_date, appointment_id
-    from tickets where id = ${input.ticketId} for update`;
+    from tickets where id = ${input.ticketId} and location_id = ${ctx.locationId} for update`;
   if (!t) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket' } });
   if (t.status === 'closed') {
     throw new AppError(ERROR_CODES.TICKET_ALREADY_CLOSED, {
