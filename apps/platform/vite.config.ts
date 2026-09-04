@@ -21,6 +21,20 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: { port: 5179, strictPort: true },
+    build: {
+      rollupOptions: {
+        output: {
+          // Keep long-lived framework dependencies cacheable across operator
+          // console releases. Route chunks then contain only page-level code.
+          manualChunks: {
+            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+            'vendor-query': ['@tanstack/react-query'],
+            'vendor-supabase': ['@supabase/supabase-js'],
+            'vendor-icons': ['lucide-react'],
+          },
+        },
+      },
+    },
     test: {
       environment: 'jsdom',
     },
