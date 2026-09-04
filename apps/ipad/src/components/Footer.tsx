@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useDeviceAuth } from '../context/DeviceAuthContext';
 import { useLanguage } from '../context/LanguageContext';
-import { ShieldCheck, Tablet, Unlink, AlertTriangle } from 'lucide-react';
+import { Tablet, Unlink, AlertTriangle } from 'lucide-react';
 
 export const Footer: React.FC = () => {
   const { storeInfo, isPaired, unpairDevice } = useDeviceAuth();
@@ -25,15 +25,10 @@ export const Footer: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5 text-slate-500 font-medium">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Encrypted Privacy Protocol</span>
-          </div>
-
           <button
             type="button"
             onClick={() => setShowUnpairModal(true)}
-            className="text-slate-400 hover:text-rose-600 transition-colors flex items-center gap-1 text-[11px] py-1 px-2.5 rounded-lg hover:bg-rose-50 font-bold active:scale-95"
+            className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 active:scale-95"
           >
             <Unlink className="w-3 h-3" />
             <span>{t('footer.unpair')}</span>

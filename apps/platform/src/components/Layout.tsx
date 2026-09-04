@@ -17,24 +17,24 @@ const NAV = [
 export function Layout() {
   const { operator, signOut } = usePlatformSession();
   return (
-    <div className="min-h-screen grid grid-cols-[240px_1fr]">
-      <aside className="bg-slate-950 text-slate-200 flex flex-col">
-        <div className="px-5 py-5 border-b border-slate-800">
+    <div className="min-h-screen bg-slate-50 text-slate-950 lg:grid lg:grid-cols-[240px_1fr]">
+      <aside className="flex border-b border-slate-800 bg-slate-950 text-slate-200 lg:min-h-screen lg:flex-col lg:border-b-0 lg:border-r">
+        <div className="flex min-w-[220px] items-center gap-3 border-r border-slate-800 px-4 py-3 lg:block lg:border-b lg:border-r-0 lg:px-5 lg:py-5">
           <img src="/brand/geniefront-logo-on-dark.svg" alt="GenieFront" className="h-7 w-auto" />
-          <div className="font-semibold text-lg">Ops console</div>
-          <div className="mt-2 text-xs text-slate-400 truncate">
+          <div className="mt-3 hidden text-base font-semibold lg:block">Operations</div>
+          <div className="mt-1 hidden truncate text-xs text-slate-400 lg:block">
             {operator?.email} · {operator?.role}
           </div>
         </div>
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex flex-1 gap-1 overflow-x-auto p-3 lg:flex-col lg:overflow-visible" aria-label="Operations">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.end}
               className={({ isActive }) =>
-                `flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
-                  isActive ? 'bg-teal-600 text-white' : 'text-slate-300 hover:bg-slate-800'
+                `flex shrink-0 items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  isActive ? 'bg-teal-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
                 }`
               }
             >
@@ -43,7 +43,7 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
-        <div className="p-3 border-t border-slate-800">
+        <div className="hidden border-t border-slate-800 p-3 lg:block">
           <button
             type="button"
             onClick={() => void signOut()}
@@ -55,11 +55,7 @@ export function Layout() {
         </div>
       </aside>
       <main className="min-w-0">
-        <div className="bg-amber-50 border-b border-amber-200 text-amber-900 text-sm px-6 py-2">
-          Internal operator console. Support Mode write impersonation is not enabled.
-          Store pages are read-only except audited workflow actions.
-        </div>
-        <div className="p-6">
+        <div className="ops-page mx-auto w-full max-w-[1500px] p-4 sm:p-6 lg:p-8">
           <Outlet />
         </div>
       </main>

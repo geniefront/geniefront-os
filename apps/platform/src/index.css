@@ -1,10 +1,70 @@
 @import "tailwindcss";
 
+:root {
+  color-scheme: light;
+  --ops-ink: #0f172a;
+  --ops-muted: #64748b;
+  --ops-line: #e2e8f0;
+  --ops-canvas: #f6f8fa;
+  --ops-brand: #0f766e;
+}
+
 html, body, #root {
   min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--ops-canvas);
+  color: var(--ops-ink);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+button, a, input, select, textarea {
+  font: inherit;
 }
 
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(13, 148, 136, 0.55);
+  outline-offset: 2px;
+}
+
+.ops-page h1 {
+  color: var(--ops-ink);
+  font-size: 1.75rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+.ops-page :is(input, select, textarea) {
+  min-height: 2.5rem;
+  border-color: #cbd5e1;
+  border-radius: 0.75rem;
+  background: #fff;
+  font-size: 0.875rem;
+}
+
+.ops-page :is(input, select, textarea):focus {
+  border-color: var(--ops-brand);
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12);
+  outline: none;
+}
+
+.ops-page table {
+  border-color: var(--ops-line);
+  background: #fff;
+}
+
+@media (max-width: 1023px) {
+  .ops-page h1 {
+    font-size: 1.5rem;
+  }
 }

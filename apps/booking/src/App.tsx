@@ -8,9 +8,9 @@ function MissingShop() {
   const { t } = useLanguage();
   return (
     <Shell>
-      <Card>
-        <h1 className="text-xl font-bold">{t('status.notFound')}</h1>
-        <p className="mt-3 text-[var(--muted)]">{t('shop.notFoundDesc')}</p>
+      <Card className="mx-auto mt-16 max-w-lg md:mt-24">
+        <h1 className="text-xl font-bold tracking-tight">{t('status.notFound')}</h1>
+        <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{t('shop.notFoundDesc')}</p>
       </Card>
     </Shell>
   );

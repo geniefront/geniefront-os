@@ -10,31 +10,37 @@ type DivProps = React.HTMLAttributes<HTMLDivElement>;
 
 export const Card = React.forwardRef<HTMLDivElement, React.ComponentProps<typeof HeroCard>>(
   function Card({ className, ...props }, ref) {
-    return <HeroCard ref={ref} className={cn(className)} {...props} />;
+    return (
+      <HeroCard
+        ref={ref}
+        className={cn('rounded-2xl border border-slate-200 bg-white shadow-[var(--gf-shadow)]', className)}
+        {...props}
+      />
+    );
   },
 );
 
 export const CardHeader = React.forwardRef<HTMLDivElement, DivProps>(
   function CardHeader({ className, ...props }, ref) {
-    return <HeroCard.Header ref={ref} className={cn(className)} {...props} />;
+    return <HeroCard.Header ref={ref} className={cn('gap-1 p-5 sm:p-6', className)} {...props} />;
   },
 );
 
 export const CardTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTMLHeadingElement>>(
   function CardTitle({ className, ...props }, ref) {
-    return <HeroCard.Title ref={ref} className={cn(className)} {...props} />;
+    return <HeroCard.Title ref={ref} className={cn('text-base font-semibold tracking-tight text-slate-950', className)} {...props} />;
   },
 );
 
 export const CardDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
   function CardDescription({ className, ...props }, ref) {
-    return <HeroCard.Description ref={ref} className={cn(className)} {...props} />;
+    return <HeroCard.Description ref={ref} className={cn('text-sm leading-5 text-slate-500', className)} {...props} />;
   },
 );
 
 export const CardContent = React.forwardRef<HTMLDivElement, DivProps>(
   function CardContent({ className, ...props }, ref) {
-    return <HeroCard.Content ref={ref} className={cn(className)} {...props} />;
+    return <HeroCard.Content ref={ref} className={cn('p-5 pt-0 sm:p-6 sm:pt-0', className)} {...props} />;
   },
 );
 

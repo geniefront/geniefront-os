@@ -110,7 +110,7 @@
   border-radius: 999px;
   background: rgba(217, 242, 232, 0.65);
   color: var(--brand-dark);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.09em;
   line-height: 1;
@@ -239,9 +239,9 @@ main section article:hover {
 .demo-window-bar { display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, 0.92); padding: 12px 20px; }
 .demo-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 12px; }
 .demo-panel-title { display: flex; align-items: center; gap: 8px; color: #20383b; font-size: 12px; font-weight: 800; }
-.demo-chip, .demo-status { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #d9e3dd; border-radius: 999px; background: #fff; padding: 5px 9px; color: #647679; font-size: 9px; font-weight: 800; }
+.demo-chip, .demo-status { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #d9e3dd; border-radius: 999px; background: #fff; padding: 5px 9px; color: #647679; font-size: 11px; font-weight: 800; }
 .demo-status-dot { width: 6px; height: 6px; border-radius: 999px; background: #17a673; box-shadow: 0 0 0 4px rgba(23,166,115,.1); }
-.demo-empty-state { display: grid; min-height: 260px; place-items: center; align-content: center; gap: 12px; color: #708184; font-size: 11px; font-weight: 800; }
+.demo-empty-state { display: grid; min-height: 260px; place-items: center; align-content: center; gap: 12px; color: #708184; font-size: 12px; font-weight: 800; }
 .scan-beam { position: absolute; z-index: 2; left: 6%; right: 6%; height: 2px; background: #19b88a; box-shadow: 0 0 18px 5px rgba(25,184,138,.28); animation: scan-document 1.25s ease-in-out infinite; }
 .demo-result-enter { animation: demo-result 220ms ease-out both; }
 .voice-wave { display: flex; height: 16px; align-items: center; gap: 2px; }
@@ -290,6 +290,16 @@ main section article:hover {
 .legal-copy ul { list-style: disc; }
 .legal-copy ol { list-style: decimal; }
 .legal-callout { margin-block: 1.2rem; border: 1px solid #b9d6cc; border-radius: 16px; background: #edf8f3; padding: 16px 18px; }
+
+@layer utilities {
+  .text-\[8px\],
+  .text-\[9px\],
+  .text-\[10px\],
+  .text-\[11px\] {
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+}
 
 @media (max-width: 700px) {
   .site-shell { width: min(100% - 24px, 1180px); }

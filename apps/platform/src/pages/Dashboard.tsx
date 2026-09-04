@@ -12,14 +12,14 @@ type Counts = {
   websiteRequests: number;
 };
 
-const CARDS: Array<{ key: keyof Counts; label: string; to: string; hint: string }> = [
-  { key: 'activeStores', label: 'Active stores', to: '/stores', hint: 'locations.status = active' },
-  { key: 'trialStores', label: 'Trial stores', to: '/stores', hint: 'billing_accounts.subscription_status = trialing' },
-  { key: 'pastDueStores', label: 'Past due', to: '/stores', hint: 'billing_accounts.subscription_status = past_due' },
-  { key: 'setupIncomplete', label: 'Setup incomplete', to: '/stores', hint: 'locations.status = setup' },
-  { key: 'openSupport', label: 'Open support', to: '/support', hint: 'open / in_progress / waiting' },
-  { key: 'pending10Dlc', label: 'Pending 10DLC', to: '/10dlc', hint: 'pending_review / under_review' },
-  { key: 'websiteRequests', label: 'Website requests', to: '/website-requests', hint: 'submitted / drafted / chosen / launch requested' },
+const CARDS: Array<{ key: keyof Counts; label: string; to: string; attention?: boolean }> = [
+  { key: 'activeStores', label: 'Active stores', to: '/stores' },
+  { key: 'trialStores', label: 'Trial stores', to: '/stores' },
+  { key: 'pastDueStores', label: 'Past due', to: '/stores', attention: true },
+  { key: 'setupIncomplete', label: 'Setup incomplete', to: '/stores', attention: true },
+  { key: 'openSupport', label: 'Open support', to: '/support', attention: true },
+  { key: 'pending10Dlc', label: 'Pending 10DLC', to: '/10dlc', attention: true },
+  { key: 'websiteRequests', label: 'Website requests', to: '/website-requests' },
 ];
 
 export function Dashboard() {
@@ -29,18 +29,27 @@ export function Dashboard() {
   });
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Dashboard</h1>
-      <p className="text-sm text-slate-600">Counts from live tables. Empty means none, not a placeholder.</p>
-      {q.isError ? <p className="text-red-600 text-sm">Failed to load counts.</p> : null}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+    <div className="space-y-6">
+      <div className="border-b border-slate-200 pb-5">
+        <h1>Dashboard</h1>
+      </div>
+      {q.isError ? (
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
+          Failed to load the operational summary.
+        </div>
+      ) : null}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {CARDS.map((card) => (
-          <Link key={card.key} to={card.to} className="rounded-xl border border-slate-200 bg-white p-4 hover:border-teal-500">
-            <div className="text-sm text-slate-500">{card.label}</div>
-            <div className="text-3xl font-semibold mt-1">
+          <Link
+            key={card.key}
+            to={card.to}
+            className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,.04)] transition hover:border-teal-400 hover:shadow-[0_10px_30px_rgba(15,23,42,.07)]"
+          >
+            <div className="text-sm font-medium text-slate-500">{card.label}</div>
+            <div className={`mt-3 text-3xl font-semibold tracking-tight ${card.attention ? 'text-slate-950' : 'text-teal-800'}`}>
               {q.data ? q.data[card.key] : q.isLoading ? '…' : '—'}
             </div>
-            <div className="text-xs text-slate-400 mt-2">{card.hint}</div>
+            <div className="mt-4 text-xs font-semibold text-slate-400 transition-colors group-hover:text-teal-700">View details →</div>
           </Link>
         ))}
       </div>

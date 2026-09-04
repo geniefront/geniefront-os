@@ -84,7 +84,7 @@ export function Login() {
   }
 
   return (
-    <Card className="w-full max-w-md p-8 border-slate-200 shadow-xl shadow-slate-200/50 rounded-2xl animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <Card className="w-full max-w-md p-6 sm:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="text-center mb-8">
         <h1 className="text-3xl font-bold text-slate-900 mb-2 tracking-tight">{t('welcomeBack')}</h1>
         <p className="text-slate-500">{t('loginSubtitle')}</p>
@@ -156,10 +156,6 @@ export function Login() {
           </Button>
         </div>
       </form>
-      <div className="mt-8 text-center text-sm text-slate-500">
-        {t('noAccount')}{' '}
-        <a href="#" className="text-teal-600 hover:text-teal-700 font-semibold">{t('signUp')}</a>
-      </div>
     </Card>
   );
 }

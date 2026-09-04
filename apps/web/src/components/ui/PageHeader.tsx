@@ -14,12 +14,12 @@ export interface PageHeaderProps {
 
 export function PageHeader({ title, description, actions, className }: PageHeaderProps) {
   return (
-    <div className={cn('flex flex-wrap items-start justify-between gap-4', className)}>
+    <div className={cn('flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-start sm:justify-between', className)}>
       <div className="min-w-0">
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight truncate">{title}</h1>
-        {description ? <p className="text-sm text-slate-500 mt-1">{description}</p> : null}
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-[1.75rem]">{title}</h1>
+        {description ? <p className="mt-1.5 max-w-3xl text-sm leading-5 text-slate-500">{description}</p> : null}
       </div>
-      {actions ? <div className="flex items-center gap-2 shrink-0">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   );
 }

@@ -291,12 +291,12 @@ export function DashboardContent() {
   }
 
   return (
-    <div className="space-y-6 p-4 sm:p-6 bg-slate-50 min-h-full max-w-7xl mx-auto w-full pb-20">
+    <div className="mx-auto min-h-full w-full max-w-7xl space-y-5 pb-12">
       {/* ── 1. 顶部营业全景控制条 (Hero Ribbon，无冗余新建预约按钮) ──────────── */}
-      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+      <div className="flex flex-col items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-[var(--gf-shadow)] lg:flex-row lg:items-center">
         <div className="space-y-1">
           <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
               {currentStoreName}  {t('finance.dashHeaderSuffix')}
             </h1>
             <Badge variant="default" className="gap-1.5 font-bold">
@@ -304,14 +304,8 @@ export function DashboardContent() {
               <span>{t('finance.dashOpenNow')}</span>
             </Badge>
           </div>
-          <p className="text-xs text-slate-500 flex items-center gap-3 flex-wrap">
+          <p className="text-sm text-slate-500">
             <span>{t('finance.dashTimezone')} <strong>{timezone}</strong></span>
-            <span>•</span>
-            <span>{t('finance.dashOnDuty')}{t('staff')}: <strong className="text-teal-700">{activeStaffCount}  {t('finance.dashReadyCount')}</strong></span>
-            <span>•</span>
-            <span>{t('finance.dashLobbyWaiting')} <strong className="text-amber-700">{queueCount}  {t('finance.dashWaitingGroups')}</strong></span>
-            <span>•</span>
-            <span>{t('finance.dashOpenTickets')} <strong className="text-rose-700">{openTicketsList.length}  {t('finance.dashTicketUnit')}</strong></span>
           </p>
         </div>
 

@@ -11,7 +11,6 @@ import {
   Clock, 
   BedDouble,
   Receipt,
-  Wallet,
   CircleDollarSign,
   FileCheck,
   Users, 
@@ -20,8 +19,6 @@ import {
   PhoneCall,
   MessageSquare,
   History,
-  Settings, 
-  Server,
   Menu,
   ChevronLeft,
   Bell,
@@ -29,12 +26,8 @@ import {
   ChevronDown,
   Sparkles,
   Globe,
-  MessageCircle,
   Plus,
-  Package,
-  User,
   ClipboardList,
-  LifeBuoy,
 } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
 import { UI_LANGUAGES as LANGUAGES } from '@/i18n/types';
@@ -315,35 +308,14 @@ export function Layout() {
     {
       group: t('groupAdmin') || 'AI 与系统配置',
       items: [
-        { name: t('notificationCenter') || '通知中心', icon: Bell, path: '/notifications', badge: unreadCount },
         { name: t('calls') || 'AI 语音助手', icon: PhoneCall, path: '/calls' },
         { name: t('messages') || '消息沟通', icon: MessageSquare, path: '/messages' },
         { name: t('communicationLogs') || '沟通日志', icon: History, path: '/communication-logs' },
         { name: t('storefrontBuilder') || '微店建站', icon: Globe, path: '/storefront-builder' },
         { name: t('settings.healthForms'), icon: ClipboardList, path: '/health-forms' },
-        { name: t('support') || 'Support', icon: LifeBuoy, path: '/support' },
-        ...(canManageSettings
-          ? [{ name: t('settings') || '系统设置', icon: Settings, path: '/settings' }]
-          : []),
-        { name: t('profile') || '个人资料', icon: User, path: '/profile' },
       ],
     },
   ];
-
-  let pageTitle = 'Dashboard';
-  if (location.pathname.startsWith('/profile')) {
-    pageTitle = t('profile') || '个人资料';
-  } else if (location.pathname.startsWith('/notifications')) {
-    pageTitle = t('notificationCenter') || '通知中心';
-  } else {
-    for (const group of navGroups) {
-      const activeItem = group.items.find((item) => location.pathname.startsWith(item.path));
-      if (activeItem) {
-        pageTitle = activeItem.name;
-        break;
-      }
-    }
-  }
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-slate-50 font-sans text-slate-900">
@@ -410,7 +382,7 @@ export function Layout() {
           {navGroups.map((group, idx) => (
             <div key={idx} className="mb-4">
               {!collapsed && (
-                <div className="px-4 mb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                <div className="mb-1 px-4 text-xs font-semibold uppercase tracking-wider text-slate-400">
                   {group.group}
                 </div>
               )}
@@ -429,10 +401,10 @@ export function Layout() {
                           }
                         }}
                         className={cn(
-                          "flex items-center px-2.5 py-1.5 rounded-lg transition-all group relative text-xs font-semibold",
+                          "group relative flex items-center rounded-lg px-2.5 py-2 text-sm font-medium transition-colors",
                           isActive
-                            ? "bg-teal-50 text-teal-800 font-bold shadow-xs"
-                            : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900"
+                            ? "bg-teal-50 text-teal-800 font-semibold"
+                            : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                         )}
                         title={collapsed ? item.name : undefined}
                       >
@@ -444,11 +416,6 @@ export function Layout() {
                           )}
                         />
                         {!collapsed && <span className="truncate">{item.name}</span>}
-                        {!collapsed && (item as any).badge !== undefined && (item as any).badge > 0 && (
-                          <span className="ml-auto shrink-0 px-1.5 py-0.2 rounded-full bg-red-500 text-white text-[10px] font-black">
-                            {(item as any).badge}
-                          </span>
-                        )}
                         {isActive && !collapsed && (
                           <div className="absolute right-2 w-1.5 h-1.5 rounded-full bg-teal-600"></div>
                         )}
@@ -506,7 +473,7 @@ export function Layout() {
             {!collapsed && (
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-slate-800 truncate">{session?.user.email ?? '—'}</p>
-                <p className="text-[10px] text-slate-500 truncate">
+                <p className="truncate text-xs text-slate-500">
                   {membership?.roleKeys
                     .map((r) => { const k = roleLabelKey(r); return k ? t(k) : r; })
                     .join(' · ') || '—'}
@@ -538,8 +505,8 @@ export function Layout() {
       {/* Main Content Wrapper */}
       <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Header */}
-        <header className="relative z-nav flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-3 shadow-sm sm:px-4 lg:h-16 lg:px-6">
-          <div className="flex min-w-0 items-center gap-2 lg:w-48 lg:shrink-0 lg:gap-4">
+        <header className="relative z-nav flex h-14 shrink-0 items-center border-b border-slate-200 bg-white px-3 sm:px-4 lg:h-16 lg:px-6">
+          <div className="flex shrink-0 items-center gap-2 lg:gap-3">
             <Button variant="ghost" size="icon" aria-label={t('openNavigation')} onClick={() => setMobileNavOpen(true)} className="h-9 w-9 shrink-0 lg:hidden">
               <Menu className="h-5 w-5" />
             </Button>
@@ -548,18 +515,10 @@ export function Layout() {
                 <Menu className="w-5 h-5" />
               </Button>
             )}
-            {/* Breadcrumb / Title */}
-            <div className="flex min-w-0 flex-col">
-              <div className="flex items-center text-xs text-slate-400 font-medium">
-                <span className="hidden sm:inline">App</span>
-                <span className="mx-1.5 hidden sm:inline">/</span>
-                <span className="max-w-[42vw] truncate text-sm font-semibold text-teal-700 sm:max-w-[120px] sm:text-xs">{pageTitle}</span>
-              </div>
-            </div>
           </div>
           
           {/* Global Search Bar - Dead Center with Fuzzy Search Dropdown */}
-          <div ref={globalSearchRef} className="flex-1 max-w-xl mx-4 hidden md:flex relative group">
+          <div ref={globalSearchRef} className="group relative mx-3 hidden max-w-xl flex-1 md:flex lg:mx-5">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-teal-600 transition-colors" />
             <input 
               ref={globalInputRef}
@@ -580,7 +539,7 @@ export function Layout() {
             {/* 容错模糊搜索实时建议弹层 */}
             {globalSearchOpen && (
               <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-dropdown overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 max-h-96 overflow-y-auto">
-                <div className="px-3 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider flex justify-between items-center border-b border-slate-100">
+                <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
                   <span>{t('search')} ({searchResults.length})</span>
                   <span className="font-normal font-mono">ESC</span>
                 </div>
@@ -596,16 +555,15 @@ export function Layout() {
                         setGlobalSearchOpen(false);
                         setGlobalQuery('');
                       }}
-                      className="w-full text-left px-3.5 py-2.5 hover:bg-teal-50/70 transition-colors flex items-center justify-between group/item"
+                      className="group/item flex w-full items-center justify-between px-3.5 py-3 text-left transition-colors hover:bg-teal-50/70"
                     >
                       <div>
                         <div className="flex items-center gap-2">
-                          <strong className="text-slate-900 text-xs group-hover/item:text-teal-800 font-bold">
+                          <strong className="text-sm font-semibold text-slate-900 group-hover/item:text-teal-800">
                             {cmd.title}
                           </strong>
-                          <span className="text-[10px] text-slate-400 font-mono">({cmd.path})</span>
                         </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5">{cmd.desc}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">{cmd.desc}</p>
                       </div>
                       <span className="text-xs text-teal-600 opacity-0 group-hover/item:opacity-100 transition-opacity font-bold">
                         →
@@ -617,7 +575,7 @@ export function Layout() {
             )}
           </div>
 
-          <div className="flex shrink-0 items-center justify-end gap-1 sm:gap-2 lg:w-48">
+          <div className="ml-auto flex shrink-0 items-center justify-end gap-1 sm:gap-2">
             <div className="relative" ref={langMenuRef}>
               <Button variant="ghost" size="icon" aria-label={t('language')} className="relative text-slate-500 hover:text-slate-700" onClick={() => setLangOpen(!langOpen)}>
                 <Globe className="w-5 h-5" />
@@ -759,7 +717,7 @@ export function Layout() {
         */}
         <main
           tabIndex={-1}
-          className="isolate min-h-0 flex-1 overflow-auto bg-slate-50/50 p-3 focus:outline-none sm:p-4 lg:p-6"
+          className="isolate min-h-0 flex-1 overflow-auto bg-[var(--gf-canvas)] p-3 focus:outline-none sm:p-4 lg:p-6"
         >
           <AnimatePresence mode="wait">
             <motion.div

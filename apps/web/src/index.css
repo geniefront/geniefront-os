@@ -11,6 +11,15 @@
 [data-theme="light"] {
   --accent: oklch(0.6 0.118 184.704); /* = tailwind teal-600 */
   --accent-foreground: oklch(1 0 0);
+  --gf-canvas: #f6f8fa;
+  --gf-surface: #ffffff;
+  --gf-surface-subtle: #f8fafc;
+  --gf-border: #e2e8f0;
+  --gf-border-strong: #cbd5e1;
+  --gf-ink: #0f172a;
+  --gf-muted: #64748b;
+  --gf-radius: 0.875rem;
+  --gf-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.045);
 }
 
 /*
@@ -81,7 +90,70 @@ div[data-slot="modal-container"] {
  * 优先级梯队，`@layer utilities`（声明顺序在 base 之后）照常胜出。
  */
 @layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    background: var(--gf-canvas);
+    font-family: Inter, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    background: var(--gf-canvas);
+    color: var(--gf-ink);
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgba(13, 148, 136, 0.52);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: rgba(13, 148, 136, 0.16);
+  }
+
   label {
     display: block;
+  }
+}
+
+/*
+ * 历史页面里散落着大量 8–11px 的任意字号。这些内容在真实前台屏幕上
+ * 无法稳定阅读，也让页面看起来像被压缩过。统一抬到 12px：仍然适合元数据，
+ * 但不会再低于产品的最小可读字号。常用标签继续使用 14px。
+ */
+@layer utilities {
+  .text-\[8px\],
+  .text-\[9px\],
+  .text-\[10px\],
+  .text-\[11px\] {
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+
+  .custom-scrollbar {
+    scrollbar-color: #cbd5e1 transparent;
+    scrollbar-width: thin;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: #cbd5e1;
   }
 }

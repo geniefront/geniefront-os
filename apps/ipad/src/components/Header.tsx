@@ -4,7 +4,7 @@ import { useDeviceAuth } from '../context/DeviceAuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { UI_LANGUAGES } from '../i18n/dict';
 import type { Language } from '../types';
-import { Globe, Wifi, WifiOff, Calendar, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Globe, Calendar, RotateCcw, AlertTriangle } from 'lucide-react';
 
 export const Header: React.FC = () => {
   const { storeInfo, isPaired } = useDeviceAuth();
@@ -16,8 +16,6 @@ export const Header: React.FC = () => {
 
   const isHome = location.pathname === '/';
   const isPairing = location.pathname === '/pair';
-  const isOnline = navigator.onLine;
-
   const locationName = storeInfo ? pickText(storeInfo.locationName, 'GenieFront') : 'GenieFront Kiosk';
 
   const handleResetToHome = () => {
@@ -39,7 +37,7 @@ export const Header: React.FC = () => {
                 {locationName}
               </h1>
               {isPaired && (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-teal-50 text-teal-700 border border-teal-200">
+                <span className="inline-flex items-center rounded-full border border-teal-200 bg-teal-50 px-2.5 py-0.5 text-xs font-bold text-teal-700">
                   Kiosk
                 </span>
               )}
@@ -55,7 +53,7 @@ export const Header: React.FC = () => {
           </div>
         </div>
 
-        {/* 右侧操作区：重置按钮、网络状态与多语言切换 */}
+        {/* 右侧操作区：重置与多语言切换；离线状态由全局 OfflineNotice 统一提示 */}
         <div className="flex items-center gap-2.5 sm:gap-3">
           {/* 单独的重置/返回首页按钮 (仅在子流程页面显示) */}
           {!isHome && !isPairing && (
@@ -68,21 +66,6 @@ export const Header: React.FC = () => {
               <span>{t('header.resetHome')}</span>
             </button>
           )}
-
-          {/* 网络状态指示 */}
-          <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100/80 border border-slate-200 text-xs font-semibold">
-            {isOnline ? (
-              <>
-                <Wifi className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="text-slate-600 hidden sm:inline">Online</span>
-              </>
-            ) : (
-              <>
-                <WifiOff className="w-3.5 h-3.5 text-rose-600" />
-                <span className="text-rose-600 font-bold">Offline</span>
-              </>
-            )}
-          </div>
 
           {/* 语言选择下拉/切换 */}
           <div className="relative">

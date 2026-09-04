@@ -286,7 +286,7 @@ export const WalkInPage: React.FC = () => {
                   <Mail className="w-3.5 h-3.5 text-teal-600" />
                   <span>{t('walkin.emailTitle')}</span>
                 </label>
-                <span className="text-[11px] text-slate-400 font-medium">{t('common.optional')}</span>
+                <span className="text-xs font-medium text-slate-400">{t('common.optional')}</span>
               </div>
               <input
                 type="email"
@@ -348,7 +348,7 @@ export const WalkInPage: React.FC = () => {
                       {isSelected && <Check className="w-4 h-4 text-teal-600 shrink-0" />}
                     </div>
                     {svc.durationMin > 0 && (
-                      <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium">
+                      <div className="flex items-center gap-1 text-xs font-medium text-slate-500">
                         <Clock className="w-3 h-3 text-teal-600" />
                         <span>{svc.durationMin} {t('ticket.minutes')}</span>
                       </div>
