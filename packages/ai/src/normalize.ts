@@ -26,6 +26,9 @@ export interface DraftItem {
   priceCents: number | null;
   priceIsFrom: boolean;
   variants: DraftVariant[];
+  packageSessions?: number;
+  packageServiceNames?: string[];
+  packageValidDays?: number | null;
   confidenceBp: number;
   sourceSeq: number;
   bbox: [number, number, number, number] | null;
@@ -105,6 +108,9 @@ export function normalizeExtraction(
         priceCents: v.price_cents,
         durationMin: v.duration_min > 0 ? v.duration_min : null,
       })),
+      packageSessions: raw.package_sessions,
+      packageServiceNames: raw.package_service_names,
+      packageValidDays: raw.package_valid_days > 0 ? raw.package_valid_days : null,
       confidenceBp,
       sourceSeq: opts.sourceSeq,
       bbox: clampBox(raw.bbox, opts.widthPx, opts.heightPx),

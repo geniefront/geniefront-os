@@ -18,9 +18,12 @@ export interface PackageTemplateDto {
   sessions: number | 'Unlimited';
   sold: number;
   revenueCents: number;
+  catalogValueCents: number | null;
+  savingsCents: number | null;
   growth: number;
   active: boolean;
   serviceIds: string[];
+  serviceNames: string[];
 }
 
 export interface CustomerPackageViewDto {
@@ -30,6 +33,7 @@ export interface CustomerPackageViewDto {
   templateId: string;
   templateName: string;
   serviceName: string;
+  serviceNames: string[];
   totalUnits: number;
   remainingUnits: number;
   expiresAt: string | null;
@@ -43,6 +47,7 @@ export async function loadPackages(
 ): Promise<{
   templates: PackageTemplateDto[];
   userPackages: CustomerPackageViewDto[];
+  availableServices: Array<{ id: string; name: string; priceCents: number }>;
   totalSold: number;
   totalRevenueCents: number;
 }> {
@@ -55,9 +60,11 @@ export async function loadPackages(
     where location_id = ${ctx.locationId}
     order by sort asc, created_at desc`;
 
-  const srvRows = await tx<{ id: string; name: unknown }[]>`
-    select id, name from services where location_id = ${ctx.locationId}`;
+  const srvRows = await tx<{ id: string; name: unknown; base_price_cents: number; active: boolean }[]>`
+    select id, name, base_price_cents, active from services
+    where location_id = ${ctx.locationId} order by sort, name->>'en'`;
   const srvMap = new Map(srvRows.map((s) => [s.id, pickText(s.name, ctx.locale, '指定服务')]));
+  const srvPriceMap = new Map(srvRows.map((s) => [s.id, s.base_price_cents]));
 
   const soldStats = await tx<{
     template_id: string; sold_count: string; revenue_cents: string;
@@ -86,6 +93,12 @@ export async function loadPackages(
     totalRevenueCents += st.revenue;
     const firstSrvId = t.service_ids?.[0] ?? '';
     const firstSrvName = firstSrvId ? (srvMap.get(firstSrvId) || '综合服务') : '全品类通用';
+    const perSessionValue = (t.service_ids ?? []).reduce(
+      (sum, id) => sum + (srvPriceMap.get(id) ?? 0), 0,
+    );
+    const catalogValueCents = t.sessions > 0 && perSessionValue > 0
+      ? perSessionValue * t.sessions
+      : null;
 
     return {
       id: t.id,
@@ -98,9 +111,12 @@ export async function loadPackages(
       sessions: t.sessions === 0 ? 'Unlimited' : t.sessions,
       sold: st.sold,
       revenueCents: st.revenue,
+      catalogValueCents,
+      savingsCents: catalogValueCents === null ? null : Math.max(0, catalogValueCents - t.price_cents),
       growth: 10,
       active: t.active,
       serviceIds: t.service_ids ?? [],
+      serviceNames: (t.service_ids ?? []).map((id) => srvMap.get(id) || '已下架项目'),
     };
   });
 
@@ -130,6 +146,7 @@ export async function loadPackages(
       templateId: up.template_id,
       templateName: pickText(up.template_name, ctx.locale, '次卡套餐'),
       serviceName: srvName,
+      serviceNames: (up.service_ids ?? []).map((id) => srvMap.get(id) || '已下架项目'),
       totalUnits: up.total_sessions,
       remainingUnits: up.remaining_sessions,
       expiresAt: up.expires_at,
@@ -138,7 +155,15 @@ export async function loadPackages(
     };
   });
 
-  return { templates, userPackages, totalSold, totalRevenueCents };
+  const availableServices = srvRows
+    .filter((service) => service.active)
+    .map((service) => ({
+      id: service.id,
+      name: srvMap.get(service.id) || '服务项目',
+      priceCents: service.base_price_cents,
+    }));
+
+  return { templates, userPackages, availableServices, totalSold, totalRevenueCents };
 }
 
 // ─────────────────────────────────────────────────────────── 优惠券 (Coupons)

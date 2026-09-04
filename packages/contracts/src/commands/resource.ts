@@ -38,7 +38,7 @@ export const resourceSetStatus = defineCommand({
   permission: 'appointment.write',
   ai: {
     description: '人工标记房间或工位进入维护，或在检修结束后恢复可用。',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',
@@ -49,7 +49,7 @@ export const resourceBeginCleaning = defineCommand({
   input: z.object({ resourceId: uuid, note: z.string().max(500).optional() }),
   output: z.object({ resourceId: uuid, status: z.literal('cleaning') }),
   permission: 'queue.manage',
-  ai: { description: '开始清洁待清洁的房间或工位。', confirm: 'never' },
+  ai: { description: '开始清洁待清洁的房间或工位。', confirm: 'always' },
   reversible: true,
   idempotency: 'optional',
 });
@@ -59,7 +59,7 @@ export const resourceCompleteCleaning = defineCommand({
   input: z.object({ resourceId: uuid, note: z.string().max(500).optional() }),
   output: z.object({ resourceId: uuid, status: z.enum(['available', 'in_use']) }),
   permission: 'queue.manage',
-  ai: { description: '完成房间或工位清洁并恢复可用。', confirm: 'never' },
+  ai: { description: '完成房间或工位清洁并恢复可用。', confirm: 'always' },
   reversible: false,
   idempotency: 'required',
 });
@@ -98,7 +98,7 @@ export const resourceSave = defineCommand({
   permission: 'settings.manage',
   ai: {
     description: '创建或编辑房间、美甲台、按摩床等工位资源配置',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',

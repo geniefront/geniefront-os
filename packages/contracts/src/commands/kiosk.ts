@@ -114,7 +114,7 @@ export const JoinQueue = defineCommand({
   permission: 'queue.join',
   ai: {
     description: '把一位客人排进走单队列并给号。',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   // Kiosk 那台 iPad 的网络常常是店里最差的一条。重试不能变成两个号

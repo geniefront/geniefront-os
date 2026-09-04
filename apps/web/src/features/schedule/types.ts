@@ -21,6 +21,8 @@ export interface DayStaff {
 export interface DayService {
   id: string;
   name: string;
+  categoryId?: string | null;
+  categoryName?: string | null;
   durationMin: number;
   priceCents: number;
   /** 该项目同时需要的技师人数。 */

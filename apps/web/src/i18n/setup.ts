@@ -202,4 +202,8 @@ export const setup = {
   setupLaunchNow: { 'zh-Hans': '正式开店', en: 'Launch now', ko: '지금 오픈', vi: 'Khai trương ngay', es: 'Abrir ahora' },
   setupLaunched: { 'zh-Hans': '门店已正式开通', en: 'Store is now live', ko: '매장이 오픈되었습니다', vi: 'Cửa hàng đã chính thức khai trương', es: 'La tienda ya está activa' },
   setupLaunchFailed: { 'zh-Hans': '开店失败：{p0}', en: 'Launch failed: {p0}', ko: '오픈 실패: {p0}', vi: 'Khai trương thất bại: {p0}', es: 'Error al abrir: {p0}' },
+  setupImportPackage: { 'zh-Hans': '套餐/次卡', en: 'Package / pass', ko: '패키지/이용권', vi: 'Gói / thẻ lượt', es: 'Paquete / bono' },
+  setupImportUnlimited: { 'zh-Hans': '不限次数', en: 'Unlimited', ko: '무제한', vi: 'Không giới hạn', es: 'Ilimitado' },
+  setupImportSessions: { 'zh-Hans': '{count} 次', en: '{count} sessions', ko: '{count}회', vi: '{count} lượt', es: '{count} sesiones' },
+  setupImportPackageItemsPending: { 'zh-Hans': '包含项目待确认', en: 'Included services need review', ko: '포함 서비스 확인 필요', vi: 'Cần xác nhận dịch vụ bao gồm', es: 'Servicios incluidos por confirmar' },
 };

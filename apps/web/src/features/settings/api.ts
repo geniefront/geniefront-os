@@ -13,6 +13,7 @@ import type {
   SaveLocationProfileInput,
   SaveBusinessHoursInput,
   SaveServiceInput,
+  SaveServiceCategoryInput,
   ArchiveServiceInput,
   SaveStaffProfileInput,
   SetRotationParticipationInput,
@@ -122,6 +123,19 @@ export function useSaveService() {
       );
       return res.result;
     },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: settingsKeys.desk(membershipId) });
+    },
+  });
+}
+
+export function useSaveServiceCategory() {
+  const queryClient = useQueryClient();
+  const { membershipId } = useSession();
+  return useMutation({
+    mutationFn: async (input: SaveServiceCategoryInput) => (
+      await runCommand('catalog.saveServiceCategory', input, membershipId!)
+    ).result,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: settingsKeys.desk(membershipId) });
     },

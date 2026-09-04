@@ -37,6 +37,12 @@ export interface CheckoutSettingsDto {
   autoPrintReceipt: boolean;
   autoSendSmsReceipt: boolean;
   checkoutTiming: 'service_then_tip' | 'upfront_combined' | 'after_service_combined';
+  packageCoverageMode: 'bundle' | 'any_included';
+  packageCommissionBasis: 'catalog_price' | 'allocated_sale_price' | 'zero';
+  allowTipSplitOverride: boolean;
+  tipDistributionBasis: 'active_minutes' | 'price_share' | 'equal' | 'level_weighted';
+  assistantTipWeightPercent: number;
+  tipRemainderTo: 'longest_service' | 'highest_level' | 'pool_next_day';
 }
 
 export interface IntakeWaiverDto {
@@ -81,6 +87,23 @@ export async function loadCheckoutSettings(
   tx: postgres.TransactionSql,
   ctx: CommandContext,
 ): Promise<CheckoutSettingsDto> {
+  const [loc] = await tx<{ settings: Record<string, unknown> }[]>`
+    select settings from locations where id = ${ctx.locationId}`;
+  const raw = (loc?.settings?.['checkout'] ?? {}) as Record<string, unknown>;
+  const [tipPolicy] = await tx<{ config: Record<string, unknown> }[]>`
+    select config from tip_policies
+    where location_id = ${ctx.locationId}
+    order by effective_from desc, version desc limit 1`;
+  const tipConfig = tipPolicy?.config ?? {};
+  const roleWeights = (tipConfig['role_weights_bp'] ?? {}) as Record<string, unknown>;
+  const custom = {
+    packageCoverageMode: (raw['packageCoverageMode'] ?? 'bundle') as CheckoutSettingsDto['packageCoverageMode'],
+    packageCommissionBasis: (raw['packageCommissionBasis'] ?? 'allocated_sale_price') as CheckoutSettingsDto['packageCommissionBasis'],
+    allowTipSplitOverride: raw['allowTipSplitOverride'] !== false,
+    tipDistributionBasis: (tipConfig['basis'] ?? 'active_minutes') as CheckoutSettingsDto['tipDistributionBasis'],
+    assistantTipWeightPercent: Math.round(Number(roleWeights['assistant'] ?? 3000) / 100),
+    tipRemainderTo: (tipConfig['remainder_to'] ?? 'longest_service') as CheckoutSettingsDto['tipRemainderTo'],
+  };
   const [row] = await tx<{
     sales_tax_rate_percent: string;
     tax_calculation_mode: string;
@@ -110,14 +133,11 @@ export async function loadCheckoutSettings(
       autoPrintReceipt: row.auto_print_receipt ?? true,
       autoSendSmsReceipt: row.auto_send_sms_receipt ?? true,
       checkoutTiming: (row.checkout_timing as CheckoutSettingsDto['checkoutTiming']) || 'after_service_combined',
+      ...custom,
     };
   }
 
   // Fallback to locations.settings['checkout'] or system defaults
-  const [loc] = await tx<{ settings: Record<string, unknown> }[]>`
-    select settings from locations where id = ${ctx.locationId}`;
-  const raw = (loc?.settings?.['checkout'] ?? {}) as Record<string, unknown>;
-
   return {
     salesTaxRatePercent: Number(raw['salesTaxRatePercent'] ?? raw['sales_tax_rate_percent'] ?? 8.875),
     taxCalculationMode: (raw['taxCalculationMode'] ?? raw['tax_calculation_mode'] ?? 'exclusive') as 'exclusive' | 'inclusive',
@@ -128,6 +148,7 @@ export async function loadCheckoutSettings(
     autoPrintReceipt: raw['autoPrintReceipt'] !== false && raw['auto_print_receipt'] !== false,
     autoSendSmsReceipt: raw['autoSendSmsReceipt'] !== false && raw['auto_send_sms_receipt'] !== false,
     checkoutTiming: (raw['checkoutTiming'] ?? raw['checkout_timing'] ?? 'after_service_combined') as CheckoutSettingsDto['checkoutTiming'],
+    ...custom,
   };
 }
 
@@ -284,15 +305,20 @@ export async function loadDeskSettings(
 
   const services = await tx<{
     id: string; name: unknown; duration_min: number; base_price_cents: number;
+    category_id: string | null;
     taxable: boolean; online_bookable: boolean; is_addon: boolean; active: boolean;
     staff_count: number; required_skill_ids: string[];
   }[]>`
-    select s.id, s.name, s.duration_min, s.base_price_cents, s.taxable, s.online_bookable,
+    select s.id, s.name, s.category_id, s.duration_min, s.base_price_cents, s.taxable, s.online_bookable,
            s.is_addon, s.active, s.staff_count,
            coalesce((select array_agg(ssr.skill_id order by ssr.skill_id)
              from service_skill_requirements ssr where ssr.service_id = s.id), '{}') as required_skill_ids
     from services s where s.location_id = ${ctx.locationId}
     order by s.active desc, s.sort, s.name->>'en'`;
+
+  const serviceCategories = await tx<{ id: string; name: unknown; sort: number }[]>`
+    select id, name, sort from service_categories
+    where location_id = ${ctx.locationId} order by sort, id`;
 
   /*
    * 店主邮件语言。事实源是 `organizations.default_locale`（`email/locale.ts`）。
@@ -397,6 +423,7 @@ export async function loadDeskSettings(
     },
     services: services.map((s) => ({
       id: s.id,
+      categoryId: s.category_id,
       name: s.name as Record<string, string>,
       displayName: pickText(s.name, ctx.locale),
       durationMin: s.duration_min,
@@ -407,6 +434,12 @@ export async function loadDeskSettings(
       staffCount: s.staff_count,
       requiredSkillIds: s.required_skill_ids,
       active: s.active,
+    })),
+    serviceCategories: serviceCategories.map((category) => ({
+      id: category.id,
+      name: category.name as Record<string, string>,
+      displayName: pickText(category.name, ctx.locale),
+      sort: category.sort,
     })),
     staff: staff.map((s) => ({
       membershipId: s.membership_id,

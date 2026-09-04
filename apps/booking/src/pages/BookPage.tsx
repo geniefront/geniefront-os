@@ -354,7 +354,11 @@ function ServiceStep({
   const { t } = useLanguage();
   const [serviceId, setServiceId] = useState<string | null>(null);
   const [addonIds, setAddonIds] = useState<string[]>([]);
+  const [categoryId, setCategoryId] = useState<string>('all');
   const service = catalog.services.find((s) => s.id === serviceId) ?? null;
+  const visibleServices = categoryId === 'all'
+    ? catalog.services
+    : catalog.services.filter((item) => item.categoryId === categoryId);
   const selectedAddons = catalog.addons.filter((a) => addonIds.includes(a.id));
   const mins = (service?.durationMin ?? 0) + selectedAddons.reduce((n, a) => n + a.durationMin, 0);
   const cents = (service?.priceCents ?? 0) + selectedAddons.reduce((n, a) => n + a.priceCents, 0);
@@ -367,8 +371,16 @@ function ServiceStep({
         <p className="mt-2 text-[var(--muted)]">Select the service you would like to book.</p>
       </div>
       <Card>
+        {catalog.categories.length > 0 && (
+          <div className="mb-4 flex gap-2 overflow-x-auto pb-1" aria-label={t('step.serviceCategories', 'Service categories')}>
+            <button type="button" onClick={() => setCategoryId('all')} aria-pressed={categoryId === 'all'} className={`min-h-10 shrink-0 rounded-full border px-4 text-sm font-bold ${categoryId === 'all' ? 'border-[var(--brand)] bg-[var(--brand)] text-white' : 'border-[var(--line)] bg-white text-[var(--muted)]'}`}>{t('step.allServices', 'All services')}</button>
+            {catalog.categories.map((category) => (
+              <button key={category.id} type="button" onClick={() => setCategoryId(category.id)} aria-pressed={categoryId === category.id} className={`min-h-10 shrink-0 rounded-full border px-4 text-sm font-bold ${categoryId === category.id ? 'border-[var(--brand)] bg-[var(--brand)] text-white' : 'border-[var(--line)] bg-white text-[var(--muted)]'}`}>{category.name}</button>
+            ))}
+          </div>
+        )}
         <ul className="grid gap-3">
-          {catalog.services.map((s) => (
+          {visibleServices.map((s) => (
             <li key={s.id}>
               <button
                 type="button"

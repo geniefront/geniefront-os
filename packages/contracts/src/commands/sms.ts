@@ -30,7 +30,7 @@ export const smsSendDirect = defineCommand({
   permission: 'comms.send',
   ai: {
     description: '向前台客人或指定手机号直接发送短信或回复',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: false,
   idempotency: 'optional',

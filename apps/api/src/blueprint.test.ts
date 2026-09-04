@@ -48,6 +48,8 @@ afterAll(async () => {
   //   而先删草案又会级联掉 items，那条「哪些 services 是测试建的」的线索就断了。
   //   所以：先把 id 记下来 → 删草案（级联 items）→ 再按 id 删 services。
   await withTenant(tenant, async (tx) => {
+    await tx`delete from package_templates
+      where location_id = ${NAIL_LOC} and name->>'en' = 'AI Test Package'`;
     const ids = await tx<{ applied_service_id: string }[]>`
       select i.applied_service_id from blueprint_items i
       join shop_blueprints b on b.id = i.blueprint_id
@@ -332,6 +334,40 @@ describe('回填落地', () => {
     const rows = await withTenant(tenant, (tx) => tx<{ category_id: string | null }[]>`
       select category_id from services where id = any(${out.createdServiceIds}::uuid[])`);
     expect(rows.every((r) => r.category_id !== null)).toBe(true);
+  });
+
+  it('套餐在普通项目之后落地，并自动绑定同图识别出的项目', async () => {
+    const { blueprintId } = await run<{ blueprintId: string }>('blueprint.createDraft', {
+      sources: [{ seq: 0, storagePath: null, widthPx: 1200, heightPx: 900 }],
+    });
+    const base = extractionPayload(blueprintId);
+    await runSystem('blueprint.saveExtraction', {
+      ...base,
+      items: [
+        base.items[0],
+        {
+          ...base.items[0], kind: 'package', name: { en: 'AI Test Package' }, category: null,
+          durationMin: null, priceCents: 18000, packageSessions: 5,
+          packageServiceNames: ['Gel Manicure'], packageValidDays: 180,
+        },
+      ],
+    });
+    const draft = await view(blueprintId);
+    for (const item of draft!.items) {
+      await run('blueprint.reviewItem', { itemId: item.itemId, decision: 'accepted' });
+    }
+    const out = await run<{ createdServiceIds: string[]; createdPackageIds: string[] }>(
+      'blueprint.apply', { blueprintId });
+    expect(out.createdServiceIds).toHaveLength(1);
+    expect(out.createdPackageIds).toHaveLength(1);
+    const packageId = out.createdPackageIds[0]!;
+    const packageRows = await withTenant(tenant, (tx) => tx<{
+      sessions: number; service_ids: string[]; valid_days: number;
+    }[]>`select sessions, service_ids, valid_days from package_templates
+      where id = ${packageId}`);
+    const pkg = packageRows[0]!;
+    expect(pkg).toMatchObject({ sessions: 5, valid_days: 180 });
+    expect(pkg!.service_ids).toEqual(out.createdServiceIds);
   });
 
   it('⭐ 幂等：网差的店里点两下「落地」，第二下什么都不做', async () => {

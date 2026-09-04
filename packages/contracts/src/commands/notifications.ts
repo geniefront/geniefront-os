@@ -29,7 +29,7 @@ export const MarkNotificationRead = defineCommand({
   permission: 'appointment.read',
   ai: {
     description: '将指定的应用内通知标记为已读。',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: false,
   idempotency: 'optional',
@@ -47,7 +47,7 @@ export const MarkAllNotificationsRead = defineCommand({
   permission: 'appointment.read',
   ai: {
     description: '一键将全部或特定分类下的未读应用内通知标记为已读。',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: false,
   idempotency: 'optional',

@@ -30,7 +30,7 @@ import { z } from 'zod';
 const CONFIDENCE_LEVELS = ['certain', 'likely', 'unsure'] as const;
 
 /** 05 §5.3 的反面清单：修饰行不是独立项目，让模型自己分类 */
-const ITEM_KINDS = ['service', 'addon', 'note', 'price_modifier'] as const;
+const ITEM_KINDS = ['service', 'addon', 'package', 'note', 'price_modifier'] as const;
 
 const bboxSchema = {
   type: 'object',
@@ -107,6 +107,19 @@ export const priceListToolSchema = {
               '并把 price_cents 填成最低的那一档。只有一个价格就给空数组。',
             items: variantSchema,
           },
+          package_sessions: {
+            type: 'integer',
+            description: '套餐/次卡包含的可核销次数；无限次填 0。非套餐也填 0。',
+          },
+          package_service_names: {
+            type: 'array',
+            description: '套餐明确包含的项目名称，逐字照抄。非套餐给空数组。',
+            items: { type: 'string' },
+          },
+          package_valid_days: {
+            type: 'integer',
+            description: '套餐有效天数；没写或非套餐填 0，不要猜。',
+          },
           confidence: {
             type: 'string',
             enum: CONFIDENCE_LEVELS,
@@ -120,7 +133,8 @@ export const priceListToolSchema = {
         },
         required: [
           'name', 'category', 'kind', 'duration_min',
-          'price_cents', 'price_is_from', 'variants', 'confidence', 'bbox',
+          'price_cents', 'price_is_from', 'variants', 'package_sessions',
+          'package_service_names', 'package_valid_days', 'confidence', 'bbox',
         ],
         additionalProperties: false,
       },
@@ -177,6 +191,9 @@ export const extractedItemZ = z.object({
   price_is_from: z.boolean(),
   // 变体多到 12 个以上，说明模型把整个分类塞进了一行
   variants: z.array(variantZ).max(12),
+  package_sessions: z.number().int().min(0).max(10_000),
+  package_service_names: z.array(z.string().trim().min(1).max(200)).max(30),
+  package_valid_days: z.number().int().min(0).max(3650),
   confidence: z.enum(CONFIDENCE_LEVELS),
   bbox: z.object({
     x1: z.number().int(), y1: z.number().int(),

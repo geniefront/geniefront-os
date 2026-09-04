@@ -26,6 +26,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import type { Permission } from '@gf/contracts';
 import { copilotSystemText, copilotUserText } from './prompt.js';
 import { sumUsage, type TokenUsage } from '../cost.js';
 
@@ -56,6 +57,11 @@ export interface ReadOnlyTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /**
+   * 调用人必须同时具备的业务权限。`ai.use` 只表示可以打开副驾，
+   * 不能成为读取财务、客户或员工数据的旁路。
+   */
+  requiredPermissions?: readonly Permission[];
   run: (input: Record<string, unknown>) => Promise<unknown>;
 }
 
@@ -104,7 +110,7 @@ export interface CopilotOptions {
   image?: CopilotImageInput | undefined;
   /** 思考深度：前台日常高频用 low 极速响应，复杂多步可用 medium */
   effort?: 'low' | 'medium' | 'high' | undefined;
-  /** 最近几轮对话。太多会把缓存后面的易变段撑大，默认只留 3 轮（05 §6.1） */
+  /** 最近几条消息。太多会把缓存后面的易变段撑大，调用方与此处均只留 6 条。 */
   history?: Array<{ role: 'user' | 'assistant'; text: string }>;
   tools: readonly ReadOnlyTool[];
   /** 流式回调 */
@@ -123,6 +129,10 @@ export interface CopilotOptions {
  * 三轮足够走完「查客人 → 查空档 → 提案」这条最长的正常路径。
  */
 const MAX_ROUNDS = 3;
+/** 单轮并行工具上限，防止一次模型响应扇出成无界数据库查询。 */
+const MAX_TOOL_CALLS_PER_ROUND = 6;
+/** 工具结果进入下一轮上下文前的硬上限，避免列表查询拖垮延迟和费用。 */
+export const MAX_TOOL_RESULT_CHARS = 24_000;
 
 /**
  * 提案工具。`command` 是枚举 —— **模型编不出一个不存在的命令名**。
@@ -208,8 +218,9 @@ export async function askCopilot(opts: CopilotOptions): Promise<CopilotResult> {
       description: t.description,
       input_schema: t.inputSchema as unknown as Anthropic.Tool.InputSchema,
     })),
-    proposeTool(commandNames),
+    ...(commandNames.length > 0 ? [proposeTool(commandNames)] : []),
   ];
+  const toolConfig = tools.length > 0 ? { tools } : {};
 
   const userContent: Anthropic.MessageParam['content'] = opts.image
     ? [
@@ -231,7 +242,7 @@ export async function askCopilot(opts: CopilotOptions): Promise<CopilotResult> {
   const messages: Anthropic.MessageParam[] = [
     // 最近几轮对话。**只留文本**，不把上一轮的工具调用也带回来 ——
     // 那会让易变段迅速膨胀，而模型并不需要看到上次它怎么查的
-    ...(opts.history ?? []).slice(-3).map((h) => ({
+    ...(opts.history ?? []).slice(-6).map((h) => ({
       role: h.role,
       content: h.text,
     } as Anthropic.MessageParam)),
@@ -255,7 +266,7 @@ export async function askCopilot(opts: CopilotOptions): Promise<CopilotResult> {
           text: copilotSystemText(opts.commandCatalog),
           cache_control: { type: 'ephemeral' },
         }],
-        tools,
+        ...toolConfig,
         messages,
       });
 
@@ -276,7 +287,7 @@ export async function askCopilot(opts: CopilotOptions): Promise<CopilotResult> {
           text: copilotSystemText(opts.commandCatalog),
           cache_control: { type: 'ephemeral' },
         }],
-        tools,
+        ...toolConfig,
         messages,
       });
     }
@@ -337,37 +348,42 @@ export async function askCopilot(opts: CopilotOptions): Promise<CopilotResult> {
     if (toolUses.length > 0) {
       messages.push({ role: 'assistant', content: message.content });
 
-      const results: Anthropic.ToolResultBlockParam[] = [];
-      for (const use of toolUses) {
+      const results = await Promise.all(toolUses.map(async (use, index): Promise<Anthropic.ToolResultBlockParam> => {
         const tool = byName.get(use.name);
         toolsUsed.push(use.name);
+        if (index >= MAX_TOOL_CALLS_PER_ROUND) {
+          return {
+            type: 'tool_result', tool_use_id: use.id,
+            content: `本轮最多调用 ${MAX_TOOL_CALLS_PER_ROUND} 个查询工具，请缩小范围后重试`,
+            is_error: true,
+          };
+        }
         if (!tool) {
           // strict 之外的工具名（理论上不该出现）—— 告诉模型而不是抛异常，
           // 它下一轮会改用别的工具
-          results.push({
+          return {
             type: 'tool_result', tool_use_id: use.id,
             content: `没有叫 ${use.name} 的工具`, is_error: true,
-          });
-          continue;
+          };
         }
         try {
           opts.callbacks?.onStep?.(`🔍 正在查询 ${use.name}...`);
           const out = await tool.run((use.input ?? {}) as Record<string, unknown>);
-          results.push({
+          return {
             type: 'tool_result', tool_use_id: use.id,
-            content: JSON.stringify(out),
-          });
+            content: formatToolResult(out),
+          };
         } catch (e) {
           opts.log?.warn({ err: e, tool: use.name }, 'copilot tool failed');
           // ⚠️ 工具挂了要**告诉模型**，不是整个请求失败。
           // 它可以换一种方式回答，或者老实说「这个我查不到」
-          results.push({
+          return {
             type: 'tool_result', tool_use_id: use.id,
-            content: e instanceof Error ? e.message : '查询失败',
+            content: '查询失败，请不要猜测结果；说明暂时无法取得这项数据。',
             is_error: true,
-          });
+          };
         }
-      }
+      }));
       messages.push({ role: 'user', content: results });
       continue;
     }
@@ -392,6 +408,18 @@ export async function askCopilot(opts: CopilotOptions): Promise<CopilotResult> {
     proposal: null, usage: sumUsage(usages), rounds: MAX_ROUNDS, toolsUsed,
     stopped: 'max_rounds',
   };
+}
+
+function formatToolResult(value: unknown): string {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(value) ?? 'null';
+  } catch {
+    return '查询成功，但结果无法安全序列化；请说明暂时无法展示这项数据。';
+  }
+  if (serialized.length <= MAX_TOOL_RESULT_CHARS) return serialized;
+  const header = `[结果过长，已从 ${serialized.length} 字符截断]\n`;
+  return header + serialized.slice(0, MAX_TOOL_RESULT_CHARS - header.length);
 }
 
 /**

@@ -14,6 +14,8 @@ export const SaveService = defineCommand({
   input: z.object({
     /** 不传就是新建 */
     serviceId: uuid.optional(),
+    /** 可选服务分类。null 表示未分类；必须属于当前门店。 */
+    categoryId: uuid.nullable().optional(),
     name: i18nText,
     durationMin: z.number().int().min(5).max(600),
     basePriceCents: cents.nonnegative(),
@@ -36,6 +38,24 @@ export const SaveService = defineCommand({
   permission: 'catalog.manage',
   ai: {
     description: '新增或修改一个服务项目。价格用整数分，时长用分钟。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+/** 店主自定义服务分类显示名称与顺序（Massage / Facial / Spa 等）。 */
+export const SaveServiceCategory = defineCommand({
+  name: 'catalog.saveServiceCategory',
+  input: z.object({
+    categoryId: uuid.optional(),
+    name: i18nText,
+    sort: z.number().int().min(0).max(10_000).default(0),
+  }),
+  output: z.object({ categoryId: uuid, created: z.boolean() }),
+  permission: 'catalog.manage',
+  ai: {
+    description: '新增或修改服务分类及显示顺序，例如 Massage、Facial、Spa。',
     confirm: 'always',
   },
   reversible: true,
@@ -472,11 +492,23 @@ export const SaveCheckoutSettings = defineCommand({
     autoSendSmsReceipt: z.boolean().default(true),
     checkoutTiming: z.enum(['service_then_tip', 'upfront_combined', 'after_service_combined'])
       .default('after_service_combined'),
+    /** 套餐每次核销覆盖整组项目，或覆盖任意一个绑定项目。 */
+    packageCoverageMode: z.enum(['bundle', 'any_included']).default('bundle'),
+    /** 套餐核销项目进入技师提成时采用的收入基数。 */
+    packageCommissionBasis: z.enum(['catalog_price', 'allocated_sale_price', 'zero'])
+      .default('allocated_sale_price'),
+    /** 收银员是否可以覆盖门店的小费自动分配规则。 */
+    allowTipSplitOverride: z.boolean().default(true),
+    tipDistributionBasis: z.enum(['active_minutes', 'price_share', 'equal', 'level_weighted'])
+      .default('active_minutes'),
+    assistantTipWeightPercent: z.number().int().min(0).max(100).default(30),
+    tipRemainderTo: z.enum(['longest_service', 'highest_level', 'pool_next_day'])
+      .default('longest_service'),
   }),
   output: z.object({ locationId: uuid }),
   permission: 'settings.manage',
   ai: {
-    description: '设置收银小费档位、消费税率、结账找零底金与小票页脚信息。',
+    description: '设置收银、小费分配、套餐核销与套餐提成口径。',
     confirm: 'always',
   },
   reversible: true,
@@ -591,7 +623,7 @@ export const SetEmailLocale = defineCommand({
 });
 
 export const SETUP_COMMANDS = [
-  SaveService, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
+  SaveService, SaveServiceCategory, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
   SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
   SaveCheckoutSettings, Apply10Dlc, SaveIntakeWaiver, SaveWebhooks, SetEmailLocale,

@@ -18,6 +18,18 @@ registerHandler(packageSaveTemplate, async ({ input, ctx, tx, audit }) => {
   const nameJson = typeof input.name === 'string'
     ? { en: input.name, 'zh-Hans': input.name }
     : input.name;
+  const serviceIds = [...new Set(input.serviceIds)];
+
+  if (serviceIds.length > 0) {
+    const validServices = await tx<{ id: string }[]>`
+      select id from services
+      where location_id = ${ctx.locationId} and active = true and id = any(${serviceIds})`;
+    if (validServices.length !== serviceIds.length) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, {
+        details: { entity: 'service', reason: 'package_service_not_active_or_wrong_location' },
+      });
+    }
+  }
 
   if (input.templateId) {
     const [tpl] = await tx<{ id: string }[]>`
@@ -38,7 +50,7 @@ registerHandler(packageSaveTemplate, async ({ input, ctx, tx, audit }) => {
         name = ${jsonb(nameJson)}::jsonb,
         price_cents = ${input.priceCents},
         sessions = ${input.sessions},
-        service_ids = ${input.serviceIds}::uuid[],
+        service_ids = ${serviceIds}::uuid[],
         valid_days = ${input.validDays ?? null},
         scope = ${input.scope},
         online_sale = ${input.onlineSale},
@@ -67,7 +79,7 @@ registerHandler(packageSaveTemplate, async ({ input, ctx, tx, audit }) => {
       valid_days, scope, online_sale, active, sort
     ) values (
       ${ctx.orgId}, ${ctx.locationId}, ${jsonb(nameJson)}::jsonb, ${input.priceCents},
-      ${input.sessions}, ${input.serviceIds}::uuid[], ${input.validDays ?? null},
+      ${input.sessions}, ${serviceIds}::uuid[], ${input.validDays ?? null},
       ${input.scope}, ${input.onlineSale}, ${input.active}, ${input.sort}
     )
     returning id`;
@@ -147,7 +159,7 @@ const resolvePackageCustomer = async (
 const handlePackageIssue = async ({ input, ctx, tx, audit }: any) => {
   const [tpl] = await tx<{ id: string; name: unknown; price_cents: number; sessions: number; valid_days: number | null }[]>`
     select id, name, price_cents, sessions, valid_days from package_templates
-    where id = ${input.templateId} and org_id = ${ctx.orgId}`;
+    where id = ${input.templateId} and org_id = ${ctx.orgId} and active = true`;
   if (!tpl) {
     throw new AppError(ERROR_CODES.NOT_FOUND, {
       details: { entity: 'package_template', id: input.templateId },
@@ -212,11 +224,13 @@ const handlePackageRedeem = async ({ input, ctx, tx, audit }: any) => {
 
   const [pkg] = await tx<{
     id: string; customer_id: string; remaining_sessions: number;
-    total_sessions: number; status: string; expires_at: string | null;
+    total_sessions: number; status: string; expires_at: string | null; service_ids: string[];
   }[]>`
-    select id, customer_id, remaining_sessions, total_sessions, status, expires_at::text
-    from customer_packages
-    where id = ${targetPkgId} and org_id = ${ctx.orgId} for update`;
+    select cp.id, cp.customer_id, cp.remaining_sessions, cp.total_sessions, cp.status,
+           cp.expires_at::text, coalesce(pt.service_ids, '{}')::text[] as service_ids
+    from customer_packages cp
+    left join package_templates pt on pt.id = cp.template_id
+    where cp.id = ${targetPkgId} and cp.org_id = ${ctx.orgId} for update of cp`;
   if (!pkg) {
     throw new AppError(ERROR_CODES.NOT_FOUND, {
       details: { entity: 'customer_package', id: targetPkgId },
@@ -234,6 +248,52 @@ const handlePackageRedeem = async ({ input, ctx, tx, audit }: any) => {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
       details: { reason: 'package_expired', expiresAt: pkg.expires_at },
     });
+  }
+
+  if (input.customerId && input.customerId !== pkg.customer_id) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'package_customer_mismatch' },
+    });
+  }
+
+  if (input.ticketId) {
+    const [ticket] = await tx<{ customer_id: string | null }[]>`
+      select customer_id from tickets
+      where id = ${input.ticketId} and location_id = ${ctx.locationId}`;
+    if (!ticket) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket' } });
+    if (ticket.customer_id !== pkg.customer_id) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'package_ticket_customer_mismatch' },
+      });
+    }
+
+    const idemKey = `package-redeem-${pkg.id}-${input.ticketId}`;
+    const [duplicate] = await tx<{ id: string }[]>`
+      select id from customer_credit_ledger
+      where location_id = ${ctx.locationId} and idem_key = ${idemKey}`;
+    if (duplicate) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'package_already_redeemed_for_ticket' },
+      });
+    }
+
+    if (pkg.service_ids.length > 0) {
+      const itemCounts = await tx<{ service_id: string; count: number }[]>`
+        select service_id, count(*)::int as count from ticket_items
+        where ticket_id = ${input.ticketId} and service_id = any(${pkg.service_ids})
+        group by service_id`;
+      const countByService = new Map(itemCounts.map(
+        (row: { service_id: string; count: number }) => [row.service_id, row.count],
+      ));
+      const missing = pkg.service_ids.filter(
+        (serviceId: string) => (countByService.get(serviceId) ?? 0) < redeemUnits,
+      );
+      if (missing.length > 0) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+          details: { reason: 'package_services_not_on_ticket', serviceIds: missing },
+        });
+      }
+    }
   }
 
   // 0 代表无限次套餐
@@ -266,11 +326,14 @@ const handlePackageRedeem = async ({ input, ctx, tx, audit }: any) => {
   await tx`
     insert into customer_credit_ledger (
       org_id, location_id, kind, subject_id, customer_id, entry,
-      amount_cents, balance_after_cents, ticket_id, reason, actor_membership_id
+      amount_cents, balance_after_cents, ticket_id, reason, actor_membership_id,
+      idem_key, meta
     ) values (
       ${ctx.orgId}, ${ctx.locationId}, 'package', ${pkg.id}, ${customerId},
       'redeem', ${-redeemUnits}, ${nextRemaining}, ${input.ticketId ?? null},
-      ${input.reason ?? null}, ${ctx.membershipId}
+      ${input.reason ?? null}, ${ctx.membershipId},
+      ${input.ticketId ? `package-redeem-${pkg.id}-${input.ticketId}` : null},
+      ${jsonb({ serviceIds: pkg.service_ids, units: redeemUnits })}::jsonb
     )`;
 
   audit({

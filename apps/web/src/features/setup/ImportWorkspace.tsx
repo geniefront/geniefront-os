@@ -38,6 +38,9 @@ interface BlueprintItem {
   confidenceBp: number;
   lowConfidence: boolean;
   kind: string;
+  packageSessions?: number;
+  packageServiceNames?: string[];
+  packageValidDays?: number | null;
 }
 interface StaffProposal { name: string; role: string }
 interface LocationProposal {
@@ -127,6 +130,7 @@ export function ImportWorkspace({
   const [blueprint, setBlueprint] = useState<BlueprintView | null>(null);
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [acceptedStaff, setAcceptedStaff] = useState<Set<number>>(new Set());
+  const [editedItemIds, setEditedItemIds] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [extracting, setExtracting] = useState<ExtractingState | null>(null);
   const [extractElapsed, setExtractElapsed] = useState(0);
@@ -138,9 +142,17 @@ export function ImportWorkspace({
   };
   const loadBlueprint = useCallback((view: BlueprintView) => {
     setBlueprint(view);
-    setAccepted(new Set(view.items.filter((item) => !item.lowConfidence && ['service', 'addon'].includes(item.kind)).map((item) => item.itemId)));
+    setAccepted(new Set(view.items.filter((item) => !item.lowConfidence && ['service', 'addon', 'package'].includes(item.kind)).map((item) => item.itemId)));
     setAcceptedStaff(new Set());
+    setEditedItemIds(new Set());
   }, []);
+  const updateBlueprintItem = (itemId: string, patch: Partial<BlueprintItem>) => {
+    setBlueprint((current) => current ? {
+      ...current,
+      items: current.items.map((item) => item.itemId === itemId ? { ...item, ...patch } : item),
+    } : current);
+    setEditedItemIds((current) => new Set(current).add(itemId));
+  };
 
   // 价目表识别是后台任务：POST /extract 立刻返回 202，这里每 2.5s 轮询一次
   // 草案状态，直到 done（渲染确认页）或 failed（提示并让老板重试）。
@@ -270,7 +282,19 @@ export function ImportWorkspace({
       if (blueprint.items.length > 0) {
         await runCommand('blueprint.reviewItems', {
           blueprintId: blueprint.blueprintId,
-          items: blueprint.items.map((item) => ({ itemId: item.itemId, decision: accepted.has(item.itemId) ? 'accepted' : 'rejected' })),
+          items: blueprint.items.map((item) => ({
+            itemId: item.itemId,
+            decision: accepted.has(item.itemId) ? 'accepted' : 'rejected',
+            ...(editedItemIds.has(item.itemId) ? {
+              name: item.name,
+              category: item.category,
+              durationMin: item.durationMin,
+              priceCents: item.priceCents,
+              packageSessions: item.packageSessions,
+              packageServiceNames: item.packageServiceNames,
+              packageValidDays: item.packageValidDays,
+            } : {}),
+          })),
         }, membershipId);
       }
       const proposal = blueprint.locationProposal ?? {};
@@ -373,16 +397,24 @@ export function ImportWorkspace({
             <p className="mb-2 text-sm font-bold text-slate-800">{t('setupImportServices')}</p>
             <div className="max-h-[360px] divide-y divide-slate-100 overflow-auto rounded-2xl border border-slate-200 bg-white">
               {blueprint.items.map((item) => (
-                <button key={item.itemId} type="button" onClick={() => toggle(setAccepted, accepted, item.itemId)} className="flex min-h-11 w-full items-center gap-3 p-4 text-left hover:bg-slate-50">
-                  <CheckBox checked={accepted.has(item.itemId)} />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-slate-900">{item.displayName}</p>
-                    <p className="text-xs text-slate-500">
-                      {item.category || t('setupImportUncategorized')} · {t('setupImportMinutes', { count: item.durationMin ?? 45 })} · {item.priceCents === null ? t('setupImportPricePending') : `$${(item.priceCents / 100).toFixed(2)}`}
-                    </p>
+                <div key={item.itemId} className="flex items-start gap-3 p-4 hover:bg-slate-50">
+                  <button type="button" onClick={() => toggle(setAccepted, accepted, item.itemId)} aria-label={item.displayName} className="mt-2"><CheckBox checked={accepted.has(item.itemId)} /></button>
+                  <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2">
+                    <Input value={item.displayName} onChange={(event) => updateBlueprintItem(item.itemId, { displayName: event.target.value, name: { ...item.name, [item.displayLocale]: event.target.value } })} className="h-9 text-xs font-semibold" />
+                    {item.kind === 'package' ? (
+                      <Input type="number" min="0" value={item.packageSessions ?? 0} onChange={(event) => updateBlueprintItem(item.itemId, { packageSessions: Math.max(0, Number(event.target.value) || 0) })} className="h-9 text-xs" />
+                    ) : (
+                      <Input value={item.category ?? ''} onChange={(event) => updateBlueprintItem(item.itemId, { category: event.target.value || null })} placeholder={t('setupImportUncategorized')} className="h-9 text-xs" />
+                    )}
+                    {item.kind === 'package' ? (
+                      <Input value={(item.packageServiceNames ?? []).join(', ')} onChange={(event) => updateBlueprintItem(item.itemId, { packageServiceNames: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) })} placeholder={t('setupImportPackageItemsPending')} className="h-9 text-xs sm:col-span-2" />
+                    ) : (
+                      <Input type="number" min="1" value={item.durationMin ?? 45} onChange={(event) => updateBlueprintItem(item.itemId, { durationMin: Math.max(1, Number(event.target.value) || 45) })} className="h-9 text-xs" />
+                    )}
+                    <Input type="number" min="0" step="0.01" value={item.priceCents === null ? '' : item.priceCents / 100} onChange={(event) => updateBlueprintItem(item.itemId, { priceCents: event.target.value === '' ? null : Math.round(Number(event.target.value) * 100) })} placeholder={t('setupImportPricePending')} className="h-9 text-xs" />
                   </div>
                   {item.lowConfidence && <Badge variant="warning">{t('setupImportReview')}</Badge>}
-                </button>
+                </div>
               ))}
             </div>
           </div>

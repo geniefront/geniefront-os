@@ -103,3 +103,27 @@ export function commandCatalogText(): string {
     .map((c) => `${c.name} [${c.confirm}] ${c.input}\n  ${c.description}`)
     .join('\n');
 }
+
+/**
+ * 给交互式副驾的最小命令目录。按权限集合会产生少量稳定变体（角色预设与
+ * 自定义角色），换来更小的提示、正确的工具选择，以及模型看不到无权执行的动作。
+ * 真正执行时命令总线仍会再次检查权限。
+ */
+export function commandCatalogTextForPermissions(permissions: ReadonlySet<string>): string {
+  return aiToolDefinitions()
+    .filter((c) => COPILOT_OPERATIONAL_PREFIXES.has(c.name.split('.')[0] ?? ''))
+    .filter((c) => !c.permission || permissions.has(c.permission))
+    .map((c) => `${c.name} [${c.confirm}] ${c.input}\n  ${c.description}`)
+    .join('\n');
+}
+
+/**
+ * The desk copilot is an operational assistant, not a second admin console.
+ * Setup, billing, payroll, storefront publishing and account-security commands
+ * remain available in their dedicated audited screens but never enter this prompt.
+ */
+const COPILOT_OPERATIONAL_PREFIXES = new Set([
+  'appointment', 'coupon', 'customer', 'dayclose', 'discount', 'giftcard',
+  'marketing', 'notification', 'package', 'queue', 'resource', 'rotation',
+  'shift', 'sms', 'ticket',
+]);

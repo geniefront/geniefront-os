@@ -29,6 +29,7 @@ export interface LocationSettings {
 
 export interface ServiceItem {
   id: string;
+  categoryId: string | null;
   name: Record<string, string>;
   displayName: string;
   durationMin: number;
@@ -39,6 +40,13 @@ export interface ServiceItem {
   staffCount: number;
   requiredSkillIds: string[];
   active: boolean;
+}
+
+export interface ServiceCategoryItem {
+  id: string;
+  name: Record<string, string>;
+  displayName: string;
+  sort: number;
 }
 
 export interface StaffItem {
@@ -116,6 +124,12 @@ export interface CheckoutSettings {
   autoPrintReceipt: boolean;
   autoSendSmsReceipt: boolean;
   checkoutTiming: 'service_then_tip' | 'upfront_combined' | 'after_service_combined';
+  packageCoverageMode: 'bundle' | 'any_included';
+  packageCommissionBasis: 'catalog_price' | 'allocated_sale_price' | 'zero';
+  allowTipSplitOverride: boolean;
+  tipDistributionBasis: 'active_minutes' | 'price_share' | 'equal' | 'level_weighted';
+  assistantTipWeightPercent: number;
+  tipRemainderTo: 'longest_service' | 'highest_level' | 'pool_next_day';
 }
 
 export interface HardwareIntakeConfig {
@@ -169,6 +183,7 @@ export interface DeskSettings {
   /** 账单类邮件的语言。事实源是 organizations.default_locale */
   emailLocale?: EmailLocale;
   services: ServiceItem[];
+  serviceCategories: ServiceCategoryItem[];
   staff: StaffItem[];
   levels: StaffLevelItem[];
   skills: Array<{ id: string; key: string; name: string }>;
@@ -202,6 +217,7 @@ export interface SaveBusinessHoursInput {
 
 export interface SaveServiceInput {
   serviceId?: string;
+  categoryId?: string | null;
   name: Record<string, string>;
   durationMin: number;
   basePriceCents: number;
@@ -211,6 +227,12 @@ export interface SaveServiceInput {
   staffCount?: number;
   requiredSkillIds?: string[];
   active?: boolean;
+}
+
+export interface SaveServiceCategoryInput {
+  categoryId?: string;
+  name: Record<string, string>;
+  sort?: number;
 }
 
 export interface ArchiveServiceInput {
@@ -277,6 +299,12 @@ export interface SaveCheckoutInput {
   autoPrintReceipt?: boolean;
   autoSendSmsReceipt?: boolean;
   checkoutTiming?: 'service_then_tip' | 'upfront_combined' | 'after_service_combined';
+  packageCoverageMode?: 'bundle' | 'any_included';
+  packageCommissionBasis?: 'catalog_price' | 'allocated_sale_price' | 'zero';
+  allowTipSplitOverride?: boolean;
+  tipDistributionBasis?: 'active_minutes' | 'price_share' | 'equal' | 'level_weighted';
+  assistantTipWeightPercent?: number;
+  tipRemainderTo?: 'longest_service' | 'highest_level' | 'pool_next_day';
 }
 
 export interface Apply10DlcInput {

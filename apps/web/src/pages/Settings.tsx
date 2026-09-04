@@ -65,6 +65,7 @@ import {
   useSaveLocationProfile,
   useSaveBusinessHours,
   useSaveService,
+  useSaveServiceCategory,
   useArchiveService,
   useSaveStaffProfile,
   useSetRotationParticipation,
@@ -81,6 +82,7 @@ import { NotificationSettingsPanel } from '@/features/notifications/Notification
 import { planNavBadge } from '@/features/billing/display';
 import type {
   ServiceItem,
+  ServiceCategoryItem,
   StaffItem,
   CheckoutSettings,
   WebhookConfigItem,
@@ -245,6 +247,7 @@ export function Settings() {
   const saveLocationMutation = useSaveLocationProfile();
   const saveHoursMutation = useSaveBusinessHours();
   const saveServiceMutation = useSaveService();
+  const saveServiceCategoryMutation = useSaveServiceCategory();
   const archiveServiceMutation = useArchiveService();
   const saveStaffMutation = useSaveStaffProfile();
   const setRotationMutation = useSetRotationParticipation();
@@ -300,6 +303,12 @@ export function Settings() {
   const [receiptFooter, setReceiptFooter] = useState('');
   const [autoPrintReceipt, setAutoPrintReceipt] = useState(false);
   const [checkoutTiming, setCheckoutTiming] = useState<'service_then_tip' | 'upfront_combined' | 'after_service_combined'>('after_service_combined');
+  const [packageCoverageMode, setPackageCoverageMode] = useState<'bundle' | 'any_included'>('bundle');
+  const [packageCommissionBasis, setPackageCommissionBasis] = useState<'catalog_price' | 'allocated_sale_price' | 'zero'>('allocated_sale_price');
+  const [allowTipSplitOverride, setAllowTipSplitOverride] = useState(true);
+  const [tipDistributionBasis, setTipDistributionBasis] = useState<'active_minutes' | 'price_share' | 'equal' | 'level_weighted'>('active_minutes');
+  const [assistantTipWeightPercent, setAssistantTipWeightPercent] = useState('30');
+  const [tipRemainderTo, setTipRemainderTo] = useState<'longest_service' | 'highest_level' | 'pool_next_day'>('longest_service');
 
   // 4. 在线预约与排班规则
   const [onlineEnabled, setOnlineEnabled] = useState(false);
@@ -318,6 +327,7 @@ export function Settings() {
   const [editingService, setEditingService] = useState<ServiceItem | null>(null);
   const [serviceNameZh, setServiceNameZh] = useState('');
   const [serviceNameEn, setServiceNameEn] = useState('');
+  const [serviceCategoryId, setServiceCategoryId] = useState('');
   const [serviceDuration, setServiceDuration] = useState('45');
   const [servicePrice, setServicePrice] = useState('50.00');
   const [serviceTaxable, setServiceTaxable] = useState(true);
@@ -326,6 +336,11 @@ export function Settings() {
   const [serviceStaffCount, setServiceStaffCount] = useState('1');
   const [serviceRequiredSkillIds, setServiceRequiredSkillIds] = useState<string[]>([]);
   const [archivingService, setArchivingService] = useState<ServiceItem | null>(null);
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<ServiceCategoryItem | null>(null);
+  const [categoryNameZh, setCategoryNameZh] = useState('');
+  const [categoryNameEn, setCategoryNameEn] = useState('');
+  const [categorySort, setCategorySort] = useState('0');
 
   // 6. 员工管理表单
   const [staffSearch, setStaffSearch] = useState('');
@@ -415,6 +430,12 @@ export function Settings() {
         setReceiptFooter(settings.checkout.receiptFooterMessage ?? '');
         if (settings.checkout.autoPrintReceipt !== undefined) setAutoPrintReceipt(settings.checkout.autoPrintReceipt);
         if (settings.checkout.checkoutTiming) setCheckoutTiming(settings.checkout.checkoutTiming);
+        if (settings.checkout.packageCoverageMode) setPackageCoverageMode(settings.checkout.packageCoverageMode);
+        if (settings.checkout.packageCommissionBasis) setPackageCommissionBasis(settings.checkout.packageCommissionBasis);
+        setAllowTipSplitOverride(settings.checkout.allowTipSplitOverride ?? true);
+        if (settings.checkout.tipDistributionBasis) setTipDistributionBasis(settings.checkout.tipDistributionBasis);
+        setAssistantTipWeightPercent(String(settings.checkout.assistantTipWeightPercent ?? 30));
+        if (settings.checkout.tipRemainderTo) setTipRemainderTo(settings.checkout.tipRemainderTo);
       }
       if (settings.guest?.onlineBooking) {
         setOnlineEnabled(Boolean(settings.guest.onlineBooking.enabled));
@@ -559,6 +580,12 @@ export function Settings() {
         receiptFooterMessage: receiptFooter.trim() || null,
         autoPrintReceipt,
         checkoutTiming,
+        packageCoverageMode,
+        packageCommissionBasis,
+        allowTipSplitOverride,
+        tipDistributionBasis,
+        assistantTipWeightPercent: Math.min(100, Math.max(0, parseInt(assistantTipWeightPercent, 10) || 0)),
+        tipRemainderTo,
       });
       toast.success(t('settings.stCheckoutSaved'));
     } catch (err: any) {
@@ -589,6 +616,7 @@ export function Settings() {
       setEditingService(svc);
       setServiceNameZh(svc.displayName || (svc.name as any)?.zh || (svc.name as any)?.en || '');
       setServiceNameEn((svc.name as any)?.en || '');
+      setServiceCategoryId(svc.categoryId ?? '');
       setServiceDuration(String(svc.durationMin));
       setServicePrice(centsToDollars(svc.basePriceCents));
       setServiceTaxable(svc.taxable);
@@ -600,6 +628,7 @@ export function Settings() {
       setEditingService(null);
       setServiceNameZh('');
       setServiceNameEn('');
+      setServiceCategoryId('');
       setServiceDuration('45');
       setServicePrice('50.00');
       setServiceTaxable(true);
@@ -619,6 +648,7 @@ export function Settings() {
     try {
       await saveServiceMutation.mutateAsync({
         serviceId: editingService?.id,
+        categoryId: serviceCategoryId || null,
         name: {
           'zh-Hans': serviceNameZh.trim(),
           en: serviceNameEn.trim() || serviceNameZh.trim(),
@@ -635,6 +665,30 @@ export function Settings() {
       toast.success(editingService ? t('settings.stServiceUpdated') : t('settings.stServiceCreated'));
       setServiceModalOpen(false);
     } catch (err: any) {
+      toast.danger(errorMessage(err));
+    }
+  };
+
+  const handleOpenCategoryModal = (category?: ServiceCategoryItem) => {
+    setEditingCategory(category ?? null);
+    setCategoryNameZh(category?.name?.['zh-Hans'] ?? category?.displayName ?? '');
+    setCategoryNameEn(category?.name?.en ?? '');
+    setCategorySort(String(category?.sort ?? settings?.serviceCategories.length ?? 0));
+    setCategoryModalOpen(true);
+  };
+
+  const handleSaveCategory = async () => {
+    const primary = categoryNameZh.trim() || categoryNameEn.trim();
+    if (!primary) return toast.danger(t('settings.stCategoryNameRequired'));
+    try {
+      await saveServiceCategoryMutation.mutateAsync({
+        categoryId: editingCategory?.id,
+        name: { 'zh-Hans': categoryNameZh.trim() || primary, en: categoryNameEn.trim() || primary },
+        sort: Math.max(0, parseInt(categorySort, 10) || 0),
+      });
+      toast.success(t('settings.stCategorySaved'));
+      setCategoryModalOpen(false);
+    } catch (err) {
       toast.danger(errorMessage(err));
     }
   };
@@ -787,6 +841,8 @@ export function Settings() {
   const filteredServices = (settings?.services || []).filter((s) => {
     if (serviceCategoryFilter === 'addon' && !s.isAddon) return false;
     if (serviceCategoryFilter === 'online' && !s.onlineBookable) return false;
+    if (serviceCategoryFilter.startsWith('category:')
+      && s.categoryId !== serviceCategoryFilter.slice('category:'.length)) return false;
     if (serviceSearch.trim()) {
       const q = serviceSearch.toLowerCase();
       const displayName = typeof s.displayName === 'string' ? s.displayName : '';
@@ -1467,6 +1523,62 @@ export function Settings() {
                   </div>
                 </SettingsRow>
 
+                <SettingsRow label={t('settings.stTipDistribution')} description={t('settings.stTipDistributionDesc')} alignTop>
+                  <div className="grid gap-2 max-w-xl w-full">
+                    <select value={tipDistributionBasis}
+                      onChange={(e) => setTipDistributionBasis(e.target.value as typeof tipDistributionBasis)}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium">
+                      <option value="active_minutes">{t('settings.stTipByMinutes')}</option>
+                      <option value="price_share">{t('settings.stTipByRevenue')}</option>
+                      <option value="equal">{t('settings.stTipEqual')}</option>
+                      <option value="level_weighted">{t('settings.stTipByLevel')}</option>
+                    </select>
+                    <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input type="checkbox" checked={allowTipSplitOverride}
+                        onChange={(e) => setAllowTipSplitOverride(e.target.checked)}
+                        className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" />
+                      <span>{t('settings.stAllowTipOverride')}</span>
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="text-[11px] font-bold text-slate-600">{t('settings.stAssistantTipWeight')}
+                        <Input type="number" min="0" max="100" value={assistantTipWeightPercent}
+                          onChange={(e) => setAssistantTipWeightPercent(e.target.value)} className="mt-1 font-mono text-xs" />
+                      </label>
+                      <label className="text-[11px] font-bold text-slate-600">{t('settings.stTipRemainder')}
+                        <select value={tipRemainderTo}
+                          onChange={(e) => setTipRemainderTo(e.target.value as typeof tipRemainderTo)}
+                          className="mt-1 w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium">
+                          <option value="longest_service">{t('settings.stRemainderLongest')}</option>
+                          <option value="highest_level">{t('settings.stRemainderHighest')}</option>
+                          <option value="pool_next_day">{t('settings.stRemainderPool')}</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                </SettingsRow>
+
+                <SettingsRow label={t('settings.stPackageSettlement')} description={t('settings.stPackageSettlementDesc')} alignTop>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-xl w-full">
+                    <label className="text-[11px] font-bold text-slate-600">{t('settings.stPackageCoverage')}
+                      <select value={packageCoverageMode}
+                        onChange={(e) => setPackageCoverageMode(e.target.value as typeof packageCoverageMode)}
+                        className="mt-1 w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium">
+                        <option value="bundle">{t('settings.stPackageCoverageBundle')}</option>
+                        <option value="any_included">{t('settings.stPackageCoverageAny')}</option>
+                      </select>
+                    </label>
+                    <label className="text-[11px] font-bold text-slate-600">{t('settings.stPackageCommission')}
+                      <select value={packageCommissionBasis}
+                        onChange={(e) => setPackageCommissionBasis(e.target.value as typeof packageCommissionBasis)}
+                        className="mt-1 w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium">
+                        <option value="allocated_sale_price">{t('settings.stPackageCommissionAllocated')}</option>
+                        <option value="catalog_price">{t('settings.stPackageCommissionCatalog')}</option>
+                        <option value="zero">{t('settings.stPackageCommissionZero')}</option>
+                      </select>
+                    </label>
+                  </div>
+                </SettingsRow>
+
                 <SettingsRow
                   label={t('settings.stCashFloat')}
                   description={t('settings.stCashFloatDesc')}
@@ -1703,6 +1815,25 @@ export function Settings() {
           {currentTab === 'services' && (
             <div className="space-y-6">
               <SettingsCard
+                title={t('settings.stCategoriesTitle')}
+                description={t('settings.stCategoriesDesc')}
+                actions={<Button size="sm" variant="secondary" onClick={() => handleOpenCategoryModal()} className="gap-1.5 text-xs"><Plus className="size-3.5" />{t('settings.stAddCategory')}</Button>}
+              >
+                <div className="flex flex-wrap gap-2">
+                  {(settings?.serviceCategories ?? []).map((category) => (
+                    <button
+                      key={category.id}
+                      type="button"
+                      onClick={() => handleOpenCategoryModal(category)}
+                      className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-teal-400"
+                    >
+                      {category.displayName}<Edit2 className="size-3 text-slate-400" />
+                    </button>
+                  ))}
+                  {(settings?.serviceCategories.length ?? 0) === 0 && <p className="text-xs text-slate-500">{t('settings.stNoCategories')}</p>}
+                </div>
+              </SettingsCard>
+              <SettingsCard
                 title={t('settings.stServiceCatalogTitle')}
                 description={t('settings.stServiceCatalogDesc', { p0: settings?.services.length || 0 })}
                 actions={
@@ -1764,6 +1895,14 @@ export function Settings() {
                       
                       {t('settings.stFilterAddOn')}
                     </button>
+                    {(settings?.serviceCategories ?? []).map((category) => (
+                      <button
+                        key={category.id}
+                        type="button"
+                        onClick={() => setServiceCategoryFilter(`category:${category.id}`)}
+                        className={`px-2.5 py-1.5 rounded-lg font-medium ${serviceCategoryFilter === `category:${category.id}` ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                      >{category.displayName}</button>
+                    ))}
                   </div>
                 </div>
 
@@ -1785,6 +1924,7 @@ export function Settings() {
                             <span className="font-bold text-slate-900 text-xs sm:text-sm">
                               {svc.displayName}
                             </span>
+                            {svc.categoryId && <Badge variant="outline" className="text-[10px]">{settings?.serviceCategories.find((category) => category.id === svc.categoryId)?.displayName}</Badge>}
                             {svc.onlineBookable && (
                               <Badge className="bg-teal-50 text-teal-700 border-teal-200 text-[10px]">
                                 
@@ -2496,6 +2636,18 @@ export function Settings() {
             />
           </div>
 
+          <div>
+            <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">{t('settings.stServiceCategoryLabel')}</label>
+            <select
+              value={serviceCategoryId}
+              onChange={(event) => setServiceCategoryId(event.target.value)}
+              className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs text-slate-800"
+            >
+              <option value="">{t('settings.stUncategorized')}</option>
+              {(settings?.serviceCategories ?? []).map((category) => <option key={category.id} value={category.id}>{category.displayName}</option>)}
+            </select>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
@@ -2599,6 +2751,20 @@ export function Settings() {
               <span>{t('settings.stTaxable')}</span>
             </label>
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={categoryModalOpen}
+        onOpenChange={setCategoryModalOpen}
+        size="sm"
+        title={editingCategory ? t('settings.stEditCategory') : t('settings.stAddCategory')}
+        footer={<div className="flex w-full justify-end gap-2"><Button variant="secondary" onClick={() => setCategoryModalOpen(false)}>{t('settings.stServiceCancel')}</Button><Button onClick={() => void handleSaveCategory()} disabled={saveServiceCategoryMutation.isPending}>{t('settings.stSaveCategory')}</Button></div>}
+      >
+        <div className="space-y-4 text-xs">
+          <div><label className="mb-1 block font-bold text-slate-700">{t('settings.stCategoryNameZh')}</label><Input value={categoryNameZh} onChange={(event) => setCategoryNameZh(event.target.value)} placeholder={t('settings.stCategoryNameZhPlaceholder')} /></div>
+          <div><label className="mb-1 block font-bold text-slate-700">{t('settings.stCategoryNameEn')}</label><Input value={categoryNameEn} onChange={(event) => setCategoryNameEn(event.target.value)} placeholder={t('settings.stCategoryNameEnPlaceholder')} /></div>
+          <div><label className="mb-1 block font-bold text-slate-700">{t('settings.stCategorySort')}</label><Input type="number" min="0" value={categorySort} onChange={(event) => setCategorySort(event.target.value)} /></div>
         </div>
       </Modal>
 

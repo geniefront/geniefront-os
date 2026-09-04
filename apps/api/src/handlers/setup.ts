@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto';
 import {
-  SaveService, ArchiveService,
+  SaveService, SaveServiceCategory, ArchiveService,
   SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
   SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
@@ -23,6 +23,12 @@ import { registerHandler, type HandlerArgs } from '../bus';
 
 registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof SaveService.input._type>) => {
+  if (input.categoryId) {
+    const [category] = await tx<{ id: string }[]>`
+      select id from service_categories
+      where id = ${input.categoryId} and location_id = ${ctx.locationId}`;
+    if (!category) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'service_category' } });
+  }
   const syncRequiredSkills = async (serviceId: string) => {
     if (input.requiredSkillIds === undefined) return;
     const unique = [...new Set(input.requiredSkillIds)];
@@ -45,6 +51,7 @@ registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
     if (!exists) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'service' } });
 
     await tx`update services set
+        category_id = ${input.categoryId === undefined ? tx`category_id` : input.categoryId},
         name = ${jsonb(input.name)}::jsonb,
         duration_min = ${input.durationMin},
         base_price_cents = ${input.basePriceCents},
@@ -64,9 +71,9 @@ registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
 
   const [row] = await tx<{ id: string }[]>`
     insert into services
-      (org_id, location_id, name, duration_min, base_price_cents,
+      (org_id, location_id, category_id, name, duration_min, base_price_cents,
        taxable, online_bookable, is_addon, staff_count, active)
-    values (${ctx.orgId}, ${ctx.locationId}, ${jsonb(input.name)}::jsonb,
+    values (${ctx.orgId}, ${ctx.locationId}, ${input.categoryId ?? null}, ${jsonb(input.name)}::jsonb,
             ${input.durationMin}, ${input.basePriceCents},
             ${input.taxable}, ${input.onlineBookable}, ${input.isAddon}, ${input.staffCount ?? 1}, ${input.active})
     returning id`;
@@ -76,6 +83,30 @@ registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
   audit({ entityType: 'service', entityId: row!.id,
           after: { name: pickText(input.name, ctx.locale), created: true } });
   return { serviceId: row!.id, created: true };
+});
+
+registerHandler(SaveServiceCategory, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SaveServiceCategory.input._type>) => {
+  if (input.categoryId) {
+    const [before] = await tx<{ id: string; name: unknown; sort: number }[]>`
+      select id, name, sort from service_categories
+      where id = ${input.categoryId} and location_id = ${ctx.locationId}`;
+    if (!before) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'service_category' } });
+    await tx`update service_categories
+      set name = ${jsonb(input.name)}::jsonb, sort = ${input.sort}
+      where id = ${input.categoryId}`;
+    audit({ entityType: 'service_category', entityId: input.categoryId,
+      before: { name: pickText(before.name, ctx.locale), sort: before.sort },
+      after: { name: pickText(input.name, ctx.locale), sort: input.sort } });
+    return { categoryId: input.categoryId, created: false };
+  }
+  const [row] = await tx<{ id: string }[]>`
+    insert into service_categories (org_id, location_id, name, sort)
+    values (${ctx.orgId}, ${ctx.locationId}, ${jsonb(input.name)}::jsonb, ${input.sort})
+    returning id`;
+  audit({ entityType: 'service_category', entityId: row!.id,
+    after: { name: pickText(input.name, ctx.locale), sort: input.sort, created: true } });
+  return { categoryId: row!.id, created: true };
 });
 
 registerHandler(ArchiveService, async ({ input, ctx, tx, audit }: HandlerArgs<
@@ -670,6 +701,12 @@ registerHandler(SaveCheckoutSettings, async ({ input, ctx, tx, audit }: HandlerA
   const autoPrint = input.autoPrintReceipt !== undefined ? input.autoPrintReceipt : true;
   const autoSms = input.autoSendSmsReceipt !== undefined ? input.autoSendSmsReceipt : true;
   const checkoutTiming = input.checkoutTiming ?? 'after_service_combined';
+  const packageCoverageMode = input.packageCoverageMode ?? 'bundle';
+  const packageCommissionBasis = input.packageCommissionBasis ?? 'allocated_sale_price';
+  const allowTipSplitOverride = input.allowTipSplitOverride ?? true;
+  const tipDistributionBasis = input.tipDistributionBasis ?? 'active_minutes';
+  const assistantTipWeightPercent = input.assistantTipWeightPercent ?? 30;
+  const tipRemainderTo = input.tipRemainderTo ?? 'longest_service';
 
   await tx`
     insert into location_checkout_settings (
@@ -704,7 +741,30 @@ registerHandler(SaveCheckoutSettings, async ({ input, ctx, tx, audit }: HandlerA
     autoPrintReceipt: autoPrint,
     autoSendSmsReceipt: autoSms,
     checkoutTiming,
+    packageCoverageMode,
+    packageCommissionBasis,
+    allowTipSplitOverride,
   };
+
+  // 小费规则单独版本化；历史工单继续引用结账当时的 policy_version。
+  const [currentTip] = await tx<{ version: number; config: Record<string, unknown> }[]>`
+    select version, config from tip_policies
+    where location_id = ${ctx.locationId}
+    order by effective_from desc, version desc limit 1`;
+  const currentConfig = currentTip?.config ?? {};
+  const tipConfig = {
+    ...currentConfig,
+    basis: tipDistributionBasis,
+    role_weights_bp: { primary: 10000, assistant: assistantTipWeightPercent * 100 },
+    remainder_to: tipRemainderTo,
+    house_cut_bp: 0,
+  };
+  const tipChanged = JSON.stringify(currentConfig) !== JSON.stringify(tipConfig);
+  if (tipChanged) {
+    await tx`insert into tip_policies (org_id, location_id, version, config, effective_from)
+      values (${ctx.orgId}, ${ctx.locationId}, ${(currentTip?.version ?? 0) + 1},
+              ${jsonb(tipConfig)}::jsonb, now())`;
+  }
 
   await tx`update locations set
       settings = jsonb_set(settings, '{checkout}', ${jsonb(checkoutPayload)}::jsonb, true),
@@ -713,7 +773,7 @@ registerHandler(SaveCheckoutSettings, async ({ input, ctx, tx, audit }: HandlerA
 
   audit({
     entityType: 'location_checkout_settings', entityId: ctx.locationId,
-    after: checkoutPayload,
+    after: { ...checkoutPayload, tipPolicy: tipConfig },
   });
 
   return { locationId: ctx.locationId };

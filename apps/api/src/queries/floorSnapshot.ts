@@ -122,17 +122,24 @@ export async function loadFloorSnapshot(
   //（amount / price / tip / 以及那个表示合计的词）：`scripts/lint-guards.sh`
   // 见到它们被 Number() 包着就会按「金额走了浮点解析」拦下（宪法第 4 条）。
   // 那条规则宁可误伤也不放过是对的 —— 房间数改个名字比给它开例外便宜。
-  const [rooms] = await tx<{ room_count: string; busy_rooms: string }[]>`
+  const [rooms] = await tx<{
+    room_count: string; busy_rooms: string; unavailable_rooms: string;
+  }[]>`
     select
       (select count(*) from resources
-        where location_id = ${ctx.locationId} and status <> 'out_of_service') as room_count,
+        where location_id = ${ctx.locationId}) as room_count,
+      (select count(*) from resources
+        where location_id = ${ctx.locationId}
+          and status in ('maintenance', 'cleaning', 'cleaning_required')) as unavailable_rooms,
       (select count(distinct ai.resource_id) from appointment_items ai
          join appointments a on a.id = ai.appointment_id
         where ai.location_id = ${ctx.locationId}
           and a.business_date = ${businessDate}
           and ai.status = 'in_progress' and ai.resource_id is not null) as busy_rooms`;
   const roomsTotal = Number(rooms?.room_count ?? 0);
-  const roomsFree = Math.max(0, roomsTotal - Number(rooms?.busy_rooms ?? 0));
+  const roomsFree = Math.max(0, roomsTotal
+    - Number(rooms?.busy_rooms ?? 0)
+    - Number(rooms?.unavailable_rooms ?? 0));
 
   const busy = new Set(working.map((w) => w.membership_id));
   const nowMs = now.getTime();

@@ -87,11 +87,7 @@ describe('Enterprise Audit Batch 1 Verifications', () => {
 
       // Attempting to void the ticket under the wrong location must fail with NOT_FOUND
       await expect(
-        dispatch({
-          command: 'ticket.void',
-          input: { ticketId: ticket.id, reason: 'mistake' },
-          ctx: otherLocCtx,
-        }),
+        dispatch('ticket.void', { ticketId: ticket.id, reason: 'input_error' }, otherLocCtx),
       ).rejects.toMatchObject({
         code: ERROR_CODES.NOT_FOUND,
       });

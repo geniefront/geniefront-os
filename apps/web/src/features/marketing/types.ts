@@ -16,8 +16,12 @@ export interface PackageTemplateView {
   id: string;
   name: string;
   priceCents: number;
+  catalogValueCents: number | null;
+  savingsCents: number | null;
   serviceId: string;
   serviceName: string;
+  serviceIds: string[];
+  serviceNames: string[];
   totalUnits: number;
   validDays: number | null;
   active: boolean;
@@ -30,6 +34,7 @@ export interface CustomerPackageView {
   templateId: string;
   templateName: string;
   serviceName: string;
+  serviceNames: string[];
   totalUnits: number;
   remainingUnits: number;
   expiresAt: string | null;
@@ -67,6 +72,7 @@ export interface CustomerPointsView {
 export interface PackagesQueryResponse {
   templates: PackageTemplateView[];
   userPackages: CustomerPackageView[];
+  availableServices: Array<{ id: string; name: string; priceCents: number }>;
 }
 
 export interface CouponsQueryResponse {
@@ -88,8 +94,8 @@ export interface SavePackageTemplateInput {
   templateId?: string;
   name: string;
   priceCents: number;
-  serviceId: string;
-  totalUnits: number;
+  serviceIds: string[];
+  sessions: number;
   validDays?: number;
   active?: boolean;
 }

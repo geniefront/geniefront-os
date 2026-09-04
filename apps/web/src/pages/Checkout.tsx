@@ -120,6 +120,7 @@ function CheckoutContent() {
   const [lines, setLines] = useState<DraftLine[]>([emptyLine()]);
   /** 一次结账意图内复用同一个幂等键，重试不会重复扣款。 */
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [selectedPackageId, setSelectedPackageId] = useState('');
 
   // 税费开关与自定义Amount
   const [enableTax, setEnableTax] = useState(false);
@@ -183,6 +184,33 @@ function CheckoutContent() {
     [allTickets, selectedId, filteredTickets],
   );
   const paymentStage = selected ? paymentStageFor(selected) : null;
+  const uniqueTicketItems = useMemo(() => {
+    const byId = new Map<string, OpenTicket['items'][number]>();
+    for (const item of selected?.items ?? []) byId.set(item.ticketItemId, item);
+    return [...byId.values()];
+  }, [selected]);
+  const packageCoverageMode = data?.checkoutSettings?.packageCoverageMode ?? 'bundle';
+  const eligiblePackages = useMemo(() => (selected?.availablePackages ?? []).filter((pkg) => {
+    if (pkg.serviceIds.length === 0) return uniqueTicketItems.length > 0;
+    if (packageCoverageMode === 'bundle') {
+      return pkg.serviceIds.every((serviceId) => uniqueTicketItems.some((item) => item.serviceId === serviceId));
+    }
+    return uniqueTicketItems.some((item) => Boolean(item.serviceId && pkg.serviceIds.includes(item.serviceId)));
+  }), [selected, uniqueTicketItems, packageCoverageMode]);
+  const selectedPackage = eligiblePackages.find((pkg) => pkg.customerPackageId === selectedPackageId) ?? null;
+  const packageCoveredCents = useMemo(() => {
+    if (!selectedPackage || paymentStage === 'tip') return 0;
+    if (packageCoverageMode === 'bundle' && selectedPackage.serviceIds.length > 0) {
+      return selectedPackage.serviceIds.reduce((sum, serviceId) => {
+        const item = uniqueTicketItems.find((candidate) => candidate.serviceId === serviceId);
+        return sum + (item?.totalCents ?? 0);
+      }, 0);
+    }
+    const item = uniqueTicketItems.find((candidate) =>
+      selectedPackage.serviceIds.length === 0
+        || Boolean(candidate.serviceId && selectedPackage.serviceIds.includes(candidate.serviceId)));
+    return item?.totalCents ?? 0;
+  }, [selectedPackage, uniqueTicketItems, packageCoverageMode, paymentStage]);
 
   // 监听 URL 中的 ticketId 自动选中
   useEffect(() => {
@@ -200,6 +228,7 @@ function CheckoutContent() {
   useEffect(() => {
     if (!selected || paymentStage !== 'tip') return;
     setDiscountInput('');
+    setSelectedPackageId('');
     setLines([{
       method: 'card',
       baseCents: 0,
@@ -266,7 +295,7 @@ function CheckoutContent() {
   // 折扣与基础应付
   const discountCents = canDiscount && paymentStage !== 'tip' ? Math.max(0, dollarsToCents(discountInput)) : 0;
   const baseSubtotalCents = selected?.subtotalCents ?? 0;
-  const afterDiscountCents = Math.max(0, baseSubtotalCents - discountCents);
+  const afterDiscountCents = Math.max(0, baseSubtotalCents - discountCents - packageCoveredCents);
 
   // 税费计算
   const taxCents = enableTax && paymentStage !== 'tip'
@@ -335,6 +364,7 @@ function CheckoutContent() {
   function selectTicket(ticket: OpenTicket) {
     setSelectedId(ticket.ticketId);
     setDiscountInput('');
+    setSelectedPackageId('');
     setTotalTipInput('0.00');
     setCustomStaffTips({});
     const rate = enableTax ? parseFloat(taxRatePercent || '0') / 100 : 0;
@@ -358,7 +388,7 @@ function CheckoutContent() {
 
   // 当总应收变动且仅有单笔支付行时，自动平账同步基准Amount
   useEffect(() => {
-    if (lines.length === 1 && lines[0].baseCents !== totalDueCents && totalDueCents > 0) {
+    if (lines.length === 1 && lines[0].baseCents !== totalDueCents) {
       setLines((prev) => prev.map((l, i) => (i === 0 ? { ...l, baseCents: totalDueCents } : l)));
     }
   }, [totalDueCents, lines.length]);
@@ -457,16 +487,17 @@ function CheckoutContent() {
         surchargeCents: cardSurchargeCents,
         surchargeRateBp: Math.round(parseFloat(cardSurchargePercent || '0') * 100),
         tipTotalCents: totalTipCents,
-        tipSplits: staffTipAllocations.map((a) => ({
+        tipSplits: data?.checkoutSettings?.allowTipSplitOverride === false ? undefined : staffTipAllocations.map((a) => ({
           staffMembershipId: a.membershipId,
           staffName: a.staffName,
           amountCents: a.allocatedTipCents,
           percentageBp: a.percent * 100,
         })),
+        packageRedemptions: selectedPackage ? [{ customerPackageId: selectedPackage.customerPackageId, units: 1 }] : undefined,
         idempotencyKey,
       });
-      const allocationText = staffTipAllocations
-        .map((a) => t('checkout.tipAllocationLine', { p0: a.staffName, p1: centsToDollars(a.allocatedTipCents) }))
+      const allocationText = result.allocations
+        .map((a) => t('checkout.tipAllocationLine', { p0: a.name, p1: centsToDollars(a.amountCents) }))
         .join(' · ');
       toast.success(t(paymentStage === 'service' ? 'checkout.servicePaymentSucceeded' : 'checkout.checkoutSucceeded'), {
         description: allocationText || `$${centsToDollars(result.totalCents)}`,
@@ -766,6 +797,30 @@ function CheckoutContent() {
               </div>
             </div>
 
+            {paymentStage !== 'tip' && eligiblePackages.length > 0 && (
+              <div className="bg-white p-4 rounded-2xl border border-emerald-200 shadow-sm space-y-3">
+                <div className="flex items-center gap-2">
+                  <Gift className="w-4 h-4 text-emerald-600" />
+                  <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">{t('checkout.packageRedemption')}</h3>
+                </div>
+                <select value={selectedPackageId} onChange={(e) => setSelectedPackageId(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium">
+                  <option value="">{t('checkout.packageDoNotUse')}</option>
+                  {eligiblePackages.map((pkg) => (
+                    <option key={pkg.customerPackageId} value={pkg.customerPackageId}>
+                      {pkg.name} · {pkg.totalSessions === 0 ? t('checkout.packageUnlimited') : t('checkout.packageRemaining', { p0: pkg.remainingSessions })}
+                    </option>
+                  ))}
+                </select>
+                {selectedPackage && (
+                  <div className="flex justify-between text-xs text-emerald-800 bg-emerald-50 rounded-xl px-3 py-2">
+                    <span>{t('checkout.packageApplyHint')}</span>
+                    <span className="font-mono font-black">-${centsToDollars(packageCoveredCents)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* 2. 多技师小费分配与分成计算器 */}
             {paymentStage !== 'service' && (
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
@@ -774,6 +829,7 @@ function CheckoutContent() {
                   <Award className="w-4 h-4 text-amber-600" />
                   <span>{t('checkout.tipSplitTitle')}</span>
                 </h3>
+                {data?.checkoutSettings?.allowTipSplitOverride !== false ? (
                 <div className="flex items-center gap-1 p-0.5 bg-slate-100 rounded-lg text-[11px] font-bold">
                   <button
                     type="button"
@@ -796,19 +852,15 @@ function CheckoutContent() {
                     Enter by Staff
                   </button>
                 </div>
+                ) : <Badge variant="secondary">{t('checkout.tipRuleLocked')}</Badge>}
               </div>
 
               {tipMode === 'total_split' ? (
                 <div className="space-y-2.5">
                   {/* 快捷小费比例按钮 */}
                   <div className="grid grid-cols-5 gap-1.5 text-xs">
-                    {[
-                      { label: 'No Tip', rate: 0 },
-                      { label: '15%', rate: 0.15 },
-                      { label: '18%', rate: 0.18 },
-                      { label: '20%', rate: 0.20 },
-                      { label: '25%', rate: 0.25 },
-                    ].map((btn) => {
+                    {[0, ...(data?.checkoutSettings?.suggestedTipPercentages ?? [15, 18, 20, 25])].map((percent) => {
+                      const btn = { label: percent === 0 ? t('checkout.noTip') : `${percent}%`, rate: percent / 100 };
                       const tipAmt = centsToDollars(Math.round(afterDiscountCents * btn.rate));
                       const isSelected = totalTipInput === tipAmt;
                       return (
@@ -841,7 +893,7 @@ function CheckoutContent() {
                         className="font-mono font-bold"
                       />
                     </div>
-                    <div>
+                    {data?.checkoutSettings?.allowTipSplitOverride !== false && <div>
                       <label className="block text-[11px] font-bold text-slate-600 mb-1">{t('checkout.splitStrategy')}</label>
                       <select
                         value={splitStrategy}
@@ -851,7 +903,7 @@ function CheckoutContent() {
                         <option value="proportional">{t('checkout.splitByRevenue')}</option>
                         <option value="equal">Equal Split</option>
                       </select>
-                    </div>
+                    </div>}
                   </div>
                 </div>
               ) : (
@@ -878,7 +930,7 @@ function CheckoutContent() {
               )}
 
               {/* 实时技师分成明细预览 */}
-              <div className="p-3 bg-teal-50/50 rounded-xl border border-teal-100 space-y-1.5">
+              {data?.checkoutSettings?.allowTipSplitOverride !== false ? <div className="p-3 bg-teal-50/50 rounded-xl border border-teal-100 space-y-1.5">
                 <span className="text-[11px] font-bold text-teal-900 block flex items-center justify-between">
                   <span>{t('checkout.splitSummary')}</span>
                   <span className="font-mono text-teal-700">{t('checkout.tipTotal')}{centsToDollars(totalTipCents)}</span>
@@ -901,7 +953,11 @@ function CheckoutContent() {
                     );
                   })}
                 </div>
-              </div>
+              </div> : (
+                <p className="p-3 bg-teal-50/50 rounded-xl border border-teal-100 text-[11px] text-teal-800">
+                  {t('checkout.tipRuleLockedHint')}
+                </p>
+              )}
             </div>
             )}
 
@@ -999,6 +1055,13 @@ function CheckoutContent() {
                     className="h-7 w-24 text-right font-mono text-xs"
                     placeholder="0.00"
                   />
+                </div>
+              )}
+
+              {packageCoveredCents > 0 && (
+                <div className="flex justify-between text-emerald-700">
+                  <span>{t('checkout.packageCovered')}</span>
+                  <span className="font-mono font-bold">-${centsToDollars(packageCoveredCents)}</span>
                 </div>
               )}
 

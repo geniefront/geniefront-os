@@ -36,7 +36,7 @@ export const packageSaveTemplate = defineCommand({
   permission: 'catalog.manage',
   ai: {
     description: '创建或编辑次卡/套餐模板（名称、售价、包含项目及次数、有效期）',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',
@@ -86,7 +86,7 @@ export const packageIssue = defineCommand({
   permission: 'ticket.write',
   ai: {
     description: '向客户发售/发放次卡套餐，并计入客户预付资产账本',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',
@@ -99,7 +99,7 @@ export const marketingIssuePackage = defineCommand({
   permission: 'ticket.write',
   ai: {
     description: '向客户发售/发放次卡套餐，并计入客户预付资产账本',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',
@@ -131,7 +131,7 @@ export const packageRedeem = defineCommand({
   permission: 'ticket.write',
   ai: {
     description: '核销客户名下的套餐次卡项目，并在资产账本记录扣减',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',
@@ -144,7 +144,7 @@ export const marketingRedeemPackage = defineCommand({
   permission: 'ticket.write',
   ai: {
     description: '核销客户名下的套餐次卡项目，并在资产账本记录扣减',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',
@@ -181,7 +181,7 @@ export const couponSaveTemplate = defineCommand({
   permission: 'settings.manage',
   ai: {
     description: '创建或编辑优惠券/折扣券模板（券码、满减金额/折扣比例、门槛、有效期）',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',
@@ -194,7 +194,7 @@ export const marketingSaveCouponTemplate = defineCommand({
   permission: 'settings.manage',
   ai: {
     description: '创建或编辑优惠券/折扣券模板（券码、满减金额/折扣比例、门槛、有效期）',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',
@@ -260,7 +260,7 @@ export const loyaltySaveRules = defineCommand({
   permission: 'settings.manage',
   ai: {
     description: '设置会员积分获取与抵扣规则',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',
@@ -288,7 +288,7 @@ export const loyaltyAdjustPoints = defineCommand({
   permission: 'settings.manage',
   ai: {
     description: '人工调整客户会员积分并写入积分流水账本',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',
@@ -301,7 +301,7 @@ export const marketingAdjustLoyaltyPoints = defineCommand({
   permission: 'settings.manage',
   ai: {
     description: '人工调整客户会员积分并写入积分流水账本',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',

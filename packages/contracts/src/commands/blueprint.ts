@@ -20,7 +20,7 @@ import { defineCommand, uuid, cents, i18nText } from '../command.js';
 
 /** 提取出来的一行。与 @gf/ai 的 DraftItem 同构 —— 那边是纯函数，这边是线上契约。 */
 const draftItem = z.object({
-  kind: z.enum(['service', 'addon', 'note', 'price_modifier']),
+  kind: z.enum(['service', 'addon', 'package', 'note', 'price_modifier']),
   name: i18nText,
   category: z.string().max(120).nullable(),
   durationMin: z.number().int().min(1).max(600).nullable(),
@@ -31,6 +31,9 @@ const draftItem = z.object({
     priceCents: cents.min(0).max(500_000),
     durationMin: z.number().int().min(1).max(600).nullable(),
   })).max(12),
+  packageSessions: z.number().int().min(0).max(10_000).default(0),
+  packageServiceNames: z.array(z.string().min(1).max(200)).max(30).default([]),
+  packageValidDays: z.number().int().min(1).max(3650).nullable().default(null),
   /** 置信度也是百分比，所以也走 basis point（宪法第 4 条） */
   confidenceBp: z.number().int().min(0).max(10000),
   sourceSeq: z.number().int().min(0).nullable(),
@@ -61,7 +64,7 @@ export const CreateBlueprintDraft = defineCommand({
   permission: 'catalog.manage',
   ai: {
     description: '新建一份拍照开店草案。老板选好价目表照片之后调用。',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',
@@ -212,6 +215,10 @@ export const ReviewBlueprintItem = defineCommand({
     name: i18nText.optional(),
     durationMin: z.number().int().min(1).max(600).nullable().optional(),
     priceCents: cents.min(0).max(500_000).nullable().optional(),
+    category: z.string().max(120).nullable().optional(),
+    packageSessions: z.number().int().min(0).max(10_000).optional(),
+    packageServiceNames: z.array(z.string().min(1).max(200)).max(30).optional(),
+    packageValidDays: z.number().int().min(1).max(3650).nullable().optional(),
   }),
   output: z.object({ itemId: uuid }),
   permission: 'catalog.manage',
@@ -238,8 +245,8 @@ export const ReviewAllBlueprintItems = defineCommand({
     /** 只对置信度 ≥ 这个值的行生效。不传 = 全部 */
     minConfidenceBp: z.number().int().min(0).max(10000).optional(),
     /** 只对这几类生效。默认只动 service —— 说明文字不该被一键建成项目 */
-    kinds: z.array(z.enum(['service', 'addon', 'note', 'price_modifier']))
-      .min(1).max(4).optional(),
+    kinds: z.array(z.enum(['service', 'addon', 'package', 'note', 'price_modifier']))
+      .min(1).max(5).optional(),
   }),
   output: z.object({ blueprintId: uuid, affected: z.number().int() }),
   permission: 'catalog.manage',
@@ -261,6 +268,10 @@ export const ReviewBlueprintItems = defineCommand({
       name: i18nText.optional(),
       durationMin: z.number().int().min(1).max(600).nullable().optional(),
       priceCents: cents.min(0).max(500_000).nullable().optional(),
+      category: z.string().max(120).nullable().optional(),
+      packageSessions: z.number().int().min(0).max(10_000).optional(),
+      packageServiceNames: z.array(z.string().min(1).max(200)).max(30).optional(),
+      packageValidDays: z.number().int().min(1).max(3650).nullable().optional(),
     })).min(1).max(300),
   }),
   output: z.object({ blueprintId: uuid, affected: z.number().int() }),
@@ -297,6 +308,7 @@ export const ApplyBlueprint = defineCommand({
   output: z.object({
     blueprintId: uuid,
     createdServiceIds: z.array(uuid),
+    createdPackageIds: z.array(uuid),
     createdStaffIds: z.array(uuid),
     locationApplied: z.boolean(),
     skipped: z.number().int(),

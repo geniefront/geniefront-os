@@ -42,7 +42,9 @@ describe('checkout timing contract (database integration deferred)', () => {
   });
 
   it('locks the ticket before each settlement and rejects a repeated stage independent of idempotency', () => {
-    expect(ticketHandler).toContain('from tickets where id = ${ticketId} for update');
+    expect(ticketHandler).toContain(
+      'from tickets where id = ${ticketId} and location_id = ${locationId} for update',
+    );
     expect(ticketHandler).toContain('ticket.serviceSettledAt || ticket.tipSettledAt');
   });
 

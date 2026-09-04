@@ -144,7 +144,7 @@ export const SetMyLocale = defineCommand({
   }),
   output: z.object({ locale: z.string() }),
   permission: 'appointment.read',   // 人人都有的最低权限：改自己的语言不需要额外授权
-  ai: { description: '设置我自己的界面语言。', confirm: 'never' },
+  ai: { description: '设置我自己的界面语言。', confirm: 'always' },
   reversible: true,
   idempotency: 'optional',
 });

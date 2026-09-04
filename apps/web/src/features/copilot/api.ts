@@ -1,17 +1,34 @@
 import { useMutation } from '@tanstack/react-query';
-import { apiPost, authHeaders, API_BASE } from '@/lib/api';
+import { apiGet, apiPost, authHeaders, API_BASE } from '@/lib/api';
 import { useSession } from '@/lib/session';
-
-export interface CopilotHistoryItem {
-  role: 'user' | 'assistant';
-  text: string;
-}
 
 export interface CopilotProposal {
   command: string;
   input: Record<string, unknown>;
   summary: string;
   confirm?: 'always' | 'destructive' | 'never';
+  proposalId: string;
+  proposalToken: string;
+  expiresAt: string;
+}
+
+export async function executeCopilotProposal(
+  proposalToken: string,
+  membershipId?: string | null,
+): Promise<{
+  result: unknown;
+  replayed: boolean;
+  undoToken?: string;
+  proposalId: string;
+  command: string;
+  undoProposalToken?: string;
+  undoExpiresAt?: string;
+}> {
+  return apiPost(
+    '/v1/ai/copilot/execute',
+    { proposalToken },
+    { membershipId: membershipId || undefined },
+  );
 }
 
 export interface CopilotResponse {
@@ -19,7 +36,6 @@ export interface CopilotResponse {
   proposal: CopilotProposal | null;
   source: 'local' | 'model';
   costCents: number;
-  snapshot?: string;
   sessionId?: string | null;
   toolsUsed?: string[];
 }
@@ -29,11 +45,43 @@ export interface CopilotImagePayload {
   mediaType?: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
 }
 
+export interface StoredCopilotSession {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  userQueryCount: number;
+  messages: Array<{
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: string;
+  }>;
+}
+
+export async function getCopilotSessions(membershipId: string): Promise<StoredCopilotSession[]> {
+  const result = await apiGet<{ sessions: StoredCopilotSession[] }>(
+    '/v1/ai/copilot/sessions',
+    membershipId,
+  );
+  return result.sessions;
+}
+
+export async function removeCopilotSession(
+  sessionId: string,
+  membershipId: string,
+): Promise<void> {
+  const response = await fetch(`${API_BASE}/v1/ai/copilot/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE',
+    headers: await authHeaders(membershipId),
+  });
+  if (!response.ok) throw new Error(`COPILOT_SESSION_DELETE_FAILED_${response.status}`);
+}
+
 export interface AskCopilotInput {
   question: string;
   sessionId?: string;
   image?: CopilotImagePayload;
-  history?: CopilotHistoryItem[];
 }
 
 export interface StreamAskCopilotCallbacks {
@@ -49,6 +97,8 @@ export async function streamAskCopilot(
   callbacks: StreamAskCopilotCallbacks,
   membershipId?: string | null,
 ): Promise<void> {
+  let receivedEvent = false;
+  let receivedDone = false;
   try {
     const headers = await authHeaders(membershipId || undefined);
     const resp = await fetch(`${API_BASE}/v1/ai/copilot/stream`, {
@@ -80,6 +130,7 @@ export async function streamAskCopilot(
 
         try {
           const event = JSON.parse(jsonStr) as Record<string, unknown>;
+          receivedEvent = true;
           if (event['type'] === 'step' && typeof event['step'] === 'string') {
             callbacks.onStep?.(event['step']);
           } else if (event['type'] === 'delta' && typeof event['delta'] === 'string') {
@@ -87,17 +138,35 @@ export async function streamAskCopilot(
           } else if (event['type'] === 'proposal' && event['proposal']) {
             callbacks.onProposal?.(event['proposal'] as CopilotProposal);
           } else if (event['type'] === 'done') {
+            receivedDone = true;
             callbacks.onDone?.(event as unknown as CopilotResponse);
           } else if (event['type'] === 'error') {
-            throw new Error(String(event['error'] ?? 'Unknown error'));
+            callbacks.onError?.(new Error(String(event['error'] ?? 'Unknown error')));
+            return;
           }
         } catch (e) {
           console.warn('Failed to parse SSE JSON:', jsonStr, e);
         }
       }
     }
+    if (!receivedDone) {
+      const error = new Error('AI stream ended before completion');
+      // 收到过事件说明服务端已经开始处理。此时自动再发普通请求可能造成
+      // 第二次模型调用和重复计费，应该明确失败并让用户决定是否重试。
+      if (receivedEvent) {
+        callbacks.onError?.(error);
+        return;
+      }
+      throw error;
+    }
   } catch (err: any) {
     console.warn('Stream failed, falling back to standard copilot api:', err);
+    // 只有在 SSE 尚未收到任何服务端事件时才回退；一旦服务端开始工作，
+    // 自动重放就不再安全。
+    if (receivedEvent) {
+      callbacks.onError?.(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
     callbacks.onStep?.('⚡ 正在切换至高速直连通道...');
     try {
       const res = await apiPost<CopilotResponse>(
@@ -118,10 +187,10 @@ export async function streamAskCopilot(
 export function useAskCopilot() {
   const { membershipId } = useSession();
   return useMutation({
-    mutationFn: async ({ question, sessionId, image, history }: AskCopilotInput) => {
+    mutationFn: async ({ question, sessionId, image }: AskCopilotInput) => {
       return apiPost<CopilotResponse>(
         '/v1/ai/copilot',
-        { question, sessionId, image, history },
+        { question, sessionId, image },
         { headers: { 'X-Membership-Id': membershipId! } },
       );
     },

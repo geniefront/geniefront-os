@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { withTenant, closeDb } from '@gf/db';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
@@ -133,6 +134,12 @@ describe('系统设置增强模块与全新 REST API 接口测试', () => {
           receiptFooterMessage: '感谢光临！WiFi: LotusGuest',
           autoPrintReceipt: true,
           autoSendSmsReceipt: true,
+          packageCoverageMode: 'any_included',
+          packageCommissionBasis: 'catalog_price',
+          allowTipSplitOverride: false,
+          tipDistributionBasis: 'price_share',
+          assistantTipWeightPercent: 40,
+          tipRemainderTo: 'highest_level',
         },
       });
 
@@ -151,6 +158,51 @@ describe('系统设置增强模块与全新 REST API 接口测试', () => {
       expect(data.suggestedTipPercentages).toEqual([15, 18, 20, 25]);
       expect(data.defaultCashFloatCents).toBe(20000);
       expect(data.receiptFooterMessage).toBe('感谢光临！WiFi: LotusGuest');
+      expect(data.packageCoverageMode).toBe('any_included');
+      expect(data.packageCommissionBasis).toBe('catalog_price');
+      expect(data.allowTipSplitOverride).toBe(false);
+      expect(data.tipDistributionBasis).toBe('price_share');
+      expect(data.assistantTipWeightPercent).toBe(40);
+      expect(data.tipRemainderTo).toBe('highest_level');
+
+      // 共享集成库恢复到兼容默认值，避免“禁止人工分账”影响后续工单测试。
+      const restoreRes = await app.inject({
+        method: 'PUT',
+        url: '/api/desk/settings/checkout',
+        headers: { [STAFF_TOKEN_HEADER]: staffToken },
+        payload: {
+          salesTaxRatePercent: 8.875,
+          taxCalculationMode: 'exclusive',
+          suggestedTipPercentages: [15, 18, 20, 25],
+          allowCustomTip: true,
+          defaultCashFloatCents: 20000,
+          receiptFooterMessage: '感谢光临！WiFi: LotusGuest',
+          autoPrintReceipt: true,
+          autoSendSmsReceipt: true,
+          packageCoverageMode: 'bundle',
+          packageCommissionBasis: 'allocated_sale_price',
+          allowTipSplitOverride: true,
+          tipDistributionBasis: 'active_minutes',
+          assistantTipWeightPercent: 30,
+          tipRemainderTo: 'longest_service',
+        },
+      });
+      expect(restoreRes.statusCode).toBe(200);
+    });
+
+    it('收银台查询带回套餐与小费门店策略', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/desk/tickets',
+        headers: { [STAFF_TOKEN_HEADER]: staffToken },
+      });
+      expect(res.statusCode).toBe(200);
+      const data = res.json();
+      expect(data.checkoutSettings.packageCoverageMode).toBe('bundle');
+      expect(data.checkoutSettings.packageCommissionBasis).toBe('allocated_sale_price');
+      expect(data.checkoutSettings.allowTipSplitOverride).toBe(true);
+      expect(data.checkoutSettings.tipDistributionBasis).toBe('active_minutes');
+      expect(data.tickets.every((ticket: Record<string, unknown>) => Array.isArray(ticket.availablePackages))).toBe(true);
     });
   });
 
@@ -338,7 +390,27 @@ describe('系统设置增强模块与全新 REST API 接口测试', () => {
   });
 
   // 8. 主聚合查询接口 GET /api/desk/settings & GET /v1/desk/settings
-  describe('8. 全局设置聚合查询 GET /api/desk/settings & GET /v1/desk/settings', () => {
+  describe('8. 服务分类自定义标签', () => {
+    it('店主可以创建、改名并在设置聚合中读取分类', async () => {
+      await withTenant(tenant, (tx) => tx`delete from service_categories
+        where location_id = ${NAIL_LOC} and name->>'en' = 'Massage Therapy'
+          and not exists (select 1 from services where category_id = service_categories.id)`);
+      const created = (await dispatch<{ categoryId: string }>('catalog.saveServiceCategory', {
+        name: { 'zh-Hans': '按摩', en: 'Massage' }, sort: 2,
+      }, ownerCtx, { idempotencyKey: randomUUID() })).result;
+      await dispatch('catalog.saveServiceCategory', {
+        categoryId: created.categoryId,
+        name: { 'zh-Hans': '按摩理疗', en: 'Massage Therapy' }, sort: 1,
+      }, ownerCtx, { idempotencyKey: randomUUID() });
+      const data = await withTenant(tenant, (tx) => loadDeskSettings(tx, ownerCtx));
+      expect(data.serviceCategories.find((category) => category.id === created.categoryId))
+        .toMatchObject({ displayName: '按摩理疗', sort: 1 });
+      await withTenant(tenant, (tx) => tx`delete from service_categories where id = ${created.categoryId}`);
+    });
+  });
+
+  // 9. 主聚合查询接口 GET /api/desk/settings & GET /v1/desk/settings
+  describe('9. 全局设置聚合查询 GET /api/desk/settings & GET /v1/desk/settings', () => {
     it('GET /api/desk/settings 返回符合前端契约的完整主响应数据', async () => {
       const res = await app.inject({
         method: 'GET',

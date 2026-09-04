@@ -58,7 +58,7 @@ export const SaveStorefrontBrief = defineCommand({
   }),
   output: z.object({ briefId: z.string(), status: z.string() }),
   permission: 'settings.manage',
-  ai: { description: '保存建站需求单的草稿。不提交就不会进我们的队列。', confirm: 'never' },
+  ai: { description: '保存建站需求单的草稿。不提交就不会进我们的队列。', confirm: 'always' },
   reversible: true,
   idempotency: 'optional',
 });

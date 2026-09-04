@@ -40,6 +40,7 @@ export interface CloseTicketInput {
     amountCents: number;
     percentageBp?: number;
   }>;
+  packageRedemptions?: Array<{ customerPackageId: string; units: number }>;
   notes?: string;
   idempotencyKey?: string;
   paymentStage?: PaymentStage;
@@ -78,6 +79,7 @@ export function useCloseTicket() {
           ...(input.surchargeRateBp !== undefined ? { surchargeRateBp: input.surchargeRateBp } : {}),
           ...(input.tipTotalCents !== undefined ? { tipTotalCents: input.tipTotalCents } : {}),
           ...(input.tipSplits ? { tipSplits: input.tipSplits } : {}),
+          ...(input.packageRedemptions ? { packageRedemptions: input.packageRedemptions } : {}),
           ...(input.notes ? { notes: input.notes } : {}),
         },
         membershipId!,

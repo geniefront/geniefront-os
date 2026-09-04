@@ -37,6 +37,8 @@ export const PRICE_LIST_SYSTEM = `你在帮一家美国的亚裔服务业门店�
 # 容易录错的四类行（这些不是项目）
 
 - **加项**：「Add-on」「With any service」「+$10 French」→ kind = addon
+- **套餐/次卡**：「5 Massage Package」「Facial + Spa Combo」「10 Sessions」→ kind = package；
+  把包含的项目逐字放进 package_service_names，次数放 package_sessions，有效期换算成天。
 - **说明**：「Kids under 10」「Prices subject to change」「营业时间」
   「We accept cash only」→ kind = note
 - **改价规则**：「Long nails +$5」「Holiday +$3」→ kind = price_modifier
@@ -45,6 +47,8 @@ export const PRICE_LIST_SYSTEM = `你在帮一家美国的亚裔服务业门店�
 
 拿不准就选 note。多建一个不该建的项目，前台会天天在开单页面看到它；
 把一句说明错分成 note，老板一眼就能改回来。
+
+非套餐行的 package_sessions、package_valid_days 都填 0，package_service_names 给空数组。
 
 # 一个项目多个价格
 

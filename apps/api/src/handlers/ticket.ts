@@ -439,6 +439,138 @@ interface PaymentIn {
   giftCardCode?: string | undefined;
 }
 
+interface PackageRedemptionIn { customerPackageId: string; units: number }
+type CheckoutPackagePolicy = {
+  coverageMode: 'bundle' | 'any_included';
+  commissionBasis: 'catalog_price' | 'allocated_sale_price' | 'zero';
+  allowTipSplitOverride: boolean;
+};
+
+async function loadCheckoutPackagePolicy(
+  tx: postgres.TransactionSql, locationId: string,
+): Promise<CheckoutPackagePolicy> {
+  const [row] = await tx<{ settings: Record<string, unknown> }[]>`
+    select settings from locations where id = ${locationId}`;
+  const checkout = (row?.settings?.['checkout'] ?? {}) as Record<string, unknown>;
+  const basis = String(checkout['packageCommissionBasis']);
+  return {
+    coverageMode: checkout['packageCoverageMode'] === 'any_included' ? 'any_included' : 'bundle',
+    commissionBasis: (basis === 'catalog_price' || basis === 'zero') ? basis : 'allocated_sale_price',
+    allowTipSplitOverride: checkout['allowTipSplitOverride'] !== false,
+  };
+}
+
+/** 套餐核销和收款、提成必须在同一事务里成功或回滚。 */
+async function applyPackageRedemptions(args: {
+  tx: postgres.TransactionSql; ctx: CommandContext; ticket: TicketForClose;
+  redemptions: readonly PackageRedemptionIn[]; policy: CheckoutPackagePolicy;
+}): Promise<{ coveredCents: number; commissionDiscountByItem: Map<string, number> }> {
+  const { tx, ctx, ticket, redemptions, policy } = args;
+  const commissionDiscountByItem = new Map<string, number>();
+  if (redemptions.length === 0) return { coveredCents: 0, commissionDiscountByItem };
+  if (!ticket.customerId) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'package_requires_ticket_customer' } });
+  }
+  const packageIds = redemptions.map((r) => r.customerPackageId);
+  if (new Set(packageIds).size !== packageIds.length) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'duplicate_package_redemption' } });
+  }
+  const ticketItems = await tx<{ id: string; service_id: string | null; total_cents: number; seq: number }[]>`
+    select id, service_id, total_cents, seq from ticket_items
+    where ticket_id = ${ticket.id} order by seq, id`;
+  const usedItemIds = new Set<string>();
+  let coveredCents = 0;
+
+  for (const redemption of redemptions) {
+    const units = redemption.units;
+    const [pkg] = await tx<{
+      id: string; customer_id: string; remaining_sessions: number; total_sessions: number;
+      status: string; expires_at: string | null; service_ids: string[]; sold_price_cents: number;
+    }[]>`
+      select cp.id, cp.customer_id, cp.remaining_sessions, cp.total_sessions, cp.status,
+             cp.expires_at::text, coalesce(pt.service_ids, '{}')::text[] as service_ids,
+             coalesce((select max(ccl.amount_cents) from customer_credit_ledger ccl
+                       where ccl.kind = 'package' and ccl.subject_id = cp.id and ccl.entry = 'issue'),
+                      pt.price_cents, 0)::int as sold_price_cents
+      from customer_packages cp left join package_templates pt on pt.id = cp.template_id
+      where cp.id = ${redemption.customerPackageId} and cp.org_id = ${ctx.orgId}
+      for update of cp`;
+    if (!pkg) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'customer_package' } });
+    if (pkg.customer_id !== ticket.customerId) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'package_ticket_customer_mismatch' } });
+    }
+    if (pkg.status !== 'active') {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'package_not_active' } });
+    }
+    if (pkg.expires_at && new Date(pkg.expires_at) < new Date()) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'package_expired' } });
+    }
+    if (pkg.total_sessions > 0 && pkg.remaining_sessions < units) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'insufficient_sessions', remaining: pkg.remaining_sessions, requested: units },
+      });
+    }
+    const idemKey = `package-redeem-${pkg.id}-${ticket.id}`;
+    const [duplicate] = await tx<{ id: string }[]>`
+      select id from customer_credit_ledger where location_id = ${ctx.locationId} and idem_key = ${idemKey}`;
+    if (duplicate) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'package_already_redeemed_for_ticket' } });
+    }
+
+    const eligible = ticketItems.filter((item) => !usedItemIds.has(item.id)
+      && (pkg.service_ids.length === 0 || Boolean(item.service_id && pkg.service_ids.includes(item.service_id))));
+    const selected: Array<{ id: string; service_id: string | null; total_cents: number; seq: number }> = [];
+    if (policy.coverageMode === 'bundle' && pkg.service_ids.length > 0) {
+      for (const serviceId of pkg.service_ids) {
+        const matches = eligible.filter((item) => item.service_id === serviceId).slice(0, units);
+        if (matches.length < units) {
+          throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+            details: { reason: 'package_services_not_on_ticket', serviceIds: [serviceId] },
+          });
+        }
+        selected.push(...matches);
+      }
+    } else {
+      selected.push(...eligible.slice(0, units));
+      if (selected.length < units) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+          details: { reason: 'package_services_not_on_ticket', serviceIds: pkg.service_ids },
+        });
+      }
+    }
+    selected.forEach((item) => usedItemIds.add(item.id));
+    const packageCovered = selected.reduce((sum, item) => sum + item.total_cents, 0);
+    coveredCents += packageCovered;
+    const consumedBefore = pkg.total_sessions > 0 ? pkg.total_sessions - pkg.remaining_sessions : 0;
+    const allocatedSaleBase = pkg.total_sessions > 0
+      ? Math.floor(pkg.sold_price_cents * (consumedBefore + units) / pkg.total_sessions)
+        - Math.floor(pkg.sold_price_cents * consumedBefore / pkg.total_sessions)
+      : 0;
+    const commissionBase = policy.commissionBasis === 'catalog_price' ? packageCovered
+      : policy.commissionBasis === 'zero' ? 0 : Math.min(packageCovered, allocatedSaleBase);
+    const itemBases = commissionBase > 0
+      ? largestRemainderSplit(commissionBase, selected.map((item) => item.total_cents))
+      : selected.map(() => 0);
+    selected.forEach((item, index) => commissionDiscountByItem.set(
+      item.id, item.total_cents - (itemBases[index] ?? 0),
+    ));
+
+    const nextRemaining = pkg.total_sessions > 0 ? pkg.remaining_sessions - units : pkg.remaining_sessions;
+    const nextStatus = pkg.total_sessions > 0 && nextRemaining === 0 ? 'depleted' : 'active';
+    await tx`update customer_packages set remaining_sessions = ${nextRemaining}, status = ${nextStatus}, updated_at = now()
+             where id = ${pkg.id}`;
+    await tx`insert into customer_credit_ledger
+      (org_id, location_id, kind, subject_id, customer_id, entry, amount_cents,
+       balance_after_cents, ticket_id, reason, actor_membership_id, idem_key, meta)
+      values (${ctx.orgId}, ${ctx.locationId}, 'package', ${pkg.id}, ${ticket.customerId}, 'redeem',
+              ${-units}, ${nextRemaining}, ${ticket.id}, 'ticket_payment', ${ctx.membershipId}, ${idemKey},
+              ${jsonb({ units, ticketItemIds: selected.map((item) => item.id), coveredCents: packageCovered,
+                commissionBasis: policy.commissionBasis, commissionBaseCents: commissionBase,
+                coverageMode: policy.coverageMode })}::jsonb)`;
+  }
+  return { coveredCents, commissionDiscountByItem };
+}
+
 export interface CloseOutcome {
   ticketId: string;
   closed: boolean;
@@ -477,9 +609,20 @@ async function closeOneTicket(args: {
   groupPaymentId?: string;
   payerTicketId?: string;
   settlementStage?: 'service' | 'tip' | 'combined';
+  packageRedemptions?: readonly PackageRedemptionIn[] | undefined;
 }): Promise<CloseOutcome> {
   const { tx, ctx, ticket, payments, discountCents, taxCents = 0, surchargeCents = 0, tipSplits, loaded } = args;
   const settlementStage = args.settlementStage ?? 'combined';
+  const packagePolicy = await loadCheckoutPackagePolicy(tx, ctx.locationId);
+  if (!packagePolicy.allowTipSplitOverride && tipSplits && tipSplits.length > 0) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'tip_split_override_disabled' } });
+  }
+  if (settlementStage === 'tip' && (args.packageRedemptions?.length ?? 0) > 0) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'package_cannot_pay_tip' } });
+  }
+  const packageApplication = await applyPackageRedemptions({
+    tx, ctx, ticket, redemptions: args.packageRedemptions ?? [], policy: packagePolicy,
+  });
   const [completion] = await tx<{ complete: boolean }[]>`
     select not exists(
       select 1 from ticket_items where ticket_id = ${ticket.id} and finished_at is null
@@ -518,7 +661,8 @@ async function closeOneTicket(args: {
   const paidTotal = payments.reduce((s, p) => s + p.amountCents, 0);
   const shouldBe = settlementStage === 'tip'
     ? totalTip
-    : ticket.subtotalCents - discountCents + taxCents + totalTip + surchargeCents;
+    : ticket.subtotalCents - discountCents - packageApplication.coveredCents
+      + taxCents + totalTip + surchargeCents;
 
   // 收多了收少了当场拦下。
   if (paidTotal !== shouldBe) {
@@ -526,7 +670,7 @@ async function closeOneTicket(args: {
       details: {
         ticketId: ticket.id,
         expected: shouldBe, received: paidTotal,
-        hint: '收款额 = 服务金额 − 折扣 + 税额 + 小费 + 刷卡费',
+        hint: '收款额 = 服务金额 − 折扣 − 套餐覆盖 + 税额 + 小费 + 刷卡费',
       },
     });
   }
@@ -548,6 +692,10 @@ async function closeOneTicket(args: {
     left join staff_profiles sp on sp.membership_id = tis.membership_id
     left join staff_levels sl on sl.id = sp.level_id
     where ti.ticket_id = ${ticket.id}`;
+
+  for (const line of lines) {
+    line.item_discount_cents += packageApplication.commissionDiscountByItem.get(line.item_id) ?? 0;
+  }
 
   const serviceLines: ServiceLine[] = lines.map((l) => ({
     ticketItemId: l.item_id,
@@ -729,7 +877,8 @@ async function closeOneTicket(args: {
       tax_cents = case when ${settlementStage} = 'tip' then tax_cents else ${taxCents} end,
       surcharge_cents = case when ${settlementStage} = 'tip' then surcharge_cents else ${surchargeCents} end,
       tip_cents = case when ${settlementStage} = 'tip' then tip_cents + ${totalTip} else ${totalTip} end,
-      total_cents = case when ${settlementStage} = 'tip' then total_cents + ${paidTotal} else ${paidTotal} end,
+      total_cents = case when ${settlementStage} = 'tip' then total_cents + ${paidTotal}
+                         else ${paidTotal + packageApplication.coveredCents} end,
       tip_policy_version = ${version},
       service_settled_at = case when ${settlementStage} in ('service', 'combined') then now() else service_settled_at end,
       tip_settled_at = case when ${settlementStage} in ('tip', 'combined') then now() else tip_settled_at end
@@ -754,7 +903,9 @@ async function closeOneTicket(args: {
 
   return {
     ticketId: ticket.id,
-    totalCents: settlementStage === 'tip' ? ticket.totalCents + paidTotal : paidTotal,
+    totalCents: settlementStage === 'tip'
+      ? ticket.totalCents + paidTotal
+      : paidTotal + packageApplication.coveredCents,
     closed: closeNow,
     tipCents: totalTip,
     allocations: out,
@@ -774,6 +925,7 @@ const handleTicketCloseOrPay = async ({ input, ctx, tx, audit, emit }: HandlerAr
     taxCents: input.taxCents,
     surchargeCents: input.surchargeCents,
     tipSplits: input.tipSplits,
+    packageRedemptions: input.packageRedemptions,
     loaded,
     settlementStage: input.paymentStage,
   });
@@ -1430,4 +1582,3 @@ registerHandler(TicketVoid, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
  * 界面入口与 `checkout.receipt*` 那组文案。数据库那一列保留 —— 删列要停机，
  * 而它现在没有任何读取方。
  */
-

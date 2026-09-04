@@ -14,6 +14,7 @@ export const appointmentSource = z.enum([
   'walkin',       // walk-in 队列转入
   'web',          // 公开预约页
   'phone_ai',     // AI 电话（进前台复核队列）
+  'ai_copilot',   // 前台确认后由 AI 副驾提案创建
   'phone_manual', // 前台接电话录入
   'repeat',       // 从上次预约复制
 ]);

@@ -61,7 +61,7 @@ export interface TranslatableItem {
  * 而且它们常常是整句话，模型更容易在这上面自由发挥。
  */
 export function shouldTranslate(kind: string): boolean {
-  return kind === 'service' || kind === 'addon';
+  return kind === 'service' || kind === 'addon' || kind === 'package';
 }
 
 /**

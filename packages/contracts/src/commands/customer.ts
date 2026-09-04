@@ -42,7 +42,7 @@ export const customerSaveProfile = defineCommand({
   permission: 'customer.write',
   ai: {
     description: '新建或编辑客户基础档案（姓名、电话、邮箱、VIP 等级、生日、标签、备注）',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',
@@ -79,7 +79,7 @@ export const customerSavePreferences = defineCommand({
   permission: 'customer.write',
   ai: {
     description: '保存客户偏好、过敏禁忌、偏好/避开技师及前台备忘',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: true,
   idempotency: 'optional',
@@ -167,7 +167,7 @@ export const customerSendSms = defineCommand({
   permission: 'comms.send',
   ai: {
     description: '向指定客户直接发送短信或营销关怀内容',
-    confirm: 'never',
+    confirm: 'always',
   },
   reversible: false,
   idempotency: 'optional',
@@ -180,4 +180,3 @@ export const CUSTOMER_COMMANDS = [
   customerMerge,
   customerSendSms,
 ] as const;
-

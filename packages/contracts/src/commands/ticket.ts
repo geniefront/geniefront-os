@@ -168,6 +168,10 @@ export const TicketClose = defineCommand({
       amountCents: cents,
       percentageBp: z.number().optional(),
     })).optional(),
+    packageRedemptions: z.array(z.object({
+      customerPackageId: uuid,
+      units: z.number().int().min(1).default(1),
+    })).max(10).optional(),
     itemCommissionSplits: z.array(z.object({
       ticketItemId: uuid,
       staffMembershipId: uuid,

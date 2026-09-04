@@ -142,6 +142,10 @@ export const blueprintItems = pgTable('blueprint_items', {
    * 硬塞进一个 price 会丢信息，落地时拆成多个 service。
    */
   variants: jsonb('variants').notNull().default(sql`'[]'::jsonb`),
+  /** 套餐专用结构；普通项目为次数 0、项目名空数组。 */
+  packageSessions: integer('package_sessions').notNull().default(0),
+  packageServiceNames: jsonb('package_service_names').notNull().default(sql`'[]'::jsonb`),
+  packageValidDays: integer('package_valid_days'),
   /** 10000 = 完全确定。低于 8500 在确认页标黄（05 §4.2 的建议阈值） */
   confidenceBp: integer('confidence_bp').notNull().default(10000),
   /** 来自哪张照片。对应 blueprint_sources.seq */

@@ -2351,7 +2351,7 @@ function QueueContent() {
                       <option value="">{t('queue.quNoAddOn')}</option>
                       {services.map((s) => (
                         <option key={s.id} value={s.id}>
-                          + {s.name} (${centsToDollars(s.priceCents)} · {s.durationMin}m)
+                          + {s.categoryName ? `${s.categoryName} · ` : ''}{s.name} (${centsToDollars(s.priceCents)} · {s.durationMin}m)
                         </option>
                       ))}
                     </select>
@@ -2715,7 +2715,7 @@ function QueueContent() {
                       <option value="">{t('queue.quSelectAddOn')}</option>
                       {services.map((service) => (
                         <option key={service.id} value={service.id}>
-                          {service.name} · ${centsToDollars(service.priceCents)} · {service.durationMin}m
+                          {service.categoryName ? `${service.categoryName} · ` : ''}{service.name} · ${centsToDollars(service.priceCents)} · {service.durationMin}m
                         </option>
                       ))}
                     </select>

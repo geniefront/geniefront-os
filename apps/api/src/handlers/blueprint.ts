@@ -16,7 +16,7 @@ import {
 } from '@gf/contracts';
 import { jsonb } from '@gf/db';
 import {
-  toServiceDrafts, mergeTranslations, clearAutoFlag,
+  toServiceDrafts, mergeTranslations, clearAutoFlag, nameKey,
   type DraftItem, type TranslatableItem,
 } from '@gf/ai';
 import { registerHandler, type HandlerArgs } from '../bus';
@@ -84,11 +84,14 @@ registerHandler(SaveBlueprintExtraction, async ({ input, ctx, tx, audit }: Handl
       insert into blueprint_items
         (org_id, location_id, blueprint_id, seq, kind, name, category,
          duration_min, price_cents, price_is_from, variants,
+         package_sessions, package_service_names, package_valid_days,
          confidence_bp, source_seq, bbox)
       values (${ctx.orgId}, ${ctx.locationId}, ${input.blueprintId}, ${seq++},
               ${it.kind}, ${jsonb(it.name)}::jsonb, ${it.category},
               ${it.durationMin}, ${it.priceCents}, ${it.priceIsFrom},
-              ${jsonb(it.variants)}::jsonb, ${it.confidenceBp}, ${it.sourceSeq},
+              ${jsonb(it.variants)}::jsonb, ${it.packageSessions},
+              ${jsonb(it.packageServiceNames)}::jsonb, ${it.packageValidDays},
+              ${it.confidenceBp}, ${it.sourceSeq},
               ${it.bbox === null ? null : jsonb(it.bbox)}::jsonb)`;
   }
 
@@ -203,7 +206,9 @@ registerHandler(ReviewBlueprintItem, async ({ input, ctx, tx, audit }: HandlerAr
   // 落地时 source 标记不同（宪法第 6 条）。
   const edited = input.name !== undefined
     || input.priceCents !== undefined
-    || input.durationMin !== undefined;
+    || input.durationMin !== undefined || input.category !== undefined
+    || input.packageSessions !== undefined || input.packageServiceNames !== undefined
+    || input.packageValidDays !== undefined;
 
   /**
    * ⭐ 老板**改动过**的语言格，从 `name_auto` 里去掉 —— 那一格不再是机器产物。
@@ -228,6 +233,10 @@ registerHandler(ReviewBlueprintItem, async ({ input, ctx, tx, audit }: HandlerAr
       name_auto = ${input.name ? jsonb(nextAuto) : jsonb(nextAuto)}::jsonb,
       price_cents = ${input.priceCents === undefined ? tx`price_cents` : input.priceCents},
       duration_min = ${input.durationMin === undefined ? tx`duration_min` : input.durationMin},
+      category = ${input.category === undefined ? tx`category` : input.category},
+      package_sessions = ${input.packageSessions === undefined ? tx`package_sessions` : input.packageSessions},
+      package_service_names = ${input.packageServiceNames === undefined ? tx`package_service_names` : jsonb(input.packageServiceNames)}::jsonb,
+      package_valid_days = ${input.packageValidDays === undefined ? tx`package_valid_days` : input.packageValidDays},
       edited_at = ${edited ? tx`now()` : tx`edited_at`}
     where id = ${input.itemId}`;
 
@@ -366,7 +375,11 @@ registerHandler(ReviewBlueprintItems, async ({ input, ctx, tx, audit }: HandlerA
         name = coalesce(${item.name ? jsonb(item.name) : null}::jsonb, name),
         duration_min = case when ${item.durationMin !== undefined} then ${item.durationMin ?? null} else duration_min end,
         price_cents = case when ${item.priceCents !== undefined} then ${item.priceCents ?? null} else price_cents end,
-        edited_at = case when ${Boolean(item.name || item.durationMin !== undefined || item.priceCents !== undefined)} then now() else edited_at end
+        category = case when ${item.category !== undefined} then ${item.category ?? null} else category end,
+        package_sessions = case when ${item.packageSessions !== undefined} then ${item.packageSessions ?? 0} else package_sessions end,
+        package_service_names = case when ${item.packageServiceNames !== undefined} then ${item.packageServiceNames ? jsonb(item.packageServiceNames) : jsonb([])}::jsonb else package_service_names end,
+        package_valid_days = case when ${item.packageValidDays !== undefined} then ${item.packageValidDays ?? null} else package_valid_days end,
+        edited_at = case when ${Boolean(item.name || item.durationMin !== undefined || item.priceCents !== undefined || item.category !== undefined || item.packageSessions !== undefined || item.packageServiceNames !== undefined || item.packageValidDays !== undefined)} then now() else edited_at end
       where id = ${item.itemId} and blueprint_id = ${input.blueprintId}
         and location_id = ${ctx.locationId}
       returning id`;
@@ -391,9 +404,11 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
     id: string; kind: string; name: unknown; category: string | null;
     duration_min: number | null;
     price_cents: number | null; price_is_from: boolean; variants: unknown;
+    package_sessions: number; package_service_names: unknown; package_valid_days: number | null;
     confidence_bp: number; source_seq: number | null; edited_at: Date | null;
   }[]>`
     select id, kind, name, category, duration_min, price_cents, price_is_from, variants,
+           package_sessions, package_service_names, package_valid_days,
            confidence_bp, source_seq, edited_at
     from blueprint_items
     where blueprint_id = ${input.blueprintId} and decision = 'accepted'
@@ -402,15 +417,17 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
   // 说明文字和改价规则不建成项目 —— 它们本来就不是能开单的东西。
   // 一键勾选默认也不碰它们，这里再兜一次：老板可能手动勾了一行 note。
   const buildable = rows.filter((r) => r.kind === 'service' || r.kind === 'addon');
-  const skipped = rows.length - buildable.length;
+  const packageRows = rows.filter((r) => r.kind === 'package');
+  const skipped = rows.length - buildable.length - packageRows.length;
 
-  if (buildable.length === 0 && !input.allowNoServices) {
+  if (buildable.length === 0 && packageRows.length === 0 && !input.allowNoServices) {
     throw new AppError(ERROR_CODES.BLUEPRINT_NOTHING_ACCEPTED, {
       details: { skipped },
     });
   }
 
   const createdServiceIds: string[] = [];
+  const createdPackageIds: string[] = [];
   const createdStaffIds: string[] = [];
 
   const [blueprint] = await tx<{ location_proposal: unknown }[]>`
@@ -517,6 +534,14 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
    *     老板认的是墙上那张表的顺序
    */
   const categoryIds = new Map<string, string>();
+  const serviceIdsByName = new Map<string, string>();
+  const existingServices = await tx<{ id: string; name: unknown }[]>`
+    select id, name from services where location_id = ${ctx.locationId} and active = true`;
+  for (const service of existingServices) {
+    for (const text of Object.values((service.name ?? {}) as Record<string, string>)) {
+      if (text) serviceIdsByName.set(nameKey(text), service.id);
+    }
+  }
   let categorySort = 0;
 
   async function ensureCategory(text: string, locale: string): Promise<string> {
@@ -573,6 +598,7 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
                 false, false, ${r.kind === 'addon'}, true)
         returning id`;
       createdServiceIds.push(svc!.id);
+      for (const text of Object.values(draft.name)) serviceIdsByName.set(nameKey(text), svc!.id);
 
       // ⚠️ 顺序要紧：先写 items 再改草案状态。
       // sql/0014 的触发器禁止改非 draft 草案的行，反过来做的话
@@ -580,6 +606,30 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
       await tx`
         update blueprint_items set applied_service_id = ${svc!.id} where id = ${r.id}`;
     }
+  }
+
+  // 套餐最后落地：先让同一张价目表里的普通项目建好，再按原文名称绑定。
+  for (const r of packageRows) {
+    const requestedNames = Array.isArray(r.package_service_names)
+      ? r.package_service_names.filter((name): name is string => typeof name === 'string') : [];
+    const serviceIds = [...new Set(requestedNames
+      .map((name) => serviceIdsByName.get(nameKey(name)))
+      .filter((id): id is string => Boolean(id)))];
+    const unmatchedServiceNames = requestedNames.filter((name) => !serviceIdsByName.has(nameKey(name)));
+    if (unmatchedServiceNames.length > 0) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'blueprint_package_services_unmatched', unmatchedServiceNames },
+      });
+    }
+    const [pkg] = await tx<{ id: string }[]>`
+      insert into package_templates
+        (org_id, location_id, name, price_cents, sessions, service_ids,
+         valid_days, scope, online_sale, active, sort)
+      values (${ctx.orgId}, ${ctx.locationId}, ${jsonb(r.name)}::jsonb,
+              ${r.price_cents ?? 0}, ${r.package_sessions}, ${serviceIds}::uuid[],
+              ${r.package_valid_days}, 'location', false, true, 0)
+      returning id`;
+    createdPackageIds.push(pkg!.id);
   }
 
   await tx`
@@ -599,7 +649,7 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
       createdStaff: createdStaffIds.length,
     },
   });
-  return { blueprintId: input.blueprintId, createdServiceIds, createdStaffIds, locationApplied, skipped };
+  return { blueprintId: input.blueprintId, createdServiceIds, createdPackageIds, createdStaffIds, locationApplied, skipped };
 });
 
 registerHandler(DiscardBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<

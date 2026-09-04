@@ -45,26 +45,44 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           taxCalculationMode: (checkoutSettingsRow?.tax_calculation_mode ?? 'exclusive') as 'exclusive' | 'inclusive',
           suggestedTipPercentages: checkoutSettingsRow?.suggested_tip_percentages ?? [15, 18, 20, 25],
           checkoutTiming: checkoutSettingsRow?.checkout_timing ?? 'after_service_combined',
+          packageCoverageMode: 'bundle' as 'bundle' | 'any_included',
+          packageCommissionBasis: 'allocated_sale_price' as 'catalog_price' | 'allocated_sale_price' | 'zero',
+          allowTipSplitOverride: true,
+          tipDistributionBasis: 'active_minutes' as 'active_minutes' | 'price_share' | 'equal' | 'level_weighted',
         };
+        const [locationConfig] = await tx<{ settings: Record<string, unknown> }[]>`
+          select settings from locations where id = ${ctx.locationId}`;
+        const checkoutConfig = (locationConfig?.settings?.['checkout'] ?? {}) as Record<string, unknown>;
+        checkoutSettings.packageCoverageMode = checkoutConfig['packageCoverageMode'] === 'any_included' ? 'any_included' : 'bundle';
+        checkoutSettings.packageCommissionBasis = (
+          ['catalog_price', 'allocated_sale_price', 'zero'].includes(String(checkoutConfig['packageCommissionBasis']))
+            ? checkoutConfig['packageCommissionBasis']
+            : 'allocated_sale_price'
+        ) as typeof checkoutSettings.packageCommissionBasis;
+        checkoutSettings.allowTipSplitOverride = checkoutConfig['allowTipSplitOverride'] !== false;
+        const [tipPolicy] = await tx<{ config: Record<string, unknown> }[]>`
+          select config from tip_policies where location_id = ${ctx.locationId}
+          order by effective_from desc, version desc limit 1`;
+        checkoutSettings.tipDistributionBasis = (tipPolicy?.config?.['basis'] ?? 'active_minutes') as typeof checkoutSettings.tipDistributionBasis;
 
         const rows = await tx<{
           ticket_id: string; appointment_id: string | null; status: string;
           checkout_timing_snapshot: string; service_settled_at: string | null; tip_settled_at: string | null;
-          customer_name: string | null; walk_in_name: string | null;
+          customer_id: string | null; customer_name: string | null; walk_in_name: string | null;
           group_id: string | null; group_label: string | null; business_date: string;
           subtotal_cents: number; discount_cents: number; tax_cents: number; total_cents: number;
-          item_id: string; item_name: string; item_total: number;
+          item_id: string; service_id: string | null; item_name: string; item_total: number;
           duration_min: number; started_at: string | null; finished_at: string | null;
           staff_name: unknown; membership_id: string;
         }[]>`
           select t.id as ticket_id, t.appointment_id, t.status,
                   t.checkout_timing_snapshot, t.service_settled_at::text as service_settled_at,
                   t.tip_settled_at::text as tip_settled_at,
-                  c.display_name as customer_name, t.walk_in_name,
+                  t.customer_id, c.display_name as customer_name, t.walk_in_name,
                   t.group_id, g.label as group_label,
                   t.business_date::text as business_date,
                   t.subtotal_cents, t.discount_cents, t.tax_cents, t.total_cents,
-                  ti.id as item_id, ti.name_snapshot as item_name,
+                  ti.id as item_id, ti.service_id, ti.name_snapshot as item_name,
                   ti.total_cents as item_total, ti.duration_min,
                   ti.started_at::text as started_at, ti.finished_at::text as finished_at,
                   sp.display_name as staff_name, tis.membership_id
@@ -87,13 +105,14 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           limit 500`;
 
         const map = new Map<string, {
-          ticketId: string; appointmentId: string | null; status: string; customerName: string;
+          ticketId: string; appointmentId: string | null; status: string; customerId: string | null; customerName: string;
           subtotalCents: number; discountCents: number; taxCents: number; totalCents: number;
           groupId: string | null; groupLabel: string | null;
           checkoutTiming: string; serviceSettledAt: string | null; tipSettledAt: string | null;
           serviceCompleted: boolean;
           businessDate: string; daysAgo: number;
           items: Array<Record<string, unknown>>;
+          availablePackages: Array<Record<string, unknown>>;
         }>();
 
         const today = await resolveDate(tx, ctx.locationId);
@@ -107,6 +126,7 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
             appointmentId: r.appointment_id,
             status: r.status,
             customerName: r.customer_name ?? r.walk_in_name ?? '临时客人',
+            customerId: r.customer_id,
             subtotalCents: r.subtotal_cents,
             discountCents: r.discount_cents,
             taxCents: r.tax_cents,
@@ -119,9 +139,10 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
             businessDate: r.business_date,
             daysAgo: daysAgoOf(r.business_date),
             items: [],
+            availablePackages: [],
           };
           t.items.push({
-            ticketItemId: r.item_id, name: r.item_name, totalCents: r.item_total,
+            ticketItemId: r.item_id, serviceId: r.service_id, name: r.item_name, totalCents: r.item_total,
             durationMin: r.duration_min, staffName: pickText(r.staff_name, ctx.locale),
             membershipId: r.membership_id, startedAt: r.started_at, finishedAt: r.finished_at,
           });
@@ -129,6 +150,32 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           map.set(r.ticket_id, t);
         }
         const tickets = [...map.values()];
+        const customerIds = [...new Set(tickets.map((ticket) => ticket.customerId).filter((id): id is string => Boolean(id)))];
+        if (customerIds.length > 0) {
+          const packageRows = await tx<{
+            id: string; customer_id: string; name: unknown; service_ids: string[];
+            remaining_sessions: number; total_sessions: number; expires_at: string | null;
+          }[]>`
+            select cp.id, cp.customer_id, pt.name, pt.service_ids::text[] as service_ids,
+                   cp.remaining_sessions, cp.total_sessions, cp.expires_at::text
+            from customer_packages cp join package_templates pt on pt.id = cp.template_id
+            where cp.location_id = ${ctx.locationId} and cp.customer_id = any(${customerIds})
+              and cp.status = 'active' and (cp.total_sessions = 0 or cp.remaining_sessions > 0)
+              and (cp.expires_at is null or cp.expires_at >= now())
+            order by cp.expires_at nulls last, cp.created_at`;
+          for (const ticket of tickets) {
+            ticket.availablePackages = packageRows
+              .filter((pkg) => pkg.customer_id === ticket.customerId)
+              .map((pkg) => ({
+                customerPackageId: pkg.id,
+                name: pickText(pkg.name, ctx.locale, '套餐'),
+                serviceIds: pkg.service_ids ?? [],
+                remainingSessions: pkg.remaining_sessions,
+                totalSessions: pkg.total_sessions,
+                expiresAt: pkg.expires_at,
+              }));
+          }
+        }
         return {
           businessDate: today,
           tickets,

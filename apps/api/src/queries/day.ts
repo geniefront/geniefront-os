@@ -46,6 +46,8 @@ export interface DayItem {
 export interface DayService {
   id: string;
   name: string;
+  categoryId: string | null;
+  categoryName: string | null;
   durationMin: number;
   priceCents: number;
   staffCount: number;
@@ -93,13 +95,15 @@ export async function loadDay(
 
   const serviceRows = await tx<{
     id: string; name: unknown; duration_min: number; base_price_cents: number;
-    staff_count: number; required_skills: unknown;
+    category_id: string | null; category_name: unknown; staff_count: number; required_skills: unknown;
   }[]>`
-    select s.id, s.name, s.duration_min, s.base_price_cents, s.staff_count,
+    select s.id, s.name, s.category_id, sc.name as category_name,
+           s.duration_min, s.base_price_cents, s.staff_count,
            coalesce((select jsonb_agg(jsonb_build_object('id', sk.id, 'key', sk.key, 'name', sk.name) order by sk.key)
              from service_skill_requirements ssr join skills sk on sk.id = ssr.skill_id
              where ssr.service_id = s.id), '[]'::jsonb) as required_skills
     from services s
+    left join service_categories sc on sc.id = s.category_id
     where s.location_id = ${ctx.locationId} and s.active = true
     order by s.sort, s.name->>'en'`;
 
@@ -166,6 +170,8 @@ export async function loadDay(
     services: serviceRows.map((s) => ({
       id: s.id,
       name: pickText(s.name, ctx.locale),
+      categoryId: s.category_id,
+      categoryName: s.category_name ? pickText(s.category_name, ctx.locale) : null,
       durationMin: s.duration_min,
       priceCents: s.base_price_cents,
       staffCount: s.staff_count,

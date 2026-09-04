@@ -85,6 +85,7 @@ vi.mock('@/features/settings/api', () => ({
   useSaveLocationProfile: idleMutation,
   useSaveBusinessHours: idleMutation,
   useSaveService: idleMutation,
+  useSaveServiceCategory: idleMutation,
   useArchiveService: idleMutation,
   useSaveStaffProfile: idleMutation,
   useSetRotationParticipation: idleMutation,

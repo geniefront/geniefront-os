@@ -45,6 +45,9 @@ export interface BlueprintItemView {
   priceCents: number | null;
   priceIsFrom: boolean;
   variants: Array<{ label: string; priceCents: number; durationMin: number | null }>;
+  packageSessions: number;
+  packageServiceNames: string[];
+  packageValidDays: number | null;
   confidenceBp: number;
   /** 服务端算好，前端不要自己拿阈值比 —— 阈值只该有一份 */
   lowConfidence: boolean;
@@ -122,10 +125,12 @@ export async function loadBlueprint(
     duration_min: number | null; price_cents: number | null; price_is_from: boolean;
     seq: number; name_auto: unknown;
     variants: unknown; confidence_bp: number; source_seq: number | null;
+    package_sessions: number; package_service_names: unknown; package_valid_days: number | null;
     bbox: unknown; decision: string; edited_at: Date | null;
   }[]>`
     select id, seq, kind, name, name_auto, category, duration_min, price_cents,
-           price_is_from, variants, confidence_bp, source_seq, bbox, decision, edited_at
+           price_is_from, variants, package_sessions, package_service_names, package_valid_days,
+           confidence_bp, source_seq, bbox, decision, edited_at
     from blueprint_items where blueprint_id = ${blueprintId} order by seq`;
 
   const items: BlueprintItemView[] = rows.map((r) => ({
@@ -138,6 +143,9 @@ export async function loadBlueprint(
     priceCents: r.price_cents,
     priceIsFrom: r.price_is_from,
     variants: (r.variants as BlueprintItemView['variants']) ?? [],
+    packageSessions: r.package_sessions,
+    packageServiceNames: Array.isArray(r.package_service_names) ? r.package_service_names as string[] : [],
+    packageValidDays: r.package_valid_days,
     confidenceBp: r.confidence_bp,
     lowConfidence: r.confidence_bp < LOW_CONFIDENCE_BP,
     seq: r.seq,

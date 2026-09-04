@@ -8,6 +8,7 @@
 
 export interface TicketItem {
   ticketItemId: string;
+  serviceId: string | null;
   name: string;
   totalCents: number;
   durationMin: number;
@@ -15,9 +16,19 @@ export interface TicketItem {
   membershipId: string | null;
 }
 
+export interface CheckoutPackage {
+  customerPackageId: string;
+  name: string;
+  serviceIds: string[];
+  remainingSessions: number;
+  totalSessions: number;
+  expiresAt: string | null;
+}
+
 export interface OpenTicket {
   ticketId: string;
   customerName: string;
+  customerId: string | null;
   status?: 'open' | 'in_service' | 'ready_to_pay' | string;
   subtotalCents: number;
   discountCents?: number;
@@ -34,6 +45,7 @@ export interface OpenTicket {
   /** 距今天数。大于 0 表示这是一张跨日未结的单，需要前台留意。 */
   daysAgo: number;
   items: TicketItem[];
+  availablePackages: CheckoutPackage[];
 }
 
 export interface OpenTicketsView {
@@ -44,6 +56,10 @@ export interface OpenTicketsView {
     taxCalculationMode: 'exclusive' | 'inclusive';
     suggestedTipPercentages: number[];
     checkoutTiming: 'service_then_tip' | 'upfront_combined' | 'after_service_combined';
+    packageCoverageMode: 'bundle' | 'any_included';
+    packageCommissionBasis: 'catalog_price' | 'allocated_sale_price' | 'zero';
+    allowTipSplitOverride: boolean;
+    tipDistributionBasis: 'active_minutes' | 'price_share' | 'equal' | 'level_weighted';
   };
   staleCount?: number;
 }
@@ -123,5 +139,3 @@ export interface GiftCardVerifyResult {
   recipientName?: string;
   status: string;
 }
-
-

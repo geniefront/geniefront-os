@@ -20,15 +20,17 @@ import {
   History,
   MessageSquare,
   ChevronRight,
+  RotateCcw,
 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { Spinner, toast } from '@heroui/react';
 import {
   streamAskCopilot,
-  type CopilotHistoryItem,
+  executeCopilotProposal,
+  getCopilotSessions,
+  removeCopilotSession,
   type CopilotProposal,
 } from '@/features/copilot/api';
-import { runCommand } from '@/lib/api';
 import { useStoreTime } from '@/lib/time';
 import { useSession } from '@/lib/session';
 import { useQueryClient } from '@tanstack/react-query';
@@ -46,6 +48,9 @@ export interface MessageItem {
   imagePreview?: string;
   proposal?: CopilotProposal | null;
   executed?: boolean;
+  undoProposalToken?: string;
+  undoExpiresAt?: string;
+  undone?: boolean;
   steps?: string[];
   isStreaming?: boolean;
 }
@@ -302,6 +307,23 @@ export interface CopilotSession {
   messages: MessageItem[];
 }
 
+function ProposalDetails({ proposal }: { proposal: CopilotProposal }) {
+  const { t } = useLanguage();
+  return (
+    <details className="rounded-xl border border-slate-200 bg-white/80 px-2.5 py-2">
+      <summary className="cursor-pointer select-none text-[11px] font-bold text-slate-600">
+        {t('schedule.copilotVerifiedDetails')}
+      </summary>
+      <pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-950 p-2 text-[10px] leading-relaxed text-slate-100">
+        {JSON.stringify(proposal.input, null, 2)}
+      </pre>
+      <div className="mt-1.5 text-[10px] text-slate-400">
+        {t('schedule.copilotProposalExpires')}{new Date(proposal.expiresAt).toLocaleTimeString()}
+      </div>
+    </details>
+  );
+}
+
 interface SelectedImageState {
   base64: string;
   previewUrl: string;
@@ -310,11 +332,13 @@ interface SelectedImageState {
 }
 
 const MAX_SESSION_TURNS = 10;
+const MAX_STORED_SESSIONS = 20;
+const SESSION_RETENTION_MS = 7 * 24 * 60 * 60_000;
 
 /** 欢迎语与默认会话标题都跟着界面语言走，靠调用方传入 `t` —— 这两者都是模块级函数，本身没有 hook 上下文 */
 function createInitialSession(t: (key: TranslationKey, params?: Record<string, string | number>) => string, initialTitle?: string): CopilotSession {
   return {
-    id: `session_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    id: crypto.randomUUID(),
     title: initialTitle ?? t('schedule.copilotNewChatTitle'),
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -328,34 +352,66 @@ function createInitialSession(t: (key: TranslationKey, params?: Record<string, s
   };
 }
 
+function loadStoredSessions(
+  key: string,
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string,
+): CopilotSession[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [createInitialSession(t)];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [createInitialSession(t)];
+    const cutoff = Date.now() - SESSION_RETENTION_MS;
+    const valid = parsed.filter((item): item is CopilotSession => {
+      if (!item || typeof item !== 'object') return false;
+      const row = item as Partial<CopilotSession>;
+      return typeof row.id === 'string' && typeof row.title === 'string'
+        && typeof row.updatedAt === 'number' && row.updatedAt >= cutoff
+        && Array.isArray(row.messages);
+    }).slice(0, MAX_STORED_SESSIONS);
+    return valid.length > 0 ? valid : [createInitialSession(t)];
+  } catch {
+    return [createInitialSession(t)];
+  }
+}
+
+function sessionsForStorage(sessions: CopilotSession[]): CopilotSession[] {
+  const cutoff = Date.now() - SESSION_RETENTION_MS;
+  return sessions
+    .filter((session) => session.updatedAt >= cutoff)
+    .slice(0, MAX_STORED_SESSIONS)
+    .map((session) => ({
+      ...session,
+      // 截图和可执行提案不落 localStorage。历史文本按员工隔离并只保留 7 天；
+      // 真正的操作历史由服务端审计日志负责。
+      messages: session.messages.map(({
+        imagePreview: _image,
+        proposal: _proposal,
+        undoProposalToken: _undoProposal,
+        undoExpiresAt: _undoExpiry,
+        ...message
+      }) => message),
+    }));
+}
+
 export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
   const storeTime = useStoreTime();
   const { t } = useLanguage();
-  const { membership, membershipId } = useSession();
+  const { membershipId } = useSession();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const storageKey = useMemo(
-    () => `gf_copilot_sessions_${membership?.locationId || membershipId || 'default'}`,
-    [membership?.locationId, membershipId],
+    () => `gf_copilot_sessions_v3_${membershipId || 'anonymous'}`,
+    [membershipId],
   );
 
   const [sessions, setSessions] = useState<CopilotSession[]>(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return [createInitialSession(t)];
+    return loadStoredSessions(storageKey, t);
   });
+  const loadedStorageKeyRef = useRef(storageKey);
 
   const [activeSessionId, setActiveSessionId] = useState<string>(() => {
     return sessions[0]?.id || '';
@@ -367,18 +423,57 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [executingIdx, setExecutingIdx] = useState<number | null>(null);
+  const [undoingIdx, setUndoingIdx] = useState<number | null>(null);
 
   const activeSession = useMemo(() => {
     return sessions.find((s) => s.id === activeSessionId) || sessions[0] || createInitialSession(t);
   }, [sessions, activeSessionId]);
 
   useEffect(() => {
+    if (loadedStorageKeyRef.current === storageKey) return;
+    const next = loadStoredSessions(storageKey, t);
+    loadedStorageKeyRef.current = storageKey;
+    setSessions(next);
+    setActiveSessionId(next[0]?.id ?? '');
+    setShowHistory(false);
+    setInputText('');
+    setSelectedImage(null);
+  }, [storageKey, t]);
+
+  useEffect(() => {
+    if (loadedStorageKeyRef.current !== storageKey) return;
     try {
-      localStorage.setItem(storageKey, JSON.stringify(sessions));
+      localStorage.setItem(storageKey, JSON.stringify(sessionsForStorage(sessions)));
     } catch {
       // ignore
     }
   }, [sessions, storageKey]);
+
+  useEffect(() => {
+    if (!membershipId) return;
+    let cancelled = false;
+    void getCopilotSessions(membershipId).then((stored) => {
+      if (cancelled || stored.length === 0) return;
+      const remote: CopilotSession[] = stored.map((session) => ({
+        id: session.id,
+        title: session.title,
+        createdAt: Date.parse(session.createdAt),
+        updatedAt: Date.parse(session.updatedAt),
+        userQueryCount: session.userQueryCount,
+        messages: session.messages.map((message) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          timestamp: Date.parse(message.timestamp),
+        })),
+      }));
+      setSessions(remote);
+      setActiveSessionId(remote[0]?.id ?? '');
+    }).catch(() => {
+      // 离线或服务端暂不可用时保留按员工隔离的 7 天本地缓存。
+    });
+    return () => { cancelled = true; };
+  }, [membershipId]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -407,6 +502,11 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
 
   const handleDeleteSession = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
+    if (membershipId) {
+      void removeCopilotSession(id, membershipId).catch(() => {
+        toast.danger(t('schedule.copilotSessionDeleteFailed'));
+      });
+    }
     setSessions((prev) => {
       const filtered = prev.filter((s) => s.id !== id);
       if (filtered.length === 0) {
@@ -423,7 +523,8 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
   };
 
   const processImageFile = (file: File) => {
-    if (!file.type.startsWith('image/')) {
+    const supportedTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+    if (!supportedTypes.has(file.type)) {
       toast.danger(t('schedule.copilotBadImage'));
       return;
     }
@@ -541,18 +642,12 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
     setSelectedImage(null);
     setIsStreaming(true);
 
-    const history: CopilotHistoryItem[] = updatedMessages
-      .filter((m) => m.role === 'user' || m.role === 'assistant')
-      .slice(-4)
-      .map((m) => ({ role: m.role as 'user' | 'assistant', text: m.content }));
-
     try {
       await streamAskCopilot(
         {
           question: query || t('schedule.copilotIdentifyScreenshotPrompt'),
           sessionId: targetSession.id,
           image: imagePayload,
-          history,
         },
         {
           onStep: (step: string) => {
@@ -600,6 +695,9 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
             );
           },
           onDone: (res: any) => {
+            const serverSessionId = typeof res.sessionId === 'string'
+              ? res.sessionId
+              : targetSession.id;
             setSessions((prev) =>
               prev.map((s) => {
                 if (s.id !== targetSession.id) return s;
@@ -620,9 +718,10 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
                     timestamp: Date.now(),
                   });
                 }
-                return { ...s, updatedAt: Date.now(), messages: msgs };
+                return { ...s, id: serverSessionId, updatedAt: Date.now(), messages: msgs };
               }),
             );
+            if (serverSessionId !== targetSession.id) setActiveSessionId(serverSessionId);
             setIsStreaming(false);
           },
           onError: (err: Error) => {
@@ -670,26 +769,70 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
 
   const handleExecuteProposal = async (proposal: CopilotProposal, msgIndex: number) => {
     if (!membershipId) return;
+    if (Date.parse(proposal.expiresAt) <= Date.now()) {
+      toast.danger(t('schedule.copilotProposalExpired'));
+      return;
+    }
     setExecutingIdx(msgIndex);
     try {
-      await runCommand(proposal.command, proposal.input, membershipId);
+      const out = await executeCopilotProposal(proposal.proposalToken, membershipId);
       toast.success(t('schedule.copilotExecOk', { p0: proposal.summary || proposal.command }));
       setSessions((prev) =>
         prev.map((s) =>
           s.id === activeSession.id
-            ? { ...s, messages: s.messages.map((msg, i) => (i === msgIndex ? { ...msg, executed: true } : msg)) }
+            ? { ...s, messages: s.messages.map((msg, i) => (i === msgIndex
+              ? {
+                ...msg,
+                executed: true,
+                undoProposalToken: out.undoProposalToken,
+                undoExpiresAt: out.undoExpiresAt,
+              }
+              : msg)) }
             : s,
         ),
       );
-      const targetKeys = ['rooms', 'day', 'schedule', 'appointments', 'floorSnapshot', 'analytics', 'customers', 'queue', 'rotation'];
-      for (const key of targetKeys) {
-        void queryClient.invalidateQueries({ queryKey: [key] });
-        void queryClient.invalidateQueries({ queryKey: ['desk', key] });
-      }
+      invalidateCopilotQueries();
     } catch (err: any) {
       toast.danger(t('schedule.copilotExecFailed', { p0: err.message || t('schedule.copilotPermissionConflict') }));
     } finally {
       setExecutingIdx(null);
+    }
+  };
+
+  const invalidateCopilotQueries = () => {
+    const targetKeys = ['rooms', 'day', 'schedule', 'appointments', 'floorSnapshot', 'analytics', 'customers', 'queue', 'rotation'];
+    for (const key of targetKeys) {
+      void queryClient.invalidateQueries({ queryKey: [key] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', key] });
+    }
+  };
+
+  const handleUndoProposal = async (proposalToken: string, msgIndex: number) => {
+    if (!membershipId) return;
+    setUndoingIdx(msgIndex);
+    try {
+      await executeCopilotProposal(proposalToken, membershipId);
+      setSessions((prev) => prev.map((session) => session.id === activeSession.id
+        ? {
+          ...session,
+          messages: session.messages.map((message, index) => index === msgIndex
+            ? {
+              ...message,
+              undone: true,
+              undoProposalToken: undefined,
+              undoExpiresAt: undefined,
+            }
+            : message),
+        }
+        : session));
+      invalidateCopilotQueries();
+      toast.success(t('schedule.copilotUndoOk'));
+    } catch (err: any) {
+      toast.danger(t('schedule.copilotUndoFailed', {
+        p0: err.message || t('schedule.copilotPermissionConflict'),
+      }));
+    } finally {
+      setUndoingIdx(null);
     }
   };
 
@@ -721,6 +864,34 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
     const isAppointmentCreate = proposal.command === 'appointment.create';
     const isAppointmentReschedule = proposal.command === 'appointment.reschedule';
     const isAppointmentCancel = proposal.command === 'appointment.cancel';
+    const isExpired = Date.parse(proposal.expiresAt) <= Date.now();
+    const message = activeSession.messages[msgIndex];
+    const canUndo = Boolean(
+      message?.undoProposalToken
+      && message.undoExpiresAt
+      && Date.parse(message.undoExpiresAt) > Date.now()
+      && !message.undone,
+    );
+    const executedState = (label: string) => (
+      <div className="flex items-center gap-2">
+        <span className="text-emerald-700 font-bold flex items-center gap-1 text-[11px] bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          {message?.undone ? t('schedule.copilotUndone') : label}
+        </span>
+        {canUndo && message?.undoProposalToken && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2.5 text-xs font-bold text-slate-700"
+            onClick={() => handleUndoProposal(message.undoProposalToken!, msgIndex)}
+            disabled={undoingIdx === msgIndex}
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            {undoingIdx === msgIndex ? t('schedule.copilotUndoing') : t('undo')}
+          </Button>
+        )}
+      </div>
+    );
 
     if (isRoomStatus) {
       const status = String(proposal.input?.status ?? 'cleaning');
@@ -733,7 +904,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
               <span>{t('schedule.copilotRoomChange')}</span>
             </div>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
-              {status === 'cleaning' ? t('schedule.copilotSetCleaning') : status === 'out_of_service' ? t('schedule.copilotSetMaintenance') : t('schedule.copilotSetAvailable')}
+              {status === 'cleaning' ? t('schedule.copilotSetCleaning') : status === 'maintenance' ? t('schedule.copilotSetMaintenance') : t('schedule.copilotSetAvailable')}
             </span>
           </div>
 
@@ -741,18 +912,17 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
             <div className="text-slate-700 font-medium">{proposal.summary}</div>
             {note && <div className="text-[11px] text-slate-500">{t('schedule.copilotNoteLabel')}{note}</div>}
           </div>
+          <ProposalDetails proposal={proposal} />
 
           <div className="flex items-center justify-end pt-1">
             {executed ? (
-              <span className="text-emerald-700 font-bold flex items-center gap-1 text-[11px] bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
-                <CheckCircle2 className="w-3.5 h-3.5" />  {t('schedule.copilotUpdateDone')}
-              </span>
+              executedState(t('schedule.copilotUpdateDone'))
             ) : (
               <Button
                 size="sm"
                 className="bg-teal-600 hover:bg-teal-700 text-white font-bold h-7 px-3 text-xs gap-1.5 shadow-xs"
                 onClick={() => handleExecuteProposal(proposal, msgIndex)}
-                disabled={executingIdx === msgIndex}
+                disabled={executingIdx === msgIndex || isExpired}
               >
                 <Check className="w-3.5 h-3.5" />
                 {executingIdx === msgIndex ? t('schedule.copilotUpdating') : t('schedule.copilotConfirmRoom')}
@@ -792,18 +962,17 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
               <div className="text-[11px] text-slate-600">Duration：{firstItem.durationMin}  {t('schedule.copilotMinutes')}</div>
             )}
           </div>
+          <ProposalDetails proposal={proposal} />
 
           <div className="flex items-center justify-end pt-1">
             {executed ? (
-              <span className="text-emerald-700 font-bold flex items-center gap-1 text-[11px] bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
-                <CheckCircle2 className="w-3.5 h-3.5" />  {t('schedule.copilotImported')}
-              </span>
+              executedState(t('schedule.copilotImported'))
             ) : (
               <Button
                 size="sm"
                 className="bg-teal-600 hover:bg-teal-700 text-white font-bold h-7 px-3 text-xs gap-1.5 shadow-xs"
                 onClick={() => handleExecuteProposal(proposal, msgIndex)}
-                disabled={executingIdx === msgIndex}
+                disabled={executingIdx === msgIndex || isExpired}
               >
                 <Play className="w-3 h-3" />
                 {executingIdx === msgIndex ? t('schedule.copilotImporting') : t('schedule.copilotConfirmImport')}
@@ -845,12 +1014,11 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
           >
             {proposal.summary}
           </div>
+          <ProposalDetails proposal={proposal} />
 
           <div className="flex items-center justify-end pt-1">
             {executed ? (
-              <span className="text-emerald-700 font-bold flex items-center gap-1 text-[11px] bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
-                <CheckCircle2 className="w-3.5 h-3.5" />  {t('schedule.copilotUpdateDone2')}
-              </span>
+              executedState(t('schedule.copilotUpdateDone2'))
             ) : (
               <Button
                 size="sm"
@@ -858,7 +1026,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
                   isReschedule ? 'bg-sky-600 hover:bg-sky-700' : 'bg-rose-600 hover:bg-rose-700'
                 } text-white font-bold h-7 px-3 text-xs gap-1.5 shadow-xs`}
                 onClick={() => handleExecuteProposal(proposal, msgIndex)}
-                disabled={executingIdx === msgIndex}
+                disabled={executingIdx === msgIndex || isExpired}
               >
                 <Check className="w-3.5 h-3.5" />
                 {executingIdx === msgIndex ? t('schedule.copilotExecuting') : isReschedule ? t('schedule.copilotConfirmReschedule') : t('schedule.copilotConfirmCancel')}
@@ -876,8 +1044,9 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
           <code className="text-[10px] bg-teal-100/60 px-1.5 py-0.5 rounded text-teal-800">{proposal.command}</code>
         </div>
         <p className="text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-100">{proposal.summary}</p>
+        <ProposalDetails proposal={proposal} />
         <div className="flex justify-end pt-1">
-          {executed ? <span className="text-emerald-700 font-bold flex items-center gap-1 text-[11px] bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200"><CheckCircle2 className="w-3.5 h-3.5" />  {t('schedule.copilotExecuted')}</span> : <Button size="sm" className="bg-teal-600 hover:bg-teal-700 text-white font-bold h-7 px-3 text-xs" onClick={() => handleExecuteProposal(proposal, msgIndex)} disabled={executingIdx === msgIndex}>{executingIdx === msgIndex ? t('schedule.copilotExecuting2') : t('schedule.copilotConfirmRun')}</Button>}
+          {executed ? executedState(t('schedule.copilotExecuted')) : <Button size="sm" className="bg-teal-600 hover:bg-teal-700 text-white font-bold h-7 px-3 text-xs" onClick={() => handleExecuteProposal(proposal, msgIndex)} disabled={executingIdx === msgIndex || isExpired}>{executingIdx === msgIndex ? t('schedule.copilotExecuting2') : isExpired ? t('schedule.copilotProposalExpired') : t('schedule.copilotConfirmRun')}</Button>}
         </div>
       </div>
     );
@@ -891,7 +1060,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
       onPaste={handlePaste}
       className={`w-full max-w-md h-full bg-white shadow-2xl flex flex-col relative z-raised animate-in slide-in-from-right-full duration-300 border-l border-slate-200 ${isDragging ? 'ring-4 ring-teal-500 ring-inset bg-teal-50/20' : ''}`}
     >
-      <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} className="hidden" />
+      <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleFileSelect} className="hidden" />
 
       {/* Header */}
       <div className="h-16 flex items-center justify-between px-4 sm:px-6 border-b border-slate-100 shrink-0 bg-slate-900 text-white">

@@ -237,6 +237,7 @@ function MarketingContent() {
   const [pkgPrice, setPkgPrice] = useState('120.00');
   const [pkgUnits, setPkgUnits] = useState('5');
   const [pkgValidDays, setPkgValidDays] = useState('365');
+  const [pkgServiceIds, setPkgServiceIds] = useState<string[]>([]);
 
   // 2. 发售次卡给指定顾客 Modal
   const [issuePackageModalOpen, setIssuePackageModalOpen] = useState(false);
@@ -301,17 +302,22 @@ function MarketingContent() {
       toast.danger(t('crm.mktPackageNameRequired'));
       return;
     }
+    if (pkgServiceIds.length === 0) {
+      toast.danger(t('crm.mktPkgServicesRequired'));
+      return;
+    }
     try {
       await savePackageMut.mutateAsync({
         name: pkgName.trim(),
         priceCents: dollarsToCents(pkgPrice),
-        serviceId: '00000000-0000-0000-0000-000000000001',
-        totalUnits: parseInt(pkgUnits, 10) || 5,
+        serviceIds: pkgServiceIds,
+        sessions: parseInt(pkgUnits, 10) || 5,
         validDays: parseInt(pkgValidDays, 10) || 365,
       });
       toast.success(t('crm.mktPackagePublished'));
       setPackageModalOpen(false);
       setPkgName('');
+      setPkgServiceIds([]);
     } catch (err: any) {
       toast.danger(errorMessage(err));
     }
@@ -701,7 +707,9 @@ function MarketingContent() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {packages.map((pkg) => {
                   // 折算单价在整数分上计算后再格式化 —— 先转美元浮点再除会引入无法对账的尾差
-                  const unitPrice = centsToDollars(Math.round(pkg.priceCents / pkg.totalUnits));
+                  const unitPrice = pkg.totalUnits > 0
+                    ? centsToDollars(Math.round(pkg.priceCents / pkg.totalUnits))
+                    : null;
                   return (
                     <Card
                       key={pkg.id}
@@ -717,6 +725,9 @@ function MarketingContent() {
                               
                               {t('crm.mktIncludesPrefix')} <strong>{pkg.totalUnits}</strong>  {t('crm.mktSessionsValidFor')} {pkg.validDays ?? t('crm.mktForever')}  {t('crm.mktDaysUnit')}
                             </p>
+                            <p className="text-[11px] text-slate-600 mt-1.5">
+                              {(pkg.serviceNames?.length ? pkg.serviceNames : [pkg.serviceName]).join(' + ')}
+                            </p>
                           </div>
                           <Badge className="bg-teal-100 text-teal-900 border-teal-300 font-black text-sm px-2.5 py-0.5">
                             ${centsToDollars(pkg.priceCents)}
@@ -725,8 +736,20 @@ function MarketingContent() {
 
                         <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-xs">
                           <span className="text-slate-500">{t('crm.mktPerSessionPrice')}</span>
-                          <span className="font-bold text-teal-700 font-mono">${unitPrice}  {t('crm.mktPerSession')}</span>
+                          <span className="font-bold text-teal-700 font-mono">
+                            {unitPrice === null ? t('crm.mktForever') : `$${unitPrice} ${t('crm.mktPerSession')}`}
+                          </span>
                         </div>
+                        {pkg.savingsCents != null && pkg.savingsCents > 0 && (
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-slate-500">
+                              {t('crm.mktPkgCatalogValue')} ${centsToDollars(pkg.catalogValueCents ?? 0)}
+                            </span>
+                            <span className="font-bold text-emerald-700">
+                              {t('crm.mktPkgSavings')} ${centsToDollars(pkg.savingsCents)}
+                            </span>
+                          </div>
+                        )}
                       </CardContent>
 
                       <div className="p-3 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between">
@@ -742,6 +765,7 @@ function MarketingContent() {
                         <Button
                           size="sm"
                           className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs h-7 gap-1"
+                          disabled={!pkg.active}
                           onClick={() => {
                             setIssueTargetPkg(pkg);
                             setIssueCustomerName('');
@@ -792,6 +816,9 @@ function MarketingContent() {
                         
                         {t('crm.mktPurchasedOn')} {up.createdAt.slice(0, 10)}  {t('crm.mktValidUntil')} {up.expiresAt ? up.expiresAt.slice(0, 10) : t('crm.mktForever2')}
                       </p>
+                      <p className="text-slate-600 text-[11px]">
+                        {(up.serviceNames?.length ? up.serviceNames : [up.serviceName]).join(' + ')}
+                      </p>
                     </div>
 
                     <div className="flex items-center gap-4 justify-between sm:justify-end">
@@ -804,7 +831,7 @@ function MarketingContent() {
                           <div
                             className="h-full bg-teal-600 rounded-full"
                             style={{
-                              width: `${Math.round((up.remainingUnits / up.totalUnits) * 100)}%`,
+                              width: `${up.totalUnits === 0 ? 100 : Math.round((up.remainingUnits / up.totalUnits) * 100)}%`,
                             }}
                           />
                         </div>
@@ -1340,6 +1367,37 @@ function MarketingContent() {
                 value={pkgValidDays}
                 onChange={(e) => setPkgValidDays(e.target.value)}
               />
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-bold text-slate-700 uppercase mb-1">
+              {t('crm.mktPkgServicesLabel')}
+            </label>
+            <p className="mb-2 text-[11px] text-slate-500">{t('crm.mktPkgServicesHint')}</p>
+            <div className="max-h-52 space-y-1.5 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
+              {(packagesQ.data?.availableServices ?? []).map((service) => {
+                const checked = pkgServiceIds.includes(service.id);
+                return (
+                  <label key={service.id} className="flex cursor-pointer items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 shadow-xs">
+                    <span className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => setPkgServiceIds((current) => checked
+                          ? current.filter((id) => id !== service.id)
+                          : [...current, service.id])}
+                        className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                      />
+                      <span className="font-semibold text-slate-800">{service.name}</span>
+                    </span>
+                    <span className="font-mono text-slate-500">${centsToDollars(service.priceCents)}</span>
+                  </label>
+                );
+              })}
+              {(packagesQ.data?.availableServices ?? []).length === 0 && (
+                <p className="p-3 text-center text-amber-700">{t('crm.mktPkgNoServices')}</p>
+              )}
             </div>
           </div>
         </div>

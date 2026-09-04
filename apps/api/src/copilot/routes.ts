@@ -6,31 +6,31 @@
  * 和 `POST /v1/blueprint/:id/extract` 是同一个理由（server.ts 有长注释）：
  * 模型调用要几秒，而命令都跑在数据库事务里 —— 塞进去会占住连接和快照。
  *
- * 这里只做编排：**查快照 → 问模型 → 把提案原样返回**。
- * 提案**不执行** —— 前台在卡片上点确认，那一下才走 `/v1/commands/:name`，
- * 用的是**她自己的身份**，权限、容量检查、审计、撤销窗口一样不少。
+ * 这里只做编排：**查快照 → 问模型 → 签发短时提案**。
+ * 提案不会被模型直接执行；前台点确认后，专用执行入口会重新校验签名、
+ * 身份、门店、权限和命令 schema，再交给命令总线执行。
  *
  * ## 三道安全边界（05 §10）
  *
- * 1. **AI 的权限 ⊆ 操作人的权限。** 提案由前台自己的会话执行，
- *    所以模型提一条她没权限的命令，结果是 PERMISSION_DENIED —— 没有后门。
+ * 1. **AI 的权限 ⊆ 操作人的权限。** 工具目录、提案签发、执行入口和命令总线
+ *    分层复核，模型看不到也执行不了操作者无权使用的能力。
  * 2. **AI 调不了未注册的命令。** `propose_command` 的 `command` 是
  *    strict tool use 的枚举，取自 `commandCatalogText()`。
- * 3. **AI 不写数据库。** 这个文件里一次 `dispatch` 写操作都没有，
- *    只有一条记用量的。
+ * 3. **AI 不自主写数据库。** 只有人类确认过的签名提案才会调用 `dispatch`；
+ *    所有写入都带 AI actor、幂等键和正常审计记录。
  */
 
 import type { FastifyInstance } from 'fastify';
 import {
-  AppError, ERROR_CODES, commandCatalogText, getCommand, pickText,
-  type CommandContext,
+  AppError, ERROR_CODES, commandCatalogTextForPermissions, getCommand, pickText,
+  type CommandContext, type Permission,
 } from '@gf/contracts';
 import { withTenant } from '@gf/db';
 import {
   askCopilot, formatFloorSnapshot, routeLocally, roughTokens,
   SNAPSHOT_TOKEN_BUDGET, SONNET_5_RATES, COPILOT_MODEL,
   costMillicents, billableTokens,
-  type ReadOnlyTool, type CopilotImageInput,
+  type ReadOnlyTool,
 } from '@gf/ai';
 import { dispatch } from '../bus';
 import { assertAiAdmission } from '../billing/aiAdmission';
@@ -46,6 +46,17 @@ import { loadPackages } from '../queries/marketing';
 import { loadReviewsSummary } from '../queries/reviews';
 import { maybeAutoTopup } from '../billing/autoTopup';
 import type { CtxFromHeaders } from '../stripe/routes';
+import { businessDateOf } from '@gf/scheduling';
+import { issueCopilotProposal, verifyCopilotProposal } from './proposalToken';
+import { flushEmails } from '../email/flush';
+import { flushSms } from '../sms/flush';
+import { COPILOT_BODY_LIMIT, parseCopilotImage } from './image';
+import {
+  beginCopilotTurn,
+  completeCopilotTurn,
+  deleteCopilotSession,
+  loadCopilotSessions,
+} from './sessionStore';
 
 /** 一次提问最多多长。再长的多半是粘贴进来的东西，不是一句问话 */
 const MAX_QUESTION_CHARS = 2000;
@@ -55,19 +66,39 @@ export function registerCopilotRoutes(
   ctxFromHeaders: CtxFromHeaders,
 ): void {
 
+  app.get('/v1/ai/copilot/sessions', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('ai.use')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
+    }
+    return { sessions: await loadCopilotSessions(ctx) };
+  });
+
+  app.delete<{ Params: { id: string } }>('/v1/ai/copilot/sessions/:id', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('ai.use')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
+    }
+    const deleted = await deleteCopilotSession(ctx, req.params.id);
+    if (!deleted) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { resource: 'copilot_session' } });
+    }
+    return { ok: true };
+  });
+
   app.post<{ Body: {
     question?: string;
     sessionId?: string;
     image?: { base64: string; mediaType?: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' };
-    history?: Array<{ role?: string; text?: string }>;
-  } }>('/v1/ai/copilot', async (req) => {
+  } }>('/v1/ai/copilot', { bodyLimit: COPILOT_BODY_LIMIT }, async (req) => {
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('ai.use')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
     }
 
     let question = (req.body?.question ?? '').trim();
-    const hasImage = Boolean(req.body?.image?.base64);
+    const imageInput = parseCopilotImage(req.body?.image);
+    const hasImage = Boolean(imageInput);
 
     if (!question && hasImage) {
       question = '请分析这张预约截图中的信息，识别客人姓名、手机号、服务项目、预约时间、技师和金额，并提议创建预约。';
@@ -79,12 +110,20 @@ export function registerCopilotRoutes(
       });
     }
 
-    // ── 1. 现场快照 ───────────────────────────────────────────────────────
-    const snapshot = await withTenant(
-      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
-      (tx) => loadFloorSnapshot(tx, ctx));
+    const turn = await beginCopilotTurn(ctx, req.body?.sessionId, question, hasImage);
 
-    const snapshotText = formatFloorSnapshot(snapshot);
+    // ── 1. 现场快照 ───────────────────────────────────────────────────────
+    const canReadFloor = ctx.permissions.has('appointment.read')
+      && ctx.permissions.has('schedule.read');
+    const snapshot = canReadFloor
+      ? await withTenant(
+        { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+        (tx) => loadFloorSnapshot(tx, ctx))
+      : null;
+
+    const snapshotText = snapshot
+      ? formatFloorSnapshot(snapshot)
+      : 'LIVE FLOOR SNAPSHOT UNAVAILABLE: current role lacks required read permissions.';
 
     // 快照悄悄膨胀是成本失控最常见的起点（05 §7.2 第 1 条）。
     // 超预算就告警，而不是默默多付钱
@@ -98,16 +137,18 @@ export function registerCopilotRoutes(
     //
     // ⭐ **最省钱的 AI 调用是没发生的那次**（05 §7.2 第 3 条）。
     // 前台 60–70% 的提问是「几个人在等」「谁有空」，答案快照里已经有了
-    if (!hasImage) {
+    if (!hasImage && snapshot) {
       const local = routeLocally(question, snapshot);
       if (local) {
+        await completeCopilotTurn(ctx, turn, { answer: local.text, source: 'local' })
+          .catch((error) => req.log.warn({ err: error }, 'failed to persist copilot answer'));
         return {
           answer: local.text,
           proposal: null,
           source: 'local' as const,
           intent: local.intent,
           costCents: 0,
-          snapshot: snapshotText,
+          sessionId: turn.sessionId,
         };
       }
     }
@@ -119,27 +160,17 @@ export function registerCopilotRoutes(
       throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
     }
 
-    const imageInput: CopilotImageInput | undefined = hasImage && req.body?.image
-      ? {
-          base64: req.body.image.base64,
-          mediaType: req.body.image.mediaType ?? 'image/png',
-        }
-      : undefined;
-
     // ⛔ 准入闸门（AUD-03）。放在本地关键词直答**之后**：那条路根本不调模型、
     // 也不计积分，没有理由让一家额度用尽的店连「今天几点关门」都问不了。
     await assertAiAdmission(ctx);
 
     const result = await askCopilot({
       apiKey,
-      commandCatalog: commandCatalogText(),
+      commandCatalog: commandCatalogTextForPermissions(ctx.permissions),
       snapshot: snapshotText,
       question,
       image: imageInput,
-      history: (req.body?.history ?? [])
-        .filter((h): h is { role: 'user' | 'assistant'; text: string } =>
-          (h.role === 'user' || h.role === 'assistant') && typeof h.text === 'string')
-        .slice(-3),
+      history: turn.history,
       tools: readOnlyTools(ctx),
       log: req.log,
     });
@@ -166,16 +197,13 @@ export function registerCopilotRoutes(
     //
     // strict tool use 的枚举理论上保证了这一点，但**枚举是从文本里抽的**，
     // 而文本是我们自己生成的 —— 这里再确认一次，代价是一次 map 查找
-    let proposal = result.proposal;
-    if (proposal) {
-      const def = getCommand(proposal.command);
-      if (!def || def.ai.exposed === false) {
-        req.log.warn({ command: proposal.command }, 'copilot proposed unknown command');
-        proposal = null;
-      } else {
-        proposal = { ...proposal, confirm: def.ai.confirm };
-      }
-    }
+    const proposal = finalizeCopilotProposal(result.proposal, ctx, req.log);
+    await completeCopilotTurn(ctx, turn, {
+      answer: result.answer,
+      source: 'model',
+      proposal,
+      toolsUsed: result.toolsUsed,
+    }).catch((error) => req.log.warn({ err: error }, 'failed to persist copilot answer'));
 
     // ── 5. 记用量并扣费 ──────────────────────────────────────────────────
     const cost = costMillicents(result.usage, SONNET_5_RATES);
@@ -198,8 +226,7 @@ export function registerCopilotRoutes(
       toolsUsed: result.toolsUsed,
       stopped: result.stopped ?? null,
       costCents: charged,
-      snapshot: snapshotText,
-      sessionId: req.body?.sessionId ?? null,
+      sessionId: turn.sessionId,
     };
   });
 
@@ -207,15 +234,15 @@ export function registerCopilotRoutes(
     question?: string;
     sessionId?: string;
     image?: { base64: string; mediaType?: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' };
-    history?: Array<{ role?: string; text?: string }>;
-  } }>('/v1/ai/copilot/stream', async (req, reply) => {
+  } }>('/v1/ai/copilot/stream', { bodyLimit: COPILOT_BODY_LIMIT }, async (req, reply) => {
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('ai.use')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
     }
 
     let question = (req.body?.question ?? '').trim();
-    const hasImage = Boolean(req.body?.image?.base64);
+    const imageInput = parseCopilotImage(req.body?.image);
+    const hasImage = Boolean(imageInput);
 
     if (!question && hasImage) {
       question = '请分析这张预约截图中的信息，识别客人姓名、手机号、服务项目、预约时间、技师和金额，并提议创建预约。';
@@ -226,6 +253,9 @@ export function registerCopilotRoutes(
         details: { reason: `问题要在 1–${MAX_QUESTION_CHARS} 个字之间`, got: question.length },
       });
     }
+
+
+    const turn = await beginCopilotTurn(ctx, req.body?.sessionId, question, hasImage);
 
     const origin = req.headers.origin;
     reply.raw.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -248,16 +278,24 @@ export function registerCopilotRoutes(
     sendEvent({ type: 'step', step: '⚡ 正在读取现场快照与工位状态...' });
 
     // ── 1. 现场快照 ───────────────────────────────────────────────────────
-    const snapshot = await withTenant(
-      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
-      (tx) => loadFloorSnapshot(tx, ctx));
+    const canReadFloor = ctx.permissions.has('appointment.read')
+      && ctx.permissions.has('schedule.read');
+    const snapshot = canReadFloor
+      ? await withTenant(
+        { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+        (tx) => loadFloorSnapshot(tx, ctx))
+      : null;
 
-    const snapshotText = formatFloorSnapshot(snapshot);
+    const snapshotText = snapshot
+      ? formatFloorSnapshot(snapshot)
+      : 'LIVE FLOOR SNAPSHOT UNAVAILABLE: current role lacks required read permissions.';
 
     // ── 2. 先试确定性路由 ──────────────────────────────────────────────────
-    if (!hasImage) {
+    if (!hasImage && snapshot) {
       const local = routeLocally(question, snapshot);
       if (local) {
+        await completeCopilotTurn(ctx, turn, { answer: local.text, source: 'local' })
+          .catch((error) => req.log.warn({ err: error }, 'failed to persist copilot answer'));
         sendEvent({ type: 'step', step: '⚡ 本地规则引擎即时命中' });
         sendEvent({ type: 'delta', delta: local.text });
         sendEvent({
@@ -267,8 +305,7 @@ export function registerCopilotRoutes(
           source: 'local',
           intent: local.intent,
           costCents: 0,
-          snapshot: snapshotText,
-          sessionId: req.body?.sessionId ?? null,
+          sessionId: turn.sessionId,
         });
         reply.raw.end();
         return;
@@ -284,13 +321,6 @@ export function registerCopilotRoutes(
     }
 
     sendEvent({ type: 'step', step: '🧠 正在分析技师技能与智能排单...' });
-
-    const imageInput: CopilotImageInput | undefined = hasImage && req.body?.image
-      ? {
-          base64: req.body.image.base64,
-          mediaType: req.body.image.mediaType ?? 'image/png',
-        }
-      : undefined;
 
     let streamedText = '';
 
@@ -309,38 +339,45 @@ export function registerCopilotRoutes(
       return;
     }
 
-    const result = await askCopilot({
-      apiKey,
-      commandCatalog: commandCatalogText(),
-      snapshot: snapshotText,
-      question,
-      image: imageInput,
-      history: (req.body?.history ?? [])
-        .filter((h): h is { role: 'user' | 'assistant'; text: string } =>
-          (h.role === 'user' || h.role === 'assistant') && typeof h.text === 'string')
-        .slice(-3),
-      tools: readOnlyTools(ctx),
-      callbacks: {
-        onStep: (step) => {
-          sendEvent({ type: 'step', step });
+    let result: Awaited<ReturnType<typeof askCopilot>>;
+    try {
+      result = await askCopilot({
+        apiKey,
+        commandCatalog: commandCatalogTextForPermissions(ctx.permissions),
+        snapshot: snapshotText,
+        question,
+        image: imageInput,
+        history: turn.history,
+        tools: readOnlyTools(ctx),
+        callbacks: {
+          onStep: (step) => {
+            sendEvent({ type: 'step', step });
+          },
+          onDelta: (delta) => {
+            streamedText += delta;
+            sendEvent({ type: 'delta', delta });
+          },
         },
-        onDelta: (delta) => {
-          streamedText += delta;
-          sendEvent({ type: 'delta', delta });
-        },
-      },
-      log: req.log,
-    });
+        log: req.log,
+      });
+    } catch (error) {
+      req.log.error({ err: error, locationId: ctx.locationId }, 'copilot stream model call failed');
+      sendEvent({
+        type: 'error',
+        error: error instanceof AppError ? error.code : ERROR_CODES.UPSTREAM_UNAVAILABLE,
+      });
+      reply.raw.end();
+      return;
+    }
 
-    let proposal = result.proposal;
+    const proposal = finalizeCopilotProposal(result.proposal, ctx, req.log);
+    await completeCopilotTurn(ctx, turn, {
+      answer: result.answer || streamedText,
+      source: 'model',
+      proposal,
+      toolsUsed: result.toolsUsed,
+    }).catch((error) => req.log.warn({ err: error }, 'failed to persist copilot answer'));
     if (proposal) {
-      const def = getCommand(proposal.command);
-      if (!def || def.ai.exposed === false) {
-        req.log.warn({ command: proposal.command }, 'copilot proposed unknown command');
-        proposal = null;
-      } else {
-        proposal = { ...proposal, confirm: def.ai.confirm };
-      }
       sendEvent({ type: 'proposal', proposal });
     }
 
@@ -361,12 +398,56 @@ export function registerCopilotRoutes(
       proposal,
       source: 'model',
       costCents: charged,
-      snapshot: snapshotText,
       toolsUsed: result.toolsUsed,
-      sessionId: req.body?.sessionId ?? null,
+      sessionId: turn.sessionId,
     });
 
     reply.raw.end();
+  });
+
+  /**
+   * 可信提案执行入口。浏览器不再把 command/input 原样送进通用命令路由；
+   * 服务端只执行自己签发、未过期、且与当前人/门店绑定的参数。
+   */
+  app.post<{ Body: { proposalToken?: string } }>('/v1/ai/copilot/execute', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('ai.use')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
+    }
+    const token = String(req.body?.proposalToken ?? '');
+    const proposal = verifyCopilotProposal(token, ctx);
+    const def = getCommand(proposal.command);
+    if (!def || def.ai.exposed === false || def.system === true) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+        details: { command: proposal.command, reason: 'copilot_command_not_exposed' },
+      });
+    }
+    const parsed = def.input.safeParse(proposal.input);
+    if (!parsed.success) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'copilot_proposal_schema_changed' },
+      });
+    }
+
+    const out = await dispatch(proposal.command, parsed.data, { ...ctx, actorKind: 'ai' }, {
+      idempotencyKey: `copilot:${proposal.proposalId}`,
+    });
+    const undo = reversibleCopilotProposal(ctx, proposal, out.result);
+    if (['appointment.create', 'appointment.reschedule', 'appointment.cancel', 'form.share']
+      .includes(proposal.command)) {
+      const tenant = { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId };
+      void flushEmails(tenant, req.log);
+      void flushSms(tenant, req.log);
+    }
+    return {
+      ...out,
+      proposalId: proposal.proposalId,
+      command: proposal.command,
+      ...(undo ? {
+        undoProposalToken: undo.token,
+        undoExpiresAt: undo.payload.expiresAt,
+      } : {}),
+    };
   });
 
   /**
@@ -384,9 +465,10 @@ export function registerCopilotRoutes(
       orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId,
     };
 
-    return [
+    const tools: ReadOnlyTool[] = [
       {
         name: 'find_customer',
+        requiredPermissions: ['customer.read'],
         description:
           '按姓名或手机号找客人，返回 id、上次到店时间。' +
           '**同名多人会全部返回** —— 这时候要在回答里让前台点一个，不要自己挑。',
@@ -443,6 +525,7 @@ export function registerCopilotRoutes(
 
       {
         name: 'find_open_slots',
+        requiredPermissions: ['appointment.read'],
         description:
           '查真实空档。**报时间之前必须先调这个** —— ' +
           '你自己按时长推算出来的时间，店里可能根本没有那个空档。',
@@ -487,6 +570,7 @@ export function registerCopilotRoutes(
 
       {
         name: 'get_appointments',
+        requiredPermissions: ['appointment.read'],
         description:
           '查某一天的预约。**只查今天以外的日子用它** —— ' +
           '今天的已经在现场快照里了，再查一遍是白花钱。',
@@ -553,6 +637,7 @@ export function registerCopilotRoutes(
          * 所以「名字 → id」必须有一条明确的路。
          */
         name: 'list_staff',
+        requiredPermissions: ['schedule.read'],
         description:
           '列出本店的技师（membershipId、姓名、今天是否可排单）。'
           + '**任何要填 membershipId 的命令都得先调这个** —— '
@@ -582,6 +667,7 @@ export function registerCopilotRoutes(
 
       {
         name: 'list_services',
+        requiredPermissions: ['appointment.read'],
         description: '列出本店在用的项目（名称、时长、价格）。开单和排预约前用它对上项目 id。',
         inputSchema: { type: 'object', additionalProperties: false, properties: {} },
         run: async () => {
@@ -604,6 +690,7 @@ export function registerCopilotRoutes(
 
       {
         name: 'list_rooms',
+        requiredPermissions: ['appointment.read'],
         description:
           '列出本店所有房间与工位资源（名称、resourceId、当前状态 available/cleaning/in_service/maintenance、容量、正在服务中的客人与技师）。'
           + '**变更房间状态（如设置打扫中 cleaning、空闲 available）前必须先调这个查出 resourceId**。',
@@ -636,6 +723,7 @@ export function registerCopilotRoutes(
 
       {
         name: 'get_revenue_analytics',
+        requiredPermissions: ['ticket.read'],
         description:
           '查询今日或指定日期区间的门店营收、工单量、客单价指标与品类占比。'
           + '**前台询问今日营收或客单价时必须先调这个**。',
@@ -648,11 +736,18 @@ export function registerCopilotRoutes(
           },
         },
         run: async (input) => {
-          const today = new Date().toISOString().slice(0, 10);
+          const today = await currentBusinessDate();
           const from = typeof input['from'] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input['from'])
             ? input['from'] : today;
           const to = typeof input['to'] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input['to'])
             ? input['to'] : from;
+
+          // 当日经营数字是前台工作台的一部分；跨日或历史报表仍受 report.view 保护。
+          if ((from !== today || to !== today) && !ctx.permissions.has('report.view')) {
+            throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+              details: { need: 'report.view', tool: 'get_revenue_analytics' },
+            });
+          }
 
           const [overview, trends] = await withTenant(tenant, async (tx) => {
             const ov = await loadCustomerAnalytics(tx, ctx, from, to);
@@ -685,6 +780,7 @@ export function registerCopilotRoutes(
 
       {
         name: 'list_inactive_customers',
+        requiredPermissions: ['customer.read'],
         description:
           '检索超过指定天数（如 60 天）未到店消费的老顾客名单与上次到店时间。用于回答「帮我列出近60天未到店的老顾客」等召回分析。',
         inputSchema: {
@@ -699,13 +795,14 @@ export function registerCopilotRoutes(
           const days = Math.max(1, Math.min(365, Number(input['days']) || 60));
           const limit = Math.max(1, Math.min(50, Number(input['limit']) || 10));
 
+          const today = await currentBusinessDate();
           const rows = await withTenant(tenant, (tx) => tx<{
             id: string; display_name: string; phone_e164: string | null;
             vip_level: number; last_visit_on: string; days_ago: number; visit_count: number;
           }[]>`
             select c.id, c.display_name, c.phone_e164, c.vip_level,
                    max(a.business_date)::text as last_visit_on,
-                   (current_date - max(a.business_date)::date)::int as days_ago,
+                   (${today}::date - max(a.business_date)::date)::int as days_ago,
                    count(distinct a.id)::int as visit_count
             from customers c
             join appointments a on a.customer_id = c.id and a.location_id = ${ctx.locationId}
@@ -713,7 +810,7 @@ export function registerCopilotRoutes(
               and c.merged_into_id is null
               and a.status <> 'cancelled'
             group by c.id, c.display_name, c.phone_e164, c.vip_level
-            having max(a.business_date)::date <= current_date - ${days}
+            having max(a.business_date)::date <= ${today}::date - ${days}
             order by max(a.business_date) asc
             limit ${limit}`);
 
@@ -737,6 +834,7 @@ export function registerCopilotRoutes(
 
       {
         name: 'get_day_overview',
+        requiredPermissions: ['appointment.read'],
         description:
           '获取指定日期（默认今日）的全量预约单据统计与列表。当需要查询今天一共有几个预约或总览时调用。',
         inputSchema: {
@@ -747,7 +845,7 @@ export function registerCopilotRoutes(
           },
         },
         run: async (input) => {
-          const date = String(input['businessDate'] ?? new Date().toISOString().slice(0, 10));
+          const date = String(input['businessDate'] ?? await currentBusinessDate());
           if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: '日期格式为 YYYY-MM-DD' };
 
           const rows = await withTenant(tenant, (tx) => tx<{
@@ -777,7 +875,8 @@ export function registerCopilotRoutes(
 
           return {
             businessDate: date,
-            totalAppointments: rows.length,
+            totalAppointments: new Set(rows.map((r) => r.appointment_id)).size,
+            totalServiceItems: rows.length,
             statusBreakdown: countByStatus,
             appointments: rows.map((r) => ({
               appointmentId: r.appointment_id,
@@ -799,6 +898,7 @@ export function registerCopilotRoutes(
 
       {
         name: 'get_customer_detail',
+        requiredPermissions: ['customer.read'],
         description: '按 customerId 查询客户 360 档案（偏好、过敏禁忌、历史总消费、到店次数、前台备忘）。',
         inputSchema: {
           type: 'object',
@@ -843,9 +943,11 @@ export function registerCopilotRoutes(
 
       {
         name: 'get_queue_status',
+        requiredPermissions: ['appointment.read'],
         description: '查询当前现场等位排队详情（排队号、客人姓名、等待时间、超时预警、期望项目）。',
         inputSchema: { type: 'object', additionalProperties: false, properties: {} },
         run: async () => {
+          const businessDate = await currentBusinessDate();
           const rows = await withTenant(tenant, (tx) => tx<{
             ticket_number: number; customer_name: string | null; walk_in_name: string | null;
             party_size: number; joined_at: string | Date; quoted_wait_min: number | null;
@@ -857,7 +959,7 @@ export function registerCopilotRoutes(
             left join customers c on c.id = q.customer_id
             left join services s on s.id = q.requested_service_id
             where q.location_id = ${ctx.locationId}
-              and q.business_date = current_date
+              and q.business_date = ${businessDate}
               and q.status = 'waiting'
             order by q.ticket_number asc`);
 
@@ -883,6 +985,7 @@ export function registerCopilotRoutes(
 
     {
       name: 'list_staff_skills',
+      requiredPermissions: ['schedule.read'],
       description:
         '查询全店技师的花名册、技能标签（如美甲、Gel-X延长、美睫、足疗、推拿、手足护理等）、职级等级与在职状态。'
         + '**前台询问谁会做某项目、某技师会什么技能、空闲技师能不能接单时必须先调用此工具**。',
@@ -905,7 +1008,8 @@ export function registerCopilotRoutes(
             name: s.name,
             jobTitle: s.jobTitle,
             level: s.level,
-            skills: s.skills.length > 0 ? s.skills : ['全科基础服务'],
+            // 空数组表示「尚未配置」，绝不能把未知资格扩张成“全科”。
+            skills: s.skills,
             status: s.status,
             hireDate: s.hireDate,
           })),
@@ -915,6 +1019,7 @@ export function registerCopilotRoutes(
 
     {
       name: 'get_service_catalog',
+      requiredPermissions: ['appointment.read'],
       description:
         '查询门店全量服务项目价目表、标准耗时与分类（如美甲、美睫、按摩、足疗项目单价与时长）。'
         + '**前台询问项目多少钱、服务耗时多久、店内有哪些服务项目时必须调用**。',
@@ -935,12 +1040,12 @@ export function registerCopilotRoutes(
 
           const srvs = await tx<{
             id: string; category_id: string | null; name: unknown;
-            duration_min: number; price_cents: number; is_active: boolean;
+            duration_min: number; base_price_cents: number; active: boolean;
             description: unknown;
           }[]>`
-            select id, category_id, name, duration_min, price_cents, is_active, description
+            select id, category_id, name, duration_min, base_price_cents, active, description
             from services
-            where location_id = ${ctx.locationId} and is_active = true
+            where location_id = ${ctx.locationId} and active = true
             order by sort asc, created_at asc`;
 
           return [cats, srvs] as const;
@@ -954,7 +1059,7 @@ export function registerCopilotRoutes(
             category: s.category_id ? (catMap.get(s.category_id) ?? '默认分类') : '未分类',
             name: pickText(s.name, ctx.locale),
             durationMin: s.duration_min,
-            priceDollars: (s.price_cents / 100).toFixed(2),
+            priceDollars: (s.base_price_cents / 100).toFixed(2),
             description: s.description ? pickText(s.description, ctx.locale) : null,
           }));
 
@@ -968,6 +1073,7 @@ export function registerCopilotRoutes(
 
     {
       name: 'get_staff_schedules',
+      requiredPermissions: ['schedule.read'],
       description:
         '查询员工排班日历与休假情况（某天或未来几天的上班时段、休息日、请假原因）。'
         + '**前台询问某技师明天几点上班、谁今天休息、某天排班时调用**。',
@@ -980,7 +1086,7 @@ export function registerCopilotRoutes(
         },
       },
       run: async (input) => {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = await currentBusinessDate();
         const fromDate = typeof input['fromDate'] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input['fromDate'])
           ? input['fromDate'] : today;
         const days = Math.max(1, Math.min(7, Number(input['days']) || 3));
@@ -1010,6 +1116,7 @@ export function registerCopilotRoutes(
 
     {
       name: 'get_store_info',
+      requiredPermissions: ['appointment.read'],
       description:
         '查询门店基础设置与规则（每周营业时间、开店打烊时间、门店地址、前台电话、税率、小费政策）。'
         + '**前台询问几点打烊、营业时间、地址电话、税率时调用**。',
@@ -1043,6 +1150,7 @@ export function registerCopilotRoutes(
 
     {
       name: 'get_promotions_and_cards',
+      requiredPermissions: ['ticket.read'],
       description:
         '查询门店当前次卡套餐（如10次卡）、优惠券活动与礼品卡信息。'
         + '**前台询问次卡套餐、优惠活动、礼品卡规则时调用**。',
@@ -1065,6 +1173,7 @@ export function registerCopilotRoutes(
 
     {
       name: 'get_store_reviews',
+      requiredPermissions: ['report.view'],
       description:
         '查询门店口碑与外部评价（Google/Yelp/店内评分、顾客好评点、差评反馈、技师好评榜）。'
         + '**前台询问顾客评价口碑时调用**。',
@@ -1094,6 +1203,7 @@ export function registerCopilotRoutes(
 
     {
       name: 'search_orders',
+      requiredPermissions: ['ticket.read'],
       description:
         '查询收银订单流水（单据号、实付金额、支付方式、小费、技师业绩分成、状态）。'
         + '**前台询问某单收了多少钱、查小费、查订单流水明细时调用**。',
@@ -1106,10 +1216,16 @@ export function registerCopilotRoutes(
         },
       },
       run: async (input) => {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = await currentBusinessDate();
         const date = typeof input['date'] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input['date'])
           ? input['date'] : today;
         const limit = Math.max(1, Math.min(30, Number(input['limit']) || 10));
+
+        if (date !== today && !ctx.permissions.has('report.view')) {
+          throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+            details: { need: 'report.view', tool: 'search_orders' },
+          });
+        }
 
         const rows = await withTenant(tenant, (tx) => tx<{
           id: string; ticket_number: number; status: string; customer_name: string | null;
@@ -1143,7 +1259,13 @@ export function registerCopilotRoutes(
         };
       },
     },
-  ];
+    ];
+
+    // 只把调用人真正有权使用的工具交给模型。运行时仍保留各查询自身的
+    // RLS/字段脱敏；这里是工具级授权，避免模型借 ai.use 扩张读取范围。
+    return tools.filter((tool) => (tool.requiredPermissions ?? []).every(
+      (permission) => ctx.permissions.has(permission as Permission),
+    ));
 
     /** 姓名 → membershipId。**匹配不上返回 null**，绝不挑一个最像的 */
     async function membershipByName(name: string): Promise<string | null> {
@@ -1161,6 +1283,16 @@ export function registerCopilotRoutes(
       // 命中多个 = 有歧义（店里两个 Kim）。留空比挑一个强
       const partial = rows.filter((r) => norm(pickText(r.display_name, 'en')).includes(want));
       return partial.length === 1 ? partial[0]!.membership_id : null;
+    }
+
+    /** 当前门店营业日；尊重门店时区和凌晨营业日截点。 */
+    async function currentBusinessDate(): Promise<string> {
+      const [loc] = await withTenant(tenant, (tx) => tx<{
+        timezone: string; cutoff: string;
+      }[]>`
+        select timezone, business_day_cutoff::text as cutoff
+        from locations where id = ${ctx.locationId}`);
+      return businessDateOf(new Date(), loc?.timezone ?? ctx.timezone, loc?.cutoff ?? '04:00');
     }
   }
 
@@ -1194,6 +1326,79 @@ export function registerCopilotRoutes(
       return 0;
     }
   }
+}
+
+export function finalizeCopilotProposal(
+  proposal: { command: string; input: Record<string, unknown>; summary: string } | null,
+  ctx: CommandContext,
+  log: { warn: (o: unknown, m: string) => void },
+) {
+  if (!proposal) return null;
+  const def = getCommand(proposal.command);
+  if (!def || def.ai.exposed === false || def.system === true) {
+    log.warn({ command: proposal.command }, 'copilot proposed unknown or hidden command');
+    return null;
+  }
+  if (def.permission && !ctx.permissions.has(def.permission as Permission)) {
+    log.warn({ command: proposal.command, need: def.permission }, 'copilot proposed forbidden command');
+    return null;
+  }
+  const parsed = def.input.safeParse(proposal.input);
+  if (!parsed.success) {
+    log.warn({ command: proposal.command, issues: parsed.error.issues },
+      'copilot proposed invalid command input');
+    return null;
+  }
+  const canonicalInput = parsed.data as Record<string, unknown>;
+  if (proposal.command === 'appointment.create') canonicalInput['source'] = 'ai_copilot';
+  const issued = issueCopilotProposal(
+    ctx,
+    proposal.command,
+    canonicalInput,
+    proposal.summary,
+  );
+  return {
+    command: proposal.command,
+    input: canonicalInput,
+    summary: proposal.summary,
+    confirm: def.ai.confirm,
+    proposalId: issued.payload.proposalId,
+    proposalToken: issued.token,
+    expiresAt: issued.payload.expiresAt,
+  };
+}
+
+/**
+ * 只有能从已签提案与执行结果确定推导的反向命令才提供撤销。
+ * 撤销窗口 60 秒；拿不准原值的命令宁可不给按钮，也不猜。
+ */
+function reversibleCopilotProposal(
+  ctx: CommandContext,
+  proposal: { command: string; input: Record<string, unknown> },
+  result: unknown,
+) {
+  if (proposal.command === 'appointment.create') {
+    if (!ctx.permissions.has('appointment.cancel')) return null;
+    const appointmentId = (result as { appointmentId?: unknown } | null)?.appointmentId;
+    if (typeof appointmentId !== 'string') return null;
+    return issueCopilotProposal(ctx, 'appointment.cancel', {
+      appointmentId,
+      reason: 'input_error',
+      keepStaffTurn: false,
+      note: '撤销 AI 副驾刚创建的预约',
+    }, '撤销 AI 副驾刚创建的预约', new Date(), 60_000);
+  }
+  if (proposal.command === 'rotation.setBreak') {
+    const membershipId = proposal.input['membershipId'];
+    const onBreak = proposal.input['onBreak'];
+    if (typeof membershipId !== 'string' || typeof onBreak !== 'boolean') return null;
+    return issueCopilotProposal(ctx, 'rotation.setBreak', {
+      membershipId,
+      onBreak: !onBreak,
+      note: '撤销 AI 副驾刚才的休息状态变更',
+    }, '撤销技师休息状态变更', new Date(), 60_000);
+  }
+  return null;
 }
 
 interface CustomerHit {
