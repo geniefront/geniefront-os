@@ -10,7 +10,7 @@
 import type postgres from 'postgres';
 import type { PublicShopRow } from '@gf/db';
 import {
-  businessDateOf, checkCapacity, wallMinuteToInstant, type Interval,
+  businessDateOf, checkCapacity, overlappingOccupancy, wallMinuteToInstant, type Interval,
 } from '@gf/scheduling';
 
 export interface ManagedAvailItem {
@@ -93,6 +93,12 @@ export async function loadManagedAvailability(
   const shapeReason = guestRescheduleShapeReason(items);
   if (shapeReason) return empty(shapeReason, false);
 
+  // 整单一起挪时，这些项目属于同一位客人，互相之间不算占位冲突。
+  // party_size > 1 的单例外（母女同来 = 两位客人），退回按项目各算各的。
+  const [party] = await tx<{ n: number }[]>`
+    select party_size as n from appointments where id = ${appointmentId}`;
+  const shapeGroupKey = (party?.n ?? 1) > 1 ? null : appointmentId;
+
   const anchorMs = Math.min(...items.map((i) => Date.parse(i.starts_at)));
   const shape = items.map((i) => ({
     membershipId: i.membership_id,
@@ -136,9 +142,11 @@ export async function loadManagedAvailability(
   if (staffRows.length === 0) return empty(null, true, spanMin);
 
   const busyRows = await tx<{
-    membership_id: string | null; starts_at: string | Date; ends_at: string | Date;
+    group_key: string; membership_id: string | null;
+    starts_at: string | Date; ends_at: string | Date;
   }[]>`
-    select ai.membership_id, ai.starts_at, ai.ends_at
+    select case when a.party_size > 1 then ai.id::text else ai.appointment_id::text end as group_key,
+           ai.membership_id, ai.starts_at, ai.ends_at
       from appointment_items ai
       join appointments a on a.id = ai.appointment_id
      where a.location_id = ${shop.locationId}
@@ -153,7 +161,10 @@ export async function loadManagedAvailability(
   const busyBy = new Map<string, Interval[]>();
   const locationBusy: Interval[] = [];
   for (const b of busyRows) {
-    const iv = { startsAt: new Date(b.starts_at), endsAt: new Date(b.ends_at) };
+    // 同一位客人的多个项目合并成一个占位（见 packages/scheduling/capacity.ts）
+    const iv = {
+      startsAt: new Date(b.starts_at), endsAt: new Date(b.ends_at), groupKey: b.group_key,
+    };
     locationBusy.push(iv);
     if (!b.membership_id) continue;
     const list = busyBy.get(b.membership_id) ?? [];
@@ -196,7 +207,8 @@ export async function loadManagedAvailability(
   for (let startMin = first; startMin + spanMin <= closeMin; startMin += step) {
     const startsAt = wallMinuteToInstant(date, loc.tz, startMin);
     if (startsAt.getTime() < earliest) continue;
-    if (!fitsShape(shape, startMin, date, loc.tz, staff, staffById, locationBusy, perSlot)) {
+    if (!fitsShape(shape, startMin, date, loc.tz, staff, staffById, locationBusy, perSlot,
+                   shapeGroupKey)) {
       continue;
     }
     if (seen.has(startMin)) continue;
@@ -271,9 +283,18 @@ function fitsShape(
   staffById: Map<string, OccupancyStaff>,
   locationBusy: Interval[],
   perSlot: number | null,
+  /**
+   * ⭐ 被改期的这张预约的 id。整组项目共用它作 groupKey ——
+   * 少了这一条，一张两项的单在自己身上撞车：第一项排进 `extraBusy` 之后，
+   * 第二项（同一位技师）就被自己顶成了超并发，客人永远改不了期。
+   *
+   * 传 null = 这张单代表多位客人（party_size > 1），项目之间照常互相计入。
+   */
+  groupKey: string | null,
 ): boolean {
   const extraBusy = new Map<string, Interval[]>();
   const extraLocation: Interval[] = [];
+  let itemSeq = 0;
   const named = shape.filter((s) => s.membershipId);
   const unassigned = shape.filter((s) => !s.membershipId);
 
@@ -286,6 +307,7 @@ function fitsShape(
     const proposed: Interval = {
       startsAt: wallMinuteToInstant(date, tz, iStart),
       endsAt: wallMinuteToInstant(date, tz, iEnd),
+      groupKey: groupKey ?? `managed-item:${itemSeq += 1}`,
     };
     if (member) {
       if (iStart < member.shiftStartMin || iEnd > member.shiftEndMin) return false;
@@ -337,11 +359,13 @@ function fitsShape(
     const proposed: Interval = {
       startsAt: wallMinuteToInstant(date, tz, iStart),
       endsAt: wallMinuteToInstant(date, tz, iEnd),
+      groupKey: groupKey ?? `managed-item:${itemSeq += 1}`,
     };
     const free = staff.find((s) => {
       if (iStart < s.shiftStartMin || iEnd > s.shiftEndMin) return false;
       const existing = [...s.busy, ...(extraBusy.get(s.membershipId) ?? [])];
-      return existing.filter((b) => overlaps(b, proposed)).length < s.maxConcurrent;
+      // 按客人数算，与 checkCapacity 同一口径
+      return overlappingOccupancy(existing, proposed) < s.maxConcurrent;
     });
     if (!free) return false;
     if (!tryItem(item, free)) return false;

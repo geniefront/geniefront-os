@@ -8,6 +8,7 @@
  */
 
 import type postgres from 'postgres';
+import { randomUUID } from 'node:crypto';
 import {
   AppointmentCreate, AppointmentAddItem, AppointmentCancel, AppointmentReschedule,
   AppointmentSaveServiceBrief, AppointmentAssignCustomer,
@@ -167,6 +168,37 @@ function assertBusinessHours(args: {
  * 仍然可以和其余两条并发。加在最前面还顺带统一了加锁顺序，
  * 避免和 `for update` 交叉成环。
  */
+/**
+ * 门店层容量的分母：这个营业日**在岗且接客**的人数。
+ *
+ * 优先按已发布的班表算 —— 这和 queries/slots.ts 报给客人的可约时间是同一个
+ * 口径，两处算法漂开的话，官网显示有空、建单却说满了。
+ *
+ * 没有任何已发布班次时退回「在册可接客人数」：不排班的小店（这行里很常见）
+ * 班表恒为空，按班表算等于 0，而 0 在容量引擎里意味着**关闭门店层检查**，
+ * 那就把一整层约束悄悄取消了。
+ */
+async function countOnDutyBookable(
+  tx: postgres.TransactionSql, locationId: string, businessDate: string,
+): Promise<number> {
+  const [shifted] = await tx<{ n: number }[]>`
+    select count(distinct s.membership_id)::int as n
+    from shifts s
+    join staff_profiles sp on sp.membership_id = s.membership_id
+    join memberships m on m.id = s.membership_id and m.status = 'active'
+    where s.location_id = ${locationId}
+      and s.business_date = ${businessDate}
+      and s.status = 'published'
+      and sp.is_bookable = true`;
+  if ((shifted?.n ?? 0) > 0) return shifted!.n;
+
+  const [roster] = await tx<{ n: number }[]>`
+    select count(*)::int as n from staff_profiles sp
+    join memberships m on m.id = sp.membership_id and m.status = 'active'
+    where sp.location_id = ${locationId} and sp.is_bookable = true`;
+  return roster?.n ?? 0;
+}
+
 async function lockBookingCapacity(
   tx: postgres.TransactionSql, locationId: string,
 ): Promise<void> {
@@ -231,34 +263,55 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
   });
 
   // ── 当天已有的活跃时段（供容量判断）────────────────────────────────────────
-  const existingRows = await tx<{ membership_id: string | null; starts_at: string; ends_at: string }[]>`
-    select membership_id, starts_at, ends_at from appointment_items
-    where location_id = ${ctx.locationId}
-      and status in ('booked','in_service')
-      and starts_at < ${ts(windowEnd)}::timestamptz
-      and ends_at   > ${ts(windowStart)}::timestamptz`;
+  //
+  // `groupKey` 取 appointment_id：同一位客人的多个项目在容量引擎里合并成
+  // 一个占位。技师并发问的是「同时在服务几位客人」，不是「手上挂着几条
+  // 项目记录」—— 一位客人做三个项目、都点名同一位技师，占的是一个位置。
+  const existingRows = await tx<{
+    group_key: string; membership_id: string | null; starts_at: string; ends_at: string;
+  }[]>`
+    select case when a.party_size > 1 then ai.id::text else ai.appointment_id::text end as group_key,
+           ai.membership_id, ai.starts_at, ai.ends_at
+    from appointment_items ai
+    join appointments a on a.id = ai.appointment_id
+    where ai.location_id = ${ctx.locationId}
+      and ai.status in ('booked','in_service')
+      and ai.starts_at < ${ts(windowEnd)}::timestamptz
+      and ai.ends_at   > ${ts(windowStart)}::timestamptz`;
 
   // timestamptz 读回来是字符串，容量引擎要的是 Date —— 在边界上一次转清楚
-  const existing = existingRows.map((e) => ({
+  const existing: Array<Interval & { membershipId: string | null }> = existingRows.map((e) => ({
     membershipId: e.membership_id,
     startsAt: parseTs(e.starts_at),
     endsAt: parseTs(e.ends_at),
+    groupKey: e.group_key,
   }));
 
   const staffIds = [...new Set(resolved.map((r) => r.membershipId).filter((x): x is string => !!x))];
+  // ⚠️ 必须带 location_id：一个技师在两家店上班是这行的常态（sql/0031 注释），
+  // 不过滤的话既能把别家店的技师排进本店的单，拿到的 max_concurrent /
+  // is_bookable 还是**另一家店**那条档案上的值。
   const staffRows = staffIds.length
     ? await tx<{ membership_id: string; is_bookable: boolean; max_concurrent: number }[]>`
         select membership_id, is_bookable,
                max_concurrent_appointments as max_concurrent
-        from staff_profiles where membership_id = any(${staffIds})`
+        from staff_profiles
+        where membership_id = any(${staffIds}) and location_id = ${ctx.locationId}`
     : [];
   const staffById = new Map(staffRows.map((s) => [s.membership_id, s]));
 
-  const [onDuty] = await tx<{ n: number }[]>`
-    select count(*)::int as n from staff_profiles
-    where location_id = ${ctx.locationId} and is_bookable = true`;
+  const onDutyBookableCount = await countOnDutyBookable(tx, ctx.locationId, businessDate);
 
   // ── 容量检查（纯函数，唯一实现）────────────────────────────────────────────
+  //
+  // ⚠️ 本次请求内的项目要互相计入。逐项判、`existing` 只来自数据库的话，
+  // 前台「一键编排：全部同时进行」把两项都排给同一位技师会**静默通过**，
+  // 真超卖落了库，一直到开单才被发现。判完一项就把它追加进 existing。
+  //
+  // 它们共用同一个 groupKey（本单还没有 id，临时造一个）：同一位客人的
+  // 项目之间不算冲突，对**别的**技师和门店层则照常计入。
+  // partySize > 1 的单里每个项目各算一位客人，见下方 existing 查询的注释
+  const newApptKey = input.partySize > 1 ? null : `pending:${randomUUID()}`;
   const overbookedIdx = new Set<number>();
 
   for (const [idx, item] of resolved.entries()) {
@@ -267,7 +320,11 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
       throw new AppError(ERROR_CODES.NOT_FOUND, { details: { membershipId: item.membershipId } });
     }
 
-    const proposed: Interval = { startsAt: item.startsAt, endsAt: item.endsAt };
+    const proposed: Interval = {
+      startsAt: item.startsAt, endsAt: item.endsAt,
+      // null = 各算各的：同一次请求里的两项也会互相计入
+      groupKey: newApptKey ?? `pending-item:${idx}`,
+    };
     const issues = checkCapacity({
       proposed,
       staff: staff
@@ -280,10 +337,12 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
         : null,
       location: {
         maxConcurrentPerSlot: capacityCfg.max_concurrent_per_slot ?? null,
-        onDutyBookableCount: onDuty?.n ?? 0,
+        onDutyBookableCount,
         existing,
       },
     });
+
+    existing.push({ ...proposed, membershipId: item.membershipId ?? null });
 
     if (issues.length === 0) continue;
 
@@ -823,8 +882,8 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
     overbook?: 'warn' | 'block';
   };
 
-  const [appt] = await tx<{ id: string; status: string; starts_at: string }[]>`
-    select id, status, starts_at::text as starts_at from appointments
+  const [appt] = await tx<{ id: string; status: string; party_size: number; starts_at: string }[]>`
+    select id, status, party_size, starts_at::text as starts_at from appointments
     where id = ${input.appointmentId} and location_id = ${ctx.locationId} for update`;
   if (!appt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
   if (appt.status === 'cancelled') {
@@ -904,30 +963,36 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
    * ⚠️ **要排除本单自己的 item** —— 不排除的话，「原地往后延 15 分钟」
    * 这种最常见的改法会和自己撞车，永远改不成。
    */
-  const existingRows = await tx<{ membership_id: string | null; starts_at: string; ends_at: string }[]>`
-    select ai.membership_id, ai.starts_at, ai.ends_at from appointment_items ai
+  const existingRows = await tx<{
+    group_key: string; membership_id: string | null; starts_at: string; ends_at: string;
+  }[]>`
+    select case when a.party_size > 1 then ai.id::text else ai.appointment_id::text end as group_key,
+           ai.membership_id, ai.starts_at, ai.ends_at
+    from appointment_items ai
+    join appointments a on a.id = ai.appointment_id
     where ai.location_id = ${ctx.locationId}
       and ai.status in ('booked','in_service')
       and ai.appointment_id <> ${appt.id}
       and ai.starts_at < ${ts(windowEnd)}::timestamptz
       and ai.ends_at   > ${ts(windowStart)}::timestamptz`;
-  const existing = existingRows.map((e) => ({
+  const existing: Array<Interval & { membershipId: string | null }> = existingRows.map((e) => ({
     membershipId: e.membership_id,
     startsAt: parseTs(e.starts_at),
     endsAt: parseTs(e.ends_at),
+    groupKey: e.group_key,
   }));
 
   const staffIds = [...new Set(moved.map((m) => m.membershipId).filter((x): x is string => !!x))];
+  // ⚠️ location_id 同建单那处：跨店技师的档案不能混用
   const staffRows = staffIds.length
     ? await tx<{ membership_id: string; is_bookable: boolean; max_concurrent: number }[]>`
         select membership_id, is_bookable, max_concurrent_appointments as max_concurrent
-        from staff_profiles where membership_id = any(${staffIds})`
+        from staff_profiles
+        where membership_id = any(${staffIds}) and location_id = ${ctx.locationId}`
     : [];
   const staffById = new Map(staffRows.map((s) => [s.membership_id, s]));
 
-  const [onDuty] = await tx<{ n: number }[]>`
-    select count(*)::int as n from staff_profiles
-    where location_id = ${ctx.locationId} and is_bookable = true`;
+  const onDutyBookableCount = await countOnDutyBookable(tx, ctx.locationId, businessDate);
 
   // ── 容量：和建单走同一个纯函数（宪法第 2 条：唯一实现）──────────────────
   let overbooked = false;
@@ -936,7 +1001,12 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
     if (m.membershipId && !staff) {
       throw new AppError(ERROR_CODES.NOT_FOUND, { details: { membershipId: m.membershipId } });
     }
-    const proposed: Interval = { startsAt: m.startsAt, endsAt: m.endsAt };
+    // groupKey 用本单 id：一次改多项时，同一位客人的项目之间互不冲突，
+    // 对别的技师和门店层则照常计入（`existing` 已排除本单的旧时段）
+    const proposed: Interval = {
+      startsAt: m.startsAt, endsAt: m.endsAt,
+      groupKey: appt.party_size > 1 ? `moved-item:${m.id}` : appt.id,
+    };
     const issues = checkCapacity({
       proposed,
       staff: staff
@@ -949,10 +1019,11 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
         : null,
       location: {
         maxConcurrentPerSlot: capacityCfg.max_concurrent_per_slot ?? null,
-        onDutyBookableCount: onDuty?.n ?? 0,
+        onDutyBookableCount,
         existing,
       },
     });
+    existing.push({ ...proposed, membershipId: m.membershipId ?? null });
     if (issues.length === 0) continue;
 
     if (hasBlocking(issues)) {
@@ -1116,25 +1187,33 @@ registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: Hand
   const capacity = (loc.settings['capacity'] ?? {}) as {
     max_concurrent_per_slot?: number | null; overbook?: 'warn' | 'block';
   };
-  const otherRows = await tx<{ membership_id: string | null; starts_at: string; ends_at: string }[]>`
-    select membership_id, starts_at::text as starts_at, ends_at::text as ends_at
-    from appointment_items
-    where location_id = ${ctx.locationId} and appointment_id <> ${appt.id}
-      and status in ('booked','in_service')
-      and starts_at < ${ts(endsAt)}::timestamptz and ends_at > ${ts(startsAt)}::timestamptz`;
+  const otherRows = await tx<{
+    group_key: string; membership_id: string | null; starts_at: string; ends_at: string;
+  }[]>`
+    select case when a.party_size > 1 then ai.id::text else ai.appointment_id::text end as group_key,
+           ai.membership_id, ai.starts_at::text as starts_at, ai.ends_at::text as ends_at
+    from appointment_items ai
+    join appointments a on a.id = ai.appointment_id
+    where ai.location_id = ${ctx.locationId} and ai.appointment_id <> ${appt.id}
+      and ai.status in ('booked','in_service')
+      and ai.starts_at < ${ts(endsAt)}::timestamptz and ai.ends_at > ${ts(startsAt)}::timestamptz`;
   const existing = otherRows.map((row) => ({
     membershipId: row.membership_id, startsAt: parseTs(row.starts_at), endsAt: parseTs(row.ends_at),
+    groupKey: row.group_key,
   }));
   const [staffRow] = input.membershipId
     ? await tx<{ membership_id: string; max_concurrent: number; is_bookable: boolean }[]>`
         select membership_id, max_concurrent_appointments as max_concurrent, is_bookable
-        from staff_profiles where membership_id = ${input.membershipId}`
+        from staff_profiles
+        where membership_id = ${input.membershipId} and location_id = ${ctx.locationId}`
     : [];
-  const [onDuty] = await tx<{ n: number }[]>`
-    select count(*)::int as n from staff_profiles
-    where location_id = ${ctx.locationId} and is_bookable = true`;
+  const onDutyBookableCount = await countOnDutyBookable(
+    tx, ctx.locationId, businessDateOf(startsAt, loc.timezone, loc.cutoff),
+  );
   const issues = checkCapacity({
-    proposed: { startsAt, endsAt },
+    // 本单自己的项目已被 `appointment_id <> appt.id` 排除，groupKey 在这里
+    // 只是把语义写明：加项加在同一位客人身上，不产生新的占位
+    proposed: { startsAt, endsAt, groupKey: appt.id },
     staff: staffRow ? {
       membershipId: staffRow.membership_id, maxConcurrent: staffRow.max_concurrent,
       isBookable: staffRow.is_bookable,
@@ -1142,7 +1221,7 @@ registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: Hand
     } : null,
     location: {
       maxConcurrentPerSlot: capacity.max_concurrent_per_slot ?? null,
-      onDutyBookableCount: onDuty?.n ?? 0, existing,
+      onDutyBookableCount, existing,
     },
   });
   if (hasBlocking(issues)) {

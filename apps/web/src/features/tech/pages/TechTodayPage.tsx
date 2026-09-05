@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/Badge';
 import { GuardedButton } from '@/components/ui/GuardedButton';
 import { PageError, PageLoading } from '@/components/ui/QueryState';
 import { useErrorMessage } from '@/lib/errorMessage';
+import { ApiError } from '@/lib/api';
 import { playTimerCompleteChime, unlockTechAudio } from '../lib/audio';
 import { requestScreenWakeLock, releaseScreenWakeLock } from '../lib/wakeLock';
 import { readTechWakeLockEnabled } from '../lib/preferences';
@@ -112,6 +113,13 @@ export function TechTodayPage() {
   }
 
   const actionError = punchMutation.error ?? startMutation.error ?? finishMutation.error ?? directTipMutation.error;
+  /*
+   * 并发上限这一条给技师换句人话。通用文案是「超出技师同时接单容量上限」——
+   * 对着手机的技师读完并不知道该做什么，而他要做的事只有一件：找前台。
+   */
+  const actionErrorText = actionError instanceof ApiError && actionError.code === 'STAFF_OVER_CAPACITY'
+    ? t('techOverCapacity')
+    : actionError ? errorMessage(actionError) : null;
   const actionPending = punchMutation.isPending || startMutation.isPending || finishMutation.isPending || directTipMutation.isPending;
 
   const saveDirectTip = (ticketItemId: string) => {
@@ -139,9 +147,9 @@ export function TechTodayPage() {
 
   return (
     <div className="space-y-3.5">
-      {actionError && (
+      {actionErrorText && (
         <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-800">
-          {errorMessage(actionError)}
+          {actionErrorText}
         </div>
       )}
       {/* 1. 考勤打卡与今日做工概览卡片 */}

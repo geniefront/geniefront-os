@@ -8,7 +8,7 @@
  */
 
 import { z } from 'zod';
-import { defineCommand, uuid, phoneE164, cents } from '../command.js';
+import { defineCommand, uuid, phoneE164, cents, overrideReason } from '../command.js';
 
 /**
  * ⭐ 开始做这一项。
@@ -22,6 +22,14 @@ export const TicketStartItem = defineCommand({
     ticketItemId: uuid,
     /** 前台代点时传：替谁点的。不传就是自己点的 */
     membershipId: uuid.optional(),
+    /**
+     * ⭐ 技师并发的真正闸门在这里，不在开单。
+     *
+     * 开单只是「记下要做什么」，同时服务几位客人是从**点开始**那一刻
+     * 才成立的。撞上上限返回 `STAFF_OVER_CAPACITY`，前台确认后带 reason
+     * 重试（门店把 capacity.overbook 设成 block 时不给这个出口）。
+     */
+    override: overrideReason.optional(),
   }),
   output: z.object({ ticketItemId: uuid, startedAt: z.string() }),
   permission: 'ticket.write',

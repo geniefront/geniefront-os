@@ -15,7 +15,9 @@ export const SetEmailSender=defineCommand({
 });
 export const RecheckEmailDomain=defineCommand({
  name:'email.recheckDomain',permission:'settings.manage',idempotency:'optional',reversible:false,
- ai:{description:'Schedule DNS verification for an existing domain request.',confirm:'never'},
+ // confirm:'never' 只留给只读命令。这条会去敲 DNS 与供应商接口、把域名请求
+ // 推进到下一个状态，属于有副作用的一类（registry.test.ts 那条策略断言）。
+ ai:{description:'Schedule DNS verification for an existing domain request.',confirm:'always'},
  input:z.object({requestId:z.string().uuid()}),output:z.object({queued:z.boolean()}),
 });
 export const ValidateCustomerEmails=defineCommand({

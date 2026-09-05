@@ -15,6 +15,15 @@
 export interface Interval {
   startsAt: Date;
   endsAt: Date;
+  /**
+   * ⭐ 「这是同一位客人的时段」的标识（预约 id / 工单 id）。
+   *
+   * 一位客人做三个项目、三项都派给同一位技师，占的是**一个**位置，
+   * 不是三个 —— 技师并发数问的是「同时在服务几位客人」，不是
+   * 「手上挂着几条项目记录」。不带这个键的时段各算各的（老调用点、
+   * 以及确实互不相干的散客），行为与引入本字段之前完全一致。
+   */
+  groupKey?: string | null;
 }
 
 export interface StaffCapacity {
@@ -61,6 +70,66 @@ const overlaps = (a: Interval, b: Interval) =>
   a.startsAt < b.endsAt && b.startsAt < a.endsAt;
 
 /**
+ * 与 `proposed` 重叠的**客人数**（而不是时段数）。
+ *
+ * 带同一个 `groupKey` 的时段合并成一个占位；没有 `groupKey` 的各算一个。
+ * `proposed` 自己也算在内 —— 它若与既有时段同属一位客人（加钟、同一张单
+ * 的第二个项目），总数就不增加，这正是要放行的那种情况。
+ */
+export function overlappingOccupancy(
+  existing: readonly Interval[], within: Interval,
+): number {
+  const keys = new Set<string>();
+  let ungrouped = 0;
+  for (const item of existing) {
+    if (!overlaps(item, within)) continue;
+    if (item.groupKey) keys.add(item.groupKey);
+    else ungrouped += 1;
+  }
+  return keys.size + ungrouped;
+}
+
+/** 加上 `proposed` 自己之后的占位数。它与既有时段同属一位客人时不增加。 */
+function occupancyAround(existing: readonly Interval[], proposed: Interval): number {
+  if (!proposed.groupKey) return overlappingOccupancy(existing, proposed) + 1;
+  const alreadyCounted = existing.some(
+    (item) => item.groupKey === proposed.groupKey && overlaps(item, proposed),
+  );
+  return overlappingOccupancy(existing, proposed) + (alreadyCounted ? 0 : 1);
+}
+
+/**
+ * 把同一位客人**相互重叠**的时段并成一段，供门店层扫描线使用。
+ *
+ * 一位客人同时开着两个项目（做手时脚在泡水）在店里占的仍是一把椅子。
+ * 只并重叠的那些：同一位客人上午一单、下午一单之间的空档不该被吞掉。
+ */
+function mergeByGroup(intervals: readonly Interval[]): Interval[] {
+  const groups = new Map<string, Interval[]>();
+  const out: Interval[] = [];
+  for (const item of intervals) {
+    if (!item.groupKey) { out.push(item); continue; }
+    const bucket = groups.get(item.groupKey);
+    if (bucket) bucket.push(item);
+    else groups.set(item.groupKey, [item]);
+  }
+  for (const bucket of groups.values()) {
+    const sorted = [...bucket].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+    let cur = { startsAt: sorted[0]!.startsAt, endsAt: sorted[0]!.endsAt };
+    for (const item of sorted.slice(1)) {
+      if (item.startsAt < cur.endsAt) {
+        if (item.endsAt > cur.endsAt) cur = { startsAt: cur.startsAt, endsAt: item.endsAt };
+      } else {
+        out.push(cur);
+        cur = { startsAt: item.startsAt, endsAt: item.endsAt };
+      }
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
+/**
  * 检查一个拟新增的时段。
  *
  * 返回空数组 = 放行。返回的每一项都带 `overridable`：
@@ -84,7 +153,7 @@ export function checkCapacity(args: {
     if (!staff.isBookable) {
       issues.push({ code: 'STAFF_NOT_BOOKABLE', membershipId: staff.membershipId, overridable: false });
     } else {
-      const concurrent = staff.existing.filter((e) => overlaps(e, proposed)).length + 1;
+      const concurrent = occupancyAround(staff.existing, proposed);
       if (concurrent > staff.maxConcurrent) {
         issues.push({
           code: 'STAFF_OVER_CAPACITY',
@@ -101,7 +170,7 @@ export function checkCapacity(args: {
   const limit = location.maxConcurrentPerSlot ?? location.onDutyBookableCount;
   // 上限为 0 说明今天没人在岗；那是排班问题，不该用容量报错去表达
   if (limit > 0) {
-    const peak = peakConcurrency([...location.existing, proposed], proposed);
+    const peak = peakConcurrency(mergeByGroup([...location.existing, proposed]), proposed);
     if (peak.count > limit) {
       issues.push({
         code: 'LOCATION_OVER_CAPACITY',
@@ -122,6 +191,11 @@ export function checkCapacity(args: {
  * 只看落在 `within` 区间内的时刻 —— 别处的峰值不该拦住这一单。
  * 端点用 (start:+1, end:-1) 且**先减后加**，这样首尾相接的两单
  * （10:00–11:00 与 11:00–12:00）不会被算成并发 2。
+ *
+ * ⚠️ 必须先把 `lo` 之前的事件消化掉、拿到**区间起点的水位**再开始比较。
+ * 只盯着窗口内的「开始」事件是不够的：同一位客人的多个项目被
+ * `mergeByGroup` 并成一段之后，这一段的开始时刻可能早于 `lo`，
+ * 于是窗口内一个 +1 都没有，峰值会被算成 0。
  */
 function peakConcurrency(intervals: readonly Interval[], within: Interval): { count: number; at: Date } {
   const events: Array<{ t: number; delta: number }> = [];
@@ -131,15 +205,23 @@ function peakConcurrency(intervals: readonly Interval[], within: Interval): { co
   }
   events.sort((a, b) => (a.t - b.t) || (a.delta - b.delta));
 
-  let cur = 0;
-  let best = 0;
-  let bestAt = within.startsAt;
   const lo = within.startsAt.getTime();
   const hi = within.endsAt.getTime();
 
-  for (const e of events) {
+  let cur = 0;
+  let cursor = 0;
+  // `t <= lo`：正好在 lo 结束的单已经走了（-1 排在 +1 前面），
+  // 正好在 lo 开始的单则确实占着位置
+  for (; cursor < events.length && events[cursor]!.t <= lo; cursor += 1) {
+    cur += events[cursor]!.delta;
+  }
+  let best = cur;
+  let bestAt = new Date(lo);
+
+  for (; cursor < events.length && events[cursor]!.t < hi; cursor += 1) {
+    const e = events[cursor]!;
     cur += e.delta;
-    if (e.delta === 1 && e.t >= lo && e.t < hi && cur > best) {
+    if (e.delta === 1 && cur > best) {
       best = cur;
       bestAt = new Date(e.t);
     }

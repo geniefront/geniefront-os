@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, runCommand } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { ApiError } from '@/lib/api';
+import type { Override } from '@/features/schedule/api';
 import type {
   TicketsQueryResponse,
   VoidTicketInput,
@@ -94,11 +96,44 @@ export function useSaveServiceNote() {
   });
 }
 
+/**
+ * 这个错误能不能由前台确认后放行。
+ *
+ * ⚠️ 以服务端返回的 `overridable` 为准，不要只看错误码。门店把
+ * `capacity.overbook` 设成 `block` 时服务端会把它置为 false —— 那种店
+ * 不该看到「仍要开始」这个按钮，看到了却点不动比一开始就没有更糟。
+ */
+export function isOverbookConfirmable(err: unknown): err is ApiError {
+  if (!(err instanceof ApiError)) return false;
+  if (err.code !== 'STAFF_OVER_CAPACITY') return false;
+  return err.overridable && err.details?.['overbookPolicy'] !== 'block';
+}
+
+/** 「Amy 手上已经有 2 位客人（上限 1）」—— 光一个错误码前台没法判断 */
+export function overbookDetail(err: unknown): { limit: number; wouldBe: number } | null {
+  if (!(err instanceof ApiError)) return null;
+  const limit = err.details?.['limit'];
+  const wouldBe = err.details?.['wouldBe'];
+  if (typeof limit !== 'number' || typeof wouldBe !== 'number') return null;
+  return { limit, wouldBe };
+}
+
+/**
+ * 技师并发的闸门就在这条命令上（服务端 handlers/staff.ts）。
+ *
+ * 撞上上限时返回 `STAFF_OVER_CAPACITY`：门店把 capacity.overbook 设成
+ * warn 时该错误 `overridable: true`，前台确认后带 `override` 重试即可放行；
+ * 设成 block 时 `overridable: false`，界面不得给放行入口。
+ */
 export function useStartTicketItem() {
   const { membershipId } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { ticketItemId: string; membershipId?: string }) =>
+    mutationFn: async (input: {
+      ticketItemId: string;
+      membershipId?: string;
+      override?: Override;
+    }) =>
       (await runCommand<{ ticketItemId: string; startedAt: string }>(
         'ticket.startItem', input, membershipId!,
       )).result,

@@ -56,7 +56,10 @@ import {
 } from '@/features/queue/api';
 import {
   useAddTicketItem, useFinishTicketItem, useOpenTicket, useSaveServiceNote, useStartTicketItem, useTicketsList,
+  isOverbookConfirmable, overbookDetail,
 } from '@/features/tickets/api';
+import { OVERRIDE_REASONS } from '@/features/schedule/api';
+import type { Override, OverrideReason } from '@/features/schedule/api';
 import { useCloseTicket, useOpenTickets, centsToDollars, dollarsToCents, verifyGiftCard } from '@/features/checkout/api';
 import { buildCheckoutStaffList, computeCheckoutTotals, UNRESOLVED_STAFF_KEY } from '@/features/queue/checkoutMath';
 import { useBeginCleaning, useRoomsQuery } from '@/features/rooms/api';
@@ -534,6 +537,29 @@ function QueueContent() {
       avoidAreas: Array.isArray(answers.bodyMapAvoid) ? answers.bodyMapAvoid as string[] : [],
     });
   }, [aiSummaryForm, aiSummaryQ.data?.answers]);
+
+  /*
+   * 放行原因 → 词条 key 的**显式**映射。
+   * 不写成运行期拼接：拼出来的 key 对字典瘦身脚本不可见，会被当成未引用词条
+   * 删掉，而删掉不产生任何编译错误（同 lib/errorMessage.ts 的理由）。
+   */
+  const OVERRIDE_REASON_LABELS: Record<OverrideReason, TranslationKey> = {
+    guest_requested: 'overrideGuestRequested',
+    staff_on_break: 'overrideStaffOnBreak',
+    desk_coordination: 'overrideDeskCoordination',
+    walk_in_stacking: 'overrideWalkInStacking',
+    other: 'overrideOther',
+  };
+
+  /*
+   * 「技师已满，仍要开始」的确认框。
+   *
+   * 服务端在 `ticket.startItem` 上拦技师并发，并把这个错误标成可放行；
+   * 没有这个入口的话前台只剩改派技师一条路 —— 而「客人就要 Amy，宁可等」
+   * 恰恰是门店天天要处理的情况。
+   */
+  const [overbookConfirm, setOverbookConfirm] = useState<{ message: string } | null>(null);
+  const [overbookReason, setOverbookReason] = useState<OverrideReason>('desk_coordination');
 
   // 2. Start Service Modal (Step 2 -> Step 3: Waiting -> In Service)
   const [startServiceModal, setStartServiceModal] = useState<{
@@ -1305,8 +1331,21 @@ function QueueContent() {
     }));
   };
 
-  // 2. Start Service Confirm Submit
-  const handleConfirmStartService = async () => {
+  const overbookMessageOf = (err: unknown): string => {
+    const detail = overbookDetail(err);
+    return detail
+      ? t('queue.quOverbookDetail', { p0: detail.wouldBe, p1: detail.limit })
+      : t('queue.quOverbookGeneric');
+  };
+
+  /*
+   * 2. Start Service Confirm Submit
+   *
+   * `override` 由「技师已满，仍要开始」确认框回传。整个函数可以安全重放：
+   * 开单的幂等键按 item 固定，加项的幂等键在弹窗状态里，重试都会被服务端
+   * 判为同一次意图，不会开出第二张单。
+   */
+  const handleConfirmStartService = async (override?: Override) => {
     const {
       item,
       staffId,
@@ -1401,7 +1440,22 @@ function QueueContent() {
       if (firstTicketItemId && firstStaffId) {
         // 多项目按顺序流转：入座时只启动第一项，其余保留为 waiting，
         // 完成前一项后由下一位已指派技师从技师端启动。
-        await startTicketItemMutation.mutateAsync({ ticketItemId: firstTicketItemId, membershipId: firstStaffId });
+        //
+        // ⚠️ 技师并发的闸门在这一步（不在开单）。撞上上限时服务端返回
+        // STAFF_OVER_CAPACITY，门店允许超排的话前台确认后带 reason 重试。
+        try {
+          await startTicketItemMutation.mutateAsync({
+            ticketItemId: firstTicketItemId,
+            membershipId: firstStaffId,
+            ...(override ? { override } : {}),
+          });
+        } catch (startErr) {
+          if (!override && isOverbookConfirmable(startErr)) {
+            setOverbookConfirm({ message: overbookMessageOf(startErr) });
+            return;
+          }
+          throw startErr;
+        }
       }
       if (item.queueId) {
         await update.mutateAsync({ queueId: item.queueId, status: 'seated' });
@@ -2655,7 +2709,7 @@ function QueueContent() {
                 </Button>
                 <Button
                   className={PRIMARY_ACTION_CLASS}
-                  onPress={handleConfirmStartService}
+                  onPress={() => { void handleConfirmStartService(); }}
                   isDisabled={startServicePending
                     || startServiceModal.assignments.some((assignment) => assignment.staffIds.length !== assignment.staffCount)}
                 >
@@ -4099,6 +4153,58 @@ function QueueContent() {
                 placeholder={t('queue.quRollbackNotePlaceholder')}
                 className="text-xs"
               />
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 技师并发放行确认：服务端把这个错误标成可放行时才出现 */}
+      {overbookConfirm && (
+        <Modal
+          isOpen={Boolean(overbookConfirm)}
+          onOpenChange={(open) => { if (!open) setOverbookConfirm(null); }}
+          title={
+            <div className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="w-5 h-5" />
+              <span>{t('queue.quOverbookTitle')}</span>
+            </div>
+          }
+          size="md"
+          footer={
+            <div className="flex justify-end gap-2 w-full">
+              <Button variant="secondary" onClick={() => setOverbookConfirm(null)}>
+                {t('cancel')}
+              </Button>
+              <Button
+                className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
+                disabled={startServicePending}
+                onClick={() => {
+                  setOverbookConfirm(null);
+                  void handleConfirmStartService({ reason: overbookReason });
+                }}
+              >
+                {t('queue.quOverbookForce')}
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-4 text-sm text-slate-700 py-2">
+            <p className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-medium">
+              {overbookConfirm.message}
+            </p>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                {t('overrideReasonLabel')}
+              </label>
+              <select
+                value={overbookReason}
+                onChange={(e) => setOverbookReason(e.target.value as OverrideReason)}
+                className="w-full px-3 py-2 text-sm rounded-xl border border-slate-200 bg-white"
+              >
+                {OVERRIDE_REASONS.map((reason) => (
+                  <option key={reason} value={reason}>{t(OVERRIDE_REASON_LABELS[reason])}</option>
+                ))}
+              </select>
             </div>
           </div>
         </Modal>

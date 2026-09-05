@@ -17,6 +17,7 @@ import { businessDateOf } from '@gf/scheduling';
 import { parseTs, ts, jsonb } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
 import { assertDayOpen } from '../money';
+import { assertStaffCapacity, lockServiceCapacity } from '../serviceCapacity';
 import { hashPin, verifyPin } from '../auth/pin';
 
 async function bizDate(tx: postgres.TransactionSql, locationId: string): Promise<string> {
@@ -78,6 +79,9 @@ async function assertCanActOnTicketItem(
 
 registerHandler(TicketStartItem, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketStartItem.input._type>) => {
+  // 容量判断是「读一遍 → 判断 → 写入」，锁必须加在任何相关读取之前
+  await lockServiceCapacity(tx, ctx.locationId);
+
   const [row] = await tx<{
     id: string; ticket_id: string; started_at: string | null; status: string;
     business_date: string; resource_id: string | null;
@@ -85,13 +89,37 @@ registerHandler(TicketStartItem, async ({ input, ctx, tx, audit, emit }: Handler
     select ti.id, ti.ticket_id, ti.started_at, t.status, ti.resource_id,
            t.business_date::text as business_date
     from ticket_items ti join tickets t on t.id = ti.ticket_id
-    where ti.id = ${input.ticketItemId}`;
+    where ti.id = ${input.ticketItemId} and t.location_id = ${ctx.locationId}`;
   if (!row) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket_item' } });
   if (row.status === 'closed' || row.status === 'voided' || row.status === 'refunded') {
     throw new AppError(ERROR_CODES.TICKET_ALREADY_CLOSED, { details: { status: row.status } });
   }
   await assertCanActOnTicketItem(tx, ctx, row.id, input.membershipId);
   await assertDayOpen(tx, ctx.locationId, row.business_date);
+
+  /*
+   * ⭐ 技师并发的闸门（唯一一处）。
+   *
+   * 只在**这一项还没开始**时判：重复点「开始」不该因为容量而变成报错，
+   * 那一下本来就是幂等的（下面 coalesce 保住原时刻）。
+   *
+   * 本单自己不算并发 —— 同一位客人的多个项目、双技师服务里的另一项，
+   * 占的都是同一个位置。这正是「一个人做多项目派给同一位技师」以前会
+   * 误报 STAFF_OVER_CAPACITY 的地方。
+   */
+  let overbooked = false;
+  if (!row.started_at) {
+    const assignments = await tx<{ membership_id: string }[]>`
+      select membership_id from ticket_item_staff where ticket_item_id = ${row.id}`;
+    const result = await assertStaffCapacity({
+      tx, ctx,
+      businessDate: row.business_date,
+      membershipIds: assignments.map((a) => a.membership_id),
+      ticketId: row.ticket_id,
+      override: input.override,
+    });
+    overbooked = result.overridden;
+  }
 
   if (row.resource_id) {
     const [resource] = await tx<{ id: string; status: string; capacity: number }[]>`
@@ -123,10 +151,18 @@ registerHandler(TicketStartItem, async ({ input, ctx, tx, audit, emit }: Handler
   }
 
   // 重复点「开始」不报错，保持原来的时刻 —— 技师在嘈杂环境里多点一下很常见，
-  // 而把开始时间往后推会让工时凭空缩水
+  // 而把开始时间往后推会让工时凭空缩水。
+  //
+  // 超排标记同理只在**这一次真的放行**时写：重复点不该把已有的
+  // overbooked 抹掉，也不该给一次正常的开始补上一个 reason。
   const [updated] = await tx<{ started_at: string }[]>`
     update ticket_items
-       set started_at = coalesce(started_at, now())
+       set started_at = coalesce(started_at, now()),
+           overbooked = ${overbooked} or overbooked,
+           overbook_reason = case when ${overbooked} then ${input.override?.reason ?? null}
+                                  else overbook_reason end,
+           overbook_note = case when ${overbooked} then ${input.override?.note ?? null}
+                                else overbook_note end
      where id = ${input.ticketItemId}
      returning started_at`;
 
@@ -135,7 +171,11 @@ registerHandler(TicketStartItem, async ({ input, ctx, tx, audit, emit }: Handler
 
   audit({ entityType: 'ticket', entityId: row.ticket_id,
           after: { itemId: input.ticketItemId, action: 'start',
-                   alreadyStarted: row.started_at !== null } });
+                   alreadyStarted: row.started_at !== null,
+                   // 超排是要能事后追责的：谁放的行、什么理由，审计里必须留痕
+                   overbooked,
+                   ...(overbooked ? { overrideReason: input.override?.reason ?? null,
+                                      overrideNote: input.override?.note ?? null } : {}) } });
   emit({ type: 'ticket.changed', entityId: row.ticket_id, businessDate: row.business_date });
 
   return {
@@ -156,7 +196,7 @@ registerHandler(TicketFinishItem, async ({ input, ctx, tx, audit, emit }: Handle
            t.tip_settled_at::text as tip_settled_at,
            t.business_date::text as business_date
     from ticket_items ti join tickets t on t.id = ti.ticket_id
-    where ti.id = ${input.ticketItemId}`;
+    where ti.id = ${input.ticketItemId} and t.location_id = ${ctx.locationId}`;
   if (!row) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket_item' } });
   if (row.status === 'closed' || row.status === 'voided' || row.status === 'refunded') {
     throw new AppError(ERROR_CODES.TICKET_ALREADY_CLOSED, { details: { status: row.status } });

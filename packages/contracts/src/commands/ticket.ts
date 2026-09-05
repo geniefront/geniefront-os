@@ -71,6 +71,11 @@ export const TicketOpen = defineCommand({
     subtotalCents: cents,
   }),
   permission: 'ticket.write',
+  /*
+   * ⚠️ 这里**没有** override 字段，是刻意的：开单不判技师并发。
+   * 并发的闸门在 `ticket.startItem`（同时服务几位客人是从点开始才成立的），
+   * 放行入口也在那条命令上。
+   */
   ai: { description: '给客人开一张服务单。', confirm: 'always' },
   reversible: true,
   idempotency: 'required',

@@ -59,6 +59,56 @@ describe('技师并发（软约束）', () => {
     expect(hasBlocking(issues)).toBe(true);
   });
 
+  it('⭐ 同一位客人的两个项目（同一技师、时间重叠）算一个占位', () => {
+    // 做手的同时脚在泡水 —— 一位客人，一个位置
+    const issues = checkCapacity({
+      proposed: { ...iv('2026-08-20T14:00:00Z', '2026-08-20T15:00:00Z'), groupKey: 'appt-1' },
+      staff: {
+        membershipId: 'm1', maxConcurrent: 1, isBookable: true,
+        existing: [{ ...iv('2026-08-20T14:00:00Z', '2026-08-20T14:30:00Z'), groupKey: 'appt-1' }],
+      },
+      location: noLimit,
+    });
+    expect(issues).toEqual([]);
+  });
+
+  it('换成两位客人，同样的时间就超了', () => {
+    const issues = checkCapacity({
+      proposed: { ...iv('2026-08-20T14:00:00Z', '2026-08-20T15:00:00Z'), groupKey: 'appt-2' },
+      staff: {
+        membershipId: 'm1', maxConcurrent: 1, isBookable: true,
+        existing: [{ ...iv('2026-08-20T14:00:00Z', '2026-08-20T14:30:00Z'), groupKey: 'appt-1' }],
+      },
+      location: noLimit,
+    });
+    expect(issues[0]).toMatchObject({ code: 'STAFF_OVER_CAPACITY', limit: 1, wouldBe: 2 });
+  });
+
+  it('同一位客人占一个位，另一位客人再来才是第二个', () => {
+    const existing = [
+      { ...iv('2026-08-20T14:00:00Z', '2026-08-20T15:00:00Z'), groupKey: 'appt-1' },
+      { ...iv('2026-08-20T14:00:00Z', '2026-08-20T15:00:00Z'), groupKey: 'appt-1' },
+      { ...iv('2026-08-20T14:00:00Z', '2026-08-20T15:00:00Z'), groupKey: 'appt-2' },
+    ];
+    const issues = checkCapacity({
+      proposed: { ...iv('2026-08-20T14:30:00Z', '2026-08-20T15:30:00Z'), groupKey: 'appt-3' },
+      staff: { membershipId: 'm1', maxConcurrent: 2, isBookable: true, existing },
+      location: noLimit,
+    });
+    // appt-1 + appt-2 + 自己 = 3 位客人，上限 2
+    expect(issues[0]).toMatchObject({ code: 'STAFF_OVER_CAPACITY', limit: 2, wouldBe: 3 });
+  });
+
+  it('没有 groupKey 时行为与从前一致（各算各的）', () => {
+    const issues = checkCapacity({
+      proposed: iv('2026-08-20T14:30:00Z', '2026-08-20T15:30:00Z'),
+      staff: { membershipId: 'm1', maxConcurrent: 1, isBookable: true,
+               existing: [iv('2026-08-20T14:00:00Z', '2026-08-20T15:00:00Z')] },
+      location: noLimit,
+    });
+    expect(issues[0]).toMatchObject({ code: 'STAFF_OVER_CAPACITY', wouldBe: 2 });
+  });
+
   it('未指定技师（前台稍后派单）→ 只查门店层', () => {
     const issues = checkCapacity({
       proposed: iv('2026-08-20T14:00:00Z', '2026-08-20T15:00:00Z'),
@@ -95,6 +145,36 @@ describe('门店时段总量（软约束）', () => {
       location: { maxConcurrentPerSlot: 2, onDutyBookableCount: 2, existing },
     });
     expect(issues).toEqual([]);
+  });
+
+  it('⭐ 门店层同样按客人算：一位客人的多个项目不该顶掉整店容量', () => {
+    // 两位客人在店里，其中一位做三个项目 —— 店里还是两位客人
+    const existing = [
+      { ...iv('2026-08-20T14:00:00Z', '2026-08-20T15:00:00Z'), groupKey: 'appt-1' },
+      { ...iv('2026-08-20T14:00:00Z', '2026-08-20T15:00:00Z'), groupKey: 'appt-1' },
+      { ...iv('2026-08-20T14:10:00Z', '2026-08-20T15:00:00Z'), groupKey: 'appt-1' },
+      { ...iv('2026-08-20T14:00:00Z', '2026-08-20T15:00:00Z'), groupKey: 'appt-2' },
+    ];
+    const issues = checkCapacity({
+      proposed: { ...iv('2026-08-20T14:30:00Z', '2026-08-20T15:30:00Z'), groupKey: 'appt-3' },
+      staff: null,
+      location: { maxConcurrentPerSlot: 3, onDutyBookableCount: 3, existing },
+    });
+    expect(issues).toEqual([]);
+  });
+
+  it('同一位客人上午一单下午一单，中间的空档不会被并掉', () => {
+    const existing = [
+      { ...iv('2026-08-20T09:00:00Z', '2026-08-20T10:00:00Z'), groupKey: 'appt-1' },
+      { ...iv('2026-08-20T14:00:00Z', '2026-08-20T15:00:00Z'), groupKey: 'appt-1' },
+      { ...iv('2026-08-20T14:00:00Z', '2026-08-20T15:00:00Z'), groupKey: 'appt-2' },
+    ];
+    const issues = checkCapacity({
+      proposed: { ...iv('2026-08-20T14:30:00Z', '2026-08-20T15:30:00Z'), groupKey: 'appt-3' },
+      staff: null,
+      location: { maxConcurrentPerSlot: 2, onDutyBookableCount: 2, existing },
+    });
+    expect(issues[0]).toMatchObject({ code: 'LOCATION_OVER_CAPACITY', limit: 2, wouldBe: 3 });
   });
 
   it('今天没人在岗时不用容量报错去表达（那是排班问题）', () => {

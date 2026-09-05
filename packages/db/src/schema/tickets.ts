@@ -112,6 +112,16 @@ export const ticketItems = pgTable('ticket_items', {
    */
   startedAt: timestamp('started_at', { withTimezone: true }),
   finishedAt: timestamp('finished_at', { withTimezone: true }),
+  /**
+   * ⭐ 点「开始」时压过技师并发上限、由前台带 reason 放行（sql/0108）。
+   *
+   * 与 appointment_items 上那三列同名同义：预约层记的是「这个时段排不排得下」，
+   * 这里记的是「此刻同时服务几位客人」。两层都要能事后复盘 ——
+   * 只进 audit_log 的话，「这个月压了多少单、都是什么理由」查不出来。
+   */
+  overbooked: boolean('overbooked').notNull().default(false),
+  overbookReason: text('overbook_reason'),
+  overbookNote: text('overbook_note'),
   /** 落单要素快照：加钟改了力度、加了款式也在这（02 §3.1） */
   details: jsonb('details').notNull().default(sql`'{}'::jsonb`),
 }, (t) => [

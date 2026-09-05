@@ -190,26 +190,28 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   const assignmentsFor = (item: typeof input.items[number]) => item.staffAssignments
     ?? (item.membershipId ? [{ membershipId: item.membershipId, role: 'primary' as const }] : []);
   const staffIds = [...new Set(input.items.flatMap((item) => assignmentsFor(item).map((a) => a.membershipId)))];
-  const validStaff = await tx<{ membership_id: string; max_concurrent: number; active_count: number }[]>`
-    select sp.membership_id, sp.max_concurrent_appointments as max_concurrent,
-           (select count(distinct active.ticket_item_id)::int
-              from ticket_item_staff active
-              join ticket_items ati on ati.id = active.ticket_item_id
-              join tickets at on at.id = ati.ticket_id
-             where active.membership_id = sp.membership_id
-               and ati.started_at is not null and ati.finished_at is null
-               and at.status not in ('closed','voided')) as active_count
+  /*
+   * ⚠️ 开单**不判技师并发**。
+   *
+   * 曾经这里按「已开始未完成的 ticket_item 条数」拦过一道，那道闸门有两层错：
+   *
+   *   1. 按项目计数 —— 一位客人做三个项目、都派给同一位技师时算成并发 3，
+   *      而 max_concurrent_appointments 默认是 1。预约层是明确放行这种情况的
+   *      （appointment.ts 里同一个 appointment 的项目互不冲突），两层规则
+   *      对不上，结果是预约建得进去、单开不出来。
+   *   2. 判早了 —— 前台把等位客人的单先开好、技师做完手上这位再开始，
+   *      是每天都在跑的正常流程。开单那一刻并发还没发生。
+   *
+   * 闸门挪到了 `ticket.startItem`（serviceCapacity.ts）：那才是「同时服务
+   * 两位客人」真正成立的时刻，而且那条路上带得了 override。
+   */
+  const validStaff = await tx<{ membership_id: string }[]>`
+    select sp.membership_id
     from staff_profiles sp join memberships m on m.id = sp.membership_id
     where sp.location_id = ${ctx.locationId} and sp.membership_id = any(${staffIds})
       and sp.is_bookable = true and m.status = 'active'`;
   if (validStaff.length !== staffIds.length) {
     throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff' } });
-  }
-  const atCapacity = validStaff.find((member) => member.active_count >= member.max_concurrent);
-  if (atCapacity) {
-    throw new AppError(ERROR_CODES.STAFF_OVER_CAPACITY, {
-      details: { membershipId: atCapacity.membership_id, reason: 'max_concurrent_reached' },
-    });
   }
 
   const skillRows = await tx<{ service_id: string; skill_id: string; membership_id: string | null }[]>`
@@ -347,10 +349,13 @@ registerHandler(TicketAddItem, async ({ input, ctx, tx, audit, emit }: HandlerAr
     where id = ${input.serviceId} and location_id = ${ctx.locationId} and active = true`;
   if (!svc) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { serviceId: input.serviceId } });
 
+  // 与开单同一套校验：在册、在这家店、接客。少了 memberships 那一 join
+  // 的话，已离职的技师还能被加钟加到单上（离职当天的加项最常见）。
   const [staff] = await tx<{ membership_id: string }[]>`
-    select membership_id from staff_profiles
-    where membership_id = ${input.membershipId} and location_id = ${ctx.locationId}
-      and is_bookable = true`;
+    select sp.membership_id from staff_profiles sp
+    join memberships m on m.id = sp.membership_id
+    where sp.membership_id = ${input.membershipId} and sp.location_id = ${ctx.locationId}
+      and sp.is_bookable = true and m.status = 'active'`;
   if (!staff) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff' } });
 
   if (input.resourceId) {

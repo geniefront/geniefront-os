@@ -2,6 +2,18 @@
 // 签名会让这个文件的具体键名从 `TranslationKey` 里消失，`t('拼错的键')`
 // 就不再报类型错误。五语齐全的检查交给运行时的 i18n.test.ts。
 export const tech = {
+  /**
+   * 技师自己点「开始」撞上并发上限时的提示。
+   * 放行是前台的决定（原因要记进审计），所以这里只告诉他去找谁，
+   * 不在技师端给放行按钮。
+   */
+  techOverCapacity: {
+    'zh-Hans': '你手上还有客人没做完，前台确认后才能再接一位。',
+    en: 'You still have a guest in progress — the front desk has to approve taking another.',
+    ko: '아직 진행 중인 고객이 있습니다. 추가 접객은 프런트 승인이 필요합니다.',
+    es: 'Todavía tienes un cliente en curso; recepción debe aprobar atender a otro.',
+    vi: 'Bạn vẫn còn khách đang phục vụ — lễ tân phải duyệt trước khi nhận thêm.',
+  },
   techPortal: {
     'zh-Hans': '技师工作台',
     en: 'Technician Portal',

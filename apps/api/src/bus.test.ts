@@ -234,6 +234,47 @@ describe('容量三层（01 §7.1）', () => {
     });
   });
 
+  it('⭐ 一位客人多个项目、都点名同一位技师 → 放行（占的是同一个位置）', async () => {
+    const ctx = await ctxFor(mia);
+    // Linh 的 maxConcurrent 临时压到 1，确保「按项目算」会被判超
+    await withTenant({ orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null }, (tx) => tx`
+      update staff_profiles set max_concurrent_appointments = 1 where membership_id = ${linh}`);
+    try {
+      const { result } = await create(ctx, {
+        customerId: lisa,
+        items: [
+          { serviceId: gelService, membershipId: linh, startsAt: at(6) },
+          // 刻意重叠：做手的时候脚在泡水，仍然是同一位客人
+          { serviceId: gelService, membershipId: linh, startsAt: at(6, 15) },
+        ],
+      });
+      expect(result.itemIds).toHaveLength(2);
+      expect(result.overbookedItemIds).toEqual([]);
+    } finally {
+      await withTenant({ orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null }, (tx) => tx`
+        update staff_profiles set max_concurrent_appointments = 2 where membership_id = ${linh}`);
+    }
+  });
+
+  it('⭐ partySize > 1（母女同来）时同一时刻同一技师仍然算超卖', async () => {
+    const ctx = await ctxFor(mia);
+    await withTenant({ orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null }, (tx) => tx`
+      update staff_profiles set max_concurrent_appointments = 1 where membership_id = ${linh}`);
+    try {
+      await expect(create(ctx, {
+        customerId: lisa,
+        partySize: 2,
+        items: [
+          { serviceId: gelService, membershipId: linh, startsAt: at(7) },
+          { serviceId: gelService, membershipId: linh, startsAt: at(7, 15) },
+        ],
+      })).rejects.toMatchObject({ code: 'STAFF_OVER_CAPACITY' });
+    } finally {
+      await withTenant({ orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null }, (tx) => tx`
+        update staff_profiles set max_concurrent_appointments = 2 where membership_id = ${linh}`);
+    }
+  });
+
   it('⭐ 纯前台（is_bookable=false）不能被排单，带 reason 也不行', async () => {
     const ctx = await ctxFor(mia);
     await expect(

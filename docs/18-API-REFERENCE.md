@@ -287,7 +287,7 @@ Content-Type: application/json
 | `NOT_FOUND` | 404 | 找不到 | — |
 | `IDEMPOTENCY_KEY_REUSED` | 409 | 同一个 key 换了内容 | 客户端 bug，换新 key |
 | `RESOURCE_CONFLICT` | 409 | **房间/床/椅被占（硬约束，不可覆盖）** | 让用户换时间或换房间 |
-| `STAFF_OVER_CAPACITY` | 409 | 技师并发超了（**软**） | 可带 `override.reason` 放行 |
+| `STAFF_OVER_CAPACITY` | 409 | 技师并发超了（**软**）。预约层来自 `appointment.*`，服务层只来自 `ticket.startItem` | 看**顶层** `overridable`（门店 `capacity.overbook = block` 时为 false），true 才可带 `override.reason` 放行。见 §4.4 |
 | `LOCATION_OVER_CAPACITY` | 409 | 门店时段超了（**软**） | 同上 |
 | `STAFF_LACKS_SKILL` | 409 | 这位技师不会这个项目 | 换人 |
 | `STAFF_NOT_BOOKABLE` | 409 | 这人根本不接客 | 换人。**有 reason 也没用** |
@@ -329,6 +329,30 @@ Content-Type: application/json
 **不是跳登录页** —— 老板还要看数据、导报表。
 
 `billing.*` 和 `setup.*` 的命令**永远放行**（否则他换了卡也救不回来）。
+
+---
+
+### 4.5 技师并发（`STAFF_OVER_CAPACITY`）的两个来源
+
+同一个错误码来自两层，`details` 的形状不一样，前端要分开处理：
+
+| 来源 | 命令 | `details` | 放行入口 |
+| :--- | :--- | :--- | :--- |
+| 预约层（未来的时段排不排得下） | `appointment.create` / `reschedule` / `addItem` | `itemIndex` 或 `itemId` + `issues[]` | 这些命令的 `override` 字段 |
+| 服务层（此刻同时服务几位客人） | `ticket.startItem` | `membershipId`、`limit`、`wouldBe`、`overbookPolicy` | `ticket.startItem` 的 `override` 字段 |
+
+两条纪律：
+
+1. **并发按客人算，不按项目算。** 一位客人做三个项目、三项都派给同一位技师，
+   占的是一个位置。`max_concurrent_appointments` 问的是「同时服务几位客人」。
+   `party_size > 1` 的预约（母女同来）例外 —— 那张单代表多位客人，项目各算各的。
+2. **服务层的闸门在「开始」，不在「开单」。** `ticket.open` 不判并发：
+   前台把等位客人的单先开好、技师做完手上这位再开始，是正常流程。
+
+放行会同时落两处：`audit_log`（谁放的、什么理由）和
+`ticket_items.overbooked / overbook_reason / overbook_note`（sql/0108，
+与 `appointment_items` 上那三列同名同义）。前者用来追责，后者用来做
+「这个月压了多少单」这类按列聚合的复盘。
 
 ---
 

@@ -17,7 +17,7 @@
  * 少报只是让客人换个时间，多报是让他白跑一趟。
  */
 
-import { checkCapacity, type Interval } from './capacity';
+import { checkCapacity, overlappingOccupancy, type Interval } from './capacity';
 
 export interface StaffAvailability {
   membershipId: string;
@@ -159,7 +159,10 @@ export function findOpenSlots(args: FindSlotsArgs): OpenSlot[] {
       // 必须整段落在班次内。跨过下班时间的单意味着让技师加班 ——
       // 那是前台跟技师商量的事，不该由 AI 在电话里替他答应
       if (startMin < s.shiftStartMin || endMin > s.shiftEndMin) return false;
-      return s.busy.filter((b) => overlaps(candidate, b)).length < s.maxConcurrent;
+      // ⚠️ 按**客人**数，不按时段条数：一位客人做两个项目、两项都点名
+      // 这位技师时，占的仍是一个位置。按条数算的话，客人自己的第二项
+      // 会把这位技师从可约列表里挤掉（而建单那一侧是放行的）。
+      return overlappingOccupancy(s.busy, candidate) < s.maxConcurrent;
     });
 
     // 一起来的两位客人要两个人接。凑不齐就整个时刻都不报

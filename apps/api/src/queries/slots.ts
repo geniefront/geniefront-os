@@ -114,22 +114,35 @@ export async function loadSlotContext(
   // ⚠️ 这里**不再**过滤 `membership_id is not null`：还没派技师的单
   //    照样占着店里的位置，门店层容量要算上它们。
   //    按人分组时再把 null 的那些跳过。
+  //
+  // ⚠️ 状态要按**项目**判，不能只看预约级的 a.status：一张单里取消掉其中
+  //    一项之后，那一项就不该再占着技师和门店的位置。容量判断
+  //    （handlers/appointment.ts）用的正是 ai.status，两处口径必须一致，
+  //    否则会出现「可约时间里没有、真去建单却建得进去」的分裂。
   const busyRows = await tx<{
-    membership_id: string | null; starts_at: string | Date; ends_at: string | Date;
+    group_key: string; membership_id: string | null;
+    starts_at: string | Date; ends_at: string | Date;
   }[]>`
-    select ai.membership_id, ai.starts_at, ai.ends_at
+    select case when a.party_size > 1 then ai.id::text else ai.appointment_id::text end as group_key,
+           ai.membership_id, ai.starts_at, ai.ends_at
     from appointment_items ai
     join appointments a on a.id = ai.appointment_id
     where a.location_id = ${locationId}
       and a.business_date = ${businessDate}
       and a.status <> 'cancelled'
+      and ai.status in ('booked', 'in_service')
       ${opts.excludeAppointmentId
         ? tx`and a.id <> ${opts.excludeAppointmentId}` : tx``}`;
 
-  const busyBy = new Map<string, Array<{ startsAt: Date; endsAt: Date }>>();
-  const locationBusy: Array<{ startsAt: Date; endsAt: Date }> = [];
+  // groupKey 让「同一位客人的多个项目」在容量引擎里合并成一个占位 ——
+  // 和建单那一侧同一条规则，否则客人做两项就会把自己的技师算成满员。
+  // party_size > 1 的单代表多位客人，SQL 里已退回按项目算。
+  const busyBy = new Map<string, Array<{ startsAt: Date; endsAt: Date; groupKey: string }>>();
+  const locationBusy: Array<{ startsAt: Date; endsAt: Date; groupKey: string }> = [];
   for (const b of busyRows) {
-    const iv = { startsAt: new Date(b.starts_at), endsAt: new Date(b.ends_at) };
+    const iv = {
+      startsAt: new Date(b.starts_at), endsAt: new Date(b.ends_at), groupKey: b.group_key,
+    };
     locationBusy.push(iv);
     if (!b.membership_id) continue;
     if (!busyBy.has(b.membership_id)) busyBy.set(b.membership_id, []);
