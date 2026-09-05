@@ -31,9 +31,10 @@ E2E 也验不了任何一条带链接的流程。
 | `STAGING_OTP_CODE` | 4–8 位数字 | staging 固定验证码 |
 | `STAGING_OTP_PHONES` | `+1617555*`（逗号分隔，`*` 是前缀） | 白名单，**没有默认值** |
 | `CAPTURED_MESSAGE_RETAIN_DAYS` | 默认 `7` | 测试消息保留期 |
+| `MAILSLURP_API_KEY` | `sk_...` | 可选。用于 local/staging 的 MailSlurp 测试收件箱与回调 |
 
-现状：`.env.local` 与 `.env.staging` 都已配成 capture，固定验证码 `424242`，白名单 `+1617555*`。
-`.env.production` 一个都没有，`scripts/env-guard.sh production` 会拦住任何一个漏进去的。
+现状：`.env.local` 与 `.env.staging` 都已配成 capture，固定验证码 `424242`，白名单 `+1617555*`；staging 已配置 `MAILSLURP_API_KEY`。
+`.env.production` 一个都没有，`scripts/env-guard.sh production` 会拦住任何一个漏进去的。生产带 `MAILSLURP_API_KEY` 会**拒绝启动**。
 
 **本机 Mailpit** 是 Supabase 本地栈自带的（`supabase/config.toml` 的 `[local_smtp]`）。
 本仓库的端口整体后移，所以是 **55324**，不是 Supabase 默认的 54324：
