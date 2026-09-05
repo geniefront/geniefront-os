@@ -8,12 +8,12 @@
 
 ## 交付与验收
 
-- [ ] P1：供应商适配、系统/订阅/预约邮件、账户及域名检查。
-- [ ] P2：validation 缓存、超时策略、unsubscribe 正确反馈、投递回调与抑制。
-- [ ] P3：后台发送领取、防重复、失败重试、消息状态、诊断。
-- [ ] P4：子账户与独立密钥、域名工单/DNS 教程、自有预约发件域名切换。
-- [ ] P5：店家与平台 UI、营销关闭、租户隔离/回归验证。
-- [ ] P6：测试环境迁移、生产迁移/部署、认证 SMTP、真实受控测试、最终交接。
+- [x] P1：供应商适配、系统/订阅/预约邮件、账户及域名检查。
+- [x] P2：validation 缓存、超时策略、unsubscribe 正确反馈、投递回调与抑制。
+- [x] P3：后台发送领取、防重复、失败重试、消息状态、诊断。
+- [x] P4：子账户与独立密钥、域名工单/DNS 教程、自有预约发件域名切换。
+- [x] P5：店家与平台 UI、营销关闭、租户隔离/回归验证。
+- [x] P6：测试环境迁移、生产迁移/部署、认证 SMTP、真实受控测试、最终交接。
 
 ## 设计纪律
 
@@ -164,6 +164,10 @@
 6. **生产真实 Smoke 投递测试**：从 `noreply@geniefront.com` 与 `noreply@book.geniefront.com` 成功向 `migration-check@tenant.geniefront.com` 发送受控测试邮件（TransactionID `171df149-…` 和 `171df154-…`），查询 events API 确认已受理并投递（`Sent`）。
 7. **全量回归验证**：`@gf/api` 79 个测试文件、1081 项测试全绿通过；全仓 16 个 workspace `turbo run typecheck` 全绿通过。
 
-当前唯一剩余动作：
-- **生产业务发件切换 `EMAIL_PROVIDER=elasticemail`**：
-  目前 `.env.production` 仍保持 `EMAIL_PROVIDER=resend`。由于 Elastic Email 账户限制不允许关闭追踪，业务邮件在发送时会自动采用账户默认追踪（链接改写），因发件域 `geniefront.com` / `book.geniefront.com` 的 TrackingStatus 均为 Validated 且 SSL 证书有效，改写链接可正常跳转。确认后只需将 `.env.production` 的 `EMAIL_PROVIDER` 改为 `elasticemail` 并执行生产部署即可完成最终切换。
+### 2026-09-05 / 生产正式切换与最终交付
+
+- 用户确认接受默认追踪改写行为（选项 A）。
+- 已将 `.env.production` 更新为 `EMAIL_PROVIDER=elasticemail` 及 `ELASTICEMAIL_TRACKING_LOCKED=1`。
+- 执行 `GF_CONFIRM_PRODUCTION=deploy-production pnpm deploy:production`，生产双节点 `gf-a` 与 `gf-b` 滚动部署完成（版本 `0521b4b-20260905172751`）。
+- API 生产健康检查通过（`https://api.geniefront.com/health` HTTP 200，延迟 0.3ms）。
+- 生产 Webhook 端点活跃，Supabase Auth 认证 SMTP 活跃，Elastic Email 第一期迁移全部完成并上线。
