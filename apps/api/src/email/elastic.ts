@@ -2,6 +2,8 @@
 const ACCOUNT_LIMIT_DETAILS = [
   // 账户层面的已知限制。正文只用于识别这一小组固定情况，识别后立即丢弃。
   { code: 'tracking_locked' as const, match: /cannot change the tracking options/i },
+  // 子账户不存在时供应商返回 400 而不是 404（2026-09-05 实测），必须据此判断是否需要创建。
+  { code: 'subaccount_missing' as const, match: /subaccount not found/i },
 ];
 export type ElasticErrorDetail = (typeof ACCOUNT_LIMIT_DETAILS)[number]['code'];
 export class ElasticError extends Error {

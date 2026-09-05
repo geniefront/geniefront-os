@@ -31,7 +31,7 @@ export async function provisionEmailAccount(tenant:TenantContext):Promise<void> 
     let account:{PublicAccountID:string};
     try{account=await elasticRequest('GET',`/subaccounts/${encodeURIComponent(email)}`);}
     catch(e){
-      if(!(e instanceof ElasticError) || e.status!==404) throw e;
+      if(!(e instanceof ElasticError) || (e.status!==404 && e.detail!=='subaccount_missing')) throw e;
       account=await elasticRequest('POST','/subaccounts',{
         Email:email,Password:randomBytes(36).toString('base64url'),SendActivation:false,
         // No credits allocated: provision identity now, marketing activation is Phase 2.

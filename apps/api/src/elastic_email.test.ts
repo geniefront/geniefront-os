@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {withTenant,closeDb} from '@gf/db';
 import {buildServer} from './server';
 import {interpretValidation} from './email/validation';
-import {elasticSendEmail,ElasticError,elasticDomainReady,elasticTrackingLocked,resetElasticTrackingProbe} from './email/elastic';
+import {elasticRequest,elasticSendEmail,ElasticError,elasticDomainReady,elasticTrackingLocked,resetElasticTrackingProbe} from './email/elastic';
 import {normalizeEmailDomain} from './email/domains';
 import {eventState,reconcileEmail} from './email/events';
 import {elasticWebhookPathToken} from './email/routes';
@@ -153,5 +153,13 @@ describe('Elastic Email Phase 1',()=>{
   expect((after as {marketing_email_opt_in:boolean}).marketing_email_opt_in).toBe(false);
   const [untouched]=await withTenant(other,tx=>tx`select marketing_email_opt_in from customers where id=${theirs!.id}`);
   expect((untouched as {marketing_email_opt_in:boolean}).marketing_email_opt_in).toBe(true);
+ });
+ it('treats the 400 used for a missing subaccount as absent, not as a hard failure',async()=>{
+  // 供应商对不存在的子账户返回 400 而不是 404（2026-09-05 生产实测）。
+  vi.stubEnv('ELASTICEMAIL_API_KEY','test-key');
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response('{"Error":"Subaccount not found"}',{status:400})));
+  const error=await elasticRequest('GET','/subaccounts/shop@tenant.geniefront.com').catch((e:unknown)=>e);
+  expect(error).toBeInstanceOf(ElasticError);
+  expect((error as ElasticError).detail).toBe('subaccount_missing');
  });
 });
