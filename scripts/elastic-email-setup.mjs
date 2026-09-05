@@ -34,8 +34,9 @@ if(mode==='smtp'){
  if(!env.ELASTICEMAIL_SMTP_PASSWORD){
   const user=`auth-${env.GF_ENV||'production'}-${randomBytes(4).toString('hex')}@geniefront.com`;
   const c=await request('/security/smtp','POST',{Name:user});
-  if(!c.Password)throw new Error('Missing SMTP credential');
-  save({ELASTICEMAIL_SMTP_USERNAME:c.Name||user,ELASTICEMAIL_SMTP_PASSWORD:c.Password});
+  const token=c.Token||c.Password;
+  if(!token)throw new Error('Missing SMTP credential');
+  save({ELASTICEMAIL_SMTP_USERNAME:c.Name||user,ELASTICEMAIL_SMTP_PASSWORD:token});
  }
  console.log('SMTP credential is stored in the selected environment file.');
 }

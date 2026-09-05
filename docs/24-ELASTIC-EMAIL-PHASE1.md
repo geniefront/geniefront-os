@@ -152,3 +152,18 @@
 
 修复后重新部署 staging 与生产（`d22d800-20260905170154`），退避到期后生产 5 个门店的子账户全部 `ready`，
 供应商账户 ID 与加密后的独立密钥均已落库 —— 子账户开通与密钥加密保存在生产实际跑通。
+
+### 2026-09-05 / 遗留项补齐与投递验收
+
+已完成补齐：
+1. **确认前序受控邮件投递**：查询 Elastic Email events API，确认此前 TransactionID `171df11e-2778-01b4-e01e-86ef283d9706`（MsgID `YLK7F9ozUMTzk6HlaI3zuQ2`）投递事件为 `Sent`。
+2. **生产 Webhook 真实注册**：执行 `node scripts/elastic-email-setup.mjs .env.production webhook`，在 Elastic Email 成功注册 `gf-production-delivery`（ID `aabf3d2c-0574-4a3d-b588-1a7ebf8842fd`），回调地址 `https://api.geniefront.com/v1/webhooks/elasticemail/<token>`；实测生产端点鉴权通过（有效 token 返回 200，无效 token 返回 401）。
+3. **修复 SMTP 凭据解析 Bug**：发现 `scripts/elastic-email-setup.mjs` 在创建 SMTP 凭据时检查 `c.Password`，但 Elastic Email v4 `/security/smtp` 返回字段为 `Token`（类型为 API Key）。已修复为 `c.Token || c.Password`。
+4. **生成生产 SMTP 凭据**：成功为生产环境签发 SMTP 凭据 `auth-production-7b30c86d@geniefront.com`，Token 安全加密落盘至 `.env.production`。
+5. **切换 Supabase Auth SMTP**：执行 `node scripts/elastic-email-setup.mjs .env.production auth`，成功将 Supabase 认证邮件 SMTP 切换至 `smtp.elasticemail.com:587`（Admin Email: `noreply@geniefront.com`），原配置已安全备份至 `.env.production.auth-email-backup`。
+6. **生产真实 Smoke 投递测试**：从 `noreply@geniefront.com` 与 `noreply@book.geniefront.com` 成功向 `migration-check@tenant.geniefront.com` 发送受控测试邮件（TransactionID `171df149-…` 和 `171df154-…`），查询 events API 确认已受理并投递（`Sent`）。
+7. **全量回归验证**：`@gf/api` 79 个测试文件、1081 项测试全绿通过；全仓 16 个 workspace `turbo run typecheck` 全绿通过。
+
+当前唯一剩余动作：
+- **生产业务发件切换 `EMAIL_PROVIDER=elasticemail`**：
+  目前 `.env.production` 仍保持 `EMAIL_PROVIDER=resend`。由于 Elastic Email 账户限制不允许关闭追踪，业务邮件在发送时会自动采用账户默认追踪（链接改写），因发件域 `geniefront.com` / `book.geniefront.com` 的 TrackingStatus 均为 Validated 且 SSL 证书有效，改写链接可正常跳转。确认后只需将 `.env.production` 的 `EMAIL_PROVIDER` 改为 `elasticemail` 并执行生产部署即可完成最终切换。
