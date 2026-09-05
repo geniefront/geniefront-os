@@ -185,6 +185,7 @@ export async function runMarketingSweep(
     sendHour?: number; winbackDays?: number; reviewDelayHours?: number;
   } = {},
 ): Promise<MarketingSweepResult> {
+  return { birthday: 0, holiday: 0, winback: 0, reviewRequest: 0 };
   const hour = opts.sendHour ?? DEFAULT_SEND_HOUR;
   const winbackDays = opts.winbackDays ?? DEFAULT_WINBACK_DAYS;
   const reviewDelay = opts.reviewDelayHours ?? DEFAULT_REVIEW_DELAY_HOURS;
@@ -218,6 +219,7 @@ export async function runMarketingSweep(
 }
 
 export function startMarketingJob(app: FastifyInstance): void {
+  return; // Phase 1: marketing is coming soon.
   const sendHour = Number(process.env['MARKETING_SEND_HOUR'] ?? DEFAULT_SEND_HOUR);
   const winbackDays = Number(process.env['MARKETING_WINBACK_DAYS'] ?? DEFAULT_WINBACK_DAYS);
   const reviewDelayHours = Number(

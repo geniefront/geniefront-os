@@ -25,7 +25,7 @@
  * 「把某位顾客的营销邮件开关关掉」—— 关掉的方向不构成风险。
  */
 
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { sql } from '@gf/db';
 import { checkRateLimits } from '../public/rateLimit';
 import { verifyUnsubscribeToken } from './unsubscribe';
@@ -33,22 +33,14 @@ import { verifyUnsubscribeToken } from './unsubscribe';
 async function unsubscribe(token: unknown): Promise<void> {
   const payload = verifyUnsubscribeToken(token);
   if (!payload) return;
-  try {
-    await sql`select gf_email_unsubscribe(
-      ${payload.customerId}::uuid, ${payload.orgId}::uuid)`;
-  } catch {
-    /*
-     * ⚠️ 吞掉。退订失败时返回 5xx 会让收件方（Gmail）把这次点击记成失败，
-     * 并在其界面上提示「退订未成功」—— 而收件人对此无能为力。
-     * 日志由 `sql` 层自身记录。
-     */
-  }
+  await sql`select gf_email_unsubscribe(
+    ${payload.customerId}::uuid, ${payload.orgId}::uuid)`;
 }
 
 export function registerEmailUnsubscribeRoutes(app: FastifyInstance): void {
   const peek = async (
-    req: FastifyRequest<{ Querystring: { t?: string } }>,
-  ): Promise<{ ok: true }> => {
+    req: FastifyRequest<{ Querystring: { t?: string } }>, reply: FastifyReply,
+  ) => {
     const verdict = await checkRateLimits(
       [{ scope: 'email-unsub-ip', id: req.ip, limit: 60, windowSec: 3600 }],
       req.log,
@@ -59,15 +51,19 @@ export function registerEmailUnsubscribeRoutes(app: FastifyInstance): void {
   };
 
   const confirm = async (
-    req: FastifyRequest<{ Querystring: { t?: string } }>,
-  ): Promise<{ ok: true }> => {
+    req: FastifyRequest<{ Querystring: { t?: string } }>, reply: FastifyReply,
+  ) => {
     const verdict = await checkRateLimits(
       [{ scope: 'email-unsub-ip', id: req.ip, limit: 60, windowSec: 3600 }],
       req.log,
     );
-    // 超频也回 ok：这条路由对外只有一种回答
-    if (verdict.ok) {
-      await unsubscribe(req.query?.t);
+    if (!verdict.ok) {
+      return reply.code(429).header('Retry-After','60').send({ ok: false });
+    }
+    // Invalid tokens remain opaque; infrastructure failures must be retryable, never success.
+    try { await unsubscribe(req.query?.t); } catch {
+      req.log.warn('unsubscribe persistence failed');
+      return reply.code(503).header('Retry-After','60').send({ ok: false });
     }
     return { ok: true };
   };

@@ -174,6 +174,7 @@ export function registerPlatformRoutes(app: FastifyInstance): void {
     const locationId = parseOrThrow(uuid, req.params.locationId);
     const body = parseOrThrow(
       PlatformSetMarketingEmailInput.omit({ locationId: true }), req.body ?? {});
+    if (body.action !== 'disable') throw new AppError(ERROR_CODES.VALIDATION_FAILED, {details:{reason:'marketing_coming_soon'}});
     const panel = await read(() => platformMessagingPanel(op.userId, locationId)) as
       { orgId?: string; slug?: string } | null;
     if (!panel?.orgId || !panel.slug) {

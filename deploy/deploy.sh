@@ -76,7 +76,9 @@ G=$'\033[32m'; R=$'\033[31m'; D=$'\033[2m'; N=$'\033[0m'
 log() { echo "${D}▸${N} $*"; }
 
 # Runtime containers never receive migration credentials, service-role keys, or VPS credentials.
-DENY='^(SUPABASE_SERVICE_ROLE_KEY|MIGRATION_DATABASE_URL|APP_DB_PASSWORD|TEST_.*|DATABASE_TEST_TARGET|GF_QA_.*|CLOUDFLARE_.*|VPS_.*|DEEPSEEK_.*)='
+# 供应商与平台的管理凭据（Supabase 管理 token、Auth SMTP 账号密码）只在本机运维脚本里使用，
+# 应用运行时用不到，也不得进入容器环境。
+DENY='^(SUPABASE_SERVICE_ROLE_KEY|SUPABASE_ACCESS_TOKEN|MIGRATION_DATABASE_URL|APP_DB_PASSWORD|ELASTICEMAIL_SMTP_.*|TEST_.*|DATABASE_TEST_TARGET|GF_QA_.*|CLOUDFLARE_.*|VPS_.*|DEEPSEEK_.*)='
 RUNTIME_ENV="$(mktemp)"
 trap 'rm -f "$RUNTIME_ENV"' EXIT
 grep -E '^[A-Z][A-Z0-9_]*=' "$ENV_FILE" | grep -vE "$DENY" > "$RUNTIME_ENV"

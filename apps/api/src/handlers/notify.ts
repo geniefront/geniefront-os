@@ -19,7 +19,7 @@ import {
   SaveDiscountReason, ApplyDiscount, VoidDiscount,
   SaveNotificationTemplate, ToggleNotificationRule,
   SaveMarketingHoliday, DeleteMarketingHoliday,
-  templateVariables, EVENT_VARIABLES,
+  templateVariables, EVENT_VARIABLES, MARKETING_EVENTS,
   AppError, ERROR_CODES,
 } from '@gf/contracts';
 import { jsonb } from '@gf/db';
@@ -269,6 +269,9 @@ registerHandler(SaveNotificationTemplate, async ({ input, ctx, tx, audit }: Hand
 
 registerHandler(ToggleNotificationRule, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof ToggleNotificationRule.input._type>) => {
+  if (input.enabled && (MARKETING_EVENTS as readonly string[]).includes(input.eventKey)) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'marketing_coming_soon' } });
+  }
   const [before] = await tx<{ enabled: boolean; channels: string[] }[]>`
     select enabled, channels from notification_rules
     where location_id = ${ctx.locationId} and event_key = ${input.eventKey}`;

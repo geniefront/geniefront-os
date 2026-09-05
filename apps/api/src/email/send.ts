@@ -29,6 +29,8 @@
  * 那才是这套划分真正要保护的东西。
  */
 
+import { elasticSendEmail, ElasticError } from './elastic';
+import { MARKETING_EVENTS } from '@gf/contracts';
 import { randomUUID } from 'node:crypto';
 import { isCaptureMode, mailpitEndpoint } from '../comms/mode';
 import { sesSendEmail, SesError } from '@gf/aws';
@@ -41,6 +43,8 @@ export interface SendResult {
   error?: string;
   /** 该封邮件是否**重试无意义**（地址或发件身份本身不合法）。 */
   permanent?: boolean;
+  ambiguous?: boolean;
+  transactionId?: string;
   /** capture 模式：**未实际投递**，仅保留在发件箱中供测试查看。 */
   captured?: boolean;
 }
@@ -60,6 +64,7 @@ export interface SendResult {
 const CUSTOMER_FACING_KINDS = new Set([
   'appointment_confirm',
   'appointment_changed',
+  'appointment_cancelled',
   'appointment_reminder',
   'receipt',
   'form_invite',
@@ -129,6 +134,8 @@ async function captureEmail(msg: OutgoingEmail): Promise<SendResult> {
 }
 
 export interface OutgoingEmail {
+  replyTo?: string | null;
+  outboxId?: string;
   to: string;
   subject: string;
   html: string;
@@ -165,6 +172,9 @@ export async function sendEmail(msg: OutgoingEmail): Promise<SendResult> {
    * 拦截点设在此处而非 `flush`：入队、渲染、去重、重试计数等步骤照常被覆盖，
    * 仅「实际发出」这一步被替换（与 `sms/send.ts` 遵循同一约束）。
    */
+  if (msg.unsubscribeUrl || (MARKETING_EVENTS as readonly string[]).includes(msg.kind ?? '')) {
+    return { ok: false, permanent: true, error: 'marketing_coming_soon' };
+  }
   if (isCaptureMode() || process.env['NODE_ENV'] === 'test') return captureEmail(msg);
 
   const from = fromAddressFor(msg);
@@ -182,6 +192,11 @@ export async function sendEmail(msg: OutgoingEmail): Promise<SendResult> {
     : undefined;
 
   try {
+    if (emailProvider() === 'elasticemail') {
+      const res = await elasticSendEmail({ ...msg, from });
+      if (!res.MessageID) return { ok: false, ambiguous: true, error: 'elastic_missing_message_id' };
+      return { ok: true, providerId: res.MessageID, transactionId: res.TransactionID };
+    }
     if (emailProvider() === 'ses') {
       const res = await sesSendEmail({
         from, to: msg.to, subject: msg.subject, html: msg.html, text: msg.text,
@@ -199,15 +214,15 @@ export async function sendEmail(msg: OutgoingEmail): Promise<SendResult> {
     });
     return { ok: true, providerId: res.id };
   } catch (e) {
-    if (e instanceof SesError || e instanceof ResendError) {
+    if (e instanceof SesError || e instanceof ResendError || e instanceof ElasticError) {
       /*
        * ⭐ 4xx（地址非法、发件域名未验证、SES 沙箱下收件人未验证）
        * **重试多少次结果都相同**。不标记为永久失败的话，一个错误地址会在每次
        * 补发扫描中重试一遍，长期占据队首。
        */
-      return { ok: false, error: e.message.slice(0, 200), permanent: e.permanent };
+      return { ok: false, error: e.message.slice(0, 200), permanent: e.permanent, ambiguous: e instanceof ElasticError && (e.status >= 500 || e.status === 408) };
     }
     // 网络层或凭据缺失 —— 下次补发扫描时重试
-    return { ok: false, error: e instanceof Error ? e.message : 'network' };
+    return { ok: false, error: 'email_network_or_timeout', ambiguous: true };
   }
 }

@@ -1,3 +1,4 @@
+import { email } from './email';
 /**
  * 多语言文案表的合并入口。
  *
@@ -31,6 +32,7 @@ export const LANGUAGES = UI_LANGUAGES;
 
 const dict = {
   ...common,
+  ...email,
   ...schedule,
   ...queue,
   ...rotation,

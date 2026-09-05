@@ -57,7 +57,8 @@ import {
 import {
   useAddTicketItem, useFinishTicketItem, useOpenTicket, useSaveServiceNote, useStartTicketItem, useTicketsList,
 } from '@/features/tickets/api';
-import { useCloseTicket, centsToDollars, dollarsToCents, verifyGiftCard } from '@/features/checkout/api';
+import { useCloseTicket, useOpenTickets, centsToDollars, dollarsToCents, verifyGiftCard } from '@/features/checkout/api';
+import { buildCheckoutStaffList, computeCheckoutTotals, UNRESOLVED_STAFF_KEY } from '@/features/queue/checkoutMath';
 import { useBeginCleaning, useRoomsQuery } from '@/features/rooms/api';
 import { completeQueueService, resolveQueueRoomId } from '@/features/queue/completeService';
 import { inlineGiftCardFields } from '@/features/queue/inlinePayment';
@@ -86,6 +87,7 @@ import { useShareForm, type FormShareResult } from '@/features/forms/api';
 import { generateAiHealthSummary } from '@/features/forms/mockData';
 import { inferHealthFormCategory } from '@/features/forms/formExperience';
 import {
+  useAddAppointmentItem,
   useAppointmentFormsQuery,
   useHealthFormSubmissionQuery,
   useSaveAppointmentServiceBrief,
@@ -94,49 +96,66 @@ import { useLocationTechPresence } from '@/features/tech/lib/useLocationTechPres
 import { rankStaffCandidates } from '@/features/queue/assignment';
 import { useBusinessDay } from '@/lib/time';
 
+/**
+ * 选项标签的统一形态。
+ *
+ * `id` 是唯一被持久化与比对的值，界面文案一律走词典键 —— 二者分离后，
+ * 增加界面语言不会影响既有记录，也不会让判断逻辑因翻译而失效。
+ */
+export interface TagOption {
+  id: string;
+  labelKey: TranslationKey;
+}
+
 /** 回退反向流转原因映射 */
-const ROLLBACK_REASONS = [
-  { id: 'entry_error', label: 'Front desk error / Wrong item' },
-  { id: 'customer_extend', label: 'Guest added service / Extended time' },
-  { id: 'change_staff', label: 'Guest requested change of staff/room' },
-  { id: 'staff_emergency', label: 'Staff emergency / Reassignment' },
-  { id: 'other', label: 'Other reason' },
-] as const;
+const ROLLBACK_REASONS: TagOption[] = [
+  { id: 'entry_error', labelKey: 'queue.quRollbackReasonEntryError' },
+  { id: 'customer_extend', labelKey: 'queue.quRollbackReasonExtend' },
+  { id: 'change_staff', labelKey: 'queue.quRollbackReasonChangeStaff' },
+  { id: 'staff_emergency', labelKey: 'queue.quRollbackReasonEmergency' },
+  { id: 'other', labelKey: 'queue.quRollbackReasonOther' },
+];
+
+/** 「无特殊禁忌」的哨兵值，选中它即互斥地清空其余禁忌项。 */
+export const CONTRAINDICATION_NONE = 'No specific contraindications';
 
 /** 身体禁忌排查标签 */
-export const CONTRAINDICATION_TAGS = [
-  'No specific contraindications',
-  'Essential oil allergy',
-  'Hypertension / Heart condition',
-  'Pregnancy / Nursing',
-  'Skin irritation / Wounds',
-  'Spinal / Neck injury history',
-  'Recent cosmetic surgery',
+export const CONTRAINDICATION_TAGS: TagOption[] = [
+  { id: CONTRAINDICATION_NONE, labelKey: 'queue.quContraNone' },
+  { id: 'Essential oil allergy', labelKey: 'queue.quContraOilAllergy' },
+  { id: 'Hypertension / Heart condition', labelKey: 'queue.quContraHypertension' },
+  { id: 'Pregnancy / Nursing', labelKey: 'queue.quContraPregnancy' },
+  { id: 'Skin irritation / Wounds', labelKey: 'queue.quContraSkin' },
+  { id: 'Spinal / Neck injury history', labelKey: 'queue.quContraSpine' },
+  { id: 'Recent cosmetic surgery', labelKey: 'queue.quContraSurgery' },
 ];
 
 /** 重点加压护理部位 */
-export const FOCUS_AREA_TAGS = [
-  'Head / Temples',
-  'Back of Neck',
-  'Left Shoulder',
-  'Right Shoulder',
-  'Left Lower Back',
-  'Right Lower Back',
-  'Upper & Mid Back',
-  'Left Foot & Arch',
-  'Right Foot & Arch',
+export const FOCUS_AREA_TAGS: TagOption[] = [
+  { id: 'Head / Temples', labelKey: 'queue.quFocusHead' },
+  { id: 'Back of Neck', labelKey: 'queue.quFocusNeck' },
+  { id: 'Left Shoulder', labelKey: 'queue.quFocusShoulderL' },
+  { id: 'Right Shoulder', labelKey: 'queue.quFocusShoulderR' },
+  { id: 'Left Lower Back', labelKey: 'queue.quFocusLowerBackL' },
+  { id: 'Right Lower Back', labelKey: 'queue.quFocusLowerBackR' },
+  { id: 'Upper & Mid Back', labelKey: 'queue.quFocusUpperBack' },
+  { id: 'Left Foot & Arch', labelKey: 'queue.quFocusFootL' },
+  { id: 'Right Foot & Arch', labelKey: 'queue.quFocusFootR' },
 ];
 
+/** 「无需避开部位」的哨兵值，语义与 CONTRAINDICATION_NONE 一致。 */
+export const AVOID_AREA_NONE = 'No areas to avoid';
+
 /** 避免触碰敏感部位 */
-export const AVOID_AREA_TAGS = [
-  'No areas to avoid',
-  'Face',
-  'Throat / Anterior Neck',
-  'Spine Midline',
-  'Varicose Veins',
-  'Surgical Scars',
-  'Left Knee',
-  'Right Knee',
+export const AVOID_AREA_TAGS: TagOption[] = [
+  { id: AVOID_AREA_NONE, labelKey: 'queue.quAvoidNone' },
+  { id: 'Face', labelKey: 'queue.quAvoidFace' },
+  { id: 'Throat / Anterior Neck', labelKey: 'queue.quAvoidThroat' },
+  { id: 'Spine Midline', labelKey: 'queue.quAvoidSpine' },
+  { id: 'Varicose Veins', labelKey: 'queue.quAvoidVaricose' },
+  { id: 'Surgical Scars', labelKey: 'queue.quAvoidScars' },
+  { id: 'Left Knee', labelKey: 'queue.quAvoidKneeL' },
+  { id: 'Right Knee', labelKey: 'queue.quAvoidKneeR' },
 ];
 
 /** 芳香精油选项——label/desc 只存词典键，id 是唯一持久化/比对的值 */
@@ -149,14 +168,56 @@ export const AROMA_OIL_OPTIONS: Array<{ id: string; labelKey: TranslationKey; de
   { id: 'ginger', labelKey: 'queue.quOilGinger', descKey: 'queue.quOilGingerDesc' },
 ];
 
-/** 按摩力度选项 */
-export const STRENGTH_OPTIONS = [
-  { id: 'none', label: 'No Preference' },
-  { id: 'light', label: 'Gentle & Relaxing' },
-  { id: 'medium', label: 'Medium Pressure' },
-  { id: 'deep', label: 'Deep Tissue' },
-  { id: 'trigger', label: 'Trigger Point' },
+/** 默认精油偏好。必须是 AROMA_OIL_OPTIONS 中真实存在的 id，否则打开弹窗时无一项高亮。 */
+export const AROMA_OIL_DEFAULT = 'none_pref';
+
+/** 按摩力度选项。与精油一致：存 id，渲染走词典。 */
+export const STRENGTH_OPTIONS: TagOption[] = [
+  { id: 'none', labelKey: 'queue.quStrengthNone' },
+  { id: 'light', labelKey: 'queue.quStrengthLight' },
+  { id: 'medium', labelKey: 'queue.quStrengthMedium' },
+  { id: 'deep', labelKey: 'queue.quStrengthDeep' },
+  { id: 'trigger', labelKey: 'queue.quStrengthTrigger' },
 ];
+
+/** 默认力度。 */
+export const STRENGTH_DEFAULT = 'medium';
+
+/**
+ * 该单据能否回退到目标阶段。
+ *
+ * 服务端的 `queue.rollbackStage` 只接受回到 booked / checked_in / waiting / in_service，
+ * 且必须有预约号。此前这条规则只写在提交处，前台得把原因和备注都填完才被告知
+ * 「不支持」—— 现在拖拽阶段就拦住，弹窗根本不会打开。
+ */
+export type RollbackTargetStage = Extract<KanbanStage, 'booked' | 'waiting' | 'in_service'>;
+
+export function canRollbackTo(item: KanbanItem, toStage: KanbanStage): toStage is RollbackTargetStage {
+  if (!item.appointmentId) return false;
+  return toStage !== 'ready_checkout' && toStage !== 'completed';
+}
+
+/** 该单据是否还有未签署的健康问卷。看板与两个弹窗判断口径统一在这里。 */
+export function hasPendingForms(item: KanbanItem): boolean {
+  return Boolean((item.pendingForms && item.pendingForms > 0)
+    || (item.rawQueue?.pendingForms && item.rawQueue.pendingForms > 0));
+}
+
+/** 弹窗主行动按钮的统一样式。 */
+const PRIMARY_ACTION_CLASS = 'gap-1 bg-teal-700 font-semibold text-white hover:bg-teal-800';
+/** 不可逆/破坏性动作的主按钮样式。 */
+const DANGER_ACTION_CLASS = 'gap-1 bg-rose-700 font-semibold text-white hover:bg-rose-800';
+
+/** 完工弹窗速选加项的展示条数，超出部分收进「更多」。 */
+const FINISH_QUICK_PICK_LIMIT = 4;
+
+/** 收款方式的词典键。结算条上的徽章此前直接 toUpperCase 内部枚举值，中文界面下是英文。 */
+const PAYMENT_METHOD_LABEL_KEYS: Record<'card' | 'cash' | 'gift_card' | 'apple_pay', TranslationKey> = {
+  card: 'queue.quCoPayCard',
+  cash: 'queue.quCoPayCash',
+  gift_card: 'queue.quCoPayGiftCard',
+  apple_pay: 'queue.quCoPayApplePay',
+};
 
 export type KanbanStage = 'booked' | 'waiting' | 'in_service' | 'ready_checkout' | 'completed';
 
@@ -273,8 +334,8 @@ const COLUMNS: ColumnConfig[] = [
     id: 'ready_checkout',
     titleKey: 'queue.quColReadyCheckoutTitle',
     subtitleKey: 'queue.quColReadyCheckoutSubtitle',
-    color: 'border-purple-300 text-purple-700 bg-purple-50/50',
-    headerBg: 'bg-purple-50 text-purple-800 border-purple-200',
+    color: 'border-violet-300 text-violet-700 bg-violet-50/50',
+    headerBg: 'bg-violet-50 text-violet-800 border-violet-200',
     badgeVariant: 'default',
     icon: CreditCard,
     emptyKey: 'queue.quEmptyReadyCheckout',
@@ -434,19 +495,34 @@ function QueueContent() {
     isOpen: false,
     item: null,
     qrScanned: false,
-    contraindications: ['No specific contraindications'],
-    massageStrength: 'Medium Pressure',
-    aromaOil: 'No Preference',
+    contraindications: [CONTRAINDICATION_NONE],
+    massageStrength: STRENGTH_DEFAULT,
+    aromaOil: AROMA_OIL_DEFAULT,
     focusAreas: [],
-    avoidAreas: ['No areas to avoid'],
+    avoidAreas: [AVOID_AREA_NONE],
     selectedAddOnId: '',
     addOnStaffId: '',
     notes: '',
   });
   const checkInFormsQ = useAppointmentFormsQuery(checkInModal.item?.appointmentId ?? null);
+  /*
+   * 签到时录入的接待要点写入预约的「服务前须知」——技师端与入座弹窗读的都是这一份，
+   * 因此不需要新增存储，前台填的东西也能真正传到做服务的人手里。
+   */
+  const saveCheckInBriefMutation = useSaveAppointmentServiceBrief(checkInModal.item?.appointmentId ?? null);
+  const addAppointmentItemMutation = useAddAppointmentItem();
   const completedCheckInForms = checkInFormsQ.data?.forms.filter((form) => form.isLatest) ?? [];
   const [aiSummarySubmissionId, setAiSummarySubmissionId] = useState<string | null>(null);
   const [checkInError, setCheckInError] = useState<string | null>(null);
+  const [showAllFinishAddOns, setShowAllFinishAddOns] = useState(false);
+  /*
+   * 门店结账配置。看板收银此前完全没有读取它，税率、附加费档位、小费档位
+   * 全是写死的常量 —— 同一家店从看板结账和从收银台结账会算出两笔不同的账。
+   */
+  const openTicketsQ = useOpenTickets();
+  const checkoutSettings = openTicketsQ.data?.checkoutSettings;
+  const allowTipSplitOverride = checkoutSettings?.allowTipSplitOverride !== false;
+
   const aiSummaryForm = completedCheckInForms.find((form) => form.submissionId === aiSummarySubmissionId) ?? null;
   const aiSummaryQ = useHealthFormSubmissionQuery(aiSummarySubmissionId, Boolean(aiSummarySubmissionId));
   const checkInAiSummary = useMemo(() => {
@@ -494,12 +570,28 @@ function QueueContent() {
     serviceBrief: '',
   });
   const saveServiceBriefMutation = useSaveAppointmentServiceBrief(startServiceModal.item?.appointmentId ?? null);
+  /*
+   * 各弹窗的「处理中」标志。
+   * 确认按钮此前没有任何忙碌态，双击就是两次不可逆的命令 ——
+   * 收银那一下尤其致命，两次 ticket.pay 会带着不同的幂等键各扣一次款。
+   */
+  const checkInPending = join.isPending
+    || saveCheckInBriefMutation.isPending
+    || addAppointmentItemMutation.isPending;
+  const startServicePending = openTicketMutation.isPending
+    || startTicketItemMutation.isPending
+    || saveServiceBriefMutation.isPending
+    || addTicketItemMutation.isPending
+    || update.isPending;
+  const completeServicePending = finishTicketItemMutation.isPending
+    || saveServiceNoteMutation.isPending
+    || beginCleaningMutation.isPending
+    || addTicketItemMutation.isPending;
 
   // 3. Complete Service Modal (Step 3 -> Step 4: In Service -> Ready Checkout)
   const [completeServiceModal, setCompleteServiceModal] = useState<{
     isOpen: boolean;
     item: KanbanItem | null;
-    actualDurationMin: number;
     extraAddOnServiceId: string;
     extraAddOnStaffId: string;
     addedAddOns: AddOnItem[];
@@ -509,7 +601,6 @@ function QueueContent() {
   }>({
     isOpen: false,
     item: null,
-    actualDurationMin: 60,
     extraAddOnServiceId: '',
     extraAddOnStaffId: '',
     addedAddOns: [],
@@ -573,7 +664,6 @@ function QueueContent() {
     fromStage: KanbanStage | null;
     toStage: KanbanStage | null;
     reason: string;
-    releaseResources: boolean;
     notes: string;
   }>({
     isOpen: false,
@@ -581,7 +671,6 @@ function QueueContent() {
     fromStage: null,
     toStage: null,
     reason: 'entry_error',
-    releaseResources: true,
     notes: '',
   });
 
@@ -901,13 +990,16 @@ function QueueContent() {
 
     // 1. 反向回退 (Backward Rollback)
     if (targetIndex < sourceIndex) {
+      if (!canRollbackTo(item, targetStage)) {
+        toast.danger(t('queue.quRollbackNotSupported', { p0: t(STAGE_NAME_KEYS[targetStage]) }));
+        return;
+      }
       setRollbackModal({
         isOpen: true,
         item,
         fromStage: item.stage,
         toStage: targetStage,
         reason: 'entry_error',
-        releaseResources: true,
         notes: '',
       });
       return;
@@ -930,11 +1022,11 @@ function QueueContent() {
         isOpen: true,
         item,
         qrScanned: false,
-        contraindications: ['No specific contraindications'],
-        massageStrength: 'Medium Pressure',
-        aromaOil: 'No Preference',
+        contraindications: [CONTRAINDICATION_NONE],
+        massageStrength: STRENGTH_DEFAULT,
+        aromaOil: AROMA_OIL_DEFAULT,
         focusAreas: [],
-        avoidAreas: ['No areas to avoid'],
+        avoidAreas: [AVOID_AREA_NONE],
         selectedAddOnId: '',
         addOnStaffId: item.staffId || '',
         notes: item.notes || '',
@@ -995,7 +1087,8 @@ function QueueContent() {
         roomId: availableRoom,
         startTime: timeStr,
         serviceDurationMin: item.durationMin || 60,
-        requireBriefingAck: true,
+        /* 问卷尚未签署时默认不勾选：这一勾是入座的前置门禁，必须由人主动确认。 */
+        requireBriefingAck: !hasPendingForms(item),
         serviceBrief: item.notes || '',
       });
     } else if (item.stage === 'in_service' && targetStage === 'ready_checkout') {
@@ -1007,7 +1100,6 @@ function QueueContent() {
       setCompleteServiceModal({
         isOpen: true,
         item,
-        actualDurationMin: item.durationMin || 60,
         extraAddOnServiceId: '',
         extraAddOnStaffId: defaultAddOnStaffId,
         addedAddOns: [],
@@ -1042,11 +1134,59 @@ function QueueContent() {
     }
   };
 
+  /**
+   * 把签到时勾选的接待要点整理成一段人读的文字。
+   *
+   * 之所以落成自由文本而不是结构化字段：预约的「服务前须知」是技师端已经在读的
+   * 唯一一处交接说明，写在这里不需要新增存储，技师也不必再去别的地方找。
+   * 文案按当前界面语言渲染 —— 写给人看的东西，语言应当与录入者一致。
+   */
+  const composeCheckInBrief = (input: {
+    contraindications: string[];
+    massageStrength: string;
+    aromaOil: string;
+    focusAreas: string[];
+    avoidAreas: string[];
+    notes: string;
+  }): string => {
+    const labelOf = (options: TagOption[], id: string) => {
+      const option = options.find((entry) => entry.id === id);
+      return option ? t(option.labelKey) : id;
+    };
+    const lines: string[] = [];
+
+    const contraindications = input.contraindications.filter((id) => id !== CONTRAINDICATION_NONE);
+    if (contraindications.length > 0) {
+      lines.push(`${t('queue.quIntakeBriefContra')}: ${contraindications.map((id) => labelOf(CONTRAINDICATION_TAGS, id)).join(' / ')}`);
+    }
+    const avoidAreas = input.avoidAreas.filter((id) => id !== AVOID_AREA_NONE);
+    if (avoidAreas.length > 0) {
+      lines.push(`${t('queue.quIntakeBriefAvoid')}: ${avoidAreas.map((id) => labelOf(AVOID_AREA_TAGS, id)).join(' / ')}`);
+    }
+    if (input.massageStrength && input.massageStrength !== STRENGTH_DEFAULT) {
+      lines.push(`${t('queue.quIntakeBriefStrength')}: ${labelOf(STRENGTH_OPTIONS, input.massageStrength)}`);
+    }
+    if (input.aromaOil && input.aromaOil !== AROMA_OIL_DEFAULT) {
+      const oil = AROMA_OIL_OPTIONS.find((entry) => entry.id === input.aromaOil);
+      lines.push(`${t('queue.quIntakeBriefOil')}: ${oil ? t(oil.labelKey) : input.aromaOil}`);
+    }
+    if (input.focusAreas.length > 0) {
+      lines.push(`${t('queue.quIntakeBriefFocus')}: ${input.focusAreas.map((id) => labelOf(FOCUS_AREA_TAGS, id)).join(' / ')}`);
+    }
+    const note = input.notes.trim();
+    if (note) lines.push(`${t('queue.quIntakeBriefNote')}: ${note}`);
+
+    if (lines.length === 0) return '';
+    return [`【${t('queue.quIntakeBriefHeading')}】`, ...lines].join('\n');
+  };
+
   // 1. Check-In Confirm Submit
   const handleConfirmCheckIn = async () => {
     const {
       item,
       selectedAddOnId,
+      addOnStaffId,
+      qrScanned,
       contraindications,
       massageStrength,
       aromaOil,
@@ -1055,25 +1195,31 @@ function QueueContent() {
       notes,
     } = checkInModal;
     if (!item) return;
+    if (checkInPending) return;
     setCheckInError(null);
 
     const addOnService = services.find((s) => s.id === selectedAddOnId);
+    const brief = composeCheckInBrief({ contraindications, massageStrength, aromaOil, focusAreas, avoidAreas, notes });
+    const hasIntakeDetails = Boolean(brief || addOnService);
 
-    const oilObj = AROMA_OIL_OPTIONS.find((o) => o.id === aromaOil);
+    /*
+     * 免责协议门禁：单据上确实挂着未签署的问卷，既没有电子签署记录，
+     * 前台又没确认收到纸质件，就不放行。这条勾选此前完全没有被读取过。
+     * 判定条件用 pendingForms 而非「没有已签问卷」—— 未配置问卷模板的门店
+     * 不应该因此被拦住。
+     */
+    if (hasPendingForms(item) && completedCheckInForms.length === 0 && !qrScanned) {
+      setCheckInError(`${t('queue.quWaiverGateTitle')} — ${t('queue.quWaiverGateHint')}`);
+      return;
+    }
+
+    /* 接待要点与现场加项都要挂到预约上；没有预约可挂时如实告知，而不是静默丢弃。 */
+    if (hasIntakeDetails && !item.appointmentId) {
+      setCheckInError(t('queue.quIntakeNeedsAppointment'));
+      return;
+    }
 
     try {
-      const hasUnpersistedDetails = Boolean(
-        addOnService || focusAreas.length > 0
-        || contraindications.some((value) => value !== 'No specific contraindications')
-        || avoidAreas.some((value) => value !== 'No areas to avoid')
-        || massageStrength !== 'Medium Pressure'
-        || (oilObj && oilObj.id !== 'none_pref')
-        || notes.trim() !== (item.notes ?? '').trim(),
-      );
-      if (hasUnpersistedDetails) {
-        setCheckInError(t('queue.quCheckInDetailsUnavailable'));
-        return;
-      }
       if (item.stage === 'booked' && item.appointmentId) {
         await join.mutateAsync({
           appointmentId: item.appointmentId,
@@ -1083,10 +1229,40 @@ function QueueContent() {
         });
       }
 
+      /*
+       * 签到本身已经成功，后续两步即便失败也不能把顾客退回未到店 ——
+       * 因此各自单独兜错，并明确告诉前台「人已进来了，缺的是这一项」。
+       */
+      if (brief && item.appointmentId) {
+        try {
+          await saveCheckInBriefMutation.mutateAsync(brief);
+        } catch {
+          toast.warning(t('queue.quIntakeSaveFailed'), { timeout: 8_000 });
+        }
+      }
+
+      if (addOnService && item.appointmentId) {
+        try {
+          await addAppointmentItemMutation.mutateAsync({
+            appointmentId: item.appointmentId,
+            serviceId: addOnService.id,
+            membershipId: addOnStaffId && addOnStaffId !== UNASSIGNED_STAFF_ID
+              ? addOnStaffId
+              : item.staffId && item.staffId !== UNASSIGNED_STAFF_ID ? item.staffId : null,
+            durationMin: addOnService.durationMin,
+            idempotencyKey: `queue-checkin-addon-${item.appointmentId}-${addOnService.id}`,
+          });
+        } catch {
+          toast.warning(t('queue.quAddOnAddFailed'), { timeout: 8_000 });
+        }
+      }
+
       setCheckInModal((prev) => ({ ...prev, isOpen: false, item: null }));
       setAiSummarySubmissionId(null);
       setCheckInError(null);
-      toast.success(t('queue.quCheckedIn', { p0: item.customerName }));
+      toast.success(t('queue.quCheckedIn', { p0: item.customerName }), brief
+        ? { description: t('queue.quIntakeSaved') }
+        : undefined);
       await Promise.all([refetchQueue(), refetchSchedule()]);
     } catch (err: any) {
       const message = `${t('queue.quCheckInFailed')} ${errorMessage(err) || t('queue.quNetworkError')}`;
@@ -1139,9 +1315,11 @@ function QueueContent() {
       roomId,
       startTime,
       serviceDurationMin,
+      requireBriefingAck,
       serviceBrief,
     } = startServiceModal;
     if (!item) return;
+    if (startServicePending) return;
 
     const assignedStaff = staff.find((s) => s.membershipId === staffId);
     const assignedRoom = rooms.find((r) => r.id === roomId);
@@ -1151,6 +1329,10 @@ function QueueContent() {
         || assignments.some((assignment) => assignment.staffIds.length !== assignment.staffCount)
         || addedAddOns.some((addOn) => !addOn.staffId || addOn.staffId === UNASSIGNED_STAFF_ID)) {
         toast.danger(t('queue.quSeatFailed'));
+        return;
+      }
+      if (hasPendingForms(item) && !requireBriefingAck) {
+        toast.danger(t('queue.quSeatBriefingRequired'));
         return;
       }
 
@@ -1238,6 +1420,7 @@ function QueueContent() {
   const handleConfirmCompleteService = async () => {
     const { item, addedAddOns, technicianNotes, markRoomCleaning, roomId } = completeServiceModal;
     if (!item) return;
+    if (completeServicePending) return;
 
     const result = await completeQueueService(
       {
@@ -1289,117 +1472,134 @@ function QueueContent() {
 
   // 4. Checkout Tender Confirm Submit
   const handleConfirmCheckout = async () => {
-    const {
-      item,
-      discountDollars,
-      enableTax,
-      taxRatePercent,
-      enableCardSurcharge,
-      cardSurchargePercent,
-      tipMode,
-      tipPercentage,
-      totalTipDollars,
-      customStaffTips,
-      paymentMethod,
-      tenderedDollars,
-      keepChange,
-      giftCardCode,
-      giftCardId,
-      giftCardVerified,
-      giftCardBalanceCents,
-    } = checkoutModal;
+    const { item, paymentMethod, tenderedDollars, keepChange, giftCardCode, giftCardId, giftCardVerified, giftCardBalanceCents } = checkoutModal;
     if (!item) return;
+    if (closeTicketMutation.isPending) return;
 
-    const baseCents = item.priceCents || 0;
-    const discountCents = dollarsToCents(discountDollars || '0');
-    const afterDiscountCents = Math.max(0, baseCents - discountCents);
-    const taxCents = enableTax
-      ? Math.round(afterDiscountCents * (parseFloat(taxRatePercent || '0') / 100))
-      : 0;
-
-    let tipCents = 0;
-    if (tipMode === 'total_split') {
-      tipCents = totalTipDollars !== ''
-        ? dollarsToCents(totalTipDollars)
-        : Math.round((afterDiscountCents * tipPercentage) / 100);
-    } else {
-      tipCents = Object.values(customStaffTips).reduce(
-        (sum, val) => sum + Math.max(0, dollarsToCents(val || '0')),
-        0,
-      );
+    if (!item.ticketId) {
+      toast.danger(t('queue.quCoNoTicket'));
+      return;
     }
 
-    const cardSurchargeCents =
-      enableCardSurcharge && (paymentMethod === 'card' || paymentMethod === 'apple_pay')
-        ? Math.round(
-            (afterDiscountCents + taxCents + tipCents) *
-              (parseFloat(cardSurchargePercent || '0') / 100),
-          )
-        : 0;
+    const baseCents = item.priceCents || 0;
+    /*
+     * 与弹窗渲染共用同一份计算。分账明细、税额、手续费一律取自这里 ——
+     * 前台屏幕上看到的数字就是发往服务端的数字。
+     */
+    const staffList = buildCheckoutStaffList(
+      {
+        serviceName: item.serviceName,
+        priceCents: baseCents,
+        staffId: item.staffId,
+        staffName: item.staffName,
+        rawTicket: item.rawTicket,
+        addOns: item.addOns,
+      },
+      t('queue.quLeadTherapist'),
+      (name) => t('queue.quAddOnPrefix', { p0: name }),
+    );
+    const totals = computeCheckoutTotals({
+      staffList,
+      baseCents,
+      discountDollars: checkoutModal.discountDollars,
+      enableTax: checkoutModal.enableTax,
+      taxRatePercent: checkoutModal.taxRatePercent,
+      enableCardSurcharge: checkoutModal.enableCardSurcharge,
+      cardSurchargePercent: checkoutModal.cardSurchargePercent,
+      paymentMethod,
+      tipMode: checkoutModal.tipMode,
+      tipPercentage: checkoutModal.tipPercentage,
+      totalTipDollars: checkoutModal.totalTipDollars,
+      splitStrategy: checkoutModal.splitStrategy,
+      customStaffTips: checkoutModal.customStaffTips,
+    });
 
-    let finalTotalCents = afterDiscountCents + taxCents + cardSurchargeCents + tipCents;
+    let tipCents = totals.totalTipCents;
+    let finalTotalCents = totals.chargedTotalCents;
+
+    if (checkoutModal.tipMode === 'custom_per_staff' && tipCents > 0
+      && totals.tipAllocations.every((allocation) => allocation.allocatedTipCents === 0)) {
+      toast.danger(t('queue.quCoTipSplitEmpty'));
+      return;
+    }
+
+    const isCash = paymentMethod === 'cash';
+    const tenderedCents = isCash ? dollarsToCents(tenderedDollars || '0') : undefined;
+    if (tenderedCents !== undefined && tenderedCents < finalTotalCents) {
+      toast.danger(t('queue.quCoInsufficientCash', {
+        p0: centsToDollars(tenderedCents),
+        p1: centsToDollars(finalTotalCents),
+      }));
+      return;
+    }
+
+    /*
+     * 「不用找了」必须落成小费，且计入实收金额 ——
+     * 不记录的话打烊点钞会平白多出这笔钱，而账面上无法解释。
+     */
+    const cashRemainder = tenderedCents === undefined ? 0 : tenderedCents - finalTotalCents;
+    const keepChangeCents = isCash && keepChange && cashRemainder > 0 ? cashRemainder : 0;
+    tipCents += keepChangeCents;
+    finalTotalCents += keepChangeCents;
+
+    /*
+     * 小费分账按 membershipId 上报。
+     * 此前这里把技师姓名当成 membershipId 发了出去，重名还会被并成一个人。
+     * 归属不明的占位行不发送，其余尾差补到第一位，保证各行之和等于小费总额。
+     */
+    const tipSplits = allowTipSplitOverride
+      ? totals.tipAllocations
+          .filter((allocation) => allocation.membershipId !== UNRESOLVED_STAFF_KEY && allocation.allocatedTipCents > 0)
+          .map((allocation) => ({
+            staffMembershipId: allocation.membershipId,
+            staffName: allocation.name,
+            amountCents: allocation.allocatedTipCents,
+          }))
+      : [];
+    if (tipSplits.length > 0) {
+      const assigned = tipSplits.reduce((sum, split) => sum + split.amountCents, 0);
+      const remainder = tipCents - assigned;
+      if (remainder < 0) {
+        toast.danger(t('queue.quCoTipSplitOverflow'));
+        return;
+      }
+      if (remainder > 0) tipSplits[0]!.amountCents += remainder;
+    }
+
+    const giftCard = inlineGiftCardFields(
+      paymentMethod,
+      { giftCardCode, giftCardId, giftCardVerified, giftCardBalanceCents },
+      finalTotalCents,
+    );
+    if (!giftCard.ok) {
+      toast.danger(
+        giftCard.reason === 'overspend'
+          ? t('checkout.giftCardOverspend', {
+            p0: centsToDollars(finalTotalCents),
+            p1: centsToDollars(giftCardBalanceCents),
+          })
+          : t('queue.quGiftCardRequired'),
+      );
+      return;
+    }
 
     try {
-      if (!item.ticketId) {
-        toast.danger(t('queue.quCheckoutFailed'));
-        return;
-      }
-      const isCash = paymentMethod === 'cash';
-      const tenderedCents = isCash ? dollarsToCents(tenderedDollars || '0') : undefined;
-      if (tenderedCents !== undefined && tenderedCents < finalTotalCents) {
-        toast.danger(t('queue.quCheckoutFailed'));
-        return;
-      }
-      const cashRemainder = tenderedCents === undefined ? 0 : tenderedCents - finalTotalCents;
-      if (isCash && keepChange && cashRemainder > 0) {
-        tipCents += cashRemainder;
-        finalTotalCents += cashRemainder;
-      }
-      const customTipSplits = tipMode === 'custom_per_staff'
-        ? Object.entries(customStaffTips)
-            .map(([staffMembershipId, value]) => ({
-              staffMembershipId,
-              amountCents: Math.max(0, dollarsToCents(value || '0')),
-            }))
-            .filter((split) => split.amountCents > 0)
-        : [];
-      if (tipMode === 'custom_per_staff' && tipCents > 0 && customTipSplits.length === 0) {
-        toast.danger(t('queue.quCheckoutFailed'));
-        return;
-      }
-      if (customTipSplits.length > 0) {
-        const assigned = customTipSplits.reduce((sum, split) => sum + split.amountCents, 0);
-        const remainder = tipCents - assigned;
-        if (remainder < 0) {
-          toast.danger(t('queue.quCheckoutFailed'));
-          return;
-        }
-        if (remainder > 0) customTipSplits[0]!.amountCents += remainder;
-      }
-
-      const giftCard = inlineGiftCardFields(
-        paymentMethod,
-        { giftCardCode, giftCardId, giftCardVerified, giftCardBalanceCents },
-        finalTotalCents,
-      );
-      if (!giftCard.ok) {
-        toast.danger(
-          giftCard.reason === 'overspend'
-            ? t('checkout.giftCardOverspend', {
-              p0: centsToDollars(finalTotalCents),
-              p1: centsToDollars(giftCardBalanceCents),
-            })
-            : t('queue.quGiftCardRequired'),
-        );
-        return;
-      }
-
       await closeTicketMutation.mutateAsync({
         ticketId: item.ticketId,
-        discountCents,
-        taxCents,
-        surchargeCents: cardSurchargeCents,
-        ...(customTipSplits.length > 0 ? { tipSplits: customTipSplits } : {}),
+        discountCents: totals.discountCents,
+        taxCents: totals.taxCents,
+        taxRateBp: Math.round(parseFloat(checkoutModal.taxRatePercent || '0') * 100),
+        taxCalculationMode: checkoutSettings?.taxCalculationMode || 'exclusive',
+        surchargeCents: totals.cardSurchargeCents,
+        surchargeRateBp: Math.round(parseFloat(checkoutModal.cardSurchargePercent || '0') * 100),
+        tipTotalCents: tipCents,
+        ...(tipSplits.length > 0 ? { tipSplits } : {}),
+        /*
+         * ⚠️ 幂等键必须稳定。超时重试若换了键，客人会被扣两次款，
+         * 而这类错误往往要到对账时才被发现。此前这里没有传，
+         * 每次重试都会拿到一个新的随机键，幂等保护形同虚设。
+         */
+        idempotencyKey: `queue-checkout-${item.ticketId}`,
         payments: [
           {
             method: paymentMethod === 'apple_pay' ? 'card' : paymentMethod,
@@ -1407,43 +1607,25 @@ function QueueContent() {
             tipCents,
             ...(tenderedCents !== undefined ? { tenderedCents } : {}),
             changeCents: isCash && !keepChange ? cashRemainder : 0,
-            keepChange: Boolean(isCash && keepChange),
+            keepChange: Boolean(keepChangeCents),
             ...(giftCard.giftCardId ? { giftCardId: giftCard.giftCardId } : {}),
             ...(giftCard.giftCardCode ? { giftCardCode: giftCard.giftCardCode } : {}),
           },
         ],
       });
 
-      setCheckoutModal({
-        isOpen: false,
-        item: null,
-        discountDollars: '0',
-        enableTax: false,
-        taxRatePercent: '8.875',
-        enableCardSurcharge: false,
-        cardSurchargePercent: '3.0',
-        tipMode: 'total_split',
-        tipPercentage: 15,
-        totalTipDollars: '',
-        splitStrategy: 'proportional',
-        customStaffTips: {},
-        paymentMethod: 'card',
-        tenderedDollars: '',
-        keepChange: false,
-        giftCardCode: '',
-        giftCardId: '',
-        giftCardVerified: false,
-        giftCardBalanceCents: 0,
-        isVerifyingGiftCard: false,
-      });
+      setCheckoutModal((prev) => ({ ...prev, isOpen: false, item: null }));
 
       toast.success(t('queue.quCheckoutDone', { p0: item.customerName }), {
-        description: t('queue.quCheckoutDetail', { p0: centsToDollars(finalTotalCents), p1: paymentMethod.toUpperCase() }),
+        description: t('queue.quCheckoutDetail', {
+          p0: centsToDollars(finalTotalCents),
+          p1: t(PAYMENT_METHOD_LABEL_KEYS[paymentMethod]),
+        }),
       });
 
-      await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms(), refetchQueue()]);
+      await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms(), refetchQueue(), openTicketsQ.refetch()]);
     } catch (err: any) {
-      toast.danger(t('queue.quCheckoutFailed') + (err?.message || t('queue.quNetworkError3')));
+      toast.danger(`${t('queue.quCheckoutFailed')} ${errorMessage(err) || t('queue.quNetworkError3')}`);
     }
   };
 
@@ -1451,8 +1633,10 @@ function QueueContent() {
   const handleConfirmRollback = async () => {
     const { item, toStage, reason, notes } = rollbackModal;
     if (!item || !toStage) return;
-    if (!item.appointmentId || toStage === 'ready_checkout' || toStage === 'completed') {
-      toast.danger(t('queue.quRollbackUnavailable'));
+    if (rollbackStageMutation.isPending) return;
+    const appointmentId = item.appointmentId;
+    if (!appointmentId || !canRollbackTo(item, toStage)) {
+      toast.danger(t('queue.quRollbackNotSupported', { p0: t(STAGE_NAME_KEYS[toStage]) }));
       return;
     }
     const fromStage = item.stage === 'ready_checkout' ? 'ready_to_pay'
@@ -1460,7 +1644,7 @@ function QueueContent() {
       : item.stage;
     try {
       await rollbackStageMutation.mutateAsync({
-        appointmentId: item.appointmentId,
+        appointmentId,
         ...(item.queueId ? { queueId: item.queueId } : {}),
         fromStage: fromStage === 'booked' ? 'checked_in' : fromStage,
         targetStage: toStage,
@@ -1469,13 +1653,14 @@ function QueueContent() {
           : reason === 'entry_error' ? 'wrong_drag' : 'other',
         ...(notes ? { notes } : {}),
       });
-      setRollbackModal({ isOpen: false, item: null, fromStage: null, toStage: null, reason: 'entry_error', releaseResources: true, notes: '' });
+      setRollbackModal({ isOpen: false, item: null, fromStage: null, toStage: null, reason: 'entry_error', notes: '' });
+      const reasonOption = ROLLBACK_REASONS.find((entry) => entry.id === reason);
       toast.warning(t('queue.quRolledBack', { p0: item.customerName, p1: t(STAGE_NAME_KEYS[toStage]) }), {
-        description: t('queue.quRollbackReason', { p0: ROLLBACK_REASONS.find(r => r.id === reason)?.label ?? '' }),
+        description: t('queue.quRollbackReason', { p0: reasonOption ? t(reasonOption.labelKey) : '' }),
       });
       await Promise.all([refetchQueue(), refetchSchedule(), refetchTickets()]);
     } catch (err: any) {
-      toast.danger(t('queue.quRollbackUnavailable') + (err?.message || t('queue.quNetworkError2')));
+      toast.danger(`${t('queue.quRollbackFailed')} ${errorMessage(err) || t('queue.quNetworkError2')}`);
     }
   };
 
@@ -1533,15 +1718,15 @@ function QueueContent() {
           <div className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center gap-2.5">
             <Clock className="w-4 h-4 text-teal-600 shrink-0" />
             <div className="text-xs">
-              <span className="text-slate-400 block text-[10px]">{t('queue.quRotationTop3')}</span>
+              <span className="text-slate-400 block text-xs">{t('queue.quRotationTop3')}</span>
               {top3Rotation.length === 0 ? (
-                <span className="font-bold text-slate-400 font-mono text-[11px]">{t('queue.quNoRotation')}</span>
+                <span className="font-medium text-slate-400 font-mono text-xs">{t('queue.quNoRotation')}</span>
               ) : (
                 <div className="flex items-center gap-1.5 font-mono">
                         {top3Rotation.map((entry, idx) => (
                           <span key={entry.membershipId} className="flex items-center gap-0.5 font-bold text-slate-800">
                       <span className={cn(
-                        "w-3.5 h-3.5 rounded text-[9px] flex items-center justify-center font-black",
+                        "w-3.5 h-3.5 rounded text-xs flex items-center justify-center font-bold",
                         idx === 0 ? "bg-amber-100 text-amber-900" : idx === 1 ? "bg-slate-200 text-slate-700" : "bg-orange-100 text-orange-900"
                       )}>
                         {entry.position ?? idx + 1}
@@ -1558,7 +1743,7 @@ function QueueContent() {
           <div className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center gap-2.5">
             <BedDouble className="w-4 h-4 text-indigo-600 shrink-0" />
             <div className="text-xs">
-              <span className="text-slate-400 block text-[10px]">{t('queue.quRoomsFree')}</span>
+              <span className="text-slate-400 block text-xs">{t('queue.quRoomsFree')}</span>
               <span className="font-bold text-emerald-700 font-mono">
                 {availableRoomsCount} / {totalRoomsCount}  {t('queue.quRoomsAvailableUnit')}
               </span>
@@ -1569,7 +1754,7 @@ function QueueContent() {
           <div className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center gap-2.5">
             <CalendarDays className="w-4 h-4 text-sky-600 shrink-0" />
             <div className="text-xs">
-              <span className="text-slate-400 block text-[10px]">{t('queue.quTodayOrders')}</span>
+              <span className="text-slate-400 block text-xs">{t('queue.quTodayOrders')}</span>
               <span className="font-bold text-slate-900 font-mono">{metrics.totalBookings}  {t('queue.quOrderUnit')}</span>
             </div>
           </div>
@@ -1585,7 +1770,7 @@ function QueueContent() {
           >
             <Clock className="w-4 h-4 text-amber-600 shrink-0" />
             <div className="text-xs">
-              <span className="text-slate-400 block text-[10px]">{t('queue.quWaiting')}</span>
+              <span className="text-slate-400 block text-xs">{t('queue.quWaiting')}</span>
               <span className="font-bold font-mono">{metrics.waiting}  {t('queue.quPeopleUnit')}</span>
             </div>
           </div>
@@ -1594,16 +1779,16 @@ function QueueContent() {
           <div className="px-3.5 py-2 rounded-xl bg-teal-50/80 border border-teal-200 shadow-sm flex items-center gap-2.5 text-teal-900">
             <Scissors className="w-4 h-4 text-teal-600 shrink-0" />
             <div className="text-xs">
-              <span className="text-slate-400 block text-[10px]">{t('queue.quInService')}</span>
+              <span className="text-slate-400 block text-xs">{t('queue.quInService')}</span>
               <span className="font-bold font-mono">{metrics.inService}  {t('queue.quStaffUnit')}</span>
             </div>
           </div>
 
           {/* Open / Unpaid */}
-          <div className="px-3.5 py-2 rounded-xl bg-purple-50/80 border border-purple-200 shadow-sm flex items-center gap-2.5 text-purple-900">
-            <CreditCard className="w-4 h-4 text-purple-600 shrink-0" />
+          <div className="px-3.5 py-2 rounded-xl bg-violet-50/80 border border-violet-200 shadow-sm flex items-center gap-2.5 text-violet-900">
+            <CreditCard className="w-4 h-4 text-violet-600 shrink-0" />
             <div className="text-xs">
-              <span className="text-slate-400 block text-[10px]">Open / Unpaid</span>
+              <span className="block text-xs text-slate-500">{t('queue.quMetricOpenUnpaid')}</span>
               <span className="font-bold font-mono">{metrics.readyCheckout}  {t('queue.quOrderUnit2')}</span>
             </div>
           </div>
@@ -1612,7 +1797,7 @@ function QueueContent() {
           <div className="px-3.5 py-2 rounded-xl bg-emerald-50/80 border border-emerald-200 shadow-sm flex items-center gap-2.5 text-emerald-900">
             <DollarSign className="w-4 h-4 text-emerald-600 shrink-0" />
             <div className="text-xs">
-              <span className="text-slate-400 block text-[10px]">{t('queue.quRevenueToday')}</span>
+              <span className="text-slate-400 block text-xs">{t('queue.quRevenueToday')}</span>
               <span className="font-bold font-mono text-emerald-700">
                 ${centsToDollars(metrics.revenueCents)}
               </span>
@@ -1672,7 +1857,7 @@ function QueueContent() {
 
           <Button
             size="sm"
-            className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs gap-1.5 h-9 shadow-sm shadow-teal-600/20"
+            className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs gap-1.5 h-9"
             onClick={() => openCreateAppointment?.()}
           >
             <Plus className="w-3.5 h-3.5" />
@@ -1682,8 +1867,13 @@ function QueueContent() {
       </div>
 
       {/* 5 列看板主体 (支持横向滚动与列拖拽) */}
-      <div className="flex-1 min-h-0 overflow-x-auto custom-scrollbar pb-2">
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3.5 min-w-[1100px] h-full items-start">
+      <div className="custom-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-auto pb-2">
+        {/*
+          断点与 min-width 此前互相矛盾：min-w-[1100px] 让容器在任何视口下都不低于
+          1100px，grid-cols-1 / md:grid-cols-3 因此永远不会生效，窄屏只会横向滚动。
+          现改为窄屏单列纵向排布，宽屏才进入 5 列并横向滚动。
+        */}
+        <div className="grid grid-cols-1 items-start gap-3.5 md:grid-cols-3 lg:grid-cols-5 lg:min-w-[1100px]">
           {COLUMNS.map((col) => {
             const colItems = filteredItems.filter((it) => it.stage === col.id);
             const isDropTarget = dragOverColumn === col.id;
@@ -1695,10 +1885,14 @@ function QueueContent() {
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, col.id)}
                 className={cn(
-                  'flex flex-col h-[calc(100vh-270px)] rounded-2xl border transition-all duration-200',
+                  /*
+                    列高此前是硬编码的 calc(100vh-270px)，顶部指标栏一换行就溢出。
+                    改为跟随可用高度：窄屏按内容展开并限高，宽屏撑满看板容器。
+                  */
+                  'flex max-h-[70vh] flex-col rounded-2xl border transition-colors duration-200 lg:h-full lg:max-h-none',
                   col.color,
                   isDropTarget
-                    ? 'ring-2 ring-teal-500 bg-teal-50/40 border-teal-400 scale-[1.01]'
+                    ? 'border-teal-400 bg-teal-50/40 ring-2 ring-teal-500'
                     : 'bg-slate-50/70',
                 )}
               >
@@ -1713,7 +1907,7 @@ function QueueContent() {
                     <col.icon className="w-4 h-4 shrink-0" />
                     <div>
                       <h3 className="font-bold text-xs leading-none">{t(col.titleKey)}</h3>
-                      <p className="text-[10px] text-slate-500 mt-0.5 opacity-80">{t(col.subtitleKey)}</p>
+                      <p className="text-xs text-slate-500 mt-0.5 opacity-80">{t(col.subtitleKey)}</p>
                     </div>
                   </div>
                   <Badge variant={col.badgeVariant} className="font-mono text-xs px-2 py-0.5 font-bold">
@@ -1728,7 +1922,7 @@ function QueueContent() {
                       <div className="h-40 border-2 border-dashed border-slate-200/80 rounded-xl flex flex-col items-center justify-center text-center p-3">
                         <col.icon className="w-6 h-6 text-slate-300 mb-1" />
                         <span className="text-xs text-slate-400 font-medium">{t(col.emptyKey)}</span>
-                        <span className="text-[10px] text-slate-400 mt-0.5">{t('queue.quDragInOrder')}</span>
+                        <span className="text-xs text-slate-400 mt-0.5">{t('queue.quDragInOrder')}</span>
                       </div>
                     ) : (
                       colItems.map((item) => {
@@ -1752,7 +1946,7 @@ function QueueContent() {
                             {/* Card Top: Customer & Tags */}
                             <div className="flex items-start justify-between gap-1 mb-1.5">
                               <div className="flex items-center gap-1.5 min-w-0">
-                                <div className="w-6 h-6 rounded-full bg-teal-50 text-teal-700 font-bold text-[11px] flex items-center justify-center shrink-0 border border-teal-200">
+                                <div className="w-6 h-6 rounded-full bg-teal-50 text-teal-700 font-bold text-xs flex items-center justify-center shrink-0 border border-teal-200">
                                   {item.customerName.charAt(0)}
                                 </div>
                                 <div className="min-w-0">
@@ -1763,7 +1957,7 @@ function QueueContent() {
                                     {item.customerName}
                                   </span>
                                   {item.phone && (
-                                    <span className="text-[10px] text-slate-400 block font-mono">
+                                    <span className="text-xs text-slate-400 block font-mono">
                                       {formatPhoneDisplay(item.phone)}
                                     </span>
                                   )}
@@ -1771,7 +1965,7 @@ function QueueContent() {
                               </div>
 
                               {item.ticketNumber && (
-                                <span className="font-mono text-xs font-black px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 shrink-0">
+                                <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded-lg bg-amber-100 text-amber-800 shrink-0">
                                   #{item.ticketNumber}
                                 </span>
                               )}
@@ -1791,7 +1985,7 @@ function QueueContent() {
                                 )}
                               </div>
 
-                              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100/80">
+                              <div className="flex items-center justify-between text-xs text-slate-500 pt-1 border-t border-slate-100/80">
                                 <span className="truncate flex items-center gap-1">
                                   <User className="w-3 h-3 text-slate-400 shrink-0" />
                                   <span className={item.staffName ? 'text-slate-800 font-semibold' : 'text-slate-400'}>
@@ -1799,49 +1993,48 @@ function QueueContent() {
                                   </span>
                                 </span>
                                 {item.roomName && (
-                                  <span className="truncate text-[10px] text-teal-700 font-medium flex items-center gap-0.5">
+                                  <span className="truncate text-xs text-teal-700 font-medium flex items-center gap-0.5">
                                     <BedDouble className="w-2.5 h-2.5" />
                                     {item.roomName}
                                   </span>
                                 )}
                                 {item.isRequest && (
-                                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-100 text-purple-700 shrink-0">
-                                    
+                                  <span className="text-xs font-bold px-1.5 py-0.2 rounded bg-violet-100 text-violet-700 shrink-0">
                                     {t('queue.quRequested')}
                                   </span>
                                 )}
                               </div>
 
                               {item.notes && (
-                                <p className="text-[10px] text-amber-700 bg-amber-50/60 p-1 rounded font-medium truncate">
+                                <p className="text-xs text-amber-700 bg-amber-50/60 p-1 rounded font-medium truncate">
                                   📝 {item.notes}
                                 </p>
                               )}
                             </div>
 
                             {/* Time Status / Alerts Bar */}
-                            <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 mb-2">
+                            <div className="flex items-center justify-between text-xs text-slate-500 pt-1 mb-2">
                               <div className="flex items-center gap-1 font-mono font-medium">
                                 <Timer className="w-3 h-3 text-slate-400" />
                                 <span>{item.timeDisplay}</span>
                               </div>
 
                               {item.overdue && (
-                                <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-bold text-[9px] flex items-center gap-0.5">
+                                <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-bold text-xs flex items-center gap-0.5">
                                   <AlertTriangle className="w-2.5 h-2.5" />
-                                  
                                   {t('queue.quOverdueWait')}
                                 </span>
                               )}
 
                               {item.pendingForms && item.pendingForms > 0 ? (
-                                <span
-                                  className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold text-[9px] flex items-center gap-0.5 cursor-pointer hover:bg-amber-200"
-                                  onClick={() => void openFormQr(item)}
+                                <button
+                                  type="button"
+                                  className="flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-200"
+                                  onClick={(event) => { event.stopPropagation(); void openFormQr(item); }}
                                 >
-                                  <FileWarning className="w-2.5 h-2.5" />
-                                  Form Pending
-                                </span>
+                                  <FileWarning className="h-3 w-3" />
+                                  {t('queue.quWiFormPendingBadge')}
+                                </button>
                               ) : null}
                             </div>
 
@@ -1878,7 +2071,7 @@ function QueueContent() {
                                   onClick={() => initiateStageTransition(item, 'in_service')}
                                 >
                                   <Scissors className="w-3.5 h-3.5" />
-                                  <span>Assign Station & Seat</span>
+                                  <span>{t('queue.quWiAssignSeat')}</span>
                                   <ChevronRight className="w-3.5 h-3.5" />
                                 </Button>
                               )}
@@ -1886,7 +2079,7 @@ function QueueContent() {
                               {col.id === 'in_service' && (
                                 <Button
                                   size="sm"
-                                  className="w-full h-8 text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white rounded-xl gap-1 shadow-sm"
+                                  className="w-full h-8 text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white rounded-xl gap-1 shadow-sm"
                                   onClick={() => initiateStageTransition(item, 'ready_checkout')}
                                 >
                                   <CheckCircle className="w-3.5 h-3.5" />
@@ -1908,7 +2101,7 @@ function QueueContent() {
                               )}
 
                               {col.id === 'completed' && (
-                                <div className="text-center py-1 text-[11px] text-emerald-700 font-mono font-medium flex items-center justify-center gap-1 bg-emerald-50 rounded-lg">
+                                <div className="text-center py-1 text-xs text-emerald-700 font-mono font-medium flex items-center justify-center gap-1 bg-emerald-50 rounded-lg">
                                   <CheckCircle2 className="w-3.5 h-3.5" />
                                   <span>{t('queue.quArchived')}</span>
                                 </div>
@@ -1962,20 +2155,22 @@ function QueueContent() {
                     setCheckInError(null);
                   }}
                 >
-                  
                   {t('queue.quCheckInCancel')}
                 </Button>
                 <Button
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold gap-1 shadow-md shadow-amber-600/20"
-                  onClick={handleConfirmCheckIn}
+                  className={PRIMARY_ACTION_CLASS}
+                  isDisabled={checkInPending}
+                  onPress={handleConfirmCheckIn}
                 >
-                  <Check className="w-4 h-4" />
-                  <span>{t('queue.quCheckInConfirm')}{centsToDollars(totalEstCents)})</span>
+                  {checkInPending
+                    ? <><Spinner size="sm" />{t('queue.quProcessing')}</>
+                    : <><Check className="h-4 w-4" />{t('queue.quCheckInConfirmAmount', { p0: centsToDollars(totalEstCents) })}</>}
                 </Button>
               </div>
             }
           >
-            <div className="space-y-4 py-2 text-xs text-slate-700 max-h-[72vh] overflow-y-auto custom-scrollbar pr-1">
+            {/* 高度与滚动交给 Modal.Body 统一管理；此处再套一层会出现双滚动条。 */}
+            <div className="space-y-3 py-1 text-sm text-slate-700">
               {/* 1. 顾客基本信息与预约项目概览 */}
               <div className="p-3 bg-amber-50/70 rounded-2xl border border-amber-200 flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -1985,24 +2180,25 @@ function QueueContent() {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-slate-900 text-sm">{item.customerName}</span>
-                      <Badge variant="warning" className="text-[10px] font-bold px-1.5 py-0">
+                      <Badge variant="warning" className="text-xs font-bold px-1.5 py-0">
                         {item.phone ? formatPhoneDisplay(item.phone) : t('queue.quWalkInNoPhone')}
                       </Badge>
-                      <Badge variant="secondary" className="text-[10px] font-bold px-1.5 py-0 bg-amber-100 text-amber-900 border-amber-300">
-                        
+                      <Badge variant="secondary" className="text-xs font-bold px-1.5 py-0 bg-amber-100 text-amber-900 border-amber-300">
                         {t('queue.quWaitingArea')}
                       </Badge>
                     </div>
-                    <span className="text-[11px] text-slate-600 flex items-center gap-1.5 mt-0.5">
-                      <span>{t('queue.quBookedService')} <strong>{item.serviceName}</strong> ({item.durationMin}{t('queue.quMinutesSuffix')}</span>
-                      <span>•</span>
-                      <span>{t('queue.quRequestedStaff')} {item.staffName || t('queue.quUnspecified')}</span>
+                    <span className="text-xs text-slate-600 flex items-center gap-1.5 mt-0.5">
+                      <span>{t('queue.quCheckInBookedLine', {
+                        p0: item.serviceName,
+                        p1: item.durationMin,
+                        p2: item.staffName || t('queue.quUnspecified'),
+                      })}</span>
                     </span>
                   </div>
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] font-bold text-slate-400 block">{t('queue.quEstimatedAmount')}</span>
-                  <span className="font-mono font-black text-amber-900 text-base">
+                  <span className="text-xs font-medium text-slate-400 block">{t('queue.quEstimatedAmount')}</span>
+                  <span className="font-mono font-bold text-amber-900 text-base">
                     ${centsToDollars(item.priceCents)}
                   </span>
                 </div>
@@ -2015,8 +2211,7 @@ function QueueContent() {
                     <ShieldAlert className="w-3.5 h-3.5 text-sky-600" />
                     <span>{t('queue.quIntakeFormTitle')}</span>
                   </h4>
-                  <Badge variant="secondary" className="text-[10px] bg-sky-50 text-sky-800 border-sky-200">
-                    
+                  <Badge variant="secondary" className="text-xs bg-sky-50 text-sky-800 border-sky-200">
                     {t('queue.quComplianceWaiver')}
                   </Badge>
                 </div>
@@ -2028,7 +2223,7 @@ function QueueContent() {
                         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
                         <div>
                           <p className="text-xs font-bold text-emerald-950">{t('queue.quHealthFormReceived')}</p>
-                          <p className="text-[11px] text-emerald-700">
+                          <p className="text-xs text-emerald-700">
                             {completedCheckInForms.map((form) => form.templateTitle[language] ?? form.templateTitle.en ?? t('queue.quHealthForm')).join(', ')}
                           </p>
                         </div>
@@ -2089,17 +2284,19 @@ function QueueContent() {
                     const intakeUrl = formShares[item.id]?.url;
                     return (
                       <>
-                        <div
+                        {/* 原为 div + onClick：键盘用户完全够不到，改成真正的按钮。 */}
+                        <button
+                          type="button"
                           onClick={() => void openFormQr(item)}
-                          className="w-20 h-20 bg-white p-1.5 rounded-2xl border border-sky-300 shadow-sm flex flex-col items-center justify-center shrink-0 cursor-pointer hover:border-sky-500 hover:shadow-md transition-all group relative"
+                          className="group flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-2xl border border-sky-300 bg-white p-1.5 transition-colors hover:border-sky-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
                           title={t('queue.quZoomQr')}
+                          aria-label={t('queue.quZoomQr')}
                         >
                           {intakeUrl ? <QRCodeSVG value={intakeUrl} size={52} level="M" /> : <QrCode className="h-10 w-10 text-sky-600" />}
-                          <span className="text-[8px] text-sky-800 font-bold mt-0.5 group-hover:text-sky-600 transition-colors">
-                            
+                          <span className="mt-0.5 text-xs font-medium text-sky-800 transition-colors group-hover:text-sky-600">
                             {t('queue.quZoomQrHint')}
                           </span>
-                        </div>
+                        </button>
 
                         <div className="text-xs space-y-1.5 flex-1 w-full">
                           <div className="flex items-center justify-between">
@@ -2112,18 +2309,16 @@ function QueueContent() {
                               onClick={() => {
                               void copyFormLink(item);
                               }}
-                              className="text-[10px] text-sky-700 hover:text-sky-900 font-bold underline cursor-pointer"
+                              className="text-xs text-sky-700 hover:text-sky-900 font-bold underline cursor-pointer"
                             >
-                              
                               {t('queue.quCopyLink')}
                             </button>
                           </div>
-                          <p className="text-slate-600 text-[11px] leading-relaxed">
-                            
+                          <p className="text-slate-600 text-xs leading-relaxed">
                             {t('queue.quIntakeGuide')}
                           </p>
                           <div className="flex items-center justify-between pt-0.5">
-                            <label className="flex items-center gap-2 cursor-pointer font-bold text-sky-950 text-[11px]">
+                            <label className="flex items-center gap-2 cursor-pointer font-bold text-sky-950 text-xs">
                               <input
                                 type="checkbox"
                                 checked={checkInModal.qrScanned}
@@ -2135,9 +2330,8 @@ function QueueContent() {
                             <button
                               type="button"
                                 onClick={() => void openFormQr(item)}
-                              className="text-[10px] text-sky-700 bg-white hover:bg-sky-50 px-2 py-0.5 border border-sky-300 rounded-lg font-bold shadow-xs"
+                              className="text-xs text-sky-700 bg-white hover:bg-sky-50 px-2 py-0.5 border border-sky-300 rounded-lg font-bold shadow-xs"
                             >
-                              
                               {t('queue.quFullScreenQr')}
                             </button>
                           </div>
@@ -2149,44 +2343,44 @@ function QueueContent() {
 
                 {/* 禁忌快速排查标签 */}
                 <div className={cn(!usesMassageIntake && 'hidden')}>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1.5">
-                    
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
                     {t('queue.quContraindicationsHint')}
                   </label>
                   <div className="flex flex-wrap gap-1.5">
-                    {CONTRAINDICATION_TAGS.map((tag) => {
-                      const isSelected = checkInModal.contraindications.includes(tag);
-                      const isSafe = tag === 'No specific contraindications';
+                    {CONTRAINDICATION_TAGS.map((option) => {
+                      const isSelected = checkInModal.contraindications.includes(option.id);
+                      const isSafe = option.id === CONTRAINDICATION_NONE;
                       return (
                         <button
-                          key={tag}
+                          key={option.id}
                           type="button"
+                          aria-pressed={isSelected}
                           onClick={() => {
                             setCheckInModal((prev) => {
                               if (isSafe) {
-                                return { ...prev, contraindications: ['No specific contraindications'] };
+                                return { ...prev, contraindications: [CONTRAINDICATION_NONE] };
                               }
-                              const listWithoutSafe = prev.contraindications.filter((c) => c !== 'No specific contraindications');
-                              const next = listWithoutSafe.includes(tag)
-                                ? listWithoutSafe.filter((c) => c !== tag)
-                                : [...listWithoutSafe, tag];
+                              const listWithoutSafe = prev.contraindications.filter((c) => c !== CONTRAINDICATION_NONE);
+                              const next = listWithoutSafe.includes(option.id)
+                                ? listWithoutSafe.filter((c) => c !== option.id)
+                                : [...listWithoutSafe, option.id];
                               return {
                                 ...prev,
-                                contraindications: next.length === 0 ? ['No specific contraindications'] : next,
+                                contraindications: next.length === 0 ? [CONTRAINDICATION_NONE] : next,
                               };
                             });
                           }}
                           className={cn(
-                            'px-2.5 py-1 text-xs rounded-xl border font-bold transition-all',
+                            'rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors',
                             isSelected
                               ? isSafe
-                                ? 'border-emerald-500 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-400'
-                                : 'border-red-500 bg-red-50 text-red-900 ring-1 ring-red-400'
+                                ? 'border-emerald-500 bg-emerald-50 font-semibold text-emerald-900'
+                                : 'border-rose-500 bg-rose-50 font-semibold text-rose-900'
                               : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
                           )}
                         >
                           {isSelected && !isSafe && '⚠️ '}
-                          {tag}
+                          {t(option.labelKey)}
                         </button>
                       );
                     })}
@@ -2203,24 +2397,24 @@ function QueueContent() {
 
                 {/* 力度选择 */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
                     {t('queue.quPressurePref')}
                   </label>
                   <div className="grid grid-cols-5 gap-1.5">
-                    {STRENGTH_OPTIONS.map((opt) => (
+                    {STRENGTH_OPTIONS.map((option) => (
                       <button
-                        key={opt.id}
+                        key={option.id}
                         type="button"
-                        onClick={() => setCheckInModal((prev) => ({ ...prev, massageStrength: opt.label }))}
+                        aria-pressed={checkInModal.massageStrength === option.id}
+                        onClick={() => setCheckInModal((prev) => ({ ...prev, massageStrength: option.id }))}
                         className={cn(
-                          'py-1.5 text-xs rounded-xl border text-center font-bold transition-all',
-                          checkInModal.massageStrength === opt.label
-                            ? 'border-teal-500 bg-teal-50 text-teal-900 ring-1 ring-teal-400'
+                          'rounded-lg border py-1.5 text-center text-xs font-medium transition-colors',
+                          checkInModal.massageStrength === option.id
+                            ? 'border-teal-500 bg-teal-50 font-semibold text-teal-900'
                             : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
                         )}
                       >
-                        {opt.label}
+                        {t(option.labelKey)}
                       </button>
                     ))}
                   </div>
@@ -2228,8 +2422,7 @@ function QueueContent() {
 
                 {/* 芳香精油 */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
                     {t('queue.quOilPref')}
                   </label>
                   <div className="grid grid-cols-3 gap-1.5">
@@ -2238,15 +2431,16 @@ function QueueContent() {
                         key={opt.id}
                         type="button"
                         onClick={() => setCheckInModal((prev) => ({ ...prev, aromaOil: opt.id }))}
+                        aria-pressed={checkInModal.aromaOil === opt.id}
                         className={cn(
-                          'p-1.5 text-left rounded-xl border transition-all',
+                          'rounded-lg border p-2 text-left transition-colors',
                           checkInModal.aromaOil === opt.id
-                            ? 'border-teal-500 bg-teal-50 text-teal-900 ring-1 ring-teal-400'
+                            ? 'border-teal-500 bg-teal-50 text-teal-900'
                             : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
                         )}
                       >
-                        <span className="block font-bold text-xs">{t(opt.labelKey)}</span>
-                        <span className="block text-[10px] text-slate-400">{t(opt.descKey)}</span>
+                        <span className="block text-xs font-semibold">{t(opt.labelKey)}</span>
+                        <span className="block text-xs text-slate-500">{t(opt.descKey)}</span>
                       </button>
                     ))}
                   </div>
@@ -2254,33 +2448,34 @@ function QueueContent() {
 
                 {/* 重点部位 (分左右，可多选) */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
                     {t('queue.quFocusAreas')}
                   </label>
                   <div className="flex flex-wrap gap-1.5">
-                    {FOCUS_AREA_TAGS.map((tag) => {
-                      const isSelected = checkInModal.focusAreas.includes(tag);
+                    {FOCUS_AREA_TAGS.map((option) => {
+                      const isSelected = checkInModal.focusAreas.includes(option.id);
                       return (
                         <button
-                          key={tag}
+                          key={option.id}
                           type="button"
+                          aria-pressed={isSelected}
                           onClick={() => {
                             setCheckInModal((prev) => ({
                               ...prev,
                               focusAreas: isSelected
-                                ? prev.focusAreas.filter((f) => f !== tag)
-                                : [...prev.focusAreas, tag],
+                                ? prev.focusAreas.filter((f) => f !== option.id)
+                                : [...prev.focusAreas, option.id],
                             }));
                           }}
                           className={cn(
-                            'px-2.5 py-1 text-xs rounded-xl border font-bold transition-all',
+                            'rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors',
                             isSelected
-                              ? 'border-teal-500 bg-teal-50 text-teal-900 ring-1 ring-teal-400'
+                              ? 'border-teal-500 bg-teal-50 font-semibold text-teal-900'
                               : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
                           )}
                         >
-                          {isSelected ? `✓ ${tag}` : `+ ${tag}`}
+                          {isSelected ? '✓ ' : '+ '}
+                          {t(option.labelKey)}
                         </button>
                       );
                     })}
@@ -2289,44 +2484,45 @@ function QueueContent() {
 
                 {/* 避免触碰敏感部位 */}
                 <div>
-                  <label className="block text-[11px] font-bold text-red-900 mb-1 flex items-center gap-1">
-                    <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+                  <label className="block text-xs font-bold text-rose-900 mb-1 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
                     <span>{t('queue.quAvoidAreas')}</span>
                   </label>
                   <div className="flex flex-wrap gap-1.5">
-                    {AVOID_AREA_TAGS.map((tag) => {
-                      const isSelected = checkInModal.avoidAreas.includes(tag);
-                      const isNone = tag === 'No areas to avoid';
+                    {AVOID_AREA_TAGS.map((option) => {
+                      const isSelected = checkInModal.avoidAreas.includes(option.id);
+                      const isNone = option.id === AVOID_AREA_NONE;
                       return (
                         <button
-                          key={tag}
+                          key={option.id}
                           type="button"
+                          aria-pressed={isSelected}
                           onClick={() => {
                             setCheckInModal((prev) => {
                               if (isNone) {
-                                return { ...prev, avoidAreas: ['No areas to avoid'] };
+                                return { ...prev, avoidAreas: [AVOID_AREA_NONE] };
                               }
-                              const listWithoutNone = prev.avoidAreas.filter((a) => a !== 'No areas to avoid');
-                              const next = listWithoutNone.includes(tag)
-                                ? listWithoutNone.filter((a) => a !== tag)
-                                : [...listWithoutNone, tag];
+                              const listWithoutNone = prev.avoidAreas.filter((a) => a !== AVOID_AREA_NONE);
+                              const next = listWithoutNone.includes(option.id)
+                                ? listWithoutNone.filter((a) => a !== option.id)
+                                : [...listWithoutNone, option.id];
                               return {
                                 ...prev,
-                                avoidAreas: next.length === 0 ? ['No areas to avoid'] : next,
+                                avoidAreas: next.length === 0 ? [AVOID_AREA_NONE] : next,
                               };
                             });
                           }}
                           className={cn(
-                            'px-2.5 py-1 text-xs rounded-xl border font-bold transition-all',
+                            'rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors',
                             isSelected
                               ? isNone
-                                ? 'border-slate-400 bg-slate-100 text-slate-800'
-                                : 'border-red-500 bg-red-50 text-red-900 ring-1 ring-red-400'
+                                ? 'border-slate-400 bg-slate-100 font-semibold text-slate-800'
+                                : 'border-rose-500 bg-rose-50 font-semibold text-rose-900'
                               : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
                           )}
                         >
                           {isSelected && !isNone && '⛔ '}
-                          {tag}
+                          {t(option.labelKey)}
                         </button>
                       );
                     })}
@@ -2342,7 +2538,7 @@ function QueueContent() {
                 </h4>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-600 mb-1">{t('queue.quSelectAddOn')}</label>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">{t('queue.quSelectAddOn')}</label>
                     <select
                       value={checkInModal.selectedAddOnId}
                       onChange={(e) => setCheckInModal((prev) => ({ ...prev, selectedAddOnId: e.target.value }))}
@@ -2357,13 +2553,13 @@ function QueueContent() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-600 mb-1">{t('queue.quAddOnStaff')}</label>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">{t('queue.quAddOnStaff')}</label>
                     <select
                       value={checkInModal.addOnStaffId}
                       onChange={(e) => setCheckInModal((prev) => ({ ...prev, addOnStaffId: e.target.value }))}
                       className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-900"
                     >
-                      <option value="">{t('queue.quFollowLeadStaff')}{item.staffName || t('queue.quAssigned')})</option>
+                      <option value="">{t('queue.quFollowLeadStaffOf', { p0: item.staffName || t('queue.quStaffUnassignedShort') })}</option>
                       {staff
                         .filter((s) => s.membershipId !== UNASSIGNED_STAFF_ID && s.isBookable)
                         .map((s) => (
@@ -2378,8 +2574,7 @@ function QueueContent() {
 
               {/* 5. 前台特别叮嘱备注 */}
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  
+                <label className="block text-xs font-bold text-slate-700 mb-1">
                   {t('queue.quGuestNotes')}
                 </label>
                 <Input
@@ -2456,44 +2651,44 @@ function QueueContent() {
                   variant="secondary"
                   onClick={() => setStartServiceModal((prev) => ({ ...prev, isOpen: false, item: null }))}
                 >
-                  
                   {t('queue.quSeatCancel')}
                 </Button>
                 <Button
-                  className="bg-teal-600 hover:bg-teal-700 text-white font-bold gap-1 shadow-md shadow-teal-600/20"
-                  onClick={handleConfirmStartService}
-                  isDisabled={startServiceModal.assignments.some((assignment) => assignment.staffIds.length !== assignment.staffCount)}
+                  className={PRIMARY_ACTION_CLASS}
+                  onPress={handleConfirmStartService}
+                  isDisabled={startServicePending
+                    || startServiceModal.assignments.some((assignment) => assignment.staffIds.length !== assignment.staffCount)}
                 >
-                  <Check className="w-4 h-4" />
-                  <span>{t('queue.quSeatConfirm')}{assignedRoom?.name || t('queue.quAssignedStation')})</span>
+                  {startServicePending
+                    ? <><Spinner size="sm" />{t('queue.quProcessing')}</>
+                    : <><Check className="h-4 w-4" />{t('queue.quSeatConfirmAt', { p0: assignedRoom?.name || t('queue.quRoomUnassigned') })}</>}
                 </Button>
               </div>
             }
           >
-            <div className="space-y-4 py-2 text-xs text-slate-700 max-h-[72vh] overflow-y-auto custom-scrollbar pr-1">
+            {/* 高度与滚动交给 Modal.Body 统一管理；此处再套一层会出现双滚动条。 */}
+            <div className="space-y-3 py-1 text-sm text-slate-700">
               {/* 顾客与服务概要 */}
               <div className="p-3 bg-teal-50/70 rounded-2xl border border-teal-200 flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-slate-900 text-sm">{item.customerName}</span>
-                    <Badge variant="secondary" className="text-[10px] font-bold px-1.5 py-0 bg-teal-100 text-teal-900 border-teal-300">
+                    <Badge variant="secondary" className="text-xs font-bold px-1.5 py-0 bg-teal-100 text-teal-900 border-teal-300">
                       {item.serviceName}
                     </Badge>
                     {item.isRequest && (
-                      <Badge variant="secondary" className="text-[10px] font-bold px-1.5 py-0 bg-purple-100 text-purple-700 border-purple-200">
-                        
+                      <Badge variant="secondary" className="text-xs font-bold px-1.5 py-0 bg-violet-100 text-violet-700 border-violet-200">
                         {t('queue.quRequestedStar')}
                       </Badge>
                     )}
                   </div>
-                  <span className="text-[11px] text-teal-900 block mt-0.5">
-                    
+                  <span className="text-xs text-teal-900 block mt-0.5">
                     {t('queue.quApprovedDuration')} <strong>{startServiceModal.serviceDurationMin}  {t('queue.quMinutes')}</strong>  {t('queue.quBaseFee')}{centsToDollars(item.priceCents)}
                   </span>
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] font-bold text-teal-600 block">{t('queue.quStartTime')}</span>
-                  <span className="font-mono font-black text-teal-900 text-base">{startServiceModal.startTime || t('queue.quNow')}</span>
+                  <span className="text-xs font-bold text-teal-600 block">{t('queue.quStartTime')}</span>
+                  <span className="font-mono font-bold text-teal-900 text-base">{startServiceModal.startTime || t('queue.quNow')}</span>
                 </div>
               </div>
 
@@ -2506,7 +2701,7 @@ function QueueContent() {
                       <User className="w-3.5 h-3.5 text-teal-600" />
                       <span>{t('queue.quQualifiedStaffAssignments')}</span>
                     </span>
-                    <span className="text-[10px] text-teal-600 font-normal">{t('queue.quRotationPriority')}</span>
+                    <span className="text-xs text-teal-600 font-normal">{t('queue.quRotationPriority')}</span>
                   </label>
                   <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50/70 p-3">
                     <div className="mb-2 flex items-start justify-between gap-2">
@@ -2515,11 +2710,11 @@ function QueueContent() {
                           <Clock className="h-4 w-4" />
                         </span>
                         <div>
-                          <div className="text-sm font-black text-indigo-950">{t('queue.quFullRotation')}</div>
-                          <div className="text-[10px] font-medium text-indigo-800">{t('queue.quRotationLegend')}</div>
+                          <div className="text-sm font-bold text-indigo-950">{t('queue.quFullRotation')}</div>
+                          <div className="text-xs font-medium text-indigo-800">{t('queue.quRotationLegend')}</div>
                         </div>
                       </div>
-                      <span className="shrink-0 rounded-full bg-white px-2 py-1 font-mono text-[10px] font-black text-indigo-800 ring-1 ring-indigo-200">
+                      <span className="shrink-0 rounded-full bg-white px-2 py-1 font-mono text-xs font-bold text-indigo-800 ring-1 ring-indigo-200">
                         {orderedRotationEntries.length}
                       </span>
                     </div>
@@ -2549,18 +2744,18 @@ function QueueContent() {
                             >
                               <div className="flex items-center gap-2">
                                 <span className={cn(
-                                  'grid h-7 min-w-7 place-items-center rounded-lg px-1 font-mono text-xs font-black',
+                                  'grid h-7 min-w-7 place-items-center rounded-lg px-1 font-mono text-xs font-bold',
                                   recommended ? 'bg-emerald-700 text-white' : 'bg-slate-800 text-white',
                                 )}>
                                   #{position}
                                 </span>
-                                <span className="min-w-0 flex-1 truncate text-sm font-black text-slate-950">{entry.name}</span>
+                                <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-950">{entry.name}</span>
                                 <span className={cn(
                                   'h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white',
                                   entry.state === 'available' ? 'bg-emerald-500' : entry.state === 'in_service' ? 'bg-orange-500' : entry.state === 'on_break' ? 'bg-violet-500' : 'bg-slate-400',
                                 )} />
                               </div>
-                              <div className="mt-1 flex items-center justify-between gap-2 text-[10px] font-bold">
+                              <div className="mt-1 flex items-center justify-between gap-2 text-xs font-bold">
                                 <span className={cn(recommended ? 'text-emerald-800' : 'text-slate-600')}>{rotationStateLabel(entry.state)}</span>
                                 {recommended && <span className="truncate text-emerald-800">✓ {t('queue.quRotationRecommended')}</span>}
                               </div>
@@ -2574,7 +2769,7 @@ function QueueContent() {
                     {assignmentCandidates.map(({ assignment, service, candidates }, assignmentIndex) => (
                       <div key={`${assignment.serviceId}-${assignmentIndex}`} className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
                         {assignment.staffIds.some((staffId) => candidates.find((candidate) => candidate.staff.membershipId === staffId && !candidate.eligible)) && (
-                          <div role="alert" className="mb-2 flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] font-bold leading-relaxed text-amber-900">
+                          <div role="alert" className="mb-2 flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs font-bold leading-relaxed text-amber-900">
                             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
                             <span>{t('queue.quSelectedStaffWarning')}</span>
                           </div>
@@ -2582,12 +2777,12 @@ function QueueContent() {
                         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                           <div>
                             <div className="font-bold text-slate-900">{assignmentIndex + 1}. {assignment.serviceName}</div>
-                            <div className="text-[10px] text-slate-500">
+                            <div className="text-xs text-slate-500">
                               {t('queue.quNeedsStaffCount', { p0: assignment.staffCount })}
                               {service.requiredSkills.length > 0 && ` · ${service.requiredSkills.map((skill) => skill.name).join(' / ')}`}
                             </div>
                           </div>
-                          <Badge variant={assignment.staffIds.length === assignment.staffCount ? 'success' : 'warning'} className="text-[9px]">
+                          <Badge variant={assignment.staffIds.length === assignment.staffCount ? 'success' : 'warning'} className="text-xs">
                             {assignment.staffIds.length}/{assignment.staffCount}
                           </Badge>
                         </div>
@@ -2631,17 +2826,17 @@ function QueueContent() {
                               >
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="flex min-w-0 items-center gap-1.5">
-                                    <span className={cn('grid h-7 min-w-7 place-items-center rounded-lg px-1 font-mono text-xs font-black', recommended ? 'bg-emerald-700 text-white' : warning ? 'bg-amber-600 text-white' : selected ? 'bg-sky-700 text-white' : 'bg-slate-800 text-white')}>
+                                    <span className={cn('grid h-7 min-w-7 place-items-center rounded-lg px-1 font-mono text-xs font-bold', recommended ? 'bg-emerald-700 text-white' : warning ? 'bg-amber-600 text-white' : selected ? 'bg-sky-700 text-white' : 'bg-slate-800 text-white')}>
                                       {rotationPosition ? `#${rotationPosition}` : '—'}
                                     </span>
-                                    <span className="truncate text-sm font-black text-slate-950">{candidate.staff.name}</span>
+                                    <span className="truncate text-sm font-bold text-slate-950">{candidate.staff.name}</span>
                                   </span>
                                   <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white', candidate.online ? 'bg-emerald-500' : 'bg-slate-400')} />
                                 </div>
-                                <div className="mt-1 truncate text-[11px] font-semibold text-slate-600">
+                                <div className="mt-1 truncate text-xs font-semibold text-slate-600">
                                   {candidate.staff.levelName || t('queue.quLevelUnspecified')} · {candidate.reasons.map((reason) => t(`queue.quCandidate_${reason}`)).join(' · ')}
                                 </div>
-                                <div className={cn('mt-1.5 flex items-center gap-1 text-[11px] font-black', warning ? 'text-amber-900' : recommended ? 'text-emerald-800' : selected ? 'text-sky-800' : 'text-slate-500')}>
+                                <div className={cn('mt-1.5 flex items-center gap-1 text-xs font-bold', warning ? 'text-amber-900' : recommended ? 'text-emerald-800' : selected ? 'text-sky-800' : 'text-slate-500')}>
                                   {selected ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : warning ? <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> : recommended ? <Award className="h-3.5 w-3.5 shrink-0" /> : null}
                                   <span>{selected ? t('queue.quSelected') : recommended ? t('queue.quRecommendedForService') : warning ? t('queue.quSelectionWarning') : t('queue.quCandidate_available')}</span>
                                 </div>
@@ -2662,11 +2857,11 @@ function QueueContent() {
                         <Plus className="h-4 w-4" />
                       </span>
                       <div>
-                        <h4 className="text-sm font-black text-violet-950">{t('queue.quSeatAddOnsTitle')}</h4>
-                        <p className="mt-0.5 text-[10px] font-medium leading-relaxed text-violet-800">{t('queue.quSeatAddOnsHint')}</p>
+                        <h4 className="text-sm font-bold text-violet-950">{t('queue.quSeatAddOnsTitle')}</h4>
+                        <p className="mt-0.5 text-xs font-medium leading-relaxed text-violet-800">{t('queue.quSeatAddOnsHint')}</p>
                       </div>
                     </div>
-                    <span className="shrink-0 rounded-full bg-white px-2 py-1 font-mono text-[10px] font-black text-violet-800 ring-1 ring-violet-200">
+                    <span className="shrink-0 rounded-full bg-white px-2 py-1 font-mono text-xs font-bold text-violet-800 ring-1 ring-violet-200">
                       +{centsToDollars(startServiceModal.addedAddOns.reduce((sum, addOn) => sum + addOn.priceCents, 0))}
                     </span>
                   </div>
@@ -2676,14 +2871,14 @@ function QueueContent() {
                       {startServiceModal.addedAddOns.map((addOn) => (
                         <div key={addOn.idempotencyKey} className="flex items-center justify-between gap-2 rounded-xl border border-violet-200 bg-white px-2.5 py-2">
                           <div className="min-w-0">
-                            <div className="truncate text-xs font-black text-slate-900">{addOn.name}</div>
-                            <div className="text-[10px] font-semibold text-slate-500">{addOn.durationMin}m · {addOn.staffName || t('queue.quAssigned')}</div>
+                            <div className="truncate text-xs font-bold text-slate-900">{addOn.name}</div>
+                            <div className="text-xs font-semibold text-slate-500">{addOn.durationMin}m · {addOn.staffName || t('queue.quAssigned')}</div>
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
-                            <span className="font-mono text-xs font-black text-violet-800">${centsToDollars(addOn.priceCents)}</span>
+                            <span className="font-mono text-xs font-bold text-violet-800">${centsToDollars(addOn.priceCents)}</span>
                             <button
                               type="button"
-                              className="rounded-lg px-1.5 py-1 text-[10px] font-bold text-rose-700 hover:bg-rose-50"
+                              className="rounded-lg px-1.5 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50"
                               onClick={() => setStartServiceModal((prev) => ({
                                 ...prev,
                                 addedAddOns: prev.addedAddOns.filter((item) => item.idempotencyKey !== addOn.idempotencyKey),
@@ -2733,7 +2928,7 @@ function QueueContent() {
                     <Button
                       size="sm"
                       variant="secondary"
-                      className="h-full min-h-10 border-violet-300 bg-white px-3 text-xs font-black text-violet-800 hover:bg-violet-100"
+                      className="h-full min-h-10 border-violet-300 bg-white px-3 text-xs font-bold text-violet-800 hover:bg-violet-100"
                       onClick={addStartServiceAddOn}
                       isDisabled={!startServiceModal.extraAddOnServiceId}
                     >
@@ -2750,7 +2945,7 @@ function QueueContent() {
                       <BedDouble className="w-3.5 h-3.5 text-teal-600" />
                       <span>{t('queue.quAssignRoomRequired')}</span>
                     </span>
-                    <span className="text-[10px] text-slate-400">{t('queue.quAutoRecommended')}</span>
+                    <span className="text-xs text-slate-400">{t('queue.quAutoRecommended')}</span>
                   </label>
                   <select
                     value={startServiceModal.roomId}
@@ -2764,11 +2959,11 @@ function QueueContent() {
                     ))}
                   </select>
                   {assignedRoom && (
-                    <div className="p-2 bg-slate-50 rounded-xl text-[11px] text-slate-600 flex justify-between items-center gap-1.5">
+                    <div className="p-2 bg-slate-50 rounded-xl text-xs text-slate-600 flex justify-between items-center gap-1.5">
                       <span className="truncate">{t('queue.quTypeLabel')} {assignedRoom.type === 'room' ? t('queue.quPrivateRoom') : t('queue.quOpenStation')}  {t('queue.quCapacityPrefix')} {assignedRoom.capacity}{t('queue.quCapacitySuffix')}</span>
                       <Badge
                         variant={assignedRoom.status === 'available' ? 'success' : 'warning'}
-                        className="text-[9px] px-1.5 py-0.5 font-bold shrink-0 whitespace-nowrap"
+                        className="text-xs px-1.5 py-0.5 font-bold shrink-0 whitespace-nowrap"
                       >
                         {assignedRoom.status === 'available' ? t('queue.quSanitised') : t('queue.quInUse')}
                       </Badge>
@@ -2779,7 +2974,7 @@ function QueueContent() {
 
               {/* 健康问卷与免责知情同意书签署状态 (未填时醒目提示与扫码入口) */}
               {(() => {
-                const hasPendingForm = Boolean((item.pendingForms && item.pendingForms > 0) || (item.rawQueue?.pendingForms && item.rawQueue.pendingForms > 0));
+                const hasPendingForm = hasPendingForms(item);
 
                 if (hasPendingForm) {
                   return (
@@ -2790,9 +2985,8 @@ function QueueContent() {
                             <FileWarning className="w-4 h-4" />
                           </div>
                           <div className="min-w-0">
-                            <h4 className="font-extrabold text-rose-950 text-xs">{t('queue.quNoFormWarning')}</h4>
-                            <p className="text-[11px] text-rose-800/90 leading-tight mt-0.5">
-                              
+                            <h4 className="font-bold text-rose-950 text-xs">{t('queue.quNoFormWarning')}</h4>
+                            <p className="text-xs text-rose-800/90 leading-tight mt-0.5">
                               {t('queue.quNoFormWarningDesc')}
                             </p>
                           </div>
@@ -2801,7 +2995,7 @@ function QueueContent() {
                           <button
                             type="button"
                             onClick={() => void copyFormLink(item)}
-                            className="px-2 py-1 text-[11px] font-bold bg-white text-rose-800 border border-rose-300 rounded-xl hover:bg-rose-100 flex items-center gap-1 shadow-2xs cursor-pointer transition-colors"
+                            className="px-2 py-1 text-xs font-bold bg-white text-rose-800 border border-rose-300 rounded-xl hover:bg-rose-100 flex items-center gap-1 shadow-2xs cursor-pointer transition-colors"
                           >
                             <Copy className="w-3 h-3" />
                             <span>{t('queue.quCopyLink2')}</span>
@@ -2809,14 +3003,14 @@ function QueueContent() {
                           <button
                             type="button"
                             onClick={() => void openFormQr(item)}
-                            className="px-2.5 py-1 text-[11px] font-bold bg-rose-600 text-white rounded-xl hover:bg-rose-700 flex items-center gap-1 shadow-2xs cursor-pointer transition-colors"
+                            className="px-2.5 py-1 text-xs font-bold bg-rose-600 text-white rounded-xl hover:bg-rose-700 flex items-center gap-1 shadow-2xs cursor-pointer transition-colors"
                           >
                             <QrCode className="w-3 h-3" />
                             <span>{t('queue.quScanToFill')}</span>
                           </button>
                         </div>
                       </div>
-                      <div className="p-2 bg-white/90 rounded-xl border border-rose-200/80 flex items-center justify-between text-[11px]">
+                      <div className="p-2 bg-white/90 rounded-xl border border-rose-200/80 flex items-center justify-between text-xs">
                         <label className="flex items-center gap-2 cursor-pointer font-bold text-rose-950">
                           <input
                             type="checkbox"
@@ -2839,10 +3033,10 @@ function QueueContent() {
                       </div>
                       <div>
                         <span className="font-bold text-emerald-950 text-xs">{t('queue.quFormSigned')}</span>
-                        <span className="text-[10px] text-emerald-700 block">{t('queue.quNoSevereContraindications')}</span>
+                        <span className="text-xs text-emerald-700 block">{t('queue.quNoSevereContraindications')}</span>
                       </div>
                     </div>
-                    <Badge variant="success" className="text-[9px] px-1.5 py-0.5 font-bold">{t('queue.quCompliantSigned')}</Badge>
+                    <Badge variant="success" className="text-xs px-1.5 py-0.5 font-bold">{t('queue.quCompliantSigned')}</Badge>
                   </div>
                 );
               })()}
@@ -2854,7 +3048,7 @@ function QueueContent() {
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
                     <span>{t('queue.quPreServiceNotes')}</span>
                   </h4>
-                  <Badge variant="warning" className="text-[9px] font-bold shrink-0">{t('queue.quHandoverVerbally')}</Badge>
+                  <Badge variant="warning" className="text-xs font-bold shrink-0">{t('queue.quHandoverVerbally')}</Badge>
                 </div>
                 <textarea
                   value={startServiceModal.serviceBrief}
@@ -2863,11 +3057,11 @@ function QueueContent() {
                   rows={3}
                   aria-label={t('queue.quPreServiceNotes')}
                   placeholder={t('queue.quNoContraindications')}
-                  className="w-full resize-none rounded-xl border border-amber-200/80 bg-white/90 p-2.5 text-[11px] font-medium leading-relaxed text-slate-700 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-200/60"
+                  className="w-full resize-none rounded-xl border border-amber-200/80 bg-white/90 p-2.5 text-xs font-medium leading-relaxed text-slate-700 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-200/60"
                 />
-                <p className="text-[10px] leading-relaxed text-amber-800">{t('queue.quPreServiceNotesHelp')}</p>
-                {!((item.pendingForms && item.pendingForms > 0) || (item.rawQueue?.pendingForms && item.rawQueue.pendingForms > 0)) && (
-                  <label className="flex items-center gap-2 cursor-pointer pt-0.5 text-amber-950 font-bold text-[11px]">
+                <p className="text-xs leading-relaxed text-amber-800">{t('queue.quPreServiceNotesHelp')}</p>
+                {!hasPendingForms(item) && (
+                  <label className="flex items-center gap-2 cursor-pointer pt-0.5 text-amber-950 font-bold text-xs">
                     <input
                       type="checkbox"
                       checked={startServiceModal.requireBriefingAck}
@@ -2885,8 +3079,7 @@ function QueueContent() {
                   <Timer className="w-4 h-4 text-teal-600" />
                   <div>
                     <span className="font-bold text-slate-800 text-xs block">{t('queue.quTimerApproved')}</span>
-                    <span className="text-[10px] text-slate-500">
-                      
+                    <span className="text-xs text-slate-500">
                       {t('queue.quStartsAt')} {startServiceModal.startTime || t('queue.quCurrent')}  {t('queue.quExpectedFinish')} {(() => {
                         const [h, m] = (startServiceModal.startTime || '14:00').split(':').map(Number);
                         const endMin = (m || 0) + (startServiceModal.serviceDurationMin || 60);
@@ -2925,6 +3118,19 @@ function QueueContent() {
         const item = completeServiceModal.item;
         const addOnsTotalCents = completeServiceModal.addedAddOns.reduce((sum, a) => sum + a.priceCents, 0);
         const finalCalculatedCents = (item.priceCents || 0) + addOnsTotalCents;
+        /*
+         * 已计时的工时：取本单最早一次 startedAt 到现在的分钟数。
+         * 与服务端 finishItem 的口径一致（同一批时间戳），因此前台看到的数字
+         * 不会与完工提示里的数字互相打架。
+         */
+        const startedAtList = (item.rawTicket?.items ?? [])
+          .map((ticketItem) => ticketItem.startedAt)
+          .filter((value): value is string => Boolean(value))
+          .map((value) => new Date(value).getTime())
+          .filter((value) => Number.isFinite(value));
+        const elapsedMinutes = startedAtList.length > 0
+          ? Math.max(0, Math.round((Date.now() - Math.min(...startedAtList)) / 60_000))
+          : null;
 
         return (
           <Modal
@@ -2933,8 +3139,8 @@ function QueueContent() {
               if (!open) setCompleteServiceModal((prev) => ({ ...prev, isOpen: false, item: null }));
             }}
             title={
-              <div className="flex items-center gap-2 text-purple-800 font-bold">
-                <CheckCircle className="w-5 h-5 text-purple-600" />
+              <div className="flex items-center gap-2 text-violet-800 font-bold">
+                <CheckCircle className="w-5 h-5 text-violet-600" />
                 <span>{t('queue.quFinishModalTitle')}</span>
               </div>
             }
@@ -2945,67 +3151,69 @@ function QueueContent() {
                   variant="secondary"
                   onClick={() => setCompleteServiceModal((prev) => ({ ...prev, isOpen: false, item: null }))}
                 >
-                  
                   {t('queue.quFinishCancel')}
                 </Button>
                 <Button
-                  className="bg-purple-600 hover:bg-purple-700 text-white font-bold gap-1 shadow-md shadow-purple-600/20"
-                  onClick={handleConfirmCompleteService}
+                  className={PRIMARY_ACTION_CLASS}
+                  isDisabled={completeServicePending}
+                  onPress={handleConfirmCompleteService}
                 >
-                  <Check className="w-4 h-4" />
-                  <span>{t('queue.quFinishConfirm')}{centsToDollars(finalCalculatedCents)})</span>
+                  {completeServicePending
+                    ? <><Spinner size="sm" />{t('queue.quProcessing')}</>
+                    : <><Check className="h-4 w-4" />{t('queue.quFinishConfirmAmount', { p0: centsToDollars(finalCalculatedCents) })}</>}
                 </Button>
               </div>
             }
           >
-            <div className="space-y-4 py-2 text-xs text-slate-700 max-h-[72vh] overflow-y-auto custom-scrollbar pr-1">
+            {/* 高度与滚动交给 Modal.Body 统一管理；此处再套一层会出现双滚动条。 */}
+            <div className="space-y-3 py-1 text-sm text-slate-700">
               {/* 服务概要卡片 */}
-              <div className="p-3 bg-purple-50/70 rounded-2xl border border-purple-200 flex items-center justify-between">
+              <div className="p-3 bg-violet-50/70 rounded-2xl border border-violet-200 flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-slate-900 text-sm">{item.customerName}</span>
-                    <Badge variant="secondary" className="text-[10px] font-bold px-1.5 py-0 bg-purple-100 text-purple-900 border-purple-300">
+                    <Badge variant="secondary" className="text-xs font-bold px-1.5 py-0 bg-violet-100 text-violet-900 border-violet-300">
                       {item.serviceName}
                     </Badge>
                   </div>
-                  <span className="text-[11px] text-purple-950 block mt-0.5">
-                    
-                    {t('queue.quLeadTherapistLabel')} <strong>{item.staffName || t('queue.quAssigned2')}</strong>  {t('queue.quStationSep')} {item.roomName || t('queue.quAssignedRoom')}
+                  <span className="text-xs text-violet-950 block mt-0.5">
+                    {t('queue.quFinishLeadLine', {
+                      p0: item.staffName || t('queue.quStaffUnassignedShort'),
+                      p1: item.roomName || t('queue.quRoomUnassigned'),
+                    })}
                   </span>
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] font-bold text-purple-600 block">{t('queue.quBaseServiceFee')}</span>
-                  <span className="font-mono font-black text-purple-900 text-base">
+                  <span className="text-xs font-bold text-violet-600 block">{t('queue.quBaseServiceFee')}</span>
+                  <span className="font-mono font-bold text-violet-900 text-base">
                     ${centsToDollars(item.priceCents)}
                   </span>
                 </div>
               </div>
 
-              {/* 实际服务用时核验 */}
-              <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2 shadow-sm">
+              {/*
+                实际执行工时。
+                收单时由服务端按 startedAt/finishedAt 结算，前台改不了 ——
+                此前这里是一组可点击的时长按钮，选完却不会提交任何东西，
+                现改为如实展示系统已记录的用时，差异写进下方的跟进备注。
+              */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <label className="font-bold text-slate-800 flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-purple-600" />
-                    <span>{t('queue.quVerifyActualTime')}</span>
-                  </label>
-                  <span className="font-mono text-purple-700 font-bold">{completeServiceModal.actualDurationMin}  {t('queue.quMinutes2')}</span>
+                  <span className="flex items-center gap-1.5 font-semibold text-slate-800">
+                    <Clock className="h-4 w-4 text-slate-400" />
+                    <span>{t('queue.quElapsedTitle')}</span>
+                  </span>
+                  <span className="font-mono text-sm font-bold text-slate-900">
+                    {elapsedMinutes === null
+                      ? t('queue.quElapsedNotStarted')
+                      : `${elapsedMinutes} ${t('queue.quMinutes2')}`}
+                  </span>
                 </div>
-                <div className="flex gap-2">
-                  {[item.durationMin || 45, 60, 75, 90, 120].map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => setCompleteServiceModal((prev) => ({ ...prev, actualDurationMin: d }))}
-                      className={cn(
-                        'flex-1 py-1.5 text-xs rounded-xl border font-bold font-mono transition-all',
-                        completeServiceModal.actualDurationMin === d
-                          ? 'border-purple-500 bg-purple-50 text-purple-900 ring-1 ring-purple-400'
-                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
-                      )}
-                    >
-                      {d}m {d > (item.durationMin || 45) && `(+${d - (item.durationMin || 45)}m)`}
-                    </button>
-                  ))}
+                <div className="mt-1 flex items-center justify-between gap-3">
+                  <p className="text-xs leading-relaxed text-slate-500">{t('queue.quElapsedHint')}</p>
+                  <Badge variant="secondary" className="shrink-0 text-xs">
+                    {t('queue.quElapsedPlanned', { p0: item.durationMin || 0 })}
+                  </Badge>
                 </div>
               </div>
 
@@ -3013,48 +3221,64 @@ function QueueContent() {
               <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-3 shadow-sm">
                 <div className="flex items-center justify-between">
                   <h4 className="font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                    <Coins className="w-3.5 h-3.5 text-purple-600" />
+                    <Coins className="w-3.5 h-3.5 text-violet-600" />
                     <span>{t('queue.quAddOnsTitle')}</span>
                   </h4>
-                  <span className="text-[10px] text-purple-700 font-bold">
-                    
-                    {t('queue.quAddOnSubtotal')}{centsToDollars(addOnsTotalCents)}
+                  <span className="text-xs font-semibold text-slate-600">
+                    {t('queue.quAddOnSubtotalAmount', { p0: centsToDollars(addOnsTotalCents) })}
                   </span>
                 </div>
 
-                {/* 当前门店真实服务目录 */}
+                {/*
+                  常用加项速选。
+                  此前这里平铺了整份服务目录，且点击只是「选中」而不入列表，
+                  与下方的下拉框构成两个外观完全不同的入口 —— 现收敛为
+                  前四项速选 + 「更多」展开，选中后仍由下方统一确认提成技师并添加。
+                */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 mb-1">
-                    {t('queue.quSelectAddOn')}
-                  </label>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-600">{t('queue.quAddOnQuickPick')}</label>
+                    {services.length > FINISH_QUICK_PICK_LIMIT && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllFinishAddOns((prev) => !prev)}
+                        className="text-xs font-semibold text-teal-700 underline-offset-2 hover:underline"
+                      >
+                        {showAllFinishAddOns
+                          ? t('queue.quAddOnShowLess')
+                          : t('queue.quAddOnShowMore', { p0: services.length - FINISH_QUICK_PICK_LIMIT })}
+                      </button>
+                    )}
+                  </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {services.map((service) => (
+                    {(showAllFinishAddOns ? services : services.slice(0, FINISH_QUICK_PICK_LIMIT)).map((service) => (
                       <button
                         key={service.id}
                         type="button"
+                        aria-pressed={completeServiceModal.extraAddOnServiceId === service.id}
                         onClick={() => setCompleteServiceModal((prev) => ({
                           ...prev,
-                          extraAddOnServiceId: service.id,
+                          extraAddOnServiceId: prev.extraAddOnServiceId === service.id ? '' : service.id,
                         }))}
                         className={cn(
-                          'px-2 py-1 border rounded-lg text-xs font-bold flex items-center gap-1 transition-colors',
+                          'flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors',
                           completeServiceModal.extraAddOnServiceId === service.id
-                            ? 'bg-purple-100 text-purple-950 border-purple-500 ring-1 ring-purple-300'
-                            : 'bg-purple-50 hover:bg-purple-100 text-purple-900 border-purple-200',
+                            ? 'border-teal-500 bg-teal-50 font-semibold text-teal-900'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
                         )}
                       >
-                        <Plus className="w-3 h-3 text-purple-600" />
+                        <Plus className="h-3 w-3 text-slate-400" />
                         <span>{service.name}</span>
-                        <span className="font-mono text-purple-700 font-bold">${centsToDollars(service.priceCents)}</span>
+                        <span className="font-mono text-slate-500">${centsToDollars(service.priceCents)}</span>
                       </button>
                     ))}
                   </div>
+                  <p className="mt-1 text-xs text-slate-400">{t('queue.quAddOnQuickPickHint')}</p>
                 </div>
 
                 {/* 已录入加项列表 */}
                 {completeServiceModal.addedAddOns.length === 0 ? (
                   <div className="text-xs text-slate-400 p-2.5 border border-dashed rounded-xl text-center bg-slate-50/50">
-                    
                     {t('queue.quNoAddOns')}
                   </div>
                 ) : (
@@ -3063,11 +3287,11 @@ function QueueContent() {
                       <div key={idx} className="flex items-center justify-between p-2 bg-slate-50 rounded-xl border border-slate-100 text-xs">
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-slate-800">{addon.name}</span>
-                          <span className="text-[10px] text-slate-400 font-mono">({addon.durationMin}m)</span>
+                          <span className="text-xs text-slate-400 font-mono">({addon.durationMin}m)</span>
                         </div>
                         <div className="flex items-center gap-3">
                           <div className="flex items-center gap-1">
-                            <span className="text-[10px] text-slate-500">{t('queue.quCommissionTo')}</span>
+                            <span className="text-xs text-slate-500">{t('queue.quCommissionTo')}</span>
                             <select
                               value={addon.staffId}
                               onChange={(e) => {
@@ -3092,10 +3316,10 @@ function QueueContent() {
                                 ))}
                             </select>
                           </div>
-                          <span className="font-mono font-bold text-purple-800">${centsToDollars(addon.priceCents)}</span>
+                          <span className="font-mono font-bold text-violet-800">${centsToDollars(addon.priceCents)}</span>
                           <button
                             type="button"
-                            className="text-red-500 hover:text-red-700 text-xs font-bold px-1"
+                            className="text-rose-500 hover:text-rose-700 text-xs font-bold px-1"
                             onClick={() => {
                               setCompleteServiceModal((prev) => ({
                                 ...prev,
@@ -3148,7 +3372,7 @@ function QueueContent() {
                   <Button
                     size="sm"
                     variant="secondary"
-                    className="text-xs font-bold text-purple-700 border-purple-200 bg-purple-50 hover:bg-purple-100"
+                    className="text-xs font-bold text-violet-700 border-violet-200 bg-violet-50 hover:bg-violet-100"
                     onClick={() => {
                       const selectedService = services.find(
                         (service) => service.id === completeServiceModal.extraAddOnServiceId,
@@ -3179,7 +3403,6 @@ function QueueContent() {
                     }}
                     isDisabled={!completeServiceModal.extraAddOnServiceId || !completeServiceModal.extraAddOnStaffId}
                   >
-                    
                     {t('queue.quAddItem')}
                   </Button>
                 </div>
@@ -3194,20 +3417,18 @@ function QueueContent() {
                       type="checkbox"
                       checked={completeServiceModal.markRoomCleaning}
                       onChange={(e) => setCompleteServiceModal((prev) => ({ ...prev, markRoomCleaning: e.target.checked }))}
-                      className="w-3.5 h-3.5 rounded text-purple-600"
+                      className="w-3.5 h-3.5 rounded text-violet-600"
                     />
                     <span>{t('queue.quReleaseStation')}</span>
                   </label>
-                  <p className="text-[10px] text-slate-500 leading-relaxed">
-                    
+                  <p className="text-xs text-slate-500 leading-relaxed">
                     {t('queue.quReleaseStationDesc')}
                   </p>
                 </div>
                 )}
 
                 <div className="p-3 bg-white rounded-2xl border border-slate-200 space-y-1.5 shadow-sm">
-                  <label className="block text-[11px] font-bold text-slate-800">
-                    
+                  <label className="block text-xs font-bold text-slate-800">
                     {t('queue.quSoapTitle')}
                   </label>
                   <Input
@@ -3220,18 +3441,19 @@ function QueueContent() {
               </div>
 
               {/* 账单应收总额合计 Bar */}
-              <div className="p-3.5 bg-slate-900 text-white rounded-2xl flex items-center justify-between shadow-lg">
+              <div className="flex items-center justify-between rounded-2xl bg-slate-900 p-3.5 text-white">
                 <div>
-                  <span className="text-[11px] text-slate-400 block">
-                    
-                    {t('queue.quTotalPrefix')}{centsToDollars(item.priceCents)}  {t('queue.quAddOnSep')}{centsToDollars(addOnsTotalCents)})
+                  <span className="block text-xs text-slate-400">
+                    {t('queue.quFinishTotalBreakdown', {
+                      p0: centsToDollars(item.priceCents),
+                      p1: centsToDollars(addOnsTotalCents),
+                    })}
                   </span>
-                  <span className="font-mono text-xl font-black text-purple-300">
+                  <span className="font-mono text-xl font-bold text-teal-300">
                     ${centsToDollars(finalCalculatedCents)}
                   </span>
                 </div>
-                <Badge variant="secondary" className="bg-purple-500/20 text-purple-200 font-bold px-2 py-1 text-xs">
-                  
+                <Badge variant="secondary" className="bg-white/10 font-semibold text-teal-200">
                   {t('queue.quAwaitingPayment')}
                 </Badge>
               </div>
@@ -3243,89 +3465,46 @@ function QueueContent() {
       {/* 弹窗 4: [Open / Unpaid ➔ 收银完成] 前台收银结算 (多技师分工、包厢明细、加项提成、税费与手续费、小费拆分) */}
       {checkoutModal.isOpen && checkoutModal.item && (() => {
         const item = checkoutModal.item;
-        const addOns = item.addOns || [];
         const baseCents = item.priceCents || 0;
-        const discountCents = dollarsToCents(checkoutModal.discountDollars || '0');
-        const afterDiscountCents = Math.max(0, baseCents - discountCents);
-        const taxCents = checkoutModal.enableTax
-          ? Math.round(afterDiscountCents * (parseFloat(checkoutModal.taxRatePercent || '0') / 100))
-          : 0;
 
-        // 收集参与本次单据的所有技师
-        const staffMap = new Map<string, {
-          name: string;
-          items: Array<{ name: string; priceCents: number; roomName?: string }>;
-          totalRevenueCents: number;
-        }>();
-
-        // 主项目
-        const mainStaffName = item.staffName || t('queue.quLeadTherapist');
-
-        staffMap.set(mainStaffName, {
-          name: mainStaffName,
-          items: [{ name: item.serviceName, priceCents: item.priceCents - addOns.reduce((s, a) => s + a.priceCents, 0), roomName: item.roomName || undefined }],
-          totalRevenueCents: item.priceCents - addOns.reduce((s, a) => s + a.priceCents, 0),
+        /*
+         * 渲染与提交共用同一份计算结果。
+         * 此前两处各算各的，界面上的小费分账明细没有出口，前台看到的分配
+         * 与技师实际拿到的提成对不上 —— 现在看到什么就发送什么。
+         */
+        const staffList = buildCheckoutStaffList(
+          {
+            serviceName: item.serviceName,
+            priceCents: baseCents,
+            staffId: item.staffId,
+            staffName: item.staffName,
+            rawTicket: item.rawTicket,
+            addOns: item.addOns,
+          },
+          t('queue.quLeadTherapist'),
+          (name) => t('queue.quAddOnPrefix', { p0: name }),
+        );
+        const totals = computeCheckoutTotals({
+          staffList,
+          baseCents,
+          discountDollars: checkoutModal.discountDollars,
+          enableTax: checkoutModal.enableTax,
+          taxRatePercent: checkoutModal.taxRatePercent,
+          enableCardSurcharge: checkoutModal.enableCardSurcharge,
+          cardSurchargePercent: checkoutModal.cardSurchargePercent,
+          paymentMethod: checkoutModal.paymentMethod,
+          tipMode: checkoutModal.tipMode,
+          tipPercentage: checkoutModal.tipPercentage,
+          totalTipDollars: checkoutModal.totalTipDollars,
+          splitStrategy: checkoutModal.splitStrategy,
+          customStaffTips: checkoutModal.customStaffTips,
         });
-
-        // 加项
-        addOns.forEach((addon) => {
-          const addonStaffName = addon.staffName || mainStaffName;
-          const existing = staffMap.get(addonStaffName) ?? {
-            name: addonStaffName,
-            items: [],
-            totalRevenueCents: 0,
-          };
-          existing.items.push({ name: t('queue.quAddOnPrefix', { p0: addon.name }), priceCents: addon.priceCents, roomName: item.roomName || undefined });
-          existing.totalRevenueCents += addon.priceCents;
-          staffMap.set(addonStaffName, existing);
-        });
-
-        const staffList = [...staffMap.values()];
-
-        // 计算Total Tips
-        let totalTipCents = 0;
-        if (checkoutModal.tipMode === 'total_split') {
-          totalTipCents = checkoutModal.totalTipDollars !== ''
-            ? dollarsToCents(checkoutModal.totalTipDollars)
-            : Math.round((afterDiscountCents * checkoutModal.tipPercentage) / 100);
-        } else {
-          totalTipCents = Object.values(checkoutModal.customStaffTips).reduce(
-            (sum, val) => sum + Math.max(0, dollarsToCents(val || '0')),
-            0,
-          );
-        }
-
-        // 小费智能分账明细
-        const tipAllocations = staffList.map((st) => {
-          let allocatedCents = 0;
-          if (checkoutModal.tipMode === 'custom_per_staff') {
-            allocatedCents = Math.max(0, dollarsToCents(checkoutModal.customStaffTips[st.name] || '0'));
-          } else if (totalTipCents > 0) {
-            if (checkoutModal.splitStrategy === 'equal') {
-              allocatedCents = Math.round(totalTipCents / staffList.length);
-            } else {
-              const totalRev = staffList.reduce((sum, s) => sum + s.totalRevenueCents, 0) || 1;
-              allocatedCents = Math.round((st.totalRevenueCents / totalRev) * totalTipCents);
-            }
-          }
-          const percent = totalTipCents > 0 ? Math.round((allocatedCents / totalTipCents) * 100) : 0;
-          return {
-            ...st,
-            allocatedTipCents: allocatedCents,
-            percent,
-          };
-        });
-
-        // 信用卡手续费
         const hasCard = checkoutModal.paymentMethod === 'card' || checkoutModal.paymentMethod === 'apple_pay';
-        const cardSurchargeCents = checkoutModal.enableCardSurcharge && hasCard
-          ? Math.round((afterDiscountCents + taxCents + totalTipCents) * (parseFloat(checkoutModal.cardSurchargePercent || '0') / 100))
-          : 0;
-
-        const totalDueCents = afterDiscountCents + taxCents + cardSurchargeCents;
-        const chargedTotalCents = totalDueCents + totalTipCents;
         const tenderedCents = dollarsToCents(checkoutModal.tenderedDollars || '0');
-        const rawChangeDue = Math.max(0, tenderedCents - chargedTotalCents);
+        const rawChangeDue = Math.max(0, tenderedCents - totals.chargedTotalCents);
+        const tipPresets = checkoutSettings?.suggestedTipPercentages?.length
+          ? [0, ...checkoutSettings.suggestedTipPercentages]
+          : [0, 15, 18, 20, 25];
 
         return (
           <Modal
@@ -3334,156 +3513,155 @@ function QueueContent() {
               if (!open) setCheckoutModal((prev) => ({ ...prev, isOpen: false, item: null }));
             }}
             title={
-              <div className="flex items-center gap-2 text-emerald-800 font-bold">
-                <CreditCard className="w-5 h-5 text-emerald-600" />
-                <span>Front Desk Checkout (Tip & Commission Breakdown)</span>
+              <div className="flex items-center gap-2 font-semibold text-slate-900">
+                <CreditCard className="h-5 w-5 text-emerald-600" />
+                <span>{t('queue.quCoTitle')}</span>
               </div>
             }
             size="lg"
             footer={
-              <div className="flex justify-end gap-2 w-full">
+              <div className="flex w-full justify-end gap-2">
                 <Button
                   variant="secondary"
-                  onClick={() => setCheckoutModal((prev) => ({ ...prev, isOpen: false, item: null }))}
+                  isDisabled={closeTicketMutation.isPending}
+                  onPress={() => setCheckoutModal((prev) => ({ ...prev, isOpen: false, item: null }))}
                 >
-                  
                   {t('queue.quCheckoutCancel')}
                 </Button>
                 <Button
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-1 shadow-md shadow-emerald-600/20"
-                  onClick={handleConfirmCheckout}
+                  className="gap-1 bg-teal-700 font-semibold text-white hover:bg-teal-800"
+                  isDisabled={closeTicketMutation.isPending}
+                  onPress={handleConfirmCheckout}
                 >
-                  <Check className="w-4 h-4" />
-                  <span>Complete Payment (${centsToDollars(chargedTotalCents)})</span>
+                  {closeTicketMutation.isPending
+                    ? <><Spinner size="sm" />{t('queue.quProcessing')}</>
+                    : <><Check className="h-4 w-4" />{t('queue.quCoConfirm', { p0: centsToDollars(totals.chargedTotalCents) })}</>}
                 </Button>
               </div>
             }
           >
-            <div className="space-y-4 py-2 text-xs text-slate-700 max-h-[72vh] overflow-y-auto custom-scrollbar pr-1">
-              {/* 1. 客户画像与服务场地概览 */}
-              <div className="p-3 bg-emerald-50/70 rounded-2xl border border-emerald-200 flex items-center justify-between">
+            <div className="space-y-3 py-1 text-sm text-slate-700">
+              {/* 1. 客户与服务场地概览 */}
+              <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-base shadow-sm">
+                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-teal-700 text-sm font-semibold text-white">
                     {item.customerName.slice(0, 2).toUpperCase()}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900 text-sm">{item.customerName}</span>
-                      <Badge variant="success" className="text-[10px] font-bold px-1.5 py-0">
-                        {item.serviceName}
-                      </Badge>
+                      <span className="font-semibold text-slate-900">{item.customerName}</span>
+                      <Badge variant="secondary">{item.serviceName}</Badge>
                     </div>
-                    <span className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
-                      <BedDouble className="w-3 h-3 text-slate-400" />
-                      <span>{item.roomName || 'Unassigned Room'}</span>
-                      <span>•</span>
-                      <span>{staffList.length} technicians collaborating</span>
+                    <span className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
+                      <BedDouble className="h-3.5 w-3.5 text-slate-400" />
+                      <span>{item.roomName || t('queue.quCoUnassignedRoom')}</span>
+                      <span aria-hidden>·</span>
+                      <span>{t('queue.quCoTechCount', { p0: staffList.length })}</span>
                     </span>
                   </div>
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] font-bold text-slate-400 block">Base Services Subtotal</span>
-                  <span className="font-mono font-black text-emerald-800 text-base">
-                    ${centsToDollars(baseCents)}
-                  </span>
+                  <span className="block text-xs text-slate-500">{t('queue.quCoBaseSubtotal')}</span>
+                  <span className="font-mono text-base font-bold text-slate-900">${centsToDollars(baseCents)}</span>
                 </div>
               </div>
 
-              {/* 2. 项目明细、包厢工位与多技师执行明细 */}
-              <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-sm">
-                <h4 className="font-bold text-slate-800 uppercase tracking-wider flex items-center justify-between">
+              {/* 2. 项目明细与多技师执行归属 */}
+              <section className="rounded-2xl border border-slate-200 bg-white p-3">
+                <h4 className="flex items-center justify-between font-semibold text-slate-800">
                   <span className="flex items-center gap-1.5">
-                    <Scissors className="w-3.5 h-3.5 text-teal-600" />
-                    <span>Execution Details & Commission Split</span>
+                    <Scissors className="h-4 w-4 text-slate-400" />
+                    <span>{t('queue.quCoExecTitle')}</span>
                   </span>
-                  <span className="text-[10px] text-slate-400">{t('queue.quTotalPrefix2')} {staffList.reduce((sum, s) => sum + s.items.length, 0)}  {t('queue.quItemsUnit')}</span>
+                  <span className="text-xs font-normal text-slate-500">
+                    {t('queue.quCoItemCount', { p0: staffList.reduce((sum, staffShare) => sum + staffShare.items.length, 0) })}
+                  </span>
                 </h4>
 
-                <div className="space-y-2">
-                  {staffList.map((st) => (
-                    <div key={st.name} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 space-y-1.5">
-                      <div className="flex justify-between items-center pb-1 border-b border-slate-200/60">
-                        <div className="flex items-center gap-1.5">
-                          <User className="w-3 h-3 text-teal-600" />
-                          <span className="font-bold text-slate-800">{st.name}</span>
-                        </div>
+                <div className="mt-2 space-y-2">
+                  {staffList.map((staffShare) => (
+                    <div key={staffShare.membershipId} className="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
+                      <div className="flex items-center gap-1.5 border-b border-slate-200/70 pb-1">
+                        <User className="h-3.5 w-3.5 text-slate-400" />
+                        <span className="font-semibold text-slate-800">{staffShare.name}</span>
                       </div>
-                      <div className="space-y-1">
-                        {st.items.map((it, idx) => (
-                          <div key={idx} className="flex justify-between items-center">
-                            <span className="text-slate-700 font-medium">{it.name}</span>
-                            <span className="font-mono font-bold text-slate-900">${centsToDollars(it.priceCents)}</span>
+                      <div className="mt-1 space-y-1">
+                        {staffShare.items.map((lineItem, index) => (
+                          <div key={`${staffShare.membershipId}-${index}`} className="flex items-center justify-between">
+                            <span className="text-slate-700">{lineItem.name}</span>
+                            <span className="font-mono font-semibold text-slate-900">${centsToDollars(lineItem.priceCents)}</span>
                           </div>
                         ))}
                       </div>
                     </div>
                   ))}
                 </div>
-              </div>
+              </section>
 
-              {/* 3. 多技师小费分配与职级分账 */}
-              <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-sm">
+              {/* 3. 小费分账 */}
+              <section className="rounded-2xl border border-slate-200 bg-white p-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                    <Award className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Tip Split & Earnings Estimate</span>
+                  <h4 className="flex items-center gap-1.5 font-semibold text-slate-800">
+                    <Award className="h-4 w-4 text-slate-400" />
+                    <span>{t('queue.quCoTipTitle')}</span>
                   </h4>
-                  <div className="flex items-center gap-1 p-0.5 bg-slate-100 rounded-lg text-[10px] font-bold">
-                    <button
-                      type="button"
-                      onClick={() => setCheckoutModal((prev) => ({ ...prev, tipMode: 'total_split' }))}
-                      className={cn(
-                        'px-2 py-0.5 rounded-md transition-all',
-                        checkoutModal.tipMode === 'total_split' ? 'bg-white shadow-sm text-teal-900' : 'text-slate-500',
-                      )}
-                    >
-                      Smart Tip Split
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCheckoutModal((prev) => ({ ...prev, tipMode: 'custom_per_staff' }))}
-                      className={cn(
-                        'px-2 py-0.5 rounded-md transition-all',
-                        checkoutModal.tipMode === 'custom_per_staff' ? 'bg-white shadow-sm text-teal-900' : 'text-slate-500',
-                      )}
-                    >
-                      Enter by Staff
-                    </button>
-                  </div>
+                  {allowTipSplitOverride && (
+                    <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-0.5 text-xs font-medium">
+                      <button
+                        type="button"
+                        aria-pressed={checkoutModal.tipMode === 'total_split'}
+                        onClick={() => setCheckoutModal((prev) => ({ ...prev, tipMode: 'total_split' }))}
+                        className={cn(
+                          'rounded-lg px-2 py-1 transition-colors',
+                          checkoutModal.tipMode === 'total_split' ? 'bg-white font-semibold text-teal-800 shadow-sm' : 'text-slate-500',
+                        )}
+                      >
+                        {t('queue.quCoTipModeSmart')}
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={checkoutModal.tipMode === 'custom_per_staff'}
+                        onClick={() => setCheckoutModal((prev) => ({ ...prev, tipMode: 'custom_per_staff' }))}
+                        className={cn(
+                          'rounded-lg px-2 py-1 transition-colors',
+                          checkoutModal.tipMode === 'custom_per_staff' ? 'bg-white font-semibold text-teal-800 shadow-sm' : 'text-slate-500',
+                        )}
+                      >
+                        {t('queue.quCoTipModeManual')}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
+                {!allowTipSplitOverride && (
+                  <p className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
+                    {t('queue.quCoTipSplitLocked')}
+                  </p>
+                )}
+
                 {checkoutModal.tipMode === 'total_split' ? (
-                  <div className="space-y-2">
+                  <div className="mt-2 space-y-2">
                     <div className="grid grid-cols-5 gap-1.5">
-                      {[
-                        { label: 'No Tip', pct: 0 },
-                        { label: '15%', pct: 15 },
-                        { label: '18%', pct: 18 },
-                        { label: '20%', pct: 20 },
-                        { label: '25%', pct: 25 },
-                      ].map((btn) => {
-                        const tipAmt = centsToDollars(Math.round((afterDiscountCents * btn.pct) / 100));
-                        const isSelected = checkoutModal.tipPercentage === btn.pct && checkoutModal.totalTipDollars === '';
+                      {tipPresets.map((percent) => {
+                        const tipAmount = centsToDollars(Math.round((totals.afterDiscountCents * percent) / 100));
+                        const isSelected = checkoutModal.tipPercentage === percent && checkoutModal.totalTipDollars === '';
                         return (
                           <button
-                            key={btn.label}
+                            key={percent}
                             type="button"
-                            onClick={() =>
-                              setCheckoutModal((prev) => ({
-                                ...prev,
-                                tipPercentage: btn.pct,
-                                totalTipDollars: '',
-                              }))
-                            }
+                            aria-pressed={isSelected}
+                            onClick={() => setCheckoutModal((prev) => ({ ...prev, tipPercentage: percent, totalTipDollars: '' }))}
                             className={cn(
-                              'p-1.5 rounded-xl border text-center font-bold transition-all',
+                              'rounded-lg border p-2 text-center transition-colors',
                               isSelected
-                                ? 'border-teal-500 bg-teal-50 text-teal-900 ring-1 ring-teal-400'
+                                ? 'border-teal-500 bg-teal-50 text-teal-900'
                                 : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
                             )}
                           >
-                            <span className="block text-[11px]">{btn.label}</span>
-                            <span className="block text-[9px] font-mono text-slate-400">${tipAmt}</span>
+                            <span className="block text-xs font-semibold">
+                              {percent === 0 ? t('queue.quCoNoTip') : `${percent}%`}
+                            </span>
+                            <span className="block font-mono text-xs text-slate-500">${tipAmount}</span>
                           </button>
                         );
                       })}
@@ -3491,278 +3669,272 @@ function QueueContent() {
 
                     <div className="grid grid-cols-2 gap-3 pt-1">
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-600 mb-1">Custom Total Tip ($)</label>
+                        <label htmlFor="checkout-custom-tip" className="mb-1 block text-xs font-medium text-slate-600">
+                          {t('queue.quCoCustomTip')}
+                        </label>
                         <Input
+                          id="checkout-custom-tip"
                           inputMode="decimal"
                           value={checkoutModal.totalTipDollars}
-                          onChange={(e) =>
-                            setCheckoutModal((prev) => ({ ...prev, totalTipDollars: e.target.value }))
-                          }
+                          onChange={(e) => setCheckoutModal((prev) => ({ ...prev, totalTipDollars: e.target.value }))}
                           placeholder="0.00"
-                          className="font-mono text-xs"
+                          className="font-mono text-sm"
                         />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-600 mb-1">Split Strategy</label>
+                        <label htmlFor="checkout-split-strategy" className="mb-1 block text-xs font-medium text-slate-600">
+                          {t('queue.quCoSplitStrategy')}
+                        </label>
                         <select
+                          id="checkout-split-strategy"
                           value={checkoutModal.splitStrategy}
-                          onChange={(e) =>
-                            setCheckoutModal((prev) => ({ ...prev, splitStrategy: e.target.value as any }))
-                          }
-                          className="w-full px-2 py-1.5 text-xs rounded-xl border border-slate-200 bg-white font-medium"
+                          onChange={(e) => setCheckoutModal((prev) => ({ ...prev, splitStrategy: e.target.value as 'proportional' | 'equal' }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
                         >
-                          <option value="proportional">Proportional to Service Revenue (Recommended)</option>
-                          <option value="equal">Equal Split</option>
+                          <option value="proportional">{t('queue.quCoSplitProportional')}</option>
+                          <option value="equal">{t('queue.quCoSplitEqual')}</option>
                         </select>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    {staffList.map((st) => (
-                      <div key={st.name} className="p-2 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
-                        <span className="font-bold text-slate-800 text-[11px] block">{st.name}</span>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {staffList.map((staffShare) => (
+                      <div key={staffShare.membershipId} className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                        <label htmlFor={`tip-${staffShare.membershipId}`} className="block text-xs font-semibold text-slate-800">
+                          {staffShare.name}
+                        </label>
                         <Input
+                          id={`tip-${staffShare.membershipId}`}
                           inputMode="decimal"
-                          value={checkoutModal.customStaffTips[st.name] || ''}
-                          onChange={(e) =>
-                            setCheckoutModal((prev) => ({
-                              ...prev,
-                              customStaffTips: { ...prev.customStaffTips, [st.name]: e.target.value },
-                            }))
-                          }
+                          value={checkoutModal.customStaffTips[staffShare.membershipId] || ''}
+                          onChange={(e) => setCheckoutModal((prev) => ({
+                            ...prev,
+                            customStaffTips: { ...prev.customStaffTips, [staffShare.membershipId]: e.target.value },
+                          }))}
                           placeholder="0.00"
-                          className="font-mono text-xs h-7"
+                          className="h-8 font-mono text-sm"
                         />
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* 小费分配预览 */}
-                <div className="p-2.5 bg-teal-50/50 rounded-xl border border-teal-100 space-y-1">
-                  <div className="flex justify-between items-center text-[10px] font-bold text-teal-900">
-                    <span>Tip Allocation:</span>
-                    <span className="font-mono text-teal-700">Total Tips: ${centsToDollars(totalTipCents)}</span>
+                {/* 分账预览 —— 与提交内容完全一致 */}
+                <div className="mt-2 space-y-1 rounded-xl border border-teal-100 bg-teal-50/60 p-2.5">
+                  <div className="flex items-center justify-between text-xs font-semibold text-teal-900">
+                    <span>{t('queue.quCoTipAllocation')}</span>
+                    <span className="font-mono">{t('queue.quCoTotalTips', { p0: centsToDollars(totals.totalTipCents) })}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    {tipAllocations.map((st) => (
-                      <div key={st.name} className="p-1.5 bg-white rounded-lg border border-teal-200 text-[11px] space-y-0.5">
-                        <div className="flex justify-between items-center">
-                          <span className="font-bold text-slate-800">{st.name}</span>
-                          <span className="font-mono font-bold text-teal-700">+${centsToDollars(st.allocatedTipCents)} ({st.percent}%)</span>
-                        </div>
+                    {totals.tipAllocations.map((allocation) => (
+                      <div key={allocation.membershipId} className="flex items-center justify-between rounded-lg border border-teal-200 bg-white p-1.5 text-xs">
+                        <span className="font-medium text-slate-800">{allocation.name}</span>
+                        <span className="font-mono font-semibold text-teal-800">
+                          +${centsToDollars(allocation.allocatedTipCents)} ({allocation.percent}%)
+                        </span>
                       </div>
                     ))}
                   </div>
                 </div>
-              </div>
+              </section>
 
-              {/* 4. 税费与信用卡手续费 */}
+              {/* 4. 税费与刷卡附加费 */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 bg-white rounded-2xl border border-slate-200 space-y-1.5 shadow-sm">
-                  <div className="flex justify-between items-center">
-                    <label className="font-bold text-slate-800 flex items-center gap-1.5 cursor-pointer">
+                <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-white p-3">
+                  <div className="flex items-center justify-between">
+                    <label className="flex cursor-pointer items-center gap-1.5 font-medium text-slate-800">
                       <input
                         type="checkbox"
                         checked={checkoutModal.enableTax}
-                        onChange={(e) =>
-                          setCheckoutModal((prev) => ({ ...prev, enableTax: e.target.checked }))
-                        }
-                        className="w-3.5 h-3.5 rounded text-teal-600"
+                        onChange={(e) => setCheckoutModal((prev) => ({ ...prev, enableTax: e.target.checked }))}
+                        className="h-4 w-4 rounded text-teal-600"
                       />
-                      <span>Sales Tax</span>
+                      <span>{t('queue.quCoSalesTax')}</span>
                     </label>
-                    <span className="font-mono font-bold text-slate-700">+${centsToDollars(taxCents)}</span>
+                    <span className="font-mono font-semibold text-slate-700">+${centsToDollars(totals.taxCents)}</span>
                   </div>
                   {checkoutModal.enableTax && (
                     <div className="flex items-center gap-1.5 pt-1">
-                      <span className="text-[10px] text-slate-400">Tax Rate (%):</span>
+                      <label htmlFor="checkout-tax-rate" className="text-xs text-slate-500">{t('queue.quCoTaxRate')}</label>
                       <Input
+                        id="checkout-tax-rate"
                         inputMode="decimal"
                         value={checkoutModal.taxRatePercent}
-                        onChange={(e) =>
-                          setCheckoutModal((prev) => ({ ...prev, taxRatePercent: e.target.value }))
-                        }
-                        className="h-6 w-16 text-xs font-mono"
+                        onChange={(e) => setCheckoutModal((prev) => ({ ...prev, taxRatePercent: e.target.value }))}
+                        className="h-7 w-20 font-mono text-sm"
                       />
                     </div>
                   )}
                 </div>
 
-                <div className="p-3 bg-white rounded-2xl border border-slate-200 space-y-1.5 shadow-sm">
-                  <div className="flex justify-between items-center">
-                    <label className="font-bold text-slate-800 flex items-center gap-1.5 cursor-pointer">
+                <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-white p-3">
+                  <div className="flex items-center justify-between">
+                    <label className="flex cursor-pointer items-center gap-1.5 font-medium text-slate-800">
                       <input
                         type="checkbox"
                         checked={checkoutModal.enableCardSurcharge}
-                        onChange={(e) =>
-                          setCheckoutModal((prev) => ({ ...prev, enableCardSurcharge: e.target.checked }))
-                        }
-                        className="w-3.5 h-3.5 rounded text-purple-600"
+                        onChange={(e) => setCheckoutModal((prev) => ({ ...prev, enableCardSurcharge: e.target.checked }))}
+                        className="h-4 w-4 rounded text-teal-600"
                       />
-                      <span>Card Surcharge</span>
+                      <span>{t('queue.quCoCardSurcharge')}</span>
                     </label>
-                    <span className="font-mono font-bold text-purple-700">+${centsToDollars(cardSurchargeCents)}</span>
+                    <span className="font-mono font-semibold text-slate-700">+${centsToDollars(totals.cardSurchargeCents)}</span>
                   </div>
                   {checkoutModal.enableCardSurcharge && (
-                    <div className="flex items-center gap-1 pt-1">
-                      {['3.0', '3.5', '4.0'].map((rate) => (
-                        <button
-                          key={rate}
-                          type="button"
-                          onClick={() =>
-                            setCheckoutModal((prev) => ({ ...prev, cardSurchargePercent: rate }))
-                          }
-                          className={cn(
-                            'px-1.5 py-0.5 text-[9px] rounded border font-bold',
-                            checkoutModal.cardSurchargePercent === rate
-                              ? 'bg-purple-600 text-white border-purple-600'
-                              : 'bg-slate-100 text-slate-600',
-                          )}
-                        >
-                          {rate}%
-                        </button>
-                      ))}
-                    </div>
+                    <>
+                      <div className="flex items-center gap-1 pt-1">
+                        {['3.0', '3.5', '4.0'].map((rate) => (
+                          <button
+                            key={rate}
+                            type="button"
+                            aria-pressed={checkoutModal.cardSurchargePercent === rate}
+                            onClick={() => setCheckoutModal((prev) => ({ ...prev, cardSurchargePercent: rate }))}
+                            className={cn(
+                              'rounded-lg border px-2 py-0.5 text-xs font-medium transition-colors',
+                              checkoutModal.cardSurchargePercent === rate
+                                ? 'border-teal-600 bg-teal-600 text-white'
+                                : 'border-slate-200 bg-white text-slate-600',
+                            )}
+                          >
+                            {rate}%
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-400">{t('queue.quCoSurchargeTipNotice')}</p>
+                    </>
                   )}
                 </div>
               </div>
 
               {/* 5. 费用核算汇总 */}
-              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-1.5">
+              <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50 p-3">
                 <div className="flex justify-between text-slate-600">
-                  <span>Subtotal (Base & Add-ons)</span>
-                  <span className="font-mono font-bold text-slate-800">${centsToDollars(baseCents)}</span>
+                  <span>{t('queue.quCoSubtotalLine')}</span>
+                  <span className="font-mono font-semibold text-slate-800">${centsToDollars(baseCents)}</span>
                 </div>
-                <div className="flex justify-between items-center text-slate-600">
-                  <span>Discounts & Vouchers</span>
+                <div className="flex items-center justify-between text-slate-600">
+                  <label htmlFor="checkout-discount">{t('queue.quCoDiscountLine')}</label>
                   <Input
+                    id="checkout-discount"
                     inputMode="decimal"
                     value={checkoutModal.discountDollars}
-                    onChange={(e) =>
-                      setCheckoutModal((prev) => ({ ...prev, discountDollars: e.target.value }))
-                    }
-                    className="h-6 w-20 text-right font-mono text-xs"
+                    onChange={(e) => setCheckoutModal((prev) => ({ ...prev, discountDollars: e.target.value }))}
+                    className="h-7 w-24 text-right font-mono text-sm"
                     placeholder="0"
                   />
                 </div>
                 {checkoutModal.enableTax && (
                   <div className="flex justify-between text-slate-600">
-                    <span>Sales Tax ({checkoutModal.taxRatePercent}%)</span>
-                    <span className="font-mono font-bold text-slate-800">+${centsToDollars(taxCents)}</span>
+                    <span>{t('queue.quCoTaxLine', { p0: checkoutModal.taxRatePercent })}</span>
+                    <span className="font-mono font-semibold text-slate-800">+${centsToDollars(totals.taxCents)}</span>
                   </div>
                 )}
                 {checkoutModal.enableCardSurcharge && hasCard && (
-                  <div className="flex justify-between text-purple-700">
-                    <span>Credit Card Processing Fee ({checkoutModal.cardSurchargePercent}%)</span>
-                    <span className="font-mono font-bold">+${centsToDollars(cardSurchargeCents)}</span>
+                  <div className="flex justify-between text-slate-600">
+                    <span>{t('queue.quCoSurchargeLine', { p0: checkoutModal.cardSurchargePercent })}</span>
+                    <span className="font-mono font-semibold text-slate-800">+${centsToDollars(totals.cardSurchargeCents)}</span>
                   </div>
                 )}
-                <div className="pt-1.5 border-t border-slate-200 flex justify-between items-end font-bold">
-                  <span className="text-slate-800 text-xs">Total Due:</span>
-                  <span className="text-base font-black text-teal-700 font-mono">
-                    ${centsToDollars(totalDueCents)}
-                  </span>
+                <div className="flex items-end justify-between border-t border-slate-200 pt-1.5">
+                  <span className="font-semibold text-slate-800">{t('queue.quCoTotalDue')}</span>
+                  <span className="font-mono text-base font-bold text-slate-900">${centsToDollars(totals.totalDueCents)}</span>
                 </div>
               </div>
 
-              {/* 6. 收款方式选择 */}
+              {/* 6. 收款方式 */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Select Payment Method *
-                </label>
+                <span className="mb-1.5 block font-medium text-slate-700">{t('queue.quCoPaymentMethod')}</span>
                 <div className="grid grid-cols-4 gap-2">
-                  {[
-                    { id: 'card', label: 'Card / POS', icon: CreditCard },
-                    { id: 'cash', label: 'Cash', icon: Coins },
-                    { id: 'gift_card', label: 'Gift Card', icon: Gift },
-                    { id: 'apple_pay', label: 'ApplePay', icon: Wallet },
-                  ].map((m) => (
+                  {([
+                    { id: 'card', labelKey: 'queue.quCoPayCard', icon: CreditCard },
+                    { id: 'cash', labelKey: 'queue.quCoPayCash', icon: Coins },
+                    { id: 'gift_card', labelKey: 'queue.quCoPayGiftCard', icon: Gift },
+                    { id: 'apple_pay', labelKey: 'queue.quCoPayApplePay', icon: Wallet },
+                  ] as const).map((method) => (
                     <button
-                      key={m.id}
+                      key={method.id}
                       type="button"
-                      onClick={() =>
-                        setCheckoutModal((prev) => ({ ...prev, paymentMethod: m.id as any }))
-                      }
+                      aria-pressed={checkoutModal.paymentMethod === method.id}
+                      onClick={() => setCheckoutModal((prev) => ({ ...prev, paymentMethod: method.id }))}
                       className={cn(
-                        'p-2 rounded-xl border flex flex-col items-center gap-1 font-bold transition-all text-xs',
-                        checkoutModal.paymentMethod === m.id
-                          ? 'border-emerald-500 bg-emerald-50 text-emerald-900 shadow-sm ring-1 ring-emerald-400'
-                          : 'border-slate-200 hover:bg-slate-50 text-slate-600',
+                        'flex flex-col items-center gap-1 rounded-lg border p-2 text-xs font-medium transition-colors',
+                        checkoutModal.paymentMethod === method.id
+                          ? 'border-teal-500 bg-teal-50 font-semibold text-teal-900'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
                       )}
                     >
-                      <m.icon className="w-4 h-4" />
-                      <span>{m.label}</span>
+                      <method.icon className="h-4 w-4" />
+                      <span>{t(method.labelKey)}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Cash找零与转小费 */}
+              {/* 现金找零与「不用找了」 */}
               {checkoutModal.paymentMethod === 'cash' && (
-                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
+                <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-bold text-amber-900 mb-1">{t('queue.quCashReceived')}</label>
+                      <label htmlFor="checkout-tendered" className="mb-1 block text-xs font-medium text-slate-600">
+                        {t('queue.quCashReceived')}
+                      </label>
                       <Input
+                        id="checkout-tendered"
                         inputMode="decimal"
                         value={checkoutModal.tenderedDollars}
-                        onChange={(e) =>
-                          setCheckoutModal((prev) => ({ ...prev, tenderedDollars: e.target.value }))
-                        }
+                        onChange={(e) => setCheckoutModal((prev) => ({ ...prev, tenderedDollars: e.target.value }))}
                         placeholder={t('queue.quAmountPlaceholder')}
-                        className="font-mono text-xs"
+                        className="font-mono text-sm"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-amber-900 mb-1">Change Due</label>
-                      <div className="py-1.5 px-3 bg-white rounded-xl border border-amber-300 font-mono font-bold text-sm text-amber-900">
+                      <span className="mb-1 block text-xs font-medium text-slate-600">{t('queue.quCoChangeDue')}</span>
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 font-mono text-sm font-semibold text-slate-900">
                         ${centsToDollars(checkoutModal.keepChange ? 0 : rawChangeDue)}
                       </div>
                     </div>
                   </div>
                   {rawChangeDue > 0 && (
-                    <label className="flex items-center gap-2 cursor-pointer p-2 bg-white/80 rounded-lg border border-amber-300">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
                       <input
                         type="checkbox"
                         checked={checkoutModal.keepChange}
-                        onChange={(e) =>
-                          setCheckoutModal((prev) => ({ ...prev, keepChange: e.target.checked }))
-                        }
-                        className="w-4 h-4 rounded text-teal-600"
+                        onChange={(e) => setCheckoutModal((prev) => ({ ...prev, keepChange: e.target.checked }))}
+                        className="h-4 w-4 rounded text-teal-600"
                       />
-                      <span className="font-bold text-amber-950 text-[11px]">
-                        Keep the change (Auto added to tip)（${centsToDollars(rawChangeDue)}  {t('queue.quAutoToTip')}
+                      <span className="text-xs font-medium text-slate-800">
+                        {t('queue.quCoKeepChange', { p0: centsToDollars(rawChangeDue) })}
                       </span>
                     </label>
                   )}
                 </div>
               )}
 
-              {/* Gift Card输入与核验 */}
+              {/* Gift Card 核验 */}
               {checkoutModal.paymentMethod === 'gift_card' && (
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-                  <label className="block font-bold text-slate-700 mb-1">{t('queue.quEnterGiftCard')}</label>
+                <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-3">
+                  <label htmlFor="checkout-gift-card" className="block text-xs font-medium text-slate-600">
+                    {t('queue.quEnterGiftCard')}
+                  </label>
                   <div className="flex gap-2">
                     <Input
+                      id="checkout-gift-card"
                       value={checkoutModal.giftCardCode}
-                      onChange={(e) =>
-                        setCheckoutModal((prev) => ({
-                          ...prev,
-                          giftCardCode: e.target.value,
-                          giftCardId: '',
-                          giftCardVerified: false,
-                        }))
-                      }
+                      onChange={(e) => setCheckoutModal((prev) => ({
+                        ...prev,
+                        giftCardCode: e.target.value,
+                        giftCardId: '',
+                        giftCardVerified: false,
+                      }))}
                       placeholder="GF-GC-XXXX"
-                      className="font-mono text-xs"
+                      className="font-mono text-sm"
                     />
                     <Button
                       size="sm"
                       variant="secondary"
-                      disabled={!checkoutModal.giftCardCode.trim() || checkoutModal.isVerifyingGiftCard}
-                      onClick={async () => {
+                      isDisabled={!checkoutModal.giftCardCode.trim() || checkoutModal.isVerifyingGiftCard}
+                      onPress={async () => {
                         setCheckoutModal((prev) => ({ ...prev, isVerifyingGiftCard: true }));
                         try {
                           const res = await verifyGiftCard(checkoutModal.giftCardCode.trim());
@@ -3784,33 +3956,35 @@ function QueueContent() {
                           setCheckoutModal((prev) => ({ ...prev, isVerifyingGiftCard: false }));
                         }
                       }}
-                      className="text-xs font-bold shrink-0"
+                      className="shrink-0 text-sm font-semibold"
                     >
-                      {checkoutModal.isVerifyingGiftCard ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : t('queue.quVerifyCard')}
+                      {checkoutModal.isVerifyingGiftCard ? <RefreshCw className="h-4 w-4 animate-spin" /> : t('queue.quVerifyCard')}
                     </Button>
                   </div>
                   {checkoutModal.giftCardVerified && (
-                    <div className="p-2 bg-emerald-50 rounded-lg border border-emerald-200 text-emerald-800 text-[11px] font-bold flex justify-between">
+                    <div className="flex justify-between rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-xs font-medium text-emerald-800">
                       <span>{t('queue.quGiftCardVerified')}</span>
-                      <span>Available Balance: ${centsToDollars(checkoutModal.giftCardBalanceCents)}</span>
+                      <span className="font-mono">{t('queue.quCoGiftCardBalance', { p0: centsToDollars(checkoutModal.giftCardBalanceCents) })}</span>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* 最终深色结算总额 Bar */}
-              <div className="p-3.5 bg-slate-900 text-white rounded-2xl flex items-center justify-between shadow-lg">
+              {/* 最终结算总额 */}
+              <div className="flex items-center justify-between rounded-2xl bg-slate-900 p-3.5 text-white">
                 <div>
-                  <span className="text-[11px] text-slate-400 block">
-                    
-                    {t('queue.quTotalCollectedPrefix')}{centsToDollars(totalDueCents)}  {t('queue.quTipSep')}{centsToDollars(totalTipCents)})
+                  <span className="block text-xs text-slate-400">
+                    {t('queue.quCoChargedBreakdown', {
+                      p0: centsToDollars(totals.totalDueCents),
+                      p1: centsToDollars(totals.totalTipCents),
+                    })}
                   </span>
-                  <span className="font-mono text-xl font-black text-emerald-400">
-                    ${centsToDollars(chargedTotalCents)}
+                  <span className="font-mono text-xl font-bold text-emerald-400">
+                    ${centsToDollars(totals.chargedTotalCents)}
                   </span>
                 </div>
-                <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-300 font-black text-xs px-2.5 py-1">
-                  {checkoutModal.paymentMethod.toUpperCase()}
+                <Badge variant="secondary" className="bg-white/10 font-semibold text-emerald-300">
+                  {t(PAYMENT_METHOD_LABEL_KEYS[checkoutModal.paymentMethod])}
                 </Badge>
               </div>
             </div>
@@ -3826,9 +4000,9 @@ function QueueContent() {
             if (!open) setRollbackModal((prev) => ({ ...prev, isOpen: false, item: null, fromStage: null, toStage: null }));
           }}
           title={
-            <div className="flex items-center gap-2 text-red-600 font-bold">
+            <div className="flex items-center gap-2 text-rose-600 font-bold">
               <ShieldAlert className="w-5 h-5" />
-              <span>Rollback Stage Audit Confirmation</span>
+              <span>{t('queue.quRollbackTitle')}</span>
             </div>
           }
           size="md"
@@ -3838,32 +4012,33 @@ function QueueContent() {
                 variant="secondary"
                 onClick={() => setRollbackModal((prev) => ({ ...prev, isOpen: false, item: null, fromStage: null, toStage: null }))}
               >
-                
                 {t('queue.quRollbackCancel')}
               </Button>
               <Button
-                className="bg-red-600 hover:bg-red-700 text-white font-bold gap-1 shadow-md shadow-red-600/20"
-                onClick={handleConfirmRollback}
+                className={DANGER_ACTION_CLASS}
+                isDisabled={rollbackStageMutation.isPending}
+                onPress={handleConfirmRollback}
               >
-                <ArrowLeft className="w-4 h-4" />
-                <span>{t('queue.quRollbackConfirmTo', { p0: t(STAGE_NAME_KEYS[rollbackModal.toStage]) })}</span>
+                {rollbackStageMutation.isPending
+                  ? <><Spinner size="sm" />{t('queue.quProcessing')}</>
+                  : <><ArrowLeft className="h-4 w-4" />{t('queue.quRollbackConfirmTo', { p0: t(STAGE_NAME_KEYS[rollbackModal.toStage]) })}</>}
               </Button>
             </div>
           }
         >
           <div className="space-y-3.5 py-2 text-xs text-slate-700">
             {/* 顾客与回退流转路径 */}
-            <div className="p-3 bg-red-50 rounded-2xl border border-red-200 space-y-1.5">
+            <div className="p-3 bg-rose-50 rounded-2xl border border-rose-200 space-y-1.5">
               <div className="flex items-center justify-between">
-                <span className="font-bold text-red-950 text-sm">{rollbackModal.item.customerName}</span>
-                <Badge variant="error" className="text-[10px] font-bold">{t('queue.quRollbackOperationBadge')}</Badge>
+                <span className="font-bold text-rose-950 text-sm">{rollbackModal.item.customerName}</span>
+                <Badge variant="error" className="text-xs font-bold">{t('queue.quRollbackOperationBadge')}</Badge>
               </div>
-              <div className="flex items-center gap-2 font-mono text-xs font-bold text-red-800">
-                <span className="p-1 bg-white rounded-lg border border-red-200">{t(STAGE_NAME_KEYS[rollbackModal.fromStage])}</span>
-                <ArrowLeft className="w-3.5 h-3.5 text-red-600" />
-                <span className="p-1 bg-red-100 rounded-lg border border-red-300 text-red-950">{t(STAGE_NAME_KEYS[rollbackModal.toStage])}</span>
+              <div className="flex items-center gap-2 font-mono text-xs font-bold text-rose-800">
+                <span className="p-1 bg-white rounded-lg border border-rose-200">{t(STAGE_NAME_KEYS[rollbackModal.fromStage])}</span>
+                <ArrowLeft className="w-3.5 h-3.5 text-rose-600" />
+                <span className="p-1 bg-rose-100 rounded-lg border border-rose-300 text-rose-950">{t(STAGE_NAME_KEYS[rollbackModal.toStage])}</span>
               </div>
-              <p className="text-[11px] text-red-700 leading-relaxed pt-1">
+              <p className="text-xs text-rose-700 leading-relaxed pt-1">
                 {rollbackModal.fromStage === 'ready_checkout' && rollbackModal.toStage === 'in_service' && (
                   <span>{t('queue.quRollbackWarnService')}</span>
                 )}
@@ -3889,7 +4064,7 @@ function QueueContent() {
                     className={cn(
                       'flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all text-xs font-medium',
                       rollbackModal.reason === r.id
-                        ? 'border-red-400 bg-red-50/60 text-red-950 font-bold ring-1 ring-red-300'
+                        ? 'border-rose-400 bg-rose-50/60 text-rose-950 font-bold ring-1 ring-rose-300'
                         : 'border-slate-200 hover:bg-slate-50 text-slate-700',
                     )}
                   >
@@ -3899,26 +4074,21 @@ function QueueContent() {
                       value={r.id}
                       checked={rollbackModal.reason === r.id}
                       onChange={() => setRollbackModal((prev) => ({ ...prev, reason: r.id }))}
-                      className="text-red-600 focus:ring-red-500/20"
+                      className="text-rose-600 focus:ring-rose-500/20"
                     />
-                    <span>{r.label}</span>
+                    <span>{t(r.labelKey)}</span>
                   </label>
                 ))}
               </div>
             </div>
 
-            {/* 自动同步释放资源复选框 */}
-            <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
-              <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-800 text-xs">
-                <input
-                  type="checkbox"
-                  checked={rollbackModal.releaseResources}
-                  onChange={(e) => setRollbackModal((prev) => ({ ...prev, releaseResources: e.target.checked }))}
-                  className="w-3.5 h-3.5 rounded text-red-600 focus:ring-red-500/20"
-                />
-                <span>{t('queue.quRollbackAutoSync')}</span>
-              </label>
-            </div>
+            {/*
+              资源释放由服务端在回退时一并处理，前台没有开关可选 ——
+              此前这里是一个复选框，勾与不勾结果完全相同，现改为如实说明。
+            */}
+            <p className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs leading-relaxed text-slate-600">
+              {t('queue.quRollbackResourceNotice')}
+            </p>
 
             {/* 具体备注说明 */}
             <div>
@@ -3956,7 +4126,7 @@ function QueueContent() {
           title={
             <div className="flex items-center gap-2 text-teal-800 font-bold">
               <User className="w-5 h-5 text-teal-600" />
-              <span>Walk-in Guest Record · {viewingQueueModal.item.customerName}</span>
+              <span>{t('queue.quWiTitle', { p0: viewingQueueModal.item.customerName })}</span>
             </div>
           }
           size="md"
@@ -3966,7 +4136,6 @@ function QueueContent() {
                 variant="secondary"
                 onClick={() => setViewingQueueModal({ isOpen: false, item: null })}
               >
-                
                 {t('queue.quQrClose')}
               </Button>
               {viewingQueueModal.item.stage === 'waiting' && (
@@ -3979,7 +4148,7 @@ function QueueContent() {
                   }}
                 >
                   <Scissors className="w-4 h-4" />
-                  <span>Assign Station & Seat</span>
+                  <span>{t('queue.quWiAssignSeat')}</span>
                 </Button>
               )}
             </div>
@@ -3989,25 +4158,25 @@ function QueueContent() {
             {/* 头部信息 */}
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center font-extrabold text-sm border border-teal-200">
+                <div className="w-10 h-10 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center font-bold text-sm border border-teal-200">
                   {viewingQueueModal.item.customerName.charAt(0)}
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-sm text-slate-900">{viewingQueueModal.item.customerName}</span>
                     {viewingQueueModal.item.ticketNumber && (
-                      <span className="font-mono text-xs font-black px-1.5 py-0.5 rounded bg-amber-100 text-amber-900">
+                      <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900">
                         #{viewingQueueModal.item.ticketNumber}
                       </span>
                     )}
                   </div>
-                  <span className="text-[11px] text-slate-500 font-mono">
-                    {viewingQueueModal.item.phone ? formatPhoneDisplay(viewingQueueModal.item.phone) : 'No phone provided (Walk-in)'}
+                  <span className="text-xs text-slate-500 font-mono">
+                    {viewingQueueModal.item.phone ? formatPhoneDisplay(viewingQueueModal.item.phone) : t('queue.quWiNoPhone')}
                   </span>
                 </div>
               </div>
               <div className="text-right">
-                <span className="text-[10px] text-slate-400 block font-bold">Current Status</span>
+                <span className="block text-xs text-slate-500">{t('queue.quWiCurrentStatus')}</span>
                 <Badge variant="secondary" className="text-xs font-bold bg-amber-100 text-amber-800">
                   {viewingQueueModal.item.timeDisplay}
                 </Badge>
@@ -4017,16 +4186,16 @@ function QueueContent() {
             {/* 服务与排号信息 */}
             <div className="p-3.5 bg-white border border-slate-200 rounded-2xl space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-slate-500">Requested Service</span>
+                <span className="text-slate-500">{t('queue.quWiRequestedService')}</span>
                 <span className="font-bold text-slate-900">{viewingQueueModal.item.serviceName}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-500">Assigned Specialist</span>
-                <span className="font-bold text-slate-900">{viewingQueueModal.item.staffName || 'Rotation Pending'}</span>
+                <span className="text-slate-500">{t('queue.quWiAssignedStaff')}</span>
+                <span className="font-semibold text-slate-900">{viewingQueueModal.item.staffName || t('queue.quWiRotationPending')}</span>
               </div>
               {viewingQueueModal.item.roomName && (
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Reserved Room / Station</span>
+                  <span className="text-slate-500">{t('queue.quWiReservedRoom')}</span>
                   <span className="font-bold text-teal-700">{viewingQueueModal.item.roomName}</span>
                 </div>
               )}
@@ -4041,14 +4210,14 @@ function QueueContent() {
                 return (
                   <div className="p-3.5 bg-rose-50 border-2 border-rose-200 rounded-2xl space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-extrabold text-rose-950 text-xs flex items-center gap-1.5">
+                      <span className="font-bold text-rose-950 text-xs flex items-center gap-1.5">
                         <FileWarning className="w-4 h-4 text-rose-600" />
-                        <span>⚠️ Health form and waiver not signed yet</span>
+                        <span>{t('queue.quWiFormPendingTitle')}</span>
                       </span>
-                      <Badge variant="destructive" className="text-[9px] font-bold">Form Pending</Badge>
+                      <Badge variant="error" className="shrink-0 text-xs">{t('queue.quWiFormPendingBadge')}</Badge>
                     </div>
-                    <p className="text-[11px] text-rose-800">
-                      Please guide guest to scan or sign on iPad before service.
+                    <p className="text-xs text-rose-800">
+                      {t('queue.quWiFormPendingHint')}
                     </p>
                     <div className="flex items-center gap-2 pt-1">
                       <button
@@ -4060,7 +4229,7 @@ function QueueContent() {
                         className="flex-1 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl flex items-center justify-center gap-1 text-xs shadow-xs cursor-pointer"
                       >
                         <QrCode className="w-3.5 h-3.5" />
-                        <span>Scan Form QR</span>
+                        <span>{t('queue.quWiScanQr')}</span>
                       </button>
                       <button
                         type="button"
@@ -4081,9 +4250,9 @@ function QueueContent() {
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between">
                   <span className="font-bold text-emerald-950 text-xs flex items-center gap-1.5">
                     <CheckCircle className="w-4 h-4 text-emerald-600" />
-                    <span>✓ Digital waiver signed & verified</span>
+                    <span>{t('queue.quWiSignedTitle')}</span>
                   </span>
-                  <Badge variant="success" className="text-[9px] font-bold">Signed & Verified</Badge>
+                  <Badge variant="success" className="shrink-0 text-xs">{t('queue.quWiSignedBadge')}</Badge>
                 </div>
               );
             })()}

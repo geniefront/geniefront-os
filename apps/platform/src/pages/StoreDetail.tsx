@@ -159,6 +159,7 @@ export function StoreDetail() {
         ) : <p className="text-sm text-slate-500">No billing account row.</p>}
       </section>
 
+      <Link className="block rounded-xl border bg-white p-4 text-teal-700" to="/email">Email delivery, subaccounts and DNS work orders →</Link>
       <MessagingPanel locationId={locationId!} />
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-1">
@@ -184,121 +185,11 @@ export function StoreDetail() {
  * 本地部分上 —— 因此这里不需要任何 DNS 操作，也没有逐店的域名要建。
  */
 function MessagingPanel({ locationId }: { locationId: string }) {
-  const qc = useQueryClient();
-  const [label, setLabel] = useState('');
-  const [result, setResult] = useState<MarketingResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const q = useQuery({
-    queryKey: ['platform', 'store', locationId, 'messaging'],
-    queryFn: () => platformGet<Messaging>(`/v1/platform/stores/${locationId}/messaging`),
-  });
-
-  const act = useMutation({
-    mutationFn: (action: 'check' | 'disable') => platformSend<MarketingResult>(
-      'POST',
-      `/v1/platform/stores/${locationId}/marketing-email`,
-      { action, ...(label.trim() ? { label: label.trim() } : {}) },
-    ),
-    onMutate: () => { setError(null); setResult(null); },
-    onSuccess: (res) => {
-      setResult(res);
-      void qc.invalidateQueries({ queryKey: ['platform', 'store', locationId, 'messaging'] });
-    },
-    onError: (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
-  });
-
-  const m = q.data;
-  if (!m) return null;
-
-  const smsOpen = m.tenDlcStatus === 'approved';
-  const emailOpen = Boolean(m.marketingEmailFrom);
-
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-      <h2 className="font-medium">Outbound messaging</h2>
-
-      <p className="text-xs text-slate-500">
-        预约确认 / 修改 / 取消 / 次日提醒走平台品牌，<strong>不受下面两道闸门影响</strong>，
-        任何时候都在发。这两道管的是营销与前台手打。
-      </p>
-
-      <div className="space-y-1">
-        <Row label="10DLC (marketing SMS)" value={`${m.tenDlcStatus}${smsOpen ? '' : ' — 营销短信 / 技师通知 / 前台手打全部停发'}`} />
-        <Row label="Reviewed at" value={m.tenDlcReviewedAt ?? '—'} />
-        <Link to={`/10dlc/${locationId}`} className="text-sm text-teal-700 inline-block">
-          在 10DLC 页面审批 →
-        </Link>
-      </div>
-
-      <div className="space-y-1 pt-2 border-t border-slate-100">
-        <Row
-          label="Marketing email from"
-          value={m.marketingEmailFrom ?? '— 未配置，营销邮件停发'}
-          copyable={emailOpen}
-        />
-        <Row label="Slug (子域按它推算)" value={m.slug} />
-        <Row label="Appointment copy to shop" value={m.appointmentEmailCopyToShop ? `yes → ${m.shopEmail ?? '（门店没填邮箱，实际不抄送）'}` : 'no'} />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 pt-1">
-        <input
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder="子域标签（留空按 slug 推算）"
-          className="rounded-lg border border-slate-300 px-2 py-1 text-sm font-mono w-64"
-        />
-        <button
-          type="button"
-          disabled={act.isPending}
-          onClick={() => act.mutate('check')}
-          className="rounded-lg bg-slate-900 text-white px-3 py-1.5 text-sm disabled:opacity-60"
-        >
-          {act.isPending ? '正在核验…' : '检查并启用'}
-        </button>
-        {emailOpen ? (
-          <button
-            type="button"
-            disabled={act.isPending}
-            onClick={() => act.mutate('disable')}
-            className="rounded-lg border border-red-300 text-red-700 px-3 py-1.5 text-sm disabled:opacity-60"
-          >
-            停用
-          </button>
-        ) : null}
-      </div>
-
-      <p className="text-xs text-slate-500">
-        点「检查并启用」即可：服务端会先向当前邮件供应商核实营销发件域确为
-        verified，通过了才写库 —— 这个按钮核验的是事实，不是你的声明。
-        营销域是所有门店共用的，不需要为这家店做任何 DNS 操作。
-        每次启用都会重新核验一遍：域名可能在两次之间被供应商停用，而停用不会有任何通知。
-      </p>
-
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
-
-      {result ? (
-        result.marketingEmailFrom ? (
-          <p className="text-sm text-green-700">
-            已启用：{result.marketingEmailFrom}（{result.domain} 状态 {result.domainStatus}）
-          </p>
-        ) : result.domainStatus === 'disabled' ? (
-          <p className="text-sm text-slate-700">已停用，营销邮件立刻停发。供应商侧未做任何改动。</p>
-        ) : (
-          <div className="text-sm space-y-2">
-            <p className="text-amber-800">
-              {result.domain} 当前状态 <strong>{result.domainStatus}</strong>，还没验证通过，未写库。
-            </p>
-            {result.dnsInstructions ? (
-              <pre className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">
-                {result.dnsInstructions}
-              </pre>
-            ) : null}
-          </div>
-        )
-      ) : null}
-    </section>
-  );
+  const q=useQuery({queryKey:['platform','messaging',locationId],queryFn:()=>platformGet<Messaging>(`/v1/platform/stores/${locationId}/messaging`)});
+  return <section className="rounded-xl border bg-white p-4"><h2 className="font-medium">Appointment notifications</h2>
+    <p>Shop copy: {q.data?.appointmentEmailCopyToShop ? q.data.shopEmail ?? 'No shop email configured' : 'Off'}</p>
+    <p>Marketing email is coming soon.</p>
+  </section>;
 }
 
 function Row({ label, value, copyable }: { label: string; value: string; copyable?: boolean }) {

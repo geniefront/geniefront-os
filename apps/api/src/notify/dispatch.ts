@@ -91,6 +91,8 @@ export async function notifyEvent(
   if (!rule?.enabled || rule.channels.length === 0) return 0;
 
   const marketing = isMarketing(args.event);
+  // Phase 1: no marketing, including SMS and callers outside the scheduler.
+  if (marketing) return 0;
 
   /*
    * 🔴 **短信品牌闸门（2026-09-01 店主定）。**

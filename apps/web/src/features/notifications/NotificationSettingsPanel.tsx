@@ -131,6 +131,7 @@ export function NotificationSettingsPanel() {
 
   return (
     <div className="space-y-6">
+      <button type="button" className="min-h-14 rounded-xl border p-4" onClick={()=>toast.info(t('email.comingSoon'))}>{t('email.comingSoon')}</button>
       {/* ── 闸门状态：这一页最要紧的一半 ─────────────────────────── */}
       <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
         <h3 className="text-sm font-bold text-slate-900">{t('settings.notifGatesTitle')}</h3>
@@ -156,7 +157,7 @@ export function NotificationSettingsPanel() {
       </div>
 
       {/* ── 12 个事件 ─────────────────────────────────────────────── */}
-      {GROUPS.map((group) => (
+      {GROUPS.filter(group=>!group.events.includes('birthday')).map((group) => (
         <div key={group.titleKey} className="rounded-xl border border-slate-200 bg-white p-4">
           <h3 className="text-sm font-bold text-slate-900">{t(group.titleKey)}</h3>
           <p className="text-xs text-slate-500 mt-0.5 mb-3">{t(group.hintKey)}</p>

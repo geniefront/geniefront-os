@@ -7,6 +7,7 @@
  * 入口就该是入口。
  */
 
+import { startEmailService } from './email/service';
 import { buildServer } from './server';
 import { startCallReconciler } from './telnyx/schedule';
 import { startRetentionJob } from './ops/retention';
@@ -48,6 +49,7 @@ startRetentionJob(app);
 startReminderJob(app);
 // 发件箱兜底扫描。计费类的信没有任何业务动作会触发投递（sql/0090）
 startOutboxSweepJob(app);
+startEmailService(app);
 /*
  * 营销四事件（生日 / 节日 / 唤回 / 求评）。
  * ⚠️ 接上不等于会发出去：每一条仍要过完规则、订阅、10DLC、发件域名

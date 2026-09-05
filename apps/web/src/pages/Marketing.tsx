@@ -488,7 +488,7 @@ function MarketingContent() {
   // 10. 发起即时群发
   const handleSendCampaign = () => {
     if (!campaignTargetPlaybook) return;
-    toast.success(`${t(campaignTargetPlaybook.nameKey)}: Campaign Started!`);
+    toast.info(t('email.comingSoon'));
     setCampaignModalOpen(false);
   };
 
@@ -596,7 +596,7 @@ function MarketingContent() {
                 onClick={() => {
                   setCampaignTargetPlaybook(playbooks[3] || playbooks[0]!);
                   setCampaignCustomText(playbooks[3]?.messageTemplate || '');
-                  setCampaignModalOpen(true);
+                  toast.info(t('email.comingSoon'));
                 }}
               >
                 <Send className="w-3.5 h-3.5" />
@@ -1245,7 +1245,7 @@ function MarketingContent() {
                         onClick={() => {
                           setCampaignTargetPlaybook(pb);
                           setCampaignCustomText(pb.messageTemplate);
-                          setCampaignModalOpen(true);
+                          toast.info(t('email.comingSoon'));
                         }}
                       >
                         <Send className="w-3 h-3 mr-1" />

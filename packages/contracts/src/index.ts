@@ -36,3 +36,5 @@ export * from './aiSchema.js';
 export * from './healthForms.js';
 
 export * from './registry.js';
+
+export * from './commands/email.js';

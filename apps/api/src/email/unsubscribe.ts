@@ -62,7 +62,7 @@ export function mintUnsubscribeToken(p: UnsubscribePayload): string | null {
  */
 export function verifyUnsubscribeToken(token: unknown): UnsubscribePayload | null {
   const key = secret();
-  if (!key || typeof token !== 'string') return null;
+  if (!key || typeof token !== 'string' || token.length > 1024) return null;
 
   const idx = token.lastIndexOf('.');
   if (idx <= 0) return null;
@@ -75,6 +75,7 @@ export function verifyUnsubscribeToken(token: unknown): UnsubscribePayload | nul
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
 
   const [customerId, orgId] = Buffer.from(body, 'base64url').toString('utf8').split('.');
-  if (!customerId || !orgId) return null;
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!customerId || !orgId || !uuid.test(customerId) || !uuid.test(orgId)) return null;
   return { customerId, orgId };
 }

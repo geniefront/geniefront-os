@@ -10,6 +10,7 @@ import { AccessDenied } from './pages/AccessDenied';
 // them with the authentication shell made every visit download the whole app,
 // including screens an operator might never open. Keep login and access-denied
 // synchronous, then split authenticated pages at route boundaries.
+const Email = lazy(() => import('./pages/Email').then(m=>({default:m.Email})));
 const Dashboard = lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })));
 const Stores = lazy(() => import('./pages/Stores').then((m) => ({ default: m.Stores })));
 const StoreDetail = lazy(() => import('./pages/StoreDetail').then((m) => ({ default: m.StoreDetail })));
@@ -58,6 +59,7 @@ function SessionGate() {
           <Route path="/website-requests" element={<WebsiteRequests />} />
           <Route path="/website-requests/:briefId" element={<WebsiteRequestDetail />} />
           <Route path="/audit" element={<Audit />} />
+          <Route path="/email" element={<Email />} />
           <Route path="/test-inbox" element={<TestInbox />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

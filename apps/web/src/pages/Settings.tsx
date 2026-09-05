@@ -78,6 +78,7 @@ import {
   useSaveWebhooks,
 } from '@/features/settings/api';
 import { BillingPanel } from '@/features/billing/BillingPanel';
+import { EmailSettingsPanel } from '@/features/notifications/EmailSettingsPanel';
 import { NotificationSettingsPanel } from '@/features/notifications/NotificationSettingsPanel';
 import { planNavBadge } from '@/features/billing/display';
 import type {
@@ -2583,7 +2584,7 @@ export function Settings() {
           {/* ============================================================ */}
           {/* TAB: 顾客通知与营销 (notifications) */}
           {/* ============================================================ */}
-          {currentTab === 'notifications' && <NotificationSettingsPanel />}
+          {currentTab === 'notifications' && <div className="space-y-6"><EmailSettingsPanel /><NotificationSettingsPanel /></div>}
 
           {/* ============================================================ */}
           {/* TAB 11: SaaS 订阅方案与账单 (billing) */}

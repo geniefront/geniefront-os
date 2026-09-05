@@ -217,6 +217,7 @@ async function main() {
       'tip_allocations', 'payments', 'ticket_discounts', 'ticket_item_staff', 'ticket_items',
       'tickets', 'ticket_groups', 'tip_policies',
       'time_punches', 'staff_sessions', 'booking_manage_attempts',
+      'email_sender_settings', 'email_domain_requests', 'email_accounts', 'email_validation_cache',
       'form_access_log', 'form_submissions', 'form_share_links', 'form_templates',
       'walkin_queue',
       'call_drafts', 'phone_calls', 'phone_lines', 'sms_inbound', 'sms_consent', 'sms_outbox', 'email_outbox',

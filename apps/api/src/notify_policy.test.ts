@@ -1,3 +1,4 @@
+import { renderMarketingEmail } from './email/layout';
 /**
  * 外发消息的准入闸门（2026-09-01 店主定的四条决定）。
  *
@@ -114,7 +115,7 @@ describe('短信品牌闸门', () => {
     expect(rows).toHaveLength(0);
   });
 
-  it('获批之后营销短信才发得出去', async () => {
+  it('一期即使 10DLC 获批也不发送营销短信', async () => {
     const queued = await withTenant(tenant, async (tx) => {
       await setTenDlc(tx, 'approved');
       await setRule(tx, 'winback', ['sms']);
@@ -125,7 +126,7 @@ describe('短信品牌闸门', () => {
         customerId, locale: 'en',
       });
     });
-    expect(queued).toBe(1);
+    expect(queued).toBe(0);
   });
 
   /**
@@ -208,7 +209,7 @@ describe('营销邮件的发件域名闸门', () => {
     expect(queued).toBe(0);
   });
 
-  it('配好之后才发，且发件人写的是门店那个地址', async () => {
+  it('一期即使配好营销域名也不入队', async () => {
     const entityId = freshEntity();
     const queued = await withTenant(tenant, async (tx) => {
       await tx`update locations set marketing_email_from = 'oasisspa@mkt.geniefront.com'
@@ -221,39 +222,14 @@ describe('营销邮件的发件域名闸门', () => {
         customerId, locale: 'en',
       });
     });
-    expect(queued).toBe(1);
-
-    const [row] = await withTenant(tenant, (tx) => tx<{
-      from_email: string | null; unsubscribe_url: string | null;
-    }[]>`
-      select from_email, unsubscribe_url from email_outbox
-      where entity_id = ${entityId}`);
-    expect(row?.from_email).toBe('oasisspa@mkt.geniefront.com');
-    // 商业邮件必须带退订入口
-    expect(row?.unsubscribe_url).toContain('/public/v1/email/unsubscribe');
+    expect(queued).toBe(0);
   });
 
-  it('营销邮件 HTML 套共用容器，且退订页脚链到公开页', async () => {
-    const entityId = freshEntity();
-    await withTenant(tenant, async (tx) => {
-      await tx`update locations set marketing_email_from = 'oasisspa@mkt.geniefront.com'
-               where id = ${NAIL_LOC}`;
-      await setRule(tx, 'birthday', ['email']);
-      await notifyEvent(tx, ctx, {
-        event: 'birthday',
-        entityType: 'customer', entityId,
-        vars: VARS, toEmail: 'policy-test@maildrop.cc', toPhone: null,
-        customerId, locale: 'en',
-      });
-    });
-    const [row] = await withTenant(tenant, (tx) => tx<{
-      body_html: string; body_text: string;
-    }[]>`select body_html, body_text from email_outbox where entity_id = ${entityId}`);
-    expect(row?.body_html).toContain('max-width:600px');
-    expect(row?.body_html).toContain('alt="GenieFront"');
-    expect(row?.body_html).toContain('Unsubscribe');
-    expect(row?.body_html).toContain('/unsubscribe?t=');
-    expect(row?.body_text).toContain("Don't want these emails?");
+  it('营销模板保留渲染能力，但不触发发送', () => {
+    const {html,text}=renderMarketingEmail('Hello','https://geniefront.com/unsubscribe?t=test');
+    expect(html).toContain('max-width:600px');
+    expect(html).toContain('Unsubscribe');
+    expect(text).toContain('https://geniefront.com/unsubscribe?t=test');
   });
 
   /**
@@ -374,6 +350,6 @@ describe('预约邮件抄送门店', () => {
 
     const rows = await withTenant(tenant, (tx) => tx<{ entity_type: string }[]>`
       select entity_type from email_outbox where entity_id = ${entityId}`);
-    expect(rows.map((r) => r.entity_type)).toEqual(['customer']);
+    expect(rows.map((r) => r.entity_type)).toEqual([]);
   });
 });

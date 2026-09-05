@@ -101,10 +101,11 @@ describe('邮件供应商的选择', () => {
    * 🔴 打错字必须回退到**当前能真正送达的那一家**，而不是抛错或回退到 SES。
    * 回退到 SES 的话，一个 typo 就让所有邮件进沙箱黑洞。
    */
-  it('🔴 认不出的值回退到 resend，不是 ses', () => {
-    for (const v of ['sess', 'aws', 'SES2', '', 'resnd']) {
-      expect(emailProvider({ EMAIL_PROVIDER: v } as NodeJS.ProcessEnv)).toBe('resend');
+  it('🔴 认不出的值拒绝启动，避免静默切换供应商', () => {
+    for (const v of ['sess', 'aws', 'SES2', 'resnd']) {
+      expect(() => emailProvider({ EMAIL_PROVIDER: v } as NodeJS.ProcessEnv)).toThrow('invalid_email_provider');
     }
+    expect(emailProvider({ EMAIL_PROVIDER: '' } as NodeJS.ProcessEnv)).toBe('resend');
   });
 
   /** ⚠️ 两家的凭据各查各的 —— 配了 AWS 的 key 不代表 Resend 能发信。 */

@@ -11,6 +11,7 @@ const NAV = [
   { to: '/10dlc', label: '10DLC', icon: ShieldCheck },
   { to: '/website-requests', label: 'Website Requests', icon: Globe },
   { to: '/audit', label: 'Audit', icon: ScrollText },
+  { to: '/email', label: 'Email & Domains', icon: Inbox },
   { to: '/test-inbox', label: 'Test Inbox', icon: Inbox },
 ];
 

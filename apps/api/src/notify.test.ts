@@ -256,10 +256,10 @@ describe('通知模板', () => {
 
   it('规则开关：空渠道等同于关掉', async () => {
     await run('notification.toggleRule', {
-      eventKey: 'winback', enabled: true, channels: ['sms'], offsetMin: 0,
+      eventKey: 'appointment_reminder', enabled: true, channels: ['sms'], offsetMin: 0,
     });
     const out = await run<{ enabled: boolean }>('notification.toggleRule', {
-      eventKey: 'winback', enabled: false, channels: [], offsetMin: 0,
+      eventKey: 'appointment_reminder', enabled: false, channels: [], offsetMin: 0,
     });
     expect(out.enabled).toBe(false);
   });
@@ -399,7 +399,7 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
   });
 
   it('⭐ 模板没配也不会让改期失败 —— 通知永不成为阻断点', async () => {
-    await enable('winback');   // 开一个没配模板的事件
+    await withTenant(tenant,tx=>tx`update notification_templates set active=false where location_id=${NAIL_LOC} and event_key='appointment_changed'`);
     const id = await makeAppt();
     await enable('appointment_changed');
 
@@ -410,7 +410,7 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
       appointmentId: id,
       startsAt: d.toISOString(),
     })).resolves.toBeTruthy();
-    await disable('winback');
+
   });
 
   it('取消也通知', async () => {

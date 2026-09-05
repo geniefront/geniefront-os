@@ -16,6 +16,8 @@ import { buildContext } from './actor';
 import { verifyAccessToken } from './auth';
 
 // ── 命令处理器注册 ──────────────────────────────────────────────────────────
+import './handlers/email';
+import { registerEmailManagementRoutes } from './email/routes';
 import './handlers/appointment';
 import './handlers/rotation';
 import './handlers/ticket';
@@ -81,6 +83,7 @@ import { registerTicketsRoutes } from './routes/tickets';
 import { registerStaffRoutes } from './routes/staff';
 import { registerAiRoutes } from './routes/ai';
 import { registerMiscRoutes } from './routes/misc';
+import { registerPlatformEmailRoutes } from './platform/emailRoutes';
 import { registerPlatformRoutes } from './platform/routes';
 import { LOGGER_REDACT_PATHS } from './logRedact';
 
@@ -177,6 +180,9 @@ export function buildServer(): FastifyInstance {
     if (path.startsWith('/public/')) return;
     if (path.startsWith('/v1/public/')) return;
     if (path === '/v1/stripe/webhook') return;
+    if (['/v1/webhooks/resend','/v1/webhooks/ses'].includes(path)) return;
+    // 供应商通知只能配置 URL；路径标识由 webhook 路由自行常数时间校验。
+    if (path === '/v1/webhooks/elasticemail' || path.startsWith('/v1/webhooks/elasticemail/')) return;
     if (path.startsWith('/v1/auth/')) return;
 
     const t = req.headers[STAFF_TOKEN_HEADER];
@@ -283,6 +289,7 @@ export function buildServer(): FastifyInstance {
   registerRotationRoutes(app, ctxFromHeaders);
   registerTicketsRoutes(app, ctxFromHeaders);
   registerSettingsRoutes(app, ctxFromHeaders);
+  registerEmailManagementRoutes(app, ctxFromHeaders);
   registerNotificationRoutes(app, ctxFromHeaders);
   registerMoneyRoutes(app, ctxFromHeaders);
   registerMarketingRoutes(app, ctxFromHeaders);
@@ -296,6 +303,7 @@ export function buildServer(): FastifyInstance {
   registerOrdersRoutes(app, ctxFromHeaders);
   registerMiscRoutes(app, ctxFromHeaders);
   registerPlatformRoutes(app);
+  registerPlatformEmailRoutes(app);
 
   // ── 外部与特化路由 ─────────────────────────────────────────────────────────
   registerStripeRoutes(app, ctxFromHeaders);
