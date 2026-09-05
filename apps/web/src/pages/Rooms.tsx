@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Modal } from '@/components/ui/Modal';
 import { cn } from '@/lib/utils';
-import { useStoreTime } from '@/lib/time';
+import { ganttOffsetMinutes, occupancyElapsedMinutes, useStoreTime } from '@/lib/time';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { fuzzySearch } from '@/lib/fuzzySearch';
 import { Input } from '@/components/ui/Input';
@@ -382,7 +382,7 @@ function RoomsContent() {
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
-            <span>In Service</span>
+            <span>{t('roomOccupied')}</span>
             <strong className="font-mono text-sm ml-0.5">{metrics.inService}</strong>
           </button>
 
@@ -489,7 +489,7 @@ function RoomsContent() {
           >
             <option value="all">{t('queue.roomAllStatuses')}</option>
             <option value="available">{t('queue.roomStatusAvailable')}</option>
-            <option value="in_service">🟡 In Service</option>
+            <option value="in_service">🟡 {t('roomOccupied')}</option>
             <option value="cleaning">{t('queue.roomStatusCleaning')}</option>
             <option value="maintenance">{t('queue.roomStatusMaintenance')}</option>
           </select>
@@ -556,10 +556,13 @@ function RoomsContent() {
             const isMaint = room.status === 'maintenance';
 
             const session = room.currentSession;
-            const isOvertime = session && session.progressMinutes > session.totalMinutes;
+            const elapsedMinutes = session
+              ? (session.startedAt ? occupancyElapsedMinutes(session.startedAt) : session.progressMinutes)
+              : 0;
+            const isOvertime = session && elapsedMinutes > session.totalMinutes;
             const progressPercent =
               session && session.totalMinutes > 0
-                ? Math.min(100, Math.round((session.progressMinutes / session.totalMinutes) * 100))
+                ? Math.min(100, Math.round((elapsedMinutes / session.totalMinutes) * 100))
                 : 0;
 
             const upcoming = room.upcomingSession;
@@ -645,8 +648,8 @@ function RoomsContent() {
                         title={t('queue.roomClickToChange')}
                       >
                         <option value="available">{t('queue.roomFree')}</option>
-                        <option value="in_service">🟡 In Service</option>
-                        <option value="cleaning">🔵 Cleaning</option>
+                        <option value="in_service">🟡 {t('roomOccupied')}</option>
+                        <option value="cleaning">🔵 {t('queue.roomCleaning')}</option>
                         <option value="maintenance">{t('queue.roomUnderMaintenance')}</option>
                       </select>
 
@@ -766,7 +769,7 @@ function RoomsContent() {
                               {session.serviceName}
                             </span>
                             <span className="font-mono text-slate-500 shrink-0">
-                              {session.progressMinutes}/{session.totalMinutes}m
+                              {elapsedMinutes}/{session.totalMinutes}m
                             </span>
                           </div>
                           <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
@@ -1038,8 +1041,7 @@ function RoomsContent() {
                             try {
                               const start = new Date(slot.startsAt);
                               const end = new Date(slot.endsAt);
-                              const startMin =
-                                start.getHours() * 60 + start.getMinutes() - 9 * 60;
+                              const startMin = ganttOffsetMinutes(slot.startsAt, storeTime.timeZone, 9 * 60);
                               const durationMin = Math.max(
                                 20,
                                 Math.round((end.getTime() - start.getTime()) / 60000),
@@ -1126,7 +1128,7 @@ function RoomsContent() {
                             className="text-xs font-bold px-2 py-1 rounded-xl border cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500/20 transition-all bg-white"
                           >
                             <option value="available">{t('queue.roomListAvailable')}</option>
-                            <option value="in_service">🟡 In Service</option>
+                            <option value="in_service">🟡 {t('roomOccupied')}</option>
                             <option value="cleaning">{t('queue.roomListCleaning')}</option>
                             <option value="maintenance">{t('queue.roomListMaintenance')}</option>
                           </select>
@@ -1139,7 +1141,7 @@ function RoomsContent() {
                               </p>
                               <p className="text-[11px] text-slate-500 font-mono">
                                 
-                                {t('queue.roomTherapistLabel')} {session.staffNames.join(', ') || '—'}  {t('queue.roomProgressSep')} {session.progressMinutes}/{session.totalMinutes}m
+                                {t('queue.roomTherapistLabel')} {session.staffNames.join(', ') || '—'}  {t('queue.roomProgressSep')} {(session.startedAt ? occupancyElapsedMinutes(session.startedAt) : session.progressMinutes)}/{session.totalMinutes}m
                               </p>
                             </div>
                           ) : (
@@ -1603,7 +1605,9 @@ function RoomsContent() {
               <div className="flex justify-between font-bold text-amber-950 text-xs">
                 <span>{t('queue.roomProgress')}</span>
                 <span>
-                  {sessionDetailRoom.currentSession.progressMinutes} / {sessionDetailRoom.currentSession.totalMinutes}  {t('queue.roomMinutes')}
+                  {(sessionDetailRoom.currentSession.startedAt
+                    ? occupancyElapsedMinutes(sessionDetailRoom.currentSession.startedAt)
+                    : sessionDetailRoom.currentSession.progressMinutes)} / {sessionDetailRoom.currentSession.totalMinutes}  {t('queue.roomMinutes')}
                 </span>
               </div>
               <div className="w-full h-2 bg-amber-200/80 rounded-full overflow-hidden">
@@ -1613,7 +1617,9 @@ function RoomsContent() {
                     width: `${Math.min(
                       100,
                       Math.round(
-                        (sessionDetailRoom.currentSession.progressMinutes /
+                        ((sessionDetailRoom.currentSession.startedAt
+                          ? occupancyElapsedMinutes(sessionDetailRoom.currentSession.startedAt)
+                          : sessionDetailRoom.currentSession.progressMinutes) /
                           Math.max(1, sessionDetailRoom.currentSession.totalMinutes)) *
                           100,
                       ),

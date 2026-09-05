@@ -2,6 +2,8 @@
 
 Date: 2026-08-31
 
+> 这是 **2026-08-31 那一轮审计的收口快照**。「Open counted findings: P0=0」只表示那张审计单上的票修完了，**不是**「可以上线、没有 UI/多语言/预约页 bug」。现行架构与测试批次见 [`../CURRENT-ARCHITECTURE.md`](../CURRENT-ARCHITECTURE.md) 与 [`../qa/TEST-PLAYBOOK.md`](../qa/TEST-PLAYBOOK.md)。
+
 ## Launch / QA posture
 
 - **Batches 1–7.5:** complete and accepted.

@@ -39,6 +39,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { PageLoading, PageError } from "@/components/ui/QueryState";
 import { useCallsQuery, useCallDraftsQuery, useDismissCallDraft } from "@/features/comms/api";
 import type { CallView, CallDraftView, DraftDismissReason } from "@/features/comms/types";
+import { callDeskMetrics } from "@/features/comms/callMetrics";
 import { useNavigate, useOutletContext } from "react-router-dom";
 
 export function Calls() {
@@ -81,6 +82,11 @@ export function Calls() {
 
   const calls = callData?.calls ?? [];
   const drafts = draftData?.drafts ?? [];
+  const metrics = callDeskMetrics({
+    calls,
+    bookedCount: callData?.bookedCount ?? 0,
+    totalMinutes: callData?.totalMinutes ?? 0,
+  });
 
   const filteredCalls = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -272,7 +278,7 @@ export function Calls() {
             onClick={() => setSimulatorOpen(true)}
           >
             <Zap className="w-3.5 h-3.5 text-amber-300" />
-            Phone Simulator
+            {t('crm.callSimulator')}
           </Button>
           <Button
             size="sm"
@@ -327,10 +333,11 @@ export function Calls() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-black text-slate-800">
-              {calls.length * 12} <span className="text-xs font-semibold text-slate-400">{t('crm.callUnit')}</span>
+              {metrics.inboundCount} <span className="text-xs font-semibold text-slate-400">{t('crm.callUnit')}</span>
             </div>
-            <p className="text-[11px] text-emerald-600 font-medium mt-1 flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5" />  {t('crm.callAnswerRate')}
+            <p className="text-[11px] text-slate-500 font-medium mt-1 flex items-center gap-1">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              {metrics.inboundCount === 0 ? t('crm.callNoInbound') : t('crm.callVolume7d')}
             </p>
           </CardContent>
         </Card>
@@ -344,11 +351,12 @@ export function Calls() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-black text-emerald-600">
-              {calls.filter((c) => c.booked).length * 8 + 14}{" "}
+              {metrics.bookedCount}{" "}
               <span className="text-xs font-semibold text-slate-400">{t('crm.callBookingUnit')}</span>
             </div>
             <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
-              <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />  {t('crm.callConversionRate')}
+              <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
+              {t('crm.callConversionRate', { p0: metrics.conversionPercent })}
             </p>
           </CardContent>
         </Card>
@@ -380,7 +388,7 @@ export function Calls() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-black text-teal-700">
-              28.5 <span className="text-xs font-semibold text-slate-400">{t('crm.callHoursUnit')}</span>
+              {metrics.hoursSaved} <span className="text-xs font-semibold text-slate-400">{t('crm.callHoursUnit')}</span>
             </div>
             <p className="text-[11px] text-slate-500 mt-1">
               

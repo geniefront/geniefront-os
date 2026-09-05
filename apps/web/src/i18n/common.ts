@@ -79,6 +79,7 @@ export const common = {
   noData: { 'zh-Hans': '暂无数据', en: 'No data', ko: '데이터 없음', es: 'Sin datos', vi: 'Không có dữ liệu' },
   comingSoon: { 'zh-Hans': '待接入', en: 'Coming soon', ko: '준비 중', es: 'Próximamente', vi: 'Sắp có' },
   today: { 'zh-Hans': '今天', en: 'Today', ko: '오늘', es: 'Hoy', vi: 'Hôm nay' },
+  mins: { 'zh-Hans': '分钟', en: 'min', ko: '분', es: 'min', vi: 'phút' },
   thisMonth: { 'zh-Hans': '本月', en: 'This Month', ko: '이번 달', es: 'Este mes', vi: 'Tháng này' },
   service: { 'zh-Hans': '服务项目', en: 'Service', ko: '서비스', es: 'Servicio', vi: 'Dịch vụ' },
   notifications: { 'zh-Hans': '通知', en: 'Notifications', ko: '알림', es: 'Notificaciones', vi: 'Thông báo' },

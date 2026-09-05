@@ -1428,7 +1428,7 @@ function CustomersContent() {
           if (!open) setSmsModalOpen(false);
         }}
         size="md"
-        title={`💬 Send SMS · ${currentDetail?.displayName}`}
+        title={`💬 ${t('crm.custSmsTitle')} · ${currentDetail?.displayName}`}
         footer={
           <div className="flex justify-end gap-2 w-full">
             <Button variant="secondary" onClick={() => setSmsModalOpen(false)}>

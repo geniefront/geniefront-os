@@ -127,6 +127,12 @@ describe('Support submission surface', () => {
     expect(toast.danger).not.toHaveBeenCalled();
   });
 
+  it('空主题空说明时给出校验提示，不发请求', () => {
+    renderPage();
+    expect(screen.getByText('请填写主题和说明后再提交。')).toBeInTheDocument();
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
   it('shows an error state when the command fails', async () => {
     mutateAsync.mockRejectedValue(new Error('UPSTREAM_UNAVAILABLE'));
     renderPage();

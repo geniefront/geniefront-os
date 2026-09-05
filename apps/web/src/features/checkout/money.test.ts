@@ -49,6 +49,12 @@ describe('centsToDollars', () => {
     expect(centsToDollars(-1550)).toBe('-15.50');
   });
 
+  it('空值与非法输入归零，不产生 NaN', () => {
+    expect(centsToDollars(undefined)).toBe('0.00');
+    expect(centsToDollars(null)).toBe('0.00');
+    expect(centsToDollars(Number.NaN)).toBe('0.00');
+  });
+
   it('与 dollarsToCents 往返一致', () => {
     for (const v of ['0.01', '1.00', '85.55', '1234.99']) {
       expect(centsToDollars(dollarsToCents(v))).toBe(v);

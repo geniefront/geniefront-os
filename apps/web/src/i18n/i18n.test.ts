@@ -85,6 +85,18 @@ describe('多语言字典完整性', () => {
   });
 });
 
+describe('运行时懒加载域', () => {
+  it('LanguageContext 必须加载 email 与 reviews，否则设置页会整页 ⟦email.*⟧', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const src = readFileSync(resolve(__dirname, '../LanguageContext.tsx'), 'utf8');
+    expect(src).toContain("import('./i18n/email')");
+    expect(src).toContain("import('./i18n/reviews')");
+    expect(src).toContain('...email.email');
+    expect(src).toContain('...reviews.reviews');
+  });
+});
+
 describe('错误码文案覆盖', () => {
   it('服务端的每个错误码都有对应的界面文案', () => {
     const uncovered = Object.values(ERROR_CODES).filter((code) => !ERROR_MESSAGE_KEYS[code]);

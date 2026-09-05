@@ -1,5 +1,7 @@
 # apps/web 整改交接
 
+> ⚠️ **交接快照，不是现行地图。** 现在长什么样读 [`CURRENT-ARCHITECTURE.md`](CURRENT-ARCHITECTURE.md)，怎么测读 [`qa/TEST-PLAYBOOK.md`](qa/TEST-PLAYBOOK.md)。下文「待办」可能已过时。
+
 ## 2026-09-02 · Hosted booking
 
 `apps/booking` is live in this repo at `book.geniefront.com/{slug}` (local `http://127.0.0.1:5176/{slug}`). Management is `/l/{slug}#g/{token}` so the raw token never enters Caddy or Cloudflare request URIs. Keep `BOOKING_MANAGE_PAGE_ENABLED` off until that production route is deployed and verified. Full customer accounts remain out of scope. Phone verification (§6.5) remains deferred.

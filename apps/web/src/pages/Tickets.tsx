@@ -55,6 +55,8 @@ import { exportToCSV, exportToExcel } from '@/lib/exportUtils';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
 import { cn, formatI18n, formatPhoneDisplay } from '@/lib/utils';
+import { orderPaymentDisplay, fullRefundCents } from '@/features/tickets/orderDisplay';
+import { customerInitials } from '@/lib/displayName';
 
 export type TicketStatusFilter = 'all' | 'completed' | 'open' | 'voided' | 'refunded';
 export type DateRangePreset = 'today' | 'yesterday' | 'last7days' | 'thisMonth' | 'all';
@@ -101,7 +103,7 @@ export interface EnrichedOrderRecord {
   refundTipCents: number;
   refundTaxCents: number;
   refundFeeCents: number;
-  paymentMethod: 'credit_card' | 'cash' | 'package' | 'gift_card' | 'split';
+  paymentMethod: 'credit_card' | 'cash' | 'package' | 'gift_card' | 'split' | 'card' | 'unpaid' | 'mixed';
   paymentMethodLabel: string;
   cardLast4?: string;
   transactionRef?: string;
@@ -211,18 +213,26 @@ function TicketsContent() {
         const rowPayments = Array.isArray(row.payments) ? row.payments : [];
         const rowTips = Array.isArray(row.tipAllocations) ? row.tipAllocations : [];
 
-        const primaryPayment = rowPayments[0];
-        const paymentMethod = (primaryPayment?.method as any) || 'credit_card';
+        const pay = orderPaymentDisplay({ status: normalizedStatus, payments: rowPayments });
+        const paymentMethod: EnrichedOrderRecord['paymentMethod'] =
+          pay.method === 'card' ? 'credit_card'
+            : pay.method === 'unpaid' ? 'unpaid'
+              : pay.method === 'mixed' ? 'split'
+                : pay.method;
         const paymentLabel =
-          paymentMethod === 'credit_card'
-            ? t('paymentCreditCard', { p0: primaryPayment?.cardLast4 || '4242' })
-            : paymentMethod === 'cash'
-              ? t('paymentCash')
-              : paymentMethod === 'gift_card'
-                ? t('paymentGiftCard')
-                : paymentMethod === 'package'
-                  ? t('paymentPackage')
-                  : t('paymentMixed');
+          pay.method === 'unpaid'
+            ? t('checkout.tkUnpaid')
+            : pay.method === 'card'
+              ? (pay.last4 ? t('paymentCreditCard', { p0: pay.last4 }) : t('payCard'))
+              : pay.method === 'cash'
+                ? t('paymentCash')
+                : pay.method === 'gift_card'
+                  ? t('paymentGiftCard')
+                  : pay.method === 'package'
+                    ? t('paymentPackage')
+                    : pay.method === 'mixed'
+                      ? t('paymentMixed')
+                      : t('checkout.tkUnpaid');
 
         list.push({
           ticketId: row.ticketId,
@@ -239,7 +249,7 @@ function TicketsContent() {
             id: it?.itemId || `it-${idx}`,
             name: formatI18n(it?.name ?? it?.name_snapshot ?? it?.nameSnapshot, language) || t('service'),
             priceCents: asCents(it?.totalCents ?? 0),
-            durationMin: Number(it?.durationMin ?? 60),
+            durationMin: Number(it?.durationMin ?? 0),
             staffId: it?.membershipId || '',
             staffName: formatI18n(it?.staffName ?? it?.staff_name ?? it?.displayName, language) || t('therapistLabel'),
             isAddon: it?.kind === 'addon',
@@ -256,8 +266,8 @@ function TicketsContent() {
           refundTaxCents: asCents(row.refundTaxCents ?? 0),
           refundFeeCents: asCents(row.refundFeeCents ?? 0),
           paymentMethod,
-          paymentMethodLabel: formatI18n(paymentLabel, language),
-          cardLast4: primaryPayment?.cardLast4 || undefined,
+          paymentMethodLabel: paymentLabel,
+          cardLast4: pay.last4 || undefined,
           cashierName: formatI18n(row.cashierName, language) || t('roleFrontDeskKey'),
           // ⚠️ 回调参数不能叫 `t` —— 会遮蔽外层 useLanguage() 的翻译函数，
           // 导致下一行的 t('therapistLabel') 静默调用错误的东西。
@@ -322,8 +332,8 @@ function TicketsContent() {
             refundTipCents: 0,
             refundTaxCents: 0,
             refundFeeCents: 0,
-            paymentMethod: 'credit_card',
-            paymentMethodLabel: t('readyCheckoutLabel'),
+            paymentMethod: 'unpaid',
+            paymentMethodLabel: t('checkout.tkUnpaid'),
             cashierName: t('roleFrontDeskKey'),
             tipSplits: [],
             daysAgo: Number(tk.daysAgo ?? 0),
@@ -475,11 +485,11 @@ function TicketsContent() {
 
   // 打开退款处理弹窗
   const handleOpenRefund = (record: EnrichedOrderRecord) => {
-    const refundableCents = remainingNonTipRefundCents(record);
+    const refundableCents = fullRefundCents(record);
     setRefundModalRecord(record);
     setRefundType('full');
     setRefundAmountDollars(centsToDollars(refundableCents));
-    setRefundRemainingTip(false);
+    setRefundRemainingTip(true);
     setRefundMethod('original_payment');
     setRefundReason('customer_dissatisfied');
     setRefundNotes('');
@@ -819,8 +829,8 @@ function TicketsContent() {
               { id: 'all', label: t('checkout.tkTabAll'), count: combinedOrders.length },
               { id: 'completed', label: t('checkout.tkTabSettled'), count: combinedOrders.filter((o) => o.status === 'completed').length },
               { id: 'open', label: t('checkout.tkTabPending'), count: combinedOrders.filter((o) => o.status === 'open').length },
-              { id: 'voided', label: 'Voided', count: combinedOrders.filter((o) => o.status === 'voided').length },
-              { id: 'refunded', label: 'Refunded', count: combinedOrders.filter((o) => o.status === 'refunded').length },
+              { id: 'voided', label: t('checkout.tkTabVoided'), count: combinedOrders.filter((o) => o.status === 'voided').length },
+              { id: 'refunded', label: t('checkout.tkTabRefunded'), count: combinedOrders.filter((o) => o.status === 'refunded').length },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -972,7 +982,7 @@ function TicketsContent() {
                   <TableHead className="min-w-[110px]">{t('checkout.tkColTicket')}</TableHead>
                   <TableHead className="min-w-[140px]">{t('checkout.tkColCustomer')}</TableHead>
                   <TableHead className="min-w-[170px]">{t('checkout.tkColService')}</TableHead>
-                  <TableHead className="min-w-[90px]">Total Collected</TableHead>
+                  <TableHead className="min-w-[90px]">{t('checkout.tkTotalCollected')}</TableHead>
                   <TableHead className="min-w-[105px]">{t('checkout.tkColPayment')}</TableHead>
                   <TableHead className="min-w-[100px]">{t('checkout.tkColTips')}</TableHead>
                   <TableHead className="min-w-[75px] text-center">{t('checkout.tkColStatus')}</TableHead>
@@ -1005,7 +1015,7 @@ function TicketsContent() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-xl bg-teal-50 text-teal-700 font-bold flex items-center justify-center text-xs shrink-0 border border-teal-200">
-                          {(ord.customerName || t('checkout.tkGuestShort')).slice(0, 1)}
+                          {customerInitials(ord.customerName || t('checkout.tkGuestShort'))}
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
@@ -1039,7 +1049,9 @@ function TicketsContent() {
                             <span className="truncate font-medium text-slate-800 flex items-center gap-1">
                               {item?.isAddon && <span className="text-[9px] text-purple-600 font-bold shrink-0">{t('checkout.tkAddOn')}</span>}
                               <span className="truncate">{item?.name || t('checkout.tkServiceItem')}</span>
-                              <span className="text-slate-400 font-mono shrink-0">({item?.durationMin || 60}m)</span>
+                              {item?.durationMin ? (
+                                <span className="text-slate-400 font-mono shrink-0">({item.durationMin}m)</span>
+                              ) : null}
                             </span>
                             <Badge variant="secondary" className="text-[9px] px-1.5 py-0.5 bg-slate-100 text-slate-700 shrink-0 font-bold whitespace-nowrap">
                               {item?.staffName || t('checkout.tkTherapist')}
@@ -1090,7 +1102,7 @@ function TicketsContent() {
                           </div>
                         </div>
                       ) : (
-                        <span className="text-slate-400 text-xs whitespace-nowrap">No Tip</span>
+                        <span className="text-slate-400 text-xs whitespace-nowrap">{t('checkout.tkNoTip')}</span>
                       )}
                     </TableCell>
 
@@ -1116,12 +1128,12 @@ function TicketsContent() {
                       )}
                       {ord.status === 'voided' && (
                         <Badge variant="destructive" className="text-[10px] font-bold whitespace-nowrap px-2.5 py-0.5">
-                          Voided
+                          {t('checkout.tkStatusVoidedLabel')}
                         </Badge>
                       )}
                       {ord.status === 'refunded' && (
                         <Badge variant="secondary" className="text-[10px] font-bold whitespace-nowrap px-2.5 py-0.5 bg-purple-100 text-purple-800 border-purple-200">
-                          Refunded
+                          {t('checkout.tkStatusRefundedLabel')}
                         </Badge>
                       )}
                     </TableCell>
@@ -1291,8 +1303,8 @@ function TicketsContent() {
                       : selectedRecord.status === 'open'
                         ? t('checkout.tkStatusPending2')
                         : selectedRecord.status === 'voided'
-                          ? 'Voided'
-                          : 'Refunded'}
+                          ? t('checkout.tkStatusVoidedLabel')
+                          : t('checkout.tkStatusRefundedLabel')}
                   </span>
                 </div>
                 <div>
@@ -1305,7 +1317,7 @@ function TicketsContent() {
               <div className="space-y-2 pb-3 border-b border-dashed border-slate-300">
                 <div className="flex justify-between font-bold text-[11px] text-slate-500 uppercase">
                   <span>{t('checkout.tkReceiptItemsHeader')}</span>
-                  <span>Amount</span>
+                  <span>{t('checkout.tkReceiptAmount')}</span>
                 </div>
                 <div className="divide-y divide-slate-100">
                   {(selectedRecord.items || []).map((it, idx) => (
@@ -1622,7 +1634,7 @@ function TicketsContent() {
                   </span>
                 </div>
                 <span className="text-[11px] text-purple-800 block mt-0.5">
-                  Total Collected: <strong>${centsToDollars(refundModalRecord.totalPaidCents)}</strong>  {t('checkout.tkPaymentMethodSep')} {refundModalRecord.paymentMethodLabel || t('checkout.tkCardSettlement3')}
+                  {t('checkout.tkTotalCollected')}: <strong>${centsToDollars(refundModalRecord.totalPaidCents)}</strong>  {t('checkout.tkPaymentMethodSep')} {refundModalRecord.paymentMethodLabel || t('checkout.tkCardSettlement3')}
                 </span>
               </div>
               <Badge variant="secondary" className="text-[10px] font-bold bg-purple-100 text-purple-900 border-purple-300">
@@ -1641,7 +1653,8 @@ function TicketsContent() {
                   type="button"
                   onClick={() => {
                     setRefundType('full');
-                    setRefundAmountDollars(centsToDollars(remainingNonTipRefundCents(refundModalRecord)));
+                    setRefundAmountDollars(centsToDollars(fullRefundCents(refundModalRecord)));
+                    setRefundRemainingTip(true);
                   }}
                   className={cn(
                     'p-2.5 rounded-xl border text-center font-bold transition-all flex flex-col items-center justify-center cursor-pointer',

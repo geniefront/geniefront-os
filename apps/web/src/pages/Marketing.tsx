@@ -13,6 +13,7 @@ import { fuzzySearch } from '@/lib/fuzzySearch';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { formatPhoneDisplay } from '@/lib/utils';
 import { dollarsToCents, centsToDollars } from '@/features/checkout/api';
+import { formatValidityPeriod, giftCardStatusKey } from '@/lib/deskCopy';
 import {
   Plus,
   Tag,
@@ -142,12 +143,12 @@ const DEFAULT_PLAYBOOKS: AutomatedPlaybook[] = [
 ];
 
 // VIP 等级权益配置定义
-const VIP_TIER_PERKS: { tier: number; nameKey: TranslationKey; discount: string; spend: string; points: string }[] = [
-  { tier: 1, nameKey: 'vipTierSilver', discount: '5% OFF', spend: '$300', points: '1.0x' },
-  { tier: 2, nameKey: 'vipTierGold', discount: '10% OFF', spend: '$800', points: '1.2x' },
-  { tier: 3, nameKey: 'vipTierPlatinum', discount: '15% OFF', spend: '$1,500', points: '1.5x' },
-  { tier: 4, nameKey: 'vipTierDiamond', discount: '20% OFF', spend: '$3,000', points: '2.0x' },
-  { tier: 5, nameKey: 'vipTierBlackDiamond', discount: '25% OFF', spend: '$5,000+', points: '3.0x' },
+const VIP_TIER_PERKS: { tier: number; nameKey: TranslationKey; discountPercent: number; spend: string; points: string }[] = [
+  { tier: 1, nameKey: 'vipTierSilver', discountPercent: 5, spend: '$300', points: '1.0x' },
+  { tier: 2, nameKey: 'vipTierGold', discountPercent: 10, spend: '$800', points: '1.2x' },
+  { tier: 3, nameKey: 'vipTierPlatinum', discountPercent: 15, spend: '$1,500', points: '1.5x' },
+  { tier: 4, nameKey: 'vipTierDiamond', discountPercent: 20, spend: '$3,000', points: '2.0x' },
+  { tier: 5, nameKey: 'vipTierBlackDiamond', discountPercent: 25, spend: '$5,000+', points: '3.0x' },
 ];
 
 function MarketingContent() {
@@ -723,7 +724,7 @@ function MarketingContent() {
                             </h3>
                             <p className="text-xs text-slate-500 mt-1">
                               
-                              {t('crm.mktIncludesPrefix')} <strong>{pkg.totalUnits}</strong>  {t('crm.mktSessionsValidFor')} {pkg.validDays ?? t('crm.mktForever')}  {t('crm.mktDaysUnit')}
+                              {t('crm.mktIncludesPrefix')} <strong>{pkg.totalUnits}</strong>  {t('crm.mktSessionsValidFor')} {formatValidityPeriod(pkg.validDays, t('crm.mktForever'), (days) => `${days} ${t('crm.mktDaysUnit')}`)}
                             </p>
                             <p className="text-[11px] text-slate-600 mt-1.5">
                               {(pkg.serviceNames?.length ? pkg.serviceNames : [pkg.serviceName]).join(' + ')}
@@ -914,8 +915,8 @@ function MarketingContent() {
                       </div>
                       <span className="text-xl font-black text-amber-600">
                         {cpn.kind === 'amount'
-                          ? `-$${centsToDollars(cpn.discountAmountCents)}`
-                          : `${cpn.discountPercentBp / 100}% OFF`}
+                          ? `-$${centsToDollars(cpn.discountCents)}`
+                          : `${(cpn.percentBp ?? 0) / 100}% OFF`}
                       </span>
                     </div>
 
@@ -1024,7 +1025,13 @@ function MarketingContent() {
                         ${centsToDollars(gc.balanceCents)}
                       </p>
                       <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.2 rounded">
-                        {gc.status.toUpperCase()}
+                        {giftCardStatusKey(gc.status) === 'active'
+                          ? t('crm.mktGcActive')
+                          : giftCardStatusKey(gc.status) === 'void'
+                            ? t('crm.mktGcVoid')
+                            : giftCardStatusKey(gc.status) === 'expired'
+                              ? t('crm.mktGcExpired')
+                              : gc.status}
                       </span>
                     </div>
                   </div>
@@ -1094,10 +1101,10 @@ function MarketingContent() {
                   <div className="flex justify-between items-center font-bold">
                     <span className="text-slate-900 text-xs">{t(tier.nameKey)}</span>
                     <Badge className="bg-amber-100 text-amber-900 border-amber-300 font-bold text-[10px]">
-                      {tier.discount}
+                      {t('crm.mktOff', { p0: tier.discountPercent })}
                     </Badge>
                   </div>
-                  <p className="text-[11px] text-slate-500">Tier Spend: {tier.spend}</p>
+                  <p className="text-[11px] text-slate-500">{t('crm.mktTierSpend', { p0: tier.spend })}</p>
                   <p className="text-[11px] text-teal-700 font-semibold">{tier.points}</p>
                 </div>
               ))}

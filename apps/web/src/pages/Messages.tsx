@@ -555,7 +555,7 @@ export function Messages() {
                     ) : (
                       <>
                         <Send className="w-3.5 h-3.5" />
-                        <span>{sendSmsMutation.isPending ? t('crm.msgSending') : "Send SMS"}</span>
+                        <span>{sendSmsMutation.isPending ? t('crm.msgSending') : t('crm.custSmsTitle')}</span>
                       </>
                     )}
                   </Button>

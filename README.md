@@ -3,8 +3,9 @@
 美国市场亚裔服务业门店管理系统（nail / massage / foot spa / 头疗 / 美睫）。
 目标 1000 家门店，AI 驱动的前台，多语言。
 
-> 📖 **完整文档在 [`docs/`](docs/)。接手先读 [`docs/20-WEB-HANDOFF.md`](docs/20-WEB-HANDOFF.md)**，
-> 它把「现在在哪、下一步做什么、哪些坑别再踩」压在一份里。
+> 📖 **完整文档在 [`docs/`](docs/)。**
+> 接手先读 **[`docs/CURRENT-ARCHITECTURE.md`](docs/CURRENT-ARCHITECTURE.md)**（现在长什么样）
+> 和 **[`docs/qa/TEST-PLAYBOOK.md`](docs/qa/TEST-PLAYBOOK.md)**（怎么测、测什么）。
 > **写代码前必读 [`docs/03-ROADMAP.md`](docs/03-ROADMAP.md) §A 已定决策 + §D 项目宪法** ——
 > 那 19 条是这个仓库的物理法则。
 
@@ -53,9 +54,12 @@ pnpm --filter @gf/web dev   # 统一 Web 前端   → localhost:5177
 apps/
   api/        Fastify。命令总线、RLS 上下文、Telnyx webhook、Kiosk 设备认证
   web/        统一 Web 前端（React 19 + Tailwind v4 + HeroUI + TanStack Query）
-              覆盖桌面端高信息密度操作、老板报表、技师排班、自助签到，按角色权限切界面
-  ipad/       iPad 平板端（前台触屏调度 / 自助签到 Kiosk）
-  ios/        iOS 移动端（技师接单打卡 / 老板移动看板）
+              前台 + 老板 + 技师 `/tech`，按角色切界面
+  ipad/       门口 Kiosk（配对、签到、walk-in、健康表）
+  booking/    托管预约 book.geniefront.com/{slug}
+  marketing/  公开定价与 Stripe Checkout
+  platform/   内部运营后台
+  ios/        空壳，未开始
 packages/
   contracts/  命令 Zod schema + 权限 + 错误码 —— 前后端唯一真源
   db/         Drizzle schema + drizzle/ 自动迁移 + sql/ 手写 RLS 与触发器

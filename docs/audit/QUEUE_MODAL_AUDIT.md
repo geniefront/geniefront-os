@@ -1,6 +1,6 @@
 # 运营看板（desk /queue）二级弹窗审计报告
 
-> **状态：已修复（2026-09-04）。**
+> **状态：已修复（2026-09-04）。** 手测 Queue 弹窗时仍按 [`../qa/TEST-PLAYBOOK.md`](../qa/TEST-PLAYBOOK.md) 批次 2 回归「填了却没写入」这类假实装。
 > 除下列一项外，报告中的问题均已在 `apps/web/src/pages/Queue.tsx`、
 > `apps/web/src/i18n/queue.ts` 与新增的 `apps/web/src/features/queue/checkoutMath.ts` 中落地。
 > 197 项前端测试通过（含 9 项新增的收银金额与分账测试），类型检查与生产构建均通过。

@@ -5,26 +5,15 @@ Monorepo 仓库结构：`apps/`（多端应用）与 `packages/`（共享业务�
 
 ---
 
-## ⚡ 开发者上手路线（减少上下文，按需阅读）
+## 先读这三份（2026-09 起）
 
-```
-                     ┌───────────────────────────────┐
-                     │   新人接手 / 日常开发指引       │
-                     └──────────────┬────────────────┘
-                                    │
-            ┌───────────────────────┴───────────────────────┐
-            ▼                                               ▼
-┌───────────────────────┐                       ┌───────────────────────┐
-│     后端 / 架构开发     │                       │     前端 / 客户端开发   │
-│ 必读: 01 + 03 + 18    │                       │ 必读: 16 (单点真相)    │
-└───────────────────────┘                       └───────────────────────┘
-```
+| 你要什么 | 读 |
+|---|---|
+| **现在仓库实际长什么样、做到哪** | [`CURRENT-ARCHITECTURE.md`](CURRENT-ARCHITECTURE.md) |
+| **怎么测、测什么、自动覆盖不到哪** | [`qa/TEST-PLAYBOOK.md`](qa/TEST-PLAYBOOK.md) |
+| **写代码前不能违反的产品宪法** | [`03-ROADMAP.md`](03-ROADMAP.md) §A + §D |
 
-- **前端工程师 / 前端 AI 只需要读 1 篇**：直接阅读 **[`16-FRONTEND-GUIDE.md`](16-FRONTEND-GUIDE.md)**（架构、6 大规范、11 条真数据避坑、Kuee 路线图全在一份内）。
-- **后端工程师 / 架构师 读 3 篇**：
-  1. [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md)（系统无状态架构与状态层设计）
-  2. [`03-ROADMAP.md`](03-ROADMAP.md)（项目宪法 19 条与已定决策）
-  3. [`18-API-REFERENCE.md`](18-API-REFERENCE.md)（完整接口与命令总线参考）
+然后按角色补：前端规范 [`16-FRONTEND-GUIDE.md`](16-FRONTEND-GUIDE.md)；设计理念 [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md)（仓库树已过时）；接口 [`18-API-REFERENCE.md`](18-API-REFERENCE.md)。过时审计在 [`archive/`](archive/README.md)，不要用来判断能不能上线。
 
 ---
 
@@ -42,7 +31,7 @@ Monorepo 仓库结构：`apps/`（多端应用）与 `packages/`（共享业务�
 ### 2. 🖥️ 前端与多端系统
 | 编号 | 文档 | 核心内容 |
 |---|---|---|
-| **16** | **[`16-FRONTEND-GUIDE.md`](16-FRONTEND-GUIDE.md)** | ⭐⭐ **前端系统开发指南与交接**：终端架构（`web` / `ios` / `ipad`）、前后端契约、6 大开发规范、11 大真数据避坑指南、对标 Kuee 路线图。公开营销站是独立应用 `apps/marketing` |
+| **16** | **[`16-FRONTEND-GUIDE.md`](16-FRONTEND-GUIDE.md)** | 前端开发规范与契约。现行端点地图见 `CURRENT-ARCHITECTURE.md`。Kiosk 是 `apps/ipad`（已可跑），`apps/ios` 仍是空壳。营销站 `apps/marketing`，预约页 `apps/booking` |
 | **22** | [`22-SETUP-WORKSPACE-HANDOFF.md`](22-SETUP-WORKSPACE-HANDOFF.md) | 首次开店独立页面、服务端状态门禁、四步营业最小流程与验证记录 |
 | **23** | [`23-PURCHASE-TO-OPEN-CHECKLIST.md`](23-PURCHASE-TO-OPEN-CHECKLIST.md) | 购买、订阅、激活、开店及两个长期测试账号的逐项验收与上线清单 |
 
@@ -67,7 +56,16 @@ Monorepo 仓库结构：`apps/`（多端应用）与 `packages/`（共享业务�
 |---|---|---|
 | **06** | [`06-EXTERNAL-SERVICES.md`](06-EXTERNAL-SERVICES.md) | 外部依赖服务与 API 准备清单（Supabase, Anthropic, Stripe, Telnyx 等） |
 | **07** | [`07-CREDENTIALS-CHECKLIST.md`](07-CREDENTIALS-CHECKLIST.md) | 环境变量与凭据自检清单（去哪申请、格式校验、连通性检查） |
-| **18** | [`18-API-REFERENCE.md`](18-API-REFERENCE.md) | ⭐⭐ **接口完整参考手册**：89 条写命令、REST 读路由、错误码字典、权限矩阵 |
+| **18** | [`18-API-REFERENCE.md`](18-API-REFERENCE.md) | ⭐⭐ **接口完整参考手册**：写命令、REST 读路由、错误码字典、权限矩阵 |
+
+### 6. 测试与现行快照
+| 文档 | 核心内容 |
+|---|---|
+| [`CURRENT-ARCHITECTURE.md`](CURRENT-ARCHITECTURE.md) | 现行应用/包/路由/认证/多语言地图 |
+| [`qa/TEST-PLAYBOOK.md`](qa/TEST-PLAYBOOK.md) | 分批测试：自动门 + 10 批手测 |
+| [`qa/SEED_SCENARIOS.md`](qa/SEED_SCENARIOS.md) | QA seed 场景与账号 |
+| [`qa/QA_COVERAGE.md`](qa/QA_COVERAGE.md) | Playwright 已覆盖矩阵（英文 Chromium） |
+| [`archive/`](archive/README.md) | 已过时的审计单与交接，仅供溯源 |
 
 ---
 
@@ -83,6 +81,11 @@ pnpm dev:marketing
 # 启动统一 Web 前端
 pnpm --filter @gf/web dev
 
-# 全量质量验证（类型检查 + 单元测试）
+# 全量质量验证（类型检查 + 单元测试；API/DB 必须隔离库）
 pnpm verify
+
+# 浏览器回归（不起 booking / ipad）
+GF_QA_ALLOW_RESET=1 NODE_ENV=test pnpm test:e2e
 ```
+
+手测批次与账号见 [`qa/TEST-PLAYBOOK.md`](qa/TEST-PLAYBOOK.md)。

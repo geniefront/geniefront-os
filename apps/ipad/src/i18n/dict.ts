@@ -179,6 +179,13 @@ export const dict = {
     es: 'Vincular dispositivo',
     vi: 'Hoàn tất ghép đôi',
   },
+  'pairing.codeRequired': {
+    'zh-Hans': '请输入 6 位配对码',
+    en: 'Enter the 6-character pairing code',
+    ko: '6자리 페어링 코드를 입력하세요',
+    es: 'Introduce el código de 6 caracteres',
+    vi: 'Nhập mã ghép đôi 6 ký tự',
+  },
   'pairing.invalidCode': {
     'zh-Hans': '配对码无效、已过期或已被使用，请重新生成。',
     en: 'The pairing code is invalid, expired, or already used. Please regenerate a code.',

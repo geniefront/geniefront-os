@@ -71,11 +71,12 @@ export function ConfirmDialog({
       size="sm"
       footer={
         <div className="flex gap-2 justify-end w-full">
-          <Button variant="tertiary" onPress={() => onOpenChange(false)}>
+          <Button variant="tertiary" onPress={() => onOpenChange(false)} aria-label={t('cancel')}>
             {t('cancel')}
           </Button>
           <Button
             variant={tone === 'danger' ? 'danger' : 'primary'}
+            aria-label={typeof confirmLabel === 'string' ? confirmLabel : t('confirm')}
             onPress={() => { onConfirm(); onOpenChange(false); }}
           >
             {confirmLabel ?? t('confirm')}

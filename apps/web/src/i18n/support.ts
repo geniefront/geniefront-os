@@ -7,6 +7,7 @@ export const support = {
   'support.subject': { 'zh-Hans': '主题', en: 'Subject', ko: '제목', es: 'Asunto', vi: 'Tiêu đề' },
   'support.message': { 'zh-Hans': '说明', en: 'Message', ko: '내용', es: 'Mensaje', vi: 'Nội dung' },
   'support.submit': { 'zh-Hans': '提交请求', en: 'Submit request', ko: '요청 제출', es: 'Enviar solicitud', vi: 'Gửi yêu cầu' },
+  'support.requiredHint': { 'zh-Hans': '请填写主题和说明后再提交。', en: 'Fill in the subject and message before submitting.', ko: '제목과 내용을 입력한 뒤 제출하세요.', es: 'Completa el asunto y el mensaje antes de enviar.', vi: 'Hãy điền tiêu đề và nội dung trước khi gửi.' },
   'support.submitting': { 'zh-Hans': '正在提交…', en: 'Submitting…', ko: '제출 중…', es: 'Enviando…', vi: 'Đang gửi…' },
   'support.success': { 'zh-Hans': '支持请求已提交。', en: 'Support request submitted.', ko: '지원 요청이 제출되었습니다.', es: 'Solicitud de soporte enviada.', vi: 'Đã gửi yêu cầu hỗ trợ.' },
   'support.history': { 'zh-Hans': '我提交的请求', en: 'My requests', ko: '내 요청', es: 'Mis solicitudes', vi: 'Yêu cầu của tôi' },

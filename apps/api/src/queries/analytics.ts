@@ -217,20 +217,29 @@ export async function loadCustomerAnalytics(
     first_date: string | null;
   }[]>`
     select t.customer_id, t.business_date::text as business_date,
-           min(t_all.business_date)::text as first_date
+           (
+             select min(a.business_date)::text
+             from appointments a
+             where a.customer_id = t.customer_id
+               and a.location_id = t.location_id
+               and a.status <> 'cancelled'
+           ) as first_date
     from tickets t
-    left join tickets t_all on t_all.customer_id = t.customer_id and t_all.status = 'closed'
     where t.location_id = ${ctx.locationId}
       and t.business_date >= ${from} and t.business_date <= ${to}
-      and t.status = 'closed'
-    group by t.id, t.customer_id, t.business_date`;
+      and t.status = 'closed'`;
 
   let newCount = 0;
   let returningCount = 0;
   const timeMap = new Map<string, { new: number; returning: number }>();
 
   for (const cv of custVisits) {
-    const isNew = !cv.first_date || cv.first_date >= from;
+    /*
+     * 新客 = 这次到访就是该客人在本店的第一次。
+     * 此前用 `first_date >= from`：演示数据全落在近 30 天里时，
+     * 王明来了 4～8 次也会被算成新客。区间边界不能代替「有没有来过」。
+     */
+    const isNew = !cv.customer_id || !cv.first_date || cv.first_date === cv.business_date;
     if (isNew) newCount++;
     else returningCount++;
 

@@ -49,6 +49,7 @@ export interface OrderItemDto {
   quantity: number;
   unitPriceCents: number;
   totalCents: number;
+  durationMin?: number;
   staffName: string | null;
   membershipId: string | null;
 }

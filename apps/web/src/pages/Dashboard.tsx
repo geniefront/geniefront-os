@@ -57,7 +57,7 @@ import { ReviewConfidenceBadge } from '@/features/reviews/ReviewSourcesPanel';
 import { formatI18n } from '@/lib/utils';
 import { pickText } from '@gf/contracts';
 import { useSession } from '@/lib/session';
-import { instantToWallDate, shiftDate } from '@/lib/time';
+import { instantToWallDate, shiftDate, formatIsoWallClock } from '@/lib/time';
 import { cn } from '@/lib/utils';
 import type { CustomerReviewItem } from './DashboardReviewsData';
 import { useBusinessDay } from '@/lib/time';
@@ -192,9 +192,9 @@ export function DashboardContent() {
   // 数据指标计算
   const apptItems = dayData?.items ?? [];
   const apptCount = apptItems.length;
-  const completedAppts = apptItems.filter((i) => i.status === 'done').length;
+  const completedAppts = apptItems.filter((i) => i.status === 'done' || i.status === 'completed').length;
   const inServiceAppts = apptItems.filter((i) => i.status === 'in_service').length;
-  const bookedAppts = apptItems.filter((i) => i.status === 'booked').length;
+  const bookedAppts = apptItems.filter((i) => i.status === 'booked' || i.status === 'checked_in').length;
 
   const netCents = dayCloseData?.money?.netCents ?? 0;
   const tipsCents = (dayCloseData?.money?.tipCashCents ?? 0) + (dayCloseData?.money?.tipCardCents ?? 0);
@@ -392,7 +392,7 @@ export function DashboardContent() {
             <span className="text-3xl font-black text-slate-900 font-mono">{apptCount}</span>
             <span className="text-[11px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
               
-              {t('finance.dashFulfilmentRate')} {apptCount > 0 ? Math.round(((completedAppts + inServiceAppts) / apptCount) * 100) : 100}%
+              {t('finance.dashFulfilmentRate')} {apptCount > 0 ? Math.round((completedAppts / apptCount) * 100) : 0}%
             </span>
           </div>
           {/* 进度条 */}
@@ -400,7 +400,7 @@ export function DashboardContent() {
             <div
               style={{ width: `${apptCount > 0 ? (completedAppts / apptCount) * 100 : 0}%` }}
               className="bg-emerald-500 h-full"
-              title={`Completed: ${completedAppts}`}
+              title={`${t('finance.dashDone')}: ${completedAppts}`}
             />
             <div
               style={{ width: `${apptCount > 0 ? (inServiceAppts / apptCount) * 100 : 0}%` }}
@@ -603,10 +603,10 @@ export function DashboardContent() {
                               <div className="flex items-center gap-3 min-w-0">
                                 <div className="text-center font-mono shrink-0 w-14">
                                   <strong className="text-xs font-bold block text-slate-900">
-                                    {item.startsAt ? item.startsAt.slice(11, 16) : '00:00'}
+                                    {item.startsAt ? formatIsoWallClock(item.startsAt, timezone) : '00:00'}
                                   </strong>
                                   <span className="text-[10px] text-slate-400">
-                                    {item.endsAt ? item.endsAt.slice(11, 16) : '00:00'}
+                                    {item.endsAt ? formatIsoWallClock(item.endsAt, timezone) : '00:00'}
                                   </span>
                                 </div>
 

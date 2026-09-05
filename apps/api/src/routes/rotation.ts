@@ -25,6 +25,16 @@ export function registerRotationRoutes(app: FastifyInstance, ctxFromHeaders: Ctx
         const queryDate = req.query.date || req.query.businessDate || todayDate;
         const { participants, events } = await loadRotation(tx, ctx, queryDate);
         const st = computeStanding(participants, events, policy);
+        const busyRows = await tx<{ membership_id: string }[]>`
+          select distinct tis.membership_id
+          from ticket_item_staff tis
+          join tickets t on t.id = (
+            select ti.ticket_id from ticket_items ti where ti.id = tis.ticket_item_id
+          )
+          where t.location_id = ${ctx.locationId}
+            and t.business_date = ${queryDate}::date
+            and t.status = 'in_service'`;
+        const busyIds = new Set(busyRows.map((row) => row.membership_id));
 
         const nameByMember = new Map(participants.map((p) => [p.membershipId, p.name]));
 
@@ -38,7 +48,7 @@ export function registerRotationRoutes(app: FastifyInstance, ctxFromHeaders: Ctx
             name: e.name,
             turns: e.turnsBp / FULL_TURN,
             owed: e.owed,
-            state: e.state,
+            state: busyIds.has(e.membershipId) ? 'in_service' : e.state,
             position: e.position,
             manualRank: e.manualRank,
             skills: e.skills || [],

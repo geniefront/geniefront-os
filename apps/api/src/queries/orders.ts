@@ -3,7 +3,7 @@
  */
 
 import type postgres from 'postgres';
-import { type CommandContext, asInt } from '@gf/contracts';
+import { type CommandContext, asInt, pickText } from '@gf/contracts';
 import { maskPhone } from './staff';
 
 export interface OrderItemDto {
@@ -13,6 +13,7 @@ export interface OrderItemDto {
   quantity: number;
   unitPriceCents: number;
   totalCents: number;
+  durationMin: number;
   staffName: string | null;
   membershipId: string | null;
 }
@@ -167,12 +168,15 @@ export async function loadOrders(
   const items = await tx<{
     ticket_id: string; id: string; name_snapshot: string; kind: string;
     qty: number; unit_price_cents: number; total_cents: number;
-    staff_name: string | null; membership_id: string | null;
+    duration_min: number; service_name: unknown;
+    staff_name: unknown; membership_id: string | null;
   }[]>`
     select ti.ticket_id, ti.id, ti.name_snapshot, ti.kind,
-           ti.qty, ti.unit_price_cents, ti.total_cents,
+           ti.qty, ti.unit_price_cents, ti.total_cents, ti.duration_min,
+           s.name as service_name,
            sp.display_name as staff_name, tis.membership_id
     from ticket_items ti
+    left join services s on s.id = ti.service_id
     left join ticket_item_staff tis on tis.ticket_item_id = ti.id
     left join staff_profiles sp on sp.membership_id = tis.membership_id
     where ti.ticket_id in ${tx(ticketIds)}
@@ -198,12 +202,13 @@ export async function loadOrders(
     const list = itemsMap.get(i.ticket_id) ?? [];
     list.push({
       itemId: i.id,
-      name: i.name_snapshot,
+      name: pickText(i.service_name, ctx.locale, i.name_snapshot),
       kind: i.kind,
       quantity: i.qty,
       unitPriceCents: i.unit_price_cents,
       totalCents: i.total_cents,
-      staffName: i.staff_name,
+      durationMin: i.duration_min,
+      staffName: i.staff_name ? pickText(i.staff_name, ctx.locale) : null,
       membershipId: i.membership_id,
     });
     itemsMap.set(i.ticket_id, list);

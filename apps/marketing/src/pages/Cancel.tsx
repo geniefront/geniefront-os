@@ -17,14 +17,16 @@ export function Cancel() {
         <p className="mt-4 text-base font-medium leading-7 text-[#53676a]">
           No shop was created. You can return to pricing and try again.
         </p>
-        <Link
-          to="/#pricing"
-          data-testid="retry-pricing"
-          className="primary-button mt-7"
-        >
-          <ArrowLeft className="h-4 w-4" />Back to pricing
-        </Link>
-        <a href={deskLoginUrl()} className="mt-4 text-sm font-bold text-[#096b61]">Sign in</a>
+        <div className="mt-7 flex flex-col items-center gap-3">
+          <Link
+            to="/#pricing"
+            data-testid="retry-pricing"
+            className="primary-button"
+          >
+            <ArrowLeft className="h-4 w-4" />Back to pricing
+          </Link>
+          <a href={deskLoginUrl()} className="text-sm font-bold text-[#096b61]">Sign in</a>
+        </div>
       </div>
     </main>
   );

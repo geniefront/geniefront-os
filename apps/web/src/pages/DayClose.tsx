@@ -1208,7 +1208,7 @@ export function DayClose() {
                                 : t('checkout.dcMoveOther')}
                             </p>
                             <p className="text-[11px] text-slate-400 mt-0.5">
-                              {m.note || t('checkout.dcNoNote')} &bull; {storeTime.time(m.at)}
+                              {m.note || t('checkout.dcNoNote')} • {storeTime.time(m.at)}
                             </p>
                           </div>
                         </div>

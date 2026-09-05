@@ -1,7 +1,7 @@
 # 16 · 前端系统开发指南与交接
 
-> **前端系统的单点真相文档。** 包含多端架构、前后端交互契约、开发规范、真数据避坑指南与路线图。
-> 接手前端开发只需通读本篇即可，无需翻阅其他历史前端文档。
+> **前端开发规范与契约仍以本文为准。** 现行端点、路由和进度地图见 [`CURRENT-ARCHITECTURE.md`](CURRENT-ARCHITECTURE.md)；怎么测见 [`qa/TEST-PLAYBOOK.md`](qa/TEST-PLAYBOOK.md)。
+> 下文表格里 `apps/ipad` 已不是占位骨架（门口 Kiosk 可跑），`apps/ios` 仍是空壳。公开预约是独立应用 `apps/booking`，营销站是 `apps/marketing`。
 >
 > 接口细节查阅 [18-API-REFERENCE.md](18-API-REFERENCE.md)。
 

@@ -32,13 +32,16 @@ export type TurnstileVerifier = (args: TurnstileArgs) => Promise<boolean>;
 async function callSiteverify({ token, ip, idempotencyKey }: TurnstileArgs): Promise<boolean> {
   const secret = process.env['TURNSTILE_SECRET_KEY'];
   /**
-   * ⭐ **没配密钥就一律拒绝**，不是放行。
+   * ⭐ **没配密钥：生产拒绝，本机放行。**
    *
-   * 这是这个系统里唯一一个不需要身份就能写库的入口。密钥漏配时
-   * 放行等于把它彻底敞开，而且**没有任何征兆** —— 直到某天早上
-   * 前台看到三百条假预约。拒绝会在部署当天就炸出来，那正是我们想要的。
+   * 这是这个系统里唯一一个不需要身份就能写库的入口。生产密钥漏配时
+   * 放行等于把它彻底敞开。本机 `GF_ENV=local` 没有 Turnstile 站点密钥，
+   * 拒绝会让托管预约页全部 503，门店无法自测网上订位。
    */
   if (!secret) {
+    if (process.env['GF_ENV'] === 'local' || process.env['NODE_ENV'] === 'development') {
+      return true;
+    }
     throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, {
       details: { reason: 'turnstile_not_configured' },
     });

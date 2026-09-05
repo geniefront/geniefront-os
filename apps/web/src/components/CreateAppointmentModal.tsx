@@ -7,6 +7,8 @@ import { useLanguage } from '@/LanguageContext';
 import type { TranslationKey } from '@/i18n';
 import { useSchedule, useScheduleMutations, UNASSIGNED_STAFF_ID } from '@/context/ScheduleContext';
 import { isOverridableConflict, OVERRIDE_REASONS, type Override } from '@/features/schedule/api';
+import { deskAppointmentCustomer } from '@/features/schedule/deskCustomer';
+import { useSaveCustomerProfile } from '@/features/customers/api';
 import { wallMinutesToInstant } from '@/lib/time';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { centsToDollars } from '@/features/checkout/api';
@@ -95,8 +97,9 @@ export function CreateAppointmentModal({
 }: CreateAppointmentModalProps) {
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
-  const { services, staff, currentDate, timezone, openMin, closeMin } = useSchedule();
+  const { services, staff, currentDate, timezone, openMin, closeMin, setCurrentDate } = useSchedule();
   const { create } = useScheduleMutations();
+  const saveProfile = useSaveCustomerProfile();
 
   const [customerName, setCustomerName] = useState(defaultCustomerName);
   const [phone, setPhone] = useState(defaultPhone);
@@ -342,9 +345,22 @@ export function CreateAppointmentModal({
     });
 
     try {
+      const identity = deskAppointmentCustomer({ name: customerName, phone });
+      let customerId: string | null = null;
+      let walkInName: string | undefined;
+      if (identity.mode === 'profile') {
+        const saved = await saveProfile.mutateAsync({
+          name: identity.name,
+          phoneE164: identity.phoneE164,
+        });
+        customerId = saved.customerId;
+      } else {
+        walkInName = identity.walkInName;
+      }
+
       await create.mutateAsync({
-        customerId: null,
-        walkInName: customerName.trim() + (phone.trim() ? ` (${phone.trim()})` : ''),
+        customerId,
+        walkInName,
         items: payloadItems,
         notes: finalNotes,
         override,
@@ -356,6 +372,7 @@ export function CreateAppointmentModal({
           ? t('schedule.apptCreatedMulti', { p0: items.length, p1: summary.staffCount })
           : (t('saved') || t('schedule.apptCreated')),
       );
+      setCurrentDate(date || currentDate);
       onClose();
     } catch (err: any) {
       if (isOverridableConflict(err)) {
@@ -418,25 +435,8 @@ export function CreateAppointmentModal({
         onOpenChange={(open) => {
           if (!open) onClose();
         }}
-        title={
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 border border-teal-200 flex items-center justify-center shadow-2xs">
-              <Layers className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-base text-slate-900">{t('newAppointment') || 'New Appointment'}</span>
-                {items.length > 1 && (
-                  <Badge variant="default" className="text-[10px] px-2 py-0 font-bold">
-                    
-                    {t('schedule.apptModalTitle')}
-                  </Badge>
-                )}
-              </div>
-              <p className="text-[11px] text-slate-500 font-normal">{t('schedule.apptModalDesc')}</p>
-            </div>
-          </div>
-        }
+        title={t('newAppointment')}
+        description={t('schedule.apptModalDesc')}
         size="lg"
         footer={
           <div className="flex items-center justify-end gap-2.5 w-full">

@@ -51,33 +51,9 @@ import type { StaffDirectoryItem } from '@/features/staff/types';
 import type { TranslationKey } from '@/i18n';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
-import { SampleDataNotice } from '@/components/ui/SampleDataNotice';
-
-// 门店全量标准服务项目定义
-export interface SalonServiceItem {
-  id: string;
-  name: string;
-  category: 'nail' | 'spa' | 'lash' | 'hair';
-  categoryName: string;
-  requiredSkill: string; // 关联要求的核心技能
-  priceDollars: number;
-}
-
-// 门店服务项目标准库 (用于比对技师可做与不可做项目)
-const SALON_SERVICES_CATALOG: SalonServiceItem[] = [
-  { id: 'srv-1', name: 'Japanese Gel Nail Art', category: 'nail', categoryName: 'Nails & Feet', requiredSkill: '日式光疗美甲', priceDollars: 68 },
-  { id: 'srv-2', name: 'Crystal Glass Extension Styling', category: 'nail', categoryName: 'Nails & Feet', requiredSkill: '水晶琉璃延长', priceDollars: 98 },
-  { id: 'srv-3', name: '俄式死皮无缝修整', category: 'nail', categoryName: 'Nails & Feet', requiredSkill: '俄式极致修甲', priceDollars: 35 },
-  { id: 'srv-4', name: 'Hand & Foot Essential Oil SPA', category: 'nail', categoryName: 'Nails & Feet', requiredSkill: '手足精油SPA', priceDollars: 45 },
-  { id: 'srv-5', name: 'Full Body Aromatherapy Massage', category: 'spa', categoryName: 'Aromatherapy SPA', requiredSkill: '全身芳香开背', priceDollars: 88 },
-  { id: 'srv-6', name: 'Volcanic Hot Stone Therapy', category: 'spa', categoryName: 'Aromatherapy SPA', requiredSkill: '火山热石理疗', priceDollars: 118 },
-  { id: 'srv-7', name: '足底全息反射理疗', category: 'spa', categoryName: 'Aromatherapy SPA', requiredSkill: '足底全息反射', priceDollars: 58 },
-  { id: 'srv-8', name: '头部安神舒压理疗', category: 'spa', categoryName: 'Aromatherapy SPA', requiredSkill: '头部舒压理疗', priceDollars: 48 },
-  { id: 'srv-9', name: '日式仿生单根美睫', category: 'lash', categoryName: 'Lashes & Brows', requiredSkill: '日式单根美睫', priceDollars: 78 },
-  { id: 'srv-10', name: '3D山茶花云朵开花', category: 'lash', categoryName: 'Lashes & Brows', requiredSkill: '3D云朵开花', priceDollars: 108 },
-  { id: 'srv-11', name: 'Semi-permanent Microblading', category: 'lash', categoryName: 'Lashes & Brows', requiredSkill: '半永久野生眉', priceDollars: 198 },
-  { id: 'srv-12', name: 'Creative Color & Hair Perm', category: 'hair', categoryName: 'Hair Styling', requiredSkill: '染烫色彩造型', priceDollars: 128 },
-];
+import { useSchedule } from '@/context/ScheduleContext';
+import { matchStaffServices } from '@/features/staff/serviceMatch';
+import { centsToDollars } from '@/features/checkout/api';
 
 // 预设常用技能标签
 const PRESET_SKILLS = [
@@ -179,6 +155,17 @@ function EmployeePerformanceContent() {
   const { data: payrollData, isLoading: isPayrollLoading, isError: isPayrollError, error: payrollErr, refetch: refetchPayroll } = usePayrollPlansQuery();
   const savePlanMutation = useSavePayrollPlan();
 
+  const { services } = useSchedule();
+  const serviceCatalog = useMemo(
+    () => services.map((service) => ({
+      id: service.id,
+      name: service.name,
+      requiredSkillNames: service.requiredSkills.flatMap((skill) => [skill.name, skill.key].filter(Boolean)),
+      categoryName: service.categoryName ?? '',
+      priceCents: service.priceCents,
+    })),
+    [services],
+  );
   const { data: staffData, isLoading: isStaffLoading, isError: isStaffError, error: staffErr, refetch: refetchStaff } = useStaffListQuery();
   const saveStaffMutation = useSaveStaffProfile();
   const setEmploymentMutation = useSetEmploymentStatus();
@@ -279,26 +266,13 @@ function EmployeePerformanceContent() {
     return list;
   }, [staffList, selectedStatusFilter, selectedJobFilter, selectedLevelFilter, searchQuery]);
 
-  // 计算某个技师的可接与不可接项目
-  const getStaffServicesStatus = (skills: string[]) => {
-    const canDo: SalonServiceItem[] = [];
-    const cannotDo: SalonServiceItem[] = [];
-
-    for (const srv of SALON_SERVICES_CATALOG) {
-      if (skills.includes(srv.requiredSkill)) {
-        canDo.push(srv);
-      } else {
-        cannotDo.push(srv);
-      }
-    }
-
-    return { canDo, cannotDo };
-  };
+  const getStaffServicesStatus = (skills: string[]) => matchStaffServices(skills, serviceCatalog);
 
   // 弹窗表单中根据当前勾选技能实时预览可接与不可接项目
-  const formServiceStatus = useMemo(() => {
-    return getStaffServicesStatus(formSkills);
-  }, [formSkills]);
+  const formServiceStatus = useMemo(
+    () => matchStaffServices(formSkills, serviceCatalog),
+    [formSkills, serviceCatalog],
+  );
 
   // ──────────────────────────────────────────────────────────── 增删改查动作
 
@@ -683,13 +657,7 @@ function EmployeePerformanceContent() {
         </div>
       </div>
 
-      {/*
-       * ⚠️ 每张员工卡片上的「可接 / 不可接项目」比对的是
-       * SALON_SERVICES_CATALOG —— 一份写死在前端的示例服务目录
-       * （含虚构定价），不是这家店 services 表里的真实项目与价格。
-       * 接入真实数据前必须显式声明，否则会被当成这家店的真实菜单读。
-       */}
-      <SampleDataNotice />
+
 
       {/* 3. High-Density Staff Cards with Can-Do & Cannot-Do Services */}
       {filteredStaff.length === 0 ? (
@@ -765,7 +733,7 @@ function EmployeePerformanceContent() {
                             key={srv.id}
                             className="bg-white text-emerald-900 border border-emerald-300 text-[11px] font-semibold px-2 py-0.5 rounded-md shadow-2xs"
                           >
-                            {srv.name} (${srv.priceDollars})
+                            {srv.name} (${centsToDollars(srv.priceCents)})
                           </span>
                         ))
                       ) : (

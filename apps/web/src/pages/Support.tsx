@@ -118,6 +118,8 @@ export function Support() {
         <div className="flex items-center justify-between gap-3">
           {submittedId ? (
             <p className="text-xs font-medium text-emerald-700">{t('support.success')}</p>
+          ) : (!subject.trim() || !description.trim()) ? (
+            <p className="text-xs font-medium text-rose-600">{t('support.requiredHint')}</p>
           ) : <span />}
           <Button
             className="bg-teal-600 text-white font-bold"

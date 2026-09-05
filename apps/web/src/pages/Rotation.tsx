@@ -1116,7 +1116,7 @@ function RotationContent() {
                                   }}
                                 >
                                   <SkipForward className="w-3.5 h-3.5 mr-1 text-slate-400" />
-                                  <span>Pass Turn</span>
+                                  <span>{t('rotation.rotPassTurn')}</span>
                                 </Button>
 
                                 <Button

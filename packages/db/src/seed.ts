@@ -205,6 +205,7 @@ async function main() {
 
     // 1. 幂等倒序清理
     for (const t of [
+      'copilot_messages', 'copilot_sessions',
       'ai_business_summaries',
       'support_request_notes', 'support_requests',
       'day_close_events', 'ticket_refunds', 'ticket_service_notes', 'resource_occupancies',

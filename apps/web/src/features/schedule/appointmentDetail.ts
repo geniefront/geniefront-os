@@ -13,6 +13,7 @@ export interface AppointmentItemDetail {
   startsAt: string;
   durationMin: number;
   priceCents: number;
+  status?: string;
 }
 
 export interface AppointmentDetail {

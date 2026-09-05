@@ -150,9 +150,10 @@ export function dollarsToCents(input: string): number {
 }
 
 /** 整数分 → 展示用金额字符串，始终两位小数。 */
-export function centsToDollars(cents: number): string {
-  const negative = cents < 0;
-  const abs = Math.abs(cents);
+export function centsToDollars(cents: number | null | undefined): string {
+  const n = typeof cents === 'number' && Number.isFinite(cents) ? Math.trunc(cents) : 0;
+  const negative = n < 0;
+  const abs = Math.abs(n);
   return `${negative ? '-' : ''}${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, '0')}`;
 }
 

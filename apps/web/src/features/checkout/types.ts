@@ -14,6 +14,7 @@ export interface TicketItem {
   durationMin: number;
   staffName: string | null;
   membershipId: string | null;
+  roomName?: string | null;
 }
 
 export interface CheckoutPackage {

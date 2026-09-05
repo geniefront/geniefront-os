@@ -42,6 +42,7 @@ import { Button } from './ui/Button';
 import { ConfirmDialog } from './ui/Modal';
 import { useSchedule } from '@/context/ScheduleContext';
 import { instantToWallDate } from '@/lib/time';
+import { isTypingTarget } from '@/lib/keyboard';
 import {
   useNotificationsQuery,
   useMarkNotificationRead,
@@ -206,13 +207,7 @@ export function Layout() {
       const disabled = localStorage.getItem('desk_shortcuts_enabled') === 'false';
       if (disabled) return;
 
-      const target = e.target as HTMLElement | null;
-      const isInput = target && (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.tagName === 'SELECT' ||
-        target.isContentEditable
-      );
+      const isInput = isTypingTarget(e.target);
 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -717,7 +712,7 @@ export function Layout() {
         */}
         <main
           tabIndex={-1}
-          className="isolate min-h-0 flex-1 overflow-auto bg-[var(--gf-canvas)] p-3 focus:outline-none sm:p-4 lg:p-6"
+          className="isolate min-h-0 flex-1 overflow-auto bg-[var(--gf-canvas)] p-3 pb-20 focus:outline-none sm:p-4 sm:pb-24 lg:p-6 lg:pb-24"
         >
           <AnimatePresence mode="wait">
             <motion.div
@@ -801,7 +796,7 @@ export function Layout() {
         <button 
           onClick={() => setIsCopilotOpen(true)}
           aria-label={t('openCopilot')}
-          className="absolute bottom-4 right-4 flex h-12 w-12 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-white shadow-xl shadow-slate-900/20 transition-all hover:scale-105 active:scale-95 z-fab group sm:bottom-6 sm:right-6 sm:h-14 sm:w-14"
+          className="absolute bottom-4 right-4 flex h-12 w-12 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-white shadow-xl shadow-slate-900/20 transition-all hover:scale-105 active:scale-95 z-fab group sm:bottom-6 sm:right-6 sm:h-14 sm:w-14 pointer-events-auto"
         >
           <Sparkles className="w-6 h-6 group-hover:text-teal-400 transition-colors" />
           <span className="absolute -top-1 -right-1 flex h-4 w-4">

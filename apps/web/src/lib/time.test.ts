@@ -8,7 +8,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   instantToWallMinutes, instantToWallDate, wallMinutesToInstant,
-  formatWallTime, shiftDate, businessToday, businessDateAt,
+  formatWallTime, formatIsoWallClock, nowWallHhMm, shiftDate, businessToday, businessDateAt,
+  occupancyElapsedMinutes, ganttOffsetMinutes,
 } from './time';
 
 const NY = 'America/New_York';
@@ -93,10 +94,46 @@ describe('formatWallTime', () => {
   });
 });
 
+describe('formatIsoWallClock', () => {
+  it('按门店时区取墙上时钟，而不是 ISO 里的 UTC 片段', () => {
+    // 16:30 PDT = 23:30 UTC。slice(11,16) 会错成 23:30
+    expect(formatIsoWallClock('2026-09-05T23:30:00.000Z', LA)).toBe('16:30');
+    expect(formatIsoWallClock('2026-09-05T23:30:00.000Z', NY)).toBe('19:30');
+  });
+});
+
+describe('nowWallHhMm', () => {
+  it('用门店墙上时间而不是浏览器本地 getHours', () => {
+    const now = new Date('2026-09-05T20:23:00.000Z'); // 13:23 PDT / 16:23 EDT
+    expect(nowWallHhMm(LA, now)).toBe('13:23');
+    expect(nowWallHhMm(NY, now)).toBe('16:23');
+  });
+});
+
 describe('shiftDate', () => {
   it('跨月与跨年', () => {
     expect(shiftDate('2026-08-31', 1)).toBe('2026-09-01');
     expect(shiftDate('2026-01-01', -1)).toBe('2025-12-31');
+  });
+});
+
+describe('occupancyElapsedMinutes', () => {
+  it('开始时刻在未来时计时是 0，不能把「距预约还有 182 分钟」画成已占用 182m', () => {
+    const now = new Date('2026-09-05T20:28:00.000Z'); // 13:28 PDT
+    expect(occupancyElapsedMinutes('2026-09-05T23:30:00.000Z', now)).toBe(0); // 16:30 PDT
+  });
+
+  it('按真实流逝分钟计算，与浏览器时区无关', () => {
+    const now = new Date('2026-09-05T20:28:00.000Z');
+    expect(occupancyElapsedMinutes('2026-09-05T20:10:00.000Z', now)).toBe(18);
+  });
+});
+
+describe('ganttOffsetMinutes', () => {
+  it('用门店墙上时间对齐甘特图，而不是 Date#getHours（浏览器时区）', () => {
+    // 16:30 PDT = 23:30 UTC。getHours() 在 UTC 环境会得到 23，偏出画布。
+    expect(ganttOffsetMinutes('2026-09-05T23:30:00.000Z', LA, 9 * 60)).toBe(16 * 60 + 30 - 9 * 60);
+    expect(ganttOffsetMinutes('2026-09-05T23:30:00.000Z', NY, 9 * 60)).toBe(19 * 60 + 30 - 9 * 60);
   });
 });
 

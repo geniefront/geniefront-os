@@ -105,8 +105,8 @@ export function Login() {
           />
         </div>
         <div>
-          <label htmlFor="login-password" className="flex justify-between text-sm font-semibold text-slate-700 mb-1.5">
-            {t('password')}
+          <div className="mb-1.5 flex items-center justify-between text-sm font-semibold text-slate-700">
+            <label htmlFor="login-password">{t('password')}</label>
             <button
               type="button"
               onClick={(e) => void handleResetPassword(e)}
@@ -114,7 +114,7 @@ export function Login() {
             >
               {t('forgotPassword')}
             </button>
-          </label>
+          </div>
           <Input
             id="login-password"
             type="password"

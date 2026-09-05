@@ -120,6 +120,17 @@ export async function loadRooms(
       and ai.starts_at < current_date + interval '1 day' + interval '4 hours'
     order by ai.starts_at asc`;
 
+  const occupancyRows = await tx<{
+    resource_id: string; occupied_at: string; duration_min: number;
+  }[]>`
+    select ro.resource_id, ro.occupied_at::text as occupied_at,
+           coalesce(ti.duration_min, 60) as duration_min
+    from resource_occupancies ro
+    join ticket_items ti on ti.id = ro.ticket_item_id
+    where ro.location_id = ${ctx.locationId}
+      and ro.status = 'in_use'`;
+  const occupancyByResource = new Map(occupancyRows.map((row) => [row.resource_id, row]));
+
   const nowMs = Date.now();
   type TodayItem = (typeof todayItems)[number];
   const itemsByResource = new Map<string, TodayItem[]>();
@@ -140,22 +151,26 @@ export async function loadRooms(
   const rooms: RoomDto[] = resRows.map((r) => {
     const list = itemsByResource.get(r.id) ?? [];
 
-    // 当前活跃项目（进行中的）
-    const activeItem = list.find((item) => {
-      const startMs = new Date(item.starts_at).getTime();
-      const endMs = new Date(item.ends_at).getTime();
-      return (
-        item.status !== 'completed' &&
-        startMs <= nowMs + 5 * 60 * 1000 &&
-        endMs >= nowMs - 5 * 60 * 1000
-      );
-    });
+    // 当前活跃项目：优先服务中；否则才用预约时段窗口。
+    const activeItem = list.find((item) => item.status === 'in_service')
+      ?? list.find((item) => {
+        const startMs = new Date(item.starts_at).getTime();
+        const endMs = new Date(item.ends_at).getTime();
+        return (
+          item.status !== 'completed' &&
+          startMs <= nowMs + 5 * 60 * 1000 &&
+          endMs >= nowMs - 5 * 60 * 1000
+        );
+      });
 
     let currentSession: RoomSession | undefined;
     if (activeItem) {
-      const startMs = new Date(activeItem.starts_at).getTime();
+      const occupancy = occupancyByResource.get(r.id);
+      const seatMs = occupancy ? new Date(occupancy.occupied_at).getTime() : new Date(activeItem.starts_at).getTime();
+      const startMs = Number.isFinite(seatMs) ? seatMs : new Date(activeItem.starts_at).getTime();
       const endMs = new Date(activeItem.ends_at).getTime();
-      const totalMin = Math.max(1, Math.round((endMs - startMs) / 60000));
+      const totalMin = occupancy?.duration_min
+        || Math.max(1, Math.round((endMs - new Date(activeItem.starts_at).getTime()) / 60000));
       const elapsedMin = Math.max(0, Math.round((nowMs - startMs) / 60000));
       const staffName = activeItem.staff_display_name
         ? pickText(activeItem.staff_display_name, ctx.locale, activeItem.user_full_name ?? '技师')
@@ -167,7 +182,7 @@ export async function loadRooms(
         customerName: activeItem.customer_name ?? activeItem.walk_in_name ?? '客人',
         staffNames: staffName ? [staffName] : [],
         serviceName: pickText(activeItem.service_name, ctx.locale, '项目服务'),
-        startedAt: activeItem.starts_at,
+        startedAt: occupancy?.occupied_at ?? activeItem.starts_at,
         estimatedEndAt: activeItem.ends_at,
         progressMinutes: elapsedMin,
         totalMinutes: totalMin,

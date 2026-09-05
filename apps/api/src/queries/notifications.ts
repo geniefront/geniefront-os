@@ -130,16 +130,6 @@ export async function loadDeskNotificationStats(
     where location_id = ${ctx.locationId}`;
 
   const total = asInt(row?.total, 0);
-  if (total === 0) {
-    return {
-      total: 5,
-      unread: 3,
-      bookingsUnread: 1,
-      operationsUnread: 1,
-      customersUnread: 1,
-      systemUnread: 0,
-    };
-  }
 
   return {
     total,

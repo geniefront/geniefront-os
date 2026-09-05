@@ -47,6 +47,7 @@ import { useSession } from '@/lib/session';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { roleLabelKey } from '@/lib/roles';
 import { cn, formatPhoneDisplay, formatPhoneInput } from '@/lib/utils';
+import { formatPermissionKey } from '@/lib/deskCopy';
 import { pickText } from '@gf/contracts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -1177,7 +1178,7 @@ export function Profile() {
                           className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-100 bg-slate-50/70 text-xs font-medium text-slate-700 hover:bg-teal-50/50 hover:border-teal-200 transition-colors"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-                          <span className="font-mono text-[11px] truncate">{perm}</span>
+                          <span className="text-[11px] truncate">{formatPermissionKey(perm)}</span>
                         </div>
                       ))}
                     </div>

@@ -248,7 +248,7 @@ export function CommunicationLogs() {
             <div className="text-2xl font-black text-emerald-600">
               {selfResolvedRate}% <span className="text-xs font-semibold text-slate-400">{t('crm.commSelfResolved')}</span>
             </div>
-            <p className="text-[11px] text-slate-500 mt-1">{t('crm.commAiClosureDesc')}</p>
+            <p className="text-[11px] text-slate-500 mt-1">{voiceLogs.length === 0 ? t('crm.commNoVoiceYet') : t('crm.commAiClosureDesc')}</p>
           </CardContent>
         </Card>
 

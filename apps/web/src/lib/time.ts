@@ -80,6 +80,39 @@ export function formatWallTime(minutes: number): string {
 }
 
 /**
+ * ISO 时刻 → 门店墙上 `HH:mm`。
+ *
+ * ⚠️ 不得用 `iso.slice(11, 16)`：那是 UTC 钟点，洛杉矶 16:30 会显示成 23:30。
+ */
+export function formatIsoWallClock(iso: string, timezone: string): string {
+  return formatWallTime(instantToWallMinutes(iso, timezone));
+}
+
+/** 此刻的门店墙上 `HH:mm`。开工弹窗默认开始时间必须走这里，不能 `new Date().getHours()`。 */
+export function nowWallHhMm(timezone: string, now: Date = new Date()): string {
+  const w = wallClock(now, timezone);
+  return `${String(w.hour).padStart(2, '0')}:${String(w.minute).padStart(2, '0')}`;
+}
+
+/**
+ * 房间占用已进行分钟。开始时刻在未来时是 0——
+ * 把「距预约还有 182 分钟」画成已占用 182m 会让刚入座的包厢看起来超时。
+ */
+export function occupancyElapsedMinutes(startedAtIso: string, now: Date = new Date()): number {
+  const startMs = new Date(startedAtIso).getTime();
+  if (!Number.isFinite(startMs)) return 0;
+  return Math.max(0, Math.round((now.getTime() - startMs) / 60000));
+}
+
+/**
+ * 甘特图上相对营业日起点的分钟偏移。必须用门店墙上时间，
+ * 不能 `new Date(iso).getHours()`（那是浏览器时区）。
+ */
+export function ganttOffsetMinutes(iso: string, timezone: string, dayStartMinutes: number): number {
+  return instantToWallMinutes(iso, timezone) - dayStartMinutes;
+}
+
+/**
  * ── 营业日（AUD-13）─────────────────────────────────────────────────────────
  *
  * ⚠️ **门店的「今天」不是日历上的今天。**

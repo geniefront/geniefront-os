@@ -165,7 +165,9 @@ export function useCreateAppointment(date: string) {
         input.idempotencyKey,
       )).result,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: scheduleKeys.day(membershipId, date) });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'day', membershipId] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'days', membershipId] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'customers'] });
     },
   });
 }

@@ -455,7 +455,7 @@ export function BusinessData() {
           >
             <Sparkles className="w-4 h-4 text-amber-500" />
             <span>{t("finance.bdTabAi")}</span>
-            <Badge variant="warning" className="text-[10px] px-1.5 py-0">Smart</Badge>
+            <Badge variant="warning" className="text-[10px] px-1.5 py-0">AI</Badge>
           </button>
         </div>
 
@@ -477,7 +477,7 @@ export function BusinessData() {
                   <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-xs bg-teal-600 inline-block" />  {t("finance.bdLegendService")}</span>
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-xs bg-blue-500 inline-block" />  {t("finance.bdLegendRetail")}</span>
-                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-xs bg-amber-500 inline-block" /> Gift Card</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-xs bg-amber-500 inline-block" /> {t("finance.bdSeriesGiftCard")}</span>
                   </div>
                 </CardHeader>
                 <CardContent className="p-5">

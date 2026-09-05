@@ -47,10 +47,13 @@ export interface CouponTemplateView {
   code: string;
   name: string;
   kind: 'amount' | 'percent';
-  discountAmountCents: number;
-  discountPercentBp: number;
+  /** 服务端字段名。前端曾误写成 discountAmountCents，金额会变成 undefined → NaN。 */
+  discountCents: number;
+  percentBp: number;
   minSpendCents: number;
-  validDays: number | null;
+  validDays?: number | null;
+  validFrom?: string | null;
+  validUntil?: string | null;
   active: boolean;
 }
 

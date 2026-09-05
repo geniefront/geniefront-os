@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { asCents } from '@gf/contracts';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import { toast, Spinner } from '@heroui/react';
@@ -48,8 +48,10 @@ import { useLanguage } from '@/LanguageContext';
 import { UNASSIGNED_STAFF_ID, toScheduleItem } from '@/context/ScheduleContext';
 import { useDaySnapshot } from '@/features/schedule/api';
 import { useSession } from '@/lib/session';
-import { instantToWallDate } from '@/lib/time';
+import { instantToWallDate, nowWallHhMm } from '@/lib/time';
 import { cn, formatI18n, formatPhoneDisplay, formatPhoneInput } from '@/lib/utils';
+import { customerInitials, walkInShowsNoPhone } from '@/lib/displayName';
+import { healthFormHonesty } from '@/features/queue/healthFormStatus';
 import type { DayStaff } from '@/features/schedule/types';
 import {
   useJoinQueue, useQueue, useRollbackQueueStage, useUpdateQueueEntry,
@@ -369,6 +371,7 @@ function QueueContent() {
   const timezone = context?.timezone || 'America/New_York';
   // 排队/操作板锁定「今天」= 营业日的今天（AUD-13）。
   const { today: todayDate } = useBusinessDay();
+  const checkInBriefByAppointment = useRef(new Map<string, string>());
   const { data: todaySnapshot, isLoading: scheduleLoading, refetch: refetchSchedule } = useDaySnapshot(todayDate);
 
   const services = useMemo(() => todaySnapshot?.services ?? [], [todaySnapshot]);
@@ -932,6 +935,8 @@ function QueueContent() {
           durationMin: tkItems.reduce((acc: number, i: any) => acc + (i.durationMin || 0), 0),
           priceCents: asCents(tk.subtotalCents ?? 0),
           staffName: formatI18n(tkItems[0]?.staffName, language),
+          roomName: tkItems[0]?.roomName || override?.roomName,
+          roomId: override?.roomId,
           isRequest: false,
           timeDisplay: `$${centsToDollars(tk.subtotalCents)}`,
           rawTicket: tk,
@@ -1099,8 +1104,7 @@ function QueueContent() {
       const defaultStaff = assignments[0]?.staffIds[0] ?? '';
       
       const availableRoom = rooms.find((r) => r.status === 'available')?.id || rooms[0]?.id || '';
-      const now = new Date();
-      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const timeStr = nowWallHhMm(timezone);
 
       setStartServiceModal({
         isOpen: true,
@@ -1115,7 +1119,9 @@ function QueueContent() {
         serviceDurationMin: item.durationMin || 60,
         /* 问卷尚未签署时默认不勾选：这一勾是入座的前置门禁，必须由人主动确认。 */
         requireBriefingAck: !hasPendingForms(item),
-        serviceBrief: item.notes || '',
+        serviceBrief: (item.appointmentId && checkInBriefByAppointment.current.get(item.appointmentId))
+          || item.notes
+          || '',
       });
     } else if (item.stage === 'in_service' && targetStage === 'ready_checkout') {
       // 服务 ➔ 结账：弹窗核对服务项目明细与中途加项记录
@@ -1139,8 +1145,8 @@ function QueueContent() {
         isOpen: true,
         item,
         discountDollars: '0',
-        enableTax: false,
-        taxRatePercent: '8.875',
+        enableTax: Number.parseFloat(checkoutSettings?.salesTaxRatePercent || '0') > 0,
+        taxRatePercent: checkoutSettings?.salesTaxRatePercent || '0',
         enableCardSurcharge: false,
         cardSurchargePercent: '3.0',
         tipMode: 'total_split',
@@ -1262,6 +1268,7 @@ function QueueContent() {
       if (brief && item.appointmentId) {
         try {
           await saveCheckInBriefMutation.mutateAsync(brief);
+          checkInBriefByAppointment.current.set(item.appointmentId, brief);
         } catch {
           toast.warning(t('queue.quIntakeSaveFailed'), { timeout: 8_000 });
         }
@@ -1759,9 +1766,9 @@ function QueueContent() {
       {/* 顶部标题与运营全局统计仪表 */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex items-center gap-2.5">
-          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2.5">
-            <Sparkles className="w-6 h-6 text-teal-600" />
-            <span>{t('queue.quTitle')}</span>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 flex items-center gap-2.5 min-w-0">
+            <Sparkles className="w-6 h-6 text-teal-600 shrink-0" />
+            <span className="whitespace-nowrap">{t('queue.quTitle')}</span>
           </h1>
           {isSyncing && <Spinner size="sm" className="w-4 h-4 text-teal-600 ml-1" />}
         </div>
@@ -2229,14 +2236,20 @@ function QueueContent() {
               <div className="p-3 bg-amber-50/70 rounded-2xl border border-amber-200 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center font-bold text-base shadow-sm">
-                    {item.customerName.slice(0, 2).toUpperCase()}
+                    {customerInitials(item.customerName)}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-slate-900 text-sm">{item.customerName}</span>
-                      <Badge variant="warning" className="text-xs font-bold px-1.5 py-0">
-                        {item.phone ? formatPhoneDisplay(item.phone) : t('queue.quWalkInNoPhone')}
-                      </Badge>
+                      {item.phone ? (
+                        <Badge variant="warning" className="text-xs font-bold px-1.5 py-0">
+                          {formatPhoneDisplay(item.phone)}
+                        </Badge>
+                      ) : walkInShowsNoPhone({ phone: item.phone, customerName: item.customerName }) ? (
+                        <Badge variant="warning" className="text-xs font-bold px-1.5 py-0">
+                          {t('queue.quWalkInNoPhone')}
+                        </Badge>
+                      ) : null}
                       <Badge variant="secondary" className="text-xs font-bold px-1.5 py-0 bg-amber-100 text-amber-900 border-amber-300">
                         {t('queue.quWaitingArea')}
                       </Badge>
@@ -3028,9 +3041,9 @@ function QueueContent() {
 
               {/* 健康问卷与免责知情同意书签署状态 (未填时醒目提示与扫码入口) */}
               {(() => {
-                const hasPendingForm = hasPendingForms(item);
+                const honesty = healthFormHonesty(item);
 
-                if (hasPendingForm) {
+                if (honesty === 'pending') {
                   return (
                     <div className="bg-rose-50/90 border-2 border-rose-200 rounded-2xl p-3.5 space-y-2.5 shadow-2xs">
                       <div className="flex items-start justify-between gap-2">
@@ -3079,18 +3092,35 @@ function QueueContent() {
                   );
                 }
 
+                if (honesty === 'signed') {
+                  return (
+                    <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                          <CheckCircle className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <span className="font-bold text-emerald-950 text-xs">{t('queue.quFormSigned')}</span>
+                          <span className="text-xs text-emerald-700 block">{t('queue.quNoSevereContraindications')}</span>
+                        </div>
+                      </div>
+                      <Badge variant="success" className="text-xs px-1.5 py-0.5 font-bold">{t('queue.quCompliantSigned')}</Badge>
+                    </div>
+                  );
+                }
+
                 return (
-                  <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-3 flex items-center justify-between">
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
-                        <CheckCircle className="w-3.5 h-3.5" />
+                      <div className="w-6 h-6 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center font-bold">
+                        <FileText className="w-3.5 h-3.5" />
                       </div>
                       <div>
-                        <span className="font-bold text-emerald-950 text-xs">{t('queue.quFormSigned')}</span>
-                        <span className="text-xs text-emerald-700 block">{t('queue.quNoSevereContraindications')}</span>
+                        <span className="font-bold text-slate-800 text-xs">{t('queue.quFormNotConfigured')}</span>
+                        <span className="text-xs text-slate-500 block">{t('queue.quFormNotConfiguredDesc')}</span>
                       </div>
                     </div>
-                    <Badge variant="success" className="text-xs px-1.5 py-0.5 font-bold">{t('queue.quCompliantSigned')}</Badge>
+                    <Badge variant="secondary" className="text-xs px-1.5 py-0.5 font-bold">{t('queue.quFormNotConfiguredBadge')}</Badge>
                   </div>
                 );
               })()}
@@ -3599,7 +3629,7 @@ function QueueContent() {
               <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-3">
                 <div className="flex items-center gap-3">
                   <div className="grid h-10 w-10 place-items-center rounded-xl bg-teal-700 text-sm font-semibold text-white">
-                    {item.customerName.slice(0, 2).toUpperCase()}
+                    {customerInitials(item.customerName)}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">

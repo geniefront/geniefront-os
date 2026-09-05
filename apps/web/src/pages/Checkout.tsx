@@ -111,8 +111,9 @@ function CheckoutContent() {
   const voidTicketMut = useVoidTicket();
   const canDiscount = useCanWrite('ticket.discount');
 
-  // 1. 工单状态筛选（默认：只看已完工 ready_to_pay / done）
+  // 1. 工单状态筛选（有服务中单时默认停在服务中，而不是空的已完工）
   const [statusFilter, setStatusFilter] = useState<'ready_to_pay' | 'in_service' | 'open' | 'all'>('ready_to_pay');
+  const [userPickedTicketFilter, setUserPickedTicketFilter] = useState(false);
   const [ticketSearch, setTicketSearch] = useState('');
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -155,6 +156,13 @@ function CheckoutContent() {
     const open = allTickets.filter((t) => t.status === 'open').length;
     return { ready, inService, open, all: allTickets.length };
   }, [allTickets]);
+
+  useEffect(() => {
+    if (userPickedTicketFilter) return;
+    if (statusCounts.inService > 0 && statusCounts.ready === 0) {
+      setStatusFilter('in_service');
+    }
+  }, [statusCounts.inService, statusCounts.ready, userPickedTicketFilter]);
 
   // 根据选定状态与容错模糊搜索过滤
   const filteredTickets = useMemo(() => {
@@ -545,7 +553,7 @@ function CheckoutContent() {
           <div className="grid grid-cols-4 gap-1 p-1 bg-slate-200/70 rounded-xl text-[11px] font-bold text-slate-600">
             <button
               type="button"
-              onClick={() => setStatusFilter('ready_to_pay')}
+              onClick={() => { setUserPickedTicketFilter(true); setStatusFilter('ready_to_pay'); }}
               className={cn(
                 'py-1 rounded-lg transition-all text-center truncate',
                 statusFilter === 'ready_to_pay'
@@ -558,7 +566,7 @@ function CheckoutContent() {
             </button>
             <button
               type="button"
-              onClick={() => setStatusFilter('in_service')}
+              onClick={() => { setUserPickedTicketFilter(true); setStatusFilter('in_service'); }}
               className={cn(
                 'py-1 rounded-lg transition-all text-center truncate',
                 statusFilter === 'in_service'
@@ -571,7 +579,7 @@ function CheckoutContent() {
             </button>
             <button
               type="button"
-              onClick={() => setStatusFilter('open')}
+              onClick={() => { setUserPickedTicketFilter(true); setStatusFilter('open'); }}
               className={cn(
                 'py-1 rounded-lg transition-all text-center truncate',
                 statusFilter === 'open'
@@ -584,7 +592,7 @@ function CheckoutContent() {
             </button>
             <button
               type="button"
-              onClick={() => setStatusFilter('all')}
+              onClick={() => { setUserPickedTicketFilter(true); setStatusFilter('all'); }}
               className={cn(
                 'py-1 rounded-lg transition-all text-center truncate',
                 statusFilter === 'all'
@@ -663,7 +671,7 @@ function CheckoutContent() {
               {statusFilter !== 'all' && (
                 <button
                   type="button"
-                  onClick={() => setStatusFilter('all')}
+                  onClick={() => { setUserPickedTicketFilter(true); setStatusFilter('all'); }}
                   className="text-xs text-teal-600 font-bold hover:underline"
                 >
                   
@@ -839,7 +847,7 @@ function CheckoutContent() {
                       tipMode === 'total_split' ? 'bg-white shadow-sm text-teal-800' : 'text-slate-500',
                     )}
                   >
-                    Smart Tip Split
+                    {t('checkout.tipSmartSplit')}
                   </button>
                   <button
                     type="button"
@@ -849,7 +857,7 @@ function CheckoutContent() {
                       tipMode === 'custom_per_staff' ? 'bg-white shadow-sm text-teal-800' : 'text-slate-500',
                     )}
                   >
-                    Enter by Staff
+                    {t('checkout.tipEnterByStaff')}
                   </button>
                 </div>
                 ) : <Badge variant="secondary">{t('checkout.tipRuleLocked')}</Badge>}
@@ -884,7 +892,7 @@ function CheckoutContent() {
 
                   <div className="grid grid-cols-2 gap-3 pt-1">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Custom Total Tip ($)</label>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">{t('checkout.tipCustomTotal')}</label>
                       <Input
                         inputMode="decimal"
                         value={totalTipInput}
@@ -901,7 +909,7 @@ function CheckoutContent() {
                         className="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800"
                       >
                         <option value="proportional">{t('checkout.splitByRevenue')}</option>
-                        <option value="equal">Equal Split</option>
+                        <option value="equal">{t('checkout.splitEqual')}</option>
                       </select>
                     </div>}
                   </div>
@@ -1284,7 +1292,7 @@ function CheckoutContent() {
           <div className="border-t border-slate-200 bg-white px-6 py-4 space-y-2.5 shrink-0">
             <div className="flex justify-between text-xs text-slate-600">
               <span>{t('checkout.netServiceCollected')} <strong className="font-mono text-slate-800">${centsToDollars(paidBaseCents)}</strong></span>
-              <span>Total Tips: <strong className="font-mono text-teal-700">${centsToDollars(totalTipCents)}</strong></span>
+              <span>{t('checkout.tipTotal')}<strong className="font-mono text-teal-700">{centsToDollars(totalTipCents)}</strong></span>
               <span>{t('checkout.terminalTotal')} <strong className="font-mono text-slate-900 font-black">${centsToDollars(chargedTotalCents)}</strong></span>
             </div>
 

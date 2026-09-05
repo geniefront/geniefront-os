@@ -1,5 +1,9 @@
 # 01 · 系统架构（托管状态层 + 无状态双实例应用）
 
+> ⚠️ **仓库树已过时。** 2026-09 起，现行应用与包的地图是 [`CURRENT-ARCHITECTURE.md`](CURRENT-ARCHITECTURE.md)。
+> 本文仍是设计理念、容量模型、命令总线、RLS、营业日与故障恢复的出处。
+> 不要按本文 §2 去找 `apps/desk`、`apps/staff`、`apps/kiosk`、`packages/ui`、`packages/i18n`、`packages/sdk` —— 那些目录不存在。前台在 `apps/web`，技师端在 `apps/web` 的 `/tech`，Kiosk 在 `apps/ipad`。
+
 > 目标：1000 家门店（约 10k–15k 日活员工、10 万+ 预约/日）。
 > 但 10 万预约/日分散在 12 小时营业时间里是 **约 2.3 写/秒**，峰值也就几十 QPS。
 > 这个量级的正确答案是 **把有状态的东西全部托管出去，应用层做成可随时重启的无状态进程**，

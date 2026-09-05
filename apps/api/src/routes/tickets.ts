@@ -73,7 +73,7 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           subtotal_cents: number; discount_cents: number; tax_cents: number; total_cents: number;
           item_id: string; service_id: string | null; item_name: string; item_total: number;
           duration_min: number; started_at: string | null; finished_at: string | null;
-          staff_name: unknown; membership_id: string;
+          staff_name: unknown; membership_id: string; room_name: string | null;
         }[]>`
           select t.id as ticket_id, t.appointment_id, t.status,
                   t.checkout_timing_snapshot, t.service_settled_at::text as service_settled_at,
@@ -85,13 +85,15 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
                   ti.id as item_id, ti.service_id, ti.name_snapshot as item_name,
                   ti.total_cents as item_total, ti.duration_min,
                   ti.started_at::text as started_at, ti.finished_at::text as finished_at,
-                  sp.display_name as staff_name, tis.membership_id
+                  sp.display_name as staff_name, tis.membership_id,
+                  r.name as room_name
           from tickets t
           left join customers c on c.id = t.customer_id
           left join ticket_groups g on g.id = t.group_id
           join ticket_items ti on ti.ticket_id = t.id
           join ticket_item_staff tis on tis.ticket_item_id = ti.id
           left join staff_profiles sp on sp.membership_id = tis.membership_id
+          left join resources r on r.id = ti.resource_id
           where t.location_id = ${ctx.locationId}
             and (
               case
@@ -145,6 +147,7 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
             ticketItemId: r.item_id, serviceId: r.service_id, name: r.item_name, totalCents: r.item_total,
             durationMin: r.duration_min, staffName: pickText(r.staff_name, ctx.locale),
             membershipId: r.membership_id, startedAt: r.started_at, finishedAt: r.finished_at,
+            roomName: r.room_name,
           });
           t.serviceCompleted = t.serviceCompleted && r.finished_at !== null;
           map.set(r.ticket_id, t);

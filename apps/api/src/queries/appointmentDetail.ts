@@ -17,6 +17,7 @@ export interface AppointmentItemDetailDto {
   startsAt: string;
   durationMin: number;
   priceCents: number;
+  status: string;
 }
 
 export interface AppointmentDetailDto {
@@ -98,6 +99,7 @@ export async function loadAppointmentDetail(
           startsAt: wq.joined_at,
           durationMin: svc.duration_min,
           priceCents: svc.base_price_cents,
+          status: wq.status === 'in_service' ? 'in_service' : 'booked',
         }];
       }
     }
@@ -161,13 +163,13 @@ export async function loadAppointmentDetail(
     price_cents: number; duration_min: number; starts_at: string;
     membership_id: string | null; staff_display_name: unknown;
     user_full_name: string | null; resource_id: string | null;
-    resource_name: string | null;
+    resource_name: string | null; status: string;
   }[]>`
     select ai.id as item_id, ai.service_id, s.name as service_name,
            ai.price_cents_snapshot as price_cents, ai.duration_min, ai.starts_at::text as starts_at,
            ai.membership_id, sp.display_name as staff_display_name,
            u.full_name as user_full_name,
-           ai.resource_id, r.name as resource_name
+           ai.resource_id, r.name as resource_name, ai.status
     from appointment_items ai
     join services s on s.id = ai.service_id
     left join memberships m on m.id = ai.membership_id
@@ -193,6 +195,7 @@ export async function loadAppointmentDetail(
       startsAt: r.starts_at,
       durationMin: r.duration_min,
       priceCents: r.price_cents,
+      status: r.status,
     };
   });
 

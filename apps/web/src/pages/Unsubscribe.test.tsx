@@ -2,17 +2,20 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { LanguageProvider } from '@/LanguageContext';
 import { Unsubscribe } from './Unsubscribe';
 
 vi.mock('@/lib/api', () => ({ API_BASE: 'http://api.test' }));
 
 function renderPage(search = '?t=tok_1') {
   return render(
-    <MemoryRouter initialEntries={[`/unsubscribe${search}`]}>
-      <Routes>
-        <Route path="/unsubscribe" element={<Unsubscribe />} />
-      </Routes>
-    </MemoryRouter>,
+    <LanguageProvider>
+      <MemoryRouter initialEntries={[`/unsubscribe${search}`]}>
+        <Routes>
+          <Route path="/unsubscribe" element={<Unsubscribe />} />
+        </Routes>
+      </MemoryRouter>
+    </LanguageProvider>,
   );
 }
 

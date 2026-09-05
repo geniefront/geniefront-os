@@ -32,6 +32,8 @@ import { useErrorMessage } from '@/lib/errorMessage';
 import { instantToWallDate, instantToWallMinutes, useStoreTime, wallMinutesToInstant } from '@/lib/time';
 import { centsToDollars } from '@/features/checkout/api';
 import { cn, formatPhoneDisplay, formatPhoneInput, normalizePhoneE164 } from '@/lib/utils';
+import { customerInitials as initialsOf } from '@/lib/displayName';
+import { appointmentStepperRank } from '@/features/schedule/stepper';
 
 interface AppointmentDrawerProps {
   onClose: () => void;
@@ -327,13 +329,12 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
     ['notes', t('schedule.adTabNotes'), Stethoscope],
   ];
   const activeCustomerName = customerQ.data?.displayName || appointment.customer.name;
-  const customerInitials = activeCustomerName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || '?';
-  const status: NonNullable<AppointmentDrawerProps['initialStatus']> = appointment.status === 'completed'
-    ? 'done'
-    : appointment.status === 'booked' || appointment.status === 'checked_in' || appointment.status === 'in_service' || appointment.status === 'done'
-      ? appointment.status
-      : initialStatus;
-  const statusRank = status === 'done' ? 4 : status === 'in_service' ? 3 : status === 'checked_in' ? 2 : 1;
+  const customerInitials = initialsOf(activeCustomerName);
+  const knownStatus = ['booked', 'checked_in', 'waiting', 'in_service', 'done', 'completed'].includes(appointment.status);
+  const statusRank = appointmentStepperRank(
+    knownStatus ? appointment.status : initialStatus,
+    appointment.items,
+  );
   const totalCents = activeTicket?.subtotalCents ?? appointment.items.reduce((sum, item) => sum + item.priceCents, 0);
 
   return shell(<>

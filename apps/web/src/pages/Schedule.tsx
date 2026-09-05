@@ -95,7 +95,7 @@ function ScheduleContent() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { openAppointment, openCreateAppointment } = useOutletContext<{
     setRightDrawerOpen: (open: boolean) => void;
-    openAppointment?: (id?: string | null) => void;
+    openAppointment?: (id?: string | null, status?: 'booked' | 'checked_in' | 'in_service' | 'done') => void;
     openCreateAppointment?: (options?: {
       defaultDate?: string;
       defaultStaffId?: string;
@@ -364,7 +364,14 @@ function ScheduleContent() {
   };
 
   const handleEditClick = (item: ScheduleItem, e: React.MouseEvent) => {
-    openAppointment?.(item.appointmentId);
+    openAppointment?.(
+      item.appointmentId,
+      item.status === 'completed'
+        ? 'done'
+        : item.status === 'in_service'
+          ? 'in_service'
+          : 'booked',
+    );
     e.stopPropagation();
   };
 
@@ -528,8 +535,8 @@ function ScheduleContent() {
 
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col bg-slate-50 text-slate-800 rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-      <div className="flex-none h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between z-10">
-        <div className="flex items-center gap-4">
+      <div className="flex-none min-h-16 bg-white border-b border-slate-200 px-3 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 z-10">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
           <div className="relative flex items-center group cursor-pointer overflow-hidden rounded-md">
             <h2 className="text-xl font-bold text-slate-900 tracking-tight group-hover:text-teal-600 transition-colors pr-2 flex items-center gap-2">
               {(() => {
@@ -563,10 +570,10 @@ function ScheduleContent() {
             <Button variant="ghost" size="icon" onClick={handleNext} className="h-8 w-8 text-slate-500 hover:text-slate-900 cursor-pointer"><ChevronRight className="w-4 h-4" /></Button>
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end min-w-0">
           {view === 'overview' && (
             <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-600 font-medium bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors">
+              <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-600 font-medium bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors whitespace-nowrap">
                 <input 
                   type="checkbox" 
                   checked={showStaffColumns} 
@@ -608,7 +615,7 @@ function ScheduleContent() {
               ))}
             </select>
           )}
-          <div className="relative w-40 sm:w-48">
+          <div className="relative w-32 sm:w-40 lg:w-48 shrink-0">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
             <input
               type="text"
@@ -625,7 +632,7 @@ function ScheduleContent() {
                 key={v}
                 type="button"
                 onClick={() => setView(v)}
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                className={`px-2.5 sm:px-4 py-1.5 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
                   view === v ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -688,8 +695,8 @@ function ScheduleContent() {
                   {itemCount > 0 ? (
                     <div className="flex-1 flex flex-col gap-1.5 mt-1 px-1">
                       <div className="text-lg font-bold text-slate-800 tabular-nums leading-none">
-                        {itemCount}
-                        <span className="text-[11px] font-medium text-slate-500 ml-1">{t('itemsCount')}</span>
+                        {summary?.appointments ?? itemCount}
+                        <span className="text-[11px] font-medium text-slate-500 ml-1">{t('schedule.monthBookings')}</span>
                       </div>
                       {/* 密度条：以当月单日最大项目数为基准，用于一眼看出忙闲分布 */}
                       <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
@@ -949,8 +956,8 @@ function ScheduleContent() {
                         
                         {/* Open/Close Indicators */}
                         <div className="absolute left-0 right-0 h-[2px] bg-emerald-500/30 z-30 pointer-events-none" style={{ top: `${(storeOpenMin - DAY_START) * PIXELS_PER_MIN}px` }} />
-                        <div className="absolute left-0 right-0 h-8 bg-gradient-to-b from-emerald-50/50 to-transparent z-20 pointer-events-none flex justify-center pt-1" style={{ top: `${(storeOpenMin - DAY_START) * PIXELS_PER_MIN}px` }}>
-                          <span className="text-[10px] text-emerald-600/70 font-bold tracking-widest uppercase bg-white/60 px-2 rounded-full shadow-sm backdrop-blur-sm">{`${minsToTime(storeOpenMin)} ${t('storeOpens')}`}</span>
+                        <div className="absolute left-0 right-0 h-6 z-[15] pointer-events-none flex justify-center" style={{ top: `${Math.max(0, (storeOpenMin - DAY_START) * PIXELS_PER_MIN - 22)}px` }}>
+                          <span className="text-[10px] text-emerald-600/70 font-bold tracking-widest uppercase bg-white/80 px-2 rounded-full shadow-sm">{`${minsToTime(storeOpenMin)} ${t('storeOpens')}`}</span>
                         </div>
                         
                         <div className="absolute left-0 right-0 h-[2px] bg-slate-400/30 z-30 pointer-events-none" style={{ top: `${(storeCloseMin - DAY_START) * PIXELS_PER_MIN}px` }} />

@@ -53,7 +53,11 @@ export const PairingPage: React.FC = () => {
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (code.length !== 6 || isSubmitting || authLoading) return;
+    if (isSubmitting || authLoading) return;
+    if (code.length !== 6) {
+      setErrorMsg(t('pairing.codeRequired'));
+      return;
+    }
 
     setIsSubmitting(true);
     setErrorMsg(null);
@@ -141,9 +145,9 @@ export const PairingPage: React.FC = () => {
         <div className="pt-1">
           <button
             type="button"
-            disabled={code.length !== 6 || isSubmitting || authLoading}
-            onClick={() => handleSubmit()}
-            className="kiosk-touch-target w-full max-w-xl mx-auto py-4 rounded-2xl bg-teal-600 hover:bg-teal-700 active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none text-white font-bold text-base shadow-sm transition-all flex items-center justify-center gap-2"
+            disabled={isSubmitting || authLoading}
+            onClick={() => void handleSubmit()}
+            className="kiosk-touch-target w-full max-w-xl mx-auto py-4 rounded-2xl bg-teal-600 hover:bg-teal-700 active:scale-[0.98] disabled:opacity-40 text-white font-bold text-base shadow-sm transition-all flex items-center justify-center gap-2"
           >
             {isSubmitting || authLoading ? (
               <>
