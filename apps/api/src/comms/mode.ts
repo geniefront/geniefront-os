@@ -104,6 +104,9 @@ export function assertCommunicationSafety(env: Env = process.env): void {
   if (env['MAILPIT_URL']) {
     violations.push('MAILPIT_URL 已配置（本机测试收件箱只属于 local）');
   }
+  if (env['MAILSLURP_API_KEY']) {
+    violations.push('MAILSLURP_API_KEY 已配置（MailSlurp 测试收件箱只属于 local/staging）');
+  }
 
   if (violations.length > 0) {
     throw new Error(

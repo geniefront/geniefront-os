@@ -183,6 +183,7 @@ export function buildServer(): FastifyInstance {
     if (['/v1/webhooks/resend','/v1/webhooks/ses'].includes(path)) return;
     // 供应商通知只能配置 URL；路径标识由 webhook 路由自行常数时间校验。
     if (path === '/v1/webhooks/elasticemail' || path.startsWith('/v1/webhooks/elasticemail/')) return;
+    if (path === '/v1/webhooks/mailslurp' || path.startsWith('/v1/webhooks/mailslurp/')) return;
     if (path.startsWith('/v1/auth/')) return;
 
     const t = req.headers[STAFF_TOKEN_HEADER];

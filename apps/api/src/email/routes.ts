@@ -5,6 +5,7 @@ import {AppError,ERROR_CODES} from '@gf/contracts';
 import type {CtxFromHeaders} from '../routes/utils';
 import {reconcileEmail} from './events';
 import {createHash,timingSafeEqual} from 'node:crypto';
+import {isProductionEnv} from '../comms/mode';
 
 export async function emailPanel(tenant:TenantContext){
  return withTenant(tenant,async tx=>{
@@ -55,4 +56,13 @@ export function registerEmailManagementRoutes(app:FastifyInstance,ctxFromHeaders
  };
  app.post('/v1/webhooks/elasticemail',notify);
  app.post('/v1/webhooks/elasticemail/:token',notify);
+
+ // MailSlurp incoming webhook for local/staging test environments.
+ app.get('/v1/webhooks/mailslurp',async()=>({ok:true,provider:'mailslurp'}));
+ app.post('/v1/webhooks/mailslurp',async(req,reply)=>{
+  if(isProductionEnv())return reply.code(403).send({error:'not_allowed_in_production'});
+  const payload=(typeof req.body==='object'&&req.body!==null?req.body:{}) as Record<string,unknown>;
+  req.log.info({mailslurpEvent:payload['eventName'],inboxId:payload['inboxId'],emailId:payload['emailId'],subject:payload['subject']},'mailslurp webhook received');
+  return{ok:true,received:true};
+ });
 }

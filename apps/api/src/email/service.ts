@@ -6,6 +6,7 @@ import { domainInstructions, txtRecords } from './domains';
 import { validateEmail } from './validation';
 import { reconcileEmail } from './events';
 import { isCaptureMode } from '../comms/mode';
+import { mailslurpEnabled, mailslurpCreateInbox, mailslurpAttachWebhook } from './mailslurp';
 
 export function encryptEmailKey(value:string,context:string):string {
   const raw=process.env['EMAIL_CREDENTIAL_ENCRYPTION_KEY'];
@@ -27,6 +28,20 @@ export async function provisionEmailAccount(tenant:TenantContext):Promise<void> 
       and status in ('pending','error') and (attempted_at is null or attempted_at<now()-interval '15 minutes') returning key_encrypted`;
   });
   if(!claim) return;
+  if(mailslurpEnabled()){
+    try{
+      const inbox=await mailslurpCreateInbox(`shop-${tenant.locationId}`);
+      if(process.env['API_HOST']){
+        try{await mailslurpAttachWebhook(inbox.id,`https://${process.env['API_HOST']}/v1/webhooks/mailslurp`);}catch{/* non-fatal */}
+      }
+      const wrapped=encryptEmailKey(inbox.id,tenant.locationId);
+      await withTenant(tenant,tx=>tx`update email_accounts set account_email=${inbox.emailAddress},provider_account_id=${inbox.id},key_encrypted=${wrapped},status='ready',last_error=null,updated_at=now() where location_id=${tenant.locationId}`);
+      return;
+    }catch(e){
+      await withTenant(tenant,tx=>tx`update email_accounts set status='error',last_error=${e instanceof Error?e.message:'mailslurp_provisioning_failed'},updated_at=now() where location_id=${tenant.locationId}`);
+      return;
+    }
+  }
   try {
     let account:{PublicAccountID:string};
     try{account=await elasticRequest('GET',`/subaccounts/${encodeURIComponent(email)}`);}
@@ -73,7 +88,8 @@ export async function refreshEmailDomains(tenant:TenantContext):Promise<void> {
   }
 }
 export async function runEmailService():Promise<void>{
-  if(isCaptureMode() || process.env['NODE_ENV']==='test' || !elasticKey()) return;
+  if(process.env['NODE_ENV']==='test') return;
+  if(!mailslurpEnabled() && (isCaptureMode() || !elasticKey())) return;
   const tenants=await sql<{org_id:string;location_id:string}[]>`select * from gf_email_service_tenants(50)`;
   for(const r of tenants){
     const tenant={orgId:r.org_id,locationId:r.location_id,membershipId:null};
@@ -87,13 +103,15 @@ export async function runEmailService():Promise<void>{
           where org_id=${tenant.orgId} and location_id=${tenant.locationId} and email=${v.email}`);
       }
       try { await provisionEmailAccount(tenant); } catch { /* Missing provisioning config must not stop delivery reconciliation. */ }
-      await refreshEmailDomains(tenant);
-      await withTenant(tenant,tx=>tx`update email_outbox set status='uncertain',last_error='delivery_claim_expired' where location_id=${tenant.locationId} and status='sending' and claimed_at<now()-interval '5 minutes'`);
-      const pending=await withTenant(tenant,tx=>tx<{provider_transaction_id:string}[]>`
-        select distinct provider_transaction_id from email_outbox where location_id=${tenant.locationId}
-        and provider='elasticemail' and status='sent' and provider_transaction_id is not null and sent_at>now()-interval '6 days'
-        and (last_reconciled_at is null or last_reconciled_at<now()-interval '15 minutes') limit 20`);
-      for(const p of pending) await reconcileEmail(tenant,p.provider_transaction_id);
+      if (!isCaptureMode() && elasticKey()) {
+        await refreshEmailDomains(tenant);
+        await withTenant(tenant,tx=>tx`update email_outbox set status='uncertain',last_error='delivery_claim_expired' where location_id=${tenant.locationId} and status='sending' and claimed_at<now()-interval '5 minutes'`);
+        const pending=await withTenant(tenant,tx=>tx<{provider_transaction_id:string}[]>`
+          select distinct provider_transaction_id from email_outbox where location_id=${tenant.locationId}
+          and provider='elasticemail' and status='sent' and provider_transaction_id is not null and sent_at>now()-interval '6 days'
+          and (last_reconciled_at is null or last_reconciled_at<now()-interval '15 minutes') limit 20`);
+        for(const p of pending) await reconcileEmail(tenant,p.provider_transaction_id);
+      }
     }catch{ /* Other tenants still progress; detailed statuses are persisted per resource. */ }
   }
 }
