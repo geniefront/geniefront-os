@@ -117,3 +117,29 @@ describe('取词 t()', () => {
     expect(screen.getByTestId('text').textContent?.trim()).not.toBe('');
   });
 });
+
+describe('动态词典加载与容错保护', () => {
+  it('动态加载模式下词典加载完成时 ready 置为 true', async () => {
+    (globalThis as typeof globalThis & { __GF_TEST_DYNAMIC_I18N__?: boolean }).__GF_TEST_DYNAMIC_I18N__ = true;
+    function ReadyProbe() {
+      const { ready } = useLanguage();
+      return <span data-testid="ready">{ready ? 'READY' : 'LOADING'}</span>;
+    }
+    render(
+      <LanguageProvider>
+        <ReadyProbe />
+      </LanguageProvider>,
+    );
+
+    // Initial state is loading (ready === false)
+    expect(screen.getByTestId('ready')).toHaveTextContent('LOADING');
+
+    // Eventually completes and sets ready to true
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('ready')).toHaveTextContent('READY');
+    });
+
+    delete (globalThis as typeof globalThis & { __GF_TEST_DYNAMIC_I18N__?: boolean }).__GF_TEST_DYNAMIC_I18N__;
+  });
+});
+

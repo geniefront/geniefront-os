@@ -92,8 +92,8 @@ describe('运行时懒加载域', () => {
     const src = readFileSync(resolve(__dirname, '../LanguageContext.tsx'), 'utf8');
     expect(src).toContain("import('./i18n/email')");
     expect(src).toContain("import('./i18n/reviews')");
-    expect(src).toContain('...email.email');
-    expect(src).toContain('...reviews.reviews');
+    expect(src).toMatch(/\.\.\.email(?:\?\.|\.)email/);
+    expect(src).toMatch(/\.\.\.reviews(?:\?\.|\.)reviews/);
   });
 });
 

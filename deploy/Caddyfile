@@ -53,10 +53,13 @@ https://{$API_HOST}, https://{$DESK_HOST} {
 		reverse_proxy api:3000
 	}
 
-	# 2. 静态资源（防止 CDN 缓存中毒）
+	# 2. 静态资源（防止 CDN 缓存中毒：仅对存在的文件返回 immutable，不存在的文件禁止缓存）
 	handle /assets/* {
 		root * /srv/web
-		header Cache-Control "public, max-age=31536000, immutable"
+		@exists file
+		header @exists Cache-Control "public, max-age=31536000, immutable"
+		@notExists not file
+		header @notExists Cache-Control "no-store, no-cache, must-revalidate"
 		file_server
 	}
 	# 3. 前端 SPA 路由
@@ -123,7 +126,10 @@ https://{$KIOSK_HOST} {
 
 	handle /assets/* {
 		root * /srv/kiosk
-		header Cache-Control "public, max-age=31536000, immutable"
+		@exists file
+		header @exists Cache-Control "public, max-age=31536000, immutable"
+		@notExists not file
+		header @notExists Cache-Control "no-store, no-cache, must-revalidate"
 		file_server
 	}
 
@@ -181,7 +187,10 @@ https://{$PLATFORM_HOST} {
 
 	handle /assets/* {
 		root * /srv/platform
-		header Cache-Control "public, max-age=31536000, immutable"
+		@exists file
+		header @exists Cache-Control "public, max-age=31536000, immutable"
+		@notExists not file
+		header @notExists Cache-Control "no-store, no-cache, must-revalidate"
 		file_server
 	}
 
@@ -239,7 +248,10 @@ https://{$MARKETING_HOST}, https://{$MARKETING_WWW_HOST} {
 
 	handle /assets/* {
 		root * /srv/marketing
-		header Cache-Control "public, max-age=31536000, immutable"
+		@exists file
+		header @exists Cache-Control "public, max-age=31536000, immutable"
+		@notExists not file
+		header @notExists Cache-Control "no-store, no-cache, must-revalidate"
 		file_server
 	}
 
@@ -299,7 +311,10 @@ https://{$BOOKING_HOST} {
 
 	handle /assets/* {
 		root * /srv/booking
-		header Cache-Control "public, max-age=31536000, immutable"
+		@exists file
+		header @exists Cache-Control "public, max-age=31536000, immutable"
+		@notExists not file
+		header @notExists Cache-Control "no-store, no-cache, must-revalidate"
 		file_server
 	}
 

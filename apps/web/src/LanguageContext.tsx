@@ -44,7 +44,7 @@ interface LanguageContextType {
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const isTest = import.meta.env.MODE === 'test';
+  const isTest = import.meta.env.MODE === 'test' && !(globalThis as typeof globalThis & { __GF_TEST_DYNAMIC_I18N__?: boolean }).__GF_TEST_DYNAMIC_I18N__;
   const [translations, setTranslations] = useState<Record<Language, Record<string, string>>>(() => (
     (globalThis as typeof globalThis & { __GF_TEST_TRANSLATIONS__?: Record<Language, Record<string, string>> })
       .__GF_TEST_TRANSLATIONS__ ?? flatten(common)
@@ -54,24 +54,73 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isTest) return undefined;
     let cancelled = false;
+
+    // 兜底超时：即使网络阻塞或分包加载卡死，最多等待 3.5s 即放行渲染，
+    // 基础 common 词典已同步提供，页面绝不会陷入无限转圈。
+    const safetyTimer = setTimeout(() => {
+      if (!cancelled) {
+        setReady(true);
+      }
+    }, 3500);
+
+    const loadSafe = async <T,>(fn: () => Promise<T>): Promise<T | null> => {
+      try {
+        return await fn();
+      } catch (err) {
+        console.warn('[LanguageContext] 分包词典加载异常，自动降级至基础词典:', err);
+        return null;
+      }
+    };
+
     void Promise.all([
-      import('./i18n/schedule'), import('./i18n/queue'), import('./i18n/rotation'),
-      import('./i18n/checkout'), import('./i18n/finance'), import('./i18n/crm'),
-      import('./i18n/settings'), import('./i18n/healthForms'), import('./i18n/tech'), import('./i18n/setup'),
-      import('./i18n/support'), import('./i18n/email'), import('./i18n/reviews'),
-      import('./i18n/permissions'),
+      loadSafe(() => import('./i18n/schedule')),
+      loadSafe(() => import('./i18n/queue')),
+      loadSafe(() => import('./i18n/rotation')),
+      loadSafe(() => import('./i18n/checkout')),
+      loadSafe(() => import('./i18n/finance')),
+      loadSafe(() => import('./i18n/crm')),
+      loadSafe(() => import('./i18n/settings')),
+      loadSafe(() => import('./i18n/healthForms')),
+      loadSafe(() => import('./i18n/tech')),
+      loadSafe(() => import('./i18n/setup')),
+      loadSafe(() => import('./i18n/support')),
+      loadSafe(() => import('./i18n/email')),
+      loadSafe(() => import('./i18n/reviews')),
+      loadSafe(() => import('./i18n/permissions')),
     ]).then(([schedule, queue, rotation, checkout, finance, crm, settings, healthForms, tech, setup, support, email, reviews, permissions]) => {
       if (cancelled) return;
+      clearTimeout(safetyTimer);
       const merged: DomainDict = {
-        ...common, ...schedule.schedule, ...queue.queue, ...rotation.rotation,
-        ...checkout.checkout, ...finance.finance, ...crm.crm, ...settings.settings,
-        ...healthForms.healthForms, ...tech.tech, ...setup.setup, ...support.support,
-        ...email.email, ...reviews.reviews, ...permissions.permissions,
+        ...common,
+        ...schedule?.schedule,
+        ...queue?.queue,
+        ...rotation?.rotation,
+        ...checkout?.checkout,
+        ...finance?.finance,
+        ...crm?.crm,
+        ...settings?.settings,
+        ...healthForms?.healthForms,
+        ...tech?.tech,
+        ...setup?.setup,
+        ...support?.support,
+        ...email?.email,
+        ...reviews?.reviews,
+        ...permissions?.permissions,
       };
       setTranslations(flatten(merged));
       setReady(true);
+    }).catch((err) => {
+      console.warn('[LanguageContext] 词典加载未捕获异常:', err);
+      if (!cancelled) {
+        clearTimeout(safetyTimer);
+        setReady(true);
+      }
     });
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+      clearTimeout(safetyTimer);
+    };
   }, [isTest]);
   /**
    * 记住上次选择的语言。门店内多台前台终端各有其习惯语言，

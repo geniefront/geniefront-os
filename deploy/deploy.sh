@@ -170,5 +170,19 @@ for host in "${HOSTS[@]}"; do
   echo "  ${G}✓ ${host} 健康${N}"
 done
 
+CF_TOKEN="$(get CLOUDFLARE_API_TOKEN)"
+CF_ZONE="$(get CLOUDFLARE_ZONE_ID)"
+if [[ -n "$CF_TOKEN" && -n "$CF_ZONE" ]]; then
+  log "清理 Cloudflare 边缘缓存"
+  if curl -sf -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE}/purge_cache" \
+    -H "Authorization: Bearer ${CF_TOKEN}" \
+    -H "Content-Type: application/json" \
+    --data '{"purge_everything":true}' >/dev/null; then
+    echo "  ${G}✓ Cloudflare 缓存清理完成${N}"
+  else
+    echo "  ${R}⚠ Cloudflare 缓存清理失败，请手动确认${N}"
+  fi
+fi
+
 echo
 echo "${G}${TARGET} 部署完成${N}  版本 ${TAG}"

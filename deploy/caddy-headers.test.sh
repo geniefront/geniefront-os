@@ -120,11 +120,17 @@ if "frame-ancestors 'none'" not in text and "frame-ancestors \\u0027none\\u0027"
 if "DENY" not in text and "deny" not in text.lower():
     print("✗ adapted JSON missing X-Frame-Options DENY")
     sys.exit(1)
-print("✓ caddy adapt: no-referrer + frame denial present")
+if text.count("no-store, no-cache, must-revalidate") < 5:
+    print("✗ adapted JSON missing anti-cache headers for missing assets")
+    sys.exit(1)
+print("✓ caddy adapt: no-referrer + frame denial + asset cache defense present")
 PY
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"; docker rm -f gf-caddy-headers >/dev/null 2>&1 || true' EXIT
+
+mkdir -p "${WORKDIR}/srv/web/assets"
+echo '/* test asset */' > "${WORKDIR}/srv/web/assets/app.js"
 
 cat > "${WORKDIR}/Caddyfile" <<'EOF'
 {
@@ -139,6 +145,14 @@ cat > "${WORKDIR}/Caddyfile" <<'EOF'
 # API+desk: site-wide strict-origin must not win on hosted JSON, and the
 # downstream response must contain exactly one Referrer-Policy value.
 :8080 {
+	root * /srv/web
+	handle /assets/* {
+		@exists file
+		header @exists Cache-Control "public, max-age=31536000, immutable"
+		@notExists not file
+		header @notExists Cache-Control "no-store, no-cache, must-revalidate"
+		file_server
+	}
 	@hosted_json path /public/v1/hosted /public/v1/hosted/*
 	handle @hosted_json {
 		reverse_proxy 127.0.0.1:8083
@@ -177,6 +191,7 @@ EOF
 docker rm -f gf-caddy-headers >/dev/null 2>&1 || true
 docker run -d --name gf-caddy-headers \
   -v "${WORKDIR}/Caddyfile:/etc/caddy/Caddyfile:ro" \
+  -v "${WORKDIR}/srv:/srv:ro" \
   -p 18081:8080 -p 18082:8081 \
   "$IMAGE" >/dev/null
 
@@ -213,4 +228,15 @@ echo "$manage_h" | grep -qi '^referrer-policy: no-referrer$' \
   && echo "✓ HTML /l keeps no-referrer, DENY, frame-ancestors none" \
   || { echo "✗ HTML /l headers:"; echo "$manage_h"; exit 1; }
 
-echo "✓ Caddy hosted/HTML Referrer-Policy split"
+asset_hit_h=$(hdr http://127.0.0.1:18081/assets/app.js)
+asset_miss_h=$(hdr http://127.0.0.1:18081/assets/missing.js)
+
+echo "$asset_hit_h" | grep -qi '^cache-control: public, max-age=31536000, immutable$' \
+  && echo "✓ existing asset Cache-Control is immutable" \
+  || { echo "✗ existing asset headers:"; echo "$asset_hit_h"; exit 1; }
+
+echo "$asset_miss_h" | grep -qi '^cache-control: no-store, no-cache, must-revalidate$' \
+  && echo "✓ missing asset Cache-Control is no-store" \
+  || { echo "✗ missing asset headers:"; echo "$asset_miss_h"; exit 1; }
+
+echo "✓ Caddy hosted/HTML Referrer-Policy split & asset caching protection"

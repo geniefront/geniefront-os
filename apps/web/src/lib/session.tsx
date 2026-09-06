@@ -135,13 +135,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
 
+    // 兜底超时：避免 getSession() 在断网或代理阻断时卡死无回调导致整页永久转圈
+    const safetyTimer = setTimeout(() => {
+      if (!cancelled) {
+        setSessionResolved(true);
+      }
+    }, 4000);
+
     supabase.auth.getSession().then(({ data }) => {
       if (cancelled) return;
+      clearTimeout(safetyTimer);
       setSession(data.session);
       setSessionResolved(true);
+    }).catch((err) => {
+      console.warn('[session] getSession failed, resolving to unauthenticated:', err);
+      if (!cancelled) {
+        clearTimeout(safetyTimer);
+        setSessionResolved(true);
+      }
     });
 
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, next) => {
+      clearTimeout(safetyTimer);
       setSession(next);
       setSessionResolved(true);
       if (!next) {
@@ -156,6 +171,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true;
+      clearTimeout(safetyTimer);
       subscription.subscription.unsubscribe();
     };
   }, [queryClient]);
