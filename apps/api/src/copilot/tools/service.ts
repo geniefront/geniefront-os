@@ -32,16 +32,19 @@ export async function getServiceCatalog(
   if (category) {
     const c = category.toLowerCase();
     filtered = filtered.filter((r) => {
-      const cat = r.category_name ? pickText(r.category_name, ctx.locale).toLowerCase() : '';
-      return cat === c || cat.includes(c);
+      const catZh = r.category_name ? pickText(r.category_name, ctx.locale).toLowerCase() : '';
+      const catEn = typeof r.category_name === 'object' && r.category_name ? String(r.category_name['en'] || '').toLowerCase() : '';
+      return catZh.includes(c) || catEn.includes(c);
     });
   }
   if (search) {
     const s = search.toLowerCase();
     filtered = filtered.filter((r) => {
-      const nm = pickText(r.name, ctx.locale).toLowerCase();
-      const cat = r.category_name ? pickText(r.category_name, ctx.locale).toLowerCase() : '';
-      return nm.includes(s) || cat.includes(s);
+      const nameZh = pickText(r.name, ctx.locale).toLowerCase();
+      const nameEn = typeof r.name === 'object' && r.name ? String(r.name['en'] || '').toLowerCase() : '';
+      const catZh = r.category_name ? pickText(r.category_name, ctx.locale).toLowerCase() : '';
+      const catEn = typeof r.category_name === 'object' && r.category_name ? String(r.category_name['en'] || '').toLowerCase() : '';
+      return nameZh.includes(s) || nameEn.includes(s) || catZh.includes(s) || catEn.includes(s);
     });
   }
 
@@ -50,6 +53,7 @@ export async function getServiceCatalog(
     services: filtered.map((s) => ({
       serviceId: s.id,
       name: pickText(s.name, ctx.locale),
+      englishName: typeof s.name === 'object' && s.name ? (s.name['en'] || s.name['en-US'] || null) : null,
       category: s.category_name ? pickText(s.category_name, ctx.locale) : '未分类',
       durationMin: s.duration_min,
       priceDollars: (s.base_price_cents / 100).toFixed(2),

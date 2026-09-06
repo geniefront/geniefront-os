@@ -296,6 +296,29 @@ export async function runCopilotOrchestration(
       finalAnswer = clarification.question;
     } else if (planRevision?.summary || planRevision?.title) {
       finalAnswer = planRevision.summary || planRevision.title;
+    } else {
+      // 8 轮耗尽但仍未产出最终文本回答，发起一次无工具强制收敛总结 (Graceful fallback)
+      try {
+        args.callbacks?.onStep?.('正在整理并输出最终分析结果...');
+        const fallbackResp = await luna.invoke({
+          instructions: `${instructions}\n\n【重要要求】当前思考轮次已达上限，不得再调用任何工具，请直接向用户做最终文字总结与汇报。若有未能自动导入或确认的内容，清晰向用户说明当前处理进度和需要确认的事项。`,
+          messages,
+          tools: undefined,
+          toolChoice: 'none',
+          onDelta: args.callbacks?.onDelta,
+          onReasoningDelta: args.callbacks?.onReasoning,
+        });
+        usages.push(fallbackResp.usage);
+        if (fallbackResp.text && fallbackResp.text.trim()) {
+          finalAnswer = fallbackResp.text.trim();
+        }
+      } catch {
+        // ignore fallback failure and use hard fallback below
+      }
+
+      if (!finalAnswer) {
+        finalAnswer = '已为您完成前序检索与分析。本次处理步骤较多，未能自动生成完整方案卡片，请查看上方执行阶段，或进一步补充具体信息后重试。';
+      }
     }
   }
 
