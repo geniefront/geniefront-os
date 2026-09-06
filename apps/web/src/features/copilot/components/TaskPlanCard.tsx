@@ -39,6 +39,7 @@ export const TaskPlanCard: React.FC<TaskPlanCardProps> = ({
     isExecuting,
     isRevising,
     isExecuted,
+    lastExecution,
   } = useCopilotTask(onExecuted, {
     taskId,
     preview: initialPreview,
@@ -78,6 +79,7 @@ export const TaskPlanCard: React.FC<TaskPlanCardProps> = ({
       isExecuting={isExecuting}
       isRevising={isRevising}
       executed={initialExecuted || isExecuted}
+      executionResults={lastExecution?.executedSteps}
     />
   );
 };

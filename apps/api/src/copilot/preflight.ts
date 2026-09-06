@@ -151,9 +151,15 @@ export async function compileTaskPlan(
       if (resolvedInput['customerId'] === undefined) {
         resolvedInput['customerId'] = null;
       }
-      if (!resolvedInput['source']) {
-        resolvedInput['source'] = 'ai_copilot';
-      }
+      // ⚠️ **强制覆盖，不是「缺了才补」。**
+      //
+      // `source` 记的是「这条记录是从哪条路进系统的」，走副驾就一定是
+      // ai_copilot —— 这不该由模型决定。模型看到命令目录里的枚举
+      // （'desk'|'walkin'|'web'|'phone_ai'|'ai_copilot'）会自己挑一个，
+      // 实测它有时填 'desk'（"前台在录入嘛"），于是 AI 建的单和前台手工
+      // 建的在库里分不出来 —— 报表算不出 AI 的贡献，出问题也追不到来源。
+      // 而且它是**时灵时不灵**的：同一张截图两次导入可能填不同的值。
+      resolvedInput['source'] = 'ai_copilot';
 
       const rawGuest = resolvedInput['guest'] as Record<string, unknown> | undefined;
       const rawCustomer = resolvedInput['customer'] as Record<string, unknown> | undefined;
@@ -293,13 +299,8 @@ export async function compileTaskPlan(
       if (!resolvedInput['batchId']) {
         resolvedInput['batchId'] = randomUUID();
       }
-      // ⚠️ 来源标记不能只在 appointment.create 那一支补。
-      // 批量分支漏了这一行时，AI 导入的单在库里记成 `desk`，
-      // 和前台手工建的完全分不出来 —— 报表算不出 AI 的贡献，
-      // 出问题时也追不到「这单是谁建的」。
-      if (!resolvedInput['source']) {
-        resolvedInput['source'] = 'ai_copilot';
-      }
+      // 同 appointment.create 分支：强制覆盖，理由见那里的长注释
+      resolvedInput['source'] = 'ai_copilot';
 
       await withTenant(ctx, async (tx) => {
         const customerNames: string[] = [];

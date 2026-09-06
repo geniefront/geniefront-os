@@ -21,7 +21,8 @@ import {
   removeCopilotSession,
   createInitialSession,
   loadStoredSessions,
-  sessionsForStorage,
+  persistSessions,
+  makeThumbnail,
   useRehydrateTasks,
   MAX_SESSION_TURNS,
   BeautifiedMessageContent,
@@ -92,11 +93,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
 
   useEffect(() => {
     if (loadedStorageKeyRef.current !== storageKey) return;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(sessionsForStorage(sessions)));
-    } catch {
-      // ignore
-    }
+    persistSessions(storageKey, sessions);
   }, [sessions, storageKey]);
 
   useEffect(() => {
@@ -199,6 +196,10 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
         mediaType,
         name: file.name,
       });
+      // 缩略图后台慢慢生成 —— 它只用于历史留存，不该拖住「图片已就绪」的反馈
+      void makeThumbnail(dataUrl).then((thumb) => {
+        if (thumb) setSelectedImage((cur) => (cur?.base64 === base64 ? { ...cur, thumbnailUrl: thumb } : cur));
+      });
       toast.success(t('schedule.copilotImageLoaded'));
     };
     reader.readAsDataURL(file);
@@ -257,6 +258,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
       content: query || t('schedule.copilotScreenshotSentPlaceholder'),
       timestamp: Date.now(),
       imagePreview: selectedImage?.previewUrl,
+      imageThumbnail: selectedImage?.thumbnailUrl ?? selectedImage?.previewUrl,
     };
 
     const assistantMsgId = `msg_${Date.now()}_a`;
@@ -550,7 +552,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
                   <div className={`flex items-start gap-2.5 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     {m.role === 'assistant' && <div className="w-7 h-7 rounded-full bg-slate-900 text-teal-400 flex items-center justify-center shrink-0 border border-slate-700 mt-0.5 shadow-xs"><Sparkles className="w-3.5 h-3.5" /></div>}
                     <div className={`rounded-2xl px-4 py-3 text-xs leading-relaxed max-w-[88%] shadow-2xs ${m.role === 'user' ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border border-slate-200'}`}>
-                      {m.imagePreview && <div className="rounded-lg overflow-hidden border border-white/20 mb-2 shadow-xs"><img src={m.imagePreview} alt={t('schedule.copilotScreenshotAlt')} className="w-full h-auto object-cover max-h-40" /></div>}
+                      {(m.imagePreview || m.imageThumbnail) && <div className="rounded-lg overflow-hidden border border-white/20 mb-2 shadow-xs"><img src={m.imagePreview || m.imageThumbnail} alt={t('schedule.copilotScreenshotAlt')} className="w-full h-auto object-cover max-h-40" /></div>}
                       {m.role === 'assistant' && (m.steps && m.steps.length > 0) && (
                         <ThinkingAccordion steps={m.steps} isStreaming={m.isStreaming} />
                       )}

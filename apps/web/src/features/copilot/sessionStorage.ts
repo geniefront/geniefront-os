@@ -3,10 +3,13 @@
  *
  * ## 什么能落 localStorage，什么不能
  *
- * 能落的只有**文本和指针**：消息正文、时间戳、taskId、revision。
+ * 能落的只有**文本、指针和缩略图**：消息正文、时间戳、taskId、revision，
+ * 外加一张压到 320px 的截图缩略图（见 `thumbnail.ts`）。
  *
  * 不能落的有三类，各有各的理由：
- * - **截图**：几 MB 的 base64，几条就把 5MB 配额撑爆，之后整个会话历史都写不进去；
+ * - **原图**：几 MB 的 base64，几条就把 5MB 配额撑爆，之后整个会话历史都写不进去
+ *   —— 而且是**静默失败**，表现为「聊天记录莫名其妙不再保存了」。
+ *   缩略图（5~15KB）留着，前台重开抽屉时还认得出这段对话说的是哪一批单；
  * - **可执行令牌**（撤销令牌）：localStorage 是可篡改、可跨标签页读取的，
  *   签名令牌不该躺在那里；而且它们本来就只有几分钟有效期；
  * - **方案本体 `planRevision`**：它是服务端的权威状态，还会因为前台微调而
@@ -71,7 +74,7 @@ export function sessionsForStorage(sessions: CopilotSession[]): CopilotSession[]
     .map((session) => ({
       ...session,
       messages: session.messages.map(({
-        imagePreview: _image,
+        imagePreview: _fullImage,
         planRevision: _planRevision,
         undoToken: _undoToken,
         undoExpiresAt: _undoExpiry,
@@ -79,4 +82,38 @@ export function sessionsForStorage(sessions: CopilotSession[]): CopilotSession[]
         ...message
       }) => message),
     }));
+}
+
+/**
+ * 写入 localStorage。
+ *
+ * ⚠️ 配额满时 `setItem` 会抛 QuotaExceededError。以前是 `catch {}` 一声不吭 ——
+ * 于是历史就那么停止更新了，没人知道。现在满了就**丢掉最老的一半会话再试一次**：
+ * 前台真正会回头翻的只有最近几段，用最老的换最新的能写进去是划算的。
+ */
+export function persistSessions(key: string, sessions: CopilotSession[]): void {
+  const payload = sessionsForStorage(sessions);
+  try {
+    localStorage.setItem(key, JSON.stringify(payload));
+    return;
+  } catch {
+    // 多半是配额满了，往下走裁剪重试
+  }
+
+  for (let keep = Math.floor(payload.length / 2); keep >= 1; keep = Math.floor(keep / 2)) {
+    try {
+      localStorage.setItem(key, JSON.stringify(payload.slice(0, keep)));
+      return;
+    } catch {
+      // 继续砍
+    }
+  }
+
+  // 砍到一条还写不进去（单条里那张缩略图就超了）：清掉这个键，
+  // 让下次从空历史开始，好过永远卡在写不进去的状态
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // 连删都失败就只能放弃了（隐私模式等）
+  }
 }

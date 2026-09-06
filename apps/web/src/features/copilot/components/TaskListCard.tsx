@@ -11,6 +11,7 @@ import {
 import type { PreviewPayload, StepPreviewItem } from '@gf/contracts';
 import { AppointmentStepCard } from './AppointmentStepCard';
 import { RoomStatusStepCard } from './RoomStatusStepCard';
+import { StepResultBadge, StepResultError, type StepExecutionResult } from './StepResultBadge';
 
 interface TaskListCardProps {
   taskId: string;
@@ -25,6 +26,13 @@ interface TaskListCardProps {
   isExecuting?: boolean;
   isRevising?: boolean;
   executed?: boolean;
+  /**
+   * 每一步的执行结果。执行完之后逐条挂在对应卡片上。
+   *
+   * 以前只有底部一行「✓ 方案已确认并成功执行」—— 八条里挂了一条也是这行字，
+   * 前台以为全进去了，直到客人到店才发现没单。
+   */
+  executionResults?: StepExecutionResult[] | undefined;
 }
 
 export const TaskListCard: React.FC<TaskListCardProps> = ({
@@ -39,17 +47,37 @@ export const TaskListCard: React.FC<TaskListCardProps> = ({
   isExecuting = false,
   isRevising = false,
   executed = false,
+  executionResults,
 }) => {
   const steps = preview.steps;
   const totalCount = steps.length;
   const selectedCount = selectedStepIndices.length;
 
+  const resultByStep = new Map((executionResults ?? []).map((r) => [r.stepIndex, r]));
+  const succeededCount = (executionResults ?? []).filter((r) => r.status === 'succeeded').length;
+  const failedCount = (executionResults ?? []).filter((r) => r.status === 'failed').length;
+
   const selectedSteps = steps.filter((s) => selectedStepIndices.includes(s.stepIndex));
   const hasSelectedConflicts = selectedSteps.some((s) => s.status !== 'ready');
   const canExecuteNow = selectedCount > 0 && !hasSelectedConflicts && !isExecuting && !executed;
 
-  // 渲染单步
+  // 渲染单步（外层负责挂执行结果徽标，内层只管预览态）
   const renderStep = (step: StepPreviewItem) => {
+    const result = resultByStep.get(step.stepIndex);
+    return (
+      <div key={step.stepIndex} className="relative">
+        {result && (
+          <div className="mb-1 flex justify-end">
+            <StepResultBadge result={result} />
+          </div>
+        )}
+        {renderStepBody(step)}
+        {result && <StepResultError result={result} />}
+      </div>
+    );
+  };
+
+  const renderStepBody = (step: StepPreviewItem) => {
     const isSelected = selectedStepIndices.includes(step.stepIndex);
 
     if (step.command === 'appointment.create' || step.command === 'appointment.createBatch') {
@@ -185,9 +213,15 @@ export const TaskListCard: React.FC<TaskListCardProps> = ({
         <div className="flex items-center justify-between gap-3">
           <div className="text-xs text-zinc-500">
             {executed ? (
-              <span className="text-emerald-700 font-medium flex items-center gap-1">
-                ✓ 方案已确认并成功执行
-              </span>
+              failedCount > 0 ? (
+                <span className="font-medium text-amber-800">
+                  {succeededCount} 项已创建，{failedCount} 项失败 —— 失败的需要人工补建
+                </span>
+              ) : (
+                <span className="text-emerald-700 font-medium flex items-center gap-1">
+                  ✓ {succeededCount > 0 ? `${succeededCount} 项` : '方案'}已确认并成功执行
+                </span>
+              )
             ) : (
               <span>点击右侧按钮提交命令总线执行</span>
             )}

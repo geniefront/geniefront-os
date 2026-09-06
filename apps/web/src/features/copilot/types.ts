@@ -17,7 +17,10 @@ export interface MessageItem {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
+  /** 原图 data URL。**只活在当前这一屏**，不落 localStorage */
   imagePreview?: string;
+  /** 320px 缩略图。落 localStorage，让重开抽屉后还认得出发的是哪张图 */
+  imageThumbnail?: string;
   /** 方案指针。刷新页面后靠它向服务端重新拉取方案本体 */
   taskId?: string;
   revision?: number;
@@ -46,6 +49,8 @@ export interface CopilotSession {
 export interface SelectedImageState {
   base64: string;
   previewUrl: string;
+  /** 异步生成，生成好之前是 undefined */
+  thumbnailUrl?: string;
   mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
   name: string;
 }

@@ -1,6 +1,7 @@
 export * from './api';
 export * from './types';
 export * from './sessionStorage';
+export * from './thumbnail';
 export * from './hooks/useCopilotTask';
 export * from './hooks/useRehydrateTasks';
 export * from './components/ThinkingAccordion';
@@ -9,5 +10,6 @@ export * from './components/ClarificationCard';
 export * from './components/InteractiveTimePicker';
 export * from './components/AppointmentStepCard';
 export * from './components/RoomStatusStepCard';
+export * from './components/StepResultBadge';
 export * from './components/TaskListCard';
 export * from './components/TaskPlanCard';

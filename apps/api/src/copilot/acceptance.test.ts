@@ -822,4 +822,21 @@ describe('卡片预览的时间与金额', () => {
     }, 'appointment.createBatch');
     expect(step.resolvedInput['source']).toBe('ai_copilot');
   });
+
+  it('⭐ 模型自己填了 source 也要被覆盖掉 —— 来源不由模型决定', async () => {
+    // 实测模型看到命令目录里的枚举后会自己挑一个，有时填 'desk'
+    //（"前台在录入嘛"），而且时灵时不灵：同一张截图两次导入可能填不同的值。
+    const single = await compileOne({
+      customerId: null, walkInName: '来源测试', source: 'desk',
+      items: [{ serviceId, startsAt: '2026-09-07T14:00:00Z' }],
+    });
+    expect(single.resolvedInput['source']).toBe('ai_copilot');
+
+    const batch = await compileOne({
+      batchId: randomUUID(), source: 'walkin',
+      items: [{ subKey: 'a', customerId: null, walkInName: 'B',
+        serviceItems: [{ serviceId, startsAt: '2026-09-07T16:00:00Z' }] }],
+    }, 'appointment.createBatch');
+    expect(batch.resolvedInput['source']).toBe('ai_copilot');
+  });
 });
