@@ -8,7 +8,7 @@
 import type postgres from 'postgres';
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import {
-  TicketStartItem, TicketFinishItem, TicketSaveServiceNote, StaffRecordDirectCashTip,
+  SaveStaffDirectoryOption, TicketStartItem, TicketFinishItem, TicketSaveServiceNote, StaffRecordDirectCashTip,
   TimeclockPunch, SetMyLocale,
   AddStaff, SetEmployment, StaffSaveProfile, IssueStaffClaimCode, RevokeStaffSessions,
   AppError, ERROR_CODES, actingMembership, type CommandContext,
@@ -18,6 +18,7 @@ import { parseTs, ts, jsonb } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
 import { assertDayOpen } from '../money';
 import { assertStaffCapacity, lockServiceCapacity } from '../serviceCapacity';
+import { assertResourceStaffLimit } from '../resourceStaffLimit';
 import { hashPin, verifyPin } from '../auth/pin';
 
 async function bizDate(tx: postgres.TransactionSql, locationId: string): Promise<string> {
@@ -142,6 +143,7 @@ registerHandler(TicketStartItem, async ({ input, ctx, tx, audit, emit }: Handler
         details: { resourceId: row.resource_id, reason: 'resource_not_available' },
       });
     }
+    await assertResourceStaffLimit(tx, row.resource_id, row.id);
     await tx`insert into resource_occupancies
       (org_id, location_id, resource_id, ticket_item_id, status, updated_by)
       values (${ctx.orgId}, ${ctx.locationId}, ${row.resource_id}, ${row.id}, 'in_use', ${ctx.membershipId})
@@ -656,7 +658,7 @@ registerHandler(AddStaff, async ({ input, ctx, tx, audit }: HandlerArgs<
     throw e;
   }
 
-  if (input.inRotation && input.isBookable) {
+  if (input.inRotation && (input.isBookable ?? true)) {
     const [loc] = await tx<{ tz: string; cutoff: string }[]>`
       select timezone as tz, business_day_cutoff::text as cutoff
       from locations where id = ${ctx.locationId}`;
@@ -712,7 +714,7 @@ registerHandler(SetEmployment, async ({ input, ctx, tx, audit }: HandlerArgs<
 
 registerHandler(StaffSaveProfile, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof StaffSaveProfile.input._type>) => {
-  let dbStatus = input.status;
+  let dbStatus = input.status ?? 'active';
   if (input.status === 'on_leave') dbStatus = 'suspended';
   if (input.status === 'resigned') dbStatus = 'left';
 
@@ -734,18 +736,24 @@ registerHandler(StaffSaveProfile, async ({ input, ctx, tx, audit, emit }: Handle
     }
   }
 
+  if (levelId) {
+    const [validLevel] = await tx<{ id: string }[]>`select id from staff_levels
+      where id = ${levelId} and location_id = ${ctx.locationId}
+      and (active or exists (select 1 from staff_profiles where membership_id = ${input.membershipId ?? null} and level_id = ${levelId}))`;
+    if (!validLevel) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'invalid_or_inactive_level' } });
+  }
   let membershipId = input.membershipId;
   let isNew = false;
 
   if (membershipId) {
     const [existing] = await tx<{ id: string }[]>`
-      select id from memberships where id = ${membershipId} and location_id = ${ctx.locationId}`;
+      select id from memberships where id = ${membershipId} and location_id = ${ctx.locationId} for update`;
     if (!existing) {
       throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff', id: membershipId } });
     }
 
     await tx`
-      update memberships set status = ${dbStatus}
+      update memberships set status = case when ${input.status !== undefined} then ${dbStatus} else status end
       where id = ${membershipId}`;
 
     if (dbStatus !== 'active') {
@@ -755,15 +763,16 @@ registerHandler(StaffSaveProfile, async ({ input, ctx, tx, audit, emit }: Handle
 
     await tx`
       update staff_profiles set
-        display_name = ${jsonb({ en: input.name, 'zh-Hans': input.name })}::jsonb,
-        employee_no = ${input.employeeNo ?? null},
-        job_title = ${input.jobTitle ?? null},
-        notes = ${input.note ?? null},
-        hire_date = ${input.hireDate ?? null},
-        phone_e164 = ${input.phone || null},
-        level_id = ${levelId ?? null},
-        is_bookable = ${input.isBookable},
-        max_concurrent_appointments = ${input.maxConcurrentAppointments}
+        display_name = case when ${input.name !== undefined || input.displayName !== undefined} then ${jsonb(input.displayName ?? { en: input.name, 'zh-Hans': input.name })}::jsonb else display_name end,
+        employee_no = case when ${input.employeeNo !== undefined} then ${input.employeeNo ?? null} else employee_no end,
+        job_title = case when ${input.jobTitle !== undefined} then ${input.jobTitle ?? null} else job_title end,
+        notes = case when ${input.note !== undefined} then ${input.note ?? null} else notes end,
+        hire_date = case when ${input.hireDate !== undefined} then ${input.hireDate ?? null} else hire_date end,
+        phone_e164 = case when ${input.phone !== undefined} then ${input.phone || null} else phone_e164 end,
+        contact_email = case when ${input.email !== undefined} then ${input.email || null} else contact_email end,
+        level_id = case when ${input.level !== undefined || input.levelId !== undefined} then ${levelId ?? null} else level_id end,
+        is_bookable = coalesce(${input.isBookable ?? null}, is_bookable),
+        max_concurrent_appointments = coalesce(${input.maxConcurrentAppointments ?? null}, max_concurrent_appointments)
       where membership_id = ${membershipId}`;
   } else {
     isNew = true;
@@ -784,17 +793,17 @@ registerHandler(StaffSaveProfile, async ({ input, ctx, tx, audit, emit }: Handle
     await tx`
       insert into staff_profiles (
         membership_id, org_id, location_id, display_name, employee_no,
-        job_title, notes, hire_date, phone_e164, level_id,
+        job_title, notes, hire_date, phone_e164, contact_email, level_id,
         is_bookable, max_concurrent_appointments
       ) values (
         ${membershipId}, ${ctx.orgId}, ${ctx.locationId},
         ${jsonb({ en: input.name, 'zh-Hans': input.name })}::jsonb,
         ${input.employeeNo ?? null}, ${input.jobTitle ?? null}, ${input.note ?? null},
-        ${input.hireDate ?? null}, ${input.phone || null}, ${levelId ?? null},
-        ${input.isBookable}, ${input.maxConcurrentAppointments}
+        ${input.hireDate ?? null}, ${input.phone || null}, ${input.email || null}, ${levelId ?? null},
+        ${input.isBookable ?? true}, ${input.maxConcurrentAppointments ?? 1}
       )`;
 
-    if (input.inRotation && input.isBookable) {
+    if (input.inRotation && (input.isBookable ?? true)) {
       const [loc] = await tx<{ tz: string; cutoff: string }[]>`
         select timezone as tz, business_day_cutoff::text as cutoff
         from locations where id = ${ctx.locationId}`;
@@ -806,15 +815,31 @@ registerHandler(StaffSaveProfile, async ({ input, ctx, tx, audit, emit }: Handle
     }
   }
 
+  // IDs are stable across locale changes and directory renames.
+  if (input.skillIds) {
+    const uniqueIds = [...new Set(input.skillIds)];
+    const allowed = await tx<{ id: string }[]>`select sk.id from skills sk
+      where sk.location_id = ${ctx.locationId} and sk.id = any(${uniqueIds})
+      and (sk.active or exists (select 1 from staff_skills ss where ss.skill_id = sk.id and ss.membership_id = ${membershipId}))`;
+    if (allowed.length !== uniqueIds.length) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'invalid_or_inactive_skill' } });
+  }
+  if (input.jobTitle?.trim()) {
+    await tx`insert into staff_job_titles (org_id, location_id, name)
+      values (${ctx.orgId}, ${ctx.locationId}, ${input.jobTitle.trim()}) on conflict do nothing`;
+  }
+  const priorSkills = await tx<{ skill_id: string }[]>`select skill_id from staff_skills where membership_id = ${membershipId}`;
   // 2. 技能标签同步
-  if (input.skills) {
+  if (input.skills || input.skillIds) {
     await tx`delete from staff_skills where membership_id = ${membershipId}`;
-    for (const skName of input.skills) {
+    for (const skName of input.skills ?? []) {
       if (!skName.trim()) continue;
-      const [existingSkill] = await tx<{ id: string }[]>`
-        select id from skills
+      const [existingSkill] = await tx<{ id: string; active: boolean }[]>`
+        select id, active from skills
         where location_id = ${ctx.locationId} and (key = ${skName} or name->>'zh-Hans' = ${skName} or name->>'en' = ${skName})
         limit 1`;
+      if (existingSkill && !existingSkill.active && !priorSkills.some((skill) => skill.skill_id === existingSkill.id)) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'invalid_or_inactive_skill' } });
+      }
       let skillId = existingSkill?.id;
       if (!skillId) {
         const [newSkill] = await tx<{ id: string }[]>`
@@ -830,16 +855,23 @@ registerHandler(StaffSaveProfile, async ({ input, ctx, tx, audit, emit }: Handle
     }
   }
 
+  for (const skillId of input.skillIds ?? []) {
+    await tx`insert into staff_skills (membership_id, skill_id, proficiency)
+      values (${membershipId}, ${skillId}, 1) on conflict do nothing`;
+  }
+
   // 3. 薪酬方案联动
   if (input.payroll) {
+    const [inherited] = await tx<{ config: Record<string, unknown> }[]>`select config from compensation_plans
+      where location_id = ${ctx.locationId} and (membership_id = ${membershipId} or membership_id is null)
+      order by membership_id nulls last, version desc limit 1`;
     const plan = {
+      categoryRateBp: {}, retailRateBp: 1000, roleWeightBp: 10000,
+      ...(inherited?.config ?? {}),
       kind: input.payroll.kind,
       rateBp: Math.round(input.payroll.ratePercent * 100),
-      categoryRateBp: {},
-      retailRateBp: 1000,
       hourlyRateCents: Math.round(input.payroll.hourlyRateDollars * 100),
       base: input.payroll.base,
-      roleWeightBp: 10000,
     };
 
     const [prev] = await tx<{ v: number }[]>`
@@ -945,4 +977,36 @@ registerHandler(RevokeStaffSessions, async ({ input, ctx, tx, audit }: HandlerAr
     after: { revokedSessions: revoked.length },
   });
   return { membershipId: input.membershipId, revoked: revoked.length };
+});
+
+registerHandler(SaveStaffDirectoryOption, async ({ input, ctx, tx, audit, emit }) => {
+  // Table names come only from this closed enum, never caller-supplied SQL.
+  const table = { job: 'staff_job_titles', level: 'staff_levels', skill: 'skills' }[input.kind];
+  let id = input.id;
+  if (id) {
+    const [existing] = await tx<{ id: string; name: unknown }[]>`
+      select id, name from ${tx(table)} where id = ${id} and location_id = ${ctx.locationId} for update`;
+    if (!existing) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: input.kind } });
+    if (input.kind === 'job') {
+      await tx`update staff_job_titles set name = ${input.name}, sort = ${input.sort}, active = ${input.active}
+        where id = ${id} and location_id = ${ctx.locationId}`;
+      await tx`update staff_profiles set job_title = ${input.name}
+        where location_id = ${ctx.locationId} and job_title = ${String(existing.name)}`;
+    } else {
+      await tx`update ${tx(table)} set name = name || ${jsonb({ [ctx.locale]: input.name })}::jsonb,
+        sort = ${input.sort}, active = ${input.active} where id = ${id} and location_id = ${ctx.locationId}`;
+    }
+  } else if (input.kind === 'job') {
+    const [row] = await tx<{ id: string }[]>`insert into staff_job_titles (org_id, location_id, name, sort, active)
+      values (${ctx.orgId}, ${ctx.locationId}, ${input.name}, ${input.sort}, ${input.active}) returning id`;
+    id = row!.id;
+  } else {
+    const [row] = await tx<{ id: string }[]>`insert into ${tx(table)} (org_id, location_id, key, name, sort, active)
+      values (${ctx.orgId}, ${ctx.locationId}, ${input.name}, ${jsonb({ en: input.name, 'zh-Hans': input.name })}::jsonb,
+        ${input.sort}, ${input.active}) returning id`;
+    id = row!.id;
+  }
+  audit({ entityType: 'staff_directory_option', entityId: id, after: input });
+  emit({ type: 'staff.changed', entityId: id });
+  return { id };
 });

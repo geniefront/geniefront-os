@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Modal } from '@/components/ui/Modal';
 import { cn } from '@/lib/utils';
-import { ganttOffsetMinutes, occupancyElapsedMinutes, useBusinessDay, useStoreTime } from '@/lib/time';
+import { occupancyElapsedMinutes, useBusinessDay, useStoreTime } from '@/lib/time';
+import { roomTimelineMinute, roomTimelinePosition } from '@/features/rooms/timeline';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { fuzzySearch } from '@/lib/fuzzySearch';
 import { Input } from '@/components/ui/Input';
@@ -42,12 +43,14 @@ import { toast, Spinner } from '@heroui/react';
 import { ActionMenu } from '@/components/ui/ActionMenu';
 import {
   useRoomsQuery,
+  useBeginCleaning,
+  useCompleteCleaning,
   useSetResourceStatus,
   useSaveResource,
   useDeleteResource,
 } from '@/features/rooms/api';
 import { useJoinQueue, queueKeys } from '@/features/queue/api';
-import { useOpenTicket, useStartTicketItem } from '@/features/tickets/api';
+import { useOpenTicket, useStartTicketItem, useFinishTicketItem } from '@/features/tickets/api';
 import { useDaySnapshot } from '@/features/schedule/api';
 import { useSession } from '@/lib/session';
 import type { RoomItem, RoomStatus, RoomType, TimelineSlot, RoomSession } from '@/features/rooms/types';
@@ -68,7 +71,8 @@ const MAINTENANCE_PRESET_KEYS: TranslationKey[] = [
 function RoomsContent() {
   const storeTime = useStoreTime();
   const errorMessage = useErrorMessage();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const zh = language === 'zh-Hans';
   const { data, isLoading, error, refetch } = useRoomsQuery();
   const queryClient = useQueryClient();
   const { membershipId } = useSession();
@@ -77,6 +81,9 @@ function RoomsContent() {
   const joinQueue = useJoinQueue();
   const openTicket = useOpenTicket();
   const startTicketItem = useStartTicketItem();
+  const finishTicketItem = useFinishTicketItem();
+  const beginCleaning = useBeginCleaning();
+  const completeCleaning = useCompleteCleaning();
   const setStatusMutation = useSetResourceStatus();
   const saveResourceMutation = useSaveResource();
   const deleteResourceMutation = useDeleteResource();
@@ -111,6 +118,18 @@ function RoomsContent() {
   const [seatGuestName, setSeatGuestName] = useState('');
   const [seatServiceId, setSeatServiceId] = useState('');
   const [seatStaffId, setSeatStaffId] = useState('');
+  const [seatAppointmentId, setSeatAppointmentId] = useState('');
+  const [seatStarted, setSeatStarted] = useState(false);
+  const seatAttempt = useRef(crypto.randomUUID());
+  const seatGuard = useRef(false);
+  const seatService = daySnap?.services.find((service) => service.id === seatServiceId);
+  const eligibleStaff = (daySnap?.staff ?? []).filter((staff) => staff.isBookable &&
+    (seatService?.requiredSkills ?? []).every((skill) => staff.skills.some((owned) => owned.id === skill.id)));
+  const seatAppointments = (daySnap?.items ?? []).filter((item) =>
+    item.status === 'booked' && (!item.resourceId || item.resourceId === seatTarget?.id) &&
+    daySnap?.items.filter((other) => other.appointmentId === item.appointmentId).length === 1 &&
+    daySnap?.services.some((service) => service.id === item.serviceId && service.staffCount === 1));
+
   const seatPending = joinQueue.isPending || openTicket.isPending || startTicketItem.isPending;
 
   // 5. In Service会话详情查看弹窗
@@ -118,6 +137,9 @@ function RoomsContent() {
   const [sessionDetailRoom, setSessionDetailRoom] = useState<RoomItem | null>(null);
 
   const rooms = data?.rooms ?? [];
+  const timelineFrom = daySnap?.openMin ?? 0;
+  const timelineTo = Math.max(timelineFrom + 60, daySnap?.closeMin ?? 1440);
+  const timelineHours = Array.from({ length: Math.ceil((timelineTo - timelineFrom) / 60) }, (_, index) => timelineFrom + index * 60);
   const metrics = data?.metrics ?? {
     total: rooms.length,
     available: rooms.filter((r) => r.status === 'available').length,
@@ -218,7 +240,7 @@ function RoomsContent() {
         name: name.trim(),
         type,
         capacity: Math.max(1, parseInt(capacity, 10) || 1),
-        maxStaff: maxStaff.trim() ? parseInt(maxStaff, 10) || undefined : undefined,
+        maxStaff: maxStaff.trim() ? Number(maxStaff) : null,
       });
       toast.success(t('saved') || t('queue.roomSaved'));
       setSaveModalOpen(false);
@@ -246,6 +268,10 @@ function RoomsContent() {
 
   // 快捷切态
   const handleQuickStatus = async (room: RoomItem, newStatus: RoomStatus, note?: string) => {
+    if (room.currentSession && (newStatus === 'cleaning' || newStatus === 'available')) {
+      setSessionDetailRoom(room); setSessionDetailModalOpen(true); return;
+    }
+    if (newStatus === 'in_service') { openSeatModal(room); return; }
     if (newStatus === 'maintenance' && !note) {
       setMaintenanceTarget(room);
       setMaintenanceNote('');
@@ -254,17 +280,18 @@ function RoomsContent() {
     }
 
     try {
-      await setStatusMutation.mutateAsync({
-        resourceId: room.id,
-        status: newStatus,
-        note,
-      });
+      if (newStatus === 'cleaning') {
+        await beginCleaning.mutateAsync({ resourceId: room.id });
+      } else if (newStatus === 'available' && room.status === 'cleaning') {
+        if (room.rawStatus === 'cleaning_required') await beginCleaning.mutateAsync({ resourceId: room.id });
+        await completeCleaning.mutateAsync({ resourceId: room.id });
+      } else {
+        await setStatusMutation.mutateAsync({ resourceId: room.id, status: newStatus, note });
+      }
       const statusLabel =
         newStatus === 'available'
           ? t('roomAvailable') || '空闲待客'
-          : newStatus === 'in_service'
-            ? t('roomOccupied') || 'In Service'
-            : newStatus === 'cleaning'
+          : newStatus === 'cleaning'
               ? t('roomCleaning') || '打扫消毒'
               : t('roomMaintenance') || '停用检修';
       toast.success(t('queue.roomStatusUpdated', { p0: room.name, p1: statusLabel }));
@@ -291,26 +318,31 @@ function RoomsContent() {
   };
 
   const openSeatModal = (room: RoomItem) => {
-    const upcoming = room.upcomingSession;
+    seatAttempt.current = crypto.randomUUID();
+    setSeatStarted(false);
+    setSeatAppointmentId('');
     setSeatTarget(room);
-    setSeatGuestName(upcoming?.customerName ?? '');
-    setSeatServiceId(daySnap?.services[0]?.id ?? '');
-    setSeatStaffId(daySnap?.staff.find((s) => s.isBookable)?.membershipId ?? daySnap?.staff[0]?.membershipId ?? '');
+    setSeatGuestName('');
+    setSeatServiceId('');
+    setSeatStaffId('');
     setSeatModalOpen(true);
   };
 
   // 入座必须走开单/开工，不能直接把房间设成服务中。
   const handleConfirmSeat = async () => {
-    if (!seatTarget) return;
+    if (!seatTarget || seatGuard.current) return;
     const guestName = seatGuestName.trim();
     const service = daySnap?.services.find((s) => s.id === seatServiceId);
-    if (!guestName || !service || !seatStaffId) {
+    if (!guestName || !service || service.staffCount !== 1 || !eligibleStaff.some((staff) => staff.membershipId === seatStaffId)) {
       toast.danger(t('queue.roomSeatNeedGuest'));
       return;
     }
+    seatGuard.current = true;
+    setSeatStarted(true);
     try {
-      const upcomingId = seatTarget.upcomingSession?.appointmentId;
+      const upcomingId = seatAppointmentId;
       const joined = await joinQueue.mutateAsync({
+        idempotencyKey: `rooms-join-${seatAttempt.current}`,
         ...(upcomingId ? { appointmentId: upcomingId } : {}),
         walkInName: guestName,
         requestedServiceId: service.id,
@@ -347,6 +379,8 @@ function RoomsContent() {
       void queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });
     } catch (err: unknown) {
       toast.danger(errorMessage(err));
+    } finally {
+      seatGuard.current = false;
     }
   };
 
@@ -592,7 +626,7 @@ function RoomsContent() {
           description={t('queue.roomNoMatchDesc')}
           action={
             <Button onClick={handleOpenAdd} className="bg-teal-600 hover:bg-teal-700 text-white font-bold">
-              
+
               {t('queue.roomAddTitle')}
             </Button>
           }
@@ -670,7 +704,7 @@ function RoomsContent() {
                       <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium mt-0.5 whitespace-nowrap truncate">
                         <span className="truncate">{room.type}</span>
                         <span className="shrink-0 text-slate-300">·</span>
-                        <span className="shrink-0 font-mono">{t('queue.roomCapacity')} {room.capacity}{t('queue.roomPeopleUnit')}</span>
+                        <span className="shrink-0 font-mono">{t('queue.roomCapacity')} {room.occupiedCount ?? 0}/{room.capacity}{t('queue.roomPeopleUnit')}</span>
                         {room.maxStaff && (
                           <>
                             <span className="shrink-0 text-slate-300">·</span>
@@ -771,7 +805,7 @@ function RoomsContent() {
                             className="flex-1 py-1 px-2 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
                           >
                             <Sparkles className="w-3 h-3 text-teal-600" />
-                            
+
                             {t('queue.roomToCleaning')}
                           </button>
                           <button
@@ -780,13 +814,25 @@ function RoomsContent() {
                             className="flex-1 py-1 px-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
                           >
                             <Wrench className="w-3 h-3 text-rose-600" />
-                            
+
                             {t('queue.roomToMaintenance')}
                           </button>
                         </div>
                       </div>
                     )}
 
+                    {isInService && ((room.waitingCleaningCount ?? 0) > 0 || (room.cleaningCount ?? 0) > 0) && <Button size="sm" disabled={beginCleaning.isPending || completeCleaning.isPending} onClick={async () => {
+                      try {
+                        if ((room.waitingCleaningCount ?? 0) > 0) await beginCleaning.mutateAsync({ resourceId: room.id });
+                        else await completeCleaning.mutateAsync({ resourceId: room.id });
+                      } catch (error) { toast.danger(errorMessage(error)); }
+                    }}>{(room.waitingCleaningCount ?? 0) > 0 ? t('queue.roomStartCleanSeats') : t('queue.roomFinishCleanSeats')}</Button>}
+                    {(room.currentSessions?.length ?? 0) > 1 && <div className="space-y-1 text-xs">
+                      {room.currentSessions!.map((item, index) => <div key={`${item.ticketId}-${index}`} className="rounded border p-2 bg-white">
+                        {item.customerName} · {item.staffNames.join(', ')} · {item.serviceName}
+                      </div>)}
+                    </div>}
+                    {isInService && (room.occupiedCount ?? 0) < room.capacity && !(room.waitingCleaningCount || room.cleaningCount) && <Button size="sm" onClick={() => openSeatModal(room)}>{t('queue.roomSeatNextGuest')}</Button>}
                     {/* 2. In Service状态 */}
                     {isInService && session && (
                       <div
@@ -850,7 +896,7 @@ function RoomsContent() {
                               handleQuickStatus(room, 'available');
                             }}
                           >
-                            
+
                             {t('queue.roomResetAvailable')}
                           </Button>
                         </div>
@@ -907,7 +953,7 @@ function RoomsContent() {
                             className="flex-1 py-1 px-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
                           >
                             <LogIn className="w-3 h-3 text-emerald-600" />
-                            
+
                             {t('queue.roomSeatDirect')}
                           </button>
                           <button
@@ -916,7 +962,7 @@ function RoomsContent() {
                             className="flex-1 py-1 px-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
                           >
                             <Wrench className="w-3 h-3 text-rose-600" />
-                            
+
                             {t('queue.roomToMaintenance2')}
                           </button>
                         </div>
@@ -946,7 +992,7 @@ function RoomsContent() {
                             className="flex-1 py-1 px-2 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
                           >
                             <Sparkles className="w-3 h-3 text-teal-600" />
-                            
+
                             {t('queue.roomToCleaning3')}
                           </button>
                         </div>
@@ -983,28 +1029,28 @@ function RoomsContent() {
             {/* Timeline Time Header */}
             <div className="bg-slate-50 border-b border-slate-200 p-3 flex items-center justify-between">
               <span className="font-bold text-xs text-slate-700">
-                
+
                 {t('queue.roomGanttTitle')}
               </span>
               <div className="flex items-center gap-3 text-xs text-slate-500">
                 <span className="flex items-center gap-1">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  
+
                   {t('queue.roomLegendFree')}
                 </span>
                 <span className="flex items-center gap-1">
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                  
+
                   {t('queue.roomLegendBusy')}
                 </span>
                 <span className="flex items-center gap-1">
                   <span className="w-2.5 h-2.5 rounded-full bg-teal-500" />
-                  
+
                   {t('queue.roomLegendCleaning')}
                 </span>
                 <span className="flex items-center gap-1">
                   <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                  
+
                   {t('queue.roomLegendMaintenance')}
                 </span>
               </div>
@@ -1016,22 +1062,11 @@ function RoomsContent() {
                 {/* Hours Scale Header */}
                 <div className="flex items-center text-[11px] font-mono text-slate-400 bg-slate-50/50 py-2 px-4 border-b border-slate-100">
                   <div className="w-44 shrink-0 font-sans font-bold text-slate-600">
-                    
+
                     {t('queue.roomColRoom')}
                   </div>
-                  <div className="flex-1 grid grid-cols-12 text-center">
-                    <span>09:00</span>
-                    <span>10:00</span>
-                    <span>11:00</span>
-                    <span>12:00</span>
-                    <span>13:00</span>
-                    <span>14:00</span>
-                    <span>15:00</span>
-                    <span>16:00</span>
-                    <span>17:00</span>
-                    <span>18:00</span>
-                    <span>19:00</span>
-                    <span>20:00</span>
+                  <div className="flex-1 grid text-center" style={{ gridTemplateColumns: `repeat(${timelineHours.length}, minmax(0, 1fr))` }}>
+                    {timelineHours.map((minute) => <span key={minute}>{String(Math.floor(minute / 60) % 24).padStart(2, '0')}:{String(minute % 60).padStart(2, '0')}</span>)}
                   </div>
                 </div>
 
@@ -1069,34 +1104,23 @@ function RoomsContent() {
                       {/* Right Timeline Canvas (12 hours: 9am to 9pm = 720 mins) */}
                       <div className="flex-1 h-8 bg-slate-100/70 rounded-xl relative overflow-hidden border border-slate-200">
                         {/* Hour Guide Lines */}
-                        <div className="absolute inset-0 grid grid-cols-12 pointer-events-none divide-x divide-slate-200/60" />
+                        <div className="absolute inset-0 grid pointer-events-none divide-x divide-slate-200/60" style={{ gridTemplateColumns: `repeat(${timelineHours.length}, minmax(0, 1fr))` }} />
 
                         {/* Slots */}
                         {slots.length === 0 ? (
                           <div className="absolute inset-0 flex items-center justify-center text-[10px] text-slate-400 font-medium">
-                            
+
                             {t('queue.roomNoBookingsToday')}
                           </div>
                         ) : (
                           slots.map((slot) => {
                             try {
-                              const start = new Date(slot.startsAt);
-                              const end = new Date(slot.endsAt);
-                              const startMin = ganttOffsetMinutes(slot.startsAt, storeTime.timeZone, 9 * 60);
-                              const durationMin = Math.max(
-                                20,
-                                Math.round((end.getTime() - start.getTime()) / 60000),
-                              );
-
-                              // 720 分钟对应 100%
-                              const leftPercent = Math.max(
-                                0,
-                                Math.min(100, (startMin / 720) * 100),
-                              );
-                              const widthPercent = Math.min(
-                                100 - leftPercent,
-                                (durationMin / 720) * 100,
-                              );
+                              const startMin = roomTimelineMinute(slot.startsAt, storeTime.timeZone, today);
+                              const endMin = roomTimelineMinute(slot.endsAt, storeTime.timeZone, today);
+                              const position = roomTimelinePosition(startMin, endMin, timelineFrom, timelineTo);
+                              if (!position) return null;
+                              const leftPercent = position.left;
+                              const widthPercent = position.width;
 
                               return (
                                 <div
@@ -1104,7 +1128,7 @@ function RoomsContent() {
                                   className="absolute top-1 bottom-1 rounded-lg bg-amber-500 text-white text-[10px] font-bold px-1.5 flex items-center overflow-hidden shadow-xs hover:bg-amber-600 cursor-pointer transition-all z-10"
                                   style={{
                                     left: `${leftPercent}%`,
-                                    width: `${Math.max(4, widthPercent)}%`,
+                                    width: `${widthPercent}%`,
                                   }}
                                   title={t('queue.roomGanttTooltip', { p0: slot.customerName, p1: slot.serviceName, p2: formatTimeStr(slot.startsAt), p3: formatTimeStr(slot.endsAt), p4: slot.staffName })}
                                 >
@@ -1181,7 +1205,7 @@ function RoomsContent() {
                                 {session.customerName} · {session.serviceName}
                               </p>
                               <p className="text-[11px] text-slate-500 font-mono">
-                                
+
                                 {t('queue.roomTherapistLabel')} {session.staffNames.join(', ') || '—'}  {t('queue.roomProgressSep')} {(session.startedAt ? occupancyElapsedMinutes(session.startedAt) : session.progressMinutes)}/{session.totalMinutes}m
                               </p>
                             </div>
@@ -1212,7 +1236,7 @@ function RoomsContent() {
                                 className="h-7 text-xs text-emerald-700 hover:bg-emerald-50 font-bold"
                                 onClick={() => handleQuickStatus(room, 'available')}
                               >
-                                
+
                                 {t('queue.roomSetFree')}
                               </Button>
                             )}
@@ -1223,7 +1247,7 @@ function RoomsContent() {
                                 className="h-7 text-xs text-amber-700 hover:bg-amber-50 font-bold"
                                 onClick={() => handleQuickStatus(room, 'in_service')}
                               >
-                                
+
                                 {t('queue.roomSetBusy')}
                               </Button>
                             )}
@@ -1234,7 +1258,7 @@ function RoomsContent() {
                                 className="h-7 text-xs text-teal-700 hover:bg-teal-50 font-bold"
                                 onClick={() => handleQuickStatus(room, 'cleaning')}
                               >
-                                
+
                                 {t('queue.roomSetClean')}
                               </Button>
                             )}
@@ -1376,7 +1400,7 @@ function RoomsContent() {
               placeholder={t('queue.roomMaxStaffPlaceholder')}
             />
             <p className="text-[11px] text-slate-400 mt-1">
-              
+
               {t('queue.roomMaxStaffHint')}
             </p>
           </div>
@@ -1412,7 +1436,7 @@ function RoomsContent() {
             <div>
               <p className="font-bold">{t('queue.roomDeleteWarn')}</p>
               <p className="text-[11px] text-red-700 mt-1">
-                
+
                 {t('queue.roomDeletePrefix')}<strong>{deleteTarget?.name}</strong>{t('queue.roomDeleteSuffix')}
               </p>
             </div>
@@ -1430,7 +1454,7 @@ function RoomsContent() {
               htmlFor="force-delete-chk"
               className="text-xs font-semibold text-slate-700 cursor-pointer"
             >
-              
+
               {t('queue.roomForceDelete')}
             </label>
           </div>
@@ -1455,7 +1479,7 @@ function RoomsContent() {
               onClick={handleConfirmSeat}
               disabled={seatPending}
             >
-              
+
               {t('queue.roomSeatConfirm')}
             </Button>
           </div>
@@ -1465,16 +1489,32 @@ function RoomsContent() {
           <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900">
             <p className="font-bold">{t('queue.roomSeatIntro')}{seatTarget?.name}</p>
             <p className="text-[11px] mt-0.5 text-emerald-700">
-              
+
               {t('queue.roomSeatCapacity')} {seatTarget?.capacity}  {t('queue.roomSeatCapacitySuffix')}
             </p>
           </div>
 
+          {seatStarted && <p role="status" className="text-amber-700">{t('queue.roomSeatSubmittedNote')}</p>}
+          <label className="block">{t('queue.roomWalkInOrAppt')}
+            <select className="w-full h-10 border rounded-xl px-3" disabled={seatStarted} value={seatAppointmentId} onChange={(event) => {
+              const id = event.target.value;
+              setSeatAppointmentId(id);
+              const item = seatAppointments.find((item) => item.appointmentId === id);
+              setSeatGuestName(item?.customerName ?? '');
+              setSeatServiceId(item?.serviceId ?? '');
+              setSeatStaffId(item?.membershipId ?? '');
+            }}>
+              <option value="">{t('queue.roomWalkInOption')}</option>
+              {seatAppointments.map((item) => <option key={item.itemId} value={item.appointmentId}>{item.customerName} · {item.serviceName} · {formatTimeStr(item.startsAt)}</option>)}
+            </select>
+          </label>
+          <p className="text-slate-500">{t('queue.roomSingleItemStaffNote')}</p>
           <div>
             <label className="block font-bold text-slate-700 mb-1">
               {t('queue.roomSeatGuestName')}
             </label>
             <Input
+              disabled={seatStarted || Boolean(seatAppointmentId)}
               value={seatGuestName}
               onChange={(e) => setSeatGuestName(e.target.value)}
               placeholder={t('queue.roomSeatGuestPlaceholder')}
@@ -1487,12 +1527,13 @@ function RoomsContent() {
             </label>
             <select
               aria-label={t('queue.roomSeatService')}
+              disabled={seatStarted || Boolean(seatAppointmentId)}
               value={seatServiceId}
-              onChange={(e) => setSeatServiceId(e.target.value)}
+              onChange={(e) => { setSeatServiceId(e.target.value); setSeatStaffId(''); }}
               className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700"
             >
               <option value="">{t('queue.roomSeatChooseService')}</option>
-              {(daySnap?.services ?? []).map((svc) => (
+              {(daySnap?.services ?? []).filter((service) => service.staffCount === 1).map((svc) => (
                 <option key={svc.id} value={svc.id}>{svc.name}</option>
               ))}
             </select>
@@ -1504,12 +1545,13 @@ function RoomsContent() {
             </label>
             <select
               aria-label={t('queue.roomSeatStaff')}
+              disabled={seatStarted}
               value={seatStaffId}
               onChange={(e) => setSeatStaffId(e.target.value)}
               className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700"
             >
               <option value="">{t('queue.roomSeatChooseStaff')}</option>
-              {(daySnap?.staff ?? []).filter((s) => s.isBookable).map((staff) => (
+              {eligibleStaff.map((staff) => (
                 <option key={staff.membershipId} value={staff.membershipId}>{staff.name}</option>
               ))}
             </select>
@@ -1535,7 +1577,7 @@ function RoomsContent() {
               onClick={handleConfirmMaintenance}
               disabled={setStatusMutation.isPending}
             >
-              
+
               {t('queue.roomMaintConfirm')}
             </Button>
           </div>
@@ -1545,7 +1587,7 @@ function RoomsContent() {
           <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-900">
             <p className="font-bold">{t('queue.roomMaintWarn')}</p>
             <p className="text-[11px] mt-0.5 text-rose-700">
-              
+
               {t('queue.roomMaintWarnDesc')}
             </p>
           </div>
@@ -1553,7 +1595,7 @@ function RoomsContent() {
           {/* 快捷原因选项 */}
           <div>
             <span className="block font-bold text-slate-700 uppercase mb-1.5">
-              
+
               {t('queue.roomMaintPresets')}
             </span>
             <div className="flex flex-wrap gap-1.5">
@@ -1579,7 +1621,7 @@ function RoomsContent() {
 
           <div>
             <label className="block font-bold text-slate-700 uppercase mb-1">
-              
+
               {t('queue.roomMaintNote')}
             </label>
             <Input
@@ -1599,41 +1641,21 @@ function RoomsContent() {
         }}
         size="sm"
         title={t('queue.roomServiceModalTitle', { p0: sessionDetailRoom?.name ?? '' })}
-        footer={
-          <div className="flex justify-between items-center w-full">
-            <Button
-              variant="secondary"
-              className="text-xs font-bold text-emerald-700 border-emerald-300 hover:bg-emerald-50"
-              onClick={() => {
-                if (sessionDetailRoom) handleQuickStatus(sessionDetailRoom, 'available');
-                setSessionDetailModalOpen(false);
-              }}
-            >
-              
-              {t('queue.roomSetFreeDirect')}
-            </Button>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="secondary"
-                onClick={() => setSessionDetailModalOpen(false)}
-              >
-                
-                {t('queue.roomServiceClose')}
-              </Button>
-              <Button
-                className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs"
-                onClick={() => {
-                  if (sessionDetailRoom) handleQuickStatus(sessionDetailRoom, 'cleaning');
-                  setSessionDetailModalOpen(false);
-                }}
-              >
-                <Sparkles className="w-3.5 h-3.5 mr-1" />
-                <span>{t('queue.roomEndAndClean')}</span>
-              </Button>
-            </div>
-          </div>
-        }
+        footer={<Button variant="secondary" onClick={() => setSessionDetailModalOpen(false)}>{t('close')}</Button>}
       >
+        <div className="space-y-2 mb-3">
+          {(sessionDetailRoom?.currentSessions ?? []).map((item, index) => <div key={item.ticketItemId ?? index} className="border rounded-xl p-3 flex items-center gap-3">
+            <div className="flex-1">{item.customerName} · {item.serviceName}<p className="text-slate-500 text-xs">{item.staffNames.join(', ')}</p></div>
+            <Button disabled={finishTicketItem.isPending || !item.ticketItemId} size="sm" onClick={async () => {
+              try {
+                await finishTicketItem.mutateAsync({ ticketItemId: item.ticketItemId! });
+                const refreshed = await refetch();
+                setSessionDetailRoom(refreshed.data?.rooms.find((room) => room.id === sessionDetailRoom?.id) ?? null);
+                toast.success(t('queue.roomServiceFinishedCleaning'));
+              } catch (error) { toast.danger(errorMessage(error)); }
+            }}>{t('queue.roomCompleteThisService')}</Button>
+          </div>)}
+        </div>
         {sessionDetailRoom?.currentSession ? (
           <div className="space-y-3.5 py-1 text-xs">
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
@@ -1689,7 +1711,7 @@ function RoomsContent() {
           </div>
         ) : (
           <div className="py-4 text-center text-slate-400">
-            
+
             {t('queue.roomNoSessionInfo')}
           </div>
         )}

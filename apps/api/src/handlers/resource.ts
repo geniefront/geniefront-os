@@ -7,6 +7,7 @@ import {
   resourceCompleteCleaning, ticketMoveItemResource, AppError, ERROR_CODES,
 } from '@gf/contracts';
 import { jsonb } from '@gf/db';
+import { assertResourceStaffLimit } from '../resourceStaffLimit';
 import { registerHandler } from '../bus';
 
 // ─────────────────────────────────────────────────────────── resource.setStatus
@@ -14,17 +15,23 @@ import { registerHandler } from '../bus';
 registerHandler(resourceSetStatus, async ({ input, ctx, tx, audit }) => {
   const [res] = await tx<{ id: string; status: string; name: string }[]>`
     select id, status, name from resources
-    where id = ${input.resourceId} and location_id = ${ctx.locationId}`;
+    where id = ${input.resourceId} and location_id = ${ctx.locationId} for update`;
   if (!res) {
     throw new AppError(ERROR_CODES.NOT_FOUND, {
       details: { entity: 'resource', id: input.resourceId },
     });
   }
 
+  const [busy] = await tx<{ count: number }[]>`
+    select count(*)::int as count from resource_occupancies
+    where resource_id = ${input.resourceId} and status <> 'released'`;
+  if ((busy?.count ?? 0) > 0 && input.status !== res.status) {
+    throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, { details: { reason: 'resource_has_active_occupancies' } });
+  }
   const before = { status: res.status, name: res.name };
 
   const allowed = input.status === 'maintenance'
-    || (input.status === 'available' && res.status === 'maintenance');
+    || (input.status === 'available' && ['maintenance', 'in_use'].includes(res.status) && (busy?.count ?? 0) === 0);
   if (!allowed && input.status !== res.status) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
       details: { reason: 'resource_state_is_workflow_managed', from: res.status, to: input.status },
@@ -64,12 +71,12 @@ registerHandler(resourceBeginCleaning, async ({ input, ctx, tx, audit }) => {
       updated_by = ${ctx.membershipId}
     where resource_id = ${resource.id} and status = 'cleaning_required'
     returning id`;
-  if (rows.length === 0) {
+  if (rows.length === 0 && !['available', 'cleaning'].includes(resource.status)) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
       details: { reason: 'resource_not_waiting_for_cleaning', status: resource.status },
     });
   }
-  await tx`update resources set status = 'cleaning' where id = ${resource.id}`;
+  await tx`update resources set status = case when exists (select 1 from resource_occupancies where resource_id = ${resource.id} and status = 'in_use') then 'in_use' else 'cleaning' end where id = ${resource.id}`;
   audit({ entityType: 'resource', entityId: resource.id,
           before: { status: resource.status },
           after: { status: 'cleaning', occupancyCount: rows.length, note: input.note ?? null } });
@@ -86,7 +93,8 @@ registerHandler(resourceCompleteCleaning, async ({ input, ctx, tx, audit }) => {
             after: { status: 'available', alreadyCompleted: true } });
     return { resourceId: resource.id, status: 'available' as const };
   }
-  if (resource.status !== 'cleaning') {
+  const [cleaning] = await tx<{ count: number }[]>`select count(*)::int as count from resource_occupancies where resource_id = ${resource.id} and status = 'cleaning'`;
+  if (resource.status !== 'cleaning' && !(resource.status === 'in_use' && (cleaning?.count ?? 0) > 0)) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
       details: { reason: 'cleaning_not_started', status: resource.status },
     });
@@ -133,6 +141,7 @@ registerHandler(ticketMoveItemResource, async ({ input, ctx, tx, audit }) => {
       details: { resourceId: target.id, reason: 'resource_not_available' },
     });
   }
+  await assertResourceStaffLimit(tx, target.id, item.id);
   if (item.resource_id) {
     await tx`update resource_occupancies set status = 'cleaning_required', updated_by = ${ctx.membershipId}
       where ticket_item_id = ${item.id} and resource_id = ${item.resource_id} and status = 'in_use'`;
@@ -179,13 +188,16 @@ registerHandler(resourceSave, async ({ input, ctx, tx, audit }) => {
   if (input.resourceId) {
     const [res] = await tx<{ id: string }[]>`
       select id from resources
-      where id = ${input.resourceId} and location_id = ${ctx.locationId}`;
+      where id = ${input.resourceId} and location_id = ${ctx.locationId} for update`;
     if (!res) {
       throw new AppError(ERROR_CODES.NOT_FOUND, {
         details: { entity: 'resource', id: input.resourceId },
       });
     }
 
+    const [occupied] = await tx<{ count: number }[]>`select count(*)::int as count from resource_occupancies
+      where resource_id = ${input.resourceId} and status <> 'released'`;
+    if (input.capacity < (occupied?.count ?? 0)) throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, { details: { reason: 'capacity_below_current_occupancy' } });
     const [before] = await tx<Record<string, unknown>[]>`
       select name, resource_type_id, capacity, max_staff, status from resources
       where id = ${input.resourceId}`;

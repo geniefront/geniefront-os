@@ -2,6 +2,7 @@ export type RoomType = 'room' | 'chair' | 'table' | 'bed' | 'sofa' | 'vip' | 'st
 export type RoomStatus = 'available' | 'in_service' | 'cleaning' | 'maintenance';
 
 export interface RoomSession {
+  ticketItemId?: string;
   appointmentId: string | null;
   ticketId: string | null;
   customerName: string;
@@ -53,6 +54,11 @@ export interface RoomItem {
   status: RoomStatus;
   active?: boolean;
   currentSession?: RoomSession | null;
+  currentSessions?: RoomSession[];
+  occupiedCount?: number;
+  rawStatus?: string;
+  waitingCleaningCount?: number;
+  cleaningCount?: number;
   upcomingSession?: UpcomingSession | null;
   todaySlots?: TimelineSlot[];
 }

@@ -234,7 +234,7 @@ function SettingsCard({
 // ── 主设置组件 ─────────────────────────────────────────────────────────────
 export function Settings() {
   const errorMessage = useErrorMessage();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
   const currentTab = searchParams.get('tab') || 'store';
   const canManageSettings = useCan('settings.manage') || useCan('staff.manage');
@@ -2698,7 +2698,10 @@ export function Settings() {
               />
               <div className="text-[10px] leading-relaxed text-slate-500">{t('settings.stRequiredSkillsHint')}</div>
               <div className="flex flex-wrap gap-1.5">
-                {(settings?.skills ?? []).map((skill) => {
+                {(settings?.skills ?? [])
+                  // 已停用的技能不再提供给新项目选择，但若某项目已经依赖它则继续展示，避免要求被静默丢弃
+                  .filter((skill) => skill.active || serviceRequiredSkillIds.includes(skill.id))
+                  .map((skill) => {
                   const checked = serviceRequiredSkillIds.includes(skill.id);
                   return (
                     <button
@@ -2710,9 +2713,10 @@ export function Settings() {
                       className={cn(
                         'rounded-full border px-2.5 py-1 text-[10px] font-bold transition',
                         checked ? 'border-teal-500 bg-teal-50 text-teal-800' : 'border-slate-200 bg-white text-slate-600',
+                        !skill.active && 'opacity-60',
                       )}
                     >
-                      {checked ? '✓ ' : ''}{skill.name}
+                      {checked ? '✓ ' : ''}{skill.name}{!skill.active ? t('settings.stSkillInactive') : ''}
                     </button>
                   );
                 })}

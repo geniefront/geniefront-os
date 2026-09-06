@@ -232,7 +232,7 @@ async function main() {
       'customer_preferences', 'customers',
       'service_option_defs', 'services', 'service_categories',
       'resources', 'resource_types',
-      'staff_profiles', 'staff_skills', 'skills', 'staff_levels',
+      'staff_profiles', 'staff_skills', 'skills', 'staff_levels', 'staff_job_titles',
       'device_tokens', 'membership_roles', 'permission_overrides',
       'memberships', 'role_permissions', 'roles',
       'user_last_location',

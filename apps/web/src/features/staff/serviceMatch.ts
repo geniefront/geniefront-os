@@ -5,7 +5,7 @@
 export interface MatchableService {
   id: string;
   name: string;
-  requiredSkillNames: string[];
+  requiredSkillIds: string[];
 }
 
 export function matchStaffServices<T extends MatchableService>(
@@ -17,8 +17,8 @@ export function matchStaffServices<T extends MatchableService>(
   const cannotDo: T[] = [];
   for (const service of catalog) {
     if (
-      service.requiredSkillNames.length === 0
-      || service.requiredSkillNames.some((name) => skillSet.has(name))
+      service.requiredSkillIds.length === 0
+      || service.requiredSkillIds.every((name) => skillSet.has(name))
     ) {
       canDo.push(service);
     } else {

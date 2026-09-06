@@ -880,4 +880,5 @@ export const settings = {
   'settings.stSaveCategory': { 'zh-Hans': '保存分类', en: 'Save category', ko: '카테고리 저장', es: 'Guardar categoría', vi: 'Lưu danh mục' },
   'settings.stCategorySaved': { 'zh-Hans': '服务分类已保存', en: 'Service category saved', ko: '서비스 카테고리를 저장했습니다', es: 'Categoría guardada', vi: 'Đã lưu danh mục dịch vụ' },
   'settings.stCategoryNameRequired': { 'zh-Hans': '请填写分类名称', en: 'Enter a category name', ko: '카테고리 이름을 입력하세요', es: 'Introduce un nombre de categoría', vi: 'Nhập tên danh mục' },
+  'settings.stSkillInactive': { 'zh-Hans': '（已停用）', en: ' (inactive)', ko: ' (비활성화됨)', es: ' (inactivo)', vi: ' (đã tắt)' },
 } satisfies DomainDict;

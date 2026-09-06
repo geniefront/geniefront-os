@@ -4,12 +4,15 @@ export interface StaffDirectoryItem {
   id: string;
   membershipId: string;
   employeeNo: string;
+  isBookable: boolean;
+  maxConcurrentAppointments: number;
   name: string;
   phone: string;
   email?: string;
   jobTitle: string;
   level: string;
   skills: string[];
+  skillIds: string[];
   status: 'active' | 'on_leave' | 'resigned';
   hireDate: string;
   payroll: {
@@ -23,11 +26,16 @@ export interface StaffDirectoryItem {
 
 export interface SaveStaffProfileInput {
   membershipId?: string;
+  idempotencyKey?: string;
   name: string;
+  phone?: string | null;
+  email?: string | null;
   employeeNo?: string;
   jobTitle?: string;
   level?: string;
+  levelId?: string | null;
   skills?: string[];
+  skillIds?: string[];
   status?: 'active' | 'on_leave' | 'resigned' | 'suspended' | 'left';
   hireDate?: string;
   note?: string;
@@ -46,3 +54,5 @@ export interface SetEmploymentInput {
   membershipId: string;
   status: 'active' | 'on_leave' | 'resigned' | 'suspended' | 'left';
 }
+
+export interface DirectoryOption { id: string; key: string; name: string; active: boolean; sort: number }

@@ -125,3 +125,72 @@ describe('resource.save & loadRooms & resource.setStatus', () => {
     expect(deleted).toBeUndefined();
   });
 });
+
+describe('real occupancy and cleaning', () => {
+  it('shows all occupied ticket items, with real order links, and blocks maintenance', async () => {
+    const { result } = await dispatch<{ resourceId: string }>('resource.save', { name: 'Occupancy regression', capacity: 4 }, ownerCtx);
+    const id = result.resourceId;
+    try {
+      const items = await withTenant(tenant, (tx) => tx<{ id: string; ticket_id: string }[]>`
+        select ti.id, ti.ticket_id from ticket_items ti join tickets t on t.id = ti.ticket_id
+        where t.location_id = ${NAIL_LOC} order by ti.id limit 2`);
+      expect(items).toHaveLength(2);
+      await withTenant(tenant, async (tx) => {
+        for (const item of items) await tx`insert into resource_occupancies (org_id, location_id, resource_id, ticket_item_id, status)
+          values (${NAIL_ORG}, ${NAIL_LOC}, ${id}, ${item.id}, 'in_use')`;
+      });
+      const room = (await withTenant(tenant, (tx) => loadRooms(tx, ownerCtx))).rooms.find((room) => room.id === id)!;
+      expect(room.status).toBe('in_service');
+      expect(room.occupiedCount).toBe(2);
+      expect(room.currentSessions.map((session) => session.ticketId).sort()).toEqual(items.map((item) => item.ticket_id).sort());
+      await expect(dispatch('resource.setStatus', { resourceId: id, status: 'maintenance' }, ownerCtx)).rejects.toMatchObject({ code: 'RESOURCE_CONFLICT' });
+      await withTenant(tenant, async (tx) => {
+        await tx`update resource_occupancies set status = 'cleaning_required' where resource_id = ${id} and ticket_item_id = ${items[0]!.id}`;
+        await tx`update resources set status = 'in_use' where id = ${id}`;
+      });
+      await dispatch('resource.beginCleaning', { resourceId: id }, ownerCtx);
+      await dispatch('resource.completeCleaning', { resourceId: id }, ownerCtx, { idempotencyKey: crypto.randomUUID() });
+      const partiallyOccupied = (await withTenant(tenant, (tx) => loadRooms(tx, ownerCtx))).rooms.find((room) => room.id === id)!;
+      expect(partiallyOccupied.status).toBe('in_service');
+      expect(partiallyOccupied.occupiedCount).toBe(1);
+      expect(partiallyOccupied.cleaningCount).toBe(0);
+
+    } finally {
+      await withTenant(tenant, async (tx) => {
+        await tx`update resource_occupancies set status = 'released', released_at = now() where resource_id = ${id}`;
+      });
+    }
+  });
+
+  it('allows scheduled housekeeping on an empty room and completes the workflow', async () => {
+    const { result } = await dispatch<{ resourceId: string }>('resource.save', { name: 'Housekeeping regression' }, ownerCtx);
+    createdResourceIds.push(result.resourceId);
+    await dispatch('resource.beginCleaning', { resourceId: result.resourceId }, ownerCtx);
+    let room = (await withTenant(tenant, (tx) => loadRooms(tx, ownerCtx))).rooms.find((room) => room.id === result.resourceId)!;
+    expect(room.status).toBe('cleaning');
+    await dispatch('resource.completeCleaning', { resourceId: result.resourceId }, ownerCtx, { idempotencyKey: crypto.randomUUID() });
+    room = (await withTenant(tenant, (tx) => loadRooms(tx, ownerCtx))).rooms.find((room) => room.id === result.resourceId)!;
+    expect(room.status).toBe('available');
+    expect(room.currentSessions).toEqual([]);
+  });
+});
+
+it('a booked time window alone does not imply a seated guest', async () => {
+  const { result } = await dispatch<{ resourceId: string }>('resource.save', { name: 'Unarrived booking regression' }, ownerCtx);
+  createdResourceIds.push(result.resourceId);
+  const rollback = new Error('rollback test fixture');
+  try {
+    await withTenant(tenant, async (tx) => {
+      const [item] = await tx<{ id: string }[]>`select id from appointment_items where location_id = ${NAIL_LOC} order by starts_at desc limit 1`;
+      expect(item).toBeDefined();
+      await tx`update appointment_items set resource_id = ${result.resourceId}, membership_id = null,
+        status = 'booked', starts_at = now() - interval '1 minute', ends_at = now() + interval '20 minutes'
+        where id = ${item!.id}`;
+      const room = (await loadRooms(tx, ownerCtx)).rooms.find((room) => room.id === result.resourceId)!;
+      expect(room.todaySlots.length).toBe(1);
+      expect(room.status).toBe('available');
+      expect(room.currentSession).toBeUndefined();
+      throw rollback;
+    });
+  } catch (error) { if (error !== rollback) throw error; }
+});

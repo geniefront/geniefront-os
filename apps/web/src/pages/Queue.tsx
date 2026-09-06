@@ -4625,7 +4625,7 @@ function QueueContent() {
               onClick={() => setIsStaffAttendanceModalOpen(false)}
               className="px-4 text-xs font-semibold"
             >
-              {t('close') || '关闭'}
+              {t('close')}
             </Button>
           </div>
         }
@@ -4766,7 +4766,7 @@ function QueueContent() {
                                     ? "bg-gradient-to-br from-emerald-500 to-teal-600 text-white border-emerald-600"
                                     : "bg-slate-100 text-slate-700 border-slate-200"
                                 )}
-                                title={isNextUp ? t('queue.quRotationNextUp') : `第 ${rankNumber} 顺位`}
+                                title={isNextUp ? t('queue.quRotationNextUp') : t('queue.quRotationRank', { p0: rankNumber })}
                               >
                                 #{rankNumber}
                               </div>
@@ -4792,7 +4792,7 @@ function QueueContent() {
                                   )}
                                   {s.arrivedAt && (
                                     <span className="text-slate-400 font-mono">
-                                      到店: {s.arrivedAt.slice(11, 16)}
+                                      {t('queue.quArrivedAtPrefix', { p0: s.arrivedAt.slice(11, 16) })}
                                     </span>
                                   )}
                                 </div>
@@ -4919,8 +4919,8 @@ function QueueContent() {
                                   </span>
                                 </div>
                                 <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5 font-mono">
-                                  {s.leftAt && <span>离店: {s.leftAt.slice(11, 16)}</span>}
-                                  {s.turns > 0 && <span>今日已接 {s.turns} 单</span>}
+                                  {s.leftAt && <span>{t('queue.quLeftAtPrefix', { p0: s.leftAt.slice(11, 16) })}</span>}
+                                  {s.turns > 0 && <span>{t('queue.quRotationTurnsDone', { p0: s.turns })}</span>}
                                 </div>
                               </div>
                             </div>

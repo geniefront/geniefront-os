@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import {
   User,
   Users,
@@ -37,14 +37,13 @@ import { toast, Spinner } from '@heroui/react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { fuzzySearch } from '@/lib/fuzzySearch';
 import { useErrorMessage } from '@/lib/errorMessage';
-import { formatPhoneDisplay, formatPhoneInput } from '@/lib/utils';
+import { formatPhoneDisplay, formatPhoneInput, normalizePhoneE164 } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { useLanguage } from '@/LanguageContext';
-import { usePayrollPlansQuery, useSavePayrollPlan } from '@/features/payroll/api';
 import { useStaffListQuery, useSaveStaffProfile, useSetEmploymentStatus } from '@/features/staff/api';
 import type { StaffPayrollInfo, PlanKind, CommissionBase } from '@/features/payroll/types';
 import type { StaffDirectoryItem } from '@/features/staff/types';
@@ -52,30 +51,9 @@ import type { TranslationKey } from '@/i18n';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
 import { useSchedule } from '@/context/ScheduleContext';
+import { DirectorySettings } from '@/features/staff/DirectorySettings';
 import { matchStaffServices } from '@/features/staff/serviceMatch';
 import { centsToDollars } from '@/features/checkout/api';
-
-// 预设常用技能标签
-const PRESET_SKILLS = [
-  '日式光疗美甲',
-  '水晶琉璃延长',
-  '俄式极致修甲',
-  '手足精油SPA',
-  '全身芳香开背',
-  '火山热石理疗',
-  '足底全息反射',
-  '日式单根美睫',
-  '3D云朵开花',
-  '半永久野生眉',
-  '头部舒压理疗',
-  '染烫色彩造型',
-];
-
-// 预设职位分类
-const PRESET_JOB_TITLES = ['美甲师', '芳疗理疗师', 'Lashes & Brows师', 'Hair Styling师', '前台店务收银', '门店店长/主管'];
-
-// 预设职位等级
-const PRESET_LEVELS = ['见习学徒', '初级技师', '中级技师', '资深技师', '首席大师', '技术总监', '店长主管'];
 
 /**
  * 预设职位 / 职级 / 技能标签的展示译文映射。
@@ -118,13 +96,16 @@ const PRESET_LABEL_KEYS: Record<string, TranslationKey> = {
 export interface StaffMember {
   id: string;
   membershipId: string;
+  isBookable: boolean;
+  maxConcurrentAppointments: number;
   employeeNo: string; // 员工工号 如 EMP-01
   name: string; // 员工姓名
   phone: string; // 手机号码
   email?: string; // 电子邮箱
   jobTitle: string; // 岗位职位
   level: string; // 职位等级
-  skills: string[]; // 技能标签
+  skills: string[];
+  skillIds: string[]; // 技能标签
   status: 'active' | 'on_leave' | 'resigned'; // 状态: 在职 / 休假 / 离职
   hireDate: string; // 入职日期
   payroll: {
@@ -146,21 +127,20 @@ interface ConfirmModalState {
 
 function EmployeePerformanceContent() {
   const errorMessage = useErrorMessage();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const zh = language === 'zh-Hans';
   /** 预设职位/职级/技能 → 展示译文；查不到映射（老板自己手打的）原样返回 */
   const presetLabel = (value: string): string => {
     const key = PRESET_LABEL_KEYS[value];
-    return key ? t(key) : value;
+    return staffData?.skills?.find((skill) => skill.id === value)?.name ?? (key ? t(key) : value);
   };
-  const { data: payrollData, isLoading: isPayrollLoading, isError: isPayrollError, error: payrollErr, refetch: refetchPayroll } = usePayrollPlansQuery();
-  const savePlanMutation = useSavePayrollPlan();
 
   const { services } = useSchedule();
   const serviceCatalog = useMemo(
     () => services.map((service) => ({
       id: service.id,
       name: service.name,
-      requiredSkillNames: service.requiredSkills.flatMap((skill) => [skill.name, skill.key].filter(Boolean)),
+      requiredSkillIds: service.requiredSkills.map((skill) => skill.id),
       categoryName: service.categoryName ?? '',
       priceCents: service.priceCents,
     })),
@@ -170,22 +150,15 @@ function EmployeePerformanceContent() {
   const saveStaffMutation = useSaveStaffProfile();
   const setEmploymentMutation = useSetEmploymentStatus();
 
-  const isInitialLoading = isStaffLoading && isPayrollLoading && !staffData;
+  const isInitialLoading = isStaffLoading && !staffData;
 
   // 员工数据状态
-  const [staffList, setStaffList] = useState<StaffMember[]>([]);
-
-  // 后端数据到达后自动同步
-  useEffect(() => {
-    if (staffData?.staff) {
-      setStaffList(staffData.staff);
-    }
-  }, [staffData]);
+  const staffList: StaffMember[] = staffData?.staff ?? [];
 
   // 刷新全量数据
   const handleRefetchAll = () => {
     void refetchStaff();
-    void refetchPayroll();
+
   };
 
   // 筛选与搜索
@@ -206,12 +179,15 @@ function EmployeePerformanceContent() {
   const [isEditing, setIsEditing] = useState(false);
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
 
+  const [saveKey, setSaveKey] = useState(crypto.randomUUID());
+  const [formBookable, setFormBookable] = useState(false);
+  const [formConcurrency, setFormConcurrency] = useState(1);
   const [formName, setFormName] = useState('');
   const [formEmployeeNo, setFormEmployeeNo] = useState('');
   const [formPhone, setFormPhone] = useState('');
   const [formEmail, setFormEmail] = useState('');
-  const [formJobTitle, setFormJobTitle] = useState('美甲师');
-  const [formLevel, setFormLevel] = useState('中级技师');
+  const [formJobTitle, setFormJobTitle] = useState('');
+  const [formLevel, setFormLevel] = useState('');
   const [formSkills, setFormSkills] = useState<string[]>([]);
   const [customSkillInput, setCustomSkillInput] = useState('');
   const [formStatus, setFormStatus] = useState<'active' | 'on_leave' | 'resigned'>('active');
@@ -278,15 +254,18 @@ function EmployeePerformanceContent() {
 
   // 1. 打开新增员工弹窗
   const handleOpenAddModal = () => {
+    setSaveKey(crypto.randomUUID());
+    setFormBookable(false);
+    setFormConcurrency(1);
     setIsEditing(false);
     setEditingStaffId(null);
     setFormName('');
-    setFormEmployeeNo(`EMP-${1000 + staffList.length + 1}`);
+    setFormEmployeeNo('');
     setFormPhone('');
     setFormEmail('');
-    setFormJobTitle('美甲师');
-    setFormLevel('中级技师');
-    setFormSkills(['日式光疗美甲']);
+    setFormJobTitle('');
+    setFormLevel('');
+    setFormSkills([]);
     setCustomSkillInput('');
     setFormStatus('active');
     setFormHireDate(new Date().toISOString().slice(0, 10));
@@ -300,6 +279,9 @@ function EmployeePerformanceContent() {
 
   // 2. 打开编辑员工弹窗
   const handleOpenEditModal = (staff: StaffMember) => {
+    setSaveKey(crypto.randomUUID());
+    setFormBookable(staff.isBookable);
+    setFormConcurrency(staff.maxConcurrentAppointments);
     setIsEditing(true);
     setEditingStaffId(staff.id);
     setFormName(staff.name);
@@ -308,7 +290,7 @@ function EmployeePerformanceContent() {
     setFormEmail(staff.email || '');
     setFormJobTitle(staff.jobTitle);
     setFormLevel(staff.level);
-    setFormSkills([...staff.skills]);
+    setFormSkills([...staff.skillIds]);
     setCustomSkillInput('');
     setFormStatus(staff.status);
     setFormHireDate(staff.hireDate);
@@ -342,16 +324,23 @@ function EmployeePerformanceContent() {
       confirmTone: 'primary',
       onConfirm: async () => {
         const targetStaff = staffList.find((s) => s.id === editingStaffId);
-        try {
+        if (isEditing && !targetStaff) throw new Error(zh ? '员工档案已变化，请刷新后重试' : 'Staff record changed. Refresh and retry.');
           await saveStaffMutation.mutateAsync({
+            idempotencyKey: saveKey,
+            isBookable: formBookable,
+            maxConcurrentAppointments: formConcurrency,
             membershipId: isEditing ? targetStaff?.membershipId : undefined,
             name: formName.trim(),
+            phone: normalizePhoneE164(formPhone),
+            email: formEmail.trim(),
             employeeNo: formEmployeeNo.trim(),
             jobTitle: formJobTitle,
             level: formLevel,
-            skills: [...formSkills],
+            levelId: staffData?.levels?.find((level) => level.name === formLevel)?.id,
+            skillIds: formSkills.filter((id) => staffData?.skills.some((skill) => skill.id === id)),
+            skills: formSkills.filter((id) => !staffData?.skills.some((skill) => skill.id === id)),
             status: formStatus,
-            hireDate: formHireDate,
+            hireDate: formHireDate || undefined,
             note: formNote.trim() || undefined,
             payroll: {
               kind: formPlanKind,
@@ -360,63 +349,7 @@ function EmployeePerformanceContent() {
               base: formCommBase,
             },
           });
-        } catch (_) {}
-
-        if (isEditing && editingStaffId) {
-          setStaffList((prev) =>
-            prev.map((item) => {
-              if (item.id === editingStaffId) {
-                return {
-                  ...item,
-                  name: formName.trim(),
-                  employeeNo: formEmployeeNo.trim(),
-                  phone: formPhone.trim(),
-                  email: formEmail.trim() || undefined,
-                  jobTitle: formJobTitle,
-                  level: formLevel,
-                  skills: [...formSkills],
-                  status: formStatus,
-                  hireDate: formHireDate,
-                  payroll: {
-                    kind: formPlanKind,
-                    ratePercent: formRatePercent,
-                    hourlyRateDollars: formHourlyRate,
-                    base: formCommBase,
-                  },
-                  note: formNote.trim() || undefined,
-                };
-              }
-              return item;
-            }),
-          );
-
-          toast.success(t('rotation.empUpdated', { p0: formName }));
-        } else {
-          const newStaff: StaffMember = {
-            id: `staff-${Date.now()}`,
-            membershipId: `mem-${Date.now()}`,
-            name: formName.trim(),
-            employeeNo: formEmployeeNo.trim() || `EMP-${1000 + staffList.length + 1}`,
-            phone: formPhone.trim(),
-            email: formEmail.trim() || undefined,
-            jobTitle: formJobTitle,
-            level: formLevel,
-            skills: [...formSkills],
-            status: formStatus,
-            hireDate: formHireDate,
-            payroll: {
-              kind: formPlanKind,
-              ratePercent: formRatePercent,
-              hourlyRateDollars: formHourlyRate,
-              base: formCommBase,
-            },
-            note: formNote.trim() || undefined,
-          };
-
-          setStaffList((prev) => [newStaff, ...prev]);
-          toast.success(t('rotation.empAdded', { p0: formName }));
-        }
-
+        toast.success(t(isEditing ? 'rotation.empUpdated' : 'rotation.empAdded', { p0: formName }));
         setIsFormModalOpen(false);
       },
     });
@@ -430,13 +363,12 @@ function EmployeePerformanceContent() {
       confirmText: t('rotation.empDeleteConfirmButton'),
       confirmTone: 'danger',
       onConfirm: async () => {
-        setStaffList((prev) => prev.filter((s) => s.id !== staff.id));
-        try {
+
           await setEmploymentMutation.mutateAsync({
             membershipId: staff.membershipId,
             status: 'resigned',
           });
-        } catch (_) {}
+
         toast.success(t('rotation.empDeleted', { p0: staff.name }));
       },
     });
@@ -456,15 +388,12 @@ function EmployeePerformanceContent() {
       confirmText: t('rotation.empStatusChangeConfirmButton'),
       confirmTone: nextStatus === 'resigned' ? 'warning' : 'primary',
       onConfirm: async () => {
-        setStaffList((prev) =>
-          prev.map((s) => (s.id === staff.id ? { ...s, status: nextStatus } : s)),
-        );
-        try {
+
           await setEmploymentMutation.mutateAsync({
             membershipId: staff.membershipId,
             status: nextStatus,
           });
-        } catch (_) {}
+
         toast.success(t('rotation.empStatusChanged', { p0: staff.name, p1: statusLabels[nextStatus] }));
       },
     });
@@ -480,7 +409,8 @@ function EmployeePerformanceContent() {
   // 添加自定义技能标签
   const handleAddCustomSkill = () => {
     if (!customSkillInput.trim()) return;
-    const val = customSkillInput.trim();
+    const entered = customSkillInput.trim();
+    const val = staffData?.skills.find((skill) => skill.name === entered || skill.key === entered)?.id ?? entered;
     if (!formSkills.includes(val)) {
       setFormSkills((prev) => [...prev, val]);
     }
@@ -507,21 +437,21 @@ function EmployeePerformanceContent() {
       case 'active':
         return (
           <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300 font-bold text-xs px-2 py-0.5">
-            
+
             {t('rotation.empStatusActive')}
           </Badge>
         );
       case 'on_leave':
         return (
           <Badge className="bg-amber-100 text-amber-900 border-amber-300 font-bold text-xs px-2 py-0.5">
-            
+
             {t('rotation.empStatusLeave')}
           </Badge>
         );
       case 'resigned':
         return (
           <Badge className="bg-slate-100 text-slate-500 border-slate-300 font-medium text-xs px-2 py-0.5">
-            
+
             {t('rotation.empStatusLeft')}
           </Badge>
         );
@@ -534,14 +464,14 @@ function EmployeePerformanceContent() {
     return <PageLoading title={t('rotation.empLoading')} description={t('rotation.empLoadingDesc')} />;
   }
 
-  if ((isStaffError || isPayrollError) && !staffData) {
+  if (isStaffError && !staffData) {
     return (
       <PageError
         title={t('rotation.empLoadError')}
-        error={staffErr || payrollErr}
+        error={staffErr}
         onRetry={() => {
           void refetchStaff();
-          void refetchPayroll();
+
         }}
       />
     );
@@ -559,18 +489,18 @@ function EmployeePerformanceContent() {
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="font-extrabold text-slate-900 text-base">{t('rotation.empTitle')}</h2>
               <Badge className="bg-teal-50 text-teal-900 border-teal-200 font-bold text-xs">
-                
+
                 {t('rotation.empActive')} {metrics.activeCount}  {t('rotation.empPeople')}
               </Badge>
               {metrics.onLeaveCount > 0 && (
                 <Badge className="bg-amber-50 text-amber-900 border-amber-200 font-bold text-xs">
-                  
+
                   {t('rotation.empOnLeave')} {metrics.onLeaveCount}  {t('rotation.empPeople2')}
                 </Badge>
               )}
               <span className="text-slate-300">|</span>
               <span className="text-xs text-slate-500 font-medium">
-                
+
                 {t('rotation.empCovering')} {metrics.allSkillsCount}  {t('rotation.empSkillsNote')}
               </span>
             </div>
@@ -579,6 +509,7 @@ function EmployeePerformanceContent() {
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2 shrink-0">
+          <DirectorySettings jobs={staffData?.jobs ?? []} levels={staffData?.levels ?? []} skills={staffData?.skills ?? []} />
           <Button
             variant="secondary"
             size="sm"
@@ -610,7 +541,7 @@ function EmployeePerformanceContent() {
             className="h-8 px-2.5 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700"
           >
             <option value="all">{t('rotation.empAllRoles')}</option>
-            {PRESET_JOB_TITLES.map((jobTitle) => (
+            {Array.from(new Set(staffList.map((staff) => staff.jobTitle))).filter(Boolean).map((jobTitle) => (
               <option key={jobTitle} value={jobTitle}>
                 {presetLabel(jobTitle)}
               </option>
@@ -624,7 +555,7 @@ function EmployeePerformanceContent() {
             className="h-8 px-2.5 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700"
           >
             <option value="all">{t('rotation.empAllLevels')}</option>
-            {PRESET_LEVELS.map((level) => (
+            {Array.from(new Set(staffList.map((staff) => staff.level))).filter(Boolean).map((level) => (
               <option key={level} value={level}>
                 {presetLabel(level)}
               </option>
@@ -669,7 +600,7 @@ function EmployeePerformanceContent() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
           {filteredStaff.map((staff) => {
-            const { canDo, cannotDo } = getStaffServicesStatus(staff.skills);
+            const { canDo, cannotDo } = getStaffServicesStatus(staff.skillIds);
             const isCannotDoExpanded = expandedCannotDoStaffId === staff.id;
 
             return (
@@ -710,7 +641,7 @@ function EmployeePerformanceContent() {
 
                     <div className="text-right shrink-0">
                       <span className="text-xs font-mono font-black text-teal-700 bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-200 block">
-                        
+
                         {t('rotation.empCommission')} {staff.payroll.ratePercent}% ({staff.payroll.base === 'net' ? t('rotation.empNetBasis') : t('rotation.empGrossBasis')})
                       </span>
                     </div>
@@ -733,12 +664,12 @@ function EmployeePerformanceContent() {
                             key={srv.id}
                             className="bg-white text-emerald-900 border border-emerald-300 text-[11px] font-semibold px-2 py-0.5 rounded-md shadow-2xs"
                           >
-                            {srv.name} (${centsToDollars(srv.priceCents)})
+                            {srv.name}{srv.requiredSkillIds.length === 0 ? t('rotation.empNoSkillReq') : ''} (${centsToDollars(srv.priceCents)})
                           </span>
                         ))
                       ) : (
                         <span className="text-[11px] text-slate-400 italic">
-                          
+
                           {t('rotation.empNoQualified')}
                         </span>
                       )}
@@ -774,7 +705,7 @@ function EmployeePerformanceContent() {
                             key={srv.id}
                             className="bg-white text-slate-500 border border-dashed border-slate-300 text-[10px] font-medium px-1.5 py-0.2 rounded"
                           >
-                            {srv.name}
+                            {srv.name}{srv.requiredSkillIds.length === 0 ? t('rotation.empNoSkillReq') : ''}
                           </span>
                         ))}
                       </div>
@@ -801,7 +732,7 @@ function EmployeePerformanceContent() {
                         onClick={() => handleToggleStatusWithConfirm(staff, 'on_leave')}
                         className="text-xs text-amber-700 hover:text-amber-900 font-semibold px-2 py-1 rounded hover:bg-amber-50"
                       >
-                        
+
                         {t('rotation.empMarkLeave')}
                       </button>
                     ) : (
@@ -809,7 +740,7 @@ function EmployeePerformanceContent() {
                         onClick={() => handleToggleStatusWithConfirm(staff, 'active')}
                         className="text-xs text-emerald-700 hover:text-emerald-900 font-semibold px-2 py-1 rounded hover:bg-emerald-50"
                       >
-                        
+
                         {t('rotation.empRestoreActive')}
                       </button>
                     )}
@@ -817,7 +748,7 @@ function EmployeePerformanceContent() {
                       onClick={() => handleDeleteStaffWithConfirm(staff)}
                       className="text-xs text-red-600 hover:text-red-800 font-semibold px-2 py-1 rounded hover:bg-red-50"
                     >
-                      
+
                       {t('rotation.empDelete')}
                     </button>
                   </div>
@@ -905,7 +836,7 @@ function EmployeePerformanceContent() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block font-bold text-slate-700 uppercase mb-1">
-                  
+
                   {t('rotation.empNameLabel')}
                 </label>
                 <Input
@@ -917,7 +848,7 @@ function EmployeePerformanceContent() {
 
               <div>
                 <label className="block font-bold text-slate-700 uppercase mb-1">
-                  
+
                   {t('rotation.empNoLabel')}
                 </label>
                 <Input
@@ -929,7 +860,7 @@ function EmployeePerformanceContent() {
 
               <div>
                 <label className="block font-bold text-slate-700 uppercase mb-1">
-                  
+
                   {t('rotation.empPhoneLabel')}
                 </label>
                 <Input
@@ -942,7 +873,7 @@ function EmployeePerformanceContent() {
 
               <div>
                 <label className="block font-bold text-slate-700 uppercase mb-1">
-                  
+
                   {t('rotation.empEmailLabel')}
                 </label>
                 <Input
@@ -954,7 +885,7 @@ function EmployeePerformanceContent() {
 
               <div>
                 <label className="block font-bold text-slate-700 uppercase mb-1">
-                  
+
                   {t('rotation.empHireDate')}
                 </label>
                 <Input
@@ -966,7 +897,7 @@ function EmployeePerformanceContent() {
 
               <div>
                 <label className="block font-bold text-slate-700 uppercase mb-1">
-                  
+
                   {t('rotation.empStatusLabel')}
                 </label>
                 <select
@@ -982,6 +913,10 @@ function EmployeePerformanceContent() {
             </div>
           </div>
 
+          <div className="flex items-center gap-3 border-t pt-3">
+            <label><input type="checkbox" checked={formBookable} onChange={(event) => setFormBookable(event.target.checked)} /> {t('rotation.empBookable')}</label>
+            <label>{t('rotation.empConcurrency')}<Input type="number" min={1} max={5} value={String(formConcurrency)} onChange={(event) => setFormConcurrency(Number(event.target.value))} /></label>
+          </div>
           {/* 职位与等级 */}
           <div className="pt-2 border-t border-slate-100">
             <h4 className="font-bold text-slate-900 text-xs mb-2 flex items-center gap-1.5">
@@ -991,20 +926,13 @@ function EmployeePerformanceContent() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block font-bold text-slate-700 uppercase mb-1">
-                  
+
                   {t('rotation.empRoleLabel')}
                 </label>
-                <select
-                  value={formJobTitle}
-                  onChange={(e) => setFormJobTitle(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700"
-                >
-                  {PRESET_JOB_TITLES.map((jobTitle) => (
-                    <option key={jobTitle} value={jobTitle}>
-                      {presetLabel(jobTitle)}
-                    </option>
-                  ))}
-                </select>
+                <Input value={formJobTitle} onChange={(e) => setFormJobTitle(e.target.value)} list="jobTitle-options" />
+                <datalist id="jobTitle-options">
+                  {Array.from(new Set([...(staffData?.jobs ?? []).filter((option) => option.active).map((option) => option.name), formJobTitle])).filter(Boolean).map((value) => <option key={value} value={value} />)}
+                </datalist>
               </div>
 
               <div>
@@ -1012,17 +940,10 @@ function EmployeePerformanceContent() {
 
                   {t('rotation.empLevelLabel')}
                 </label>
-                <select
-                  value={formLevel}
-                  onChange={(e) => setFormLevel(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700"
-                >
-                  {PRESET_LEVELS.map((level) => (
-                    <option key={level} value={level}>
-                      {presetLabel(level)}
-                    </option>
-                  ))}
-                </select>
+                <Input value={formLevel} onChange={(e) => setFormLevel(e.target.value)} list="level-options" />
+                <datalist id="level-options">
+                  {Array.from(new Set([...(staffData?.levels ?? []).filter((option) => option.active).map((option) => option.name), formLevel])).filter(Boolean).map((value) => <option key={value} value={value} />)}
+                </datalist>
               </div>
             </div>
           </div>
@@ -1036,7 +957,7 @@ function EmployeePerformanceContent() {
 
             {/* 技能标签选择 */}
             <div className="flex flex-wrap gap-1.5">
-              {PRESET_SKILLS.map((skill) => {
+              {Array.from(new Set([...(staffData?.skills ?? []).filter((skill) => skill.active).map((skill) => skill.id), ...formSkills])).map((skill) => {
                 const isSelected = formSkills.includes(skill);
                 return (
                   <button
@@ -1071,7 +992,7 @@ function EmployeePerformanceContent() {
                 className="shrink-0 font-bold"
                 onClick={handleAddCustomSkill}
               >
-                
+
                 {t('rotation.empAddTag')}
               </Button>
             </div>
@@ -1090,7 +1011,7 @@ function EmployeePerformanceContent() {
                         key={s.id}
                         className="bg-white text-emerald-900 border border-emerald-300 text-[10px] font-semibold px-1.5 py-0.2 rounded"
                       >
-                        {s.name}
+                        {s.name}{s.requiredSkillIds.length === 0 ? t('rotation.empNoSkillReq') : ''}
                       </span>
                     ))
                   ) : (
@@ -1115,7 +1036,7 @@ function EmployeePerformanceContent() {
                   ))}
                   {formServiceStatus.cannotDo.length > 6 && (
                     <span className="text-[10px] text-slate-400">
-                      
+
                       {t('rotation.empAndMore')} {formServiceStatus.cannotDo.length}  {t('rotation.empMoreUnit')}
                     </span>
                   )}
@@ -1133,7 +1054,7 @@ function EmployeePerformanceContent() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block font-bold text-slate-700 uppercase mb-1">
-                  
+
                   {t('rotation.empPayMode')}
                 </label>
                 <select
@@ -1150,7 +1071,7 @@ function EmployeePerformanceContent() {
 
               <div>
                 <label className="block font-bold text-slate-700 uppercase mb-1">
-                  
+
                   {t('rotation.empCommissionRate')}
                 </label>
                 <Input
@@ -1162,7 +1083,7 @@ function EmployeePerformanceContent() {
 
               <div>
                 <label className="block font-bold text-slate-700 uppercase mb-1">
-                  
+
                   {t('rotation.empCommissionBasis')}
                 </label>
                 <select
@@ -1177,10 +1098,11 @@ function EmployeePerformanceContent() {
             </div>
           </div>
 
+          {formPlanKind !== 'commission' && <label className="block">{t('rotation.empHourlyRate')}<Input type="number" min={0} step="0.01" value={String(formHourlyRate)} onChange={(event) => setFormHourlyRate(Number(event.target.value))} /></label>}
           {/* 备注 */}
           <div className="pt-2 border-t border-slate-100">
             <label className="block font-bold text-slate-700 uppercase mb-1">
-              
+
               {t('rotation.empNotes')}
             </label>
             <Input

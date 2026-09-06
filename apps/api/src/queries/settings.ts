@@ -358,8 +358,8 @@ export async function loadDeskSettings(
   const levels = await tx<{ id: string; key: string; name: unknown }[]>`
     select id, key, name from staff_levels
     where location_id = ${ctx.locationId} order by sort`;
-  const skillCatalog = await tx<{ id: string; key: string; name: unknown }[]>`
-    select id, key, name from skills where location_id = ${ctx.locationId} order by key`;
+  const skillCatalog = await tx<{ id: string; key: string; name: unknown; active: boolean }[]>`
+    select id, key, name, active from skills where location_id = ${ctx.locationId} order by sort, key`;
 
   const [web] = await tx<{ public_key: string; slug: string }[]>`
     select public_key, slug from locations where id = ${ctx.locationId}`;
@@ -462,6 +462,7 @@ export async function loadDeskSettings(
       id: skill.id,
       key: skill.key,
       name: pickText(skill.name, ctx.locale, skill.key),
+      active: skill.active,
     })),
     phone: {
       storefrontE164: lineOf('main'),

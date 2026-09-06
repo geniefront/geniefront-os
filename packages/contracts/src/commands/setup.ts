@@ -87,14 +87,15 @@ export const SaveStaffProfile = defineCommand({
     jobTitle: z.string().trim().max(50).optional(),
     level: z.string().trim().max(50).optional(),
     levelId: uuid.nullable().optional(),
-    skills: z.array(z.string().trim()).default([]),
-    status: z.enum(['active', 'on_leave', 'resigned', 'suspended', 'left']).default('active'),
+    skills: z.array(z.string().trim()).optional(),
+    skillIds: z.array(uuid).optional(),
+    status: z.enum(['active', 'on_leave', 'resigned', 'suspended', 'left']).optional(),
     hireDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '入职日期格式必须为 YYYY-MM-DD').optional(),
     note: z.string().max(2000).optional(),
     /** 能否被排单。店长/前台也接客时打开（决策 20） */
-    isBookable: z.boolean().default(true),
+    isBookable: z.boolean().optional(),
     /** 并发上限。美甲店常设 2（做手时脚在泡水） */
-    maxConcurrentAppointments: z.number().int().min(1).max(5).default(1),
+    maxConcurrentAppointments: z.number().int().min(1).max(5).optional(),
     inRotation: z.boolean().default(true),
     payroll: z.object({
       kind: z.enum(['commission', 'hourly', 'commission_vs_hourly', 'booth_rent']),
@@ -622,8 +623,24 @@ export const SetEmailLocale = defineCommand({
   idempotency: 'optional',
 });
 
+export const SaveStaffDirectoryOption = defineCommand({
+  name: 'staff.saveDirectoryOption',
+  input: z.object({
+    kind: z.enum(['job', 'level', 'skill']),
+    id: uuid.optional(),
+    name: z.string().trim().min(1).max(50),
+    sort: z.number().int().min(0).max(9999).default(0),
+    active: z.boolean().default(true),
+  }),
+  output: z.object({ id: uuid }),
+  permission: 'staff.manage',
+  ai: { description: '管理门店岗位、职级和技能目录。停用保留历史关联。', confirm: 'always' },
+  reversible: true,
+  idempotency: 'optional',
+});
+
 export const SETUP_COMMANDS = [
-  SaveService, SaveServiceCategory, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
+  SaveStaffDirectoryOption, SaveService, SaveServiceCategory, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
   SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
   SaveCheckoutSettings, Apply10Dlc, SaveIntakeWaiver, SaveWebhooks, SetEmailLocale,

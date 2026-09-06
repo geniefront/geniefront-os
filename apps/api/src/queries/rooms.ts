@@ -2,11 +2,13 @@
  * 房间与工位实时看板查询（Rooms.tsx，P0 房态看板）
  */
 
+import { businessDateOf, businessDayStart, businessDayMinutes } from '@gf/scheduling';
 import type postgres from 'postgres';
 import { pickText, type CommandContext } from '@gf/contracts';
 
 export interface RoomSession {
-  appointmentId: string;
+  ticketItemId: string;
+  appointmentId: string | null;
   ticketId: string | null;
   customerName: string;
   staffNames: string[];
@@ -56,6 +58,11 @@ export interface RoomDto {
   maxStaff: number | null;
   status: 'available' | 'in_service' | 'cleaning' | 'maintenance';
   currentSession?: RoomSession | undefined;
+  currentSessions: RoomSession[];
+  occupiedCount: number;
+  rawStatus: string;
+  waitingCleaningCount: number;
+  cleaningCount: number;
   upcomingSession?: UpcomingSession | undefined;
   todaySlots: TimelineSlot[];
 }
@@ -91,6 +98,12 @@ export async function loadRooms(
     };
   }
 
+  const [location] = await tx<{ timezone: string; cutoff: string }[]>`
+    select timezone, business_day_cutoff::text as cutoff from locations where id = ${ctx.locationId}`;
+  const now = new Date();
+  const date = businessDateOf(now, location!.timezone, location!.cutoff);
+  const start = businessDayStart(date, location!.timezone, location!.cutoff);
+  const end = new Date(start.getTime() + businessDayMinutes(date, location!.timezone, location!.cutoff) * 60000);
   // 2. 查询今日关联该门店房间的所有预约项
   const todayItems = await tx<{
     item_id: string; resource_id: string; appointment_id: string;
@@ -116,21 +129,32 @@ export async function loadRooms(
     where ai.location_id = ${ctx.locationId}
       and ai.resource_id is not null
       and ai.status not in ('cancelled', 'no_show')
-      and ai.starts_at >= current_date - interval '2 hours'
-      and ai.starts_at < current_date + interval '1 day' + interval '4 hours'
+      and ai.ends_at > ${start.toISOString()}::timestamptz
+      and ai.starts_at < ${end.toISOString()}::timestamptz
     order by ai.starts_at asc`;
 
   const occupancyRows = await tx<{
     resource_id: string; occupied_at: string; duration_min: number;
+    ticket_item_id: string; ticket_id: string; appointment_id: string | null; customer_name: string | null;
+    service_name: unknown; staff_names: string[];
   }[]>`
-    select ro.resource_id, ro.occupied_at::text as occupied_at,
-           coalesce(ti.duration_min, 60) as duration_min
+    select ro.resource_id, ro.occupied_at::text as occupied_at, ti.duration_min,
+      ti.id as ticket_item_id, ti.ticket_id, t.appointment_id, coalesce(c.display_name, t.walk_in_name) as customer_name,
+      s.name as service_name,
+      array(select coalesce(sp.display_name->>${ctx.locale}, sp.display_name->>'en', '')
+        from ticket_item_staff tis join staff_profiles sp on sp.membership_id = tis.membership_id
+        where tis.ticket_item_id = ti.id) as staff_names
     from resource_occupancies ro
     join ticket_items ti on ti.id = ro.ticket_item_id
-    where ro.location_id = ${ctx.locationId}
-      and ro.status = 'in_use'`;
-  const occupancyByResource = new Map(occupancyRows.map((row) => [row.resource_id, row]));
-
+    join tickets t on t.id = ti.ticket_id
+    left join customers c on c.id = t.customer_id
+    join services s on s.id = ti.service_id
+    where ro.location_id = ${ctx.locationId} and ro.status = 'in_use'
+    order by ro.occupied_at, ti.id`;
+  const cleaningRows = await tx<{ resource_id: string; waiting: number; cleaning: number }[]>`
+    select resource_id, count(*) filter (where status = 'cleaning_required')::int as waiting,
+      count(*) filter (where status = 'cleaning')::int as cleaning
+    from resource_occupancies where location_id = ${ctx.locationId} and status in ('cleaning_required', 'cleaning') group by resource_id`;
   const nowMs = Date.now();
   type TodayItem = (typeof todayItems)[number];
   const itemsByResource = new Map<string, TodayItem[]>();
@@ -151,48 +175,23 @@ export async function loadRooms(
   const rooms: RoomDto[] = resRows.map((r) => {
     const list = itemsByResource.get(r.id) ?? [];
 
-    // 当前活跃项目：优先服务中；否则才用预约时段窗口。
-    const activeItem = list.find((item) => item.status === 'in_service')
-      ?? list.find((item) => {
-        const startMs = new Date(item.starts_at).getTime();
-        const endMs = new Date(item.ends_at).getTime();
-        return (
-          item.status !== 'completed' &&
-          startMs <= nowMs + 5 * 60 * 1000 &&
-          endMs >= nowMs - 5 * 60 * 1000
-        );
-      });
-
-    let currentSession: RoomSession | undefined;
-    if (activeItem) {
-      const occupancy = occupancyByResource.get(r.id);
-      const seatMs = occupancy ? new Date(occupancy.occupied_at).getTime() : new Date(activeItem.starts_at).getTime();
-      const startMs = Number.isFinite(seatMs) ? seatMs : new Date(activeItem.starts_at).getTime();
-      const endMs = new Date(activeItem.ends_at).getTime();
-      const totalMin = occupancy?.duration_min
-        || Math.max(1, Math.round((endMs - new Date(activeItem.starts_at).getTime()) / 60000));
-      const elapsedMin = Math.max(0, Math.round((nowMs - startMs) / 60000));
-      const staffName = activeItem.staff_display_name
-        ? pickText(activeItem.staff_display_name, ctx.locale, activeItem.user_full_name ?? '技师')
-        : (activeItem.user_full_name ?? '技师');
-
-      currentSession = {
-        appointmentId: activeItem.appointment_id,
-        ticketId: null,
-        customerName: activeItem.customer_name ?? activeItem.walk_in_name ?? '客人',
-        staffNames: staffName ? [staffName] : [],
-        serviceName: pickText(activeItem.service_name, ctx.locale, '项目服务'),
-        startedAt: occupancy?.occupied_at ?? activeItem.starts_at,
-        estimatedEndAt: activeItem.ends_at,
-        progressMinutes: elapsedMin,
-        totalMinutes: totalMin,
+    const currentSessions: RoomSession[] = occupancyRows.filter((row) => row.resource_id === r.id).map((row) => {
+      const started = new Date(row.occupied_at).getTime();
+      return {
+        ticketItemId: row.ticket_item_id, appointmentId: row.appointment_id, ticketId: row.ticket_id,
+        customerName: row.customer_name ?? '客人', staffNames: row.staff_names.filter(Boolean),
+        serviceName: pickText(row.service_name, ctx.locale, '项目服务'),
+        startedAt: row.occupied_at,
+        estimatedEndAt: new Date(started + row.duration_min * 60000).toISOString(),
+        progressMinutes: Math.max(0, Math.round((nowMs - started) / 60000)),
+        totalMinutes: row.duration_min,
       };
-    }
-
+    });
+    const currentSession = currentSessions[0];
     // 下一场预约（未来的）
     const nextItem = list.find((item) => {
       const startMs = new Date(item.starts_at).getTime();
-      return startMs > nowMs && item.status !== 'completed' && item.item_id !== activeItem?.item_id;
+      return startMs > nowMs && item.status !== 'completed' && !currentSessions.some((session) => session.appointmentId === item.appointment_id);
     });
 
     let upcomingSession: UpcomingSession | undefined;
@@ -255,6 +254,11 @@ export async function loadRooms(
       maxStaff: r.max_staff,
       status: effectiveStatus,
       currentSession,
+      currentSessions,
+      occupiedCount: currentSessions.length,
+      rawStatus: r.status,
+      waitingCleaningCount: cleaningRows.find((row) => row.resource_id === r.id)?.waiting ?? 0,
+      cleaningCount: cleaningRows.find((row) => row.resource_id === r.id)?.cleaning ?? 0,
       upcomingSession,
       todaySlots,
     };

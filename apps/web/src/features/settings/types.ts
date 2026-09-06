@@ -186,7 +186,7 @@ export interface DeskSettings {
   serviceCategories: ServiceCategoryItem[];
   staff: StaffItem[];
   levels: StaffLevelItem[];
-  skills: Array<{ id: string; key: string; name: string }>;
+  skills: Array<{ id: string; key: string; name: string; active: boolean }>;
   guest: GuestSettings;
   phone: PhoneSettings;
   phoneAssistant?: PhoneAssistantSettings;

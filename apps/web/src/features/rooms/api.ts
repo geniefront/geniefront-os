@@ -57,6 +57,25 @@ export function useBeginCleaning() {
   });
 }
 
+export function useCompleteCleaning() {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: { resourceId: string; note?: string }) => {
+      const res = await runCommand<{ resourceId: string; status: 'available' | 'in_use' }>(
+        'resource.completeCleaning',
+        input,
+        membershipId!,
+      );
+      return res.result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['desk', 'rooms'] });
+    },
+  });
+}
+
 export function useSaveResource() {
   const { membershipId } = useSession();
   const queryClient = useQueryClient();

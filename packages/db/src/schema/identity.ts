@@ -73,6 +73,7 @@ export const staffLevels = pgTable('staff_levels', {
   locationId: uuid('location_id').notNull().references(() => locations.id),
   key: text('key').notNull(),
   name: jsonb('name').notNull(),
+  active: boolean('active').notNull().default(true),
   sort: integer('sort').notNull().default(0),
   /** 等级差异化三维之一：同一项目高级技师收更高价（00 §3.0） */
   priceModifierBp: integer('price_modifier_bp').notNull().default(10000),
@@ -107,6 +108,7 @@ export const staffProfiles = pgTable('staff_profiles', {
    * 刻意不做全局唯一 —— 一个技师在两家店上班是这行的常态。
    */
   phoneE164: text('phone_e164'),
+  contactEmail: text('contact_email'),
   /** 这位技师自己的界面语言。手机上机的技师没有 users 行，语言存这里 */
   locale: text('locale'),
   /** 员工工号，如 EMP-1001 */
@@ -153,6 +155,8 @@ export const skills = pgTable('skills', {
   locationId: uuid('location_id').notNull().references(() => locations.id),
   key: text('key').notNull(),
   name: jsonb('name').notNull(),
+  active: boolean('active').notNull().default(true),
+  sort: integer('sort').notNull().default(0),
 });
 
 export const staffSkills = pgTable('staff_skills', {
@@ -186,4 +190,13 @@ export const userLastLocation = pgTable('user_last_location', {
   userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
   locationId: uuid('location_id').notNull().references(() => locations.id),
   at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const staffJobTitles = pgTable('staff_job_titles', {
+  id: id(),
+  orgId: uuid('org_id').notNull().references(() => organizations.id),
+  locationId: uuid('location_id').notNull().references(() => locations.id),
+  name: text('name').notNull(),
+  sort: integer('sort').notNull().default(0),
+  active: boolean('active').notNull().default(true),
 });
