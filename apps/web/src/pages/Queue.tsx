@@ -544,7 +544,7 @@ function QueueContent() {
     [...rotationEntries].sort((a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER))
   ), [rotationEntries]);
 
-  // 运营看板技师考勤打卡与休息全量列表
+  // 运营看板技师考勤打卡与轮牌队列（严格按轮牌顺位排序）
   const allStaffAttendance = useMemo(() => {
     const entriesMap = new Map<string, (typeof rotationEntries)[number]>();
     for (const entry of rotationEntries) {
@@ -556,6 +556,8 @@ function QueueContent() {
       name: string;
       state: RotationEntryState;
       position: number | null;
+      turns: number;
+      owed: number;
       arrivedAt: string | null;
       leftAt: string | null;
       levelName?: string | null;
@@ -567,6 +569,8 @@ function QueueContent() {
         name: entry.name,
         state: entry.state,
         position: entry.position,
+        turns: entry.turns ?? 0,
+        owed: entry.owed ?? 0,
         arrivedAt: entry.arrivedAt,
         leftAt: entry.leftAt,
         levelName: entry.levelName,
@@ -581,12 +585,29 @@ function QueueContent() {
           name: s.name,
           state: 'not_arrived',
           position: null,
+          turns: 0,
+          owed: 0,
           arrivedAt: null,
           leftAt: null,
           levelName: s.levelName,
         });
       }
     }
+
+    // 轮牌顺位排序：在岗轮牌中的技师严格按 position (1, 2, 3...) 排在前面；未到店/已下班排在后面
+    list.sort((a, b) => {
+      const aOnDuty = a.state === 'available' || a.state === 'in_service' || a.state === 'on_break';
+      const bOnDuty = b.state === 'available' || b.state === 'in_service' || b.state === 'on_break';
+      if (aOnDuty && !bOnDuty) return -1;
+      if (!aOnDuty && bOnDuty) return 1;
+
+      if (aOnDuty && bOnDuty) {
+        const posA = a.position ?? 9999;
+        const posB = b.position ?? 9999;
+        if (posA !== posB) return posA - posB;
+      }
+      return a.name.localeCompare(b.name);
+    });
 
     return list;
   }, [rotationEntries, staff]);
@@ -596,6 +617,14 @@ function QueueContent() {
     const q = staffAttendanceSearch.trim().toLowerCase();
     return allStaffAttendance.filter((s) => s.name.toLowerCase().includes(q));
   }, [allStaffAttendance, staffAttendanceSearch]);
+
+  const onDutyStaff = useMemo(() => (
+    filteredStaffAttendance.filter((s) => s.state === 'available' || s.state === 'in_service' || s.state === 'on_break')
+  ), [filteredStaffAttendance]);
+
+  const offDutyStaff = useMemo(() => (
+    filteredStaffAttendance.filter((s) => s.state === 'off' || s.state === 'not_arrived')
+  ), [filteredStaffAttendance]);
 
   const attendanceMetrics = useMemo(() => {
     const total = allStaffAttendance.length;
@@ -4566,27 +4595,46 @@ function QueueContent() {
         </Modal>
       )}
 
-      {/* 技师考勤打卡与上下班/休息管理弹窗 */}
+      {/* 技师考勤打卡与轮牌管理弹窗 */}
       <Modal
         isOpen={isStaffAttendanceModalOpen}
         onOpenChange={setIsStaffAttendanceModalOpen}
         title={
-          <div className="flex items-center gap-2 text-slate-900 font-bold">
-            <UserCheck className="w-5 h-5 text-teal-600" />
-            <span>{t('queue.quStaffPunchModalTitle')}</span>
+          <div className="flex items-center justify-between w-full pr-8">
+            <div className="flex items-center gap-2 text-slate-900 font-bold">
+              <UserCheck className="w-5 h-5 text-teal-600" />
+              <span>{t('queue.quStaffPunchModalTitle')}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setIsStaffAttendanceModalOpen(false);
+                navigate('/rotation');
+              }}
+              className="text-xs font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 px-2.5 py-1 rounded-xl flex items-center gap-1 cursor-pointer transition-colors shrink-0 shadow-2xs"
+              title={t('queue.quGoToRotationDesc')}
+            >
+              <span>{t('queue.quGoToRotation')}</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
           </div>
         }
         description={t('queue.quStaffPunchModalDesc')}
-        size="2xl"
+        size="md"
+        className="max-w-xl"
         footer={
           <div className="flex items-center justify-between w-full">
-            <div className="text-xs text-slate-500 font-medium">
-              {t('queue.quStaffOnDutyCount', { p0: attendanceMetrics.onDuty })}
-              {' · '}
-              {t('queue.quStaffBreakCount', { p0: attendanceMetrics.onBreak })}
-              {' · '}
-              {t('queue.quStaffInServiceCount', { p0: attendanceMetrics.inService })}
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setIsStaffAttendanceModalOpen(false);
+                navigate('/rotation');
+              }}
+              className="text-xs text-teal-600 hover:text-teal-800 font-bold flex items-center gap-1 cursor-pointer transition-colors"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>{t('queue.quGoToRotation')}</span>
+            </button>
             <Button
               variant="secondary"
               size="sm"
@@ -4598,222 +4646,320 @@ function QueueContent() {
           </div>
         }
       >
-        <div className="space-y-3.5 py-1 text-xs text-slate-700">
+        <div className="space-y-3 py-1 text-xs text-slate-700">
           {/* 状态统计指示条 */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700 font-semibold border border-slate-200">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-semibold border border-slate-200">
               {t('queue.quStaffTotalCount', { p0: attendanceMetrics.total })}
             </span>
-            <span className="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+            <span className="px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
               {t('queue.quStaffStatusAvailable')}: {attendanceMetrics.available}
             </span>
-            <span className="px-2.5 py-1 rounded-xl bg-violet-50 text-violet-800 font-semibold border border-violet-200 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-violet-500 inline-block" />
+            <span className="px-2 py-0.5 rounded-lg bg-violet-50 text-violet-800 font-semibold border border-violet-200 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 inline-block" />
               {t('queue.quStaffStatusInService')}: {attendanceMetrics.inService}
             </span>
-            <span className="px-2.5 py-1 rounded-xl bg-amber-50 text-amber-800 font-semibold border border-amber-200 flex items-center gap-1.5">
-              <Coffee className="w-3.5 h-3.5 text-amber-600" />
+            <span className="px-2 py-0.5 rounded-lg bg-amber-50 text-amber-800 font-semibold border border-amber-200 flex items-center gap-1">
+              <Coffee className="w-3 h-3 text-amber-600" />
               {t('queue.quStaffStatusOnBreak')}: {attendanceMetrics.onBreak}
             </span>
           </div>
 
+          {/* 详细排牌引导条 */}
+          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-teal-50/70 border border-teal-100/80 text-teal-900 text-xs">
+            <span className="flex items-center gap-1.5 text-[11px] text-teal-800 truncate">
+              <Sparkles className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+              <span className="truncate">{t('queue.quGoToRotationDesc')}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setIsStaffAttendanceModalOpen(false);
+                navigate('/rotation');
+              }}
+              className="text-[11px] font-bold text-teal-700 hover:text-teal-900 flex items-center gap-0.5 shrink-0 ml-2 hover:underline cursor-pointer"
+            >
+              <span>{t('queue.quGoToRotation')}</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
+          </div>
+
           {/* 实时搜索框 */}
           <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+            <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
             <input
               type="text"
               placeholder={t('queue.quStaffSearchPlaceholder')}
               value={staffAttendanceSearch}
               onChange={(e) => setStaffAttendanceSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 font-medium"
+              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 font-medium"
             />
           </div>
 
-          {/* 技师列表 */}
-          <div className="max-h-[50vh] overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+          {/* 技师列表（轮牌队列与打卡） */}
+          <div className="max-h-[50vh] overflow-y-auto space-y-3 pr-1 custom-scrollbar">
             {filteredStaffAttendance.length === 0 ? (
               <div className="py-8 text-center text-xs text-slate-400">
                 {t('queue.quNoMatch')}
               </div>
             ) : (
-              filteredStaffAttendance.map((s) => {
-                const isActing = actingAttendanceStaffId === s.membershipId;
-                const isOffDuty = s.state === 'off' || s.state === 'not_arrived';
-                const isAvailable = s.state === 'available';
-                const isOnBreak = s.state === 'on_break';
-                const isInService = s.state === 'in_service';
-
-                let statusBadge = (
-                  <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 font-medium">
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                    {t('queue.quStaffStatusNotArrived')}
-                  </span>
-                );
-                if (s.state === 'available') {
-                  statusBadge = (
-                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      {t('queue.quStaffStatusAvailable')}
-                    </span>
-                  );
-                } else if (s.state === 'in_service') {
-                  statusBadge = (
-                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-bold">
-                      <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
-                      {t('queue.quStaffStatusInService')}
-                    </span>
-                  );
-                } else if (s.state === 'on_break') {
-                  statusBadge = (
-                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 font-bold">
-                      <Coffee className="w-3 h-3 text-amber-600" />
-                      {t('queue.quStaffStatusOnBreak')}
-                    </span>
-                  );
-                } else if (s.state === 'off') {
-                  statusBadge = (
-                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200 font-medium">
-                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                      {t('queue.quStaffStatusOff')}
-                    </span>
-                  );
-                }
-
-                return (
-                  <div
-                    key={s.membershipId}
-                    className="p-3 bg-white border border-slate-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs hover:border-teal-200 transition-all"
-                  >
-                    {/* 左侧信息 */}
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div
-                        className={cn(
-                          "w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border",
-                          isAvailable
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                            : isInService
-                            ? "bg-violet-50 text-violet-700 border-violet-200"
-                            : isOnBreak
-                            ? "bg-amber-50 text-amber-700 border-amber-200"
-                            : "bg-slate-100 text-slate-600 border-slate-200"
-                        )}
-                      >
-                        {s.name.slice(0, 2)}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-xs text-slate-900 truncate">{s.name}</span>
-                          {s.levelName && (
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200 font-medium">
-                              {s.levelName}
-                            </span>
-                          )}
-                          {statusBadge}
-                        </div>
-                        <div className="text-[10px] text-slate-400 font-mono mt-0.5 flex items-center gap-2">
-                          {s.arrivedAt && <span>到店: {s.arrivedAt.slice(11, 16)}</span>}
-                          {s.leftAt && <span>离店: {s.leftAt.slice(11, 16)}</span>}
-                        </div>
-                      </div>
+              <>
+                {/* 1. 当前轮牌队列（在岗技师，严格按顺位呈现） */}
+                {onDutyStaff.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between px-0.5 pt-0.5">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-teal-500" />
+                        <span>{t('queue.quRotationActiveQueue')} ({onDutyStaff.length})</span>
+                      </span>
+                      {onDutyStaff[0]?.state === 'available' && (
+                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/80 border border-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping" />
+                          <span>★ #1 {onDutyStaff[0].name} {t('queue.quRotationNextUp')}</span>
+                        </span>
+                      )}
                     </div>
 
-                    {/* 右侧操作按钮组 */}
-                    <div className="flex items-center gap-2 shrink-0 justify-end">
-                      {/* 上下班打卡 */}
-                      {isOffDuty ? (
-                        <Button
-                          size="sm"
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-8 px-2.5 gap-1 shadow-2xs"
-                          onClick={() => handleStaffAttendanceCheckIn(s)}
-                          disabled={isActing}
-                        >
-                          {isActing ? (
-                            <Spinner size="sm" className="w-3.5 h-3.5 text-white" />
-                          ) : (
-                            <LogIn className="w-3.5 h-3.5" />
-                          )}
-                          <span>{t('queue.quStaffClockIn')}</span>
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          className={cn(
-                            "font-bold text-xs h-8 px-2.5 gap-1",
-                            isInService
-                              ? "opacity-40 cursor-not-allowed text-slate-400 border-slate-200"
-                              : "border-rose-200 text-rose-700 hover:bg-rose-50"
-                          )}
-                          onClick={() => {
-                            if (isInService) {
-                              toast.warning(t('queue.quStaffInServiceCantClockOut'));
-                              return;
-                            }
-                            void handleStaffAttendanceCheckOut(s);
-                          }}
-                          disabled={isActing || isInService}
-                          title={isInService ? t('queue.quStaffInServiceCantClockOut') : undefined}
-                        >
-                          {isActing ? (
-                            <Spinner size="sm" className="w-3.5 h-3.5 text-rose-600" />
-                          ) : (
-                            <LogOut className="w-3.5 h-3.5" />
-                          )}
-                          <span>{t('queue.quStaffClockOut')}</span>
-                        </Button>
-                      )}
+                    <div className="space-y-1.5">
+                      {onDutyStaff.map((s) => {
+                        const isActing = actingAttendanceStaffId === s.membershipId;
+                        const isAvailable = s.state === 'available';
+                        const isOnBreak = s.state === 'on_break';
+                        const isInService = s.state === 'in_service';
+                        const isFirstUp = s.position === 1 && isAvailable;
 
-                      {/* 休息来回切换 */}
-                      {isOnBreak ? (
-                        <Button
-                          size="sm"
-                          className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs h-8 px-2.5 gap-1 shadow-2xs"
-                          onClick={() => handleStaffAttendanceBreak(s, false)}
-                          disabled={isActing}
-                        >
-                          {isActing ? (
-                            <Spinner size="sm" className="w-3.5 h-3.5 text-white" />
-                          ) : (
-                            <Coffee className="w-3.5 h-3.5" />
-                          )}
-                          <span>{t('queue.quStaffEndBreak')}</span>
-                        </Button>
-                      ) : isAvailable ? (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          className="border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 font-bold text-xs h-8 px-2.5 gap-1 shadow-2xs"
-                          onClick={() => handleStaffAttendanceBreak(s, true)}
-                          disabled={isActing}
-                        >
-                          {isActing ? (
-                            <Spinner size="sm" className="w-3.5 h-3.5 text-amber-600" />
-                          ) : (
-                            <Coffee className="w-3.5 h-3.5" />
-                          )}
-                          <span>{t('queue.quStaffStartBreak')}</span>
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled
-                          className="opacity-40 cursor-not-allowed text-slate-400 text-xs h-8 px-2.5 gap-1 border-slate-200"
-                          title={
-                            isInService
-                              ? t('queue.quStaffInServiceCantBreak')
-                              : t('queue.quStaffOffCantBreak')
-                          }
-                        >
-                          <Coffee className="w-3.5 h-3.5" />
-                          <span>{t('queue.quStaffBreak')}</span>
-                        </Button>
-                      )}
+                        let statusBadge: React.ReactNode = null;
+                        if (isFirstUp) {
+                          statusBadge = (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 font-black">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                              {t('queue.quRotationNextUp')}
+                            </span>
+                          );
+                        } else if (isAvailable) {
+                          statusBadge = (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                              {t('queue.quStaffStatusAvailable')}
+                            </span>
+                          );
+                        } else if (isInService) {
+                          statusBadge = (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-bold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
+                              {t('queue.quStaffStatusInService')}
+                            </span>
+                          );
+                        } else if (isOnBreak) {
+                          statusBadge = (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 font-bold">
+                              <Coffee className="w-3 h-3 text-amber-600" />
+                              {t('queue.quStaffStatusOnBreak')}
+                            </span>
+                          );
+                        }
+
+                        return (
+                          <div
+                            key={s.membershipId}
+                            className={cn(
+                              "p-2.5 bg-white border rounded-xl flex items-center justify-between gap-2.5 transition-all",
+                              isFirstUp
+                                ? "border-emerald-300 bg-emerald-50/20 shadow-xs ring-1 ring-emerald-400/30"
+                                : "border-slate-200 hover:border-teal-200 shadow-2xs"
+                            )}
+                          >
+                            {/* 顺位与信息 */}
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div
+                                className={cn(
+                                  "w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs shrink-0 border shadow-2xs",
+                                  isFirstUp
+                                    ? "bg-gradient-to-br from-emerald-500 to-teal-600 text-white border-emerald-600"
+                                    : "bg-slate-100 text-slate-700 border-slate-200"
+                                )}
+                                title={isFirstUp ? t('queue.quRotationNextUp') : `第 ${s.position} 顺位`}
+                              >
+                                #{s.position ?? '—'}
+                              </div>
+
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-bold text-xs text-slate-900 truncate">{s.name}</span>
+                                  {s.levelName && (
+                                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200 font-medium">
+                                      {s.levelName}
+                                    </span>
+                                  )}
+                                  {statusBadge}
+                                </div>
+                                <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5 flex-wrap">
+                                  <span className="font-semibold text-slate-700">
+                                    {t('queue.quRotationTurnsDone', { p0: s.turns })}
+                                  </span>
+                                  {s.owed > 0 && (
+                                    <span className="text-amber-700 bg-amber-50 px-1 py-0.2 rounded font-bold border border-amber-200">
+                                      {t('queue.quRotationOwedTurns', { p0: s.owed })}
+                                    </span>
+                                  )}
+                                  {s.arrivedAt && (
+                                    <span className="text-slate-400 font-mono">
+                                      到店: {s.arrivedAt.slice(11, 16)}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 操作按钮 */}
+                            <div className="flex items-center gap-1.5 shrink-0 justify-end">
+                              {/* 休息来回切换 */}
+                              {isOnBreak ? (
+                                <Button
+                                  size="sm"
+                                  className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs h-7.5 px-2.5 gap-1 shadow-2xs rounded-xl"
+                                  onClick={() => handleStaffAttendanceBreak(s, false)}
+                                  disabled={isActing}
+                                >
+                                  {isActing ? (
+                                    <Spinner size="sm" className="w-3 h-3 text-white" />
+                                  ) : (
+                                    <Coffee className="w-3 h-3" />
+                                  )}
+                                  <span>{t('queue.quStaffEndBreak')}</span>
+                                </Button>
+                              ) : isAvailable ? (
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  className="border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 font-bold text-xs h-7.5 px-2.5 gap-1 shadow-2xs rounded-xl"
+                                  onClick={() => handleStaffAttendanceBreak(s, true)}
+                                  disabled={isActing}
+                                >
+                                  {isActing ? (
+                                    <Spinner size="sm" className="w-3 h-3 text-amber-600" />
+                                  ) : (
+                                    <Coffee className="w-3 h-3" />
+                                  )}
+                                  <span>{t('queue.quStaffStartBreak')}</span>
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled
+                                  className="opacity-40 cursor-not-allowed text-slate-400 text-xs h-7.5 px-2.5 gap-1 border-slate-200 rounded-xl"
+                                  title={isInService ? t('queue.quStaffInServiceCantBreak') : undefined}
+                                >
+                                  <Coffee className="w-3 h-3" />
+                                  <span>{t('queue.quStaffBreak')}</span>
+                                </Button>
+                              )}
+
+                              {/* 下班打卡 */}
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                className={cn(
+                                  "font-bold text-xs h-7.5 px-2.5 gap-1 rounded-xl",
+                                  isInService
+                                    ? "opacity-40 cursor-not-allowed text-slate-400 border-slate-200"
+                                    : "border-rose-200 text-rose-700 hover:bg-rose-50"
+                                )}
+                                onClick={() => {
+                                  if (isInService) {
+                                    toast.warning(t('queue.quStaffInServiceCantClockOut'));
+                                    return;
+                                  }
+                                  void handleStaffAttendanceCheckOut(s);
+                                }}
+                                disabled={isActing || isInService}
+                                title={isInService ? t('queue.quStaffInServiceCantClockOut') : undefined}
+                              >
+                                {isActing ? (
+                                  <Spinner size="sm" className="w-3 h-3 text-rose-600" />
+                                ) : (
+                                  <LogOut className="w-3 h-3" />
+                                )}
+                                <span>{t('queue.quStaffClockOut')}</span>
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                );
-              })
+                )}
+
+                {/* 2. 未上牌 / 已离店技师 */}
+                {offDutyStaff.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    <div className="text-[11px] font-bold text-slate-400 flex items-center justify-between px-0.5 border-t border-slate-100 pt-2.5">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-slate-300" />
+                        <span>{t('queue.quRotationOffDutyQueue')} ({offDutyStaff.length})</span>
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      {offDutyStaff.map((s) => {
+                        const isActing = actingAttendanceStaffId === s.membershipId;
+                        return (
+                          <div
+                            key={s.membershipId}
+                            className="p-2.5 bg-white border border-slate-200 rounded-xl flex items-center justify-between gap-2.5 shadow-2xs hover:border-teal-200 transition-all opacity-85 hover:opacity-100"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div
+                                className="w-8 h-8 rounded-xl bg-slate-50 text-slate-400 flex items-center justify-center font-bold text-xs shrink-0 border border-dashed border-slate-200"
+                                title={t('queue.quStaffStatusOff')}
+                              >
+                                —
+                              </div>
+
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-bold text-xs text-slate-700 truncate">{s.name}</span>
+                                  {s.levelName && (
+                                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-500 border border-slate-200 font-medium">
+                                      {s.levelName}
+                                    </span>
+                                  )}
+                                  <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200 font-medium">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                                    {s.state === 'off' ? t('queue.quStaffStatusOff') : t('queue.quStaffStatusNotArrived')}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5 font-mono">
+                                  {s.leftAt && <span>离店: {s.leftAt.slice(11, 16)}</span>}
+                                  {s.turns > 0 && <span>今日已接 {s.turns} 单</span>}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0 justify-end">
+                              <Button
+                                size="sm"
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-7.5 px-3 gap-1 shadow-2xs rounded-xl"
+                                onClick={() => handleStaffAttendanceCheckIn(s)}
+                                disabled={isActing}
+                              >
+                                {isActing ? (
+                                  <Spinner size="sm" className="w-3 h-3 text-white" />
+                                ) : (
+                                  <LogIn className="w-3 h-3" />
+                                )}
+                                <span>{t('queue.quStaffClockIn')}</span>
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

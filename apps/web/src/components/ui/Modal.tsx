@@ -7,6 +7,7 @@
 import * as React from 'react';
 import { Modal as HeroModal, Button } from '@heroui/react';
 import { useLanguage } from '@/LanguageContext';
+import { cn } from '@/lib/utils';
 
 export interface ModalProps {
   isOpen: boolean;
@@ -16,10 +17,11 @@ export interface ModalProps {
   children?: React.ReactNode;
   footer?: React.ReactNode;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'cover' | 'full';
+  className?: string;
 }
 
 export function Modal({
-  isOpen, onOpenChange, title, description, children, footer, size = 'md',
+  isOpen, onOpenChange, title, description, children, footer, size = 'md', className,
 }: ModalProps) {
   return (
     /*
@@ -33,8 +35,8 @@ export function Modal({
       onOpenChange={onOpenChange}
       className="!z-[300]"
     >
-        <HeroModal.Container size={size} className="!z-[301]">
-          <HeroModal.Dialog>
+        <HeroModal.Container size={size} className={cn("!z-[301]", className)}>
+          <HeroModal.Dialog className={className}>
             <HeroModal.CloseTrigger />
             <HeroModal.Header>
               <HeroModal.Heading>{title}</HeroModal.Heading>

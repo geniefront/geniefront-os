@@ -619,4 +619,11 @@ export const queue = {
   'queue.quStaffOnDutyCount': { 'zh-Hans': '在店 {p0} 位', en: '{p0} on duty', ko: '출근 {p0}명', es: '{p0} en turno', vi: '{p0} đang làm việc' },
   'queue.quStaffBreakCount': { 'zh-Hans': '小休 {p0} 位', en: '{p0} on break', ko: '휴식 {p0}명', es: '{p0} en descanso', vi: '{p0} đang nghỉ' },
   'queue.quStaffInServiceCount': { 'zh-Hans': '服务中 {p0} 位', en: '{p0} in service', ko: '서비스 중 {p0}명', es: '{p0} en servicio', vi: '{p0} đang phục vụ' },
+  'queue.quGoToRotation': { 'zh-Hans': '前往技师排牌页面', en: 'Go to Rotation Page', ko: '로테이션 관리로 이동', es: 'Ir a página de turnos', vi: 'Đến trang xoay ca' },
+  'queue.quGoToRotationDesc': { 'zh-Hans': '如需调整轮牌规则、顺序插队与高级管理，请前往技师排牌页面。', en: 'For rules, manual priority adjustments, and detailed settings, go to the Rotation page.', ko: '순번 규칙 조정, 순서 변경 및 상세 관리는 로테이션 관리 페이지로 이동하세요.', es: 'Para reglas, cambios de turno y configuración avanzada, ve a la página de rotación.', vi: 'Để chỉnh quy tắc, đổi lượt và cài đặt nâng cao, hãy đến trang xoay ca.' },
+  'queue.quRotationActiveQueue': { 'zh-Hans': '当前轮牌队列（在岗）', en: 'Active Rotation Queue (On Duty)', ko: '현재 로테이션 대기열 (근무 중)', es: 'Cola de rotación activa (en turno)', vi: 'Hàng chờ xoay ca (đang làm việc)' },
+  'queue.quRotationOffDutyQueue': { 'zh-Hans': '未上牌 / 已离店', en: 'Off Duty / Not Clocked In', ko: '미출근 / 퇴근', es: 'Fuera de turno / Salida', vi: 'Chưa vào ca / Đã về' },
+  'queue.quRotationNextUp': { 'zh-Hans': '下一位接单', en: 'Next Up', ko: '다음 차례', es: 'Siguiente turno', vi: 'Lượt tiếp theo' },
+  'queue.quRotationTurnsDone': { 'zh-Hans': '今日已接 {p0} 单', en: '{p0} turns today', ko: '오늘 {p0}건 완료', es: '{p0} servicios hoy', vi: 'Hôm nay {p0} ca' },
+  'queue.quRotationOwedTurns': { 'zh-Hans': '欠单 {p0}', en: 'Owed {p0}', ko: '부족 {p0}', es: 'Debidos {p0}', vi: 'Nợ {p0}' },
 } satisfies DomainDict;
