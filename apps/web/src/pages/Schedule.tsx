@@ -533,7 +533,7 @@ function ScheduleContent() {
   }
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col bg-slate-50 text-slate-800 rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+    <div className="h-full flex flex-col bg-slate-50 text-slate-800 rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
       <div className="flex-none min-h-16 bg-white border-b border-slate-200 px-3 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 z-10">
         <div className="flex items-center gap-2 sm:gap-4 min-w-0">
           <div className="relative flex items-center group cursor-pointer overflow-hidden rounded-md">

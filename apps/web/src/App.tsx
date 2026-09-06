@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useOutletContext, useLocation } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Toast, Spinner } from '@heroui/react';
+import './lib/toast';
 import { SessionProvider, useSession } from './lib/session';
 import { queryClient } from './lib/queryClient';
 import { LanguageProvider, useLanguage } from './LanguageContext';
@@ -427,8 +428,9 @@ export default function App() {
           {/*
             全局提示条。放在路由外面 —— 提示不该跟着页面一起被卸载
             （比如「Refunded」弹出来的同时前台就切走了，那条提示还得让她看见）。
+            使用 top 顶部居中悬浮并赋予 !z-[9999]，确保永远浮于所有弹窗与抽屉之上且在视野中心。
           */}
-          <Toast.Provider placement="bottom" />
+          <Toast.Provider placement="top" className="!z-[9999]" />
         </ScheduleProvider>
         </SessionProvider>
       </LanguageProvider>

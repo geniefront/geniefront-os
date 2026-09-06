@@ -712,7 +712,7 @@ export function Layout() {
         */}
         <main
           tabIndex={-1}
-          className="isolate min-h-0 flex-1 overflow-auto bg-[var(--gf-canvas)] p-3 pb-20 focus:outline-none sm:p-4 sm:pb-24 lg:p-6 lg:pb-24"
+          className="isolate min-h-0 flex-1 overflow-auto bg-[var(--gf-canvas)] p-3 focus:outline-none sm:p-4 lg:p-6"
         >
           <AnimatePresence mode="wait">
             <motion.div

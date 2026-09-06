@@ -105,6 +105,7 @@ export function CreateAppointmentModal({
   const [phone, setPhone] = useState(defaultPhone);
   const [date, setDate] = useState(defaultDate || currentDate);
   const [notes, setNotes] = useState('');
+  const [nameError, setNameError] = useState(false);
 
   // 聚合多项目行列表
   const [items, setItems] = useState<AppointmentItemDraft[]>([]);
@@ -132,6 +133,7 @@ export function CreateAppointmentModal({
       setPhone(defaultPhone);
       setDate(defaultDate || currentDate);
       setNotes('');
+      setNameError(false);
       setConflictError(null);
       setPastTimeConfirmModal(null);
 
@@ -245,30 +247,88 @@ export function CreateAppointmentModal({
     );
   };
 
+  // 计算当前时间编排模式（同时并行 vs 顺次接力 vs 自定义）
+  const activeAlignMode = useMemo<'parallel' | 'sequential' | 'custom' | null>(() => {
+    if (items.length <= 1) return null;
+    const firstStart = items[0].startTime;
+    const isAllParallel = items.every((i) => i.startTime === firstStart);
+    if (isAllParallel) return 'parallel';
+
+    let isSequential = true;
+    let expectedStart = timeToMins(firstStart);
+    for (let i = 0; i < items.length; i++) {
+      if (i > 0 && timeToMins(items[i].startTime) !== expectedStart) {
+        isSequential = false;
+        break;
+      }
+      expectedStart += items[i].durationMin;
+    }
+    if (isSequential) return 'sequential';
+    return 'custom';
+  }, [items]);
+
   // 一键编排：全部同时进行 (Parallel)
   const handleAlignParallel = () => {
     if (items.length === 0) return;
     const baseTime = items[0].startTime;
+    const isAlreadyParallel = items.every((i) => i.startTime === baseTime);
+    if (isAlreadyParallel) {
+      toast.info(t('schedule.apptAlreadyParallel', { p0: baseTime }));
+      return;
+    }
     setItems((prev) => prev.map((item) => ({ ...item, startTime: baseTime })));
-    toast.success(t('schedule.apptAlignedParallel'));
+    toast.success(
+      t('schedule.apptAlignedParallelDynamic', {
+        p0: items.length,
+        p1: baseTime,
+        p2: summary.staffCount || items.length,
+      }),
+    );
   };
 
   // 一键编排：按序顺次接力 (Sequential)
   const handleAlignSequential = () => {
     if (items.length === 0) return;
     let currentMins = timeToMins(items[0].startTime);
+    let wasAlreadySequential = true;
+    let checkMins = currentMins;
+    for (let idx = 0; idx < items.length; idx++) {
+      if (idx > 0 && timeToMins(items[idx].startTime) !== checkMins) {
+        wasAlreadySequential = false;
+        break;
+      }
+      checkMins += items[idx].durationMin;
+    }
+
+    if (wasAlreadySequential && items.length > 1) {
+      toast.info(t('schedule.apptAlreadySequential'));
+      return;
+    }
+
+    let totalDuration = 0;
     setItems((prev) =>
       prev.map((item, idx) => {
         if (idx === 0) {
           currentMins += item.durationMin;
+          totalDuration += item.durationMin;
           return item;
         }
         const assignedTime = minsToTime(currentMins);
         currentMins += item.durationMin;
+        totalDuration += item.durationMin;
         return { ...item, startTime: assignedTime };
       }),
     );
-    toast.success(t('schedule.apptCascaded'));
+
+    const firstStart = items[0].startTime;
+    const finalEnd = minsToTime(timeToMins(firstStart) + totalDuration);
+    toast.success(
+      t('schedule.apptCascadedDynamic', {
+        p0: firstStart,
+        p1: finalEnd,
+        p2: totalDuration,
+      }),
+    );
   };
 
   // 聚合指标计算
@@ -393,9 +453,11 @@ export function CreateAppointmentModal({
 
   const handleInitialSubmit = () => {
     if (!customerName.trim()) {
+      setNameError(true);
       toast.danger(t('schedule.apptNameRequired2'));
       return;
     }
+    setNameError(false);
     if (items.some((i) => !i.serviceId)) {
       toast.danger(t('schedule.apptServicePerRow'));
       return;
@@ -473,10 +535,19 @@ export function CreateAppointmentModal({
                 </label>
                 <Input
                   value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
+                  onChange={(e) => {
+                    setCustomerName(e.target.value);
+                    if (nameError && e.target.value.trim()) setNameError(false);
+                  }}
                   placeholder={t('schedule.apptNamePlaceholder')}
+                  className={cn(nameError && 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20 bg-rose-50/20')}
                   autoFocus
                 />
+                {nameError && (
+                  <p className="text-[11px] text-rose-600 font-medium mt-1">
+                    {t('schedule.apptNameRequired2')}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -515,22 +586,30 @@ export function CreateAppointmentModal({
                   <button
                     type="button"
                     onClick={handleAlignParallel}
-                    className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-lg bg-white shadow-2xs hover:text-teal-700 text-slate-700 cursor-pointer transition-all"
+                    className={cn(
+                      "flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg cursor-pointer transition-all",
+                      activeAlignMode === 'parallel'
+                        ? "bg-teal-600 text-white shadow-xs"
+                        : "bg-white text-slate-700 hover:text-teal-700 shadow-2xs"
+                    )}
                     title={t('schedule.apptParallelHint')}
                   >
-                    <Zap className="w-3 h-3 text-amber-500" />
-                    
-                    {t('schedule.apptParallel')}
+                    <Zap className={cn("w-3 h-3", activeAlignMode === 'parallel' ? "text-amber-300" : "text-amber-500")} />
+                    <span>{t('schedule.apptParallel')}</span>
                   </button>
                   <button
                     type="button"
                     onClick={handleAlignSequential}
-                    className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-lg bg-white shadow-2xs hover:text-teal-700 text-slate-700 cursor-pointer transition-all"
+                    className={cn(
+                      "flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg cursor-pointer transition-all",
+                      activeAlignMode === 'sequential'
+                        ? "bg-teal-600 text-white shadow-xs"
+                        : "bg-white text-slate-700 hover:text-teal-700 shadow-2xs"
+                    )}
                     title={t('schedule.apptSequentialHint')}
                   >
-                    <FastForward className="w-3 h-3 text-teal-600" />
-                    
-                    {t('schedule.apptSequential')}
+                    <FastForward className={cn("w-3 h-3", activeAlignMode === 'sequential' ? "text-white" : "text-teal-600")} />
+                    <span>{t('schedule.apptSequential')}</span>
                   </button>
                 </div>
               )}
@@ -562,14 +641,25 @@ export function CreateAppointmentModal({
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <label className="flex items-center gap-1.5 cursor-pointer text-[11px] font-medium text-slate-600 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200">
+                        <label
+                          className={cn(
+                            "flex items-center gap-1.5 cursor-pointer text-[11px] px-2 py-0.5 rounded-lg border transition-all",
+                            item.isRequest
+                              ? "bg-amber-50 border-amber-300 text-amber-900 font-bold shadow-2xs"
+                              : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 font-medium"
+                          )}
+                          title={t('schedule.apptRequestedTooltip')}
+                        >
                           <input
                             type="checkbox"
                             checked={item.isRequest}
                             onChange={(e) => handleUpdateItem(item.id, { isRequest: e.target.checked })}
-                            className="w-3.5 h-3.5 rounded border-slate-300 text-teal-600 focus:ring-teal-500/20"
+                            className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500/20"
                           />
-                          <span>{t('schedule.apptRequested')}</span>
+                          <span className="flex items-center gap-1">
+                            {item.isRequest && <Sparkles className="w-3 h-3 text-amber-500" />}
+                            {t('schedule.apptRequested')}
+                          </span>
                         </label>
 
                         {items.length > 1 && (
@@ -585,14 +675,16 @@ export function CreateAppointmentModal({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-                      {/* 服务选择 */}
-                      <div className="sm:col-span-1">
-                        <label className="block text-[10px] font-bold text-slate-500 mb-1">{t('schedule.apptCategory')}</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+                      {/* 服务选择 (4 cols) */}
+                      <div className="sm:col-span-4">
+                        <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                          {t('schedule.apptCategory')}
+                        </label>
                         <select
                           value={item.serviceId}
                           onChange={(e) => handleUpdateItem(item.id, { serviceId: e.target.value })}
-                          className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/20 bg-white font-medium truncate"
+                          className="w-full h-9 px-2.5 py-1 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/20 bg-white font-medium truncate"
                         >
                           {services.map((s) => (
                             <option key={s.id} value={s.id}>
@@ -602,13 +694,15 @@ export function CreateAppointmentModal({
                         </select>
                       </div>
 
-                      {/* 技师指派 */}
-                      <div className="sm:col-span-1">
-                        <label className="block text-[10px] font-bold text-slate-500 mb-1">{t('schedule.apptAssignStaff')}</label>
+                      {/* 技师指派 (3 cols) */}
+                      <div className="sm:col-span-3">
+                        <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                          {t('schedule.apptAssignStaff')}
+                        </label>
                         <select
                           value={item.membershipId}
                           onChange={(e) => handleUpdateItem(item.id, { membershipId: e.target.value })}
-                          className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/20 bg-white font-medium truncate"
+                          className="w-full h-9 px-2.5 py-1 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/20 bg-white font-medium truncate"
                         >
                           <option value={UNASSIGNED_STAFF_ID}>{t('schedule.apptUnassignedPool')}</option>
                           {availableStaff
@@ -621,35 +715,47 @@ export function CreateAppointmentModal({
                         </select>
                       </div>
 
-                      {/* 开始时间 */}
-                      <div className="sm:col-span-1">
-                        <label className="block text-[10px] font-bold text-slate-500 mb-1">{t('schedule.apptStartTime')}</label>
-                        <Input
-                          type="time"
-                          value={item.startTime}
-                          onChange={(e) => handleUpdateItem(item.id, { startTime: e.target.value })}
-                          className="py-1 px-2 text-xs font-mono"
-                        />
-                      </div>
-
-                      {/* Duration与结束时刻 */}
-                      <div className="sm:col-span-1 flex items-end gap-1.5">
-                        <div className="flex-1">
-                          <label className="block text-[10px] font-bold text-slate-500 mb-1">{t('schedule.apptDurationMin')}</label>
+                      {/* 时间与时长区间 (5 cols) */}
+                      <div className="sm:col-span-5 flex items-end gap-1.5">
+                        {/* 开始时刻 */}
+                        <div className="flex-1 min-w-[92px]">
+                          <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                            {t('schedule.apptStartTime')}
+                          </label>
                           <Input
-                            type="number"
-                            min={5}
-                            max={600}
-                            step={5}
-                            value={item.durationMin}
-                            onChange={(e) =>
-                              handleUpdateItem(item.id, { durationMin: parseInt(e.target.value) || 30 })
-                            }
-                            className="py-1 px-2 text-xs font-mono"
+                            type="time"
+                            value={item.startTime}
+                            onChange={(e) => handleUpdateItem(item.id, { startTime: e.target.value })}
+                            className="h-9 min-h-0 py-1 px-2 text-xs font-mono"
                           />
                         </div>
-                        <div className="text-[10px] text-slate-500 pb-1.5 whitespace-nowrap font-mono">
-                          ➔ {itemEnd}
+
+                        {/* 时长 */}
+                        <div className="w-[68px] shrink-0">
+                          <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                            {t('schedule.apptDurationMin')}
+                          </label>
+                          <div className="relative">
+                            <Input
+                              type="number"
+                              min={5}
+                              max={600}
+                              step={5}
+                              value={item.durationMin}
+                              onChange={(e) =>
+                                handleUpdateItem(item.id, { durationMin: parseInt(e.target.value) || 30 })
+                              }
+                              className="h-9 min-h-0 py-1 pl-2 pr-5 text-xs font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                            <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none font-medium">
+                              m
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* 结束时刻胶囊 */}
+                        <div className="shrink-0 h-9 px-2 flex items-center justify-center text-[11px] font-mono font-bold text-slate-700 bg-slate-100/90 border border-slate-200 rounded-xl whitespace-nowrap">
+                          → {itemEnd}
                         </div>
                       </div>
                     </div>
@@ -739,20 +845,20 @@ export function CreateAppointmentModal({
           title={
             <div className="flex items-center gap-2 text-amber-800 font-bold">
               <AlertTriangle className="w-5 h-5 text-amber-600" />
-              <span>Past Booking Audit & Confirmation</span>
+              <span>{t('schedule.apptPastAuditTitle')}</span>
             </div>
           }
           size="md"
           footer={
             <div className="flex justify-end gap-2 w-full">
               <Button variant="secondary" onClick={() => setPastTimeConfirmModal(null)}>
-                Change Time
+                {t('schedule.apptChangeTime')}
               </Button>
               <Button
                 className="bg-amber-600 hover:bg-amber-700 text-white font-bold gap-1 shadow-md shadow-amber-600/20"
                 onClick={handleConfirmPastBooking}
               >
-                <span>Confirm Backfill & Book</span>
+                <span>{t('schedule.apptConfirmBackfill')}</span>
               </Button>
             </div>
           }
@@ -843,7 +949,7 @@ export function CreateAppointmentModal({
           title={
             <div className="flex items-center gap-2 text-amber-600">
               <AlertTriangle className="w-5 h-5" />
-              <span>Schedule Conflict Detected</span>
+              <span>{t('schedule.apptConflictDetected')}</span>
             </div>
           }
           size="md"
@@ -860,7 +966,7 @@ export function CreateAppointmentModal({
                   handleSubmit({ reason: overrideReason }, key);
                 }}
               >
-                {t('forceSchedule') || 'Force Schedule'}
+                {t('forceSchedule')}
               </Button>
             </div>
           }
@@ -871,18 +977,18 @@ export function CreateAppointmentModal({
             </p>
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                {t('overrideReasonLabel') || 'Override Reason:'}
+                {t('overrideReasonLabel')}
               </label>
               <select
                 value={overrideReason}
                 onChange={(e) => setOverrideReason(e.target.value as Override['reason'])}
                 className="w-full px-3 py-2 text-sm rounded-xl border border-slate-200 bg-white"
               >
-                <option value="desk_coordination">{t('overrideDeskCoordination') || 'Desk coordination'}</option>
-                <option value="guest_requested">{t('overrideGuestRequested') || 'Guest requested'}</option>
-                <option value="staff_on_break">{t('overrideStaffOnBreak') || 'Staff on break'}</option>
-                <option value="walk_in_stacking">{t('overrideWalkInStacking') || 'Walk-in stacking'}</option>
-                <option value="other">{t('overrideOther') || 'Other reason'}</option>
+                <option value="desk_coordination">{t('overrideDeskCoordination')}</option>
+                <option value="guest_requested">{t('overrideGuestRequested')}</option>
+                <option value="staff_on_break">{t('overrideStaffOnBreak')}</option>
+                <option value="walk_in_stacking">{t('overrideWalkInStacking')}</option>
+                <option value="other">{t('overrideOther')}</option>
               </select>
             </div>
           </div>

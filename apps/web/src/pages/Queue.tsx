@@ -1947,13 +1947,13 @@ function QueueContent() {
       </div>
 
       {/* 5 列看板主体 (支持横向滚动与列拖拽) */}
-      <div className="custom-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-auto pb-2">
+      <div className="custom-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-auto pb-2 lg:overflow-y-hidden lg:pb-0">
         {/*
           断点与 min-width 此前互相矛盾：min-w-[1100px] 让容器在任何视口下都不低于
           1100px，grid-cols-1 / md:grid-cols-3 因此永远不会生效，窄屏只会横向滚动。
           现改为窄屏单列纵向排布，宽屏才进入 5 列并横向滚动。
         */}
-        <div className="grid grid-cols-1 items-start gap-3.5 md:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-1 items-start gap-3.5 md:grid-cols-3 lg:grid-cols-5 lg:h-full lg:items-stretch">
           {COLUMNS.map((col) => {
             const colItems = filteredItems.filter((it) => it.stage === col.id);
             const isDropTarget = dragOverColumn === col.id;
@@ -1996,7 +1996,7 @@ function QueueContent() {
                 </div>
 
                 {/* Column Body / Card List */}
-                <div className="flex-1 p-2.5 overflow-y-auto space-y-2.5 custom-scrollbar min-h-0">
+                <div className="flex-1 p-2.5 pb-16 overflow-y-auto space-y-2.5 custom-scrollbar min-h-0">
                   <AnimatePresence mode="popLayout">
                     {colItems.length === 0 ? (
                       <div className="h-40 border-2 border-dashed border-slate-200/80 rounded-xl flex flex-col items-center justify-center text-center p-3">

@@ -994,7 +994,7 @@ function TicketsContent() {
                   <TableHead className="min-w-[105px]">{t('checkout.tkColPayment')}</TableHead>
                   <TableHead className="min-w-[100px]">{t('checkout.tkColTips')}</TableHead>
                   <TableHead className="min-w-[75px] text-center">{t('checkout.tkColStatus')}</TableHead>
-                  <TableHead className="min-w-[125px] text-right">{t('checkout.tkColActions')}</TableHead>
+                  <TableHead className="w-[104px] min-w-[96px] text-right">{t('checkout.tkColActions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1147,50 +1147,50 @@ function TicketsContent() {
                     </TableCell>
 
                     {/* 操作 */}
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    <TableCell className="text-right align-middle py-2.5">
+                      <div className="flex flex-col items-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        {ord.status === 'open' && (
+                          <Button
+                            size="sm"
+                            className="text-xs font-bold gap-1 rounded-xl h-7 px-2 bg-teal-600 hover:bg-teal-700 text-white w-[88px] justify-center shadow-xs shrink-0"
+                            onClick={() => navigate(`/checkout?ticketId=${ord.ticketId}`)}
+                          >
+                            <Receipt className="w-3.5 h-3.5 shrink-0" />
+                            <span>{t('checkout.tkGoCheckout')}</span>
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="secondary"
-                          className="text-xs font-bold gap-1 rounded-xl h-7 px-2 bg-white hover:bg-slate-100 border-slate-200"
+                          className="text-xs font-bold gap-1 rounded-xl h-7 px-2 bg-white hover:bg-slate-100 border-slate-200 text-slate-700 w-[88px] justify-center shrink-0"
                           onClick={() => setSelectedRecord(ord)}
                           title={t('checkout.tkViewReceipt')}
                         >
-                          <Eye className="w-3.5 h-3.5 text-slate-500" />
+                          <Eye className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                           <span>{t('checkout.tkDetail')}</span>
                         </Button>
                         {ord.status === 'completed' && (
                           <Button
                             size="sm"
                             variant="secondary"
-                            className="text-xs font-bold gap-1 rounded-xl h-7 px-2 text-purple-700 bg-purple-50 hover:bg-purple-100 border-purple-200"
+                            className="text-xs font-bold gap-1 rounded-xl h-7 px-2 text-purple-700 bg-purple-50 hover:bg-purple-100 border-purple-200 w-[88px] justify-center shrink-0"
                             onClick={() => handleOpenRefund(ord)}
                             title={t('checkout.tkProcessRefund')}
                           >
-                            <RotateCcw className="w-3 h-3 text-purple-600" />
+                            <RotateCcw className="w-3 h-3 text-purple-600 shrink-0" />
                             <span>{t('checkout.tkRefund')}</span>
                           </Button>
                         )}
                         {ord.status === 'open' && (
-                          <>
-                            <Button
-                              size="sm"
-                              className="text-xs font-bold gap-1 rounded-xl h-7 px-2 bg-teal-600 hover:bg-teal-700 text-white"
-                              onClick={() => navigate(`/checkout?ticketId=${ord.ticketId}`)}
-                            >
-                              <Receipt className="w-3.5 h-3.5" />
-                              <span>{t('checkout.tkGoCheckout')}</span>
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              className="text-xs font-bold text-red-600 hover:bg-red-50 border-red-200 gap-1 rounded-xl h-7 px-2"
-                              onClick={() => setVoidModalRecord(ord)}
-                            >
-                              <Ban className="w-3.5 h-3.5 text-red-500" />
-                              <span>{t('checkout.tkVoid')}</span>
-                            </Button>
-                          </>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="text-xs font-bold text-red-600 hover:bg-red-50 border-red-200 gap-1 rounded-xl h-7 px-2 w-[88px] justify-center shrink-0"
+                            onClick={() => setVoidModalRecord(ord)}
+                          >
+                            <Ban className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                            <span>{t('checkout.tkVoid')}</span>
+                          </Button>
                         )}
                       </div>
                     </TableCell>

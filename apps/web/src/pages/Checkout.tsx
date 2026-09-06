@@ -1293,7 +1293,7 @@ function CheckoutContent() {
           </div>
 
           {/* 结账底部对账栏 */}
-          <div className="border-t border-slate-200 bg-white px-6 py-4 space-y-2.5 shrink-0">
+          <div className="border-t border-slate-200 bg-white px-6 py-4 sm:pr-20 space-y-2.5 shrink-0">
             <div className="flex justify-between text-xs text-slate-600">
               <span>{t('checkout.netServiceCollected')} <strong className="font-mono text-slate-800">${centsToDollars(paidBaseCents)}</strong></span>
               <span>{t('checkout.tipTotal')}<strong className="font-mono text-teal-700">{centsToDollars(totalTipCents)}</strong></span>
