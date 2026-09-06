@@ -59,8 +59,25 @@ import { Button } from '@/components/ui/Button';
 import { Portal } from '@/components/ui/Portal';
 import type { TranslationKey } from '@/i18n';
 
-/** 周一到周日。顺序写死是因为这一页的周视图从周一起，不跟随 locale */
+/** 周一到周日。顺序写死用于月视图表头 */
 const WEEKDAY_KEYS: TranslationKey[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+const WEEKDAY_MAP: Record<number, TranslationKey> = {
+  0: 'sun',
+  1: 'mon',
+  2: 'tue',
+  3: 'wed',
+  4: 'thu',
+  5: 'fri',
+  6: 'sat',
+};
+
+const getWeekdayKey = (dateStr: string): TranslationKey => {
+  if (!dateStr) return 'mon';
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return WEEKDAY_MAP[dt.getDay()] || 'mon';
+};
 import {
   Plus,
   ChevronLeft,
@@ -156,8 +173,6 @@ function ScheduleContent() {
 
   const getWeekDays = (dateStr: string) => {
     const d = parseLocal(dateStr);
-    const day = d.getDay() || 7;
-    d.setDate(d.getDate() - day + 1);
     const days = [];
     for(let i=0; i<7; i++) {
       const x = new Date(d);
@@ -631,7 +646,12 @@ function ScheduleContent() {
               <button
                 key={v}
                 type="button"
-                onClick={() => setView(v)}
+                onClick={() => {
+                  if (v === 'week' && view !== 'week' && todayStr) {
+                    setCurrentDate(todayStr);
+                  }
+                  setView(v);
+                }}
                 className={`px-2.5 sm:px-4 py-1.5 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
                   view === v ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
                 }`}
@@ -735,9 +755,9 @@ function ScheduleContent() {
             id: string; name: string; roleKey: TranslationKey | null;
             isPool: boolean; type: 'date' | 'store' | 'staff';
           }[] = isWeek
-            ? weekDays.map((date, idx) => ({
+            ? weekDays.map((date) => ({
                 id: date,
-                name: `${t(WEEKDAY_KEYS[idx]!)} ${date.slice(5)}`,
+                name: `${t(getWeekdayKey(date))} ${date.slice(5)}`,
                 roleKey: null, isPool: false, type: 'date' as const,
               }))
             : isStoreView
@@ -756,16 +776,18 @@ function ScheduleContent() {
                     type: 'staff' as const,
                   }));
 
-          const tableMinWidth = Math.max(1000, columns.length * 200 + 80);
+          const tableMinWidth = isWeek || isStoreView
+            ? '100%'
+            : Math.max(1000, columns.length * 200 + 80);
 
           return (
-            <div className="flex" style={{ minWidth: `${tableMinWidth}px` }}>
-              <div className="w-20 flex-none bg-white border-r border-slate-200 z-50 sticky left-0 flex flex-col">
+            <div className="flex w-full" style={{ minWidth: isWeek || isStoreView ? '100%' : `${tableMinWidth}px` }}>
+              <div className="w-16 flex-none bg-white border-r border-slate-200 z-50 sticky left-0 flex flex-col">
                 <div className="h-[72px] sticky top-0 bg-white border-b border-slate-200 z-50 flex-none" />
                 <div className="relative">
                   {timeSlots.map(time => (
                     <div key={time} className="h-[60px] relative border-b border-transparent">
-                      <span className="absolute -top-3 right-3 text-xs font-medium text-slate-400">{time}</span>
+                      <span className="absolute -top-3 right-2 text-xs font-medium text-slate-400">{time}</span>
                     </div>
                   ))}
                 </div>
@@ -861,17 +883,23 @@ function ScheduleContent() {
                       key={member.id} 
                       onMouseEnter={() => setHoveredColId(member.id)}
                       onMouseLeave={() => setHoveredColId(null)}
-                      className={`group border-r border-slate-200 relative ${member.id === UNASSIGNED_STAFF_ID ? 'bg-teal-50/20' : ''} transition-all duration-300 ease-out ${
-                        isThisHovered ? 'flex-[3] min-w-[280px] bg-slate-50/30 shadow-lg z-10' : 
-                        isAnyHovered ? 'flex-[1] min-w-[120px] opacity-80' : 
-                        'flex-[1] min-w-[200px]'
+                      className={`group border-r border-slate-200 relative ${member.id === UNASSIGNED_STAFF_ID ? 'bg-teal-50/20' : ''} transition-all duration-200 ease-out ${
+                        isWeek 
+                          ? 'flex-1 basis-0 min-w-0' 
+                          : isStoreView
+                            ? 'flex-1 min-w-0'
+                            : isThisHovered 
+                              ? 'flex-[3] min-w-[280px] bg-slate-50/30 shadow-lg z-10' 
+                              : isAnyHovered 
+                                ? 'flex-[1] min-w-[120px] opacity-80' 
+                                : 'flex-[1] min-w-[200px]'
                       }`}
                     >
                       {(() => {
                         const aptCount = memberApts.length;
                         const rev = memberApts.filter(a => a.status === 'completed').reduce((sum, a) => sum + (a.service?.priceCents ?? 0) / 100, 0);
                         return (
-                          <div className="h-[72px] bg-white border-b border-slate-200 sticky top-0 z-40 flex flex-col items-center justify-center backdrop-blur-md bg-white/90 shadow-sm relative">
+                          <div className="h-[72px] bg-white border-b border-slate-200 sticky top-0 z-40 flex flex-col items-center justify-center backdrop-blur-md bg-white/90 shadow-sm relative px-1">
                             {member.type === 'staff' && currentDate === todayStr && (
                               <div className="absolute top-2 right-2">
                                 <div 
@@ -885,13 +913,16 @@ function ScheduleContent() {
                               </div>
                             )}
                             {isWeek && member.type === 'date' && member.id === todayStr ? (
-                              <div className="flex flex-col items-center gap-1">
-                                <span className="bg-teal-600 text-white font-bold text-xs px-2.5 py-1 rounded-full shadow-md whitespace-nowrap">
-                                  {member.name} · {t('scheduleToday')}
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span className="bg-teal-600 text-white font-bold text-xs px-2 py-0.5 rounded-full shadow-sm whitespace-nowrap">
+                                  {member.name}
+                                </span>
+                                <span className="text-[10px] font-semibold text-teal-600 leading-none">
+                                  {t('scheduleToday')}
                                 </span>
                               </div>
                             ) : (
-                              <span className={`font-semibold text-sm ${member.id === UNASSIGNED_STAFF_ID ? 'text-teal-600' : 'text-slate-800'}`}>
+                              <span className={`font-semibold text-xs sm:text-sm text-center truncate ${member.id === UNASSIGNED_STAFF_ID ? 'text-teal-600' : 'text-slate-800'}`}>
                                 {member.name}
                               </span>
                             )}
@@ -904,7 +935,7 @@ function ScheduleContent() {
                                 {rev > 0 && <span className="bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded-sm font-semibold">${rev}</span>}
                               </div>
                             )}
-                            {aptCount === 0 && <div className="mt-1 text-[10px] text-slate-300 font-medium">{t('noAppts')}</div>}
+                            {aptCount === 0 && <div className="mt-0.5 text-[10px] text-slate-300 font-medium">{t('noAppts')}</div>}
                           </div>
                         );
                       })()}
@@ -972,15 +1003,17 @@ function ScheduleContent() {
                         <div className="absolute left-0 right-0 bg-slate-100/40 pointer-events-none z-10" style={{ top: 0, height: `${(storeOpenMin - DAY_START) * PIXELS_PER_MIN}px` }} />
                         <div className="absolute left-0 right-0 bg-slate-100/40 pointer-events-none z-10" style={{ top: `${(storeCloseMin - DAY_START) * PIXELS_PER_MIN}px`, height: `${(DAY_END - storeCloseMin) * PIXELS_PER_MIN}px` }} />
                         
-                        {/* Add Appt Corridor Visual */}
-                        <div className="absolute top-0 bottom-0 right-0 w-[32px] border-l-2 border-dashed border-teal-200 bg-teal-50/60 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-10 flex flex-col items-center justify-center backdrop-blur-[1px]">
-                          <div className="w-[1px] h-full bg-teal-200/50 absolute left-1/2 -translate-x-1/2" />
-                          <div className="sticky top-1/2 -translate-y-1/2 flex flex-col items-center gap-6 text-teal-400">
-                             <Plus className="w-4 h-4 animate-pulse" />
-                             <span className="text-[12px] font-bold tracking-widest text-teal-500 drop-shadow-sm" style={{ writingMode: 'vertical-lr' }}>{t('newApptInGap')}</span>
-                             <Plus className="w-4 h-4 animate-pulse" />
+                        {/* Add Appt Corridor Visual: 仅在员工多列视图展示 */}
+                        {!isWeek && !isStoreView && (
+                          <div className="absolute top-0 bottom-0 right-0 w-[32px] border-l-2 border-dashed border-teal-200 bg-teal-50/60 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-10 flex flex-col items-center justify-center backdrop-blur-[1px]">
+                            <div className="w-[1px] h-full bg-teal-200/50 absolute left-1/2 -translate-x-1/2" />
+                            <div className="sticky top-1/2 -translate-y-1/2 flex flex-col items-center gap-6 text-teal-400">
+                               <Plus className="w-4 h-4 animate-pulse" />
+                               <span className="text-[12px] font-bold tracking-widest text-teal-500 drop-shadow-sm" style={{ writingMode: 'vertical-lr' }}>{t('newApptInGap')}</span>
+                               <Plus className="w-4 h-4 animate-pulse" />
+                            </div>
                           </div>
-                        </div>
+                        )}
 
                         {/* Current Time Line */}
                         {(() => {
@@ -1009,13 +1042,14 @@ function ScheduleContent() {
                           const isNoShow = apt.status === 'no_show';
                           const isDragged = draggedApptInfo?.id === apt.id;
 
-                          const widthPos = `calc((${apt.span} / ${apt.maxCols}) * (100% - 32px) - 4px)`;
-                          const leftPos = `calc((${apt.col} / ${apt.maxCols}) * (100% - 32px) + 4px)`;
+                          const corridorWidth = (!isWeek && !isStoreView) ? 32 : 0;
+                          const widthPos = `calc((${apt.span} / ${apt.maxCols}) * (100% - ${corridorWidth}px) - 4px)`;
+                          const leftPos = `calc((${apt.col} / ${apt.maxCols}) * (100% - ${corridorWidth}px) + 2px)`;
                           
                           const effectiveCols = apt.maxCols / apt.span;
                           
-                          const cardPadding = (effectiveCols >= 3 && !isHovered) ? 'p-1.5' : (effectiveCols >= 2 && !isHovered) ? 'p-2' : 'p-3';
-                          const titleSize = (effectiveCols >= 3 && !isHovered) ? 'text-[11px] leading-tight' : 'text-sm';
+                          const cardPadding = (effectiveCols >= 3 && !isHovered) ? 'p-1' : (effectiveCols >= 2 && !isHovered) ? 'p-1.5' : 'p-2 sm:p-2.5';
+                          const titleSize = (effectiveCols >= 3 && !isHovered) ? 'text-[10px] leading-tight' : 'text-xs sm:text-sm';
                           const showDetails = isStoreView || (effectiveCols < 3 || isHovered);
                           const tooltipText = `${apt.customerName}\n${apt.startTime} - ${apt.endTime}\n${apt.serviceName}`;
                           
