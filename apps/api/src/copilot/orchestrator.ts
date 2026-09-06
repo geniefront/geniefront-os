@@ -157,6 +157,7 @@ export async function runCopilotOrchestration(
         const parsed = askClarificationInput.safeParse(toolCall.arguments);
         if (parsed.success) {
           clarification = parsed.data;
+          finalAnswer = clarification.question;
           await updateTaskStatus(ctx, task.id, 'needs_input');
           await appendTaskEvent(ctx, task.id, 'NEEDS_CLARIFICATION', {
             question: clarification.question,
@@ -229,6 +230,9 @@ export async function runCopilotOrchestration(
           planRevision = savedRev.previewPayload;
           canonicalHash = savedRev.canonicalHash;
           currentRevision = savedRev.revision;
+          if (!finalAnswer) {
+            finalAnswer = savedRev.previewPayload.summary || savedRev.previewPayload.title;
+          }
           stopLoop = true;
           break;
         } else {
@@ -272,6 +276,14 @@ export async function runCopilotOrchestration(
     }
 
     if (stopLoop) break;
+  }
+
+  if (!finalAnswer) {
+    if (clarification?.question) {
+      finalAnswer = clarification.question;
+    } else if (planRevision?.summary || planRevision?.title) {
+      finalAnswer = planRevision.summary || planRevision.title;
+    }
   }
 
   const aggregatedUsage = sumNormalizedUsage(usages);

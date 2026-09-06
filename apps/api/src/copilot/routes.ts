@@ -360,7 +360,117 @@ export function registerCopilotRoutes(
     return { ok: true };
   });
 
-  // ── 8. 存量兼容：POST /v1/ai/copilot ──────────────────────────────────────
+  // ── 8. 存量与流式副驾：POST /v1/ai/copilot & /v1/ai/copilot/stream ───────
+  app.post<{ Body: {
+    question?: string;
+    sessionId?: string;
+    image?: { base64: string; mediaType?: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' };
+  } }>('/v1/ai/copilot/stream', { bodyLimit: COPILOT_BODY_LIMIT }, async (req, reply) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('ai.use')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
+    }
+
+    const question = (req.body?.question ?? '').trim();
+    const imageInput = parseCopilotImage(req.body?.image);
+
+    const timeAnchor = await buildTimeAnchor(ctx);
+    const turn = await beginCopilotTurn(ctx, req.body?.sessionId, question, Boolean(imageInput));
+    const snapshot = await withTenant(ctx, (tx) => loadFloorSnapshot(tx, ctx));
+
+    const readOnlyExecutors = createReadOnlyToolExecutors(ctx);
+
+    // AUD-03 准入闸门
+    await assertAiAdmission(ctx);
+
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+    });
+
+    const sendEvent = (obj: Record<string, unknown>) => {
+      try {
+        reply.raw.write(`data: ${JSON.stringify(obj)}\n\n`);
+      } catch {
+        // client disconnected
+      }
+    };
+
+    sendEvent({ type: 'step', step: '正在连接智能引擎...' });
+
+    try {
+      const result = await runCopilotOrchestration(ctx, {
+        question,
+        sessionId: turn.sessionId,
+        image: imageInput ? { base64: imageInput.base64, mediaType: imageInput.mediaType } : undefined,
+        snapshot,
+        timeAnchor,
+        readOnlyExecutors,
+        callbacks: {
+          onStep: (step) => sendEvent({ type: 'step', step }),
+          onDelta: (delta) => sendEvent({ type: 'delta', delta }),
+        },
+      });
+
+      const costCents = millicentsToCents(costMillicentsNormalized(result.usage));
+      if (costCents > 0) {
+        try {
+          await maybeAutoTopup(ctx, 'credit', req.log);
+        } catch (err) {
+          req.log.warn({ err }, 'maybeAutoTopup failed in copilot stream route');
+        }
+      }
+
+      let legacyProposal: any = null;
+      if (result.planRevision && result.planRevision.steps.length > 0) {
+        const firstStep = result.planRevision.steps[0]!;
+        legacyProposal = finalizeCopilotProposal(
+          {
+            command: firstStep.command,
+            input: firstStep.resolvedInput,
+            summary: firstStep.summary,
+          },
+          ctx,
+          req.log,
+        );
+        sendEvent({ type: 'proposal', proposal: legacyProposal });
+      }
+
+      await completeCopilotTurn(ctx, turn, {
+        answer: result.answer,
+        source: 'model',
+        proposal: legacyProposal ? { command: legacyProposal.command, summary: legacyProposal.summary } : null,
+        toolsUsed: result.toolsUsed,
+      });
+
+      sendEvent({
+        type: 'done',
+        answer: result.answer,
+        proposal: legacyProposal,
+        source: 'model',
+        costCents,
+        sessionId: turn.sessionId,
+        toolsUsed: result.toolsUsed,
+        taskId: result.task.id,
+        planRevision: result.planRevision,
+        revision: result.revision,
+      });
+    } catch (err: any) {
+      req.log.error({ err }, 'copilot stream error');
+      sendEvent({
+        type: 'error',
+        error: err?.message || 'AI processing error',
+      });
+    } finally {
+      try {
+        reply.raw.end();
+      } catch {
+        // ignore
+      }
+    }
+  });
+
   app.post<{ Body: {
     question?: string;
     sessionId?: string;
@@ -430,6 +540,7 @@ export function registerCopilotRoutes(
       toolsUsed: result.toolsUsed,
       taskId: result.task.id,
       planRevision: result.planRevision,
+      revision: result.revision,
     };
   });
 

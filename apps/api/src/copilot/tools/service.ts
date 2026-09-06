@@ -16,27 +16,32 @@ export async function getServiceCatalog(
   const rows = await withTenant(ctx, (tx) => tx<{
     id: string;
     name: any;
-    category: string | null;
     duration_min: number;
     base_price_cents: number;
-    requires_resource_type: string | null;
     active: boolean;
+    category_name: any;
   }[]>`
-    select id, name, category, duration_min, base_price_cents,
-           requires_resource_type, active
-    from services
-    where location_id = ${ctx.locationId} and active = true
-    order by category nulls last, name`);
+    select s.id, s.name, s.duration_min, s.base_price_cents, s.active,
+           sc.name as category_name
+    from services s
+    left join service_categories sc on sc.id = s.category_id
+    where s.location_id = ${ctx.locationId} and s.active = true
+    order by sc.sort nulls last, s.sort nulls last, s.name`);
 
   let filtered: (typeof rows)[number][] = [...rows];
   if (category) {
-    filtered = filtered.filter((r) => r.category?.toLowerCase() === category.toLowerCase());
+    const c = category.toLowerCase();
+    filtered = filtered.filter((r) => {
+      const cat = r.category_name ? pickText(r.category_name, ctx.locale).toLowerCase() : '';
+      return cat === c || cat.includes(c);
+    });
   }
   if (search) {
     const s = search.toLowerCase();
     filtered = filtered.filter((r) => {
       const nm = pickText(r.name, ctx.locale).toLowerCase();
-      return nm.includes(s);
+      const cat = r.category_name ? pickText(r.category_name, ctx.locale).toLowerCase() : '';
+      return nm.includes(s) || cat.includes(s);
     });
   }
 
@@ -45,11 +50,11 @@ export async function getServiceCatalog(
     services: filtered.map((s) => ({
       serviceId: s.id,
       name: pickText(s.name, ctx.locale),
-      category: s.category ?? '未分类',
+      category: s.category_name ? pickText(s.category_name, ctx.locale) : '未分类',
       durationMin: s.duration_min,
       priceDollars: (s.base_price_cents / 100).toFixed(2),
       priceCents: s.base_price_cents,
-      resourceType: s.requires_resource_type,
+      resourceType: null,
     })),
   };
 }
