@@ -692,7 +692,7 @@ registerHandler(CreateLocation, async ({ input, ctx, tx, audit }: HandlerArgs<
 // ───────────────────────────────────────────── 收银偏好与小费税率配置
 registerHandler(SaveCheckoutSettings, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof SaveCheckoutSettings.input._type>) => {
-  const taxRate = input.salesTaxRatePercent !== undefined ? input.salesTaxRatePercent : 8.875;
+  const taxRate = input.salesTaxRatePercent !== undefined ? input.salesTaxRatePercent : 0;
   const taxMode = input.taxCalculationMode ?? 'exclusive';
   const tips = input.suggestedTipPercentages ?? [15, 18, 20, 25];
   const allowCustom = input.allowCustomTip !== undefined ? input.allowCustomTip : true;

@@ -49,9 +49,6 @@ const METHOD_ICONS: Record<PaymentMethod, typeof CreditCard> = {
 /** 服务端对单张工单的收款笔数上限。 */
 const MAX_PAYMENT_LINES = 5;
 
-/** 默认销售税率 (8.875%) */
-const DEFAULT_TAX_RATE = 0.08875;
-
 /** 默认信用卡手续费率 (3.0%) */
 const DEFAULT_CARD_SURCHARGE_RATE = 0.03;
 
@@ -63,6 +60,7 @@ interface DraftLine {
   baseCents: number;
   tipCents: number;
   tenderedCents?: number;
+  tenderedInput?: string;
   changeCents: number;
   keepChange: boolean;
   giftCardId?: string;
@@ -125,7 +123,7 @@ function CheckoutContent() {
 
   // 税费开关与自定义Amount
   const [enableTax, setEnableTax] = useState(false);
-  const [taxRatePercent, setTaxRatePercent] = useState('8.875');
+  const [taxRatePercent, setTaxRatePercent] = useState('0');
 
   // 信用卡手续费开关与比例
   const [enableCardSurcharge, setEnableCardSurcharge] = useState(false);
@@ -289,15 +287,12 @@ function CheckoutContent() {
     return [...map.values()];
   }, [selected, staff, language]);
 
-  // 自动从门店设置同步税率
+  // 自动从门店设置同步税率。0 是合法值（金足未开征），不能当成「没配」。
   useEffect(() => {
-    if (data?.checkoutSettings?.salesTaxRatePercent) {
-      setTaxRatePercent(data.checkoutSettings.salesTaxRatePercent);
-      const rate = parseFloat(data.checkoutSettings.salesTaxRatePercent);
-      if (rate > 0) {
-        setEnableTax(true);
-      }
-    }
+    const raw = data?.checkoutSettings?.salesTaxRatePercent;
+    if (raw == null || raw === '') return;
+    setTaxRatePercent(String(raw));
+    setEnableTax(parseFloat(String(raw)) > 0);
   }, [data?.checkoutSettings]);
 
   // 折扣与基础应付
@@ -305,8 +300,8 @@ function CheckoutContent() {
   const baseSubtotalCents = selected?.subtotalCents ?? 0;
   const afterDiscountCents = Math.max(0, baseSubtotalCents - discountCents - packageCoveredCents);
 
-  // 税费计算
-  const taxCents = enableTax && paymentStage !== 'tip'
+  // 税费按门店设置算。开关只反映「本店是否开征」，不能把已开征的税关掉。
+  const taxCents = paymentStage !== 'tip'
     ? Math.round(afterDiscountCents * (parseFloat(taxRatePercent || '0') / 100))
     : 0;
 
@@ -1187,15 +1182,24 @@ function CheckoutContent() {
                           </label>
                           <Input
                             inputMode="decimal"
-                            value={line.tenderedCents !== undefined ? centsToDollars(line.tenderedCents) : ''}
+                            value={line.tenderedInput !== undefined ? line.tenderedInput : (line.tenderedCents !== undefined ? centsToDollars(line.tenderedCents) : '')}
                             onChange={(e) => {
-                              const tenderedCents = dollarsToCents(e.target.value);
+                              const rawVal = e.target.value;
+                              const tenderedCents = dollarsToCents(rawVal);
                               const rawChange = Math.max(0, tenderedCents - line.baseCents);
                               patchLine(index, {
+                                tenderedInput: rawVal,
                                 tenderedCents,
                                 changeCents: line.keepChange ? 0 : rawChange,
                                 ...(line.keepChange ? { tipCents: rawChange } : {}),
                               });
+                            }}
+                            onBlur={() => {
+                              if (line.tenderedCents !== undefined) {
+                                patchLine(index, {
+                                  tenderedInput: centsToDollars(line.tenderedCents),
+                                });
+                              }
                             }}
                             placeholder="0.00"
                             className="font-mono text-xs"

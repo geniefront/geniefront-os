@@ -54,6 +54,8 @@ import { dollarsToCents, centsToDollars, toDisplayDollars } from '@/features/che
 import { useSession } from '@/lib/session';
 import { instantToWallDate, shiftDate, useStoreTime } from '@/lib/time';
 import { useErrorMessage } from '@/lib/errorMessage';
+import { ApiError } from '@/lib/api';
+import { displayedCashVarianceCents, hasSavedCashCount } from '@/features/dayclose/cashCount';
 import { exportToCSV, exportToExcel } from '@/lib/exportUtils';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
@@ -72,10 +74,10 @@ const BILL_DENOMINATIONS = [
 
 // 硬币面额列表
 const COIN_DENOMINATIONS = [
-  { label: '25¢ (Quarter)', value: 0.25, cents: 25, key: 'coin_25' },
-  { label: '10¢ (Dime)', value: 0.1, cents: 10, key: 'coin_10' },
-  { label: '5¢ (Nickel)', value: 0.05, cents: 5, key: 'coin_5' },
-  { label: '1¢ (Penny)', value: 0.01, cents: 1, key: 'coin_1' },
+  { labelKey: 'checkout.dcCoinQuarter' as const, value: 0.25, cents: 25, key: 'coin_25' },
+  { labelKey: 'checkout.dcCoinDime' as const, value: 0.1, cents: 10, key: 'coin_10' },
+  { labelKey: 'checkout.dcCoinNickel' as const, value: 0.05, cents: 5, key: 'coin_5' },
+  { labelKey: 'checkout.dcCoinPenny' as const, value: 0.01, cents: 1, key: 'coin_1' },
 ];
 
 export function DayClose() {
@@ -141,7 +143,11 @@ export function DayClose() {
   // 同步初始化盘点数据
   useEffect(() => {
     if (dayClose) {
-      if (dayClose.countBreakdown && Object.keys(dayClose.countBreakdown).length > 0) {
+      const hasMeaningfulBreakdown =
+        dayClose.countBreakdown &&
+        Object.values(dayClose.countBreakdown).some((qty) => (Number(qty) || 0) > 0);
+
+      if (hasMeaningfulBreakdown) {
         setCounts(dayClose.countBreakdown);
         setUseDenominationMode(true);
       } else if (dayClose.countedCashCents !== null) {
@@ -151,6 +157,9 @@ export function DayClose() {
         // 默认按账面应有Cash填入初始值
         setManualCountedStr(centsToDollars(dayClose.expectedCashCents));
         setUseDenominationMode(false);
+      }
+      if (dayClose.closingFloatCents !== undefined && dayClose.closingFloatCents !== null && dayClose.closingFloatCents > 0) {
+        setReserveFloatDollars(centsToDollars(dayClose.closingFloatCents));
       }
       setVarianceReason(dayClose.cashVarianceReason || '');
     }
@@ -179,10 +188,17 @@ export function DayClose() {
   }, [useDenominationMode, denominationTotalCents, manualCountedStr]);
 
   const expectedCents = dayClose?.expectedCashCents ?? 0;
+  const countedSaved = hasSavedCashCount(dayClose?.countedCashCents);
   const cashVarianceCents = finalCountedCents - expectedCents;
-  const isBalanced = Math.abs(cashVarianceCents) === 0;
-  const isOver = cashVarianceCents > 0;
-  const isShort = cashVarianceCents < 0;
+  const overviewVarianceCents = displayedCashVarianceCents({
+    countedCashCents: dayClose?.countedCashCents,
+    liveCountedCents: finalCountedCents,
+    expectedCashCents: expectedCents,
+  });
+  const liveBalanced = Math.abs(cashVarianceCents) === 0;
+  const liveOver = cashVarianceCents > 0;
+  const isBalanced = countedSaved && liveBalanced;
+  const isOver = countedSaved && liveOver;
 
   // 差异报警阈值 (默认 $10.00 / 1000 cents)
   const thresholdCents = dayClose?.varianceThresholdCents ?? 1000;
@@ -214,6 +230,7 @@ export function DayClose() {
         businessDate: dayClose.businessDate,
         breakdown: useDenominationMode ? counts : undefined,
         countedCashCents: finalCountedCents,
+        closingFloatCents: reserveFloatCents,
         cashVarianceReason: varianceReason.trim() || undefined,
       });
       toast.success(t('countSaved') || t('checkout.dcCountSaved'));
@@ -260,18 +277,41 @@ export function DayClose() {
     }
   };
 
+  const requestFinalize = () => {
+    if (!dayClose) return;
+    if (!hasSavedCashCount(dayClose.countedCashCents)) {
+      toast.danger(t('checkout.dcCountBeforeFinalize'));
+      setActiveTab('counter');
+      return;
+    }
+    setConfirmFinalize(true);
+  };
+
   // 封账
   const handleFinalize = async () => {
     if (!dayClose) return;
+    if (!hasSavedCashCount(dayClose.countedCashCents)) {
+      toast.danger(t('checkout.dcCountBeforeFinalize'));
+      setActiveTab('counter');
+      throw new Error('count_required');
+    }
     try {
       await finalizeMutation.mutateAsync({
         businessDate: dayClose.businessDate,
         force: dayClose.openTicketCount > 0,
       });
       toast.success(t('dayClosedSuccess') || t('checkout.dcDayClosed'));
-      setConfirmFinalize(false);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.code === 'VALIDATION_FAILED') {
+        const reason = err.details.reason;
+        if (typeof reason === 'string' && reason.includes('点钞')) {
+          toast.danger(t('checkout.dcCountBeforeFinalize'));
+          setActiveTab('counter');
+          throw err;
+        }
+      }
       toast.danger(errorMessage(err));
+      throw err;
     }
   };
 
@@ -389,7 +429,7 @@ export function DayClose() {
                 <Button
                   size="sm"
                   className="gap-1.5 bg-teal-600 hover:bg-teal-700 text-white font-bold shadow-sm"
-                  onClick={() => setConfirmFinalize(true)}
+                  onClick={requestFinalize}
                 >
                   <FileCheck className="w-4 h-4" />
                   <span>{t('finalizeDayAction') || t('checkout.dcConfirmClose')}</span>
@@ -477,14 +517,21 @@ export function DayClose() {
             {/* 差异状态标牌 */}
             <span
               className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold border ${
-                isBalanced
+                overviewVarianceCents === null
+                  ? 'bg-slate-50 text-slate-700 border-slate-200'
+                  : isBalanced
                   ? 'bg-teal-50 text-teal-800 border-teal-200'
                   : isOver
                   ? 'bg-amber-50 text-amber-800 border-amber-200'
                   : 'bg-red-50 text-red-800 border-red-200'
               }`}
             >
-              {isBalanced ? (
+              {overviewVarianceCents === null ? (
+                <>
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  <span>{t('checkout.dcNotCountedYet')}</span>
+                </>
+              ) : isBalanced ? (
                 <>
                   <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" />
                   <span>{t('checkout.dcDrawerBalanced')}</span>
@@ -493,8 +540,7 @@ export function DayClose() {
                 <>
                   <AlertCircle className="w-3.5 h-3.5" />
                   <span>
-                    
-                    {t('checkout.dcDrawer')}{isOver ? t('checkout.dcOverPrefix') : t('checkout.dcShortPrefix')}${Math.abs(toDisplayDollars((cashVarianceCents))).toFixed(2)}
+                    {t('checkout.dcDrawer')}{isOver ? t('checkout.dcOverPrefix') : t('checkout.dcShortPrefix')}${Math.abs(toDisplayDollars((overviewVarianceCents))).toFixed(2)}
                   </span>
                 </>
               )}
@@ -528,7 +574,7 @@ export function DayClose() {
             </p>
             <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1">
               <span>{t('checkout.dcCardTender')}{centsToDollars(dayClose.money.cardTakeCents)}</span>
-              <span>Cash ${centsToDollars(dayClose.money.cashTakeCents)}</span>
+              <span>{t('checkout.dcCashTender')}{centsToDollars(dayClose.money.cashTakeCents)}</span>
             </div>
           </Card>
 
@@ -547,23 +593,32 @@ export function DayClose() {
           </Card>
 
           <Card className={`p-4 border shadow-2xs ${
-            isBalanced ? 'bg-gradient-to-br from-white to-emerald-50/30 border-emerald-200' : 'bg-gradient-to-br from-white to-red-50/30 border-red-200'
+            overviewVarianceCents === null
+              ? 'bg-gradient-to-br from-white to-slate-50/30 border-slate-200'
+              : isBalanced ? 'bg-gradient-to-br from-white to-emerald-50/30 border-emerald-200' : 'bg-gradient-to-br from-white to-red-50/30 border-red-200'
           }`}>
             <div className="flex items-center justify-between text-xs font-medium">
-              <span className={isBalanced ? 'text-emerald-700' : isOver ? 'text-amber-700' : 'text-red-700'}>
-                
+              <span className={
+                overviewVarianceCents === null ? 'text-slate-600'
+                  : isBalanced ? 'text-emerald-700' : isOver ? 'text-amber-700' : 'text-red-700'
+              }>
                 {t('checkout.dcVariance')}
               </span>
-              {isBalanced ? (
+              {overviewVarianceCents === null ? (
+                <AlertCircle className="w-4 h-4 text-slate-500" />
+              ) : isBalanced ? (
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
               ) : (
                 <AlertCircle className="w-4 h-4 text-red-600" />
               )}
             </div>
             <p className={`text-2xl font-black mt-2 font-mono ${
-              isBalanced ? 'text-emerald-700' : isOver ? 'text-amber-700' : 'text-red-700'
+              overviewVarianceCents === null ? 'text-slate-700'
+                : isBalanced ? 'text-emerald-700' : isOver ? 'text-amber-700' : 'text-red-700'
             }`}>
-              {isOver ? '+' : ''}${centsToDollars(cashVarianceCents)}
+              {overviewVarianceCents === null
+                ? t('checkout.dcNotCountedYet')
+                : `${isOver ? '+' : ''}$${centsToDollars(overviewVarianceCents)}`}
             </p>
             <p className="text-[11px] text-slate-500 mt-1">
               
@@ -897,7 +952,7 @@ export function DayClose() {
                                 className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-xl space-y-1.5"
                               >
                                 <div className="flex justify-between items-center text-xs font-bold text-slate-800">
-                                  <span>{c.label}</span>
+                                  <span>{t(c.labelKey)}</span>
                                   <span className="text-[11px] font-mono text-amber-700 font-bold">
                                     ${subtotalDollars}
                                   </span>
@@ -970,12 +1025,11 @@ export function DayClose() {
                     <span className="font-mono font-bold text-teal-700">${centsToDollars(finalCountedCents)}</span>
                   </div>
                   <div className="pt-2 border-t border-slate-200 flex justify-between items-center font-bold">
-                    <span className={isBalanced ? 'text-emerald-700' : isOver ? 'text-amber-700' : 'text-red-700'}>
-                      
+                    <span className={liveBalanced ? 'text-emerald-700' : liveOver ? 'text-amber-700' : 'text-red-700'}>
                       {t('checkout.dcVarianceLabel')}
                     </span>
-                    <span className={`font-mono text-base ${isBalanced ? 'text-emerald-700' : isOver ? 'text-amber-700' : 'text-red-700'}`}>
-                      {isOver ? '+' : ''}${centsToDollars(cashVarianceCents)}
+                    <span className={`font-mono text-base ${liveBalanced ? 'text-emerald-700' : liveOver ? 'text-amber-700' : 'text-red-700'}`}>
+                      {liveOver ? '+' : ''}${centsToDollars(cashVarianceCents)}
                     </span>
                   </div>
                 </div>
@@ -983,42 +1037,42 @@ export function DayClose() {
                 {/* 状态指示框 */}
                 <div
                   className={`p-3.5 rounded-xl text-xs space-y-1 ${
-                    isBalanced
+                    liveBalanced
                       ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
-                      : isOver
+                      : liveOver
                       ? 'bg-amber-50 text-amber-900 border border-amber-200'
                       : 'bg-red-50 text-red-900 border border-red-200'
                   }`}
                 >
                   <div className="flex items-center gap-1.5 font-bold">
-                    {isBalanced ? (
+                    {liveBalanced ? (
                       <>
                         <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                         <span>{t('checkout.dcExactMatch')}</span>
                       </>
-                    ) : isOver ? (
+                    ) : liveOver ? (
                       <>
                         <AlertCircle className="w-4 h-4 text-amber-600" />
-                        <span>Cash Over (+) (Over)</span>
+                        <span>{t('checkout.dcOverPrefix')}</span>
                       </>
                     ) : (
                       <>
                         <AlertCircle className="w-4 h-4 text-red-600" />
-                        <span>Cash Short (-) (Short)</span>
+                        <span>{t('checkout.dcShortPrefix')}</span>
                       </>
                     )}
                   </div>
                   <p className="text-[11px] opacity-80">
-                    {isBalanced
+                    {liveBalanced
                       ? t('checkout.dcCashAligned')
-                      : isOver
+                      : liveOver
                       ? t('checkout.dcCashOver')
                       : t('checkout.dcCashShort')}
                   </p>
                 </div>
 
                 {/* 差异超限说明输入 */}
-                {!isBalanced && (
+                {!liveBalanced && (
                   <div className="space-y-1.5">
                     <label className="block text-xs font-bold text-slate-700">
                       
@@ -1100,7 +1154,9 @@ export function DayClose() {
                 {(!dayClose.tipPayouts || dayClose.tipPayouts.length === 0) ? (
                   <div className="py-12 text-center text-slate-400 text-xs">
                     
-                    {t('checkout.dcNoTipsToday')}
+                    {dayClose.money.tipCardCents > 0
+                      ? t('checkout.dcNoCashTipsCardOnly')
+                      : t('checkout.dcNoTipsToday')}
                   </div>
                 ) : (
                   <div className="overflow-x-auto">

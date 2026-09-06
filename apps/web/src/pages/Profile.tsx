@@ -1178,7 +1178,7 @@ export function Profile() {
                           className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-100 bg-slate-50/70 text-xs font-medium text-slate-700 hover:bg-teal-50/50 hover:border-teal-200 transition-colors"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-                          <span className="text-[11px] truncate">{formatPermissionKey(perm)}</span>
+                          <span className="text-[11px] truncate">{formatPermissionKey(perm, (key) => t(key))}</span>
                         </div>
                       ))}
                     </div>

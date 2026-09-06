@@ -667,12 +667,12 @@ export function HealthForms() {
                         </span>
                         <Badge variant="outline" className="text-[10px] text-slate-600 border-slate-200">
                           {q.type === 'bool'
-                            ? 'Yes / No'
+                            ? t('healthForms.typeBool')
                             : q.type === 'text'
-                            ? 'Text'
+                            ? t('healthForms.typeText')
                             : q.type === 'choice'
-                            ? 'Single choice'
-                            : 'Multiple choice'}
+                            ? t('healthForms.typeChoice')
+                            : t('healthForms.typeMulti')}
                         </Badge>
 
                         {/* 显示 / 隐藏 状态徽章 */}
@@ -700,7 +700,7 @@ export function HealthForms() {
                               ? 'bg-amber-100 border-amber-300 text-amber-900 hover:bg-amber-200'
                               : 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100'
                           }`}
-                          title={isHidden ? t('healthForms.healthForms16') : t('healthForms.healthForms17')}
+                          title={isHidden ? t('healthForms.restoreVisibility') : t('healthForms.hideQuestion')}
                         >
                           {isHidden ? (
                             <>

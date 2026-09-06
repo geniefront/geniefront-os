@@ -24,6 +24,13 @@ import {
   loadPlans, writeCommissionEarnings, writeTipEarning, assertDayOpen,
   type LoadedPlans, type TicketRevenueRow,
 } from '../money';
+import { loadCheckoutSettings } from '../queries/settings';
+import { locationTaxCents } from '../tax';
+import {
+  queueLeftReasonOnFullRefund,
+  queueLeftReasonOnVoid,
+  voidCancelsAppointment,
+} from '../ticketLifecycle';
 
 async function bizDate(tx: postgres.TransactionSql, locationId: string): Promise<string> {
   const [loc] = await tx<{ tz: string; cutoff: string }[]>`
@@ -581,6 +588,7 @@ export interface CloseOutcome {
   closed: boolean;
   totalCents: number;
   tipCents: number;
+  taxCents: number;
   allocations: Array<{
     membershipId: string; name: string; amountCents: number;
     source: 'cash' | 'card'; explain: string;
@@ -616,7 +624,7 @@ async function closeOneTicket(args: {
   settlementStage?: 'service' | 'tip' | 'combined';
   packageRedemptions?: readonly PackageRedemptionIn[] | undefined;
 }): Promise<CloseOutcome> {
-  const { tx, ctx, ticket, payments, discountCents, taxCents = 0, surchargeCents = 0, tipSplits, loaded } = args;
+  const { tx, ctx, ticket, payments, discountCents, surchargeCents = 0, tipSplits, loaded } = args;
   const settlementStage = args.settlementStage ?? 'combined';
   const packagePolicy = await loadCheckoutPackagePolicy(tx, ctx.locationId);
   if (!packagePolicy.allowTipSplitOverride && tipSplits && tipSplits.length > 0) {
@@ -644,7 +652,7 @@ async function closeOneTicket(args: {
     }
   } else if (settlementStage === 'tip') {
     if (ticket.checkoutTiming !== 'service_then_tip' || !ticket.serviceSettledAt || ticket.tipSettledAt
-      || !serviceCompleted || discountCents !== 0 || taxCents !== 0 || surchargeCents !== 0) {
+      || !serviceCompleted || discountCents !== 0 || (args.taxCents ?? 0) !== 0 || surchargeCents !== 0) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'tip_stage_not_available' } });
     }
     if (payments.some((p) => ['gift_card', 'customer_credit'].includes(p.method))) {
@@ -664,6 +672,17 @@ async function closeOneTicket(args: {
   const cardTip = payments.filter((p) => p.method !== 'cash').reduce((s, p) => s + p.tipCents, 0);
   const totalTip = cashTip + cardTip;
   const paidTotal = payments.reduce((s, p) => s + p.amountCents, 0);
+  const checkout = settlementStage === 'tip' ? null : await loadCheckoutSettings(tx, ctx);
+  const taxCents = settlementStage === 'tip'
+    ? 0
+    : locationTaxCents({
+      afterDiscountCents: Math.max(
+        0,
+        ticket.subtotalCents - discountCents - packageApplication.coveredCents,
+      ),
+      salesTaxRatePercent: checkout!.salesTaxRatePercent,
+      taxCalculationMode: checkout!.taxCalculationMode,
+    });
   const shouldBe = settlementStage === 'tip'
     ? totalTip
     : ticket.subtotalCents - discountCents - packageApplication.coveredCents
@@ -913,6 +932,7 @@ async function closeOneTicket(args: {
       : paidTotal + packageApplication.coveredCents,
     closed: closeNow,
     tipCents: totalTip,
+    taxCents,
     allocations: out,
     earnings,
   };
@@ -927,7 +947,6 @@ const handleTicketCloseOrPay = async ({ input, ctx, tx, audit, emit }: HandlerAr
   const r = await closeOneTicket({
     tx, ctx, ticket, payments: input.payments,
     discountCents: input.discountCents,
-    taxCents: input.taxCents,
     surchargeCents: input.surchargeCents,
     tipSplits: input.tipSplits,
     packageRedemptions: input.packageRedemptions,
@@ -954,7 +973,7 @@ const handleTicketCloseOrPay = async ({ input, ctx, tx, audit, emit }: HandlerAr
   return {
     ticketId: r.ticketId, totalCents: r.totalCents,
     tipCents: r.tipCents, allocations: r.allocations,
-    taxCents: input.taxCents ?? 0,
+    taxCents: r.taxCents,
     subtotalCents: ticket.subtotalCents,
   };
 };
@@ -1214,7 +1233,9 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
     await tx`update appointment_items ai set status = 'cancelled'
              from tickets ticket where ticket.id = ${t.id} and ai.appointment_id = ticket.appointment_id
                and ai.status <> 'completed'`;
-    await tx`update walkin_queue q set status = 'left', left_at = now()
+    await tx`update walkin_queue q
+             set status = 'left', left_at = now(),
+                 left_reason = coalesce(q.left_reason, ${queueLeftReasonOnFullRefund()})
              from tickets ticket where ticket.id = ${t.id}
                and q.appointment_id = ticket.appointment_id and q.status <> 'left'`;
   }
@@ -1410,7 +1431,15 @@ registerHandler(TicketCloseGroup, async ({ input, ctx, tx, audit, emit }: Handle
 
   const tipSum = input.payments.reduce((s, p) => s + p.tipCents, 0);
   const paidSum = input.payments.reduce((s, p) => s + p.amountCents, 0);
-  const expected = subtotalSum - input.discountCents + input.taxCents + input.surchargeCents + tipSum;
+  const discounts = largestRemainderSplit(input.discountCents, subtotals);
+  const checkout = await loadCheckoutSettings(tx, ctx);
+  const taxes = tickets.map((t, i) => locationTaxCents({
+    afterDiscountCents: Math.max(0, t.subtotalCents - (discounts[i] ?? 0)),
+    salesTaxRatePercent: checkout.salesTaxRatePercent,
+    taxCalculationMode: checkout.taxCalculationMode,
+  }));
+  const taxSum = taxes.reduce((sum, value) => sum + value, 0);
+  const expected = subtotalSum - input.discountCents + taxSum + input.surchargeCents + tipSum;
   if (paidSum !== expected) {
     throw new AppError(ERROR_CODES.PAYMENT_MISMATCH, {
       details: {
@@ -1426,8 +1455,6 @@ registerHandler(TicketCloseGroup, async ({ input, ctx, tx, audit, emit }: Handle
   // 小费同理。然后用 distributeBuckets 把实际收到的现金/刷卡额**填**进
   // 各单的需求里 —— 按比例摊会在「单」和「支付方式」之间差出一分，
   // 而支付方式那一边差一分，晚上点钞就对不上。
-  const discounts = largestRemainderSplit(input.discountCents, subtotals);
-  const taxes = largestRemainderSplit(input.taxCents, subtotals);
   const surcharges = largestRemainderSplit(input.surchargeCents, subtotals);
   const nets = tickets.map((t, i) => t.subtotalCents - (discounts[i] ?? 0) + (taxes[i] ?? 0) + (surcharges[i] ?? 0));
   const tipShares = largestRemainderSplit(tipSum, subtotals);
@@ -1556,15 +1583,28 @@ registerHandler(TicketVoid, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     where id = ${input.ticketId}`;
 
   if (t.appointment_id) {
-    // Voiding is the escape hatch back to the arrival flow. Keep the queue entry
-    // and appointment reusable; the partial unique index will then allow exactly
-    // one replacement ticket.
-    await tx`update appointments set status = 'checked_in'
-             where id = ${t.appointment_id}`;
-    await tx`update appointment_items set status = 'booked'
-             where appointment_id = ${t.appointment_id} and status <> 'cancelled'`;
-    await tx`update walkin_queue set status = 'waiting'
-             where appointment_id = ${t.appointment_id} and status <> 'left'`;
+    if (voidCancelsAppointment(input.reason)) {
+      // 客人改主意 / 离店：工单作废同时撤预约，否则房间还挂着那场。
+      await tx`update appointments set
+          status = 'cancelled', cancelled_at = now(),
+          cancel_reason = ${input.reason},
+          cancel_note = ${input.note ?? null}
+        where id = ${t.appointment_id}`;
+      await tx`update appointment_items set status = 'cancelled'
+               where appointment_id = ${t.appointment_id} and status <> 'cancelled'`;
+      await tx`update walkin_queue set
+          status = 'left', left_at = now(),
+          left_reason = coalesce(left_reason, ${queueLeftReasonOnVoid(input.reason)})
+        where appointment_id = ${t.appointment_id} and status <> 'left'`;
+    } else {
+      // 录入错误：回到已签到，允许且只允许重开一张替代单。
+      await tx`update appointments set status = 'checked_in'
+               where id = ${t.appointment_id}`;
+      await tx`update appointment_items set status = 'booked'
+               where appointment_id = ${t.appointment_id} and status <> 'cancelled'`;
+      await tx`update walkin_queue set status = 'waiting'
+               where appointment_id = ${t.appointment_id} and status <> 'left'`;
+    }
   }
 
   audit({

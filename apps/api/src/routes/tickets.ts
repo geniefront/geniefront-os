@@ -41,7 +41,7 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           where location_id = ${ctx.locationId}`;
 
         const checkoutSettings = {
-          salesTaxRatePercent: checkoutSettingsRow?.sales_tax_rate_percent ?? '8.8750',
+          salesTaxRatePercent: checkoutSettingsRow?.sales_tax_rate_percent ?? '0',
           taxCalculationMode: (checkoutSettingsRow?.tax_calculation_mode ?? 'exclusive') as 'exclusive' | 'inclusive',
           suggestedTipPercentages: checkoutSettingsRow?.suggested_tip_percentages ?? [15, 18, 20, 25],
           checkoutTiming: checkoutSettingsRow?.checkout_timing ?? 'after_service_combined',

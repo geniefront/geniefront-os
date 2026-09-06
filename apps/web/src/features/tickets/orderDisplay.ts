@@ -33,3 +33,22 @@ export function fullRefundCents(input: {
 }): number {
   return Math.max(0, input.totalPaidCents - input.refundCents);
 }
+
+export function ticketStatusI18nKey(status: string):
+  | 'checkout.tkStatusSettled'
+  | 'checkout.tkStatusPending'
+  | 'checkout.tkStatusVoidedLabel'
+  | 'checkout.tkStatusRefundedLabel' {
+  switch (status) {
+    case 'closed':
+    case 'paid':
+      return 'checkout.tkStatusSettled';
+    case 'voided':
+    case 'void':
+      return 'checkout.tkStatusVoidedLabel';
+    case 'refunded':
+      return 'checkout.tkStatusRefundedLabel';
+    default:
+      return 'checkout.tkStatusPending';
+  }
+}

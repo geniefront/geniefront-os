@@ -64,7 +64,6 @@ const WEEKDAY_KEYS: TranslationKey[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'
 import {
   Plus,
   ChevronLeft,
-  X,
   ChevronRight,
   Clock,
   Users,
@@ -82,8 +81,9 @@ const timeToMins = (time: string) => {
 };
 
 const minsToTime = (mins: number) => {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
+  const normalized = ((mins % 1440) + 1440) % 1440;
+  const h = Math.floor(normalized / 60);
+  const m = normalized % 60;
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 };
 
@@ -133,7 +133,6 @@ function ScheduleContent() {
   const [filterStaffId, setFilterStaffId] = useState('all');
   const [filterRole, setFilterRole] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [expandedMonthDate, setExpandedMonthDate] = useState<string | null>(null);
 
   // 预约项目容错模糊搜索过滤
   const filteredItems = React.useMemo(() => {
@@ -562,12 +561,13 @@ function ScheduleContent() {
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
               style={{ colorScheme: 'light' }}
               title={t('pickDate')}
+              aria-label={t('pickDate')}
             />
           </div>
           <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
-            <Button variant="ghost" size="icon" onClick={handlePrev} className="h-8 w-8 text-slate-500 hover:text-slate-900 cursor-pointer"><ChevronLeft className="w-4 h-4" /></Button>
+            <Button variant="ghost" size="icon" onClick={handlePrev} className="h-8 w-8 text-slate-500 hover:text-slate-900 cursor-pointer" aria-label={t('schedulePrevDay')}><ChevronLeft className="w-4 h-4" /></Button>
             <button onClick={() => setCurrentDate(todayStr)} className="text-sm font-medium px-2 text-slate-600 hover:text-teal-600 transition-colors">{t('scheduleToday')}</button>
-            <Button variant="ghost" size="icon" onClick={handleNext} className="h-8 w-8 text-slate-500 hover:text-slate-900 cursor-pointer"><ChevronRight className="w-4 h-4" /></Button>
+            <Button variant="ghost" size="icon" onClick={handleNext} className="h-8 w-8 text-slate-500 hover:text-slate-900 cursor-pointer" aria-label={t('scheduleNextDay')}><ChevronRight className="w-4 h-4" /></Button>
           </div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end min-w-0">
@@ -669,7 +669,10 @@ function ScheduleContent() {
               return (
                 <div
                   key={dateStr}
-                  onClick={() => setExpandedMonthDate(dateStr)}
+                  onClick={() => {
+                    setCurrentDate(dateStr);
+                    setView('overview');
+                  }}
                   className={`rounded-2xl border p-3 shadow-sm flex flex-col gap-2 transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer group ${
                     isClosed ? 'bg-slate-50 border-slate-200' : 'bg-white border-slate-200'
                   }`}
@@ -898,7 +901,7 @@ function ScheduleContent() {
                             {aptCount > 0 && (
                               <div className="flex items-center justify-center gap-1.5 mt-1 text-[10px] transform scale-90">
                                 <span className="bg-teal-50 text-teal-600 px-1.5 py-0.5 rounded-sm font-semibold">{aptCount} {t('apptCount')}</span>
-                                {rev > 0 && <span className="bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded-sm font-semibold">¥{rev}</span>}
+                                {rev > 0 && <span className="bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded-sm font-semibold">${rev}</span>}
                               </div>
                             )}
                             {aptCount === 0 && <div className="mt-1 text-[10px] text-slate-300 font-medium">{t('noAppts')}</div>}
@@ -1090,98 +1093,6 @@ function ScheduleContent() {
           );
         })()}
       </div>
-
-      {/* Universal Double Confirmation Modal */}
-      
-      {/* EXPANDED MONTH DATE MODAL */}
-      {expandedMonthDate && (
-        <Portal>
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-modal p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-              <h2 className="text-xl font-bold text-slate-800">
-                {expandedMonthDate} · {t('dayDetails')}
-              </h2>
-              <Button variant="ghost" size="icon" onClick={() => setExpandedMonthDate(null)} className="text-slate-400 hover:text-slate-600 rounded-full h-8 w-8">
-                <X className="w-5 h-5" />
-              </Button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-3">
-              {(() => {
-                const dayApts = items
-                  .filter(a => a.date === expandedMonthDate && (filterStaffId === 'all' || a.staffId === filterStaffId))
-                  .sort((a, b) => a.startTime.localeCompare(b.startTime));
-                  
-                if (dayApts.length === 0) {
-                  return <div className="text-center py-12 text-slate-400">{t('noApptsToday')}</div>;
-                }
-                
-                return dayApts.map(apt => {
-                  const staffMember = staff.find(s => s.membershipId === apt.staffId);
-                  const isCompleted = apt.status === 'completed';
-                  const isNoShow = apt.status === 'no_show';
-                  
-                  return (
-                    <div 
-                      key={apt.id} 
-                      className={`text-sm px-4 py-3 rounded-xl cursor-pointer transition-all border-l-[4px] flex flex-col gap-2 hover:-translate-y-0.5 hover:shadow-md ${
-                        isCompleted ? 'bg-slate-50 border-slate-300 text-slate-500' :
-                        isNoShow ? 'bg-red-50/50 border-red-300 text-red-600' :
-                        serviceColor(apt.serviceId).replace('border-', 'border-l-').replace('text-', 'bg-').replace('bg-', 'bg-').concat('/10')
-                      }`}
-                      onClick={(e) => {
-                         setExpandedMonthDate(null);
-                         handleEditClick(apt, e);
-                      }}
-                    >
-                      <div className="flex justify-between items-start">
-                        <span className={`font-bold text-base ${isCompleted || isNoShow ? 'line-through opacity-70' : 'text-slate-800'}`}>
-                          {apt.startTime} - {apt.endTime}
-                        </span>
-                        <div className="flex items-center gap-2">
-                           <span className="font-bold text-slate-700">{apt.customerName}</span>
-                           {isCompleted && <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />}
-                        </div>
-                      </div>
-                      <div className="flex justify-between items-center opacity-90 font-medium">
-                        {/*
-                          项目名用 item 自带的快照值，不查当前项目表：
-                          已下架的项目查不到，而下单那一刻的名称才是这条单的事实。
-                        */}
-                        <span className={`px-2 py-0.5 rounded text-xs ${serviceColor(apt.serviceId)}`}>
-                          {apt.serviceName}
-                        </span>
-                        <div className="flex items-center gap-1.5 text-xs text-slate-600">
-                          {staffMember && (
-                            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-sm ${staffMember.membershipId === UNASSIGNED_STAFF_ID ? 'bg-slate-400' : 'bg-teal-500'}`}>
-                              {staffMember.name.charAt(0)}
-                            </div>
-                          )}
-                          {staffMember?.name}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end">
-               <Button 
-                 className="bg-teal-600 hover:bg-teal-700 text-white rounded-xl shadow-md"
-                 onClick={() => {
-                   const d = expandedMonthDate;
-                   setExpandedMonthDate(null);
-                   if (d) handleNewAppointment(d);
-                 }}
-               >
-                 <Plus className="w-4 h-4 mr-2" />
-                 {t('newAppt')}
-               </Button>
-            </div>
-          </div>
-        </div>
-        </Portal>
-      )}
 
       {confirmModal.isOpen && (
         <Portal>

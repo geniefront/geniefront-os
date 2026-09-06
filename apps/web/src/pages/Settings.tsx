@@ -1946,7 +1946,7 @@ export function Settings() {
                             )}
                           </div>
                           <p className="text-xs text-slate-500 font-mono">
-                            Duration: <span className="font-bold text-slate-700">{svc.durationMin}  {t('settings.stMinutesUnit2')}</span>  {t('settings.stBasePriceLabel')}{' '}
+                            {t('settings.stDurationShort')}: <span className="font-bold text-slate-700">{svc.durationMin}  {t('settings.stMinutesUnit2')}</span>  {t('settings.stBasePriceLabel')}{' '}
                             <span className="font-bold text-teal-700">${centsToDollars(svc.basePriceCents)}</span>
                           </p>
                         </div>

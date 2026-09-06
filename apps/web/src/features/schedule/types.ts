@@ -49,6 +49,8 @@ export interface DayItem {
   membershipId: string | null;
   /** 服务端已兜底：客户名 → walk_in_name → 占位文案，不会为空。 */
   customerName: string;
+  /** 客户档案电话。纯 walk-in 未留号时为 null。看板签到不能因此谎称「散客无电话」。 */
+  customerPhone?: string | null;
   /**
    * ⚠️ 可能不在同一份快照的 `services[]` 中：`services` 只含 `active = true`，
    * 而已下架项目的历史单仍会出现在 `items` 里。回查不到时应使用 item 自带的
@@ -59,6 +61,8 @@ export interface DayItem {
   /** 带偏移量的 ISO 时刻。渲染前必须按门店时区换算，不得使用浏览器时区。 */
   startsAt: string;
   endsAt: string;
+  /** 实际完工（ticket_items.finished_at）。没有开工记录时为 null。 */
+  completedAt?: string | null;
   durationMin: number;
   /**
    * ⚠️ 服务端已在 SQL 层过滤掉 `cancelled`，实际取值只有

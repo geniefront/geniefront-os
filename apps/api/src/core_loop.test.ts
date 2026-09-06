@@ -15,6 +15,16 @@ import './handlers/ticket';
 import './handlers/staff';
 import './handlers/resource';
 import { loadDayMoney } from './handlers/dayclose';
+import { locationTaxCents } from './tax';
+
+/** 莲花种子税率 8.875%。结账实收必须含服务端税额。 */
+function dueCents(subtotalCents: number): number {
+  return subtotalCents + locationTaxCents({
+    afterDiscountCents: subtotalCents,
+    salesTaxRatePercent: 8.875,
+    taxCalculationMode: 'exclusive',
+  });
+}
 
 const ORG_ID = '11111111-1111-4111-8111-111111111111';
 const LOCATION_ID = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -245,8 +255,8 @@ describe('预约到收银的真实闭环', () => {
     await run('ticket.close', {
       ticketId: opened.result.ticketId,
       payments: [{
-        method: 'cash', amountCents: added.result.subtotalCents,
-        tipCents: 0, tenderedCents: added.result.subtotalCents,
+        method: 'cash', amountCents: dueCents(added.result.subtotalCents),
+        tipCents: 0, tenderedCents: dueCents(added.result.subtotalCents),
       }],
     }, `pay-${appointmentId}`);
 
@@ -283,7 +293,7 @@ describe('预约到收银的真实闭环', () => {
     await run('ticket.pay', {
       ticketId: opened.result.ticketId,
       paymentStage: 'service',
-      payments: [{ method: 'card', amountCents: opened.result.subtotalCents, tipCents: 0 }],
+      payments: [{ method: 'card', amountCents: dueCents(opened.result.subtotalCents), tipCents: 0 }],
     }, `timing-a-service-${appointmentId}`);
     await expect(run('ticket.addItem', {
       ticketId: opened.result.ticketId, serviceId, membershipId,
@@ -321,7 +331,7 @@ describe('预约到收银的真实闭环', () => {
     await run('ticket.pay', {
       ticketId: opened.result.ticketId,
       paymentStage: 'combined',
-      payments: [{ method: 'card', amountCents: opened.result.subtotalCents, tipCents: 0 }],
+      payments: [{ method: 'card', amountCents: dueCents(opened.result.subtotalCents), tipCents: 0 }],
     }, `timing-b-pay-${appointmentId}`);
     const [paid] = await withTenant(tenant, (tx) => tx<{ status: string }[]>`
       select status from tickets where id = ${opened.result.ticketId}`);
@@ -414,11 +424,12 @@ describe('预约到收银的真实闭环', () => {
     await run('ticket.finishItem', {
       ticketItemId: opened.result.ticketItemIds[0], membershipId,
     });
+    const collectedCents = dueCents(opened.result.subtotalCents);
     await run('ticket.close', {
       ticketId: opened.result.ticketId,
       payments: [{
-        method: 'cash', amountCents: opened.result.subtotalCents,
-        tipCents: 0, tenderedCents: opened.result.subtotalCents,
+        method: 'cash', amountCents: collectedCents,
+        tipCents: 0, tenderedCents: collectedCents,
       }],
     }, `pay-${appointmentId}`);
 
@@ -438,7 +449,7 @@ describe('预约到收银的真实闭环', () => {
     const afterPartial = await withTenant(tenant, (tx) => loadDayMoney(tx, LOCATION_ID, date));
     expect(afterPartial.netCents - baseline.netCents)
       .toBe(opened.result.subtotalCents - partialCents);
-    expect(afterPartial.cashTakeCents - baseline.cashTakeCents).toBe(opened.result.subtotalCents);
+    expect(afterPartial.cashTakeCents - baseline.cashTakeCents).toBe(collectedCents);
     expect(afterPartial.movementsCents - baseline.movementsCents).toBe(-partialCents);
 
     const [commissionPartial] = await withTenant(tenant, (tx) => tx<{ value: number }[]>`
@@ -463,7 +474,7 @@ describe('预约到收银的真实闭环', () => {
       from customer_credit_ledger where kind = 'store_credit' and customer_id = ${customerId}`);
     expect(creditAfter!.value - creditBefore!.value).toBe(storeCreditCents);
 
-    const remainingCents = opened.result.subtotalCents - partialCents - storeCreditCents;
+    const remainingCents = collectedCents - partialCents - storeCreditCents;
     const full = await run<{ status: string }>('ticket.refund', {
       ticketId: opened.result.ticketId,
       refundAmountCents: remainingCents,
@@ -476,7 +487,7 @@ describe('预约到收银的真实闭环', () => {
     const afterFull = await withTenant(tenant, (tx) => loadDayMoney(tx, LOCATION_ID, date));
     expect(afterFull.netCents).toBe(baseline.netCents);
     expect(afterFull.movementsCents - baseline.movementsCents)
-      .toBe(-(opened.result.subtotalCents - storeCreditCents));
+      .toBe(-(collectedCents - storeCreditCents));
 
     const refunds = await withTenant(tenant, (tx) => tx<{ id: string; amount: number }[]>`
       select id, amount_cents as amount from ticket_refunds
@@ -511,6 +522,79 @@ describe('预约到收银的真实闭环', () => {
     expect(rows.map((row) => row.status).sort()).toEqual(['in_service', 'voided']);
   });
 
+  it('全额退款把排队记成离开并写原因，不因 left_reason 约束失败', async () => {
+    const appointmentId = await createAppointment();
+    await run('queue.join', { appointmentId, source: 'desk' }, `checkin-refund-${appointmentId}`);
+    const opened = await run<{
+      ticketId: string; ticketItemIds: string[]; subtotalCents: number;
+    }>('ticket.open', {
+      appointmentId,
+      customerId: null,
+      items: [{ serviceId, membershipId, minutes: 45 }],
+    }, `open-refund-${appointmentId}`);
+    await run('ticket.startItem', {
+      ticketItemId: opened.result.ticketItemIds[0], membershipId,
+    });
+    await run('ticket.finishItem', {
+      ticketItemId: opened.result.ticketItemIds[0], membershipId,
+    });
+    const collectedCents = dueCents(opened.result.subtotalCents);
+    await run('ticket.close', {
+      ticketId: opened.result.ticketId,
+      payments: [{
+        method: 'cash', amountCents: collectedCents,
+        tipCents: 0, tenderedCents: collectedCents,
+      }],
+    }, `pay-refund-${appointmentId}`);
+
+    const full = await run<{ status: string }>('ticket.refund', {
+      ticketId: opened.result.ticketId,
+      refundAmountCents: collectedCents,
+      refundTipCents: 0,
+      reason: 'customer_dissatisfied',
+      refundMethod: 'original_payment',
+    }, `refund-queue-${appointmentId}`);
+    expect(full.result.status).toBe('refunded');
+
+    const [queue] = await withTenant(tenant, (tx) => tx<{
+      status: string; left_reason: string | null;
+    }[]>`
+      select status, left_reason from walkin_queue where appointment_id = ${appointmentId}`);
+    expect(queue!.status).toBe('left');
+    expect(queue!.left_reason).toBeTruthy();
+  });
+
+  it('客人改主意作废会取消预约，房间不再挂这场', async () => {
+    const appointmentId = await createAppointment();
+    const [resource] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      select id from resources where location_id = ${LOCATION_ID} order by id limit 1`);
+    expect(resource).toBeTruthy();
+    await withTenant(tenant, (tx) => tx`
+      update appointment_items set resource_id = ${resource!.id}
+      where appointment_id = ${appointmentId}`);
+    await run('queue.join', { appointmentId, source: 'desk' }, `checkin-void-${appointmentId}`);
+    const opened = await run<{ ticketId: string }>('ticket.open', {
+      appointmentId,
+      customerId: null,
+      items: [{ serviceId, membershipId, minutes: 45 }],
+    }, `open-void-${appointmentId}`);
+    await run('ticket.void', { ticketId: opened.result.ticketId, reason: 'guest_changed_mind' });
+
+    const [appt] = await withTenant(tenant, (tx) => tx<{
+      appointment_status: string; item_status: string; queue_status: string; queue_reason: string | null;
+    }[]>`
+      select a.status as appointment_status, ai.status as item_status,
+             q.status as queue_status, q.left_reason as queue_reason
+      from appointments a
+      join appointment_items ai on ai.appointment_id = a.id
+      join walkin_queue q on q.appointment_id = a.id
+      where a.id = ${appointmentId}`);
+    expect(appt!.appointment_status).toBe('cancelled');
+    expect(appt!.item_status).toBe('cancelled');
+    expect(appt!.queue_status).toBe('left');
+    expect(appt!.queue_reason).toBeTruthy();
+  });
+
   it('客户储值并发消费只允许一笔成功，余额不会变成负数', async () => {
     const [customer] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
       insert into customers (org_id, display_name, source)
@@ -531,7 +615,7 @@ describe('预约到收银的真实闭环', () => {
       (org_id, location_id, kind, subject_id, customer_id, entry, amount_cents,
        balance_after_cents, reason, actor_membership_id, idem_key, meta)
       values (${ORG_ID}, ${LOCATION_ID}, 'store_credit', ${customer!.id}, ${customer!.id},
-              'adjust', ${first.subtotalCents}, ${first.subtotalCents}, 'concurrency test',
+              'adjust', ${dueCents(first.subtotalCents)}, ${dueCents(first.subtotalCents)}, 'concurrency test',
               ${membershipId}, ${`credit-seed-${randomUUID()}`}, '{}'::jsonb)`);
 
     const close = (ticketId: string, amountCents: number) => dispatch(
@@ -539,8 +623,8 @@ describe('预约到收银的真实闭环', () => {
       ctx, { idempotencyKey: randomUUID() },
     );
     const results = await Promise.allSettled([
-      close(first.ticketId, first.subtotalCents),
-      close(second.ticketId, second.subtotalCents),
+      close(first.ticketId, dueCents(first.subtotalCents)),
+      close(second.ticketId, dueCents(second.subtotalCents)),
     ]);
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     const rejected = results.find((result) => result.status === 'rejected');

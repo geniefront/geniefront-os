@@ -151,6 +151,13 @@ describe('computeCheckoutTotals', () => {
     expect(totals.tipAllocations.map((entry) => entry.allocatedTipCents)).toEqual([1_200, 800]);
   });
 
+  it('门店税率 > 0 时即使关掉开关也按门店税率算，不信收银台勾选', () => {
+    const totals = computeCheckoutTotals({
+      ...base, staffList: two, enableTax: false, tipPercentage: 0,
+    });
+    expect(totals.taxCents).toBe(888);
+  });
+
   it('折扣先于税额生效，且不会把应收压成负数', () => {
     const totals = computeCheckoutTotals({
       ...base, staffList: two, discountDollars: '150.00', enableTax: true, tipPercentage: 0,

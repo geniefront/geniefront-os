@@ -49,6 +49,7 @@ import { UNASSIGNED_STAFF_ID, toScheduleItem } from '@/context/ScheduleContext';
 import { useDaySnapshot } from '@/features/schedule/api';
 import { useSession } from '@/lib/session';
 import { instantToWallDate, nowWallHhMm } from '@/lib/time';
+import { completedCardClock } from '@/features/queue/completedClock';
 import { cn, formatI18n, formatPhoneDisplay, formatPhoneInput } from '@/lib/utils';
 import { customerInitials, walkInShowsNoPhone } from '@/lib/displayName';
 import { healthFormHonesty } from '@/features/queue/healthFormStatus';
@@ -65,6 +66,8 @@ import type { Override, OverrideReason } from '@/features/schedule/api';
 import { useCloseTicket, useOpenTickets, centsToDollars, dollarsToCents, verifyGiftCard } from '@/features/checkout/api';
 import { buildCheckoutStaffList, computeCheckoutTotals, UNRESOLVED_STAFF_KEY } from '@/features/queue/checkoutMath';
 import { useBeginCleaning, useRoomsQuery } from '@/features/rooms/api';
+import { useDayCloseQuery } from '@/features/dayclose/api';
+import { settledRevenueCents } from '@/features/queue/kanbanMetrics';
 import { completeQueueService, resolveQueueRoomId } from '@/features/queue/completeService';
 import { inlineGiftCardFields } from '@/features/queue/inlinePayment';
 import { useRotationQuery } from '@/features/rotation/api';
@@ -400,6 +403,7 @@ function QueueContent() {
   }, [todaySnapshot, t]);
   const { data: queue, isLoading: queueLoading, isError: queueError, error: queueErr, isFetching: queueFetching, refetch: refetchQueue } = useQueue();
   const { data: ticketsData, isLoading: ticketsLoading, refetch: refetchTickets } = useTicketsList();
+  const { data: dayCloseData } = useDayCloseQuery(todayDate);
   const { data: roomsData, isLoading: roomsLoading, refetch: refetchRooms } = useRoomsQuery();
   const { data: rotationData, isLoading: rotationLoading, refetch: refetchRotation } = useRotationQuery();
   const onlineTechIds = useLocationTechPresence();
@@ -668,7 +672,7 @@ function QueueContent() {
     item: null,
     discountDollars: '0',
     enableTax: false,
-    taxRatePercent: '8.875',
+    taxRatePercent: '0',
     enableCardSurcharge: false,
     cardSurchargePercent: '3.0',
     tipMode: 'total_split',
@@ -862,6 +866,7 @@ function QueueContent() {
           stage: override?.stage || 'booked',
           appointmentId: it.appointmentId,
           customerName: it.customerName,
+          phone: it.customerPhone ?? null,
           serviceName: it.serviceName,
           serviceId: it.serviceId,
           durationMin: it.durationMin,
@@ -884,6 +889,7 @@ function QueueContent() {
           stage: override?.stage || 'in_service',
           appointmentId: it.appointmentId,
           customerName: it.customerName,
+          phone: it.customerPhone ?? null,
           serviceName: it.serviceName,
           serviceId: it.serviceId,
           durationMin: it.durationMin,
@@ -906,6 +912,7 @@ function QueueContent() {
           stage: override?.stage || 'completed',
           appointmentId: it.appointmentId,
           customerName: it.customerName,
+          phone: it.customerPhone ?? null,
           serviceName: it.serviceName,
           serviceId: it.serviceId,
           durationMin: it.durationMin,
@@ -914,7 +921,13 @@ function QueueContent() {
           staffName: matchedStaff?.name || t('therapistLabel'),
           staffColor: matchedStaff?.color ?? null,
           isRequest: it.isRequest,
-          timeDisplay: t('queue.quCompletedFor', { p0: it.endTime }),
+          timeDisplay: t('queue.quCompletedFor', {
+            p0: completedCardClock({
+              completedAt: it.completedAt,
+              endTime: it.endTime,
+              timezone,
+            }),
+          }),
           rawItem: it,
         });
       }
@@ -945,7 +958,7 @@ function QueueContent() {
     }
 
     return list;
-  }, [queue, items, staff, ticketsData, localOverrides, language]);
+  }, [queue, items, staff, ticketsData, localOverrides, language, timezone, t]);
 
   // Filtered items (支持错别字容错模糊搜索)
   const filteredItems = useMemo(() => {
@@ -979,9 +992,15 @@ function QueueContent() {
     const inService = kanbanItems.filter((x) => x.stage === 'in_service').length;
     const readyCheckout = kanbanItems.filter((x) => x.stage === 'ready_checkout').length;
     const completed = kanbanItems.filter((x) => x.stage === 'completed').length;
-    const revenueCents = kanbanItems
+    const fallbackServiceCents = kanbanItems
       .filter((x) => x.stage === 'completed')
       .reduce((sum, x) => sum + x.priceCents, 0);
+    const revenueCents = settledRevenueCents({
+      netCents: dayCloseData?.money?.netCents,
+      tipCashCents: dayCloseData?.money?.tipCashCents,
+      tipCardCents: dayCloseData?.money?.tipCardCents,
+      fallbackServiceCents,
+    });
 
     return {
       totalBookings,
@@ -991,7 +1010,7 @@ function QueueContent() {
       completed,
       revenueCents,
     };
-  }, [kanbanItems]);
+  }, [kanbanItems, dayCloseData]);
 
   const isSyncing = join.isPending || update.isPending || closeTicketMutation.isPending
     || openTicketMutation.isPending || addTicketItemMutation.isPending
@@ -1934,7 +1953,7 @@ function QueueContent() {
           1100px，grid-cols-1 / md:grid-cols-3 因此永远不会生效，窄屏只会横向滚动。
           现改为窄屏单列纵向排布，宽屏才进入 5 列并横向滚动。
         */}
-        <div className="grid grid-cols-1 items-start gap-3.5 md:grid-cols-3 lg:grid-cols-5 lg:min-w-[1100px]">
+        <div className="grid grid-cols-1 items-start gap-3.5 md:grid-cols-3 lg:grid-cols-5">
           {COLUMNS.map((col) => {
             const colItems = filteredItems.filter((it) => it.stage === col.id);
             const isDropTarget = dragOverColumn === col.id;
@@ -1966,9 +1985,9 @@ function QueueContent() {
                 >
                   <div className="flex items-center gap-2">
                     <col.icon className="w-4 h-4 shrink-0" />
-                    <div>
-                      <h3 className="font-bold text-xs leading-none">{t(col.titleKey)}</h3>
-                      <p className="text-xs text-slate-500 mt-0.5 opacity-80">{t(col.subtitleKey)}</p>
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-xs leading-none truncate">{t(col.titleKey)}</h3>
+                      <p className="text-xs text-slate-500 mt-0.5 opacity-80 truncate">{t(col.subtitleKey)}</p>
                     </div>
                   </div>
                   <Badge variant={col.badgeVariant} className="font-mono text-xs px-2 py-0.5 font-bold">

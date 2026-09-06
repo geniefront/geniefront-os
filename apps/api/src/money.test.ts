@@ -246,6 +246,39 @@ describe('结账落提成流水', () => {
     ).rejects.toMatchObject({ code: 'TICKET_ALREADY_CLOSED' });
   });
 
+  it('结账税额按门店设置算，不信客户端 taxCents', async () => {
+    await withTenant(tenant, (tx) => tx`
+      update location_checkout_settings
+      set sales_tax_rate_percent = 8.8750
+      where location_id = ${SPA_LOC}`);
+    try {
+      const ctx = await ctxFor(owner);
+      const t = await openTicket(ctx, '税额服务端');
+      const expectedTax = Math.round(t.subtotalCents * 0.08875);
+
+      await expect(run('ticket.close', {
+        ticketId: t.ticketId,
+        taxCents: 0,
+        payments: [{ method: 'card', amountCents: t.subtotalCents, tipCents: 0 }],
+      }, ctx)).rejects.toMatchObject({ code: 'PAYMENT_MISMATCH' });
+
+      await run('ticket.close', {
+        ticketId: t.ticketId,
+        taxCents: 0,
+        payments: [{ method: 'card', amountCents: t.subtotalCents + expectedTax, tipCents: 0 }],
+      }, ctx);
+
+      const [row] = await withTenant(tenant, (tx) => tx<{ tax: number }[]>`
+        select tax_cents as tax from tickets where id = ${t.ticketId}`);
+      expect(row!.tax).toBe(expectedTax);
+    } finally {
+      await withTenant(tenant, (tx) => tx`
+        update location_checkout_settings
+        set sales_tax_rate_percent = 0
+        where location_id = ${SPA_LOC}`);
+    }
+  });
+
   it('收款额和单据对不上 → 当场拒绝', async () => {
     const ctx = await ctxFor(owner);
     const t = await openTicket(ctx, '金额不符');

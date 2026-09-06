@@ -48,6 +48,7 @@ import { Modal } from '@/components/ui/Modal';
 import { ActionMenu } from '@/components/ui/ActionMenu';
 import { cn, formatPhoneDisplay, formatPhoneInput } from '@/lib/utils';
 import { useErrorMessage } from '@/lib/errorMessage';
+import { ticketStatusI18nKey } from '@/features/tickets/orderDisplay';
 import { hasAllergyContent, formatAllergies } from '@/features/customers/allergies';
 import { fuzzySearch } from '@/lib/fuzzySearch';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -697,7 +698,7 @@ function CustomersContent() {
                           </Badge>
                         ) : (
                           <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs">
-                            Standard Member
+                            {t('standardMember')}
                           </Badge>
                         )}
                         {currentDetail.blockedAt && (
@@ -925,7 +926,7 @@ function CustomersContent() {
                                 </p>
                                 <p className="text-[11px] text-slate-400 mt-0.5 font-mono">
                                   
-                                  {t('crm.custBusinessDate')} {tkt.businessDate}  {t('crm.custStatusSep')} {tkt.status}
+                                  {t('crm.custBusinessDate')} {tkt.businessDate}  {t('crm.custStatusSep')} {t(ticketStatusI18nKey(tkt.status))}
                                 </p>
                               </div>
                               <div className="text-right">

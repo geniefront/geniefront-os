@@ -81,7 +81,7 @@ interface AutomatedPlaybook {
   icon: any;
   triggerKey: TranslationKey;
   rewardKey: TranslationKey;
-  messageTemplate: string;
+  messageKey: TranslationKey;
   enabled: boolean;
   totalSent: number;
   conversionRate: number;
@@ -95,11 +95,10 @@ const DEFAULT_PLAYBOOKS: AutomatedPlaybook[] = [
     icon: Cake,
     triggerKey: 'playbookBirthdayTrigger',
     rewardKey: 'playbookBirthdayReward',
-    messageTemplate:
-      '【GenieFront】Dear {customer_name}, Happy Birthday! Enjoy 20% off all treatments and a special gift during your birthday month.',
+    messageKey: 'playbookBirthdayMessage',
     enabled: true,
-    totalSent: 142,
-    conversionRate: 38.5,
+    totalSent: 0,
+    conversionRate: 0,
   },
   {
     id: 'winback',
@@ -108,11 +107,10 @@ const DEFAULT_PLAYBOOKS: AutomatedPlaybook[] = [
     icon: HeartHandshake,
     triggerKey: 'playbookWinbackTrigger',
     rewardKey: 'playbookWinbackReward',
-    messageTemplate:
-      '【GenieFront】Dear {customer_name}, we miss you! Enjoy a special $20 voucher on your next self-care visit.',
+    messageKey: 'playbookWinbackMessage',
     enabled: true,
-    totalSent: 89,
-    conversionRate: 24.7,
+    totalSent: 0,
+    conversionRate: 0,
   },
   {
     id: 'review',
@@ -121,11 +119,10 @@ const DEFAULT_PLAYBOOKS: AutomatedPlaybook[] = [
     icon: Star,
     triggerKey: 'playbookReviewTrigger',
     rewardKey: 'playbookReviewReward',
-    messageTemplate:
-      '【GenieFront】Thank you for visiting today! Review us to receive 100 loyalty points and a $10 next-visit voucher.',
+    messageKey: 'playbookReviewMessage',
     enabled: true,
-    totalSent: 318,
-    conversionRate: 52.1,
+    totalSent: 0,
+    conversionRate: 0,
   },
   {
     id: 'seasonal',
@@ -134,11 +131,10 @@ const DEFAULT_PLAYBOOKS: AutomatedPlaybook[] = [
     icon: Sparkles,
     triggerKey: 'playbookSeasonalTrigger',
     rewardKey: 'playbookSeasonalReward',
-    messageTemplate:
-      '【GenieFront】Seasonal Special: Enjoy $30 off our signature Hand & Foot Spa package this week!',
+    messageKey: 'playbookSeasonalMessage',
     enabled: false,
-    totalSent: 560,
-    conversionRate: 19.3,
+    totalSent: 0,
+    conversionRate: 0,
   },
 ];
 
@@ -596,7 +592,7 @@ function MarketingContent() {
                 size="sm"
                 onClick={() => {
                   setCampaignTargetPlaybook(playbooks[3] || playbooks[0]!);
-                  setCampaignCustomText(playbooks[3]?.messageTemplate || '');
+                  setCampaignCustomText(t(playbooks[3]?.messageKey || playbooks[0]!.messageKey));
                   toast.info(t('email.comingSoon'));
                 }}
               >
@@ -632,7 +628,7 @@ function MarketingContent() {
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-purple-50 border border-purple-200 text-xs font-bold text-purple-950">
             <Star className="w-3.5 h-3.5 text-purple-600" />
             <span>{t('crm.mktPointsIssued')}</span>
-            <strong className="font-mono text-sm ml-0.5">{metrics.totalPointsAwarded} pts</strong>
+            <strong className="font-mono text-sm ml-0.5">{metrics.totalPointsAwarded} {t('crm.mktPointsUnit')}</strong>
           </div>
         </div>
 
@@ -1153,9 +1149,9 @@ function MarketingContent() {
                     <div className="flex items-center gap-4">
                       <div className="text-right">
                         <span className="font-bold text-teal-700 text-sm font-mono">
-                          {c.points} pts
+                          {c.points} {t('crm.mktPointsUnit')}
                         </span>
-                        <p className="text-[10px] text-slate-400">Total: {c.lifetimePoints} pts</p>
+                        <p className="text-[10px] text-slate-400">{t('crm.mktLifetimePoints')} {c.lifetimePoints} {t('crm.mktPointsUnit')}</p>
                       </div>
                       <Button
                         size="sm"
@@ -1187,7 +1183,7 @@ function MarketingContent() {
           <div className="space-y-3">
             <div className="flex justify-between items-center text-xs font-bold text-slate-700">
               <span>{t('playbooksTab') || t('crm.mktAutomationPlaybooks')}</span>
-              <span className="text-slate-400 font-normal">Auto trigger via customer lifecycle</span>
+              <span className="text-slate-400 font-normal">{t('playbookTabHint')}</span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1228,14 +1224,14 @@ function MarketingContent() {
 
                       <div className="text-xs space-y-1.5 bg-white p-3 rounded-xl border border-slate-200">
                         <p className="text-slate-700">
-                          <strong className="text-slate-900">Trigger:</strong> {t(pb.triggerKey)}
+                          <strong className="text-slate-900">{t('playbookTriggerLabel')}:</strong> {t(pb.triggerKey)}
                         </p>
                         <p className="text-slate-700">
-                          <strong className="text-slate-900">Reward:</strong>{' '}
+                          <strong className="text-slate-900">{t('playbookRewardLabel')}:</strong>{' '}
                           <span className="text-amber-700 font-semibold">{t(pb.rewardKey)}</span>
                         </p>
                         <div className="pt-1.5 border-t border-slate-100 text-slate-600 text-[11px] italic">
-                          "{pb.messageTemplate}"
+                          "{t(pb.messageKey)}"
                         </div>
                       </div>
                     </CardContent>
@@ -1251,7 +1247,7 @@ function MarketingContent() {
                         className="h-7 text-xs font-bold text-indigo-700 border-indigo-200 hover:bg-indigo-50"
                         onClick={() => {
                           setCampaignTargetPlaybook(pb);
-                          setCampaignCustomText(pb.messageTemplate);
+                          setCampaignCustomText(t(pb.messageKey));
                           toast.info(t('email.comingSoon'));
                         }}
                       >
@@ -1589,8 +1585,7 @@ function MarketingContent() {
         <div className="space-y-4 py-1 text-xs">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block font-bold text-slate-700 uppercase mb-1">
-                
+              <label className="block font-bold text-slate-700 mb-1">
                 {t('crm.mktGcFaceValueLabel')}
               </label>
               <Input
@@ -1601,8 +1596,7 @@ function MarketingContent() {
             </div>
 
             <div>
-              <label className="block font-bold text-slate-700 uppercase mb-1">
-                
+              <label className="block font-bold text-slate-700 mb-1">
                 {t('crm.mktGcSalePriceLabel')}
               </label>
               <Input
@@ -1615,8 +1609,7 @@ function MarketingContent() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block font-bold text-slate-700 uppercase mb-1">
-                
+              <label className="block font-bold text-slate-700 mb-1">
                 {t('crm.mktGcPurchaserLabel')}
               </label>
               <Input
@@ -1627,8 +1620,7 @@ function MarketingContent() {
             </div>
 
             <div>
-              <label className="block font-bold text-slate-700 uppercase mb-1">
-                
+              <label className="block font-bold text-slate-700 mb-1">
                 {t('crm.mktGcRecipientLabel')}
               </label>
               <Input
@@ -1725,7 +1717,7 @@ function MarketingContent() {
             <p className="font-bold">{t('crm.mktAdjustCustomer')}{adjustTargetCustomer?.name}</p>
             <p className="text-[11px] text-teal-800 mt-0.5">
               
-              {t('crm.mktAdjustCurrentPoints')}<strong>{adjustTargetCustomer?.current}</strong> pts
+              {t('crm.mktAdjustCurrentPoints')}<strong>{adjustTargetCustomer?.current}</strong> {t('crm.mktPointsUnit')}
             </p>
           </div>
 

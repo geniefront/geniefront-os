@@ -380,6 +380,15 @@ async function main() {
           subscription_status = excluded.subscription_status,
           current_period_end = excluded.current_period_end`;
 
+    // 收银税率按店写，禁止缺行时 API 回落到纽约 8.875%。
+    // 莲花在纽约；金足在洛杉矶，种子未配加州税之前按未开征 0。
+    await tx`insert into location_checkout_settings (location_id, sales_tax_rate_percent)
+      values
+        (${NAIL_LOC}, 8.8750),
+        (${SPA_LOC}, 0)
+      on conflict (location_id) do update
+      set sales_tax_rate_percent = excluded.sales_tax_rate_percent`;
+
     // 3. 资源（工位与房间）
     const [roomType] = await tx<{ id: string }[]>`
       insert into resource_types (org_id, location_id, key, name)

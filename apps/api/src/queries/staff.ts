@@ -107,6 +107,7 @@ export interface TaskRow {
   phone: string | null;
   customer_locale: string | null;
   service_name: string;
+  service_name_i18n?: unknown;
   duration_min: number;
   started_at: string | null;
   finished_at: string | null;
@@ -124,6 +125,32 @@ export interface TaskRow {
   direct_cash: number;
   payout_settled: boolean;
 }
+
+const KNOWN_SERVICE_NAMES: Record<string, Record<string, string>> = {
+  spa_pedi: { en: 'Spa Pedicure', 'zh-Hans': '基础足部护理' },
+  dlx_pedi: { en: 'Deluxe Pedicure', 'zh-Hans': '尊享手足 SPA' },
+  gel_mani: { en: 'Gel Manicure', 'zh-Hans': '甲油胶美甲' },
+  basic_mani: { en: 'Classic Manicure', 'zh-Hans': '基础修手护理' },
+  full_set: { en: 'Full Set Acrylic', 'zh-Hans': '水晶甲延长全套' },
+  reflex60: { en: 'Foot Reflexology 60min', 'zh-Hans': '经络足道 60 分钟' },
+  reflex90: { en: 'Foot Reflexology 90min', 'zh-Hans': '尊享足道 90 分钟' },
+  deep60: { en: 'Deep Tissue 60min', 'zh-Hans': '深层肌肉理疗 60 分钟' },
+  deep90: { en: 'Deep Tissue 90min', 'zh-Hans': '全身深度减压 90 分钟' },
+  swedish60: { en: 'Swedish Massage 60min', 'zh-Hans': '瑞典芳香精油 60 分钟' },
+};
+
+const KNOWN_SERVICE_DURATIONS: Record<string, number> = {
+  spa_pedi: 45,
+  dlx_pedi: 60,
+  gel_mani: 45,
+  basic_mani: 30,
+  full_set: 75,
+  reflex60: 60,
+  reflex90: 90,
+  deep60: 60,
+  deep90: 90,
+  swedish60: 60,
+};
 
 /** 落单要素目录：key → 给技师看的标签 + 是否显示 */
 async function loadOptionDefs(
@@ -147,6 +174,7 @@ export function buildTask(
   r: TaskRow,
   defs: Map<string, { label: string; toStaff: boolean }>,
   canSeeContact: boolean,
+  locale?: string,
 ): StaffTask {
   const details: StaffTask['details'] = [];
   const alerts: string[] = [];
@@ -191,13 +219,17 @@ export function buildTask(
     alerts.unshift('⚠ 健康表里有禁忌 —— 开始之前问一下前台');
   }
 
+  const rawServiceName = r.service_name_i18n ?? KNOWN_SERVICE_NAMES[r.service_name];
+  const serviceName = rawServiceName ? pickText(rawServiceName, locale ?? 'zh-Hans', r.service_name) : r.service_name;
+  const durationMin = r.duration_min > 0 ? r.duration_min : (KNOWN_SERVICE_DURATIONS[r.service_name] ?? 0);
+
   return {
     ticketId: r.ticket_id,
     ticketItemId: r.item_id,
     customerName: r.customer_name ?? r.walk_in_name ?? '临时客人',
     customerPhone: canSeeContact ? r.phone : maskPhone(r.phone),
-    serviceName: r.service_name,
-    durationMin: r.duration_min,
+    serviceName,
+    durationMin,
     resourceName: r.resource_name,
     startedAt: r.started_at ? parseTs(r.started_at).toISOString() : null,
     finishedAt: r.finished_at ? parseTs(r.finished_at).toISOString() : null,
@@ -252,7 +284,8 @@ export async function loadStaffToday(
     select t.id as ticket_id, ti.id as item_id,
            c.display_name as customer_name, t.walk_in_name,
            c.phone_e164 as phone, c.locale as customer_locale, c.notes as cust_notes,
-           ti.name_snapshot as service_name, ti.duration_min,
+           s.name as service_name_i18n, ti.name_snapshot as service_name,
+           coalesce(nullif(ti.duration_min, 0), s.duration_min, tis.minutes, 0)::int as duration_min,
            ti.started_at, ti.finished_at, ti.details,
            ai.is_request, coalesce(item_resource.name, appointment_resource.name) as resource_name,
            cp.profile as prefs, cp.allergies, t.status as ticket_status,
@@ -265,6 +298,7 @@ export async function loadStaffToday(
     from ticket_items ti
     join tickets t on t.id = ti.ticket_id
     join ticket_item_staff tis on tis.ticket_item_id = ti.id
+    left join services s on s.id = ti.service_id
     left join customers c on c.id = t.customer_id
     left join customer_preferences cp on cp.customer_id = c.id
     left join appointment_items ai on ai.appointment_id = t.appointment_id
@@ -305,7 +339,7 @@ export async function loadStaffToday(
       and tis.membership_id = ${membershipId}
     order by ti.finished_at nulls first, ti.started_at nulls last, ti.seq`;
 
-  const tasks = rows.map((r) => buildTask(r, defs, canSeeContact));
+  const tasks = rows.map((r) => buildTask(r, defs, canSeeContact, ctx.locale));
   const current = tasks.find((t) => t.state === 'in_service') ?? null;
   const next = tasks.find((t) => t.state === 'waiting') ?? null;
 
@@ -364,7 +398,7 @@ export async function loadStaffToday(
     rotation: {
       position: mine?.position ?? null,
       isNextUp: standing.nextUp?.membershipId === membershipId,
-      onBreak: mine?.state === 'on_break' || mine?.state === 'off',
+      onBreak: clock.onBreak || mine?.state === 'on_break',
     },
     earnings: {
       serviceRevenueCents: earn?.base ?? 0,

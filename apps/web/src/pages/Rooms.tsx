@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Modal } from '@/components/ui/Modal';
 import { cn } from '@/lib/utils';
-import { ganttOffsetMinutes, occupancyElapsedMinutes, useStoreTime } from '@/lib/time';
+import { ganttOffsetMinutes, occupancyElapsedMinutes, useBusinessDay, useStoreTime } from '@/lib/time';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { fuzzySearch } from '@/lib/fuzzySearch';
 import { Input } from '@/components/ui/Input';
@@ -45,6 +46,10 @@ import {
   useSaveResource,
   useDeleteResource,
 } from '@/features/rooms/api';
+import { useJoinQueue, queueKeys } from '@/features/queue/api';
+import { useOpenTicket, useStartTicketItem } from '@/features/tickets/api';
+import { useDaySnapshot } from '@/features/schedule/api';
+import { useSession } from '@/lib/session';
 import type { RoomItem, RoomStatus, RoomType, TimelineSlot, RoomSession } from '@/features/rooms/types';
 import type { TranslationKey } from '@/i18n';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -65,6 +70,13 @@ function RoomsContent() {
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
   const { data, isLoading, error, refetch } = useRoomsQuery();
+  const queryClient = useQueryClient();
+  const { membershipId } = useSession();
+  const { today } = useBusinessDay();
+  const { data: daySnap } = useDaySnapshot(today);
+  const joinQueue = useJoinQueue();
+  const openTicket = useOpenTicket();
+  const startTicketItem = useStartTicketItem();
   const setStatusMutation = useSetResourceStatus();
   const saveResourceMutation = useSaveResource();
   const deleteResourceMutation = useDeleteResource();
@@ -97,7 +109,9 @@ function RoomsContent() {
   const [seatModalOpen, setSeatModalOpen] = useState(false);
   const [seatTarget, setSeatTarget] = useState<RoomItem | null>(null);
   const [seatGuestName, setSeatGuestName] = useState('');
-  const [seatServiceName, setSeatServiceName] = useState('');
+  const [seatServiceId, setSeatServiceId] = useState('');
+  const [seatStaffId, setSeatStaffId] = useState('');
+  const seatPending = joinQueue.isPending || openTicket.isPending || startTicketItem.isPending;
 
   // 5. In Service会话详情查看弹窗
   const [sessionDetailModalOpen, setSessionDetailModalOpen] = useState(false);
@@ -276,25 +290,62 @@ function RoomsContent() {
     }
   };
 
-  // 确认快速入座
+  const openSeatModal = (room: RoomItem) => {
+    const upcoming = room.upcomingSession;
+    setSeatTarget(room);
+    setSeatGuestName(upcoming?.customerName ?? '');
+    setSeatServiceId(daySnap?.services[0]?.id ?? '');
+    setSeatStaffId(daySnap?.staff.find((s) => s.isBookable)?.membershipId ?? daySnap?.staff[0]?.membershipId ?? '');
+    setSeatModalOpen(true);
+  };
+
+  // 入座必须走开单/开工，不能直接把房间设成服务中。
   const handleConfirmSeat = async () => {
     if (!seatTarget) return;
+    const guestName = seatGuestName.trim();
+    const service = daySnap?.services.find((s) => s.id === seatServiceId);
+    if (!guestName || !service || !seatStaffId) {
+      toast.danger(t('queue.roomSeatNeedGuest'));
+      return;
+    }
     try {
-      const parts: string[] = [];
-      if (seatGuestName.trim()) parts.push(t('queue.roomSeatGuestPrefix', { p0: seatGuestName.trim() }));
-      if (seatServiceName.trim()) parts.push(t('queue.roomSeatServicePrefix', { p0: seatServiceName.trim() }));
-
-      await setStatusMutation.mutateAsync({
-        resourceId: seatTarget.id,
-        status: 'in_service',
-        note: parts.length > 0
-          ? t('queue.roomSeatManualNote', { p0: parts.join(', ') })
-          : t('queue.roomSeatManualNoteEmpty'),
+      const upcomingId = seatTarget.upcomingSession?.appointmentId;
+      const joined = await joinQueue.mutateAsync({
+        ...(upcomingId ? { appointmentId: upcomingId } : {}),
+        walkInName: guestName,
+        requestedServiceId: service.id,
+        requestedStaffId: seatStaffId,
       });
+      const opened = await openTicket.mutateAsync({
+        customerId: null,
+        walkInName: guestName,
+        appointmentId: joined.appointmentId,
+        items: [{
+          serviceId: service.id,
+          staffAssignments: [{
+            membershipId: seatStaffId,
+            role: 'primary',
+            minutes: service.durationMin,
+          }],
+          resourceId: seatTarget.id,
+          minutes: service.durationMin,
+        }],
+        idempotencyKey: `rooms-seat-${joined.queueId}`,
+      });
+      const ticketItemId = opened.ticketItemIds[0];
+      if (ticketItemId) {
+        await startTicketItem.mutateAsync({
+          ticketItemId,
+          membershipId: seatStaffId,
+        });
+      }
       toast.success(t('queue.roomSeated', { p0: seatTarget.name }));
       setSeatModalOpen(false);
       setSeatTarget(null);
-    } catch (err: any) {
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'rooms'] });
+      void queryClient.invalidateQueries({ queryKey: queueKeys.list(membershipId) });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });
+    } catch (err: unknown) {
       toast.danger(errorMessage(err));
     }
   };
@@ -708,12 +759,7 @@ function RoomsContent() {
                           variant="secondary"
                           size="sm"
                           className="w-full text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700 shadow-xs h-8 cursor-pointer"
-                          onClick={() => {
-                            setSeatTarget(room);
-                            setSeatGuestName('');
-                            setSeatServiceName('');
-                            setSeatModalOpen(true);
-                          }}
+                          onClick={() => openSeatModal(room)}
                         >
                           <LogIn className="w-3.5 h-3.5 mr-1" />
                           <span>{t('queue.roomSeatGuest')}</span>
@@ -857,12 +903,7 @@ function RoomsContent() {
                         <div className="flex items-center gap-1.5 pt-0.5">
                           <button
                             type="button"
-                            onClick={() => {
-                              setSeatTarget(room);
-                              setSeatGuestName('');
-                              setSeatServiceName('');
-                              setSeatModalOpen(true);
-                            }}
+                            onClick={() => openSeatModal(room)}
                             className="flex-1 py-1 px-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
                           >
                             <LogIn className="w-3 h-3 text-emerald-600" />
@@ -1280,8 +1321,7 @@ function RoomsContent() {
       >
         <div className="space-y-4 py-1 text-xs">
           <div>
-            <label className="block font-bold text-slate-700 uppercase mb-1">
-              
+            <label className="block font-bold text-slate-700 mb-1">
               {t('queue.roomNameLabel')}
             </label>
             <Input
@@ -1293,8 +1333,7 @@ function RoomsContent() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block font-bold text-slate-700 uppercase mb-1">
-                
+              <label className="block font-bold text-slate-700 mb-1">
                 {t('queue.roomTypeLabel')}
               </label>
               <select
@@ -1311,8 +1350,7 @@ function RoomsContent() {
             </div>
 
             <div>
-              <label className="block font-bold text-slate-700 uppercase mb-1">
-                
+              <label className="block font-bold text-slate-700 mb-1">
                 {t('queue.roomCapacityLabel')}
               </label>
               <Input
@@ -1326,8 +1364,7 @@ function RoomsContent() {
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 uppercase mb-1">
-              
+            <label className="block font-bold text-slate-700 mb-1">
               {t('queue.roomMaxStaffLabel')}
             </label>
             <Input
@@ -1416,7 +1453,7 @@ function RoomsContent() {
             <Button
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
               onClick={handleConfirmSeat}
-              disabled={setStatusMutation.isPending}
+              disabled={seatPending}
             >
               
               {t('queue.roomSeatConfirm')}
@@ -1434,8 +1471,7 @@ function RoomsContent() {
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 uppercase mb-1">
-              
+            <label className="block font-bold text-slate-700 mb-1">
               {t('queue.roomSeatGuestName')}
             </label>
             <Input
@@ -1446,15 +1482,37 @@ function RoomsContent() {
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 uppercase mb-1">
-              
-              {t('queue.roomSeatServiceNote')}
+            <label className="block font-bold text-slate-700 mb-1">
+              {t('queue.roomSeatService')}
             </label>
-            <Input
-              value={seatServiceName}
-              onChange={(e) => setSeatServiceName(e.target.value)}
-              placeholder={t('queue.roomSeatServicePlaceholder')}
-            />
+            <select
+              aria-label={t('queue.roomSeatService')}
+              value={seatServiceId}
+              onChange={(e) => setSeatServiceId(e.target.value)}
+              className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700"
+            >
+              <option value="">{t('queue.roomSeatChooseService')}</option>
+              {(daySnap?.services ?? []).map((svc) => (
+                <option key={svc.id} value={svc.id}>{svc.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">
+              {t('queue.roomSeatStaff')}
+            </label>
+            <select
+              aria-label={t('queue.roomSeatStaff')}
+              value={seatStaffId}
+              onChange={(e) => setSeatStaffId(e.target.value)}
+              className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700"
+            >
+              <option value="">{t('queue.roomSeatChooseStaff')}</option>
+              {(daySnap?.staff ?? []).filter((s) => s.isBookable).map((staff) => (
+                <option key={staff.membershipId} value={staff.membershipId}>{staff.name}</option>
+              ))}
+            </select>
           </div>
         </div>
       </Modal>

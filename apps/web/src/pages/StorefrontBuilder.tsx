@@ -244,7 +244,9 @@ export function StorefrontBuilder() {
                     <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
                   ) : null}
                 </div>
-                <p className="text-[10px] opacity-80 mt-0.5">{st.desc}</p>
+                <p className="text-[10px] opacity-80 mt-0.5">
+                  {status === 'pending' ? t('settings.sfStepPending') : st.desc}
+                </p>
               </div>
               );
             })}

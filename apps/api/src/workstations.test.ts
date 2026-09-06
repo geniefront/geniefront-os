@@ -235,15 +235,20 @@ describe('前台 5 大核心工作台后端专项测试', () => {
 
   describe('4. 收银结账 (Checkout & Multi-Staff Tip Splits)', () => {
     it('ticket.pay 支持刷卡手续费 surchargeCents 与多技师小费分账 tipSplits', async () => {
-      // 1. 创建待结账单据
-      const [t] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
-        insert into tickets (
-          org_id, location_id, customer_id, business_date, status,
-          subtotal_cents, discount_cents, tax_cents, tip_cents, total_cents
-        ) values (
-          ${NAIL_ORG}, ${NAIL_LOC}, ${testCustomerId}, ${historicalDay}, 'open',
-          10000, 0, 0, 0, 10000
-        ) returning id`);
+      await withTenant(tenant, (tx) => tx`
+        update location_checkout_settings
+        set sales_tax_rate_percent = 0
+        where location_id = ${NAIL_LOC}`);
+      try {
+        // 1. 创建待结账单据
+        const [t] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+          insert into tickets (
+            org_id, location_id, customer_id, business_date, status,
+            subtotal_cents, discount_cents, tax_cents, tip_cents, total_cents
+          ) values (
+            ${NAIL_ORG}, ${NAIL_LOC}, ${testCustomerId}, ${historicalDay}, 'open',
+            10000, 0, 0, 0, 10000
+          ) returning id`);
 
       await withTenant(tenant, (tx) => tx`
         insert into ticket_items (
@@ -313,7 +318,13 @@ describe('前台 5 大核心工作台后端专项测试', () => {
       expect(closedRow!.surcharge_cents).toBe(350);
       expect(closedRow!.total_cents).toBe(12350);
       expect(closedRow!.tip_cents).toBe(2000);
-    });
+    } finally {
+      await withTenant(tenant, (tx) => tx`
+        update location_checkout_settings
+        set sales_tax_rate_percent = 8.8750
+        where location_id = ${NAIL_LOC}`);
+    }
+  });
   });
 
   describe('5. 订单记录与退款冲销 (Orders & Ticket Refund)', () => {

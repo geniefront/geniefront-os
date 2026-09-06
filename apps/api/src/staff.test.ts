@@ -16,6 +16,7 @@ import { buildContext } from './actor';
 import { dispatch } from './bus';
 import { replayPunches } from './handlers/staff';
 import { maskPhone, loadStaffToday, buildTask, type TaskRow } from './queries/staff';
+import { locationTaxCents } from './tax';
 import './handlers/ticket';
 import './handlers/staff';
 
@@ -177,6 +178,24 @@ describe('⭐ 技师在床边先看到哪一句', () => {
     const t = buildTask(row({ prefs: { health_flag: false } }), new Map(), true);
     expect(t.alerts.some((a) => a.includes('禁忌'))).toBe(false);
   });
+
+  it('技师派工卡 serviceName 能够解析多语言并补齐 durationMin', () => {
+    const tZh = buildTask(row({
+      service_name: 'spa_pedi',
+      service_name_i18n: { en: 'Spa Pedicure', 'zh-Hans': '基础足部护理' },
+      duration_min: 0,
+    }), new Map(), true, 'zh-Hans');
+    expect(tZh.serviceName).toBe('基础足部护理');
+    expect(tZh.durationMin).toBe(45);
+
+    const tEn = buildTask(row({
+      service_name: 'spa_pedi',
+      service_name_i18n: null,
+      duration_min: 0,
+    }), new Map(), true, 'en');
+    expect(tEn.serviceName).toBe('Spa Pedicure');
+    expect(tEn.durationMin).toBe(45);
+  });
 });
 
 describe('开始 / 完成', () => {
@@ -251,9 +270,14 @@ describe('开始 / 完成', () => {
     const [item] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
       select id from ticket_items where ticket_id = ${t.ticketId}`);
     await run('ticket.finishItem', { ticketItemId: item!.id }, ctx);
+    const due = t.subtotalCents + locationTaxCents({
+      afterDiscountCents: t.subtotalCents,
+      salesTaxRatePercent: 8.875,
+      taxCalculationMode: 'exclusive',
+    });
     await run('ticket.close', {
       ticketId: t.ticketId,
-      payments: [{ method: 'cash', amountCents: t.subtotalCents, tipCents: 0 }],
+      payments: [{ method: 'cash', amountCents: due, tipCents: 0 }],
     }, ctx);
 
     await expect(run('ticket.startItem', { ticketItemId: item!.id }, ctx))
@@ -345,6 +369,27 @@ describe('打卡流水重放（纯函数）', () => {
       { kind: 'clock_in', at: at(10) }, { kind: 'clock_in', at: at(11) },
     ], at(12));
     expect(r.workedMinutes).toBe(120);
+  });
+
+  it('replayPunches 正确跟踪 onBreak 状态', () => {
+    const inWork = replayPunches([{ kind: 'clock_in', at: at(10) }], at(11));
+    expect(inWork.onDuty).toBe(true);
+    expect(inWork.onBreak).toBe(false);
+
+    const onBreak = replayPunches([
+      { kind: 'clock_in', at: at(10) },
+      { kind: 'break_start', at: at(11) },
+    ], at(12));
+    expect(onBreak.onDuty).toBe(true);
+    expect(onBreak.onBreak).toBe(true);
+
+    const backFromBreak = replayPunches([
+      { kind: 'clock_in', at: at(10) },
+      { kind: 'break_start', at: at(11) },
+      { kind: 'break_end', at: at(11, 30) },
+    ], at(12));
+    expect(backFromBreak.onDuty).toBe(true);
+    expect(backFromBreak.onBreak).toBe(false);
   });
 });
 

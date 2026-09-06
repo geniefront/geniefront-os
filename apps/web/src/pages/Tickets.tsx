@@ -56,6 +56,8 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
 import { cn, formatI18n, formatPhoneDisplay } from '@/lib/utils';
 import { orderPaymentDisplay, fullRefundCents } from '@/features/tickets/orderDisplay';
+import { formatTaxRatePercent, taxNoteKind } from '@/features/tickets/taxCopy';
+import { useDeskSettingsQuery } from '@/features/settings/api';
 import { customerInitials } from '@/lib/displayName';
 
 export type TicketStatusFilter = 'all' | 'completed' | 'open' | 'voided' | 'refunded';
@@ -122,6 +124,12 @@ function TicketsContent() {
   const { t, language } = useLanguage();
   const navigate = useNavigate();
   const { data, isLoading, error, refetch: refetchTickets } = useTicketsList();
+  const settingsQ = useDeskSettingsQuery();
+  const taxRatePercent = Number(settingsQ.data?.checkout?.salesTaxRatePercent ?? 0);
+  const taxNote = taxNoteKind(taxRatePercent) === 'none'
+    ? t('checkout.tkTaxNoteNone')
+    : t('checkout.tkTaxNote', { p0: formatTaxRatePercent(taxRatePercent) });
+  const salesTaxLine = t('checkout.tkSalesTaxLine', { p0: formatTaxRatePercent(taxRatePercent) });
   const voidMutation = useVoidTicket();
   const refundMutation = useRefundTicket();
 
@@ -594,7 +602,7 @@ function TicketsContent() {
       ord.businessDate || '',
       ord.customerName || t('walkInGuest'),
       ord.customerPhone || t('checkout.tkExportNoPhone'),
-      ord.customerTier || 'Standard Member',
+      ord.customerTier === 'Standard Member' ? t('standardMember') : (ord.customerTier || t('standardMember')),
       (ord.items || []).map((i) => `${i?.name || t('service')} (${i?.durationMin || 60}m)`).join('; '),
       (ord.items || []).map((i) => i?.staffName || t('staffUnassigned')).join(' / '),
       centsToDollars(ord.subtotalCents),
@@ -794,7 +802,7 @@ function TicketsContent() {
             <span className="text-2xl font-black font-mono text-slate-900">
               ${centsToDollars(metrics.totalTaxSurchargeCents)}
             </span>
-            <p className="text-[11px] text-slate-500 font-medium">{t('checkout.tkTaxNote')}</p>
+            <p className="text-[11px] text-slate-500 font-medium">{taxNote}</p>
           </div>
         </Card>
 
@@ -1029,7 +1037,7 @@ function TicketsContent() {
                                     : 'bg-slate-100 text-slate-600',
                               )}
                             >
-                              {ord.customerTier || 'Standard Member'}
+                              {ord.customerTier === 'Standard Member' ? t('standardMember') : (ord.customerTier || t('standardMember'))}
                             </Badge>
                           </div>
                           {ord.customerPhone && (
@@ -1281,7 +1289,7 @@ function TicketsContent() {
                 <div>
                   <span>{t('checkout.tkReceiptCustomer')} </span>
                   <strong className="text-slate-900">{selectedRecord.customerName || t('checkout.tkWalkInGuest2')}</strong>
-                  <span className="text-[10px] text-amber-700 font-bold ml-1">({selectedRecord.customerTier || 'Standard Member'})</span>
+                  <span className="text-[10px] text-amber-700 font-bold ml-1">({selectedRecord.customerTier === 'Standard Member' ? t('standardMember') : (selectedRecord.customerTier || t('standardMember'))})</span>
                 </div>
                 <div>
                   <span>{t('checkout.tkReceiptPhone')} </span>
@@ -1354,7 +1362,7 @@ function TicketsContent() {
                 )}
                 {asCents(selectedRecord.taxCents ?? 0) > 0 && (
                   <div className="flex justify-between">
-                    <span>{t('checkout.tkSalesTaxLine')}</span>
+                    <span>{salesTaxLine}</span>
                     <span className="font-mono">${centsToDollars(selectedRecord.taxCents)}</span>
                   </div>
                 )}

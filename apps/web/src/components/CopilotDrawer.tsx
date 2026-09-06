@@ -35,6 +35,7 @@ import { useStoreTime } from '@/lib/time';
 import { useSession } from '@/lib/session';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { copilotQueryCountAfterFailure } from '@/lib/deskCopy';
 
 interface CopilotDrawerProps {
   onClose: () => void;
@@ -730,6 +731,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
                 if (s.id !== targetSession.id) return s;
                 return {
                   ...s,
+                  userQueryCount: copilotQueryCountAfterFailure(s.userQueryCount),
                   messages: s.messages.map((m) => {
                     if (m.id !== assistantMsgId) return m;
                     return {
@@ -752,6 +754,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
           if (s.id !== targetSession.id) return s;
           return {
             ...s,
+            userQueryCount: copilotQueryCountAfterFailure(s.userQueryCount),
             messages: s.messages.map((m) => {
               if (m.id !== assistantMsgId) return m;
               return {

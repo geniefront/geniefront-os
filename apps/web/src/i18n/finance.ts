@@ -63,6 +63,7 @@ export const finance = {
   'finance.dashLoadError': { 'zh-Hans': '仪表盘全景数据加载异常', en: 'Failed to load the dashboard', ko: '대시보드 데이터를 불러오지 못했습니다', es: 'No se pudo cargar el panel', vi: 'Không tải được dữ liệu bảng điều khiển' },
   'finance.dashHeaderSuffix': { 'zh-Hans': '· 前台运营看板', en: '· Front-desk operations board', ko: '· 프런트 운영 보드', es: '· Panel de operaciones de recepción', vi: '· Bảng vận hành quầy lễ tân' },
   'finance.dashOpenNow': { 'zh-Hans': '实时营业中', en: 'Open now', ko: '영업 중', es: 'Abierto ahora', vi: 'Đang mở cửa' },
+  'finance.dashDayClosed': { 'zh-Hans': '已打烊封账', en: 'Closed', ko: '영업 마감', es: 'Cerrado', vi: 'Đã đóng cửa' },
   'finance.dashTimezone': { 'zh-Hans': '时区:', en: 'Time zone:', ko: '시간대:', es: 'Zona horaria:', vi: 'Múi giờ:' },
   'finance.dashOnDuty': { 'zh-Hans': '在岗', en: 'On duty', ko: '근무 중', es: 'En turno', vi: 'Đang trực' },
   'finance.dashReadyCount': { 'zh-Hans': '位就绪', en: 'ready', ko: '명 대기', es: 'disponibles', vi: 'người sẵn sàng' },

@@ -139,7 +139,7 @@ export async function loadCheckoutSettings(
 
   // Fallback to locations.settings['checkout'] or system defaults
   return {
-    salesTaxRatePercent: Number(raw['salesTaxRatePercent'] ?? raw['sales_tax_rate_percent'] ?? 8.875),
+    salesTaxRatePercent: Number(raw['salesTaxRatePercent'] ?? raw['sales_tax_rate_percent'] ?? 0),
     taxCalculationMode: (raw['taxCalculationMode'] ?? raw['tax_calculation_mode'] ?? 'exclusive') as 'exclusive' | 'inclusive',
     suggestedTipPercentages: (raw['suggestedTipPercentages'] ?? raw['suggested_tip_percentages'] ?? [15, 18, 20, 25]) as number[],
     allowCustomTip: raw['allowCustomTip'] !== false && raw['allow_custom_tip'] !== false,

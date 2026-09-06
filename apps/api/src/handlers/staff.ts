@@ -465,7 +465,7 @@ async function assertPin(
 /** 重放当天的打卡流水，得出「现在在不在岗」与「做了多少分钟」 */
 export function replayPunches(
   punches: ReadonlyArray<{ kind: string; at: Date }>, now = new Date(),
-): { onDuty: boolean; workedMinutes: number } {
+): { onDuty: boolean; workedMinutes: number; onBreak: boolean } {
   let onDuty = false;
   let onBreak = false;
   let worked = 0;
@@ -485,7 +485,7 @@ export function replayPunches(
     }
   }
   if (onDuty && !onBreak) acc(now);
-  return { onDuty, workedMinutes: Math.max(0, Math.round(worked)) };
+  return { onDuty, workedMinutes: Math.max(0, Math.round(worked)), onBreak };
 }
 
 registerHandler(TimeclockPunch, async ({ input, ctx, tx, audit, emit }: HandlerArgs<

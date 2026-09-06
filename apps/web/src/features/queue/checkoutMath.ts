@@ -162,9 +162,7 @@ function allocateTips(
 export function computeCheckoutTotals(input: CheckoutTotalsInput): CheckoutTotals {
   const discountCents = Math.max(0, toCents(input.discountDollars));
   const afterDiscountCents = Math.max(0, input.baseCents - discountCents);
-  const taxCents = input.enableTax
-    ? Math.round(afterDiscountCents * toRate(input.taxRatePercent))
-    : 0;
+  const taxCents = Math.round(afterDiscountCents * toRate(input.taxRatePercent));
 
   const totalTipCents = input.tipMode === 'total_split'
     ? (input.totalTipDollars !== ''

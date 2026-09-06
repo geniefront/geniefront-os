@@ -60,7 +60,7 @@ export function useJoinQueue() {
      */
     mutationFn: async (input: JoinQueueInput & { idempotencyKey?: string }) =>
       (await runCommand<{
-        queueId: string; ticketNumber: number;
+        queueId: string; appointmentId: string; ticketNumber: number;
         aheadCount: number; quotedWaitMin: number | null; businessDate: string;
       }>(
         'queue.join',

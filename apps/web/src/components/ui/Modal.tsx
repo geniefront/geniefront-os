@@ -55,7 +55,7 @@ export interface ConfirmDialogProps {
   description?: React.ReactNode;
   confirmLabel?: React.ReactNode;
   tone?: 'default' | 'danger';
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
 }
 
 export function ConfirmDialog({
@@ -77,7 +77,14 @@ export function ConfirmDialog({
           <Button
             variant={tone === 'danger' ? 'danger' : 'primary'}
             aria-label={typeof confirmLabel === 'string' ? confirmLabel : t('confirm')}
-            onPress={() => { onConfirm(); onOpenChange(false); }}
+            onPress={async () => {
+              try {
+                await onConfirm();
+                onOpenChange(false);
+              } catch {
+                // 失败时留着弹窗，toast 才看得到
+              }
+            }}
           >
             {confirmLabel ?? t('confirm')}
           </Button>

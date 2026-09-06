@@ -7,6 +7,7 @@
 import type postgres from 'postgres';
 import { parseTs } from '@gf/db';
 import { pickText, type CommandContext } from '@gf/contracts';
+import { deskOpenCloseMin } from './deskHours';
 
 export interface DayStaff {
   membershipId: string;
@@ -24,6 +25,13 @@ export interface DayItem {
   appointmentId: string;
   membershipId: string | null;
   customerName: string;
+  /** 客户档案电话。没有档案（纯 walk-in 未留号）时为 null。 */
+  customerPhone: string | null;
+  /**
+   * 实际完工时刻（ticket_items.finished_at）。
+   * 没有开工记录时为 null，看板不得拿预约 ends_at 冒充。
+   */
+  completedAt: string | null;
   /**
    * ⭐ 项目 id。**别拿 `serviceName` 去 `services[]` 里回查** ——
    * 那条路有三个会静默出错的地方：
@@ -119,17 +127,25 @@ export async function loadDay(
 
   const itemRows = await tx<{
     item_id: string; appointment_id: string; membership_id: string | null;
-    customer_name: string | null; walk_in_name: string | null;
+    customer_name: string | null; walk_in_name: string | null; customer_phone: string | null;
     service_id: string; service_name: unknown;
     starts_at: string; ends_at: string; duration_min: number; status: string;
     is_request: boolean; overbooked: boolean; overbook_reason: string | null;
-    resource_id: string | null;
+    resource_id: string | null; completed_at: string | null;
   }[]>`
     select ai.id as item_id, ai.appointment_id, ai.membership_id,
-           c.display_name as customer_name, a.walk_in_name,
+           c.display_name as customer_name, a.walk_in_name, c.phone_e164 as customer_phone,
            ai.service_id, s.name as service_name,
            ai.starts_at, ai.ends_at, ai.duration_min, ai.status,
-           ai.is_request, ai.overbooked, ai.overbook_reason, ai.resource_id
+           ai.is_request, ai.overbooked, ai.overbook_reason, ai.resource_id,
+           (
+             select max(ti.finished_at)
+             from tickets tk
+             join ticket_items ti on ti.ticket_id = tk.id
+             where tk.appointment_id = a.id
+               and tk.location_id = ai.location_id
+               and ti.finished_at is not null
+           ) as completed_at
     from appointment_items ai
     join appointments a on a.id = ai.appointment_id
     join services s on s.id = ai.service_id
@@ -139,20 +155,13 @@ export async function loadDay(
       and ai.status <> 'cancelled'
     order by ai.starts_at`;
 
-  // 营业时间：按星期取；没配就给一个安全的默认，别让日程表整个空掉
-  const dow = new Date(`${businessDate}T12:00:00Z`).getUTCDay();
-  const hours = (loc?.business_hours ?? {}) as Record<string, { open?: string; close?: string }>;
-  const today = hours[String(dow)] ?? hours[['sun','mon','tue','wed','thu','fri','sat'][dow]!] ?? {};
-  const toMin = (hhmm: string | undefined, dflt: number): number => {
-    const m = /^(\d{1,2}):(\d{2})/.exec(hhmm ?? '');
-    return m ? Number(m[1]) * 60 + Number(m[2]) : dflt;
-  };
+  const hours = deskOpenCloseMin(businessDate, loc?.business_hours);
 
   return {
     businessDate,
     timezone: loc?.timezone ?? 'America/New_York',
-    openMin: toMin(today.open, 9 * 60),
-    closeMin: toMin(today.close, 20 * 60),
+    openMin: hours.openMin,
+    closeMin: hours.closeMin,
     staff: staffRows.map((s) => ({
       membershipId: s.membership_id,
       name: pickText(s.display_name, ctx.locale),
@@ -188,10 +197,12 @@ export async function loadDay(
       appointmentId: r.appointment_id,
       membershipId: r.membership_id,
       customerName: r.customer_name ?? r.walk_in_name ?? '临时客人',
+      customerPhone: r.customer_phone,
       serviceId: r.service_id,
       serviceName: pickText(r.service_name, ctx.locale),
       startsAt: parseTs(r.starts_at).toISOString(),
       endsAt: parseTs(r.ends_at).toISOString(),
+      completedAt: r.completed_at ? parseTs(r.completed_at).toISOString() : null,
       durationMin: r.duration_min,
       status: r.status,
       isRequest: r.is_request,

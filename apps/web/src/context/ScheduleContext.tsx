@@ -61,6 +61,7 @@ export interface ScheduleItem {
    */
   service: DayService | null;
   customerName: string;
+  customerPhone?: string | null;
   startMins: number;
   endMins: number;
   durationMin: number;
@@ -73,6 +74,8 @@ export interface ScheduleItem {
   /** 展示用 `HH:mm`。 */
   startTime: string;
   endTime: string;
+  /** 实际完工 ISO。看板「已完工」必须用它，不能用预约 endTime。 */
+  completedAt?: string | null;
   /** 该 item 所属的营业日 `YYYY-MM-DD`。周视图按它分组。 */
   date: string;
 }
@@ -205,6 +208,7 @@ export function toScheduleItem(
     serviceName: formatI18n(item.serviceName) || fallbacks.service,
     service: servicesById.get(item.serviceId) ?? null,
     customerName: formatI18n(item.customerName) || fallbacks.customer,
+    customerPhone: item.customerPhone ?? null,
     startMins,
     endMins,
     durationMin: item.durationMin,
@@ -214,6 +218,7 @@ export function toScheduleItem(
     resourceId: item.resourceId,
     startTime: formatWallTime(startMins),
     endTime: formatWallTime(endMins),
+    completedAt: item.completedAt ?? null,
     date: snapshot.businessDate,
   };
 }

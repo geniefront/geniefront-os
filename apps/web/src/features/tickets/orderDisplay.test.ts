@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { orderPaymentDisplay, fullRefundCents } from './orderDisplay';
+import { orderPaymentDisplay, fullRefundCents, ticketStatusI18nKey } from './orderDisplay';
 
 describe('orderPaymentDisplay', () => {
   it('待收银且没有任何收款时不得伪造信用卡 *4242', () => {
@@ -42,5 +42,14 @@ describe('fullRefundCents', () => {
       tipCents: 675,
       refundCents: 1000,
     })).toBe(4175);
+  });
+});
+
+describe('ticketStatusI18nKey', () => {
+  it('closed 不是展示文案', () => {
+    expect(ticketStatusI18nKey('closed')).toBe('checkout.tkStatusSettled');
+    expect(ticketStatusI18nKey('open')).toBe('checkout.tkStatusPending');
+    expect(ticketStatusI18nKey('voided')).toBe('checkout.tkStatusVoidedLabel');
+    expect(ticketStatusI18nKey('refunded')).toBe('checkout.tkStatusRefundedLabel');
   });
 });

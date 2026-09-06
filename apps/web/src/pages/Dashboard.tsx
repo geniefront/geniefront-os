@@ -43,7 +43,9 @@ import { Button } from '@/components/ui/Button';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { useDayCloseQuery } from '@/features/dayclose/api';
 import { useRotationQuery } from '@/features/rotation/api';
-import { useQueue } from '@/features/queue/api';
+import { useJoinQueue, useQueue } from '@/features/queue/api';
+import { useErrorMessage } from '@/lib/errorMessage';
+import { checkInJoinInput, progressCountTitle } from '@/lib/deskCopy';
 import { useDaySnapshot } from '@/features/schedule/api';
 import { useRoomsQuery } from '@/features/rooms/api';
 import { useReviewsSummaryQuery } from '@/features/analytics/api';
@@ -65,6 +67,8 @@ import { useBusinessDay } from '@/lib/time';
 export function DashboardContent() {
   const { t, language } = useLanguage();
   const navigate = useNavigate();
+  const errorMessage = useErrorMessage();
+  const joinQueue = useJoinQueue();
   const { context, membership } = useSession();
   const timezone = context?.timezone || 'America/New_York';
 
@@ -125,7 +129,7 @@ export function DashboardContent() {
     description: string;
     tone?: 'default' | 'danger';
     confirmLabel?: string;
-    onConfirm: () => void;
+    onConfirm: () => void | Promise<void>;
   }>({
     isOpen: false,
     title: '',
@@ -194,13 +198,18 @@ export function DashboardContent() {
   const apptCount = apptItems.length;
   const completedAppts = apptItems.filter((i) => i.status === 'done' || i.status === 'completed').length;
   const inServiceAppts = apptItems.filter((i) => i.status === 'in_service').length;
-  const bookedAppts = apptItems.filter((i) => i.status === 'booked' || i.status === 'checked_in').length;
+  const waitingQueue = queueData?.waiting ?? [];
+  const queueCount = waitingQueue.length;
+
+  const isGuestWaiting = (item: any) =>
+    item.status === 'checked_in' ||
+    waitingQueue.some(
+      (w) => w.appointmentId === item.appointmentId || (w.displayName && w.displayName === item.customerName),
+    );
+  const bookedAppts = apptItems.filter((i) => i.status === 'booked' && !isGuestWaiting(i)).length;
 
   const netCents = dayCloseData?.money?.netCents ?? 0;
   const tipsCents = (dayCloseData?.money?.tipCashCents ?? 0) + (dayCloseData?.money?.tipCardCents ?? 0);
-
-  const waitingQueue = queueData?.waiting ?? [];
-  const queueCount = waitingQueue.length;
 
   const rotationEntries = rotationData?.entries ?? [];
   const activeStaffCount = rotationEntries.filter((s) => s.state === 'available' || s.state === 'in_service').length;
@@ -299,10 +308,17 @@ export function DashboardContent() {
             <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
               {currentStoreName}  {t('finance.dashHeaderSuffix')}
             </h1>
-            <Badge variant="default" className="gap-1.5 font-bold">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>{t('finance.dashOpenNow')}</span>
-            </Badge>
+            {dayCloseData?.status === 'closed' ? (
+              <Badge variant="secondary" className="gap-1.5 font-bold bg-slate-100 text-slate-700 border-slate-300">
+                <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                <span>{t('finance.dashDayClosed')}</span>
+              </Badge>
+            ) : (
+              <Badge variant="default" className="gap-1.5 font-bold">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>{t('finance.dashOpenNow')}</span>
+              </Badge>
+            )}
           </div>
           <p className="text-sm text-slate-500">
             <span>{t('finance.dashTimezone')} <strong>{timezone}</strong></span>
@@ -400,7 +416,7 @@ export function DashboardContent() {
             <div
               style={{ width: `${apptCount > 0 ? (completedAppts / apptCount) * 100 : 0}%` }}
               className="bg-emerald-500 h-full"
-              title={`${t('finance.dashDone')}: ${completedAppts}`}
+              title={progressCountTitle(t('finance.dashDone'), completedAppts)}
             />
             <div
               style={{ width: `${apptCount > 0 ? (inServiceAppts / apptCount) * 100 : 0}%` }}
@@ -623,32 +639,55 @@ export function DashboardContent() {
                                     </span>
                                   </div>
                                   <p className="text-[11px] text-slate-500">
-                                    {t('staff')}: <strong className="text-teal-700">{staffName}</strong> · {t('rooms')}: {roomName}
+                                    {t('therapistLabel') || t('staff')}: <strong className="text-teal-700">{staffName}</strong> · {t('rooms')}: {roomName}
                                   </p>
                                 </div>
                               </div>
 
                               <div className="flex items-center gap-2 shrink-0">
                                 {item.status === 'booked' && (
-                                  <Button
-                                    size="sm"
-                                    onClick={() => {
-                                      setConfirmDialog({
-                                        isOpen: true,
-                                        title: t('finance.dashCheckInConfirmTitle', { p0: item.customerName }),
-                                        description: t('finance.dashCheckInConfirmBody'),
-                                        confirmLabel: t('finance.dashCheckInConfirmAction'),
-                                        onConfirm: () => {
-                                          toast.success(t('finance.dashCheckedIn'));
-                                          void refetchSchedule();
-                                        },
-                                      });
-                                    }}
-                                    className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold"
-                                  >
-                                    <UserCheck className="w-3.5 h-3.5" />
-                                    <span>{t('checkIn')}</span>
-                                  </Button>
+                                  isGuestWaiting(item) ? (
+                                    <Button
+                                      size="sm"
+                                      onClick={() => navigate('/queue')}
+                                      className="bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold"
+                                    >
+                                      <UserCheck className="w-3.5 h-3.5" />
+                                      <span>{t('queue.quWaiting')}</span>
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      size="sm"
+                                      onClick={() => {
+                                        setConfirmDialog({
+                                          isOpen: true,
+                                          title: t('finance.dashCheckInConfirmTitle', { p0: item.customerName }),
+                                          description: t('finance.dashCheckInConfirmBody'),
+                                          confirmLabel: t('finance.dashCheckInConfirmAction'),
+                                          onConfirm: async () => {
+                                            try {
+                                              await joinQueue.mutateAsync(checkInJoinInput({
+                                                appointmentId: item.appointmentId,
+                                                customerName: item.customerName,
+                                                serviceId: item.serviceId,
+                                                membershipId: item.membershipId,
+                                              }));
+                                              toast.success(t('finance.dashCheckedIn'));
+                                              void refetchSchedule();
+                                              void refetchQueue();
+                                            } catch (err) {
+                                              toast.danger(errorMessage(err));
+                                              throw err;
+                                            }
+                                          },
+                                        });
+                                      }}
+                                      className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold"
+                                    >
+                                      <UserCheck className="w-3.5 h-3.5" />
+                                      <span>{t('checkIn')}</span>
+                                    </Button>
+                                  )
                                 )}
 
                                 {item.status === 'in_service' && (

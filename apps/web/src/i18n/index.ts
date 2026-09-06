@@ -21,6 +21,7 @@ import { tech } from './tech';
 import { setup } from './setup';
 import { support } from './support';
 import { reviews } from './reviews';
+import { permissions } from './permissions';
 import { UI_LANGUAGES } from './types';
 import type { Language } from './types';
 
@@ -45,6 +46,7 @@ const dict = {
   ...setup,
   ...support,
   ...reviews,
+  ...permissions,
 };
 
 export type TranslationKey = keyof typeof dict;
