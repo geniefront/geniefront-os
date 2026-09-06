@@ -590,4 +590,33 @@ export const queue = {
   'queue.quSeatConfirmAt': { 'zh-Hans': '确认入座并开始服务（{p0}）', en: 'Seat the guest and start the service ({p0})', ko: '착석 확인 후 서비스 시작 ({p0})', es: 'Sentar al cliente e iniciar el servicio ({p0})', vi: 'Xác nhận vào chỗ và bắt đầu dịch vụ ({p0})' },
   'queue.quSeatBriefingRequired': { 'zh-Hans': '健康问卷尚未签署。请先完成口头禁忌核对并勾选确认，再安排入座。', en: 'The health form is not signed yet. Confirm the contraindications verbally and tick the box before seating the guest.', ko: '건강 문진표가 아직 서명되지 않았습니다. 금기 사항을 구두로 확인하고 체크한 뒤 착석시켜 주세요.', es: 'El formulario de salud aún no está firmado. Confirma verbalmente las contraindicaciones y marca la casilla antes de sentar al cliente.', vi: 'Phiếu sức khỏe chưa được ký. Hãy xác nhận chống chỉ định bằng lời và tích chọn trước khi xếp chỗ.' },
   'queue.quFinishTotalBreakdown': { 'zh-Hans': '核算总额（原服务 ${p0} + 加项小计 ${p1}）', en: 'Calculated total (service ${p0} + add-ons ${p1})', ko: '산정 총액 (기본 서비스 ${p0} + 추가 ${p1})', es: 'Total calculado (servicio ${p0} + extras ${p1})', vi: 'Tổng tính toán (dịch vụ ${p0} + dịch vụ thêm ${p1})' },
+
+  /* ------------------------------------------------------------------ *
+   * 技师考勤打卡与休息管理（看板顶部及打卡弹窗）
+   * ------------------------------------------------------------------ */
+  'queue.quStaffPunchBtn': { 'zh-Hans': '技师打卡 / 休息', en: 'Staff Attendance & Breaks', ko: '관리사 출퇴근·휴식', es: 'Fichaje y descanso', vi: 'Chấm công & nghỉ ngơi' },
+  'queue.quStaffPunchModalTitle': { 'zh-Hans': '技师考勤打卡与休息管理', en: 'Staff Attendance & Break Management', ko: '관리사 출퇴근 및 휴식 관리', es: 'Gestión de asistencia y descansos', vi: 'Quản lý chấm công & nghỉ ngơi' },
+  'queue.quStaffPunchModalDesc': { 'zh-Hans': '登记技师到店上班、离店下班，以及开启小休与结束休息恢复上牌。', en: 'Record staff clock-in, clock-out, start temporary breaks or resume rotation.', ko: '관리사의 출근 체크인, 퇴근 체크아웃 및 임시 휴식·순번 복귀를 관리합니다.', es: 'Registra entradas, salidas, pausas temporales y regreso a la rotación.', vi: 'Ghi nhận giờ vào, giờ ra, bắt đầu nghỉ tạm thời hoặc tiếp tục vào lượt.' },
+  'queue.quStaffSearchPlaceholder': { 'zh-Hans': '搜索技师姓名...', en: 'Search staff by name…', ko: '관리사 이름으로 검색…', es: 'Buscar personal por nombre…', vi: 'Tìm kỹ thuật viên theo tên…' },
+  'queue.quStaffClockIn': { 'zh-Hans': '上班打卡', en: 'Clock In', ko: '출근 체크인', es: 'Fichar entrada', vi: 'Chấm công vào' },
+  'queue.quStaffClockOut': { 'zh-Hans': '下班打卡', en: 'Clock Out', ko: '퇴근 체크아웃', es: 'Fichar salida', vi: 'Chấm công ra' },
+  'queue.quStaffStartBreak': { 'zh-Hans': '开始休息', en: 'Start Break', ko: '휴식 시작', es: 'Iniciar descanso', vi: 'Bắt đầu nghỉ' },
+  'queue.quStaffEndBreak': { 'zh-Hans': '结束休息', en: 'End Break', ko: '휴식 종료', es: 'Terminar descanso', vi: 'Kết thúc nghỉ' },
+  'queue.quStaffBreak': { 'zh-Hans': '小休', en: 'Break', ko: '휴식', es: 'Pausa', vi: 'Nghỉ' },
+  'queue.quStaffStatusAvailable': { 'zh-Hans': '空闲上牌中', en: 'Available', ko: '대기 중 (이용 가능)', es: 'Disponible', vi: 'Sẵn sàng phục vụ' },
+  'queue.quStaffStatusInService': { 'zh-Hans': '在客服务中', en: 'In Service', ko: '서비스 진행 중', es: 'En servicio', vi: 'Đang phục vụ' },
+  'queue.quStaffStatusOnBreak': { 'zh-Hans': '小休中', en: 'On Break', ko: '휴식 중', es: 'En descanso', vi: 'Đang nghỉ' },
+  'queue.quStaffStatusOff': { 'zh-Hans': '已下班', en: 'Clocked Out', ko: '퇴근', es: 'Fuera de turno', vi: 'Đã về' },
+  'queue.quStaffStatusNotArrived': { 'zh-Hans': '未到店', en: 'Not Arrived', ko: '미출근', es: 'No ha llegado', vi: 'Chưa đến' },
+  'queue.quStaffInServiceCantClockOut': { 'zh-Hans': '服务进行中，请先结单或移交后再打卡下班', en: 'Staff is currently in service. Complete service before clocking out.', ko: '서비스 진행 중입니다. 서비스를 완료한 후 퇴근 처리해 주세요.', es: 'En servicio activo. Finaliza el servicio antes de fichar la salida.', vi: 'Đang phục vụ khách. Vui lòng hoàn tất dịch vụ trước khi chấm công ra.' },
+  'queue.quStaffInServiceCantBreak': { 'zh-Hans': '服务进行中不可开启小休', en: 'Cannot start break while in service.', ko: '서비스 진행 중에는 휴식을 시작할 수 없습니다.', es: 'No se puede iniciar descanso durante un servicio.', vi: 'Không thể bắt đầu nghỉ khi đang phục vụ khách.' },
+  'queue.quStaffOffCantBreak': { 'zh-Hans': '未上班打卡不可开启小休', en: 'Cannot start break when not clocked in.', ko: '출근하지 않은 상태에서는 휴식을 시작할 수 없습니다.', es: 'Debe fichar la entrada antes de pausar.', vi: 'Phải chấm công vào trước khi bắt đầu nghỉ.' },
+  'queue.quStaffClockInSuccess': { 'zh-Hans': '已成功为技师 {p0} 办理上班打卡', en: '{p0} has been clocked in successfully', ko: '{p0} 관리사의 출근 체크인이 완료되었습니다', es: 'Entrada registrada con éxito para {p0}', vi: 'Đã chấm công vào thành công cho {p0}' },
+  'queue.quStaffClockOutSuccess': { 'zh-Hans': '已成功为技师 {p0} 办理下班打卡', en: '{p0} has been clocked out successfully', ko: '{p0} 관리사의 퇴근 체크아웃이 완료되었습니다', es: 'Salida registrada con éxito para {p0}', vi: 'Đã chấm công ra thành công cho {p0}' },
+  'queue.quStaffStartBreakSuccess': { 'zh-Hans': '技师 {p0} 已进入小休状态', en: '{p0} is now on break', ko: '{p0} 관리사가 휴식 상태로 전환되었습니다', es: '{p0} ha iniciado un descanso', vi: '{p0} đã bắt đầu nghỉ' },
+  'queue.quStaffEndBreakSuccess': { 'zh-Hans': '技师 {p0} 休息结束，已恢复上牌', en: '{p0} break ended, returned to rotation', ko: '{p0} 관리사의 휴식이 종료되어 순번에 복귀했습니다', es: 'Descanso de {p0} finalizado, regresa a la rotación', vi: '{p0} đã hết giờ nghỉ và quay lại lượt phục vụ' },
+  'queue.quStaffTotalCount': { 'zh-Hans': '登记技师 {p0} 位', en: '{p0} total staff', ko: '총 {p0}명 관리사', es: '{p0} especialistas', vi: 'Tổng {p0} kỹ thuật viên' },
+  'queue.quStaffOnDutyCount': { 'zh-Hans': '在店 {p0} 位', en: '{p0} on duty', ko: '출근 {p0}명', es: '{p0} en turno', vi: '{p0} đang làm việc' },
+  'queue.quStaffBreakCount': { 'zh-Hans': '小休 {p0} 位', en: '{p0} on break', ko: '휴식 {p0}명', es: '{p0} en descanso', vi: '{p0} đang nghỉ' },
+  'queue.quStaffInServiceCount': { 'zh-Hans': '服务中 {p0} 位', en: '{p0} in service', ko: '서비스 중 {p0}명', es: '{p0} en servicio', vi: '{p0} đang phục vụ' },
 } satisfies DomainDict;

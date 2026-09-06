@@ -237,9 +237,28 @@ export function CreateAppointmentModal({
           }
         }
 
+        let nextMembershipId = patch.membershipId !== undefined ? patch.membershipId : item.membershipId;
+        let nextIsRequest = patch.isRequest !== undefined ? patch.isRequest : item.isRequest;
+
+        // 如果开启点钟，技师绝不能是待分配
+        if (nextIsRequest && nextMembershipId === UNASSIGNED_STAFF_ID) {
+          const firstBookable = availableStaff.find(
+            (s) => s.membershipId !== UNASSIGNED_STAFF_ID && s.isBookable
+          );
+          if (firstBookable) {
+            nextMembershipId = firstBookable.membershipId;
+          }
+        }
+        // 如果选择待分配，则自动取消点钟标记
+        if (nextMembershipId === UNASSIGNED_STAFF_ID) {
+          nextIsRequest = false;
+        }
+
         return {
           ...item,
           ...patch,
+          membershipId: nextMembershipId,
+          isRequest: nextIsRequest,
           durationMin: patch.durationMin ?? nextDuration,
           priceCents: patch.priceCents ?? nextPrice,
         };
@@ -289,9 +308,8 @@ export function CreateAppointmentModal({
   // 一键编排：按序顺次接力 (Sequential)
   const handleAlignSequential = () => {
     if (items.length === 0) return;
-    let currentMins = timeToMins(items[0].startTime);
     let wasAlreadySequential = true;
-    let checkMins = currentMins;
+    let checkMins = timeToMins(items[0].startTime);
     for (let idx = 0; idx < items.length; idx++) {
       if (idx > 0 && timeToMins(items[idx].startTime) !== checkMins) {
         wasAlreadySequential = false;
@@ -305,22 +323,22 @@ export function CreateAppointmentModal({
       return;
     }
 
+    let currentMins = timeToMins(items[0].startTime);
     let totalDuration = 0;
-    setItems((prev) =>
-      prev.map((item, idx) => {
-        if (idx === 0) {
-          currentMins += item.durationMin;
-          totalDuration += item.durationMin;
-          return item;
-        }
-        const assignedTime = minsToTime(currentMins);
+    const nextItems = items.map((item, idx) => {
+      totalDuration += item.durationMin;
+      if (idx === 0) {
         currentMins += item.durationMin;
-        totalDuration += item.durationMin;
-        return { ...item, startTime: assignedTime };
-      }),
-    );
+        return item;
+      }
+      const assignedTime = minsToTime(currentMins);
+      currentMins += item.durationMin;
+      return { ...item, startTime: assignedTime };
+    });
 
-    const firstStart = items[0].startTime;
+    setItems(nextItems);
+
+    const firstStart = nextItems[0].startTime;
     const finalEnd = minsToTime(timeToMins(firstStart) + totalDuration);
     toast.success(
       t('schedule.apptCascadedDynamic', {
@@ -616,7 +634,7 @@ export function CreateAppointmentModal({
             </div>
 
             {/* 项目列表卡片 */}
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {items.map((item, index) => {
                 const svc = services.find((s) => s.id === item.serviceId);
                 const endMins = timeToMins(item.startTime) + (item.durationMin || 30);
@@ -625,7 +643,7 @@ export function CreateAppointmentModal({
                 return (
                   <div
                     key={item.id}
-                    className="p-3 bg-white border border-slate-200 rounded-2xl space-y-2.5 shadow-2xs hover:border-teal-300 transition-all"
+                    className="p-3 bg-white border border-slate-200 rounded-2xl space-y-3 shadow-2xs hover:border-teal-300 transition-all"
                   >
                     <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                       <div className="flex items-center gap-2">
@@ -640,44 +658,21 @@ export function CreateAppointmentModal({
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <label
-                          className={cn(
-                            "flex items-center gap-1.5 cursor-pointer text-[11px] px-2 py-0.5 rounded-lg border transition-all",
-                            item.isRequest
-                              ? "bg-amber-50 border-amber-300 text-amber-900 font-bold shadow-2xs"
-                              : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 font-medium"
-                          )}
-                          title={t('schedule.apptRequestedTooltip')}
+                      {items.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItem(item.id)}
+                          className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer transition-colors"
+                          title={t('schedule.apptRemoveRow')}
                         >
-                          <input
-                            type="checkbox"
-                            checked={item.isRequest}
-                            onChange={(e) => handleUpdateItem(item.id, { isRequest: e.target.checked })}
-                            className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500/20"
-                          />
-                          <span className="flex items-center gap-1">
-                            {item.isRequest && <Sparkles className="w-3 h-3 text-amber-500" />}
-                            {t('schedule.apptRequested')}
-                          </span>
-                        </label>
-
-                        {items.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveItem(item.id)}
-                            className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer transition-colors"
-                            title={t('schedule.apptRemoveRow')}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
-                      {/* 服务选择 (4 cols) */}
-                      <div className="sm:col-span-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* 服务选择 (Col 1) */}
+                      <div>
                         <label className="block text-[10px] font-bold text-slate-500 mb-1">
                           {t('schedule.apptCategory')}
                         </label>
@@ -694,17 +689,67 @@ export function CreateAppointmentModal({
                         </select>
                       </div>
 
-                      {/* 技师指派 (3 cols) */}
-                      <div className="sm:col-span-3">
-                        <label className="block text-[10px] font-bold text-slate-500 mb-1">
-                          {t('schedule.apptAssignStaff')}
-                        </label>
+                      {/* 技师指派与点钟 (Col 2) */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-[10px] font-bold text-slate-500">
+                            {t('schedule.apptAssignStaff')}
+                          </label>
+                          <label
+                            className={cn(
+                              "flex items-center gap-1 cursor-pointer text-[10px] px-1.5 py-0.5 rounded-md border transition-all select-none",
+                              item.isRequest
+                                ? "bg-amber-50 border-amber-300 text-amber-900 font-bold shadow-2xs ring-1 ring-amber-300"
+                                : "bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100 font-medium"
+                            )}
+                            title={t('schedule.apptRequestedTooltip')}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={item.isRequest}
+                              onChange={(e) => {
+                                const isReq = e.target.checked;
+                                if (isReq) {
+                                  let targetStaffId = item.membershipId;
+                                  if (!targetStaffId || targetStaffId === UNASSIGNED_STAFF_ID) {
+                                    const firstBookable = availableStaff.find(
+                                      (s) => s.membershipId !== UNASSIGNED_STAFF_ID && s.isBookable
+                                    );
+                                    targetStaffId = firstBookable ? firstBookable.membershipId : '';
+                                  }
+                                  handleUpdateItem(item.id, { isRequest: true, membershipId: targetStaffId });
+                                } else {
+                                  handleUpdateItem(item.id, { isRequest: false });
+                                }
+                              }}
+                              className="w-3 h-3 rounded border-slate-300 text-amber-600 focus:ring-amber-500/20"
+                            />
+                            <span className="flex items-center gap-0.5">
+                              {item.isRequest && <Sparkles className="w-2.5 h-2.5 text-amber-500" />}
+                              {t('schedule.apptRequested')}
+                            </span>
+                          </label>
+                        </div>
                         <select
                           value={item.membershipId}
-                          onChange={(e) => handleUpdateItem(item.id, { membershipId: e.target.value })}
-                          className="w-full h-9 px-2.5 py-1 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/20 bg-white font-medium truncate"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === UNASSIGNED_STAFF_ID) {
+                              handleUpdateItem(item.id, { membershipId: val, isRequest: false });
+                            } else {
+                              handleUpdateItem(item.id, { membershipId: val });
+                            }
+                          }}
+                          className={cn(
+                            "w-full h-9 px-2.5 py-1 text-xs rounded-xl border focus:outline-none focus:ring-2 bg-white font-medium truncate transition-colors",
+                            item.isRequest
+                              ? "border-amber-400 bg-amber-50/20 text-amber-950 font-semibold focus:ring-amber-500/20"
+                              : "border-slate-200 focus:ring-teal-500/20 text-slate-800"
+                          )}
                         >
-                          <option value={UNASSIGNED_STAFF_ID}>{t('schedule.apptUnassignedPool')}</option>
+                          {!item.isRequest && (
+                            <option value={UNASSIGNED_STAFF_ID}>{t('schedule.apptUnassignedPool')}</option>
+                          )}
                           {availableStaff
                             .filter((s) => s.membershipId !== UNASSIGNED_STAFF_ID && s.isBookable)
                             .map((s) => (
@@ -715,27 +760,26 @@ export function CreateAppointmentModal({
                         </select>
                       </div>
 
-                      {/* 时间与时长区间 (5 cols) */}
-                      <div className="sm:col-span-5 flex items-end gap-1.5">
-                        {/* 开始时刻 */}
-                        <div className="flex-1 min-w-[92px]">
-                          <label className="block text-[10px] font-bold text-slate-500 mb-1">
-                            {t('schedule.apptStartTime')}
-                          </label>
-                          <Input
-                            type="time"
-                            value={item.startTime}
-                            onChange={(e) => handleUpdateItem(item.id, { startTime: e.target.value })}
-                            className="h-9 min-h-0 py-1 px-2 text-xs font-mono"
-                          />
-                        </div>
+                      {/* 开始时刻 (Col 1) */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                          {t('schedule.apptStartTime')}
+                        </label>
+                        <Input
+                          type="time"
+                          value={item.startTime}
+                          onChange={(e) => handleUpdateItem(item.id, { startTime: e.target.value })}
+                          className="h-9 min-h-0 py-1 px-2.5 text-xs font-mono w-full"
+                        />
+                      </div>
 
-                        {/* 时长 */}
-                        <div className="w-[68px] shrink-0">
-                          <label className="block text-[10px] font-bold text-slate-500 mb-1">
-                            {t('schedule.apptDurationMin')}
-                          </label>
-                          <div className="relative">
+                      {/* 服务时长与完成时刻 (Col 2) */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                          {t('schedule.apptDurationMin')}
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <div className="relative flex-1">
                             <Input
                               type="number"
                               min={5}
@@ -745,17 +789,16 @@ export function CreateAppointmentModal({
                               onChange={(e) =>
                                 handleUpdateItem(item.id, { durationMin: parseInt(e.target.value) || 30 })
                               }
-                              className="h-9 min-h-0 py-1 pl-2 pr-5 text-xs font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              className="h-9 min-h-0 py-1 pl-2.5 pr-6 text-xs font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none w-full"
                             />
-                            <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none font-medium">
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none font-medium">
                               m
                             </span>
                           </div>
-                        </div>
 
-                        {/* 结束时刻胶囊 */}
-                        <div className="shrink-0 h-9 px-2 flex items-center justify-center text-[11px] font-mono font-bold text-slate-700 bg-slate-100/90 border border-slate-200 rounded-xl whitespace-nowrap">
-                          → {itemEnd}
+                          <div className="shrink-0 h-9 px-2.5 flex items-center justify-center text-xs font-mono font-bold text-teal-800 bg-teal-50 border border-teal-200 rounded-xl whitespace-nowrap shadow-2xs">
+                            → {itemEnd}
+                          </div>
                         </div>
                       </div>
                     </div>
