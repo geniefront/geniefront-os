@@ -245,7 +245,7 @@ export class LunaRuntime {
       name: t.name,
       description: t.description,
       parameters: t.parameters,
-      strict: t.strict ?? true,
+      strict: t.strict ?? false,
     }));
   }
 

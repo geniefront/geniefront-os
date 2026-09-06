@@ -20,7 +20,7 @@ export const PROPOSE_TASK_PLAN_TOOL: CopilotToolDef = {
   name: 'propose_task_plan',
   description:
     '提交一个包含多步骤的结构化任务计划方案草案。方案将经过系统业务规则和排期预检，生成界面卡片供前台人工确认后批量/顺序执行。',
-  strict: true,
+  strict: false,
   parameters: {
     type: 'object',
     properties: {
@@ -83,7 +83,7 @@ export const ASK_USER_CLARIFICATION_TOOL: CopilotToolDef = {
   name: 'ask_user_clarification',
   description:
     '当前台意图存在不可消除的歧义（如检索出多位同名同姓的客户），或缺失必要要素且无法查知时调用此工具向用户追问并提供候选项。',
-  strict: true,
+  strict: false,
   parameters: {
     type: 'object',
     properties: {
@@ -124,7 +124,7 @@ export const READ_ONLY_TOOL_DEFINITIONS: CopilotToolDef[] = [
     name: 'resolve_customers',
     description:
       '批量模糊检索姓名、电话后几位。命中1位返回明确 customerId；命中多位返回多条候选供前台点选，严禁模型自行盲猜选择。',
-    strict: true,
+    strict: false,
     requiredPermissions: ['customer.read'],
     parameters: {
       type: 'object',
@@ -140,7 +140,7 @@ export const READ_ONLY_TOOL_DEFINITIONS: CopilotToolDef[] = [
     name: 'get_service_catalog',
     description:
       '查询本店服务项目目录及其变体、标准时长、底价分值、适用资源类型。',
-    strict: true,
+    strict: false,
     requiredPermissions: ['appointment.read'],
     parameters: {
       type: 'object',
@@ -156,7 +156,7 @@ export const READ_ONLY_TOOL_DEFINITIONS: CopilotToolDef[] = [
     name: 'get_staff_directory',
     description:
       '列出全店技师的稳定 membershipId、姓名、技能标签（Skills）、是否可排单（isBookable）及当天出勤班次。针对具体技师的操作必须先通过本工具获取真实 membershipId。',
-    strict: true,
+    strict: false,
     requiredPermissions: ['schedule.read'],
     parameters: {
       type: 'object',
@@ -171,7 +171,7 @@ export const READ_ONLY_TOOL_DEFINITIONS: CopilotToolDef[] = [
     name: 'search_appointments',
     description:
       '支持跨日与当日预约查询，返回 appointmentId、客户、项目、指派技师、时段与状态。',
-    strict: true,
+    strict: false,
     requiredPermissions: ['appointment.read'],
     parameters: {
       type: 'object',
@@ -189,7 +189,7 @@ export const READ_ONLY_TOOL_DEFINITIONS: CopilotToolDef[] = [
     name: 'plan_appointment_slots',
     description:
       '综合空档预检。支持多人同行容量预检 (partySize)；改期时排除原单占用 (excludeAppointmentId)；支持回合内内存级临时占位 (previousHolds)，避免为多人依次排单时互撞。',
-    strict: true,
+    strict: false,
     requiredPermissions: ['appointment.read'],
     parameters: {
       type: 'object',
@@ -222,7 +222,7 @@ export const READ_ONLY_TOOL_DEFINITIONS: CopilotToolDef[] = [
     name: 'validate_task_draft',
     description:
       '纯逻辑预检工具。在不写库的情况下，检验步骤参数完整性、时段冲突及权限覆盖，返回 ready / conflict / invalid 状态及具体冲突说明。',
-    strict: true,
+    strict: false,
     parameters: {
       type: 'object',
       properties: {
@@ -247,7 +247,7 @@ export const READ_ONLY_TOOL_DEFINITIONS: CopilotToolDef[] = [
     name: 'list_rooms',
     description:
       '返回房态列表（包含 resourceId、名称、容量、当前状态：available/cleaning/in_service/maintenance）。修改房态前必须查此工具获取真实 ID。',
-    strict: true,
+    strict: false,
     requiredPermissions: ['appointment.read'],
     parameters: {
       type: 'object',
@@ -260,7 +260,7 @@ export const READ_ONLY_TOOL_DEFINITIONS: CopilotToolDef[] = [
     name: 'get_revenue_analytics',
     description:
       '查指定营业日的营收、客单价、支付方式占比及工单量。当日无需额外报表权限，跨日校验 report.view 权限。',
-    strict: true,
+    strict: false,
     parameters: {
       type: 'object',
       properties: {
