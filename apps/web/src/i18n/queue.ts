@@ -417,6 +417,8 @@ export const queue = {
   'queue.quCompletedFor': { 'zh-Hans': '已完工 ({p0})', en: 'Completed ({p0})', ko: '완료됨 ({p0})', es: 'Completado ({p0})', vi: 'Đã hoàn tất ({p0})' },
   'queue.quCheckedInGuest': { 'zh-Hans': '到店顾客', en: 'Checked-in guest', ko: '체크인 고객', es: 'Cliente registrado', vi: 'Khách đã check-in' },
   'queue.quMixedService': { 'zh-Hans': '综合消费', en: 'Mixed services', ko: '복합 서비스', es: 'Servicios combinados', vi: 'Dịch vụ tổng hợp' },
+  'queue.quMultipleStaff': { 'zh-Hans': '多位技师', en: 'Multiple therapists', ko: '여러 관리사', es: 'Varios terapeutas', vi: 'Nhiều kỹ thuật viên' },
+  'queue.quServiceItemsSummary': { 'zh-Hans': '{p0} 等 {p1} 项', en: '{p0} +{p1} more', ko: '{p0} 외 {p1}건', es: '{p0} +{p1} más', vi: '{p0} +{p1} mục' },
   'queue.quAssignedFallback': { 'zh-Hans': '已指派', en: 'Assigned', ko: '배정됨', es: 'Asignado', vi: 'Đã phân công' },
   'queue.quDesignatedRoomFallback': { 'zh-Hans': '指定房间', en: 'Designated room', ko: '지정된 룸', es: 'Sala designada', vi: 'Phòng chỉ định' },
   'queue.quColBookedTitle': { 'zh-Hans': '今日预约 / 待到店', en: "Today's bookings / awaiting arrival", ko: '오늘 예약 / 방문 대기', es: 'Reservas de hoy / pendiente de llegar', vi: 'Lịch hẹn hôm nay / chờ đến' },

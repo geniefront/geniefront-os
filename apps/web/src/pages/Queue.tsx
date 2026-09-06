@@ -292,6 +292,15 @@ export interface KanbanItem {
   addOns?: AddOnItem[];
   healthConfirmed?: boolean;
   massagePreference?: string;
+  /** 未到店预约卡的项目明细（一预约多项目时逐条展示）。 */
+  bookedItems?: Array<{
+    itemId: string;
+    serviceName: string;
+    durationMin: number;
+    priceCents: number;
+    staffName: string | null;
+    startTime: string;
+  }>;
   rawItem?: ScheduleItem;
   rawQueue?: QueueEntry;
   rawTicket?: TicketSummary;
@@ -1025,6 +1034,10 @@ function QueueContent() {
     }
 
     // 2. Schedule Items (booked, in_service, completed)
+    // 未到店的预约按「一位客人一张卡」聚合：同一预约的多个项目合并成一张卡，
+    // 而不是每个项目一张（签到本身也是按预约走的，拆开会出现重复卡）。
+    const bookedByAppt = new Map<string, ScheduleItem[]>();
+
     (items || []).forEach((it) => {
       if (queuedApptIds.has(it.appointmentId) || ticketApptIds.has(it.appointmentId)) return;
 
@@ -1035,28 +1048,10 @@ function QueueContent() {
           : t('queue.quStaffUnassignedLong');
 
       if (it.status === 'booked') {
-        const override = localOverrides[`appt-${it.id}`];
-        list.push({
-          id: `appt-${it.id}`,
-          stage: override?.stage || 'booked',
-          appointmentId: it.appointmentId,
-          customerName: it.customerName,
-          phone: it.customerPhone ?? null,
-          serviceName: it.serviceName,
-          serviceId: it.serviceId,
-          durationMin: it.durationMin,
-          priceCents: it.service?.priceCents || 0,
-          staffId: override?.staffId || it.staffId,
-          staffName: override?.staffName || staffName,
-          staffColor: matchedStaff?.color ?? null,
-          roomId: override?.roomId || it.resourceId,
-          roomName: override?.roomName,
-          isRequest: it.isRequest,
-          timeDisplay: `${it.startTime} - ${it.endTime}`,
-          notes: override?.notes,
-          addOns: override?.addOns,
-          rawItem: it,
-        });
+        const key = it.appointmentId || `item-${it.id}`;
+        const bucket = bookedByAppt.get(key) ?? [];
+        bucket.push(it);
+        bookedByAppt.set(key, bucket);
       } else if (it.status === 'in_service') {
         const override = localOverrides[`appt-insvc-${it.id}`];
         list.push({
@@ -1107,6 +1102,62 @@ function QueueContent() {
         });
       }
     });
+
+    // 2b. 把聚合后的未到店预约转成卡片（一预约一张）
+    for (const [key, apptItems] of bookedByAppt) {
+      const sorted = [...apptItems].sort((a, b) => a.startMins - b.startMins);
+      const primary = sorted[0]!;
+      const last = sorted[sorted.length - 1]!;
+      const override = localOverrides[`appt-${key}`];
+      const staffIds = new Set(
+        sorted.map((i) => i.staffId).filter((id) => id && id !== UNASSIGNED_STAFF_ID),
+      );
+      const singleStaffId = staffIds.size === 1 ? [...staffIds][0]! : null;
+      const matchedStaff = singleStaffId ? staff.find((s) => s.membershipId === singleStaffId) : undefined;
+      const nameOfStaff = (id: string | null) => {
+        if (!id || id === UNASSIGNED_STAFF_ID) return null;
+        return staff.find((s) => s.membershipId === id)?.name ?? null;
+      };
+      const staffName = override?.staffName
+        ?? (staffIds.size === 0
+          ? t('queue.quStaffUnassignedLong')
+          : staffIds.size === 1
+            ? (nameOfStaff(singleStaffId) ?? t('queue.quStaffUnassignedLong'))
+            : t('queue.quMultipleStaff'));
+      list.push({
+        id: `appt-${key}`,
+        stage: override?.stage || 'booked',
+        appointmentId: primary.appointmentId,
+        customerName: primary.customerName,
+        phone: primary.customerPhone ?? null,
+        serviceName: sorted.length === 1
+          ? primary.serviceName
+          : t('queue.quServiceItemsSummary', { p0: primary.serviceName, p1: String(sorted.length - 1) }),
+        serviceId: sorted.length === 1 ? primary.serviceId : null,
+        durationMin: sorted.reduce((sum, i) => sum + i.durationMin, 0),
+        priceCents: sorted.reduce((sum, i) => sum + (i.service?.priceCents || 0), 0),
+        staffId: override?.staffId || singleStaffId,
+        staffName,
+        staffColor: matchedStaff?.color ?? null,
+        roomId: override?.roomId || primary.resourceId,
+        roomName: override?.roomName,
+        isRequest: sorted.some((i) => i.isRequest),
+        timeDisplay: sorted.length === 1
+          ? `${primary.startTime} - ${primary.endTime}`
+          : `${primary.startTime} - ${last.endTime}`,
+        notes: override?.notes,
+        addOns: override?.addOns,
+        rawItem: primary,
+        bookedItems: sorted.map((i) => ({
+          itemId: i.id,
+          serviceName: i.serviceName,
+          durationMin: i.durationMin,
+          priceCents: i.service?.priceCents || 0,
+          staffName: nameOfStaff(i.staffId),
+          startTime: i.startTime,
+        })),
+      });
+    }
 
     // 3. Open Tickets (ready for checkout)
     if (ticketsData?.tickets) {
@@ -2253,6 +2304,22 @@ function QueueContent() {
                                   </span>
                                 )}
                               </div>
+
+                              {item.bookedItems && item.bookedItems.length > 1 && (
+                                <ul className="space-y-0.5 border-t border-slate-100/80 pt-1">
+                                  {item.bookedItems.map((sub) => (
+                                    <li key={sub.itemId} className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                                      <span className="truncate">
+                                        {sub.startTime} · {sub.serviceName}
+                                        {sub.staffName ? ` · ${sub.staffName}` : ''}
+                                      </span>
+                                      {sub.priceCents > 0 && (
+                                        <span className="font-mono shrink-0">${centsToDollars(sub.priceCents)}</span>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
 
                               <div className="flex items-center justify-between text-xs text-slate-500 pt-1 border-t border-slate-100/80">
                                 <span className="truncate flex items-center gap-1">

@@ -120,4 +120,24 @@
 - `pnpm --filter @gf/web typecheck` / `@gf/api typecheck`：通过。
 - `apps/web` 全量：52 files / 260 tests 绿。
 - `apps/api`：`core_loop`(15)、`money`(16)、`checkout-timing`(6)、`ticketLifecycle`(2) 绿；全量回归见会话。
-- 未部署 —— 这 6 个文件的改动待用户 review 后再 push。
+- 已由用户 push + 部署（commit `a6badcf`）。
+
+## 2026-09-06 第二轮 staging 冒烟：预约多项目的两个问题（已修，未部署）
+
+用户建了一单「一个客人两个项目」（Kevin Zhang：全身深度减压 90 + 瑞典芳香精油 60），报两个：
+
+### 问题 3：运营看板把一单多项识别成两张卡（应按客人聚合）
+- 现象：`/queue` 的「今日预约 / 待到店」列，同一预约的每个 `appointment_item` 各出一张卡。签到是按预约走的，拆开会导致签一张卡两张都动、出现重复/僵尸卡。
+- 根因：`apps/web/src/pages/Queue.tsx` 的看板 useMemo 里，booked 分支 `(items||[]).forEach` 直接一个 item 一张卡（`id: appt-${it.id}`）。
+- 修复（`Queue.tsx` + `i18n/queue.ts`）：booked 分支先按 `appointmentId` 聚合进 `Map`，循环后每个预约生成一张卡（`id: appt-${appointmentId}`）：服务名取首项 +「等 N 项」，时长/金额求和，技师同一人显示该人、否则「多位技师」，时间显示最早–最晚，新增 `KanbanItem.bookedItems[]` 逐条明细并在卡片里渲染。`in_service` / `completed` 仍逐项（各自独立推进）。本机复验：两项一单 → 一张卡，卡内列出「13:30 · 全身深度减压 · 阿博 / 15:00 · 经络足道 · 华师傅」，「今日总单 1 单」。
+- `localOverrides` 全程未被写入（`setLocalOverrides` 无调用点），改 id 不影响拖拽。
+
+### 问题 4：预约详情页不能单独编辑每个项目
+- 现象：详情抽屉「预约服务项目」只有一个「编辑项目」按钮，点了是整单操作，多项目时只能一起动。
+- 根因：`AppointmentDrawer.tsx` 的 `runReschedule` 写死 `itemId: appointment.items[0].itemId` —— 「改期」按钮实际只挪第 1 项，且没有任何逐项入口。后端 `appointment.reschedule` 本就支持 `itemId`（可选，省略=整单平移），前端没暴露。
+- 修复（`AppointmentDrawer.tsx` + `i18n/schedule.ts`）：新增 `rescheduleItemId` 状态；每个项目行加「编辑」笔按钮 → 打开改期弹窗、预填该项目当前时间/技师/房间、`itemId` 锁定该项；顶部「改期或重新指派」按钮 → `itemId` 省略走整单平移（后端按相对间隔挪全部），弹窗加提示。弹窗标题按范围切换。本机复验：改第 2 项时间/技师/房间 → 只第 2 项动，第 1 项 13:30/阿博不变；整单改期弹窗预填第 1 项且显示整单提示。
+
+### 本轮验证（第二轮）
+- `pnpm --filter @gf/web typecheck`：通过。
+- `apps/web` 全量：52 files / 260 tests 绿（含 i18n 键完整性 / CJK 泄漏检查）。
+- 仅改 4 个 web 文件；未动 API / 契约。未部署，待 review。

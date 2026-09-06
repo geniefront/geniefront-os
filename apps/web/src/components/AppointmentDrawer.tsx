@@ -16,6 +16,7 @@ import {
   useAddAppointmentItem,
   useSaveAppointmentServiceBrief,
   useUpdateAppointmentCustomer,
+  type AppointmentItemDetail,
 } from '@/features/schedule/appointmentDetail';
 import { useCancelAppointment, useRescheduleAppointment } from '@/features/schedule/api';
 import { useCustomerDetail, useSaveCustomerPreferences, useSaveCustomerProfile } from '@/features/customers/api';
@@ -75,6 +76,8 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
   const [cancelReason, setCancelReason] = useState<CancelReason>('guest_changed_mind');
   const [keepStaffTurn, setKeepStaffTurn] = useState(true);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  /** null = 整单平移；itemId = 只改这一个预约项目（时间 / 技师 / 房间） */
+  const [rescheduleItemId, setRescheduleItemId] = useState<string | null>(null);
   const [date, setDate] = useState(currentDate);
   const [time, setTime] = useState('09:00');
   const [staffId, setStaffId] = useState(UNASSIGNED_STAFF_ID);
@@ -130,6 +133,8 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
   }, [activeForm, healthQ.data?.answers]);
 
   useEffect(() => {
+    // 弹窗打开后由 openReschedule 负责预填（可能锁定某个具体项目），此处不再覆盖
+    if (rescheduleOpen) return;
     const first = appointment?.items[0];
     if (!first) return;
     setDate(instantToWallDate(first.startsAt, timezone));
@@ -137,7 +142,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
     setTime(`${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`);
     setStaffId(first.staffId ?? UNASSIGNED_STAFF_ID);
     setRoomId(first.resourceId ?? '');
-  }, [appointment?.appointmentId, appointment?.items, timezone]);
+  }, [appointment?.appointmentId, appointment?.items, timezone, rescheduleOpen]);
 
   useEffect(() => setPreferences(customerQ.data?.preferences.freeNotes ?? ''), [customerQ.data?.id, customerQ.data?.preferences.freeNotes]);
   useEffect(() => setServiceBrief(appointment?.notes ?? ''), [appointment?.appointmentId, appointment?.notes]);
@@ -215,19 +220,40 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
     } catch (error) { toast.danger(`${t('schedule.adCancelFailed')} ${errorMessage(error)}`); }
   };
 
+  /**
+   * 打开改期弹窗。传 item = 只改这一个项目（弹窗预填该项目当前的时间/技师/房间）；
+   * 不传 = 整单平移（预填首个项目，后端按相对间隔挪动全部项目）。
+   */
+  const openReschedule = (item?: AppointmentItemDetail | null) => {
+    const target = item ?? appointment?.items[0];
+    if (target) {
+      setDate(instantToWallDate(target.startsAt, timezone));
+      const minutes = instantToWallMinutes(target.startsAt, timezone);
+      setTime(`${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`);
+      setStaffId(target.staffId ?? UNASSIGNED_STAFF_ID);
+      setRoomId(target.resourceId ?? '');
+    }
+    setRescheduleItemId(item?.itemId ?? null);
+    setRescheduleOpen(true);
+  };
+
   const runReschedule = async () => {
-    const first = appointment?.items[0];
+    const anchor = rescheduleItemId
+      ? appointment?.items.find((it) => it.itemId === rescheduleItemId)
+      : appointment?.items[0];
     const [hours, minutes] = time.split(':').map(Number);
-    if (!appointmentId || !first || hours == null || minutes == null) return;
+    if (!appointmentId || !anchor || hours == null || minutes == null) return;
     try {
       await rescheduleM.mutateAsync({
         appointmentId,
-        itemId: first.itemId,
+        // itemId 省略 = 整单平移；给了就只挪这一条
+        ...(rescheduleItemId ? { itemId: rescheduleItemId } : {}),
         startsAt: wallMinutesToInstant(date, hours * 60 + minutes, timezone),
         membershipId: staffId === UNASSIGNED_STAFF_ID ? null : staffId,
         resourceId: roomId || null,
       });
       setRescheduleOpen(false);
+      setRescheduleItemId(null);
       toast.success(t('schedule.adItemsUpdated'));
       await refresh();
     } catch (error) { toast.danger(`${t('schedule.adItemsFailed')} ${errorMessage(error)}`); }
@@ -398,8 +424,8 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
         </section>
 
         <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
-          <div className="flex items-center justify-between gap-2"><SectionTitle icon={<Scissors size={15}/>} label={t('schedule.adBookedServices')} /><div className="flex gap-1.5"><GuardedButton permission="appointment.write" size="sm" variant="secondary" className="h-7 gap-1 bg-teal-50 px-2.5 text-[11px] font-bold text-teal-800" onPress={() => setRescheduleOpen(true)}><Edit3 size={13}/>{t('schedule.adEditItems')}</GuardedButton><GuardedButton permission={activeTicket ? 'ticket.write' : 'appointment.write'} size="sm" variant="secondary" className="h-7 gap-1 bg-violet-50 px-2.5 text-[11px] font-bold text-violet-800" onPress={() => { setServiceId(''); setAddStaffId(activeTicket ? activeTicketFallbackStaffId : appointment.items[0]?.staffId ?? ''); setAddOpen(true); }}><Plus size={13}/>{t('schedule.adAddOn')}</GuardedButton></div></div>
-          <div className="divide-y divide-slate-100">{appointment.items.map((item) => <article key={item.itemId} className="space-y-2 py-3 first:pt-1 last:pb-1"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><h4 className="font-bold text-slate-900">{item.serviceName}</h4><Badge variant="secondary" className="px-1.5 py-0 font-mono text-[10px]">{item.durationMin}m</Badge></div><span className="font-mono font-black text-teal-700">${centsToDollars(item.priceCents)}</span></div><div className="grid grid-cols-2 gap-2 text-[11px] font-medium text-slate-600"><span className="flex items-center gap-1"><User size={13} className="text-slate-400"/>{item.staffName ?? t('schedule.adUnassignedStaff')}</span><span className="flex items-center gap-1"><BedDouble size={13} className="text-slate-400"/>{item.resourceName ?? t('schedule.adNoRoom')}</span><span className="col-span-2 flex items-center gap-1"><CalendarClock size={13} className="text-slate-400"/>{storeTime.dateTime(item.startsAt)}</span></div></article>)}</div>
+          <div className="flex items-center justify-between gap-2"><SectionTitle icon={<Scissors size={15}/>} label={t('schedule.adBookedServices')} /><div className="flex gap-1.5"><GuardedButton permission="appointment.write" size="sm" variant="secondary" className="h-7 gap-1 bg-teal-50 px-2.5 text-[11px] font-bold text-teal-800" onPress={() => openReschedule(null)}><CalendarClock size={13}/>{t('schedule.adReschedule')}</GuardedButton><GuardedButton permission={activeTicket ? 'ticket.write' : 'appointment.write'} size="sm" variant="secondary" className="h-7 gap-1 bg-violet-50 px-2.5 text-[11px] font-bold text-violet-800" onPress={() => { setServiceId(''); setAddStaffId(activeTicket ? activeTicketFallbackStaffId : appointment.items[0]?.staffId ?? ''); setAddOpen(true); }}><Plus size={13}/>{t('schedule.adAddOn')}</GuardedButton></div></div>
+          <div className="divide-y divide-slate-100">{appointment.items.map((item) => <article key={item.itemId} className="space-y-2 py-3 first:pt-1 last:pb-1"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><h4 className="font-bold text-slate-900">{item.serviceName}</h4><Badge variant="secondary" className="px-1.5 py-0 font-mono text-[10px]">{item.durationMin}m</Badge></div><div className="flex items-center gap-2 shrink-0"><span className="font-mono font-black text-teal-700">${centsToDollars(item.priceCents)}</span>{!activeTicket && <GuardedButton permission="appointment.write" size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[11px] font-bold text-slate-500 hover:text-teal-700" onPress={() => openReschedule(item)}><Edit3 size={12}/>{t('schedule.adEditItem')}</GuardedButton>}</div></div><div className="grid grid-cols-2 gap-2 text-[11px] font-medium text-slate-600"><span className="flex items-center gap-1"><User size={13} className="text-slate-400"/>{item.staffName ?? t('schedule.adUnassignedStaff')}</span><span className="flex items-center gap-1"><BedDouble size={13} className="text-slate-400"/>{item.resourceName ?? t('schedule.adNoRoom')}</span><span className="col-span-2 flex items-center gap-1"><CalendarClock size={13} className="text-slate-400"/>{storeTime.dateTime(item.startsAt)}</span></div></article>)}</div>
           {!activeTicket && <p className="rounded-xl border border-teal-100 bg-teal-50/60 p-2.5 text-[11px] font-medium text-teal-800">{t('schedule.adAppointmentAddItemHint')}</p>}
         </section>
 
@@ -415,7 +441,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
 
         <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm"><SectionTitle icon={<CreditCard size={15}/>} label={t('schedule.adCostSummary')} /><div className="flex items-end justify-between border-t border-slate-100 pt-3"><span className="text-sm font-bold text-slate-800">{t('schedule.adTotalDue')}</span><span className="font-mono text-2xl font-black text-teal-700">${centsToDollars(totalCents)}</span></div></section>
 
-        <div className="flex flex-wrap gap-2"><GuardedButton permission="appointment.write" variant="outline" onPress={() => setRescheduleOpen(true)}><CalendarClock size={16}/>{t('schedule.adReschedule')}</GuardedButton><GuardedButton permission="appointment.cancel" variant="danger" onPress={() => setCancelOpen(true)}>{t('schedule.adConfirmCancelAppt')}</GuardedButton></div>
+        <div className="flex flex-wrap gap-2"><GuardedButton permission="appointment.write" variant="outline" onPress={() => openReschedule(null)}><CalendarClock size={16}/>{t('schedule.adReschedule')}</GuardedButton><GuardedButton permission="appointment.cancel" variant="danger" onPress={() => setCancelOpen(true)}>{t('schedule.adConfirmCancelAppt')}</GuardedButton></div>
       </div>}
 
       {tab === 'health' && <div className="space-y-4">
@@ -691,7 +717,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
     </Modal>
 
     <Modal isOpen={cancelOpen} onOpenChange={setCancelOpen} title={t('schedule.adCancelConfirmTitle')} size="sm" footer={<Actions cancel={() => setCancelOpen(false)} submit={<GuardedButton permission="appointment.cancel" variant="danger" onPress={() => void runCancel()} isPending={cancelM.isPending}>{t('schedule.adConfirmCancelAppt')}</GuardedButton>} />}><div className="space-y-4"><select value={cancelReason} onChange={(event) => setCancelReason(event.target.value as CancelReason)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">{CANCEL_REASONS.map((reason) => <option key={reason} value={reason}>{t(`schedule.adCancel.${reason}`)}</option>)}</select><label className="flex gap-2 text-sm"><input type="checkbox" checked={keepStaffTurn} onChange={(event) => setKeepStaffTurn(event.target.checked)} />{t('schedule.adKeepStaffTurn')}</label></div></Modal>
-    <Modal isOpen={rescheduleOpen} onOpenChange={setRescheduleOpen} title={t('schedule.adReschedule')} size="sm" footer={<Actions cancel={() => setRescheduleOpen(false)} submit={<GuardedButton permission="appointment.write" onPress={() => void runReschedule()} isPending={rescheduleM.isPending}>{t('schedule.adConfirmUpdate')}</GuardedButton>} />}><div className="grid gap-3 sm:grid-cols-2"><input aria-label={t('schedule.adDate')} type="date" value={date} onChange={(event) => setDate(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5" /><input aria-label={t('schedule.adTime')} type="time" value={time} onChange={(event) => setTime(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5" /><StaffSelect value={staffId} onChange={setStaffId} includeUnassigned /><select aria-label={t('schedule.adRoomType')} value={roomId} onChange={(event) => setRoomId(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5"><option value="">{t('schedule.adNoRoom')}</option>{resources.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></div></Modal>
+    <Modal isOpen={rescheduleOpen} onOpenChange={(open) => { setRescheduleOpen(open); if (!open) setRescheduleItemId(null); }} title={rescheduleItemId ? t('schedule.adEditOneItem', { p0: appointment?.items.find((it) => it.itemId === rescheduleItemId)?.serviceName ?? '' }) : t('schedule.adReschedule')} size="sm" footer={<Actions cancel={() => { setRescheduleOpen(false); setRescheduleItemId(null); }} submit={<GuardedButton permission="appointment.write" onPress={() => void runReschedule()} isPending={rescheduleM.isPending}>{t('schedule.adConfirmUpdate')}</GuardedButton>} />}><div className="space-y-3">{!rescheduleItemId && (appointment?.items.length ?? 0) > 1 && <p className="rounded-xl border border-teal-100 bg-teal-50/60 p-2.5 text-[11px] font-medium text-teal-800">{t('schedule.adRescheduleWholeHint')}</p>}<div className="grid gap-3 sm:grid-cols-2"><input aria-label={t('schedule.adDate')} type="date" value={date} onChange={(event) => setDate(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5" /><input aria-label={t('schedule.adTime')} type="time" value={time} onChange={(event) => setTime(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5" /><StaffSelect value={staffId} onChange={setStaffId} includeUnassigned /><select aria-label={t('schedule.adRoomType')} value={roomId} onChange={(event) => setRoomId(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5"><option value="">{t('schedule.adNoRoom')}</option>{resources.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></div></div></Modal>
     <Modal isOpen={addOpen} onOpenChange={setAddOpen} title={t('schedule.adAddOn')} size="sm" footer={<Actions cancel={() => setAddOpen(false)} submit={<GuardedButton permission={activeTicket ? 'ticket.write' : 'appointment.write'} onPress={() => void runAddItem()} isPending={addItemM.isPending || addAppointmentItemM.isPending} isDisabled={!serviceId || (Boolean(activeTicket) && !effectiveAddStaffId)}>{t('schedule.adAddOn')}</GuardedButton>} />}><div className="space-y-3"><select aria-label={t('schedule.adServiceItem')} value={serviceId} onChange={(event) => setServiceId(event.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5"><option value="">{t('schedule.adChooseService')}</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name} · ${(service.priceCents / 100).toFixed(2)}</option>)}</select><StaffSelect value={addStaffId} onChange={setAddStaffId} includeUnassigned={!activeTicket} />{activeTicket ? <p className="rounded-xl bg-violet-50 p-2.5 text-[11px] font-medium text-violet-900">{t('schedule.adAddOnTicketHint')}</p> : <p className="rounded-xl bg-teal-50 p-2.5 text-[11px] font-medium text-teal-900">{t('schedule.adAppointmentAddModalHint')}</p>}</div></Modal>
   </>);
 
