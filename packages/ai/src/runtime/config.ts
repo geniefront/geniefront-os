@@ -34,7 +34,7 @@ export const LUNA_MAX_OUTPUT_TOKENS = {
 } as const;
 
 /** 前台副驾动态编排最多轮数 (29 §2) */
-export const COPILOT_MAX_ROUNDS = 8;
+export const COPILOT_MAX_ROUNDS = 12;
 
 /**
  * Luna 费率表 (单位: 毫分 / 每百万 Token)

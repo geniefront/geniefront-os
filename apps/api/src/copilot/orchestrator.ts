@@ -131,7 +131,7 @@ export async function runCopilotOrchestration(
 
   while (round < COPILOT_MAX_ROUNDS) {
     round++;
-    args.callbacks?.onStep?.(`正在思考与分析 (第 ${round}/${COPILOT_MAX_ROUNDS} 轮)...`);
+    args.callbacks?.onStep?.('AI 正在思考...');
 
     const response = await luna.invoke({
       instructions,

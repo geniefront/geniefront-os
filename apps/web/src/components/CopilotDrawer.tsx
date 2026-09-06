@@ -75,7 +75,8 @@ function ThinkingAccordion({ steps, isStreaming }: { steps?: string[]; isStreami
     if (!isStreaming) return null;
   }
 
-  const latestStep = steps && steps.length > 0 ? steps[steps.length - 1] : t('schedule.copilotAnalyzing');
+  const cleanStep = (s: string) => s.replace(/\s*\(第\s*\d+(\/\d+)?\s*轮\)/g, '').trim();
+  const latestStep = steps && steps.length > 0 ? cleanStep(steps[steps.length - 1]) : t('schedule.copilotThinking');
 
   return (
     <div className="mb-2.5 overflow-hidden rounded-xl border border-teal-500/30 bg-gradient-to-r from-teal-500/10 via-emerald-500/5 to-transparent text-xs transition-all shadow-2xs">
@@ -115,7 +116,7 @@ function ThinkingAccordion({ steps, isStreaming }: { steps?: string[]; isStreami
           {steps.map((st, idx) => (
             <div key={idx} className="flex items-center gap-2 text-[11px] text-slate-600 font-medium">
               <span className="h-1.5 w-1.5 rounded-full bg-teal-500 shrink-0" />
-              <span className="truncate">{st}</span>
+              <span className="truncate">{cleanStep(st)}</span>
             </div>
           ))}
         </div>
@@ -337,7 +338,7 @@ interface SelectedImageState {
   name: string;
 }
 
-const MAX_SESSION_TURNS = 10;
+const MAX_SESSION_TURNS = 50;
 const MAX_STORED_SESSIONS = 20;
 const SESSION_RETENTION_MS = 7 * 24 * 60 * 60_000;
 
@@ -1083,9 +1084,12 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
           <div>
             <div className="flex items-center gap-1.5">
               <span className="font-bold tracking-wide text-xs sm:text-sm">{t('copilotTitle') || t('schedule.copilotTitle')}</span>
-              <span className="text-[10px] bg-teal-500/20 text-teal-300 px-1.5 py-0.5 rounded font-mono font-bold">
-                {activeSession.userQueryCount}/{MAX_SESSION_TURNS}  {t('schedule.copilotRound')}
-              </span>
+              {isStreaming && (
+                <span className="text-[10px] bg-teal-500/20 text-teal-300 px-2 py-0.5 rounded-full font-medium flex items-center gap-1.5 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-teal-400"></span>
+                  {t('schedule.copilotThinking')}
+                </span>
+              )}
             </div>
             <p className="text-[10px] text-slate-400 font-medium truncate max-w-[130px]">{activeSession.title}</p>
           </div>
@@ -1114,7 +1118,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
                 <span className="text-[10px] text-slate-400">{formatRelativeTime(sess.updatedAt)}</span>
               </div>
               <div className="flex justify-between pl-5 pt-1">
-                <span className="text-[10px] text-slate-400">{sess.userQueryCount}{t('schedule.copilotRoundLimit')}</span>
+                <span className="text-[10px] text-slate-400">{sess.messages.filter((m) => m.role === 'user').length} {t('schedule.copilotConversations')}</span>
                 <Trash2 className="w-3.5 h-3.5 text-slate-400 hover:text-rose-600" onClick={(e) => handleDeleteSession(e, sess.id)} />
               </div>
             </div>

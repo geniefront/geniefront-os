@@ -81,6 +81,8 @@ export const schedule = {
   'schedule.copilotConfirmRun': { 'zh-Hans': '确认执行', en: 'Confirm', ko: '실행 확정', es: 'Confirmar', vi: 'Xác nhận thực hiện' },
   'schedule.copilotExecuted': { 'zh-Hans': '已执行', en: 'Done', ko: '실행됨', es: 'Ejecutado', vi: 'Đã thực hiện' },
   'schedule.copilotTitle': { 'zh-Hans': 'GenieFront AI 副驾', en: 'GenieFront AI Copilot', ko: 'GenieFront AI 코파일럿', es: 'Copiloto IA de GenieFront', vi: 'Trợ lý AI GenieFront' },
+  'schedule.copilotThinking': { 'zh-Hans': 'AI 思考中...', en: 'AI is thinking…', ko: 'AI 생각 중…', es: 'La IA está pensando…', vi: 'AI đang suy nghĩ…' },
+  'schedule.copilotConversations': { 'zh-Hans': '条对话', en: 'messages', ko: '개 대화', es: 'mensajes', vi: 'tin nhắn' },
   'schedule.copilotRound': { 'zh-Hans': '轮', en: 'turn', ko: '회차', es: 'turno', vi: 'lượt' },
   'schedule.copilotQuickCommands': { 'zh-Hans': '日常高频指令', en: 'Frequent commands', ko: '자주 쓰는 명령', es: 'Comandos frecuentes', vi: 'Lệnh thường dùng' },
   'schedule.copilotHistory': { 'zh-Hans': '历史会话', en: 'Session history', ko: '대화 기록', es: 'Historial de sesiones', vi: 'Lịch sử phiên' },
