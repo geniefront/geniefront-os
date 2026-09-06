@@ -181,11 +181,22 @@ it('a booked time window alone does not imply a seated guest', async () => {
   const rollback = new Error('rollback test fixture');
   try {
     await withTenant(tenant, async (tx) => {
-      const [item] = await tx<{ id: string }[]>`select id from appointment_items where location_id = ${NAIL_LOC} order by starts_at desc limit 1`;
-      expect(item).toBeDefined();
-      await tx`update appointment_items set resource_id = ${result.resourceId}, membership_id = null,
-        status = 'booked', starts_at = now() - interval '1 minute', ends_at = now() + interval '20 minutes'
-        where id = ${item!.id}`;
+      // 自建一条落在当前营业时段、指向本房间的预约项，事务结束即回滚。
+      // 不依赖种子里恰好存在 appointment_items（handoff 交接项 5）。
+      const [svc] = await tx<{ id: string; base_price_cents: number; duration_min: number }[]>`
+        select id, base_price_cents, duration_min from services where location_id = ${NAIL_LOC} order by id limit 1`;
+      expect(svc).toBeDefined();
+      const [appt] = await tx<{ id: string }[]>`
+        insert into appointments (org_id, location_id, business_date, starts_at, ends_at, status, source)
+        values (${NAIL_ORG}, ${NAIL_LOC}, current_date,
+          now() - interval '1 minute', now() + interval '20 minutes', 'booked', 'desk')
+        returning id`;
+      await tx`
+        insert into appointment_items (org_id, location_id, appointment_id, service_id, resource_id,
+          membership_id, starts_at, ends_at, price_cents_snapshot, duration_min, status)
+        values (${NAIL_ORG}, ${NAIL_LOC}, ${appt!.id}, ${svc!.id}, ${result.resourceId},
+          null, now() - interval '1 minute', now() + interval '20 minutes',
+          ${svc!.base_price_cents}, ${svc!.duration_min}, 'booked')`;
       const room = (await loadRooms(tx, ownerCtx)).rooms.find((room) => room.id === result.resourceId)!;
       expect(room.todaySlots.length).toBe(1);
       expect(room.status).toBe('available');

@@ -1,6 +1,6 @@
 # 房态与员工中心重构交接
 
-更新：2026-09-06。状态：P0–P3 本机浏览器验收通过；未部署，未修改线上数据。迁移 0109 仅在隔离测试库执行。
+更新：2026-09-06。状态：P0–P3 本机浏览器验收通过；commit `13eeaa3` 已部署 staging，迁移 0109 已在 staging 应用并核对，staging API 健康。交接项 1–5 全部落地；仅剩 staging 真人冒烟与（可选）生产迁移。
 
 ## 用户目标
 修复房态/员工中心的数据与交互问题，让岗位、职级可配置，统一技能和项目，并保留可接手的进度。
@@ -10,7 +10,7 @@
 - [x] P1 岗位/职级/技能门店配置入口与已有值回显。（浏览器验收通过）
 - [x] P2 技能 ID 统一、全部必需技能校验、未配置要求的明确展示。（浏览器验收通过）
 - [x] P3 房态由实际占用推导，多人房/营业日/预约入座及失败恢复。（多人房逐项完成/清洁流转验收通过）
-- [~] P4 拆分页面与回归验证。（回归 web 260 + api 1120 全绿；页面拆分见上一轮，未部署）
+- [x] P4 拆分页面与回归验证。（回归 web 260 + api 1120 全绿；已部署 staging）
 
 ## 确认的问题与入口
 - `apps/web/src/pages/EmployeePerformance.tsx`: catch 后仍更新本地列表并成功提示；电话邮箱未提交；预设技能/职位/职级写死；删除实际离职。
@@ -80,7 +80,20 @@
 - 完成最后一项 → 房态**自动转「打扫消毒」**，占用 0/4。「打扫完成·复位待客」两步（beginCleaning→completeCleaning）清洁后复位「空闲」。
 - 入座弹窗顶部提示幂等（失败可原信息重试，不重复排队/开单）。
 
-**交接项 4、5**：4 已在上方处理（查询不再按 active 过滤 + 本轮补齐排序/标注）。5 未改造，`rooms.test.ts` 第 178 例仍依赖种子含 `appointment_items`（当前种子有 175 条预约，8 例绿）。
+**交接项 4、5**：4 已在上方处理（查询不再按 active 过滤 + 本轮补齐排序/标注）。5 见下方「2026-09-06 收尾」。
 
-### 已知环境坑
-- `pnpm run dev:web:local`（`vite --mode local`）启动即报错：`"local" cannot be used as a mode name`（与 vite 的 `.local` 后缀冲突）。本轮改用普通 `web` 配置（mode=development），根 `.env.local` 会覆盖 `SUPABASE_URL` 为本地 55321，`VITE_API_BASE` 已是 `127.0.0.1:3000`，因此普通 `web` 即可连本地。`dev:web:local` 脚本本身需要修（不属于本次范围）。
+## 2026-09-06 收尾（用户已 push + 部署 staging 后）
+
+- **交接项 1 — 目标环境迁移**：commit `13eeaa3` 已部署 staging。`pnpm --filter @gf/db migrate`（经 staging `MIGRATION_DATABASE_URL`，pooler `aws-0-us-east-1...:6543`）确认 `sql/0109_staff_contact_email.sql` **已应用**、"新应用 0 个文件"、`migrate.ts` 的 RLS 覆盖检查通过。`staging-api.geniefront.com/health` = 200（app_user 连接正常）。注意：`deploy/deploy.sh` **不跑迁移**，运行时容器也拿不到 `MIGRATION_DATABASE_URL`；迁移是独立步骤，用 `pnpm migrate:staging`（`scripts/migrate-env.sh` → env-guard → `run-env.sh staging`）。
+- **交接项 5 — 已改造**：`apps/api/src/rooms.test.ts` 第 178 例（"a booked time window alone does not imply a seated guest"）不再 `select ... limit 1` 复用种子预约项。改为在回滚事务内自建 `appointments` + `appointment_items`（挂到本例新建的房间、落在当前营业时段、`status='booked'`），事务末尾 `throw rollback` 全部回滚。不依赖种子是否含预约。`rooms.test.ts` 8 例仍全绿。
+- **环境坑修复**：`package.json` 的 `dev:web:local` 从坏的 `vite --mode local`（与 vite `.local` 后缀冲突，启动即崩）改为 `bash scripts/run-env.sh local pnpm --filter @gf/web exec vite --port 5177 --host 0.0.0.0`，与 `dev:api:local` 对称：先过 `env-guard.sh local`（断言 `SUPABASE_URL=127.0.0.1:55321`），再由 `run-env.sh` 把 `.env.local` 注入 `process.env`，vite `loadEnv('', …)` 以最高优先级取用。已实测启动正常、5177 返回 200、env-guard 通过。
+
+### 收尾验证
+- `pnpm --filter @gf/api typecheck`：通过。
+- `apps/api`：`rooms.test.ts`(8) + `staffDirectory.test.ts`(3) + `settings_enhancements.test.ts`(14) 通过。
+- `apps/api` 全量回归：见会话（进行中/绿）。
+- `dev:web:local` 冒烟：Vite ready、`curl 127.0.0.1:5177` = 200。
+
+### 仍待办
+- staging 上做一次真人冒烟（新增员工回读、目录停用、多人房逐项完成）—— 需要 staging 登录凭据，本轮未做。
+- 生产迁移（如果要上生产）：`GF_CONFIRM_PRODUCTION=deploy-production pnpm migrate:production`。

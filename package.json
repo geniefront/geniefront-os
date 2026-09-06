@@ -25,7 +25,7 @@
     "env:check:staging": "bash scripts/env-guard.sh staging",
     "env:check:production": "bash scripts/env-guard.sh production",
     "dev:api:local": "bash scripts/run-env.sh local pnpm --filter @gf/api dev:raw",
-    "dev:web:local": "pnpm --filter @gf/web exec vite --mode local --port 5177 --host 0.0.0.0",
+    "dev:web:local": "bash scripts/run-env.sh local pnpm --filter @gf/web exec vite --port 5177 --host 0.0.0.0",
     "deploy:staging": "bash deploy/deploy.sh staging",
     "deploy:production": "bash deploy/deploy.sh production",
     "migrate:staging": "bash scripts/migrate-env.sh staging",
