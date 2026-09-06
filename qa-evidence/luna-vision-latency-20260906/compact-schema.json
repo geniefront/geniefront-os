@@ -1,0 +1,167 @@
+{
+  "type": "object",
+  "properties": {
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "n": {
+                  "type": "string",
+                  "description": "原文项目名称或说明全文"
+                },
+                "k": {
+                  "type": "string",
+                  "enum": [
+                    "service",
+                    "addon",
+                    "package",
+                    "note",
+                    "price_modifier"
+                  ]
+                },
+                "p": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "l": {
+                        "type": "string",
+                        "description": "价格档位原文标签；单价无标签时空串"
+                      },
+                      "d": {
+                        "type": "integer",
+                        "description": "分钟，未印0"
+                      },
+                      "c": {
+                        "type": "integer",
+                        "description": "整数美分，未印0"
+                      }
+                    },
+                    "required": [
+                      "l",
+                      "d",
+                      "c"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "单价也只存一项，多档全部保留；无价格说明行给空数组"
+                },
+                "f": {
+                  "type": "boolean",
+                  "description": "是否起步价"
+                },
+                "q": {
+                  "type": "string",
+                  "enum": [
+                    "certain",
+                    "likely",
+                    "unsure"
+                  ]
+                },
+                "b": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  },
+                  "description": "原图像素框[x1,y1,x2,y2]，恰好4项"
+                },
+                "pkg": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "s": {
+                          "type": "integer",
+                          "description": "明确印出的核销次数，未印0"
+                        },
+                        "names": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "days": {
+                          "type": "integer",
+                          "description": "明确有效天数，未印0"
+                        }
+                      },
+                      "required": [
+                        "s",
+                        "names",
+                        "days"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ],
+                  "description": "仅套餐有此对象；其余null"
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "原图计价单位限定如 each；没有则null"
+                }
+              },
+              "required": [
+                "n",
+                "k",
+                "p",
+                "f",
+                "q",
+                "b",
+                "pkg",
+                "unit"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "category",
+          "rows"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "unresolved": {
+      "type": "array",
+      "description": "你**没法从这张图知道**、但开店需要的信息。这些会变成问老板的下一个问题 —— 与其猜一个填进去，不如在这里列出来。",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "description": "缺什么，如 \"duration\" / \"business_hours\""
+          },
+          "question": {
+            "type": "string",
+            "description": "直接问老板的一句话，用中文"
+          }
+        },
+        "required": [
+          "field",
+          "question"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "groups",
+    "unresolved"
+  ],
+  "additionalProperties": false
+}

@@ -199,6 +199,7 @@ export const extractedItemZ = z.object({
     x1: z.number().int(), y1: z.number().int(),
     x2: z.number().int(), y2: z.number().int(),
   }),
+  pricingUnit: z.string().trim().nullable().optional(),
 });
 
 export const extractionZ = z.object({
@@ -213,3 +214,183 @@ export type ExtractedItem = z.infer<typeof extractedItemZ>;
 export type Extraction = z.infer<typeof extractionZ>;
 export type ConfidenceLevel = (typeof CONFIDENCE_LEVELS)[number];
 export type ItemKind = (typeof ITEM_KINDS)[number];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Luna 紧凑格式 (29 §11, qa-evidence/luna-vision-latency-20260906)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const compactPriceListToolSchema = {
+  type: 'object',
+  properties: {
+    groups: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          category: { type: 'string' },
+          rows: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                n: { type: 'string', description: '原文项目名称或说明全文' },
+                k: { type: 'string', enum: ITEM_KINDS },
+                p: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      l: { type: 'string', description: '价格档位原文标签；单价无标签时空串' },
+                      d: { type: 'integer', description: '分钟，未印0' },
+                      c: { type: 'integer', description: '整数美分，未印0' },
+                    },
+                    required: ['l', 'd', 'c'],
+                    additionalProperties: false,
+                  },
+                  description: '单价也只存一项，多档全部保留；无价格说明行给空数组',
+                },
+                f: { type: 'boolean', description: '是否起步价' },
+                q: { type: 'string', enum: CONFIDENCE_LEVELS },
+                b: {
+                  type: 'array',
+                  items: { type: 'integer' },
+                  description: '原图像素框[x1,y1,x2,y2]，恰好4项',
+                },
+                pkg: {
+                  anyOf: [
+                    { type: 'null' },
+                    {
+                      type: 'object',
+                      properties: {
+                        s: { type: 'integer', description: '明确印出的核销次数，未印0' },
+                        names: { type: 'array', items: { type: 'string' } },
+                        days: { type: 'integer', description: '明确有效天数，未印0' },
+                      },
+                      required: ['s', 'names', 'days'],
+                      additionalProperties: false,
+                    },
+                  ],
+                  description: '仅套餐有此对象；其余null',
+                },
+                unit: {
+                  type: ['string', 'null'],
+                  description: '原图计价单位限定如 each；没有则null',
+                },
+              },
+              required: ['n', 'k', 'p', 'f', 'q', 'b', 'pkg', 'unit'],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ['category', 'rows'],
+        additionalProperties: false,
+      },
+    },
+    unresolved: {
+      type: 'array',
+      description: '你没法从这张图知道、但开店需要的信息',
+      items: {
+        type: 'object',
+        properties: {
+          field: { type: 'string', description: '缺什么' },
+          question: { type: 'string', description: '问老板的一句话' },
+        },
+        required: ['field', 'question'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['groups', 'unresolved'],
+  additionalProperties: false,
+} as const;
+
+export const compactRowZ = z.object({
+  n: z.string().trim().min(1).max(200),
+  k: z.enum(ITEM_KINDS),
+  p: z.array(z.object({
+    l: z.string().trim().max(60),
+    d: z.number().int().min(0).max(600),
+    c: z.number().int().min(0).max(MAX_PRICE_CENTS),
+  })).max(12),
+  f: z.boolean(),
+  q: z.enum(CONFIDENCE_LEVELS),
+  b: z.array(z.number().int()).min(4).max(4),
+  pkg: z.object({
+    s: z.number().int().min(0).max(10_000),
+    names: z.array(z.string().trim().min(1).max(200)).max(30),
+    days: z.number().int().min(0).max(3650),
+  }).nullable(),
+  unit: z.string().trim().nullable().optional(),
+});
+
+export const compactGroupZ = z.object({
+  category: z.string().trim().max(120),
+  rows: z.array(compactRowZ).max(300),
+});
+
+export const compactExtractionZ = z.object({
+  groups: z.array(compactGroupZ).max(100),
+  unresolved: z.array(z.object({
+    field: z.string().trim().max(80),
+    question: z.string().trim().max(300),
+  })).max(20),
+});
+
+export type CompactExtraction = z.infer<typeof compactExtractionZ>;
+export type CompactRow = z.infer<typeof compactRowZ>;
+
+export function decodeCompactExtraction(compact: CompactExtraction): Extraction {
+  const items: ExtractedItem[] = [];
+
+  for (const group of compact.groups) {
+    const category = group.category || '';
+    for (const row of group.rows) {
+      const bbox = {
+        x1: row.b[0] ?? 0,
+        y1: row.b[1] ?? 0,
+        x2: row.b[2] ?? 0,
+        y2: row.b[3] ?? 0,
+      };
+
+      const prices = row.p || [];
+      let price_cents = 0;
+      let duration_min = 0;
+      let variants: Array<{ label: string; price_cents: number; duration_min: number }> = [];
+
+      if (prices.length === 1 && !prices[0]!.l) {
+        price_cents = prices[0]!.c;
+        duration_min = prices[0]!.d;
+      } else if (prices.length >= 1) {
+        variants = prices.map((pr) => ({
+          label: pr.l,
+          price_cents: pr.c,
+          duration_min: pr.d,
+        }));
+        price_cents = Math.min(...prices.map((pr) => pr.c));
+        duration_min = prices[0]?.d ?? 0;
+      }
+
+      items.push({
+        name: row.n,
+        category,
+        kind: row.k,
+        duration_min,
+        price_cents,
+        price_is_from: Boolean(row.f),
+        variants,
+        package_sessions: row.pkg?.s ?? 0,
+        package_service_names: row.pkg?.names ?? [],
+        package_valid_days: row.pkg?.days ?? 0,
+        confidence: row.q,
+        bbox,
+        pricingUnit: row.unit ?? null,
+      });
+    }
+  }
+
+  return {
+    items,
+    unresolved: compact.unresolved || [],
+  };
+}
+

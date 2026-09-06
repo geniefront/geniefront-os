@@ -10,14 +10,14 @@
 import type postgres from 'postgres';
 import { randomUUID } from 'node:crypto';
 import {
-  AppointmentCreate, AppointmentAddItem, AppointmentCancel, AppointmentReschedule,
+  AppointmentCreate, AppointmentCreateBatch, AppointmentAddItem, AppointmentCancel, AppointmentReschedule,
   AppointmentSaveServiceBrief, AppointmentAssignCustomer,
-  AppError, ERROR_CODES, pickText,
+  AppError, ERROR_CODES, pickText, type CommandContext,
 } from '@gf/contracts';
 import { renderConfirm, formatWhen } from '../email/render';
 import { emailConfigured } from '../email/send';
 import { hostedManageBookingUrl } from '../links';
-import { generateManageToken, hashManageToken, wrapManageToken } from '../public/bookingToken';
+import { generateConfirmationCode, generateManageToken, hashManageToken, wrapManageToken } from '../public/bookingToken';
 import { guestManageLink, manageUrlVar } from '../notify/manageUrl';
 import { enqueueShopCopy } from '../email/shopCopy';
 import { renderConfirmSms } from '../sms/render';
@@ -206,7 +206,17 @@ async function lockBookingCapacity(
     hashtext(${locationId}), hashtext('appointment.capacity'))`;
 }
 
-registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs<Input>): Promise<Output> => {
+export async function executeSingleAppointmentInTx(
+  tx: postgres.TransactionSql,
+  ctx: CommandContext,
+  input: Input,
+): Promise<{
+  appointmentId: string;
+  itemIds: string[];
+  overbookedItemIds: string[];
+  businessDate: string;
+  offHoursOverride: boolean;
+}> {
   await lockBookingCapacity(tx, ctx.locationId);
 
   // ── 门店配置 ──────────────────────────────────────────────────────────────
@@ -249,10 +259,6 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
   const businessDate = businessDateOf(windowStart, loc.timezone, loc.cutoff);
 
   // ── 营业时间闸门（0046）────────────────────────────────────────────────────
-  //
-  // 在容量之前判。理由是给人看的错误要按「先大后小」来：
-  // 「今天不营业」比「Amy 这个点排满了」有用得多，先报后者会让前台
-  // 一路换技师换到最后才发现今天根本不开门。
   const offHoursOverride = assertBusinessHours({
     businessDate, timezone: loc.timezone, hours: loc.hours,
     startsAt: windowStart, endsAt: windowEnd,
@@ -263,10 +269,6 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
   });
 
   // ── 当天已有的活跃时段（供容量判断）────────────────────────────────────────
-  //
-  // `groupKey` 取 appointment_id：同一位客人的多个项目在容量引擎里合并成
-  // 一个占位。技师并发问的是「同时在服务几位客人」，不是「手上挂着几条
-  // 项目记录」—— 一位客人做三个项目、都点名同一位技师，占的是一个位置。
   const existingRows = await tx<{
     group_key: string; membership_id: string | null; starts_at: string; ends_at: string;
   }[]>`
@@ -279,7 +281,6 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
       and ai.starts_at < ${ts(windowEnd)}::timestamptz
       and ai.ends_at   > ${ts(windowStart)}::timestamptz`;
 
-  // timestamptz 读回来是字符串，容量引擎要的是 Date —— 在边界上一次转清楚
   const existing: Array<Interval & { membershipId: string | null }> = existingRows.map((e) => ({
     membershipId: e.membership_id,
     startsAt: parseTs(e.starts_at),
@@ -288,9 +289,6 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
   }));
 
   const staffIds = [...new Set(resolved.map((r) => r.membershipId).filter((x): x is string => !!x))];
-  // ⚠️ 必须带 location_id：一个技师在两家店上班是这行的常态（sql/0031 注释），
-  // 不过滤的话既能把别家店的技师排进本店的单，拿到的 max_concurrent /
-  // is_bookable 还是**另一家店**那条档案上的值。
   const staffRows = staffIds.length
     ? await tx<{ membership_id: string; is_bookable: boolean; max_concurrent: number }[]>`
         select membership_id, is_bookable,
@@ -302,15 +300,6 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
 
   const onDutyBookableCount = await countOnDutyBookable(tx, ctx.locationId, businessDate);
 
-  // ── 容量检查（纯函数，唯一实现）────────────────────────────────────────────
-  //
-  // ⚠️ 本次请求内的项目要互相计入。逐项判、`existing` 只来自数据库的话，
-  // 前台「一键编排：全部同时进行」把两项都排给同一位技师会**静默通过**，
-  // 真超卖落了库，一直到开单才被发现。判完一项就把它追加进 existing。
-  //
-  // 它们共用同一个 groupKey（本单还没有 id，临时造一个）：同一位客人的
-  // 项目之间不算冲突，对**别的**技师和门店层则照常计入。
-  // partySize > 1 的单里每个项目各算一位客人，见下方 existing 查询的注释
   const newApptKey = input.partySize > 1 ? null : `pending:${randomUUID()}`;
   const overbookedIdx = new Set<number>();
 
@@ -322,7 +311,6 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
 
     const proposed: Interval = {
       startsAt: item.startsAt, endsAt: item.endsAt,
-      // null = 各算各的：同一次请求里的两项也会互相计入
       groupKey: newApptKey ?? `pending-item:${idx}`,
     };
     const issues = checkCapacity({
@@ -346,13 +334,11 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
 
     if (issues.length === 0) continue;
 
-    // 覆盖不了的（比如这人根本不接客）—— 有 reason 也没用
     const blocking = issues.find((i) => !i.overridable);
     if (blocking) {
       throw new AppError(ERROR_CODES.STAFF_NOT_BOOKABLE, { details: { itemIndex: idx, ...blocking } });
     }
 
-    // 软约束：门店把 overbook 设成 block 时不给覆盖入口
     if (capacityCfg.overbook === 'block' || !input.override) {
       const first = issues[0]!;
       throw new AppError(
@@ -371,12 +357,6 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
     ? await resolveGuestCustomer(tx, ctx, input.guest.customer)
     : input.customerId;
 
-  /**
-   * Desk / phone-manual appointments with a real customer phone get a
-   * manage token inside this transaction. Web and phone-AI already pass
-   * guest.manageToken. Walk-ins without a phone do not get a link.
-   * The raw token never enters command output or audit.
-   */
   let issuedManageToken = input.guest?.manageToken ?? null;
   if (!issuedManageToken && customerId
       && (input.source === 'desk' || input.source === 'phone_manual')) {
@@ -426,7 +406,6 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
       itemIds.push(row!.id);
       if (isOver) overbookedItemIds.push(row!.id);
     } catch (e) {
-      // 资源硬冲突：前台看不懂 "23P01 conflicting key value"，翻译成人话
       if (isExclusionViolation(e)) {
         throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, {
           details: {
@@ -445,24 +424,100 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
   await enqueueConfirmEmail(tx, ctx, appt!.id, itemIds[0] ?? null, issuedManageToken);
   await enqueueConfirmSms(tx, ctx, appt!.id, itemIds[0] ?? null, issuedManageToken);
 
-  // 审计由总线统一落库并做金额脱敏
+  return {
+    appointmentId: appt!.id,
+    itemIds,
+    overbookedItemIds,
+    businessDate,
+    offHoursOverride,
+  };
+}
+
+registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs<Input>): Promise<Output> => {
+  const result = await executeSingleAppointmentInTx(tx, ctx, input);
+
   audit({
     entityType: 'appointment',
-    entityId: appt!.id,
+    entityId: result.appointmentId,
     after: {
-      businessDate,
+      businessDate: result.businessDate,
       source: input.source,
-      itemCount: itemIds.length,
-      overbooked: overbookedItemIds.length,
-      // 营业时间外被前台带 reason 放行的那一单。查「谁把客人排到八点半」时用得上
-      offHours: offHoursOverride,
+      itemCount: result.itemIds.length,
+      overbooked: result.overbookedItemIds.length,
+      offHours: result.offHoursOverride,
       overrideReason: input.override?.reason ?? null,
-      // ⚠️ 确认码可以留（它不授权任何事），**令牌一个字都不能进审计**
       confirmationCode: input.guest?.confirmationCode ?? null,
     },
   });
 
-  return { appointmentId: appt!.id, itemIds, overbookedItemIds, businessDate };
+  return {
+    appointmentId: result.appointmentId,
+    itemIds: result.itemIds,
+    overbookedItemIds: result.overbookedItemIds,
+    businessDate: result.businessDate,
+  };
+});
+
+registerHandler(AppointmentCreateBatch, async ({ input, ctx, tx, audit }: HandlerArgs<typeof AppointmentCreateBatch.input._type>) => {
+  const results: Array<{
+    subKey: string;
+    appointmentId: string;
+    itemIds: string[];
+    businessDate: string;
+  }> = [];
+
+  for (const item of input.items) {
+    let guestObj: Input['guest'] | undefined = undefined;
+    if (item.guest) {
+      const g = item.guest;
+      const custName = g.customer?.name ?? g.name ?? 'Guest';
+      const custPhone = g.customer?.phoneE164 ?? g.phoneE164 ?? '';
+      guestObj = {
+        confirmationCode: g.confirmationCode ?? generateConfirmationCode('GF'),
+        manageToken: g.manageToken ?? generateManageToken(),
+        customer: {
+          name: custName,
+          phoneE164: custPhone,
+          email: g.customer?.email ?? g.email,
+          smsOptIn: g.customer?.smsOptIn ?? g.smsOptIn ?? false,
+        },
+      };
+    }
+
+    const singleInput: Input = {
+      customerId: item.customerId ?? null,
+      walkInName: item.walkInName,
+      items: item.serviceItems,
+      partySize: 1,
+      notes: item.notes,
+      source: input.source,
+      override: item.override,
+      guest: guestObj,
+    };
+
+    const res = await executeSingleAppointmentInTx(tx, ctx, singleInput);
+    results.push({
+      subKey: item.subKey,
+      appointmentId: res.appointmentId,
+      itemIds: res.itemIds,
+      businessDate: res.businessDate,
+    });
+  }
+
+  audit({
+    entityType: 'appointment_batch',
+    entityId: input.batchId,
+    after: {
+      batchId: input.batchId,
+      count: results.length,
+      source: input.source,
+    },
+  });
+
+  return {
+    batchId: input.batchId,
+    results,
+  };
 });
 
 /**

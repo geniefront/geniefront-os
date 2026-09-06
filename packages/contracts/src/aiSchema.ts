@@ -28,8 +28,18 @@
 
 import { z } from 'zod';
 
-/** 递归深度上限。嵌套太深的说明模型也读不动，不如省下 token */
+/** 递归深度上限。支持解开 items: {...}[] 等高频子数组对象 */
 const MAX_DEPTH = 2;
+
+/**
+ * 高频核心命令的显式格式提示 (29 §6.1)
+ * 对结构深但必须准确填写的命令提供明确展开
+ */
+export const COMMAND_INPUT_HINTS: Record<string, string> = {
+  'appointment.create': 'customerId:uuid|null, walkInName:string?, items:{serviceId:uuid, membershipId:uuid|null, startsAt:iso8601, durationMin:int?, resourceId:uuid|null, addonIds:uuid[]}[], partySize:int=1, notes:string?, source:\'desk\'|\'walkin\'|\'web\'|\'phone_ai\'|\'ai_copilot\'="ai_copilot", override:{reason:\'guest_requested\'|\'staff_on_break\'|\'desk_coordination\'|\'walk_in_stacking\'|\'other\', note:string?}?',
+  'appointment.createBatch': 'batchId:uuid, items:{subKey:string, customerId:uuid|null, walkInName:string?, serviceItems:{serviceId:uuid, membershipId:uuid|null, startsAt:iso8601, durationMin:int?, resourceId:uuid|null, addonIds:uuid[]}[], notes:string?, override:{reason:\'guest_requested\'|\'staff_on_break\'|\'desk_coordination\'|\'walk_in_stacking\'|\'other\', note:string?}?}[], source:string="ai_copilot"',
+  'resource.setStatus': 'resourceId:uuid, status:\'available\'|\'cleaning\'|\'in_service\'|\'maintenance\', note:string?',
+};
 
 /**
  * 一个 Zod 类型压成一句话。
@@ -38,23 +48,23 @@ const MAX_DEPTH = 2;
  * 枚举一定要展开 —— 那是模型最容易瞎编的地方（「取消原因」写成 "客人不来了"
  * 而不是 `guest_changed_mind`）。
  */
-export function describeType(schema: z.ZodTypeAny, depth = 0): string {
+export function describeType(schema: z.ZodTypeAny, depth = 0, inArray = false): string {
   const def = (schema as { _def?: { typeName?: string } })._def;
   const name = def?.typeName;
 
   switch (name) {
     case 'ZodOptional':
-      return `${describeType((schema as z.ZodOptional<z.ZodTypeAny>).unwrap(), depth)}?`;
+      return `${describeType((schema as z.ZodOptional<z.ZodTypeAny>).unwrap(), depth, inArray)}?`;
     case 'ZodNullable':
-      return `${describeType((schema as z.ZodNullable<z.ZodTypeAny>).unwrap(), depth)}|null`;
+      return `${describeType((schema as z.ZodNullable<z.ZodTypeAny>).unwrap(), depth, inArray)}|null`;
     case 'ZodDefault': {
       const inner = (schema as z.ZodDefault<z.ZodTypeAny>)._def;
       let dflt: unknown;
       try { dflt = inner.defaultValue(); } catch { dflt = undefined; }
-      return `${describeType(inner.innerType, depth)}=${JSON.stringify(dflt)}`;
+      return `${describeType(inner.innerType, depth, inArray)}=${JSON.stringify(dflt)}`;
     }
     case 'ZodEffects':
-      return describeType((schema as z.ZodEffects<z.ZodTypeAny>)._def.schema, depth);
+      return describeType((schema as z.ZodEffects<z.ZodTypeAny>)._def.schema, depth, inArray);
 
     case 'ZodString': {
       // uuid / datetime 这两个要标出来：模型不知道的话会填一个名字或者「明天下午」
@@ -82,21 +92,23 @@ export function describeType(schema: z.ZodTypeAny, depth = 0): string {
         .map((v) => `'${String(v)}'`).join('|');
     case 'ZodUnion':
       return ((schema._def as { options: readonly z.ZodTypeAny[] }).options)
-        .map((o) => describeType(o, depth)).join('|');
+        .map((o) => describeType(o, depth, inArray)).join('|');
 
     case 'ZodArray': {
       const el = (schema as z.ZodArray<z.ZodTypeAny>)._def.type;
-      return `${describeType(el, depth + 1)}[]`;
+      // 当数组元素是对象或带 effects 的对象时，放宽一层深度让模型看清子字段 (29 §6.1)
+      return `${describeType(el, depth, true)}[]`;
     }
     case 'ZodRecord': return 'object';
     case 'ZodUnknown':
     case 'ZodAny': return 'any';
 
     case 'ZodObject': {
-      if (depth >= MAX_DEPTH) return 'object';
+      const max = inArray ? 3 : MAX_DEPTH;
+      if (depth >= max) return 'object';
       const shape = (schema as z.ZodObject<z.ZodRawShape>).shape;
       const parts = Object.entries(shape)
-        .map(([k, v]) => `${k}:${describeType(v as z.ZodTypeAny, depth + 1)}`);
+        .map(([k, v]) => `${k}:${describeType(v as z.ZodTypeAny, depth + 1, false)}`);
       return `{${parts.join(', ')}}`;
     }
 
@@ -111,7 +123,11 @@ export function describeType(schema: z.ZodTypeAny, depth = 0): string {
  * 顶层不加大括号 —— 模型看到的是 `customerId:uuid|null, items:[...], …`，
  * 比 `{customerId:…}` 更像「这个工具要这几个参数」。
  */
-export function describeInput(schema: z.ZodTypeAny): string {
+export function describeInput(schema: z.ZodTypeAny, commandName?: string): string {
+  if (commandName && COMMAND_INPUT_HINTS[commandName]) {
+    return COMMAND_INPUT_HINTS[commandName];
+  }
+
   // 顶层带 .refine()/.superRefine() 的命令，schema 是 ZodEffects 包着 ZodObject；
   // 先剥到里面的对象，才能保持「不加大括号」的顶层渲染。
   let inner = schema;
@@ -122,6 +138,6 @@ export function describeInput(schema: z.ZodTypeAny): string {
   if (def?.typeName !== 'ZodObject') return describeType(inner);
   const shape = (inner as z.ZodObject<z.ZodRawShape>).shape;
   return Object.entries(shape)
-    .map(([k, v]) => `${k}:${describeType(v as z.ZodTypeAny, 1)}`)
+    .map(([k, v]) => `${k}:${describeType(v as z.ZodTypeAny, 1, false)}`)
     .join(', ');
 }

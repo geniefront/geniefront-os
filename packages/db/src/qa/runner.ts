@@ -43,7 +43,7 @@ export async function runQaSeed(scenario: string): Promise<{
   const snapshot = await adminSql.begin(async (tx) => {
     await wipeQaTenants(tx);
     await populateScenario(tx, scenario, clock);
-    return snapshotQa(tx, scenario);
+    return snapshotQa(tx, scenario, clock);
   });
   return { ...target, scenario, snapshot };
 }
@@ -57,12 +57,12 @@ export async function runQaSeedTwice(scenario: QaScenarioId): Promise<{
   const first = await adminSql.begin(async (tx) => {
     await wipeQaTenants(tx);
     await populateScenario(tx, scenario, clock);
-    return snapshotQa(tx, scenario);
+    return snapshotQa(tx, scenario, clock);
   });
   const second = await adminSql.begin(async (tx) => {
     await wipeQaTenants(tx);
     await populateScenario(tx, scenario, clock);
-    return snapshotQa(tx, scenario);
+    return snapshotQa(tx, scenario, clock);
   });
   return { first, second };
 }

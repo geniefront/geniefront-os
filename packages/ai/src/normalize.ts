@@ -24,6 +24,7 @@ export interface DraftItem {
   category: string | null;
   durationMin: number | null;
   priceCents: number | null;
+  pricingUnit?: string | null;
   priceIsFrom: boolean;
   variants: DraftVariant[];
   packageSessions?: number;
@@ -102,6 +103,7 @@ export function normalizeExtraction(
       category: raw.category.length > 0 ? raw.category : null,
       durationMin,
       priceCents,
+      pricingUnit: (raw as any).pricingUnit ?? null,
       priceIsFrom: raw.price_is_from,
       variants: raw.variants.map((v) => ({
         label: v.label,
@@ -146,8 +148,10 @@ export function mergeDrafts(batches: DraftItem[][]): MergeResult {
 
   for (const batch of batches) {
     for (const item of batch) {
-      // note / price_modifier 只按名字归组：说明文字本来就没有价格可比
-      const key = `${item.kind}::${nameKey(item.name[Object.keys(item.name)[0]!] ?? '')}`;
+      // 合并键包含 category + kind + name (29 §11)，杜绝同名但不同分类项目的错误误合并
+      const cat = (item.category ?? '').trim().toLowerCase();
+      const name = nameKey(item.name[Object.keys(item.name)[0]!] ?? '');
+      const key = `${item.kind}::${cat}::${name}`;
       if (!groups.has(key)) { groups.set(key, []); order.push(key); }
       groups.get(key)!.push(item);
     }

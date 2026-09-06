@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import Anthropic from '@anthropic-ai/sdk';
 import { generateStorefrontDrafts, type BriefInput } from './storefront';
 
 /** 替身客户端的类型 —— 只要 messages 那一块 */
-type FakeClient = Pick<Anthropic, 'messages'>;
+type FakeClient = { messages: { stream: (...args: any[]) => any } };
 
 const brief: BriefInput = {
   shopName: 'Lotus Spa',

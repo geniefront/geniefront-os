@@ -28,6 +28,7 @@ const MODEL_CALLS = [
   'translateNames',
   'planRegions',
   'askCopilot',
+  'runCopilotOrchestration',
   'analyzeReviews',
   'summarizeReviews',
 ];

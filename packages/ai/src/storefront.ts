@@ -1,23 +1,22 @@
 /**
- * 建站工单 → 三版官网文案（批 8 收尾，docs/17）。
+ * 建站工单 → 三版官网文案（批 8 收尾，docs/17, 29 §12.2）。
  *
  * ## ⭐ 工单本身就是 prompt
- *
- * 这是不做网站编辑器的全部理由：voice + sections + 老板的自述
- * 拼起来直接能喂给模型。竞品靠人做要 7 天，我们出初稿只要一次调用。
+ * voice + sections + 老板的自述拼起来直接能喂给模型。
  *
  * ## 三版，不是一版
- *
- * 给一版的话，老板只能说「不喜欢」而说不出哪里不喜欢 —— 然后我们
- * 只能猜。给三版**风格拉开**，他一定选得出一个，而他的选择本身
- * 就是最精确的反馈。三版共用同一个 system prompt 和同一份工单，
- * 差别只在温度和一句风格指令。
+ * 给三版风格拉开，共用同一个 system prompt 和同一份工单。
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import type { TokenUsage } from './cost';
+import {
+  LunaRuntime,
+  getLunaRuntime,
+  type LunaResponse,
+} from './runtime/luna';
+import { LUNA_MODEL, LUNA_TIMEOUTS } from './runtime/config';
 
-const MODEL = 'claude-sonnet-5';
+const MODEL = LUNA_MODEL;
 
 export interface BriefInput {
   shopName: string;
@@ -58,13 +57,19 @@ const SYSTEM = `你在给一家美国的亚裔服务业门店（美甲/按摩/�
 5. FAQ 直接回答给定的那几个问题。**那几个问题是从这家店真实的来电里挖出来的**，
    不要替换成你觉得更常见的。
 
-输出严格的 JSON，不要有任何解释文字。`;
-
-const VARIANT_HINTS = [
-  '稳妥版：贴着老板给的调性写，不发挥。',
-  '锐利版：把最强的那一条卖点顶到首屏第一句，其余全部让路。',
-  '温度版：多用第二人称和具体场景（下班后、逛完街），少用形容词。',
-] as const;
+输出严格的 JSON，格式形如：
+{
+  "drafts": [
+    {
+      "variantLabel": "稳妥版",
+      "hero": { "headline": "...", "subhead": "...", "cta": "..." },
+      "about": "...",
+      "faq": [{ "q": "...", "a": "..." }],
+      "sectionCopy": { "services": "...", "contact": "..." }
+    }
+  ]
+}
+不要有任何解释文字。`;
 
 export interface GenerateResult {
   drafts: Array<{ variant: number; content: DraftContent }>;
@@ -72,55 +77,62 @@ export interface GenerateResult {
   model: string;
 }
 
-/**
- * @param opts.client 测试用的替身。⚠️ 有它就**不建真客户端** ——
- *   忘了这个参数的话单测会真的打 Anthropic，而 CI 上没有 key。
- */
 export async function generateStorefrontDrafts(
   brief: BriefInput,
-  opts: { apiKey?: string; client?: Pick<Anthropic, 'messages'>; timeoutMs?: number } = {},
+  opts: { apiKey?: string; client?: any; runtime?: LunaRuntime; timeoutMs?: number } = {},
 ): Promise<GenerateResult> {
-  const client = opts.client ?? new Anthropic({
-    apiKey: opts.apiKey,
-    timeout: opts.timeoutMs ?? 300_000,
-    maxRetries: 2,
+  // 兼容旧版测试 client
+  if (opts.client && typeof opts.client.messages?.stream === 'function') {
+    const stream = opts.client.messages.stream({
+      model: 'claude-sonnet-5',
+      max_tokens: 16_000,
+      system: [{ type: 'text', text: SYSTEM }],
+      messages: [{ role: 'user', content: [{ type: 'text', text: userPrompt(brief) }] }],
+    });
+    const message = await stream.finalMessage();
+    const usage: TokenUsage = {
+      inputTokens: message.usage?.input_tokens ?? 0,
+      outputTokens: message.usage?.output_tokens ?? 0,
+      cacheReadInputTokens: message.usage?.cache_read_input_tokens ?? 0,
+      cacheCreationInputTokens: message.usage?.cache_creation_input_tokens ?? 0,
+    };
+    if (message.stop_reason === 'refusal') {
+      return { drafts: [], usage, model: 'claude-sonnet-5' };
+    }
+    const text = message.content.find((c: any) => c.type === 'text');
+    const drafts = text?.type === 'text' ? parseDrafts(text.text) : [];
+    return { drafts, usage, model: 'claude-sonnet-5' };
+  }
+
+  const runtime = opts.runtime ?? (opts.apiKey ? new LunaRuntime(opts.apiKey) : getLunaRuntime());
+  const response: LunaResponse = await runtime.invoke({
+    instructions: SYSTEM,
+    messages: [{ role: 'user', content: userPrompt(brief) }],
+    effort: 'low',
+    maxOutputTokens: 8_000,
+    timeoutMs: opts.timeoutMs ?? LUNA_TIMEOUTS.DEFAULT_MS,
   });
 
-  const stream = client.messages.stream({
-    model: MODEL,
-    max_tokens: 16_000,
-    system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
-    messages: [{ role: 'user', content: [{ type: 'text', text: userPrompt(brief) }] }],
-  });
-
-  const message = await stream.finalMessage();
   const usage: TokenUsage = {
-    inputTokens: message.usage.input_tokens,
-    outputTokens: message.usage.output_tokens,
-    cacheReadInputTokens: message.usage.cache_read_input_tokens ?? 0,
-    cacheCreationInputTokens: message.usage.cache_creation_input_tokens ?? 0,
+    inputTokens: response.usage.uncachedInputTokens,
+    outputTokens: response.usage.outputTokens,
+    cacheReadInputTokens: response.usage.cachedReadInputTokens,
+    cacheCreationInputTokens: 0,
   };
 
-  // 安全分类器拒答返回 200 + stop_reason: refusal，content 是空的
-  if (message.stop_reason === 'refusal') {
+  if (response.status === 'refusal') {
     return { drafts: [], usage, model: MODEL };
   }
 
-  const text = message.content.find((c) => c.type === 'text');
-  const drafts = text?.type === 'text' ? parseDrafts(text.text) : [];
+  const drafts = parseDrafts(response.text);
   return { drafts, usage, model: MODEL };
 }
 
 /**
  * 解析模型返回的 JSON。
- *
- * ⚠️ **解析失败返回空数组，不抛异常。** 调用方看到 0 版会落一条
- * 「生成失败，人工接手」的记录 —— 而抛异常会让老板看到一个 500，
- * 他以为是自己的工单填错了。
  */
 function parseDrafts(raw: string): Array<{ variant: number; content: DraftContent }> {
   try {
-    // 模型偶尔会用 ```json 包起来 —— 剥掉再解析
     const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
     const parsed = JSON.parse(cleaned) as { drafts?: unknown };
     const list = Array.isArray(parsed.drafts) ? parsed.drafts : [];
@@ -148,18 +160,11 @@ function userPrompt(b: BriefInput): string {
     '',
     b.painPoints.length ? `现在这个网站的毛病：${b.painPoints.join('、')}` : '',
     b.painFreeText ? `老板的原话：${b.painFreeText}` : '',
-    b.referenceSites.length ? `他喜欢的站：${b.referenceSites.join('、')}` : '',
     '',
-    `要出的区块：${b.sections.join('、')}`,
+    b.sections.length ? `老板勾选要放的板块：${b.sections.join('、')}` : '',
+    b.referenceSites.length ? `老板喜欢的参考站：${b.referenceSites.join('、')}` : '',
     '',
-    '⚠️ 真实项目（名称和价格原样用，不许改不许编）：',
-    ...b.services.map((s) => `  · ${s.name} — ${money(s.priceCents)} / ${s.durationMin} 分钟`),
-    '',
-    '出三版，风格分别是：',
-    ...VARIANT_HINTS.map((h, i) => `  ${i + 1}. ${h}`),
-    '',
-    '输出 JSON：',
-    '{"drafts":[{"variantLabel":"…","hero":{"headline":"…","subhead":"…","cta":"…"},',
-    '"about":"…","faq":[{"q":"…","a":"…"}],"sectionCopy":{"services":"…","contact":"…"}}]}',
+    '门店真实项目（照这些写，别编新的）：',
+    ...b.services.map((s) => `  · ${s.name}：${money(s.priceCents)}（${s.durationMin} 分钟）`),
   ].filter(Boolean).join('\n');
 }

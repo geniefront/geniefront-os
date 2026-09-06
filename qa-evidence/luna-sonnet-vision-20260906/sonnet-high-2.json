@@ -1,0 +1,3322 @@
+{
+  "id": "sonnet-high-2",
+  "provider": "sonnet",
+  "effort": "high",
+  "index": 2,
+  "requestedModel": "claude-sonnet-5",
+  "actualModel": "claude-sonnet-5",
+  "latencyMs": 91110.82375,
+  "firstOutputMs": 2520.823583999998,
+  "usage": {
+    "input_tokens": 2902,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 3208,
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 0
+    },
+    "output_tokens": 5379,
+    "service_tier": "standard",
+    "inference_geo": "global",
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    }
+  },
+  "schemaValid": true,
+  "schemaIssues": [],
+  "extraction": {
+    "items": [
+      {
+        "name": "Relaxation Massage",
+        "category": "MASSAGE",
+        "kind": "service",
+        "duration_min": 30,
+        "price_cents": 5000,
+        "price_is_from": false,
+        "variants": [
+          {
+            "label": "30 mins",
+            "price_cents": 5000,
+            "duration_min": 30
+          },
+          {
+            "label": "60 mins",
+            "price_cents": 7900,
+            "duration_min": 60
+          },
+          {
+            "label": "90 mins",
+            "price_cents": 13900,
+            "duration_min": 90
+          },
+          {
+            "label": "120 mins",
+            "price_cents": 16900,
+            "duration_min": 120
+          }
+        ],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 190,
+          "y1": 565,
+          "x2": 690,
+          "y2": 595
+        }
+      },
+      {
+        "name": "Combination Massage",
+        "category": "MASSAGE",
+        "kind": "service",
+        "duration_min": 30,
+        "price_cents": 5800,
+        "price_is_from": false,
+        "variants": [
+          {
+            "label": "30 mins",
+            "price_cents": 5800,
+            "duration_min": 30
+          },
+          {
+            "label": "60 mins",
+            "price_cents": 8900,
+            "duration_min": 60
+          },
+          {
+            "label": "90 mins",
+            "price_cents": 14900,
+            "duration_min": 90
+          },
+          {
+            "label": "120 mins",
+            "price_cents": 18900,
+            "duration_min": 120
+          }
+        ],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 190,
+          "y1": 600,
+          "x2": 690,
+          "y2": 630
+        }
+      },
+      {
+        "name": "Deep Tissue Massage",
+        "category": "MASSAGE",
+        "kind": "service",
+        "duration_min": 30,
+        "price_cents": 6000,
+        "price_is_from": false,
+        "variants": [
+          {
+            "label": "30 mins",
+            "price_cents": 6000,
+            "duration_min": 30
+          },
+          {
+            "label": "60 mins",
+            "price_cents": 9900,
+            "duration_min": 60
+          },
+          {
+            "label": "90 mins",
+            "price_cents": 15900,
+            "duration_min": 90
+          },
+          {
+            "label": "120 mins",
+            "price_cents": 19900,
+            "duration_min": 120
+          }
+        ],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 190,
+          "y1": 635,
+          "x2": 690,
+          "y2": 665
+        }
+      },
+      {
+        "name": "Prenatal Massage",
+        "category": "THERAPEUTIC MASSAGE",
+        "kind": "service",
+        "duration_min": 60,
+        "price_cents": 11900,
+        "price_is_from": false,
+        "variants": [
+          {
+            "label": "60 mins",
+            "price_cents": 11900,
+            "duration_min": 60
+          },
+          {
+            "label": "90 mins",
+            "price_cents": 16900,
+            "duration_min": 90
+          }
+        ],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "likely",
+        "bbox": {
+          "x1": 150,
+          "y1": 775,
+          "x2": 700,
+          "y2": 800
+        }
+      },
+      {
+        "name": "Lymphatic Drainage Massage",
+        "category": "THERAPEUTIC MASSAGE",
+        "kind": "service",
+        "duration_min": 60,
+        "price_cents": 11900,
+        "price_is_from": false,
+        "variants": [
+          {
+            "label": "60 mins",
+            "price_cents": 11900,
+            "duration_min": 60
+          },
+          {
+            "label": "90 mins",
+            "price_cents": 16900,
+            "duration_min": 90
+          }
+        ],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "likely",
+        "bbox": {
+          "x1": 150,
+          "y1": 805,
+          "x2": 700,
+          "y2": 830
+        }
+      },
+      {
+        "name": "Myofascial Release Massage",
+        "category": "THERAPEUTIC MASSAGE",
+        "kind": "service",
+        "duration_min": 60,
+        "price_cents": 11900,
+        "price_is_from": false,
+        "variants": [
+          {
+            "label": "60 mins",
+            "price_cents": 11900,
+            "duration_min": 60
+          },
+          {
+            "label": "90 mins",
+            "price_cents": 16900,
+            "duration_min": 90
+          }
+        ],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "likely",
+        "bbox": {
+          "x1": 440,
+          "y1": 775,
+          "x2": 700,
+          "y2": 800
+        }
+      },
+      {
+        "name": "TMJ & Frozen Shoulder Treatment",
+        "category": "THERAPEUTIC MASSAGE",
+        "kind": "service",
+        "duration_min": 60,
+        "price_cents": 11900,
+        "price_is_from": false,
+        "variants": [
+          {
+            "label": "60 mins",
+            "price_cents": 11900,
+            "duration_min": 60
+          },
+          {
+            "label": "90 mins",
+            "price_cents": 16900,
+            "duration_min": 90
+          }
+        ],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "likely",
+        "bbox": {
+          "x1": 440,
+          "y1": 805,
+          "x2": 700,
+          "y2": 830
+        }
+      },
+      {
+        "name": "Prices shown are for Relaxation Massage. Other massage styles are available as add-ons.",
+        "category": "COUPLES MASSAGE",
+        "kind": "note",
+        "duration_min": 0,
+        "price_cents": 0,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 150,
+          "y1": 935,
+          "x2": 700,
+          "y2": 965
+        }
+      },
+      {
+        "name": "Couples Massage (Relaxation)",
+        "category": "COUPLES MASSAGE",
+        "kind": "service",
+        "duration_min": 60,
+        "price_cents": 17900,
+        "price_is_from": false,
+        "variants": [
+          {
+            "label": "60 mins",
+            "price_cents": 17900,
+            "duration_min": 60
+          },
+          {
+            "label": "90 mins",
+            "price_cents": 28000,
+            "duration_min": 90
+          },
+          {
+            "label": "120 mins",
+            "price_cents": 38000,
+            "duration_min": 120
+          }
+        ],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 150,
+          "y1": 975,
+          "x2": 700,
+          "y2": 1030
+        }
+      },
+      {
+        "name": "Available as couples treatments with couples steam sauna rooms. Prices shown are for Relaxation Massage. Other styles available as add-ons.",
+        "category": "SPA TREATMENTS",
+        "kind": "note",
+        "duration_min": 0,
+        "price_cents": 0,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 150,
+          "y1": 1105,
+          "x2": 700,
+          "y2": 1140
+        }
+      },
+      {
+        "name": "Signature Spa Package (Massage + Sauna + Body Exfoliation)",
+        "category": "SPA TREATMENTS",
+        "kind": "package",
+        "duration_min": 60,
+        "price_cents": 12900,
+        "price_is_from": false,
+        "variants": [
+          {
+            "label": "60 mins",
+            "price_cents": 12900,
+            "duration_min": 60
+          },
+          {
+            "label": "90 mins",
+            "price_cents": 18900,
+            "duration_min": 90
+          },
+          {
+            "label": "120 mins",
+            "price_cents": 26900,
+            "duration_min": 120
+          }
+        ],
+        "package_sessions": 0,
+        "package_service_names": [
+          "Massage",
+          "Sauna",
+          "Body Exfoliation"
+        ],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 150,
+          "y1": 1180,
+          "x2": 700,
+          "y2": 1225
+        }
+      },
+      {
+        "name": "Signature Spa Package (Massage + Facial)",
+        "category": "SPA TREATMENTS",
+        "kind": "package",
+        "duration_min": 60,
+        "price_cents": 12900,
+        "price_is_from": false,
+        "variants": [
+          {
+            "label": "60 mins",
+            "price_cents": 12900,
+            "duration_min": 60
+          },
+          {
+            "label": "90 mins",
+            "price_cents": 18900,
+            "duration_min": 90
+          },
+          {
+            "label": "120 mins",
+            "price_cents": 25900,
+            "duration_min": 120
+          }
+        ],
+        "package_sessions": 0,
+        "package_service_names": [
+          "Massage",
+          "Facial"
+        ],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 150,
+          "y1": 1230,
+          "x2": 700,
+          "y2": 1275
+        }
+      },
+      {
+        "name": "Signature Spa Package (Massage + Facial + Sauna + Body Exfoliation)",
+        "category": "SPA TREATMENTS",
+        "kind": "package",
+        "duration_min": 100,
+        "price_cents": 26900,
+        "price_is_from": false,
+        "variants": [
+          {
+            "label": "100 mins",
+            "price_cents": 26900,
+            "duration_min": 100
+          },
+          {
+            "label": "150 mins",
+            "price_cents": 36900,
+            "duration_min": 150
+          }
+        ],
+        "package_sessions": 0,
+        "package_service_names": [
+          "Massage",
+          "Facial",
+          "Sauna",
+          "Body Exfoliation"
+        ],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 150,
+          "y1": 1280,
+          "x2": 700,
+          "y2": 1320
+        }
+      },
+      {
+        "name": "AHA Glow Facial",
+        "category": "FACIAL TREATMENTS",
+        "kind": "service",
+        "duration_min": 30,
+        "price_cents": 7900,
+        "price_is_from": false,
+        "variants": [
+          {
+            "label": "30 mins",
+            "price_cents": 7900,
+            "duration_min": 30
+          },
+          {
+            "label": "60 mins",
+            "price_cents": 10900,
+            "duration_min": 60
+          }
+        ],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 150,
+          "y1": 1400,
+          "x2": 700,
+          "y2": 1425
+        }
+      },
+      {
+        "name": "Lymphatic Drainage Facial",
+        "category": "FACIAL TREATMENTS",
+        "kind": "service",
+        "duration_min": 70,
+        "price_cents": 14900,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 150,
+          "y1": 1430,
+          "x2": 700,
+          "y2": 1450
+        }
+      },
+      {
+        "name": "Vitamin C Brightening Facial",
+        "category": "FACIAL TREATMENTS",
+        "kind": "service",
+        "duration_min": 60,
+        "price_cents": 12900,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 150,
+          "y1": 1455,
+          "x2": 700,
+          "y2": 1475
+        }
+      },
+      {
+        "name": "Oxygen Lifting Facial",
+        "category": "FACIAL TREATMENTS",
+        "kind": "service",
+        "duration_min": 70,
+        "price_cents": 17900,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 150,
+          "y1": 1480,
+          "x2": 700,
+          "y2": 1500
+        }
+      },
+      {
+        "name": "Man's Facial",
+        "category": "FACIAL TREATMENTS",
+        "kind": "service",
+        "duration_min": 50,
+        "price_cents": 9900,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 150,
+          "y1": 1505,
+          "x2": 700,
+          "y2": 1525
+        }
+      },
+      {
+        "name": "Gentleman's Executive Facial",
+        "category": "FACIAL TREATMENTS",
+        "kind": "service",
+        "duration_min": 80,
+        "price_cents": 16900,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 150,
+          "y1": 1530,
+          "x2": 700,
+          "y2": 1550
+        }
+      },
+      {
+        "name": "Hot Stone",
+        "category": "MASSAGE ADD-ON",
+        "kind": "addon",
+        "duration_min": 0,
+        "price_cents": 1000,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 770,
+          "y1": 560,
+          "x2": 990,
+          "y2": 585
+        }
+      },
+      {
+        "name": "Aroma Oil",
+        "category": "MASSAGE ADD-ON",
+        "kind": "addon",
+        "duration_min": 0,
+        "price_cents": 1000,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 770,
+          "y1": 615,
+          "x2": 990,
+          "y2": 640
+        }
+      },
+      {
+        "name": "Guasha",
+        "category": "MASSAGE ADD-ON",
+        "kind": "addon",
+        "duration_min": 0,
+        "price_cents": 3000,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 770,
+          "y1": 670,
+          "x2": 990,
+          "y2": 695
+        }
+      },
+      {
+        "name": "Cupping",
+        "category": "MASSAGE ADD-ON",
+        "kind": "addon",
+        "duration_min": 0,
+        "price_cents": 3000,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 770,
+          "y1": 725,
+          "x2": 990,
+          "y2": 750
+        }
+      },
+      {
+        "name": "Steam Sauna",
+        "category": "MASSAGE ADD-ON",
+        "kind": "addon",
+        "duration_min": 0,
+        "price_cents": 3900,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 770,
+          "y1": 780,
+          "x2": 990,
+          "y2": 805
+        }
+      },
+      {
+        "name": "Combination Massage",
+        "category": "COUPLES & SPA ADD-ON",
+        "kind": "addon",
+        "duration_min": 0,
+        "price_cents": 1000,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 800,
+          "y1": 1010,
+          "x2": 1010,
+          "y2": 1050
+        }
+      },
+      {
+        "name": "Deep Tissue Massage",
+        "category": "COUPLES & SPA ADD-ON",
+        "kind": "addon",
+        "duration_min": 0,
+        "price_cents": 2000,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 800,
+          "y1": 1060,
+          "x2": 1010,
+          "y2": 1100
+        }
+      },
+      {
+        "name": "Hot Stone",
+        "category": "COUPLES & SPA ADD-ON",
+        "kind": "addon",
+        "duration_min": 0,
+        "price_cents": 1000,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 800,
+          "y1": 1110,
+          "x2": 1010,
+          "y2": 1140
+        }
+      },
+      {
+        "name": "Aroma Oil",
+        "category": "COUPLES & SPA ADD-ON",
+        "kind": "addon",
+        "duration_min": 0,
+        "price_cents": 1000,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 800,
+          "y1": 1150,
+          "x2": 1010,
+          "y2": 1180
+        }
+      },
+      {
+        "name": "Steam Sauna",
+        "category": "COUPLES & SPA ADD-ON",
+        "kind": "addon",
+        "duration_min": 0,
+        "price_cents": 3900,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 800,
+          "y1": 1190,
+          "x2": 1010,
+          "y2": 1220
+        }
+      },
+      {
+        "name": "LED Light",
+        "category": "FACIAL ADD-ON",
+        "kind": "addon",
+        "duration_min": 0,
+        "price_cents": 3000,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 800,
+          "y1": 1420,
+          "x2": 1010,
+          "y2": 1450
+        }
+      },
+      {
+        "name": "THANK YOU FOR CHOOSING OASIS SPA",
+        "category": "",
+        "kind": "note",
+        "duration_min": 0,
+        "price_cents": 0,
+        "price_is_from": false,
+        "variants": [],
+        "package_sessions": 0,
+        "package_service_names": [],
+        "package_valid_days": 0,
+        "confidence": "certain",
+        "bbox": {
+          "x1": 250,
+          "y1": 1620,
+          "x2": 800,
+          "y2": 1650
+        }
+      }
+    ],
+    "unresolved": [
+      {
+        "field": "couples_massage_add_on_prices_max_two_note",
+        "question": "Couples Massage、Combination Massage add-on 等标注为\"each\"，请确认是按人/份计价，是否需要在系统中特殊标记？"
+      }
+    ]
+  },
+  "normalized": [
+    {
+      "kind": "service",
+      "name": {
+        "en": "Relaxation Massage"
+      },
+      "category": "MASSAGE",
+      "durationMin": 30,
+      "priceCents": 5000,
+      "priceIsFrom": false,
+      "variants": [
+        {
+          "label": "30 mins",
+          "priceCents": 5000,
+          "durationMin": 30
+        },
+        {
+          "label": "60 mins",
+          "priceCents": 7900,
+          "durationMin": 60
+        },
+        {
+          "label": "90 mins",
+          "priceCents": 13900,
+          "durationMin": 90
+        },
+        {
+          "label": "120 mins",
+          "priceCents": 16900,
+          "durationMin": 120
+        }
+      ],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        190,
+        565,
+        690,
+        595
+      ]
+    },
+    {
+      "kind": "service",
+      "name": {
+        "en": "Combination Massage"
+      },
+      "category": "MASSAGE",
+      "durationMin": 30,
+      "priceCents": 5800,
+      "priceIsFrom": false,
+      "variants": [
+        {
+          "label": "30 mins",
+          "priceCents": 5800,
+          "durationMin": 30
+        },
+        {
+          "label": "60 mins",
+          "priceCents": 8900,
+          "durationMin": 60
+        },
+        {
+          "label": "90 mins",
+          "priceCents": 14900,
+          "durationMin": 90
+        },
+        {
+          "label": "120 mins",
+          "priceCents": 18900,
+          "durationMin": 120
+        }
+      ],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        190,
+        600,
+        690,
+        630
+      ]
+    },
+    {
+      "kind": "service",
+      "name": {
+        "en": "Deep Tissue Massage"
+      },
+      "category": "MASSAGE",
+      "durationMin": 30,
+      "priceCents": 6000,
+      "priceIsFrom": false,
+      "variants": [
+        {
+          "label": "30 mins",
+          "priceCents": 6000,
+          "durationMin": 30
+        },
+        {
+          "label": "60 mins",
+          "priceCents": 9900,
+          "durationMin": 60
+        },
+        {
+          "label": "90 mins",
+          "priceCents": 15900,
+          "durationMin": 90
+        },
+        {
+          "label": "120 mins",
+          "priceCents": 19900,
+          "durationMin": 120
+        }
+      ],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        190,
+        635,
+        690,
+        665
+      ]
+    },
+    {
+      "kind": "service",
+      "name": {
+        "en": "Prenatal Massage"
+      },
+      "category": "THERAPEUTIC MASSAGE",
+      "durationMin": 60,
+      "priceCents": 11900,
+      "priceIsFrom": false,
+      "variants": [
+        {
+          "label": "60 mins",
+          "priceCents": 11900,
+          "durationMin": 60
+        },
+        {
+          "label": "90 mins",
+          "priceCents": 16900,
+          "durationMin": 90
+        }
+      ],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 8800,
+      "sourceSeq": 0,
+      "bbox": [
+        150,
+        775,
+        700,
+        800
+      ]
+    },
+    {
+      "kind": "service",
+      "name": {
+        "en": "Lymphatic Drainage Massage"
+      },
+      "category": "THERAPEUTIC MASSAGE",
+      "durationMin": 60,
+      "priceCents": 11900,
+      "priceIsFrom": false,
+      "variants": [
+        {
+          "label": "60 mins",
+          "priceCents": 11900,
+          "durationMin": 60
+        },
+        {
+          "label": "90 mins",
+          "priceCents": 16900,
+          "durationMin": 90
+        }
+      ],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 8800,
+      "sourceSeq": 0,
+      "bbox": [
+        150,
+        805,
+        700,
+        830
+      ]
+    },
+    {
+      "kind": "service",
+      "name": {
+        "en": "Myofascial Release Massage"
+      },
+      "category": "THERAPEUTIC MASSAGE",
+      "durationMin": 60,
+      "priceCents": 11900,
+      "priceIsFrom": false,
+      "variants": [
+        {
+          "label": "60 mins",
+          "priceCents": 11900,
+          "durationMin": 60
+        },
+        {
+          "label": "90 mins",
+          "priceCents": 16900,
+          "durationMin": 90
+        }
+      ],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 8800,
+      "sourceSeq": 0,
+      "bbox": [
+        440,
+        775,
+        700,
+        800
+      ]
+    },
+    {
+      "kind": "service",
+      "name": {
+        "en": "TMJ & Frozen Shoulder Treatment"
+      },
+      "category": "THERAPEUTIC MASSAGE",
+      "durationMin": 60,
+      "priceCents": 11900,
+      "priceIsFrom": false,
+      "variants": [
+        {
+          "label": "60 mins",
+          "priceCents": 11900,
+          "durationMin": 60
+        },
+        {
+          "label": "90 mins",
+          "priceCents": 16900,
+          "durationMin": 90
+        }
+      ],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 8800,
+      "sourceSeq": 0,
+      "bbox": [
+        440,
+        805,
+        700,
+        830
+      ]
+    },
+    {
+      "kind": "note",
+      "name": {
+        "en": "Prices shown are for Relaxation Massage. Other massage styles are available as add-ons."
+      },
+      "category": "COUPLES MASSAGE",
+      "durationMin": null,
+      "priceCents": null,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        150,
+        935,
+        700,
+        965
+      ]
+    },
+    {
+      "kind": "service",
+      "name": {
+        "en": "Couples Massage (Relaxation)"
+      },
+      "category": "COUPLES MASSAGE",
+      "durationMin": 60,
+      "priceCents": 17900,
+      "priceIsFrom": false,
+      "variants": [
+        {
+          "label": "60 mins",
+          "priceCents": 17900,
+          "durationMin": 60
+        },
+        {
+          "label": "90 mins",
+          "priceCents": 28000,
+          "durationMin": 90
+        },
+        {
+          "label": "120 mins",
+          "priceCents": 38000,
+          "durationMin": 120
+        }
+      ],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        150,
+        975,
+        700,
+        1030
+      ]
+    },
+    {
+      "kind": "note",
+      "name": {
+        "en": "Available as couples treatments with couples steam sauna rooms. Prices shown are for Relaxation Massage. Other styles available as add-ons."
+      },
+      "category": "SPA TREATMENTS",
+      "durationMin": null,
+      "priceCents": null,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        150,
+        1105,
+        700,
+        1140
+      ]
+    },
+    {
+      "kind": "package",
+      "name": {
+        "en": "Signature Spa Package (Massage + Sauna + Body Exfoliation)"
+      },
+      "category": "SPA TREATMENTS",
+      "durationMin": 60,
+      "priceCents": 12900,
+      "priceIsFrom": false,
+      "variants": [
+        {
+          "label": "60 mins",
+          "priceCents": 12900,
+          "durationMin": 60
+        },
+        {
+          "label": "90 mins",
+          "priceCents": 18900,
+          "durationMin": 90
+        },
+        {
+          "label": "120 mins",
+          "priceCents": 26900,
+          "durationMin": 120
+        }
+      ],
+      "packageSessions": 0,
+      "packageServiceNames": [
+        "Massage",
+        "Sauna",
+        "Body Exfoliation"
+      ],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        150,
+        1180,
+        700,
+        1225
+      ]
+    },
+    {
+      "kind": "package",
+      "name": {
+        "en": "Signature Spa Package (Massage + Facial)"
+      },
+      "category": "SPA TREATMENTS",
+      "durationMin": 60,
+      "priceCents": 12900,
+      "priceIsFrom": false,
+      "variants": [
+        {
+          "label": "60 mins",
+          "priceCents": 12900,
+          "durationMin": 60
+        },
+        {
+          "label": "90 mins",
+          "priceCents": 18900,
+          "durationMin": 90
+        },
+        {
+          "label": "120 mins",
+          "priceCents": 25900,
+          "durationMin": 120
+        }
+      ],
+      "packageSessions": 0,
+      "packageServiceNames": [
+        "Massage",
+        "Facial"
+      ],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        150,
+        1230,
+        700,
+        1275
+      ]
+    },
+    {
+      "kind": "package",
+      "name": {
+        "en": "Signature Spa Package (Massage + Facial + Sauna + Body Exfoliation)"
+      },
+      "category": "SPA TREATMENTS",
+      "durationMin": 100,
+      "priceCents": 26900,
+      "priceIsFrom": false,
+      "variants": [
+        {
+          "label": "100 mins",
+          "priceCents": 26900,
+          "durationMin": 100
+        },
+        {
+          "label": "150 mins",
+          "priceCents": 36900,
+          "durationMin": 150
+        }
+      ],
+      "packageSessions": 0,
+      "packageServiceNames": [
+        "Massage",
+        "Facial",
+        "Sauna",
+        "Body Exfoliation"
+      ],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        150,
+        1280,
+        700,
+        1320
+      ]
+    },
+    {
+      "kind": "service",
+      "name": {
+        "en": "AHA Glow Facial"
+      },
+      "category": "FACIAL TREATMENTS",
+      "durationMin": 30,
+      "priceCents": 7900,
+      "priceIsFrom": false,
+      "variants": [
+        {
+          "label": "30 mins",
+          "priceCents": 7900,
+          "durationMin": 30
+        },
+        {
+          "label": "60 mins",
+          "priceCents": 10900,
+          "durationMin": 60
+        }
+      ],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        150,
+        1400,
+        700,
+        1425
+      ]
+    },
+    {
+      "kind": "service",
+      "name": {
+        "en": "Lymphatic Drainage Facial"
+      },
+      "category": "FACIAL TREATMENTS",
+      "durationMin": 70,
+      "priceCents": 14900,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        150,
+        1430,
+        700,
+        1450
+      ]
+    },
+    {
+      "kind": "service",
+      "name": {
+        "en": "Vitamin C Brightening Facial"
+      },
+      "category": "FACIAL TREATMENTS",
+      "durationMin": 60,
+      "priceCents": 12900,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        150,
+        1455,
+        700,
+        1475
+      ]
+    },
+    {
+      "kind": "service",
+      "name": {
+        "en": "Oxygen Lifting Facial"
+      },
+      "category": "FACIAL TREATMENTS",
+      "durationMin": 70,
+      "priceCents": 17900,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        150,
+        1480,
+        700,
+        1500
+      ]
+    },
+    {
+      "kind": "service",
+      "name": {
+        "en": "Man's Facial"
+      },
+      "category": "FACIAL TREATMENTS",
+      "durationMin": 50,
+      "priceCents": 9900,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        150,
+        1505,
+        700,
+        1525
+      ]
+    },
+    {
+      "kind": "service",
+      "name": {
+        "en": "Gentleman's Executive Facial"
+      },
+      "category": "FACIAL TREATMENTS",
+      "durationMin": 80,
+      "priceCents": 16900,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        150,
+        1530,
+        700,
+        1550
+      ]
+    },
+    {
+      "kind": "addon",
+      "name": {
+        "en": "Hot Stone"
+      },
+      "category": "MASSAGE ADD-ON",
+      "durationMin": null,
+      "priceCents": 1000,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        770,
+        560,
+        990,
+        585
+      ]
+    },
+    {
+      "kind": "addon",
+      "name": {
+        "en": "Aroma Oil"
+      },
+      "category": "MASSAGE ADD-ON",
+      "durationMin": null,
+      "priceCents": 1000,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        770,
+        615,
+        990,
+        640
+      ]
+    },
+    {
+      "kind": "addon",
+      "name": {
+        "en": "Guasha"
+      },
+      "category": "MASSAGE ADD-ON",
+      "durationMin": null,
+      "priceCents": 3000,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        770,
+        670,
+        990,
+        695
+      ]
+    },
+    {
+      "kind": "addon",
+      "name": {
+        "en": "Cupping"
+      },
+      "category": "MASSAGE ADD-ON",
+      "durationMin": null,
+      "priceCents": 3000,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        770,
+        725,
+        990,
+        750
+      ]
+    },
+    {
+      "kind": "addon",
+      "name": {
+        "en": "Steam Sauna"
+      },
+      "category": "MASSAGE ADD-ON",
+      "durationMin": null,
+      "priceCents": 3900,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        770,
+        780,
+        990,
+        805
+      ]
+    },
+    {
+      "kind": "addon",
+      "name": {
+        "en": "Combination Massage"
+      },
+      "category": "COUPLES & SPA ADD-ON",
+      "durationMin": null,
+      "priceCents": 1000,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        800,
+        1010,
+        1010,
+        1050
+      ]
+    },
+    {
+      "kind": "addon",
+      "name": {
+        "en": "Deep Tissue Massage"
+      },
+      "category": "COUPLES & SPA ADD-ON",
+      "durationMin": null,
+      "priceCents": 2000,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        800,
+        1060,
+        1010,
+        1100
+      ]
+    },
+    {
+      "kind": "addon",
+      "name": {
+        "en": "Hot Stone"
+      },
+      "category": "COUPLES & SPA ADD-ON",
+      "durationMin": null,
+      "priceCents": 1000,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        800,
+        1110,
+        1010,
+        1140
+      ]
+    },
+    {
+      "kind": "addon",
+      "name": {
+        "en": "Aroma Oil"
+      },
+      "category": "COUPLES & SPA ADD-ON",
+      "durationMin": null,
+      "priceCents": 1000,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        800,
+        1150,
+        1010,
+        1180
+      ]
+    },
+    {
+      "kind": "addon",
+      "name": {
+        "en": "Steam Sauna"
+      },
+      "category": "COUPLES & SPA ADD-ON",
+      "durationMin": null,
+      "priceCents": 3900,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        800,
+        1190,
+        1010,
+        1220
+      ]
+    },
+    {
+      "kind": "addon",
+      "name": {
+        "en": "LED Light"
+      },
+      "category": "FACIAL ADD-ON",
+      "durationMin": null,
+      "priceCents": 3000,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        800,
+        1420,
+        1010,
+        1450
+      ]
+    },
+    {
+      "kind": "note",
+      "name": {
+        "en": "THANK YOU FOR CHOOSING OASIS SPA"
+      },
+      "category": null,
+      "durationMin": null,
+      "priceCents": null,
+      "priceIsFrom": false,
+      "variants": [],
+      "packageSessions": 0,
+      "packageServiceNames": [],
+      "packageValidDays": null,
+      "confidenceBp": 9700,
+      "sourceSeq": 0,
+      "bbox": [
+        250,
+        1620,
+        800,
+        1650
+      ]
+    }
+  ],
+  "merged": {
+    "items": [
+      {
+        "kind": "service",
+        "name": {
+          "en": "Relaxation Massage"
+        },
+        "category": "MASSAGE",
+        "durationMin": 30,
+        "priceCents": 5000,
+        "priceIsFrom": false,
+        "variants": [
+          {
+            "label": "30 mins",
+            "priceCents": 5000,
+            "durationMin": 30
+          },
+          {
+            "label": "60 mins",
+            "priceCents": 7900,
+            "durationMin": 60
+          },
+          {
+            "label": "90 mins",
+            "priceCents": 13900,
+            "durationMin": 90
+          },
+          {
+            "label": "120 mins",
+            "priceCents": 16900,
+            "durationMin": 120
+          }
+        ],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          190,
+          565,
+          690,
+          595
+        ]
+      },
+      {
+        "kind": "service",
+        "name": {
+          "en": "Combination Massage"
+        },
+        "category": "MASSAGE",
+        "durationMin": 30,
+        "priceCents": 5800,
+        "priceIsFrom": false,
+        "variants": [
+          {
+            "label": "30 mins",
+            "priceCents": 5800,
+            "durationMin": 30
+          },
+          {
+            "label": "60 mins",
+            "priceCents": 8900,
+            "durationMin": 60
+          },
+          {
+            "label": "90 mins",
+            "priceCents": 14900,
+            "durationMin": 90
+          },
+          {
+            "label": "120 mins",
+            "priceCents": 18900,
+            "durationMin": 120
+          }
+        ],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          190,
+          600,
+          690,
+          630
+        ]
+      },
+      {
+        "kind": "service",
+        "name": {
+          "en": "Deep Tissue Massage"
+        },
+        "category": "MASSAGE",
+        "durationMin": 30,
+        "priceCents": 6000,
+        "priceIsFrom": false,
+        "variants": [
+          {
+            "label": "30 mins",
+            "priceCents": 6000,
+            "durationMin": 30
+          },
+          {
+            "label": "60 mins",
+            "priceCents": 9900,
+            "durationMin": 60
+          },
+          {
+            "label": "90 mins",
+            "priceCents": 15900,
+            "durationMin": 90
+          },
+          {
+            "label": "120 mins",
+            "priceCents": 19900,
+            "durationMin": 120
+          }
+        ],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          190,
+          635,
+          690,
+          665
+        ]
+      },
+      {
+        "kind": "service",
+        "name": {
+          "en": "Prenatal Massage"
+        },
+        "category": "THERAPEUTIC MASSAGE",
+        "durationMin": 60,
+        "priceCents": 11900,
+        "priceIsFrom": false,
+        "variants": [
+          {
+            "label": "60 mins",
+            "priceCents": 11900,
+            "durationMin": 60
+          },
+          {
+            "label": "90 mins",
+            "priceCents": 16900,
+            "durationMin": 90
+          }
+        ],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 8800,
+        "sourceSeq": 0,
+        "bbox": [
+          150,
+          775,
+          700,
+          800
+        ]
+      },
+      {
+        "kind": "service",
+        "name": {
+          "en": "Lymphatic Drainage Massage"
+        },
+        "category": "THERAPEUTIC MASSAGE",
+        "durationMin": 60,
+        "priceCents": 11900,
+        "priceIsFrom": false,
+        "variants": [
+          {
+            "label": "60 mins",
+            "priceCents": 11900,
+            "durationMin": 60
+          },
+          {
+            "label": "90 mins",
+            "priceCents": 16900,
+            "durationMin": 90
+          }
+        ],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 8800,
+        "sourceSeq": 0,
+        "bbox": [
+          150,
+          805,
+          700,
+          830
+        ]
+      },
+      {
+        "kind": "service",
+        "name": {
+          "en": "Myofascial Release Massage"
+        },
+        "category": "THERAPEUTIC MASSAGE",
+        "durationMin": 60,
+        "priceCents": 11900,
+        "priceIsFrom": false,
+        "variants": [
+          {
+            "label": "60 mins",
+            "priceCents": 11900,
+            "durationMin": 60
+          },
+          {
+            "label": "90 mins",
+            "priceCents": 16900,
+            "durationMin": 90
+          }
+        ],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 8800,
+        "sourceSeq": 0,
+        "bbox": [
+          440,
+          775,
+          700,
+          800
+        ]
+      },
+      {
+        "kind": "service",
+        "name": {
+          "en": "TMJ & Frozen Shoulder Treatment"
+        },
+        "category": "THERAPEUTIC MASSAGE",
+        "durationMin": 60,
+        "priceCents": 11900,
+        "priceIsFrom": false,
+        "variants": [
+          {
+            "label": "60 mins",
+            "priceCents": 11900,
+            "durationMin": 60
+          },
+          {
+            "label": "90 mins",
+            "priceCents": 16900,
+            "durationMin": 90
+          }
+        ],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 8800,
+        "sourceSeq": 0,
+        "bbox": [
+          440,
+          805,
+          700,
+          830
+        ]
+      },
+      {
+        "kind": "note",
+        "name": {
+          "en": "Prices shown are for Relaxation Massage. Other massage styles are available as add-ons."
+        },
+        "category": "COUPLES MASSAGE",
+        "durationMin": null,
+        "priceCents": null,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          150,
+          935,
+          700,
+          965
+        ]
+      },
+      {
+        "kind": "service",
+        "name": {
+          "en": "Couples Massage (Relaxation)"
+        },
+        "category": "COUPLES MASSAGE",
+        "durationMin": 60,
+        "priceCents": 17900,
+        "priceIsFrom": false,
+        "variants": [
+          {
+            "label": "60 mins",
+            "priceCents": 17900,
+            "durationMin": 60
+          },
+          {
+            "label": "90 mins",
+            "priceCents": 28000,
+            "durationMin": 90
+          },
+          {
+            "label": "120 mins",
+            "priceCents": 38000,
+            "durationMin": 120
+          }
+        ],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          150,
+          975,
+          700,
+          1030
+        ]
+      },
+      {
+        "kind": "note",
+        "name": {
+          "en": "Available as couples treatments with couples steam sauna rooms. Prices shown are for Relaxation Massage. Other styles available as add-ons."
+        },
+        "category": "SPA TREATMENTS",
+        "durationMin": null,
+        "priceCents": null,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          150,
+          1105,
+          700,
+          1140
+        ]
+      },
+      {
+        "kind": "package",
+        "name": {
+          "en": "Signature Spa Package (Massage + Sauna + Body Exfoliation)"
+        },
+        "category": "SPA TREATMENTS",
+        "durationMin": 60,
+        "priceCents": 12900,
+        "priceIsFrom": false,
+        "variants": [
+          {
+            "label": "60 mins",
+            "priceCents": 12900,
+            "durationMin": 60
+          },
+          {
+            "label": "90 mins",
+            "priceCents": 18900,
+            "durationMin": 90
+          },
+          {
+            "label": "120 mins",
+            "priceCents": 26900,
+            "durationMin": 120
+          }
+        ],
+        "packageSessions": 0,
+        "packageServiceNames": [
+          "Massage",
+          "Sauna",
+          "Body Exfoliation"
+        ],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          150,
+          1180,
+          700,
+          1225
+        ]
+      },
+      {
+        "kind": "package",
+        "name": {
+          "en": "Signature Spa Package (Massage + Facial)"
+        },
+        "category": "SPA TREATMENTS",
+        "durationMin": 60,
+        "priceCents": 12900,
+        "priceIsFrom": false,
+        "variants": [
+          {
+            "label": "60 mins",
+            "priceCents": 12900,
+            "durationMin": 60
+          },
+          {
+            "label": "90 mins",
+            "priceCents": 18900,
+            "durationMin": 90
+          },
+          {
+            "label": "120 mins",
+            "priceCents": 25900,
+            "durationMin": 120
+          }
+        ],
+        "packageSessions": 0,
+        "packageServiceNames": [
+          "Massage",
+          "Facial"
+        ],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          150,
+          1230,
+          700,
+          1275
+        ]
+      },
+      {
+        "kind": "package",
+        "name": {
+          "en": "Signature Spa Package (Massage + Facial + Sauna + Body Exfoliation)"
+        },
+        "category": "SPA TREATMENTS",
+        "durationMin": 100,
+        "priceCents": 26900,
+        "priceIsFrom": false,
+        "variants": [
+          {
+            "label": "100 mins",
+            "priceCents": 26900,
+            "durationMin": 100
+          },
+          {
+            "label": "150 mins",
+            "priceCents": 36900,
+            "durationMin": 150
+          }
+        ],
+        "packageSessions": 0,
+        "packageServiceNames": [
+          "Massage",
+          "Facial",
+          "Sauna",
+          "Body Exfoliation"
+        ],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          150,
+          1280,
+          700,
+          1320
+        ]
+      },
+      {
+        "kind": "service",
+        "name": {
+          "en": "AHA Glow Facial"
+        },
+        "category": "FACIAL TREATMENTS",
+        "durationMin": 30,
+        "priceCents": 7900,
+        "priceIsFrom": false,
+        "variants": [
+          {
+            "label": "30 mins",
+            "priceCents": 7900,
+            "durationMin": 30
+          },
+          {
+            "label": "60 mins",
+            "priceCents": 10900,
+            "durationMin": 60
+          }
+        ],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          150,
+          1400,
+          700,
+          1425
+        ]
+      },
+      {
+        "kind": "service",
+        "name": {
+          "en": "Lymphatic Drainage Facial"
+        },
+        "category": "FACIAL TREATMENTS",
+        "durationMin": 70,
+        "priceCents": 14900,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          150,
+          1430,
+          700,
+          1450
+        ]
+      },
+      {
+        "kind": "service",
+        "name": {
+          "en": "Vitamin C Brightening Facial"
+        },
+        "category": "FACIAL TREATMENTS",
+        "durationMin": 60,
+        "priceCents": 12900,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          150,
+          1455,
+          700,
+          1475
+        ]
+      },
+      {
+        "kind": "service",
+        "name": {
+          "en": "Oxygen Lifting Facial"
+        },
+        "category": "FACIAL TREATMENTS",
+        "durationMin": 70,
+        "priceCents": 17900,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          150,
+          1480,
+          700,
+          1500
+        ]
+      },
+      {
+        "kind": "service",
+        "name": {
+          "en": "Man's Facial"
+        },
+        "category": "FACIAL TREATMENTS",
+        "durationMin": 50,
+        "priceCents": 9900,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          150,
+          1505,
+          700,
+          1525
+        ]
+      },
+      {
+        "kind": "service",
+        "name": {
+          "en": "Gentleman's Executive Facial"
+        },
+        "category": "FACIAL TREATMENTS",
+        "durationMin": 80,
+        "priceCents": 16900,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          150,
+          1530,
+          700,
+          1550
+        ]
+      },
+      {
+        "kind": "addon",
+        "name": {
+          "en": "Hot Stone"
+        },
+        "category": "MASSAGE ADD-ON",
+        "durationMin": null,
+        "priceCents": 1000,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          770,
+          560,
+          990,
+          585
+        ]
+      },
+      {
+        "kind": "addon",
+        "name": {
+          "en": "Aroma Oil"
+        },
+        "category": "MASSAGE ADD-ON",
+        "durationMin": null,
+        "priceCents": 1000,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          770,
+          615,
+          990,
+          640
+        ]
+      },
+      {
+        "kind": "addon",
+        "name": {
+          "en": "Guasha"
+        },
+        "category": "MASSAGE ADD-ON",
+        "durationMin": null,
+        "priceCents": 3000,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          770,
+          670,
+          990,
+          695
+        ]
+      },
+      {
+        "kind": "addon",
+        "name": {
+          "en": "Cupping"
+        },
+        "category": "MASSAGE ADD-ON",
+        "durationMin": null,
+        "priceCents": 3000,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          770,
+          725,
+          990,
+          750
+        ]
+      },
+      {
+        "kind": "addon",
+        "name": {
+          "en": "Steam Sauna"
+        },
+        "category": "MASSAGE ADD-ON",
+        "durationMin": null,
+        "priceCents": 3900,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          770,
+          780,
+          990,
+          805
+        ]
+      },
+      {
+        "kind": "addon",
+        "name": {
+          "en": "Combination Massage"
+        },
+        "category": "COUPLES & SPA ADD-ON",
+        "durationMin": null,
+        "priceCents": 1000,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          800,
+          1010,
+          1010,
+          1050
+        ]
+      },
+      {
+        "kind": "addon",
+        "name": {
+          "en": "Deep Tissue Massage"
+        },
+        "category": "COUPLES & SPA ADD-ON",
+        "durationMin": null,
+        "priceCents": 2000,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          800,
+          1060,
+          1010,
+          1100
+        ]
+      },
+      {
+        "kind": "addon",
+        "name": {
+          "en": "LED Light"
+        },
+        "category": "FACIAL ADD-ON",
+        "durationMin": null,
+        "priceCents": 3000,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          800,
+          1420,
+          1010,
+          1450
+        ]
+      },
+      {
+        "kind": "note",
+        "name": {
+          "en": "THANK YOU FOR CHOOSING OASIS SPA"
+        },
+        "category": null,
+        "durationMin": null,
+        "priceCents": null,
+        "priceIsFrom": false,
+        "variants": [],
+        "packageSessions": 0,
+        "packageServiceNames": [],
+        "packageValidDays": null,
+        "confidenceBp": 9700,
+        "sourceSeq": 0,
+        "bbox": [
+          250,
+          1620,
+          800,
+          1650
+        ]
+      }
+    ],
+    "merged": 3,
+    "conflicts": 0
+  },
+  "raw": {
+    "model": "claude-sonnet-5",
+    "id": "msg_011CenhwmXtb6HXuhULBmLWL",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "tool_use",
+        "id": "toolu_017K7W2Wy2G2PuUS58n3g2Sr",
+        "name": "record_price_list",
+        "caller": {
+          "type": "direct"
+        },
+        "input": {
+          "items": [
+            {
+              "name": "Relaxation Massage",
+              "category": "MASSAGE",
+              "kind": "service",
+              "duration_min": 30,
+              "price_cents": 5000,
+              "price_is_from": false,
+              "variants": [
+                {
+                  "label": "30 mins",
+                  "price_cents": 5000,
+                  "duration_min": 30
+                },
+                {
+                  "label": "60 mins",
+                  "price_cents": 7900,
+                  "duration_min": 60
+                },
+                {
+                  "label": "90 mins",
+                  "price_cents": 13900,
+                  "duration_min": 90
+                },
+                {
+                  "label": "120 mins",
+                  "price_cents": 16900,
+                  "duration_min": 120
+                }
+              ],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 190,
+                "y1": 565,
+                "x2": 690,
+                "y2": 595
+              }
+            },
+            {
+              "name": "Combination Massage",
+              "category": "MASSAGE",
+              "kind": "service",
+              "duration_min": 30,
+              "price_cents": 5800,
+              "price_is_from": false,
+              "variants": [
+                {
+                  "label": "30 mins",
+                  "price_cents": 5800,
+                  "duration_min": 30
+                },
+                {
+                  "label": "60 mins",
+                  "price_cents": 8900,
+                  "duration_min": 60
+                },
+                {
+                  "label": "90 mins",
+                  "price_cents": 14900,
+                  "duration_min": 90
+                },
+                {
+                  "label": "120 mins",
+                  "price_cents": 18900,
+                  "duration_min": 120
+                }
+              ],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 190,
+                "y1": 600,
+                "x2": 690,
+                "y2": 630
+              }
+            },
+            {
+              "name": "Deep Tissue Massage",
+              "category": "MASSAGE",
+              "kind": "service",
+              "duration_min": 30,
+              "price_cents": 6000,
+              "price_is_from": false,
+              "variants": [
+                {
+                  "label": "30 mins",
+                  "price_cents": 6000,
+                  "duration_min": 30
+                },
+                {
+                  "label": "60 mins",
+                  "price_cents": 9900,
+                  "duration_min": 60
+                },
+                {
+                  "label": "90 mins",
+                  "price_cents": 15900,
+                  "duration_min": 90
+                },
+                {
+                  "label": "120 mins",
+                  "price_cents": 19900,
+                  "duration_min": 120
+                }
+              ],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 190,
+                "y1": 635,
+                "x2": 690,
+                "y2": 665
+              }
+            },
+            {
+              "name": "Prenatal Massage",
+              "category": "THERAPEUTIC MASSAGE",
+              "kind": "service",
+              "duration_min": 60,
+              "price_cents": 11900,
+              "price_is_from": false,
+              "variants": [
+                {
+                  "label": "60 mins",
+                  "price_cents": 11900,
+                  "duration_min": 60
+                },
+                {
+                  "label": "90 mins",
+                  "price_cents": 16900,
+                  "duration_min": 90
+                }
+              ],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "likely",
+              "bbox": {
+                "x1": 150,
+                "y1": 775,
+                "x2": 700,
+                "y2": 800
+              }
+            },
+            {
+              "name": "Lymphatic Drainage Massage",
+              "category": "THERAPEUTIC MASSAGE",
+              "kind": "service",
+              "duration_min": 60,
+              "price_cents": 11900,
+              "price_is_from": false,
+              "variants": [
+                {
+                  "label": "60 mins",
+                  "price_cents": 11900,
+                  "duration_min": 60
+                },
+                {
+                  "label": "90 mins",
+                  "price_cents": 16900,
+                  "duration_min": 90
+                }
+              ],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "likely",
+              "bbox": {
+                "x1": 150,
+                "y1": 805,
+                "x2": 700,
+                "y2": 830
+              }
+            },
+            {
+              "name": "Myofascial Release Massage",
+              "category": "THERAPEUTIC MASSAGE",
+              "kind": "service",
+              "duration_min": 60,
+              "price_cents": 11900,
+              "price_is_from": false,
+              "variants": [
+                {
+                  "label": "60 mins",
+                  "price_cents": 11900,
+                  "duration_min": 60
+                },
+                {
+                  "label": "90 mins",
+                  "price_cents": 16900,
+                  "duration_min": 90
+                }
+              ],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "likely",
+              "bbox": {
+                "x1": 440,
+                "y1": 775,
+                "x2": 700,
+                "y2": 800
+              }
+            },
+            {
+              "name": "TMJ & Frozen Shoulder Treatment",
+              "category": "THERAPEUTIC MASSAGE",
+              "kind": "service",
+              "duration_min": 60,
+              "price_cents": 11900,
+              "price_is_from": false,
+              "variants": [
+                {
+                  "label": "60 mins",
+                  "price_cents": 11900,
+                  "duration_min": 60
+                },
+                {
+                  "label": "90 mins",
+                  "price_cents": 16900,
+                  "duration_min": 90
+                }
+              ],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "likely",
+              "bbox": {
+                "x1": 440,
+                "y1": 805,
+                "x2": 700,
+                "y2": 830
+              }
+            },
+            {
+              "name": "Prices shown are for Relaxation Massage. Other massage styles are available as add-ons.",
+              "category": "COUPLES MASSAGE",
+              "kind": "note",
+              "duration_min": 0,
+              "price_cents": 0,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 150,
+                "y1": 935,
+                "x2": 700,
+                "y2": 965
+              }
+            },
+            {
+              "name": "Couples Massage (Relaxation)",
+              "category": "COUPLES MASSAGE",
+              "kind": "service",
+              "duration_min": 60,
+              "price_cents": 17900,
+              "price_is_from": false,
+              "variants": [
+                {
+                  "label": "60 mins",
+                  "price_cents": 17900,
+                  "duration_min": 60
+                },
+                {
+                  "label": "90 mins",
+                  "price_cents": 28000,
+                  "duration_min": 90
+                },
+                {
+                  "label": "120 mins",
+                  "price_cents": 38000,
+                  "duration_min": 120
+                }
+              ],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 150,
+                "y1": 975,
+                "x2": 700,
+                "y2": 1030
+              }
+            },
+            {
+              "name": "Available as couples treatments with couples steam sauna rooms. Prices shown are for Relaxation Massage. Other styles available as add-ons.",
+              "category": "SPA TREATMENTS",
+              "kind": "note",
+              "duration_min": 0,
+              "price_cents": 0,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 150,
+                "y1": 1105,
+                "x2": 700,
+                "y2": 1140
+              }
+            },
+            {
+              "name": "Signature Spa Package (Massage + Sauna + Body Exfoliation)",
+              "category": "SPA TREATMENTS",
+              "kind": "package",
+              "duration_min": 60,
+              "price_cents": 12900,
+              "price_is_from": false,
+              "variants": [
+                {
+                  "label": "60 mins",
+                  "price_cents": 12900,
+                  "duration_min": 60
+                },
+                {
+                  "label": "90 mins",
+                  "price_cents": 18900,
+                  "duration_min": 90
+                },
+                {
+                  "label": "120 mins",
+                  "price_cents": 26900,
+                  "duration_min": 120
+                }
+              ],
+              "package_sessions": 0,
+              "package_service_names": [
+                "Massage",
+                "Sauna",
+                "Body Exfoliation"
+              ],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 150,
+                "y1": 1180,
+                "x2": 700,
+                "y2": 1225
+              }
+            },
+            {
+              "name": "Signature Spa Package (Massage + Facial)",
+              "category": "SPA TREATMENTS",
+              "kind": "package",
+              "duration_min": 60,
+              "price_cents": 12900,
+              "price_is_from": false,
+              "variants": [
+                {
+                  "label": "60 mins",
+                  "price_cents": 12900,
+                  "duration_min": 60
+                },
+                {
+                  "label": "90 mins",
+                  "price_cents": 18900,
+                  "duration_min": 90
+                },
+                {
+                  "label": "120 mins",
+                  "price_cents": 25900,
+                  "duration_min": 120
+                }
+              ],
+              "package_sessions": 0,
+              "package_service_names": [
+                "Massage",
+                "Facial"
+              ],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 150,
+                "y1": 1230,
+                "x2": 700,
+                "y2": 1275
+              }
+            },
+            {
+              "name": "Signature Spa Package (Massage + Facial + Sauna + Body Exfoliation)",
+              "category": "SPA TREATMENTS",
+              "kind": "package",
+              "duration_min": 100,
+              "price_cents": 26900,
+              "price_is_from": false,
+              "variants": [
+                {
+                  "label": "100 mins",
+                  "price_cents": 26900,
+                  "duration_min": 100
+                },
+                {
+                  "label": "150 mins",
+                  "price_cents": 36900,
+                  "duration_min": 150
+                }
+              ],
+              "package_sessions": 0,
+              "package_service_names": [
+                "Massage",
+                "Facial",
+                "Sauna",
+                "Body Exfoliation"
+              ],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 150,
+                "y1": 1280,
+                "x2": 700,
+                "y2": 1320
+              }
+            },
+            {
+              "name": "AHA Glow Facial",
+              "category": "FACIAL TREATMENTS",
+              "kind": "service",
+              "duration_min": 30,
+              "price_cents": 7900,
+              "price_is_from": false,
+              "variants": [
+                {
+                  "label": "30 mins",
+                  "price_cents": 7900,
+                  "duration_min": 30
+                },
+                {
+                  "label": "60 mins",
+                  "price_cents": 10900,
+                  "duration_min": 60
+                }
+              ],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 150,
+                "y1": 1400,
+                "x2": 700,
+                "y2": 1425
+              }
+            },
+            {
+              "name": "Lymphatic Drainage Facial",
+              "category": "FACIAL TREATMENTS",
+              "kind": "service",
+              "duration_min": 70,
+              "price_cents": 14900,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 150,
+                "y1": 1430,
+                "x2": 700,
+                "y2": 1450
+              }
+            },
+            {
+              "name": "Vitamin C Brightening Facial",
+              "category": "FACIAL TREATMENTS",
+              "kind": "service",
+              "duration_min": 60,
+              "price_cents": 12900,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 150,
+                "y1": 1455,
+                "x2": 700,
+                "y2": 1475
+              }
+            },
+            {
+              "name": "Oxygen Lifting Facial",
+              "category": "FACIAL TREATMENTS",
+              "kind": "service",
+              "duration_min": 70,
+              "price_cents": 17900,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 150,
+                "y1": 1480,
+                "x2": 700,
+                "y2": 1500
+              }
+            },
+            {
+              "name": "Man's Facial",
+              "category": "FACIAL TREATMENTS",
+              "kind": "service",
+              "duration_min": 50,
+              "price_cents": 9900,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 150,
+                "y1": 1505,
+                "x2": 700,
+                "y2": 1525
+              }
+            },
+            {
+              "name": "Gentleman's Executive Facial",
+              "category": "FACIAL TREATMENTS",
+              "kind": "service",
+              "duration_min": 80,
+              "price_cents": 16900,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 150,
+                "y1": 1530,
+                "x2": 700,
+                "y2": 1550
+              }
+            },
+            {
+              "name": "Hot Stone",
+              "category": "MASSAGE ADD-ON",
+              "kind": "addon",
+              "duration_min": 0,
+              "price_cents": 1000,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 770,
+                "y1": 560,
+                "x2": 990,
+                "y2": 585
+              }
+            },
+            {
+              "name": "Aroma Oil",
+              "category": "MASSAGE ADD-ON",
+              "kind": "addon",
+              "duration_min": 0,
+              "price_cents": 1000,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 770,
+                "y1": 615,
+                "x2": 990,
+                "y2": 640
+              }
+            },
+            {
+              "name": "Guasha",
+              "category": "MASSAGE ADD-ON",
+              "kind": "addon",
+              "duration_min": 0,
+              "price_cents": 3000,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 770,
+                "y1": 670,
+                "x2": 990,
+                "y2": 695
+              }
+            },
+            {
+              "name": "Cupping",
+              "category": "MASSAGE ADD-ON",
+              "kind": "addon",
+              "duration_min": 0,
+              "price_cents": 3000,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 770,
+                "y1": 725,
+                "x2": 990,
+                "y2": 750
+              }
+            },
+            {
+              "name": "Steam Sauna",
+              "category": "MASSAGE ADD-ON",
+              "kind": "addon",
+              "duration_min": 0,
+              "price_cents": 3900,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 770,
+                "y1": 780,
+                "x2": 990,
+                "y2": 805
+              }
+            },
+            {
+              "name": "Combination Massage",
+              "category": "COUPLES & SPA ADD-ON",
+              "kind": "addon",
+              "duration_min": 0,
+              "price_cents": 1000,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 800,
+                "y1": 1010,
+                "x2": 1010,
+                "y2": 1050
+              }
+            },
+            {
+              "name": "Deep Tissue Massage",
+              "category": "COUPLES & SPA ADD-ON",
+              "kind": "addon",
+              "duration_min": 0,
+              "price_cents": 2000,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 800,
+                "y1": 1060,
+                "x2": 1010,
+                "y2": 1100
+              }
+            },
+            {
+              "name": "Hot Stone",
+              "category": "COUPLES & SPA ADD-ON",
+              "kind": "addon",
+              "duration_min": 0,
+              "price_cents": 1000,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 800,
+                "y1": 1110,
+                "x2": 1010,
+                "y2": 1140
+              }
+            },
+            {
+              "name": "Aroma Oil",
+              "category": "COUPLES & SPA ADD-ON",
+              "kind": "addon",
+              "duration_min": 0,
+              "price_cents": 1000,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 800,
+                "y1": 1150,
+                "x2": 1010,
+                "y2": 1180
+              }
+            },
+            {
+              "name": "Steam Sauna",
+              "category": "COUPLES & SPA ADD-ON",
+              "kind": "addon",
+              "duration_min": 0,
+              "price_cents": 3900,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 800,
+                "y1": 1190,
+                "x2": 1010,
+                "y2": 1220
+              }
+            },
+            {
+              "name": "LED Light",
+              "category": "FACIAL ADD-ON",
+              "kind": "addon",
+              "duration_min": 0,
+              "price_cents": 3000,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 800,
+                "y1": 1420,
+                "x2": 1010,
+                "y2": 1450
+              }
+            },
+            {
+              "name": "THANK YOU FOR CHOOSING OASIS SPA",
+              "category": "",
+              "kind": "note",
+              "duration_min": 0,
+              "price_cents": 0,
+              "price_is_from": false,
+              "variants": [],
+              "package_sessions": 0,
+              "package_service_names": [],
+              "package_valid_days": 0,
+              "confidence": "certain",
+              "bbox": {
+                "x1": 250,
+                "y1": 1620,
+                "x2": 800,
+                "y2": 1650
+              }
+            }
+          ],
+          "unresolved": [
+            {
+              "field": "couples_massage_add_on_prices_max_two_note",
+              "question": "Couples Massage、Combination Massage add-on 等标注为\"each\"，请确认是按人/份计价，是否需要在系统中特殊标记？"
+            }
+          ]
+        }
+      }
+    ],
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 2902,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 3208,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 5379,
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "output_tokens_details": {
+        "thinking_tokens": 0
+      }
+    },
+    "parsed_output": null
+  }
+}

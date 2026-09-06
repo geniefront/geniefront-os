@@ -1,0 +1,77 @@
+[
+  {
+    "group": "luna-low",
+    "n": 3,
+    "latencyMedianSeconds": 30.895658292,
+    "latencyRangeSeconds": [
+      28.191782749999998,
+      34.99086499999999
+    ],
+    "firstOutputMedianSeconds": 2.5184808340000018,
+    "rawCorrectEntries": [
+      49,
+      49,
+      49
+    ],
+    "rawMatchedEntities": [
+      28,
+      28,
+      28
+    ],
+    "afterMergeCorrectEntries": [
+      46,
+      46,
+      46
+    ]
+  },
+  {
+    "group": "luna-medium",
+    "n": 3,
+    "latencyMedianSeconds": 33.294508,
+    "latencyRangeSeconds": [
+      31.445209333999998,
+      34.83155625
+    ],
+    "firstOutputMedianSeconds": 6.87952175,
+    "rawCorrectEntries": [
+      49,
+      49,
+      49
+    ],
+    "rawMatchedEntities": [
+      28,
+      28,
+      28
+    ],
+    "afterMergeCorrectEntries": [
+      46,
+      46,
+      46
+    ]
+  },
+  {
+    "group": "sonnet-high",
+    "n": 3,
+    "latencyMedianSeconds": 91.11082375,
+    "latencyRangeSeconds": [
+      90.70561745799999,
+      94.03447391700001
+    ],
+    "firstOutputMedianSeconds": 2.866733416000003,
+    "rawCorrectEntries": [
+      49,
+      49,
+      49
+    ],
+    "rawMatchedEntities": [
+      28,
+      28,
+      28
+    ],
+    "afterMergeCorrectEntries": [
+      46,
+      46,
+      46
+    ]
+  }
+]

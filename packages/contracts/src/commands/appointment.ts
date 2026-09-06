@@ -279,11 +279,68 @@ export const AppointmentAssignCustomer = defineCommand({
   idempotency: 'optional',
 });
 
+export const appointmentBatchItemInput = z.object({
+  subKey: z.string(),
+  customerId: uuid.nullable().optional(),
+  walkInName: z.string().max(120).optional(),
+  guest: z
+    .object({
+      name: z.string().min(1).max(120).optional(),
+      phoneE164: phoneE164.optional(),
+      email: z.string().email().max(200).optional(),
+      smsOptIn: z.boolean().default(false),
+      confirmationCode: z.string().regex(/^[A-Z0-9]{2,4}-[A-Z0-9]{4,6}$/).optional(),
+      manageToken: z.string().regex(/^mt_[A-Za-z0-9_-]{20,}$/).optional(),
+      customer: z
+        .object({
+          name: z.string().min(1).max(120),
+          phoneE164,
+          email: z.string().email().max(200).optional(),
+          smsOptIn: z.boolean().default(false),
+        })
+        .optional(),
+    })
+    .optional(),
+  serviceItems: z.array(appointmentItemInput).min(1).max(10),
+  notes: z.string().max(2000).optional(),
+  override: overrideReason.optional(),
+});
+export type AppointmentBatchItemInput = z.infer<typeof appointmentBatchItemInput>;
+
+export const AppointmentCreateBatch = defineCommand({
+  name: 'appointment.createBatch',
+  input: z.object({
+    batchId: uuid,
+    items: z.array(appointmentBatchItemInput).min(1).max(10),
+    source: appointmentSource.default('ai_copilot'),
+  }),
+  output: z.object({
+    batchId: uuid,
+    results: z.array(
+      z.object({
+        subKey: z.string(),
+        appointmentId: uuid,
+        itemIds: z.array(uuid),
+        businessDate: z.string(),
+      }),
+    ),
+  }),
+  permission: 'appointment.write',
+  ai: {
+    description: '独立多客批量创建预约。适用于多人分别预约不同时段或项目的场景。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'required',
+});
+
 export const APPOINTMENT_COMMANDS = [
   AppointmentCreate,
+  AppointmentCreateBatch,
   AppointmentReschedule,
   AppointmentAddItem,
   AppointmentCancel,
   AppointmentSaveServiceBrief,
   AppointmentAssignCustomer,
 ] as const;
+

@@ -85,7 +85,7 @@ export function aiToolDefinitions(): Array<{
       description: c.ai.description,
       confirm: c.ai.confirm,
       permission: c.permission ?? '',
-      input: describeInput(c.input),
+      input: describeInput(c.input, c.name),
     }));
 
 }

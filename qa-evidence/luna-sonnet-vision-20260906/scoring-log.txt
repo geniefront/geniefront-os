@@ -1,0 +1,86 @@
+{"id": "luna-low-1", "provider": "luna", "effort": "low", "actualModel": "gpt-5.6-luna", "latencyMs": 30895.658292, "firstOutputMs": 3768.9377919999997, "schemaValid": true, "error": null, "raw": {"commercialEntitiesMatched": 28, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 49, "priceDurationEntriesExpected": 49, "missingEntities": [], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}, "afterExistingMerge": {"commercialEntitiesMatched": 25, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 46, "priceDurationEntriesExpected": 49, "missingEntities": ["couples-hot", "couples-aroma", "couples-sauna"], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}}
+{"id": "luna-low-2", "provider": "luna", "effort": "low", "actualModel": "gpt-5.6-luna", "latencyMs": 28191.78275, "firstOutputMs": 2518.480834000002, "schemaValid": true, "error": null, "raw": {"commercialEntitiesMatched": 28, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 49, "priceDurationEntriesExpected": 49, "missingEntities": [], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}, "afterExistingMerge": {"commercialEntitiesMatched": 25, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 46, "priceDurationEntriesExpected": 49, "missingEntities": ["couples-hot", "couples-aroma", "couples-sauna"], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}}
+{"id": "luna-low-3", "provider": "luna", "effort": "low", "actualModel": "gpt-5.6-luna", "latencyMs": 34990.86499999999, "firstOutputMs": 1412.007249999995, "schemaValid": true, "error": null, "raw": {"commercialEntitiesMatched": 28, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 49, "priceDurationEntriesExpected": 49, "missingEntities": [], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}, "afterExistingMerge": {"commercialEntitiesMatched": 25, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 46, "priceDurationEntriesExpected": 49, "missingEntities": ["couples-hot", "couples-aroma", "couples-sauna"], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}}
+{"id": "luna-medium-1", "provider": "luna", "effort": "medium", "actualModel": "gpt-5.6-luna", "latencyMs": 33294.508, "firstOutputMs": 8783.307, "schemaValid": true, "error": null, "raw": {"commercialEntitiesMatched": 28, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 49, "priceDurationEntriesExpected": 49, "missingEntities": [], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}, "afterExistingMerge": {"commercialEntitiesMatched": 25, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 46, "priceDurationEntriesExpected": 49, "missingEntities": ["couples-hot", "couples-aroma", "couples-sauna"], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}}
+{"id": "luna-medium-2", "provider": "luna", "effort": "medium", "actualModel": "gpt-5.6-luna", "latencyMs": 34831.55625, "firstOutputMs": 6879.52175, "schemaValid": true, "error": null, "raw": {"commercialEntitiesMatched": 28, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 49, "priceDurationEntriesExpected": 49, "missingEntities": [], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}, "afterExistingMerge": {"commercialEntitiesMatched": 25, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 46, "priceDurationEntriesExpected": 49, "missingEntities": ["couples-hot", "couples-aroma", "couples-sauna"], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}}
+{"id": "luna-medium-3", "provider": "luna", "effort": "medium", "actualModel": "gpt-5.6-luna", "latencyMs": 31445.209334, "firstOutputMs": 5435.294583999988, "schemaValid": true, "error": null, "raw": {"commercialEntitiesMatched": 28, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 49, "priceDurationEntriesExpected": 49, "missingEntities": [], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}, "afterExistingMerge": {"commercialEntitiesMatched": 25, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 46, "priceDurationEntriesExpected": 49, "missingEntities": ["couples-hot", "couples-aroma", "couples-sauna"], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}}
+{"id": "sonnet-high-1", "provider": "sonnet", "effort": "high", "actualModel": "claude-sonnet-5", "latencyMs": 94034.47391700001, "firstOutputMs": 4060.539, "schemaValid": true, "error": null, "raw": {"commercialEntitiesMatched": 28, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 49, "priceDurationEntriesExpected": 49, "missingEntities": [], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}, "afterExistingMerge": {"commercialEntitiesMatched": 25, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 46, "priceDurationEntriesExpected": 49, "missingEntities": ["couples-hot", "couples-aroma", "couples-sauna"], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}}
+{"id": "sonnet-high-2", "provider": "sonnet", "effort": "high", "actualModel": "claude-sonnet-5", "latencyMs": 91110.82375, "firstOutputMs": 2520.823583999998, "schemaValid": true, "error": null, "raw": {"commercialEntitiesMatched": 28, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 49, "priceDurationEntriesExpected": 49, "missingEntities": [], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": [{"id": "couples", "expected": "COUPLES MASSAGE", "actual": "Couples Massage (Relaxation)"}]}, "afterExistingMerge": {"commercialEntitiesMatched": 25, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 46, "priceDurationEntriesExpected": 49, "missingEntities": ["couples-hot", "couples-aroma", "couples-sauna"], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": [{"id": "couples", "expected": "COUPLES MASSAGE", "actual": "Couples Massage (Relaxation)"}]}}
+{"id": "sonnet-high-3", "provider": "sonnet", "effort": "high", "actualModel": "claude-sonnet-5", "latencyMs": 90705.617458, "firstOutputMs": 2866.7334160000028, "schemaValid": true, "error": null, "raw": {"commercialEntitiesMatched": 28, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 49, "priceDurationEntriesExpected": 49, "missingEntities": [], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}, "afterExistingMerge": {"commercialEntitiesMatched": 25, "commercialEntitiesExpected": 28, "correctPriceDurationEntries": 46, "priceDurationEntriesExpected": 49, "missingEntities": ["couples-hot", "couples-aroma", "couples-sauna"], "wrongEntries": [], "extraEntries": [], "kindErrors": [], "unmatchedCommercialRows": [], "nonVerbatimNames": []}}
+[
+  {
+    "group": "luna-low",
+    "n": 3,
+    "latencyMedianSeconds": 30.895658292,
+    "latencyRangeSeconds": [
+      28.191782749999998,
+      34.99086499999999
+    ],
+    "firstOutputMedianSeconds": 2.5184808340000018,
+    "rawCorrectEntries": [
+      49,
+      49,
+      49
+    ],
+    "rawMatchedEntities": [
+      28,
+      28,
+      28
+    ],
+    "afterMergeCorrectEntries": [
+      46,
+      46,
+      46
+    ]
+  },
+  {
+    "group": "luna-medium",
+    "n": 3,
+    "latencyMedianSeconds": 33.294508,
+    "latencyRangeSeconds": [
+      31.445209333999998,
+      34.83155625
+    ],
+    "firstOutputMedianSeconds": 6.87952175,
+    "rawCorrectEntries": [
+      49,
+      49,
+      49
+    ],
+    "rawMatchedEntities": [
+      28,
+      28,
+      28
+    ],
+    "afterMergeCorrectEntries": [
+      46,
+      46,
+      46
+    ]
+  },
+  {
+    "group": "sonnet-high",
+    "n": 3,
+    "latencyMedianSeconds": 91.11082375,
+    "latencyRangeSeconds": [
+      90.70561745799999,
+      94.03447391700001
+    ],
+    "firstOutputMedianSeconds": 2.866733416000003,
+    "rawCorrectEntries": [
+      49,
+      49,
+      49
+    ],
+    "rawMatchedEntities": [
+      28,
+      28,
+      28
+    ],
+    "afterMergeCorrectEntries": [
+      46,
+      46,
+      46
+    ]
+  }
+]

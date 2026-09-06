@@ -150,6 +150,16 @@ describe('mergeDrafts', () => {
     expect(r.merged).toBe(0);
   });
 
+  it('不同分类的同名同价项目不合并（29 §11）', () => {
+    const r = mergeDrafts([
+      [draft({ name: { en: 'Classic' }, category: 'MANICURE', priceCents: 3000 })],
+      [draft({ name: { en: 'Classic' }, category: 'PEDICURE', priceCents: 3000 })],
+    ]);
+    expect(r.items).toHaveLength(2);
+    expect(r.merged).toBe(0);
+    expect(r.conflicts).toBe(0);
+  });
+
   it('保持照片顺序 —— 老板核对时的行序要和他拍的顺序一致', () => {
     const r = mergeDrafts([
       [draft({ name: { en: 'A' } }), draft({ name: { en: 'B' } })],

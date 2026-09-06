@@ -1,0 +1,36 @@
+{
+  "image": "/Users/naiyouzhu/siteadmin/test_image_spa.jpg",
+  "imageSha256": "3d87e05702c2d66d796e9e967cec73107293850b40d4f589d79a256837c31d38",
+  "systemPromptSha256": "02e750350bd738582ae1d29e0d887999b16ed1565fe023994613458931f3d0c6",
+  "schemaSha256": "b420461466b0ff2925b10cc91e2fc35d7a0431818827edd41e2d5313120af14a",
+  "userPrompt": "\u5f55\u8fd9\u5f20\u4ef7\u76ee\u8868\u3002",
+  "maxOutputTokens": 32000,
+  "retries": 0,
+  "timeoutMs": 240000,
+  "scope": "single original image, direct extraction API + existing normalization; excludes app upload/translation/database",
+  "startedAt": "2026-09-06T19:03:03.298Z",
+  "configurations": [
+    {
+      "model": "claude-sonnet-5",
+      "effort": "high",
+      "repetitions": 3,
+      "endpoint": "https://api.anthropic.com/v1/messages",
+      "imageDetail": "native image input"
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "effort": "medium",
+      "repetitions": 3,
+      "endpoint": "https://api.openai.com/v1/responses",
+      "imageDetail": "high"
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "repetitions": 3,
+      "endpoint": "https://api.openai.com/v1/responses",
+      "imageDetail": "high"
+    }
+  ],
+  "execution": "Each configuration serial repeats; provider lanes overlap; caches not artificially disabled; each request has fresh conversation; no retries."
+}

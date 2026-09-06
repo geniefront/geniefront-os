@@ -30,7 +30,9 @@ import {
   getCopilotSessions,
   removeCopilotSession,
   type CopilotProposal,
-} from '@/features/copilot/api';
+  TaskPlanCard,
+} from '@/features/copilot';
+import type { PreviewPayload } from '@gf/contracts';
 import { useStoreTime } from '@/lib/time';
 import { useSession } from '@/lib/session';
 import { useQueryClient } from '@tanstack/react-query';
@@ -48,6 +50,9 @@ export interface MessageItem {
   timestamp: number;
   imagePreview?: string;
   proposal?: CopilotProposal | null;
+  taskId?: string;
+  planRevision?: PreviewPayload | null;
+  revision?: number;
   executed?: boolean;
   undoProposalToken?: string;
   undoExpiresAt?: string;
@@ -388,6 +393,7 @@ function sessionsForStorage(sessions: CopilotSession[]): CopilotSession[] {
       messages: session.messages.map(({
         imagePreview: _image,
         proposal: _proposal,
+        planRevision: _planRevision,
         undoProposalToken: _undoProposal,
         undoExpiresAt: _undoExpiry,
         ...message
@@ -708,6 +714,9 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
                     ...m,
                     content: m.content || res.answer,
                     proposal: res.proposal ?? m.proposal,
+                    taskId: res.taskId ?? m.taskId,
+                    planRevision: res.planRevision ?? m.planRevision,
+                    revision: res.revision ?? m.revision,
                     isStreaming: false,
                   };
                 });
@@ -1146,7 +1155,33 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
                     </div>
                     {m.role === 'user' && <div className="w-7 h-7 rounded-full bg-teal-600 text-white flex items-center justify-center shrink-0 mt-0.5 font-bold text-xs shadow-xs"><User className="w-3.5 h-3.5" /></div>}
                   </div>
-                  {m.proposal && renderProposalCard(m.proposal, idx, m.executed)}
+                  {m.taskId && m.planRevision ? (
+                    <div className="ml-9">
+                      <TaskPlanCard
+                        taskId={m.taskId}
+                        preview={m.planRevision}
+                        revision={m.revision ?? 1}
+                        executed={m.executed}
+                        onExecutionComplete={() => {
+                          setSessions((prev) =>
+                            prev.map((s) =>
+                              s.id === activeSession.id
+                                ? {
+                                    ...s,
+                                    messages: s.messages.map((item, idx2) =>
+                                      idx2 === idx ? { ...item, executed: true } : item,
+                                    ),
+                                  }
+                                : s,
+                            ),
+                          );
+                          invalidateCopilotQueries();
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    m.proposal && renderProposalCard(m.proposal, idx, m.executed)
+                  )}
                 </div>
               );
             })}

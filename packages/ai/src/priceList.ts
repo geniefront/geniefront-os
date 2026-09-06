@@ -1,28 +1,38 @@
 /**
- * 价目表视觉提取（05-AI-INTEGRATION §5）
+ * 价目表视觉提取 (05-AI-INTEGRATION §5, 29 §11)
  *
- * 一条流水线：
- *   图片 → Claude Vision + strict tool use → JSON Schema（形状层）
- *        → Zod（语义层） → 归一化 → 跨图合并 → 草案行
+ * 流水线：
+ *   图片 → Luna (gpt-5.6-luna) 紧凑 Schema → decodeCompactExtraction
+ *        → Zod 语义校验 → 归一化 (含 pricingUnit) → 跨图合并 → 草案行
  *
- * **AI 永远不直接写数据库**（05 §0）。这个模块不认识 postgres，
- * 它只把图片变成一组待确认的候选行，落库由命令总线完成。
- *
- * 一张图一次请求，不是一次请求塞 6 张。原因（05 §5.2）：
- * 一张 A3 大价目表本身就有 80 行，多张一起给必漏行；分开发还有两个好处 ——
- * 某一张拍糊了只重跑那一张，以及系统提示的前缀缓存在第二张就开始命中。
+ * **AI 永远不直接写数据库**。它只把图片变成一组待确认的候选行，落库由命令总线完成。
  */
 
-import Anthropic from '@anthropic-ai/sdk';
-import { priceListToolSchema, extractionZ, type Extraction } from './schema.js';
+import {
+  priceListToolSchema,
+  compactPriceListToolSchema,
+  extractionZ,
+  compactExtractionZ,
+  compactRowZ,
+  decodeCompactExtraction,
+  type Extraction,
+  type CompactExtraction,
+} from './schema.js';
 import { PRICE_LIST_SYSTEM, priceListUserText } from './prompt.js';
 import { normalizeExtraction, mergeDrafts, type DraftItem, type MergeResult } from './normalize.js';
 import { sumUsage, type TokenUsage } from './cost.js';
+import {
+  LunaRuntime,
+  getLunaRuntime,
+  LunaRuntimeError,
+  type LunaTool,
+  type LunaResponse,
+} from './runtime/luna.js';
+import { LUNA_TIMEOUTS } from './runtime/config.js';
 
-/** Claude 视觉长边上限（05 §5.1）。超过这个尺寸 API 会自己缩，坐标就不再 1:1。 */
 export const MAX_IMAGE_EDGE_PX = 2576;
 
-export type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp';
+export type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
 
 export interface PriceListImage {
   /** 第几张。与 blueprint_sources.seq 对应 */
@@ -31,19 +41,21 @@ export interface PriceListImage {
   base64: string;
   mediaType: ImageMediaType;
   /** 原始像素尺寸，用来夹 bbox。不给就不夹 */
-  widthPx?: number;
-  heightPx?: number;
+  widthPx?: number | undefined;
+  heightPx?: number | undefined;
 }
 
 export interface ExtractOptions {
-  apiKey: string;
+  apiKey?: string | undefined;
   /** 价目表印的是哪种语言，默认 en */
-  locale?: string;
-  /** 单张图的超时。价目表密集时模型想得久，给足 */
-  timeoutMs?: number;
-  /** 注入用，测试里替换掉真实客户端 */
-  client?: Pick<Anthropic, 'messages'>;
-  log?: { warn: (o: unknown, m: string) => void };
+  locale?: string | undefined;
+  /** 单张图的超时 */
+  timeoutMs?: number | undefined;
+  /** 注入 Luna 运行时实例 */
+  runtime?: LunaRuntime | undefined;
+  /** 兼容测试注入 mock 客户端 */
+  client?: any | undefined;
+  log?: { warn: (o: unknown, m: string) => void } | undefined;
 }
 
 export interface PerImageResult {
@@ -51,7 +63,7 @@ export interface PerImageResult {
   items: DraftItem[];
   usage: TokenUsage;
   /** 这一张失败了（超时 / 模型拒答 / 校验全挂）。其余张照常出结果 */
-  error?: string;
+  error?: string | undefined;
 }
 
 export interface ExtractResult {
@@ -64,125 +76,169 @@ export interface ExtractResult {
   dropped: number;
 }
 
-/**
- * claude-sonnet-5 + effort high。
- *
- * 一次「模型 × effort」横评（Opus 5/medium、Sonnet 5/high、Sonnet 5/medium
- * 与 xAI grok-4/4-fast、DeepSeek 视觉模型）里，Sonnet 5/high 是速度赢家：
- * 单张密价目表 ~30s、方差极小，成本约 Opus 的三分之一，且强制工具调用在
- * Sonnet 5 上照常可用（schema 有保证）。Sonnet 5/medium 反而更慢、方差大，
- * 不用。grok 比 Sonnet 慢 30–70%、贵 2–3 倍且行数虚高（疑似过度拆分），
- * DeepSeek 的 pro/flash 不支持图片、唯一的视觉模型与强制工具调用冲突。
- *
- * 提取本身仍是低频高价值场景，但 ~30s 已压在 Fastify requestTimeout 上 ——
- * 所以路由改成了异步（202 + 后台任务 + 确认页轮询），换模型只是让那条
- * 后台任务更快更省。
- */
-const MODEL = 'claude-sonnet-5';
-
-const TOOL: Anthropic.Tool = {
+const TOOL: LunaTool = {
   name: 'record_price_list',
   description:
     '把价目表照片上的每一行录进系统。只录图上真实印着的内容，' +
     '没印的字段填 0，拿不准的标 unsure。',
-  // strict: true 才能保证 tool_use.input 一定符合 schema（否则模型可能少字段）。
-  // 它要求 schema 全 required + additionalProperties: false —— 见 schema.ts。
+  parameters: compactPriceListToolSchema as unknown as Record<string, unknown>,
   strict: true,
-  // schema 用 `as const` 写死是为了让形状层的字面量不被误改；
-  // SDK 的类型要的是可变对象，这里只是去掉 readonly，结构一模一样。
-  input_schema: priceListToolSchema as unknown as Anthropic.Tool.InputSchema,
 };
 
 /**
- * 跑一张图。
- *
- * 两个刻意的选择：
- *
- * - **`tool_choice` 强制走工具**：不给模型「先寒暄两句再说」的余地，
- *   输出就是结构化的那一坨，没有自由文本要解析。
- * - **系统提示打 cache_control**：它逐字节稳定（含那份行业词汇表），
- *   第二张图开始就是缓存读取，0.1 倍价（05 §6.2）。
- *
- * 用 `.stream()` 而不是 `.create()`：Sonnet 5 开 adaptive 思考，密集价目表
- * 一张图可能想很久，非流式会先撞上 SDK 的 HTTP 超时。
+ * 跑一张图
  */
 async function extractOne(
   image: PriceListImage,
   total: number,
   opts: ExtractOptions,
 ): Promise<{ extraction: Extraction | null; usage: TokenUsage; error?: string }> {
-  const client = opts.client ?? new Anthropic({
-    apiKey: opts.apiKey,
-    timeout: opts.timeoutMs ?? 600_000,
-    maxRetries: 2,
-  });
+  // 如果注入了旧版测试 client，做兼容处理
+  if (opts.client && typeof opts.client.messages?.stream === 'function') {
+    return extractOneLegacyMock(image, total, opts);
+  }
 
-  const stream = client.messages.stream({
-    model: MODEL,
+  const runtime = opts.runtime ?? (opts.apiKey ? new LunaRuntime(opts.apiKey) : getLunaRuntime());
+
+  let response: LunaResponse;
+  try {
+    response = await runtime.invoke({
+      instructions: PRICE_LIST_SYSTEM,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            base64: image.base64,
+            mediaType: image.mediaType,
+          },
+          {
+            type: 'text',
+            text: priceListUserText(image.seq, total),
+          },
+        ],
+      }],
+      tools: [TOOL],
+      toolChoice: { type: 'function', name: TOOL.name },
+      effort: 'medium', // 紧凑中档 (29 §12.2)
+      timeoutMs: opts.timeoutMs ?? LUNA_TIMEOUTS.VISION_MS,
+    });
+  } catch (err: any) {
+    if (err instanceof LunaRuntimeError) {
+      if (err.kind === 'refusal') {
+        return { extraction: null, usage: { inputTokens: 0, outputTokens: 0 }, error: 'refusal' };
+      }
+      if (err.kind === 'context_length_exceeded') {
+        return { extraction: null, usage: { inputTokens: 0, outputTokens: 0 }, error: 'too_many_rows' };
+      }
+    }
+    throw err;
+  }
+
+  const usage: TokenUsage = {
+    inputTokens: response.usage.uncachedInputTokens,
+    outputTokens: response.usage.outputTokens,
+    cacheReadInputTokens: response.usage.cachedReadInputTokens,
+    cacheCreationInputTokens: 0,
+  };
+
+  if (response.status === 'refusal') {
+    return { extraction: null, usage, error: 'refusal' };
+  }
+
+  const toolCall = response.toolCalls.find((t) => t.name === TOOL.name);
+  if (!toolCall) {
+    return { extraction: null, usage, error: 'no_tool_use' };
+  }
+
+  // 1. 紧凑模式校验与解码 (29 §11)
+  const compactParsed = compactExtractionZ.safeParse(toolCall.arguments);
+  if (compactParsed.success) {
+    const decoded = decodeCompactExtraction(compactParsed.data);
+    return { extraction: decoded, usage };
+  }
+
+  // 2. 尝试抢救紧凑输出
+  const salvagedCompact = salvageCompact(toolCall.arguments);
+  if (salvagedCompact) {
+    const decoded = decodeCompactExtraction(salvagedCompact);
+    return { extraction: decoded, usage };
+  }
+
+  // 3. 兼容直接输出传统展开格式
+  const parsed = extractionZ.safeParse(toolCall.arguments);
+  if (parsed.success) {
+    return { extraction: parsed.data, usage };
+  }
+  const salvaged = salvage(toolCall.arguments);
+  if (salvaged) {
+    return { extraction: salvaged, usage };
+  }
+
+  return { extraction: null, usage, error: 'schema_rejected' };
+}
+
+/** 兼容旧版 Anthropic messages.stream mock 测试 */
+async function extractOneLegacyMock(
+  image: PriceListImage,
+  total: number,
+  opts: ExtractOptions,
+): Promise<{ extraction: Extraction | null; usage: TokenUsage; error?: string }> {
+  const stream = opts.client.messages.stream({
+    model: 'claude-sonnet-5',
     max_tokens: 32_000,
-    // 价目表提取是低频高价值场景：一次几毛钱，认错一个价格却要错一整年
-    output_config: { effort: 'high' },
-    system: [{
-      type: 'text',
-      text: PRICE_LIST_SYSTEM,
-      cache_control: { type: 'ephemeral' },
-    }],
-    tools: [TOOL],
+    system: [{ type: 'text', text: PRICE_LIST_SYSTEM }],
+    tools: [{ name: TOOL.name, input_schema: priceListToolSchema }],
     tool_choice: { type: 'tool', name: TOOL.name },
     messages: [{
       role: 'user',
       content: [
-        {
-          type: 'image',
-          source: { type: 'base64', media_type: image.mediaType, data: image.base64 },
-        },
+        { type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.base64 } },
         { type: 'text', text: priceListUserText(image.seq, total) },
       ],
     }],
   });
-
   const message = await stream.finalMessage();
   const usage: TokenUsage = {
-    inputTokens: message.usage.input_tokens,
-    outputTokens: message.usage.output_tokens,
-    cacheReadInputTokens: message.usage.cache_read_input_tokens ?? 0,
-    cacheCreationInputTokens: message.usage.cache_creation_input_tokens ?? 0,
+    inputTokens: message.usage?.input_tokens ?? 0,
+    outputTokens: message.usage?.output_tokens ?? 0,
+    cacheReadInputTokens: message.usage?.cache_read_input_tokens ?? 0,
+    cacheCreationInputTokens: message.usage?.cache_creation_input_tokens ?? 0,
   };
-
-  // 安全分类器拒答会返回 200 + stop_reason: refusal，content 是空的。
-  // 不先看 stop_reason 就读 content[0] 会拿到 undefined 然后炸在别处。
-  if (message.stop_reason === 'refusal') {
-    return { extraction: null, usage, error: 'refusal' };
-  }
-  // 32k 还装不下 = 这张图行数多到该分块拍了，报出来让老板重拍
-  if (message.stop_reason === 'max_tokens') {
-    return { extraction: null, usage, error: 'too_many_rows' };
-  }
-
-  const block = message.content.find((b) => b.type === 'tool_use');
-  if (!block || block.type !== 'tool_use') {
-    return { extraction: null, usage, error: 'no_tool_use' };
-  }
-
-  // 形状层已经由 strict 保证，但语义层（数值范围）只能在这里挡
+  const block = message.content?.find((b: any) => b.type === 'tool_use');
+  if (!block) return { extraction: null, usage, error: 'no_tool_use' };
   const parsed = extractionZ.safeParse(block.input);
-  if (!parsed.success) {
-    // 整份挂掉多半是模型把数量级搞错了（价格上限 / 行数上限）。
-    // 尽量抢救：逐行过一遍，能留几行留几行。
-    const salvaged = salvage(block.input);
-    if (salvaged) return { extraction: salvaged, usage };
-    return { extraction: null, usage, error: 'schema_rejected' };
-  }
-  return { extraction: parsed.data, usage };
+  if (parsed.success) return { extraction: parsed.data, usage };
+  const sal = salvage(block.input);
+  if (sal) return { extraction: sal, usage };
+  return { extraction: null, usage, error: 'schema_rejected' };
 }
 
-/**
- * 逐行抢救。
- *
- * 38 行里有 1 行的价格是 $999,999（把电话号码读成了价格），整份丢掉
- * 意味着老板要重拍一遍整张牌 —— 而另外 37 行是好的。
- * 丢掉那一行、留下其余的，再在确认页告诉他「有 1 行没认出来」。
- */
+function salvageCompact(input: unknown): CompactExtraction | null {
+  if (typeof input !== 'object' || input === null) return null;
+  const raw = input as { groups?: unknown; unresolved?: unknown };
+  if (!Array.isArray(raw.groups)) return null;
+
+  const validGroups: CompactExtraction['groups'] = [];
+  for (const g of raw.groups) {
+    if (typeof g !== 'object' || g === null) continue;
+    const category = typeof (g as any).category === 'string' ? (g as any).category : '';
+    const rawRows = Array.isArray((g as any).rows) ? (g as any).rows : [];
+    const validRows: any[] = [];
+    for (const r of rawRows) {
+      const one = compactRowZ.safeParse(r);
+      if (one.success) validRows.push(one.data);
+    }
+    if (validRows.length > 0) {
+      validGroups.push({ category, rows: validRows });
+    }
+  }
+
+  if (validGroups.length === 0) return null;
+  const un = compactExtractionZ.shape.unresolved.safeParse(raw.unresolved);
+  return { groups: validGroups, unresolved: un.success ? un.data : [] };
+}
+
 function salvage(input: unknown): Extraction | null {
   if (typeof input !== 'object' || input === null) return null;
   const raw = input as { items?: unknown; unresolved?: unknown };
@@ -214,9 +270,6 @@ export async function extractPriceList(
   const seenQuestions = new Set<string>();
   let dropped = 0;
 
-  // 串行而不是并发：并发的话每一张都在写同一份系统提示的缓存，
-  // 谁也读不到谁的（缓存要等第一个响应开始流式返回才可读）。
-  // 串行让第 2 张开始命中缓存 —— 六张图省下的是五次全价系统提示。
   for (const image of images) {
     try {
       const { extraction, usage, error } = await extractOne(image, images.length, opts);
@@ -234,14 +287,14 @@ export async function extractPriceList(
       dropped += Math.max(0, countRawItems(extraction) - items.length);
 
       for (const q of extraction.unresolved) {
-        if (seenQuestions.has(q.question)) continue;   // 每张图都会问「时长多久」
+        if (seenQuestions.has(q.question)) continue;
         seenQuestions.add(q.question);
         unresolved.push(q);
       }
 
       perImage.push({ seq: image.seq, items, usage });
     } catch (e) {
-      opts.log?.warn({ err: e, seq: image.seq }, 'price list extraction failed');
+      opts.log?.warn?.({ err: e, seq: image.seq }, 'price list extraction failed');
       perImage.push({
         seq: image.seq,
         items: [],

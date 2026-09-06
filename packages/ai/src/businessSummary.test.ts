@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import type Anthropic from '@anthropic-ai/sdk';
 import { generateBusinessSummary } from './businessSummary';
 
-function clientWith(input: unknown): Anthropic {
+function clientWith(input: unknown): any {
   return {
     messages: {
       create: vi.fn().mockResolvedValue({
@@ -11,7 +10,7 @@ function clientWith(input: unknown): Anthropic {
         usage: { input_tokens: 10, output_tokens: 10 },
       }),
     },
-  } as unknown as Anthropic;
+  };
 }
 
 describe('generateBusinessSummary', () => {

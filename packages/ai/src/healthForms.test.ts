@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import type Anthropic from '@anthropic-ai/sdk';
 import { generateHealthFormQuestions } from './healthForms';
 
 describe('generateHealthFormQuestions', () => {
@@ -25,7 +24,7 @@ describe('generateHealthFormQuestions', () => {
           usage: { input_tokens: 20, output_tokens: 30 },
         }),
       },
-    } as unknown as Pick<Anthropic, 'messages'>;
+    } as any;
 
     const result = await generateHealthFormQuestions({
       prompt: '增加开放性伤口排查', actionType: 'add_safety',

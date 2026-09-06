@@ -1,9 +1,11 @@
 import type postgres from 'postgres';
+import { createQaClock, type QaClock } from './clock';
 import { QA_SEED_MARKER, type QaScenarioId, type QaSnapshot } from './types';
 
 export async function snapshotQa(
   tx: postgres.TransactionSql,
   scenario: QaScenarioId,
+  clock: QaClock = createQaClock(),
 ): Promise<QaSnapshot> {
   const [row] = await tx<{
     org_count: number; location_count: number; membership_count: number;
@@ -41,7 +43,7 @@ export async function snapshotQa(
       (select ba.subscription_status from billing_accounts ba
          join qa_loc l on l.id = ba.location_id order by ba.created_at limit 1) as subscription_status,
       (select case when ba.trial_ends_at is null then null
-                   else ba.trial_ends_at > now() end
+                   else ba.trial_ends_at > ${clock.now.toISOString()}::timestamptz end
          from billing_accounts ba join qa_loc l on l.id = ba.location_id
          order by ba.created_at limit 1) as trial_future,
       (select status from qa_loc order by id limit 1) as location_status`;

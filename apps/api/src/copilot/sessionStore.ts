@@ -62,7 +62,7 @@ export async function beginCopilotTurn(
 
     let [claimed] = await tx<{ id: string }[]>`
       update copilot_sessions
-      set question_count = question_count + 1,
+      set question_count = least(10, question_count + 1),
           updated_at = now(),
           expires_at = now() + interval '30 days'
       where id = ${sessionId}
@@ -70,7 +70,6 @@ export async function beginCopilotTurn(
         and location_id = ${ctx.locationId}
         and membership_id = ${ctx.membershipId}
         and expires_at > now()
-        and question_count < 10
       returning id`;
 
     // Expired/full/foreign IDs never get reused. A fresh UUID keeps session ownership

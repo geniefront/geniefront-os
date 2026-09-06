@@ -1,0 +1,77 @@
+[
+  {
+    "group": "luna-compact",
+    "n": 3,
+    "latencyMedianSeconds": 22.810488125000003,
+    "latencyRangeSeconds": [
+      20.156804083000004,
+      25.191059792
+    ],
+    "firstOutputMedianSeconds": 7.972215499999998,
+    "rawCorrectEntries": [
+      49,
+      49,
+      49
+    ],
+    "rawMatchedEntities": [
+      28,
+      28,
+      28
+    ],
+    "afterMergeCorrectEntries": [
+      46,
+      46,
+      46
+    ]
+  },
+  {
+    "group": "luna-compact-none",
+    "n": 3,
+    "latencyMedianSeconds": 12.679504875000003,
+    "latencyRangeSeconds": [
+      12.507910832999999,
+      14.211381708
+    ],
+    "firstOutputMedianSeconds": 1.1412326659999998,
+    "rawCorrectEntries": [
+      49,
+      49,
+      45
+    ],
+    "rawMatchedEntities": [
+      28,
+      28,
+      28
+    ],
+    "afterMergeCorrectEntries": [
+      46,
+      46,
+      42
+    ]
+  },
+  {
+    "group": "luna-none",
+    "n": 3,
+    "latencyMedianSeconds": 22.647319959,
+    "latencyRangeSeconds": [
+      18.403930292000002,
+      62.671760875
+    ],
+    "firstOutputMedianSeconds": 1.398811625,
+    "rawCorrectEntries": [
+      49,
+      45,
+      45
+    ],
+    "rawMatchedEntities": [
+      28,
+      28,
+      28
+    ],
+    "afterMergeCorrectEntries": [
+      46,
+      42,
+      42
+    ]
+  }
+]

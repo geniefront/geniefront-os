@@ -25,10 +25,29 @@
  * 有东西在偷偷让缓存失效（05 §6.2）。
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import type { Permission } from '@gf/contracts';
 import { copilotSystemText, copilotUserText } from './prompt.js';
 import { sumUsage, type TokenUsage } from '../cost.js';
+
+interface AnthropicTool {
+  name: string;
+  description: string;
+  strict?: boolean;
+  input_schema: any;
+}
+interface AnthropicMessageParam {
+  role: 'user' | 'assistant';
+  content: any;
+}
+interface AnthropicMessage {
+  id?: string;
+  content: any[];
+  stop_reason: string | null;
+  usage: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
+}
+interface AnthropicTextBlock { type: 'text'; text: string; }
+interface AnthropicToolUseBlock { type: 'tool_use'; id: string; name: string; input: Record<string, unknown>; }
+interface AnthropicToolResultBlockParam { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean; }
 
 /**
  * 前台副驾用 Sonnet 5（05 §7）。
@@ -116,7 +135,7 @@ export interface CopilotOptions {
   /** 流式回调 */
   callbacks?: CopilotCallbacks | undefined;
   /** 注入用，测试里替换掉真实客户端 */
-  client?: Pick<Anthropic, 'messages'>;
+  client?: any;
   timeoutMs?: number;
   log?: { warn: (o: unknown, m: string) => void };
 }
@@ -134,22 +153,7 @@ const MAX_TOOL_CALLS_PER_ROUND = 6;
 /** 工具结果进入下一轮上下文前的硬上限，避免列表查询拖垮延迟和费用。 */
 export const MAX_TOOL_RESULT_CHARS = 24_000;
 
-/**
- * 提案工具。`command` 是枚举 —— **模型编不出一个不存在的命令名**。
- *
- * ⚠️ `input` 是一个**装着 JSON 的字符串**，不是一个 object。这不是随手写的：
- *
- * `strict: true` 要求 schema 里每一个 `type: 'object'` 都显式写
- * `additionalProperties: false`，而命令入参的字段**每条命令都不一样**，
- * 根本枚举不出来 —— 写成 object 会被 API 当场 400：
- * `tools.0.custom: For 'object' type, 'additionalProperties' must be explicitly set to false`。
- *
- * 两条路：放弃 strict（那就丢掉命令名的枚举保证），或者把入参当字符串传。
- * 选后者：命令名那一条保证比入参的形状重要得多 —— 编错字段名的结果是
- * 一个 `VALIDATION_FAILED`，编错命令名则可能命中另一条真实存在的命令。
- * 而入参本来就要过 Zod（bus.ts 第 1 步），少一层 JSON Schema 不损失什么。
- */
-function proposeTool(commandNames: readonly string[]): Anthropic.Tool {
+function proposeTool(commandNames: readonly string[]): AnthropicTool {
   return {
     name: 'propose_command',
     description:
@@ -180,7 +184,7 @@ function proposeTool(commandNames: readonly string[]): Anthropic.Tool {
             '她不点开详情也能判断对不对。用她说话的语言。',
         },
       },
-    } as unknown as Anthropic.Tool.InputSchema,
+    },
   };
 }
 
@@ -205,24 +209,23 @@ function parseProposalInput(raw: unknown): Record<string, unknown> | null {
 }
 
 export async function askCopilot(opts: CopilotOptions): Promise<CopilotResult> {
-  const client = opts.client ?? new Anthropic({
-    apiKey: opts.apiKey,
-    timeout: opts.timeoutMs ?? 60_000,
-    maxRetries: 1,
-  });
+  const client = opts.client;
+  if (!client) {
+    throw new Error('Anthropic client is deprecated; use runCopilotOrchestration with LunaRuntime instead.');
+  }
 
   const commandNames = extractCommandNames(opts.commandCatalog);
-  const tools: Anthropic.Tool[] = [
+  const tools: AnthropicTool[] = [
     ...opts.tools.map((t) => ({
       name: t.name,
       description: t.description,
-      input_schema: t.inputSchema as unknown as Anthropic.Tool.InputSchema,
+      input_schema: t.inputSchema,
     })),
     ...(commandNames.length > 0 ? [proposeTool(commandNames)] : []),
   ];
   const toolConfig = tools.length > 0 ? { tools } : {};
 
-  const userContent: Anthropic.MessageParam['content'] = opts.image
+  const userContent: AnthropicMessageParam['content'] = opts.image
     ? [
         {
           type: 'image',
@@ -239,13 +242,13 @@ export async function askCopilot(opts: CopilotOptions): Promise<CopilotResult> {
       ]
     : copilotUserText(opts.snapshot, opts.question);
 
-  const messages: Anthropic.MessageParam[] = [
+  const messages: AnthropicMessageParam[] = [
     // 最近几轮对话。**只留文本**，不把上一轮的工具调用也带回来 ——
     // 那会让易变段迅速膨胀，而模型并不需要看到上次它怎么查的
     ...(opts.history ?? []).slice(-6).map((h) => ({
       role: h.role,
       content: h.text,
-    } as Anthropic.MessageParam)),
+    } as AnthropicMessageParam)),
     { role: 'user', content: userContent },
   ];
 
@@ -254,7 +257,7 @@ export async function askCopilot(opts: CopilotOptions): Promise<CopilotResult> {
   const byName = new Map(opts.tools.map((t) => [t.name, t]));
 
   for (let round = 1; round <= MAX_ROUNDS; round++) {
-    let message: Anthropic.Message;
+    let message: AnthropicMessage;
 
     if (typeof (client.messages as any).stream === 'function' && opts.callbacks?.onDelta) {
       const stream = (client.messages as any).stream({
@@ -310,13 +313,13 @@ export async function askCopilot(opts: CopilotOptions): Promise<CopilotResult> {
     }
 
     const text = message.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .filter((b): b is AnthropicTextBlock => b.type === 'text')
       .map((b) => b.text.trim())
       .filter(Boolean)
       .join('\n');
 
     const toolUses = message.content.filter(
-      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
+      (b): b is AnthropicToolUseBlock => b.type === 'tool_use');
 
     // ── 提案 ────────────────────────────────────────────────────────────
     const propose = toolUses.find((t) => t.name === 'propose_command');
@@ -348,7 +351,7 @@ export async function askCopilot(opts: CopilotOptions): Promise<CopilotResult> {
     if (toolUses.length > 0) {
       messages.push({ role: 'assistant', content: message.content });
 
-      const results = await Promise.all(toolUses.map(async (use, index): Promise<Anthropic.ToolResultBlockParam> => {
+      const results = await Promise.all(toolUses.map(async (use, index): Promise<AnthropicToolResultBlockParam> => {
         const tool = byName.get(use.name);
         toolsUsed.push(use.name);
         if (index >= MAX_TOOL_CALLS_PER_ROUND) {

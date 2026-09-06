@@ -28,6 +28,43 @@
  * 所以「快照长什么样」这件事可以被完整地测。
  */
 
+/**
+ * 服务端权威时间锚点 (29 §2, §5.3)
+ * 冻结当前提问时刻的时间基准，杜绝“明天下午2点”推算错乱
+ */
+export interface TimeAnchor {
+  /** 完整 UTC ISO 字符串，如 2026-09-06T19:30:00.000Z */
+  iso: string;
+  /** 门店本地公历日期 YYYY-MM-DD，如 2026-09-06 */
+  localDate: string;
+  /** 门店本地时间 HH:MM:SS 或 HH:MM，如 15:30:00 */
+  localTime: string;
+  /** 完整英文周几，如 Sunday */
+  weekday: string;
+  /** IANA 时区名称，如 America/New_York */
+  timezone: string;
+  /** UTC 偏移量，如 -04:00 */
+  utcOffset: string;
+  /** 门店当前所属营业日 YYYY-MM-DD (跨午夜在 cutoff 前算上一日) */
+  businessDate: string;
+  /** 营业日截点，如 04:00 */
+  cutoff: string;
+}
+
+export function formatTimeAnchor(anchor: TimeAnchor): string {
+  const offset = anchor.utcOffset.startsWith('-') || anchor.utcOffset.startsWith('+')
+    ? anchor.utcOffset
+    : `+${anchor.utcOffset}`;
+  return [
+    '<时间锚点>',
+    `权威本地日期: ${anchor.localDate} (${anchor.weekday})`,
+    `权威本地时间: ${anchor.localTime} (${anchor.timezone}, UTC${offset})`,
+    `当前营业日: ${anchor.businessDate} (营业截点: ${anchor.cutoff})`,
+    `基准时间戳: ${anchor.iso}`,
+    '</时间锚点>',
+  ].join('\n');
+}
+
 /** 门店此刻。分钟数是**门店墙上时间**，不是 UTC */
 export interface FloorHeader {
   /** 门店本地的 HH:MM */

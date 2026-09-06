@@ -38,6 +38,9 @@ export interface CopilotResponse {
   costCents: number;
   sessionId?: string | null;
   toolsUsed?: string[];
+  taskId?: string;
+  planRevision?: PreviewPayload | null;
+  revision?: number;
 }
 
 export interface CopilotImagePayload {
@@ -196,3 +199,133 @@ export function useAskCopilot() {
     },
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Luna 重构：Task 协议接口 (29 §9.1, §10.1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type {
+  CopilotTask,
+  CopilotPlanRevision,
+  CopilotTaskStep,
+  CopilotTaskEvent,
+  PreviewPayload,
+  StepPreviewItem,
+  CopilotTurnRequest,
+  CopilotReviseRequest,
+  CopilotExecuteRequest,
+} from '@gf/contracts';
+
+import type {
+  CopilotTask,
+  CopilotPlanRevision,
+  CopilotTaskStep,
+  PreviewPayload,
+  CopilotTurnRequest,
+  CopilotReviseRequest,
+  CopilotExecuteRequest,
+} from '@gf/contracts';
+
+export interface TaskDetailsResponse {
+  task: CopilotTask;
+  revision: CopilotPlanRevision;
+  preview: PreviewPayload;
+  steps: CopilotTaskStep[];
+}
+
+export async function getCopilotTask(
+  taskId: string,
+  membershipId?: string | null,
+): Promise<TaskDetailsResponse> {
+  return apiGet<TaskDetailsResponse>(
+    `/v1/ai/copilot/tasks/${encodeURIComponent(taskId)}`,
+    membershipId || undefined,
+  );
+}
+
+export interface ReviseTaskResponse {
+  ok: boolean;
+  taskId: string;
+  revision: number;
+  canonicalHash: string;
+  previewPayload: PreviewPayload;
+  overallReady: boolean;
+  hasConflicts: boolean;
+}
+
+export async function reviseCopilotTask(
+  taskId: string,
+  data: CopilotReviseRequest,
+  membershipId?: string | null,
+): Promise<ReviseTaskResponse> {
+  return apiPost<ReviseTaskResponse>(
+    `/v1/ai/copilot/tasks/${encodeURIComponent(taskId)}/revise`,
+    data,
+    { membershipId: membershipId || undefined },
+  );
+}
+
+export interface ExecuteTaskResponse {
+  ok: boolean;
+  execution: {
+    taskId: string;
+    revision: number;
+    status: 'completed' | 'partially_completed' | 'failed';
+    replayed?: boolean | undefined;
+    executedSteps: Array<{
+      stepIndex: number;
+      command: string;
+      status: 'succeeded' | 'failed' | 'skipped' | 'blocked';
+      result?: unknown;
+      error?: string | undefined;
+      undoToken?: string | undefined;
+    }>;
+  };
+}
+
+export async function executeCopilotTask(
+  taskId: string,
+  data: CopilotExecuteRequest,
+  membershipId?: string | null,
+): Promise<ExecuteTaskResponse> {
+  return apiPost<ExecuteTaskResponse>(
+    `/v1/ai/copilot/tasks/${encodeURIComponent(taskId)}/execute`,
+    data,
+    { membershipId: membershipId || undefined },
+  );
+}
+
+export async function cancelCopilotTask(
+  taskId: string,
+  membershipId?: string | null,
+): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>(
+    `/v1/ai/copilot/tasks/${encodeURIComponent(taskId)}/cancel`,
+    {},
+    { membershipId: membershipId || undefined },
+  );
+}
+
+export interface TurnResponse {
+  taskId: string;
+  sessionId: string;
+  answer: string;
+  planRevision: PreviewPayload | null;
+  canonicalHash: string | null;
+  revision: number | null;
+  clarification: { question: string; options?: string[] } | null;
+  costCents: number;
+  toolsUsed: string[];
+}
+
+export async function postCopilotTurn(
+  input: CopilotTurnRequest,
+  membershipId?: string | null,
+): Promise<TurnResponse> {
+  return apiPost<TurnResponse>(
+    '/v1/ai/copilot/turns',
+    input,
+    { membershipId: membershipId || undefined },
+  );
+}
+
