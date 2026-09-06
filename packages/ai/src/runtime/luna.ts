@@ -70,6 +70,7 @@ export interface LunaInvokeOptions {
   onDelta?: ((text: string) => void) | undefined;
   onReasoningDelta?: ((thought: string) => void) | undefined;
   onToolCallStart?: ((name: string, callId: string) => void) | undefined;
+  onToolCallProgress?: ((name: string, progressMessage: string) => void) | undefined;
 }
 
 export interface LunaResponse {
@@ -294,6 +295,7 @@ export class LunaRuntime {
 
       let fullText = '';
       const toolCallsMap = new Map<string, { name: string; argsText: string }>();
+      const toolCallStepCountMap = new Map<string, number>();
       let rawResponse: any = null;
 
       for await (const event of stream) {
@@ -310,6 +312,16 @@ export class LunaRuntime {
           }
           prev.argsText += event.delta ?? '';
           toolCallsMap.set(callId, prev);
+
+          if (prev.name === 'propose_task_plan' && opts.onToolCallProgress) {
+            const stepMatches = prev.argsText.match(/"command"\s*:\s*"[^"]+"/g);
+            const count = stepMatches ? stepMatches.length : 0;
+            const last = toolCallStepCountMap.get(callId) || 0;
+            if (count > last) {
+              toolCallStepCountMap.set(callId, count);
+              opts.onToolCallProgress(prev.name, `正在整理第 ${count} 项预约方案...`);
+            }
+          }
         } else if (event.type === 'response.output_item.added') {
           if (event.item?.type === 'function_call') {
             const callId = event.item.call_id || event.item.id;

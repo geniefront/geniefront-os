@@ -14,8 +14,8 @@ export const LUNA_EFFORT = {
 
 export type LunaEffort = typeof LUNA_EFFORT[keyof typeof LUNA_EFFORT];
 
-/** 默认场景使用 medium 深度 */
-export const LUNA_DEFAULT_EFFORT: LunaEffort = LUNA_EFFORT.MEDIUM;
+/** 默认场景使用 low 深度以保障前台低延迟秒级响应 (可节约 15~20s 内部思考等待) */
+export const LUNA_DEFAULT_EFFORT: LunaEffort = LUNA_EFFORT.LOW;
 
 /** 超时配置 (毫秒) */
 export const LUNA_TIMEOUTS = {

@@ -143,6 +143,9 @@ export async function runCopilotOrchestration(
       onToolCallStart: (name) => {
         args.callbacks?.onStep?.(`调用工具: ${name}`);
       },
+      onToolCallProgress: (_name, progress) => {
+        args.callbacks?.onStep?.(progress);
+      },
     });
 
     usages.push(response.usage);

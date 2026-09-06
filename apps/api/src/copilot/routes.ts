@@ -398,6 +398,14 @@ export function registerCopilotRoutes(
       }
     };
 
+    const keepaliveTimer = setInterval(() => {
+      try {
+        reply.raw.write(': ping\n\n');
+      } catch {
+        clearInterval(keepaliveTimer);
+      }
+    }, 10_000);
+
     sendEvent({ type: 'step', step: '正在连接智能引擎...' });
 
     try {
@@ -483,6 +491,7 @@ export function registerCopilotRoutes(
         error: err?.message || 'AI processing error',
       });
     } finally {
+      clearInterval(keepaliveTimer);
       try {
         reply.raw.end();
       } catch {
