@@ -340,10 +340,8 @@ export const ShareForm = defineCommand({
   }),
   permission: 'form.submit',
   ai: {
-    description: '生成一条给客人的填表链接（二维码或邮件）。不发短信。',
+    description: '为到店或预约客人生成健康免责表填写链接及二维码（支持 qr 扫码或 email 邮件发送）。',
     confirm: 'always',
-    // 副驾不替人往外发东西 —— 发到哪个邮箱这件事必须是人点的
-    exposed: false,
   },
   reversible: true,
   idempotency: 'optional',

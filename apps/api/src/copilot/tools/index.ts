@@ -16,6 +16,8 @@ import {
   getStoreInfo,
 } from './analytics.js';
 import { validateTaskDraft } from './validation.js';
+import { getQueueStatus } from './queue.js';
+import { getHealthFormStatus, getHealthFormLink } from './healthForm.js';
 
 export function createReadOnlyToolExecutors(
   ctx: CommandContext,
@@ -39,6 +41,13 @@ export function createReadOnlyToolExecutors(
   map.set('get_staff_directory', (input) => getStaffDirectory(ctx, input));
   map.set('list_staff_skills', (input) => getStaffDirectory(ctx, input)); // 兼容别名
   map.set('get_staff_schedules', (input) => getStaffSchedules(ctx, input));
+
+  // 候客队列
+  map.set('get_queue_status', (input) => getQueueStatus(ctx, input));
+
+  // 健康免责表
+  map.set('get_health_form_status', (input) => getHealthFormStatus(ctx, input));
+  map.set('get_health_form_link', (input) => getHealthFormLink(ctx, input));
 
   // 房态
   map.set('list_rooms', (input) => listRooms(ctx, input));

@@ -271,6 +271,156 @@ export const READ_ONLY_TOOL_DEFINITIONS: CopilotToolDef[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'get_customer_detail',
+    description:
+      '查询指定客户的详细档案、终身消费、到店总次数、爽约次数、最近工单、会员标签及过敏/喜好备注。',
+    strict: false,
+    requiredPermissions: ['customer.read'],
+    parameters: {
+      type: 'object',
+      properties: {
+        customerId: { type: 'string', description: '客户 UUID' },
+      },
+      required: ['customerId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'list_inactive_customers',
+    description:
+      '查询近 N 天内未到店的沉睡老客列表，返回客户姓名、电话后四位及上次到店日期。',
+    strict: false,
+    requiredPermissions: ['customer.read'],
+    parameters: {
+      type: 'object',
+      properties: {
+        days: { type: 'integer', description: '未到店天数阈值，如 60 或 90，默认 60' },
+        limit: { type: 'integer', description: '最多返回条数，默认 10' },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_staff_schedules',
+    description:
+      '查询全店技师的排班日历、请假状态与上下班时段，支持指定起始日期与跨度。',
+    strict: false,
+    requiredPermissions: ['schedule.read'],
+    parameters: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: '查询起始日期 YYYY-MM-DD，默认为今天' },
+        days: { type: 'integer', description: '查询天数跨度，默认 7 天' },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_queue_status',
+    description:
+      '查询当前走单候客队列状态（等待中、叫号中、已入座人数及明细、是否超出预期等待时间、健康表是否待签署）。',
+    strict: false,
+    requiredPermissions: ['appointment.read'],
+    parameters: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: '营业日 YYYY-MM-DD（可选，默认今日）' },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_health_form_status',
+    description:
+      '查询客户健康免责声明签署状态与既往病史/过敏禁忌项（已签署/待签署/是否过期/已发链接状态）。',
+    strict: false,
+    requiredPermissions: ['customer.read'],
+    parameters: {
+      type: 'object',
+      properties: {
+        customerId: { type: 'string', description: '客户 UUID（可选）' },
+        appointmentId: { type: 'string', description: '预约 UUID（可选）' },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_health_form_link',
+    description:
+      '直接生成免责声明填表链接与二维码信息，供前台当面出示或复制给顾客填写。',
+    strict: false,
+    requiredPermissions: ['form.submit'],
+    parameters: {
+      type: 'object',
+      properties: {
+        customerId: { type: 'string', description: '客户 UUID（可选）' },
+        appointmentId: { type: 'string', description: '预约 UUID（可选）' },
+        locale: { type: 'string', description: '表单语言（如 zh-Hans, en, ko, vi, es），默认 zh-Hans' },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'search_orders',
+    description:
+      '查询指定营业日的工单流水、收银小票明细、实付金额、小费与支付方式。',
+    strict: false,
+    requiredPermissions: ['ticket.read'],
+    parameters: {
+      type: 'object',
+      properties: {
+        businessDate: { type: 'string', description: '营业日 YYYY-MM-DD，默认为今天' },
+        limit: { type: 'integer', description: '最多返回条数，默认 20' },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_store_reviews',
+    description:
+      '查询门店综合评分、顾客好评点与最新评价反馈。',
+    strict: false,
+    requiredPermissions: ['appointment.read'],
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_promotions_and_cards',
+    description:
+      '查询门店当前上架的次卡套餐、活动折扣与礼品卡目录。',
+    strict: false,
+    requiredPermissions: ['appointment.read'],
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_store_info',
+    description:
+      '查询门店基础信息（名称、地址、电话、营业时间与时区设置）。',
+    strict: false,
+    requiredPermissions: ['appointment.read'],
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /**

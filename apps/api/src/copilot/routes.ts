@@ -138,6 +138,7 @@ export function registerCopilotRoutes(
     const result = await runCopilotOrchestration(ctx, {
       question,
       sessionId: turn.sessionId,
+      history: turn.history,
       taskId: req.body?.taskId,
       image: imageInput ? { base64: imageInput.base64, mediaType: imageInput.mediaType } : undefined,
       snapshot,
@@ -421,6 +422,7 @@ export function registerCopilotRoutes(
       const result = await runCopilotOrchestration(ctx, {
         question,
         sessionId: turn.sessionId,
+        history: turn.history,
         image: imageInput ? { base64: imageInput.base64, mediaType: imageInput.mediaType } : undefined,
         snapshot,
         timeAnchor,
@@ -513,6 +515,7 @@ export function registerCopilotRoutes(
     const result = await runCopilotOrchestration(ctx, {
       question,
       sessionId: turn.sessionId,
+      history: turn.history,
       image: imageInput ? { base64: imageInput.base64, mediaType: imageInput.mediaType } : undefined,
       snapshot,
       timeAnchor,

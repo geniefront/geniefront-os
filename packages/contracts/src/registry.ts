@@ -125,7 +125,7 @@ export function commandCatalogTextForPermissions(permissions: ReadonlySet<string
  * remain available in their dedicated audited screens but never enter this prompt.
  */
 const COPILOT_OPERATIONAL_PREFIXES = new Set([
-  'appointment', 'coupon', 'customer', 'dayclose', 'discount', 'giftcard',
+  'appointment', 'coupon', 'customer', 'dayclose', 'discount', 'form', 'giftcard',
   'marketing', 'notification', 'package', 'queue', 'resource', 'rotation',
   'shift', 'sms', 'ticket',
 ]);

@@ -39,6 +39,7 @@ import { compileTaskPlan } from './preflight.js';
 export interface CopilotOrchestratorArgs {
   question: string;
   sessionId: string;
+  history?: Array<{ role: 'user' | 'assistant'; text: string }> | undefined;
   taskId?: string | undefined;
   image?: { base64: string; mediaType?: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | undefined } | undefined;
   snapshot: FloorSnapshot;
@@ -94,6 +95,18 @@ export async function runCopilotOrchestration(
   const usages: NormalizedUsage[] = [];
 
   const messages: LunaMessage[] = [];
+  if (args.history && args.history.length > 0) {
+    for (const h of args.history) {
+      const text = h.text?.trim();
+      if (text) {
+        messages.push({
+          role: h.role,
+          content: text,
+        });
+      }
+    }
+  }
+
   if (args.image) {
     messages.push({
       role: 'user',
