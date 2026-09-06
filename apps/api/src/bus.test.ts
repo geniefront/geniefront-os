@@ -30,6 +30,7 @@ let linh: string;   // 纯技师，maxConcurrent=2
 let mia: string;    // 纯前台，is_bookable=false
 let kim: string;    // 足疗店技师 Yan，maxConcurrent=1
 let gelService: string;
+let gelRemoval: string;   // 15 分钟的加项，用来验加项计价
 let spaService: string;
 let spaRoom: string;
 let lisa: string;
@@ -92,6 +93,7 @@ beforeAll(async () => {
   const svcs = await withTenant({ orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null },
     (tx) => tx<{ id: string; n: string }[]>`select id, name->>'en' as n from services`);
   gelService = svcs.find((s) => s.n === 'Gel Manicure')!.id;
+  gelRemoval = svcs.find((s) => s.n === 'Gel Removal')!.id;
 
   const spaSvcs = await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null },
     (tx) => tx<{ id: string; n: string }[]>`select id, name->>'en' as n from services`);
@@ -335,5 +337,101 @@ describe('多店切换与租户隔离', () => {
       (tx) => tx<{ n: number }[]>`
         select count(*)::int as n from appointments where location_id = ${SPA_LOC}`);
     expect(seen[0]!.n).toBe(0);
+  });
+});
+
+describe('加项计价（addonIds）', () => {
+  /**
+   * ⭐ **加项是独立收费的服务，价格必须进 `price_cents_snapshot`。**
+   *
+   * 这条挡的是一个曾经真实存在、而且完全静默的漏收：`addonIds` 被原样存进
+   * `addon_ids` 就不管了，`ticket.ts` 开工单时直接取 `price_cents_snapshot`，
+   * 全链路没有任何一处回头读 `addon_ids` 补价 —— 于是「甲油胶 + 卸甲」这种单
+   * 的加项钱一分都收不到，而账面上看不出任何异常。
+   *
+   * 公开预约那条路（`public/routes.ts` 的 `priceAndDuration`）本来就是累加的，
+   * 所以三条建单路径的口径现在是一致的。
+   */
+  async function pricesOf(appointmentId: string) {
+    return withTenant({ orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null },
+      (tx) => tx<{ price_cents_snapshot: number; duration_min: number; addon_ids: string[] }[]>`
+        select price_cents_snapshot, duration_min, addon_ids
+        from appointment_items where appointment_id = ${appointmentId}`);
+  }
+
+  async function basePriceOf(serviceId: string) {
+    const [r] = await withTenant({ orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null },
+      (tx) => tx<{ p: number; d: number }[]>`
+        select base_price_cents as p, duration_min as d from services where id = ${serviceId}`);
+    return r!;
+  }
+
+  it('⭐ 加项的价格累加进快照，不再凭空消失', async () => {
+    const ctx = await ctxFor(mia);
+    const main = await basePriceOf(gelService);
+    const addon = await basePriceOf(gelRemoval);
+
+    const { result } = await create(ctx, {
+      customerId: lisa,
+      items: [{
+        serviceId: gelService, membershipId: linh,
+        startsAt: at(8), addonIds: [gelRemoval],
+      }],
+    });
+
+    const [item] = await pricesOf(result.appointmentId);
+    expect(item!.addon_ids).toContain(gelRemoval);
+    expect(item!.price_cents_snapshot).toBe(main.p + addon.p);
+  });
+
+  it('没给 durationMin 时，时长也累加加项', async () => {
+    const ctx = await ctxFor(mia);
+    const main = await basePriceOf(gelService);
+    const addon = await basePriceOf(gelRemoval);
+
+    const { result } = await create(ctx, {
+      customerId: lisa,
+      items: [{ serviceId: gelService, membershipId: linh, startsAt: at(22), addonIds: [gelRemoval] }],
+    });
+
+    const [item] = await pricesOf(result.appointmentId);
+    expect(item!.duration_min).toBe(main.d + addon.d);
+  });
+
+  it('⭐ 显式给了 durationMin 就以它为准 —— 截图导入常常已经写成了总时长', async () => {
+    const ctx = await ctxFor(mia);
+    const { result } = await create(ctx, {
+      customerId: lisa,
+      items: [{
+        serviceId: gelService, membershipId: linh,
+        startsAt: at(18), durationMin: 75, addonIds: [gelRemoval],
+      }],
+    });
+    const [item] = await pricesOf(result.appointmentId);
+    expect(item!.duration_min).toBe(75);
+  });
+
+  it('priceCentsOverride 仍然一票否决，加项不再另加', async () => {
+    const ctx = await ctxFor(mia);
+    const { result } = await create(ctx, {
+      customerId: lisa,
+      items: [{
+        serviceId: gelService, membershipId: linh,
+        startsAt: at(21), addonIds: [gelRemoval], priceCentsOverride: 3300,
+      }],
+    });
+    const [item] = await pricesOf(result.appointmentId);
+    expect(item!.price_cents_snapshot).toBe(3300);
+  });
+
+  it('⭐ 加项 id 查不到时直接拒，不静默存一个悬空引用', async () => {
+    const ctx = await ctxFor(mia);
+    await expect(create(ctx, {
+      customerId: lisa,
+      items: [{
+        serviceId: gelService, membershipId: linh,
+        startsAt: at(10), addonIds: [randomUUID()],
+      }],
+    })).rejects.toThrow(AppError);
   });
 });

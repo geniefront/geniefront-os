@@ -1,46 +1,44 @@
-import { useMutation } from '@tanstack/react-query';
 import { apiGet, apiPost, authHeaders, API_BASE } from '@/lib/api';
 import { useSession } from '@/lib/session';
 
-export interface CopilotProposal {
-  command: string;
-  input: Record<string, unknown>;
-  summary: string;
-  confirm?: 'always' | 'destructive' | 'never';
-  proposalId: string;
-  proposalToken: string;
-  expiresAt: string;
-}
-
-export async function executeCopilotProposal(
-  proposalToken: string,
+/**
+ * 撤销一次已执行的副驾动作。
+ *
+ * ⚠️ `/v1/ai/copilot/execute` 现在**只接受撤销令牌**。正向执行一律走
+ * `executeCopilotTask()`（task + revision，服务端有 CAS 抢锁和幂等重放）。
+ *
+ * 早先这条路两用：既跑撤销，也跑一枚随回答签发的 legacy 提案令牌。
+ * 后者只执行方案的第 0 步、且不回写任务状态，任务仍停在 ready，
+ * 前台再点一次卡片就整批重跑 —— 同一单被建两次。那条路已经删掉了。
+ */
+export async function undoCopilotAction(
+  undoToken: string,
   membershipId?: string | null,
-): Promise<{
-  result: unknown;
-  replayed: boolean;
-  undoToken?: string;
-  proposalId: string;
-  command: string;
-  undoProposalToken?: string;
-  undoExpiresAt?: string;
-}> {
+): Promise<{ result: unknown; replayed: boolean; command: string }> {
   return apiPost(
     '/v1/ai/copilot/execute',
-    { proposalToken },
+    { proposalToken: undoToken },
     { membershipId: membershipId || undefined },
   );
 }
 
+export interface CopilotClarification {
+  question: string;
+  missingFields?: string[];
+  candidateOptions?: Array<{ label: string; value: string; description?: string }>;
+}
+
 export interface CopilotResponse {
   answer: string;
-  proposal: CopilotProposal | null;
   source: 'local' | 'model';
   costCents: number;
   sessionId?: string | null;
   toolsUsed?: string[];
   taskId?: string;
   planRevision?: PreviewPayload | null;
+  canonicalHash?: string | null;
   revision?: number;
+  clarification?: CopilotClarification | null;
 }
 
 export interface CopilotImagePayload {
@@ -90,7 +88,6 @@ export interface AskCopilotInput {
 export interface StreamAskCopilotCallbacks {
   onStep?: (step: string) => void;
   onDelta?: (delta: string) => void;
-  onProposal?: (proposal: CopilotProposal) => void;
   onDone?: (res: CopilotResponse) => void;
   onError?: (err: Error) => void;
 }
@@ -138,8 +135,6 @@ export async function streamAskCopilot(
             callbacks.onStep?.(event['step']);
           } else if (event['type'] === 'delta' && typeof event['delta'] === 'string') {
             callbacks.onDelta?.(event['delta']);
-          } else if (event['type'] === 'proposal' && event['proposal']) {
-            callbacks.onProposal?.(event['proposal'] as CopilotProposal);
           } else if (event['type'] === 'done') {
             receivedDone = true;
             callbacks.onDone?.(event as unknown as CopilotResponse);
@@ -177,27 +172,11 @@ export async function streamAskCopilot(
         input,
         { membershipId: membershipId || undefined },
       );
-      if (res.proposal) {
-        callbacks.onProposal?.(res.proposal);
-      }
       callbacks.onDone?.(res);
     } catch (fallbackErr: any) {
       callbacks.onError?.(fallbackErr instanceof Error ? fallbackErr : new Error(String(fallbackErr?.message || fallbackErr)));
     }
   }
-}
-
-export function useAskCopilot() {
-  const { membershipId } = useSession();
-  return useMutation({
-    mutationFn: async ({ question, sessionId, image }: AskCopilotInput) => {
-      return apiPost<CopilotResponse>(
-        '/v1/ai/copilot',
-        { question, sessionId, image },
-        { headers: { 'X-Membership-Id': membershipId! } },
-      );
-    },
-  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -226,10 +205,21 @@ import type {
   CopilotExecuteRequest,
 } from '@gf/contracts';
 
+/**
+ * `GET /v1/ai/copilot/tasks/:id` 的返回。
+ *
+ * ⚠️ 字段名要和路由**逐字对齐**：路由返回的是 `previewPayload`，
+ * 这里以前写的是 `preview`，于是 `detail.preview` 永远是 undefined ——
+ * TypeScript 只检查这个 interface，不检查服务端真的返回了什么，
+ * 所以这个 bug 编译期一声不吭，运行时表现为「刷新后方案卡片消失」。
+ *
+ * 任务存在但还没有任何 revision 时（比如停在 needs_input），
+ * `revision` 与 `previewPayload` 都是 null，所以两个都可空。
+ */
 export interface TaskDetailsResponse {
   task: CopilotTask;
-  revision: CopilotPlanRevision;
-  preview: PreviewPayload;
+  revision: CopilotPlanRevision | null;
+  previewPayload: PreviewPayload | null;
   steps: CopilotTaskStep[];
 }
 
@@ -313,7 +303,7 @@ export interface TurnResponse {
   planRevision: PreviewPayload | null;
   canonicalHash: string | null;
   revision: number | null;
-  clarification: { question: string; options?: string[] } | null;
+  clarification: CopilotClarification | null;
   costCents: number;
   toolsUsed: string[];
 }

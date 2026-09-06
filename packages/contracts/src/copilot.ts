@@ -197,6 +197,13 @@ export interface CopilotReviseRequest {
   selectedStepIndices?: number[] | undefined;
   modifications?: Array<{
     stepIndex: number;
+    /**
+     * 要改的是这一步里的第几个服务项目。
+     *
+     * 缺省 = 改这一步的**全部**项目（「把这单整体挪到 18:00」）。
+     * 一单两项各改各的时，就发两条 modification 各带自己的 itemIndex。
+     */
+    itemIndex?: number | undefined;
     startsAt?: string | undefined;
     membershipId?: string | null | undefined;
     resourceId?: string | null | undefined;

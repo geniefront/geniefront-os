@@ -172,6 +172,15 @@ export async function savePlanRevision(
         execution_mode = excluded.execution_mode
       returning *`;
 
+    // 同一个 revision 被重写时（模型预检打回后重提），先清掉上一版留下的
+    // 尾部步骤行 —— upsert 只覆盖 step_index 相同的行，步骤数变少时多出来的
+    // 旧行会留在表里，执行引擎照样会把它们捞出来跑一遍。
+    await tx`
+      delete from copilot_task_steps
+      where task_id = ${args.taskId}
+        and revision = ${args.revision}
+        and step_index >= ${args.steps.length}`;
+
     for (const step of args.steps) {
       await tx`
         insert into copilot_task_steps

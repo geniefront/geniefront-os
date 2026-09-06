@@ -8,10 +8,22 @@
  * 4. POST /v1/ai/copilot/tasks/:id/revise —— 交互式微调接口 (0 Token 毫秒级重签 Revision)；
  * 5. POST /v1/ai/copilot/tasks/:id/execute —— 任务方案执行入口 (CAS 抢锁 + 幂等重放)；
  * 6. POST /v1/ai/copilot/tasks/:id/cancel —— 取消任务；
- * 7. 兼容存量单任务接口：/v1/ai/copilot 与 /v1/ai/copilot/execute。
+ * 7. 非流式入口 /v1/ai/copilot（SSE 不可用时的回退）；
+ * 8. /v1/ai/copilot/execute —— **只用于撤销令牌**，不再承担正向执行。
+ *
+ * ## 执行只有一条路：task + revision
+ *
+ * 早先这里在返回方案的同时，还会把 `planRevision.steps[0]` 单独签发成一个
+ * legacy `proposalToken` 发给前端，于是同一个方案有两条执行通道：
+ * 走 token 的那条只执行第 0 步、且完全不回写 `copilot_tasks` 状态，任务
+ * 仍停在 `ready`，前台再点一次卡片就会把整批**重跑一遍** —— 同一单建两次。
+ * 多步方案里第 1 步之后的步骤在 legacy 卡片上还会静默消失。
+ *
+ * 现在正向执行**只有** `POST /tasks/:id/execute` 一条路，它有 CAS 抢锁和
+ * 幂等重放。`proposalToken` 只留给执行完之后签发的撤销令牌。
  */
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import {
   AppError,
   ERROR_CODES,
@@ -24,11 +36,24 @@ import {
 } from '@gf/contracts';
 import { withTenant } from '@gf/db';
 import { businessDateOf } from '@gf/scheduling';
-import { costMillicentsNormalized, millicentsToCents, type TimeAnchor } from '@gf/ai';
+import {
+  costMillicentsNormalized,
+  billableTokensNormalized,
+  millicentsToCents,
+  LUNA_MODEL,
+  type NormalizedUsage,
+  formatStoreProfile,
+  formatBookingCalendar,
+  roughTokens,
+  CONTEXT_TOKEN_BUDGETS,
+  type TimeAnchor,
+} from '@gf/ai';
 import { dispatch } from '../bus.js';
 import { assertAiAdmission } from '../billing/aiAdmission.js';
 import { maybeAutoTopup } from '../billing/autoTopup.js';
 import { loadFloorSnapshot } from '../queries/floorSnapshot.js';
+import { loadStoreProfile } from '../queries/storeProfile.js';
+import { loadBookingCalendar } from '../queries/bookingCalendar.js';
 import { COPILOT_BODY_LIMIT, parseCopilotImage } from './image.js';
 import {
   beginCopilotTurn,
@@ -36,7 +61,7 @@ import {
   deleteCopilotSession,
   loadCopilotSessions,
 } from './sessionStore.js';
-import { issueCopilotProposal, verifyCopilotProposal } from './proposalToken.js';
+import { verifyCopilotProposal } from './proposalToken.js';
 import { flushEmails } from '../email/flush.js';
 import { flushSms } from '../sms/flush.js';
 import { runCopilotOrchestration } from './orchestrator.js';
@@ -54,6 +79,11 @@ import { createReadOnlyToolExecutors } from './tools/index.js';
 import type { CtxFromHeaders } from '../stripe/routes.js';
 
 const MAX_QUESTION_CHARS = 2000;
+
+/** 任务事件流的增量轮询间隔 */
+const TASK_EVENT_POLL_MS = 1_000;
+/** 任务事件流的最长挂起时间。超过就让客户端带 ?after= 重连 */
+const TASK_EVENT_STREAM_MAX_MS = 10 * 60_000;
 
 async function buildTimeAnchor(ctx: CommandContext): Promise<TimeAnchor> {
   const [loc] = await withTenant(ctx, (tx) => tx<{
@@ -87,6 +117,101 @@ async function buildTimeAnchor(ctx: CommandContext): Promise<TimeAnchor> {
     businessDate,
     cutoff,
   };
+}
+
+/**
+ * 一轮对话要用的全部上下文，一次查齐。
+ *
+ * `/turns`、`/stream`、`/v1/ai/copilot` 三条路共用这一个函数 —— 早先三处
+ * 各自抄了一遍取数逻辑，改一处漏两处，模型在不同入口看到的世界不一样。
+ */
+async function buildCopilotContext(ctx: CommandContext, log: FastifyBaseLogger): Promise<{
+  timeAnchor: TimeAnchor;
+  snapshot: Awaited<ReturnType<typeof loadFloorSnapshot>>;
+  storeProfileText: string;
+  calendarText: string;
+}> {
+  const timeAnchor = await buildTimeAnchor(ctx);
+
+  const { snapshot, profile, calendar } = await withTenant(ctx, async (tx) => ({
+    snapshot: await loadFloorSnapshot(tx, ctx),
+    profile: await loadStoreProfile(tx, ctx),
+    calendar: await loadBookingCalendar(tx, ctx, timeAnchor.businessDate, timeAnchor.timezone),
+  }));
+
+  const storeProfileText = formatStoreProfile(profile);
+  const calendarText = formatBookingCalendar(calendar);
+
+  // 预算告警。这几个数字不是省钱阈值（实测 input 极便宜），而是异常探针：
+  // 某一段突然翻十倍，通常意味着一条 SQL 漏了 location 过滤。
+  const sizes = {
+    storeProfile: roughTokens(storeProfileText),
+    calendar: roughTokens(calendarText),
+    services: profile.services.length,
+    staff: profile.staff.length,
+    rooms: profile.rooms.length,
+    appointments: calendar.days.reduce((n, d) => n + d.items.length, 0),
+  };
+  log.debug(sizes, 'copilot context assembled');
+  if (sizes.storeProfile > CONTEXT_TOKEN_BUDGETS.STORE_PROFILE) {
+    log.warn({ ...sizes, budget: CONTEXT_TOKEN_BUDGETS.STORE_PROFILE }, 'copilot store profile over budget');
+  }
+  if (sizes.calendar > CONTEXT_TOKEN_BUDGETS.BOOKING_CALENDAR) {
+    log.warn({ ...sizes, budget: CONTEXT_TOKEN_BUDGETS.BOOKING_CALENDAR }, 'copilot booking calendar over budget');
+  }
+
+  return { timeAnchor, snapshot, storeProfileText, calendarText };
+}
+
+/**
+ * 副驾一轮对话的用量落库与扣费。
+ *
+ * ⚠️ **这段在 Luna 重构（cbf4487）里被整个漏掉了。**
+ *
+ * 重构前的副驾路由会 `dispatch('ai.recordAssist', …)`，由 `handlers/ai.ts`
+ * 在同一个事务里往 `usage_events` 记一条、从 `credit_ledger` 扣一笔积分。
+ * 重构后的三条入口都只算了个 `costCents` 交给前端显示，**记账那一步没了** ——
+ * 于是自那以后每一次副驾提问：
+ *   - `usage_events` 里没有 ai_assist 行（成本报表看不到副驾）；
+ *   - `credit_ledger` 不扣积分（门店在免费用）；
+ *   - `assertAiAdmission` 的「额度耗尽就拒」因此永远不会触发，
+ *     成本敞口没有上界 —— 而那个闸门存在的全部意义就是给它一个上界。
+ *
+ * ⚠️ 记账失败**不能**让这一轮失败：模型已经调完、钱已经花出去了，
+ * 这时候抛错只会让前台看到「AI 出错」而账本依旧对不上。记 warn 让运维捞。
+ */
+async function recordCopilotUsage(
+  ctx: CommandContext,
+  result: { usage: NormalizedUsage; rounds: number; planRevision: unknown },
+  log: FastifyBaseLogger,
+): Promise<number> {
+  const costMillicents = costMillicentsNormalized(result.usage);
+  const costCents = millicentsToCents(costMillicents);
+
+  try {
+    await dispatch('ai.recordAssist', {
+      feature: 'desk_copilot',
+      model: LUNA_MODEL,
+      tokens: billableTokensNormalized(result.usage),
+      costMillicents,
+      // rounds 的契约上限是 10，编排器的上限是 6；夹一下以防日后有人调高了
+      // COPILOT_MAX_ROUNDS 却忘了这里 —— 那会让记账整条失败。
+      rounds: Math.max(1, Math.min(10, result.rounds)),
+      hadProposal: result.planRevision !== null,
+    }, ctx, { systemOrigin: 'anthropic_usage' });
+  } catch (err) {
+    log.warn({ err, costMillicents }, 'copilot usage recording failed');
+  }
+
+  if (costCents > 0) {
+    try {
+      await maybeAutoTopup(ctx, 'credit', log);
+    } catch (err) {
+      log.warn({ err }, 'maybeAutoTopup failed after copilot turn');
+    }
+  }
+
+  return costCents;
 }
 
 export function registerCopilotRoutes(
@@ -127,9 +252,8 @@ export function registerCopilotRoutes(
     }
     const imageInput = parseCopilotImage(req.body?.image);
 
-    const timeAnchor = await buildTimeAnchor(ctx);
     const turn = await beginCopilotTurn(ctx, req.body?.sessionId, question, Boolean(imageInput));
-    const snapshot = await withTenant(ctx, (tx) => loadFloorSnapshot(tx, ctx));
+    const context = await buildCopilotContext(ctx, req.log);
 
     const readOnlyExecutors = createReadOnlyToolExecutors(ctx);
 
@@ -141,29 +265,16 @@ export function registerCopilotRoutes(
       history: turn.history,
       taskId: req.body?.taskId,
       image: imageInput ? { base64: imageInput.base64, mediaType: imageInput.mediaType } : undefined,
-      snapshot,
-      timeAnchor,
+      ...context,
       readOnlyExecutors,
     });
 
-    const costCents = millicentsToCents(costMillicentsNormalized(result.usage));
-    if (costCents > 0) {
-      try {
-        await maybeAutoTopup(ctx, 'credit', req.log);
-      } catch (err) {
-        req.log.warn({ err }, 'maybeAutoTopup failed in copilot turn');
-      }
-    }
+    const costCents = await recordCopilotUsage(ctx, result, req.log);
 
     await completeCopilotTurn(ctx, turn, {
       answer: result.answer,
       source: 'model',
-      proposal: result.planRevision?.steps[0]
-        ? {
-            command: result.planRevision.steps[0].command,
-            summary: result.planRevision.steps[0].summary,
-          }
-        : null,
+      proposal: summariseRevisionForHistory(result.planRevision),
       toolsUsed: result.toolsUsed,
     });
 
@@ -229,15 +340,53 @@ export function registerCopilotRoutes(
       });
       reply.raw.flushHeaders();
 
-      const afterSeq = Number(req.query.after ?? 0);
-      const pastEvents = await getTaskEventsAfter(ctx, req.params.id, afterSeq);
+      // ⚠️ 这里以前回放完历史事件就直接 `reply.raw.end()` —— 名义上是 SSE，
+      // 实际上是一个一次性的 GET。执行过程中产生的 STEP_STARTED /
+      // STEP_SUCCEEDED 事件前端一个也收不到，任务进度只能靠 execute 那一发
+      // 同步 POST 的返回值一次性看到。
+      //
+      // 现在保持连接：先补齐 ?after= 之后的历史，然后按 1 秒轮询增量推送，
+      // 任务进入终态就正常收尾。事件表本身就是有序 seq 的追加日志，轮询它
+      // 比引入进程内 pub/sub 简单得多，而且多实例部署下天然正确。
+      let lastSeq = Number(req.query.after ?? 0);
+      if (!Number.isFinite(lastSeq) || lastSeq < 0) lastSeq = 0;
 
-      for (const ev of pastEvents) {
-        reply.raw.write(`id: ${ev.seq}\nevent: ${ev.eventType}\ndata: ${JSON.stringify(ev.payload)}\n\n`);
+      let closed = false;
+      const keepalive = setInterval(() => {
+        if (closed) { clearInterval(keepalive); return; }
+        try { reply.raw.write(': ping\n\n'); } catch { closed = true; }
+      }, 15_000);
+      const finish = () => {
+        clearInterval(keepalive);
+        if (closed) return;
+        closed = true;
+        try { reply.raw.end(); } catch { /* 客户端已断开 */ }
+      };
+      reply.raw.on('close', () => { closed = true; clearInterval(keepalive); });
+
+      const TERMINAL = new Set(['completed', 'partially_completed', 'failed', 'cancelled']);
+      const deadline = Date.now() + TASK_EVENT_STREAM_MAX_MS;
+
+      try {
+        while (!closed && Date.now() < deadline) {
+          const events = await getTaskEventsAfter(ctx, req.params.id, lastSeq);
+          for (const ev of events) {
+            lastSeq = Math.max(lastSeq, ev.seq);
+            reply.raw.write(
+              `id: ${ev.seq}\nevent: ${ev.eventType}\ndata: ${JSON.stringify(ev.payload)}\n\n`,
+            );
+          }
+
+          const current = await getTask(ctx, req.params.id);
+          if (!current || TERMINAL.has(current.status)) break;
+
+          await new Promise((resolve) => setTimeout(resolve, TASK_EVENT_POLL_MS));
+        }
+      } catch (err) {
+        req.log.warn({ err, taskId: req.params.id }, 'copilot task event stream aborted');
+      } finally {
+        finish();
       }
-
-      reply.raw.write(`event: ping\ndata: {}\n\n`);
-      reply.raw.end();
     },
   );
 
@@ -263,19 +412,39 @@ export function registerCopilotRoutes(
       const timeAnchor = await buildTimeAnchor(ctx);
       const newRevisionNumber = task.currentRevision + 1;
 
-      // 提取原计划入参并合并修改
-      const modifiedSteps = currentRevData.steps.map((st) => {
-        const mod = req.body.modifications?.find((m) => m.stepIndex === st.stepIndex);
-        const resolvedInput = JSON.parse(JSON.stringify(st.resolvedInput));
+      // 提取原计划入参并合并修改。
+      //
+      // ⚠️ 同一个 stepIndex 可能收到多条修改（一单里的两个项目各改各的时间），
+      // 所以按 stepIndex 收集成数组，不能用 find 只取第一条。
+      const modsByStep = new Map<number, NonNullable<CopilotReviseRequest['modifications']>>();
+      for (const mod of req.body.modifications ?? []) {
+        const list = modsByStep.get(mod.stepIndex) ?? [];
+        list.push(mod);
+        modsByStep.set(mod.stepIndex, list);
+      }
 
-        if (mod) {
-          if (mod.startsAt && Array.isArray(resolvedInput['items']) && resolvedInput['items'][0]) {
-            resolvedInput['items'][0].startsAt = mod.startsAt;
+      const modifiedSteps = currentRevData.steps.map((st) => {
+        const resolvedInput = JSON.parse(JSON.stringify(st.resolvedInput));
+        const items: Array<Record<string, unknown>> = Array.isArray(resolvedInput['items'])
+          ? resolvedInput['items']
+          : [];
+
+        for (const mod of modsByStep.get(st.stepIndex) ?? []) {
+          // itemIndex 缺省时改整步的所有项目 —— 「把这单整体挪到 18:00」是
+          // 前台最常见的说法；旧实现写死 items[0]，多项目的单只挪得动头一项，
+          // 剩下的还留在原时间，结果是一单被拆成两个时段。
+          const targets = mod.itemIndex === undefined
+            ? items
+            : (items[mod.itemIndex] ? [items[mod.itemIndex]!] : []);
+
+          for (const item of targets) {
+            if (mod.startsAt) item['startsAt'] = mod.startsAt;
+            if (mod.membershipId !== undefined) item['membershipId'] = mod.membershipId;
+            if (mod.resourceId !== undefined) item['resourceId'] = mod.resourceId;
           }
-          if (mod.membershipId !== undefined && Array.isArray(resolvedInput['items']) && resolvedInput['items'][0]) {
-            resolvedInput['items'][0].membershipId = mod.membershipId;
-          }
-          if (mod.resourceId !== undefined) {
+
+          // resource.setStatus 这类命令的 resourceId 在顶层，不在 items 里
+          if (mod.resourceId !== undefined && items.length === 0) {
             resolvedInput['resourceId'] = mod.resourceId;
           }
           if (mod.notes !== undefined) {
@@ -419,9 +588,8 @@ export function registerCopilotRoutes(
       const question = (req.body?.question ?? '').trim();
       const imageInput = parseCopilotImage(req.body?.image);
 
-      const timeAnchor = await buildTimeAnchor(ctx);
       const turn = await beginCopilotTurn(ctx, req.body?.sessionId, question, Boolean(imageInput));
-      const snapshot = await withTenant(ctx, (tx) => loadFloorSnapshot(tx, ctx));
+      const context = await buildCopilotContext(ctx, req.log);
 
       const readOnlyExecutors = createReadOnlyToolExecutors(ctx);
 
@@ -432,8 +600,7 @@ export function registerCopilotRoutes(
         sessionId: turn.sessionId,
         history: turn.history,
         image: imageInput ? { base64: imageInput.base64, mediaType: imageInput.mediaType } : undefined,
-        snapshot,
-        timeAnchor,
+        ...context,
         readOnlyExecutors,
         callbacks: {
           onStep: (step) => sendEvent({ type: 'step', step }),
@@ -441,48 +608,27 @@ export function registerCopilotRoutes(
         },
       });
 
-      const costCents = millicentsToCents(costMillicentsNormalized(result.usage));
-      if (costCents > 0) {
-        try {
-          await maybeAutoTopup(ctx, 'credit', req.log);
-        } catch (err) {
-          req.log.warn({ err }, 'maybeAutoTopup failed in copilot stream route');
-        }
-      }
-
-      let legacyProposal: any = null;
-      if (result.planRevision && result.planRevision.steps.length > 0) {
-        const firstStep = result.planRevision.steps[0]!;
-        legacyProposal = finalizeCopilotProposal(
-          {
-            command: firstStep.command,
-            input: firstStep.resolvedInput,
-            summary: firstStep.summary,
-          },
-          ctx,
-          req.log,
-        );
-        sendEvent({ type: 'proposal', proposal: legacyProposal });
-      }
+      const costCents = await recordCopilotUsage(ctx, result, req.log);
 
       await completeCopilotTurn(ctx, turn, {
         answer: result.answer,
         source: 'model',
-        proposal: legacyProposal ? { command: legacyProposal.command, summary: legacyProposal.summary } : null,
+        proposal: summariseRevisionForHistory(result.planRevision),
         toolsUsed: result.toolsUsed,
       });
 
       sendEvent({
         type: 'done',
         answer: result.answer,
-        proposal: legacyProposal,
         source: 'model',
         costCents,
         sessionId: turn.sessionId,
         toolsUsed: result.toolsUsed,
         taskId: result.task.id,
         planRevision: result.planRevision,
+        canonicalHash: result.canonicalHash,
         revision: result.revision,
+        clarification: result.clarification,
       });
     } catch (err: any) {
       req.log.error({ err }, 'copilot stream error');
@@ -513,9 +659,8 @@ export function registerCopilotRoutes(
     const question = (req.body?.question ?? '').trim();
     const imageInput = parseCopilotImage(req.body?.image);
 
-    const timeAnchor = await buildTimeAnchor(ctx);
     const turn = await beginCopilotTurn(ctx, req.body?.sessionId, question, Boolean(imageInput));
-    const snapshot = await withTenant(ctx, (tx) => loadFloorSnapshot(tx, ctx));
+    const context = await buildCopilotContext(ctx, req.log);
 
     const readOnlyExecutors = createReadOnlyToolExecutors(ctx);
 
@@ -526,56 +671,41 @@ export function registerCopilotRoutes(
       sessionId: turn.sessionId,
       history: turn.history,
       image: imageInput ? { base64: imageInput.base64, mediaType: imageInput.mediaType } : undefined,
-      snapshot,
-      timeAnchor,
+      ...context,
       readOnlyExecutors,
     });
 
-    const costCents = millicentsToCents(costMillicentsNormalized(result.usage));
-    if (costCents > 0) {
-      try {
-        await maybeAutoTopup(ctx, 'credit', req.log);
-      } catch (err) {
-        req.log.warn({ err }, 'maybeAutoTopup failed in legacy copilot route');
-      }
-    }
-
-    let legacyProposal: any = null;
-    if (result.planRevision && result.planRevision.steps.length > 0) {
-      const firstStep = result.planRevision.steps[0]!;
-      legacyProposal = finalizeCopilotProposal(
-        {
-          command: firstStep.command,
-          input: firstStep.resolvedInput,
-          summary: firstStep.summary,
-        },
-        ctx,
-        req.log,
-      );
-    }
+    const costCents = await recordCopilotUsage(ctx, result, req.log);
 
     await completeCopilotTurn(ctx, turn, {
       answer: result.answer,
       source: 'model',
-      proposal: legacyProposal ? { command: legacyProposal.command, summary: legacyProposal.summary } : null,
+      proposal: summariseRevisionForHistory(result.planRevision),
       toolsUsed: result.toolsUsed,
     });
 
     return {
       answer: result.answer,
-      proposal: legacyProposal,
       source: 'model' as const,
       costCents,
       sessionId: turn.sessionId,
       toolsUsed: result.toolsUsed,
       taskId: result.task.id,
       planRevision: result.planRevision,
+      canonicalHash: result.canonicalHash,
       revision: result.revision,
+      clarification: result.clarification,
     };
   });
 
-  // ── 9. 存量兼容：POST /v1/ai/copilot/execute ──────────────────────────────
-  app.post<{ Body: { proposalToken?: string; taskId?: string; revision?: number } }>(
+  // ── 9. POST /v1/ai/copilot/execute —— 只用于撤销令牌 ──────────────────────
+  //
+  // ⚠️ 这条路**不再接受正向执行**。
+  //
+  // 它以前既能跑撤销令牌，也能跑正向的方案令牌，还能用 taskId+revision 走
+  // 一遍不加锁的执行 —— 三条入口共存的结果就是同一个方案被执行两次。
+  // 正向执行现在只走 `POST /tasks/:id/execute`（有 CAS 抢锁与幂等重放）。
+  app.post<{ Body: { proposalToken?: string } }>(
     '/v1/ai/copilot/execute',
     async (req) => {
       const ctx = await ctxFromHeaders(req);
@@ -583,19 +713,27 @@ export function registerCopilotRoutes(
         throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
       }
 
-      if (req.body?.taskId && req.body?.revision) {
-        return executeTaskPlan(ctx, {
-          taskId: req.body.taskId,
-          revision: req.body.revision,
+      const token = String(req.body?.proposalToken ?? '');
+      const proposal = verifyCopilotProposal(token, ctx);
+
+      if (!UNDO_COMMANDS.has(proposal.command)) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+          details: {
+            command: proposal.command,
+            reason: 'copilot_forward_execution_must_use_task_endpoint',
+          },
         });
       }
 
-      const token = String(req.body?.proposalToken ?? '');
-      const proposal = verifyCopilotProposal(token, ctx);
       const def = getCommand(proposal.command);
       if (!def || def.ai.exposed === false || def.system === true) {
         throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
           details: { command: proposal.command, reason: 'copilot_command_not_exposed' },
+        });
+      }
+      if (def.permission && !ctx.permissions.has(def.permission as Permission)) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+          details: { command: proposal.command, need: def.permission },
         });
       }
       const parsed = def.input.safeParse(proposal.input);
@@ -608,80 +746,39 @@ export function registerCopilotRoutes(
       const out = await dispatch(proposal.command, parsed.data, { ...ctx, actorKind: 'ai' }, {
         idempotencyKey: `copilot:${proposal.proposalId}`,
       });
-      const undo = reversibleCopilotProposal(ctx, proposal, out.result);
-      if (['appointment.create', 'appointment.reschedule', 'appointment.cancel', 'form.share'].includes(proposal.command)) {
-        const tenant = { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId };
-        void flushEmails(tenant, req.log);
-        void flushSms(tenant, req.log);
-      }
-      return {
-        ...out,
-        proposalId: proposal.proposalId,
-        command: proposal.command,
-        ...(undo ? {
-          undoProposalToken: undo.token,
-          undoExpiresAt: undo.payload.expiresAt,
-        } : {}),
-      };
+      const tenant = { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId };
+      void flushEmails(tenant, req.log);
+      void flushSms(tenant, req.log);
+
+      return { ...out, proposalId: proposal.proposalId, command: proposal.command };
     },
   );
 }
 
-export function finalizeCopilotProposal(
-  proposal: { command: string; input: Record<string, unknown>; summary: string } | null,
-  ctx: CommandContext,
-  log: { warn: (o: unknown, m: string) => void },
-) {
-  if (!proposal) return null;
-  const def = getCommand(proposal.command);
-  if (!def || def.ai.exposed === false || def.system === true) {
-    log.warn({ command: proposal.command }, 'copilot proposed unknown or hidden command');
-    return null;
-  }
-  if (def.permission && !ctx.permissions.has(def.permission as Permission)) {
-    log.warn({ command: proposal.command, need: def.permission }, 'copilot proposed forbidden command');
-    return null;
-  }
-  const parsed = def.input.safeParse(proposal.input);
-  if (!parsed.success) {
-    log.warn({ command: proposal.command, issues: parsed.error.issues }, 'copilot proposed invalid command input');
-    return null;
-  }
-  const canonicalInput = parsed.data as Record<string, unknown>;
-  if (proposal.command === 'appointment.create') canonicalInput['source'] = 'ai_copilot';
-  const issued = issueCopilotProposal(
-    ctx,
-    proposal.command,
-    canonicalInput,
-    proposal.summary,
-  );
-  return {
-    command: proposal.command,
-    input: canonicalInput,
-    summary: proposal.summary,
-    confirm: def.ai.confirm,
-    proposalId: issued.payload.proposalId,
-    proposalToken: issued.token,
-    expiresAt: issued.payload.expiresAt,
-  };
-}
+/**
+ * 允许经 `proposalToken` 执行的命令白名单。
+ *
+ * 只有执行成功之后由 `executor.ts` 反签发的撤销动作在列。任何正向写入
+ * （建单、改期、发短信…）都必须走 task + revision 那条有锁的路。
+ */
+export const UNDO_COMMANDS = new Set(['appointment.cancel']);
 
-function reversibleCopilotProposal(
-  ctx: CommandContext,
-  proposal: { command: string; input: Record<string, unknown> },
-  result: unknown,
-) {
-  if (proposal.command === 'appointment.create') {
-    const appt = result as { appointmentId?: string };
-    if (!appt?.appointmentId) return null;
-    return issueCopilotProposal(
-      ctx,
-      'appointment.cancel',
-      { appointmentId: appt.appointmentId, reason: 'input_error', notifyCustomer: false },
-      '撤销刚才创建的预约',
-      new Date(),
-      60_000,
-    );
+/**
+ * 会话历史里给方案留的一行摘要。
+ *
+ * 只用于「上一轮我提了什么」的对话记忆，**不含任何可执行令牌** ——
+ * 历史里放令牌正是当初重复建单的来源。
+ */
+export function summariseRevisionForHistory(
+  planRevision: { title: string; steps: Array<{ command: string; summary: string }> } | null,
+): { command: string; summary: string } | null {
+  if (!planRevision || planRevision.steps.length === 0) return null;
+  const first = planRevision.steps[0]!;
+  if (planRevision.steps.length === 1) {
+    return { command: first.command, summary: first.summary };
   }
-  return null;
+  return {
+    command: `${first.command} 等 ${planRevision.steps.length} 项`,
+    summary: planRevision.title,
+  };
 }

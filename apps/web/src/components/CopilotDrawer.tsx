@@ -1,38 +1,37 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useLanguage } from '@/LanguageContext';
-import type { TranslationKey } from '@/i18n';
 import {
   X,
   Sparkles,
   Send,
   User,
-  CheckCircle2,
-  Play,
   Image as ImageIcon,
   Trash2,
-  Calendar,
-  Clock,
-  BedDouble,
-  ShieldAlert,
-  ArrowRight,
-  Check,
   Plus,
   History,
   MessageSquare,
-  ChevronRight,
   RotateCcw,
 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { Spinner, toast } from '@heroui/react';
 import {
   streamAskCopilot,
-  executeCopilotProposal,
+  undoCopilotAction,
   getCopilotSessions,
   removeCopilotSession,
-  type CopilotProposal,
+  createInitialSession,
+  loadStoredSessions,
+  sessionsForStorage,
+  useRehydrateTasks,
+  MAX_SESSION_TURNS,
+  BeautifiedMessageContent,
+  ThinkingAccordion,
+  ClarificationCard,
   TaskPlanCard,
+  type CopilotSession,
+  type MessageItem,
+  type SelectedImageState,
 } from '@/features/copilot';
-import type { PreviewPayload } from '@gf/contracts';
 import { useStoreTime } from '@/lib/time';
 import { useSession } from '@/lib/session';
 import { useQueryClient } from '@tanstack/react-query';
@@ -41,365 +40,6 @@ import { copilotQueryCountAfterFailure } from '@/lib/deskCopy';
 
 interface CopilotDrawerProps {
   onClose: () => void;
-}
-
-export interface MessageItem {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: number;
-  imagePreview?: string;
-  proposal?: CopilotProposal | null;
-  taskId?: string;
-  planRevision?: PreviewPayload | null;
-  revision?: number;
-  executed?: boolean;
-  undoProposalToken?: string;
-  undoExpiresAt?: string;
-  undone?: boolean;
-  steps?: string[];
-  isStreaming?: boolean;
-}
-
-function ThinkingAccordion({ steps, isStreaming }: { steps?: string[]; isStreaming?: boolean }) {
-  const { t } = useLanguage();
-  const [isOpen, setIsOpen] = useState(isStreaming ?? false);
-
-  useEffect(() => {
-    if (isStreaming) {
-      setIsOpen(true);
-    }
-  }, [isStreaming]);
-
-  if (!steps || steps.length === 0) {
-    if (!isStreaming) return null;
-  }
-
-  const cleanStep = (s: string) => s.replace(/\s*\(第\s*\d+(\/\d+)?\s*轮\)/g, '').trim();
-  const latestStep = steps && steps.length > 0 ? cleanStep(steps[steps.length - 1]) : t('schedule.copilotThinking');
-
-  return (
-    <div className="mb-2.5 overflow-hidden rounded-xl border border-teal-500/30 bg-gradient-to-r from-teal-500/10 via-emerald-500/5 to-transparent text-xs transition-all shadow-2xs">
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center justify-between px-3 py-2 text-left font-medium text-teal-800 hover:bg-teal-500/10 transition-colors cursor-pointer"
-      >
-        <div className="flex items-center gap-2 overflow-hidden">
-          {isStreaming ? (
-            <span className="relative flex h-2 w-2 shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-teal-600"></span>
-            </span>
-          ) : (
-            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-teal-600 text-[10px] text-white font-bold">
-              ✓
-            </span>
-          )}
-          <span className="truncate text-[11px] font-semibold text-slate-700">
-            {isStreaming ? (
-              <span className="text-teal-700 font-bold">{latestStep}</span>
-            ) : (
-              <span>{t('schedule.copilotThinkingPrefix')}{steps?.length || 0}  {t('schedule.copilotThinkingSuffix')}</span>
-            )}
-          </span>
-        </div>
-        <ChevronRight
-          className={`h-3.5 w-3.5 text-teal-600 shrink-0 transition-transform duration-200 ${
-            isOpen ? 'rotate-90' : ''
-          }`}
-        />
-      </button>
-
-      {isOpen && steps && steps.length > 0 && (
-        <div className="border-t border-teal-500/20 px-3 py-2 space-y-1.5 bg-white/60">
-          {steps.map((st, idx) => (
-            <div key={idx} className="flex items-center gap-2 text-[11px] text-slate-600 font-medium">
-              <span className="h-1.5 w-1.5 rounded-full bg-teal-500 shrink-0" />
-              <span className="truncate">{cleanStep(st)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FormattedInlineText({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*|\[[^\]]+\])/g);
-  return (
-    <>
-      {parts.map((part, i) => {
-        if (part.startsWith('**') && part.endsWith('**')) {
-          return (
-            <strong key={i} className="font-bold text-slate-950 bg-teal-50/80 text-teal-950 px-1 py-0.5 rounded">
-              {part.slice(2, -2)}
-            </strong>
-          );
-        }
-        if (part.startsWith('[') && part.endsWith(']')) {
-          return (
-            <span
-              key={i}
-              className="inline-flex items-center px-1.5 py-0.5 mx-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200"
-            >
-              {part.slice(1, -1)}
-            </span>
-          );
-        }
-        return <span key={i}>{part}</span>;
-      })}
-    </>
-  );
-}
-
-function TableBlock({ rows }: { rows: string[] }) {
-  if (rows.length < 2) return null;
-  const headerCols = rows[0]
-    .split('|')
-    .slice(1, -1)
-    .map((c) => c.trim());
-  const bodyRows = rows
-    .slice(1)
-    .filter((r) => !r.includes('---'))
-    .map((r) =>
-      r
-        .split('|')
-        .slice(1, -1)
-        .map((c) => c.trim()),
-    );
-
-  return (
-    <div className="my-2.5 overflow-x-auto rounded-xl border border-slate-200 shadow-2xs">
-      <table className="w-full text-left text-[11px] border-collapse bg-white">
-        <thead>
-          <tr className="bg-slate-50 border-b border-slate-200">
-            {headerCols.map((col, i) => (
-              <th key={i} className="px-2.5 py-1.5 font-bold text-slate-700 whitespace-nowrap">
-                <FormattedInlineText text={col} />
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {bodyRows.map((row, rIdx) => (
-            <tr key={rIdx} className={rIdx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white'}>
-              {row.map((cell, cIdx) => (
-                <td key={cIdx} className="px-2.5 py-1.5 text-slate-700 whitespace-nowrap">
-                  <FormattedInlineText text={cell} />
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function BeautifiedMessageContent({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
-  const { t } = useLanguage();
-  if (!content) {
-    if (isStreaming) {
-      return (
-        <div className="flex items-center gap-2 text-slate-400 text-xs italic py-1">
-          <span className="animate-pulse">{t('schedule.copilotGenerating')}</span>
-        </div>
-      );
-    }
-    return null;
-  }
-
-  const lines = content.split('\n');
-  const blocks: Array<{ type: 'heading' | 'bullet' | 'callout' | 'table' | 'text'; content: string | string[] }> = [];
-
-  let tableBuffer: string[] = [];
-
-  const flushTable = () => {
-    if (tableBuffer.length > 0) {
-      blocks.push({ type: 'table', content: [...tableBuffer] });
-      tableBuffer = [];
-    }
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
-      tableBuffer.push(trimmed);
-      continue;
-    } else {
-      flushTable();
-    }
-
-    if (!trimmed) {
-      blocks.push({ type: 'text', content: '' });
-      continue;
-    }
-
-    if (trimmed.startsWith('### ') || trimmed.startsWith('## ') || trimmed.startsWith('# ')) {
-      blocks.push({ type: 'heading', content: trimmed.replace(/^#+\s*/, '') });
-    } else if (trimmed.startsWith('• ') || trimmed.startsWith('- ') || /^\d+\.\s/.test(trimmed)) {
-      blocks.push({ type: 'bullet', content: trimmed.replace(/^[•\-\d.]+\s*/, '') });
-    } else if (trimmed.startsWith('💡') || trimmed.startsWith('⚠️')) {
-      blocks.push({ type: 'callout', content: trimmed });
-    } else {
-      blocks.push({ type: 'text', content: line });
-    }
-  }
-  flushTable();
-
-  return (
-    <div className="space-y-1.5 text-xs leading-relaxed text-slate-800">
-      {blocks.map((block, idx) => {
-        if (block.type === 'table') {
-          return <TableBlock key={idx} rows={block.content as string[]} />;
-        }
-        if (block.type === 'heading') {
-          return (
-            <div
-              key={idx}
-              className="pt-2 pb-1 font-bold text-xs text-teal-900 border-b border-teal-100 flex items-center gap-1.5 tracking-tight"
-            >
-              <span>{block.content as string}</span>
-            </div>
-          );
-        }
-        if (block.type === 'bullet') {
-          return (
-            <div key={idx} className="flex items-start gap-2 pl-0.5 py-0.5">
-              <span className="text-teal-600 font-bold mt-0.5 text-xs shrink-0">•</span>
-              <div className="flex-1 leading-relaxed">
-                <FormattedInlineText text={block.content as string} />
-              </div>
-            </div>
-          );
-        }
-        if (block.type === 'callout') {
-          const text = block.content as string;
-          const isWarn = text.startsWith('⚠️');
-          return (
-            <div
-              key={idx}
-              className={`my-2 rounded-xl p-2.5 border text-xs leading-normal font-medium ${
-                isWarn
-                  ? 'bg-amber-50/80 border-amber-200 text-amber-950'
-                  : 'bg-teal-50/80 border-teal-200 text-teal-950'
-              }`}
-            >
-              <FormattedInlineText text={text} />
-            </div>
-          );
-        }
-        if (!block.content) {
-          return <div key={idx} className="h-0.5" />;
-        }
-        return (
-          <p key={idx} className="py-0.5">
-            <FormattedInlineText text={block.content as string} />
-          </p>
-        );
-      })}
-    </div>
-  );
-}
-
-export interface CopilotSession {
-  id: string;
-  title: string;
-  createdAt: number;
-  updatedAt: number;
-  userQueryCount: number; // 0..10
-  messages: MessageItem[];
-}
-
-function ProposalDetails({ proposal }: { proposal: CopilotProposal }) {
-  const { t } = useLanguage();
-  return (
-    <details className="rounded-xl border border-slate-200 bg-white/80 px-2.5 py-2">
-      <summary className="cursor-pointer select-none text-[11px] font-bold text-slate-600">
-        {t('schedule.copilotVerifiedDetails')}
-      </summary>
-      <pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-950 p-2 text-[10px] leading-relaxed text-slate-100">
-        {JSON.stringify(proposal.input, null, 2)}
-      </pre>
-      <div className="mt-1.5 text-[10px] text-slate-400">
-        {t('schedule.copilotProposalExpires')}{new Date(proposal.expiresAt).toLocaleTimeString()}
-      </div>
-    </details>
-  );
-}
-
-interface SelectedImageState {
-  base64: string;
-  previewUrl: string;
-  mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
-  name: string;
-}
-
-const MAX_SESSION_TURNS = 50;
-const MAX_STORED_SESSIONS = 20;
-const SESSION_RETENTION_MS = 7 * 24 * 60 * 60_000;
-
-/** 欢迎语与默认会话标题都跟着界面语言走，靠调用方传入 `t` —— 这两者都是模块级函数，本身没有 hook 上下文 */
-function createInitialSession(t: (key: TranslationKey, params?: Record<string, string | number>) => string, initialTitle?: string): CopilotSession {
-  return {
-    id: crypto.randomUUID(),
-    title: initialTitle ?? t('schedule.copilotNewChatTitle'),
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    userQueryCount: 0,
-    messages: [{
-      id: 'welcome_msg',
-      role: 'assistant',
-      content: t('schedule.copilotWelcomeMessage'),
-      timestamp: Date.now(),
-    }],
-  };
-}
-
-function loadStoredSessions(
-  key: string,
-  t: (key: TranslationKey, params?: Record<string, string | number>) => string,
-): CopilotSession[] {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return [createInitialSession(t)];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [createInitialSession(t)];
-    const cutoff = Date.now() - SESSION_RETENTION_MS;
-    const valid = parsed.filter((item): item is CopilotSession => {
-      if (!item || typeof item !== 'object') return false;
-      const row = item as Partial<CopilotSession>;
-      return typeof row.id === 'string' && typeof row.title === 'string'
-        && typeof row.updatedAt === 'number' && row.updatedAt >= cutoff
-        && Array.isArray(row.messages);
-    }).slice(0, MAX_STORED_SESSIONS);
-    return valid.length > 0 ? valid : [createInitialSession(t)];
-  } catch {
-    return [createInitialSession(t)];
-  }
-}
-
-function sessionsForStorage(sessions: CopilotSession[]): CopilotSession[] {
-  const cutoff = Date.now() - SESSION_RETENTION_MS;
-  return sessions
-    .filter((session) => session.updatedAt >= cutoff)
-    .slice(0, MAX_STORED_SESSIONS)
-    .map((session) => ({
-      ...session,
-      // 截图和可执行提案不落 localStorage。历史文本按员工隔离并只保留 7 天；
-      // 真正的操作历史由服务端审计日志负责。
-      messages: session.messages.map(({
-        imagePreview: _image,
-        proposal: _proposal,
-        planRevision: _planRevision,
-        undoProposalToken: _undoProposal,
-        undoExpiresAt: _undoExpiry,
-        ...message
-      }) => message),
-    }));
 }
 
 export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
@@ -430,8 +70,10 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
   const [selectedImage, setSelectedImage] = useState<SelectedImageState | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [executingIdx, setExecutingIdx] = useState<number | null>(null);
   const [undoingIdx, setUndoingIdx] = useState<number | null>(null);
+
+  // 刷新页面后按 taskId 把方案卡片重新拉回来（本地只存指针，不存方案本体）
+  useRehydrateTasks(sessions, setSessions, membershipId);
 
   const activeSession = useMemo(() => {
     return sessions.find((s) => s.id === activeSessionId) || sessions[0] || createInitialSession(t);
@@ -688,20 +330,6 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
               }),
             );
           },
-          onProposal: (proposal: CopilotProposal) => {
-            setSessions((prev) =>
-              prev.map((s) => {
-                if (s.id !== targetSession.id) return s;
-                return {
-                  ...s,
-                  messages: s.messages.map((m) => {
-                    if (m.id !== assistantMsgId) return m;
-                    return { ...m, proposal };
-                  }),
-                };
-              }),
-            );
-          },
           onDone: (res: any) => {
             const serverSessionId = typeof res.sessionId === 'string'
               ? res.sessionId
@@ -714,10 +342,10 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
                   return {
                     ...m,
                     content: m.content || res.answer,
-                    proposal: res.proposal ?? m.proposal,
                     taskId: res.taskId ?? m.taskId,
                     planRevision: res.planRevision ?? m.planRevision,
                     revision: res.revision ?? m.revision,
+                    clarification: res.clarification ?? m.clarification,
                     isStreaming: false,
                   };
                 });
@@ -780,38 +408,6 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
     }
   };
 
-  const handleExecuteProposal = async (proposal: CopilotProposal, msgIndex: number) => {
-    if (!membershipId) return;
-    if (Date.parse(proposal.expiresAt) <= Date.now()) {
-      toast.danger(t('schedule.copilotProposalExpired'));
-      return;
-    }
-    setExecutingIdx(msgIndex);
-    try {
-      const out = await executeCopilotProposal(proposal.proposalToken, membershipId);
-      toast.success(t('schedule.copilotExecOk', { p0: proposal.summary || proposal.command }));
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === activeSession.id
-            ? { ...s, messages: s.messages.map((msg, i) => (i === msgIndex
-              ? {
-                ...msg,
-                executed: true,
-                undoProposalToken: out.undoProposalToken,
-                undoExpiresAt: out.undoExpiresAt,
-              }
-              : msg)) }
-            : s,
-        ),
-      );
-      invalidateCopilotQueries();
-    } catch (err: any) {
-      toast.danger(t('schedule.copilotExecFailed', { p0: err.message || t('schedule.copilotPermissionConflict') }));
-    } finally {
-      setExecutingIdx(null);
-    }
-  };
-
   const invalidateCopilotQueries = () => {
     const targetKeys = ['rooms', 'day', 'schedule', 'appointments', 'floorSnapshot', 'analytics', 'customers', 'queue', 'rotation'];
     for (const key of targetKeys) {
@@ -820,11 +416,11 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
     }
   };
 
-  const handleUndoProposal = async (proposalToken: string, msgIndex: number) => {
+  const handleUndo = async (undoToken: string, msgIndex: number) => {
     if (!membershipId) return;
     setUndoingIdx(msgIndex);
     try {
-      await executeCopilotProposal(proposalToken, membershipId);
+      await undoCopilotAction(undoToken, membershipId);
       setSessions((prev) => prev.map((session) => session.id === activeSession.id
         ? {
           ...session,
@@ -832,7 +428,7 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
             ? {
               ...message,
               undone: true,
-              undoProposalToken: undefined,
+              undoToken: undefined,
               undoExpiresAt: undefined,
             }
             : message),
@@ -870,199 +466,6 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
     const diffHours = Math.floor(diffMin / 60);
     if (diffHours < 24) return t('schedule.copilotHoursAgo', { p0: diffHours });
     return t('schedule.copilotDaysAgo', { p0: Math.floor(diffHours / 24) });
-  };
-
-  const renderProposalCard = (proposal: CopilotProposal, msgIndex: number, executed?: boolean) => {
-    const isRoomStatus = proposal.command === 'resource.setStatus';
-    const isAppointmentCreate = proposal.command === 'appointment.create';
-    const isAppointmentReschedule = proposal.command === 'appointment.reschedule';
-    const isAppointmentCancel = proposal.command === 'appointment.cancel';
-    const isExpired = Date.parse(proposal.expiresAt) <= Date.now();
-    const message = activeSession.messages[msgIndex];
-    const canUndo = Boolean(
-      message?.undoProposalToken
-      && message.undoExpiresAt
-      && Date.parse(message.undoExpiresAt) > Date.now()
-      && !message.undone,
-    );
-    const executedState = (label: string) => (
-      <div className="flex items-center gap-2">
-        <span className="text-emerald-700 font-bold flex items-center gap-1 text-[11px] bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
-          <CheckCircle2 className="w-3.5 h-3.5" />
-          {message?.undone ? t('schedule.copilotUndone') : label}
-        </span>
-        {canUndo && message?.undoProposalToken && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 px-2.5 text-xs font-bold text-slate-700"
-            onClick={() => handleUndoProposal(message.undoProposalToken!, msgIndex)}
-            disabled={undoingIdx === msgIndex}
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            {undoingIdx === msgIndex ? t('schedule.copilotUndoing') : t('undo')}
-          </Button>
-        )}
-      </div>
-    );
-
-    if (isRoomStatus) {
-      const status = String(proposal.input?.status ?? 'cleaning');
-      const note = String(proposal.input?.note ?? '');
-      return (
-        <div className="ml-9 p-3.5 rounded-2xl bg-white border border-teal-200 text-xs space-y-2.5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 font-bold text-teal-950">
-              <BedDouble className="w-4 h-4 text-teal-600" />
-              <span>{t('schedule.copilotRoomChange')}</span>
-            </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
-              {status === 'cleaning' ? t('schedule.copilotSetCleaning') : status === 'maintenance' ? t('schedule.copilotSetMaintenance') : t('schedule.copilotSetAvailable')}
-            </span>
-          </div>
-
-          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 space-y-1">
-            <div className="text-slate-700 font-medium">{proposal.summary}</div>
-            {note && <div className="text-[11px] text-slate-500">{t('schedule.copilotNoteLabel')}{note}</div>}
-          </div>
-          <ProposalDetails proposal={proposal} />
-
-          <div className="flex items-center justify-end pt-1">
-            {executed ? (
-              executedState(t('schedule.copilotUpdateDone'))
-            ) : (
-              <Button
-                size="sm"
-                className="bg-teal-600 hover:bg-teal-700 text-white font-bold h-7 px-3 text-xs gap-1.5 shadow-xs"
-                onClick={() => handleExecuteProposal(proposal, msgIndex)}
-                disabled={executingIdx === msgIndex || isExpired}
-              >
-                <Check className="w-3.5 h-3.5" />
-                {executingIdx === msgIndex ? t('schedule.copilotUpdating') : t('schedule.copilotConfirmRoom')}
-              </Button>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    if (isAppointmentCreate) {
-      const items = Array.isArray(proposal.input?.items) ? proposal.input.items : [];
-      const firstItem = items[0] as any;
-      return (
-        <div className="ml-9 p-3.5 rounded-2xl bg-white border border-teal-200 text-xs space-y-2.5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 font-bold text-teal-950">
-              <Calendar className="w-4 h-4 text-teal-600" />
-              <span>{t('schedule.copilotImportTitle')}</span>
-            </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
-              
-              {t('schedule.copilotImportParsed')}
-            </span>
-          </div>
-
-          <div className="bg-teal-50/40 p-2.5 rounded-xl border border-teal-100 space-y-1.5">
-            <div className="font-bold text-slate-900 text-xs">{proposal.summary}</div>
-            {firstItem?.startsAt && (
-              <div className="text-[11px] text-slate-600 flex items-center gap-1">
-                <Clock className="w-3 h-3 text-teal-600" />
-                
-                {t('schedule.copilotApptTime')}{storeTime.dateTime(firstItem.startsAt)}
-              </div>
-            )}
-            {firstItem?.durationMin && (
-              <div className="text-[11px] text-slate-600">Duration：{firstItem.durationMin}  {t('schedule.copilotMinutes')}</div>
-            )}
-          </div>
-          <ProposalDetails proposal={proposal} />
-
-          <div className="flex items-center justify-end pt-1">
-            {executed ? (
-              executedState(t('schedule.copilotImported'))
-            ) : (
-              <Button
-                size="sm"
-                className="bg-teal-600 hover:bg-teal-700 text-white font-bold h-7 px-3 text-xs gap-1.5 shadow-xs"
-                onClick={() => handleExecuteProposal(proposal, msgIndex)}
-                disabled={executingIdx === msgIndex || isExpired}
-              >
-                <Play className="w-3 h-3" />
-                {executingIdx === msgIndex ? t('schedule.copilotImporting') : t('schedule.copilotConfirmImport')}
-              </Button>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    if (isAppointmentReschedule || isAppointmentCancel) {
-      const isReschedule = isAppointmentReschedule;
-      return (
-        <div
-          className={`ml-9 p-3.5 rounded-2xl bg-white border ${
-            isReschedule ? 'border-sky-200' : 'border-rose-200'
-          } text-xs space-y-2.5 shadow-sm`}
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 font-bold text-slate-900">
-              <Clock className={`w-4 h-4 ${isReschedule ? 'text-sky-600' : 'text-rose-600'}`} />
-              <span>{isReschedule ? t('schedule.copilotRescheduleTitle') : t('schedule.copilotCancelTitle')}</span>
-            </div>
-            <span
-              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                isReschedule
-                  ? 'bg-sky-50 text-sky-700 border-sky-200'
-                  : 'bg-rose-50 text-rose-700 border-rose-200'
-              }`}
-            >
-              {isReschedule ? t('schedule.copilotRescheduleTag') : t('schedule.copilotCancelTag')}
-            </span>
-          </div>
-
-          <div
-            className={`p-2.5 rounded-xl border ${
-              isReschedule ? 'bg-sky-50/60 border-sky-100 text-sky-950' : 'bg-rose-50/60 border-rose-100 text-rose-950'
-            } leading-relaxed font-medium`}
-          >
-            {proposal.summary}
-          </div>
-          <ProposalDetails proposal={proposal} />
-
-          <div className="flex items-center justify-end pt-1">
-            {executed ? (
-              executedState(t('schedule.copilotUpdateDone2'))
-            ) : (
-              <Button
-                size="sm"
-                className={`${
-                  isReschedule ? 'bg-sky-600 hover:bg-sky-700' : 'bg-rose-600 hover:bg-rose-700'
-                } text-white font-bold h-7 px-3 text-xs gap-1.5 shadow-xs`}
-                onClick={() => handleExecuteProposal(proposal, msgIndex)}
-                disabled={executingIdx === msgIndex || isExpired}
-              >
-                <Check className="w-3.5 h-3.5" />
-                {executingIdx === msgIndex ? t('schedule.copilotExecuting') : isReschedule ? t('schedule.copilotConfirmReschedule') : t('schedule.copilotConfirmCancel')}
-              </Button>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="ml-9 p-3.5 rounded-2xl bg-white border border-teal-200 text-xs space-y-2.5 shadow-sm">
-        <div className="flex items-center justify-between font-bold text-teal-950">
-          <span className="flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5 text-teal-600" />  {t('schedule.copilotSuggestedAction')}</span>
-          <code className="text-[10px] bg-teal-100/60 px-1.5 py-0.5 rounded text-teal-800">{proposal.command}</code>
-        </div>
-        <p className="text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-100">{proposal.summary}</p>
-        <ProposalDetails proposal={proposal} />
-        <div className="flex justify-end pt-1">
-          {executed ? executedState(t('schedule.copilotExecuted')) : <Button size="sm" className="bg-teal-600 hover:bg-teal-700 text-white font-bold h-7 px-3 text-xs" onClick={() => handleExecuteProposal(proposal, msgIndex)} disabled={executingIdx === msgIndex || isExpired}>{executingIdx === msgIndex ? t('schedule.copilotExecuting2') : isExpired ? t('schedule.copilotProposalExpired') : t('schedule.copilotConfirmRun')}</Button>}
-        </div>
-      </div>
-    );
   };
 
   return (
@@ -1159,21 +562,39 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
                     </div>
                     {m.role === 'user' && <div className="w-7 h-7 rounded-full bg-teal-600 text-white flex items-center justify-center shrink-0 mt-0.5 font-bold text-xs shadow-xs"><User className="w-3.5 h-3.5" /></div>}
                   </div>
-                  {m.taskId && m.planRevision ? (
+                  {m.clarification && (m.clarification.candidateOptions?.length ?? 0) > 0 && (
+                    <div className="ml-9">
+                      <ClarificationCard
+                        clarification={m.clarification}
+                        disabled={isStreaming}
+                        onPick={(label) => void handleSendMessage(label)}
+                      />
+                    </div>
+                  )}
+
+                  {m.taskId && m.planRevision && (
                     <div className="ml-9">
                       <TaskPlanCard
                         taskId={m.taskId}
                         preview={m.planRevision}
                         revision={m.revision ?? 1}
                         executed={m.executed}
-                        onExecutionComplete={() => {
+                        onExecuted={(execution) => {
+                          // 撤销令牌只取第一个可撤销步骤的 —— 抽屉里的「撤销」
+                          // 是给「刚建错一单」用的应急按钮，不是批量回滚工具。
+                          // 整批要退，走预约列表逐条取消，那条路有取消原因和
+                          // 是否通知客人的开关。
+                          const undoToken = execution.executedSteps
+                            .find((step) => step.status === 'succeeded' && step.undoToken)?.undoToken;
                           setSessions((prev) =>
                             prev.map((s) =>
                               s.id === activeSession.id
                                 ? {
                                     ...s,
                                     messages: s.messages.map((item, idx2) =>
-                                      idx2 === idx ? { ...item, executed: true } : item,
+                                      idx2 === idx
+                                        ? { ...item, executed: true, undoToken }
+                                        : item,
                                     ),
                                   }
                                 : s,
@@ -1182,9 +603,26 @@ export function CopilotDrawer({ onClose }: CopilotDrawerProps) {
                           invalidateCopilotQueries();
                         }}
                       />
+
+                      {m.undoToken && !m.undone && (
+                        <button
+                          type="button"
+                          disabled={undoingIdx === idx}
+                          onClick={() => void handleUndo(m.undoToken!, idx)}
+                          className="mt-1.5 inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          {undoingIdx === idx
+                            ? t('schedule.copilotUndoing')
+                            : t('schedule.copilotUndo')}
+                        </button>
+                      )}
+                      {m.undone && (
+                        <div className="mt-1.5 text-[11px] font-medium text-slate-400">
+                          {t('schedule.copilotUndone')}
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    m.proposal && renderProposalCard(m.proposal, idx, m.executed)
                   )}
                 </div>
               );

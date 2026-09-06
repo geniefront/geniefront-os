@@ -8,7 +8,7 @@ import {
 import { useSession } from '@/lib/session';
 
 export function useCopilotTask(
-  onTaskExecuted?: () => void,
+  onTaskExecuted?: (execution: ExecuteTaskResponse['execution']) => void,
   initialData?: { taskId?: string | null; preview?: PreviewPayload | null; revision?: number },
 ) {
   const { membershipId } = useSession();
@@ -107,7 +107,7 @@ export function useCopilotTask(
 
       setLastExecution(res.execution);
       setIsExecuted(true);
-      onTaskExecuted?.();
+      onTaskExecuted?.(res.execution);
       return res.execution;
     } catch (err) {
       console.error('Failed to execute task:', err);

@@ -54,12 +54,35 @@ export function canonicalJson(obj: unknown): string {
   return '{' + pairs.join(',') + '}';
 }
 
+/** 门店墙上时间的 `2:00 PM`。**一定要带 timeZone**，理由见调用处的长注释 */
+function formatStoreTime(iso: string, timezone: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('en-US', {
+      timeZone: timezone, hour: 'numeric', minute: '2-digit', hour12: true,
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/** 门店墙上时间的 `Sep 7, 10:00 AM`，用于跨天的批量卡片 */
+function formatStoreDateTime(iso: string, timezone: string): string {
+  try {
+    return new Date(iso).toLocaleString('en-US', {
+      timeZone: timezone, month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    });
+  } catch {
+    return iso;
+  }
+}
+
 export async function compileTaskPlan(
   ctx: CommandContext,
   taskId: string,
   revision: number,
   planInput: ProposeTaskPlanInput,
-  _timeAnchor: TimeAnchor,
+  timeAnchor: TimeAnchor,
 ): Promise<PreflightResult> {
   const compiledSteps: CompiledStep[] = [];
 
@@ -198,6 +221,30 @@ export async function compileTaskPlan(
               stepStatus = 'invalid';
             }
           }
+
+          // 加项独立收费，必须计进卡片上的金额（详见 createBatch 分支的同一条注释）
+          const addonIds = [...new Set(items.flatMap((i: any) =>
+            Array.isArray(i.addonIds) ? i.addonIds : []))];
+          if (addonIds.length > 0) {
+            const addons = await tx<{ id: string; name: any; base_price_cents: number }[]>`
+              select id, name, base_price_cents from services
+              where id = any(${addonIds}) and location_id = ${ctx.locationId}`;
+            const addonMap = new Map(addons.map((a) => [a.id, a]));
+            for (const it of items) {
+              for (const aid of (Array.isArray(it.addonIds) ? it.addonIds : [])) {
+                const a = addonMap.get(aid);
+                if (!a) {
+                  issues.push(`加项未找到: ${aid}`);
+                  stepStatus = 'invalid';
+                  continue;
+                }
+                const nm = typeof a.name === 'object'
+                  ? a.name['en'] || a.name['zh'] || Object.values(a.name)[0] : a.name;
+                names.push(String(nm));
+                totalCents += a.base_price_cents;
+              }
+            }
+          }
           previewDetails['serviceName'] = names.join(' + ');
           previewDetails['priceCents'] = totalCents;
         }
@@ -229,16 +276,13 @@ export async function compileTaskPlan(
 
         if (items.length > 0 && items[0]?.startsAt) {
           previewDetails['startsAt'] = String(items[0].startsAt);
-          try {
-            const d = new Date(items[0].startsAt);
-            previewDetails['timeDisplay'] = d.toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true,
-            });
-          } catch {
-            previewDetails['timeDisplay'] = String(items[0].startsAt);
-          }
+          // ⚠️ **必须指定门店时区。**
+          //
+          // 不传 timeZone 时 toLocaleTimeString 用的是**服务端进程的时区**。
+          // 服务器在弗吉尼亚、门店在洛杉矶，一单 10:00 PDT 会被渲染成
+          // 「1:00 PM」印在确认卡片上，前台照着它跟客人复述时间就说错了 ——
+          // 这是那种界面上完全看不出错、只有客人白跑一趟才会暴露的错。
+          previewDetails['timeDisplay'] = formatStoreTime(items[0].startsAt, timeAnchor.timezone);
         }
       });
     }
@@ -248,6 +292,13 @@ export async function compileTaskPlan(
       const batchItems = Array.isArray(resolvedInput['items']) ? resolvedInput['items'] : [];
       if (!resolvedInput['batchId']) {
         resolvedInput['batchId'] = randomUUID();
+      }
+      // ⚠️ 来源标记不能只在 appointment.create 那一支补。
+      // 批量分支漏了这一行时，AI 导入的单在库里记成 `desk`，
+      // 和前台手工建的完全分不出来 —— 报表算不出 AI 的贡献，
+      // 出问题时也追不到「这单是谁建的」。
+      if (!resolvedInput['source']) {
+        resolvedInput['source'] = 'ai_copilot';
       }
 
       await withTenant(ctx, async (tx) => {
@@ -297,6 +348,15 @@ export async function compileTaskPlan(
                 totalCents += sItem.priceCentsOverride ?? s.base_price_cents;
               }
             }
+            // ⚠️ 加项也要计进总价。addonIds 里的每一项都是独立收费的服务，
+            // 只算主项目会让卡片上的金额比实际少一截，前台照着它跟客人报价就报错了。
+            const addonIds = Array.isArray(sItem.addonIds) ? sItem.addonIds : [];
+            if (addonIds.length > 0) {
+              const addons = await tx<{ base_price_cents: number }[]>`
+                select base_price_cents from services
+                where id = any(${addonIds}) and location_id = ${ctx.locationId}`;
+              for (const a of addons) totalCents += a.base_price_cents;
+            }
             if (sItem.membershipId) {
               const [st] = await tx<{ is_bookable: boolean; full_name: string }[]>`
                 select sp.is_bookable, coalesce(sp.display_name->>'en', sp.display_name->>'zh', '') as full_name
@@ -314,24 +374,73 @@ export async function compileTaskPlan(
           previewDetails['customerName'] = customerNames.join(', ');
         }
         previewDetails['priceCents'] = totalCents;
+
+        // 批量卡片上至少要能看到时间跨度，否则前台只看到一个「8 条」的黑盒
+        const allStarts = batchItems
+          .flatMap((it: any) => (Array.isArray(it.serviceItems) ? it.serviceItems : []))
+          .map((si: any) => si?.startsAt)
+          .filter((x: unknown): x is string => typeof x === 'string')
+          .sort();
+        if (allStarts.length > 0) {
+          previewDetails['startsAt'] = allStarts[0]!;
+          previewDetails['timeDisplay'] = allStarts.length === 1
+            ? formatStoreTime(allStarts[0]!, timeAnchor.timezone)
+            : `${formatStoreDateTime(allStarts[0]!, timeAnchor.timezone)} ~ `
+              + `${formatStoreDateTime(allStarts[allStarts.length - 1]!, timeAnchor.timezone)}`;
+        }
       });
     }
 
     // ── resource.setStatus 特别预检 ─────────────────────────────────────────
+    //
+    // ⚠️ 这里必须**镜像 `handlers/resource.ts` 的状态机规则**。
+    //
+    // 房态不是一个可以随便写的字段：`cleaning` / `in_use` 由服务流程自己驱动，
+    // 手动只允许「设为维护」和「从维护或占用中放回可用」。预检以前不查这条，
+    // 于是「把 3 号房设成清洁中」会以绿色 ready 出现在卡片上，前台点确认之后
+    // 才在总线上撞 VALIDATION_FAILED —— 预检存在的全部意义就是不让这种事发生。
     if (rawStep.command === 'resource.setStatus') {
       await withTenant(ctx, async (tx) => {
         const resId = resolvedInput['resourceId'];
-        if (resId) {
-          const [r] = await tx<{ name: string; status: string }[]>`
-            select name, status from resources where id = ${resId} and location_id = ${ctx.locationId}`;
-          if (r) {
-            previewDetails['roomName'] = r.name;
-            previewDetails['currentStatus'] = r.status;
-            previewDetails['targetStatus'] = resolvedInput['status'];
-          } else {
-            issues.push(`工位/房间未找到: ${resId}`);
-            stepStatus = 'invalid';
-          }
+        if (!resId) return;
+
+        const [r] = await tx<{ name: string; status: string }[]>`
+          select name, status from resources
+          where id = ${resId} and location_id = ${ctx.locationId}`;
+        if (!r) {
+          issues.push(`工位/房间未找到: ${resId}`);
+          stepStatus = 'invalid';
+          return;
+        }
+
+        previewDetails['roomName'] = r.name;
+        previewDetails['currentStatus'] = r.status;
+        const target = String(resolvedInput['status'] ?? '');
+        previewDetails['targetStatus'] = target;
+
+        // 目标状态和现状一致：总线会放行（等价于空操作），预检也不拦
+        if (target === r.status) return;
+
+        const [busy] = await tx<{ count: number }[]>`
+          select count(*)::int as count from resource_occupancies
+          where resource_id = ${resId} and status <> 'released'`;
+        const occupied = (busy?.count ?? 0) > 0;
+
+        if (occupied) {
+          issues.push(`${r.name} 上还有未释放的占用，改状态前需要先结束当前服务`);
+          stepStatus = 'conflict';
+          return;
+        }
+
+        const allowed = target === 'maintenance'
+          || (target === 'available' && ['maintenance', 'in_use'].includes(r.status));
+        if (!allowed) {
+          issues.push(
+            `${r.name} 无法手动从「${r.status}」改为「${target}」：`
+            + 'cleaning / in_use 由服务流程自动驱动，手动只支持设为 maintenance，'
+            + '或把 maintenance / in_use 的工位放回 available',
+          );
+          stepStatus = 'conflict';
         }
       });
     }
@@ -345,11 +454,18 @@ export async function compileTaskPlan(
       stepStatus = 'invalid';
     }
 
+    // ⚠️ operationKey 必须带上 revision。
+    //
+    // 旧实现是 `copilot:${taskId}:${idx}:${hash}` —— 不含版本号，而上面两个
+    // 提前 continue 的分支用的又是 `copilot:${taskId}:${revision}:${idx}`，
+    // 同一个概念在一个函数里有两种格式。后果是前台微调生成新 revision 后，
+    // 只要入参没变，operationKey 就和上一版一模一样，执行引擎的
+    // `findStepByOperationKey` 会把它当成「上一次崩溃前已经做过」而直接跳过。
     const inputHash = createHash('sha256')
       .update(canonicalJson(resolvedInput))
       .digest('hex')
       .slice(0, 16);
-    const operationKey = `copilot:${taskId}:${idx}:${inputHash}`;
+    const operationKey = `copilot:${taskId}:${revision}:${idx}:${inputHash}`;
 
     const preview: StepPreviewItem = {
       stepIndex: idx,

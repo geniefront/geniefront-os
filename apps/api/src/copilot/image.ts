@@ -1,5 +1,15 @@
 import { AppError, ERROR_CODES } from '@gf/contracts';
-import type { CopilotImageInput } from '@gf/ai';
+
+/**
+ * 副驾接受的图片入参。
+ *
+ * 以前这个类型来自 `@gf/ai` 的 Anthropic 版副驾（已随重构删除）。
+ * 它描述的是**本路由的 HTTP 契约**，本来就该长在这一侧。
+ */
+export interface CopilotImageInput {
+  base64: string;
+  mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
+}
 
 export const MAX_COPILOT_IMAGE_BYTES = 10 * 1024 * 1024;
 export const COPILOT_BODY_LIMIT = 15_000_000;

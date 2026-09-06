@@ -110,6 +110,7 @@ describe('Luna compact schema decoder (29 §11)', () => {
         usage: {
           uncachedInputTokens: 500,
           cachedReadInputTokens: 2000,
+          cacheWriteInputTokens: 0,
           outputTokens: 300,
         },
         status: 'completed',

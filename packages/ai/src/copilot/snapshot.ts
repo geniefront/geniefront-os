@@ -1,7 +1,7 @@
 /**
  * 现场快照 → 紧凑行式文本（05 §6.1）
  *
- * ⭐ **把快照压到 1.5k token 以内是成本的第一杠杆**（05 §7.2 第 1 条）。
+ * ⭐ **这一段要压在 2k token 以内**（预算见 CONTEXT_TOKEN_BUDGETS）。
  * 同样的信息，JSON 要 4k token，写成下面这样 400 token —— 而且实测
  * 模型读得更准：JSON 里 `"membershipId":"a3ce…"` 这种键值对会把注意力
  * 分散到一堆它根本不需要的 uuid 上。
@@ -14,17 +14,17 @@
  *       15:30 walk-in slot open
  * ```
  *
- * ## 两条贯穿全篇的取舍
+ * ## 这一段只讲「此刻」
  *
- * 1. **给名字，不给 uuid。** 模型要提议 `appointment.reschedule` 时确实需要
- *    id，但那应该由它调只读工具查出来 —— 把三十个 uuid 塞进快照，
- *    既烧 token 又让它有机会「记错一个」。名字后面括号里的短 id
- *    只是给它一个能追问的把手。
+ * 1. **不给 uuid。** 服务、员工、房间的 ID 在 `storeContext.ts` 的门店档案里
+ *    一次性下发（那一段进缓存前缀，按 0.1 倍计价）；预约的 appointmentId 在
+ *    预约日历的明细窗口里。快照这一段只回答「现在场子什么样」，
+ *    塞 uuid 进来既烧 token 又和另外两段重复。
  * 2. **快照不脱敏**（决策 23）。客人真实姓名和手机号照给 ——
  *    前台需要一眼认人，脱敏会拖慢高频操作。技师端那边的手机号脱敏
  *    （决策 16）是防挖客，两回事。
  *
- * 这个文件是**纯函数**：不认识数据库、不认识 Anthropic，只做格式化。
+ * 这个文件是**纯函数**：不认识数据库、不认识模型供应商，只做格式化。
  * 所以「快照长什么样」这件事可以被完整地测。
  */
 
@@ -123,20 +123,6 @@ export interface QueueEntry {
   wants?: string;
 }
 
-export interface FloorSnapshotService {
-  id: string;
-  name: string;
-  englishName?: string | null;
-  durationMin: number;
-  priceDollars: string;
-}
-
-export interface FloorSnapshotStaff {
-  membershipId: string;
-  name: string;
-  isBookable: boolean;
-}
-
 export interface FloorSnapshot {
   header: FloorHeader;
   turn: TurnEntry[];
@@ -146,12 +132,6 @@ export interface FloorSnapshot {
   queue: QueueEntry[];
   /** 空着能接人的技师 */
   idle: string[];
-  /** 技师技能标签（技师名 -> 技能项），让模型 0 次工具往返直接回答项目指派与资格 */
-  skills?: Record<string, string[]>;
-  /** 全店服务目录（包含 serviceId、中英文名、时长、价格），让模型 0 次工具往返直接生成 appointment 提案 */
-  services?: FloorSnapshotService[];
-  /** 全店技师员工名单（包含 membershipId、姓名、可排单状态），让模型 0 次工具往返直接匹配技师 ID */
-  staff?: FloorSnapshotStaff[];
 }
 
 /** 一行最多带几个 NEXT。再多前台自己也记不住，而模型会被它们带偏 */
@@ -193,13 +173,6 @@ export function formatFloorSnapshot(s: FloorSnapshot): string {
     lines.push(`NOW:  ${parts.join(' | ')}`);
   }
 
-  if (s.skills && Object.keys(s.skills).length > 0) {
-    const list = Object.entries(s.skills)
-      .map(([name, sks]) => `${name}(${sks.join(',')})`)
-      .join(' | ');
-    lines.push(`SKILLS: ${list}`);
-  }
-
   if (s.next.length > 0) {
     const rows = s.next.slice(0, MAX_NEXT).map((n) => [
       n.startsAt,
@@ -223,21 +196,6 @@ export function formatFloorSnapshot(s: FloorSnapshot): string {
     if (s.queue.length > MAX_QUEUE) {
       lines.push(`      (+${s.queue.length - MAX_QUEUE} more waiting)`);
     }
-  }
-
-  if (s.services && s.services.length > 0) {
-    const rows = s.services.map((svc) => {
-      const en = svc.englishName && svc.englishName !== svc.name ? ` (${svc.englishName})` : '';
-      return `[${svc.id}] ${svc.name}${en} ${svc.durationMin}m $${svc.priceDollars}`;
-    });
-    lines.push(`SERVICES:\n${rows.map((r) => `  ${r}`).join('\n')}`);
-  }
-
-  if (s.staff && s.staff.length > 0) {
-    const rows = s.staff.map((st) =>
-      `[${st.membershipId}] ${st.name}${st.isBookable ? '' : ' [non-bookable]'}`
-    );
-    lines.push(`STAFF: ${rows.join(' | ')}`);
   }
 
   return lines.join('\n');
@@ -267,15 +225,7 @@ function turnBit(e: TurnEntry): string {
 }
 
 /**
- * 粗略估 token 数，用来在超预算时告警。
- *
- * ⚠️ 这不是精确计数（那要调 API 的 count_tokens）。它只回答一个问题：
- * 「快照有没有悄悄膨胀到不该有的大小」。中英混排按 2.5 字符 ≈ 1 token 估，
- * 偏保守 —— 宁可虚报也别让它默默涨到 4k 而没人发现。
+ * token 估算与各段预算统一放在 storeContext.ts，这里只做转发，
+ * 避免两份实现随时间漂移。
  */
-export function roughTokens(text: string): number {
-  return Math.ceil(text.length / 2.5);
-}
-
-/** 05 §6.1 的目标。超了要在日志里告警，而不是静默付钱 */
-export const SNAPSHOT_TOKEN_BUDGET = 1500;
+export { roughTokens, CONTEXT_TOKEN_BUDGETS } from './storeContext.js';

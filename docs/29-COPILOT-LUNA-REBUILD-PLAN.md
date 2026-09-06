@@ -6,6 +6,108 @@
 
 ---
 
+> ## ⚠️ 2026-09-06 修订：检索架构已改为「上下文前置」，本文档 §6.2 的工具清单已过时
+>
+> 本方案落地后的实测暴露了两个问题，据此做了一轮架构调整。**以代码为准，本文档下列章节保留作历史记录。**
+>
+> ### 1. 十七个只读工具收敛为八个
+>
+> 原设计让模型按需调工具取数（服务目录、员工名册、房态、营业时间、排班、
+> 预约……）。实际后果是：一个复合请求要连查四五轮，光模型往返就十几秒；
+> token 也没省下来（工具定义本身占位、返回 JSON 比行式文本啰嗦、每轮历史重发）；
+> 而且系统提示里被迫写了六七处「严禁调用 XX 工具」——那是在用自然语言修一个结构问题。
+>
+> 现在改为：**能一次性装下的都装进上下文**。
+> - `packages/ai/src/copilot/storeContext.ts` —— 门店档案（服务 / 员工 / 房间 / 营业时间 /
+>   套餐）拼进 `instructions`，命中 OpenAI 自动前缀缓存按 0.1 倍计价；
+> - `apps/api/src/queries/bookingCalendar.ts` —— 过去 7 天 + 未来 30 天的全部预约
+>   （每条带完整 appointmentId）与每日排班，进 user turn，每轮重建；
+> - 留下的工具只有三类：量太大装不下的（顾客、订单、评价）、必须服务端实算的
+>   （空档）、要签发令牌的（健康表链接）。
+> - `COPILOT_MAX_ROUNDS` 12 → 6。
+>
+> ### 2. 上下文不必为省 token 而压缩
+>
+> §3 的基准是按 input $3 / output $15 每百万 token 估的。**实测账单不是这样**：
+> 2026-09-06 的 OpenAI 控制台显示近 7 天 232 次请求、2.434M input tokens，
+> 总花费 $0.07，其中 output 占 84%，input 几乎为零。
+>
+> 原因是 §3 的费率抄的是 Sonnet 的 $3 / $15。gpt-5.6-luna 的官方价目
+> （developers.openai.com/api/docs/pricing，2026-09-06 核对）是：
+>
+> | 档位 | input | cached input | cache write | output |
+> |---|---|---|---|---|
+> | 短上下文 | $0.20 | $0.02 | $0.25 | $1.20 |
+> | 长上下文（>272K input，整单换档） | $0.40 | $0.04 | $0.50 | $1.80 |
+>
+> `LUNA_RATES` 已按此订正（input 曾高 15 倍、output 曾高 12.5 倍），换档逻辑见
+> `ratesForUsage()`，对账测试在 `runtime/usage.test.ts`。
+> **遗留事项：已经被超额扣减的门店 AI 额度需要单独回溯核对。**
+>
+> 结论：优化方向是**压缩模型输出**（output 是 input 的 6 倍价），
+> 不是压缩上下文。
+>
+> ### 3. 计量与扣费在重构中被整个漏掉了（已补回）
+>
+> §12.1 规定副驾用量要落 `usage_events` 并从 `credit_ledger` 扣积分。
+> 重构后的三条入口都只算了个 `costCents` 交给前端显示，**`ai.recordAssist`
+> 那一次 dispatch 没了** —— 自 cbf4487 起副驾对所有门店实际上是免费的，
+> 成本报表里也看不到它，`assertAiAdmission` 的「额度耗尽就拒」因此永不触发。
+> 现由 `recordCopilotUsage()` 统一补回，三条入口共用。
+>
+> 与之相关的第二个静默故障：`normalizeOpenAiUsage()` 只认 Chat Completions 的
+> `prompt_tokens` / `completion_tokens`，而运行时走的是 Responses API
+> （`input_tokens` / `output_tokens` / `input_tokens_details`）。字段名对不上，
+> 每一项都读成 0。现已兼容两套，并按实测形状把输入拆成
+> **普通 / 缓存读 / 缓存写**三段分别计价（`cache_write_tokens` 上游是单独回报的）。
+>
+> ### 4. 执行通道收敛为一条（原实现有重复建单缺陷）
+>
+> §9.1 列的接口里，`/v1/ai/copilot` 与 `/stream` 在返回方案的同时还会把
+> `planRevision.steps[0]` 单独签发成一枚 legacy `proposalToken`。于是同一个方案有
+> 两条执行通道：走 token 那条只执行第 0 步、且不回写 `copilot_tasks` 状态，
+> 任务仍停在 `ready`，前台再点一次卡片就把整批重跑一遍 —— 同一单建两次。
+>
+> 现在正向执行只有 `POST /tasks/:id/execute`（CAS 抢锁 + 幂等重放）一条路；
+> `POST /v1/ai/copilot/execute` 收窄为**只接受撤销令牌**，白名单在
+> `apps/api/src/copilot/routes.ts` 的 `UNDO_COMMANDS`，由 `routes.test.ts` 守住。
+>
+> ### 5. 预检必须镜像业务状态机
+>
+> `resource.setStatus` 的房态是个状态机（cleaning / in_use 由服务流程驱动，
+> 手动只能设 maintenance 或放回 available），但预检不查这条，于是
+> 「把 3 号房设成清洁中」会以绿色 ready 出现在卡片上，前台点确认之后才在总线上
+> 撞 VALIDATION_FAILED。已在 `preflight.ts` 补上镜像校验，
+> 并在系统提示里改掉那条会诱导模型提出非法步骤的指引。
+> 回归测试见 `acceptance.test.ts` 的「房态状态机预检」。
+>
+> ### 6. 加项（addonIds）此前一分钱都收不到
+>
+> `addonIds` 被原样存进 `appointment_items.addon_ids` 就不管了：
+> `appointment.create` / `createBatch` 的 `price_cents_snapshot` 只算主项目，
+> 而 `ticket.ts` 开工单时直接取这个快照 —— 全链路没有任何一处回头读
+> `addon_ids` 补价。于是「足疗 60 分钟 + 拔罐」这类单的加项钱凭空消失，
+> **前台手工建单同样漏**，只有公开预约那条路（`priceAndDuration`）是对的。
+>
+> 已在 `executeSingleAppointmentInTx` 统一累加（create 与 createBatch 共用它），
+> 三条建单路径口径一致。时长的口径不同：显式给了 `durationMin` 以它为准
+>（截图导入常常已写成总时长），没给才按主项目 + 各加项累加。
+> 回归测试见 `bus.test.ts` 的「加项计价（addonIds）」。
+>
+> 配套修的还有两处卡片显示问题：`timeDisplay` 没传门店时区（服务器在东部、
+> 门店在西部时，10:00 会印成 1:00 PM，前台照着复述就说错时间），
+> 以及批量卡片完全没有时间信息。
+>
+> ### 7. 计量口径备忘
+>
+> gpt-5.6-luna 的 usage 里 `input_tokens_details` 同时给 `cached_tokens` 与
+> `cache_write_tokens`，两者都是 `input_tokens` 的子集。计价必须先减成
+> 互不重叠的三段（普通 / 缓存读 / 缓存写）再分别乘各自单价，
+> 直接相加会虚高计费。见 `runtime/usage.ts`。
+
+
+---
+
 ## 1. 目标、定位与不变式
 
 ### 1.1 核心目标

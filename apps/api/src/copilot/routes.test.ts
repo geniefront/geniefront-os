@@ -1,72 +1,76 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CommandContext } from '@gf/contracts';
-import { verifyCopilotProposal } from './proposalToken';
-import { finalizeCopilotProposal } from './routes';
+/**
+ * 副驾路由的两条不变式。
+ *
+ * 这两条都是为了守住同一个曾经出过事的 bug：**同一个方案被执行两次**。
+ * 早先返回方案时会顺手签发一枚 legacy proposalToken，于是「走 token 执行
+ * 第 0 步」和「走 task 执行整批」两条路并存，前者还不回写任务状态，
+ * 前台点两下就建两次单。
+ */
 
-const ids = {
-  org: '00000000-0000-4000-8000-000000000001',
-  location: '00000000-0000-4000-8000-000000000002',
-  member: '00000000-0000-4000-8000-000000000003',
-  service: '00000000-0000-4000-8000-000000000004',
-};
+import { describe, expect, it } from 'vitest';
+import { getCommand } from '@gf/contracts';
+import { UNDO_COMMANDS, summariseRevisionForHistory } from './routes';
 
-const ctx: CommandContext = {
-  orgId: ids.org,
-  locationId: ids.location,
-  membershipId: ids.member,
-  userId: '00000000-0000-4000-8000-000000000005',
-  permissions: new Set(['appointment.write']),
-  actorKind: 'user',
-  locale: 'en',
-  timezone: 'America/New_York',
-};
-
-const log = { warn: vi.fn() };
-let previousSecret: string | undefined;
-
-beforeEach(() => {
-  previousSecret = process.env['APP_JWT_SECRET'];
-  process.env['APP_JWT_SECRET'] = 'copilot-route-test-secret-at-least-32-characters';
-  log.warn.mockClear();
-});
-
-afterEach(() => {
-  if (previousSecret === undefined) delete process.env['APP_JWT_SECRET'];
-  else process.env['APP_JWT_SECRET'] = previousSecret;
-});
-
-describe('finalizeCopilotProposal', () => {
-  it('schema-validates, canonicalizes, signs and marks AI-created appointments', () => {
-    const proposal = finalizeCopilotProposal({
-      command: 'appointment.create',
-      input: {
-        customerId: null,
-        walkInName: 'Test Guest',
-        items: [{
-          serviceId: ids.service,
-          startsAt: '2026-09-05T10:00:00-04:00',
-        }],
-      },
-      summary: 'Create test appointment',
-    }, ctx, log);
-
-    expect(proposal).toMatchObject({
-      command: 'appointment.create',
-      confirm: 'always',
-      input: { source: 'ai_copilot' },
-    });
-    expect(verifyCopilotProposal(proposal!.proposalToken, ctx)).toMatchObject({
-      input: { source: 'ai_copilot' },
-    });
+describe('UNDO_COMMANDS', () => {
+  it('⭐ 白名单本身要保持极小，且每一项都是已注册命令', () => {
+    // 白名单在这里写死一份。任何人往 routes.ts 里加一项，这条就会红 ——
+    // 逼他解释为什么那条命令可以绕过有锁的 task 执行通道。
+    expect([...UNDO_COMMANDS].sort()).toEqual(['appointment.cancel']);
+    for (const command of UNDO_COMMANDS) {
+      expect(getCommand(command), `${command} 不是一个已注册的命令`).toBeTruthy();
+    }
   });
 
-  it('drops malformed and unauthorized model proposals before signing', () => {
-    expect(finalizeCopilotProposal({
-      command: 'appointment.create', input: {}, summary: 'bad',
-    }, ctx, log)).toBeNull();
-    expect(finalizeCopilotProposal({
-      command: 'ticket.pay', input: {}, summary: 'forbidden',
-    }, ctx, log)).toBeNull();
-    expect(log.warn).toHaveBeenCalledTimes(2);
+  it('绝不包含建单、改期、收款、发信这类正向命令', () => {
+    for (const forward of [
+      'appointment.create',
+      'appointment.createBatch',
+      'appointment.reschedule',
+      'ticket.open',
+      'ticket.pay',
+      'sms.sendDirect',
+      'form.share',
+      'queue.join',
+      'resource.setStatus',
+    ]) {
+      expect(UNDO_COMMANDS.has(forward)).toBe(false);
+    }
+  });
+});
+
+describe('summariseRevisionForHistory', () => {
+  const step = (command: string, summary: string) => ({ command, summary });
+
+  it('单步方案原样带命令名与摘要', () => {
+    expect(summariseRevisionForHistory({
+      title: '把 3 号房设为清洁',
+      steps: [step('resource.setStatus', '将房间 3 标记为打扫中')],
+    })).toEqual({ command: 'resource.setStatus', summary: '将房间 3 标记为打扫中' });
+  });
+
+  it('⭐ 多步方案折叠成标题 + 步数，不会只剩第一步', () => {
+    const out = summariseRevisionForHistory({
+      title: '导入 3 条外部预约',
+      steps: [
+        step('appointment.create', '导入 Lisa 18:00 Gel Manicure'),
+        step('appointment.create', '导入 Amy 19:00 Pedicure'),
+        step('appointment.create', '导入 Kim 20:00 Deep Tissue'),
+      ],
+    });
+    expect(out?.summary).toBe('导入 3 条外部预约');
+    expect(out?.command).toContain('3 项');
+  });
+
+  it('⭐ 摘要里不含任何可执行令牌 —— 会话历史不是执行通道', () => {
+    const out = summariseRevisionForHistory({
+      title: 'x',
+      steps: [step('appointment.create', 'y')],
+    });
+    expect(JSON.stringify(out)).not.toMatch(/token/i);
+  });
+
+  it('空方案返回 null', () => {
+    expect(summariseRevisionForHistory(null)).toBeNull();
+    expect(summariseRevisionForHistory({ title: 'x', steps: [] })).toBeNull();
   });
 });

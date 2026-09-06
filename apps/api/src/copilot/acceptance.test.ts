@@ -682,3 +682,144 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
     expect(merged.items.find((s) => s.category === 'Facial')?.priceCents).toBe(9000);
   });
 });
+
+describe('房态状态机预检 (resource.setStatus)', () => {
+  /**
+   * `handlers/resource.ts` 只允许两种手动改动：设为 maintenance，
+   * 以及把 maintenance / in_use 放回 available。cleaning 与 in_use
+   * 由服务流程驱动，手动提就会在总线上撞 VALIDATION_FAILED。
+   *
+   * ⭐ 预检必须在**卡片阶段**就把它标成 conflict。此前不查这条规则，
+   * 「把 3 号房设成清洁中」会以绿色 ready 出现，前台点了确认才失败 ——
+   * 那正是预检层存在的意义所在。
+   */
+  async function compileSetStatus(resourceId: string, status: string) {
+    const session = await beginCopilotTurn(ctx, undefined, `set ${status}`, false);
+    const task = await createTask(ctx, {
+      sessionId: session.sessionId,
+      originalGoal: `set ${status}`,
+      timeAnchor,
+    });
+    const planInput: ProposeTaskPlanInput = {
+      title: '房态变更',
+      summary: '房态变更',
+      executionMode: 'independent_sequential',
+      steps: [{
+        stepKey: 'step_1',
+        command: 'resource.setStatus',
+        input: { resourceId, status },
+        summary: `将工位设为 ${status}`,
+      }],
+    };
+    const compiled = await compileTaskPlan(ctx, task.id, 1, planInput, timeAnchor);
+    return compiled.previewPayload.steps[0]!;
+  }
+
+  async function anyAvailableResourceId(): Promise<string> {
+    const [row] = await withTenant(ctx, (tx) => tx<{ id: string }[]>`
+      select id from resources
+      where location_id = ${ctx.locationId} and status = 'available'
+      order by name limit 1`);
+    return row!.id;
+  }
+
+  it('⭐ 手动设为 cleaning 在卡片阶段就被标成 conflict，不放到执行时才炸', async () => {
+    const step = await compileSetStatus(await anyAvailableResourceId(), 'cleaning');
+    expect(step.status).toBe('conflict');
+    expect(step.canExecute).toBe(false);
+    expect(step.issues?.join(' ')).toMatch(/cleaning/);
+  });
+
+  it('设为 maintenance 是允许的，保持 ready', async () => {
+    const step = await compileSetStatus(await anyAvailableResourceId(), 'maintenance');
+    expect(step.status).toBe('ready');
+    expect(step.canExecute).toBe(true);
+  });
+
+  it('目标状态与现状相同时视为空操作，不报冲突', async () => {
+    const step = await compileSetStatus(await anyAvailableResourceId(), 'available');
+    expect(step.status).toBe('ready');
+  });
+
+  it('工位不存在时标 invalid', async () => {
+    const step = await compileSetStatus(randomUUID(), 'maintenance');
+    expect(step.status).toBe('invalid');
+    expect(step.issues?.join(' ')).toMatch(/未找到/);
+  });
+});
+
+describe('卡片预览的时间与金额', () => {
+  /**
+   * ⭐ **时间必须按门店时区渲染。**
+   *
+   * `toLocaleTimeString` 不传 timeZone 时用的是**服务端进程的时区**。
+   * 服务器在弗吉尼亚、门店在洛杉矶时，一单 10:00 PDT 会被印成「1:00 PM」
+   * 出现在确认卡片上 —— 前台照着它跟客人复述时间就说错了，而界面上
+   * 完全看不出异常，只有客人白跑一趟才会暴露。
+   */
+  async function compileOne(input: Record<string, unknown>, command = 'appointment.create') {
+    const session = await beginCopilotTurn(ctx, undefined, 'preview', false);
+    const task = await createTask(ctx, {
+      sessionId: session.sessionId, originalGoal: 'preview', timeAnchor,
+    });
+    const planInput: ProposeTaskPlanInput = {
+      title: '预览', summary: '预览', executionMode: 'independent_sequential',
+      steps: [{ stepKey: 'step_1', command, input, summary: '预览' }],
+    };
+    const compiled = await compileTaskPlan(ctx, task.id, 1, planInput, timeAnchor);
+    return compiled.previewPayload.steps[0]!;
+  }
+
+  it('⭐ timeDisplay 按门店时区渲染，不跟着服务端时区漂', async () => {
+    // 14:00 UTC。门店在 America/New_York（EDT, -04:00）→ 应显示 10:00 AM
+    const step = await compileOne({
+      customerId: null,
+      walkInName: '时区测试',
+      items: [{ serviceId, startsAt: '2026-09-07T14:00:00Z' }],
+    });
+    expect(step.details['timeDisplay']).toBe('10:00 AM');
+  });
+
+  it('⭐ 加项的价格计进卡片合计 —— 卡片上的数字要和最终账单一致', async () => {
+    const [addon] = await withTenant(ctx, (tx) => tx<{ id: string; p: number }[]>`
+      select id, base_price_cents as p from services
+      where location_id = ${ctx.locationId} and active = true and duration_min <= 15
+      order by base_price_cents limit 1`);
+    if (!addon) return; // 这家店没有短加项就跳过
+
+    const [main] = await withTenant(ctx, (tx) => tx<{ p: number }[]>`
+      select base_price_cents as p from services where id = ${serviceId}`);
+
+    const step = await compileOne({
+      customerId: null,
+      walkInName: '加项测试',
+      items: [{ serviceId, startsAt: '2026-09-07T15:00:00Z', addonIds: [addon.id] }],
+    });
+    expect(step.details['priceCents']).toBe(main!.p + addon.p);
+    // 加项名不该出现重复的加号（曾经渲染成 "A + +B"）
+    expect(String(step.details['serviceName'])).not.toContain('+ +');
+  });
+
+  it('⭐ 批量卡片给出时间跨度，而不是一个「8 条」的黑盒', async () => {
+    const step = await compileOne({
+      batchId: randomUUID(),
+      items: [
+        { subKey: 'a', customerId: null, walkInName: 'A',
+          serviceItems: [{ serviceId, startsAt: '2026-09-07T14:00:00Z' }] },
+        { subKey: 'b', customerId: null, walkInName: 'B',
+          serviceItems: [{ serviceId, startsAt: '2026-09-09T18:00:00Z' }] },
+      ],
+    }, 'appointment.createBatch');
+    expect(String(step.details['timeDisplay'])).toContain('~');
+    expect(String(step.details['timeDisplay'])).toContain('10:00 AM');
+  });
+
+  it('⭐ 批量分支也要打上 ai_copilot 来源，否则和前台手工建的分不出来', async () => {
+    const step = await compileOne({
+      batchId: randomUUID(),
+      items: [{ subKey: 'a', customerId: null, walkInName: 'A',
+        serviceItems: [{ serviceId, startsAt: '2026-09-07T14:00:00Z' }] }],
+    }, 'appointment.createBatch');
+    expect(step.resolvedInput['source']).toBe('ai_copilot');
+  });
+});

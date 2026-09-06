@@ -5,6 +5,10 @@
  *（纯函数、有测试）。分开是因为「快照长什么样」这件事会反复调，
  * 而每调一次都要能被测 —— 混在 SQL 里就只能靠眼看。
  *
+ * ⚠️ **这一段只查「此刻」。** 服务目录、员工花名册、房间清单在
+ * `storeProfile.ts`（进缓存前缀），预约日历在 `bookingCalendar.ts`。
+ * 三段各查各的，不要往这里加不随分钟变化的东西。
+ *
  * ⚠️ **快照不脱敏**（决策 23）：客人真实姓名照给。前台需要一眼认人，
  * 脱敏会拖慢高频操作。技师端那边的手机号脱敏（决策 16）是防挖客，两回事。
  *
@@ -17,7 +21,7 @@ import { parseTs } from '@gf/db';
 import { pickText, type CommandContext } from '@gf/contracts';
 import { computeStanding, FULL_TURN } from '@gf/rotation';
 import { businessDateOf } from '@gf/scheduling';
-import type { FloorSnapshot, FloorSnapshotService, FloorSnapshotStaff } from '@gf/ai';
+import type { FloorSnapshot } from '@gf/ai';
 import { loadRotation, currentBusinessDate, stripRank } from '../handlers/rotation';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
@@ -144,26 +148,6 @@ export async function loadFloorSnapshot(
   const busy = new Set(working.map((w) => w.membership_id));
   const nowMs = now.getTime();
 
-  // ── 技师技能概览（直接随快照下发，消除 90% 的问技能往返）──────────────
-  const skillRows = await tx<{
-    name: unknown;
-    skill_name: unknown;
-    skill_key: string;
-  }[]>`
-    select sp.display_name as name, sk.name as skill_name, sk.key as skill_key
-    from staff_skills ss
-    join skills sk on sk.id = ss.skill_id
-    join staff_profiles sp on sp.membership_id = ss.membership_id
-    where sk.location_id = ${ctx.locationId}`;
-
-  const skillsMap: Record<string, string[]> = {};
-  for (const row of skillRows) {
-    const staffName = pickText(row.name, ctx.locale);
-    const skillName = pickText(row.skill_name, ctx.locale, row.skill_key);
-    if (!skillsMap[staffName]) skillsMap[staffName] = [];
-    skillsMap[staffName].push(skillName);
-  }
-
   const turn = standing.entries.map((e) => {
     // stripRank：手动调序的备注里带着内部位次编号，对模型没用还占 token
     const note = stripRank(e.trail[0]?.note ?? null);
@@ -176,44 +160,6 @@ export async function loadFloorSnapshot(
       ...(e.owed ? { owed: true } : {}),
     };
   });
-
-  // ── 全店服务目录（一次性下发，消除反复调 get_service_catalog 的往返）────
-  const serviceRows = await tx<{
-    id: string;
-    name: unknown;
-    duration_min: number;
-    base_price_cents: number;
-  }[]>`
-    select s.id, s.name, s.duration_min, s.base_price_cents
-    from services s
-    where s.location_id = ${ctx.locationId} and s.active = true
-    order by s.sort nulls last, s.name`;
-
-  const services: FloorSnapshotService[] = serviceRows.map((s) => ({
-    id: s.id,
-    name: pickText(s.name, ctx.locale),
-    englishName: typeof s.name === 'object' && s.name ? ((s.name as Record<string, string>)['en'] || (s.name as Record<string, string>)['en-US'] || null) : null,
-    durationMin: s.duration_min,
-    priceDollars: (s.base_price_cents / 100).toFixed(2),
-  }));
-
-  // ── 全店技师员工花名册（含 ID 与可预约状态，消除反复调 get_staff_directory）──
-  const staffRows = await tx<{
-    membership_id: string;
-    display_name: unknown;
-    is_bookable: boolean;
-  }[]>`
-    select sp.membership_id, sp.display_name, sp.is_bookable
-    from staff_profiles sp
-    join memberships m on m.id = sp.membership_id and m.status = 'active'
-    where sp.location_id = ${ctx.locationId}
-    order by sp.is_bookable desc, sp.employee_no nulls last, sp.display_name->>'en'`;
-
-  const staff: FloorSnapshotStaff[] = staffRows.map((s) => ({
-    membershipId: s.membership_id,
-    name: pickText(s.display_name, ctx.locale),
-    isBookable: s.is_bookable,
-  }));
 
   return {
     header: {
@@ -265,10 +211,6 @@ export async function loadFloorSnapshot(
     idle: standing.entries
       .filter((e) => e.state === 'available' && !busy.has(e.membershipId))
       .map((e) => e.name),
-
-    skills: skillsMap,
-    services,
-    staff,
   };
 }
 

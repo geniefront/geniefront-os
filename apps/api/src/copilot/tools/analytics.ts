@@ -6,8 +6,6 @@ import type { CommandContext } from '@gf/contracts';
 import { withTenant } from '@gf/db';
 import { loadRevenueTrends } from '../../queries/analytics.js';
 import { loadReviewsSummary } from '../../queries/reviews.js';
-import { loadPackages } from '../../queries/marketing.js';
-import { loadDeskSettings } from '../../queries/settings.js';
 
 export async function getRevenueAnalytics(
   ctx: CommandContext,
@@ -77,33 +75,4 @@ export async function getStoreReviews(
   _input: Record<string, unknown>,
 ): Promise<unknown> {
   return withTenant(ctx, (tx) => loadReviewsSummary(tx, ctx));
-}
-
-export async function getPromotionsAndCards(
-  ctx: CommandContext,
-  _input: Record<string, unknown>,
-): Promise<unknown> {
-  const result = await withTenant(ctx, (tx) => loadPackages(tx, ctx));
-  return {
-    packages: result.templates.map((p) => ({
-      id: p.id,
-      name: p.name,
-      priceDollars: (p.priceCents / 100).toFixed(2),
-      sessions: p.sessions,
-    })),
-  };
-}
-
-export async function getStoreInfo(
-  ctx: CommandContext,
-  _input: Record<string, unknown>,
-): Promise<unknown> {
-  const desk = await withTenant(ctx, (tx) => loadDeskSettings(tx, ctx));
-  return {
-    name: desk.location.name,
-    timezone: desk.location.timezone,
-    businessHours: desk.location.businessHours,
-    address: `${desk.location.addressStreet}, ${desk.location.addressCity} ${desk.location.addressState} ${desk.location.addressZip}`.trim(),
-    phone: desk.location.phone,
-  };
 }

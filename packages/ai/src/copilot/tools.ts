@@ -117,13 +117,24 @@ export const ASK_USER_CLARIFICATION_TOOL: CopilotToolDef = {
 };
 
 /**
- * 领域只读业务工具定义集合 (29 §6.2)
+ * 只读业务工具定义集合。
+ *
+ * ⚠️ **加工具前先问一句：这份数据能不能一次性装进上下文？**
+ *
+ * 服务目录、员工花名册、房间、营业时间、套餐、排班、预约日历这七类
+ * 已经全部随每轮请求直接下发（见 `storeContext.ts`），对应的工具**已删除**。
+ * 留在这里的只有三类真正装不下或算不出来的：
+ *
+ * 1. **量太大**：顾客表、订单流水、评价 —— 一家店几千上万条，塞不进去；
+ * 2. **要服务端算**：空档推荐必须按班表、已占时段、并发上限实算，
+ *    让模型自己推必然出错；
+ * 3. **有副作用/要签名**：健康表链接要签发一次性令牌。
  */
 export const READ_ONLY_TOOL_DEFINITIONS: CopilotToolDef[] = [
   {
     name: 'resolve_customers',
     description:
-      '批量模糊检索姓名、电话后几位。命中1位返回明确 customerId；命中多位返回多条候选供前台点选，严禁模型自行盲猜选择。',
+      '按姓名、电话后几位模糊检索顾客。命中 1 位返回明确 customerId；命中多位返回候选列表，必须交给前台点选，严禁自行挑一个。',
     strict: false,
     requiredPermissions: ['customer.read'],
     parameters: {
@@ -137,58 +148,40 @@ export const READ_ONLY_TOOL_DEFINITIONS: CopilotToolDef[] = [
     },
   },
   {
-    name: 'get_service_catalog',
+    name: 'get_customer_detail',
     description:
-      '查询本店服务项目目录及其变体、标准时长、底价分值、适用资源类型。',
+      '查询指定客户的详细档案：终身消费、到店总次数、爽约次数、最近工单、会员标签及过敏/喜好备注。',
     strict: false,
-    requiredPermissions: ['appointment.read'],
+    requiredPermissions: ['customer.read'],
     parameters: {
       type: 'object',
       properties: {
-        search: { type: 'string', description: '服务名称关键词（可选）' },
-        category: { type: 'string', description: '项目大类（可选）' },
+        customerId: { type: 'string', description: '客户 UUID' },
       },
-      required: [],
+      required: ['customerId'],
       additionalProperties: false,
     },
   },
   {
-    name: 'get_staff_directory',
+    name: 'list_inactive_customers',
     description:
-      '列出全店技师的稳定 membershipId、姓名、技能标签（Skills）、是否可排单（isBookable）及当天出勤班次。针对具体技师的操作必须先通过本工具获取真实 membershipId。',
+      '查询近 N 天内未到店的沉睡老客，返回姓名、电话后四位与上次到店日期。',
     strict: false,
-    requiredPermissions: ['schedule.read'],
+    requiredPermissions: ['customer.read'],
     parameters: {
       type: 'object',
       properties: {
-        date: { type: 'string', description: '查询日期 YYYY-MM-DD，默认为今天' },
+        days: { type: 'integer', description: '未到店天数阈值，如 60 或 90，默认 60' },
+        limit: { type: 'integer', description: '最多返回条数，默认 10' },
       },
       required: [],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'search_appointments',
-    description:
-      '支持跨日与当日预约查询，返回 appointmentId、客户、项目、指派技师、时段与状态。',
-    strict: false,
-    requiredPermissions: ['appointment.read'],
-    parameters: {
-      type: 'object',
-      properties: {
-        businessDate: { type: 'string', description: '营业日 YYYY-MM-DD' },
-        customerId: { type: 'string', description: '客户 UUID（可选）' },
-        staffMembershipId: { type: 'string', description: '技师 membershipId（可选）' },
-        cursor: { type: 'string', description: '分页游标（可选）' },
-      },
-      required: ['businessDate'],
       additionalProperties: false,
     },
   },
   {
     name: 'plan_appointment_slots',
     description:
-      '综合空档预检。支持多人同行容量预检 (partySize)；改期时排除原单占用 (excludeAppointmentId)；支持回合内内存级临时占位 (previousHolds)，避免为多人依次排单时互撞。',
+      '按班表与已占时段实算空档。支持多人同行容量预检 (partySize)、改期时排除原单占用 (excludeAppointmentId)、以及回合内内存级临时占位 (previousHolds) 避免为多人依次排单时互撞。**只在前台要你推荐时间时调用**；前台已经给了具体时间就直接用，不要调。',
     strict: false,
     requiredPermissions: ['appointment.read'],
     parameters: {
@@ -219,148 +212,15 @@ export const READ_ONLY_TOOL_DEFINITIONS: CopilotToolDef[] = [
     },
   },
   {
-    name: 'validate_task_draft',
-    description:
-      '纯逻辑预检工具。在不写库的情况下，检验步骤参数完整性、时段冲突及权限覆盖，返回 ready / conflict / invalid 状态及具体冲突说明。',
-    strict: false,
-    parameters: {
-      type: 'object',
-      properties: {
-        steps: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              command: { type: 'string' },
-              input: { type: 'object' },
-            },
-            required: ['command', 'input'],
-            additionalProperties: true,
-          },
-        },
-      },
-      required: ['steps'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'list_rooms',
-    description:
-      '返回房态列表（包含 resourceId、名称、容量、当前状态：available/cleaning/in_service/maintenance）。修改房态前必须查此工具获取真实 ID。',
-    strict: false,
-    requiredPermissions: ['appointment.read'],
-    parameters: {
-      type: 'object',
-      properties: {},
-      required: [],
-      additionalProperties: false,
-    },
-  },
-  {
     name: 'get_revenue_analytics',
     description:
-      '查指定营业日的营收、客单价、支付方式占比及工单量。当日无需额外报表权限，跨日校验 report.view 权限。',
+      '查指定营业日区间的营收、客单价、支付方式占比及工单量。当日无需额外报表权限，跨日校验 report.view 权限。',
     strict: false,
     parameters: {
       type: 'object',
       properties: {
         from: { type: 'string', description: '起始营业日 YYYY-MM-DD' },
         to: { type: 'string', description: '截止营业日 YYYY-MM-DD' },
-      },
-      required: [],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'get_customer_detail',
-    description:
-      '查询指定客户的详细档案、终身消费、到店总次数、爽约次数、最近工单、会员标签及过敏/喜好备注。',
-    strict: false,
-    requiredPermissions: ['customer.read'],
-    parameters: {
-      type: 'object',
-      properties: {
-        customerId: { type: 'string', description: '客户 UUID' },
-      },
-      required: ['customerId'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'list_inactive_customers',
-    description:
-      '查询近 N 天内未到店的沉睡老客列表，返回客户姓名、电话后四位及上次到店日期。',
-    strict: false,
-    requiredPermissions: ['customer.read'],
-    parameters: {
-      type: 'object',
-      properties: {
-        days: { type: 'integer', description: '未到店天数阈值，如 60 或 90，默认 60' },
-        limit: { type: 'integer', description: '最多返回条数，默认 10' },
-      },
-      required: [],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'get_staff_schedules',
-    description:
-      '查询全店技师的排班日历、请假状态与上下班时段，支持指定起始日期与跨度。',
-    strict: false,
-    requiredPermissions: ['schedule.read'],
-    parameters: {
-      type: 'object',
-      properties: {
-        date: { type: 'string', description: '查询起始日期 YYYY-MM-DD，默认为今天' },
-        days: { type: 'integer', description: '查询天数跨度，默认 7 天' },
-      },
-      required: [],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'get_queue_status',
-    description:
-      '查询当前走单候客队列状态（等待中、叫号中、已入座人数及明细、是否超出预期等待时间、健康表是否待签署）。',
-    strict: false,
-    requiredPermissions: ['appointment.read'],
-    parameters: {
-      type: 'object',
-      properties: {
-        date: { type: 'string', description: '营业日 YYYY-MM-DD（可选，默认今日）' },
-      },
-      required: [],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'get_health_form_status',
-    description:
-      '查询客户健康免责声明签署状态与既往病史/过敏禁忌项（已签署/待签署/是否过期/已发链接状态）。',
-    strict: false,
-    requiredPermissions: ['customer.read'],
-    parameters: {
-      type: 'object',
-      properties: {
-        customerId: { type: 'string', description: '客户 UUID（可选）' },
-        appointmentId: { type: 'string', description: '预约 UUID（可选）' },
-      },
-      required: [],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'get_health_form_link',
-    description:
-      '直接生成免责声明填表链接与二维码信息，供前台当面出示或复制给顾客填写。',
-    strict: false,
-    requiredPermissions: ['form.submit'],
-    parameters: {
-      type: 'object',
-      properties: {
-        customerId: { type: 'string', description: '客户 UUID（可选）' },
-        appointmentId: { type: 'string', description: '预约 UUID（可选）' },
-        locale: { type: 'string', description: '表单语言（如 zh-Hans, en, ko, vi, es），默认 zh-Hans' },
       },
       required: [],
       additionalProperties: false,
@@ -384,8 +244,7 @@ export const READ_ONLY_TOOL_DEFINITIONS: CopilotToolDef[] = [
   },
   {
     name: 'get_store_reviews',
-    description:
-      '查询门店综合评分、顾客好评点与最新评价反馈。',
+    description: '查询门店综合评分、顾客好评点与最新评价反馈。',
     strict: false,
     requiredPermissions: ['appointment.read'],
     parameters: {
@@ -396,32 +255,63 @@ export const READ_ONLY_TOOL_DEFINITIONS: CopilotToolDef[] = [
     },
   },
   {
-    name: 'get_promotions_and_cards',
+    name: 'get_health_form_status',
     description:
-      '查询门店当前上架的次卡套餐、活动折扣与礼品卡目录。',
+      '查询客户健康免责声明签署状态与既往病史/过敏禁忌项（已签署 / 待签署 / 是否过期 / 已发链接）。',
     strict: false,
-    requiredPermissions: ['appointment.read'],
+    requiredPermissions: ['customer.read'],
     parameters: {
       type: 'object',
-      properties: {},
+      properties: {
+        customerId: { type: 'string', description: '客户 UUID（可选）' },
+        appointmentId: { type: 'string', description: '预约 UUID（可选）' },
+      },
       required: [],
       additionalProperties: false,
     },
   },
   {
-    name: 'get_store_info',
+    name: 'get_health_form_link',
     description:
-      '查询门店基础信息（名称、地址、电话、营业时间与时区设置）。',
+      '签发免责声明填表链接与二维码信息，供前台当面出示或复制给顾客填写。',
     strict: false,
-    requiredPermissions: ['appointment.read'],
+    requiredPermissions: ['form.submit'],
     parameters: {
       type: 'object',
-      properties: {},
+      properties: {
+        customerId: { type: 'string', description: '客户 UUID（可选）' },
+        appointmentId: { type: 'string', description: '预约 UUID（可选）' },
+        locale: { type: 'string', description: '表单语言（如 zh-Hans, en, ko, vi, es），默认 zh-Hans' },
+      },
       required: [],
       additionalProperties: false,
     },
   },
 ];
+
+/**
+ * 已下线的工具名。
+ *
+ * 这些数据现在随每轮请求直接下发，工具已删除。但模型可能凭旧习惯（或
+ * 会话历史里的旧调用）继续报这些名字 —— 与其回一句无信息的
+ * 「Tool X is not available」让它再猜一轮，不如明确告诉它去哪一段读。
+ */
+export const RETIRED_TOOL_HINTS: Record<string, string> = {
+  find_customer: '本工具已更名，请改用 resolve_customers。',
+  find_open_slots: '本工具已更名，请改用 plan_appointment_slots。',
+  get_appointments: '预约数据（含 appointmentId）已在 <预约日历> 中直接给出，请直接读取。',
+  get_day_overview: '预约数据已在 <预约日历> 中直接给出，请直接读取。',
+  get_promotions_and_cards: '次卡与套餐已在 <门店档案> 的 PACKAGES 段中直接给出，请直接读取。',
+  get_queue_status: '候客队列已在 <现场快照> 的 WAIT 行中直接给出，请直接读取。',
+  get_service_catalog: '服务目录（含 serviceId、时长、价格）已在 <门店档案> 的 SERVICES 段中直接给出，请直接读取。',
+  get_staff_directory: '员工花名册（含 membershipId、技能、是否可排单）已在 <门店档案> 的 STAFF 段中直接给出，请直接读取。',
+  get_staff_schedules: '排班与休假已在 <预约日历> 每日行尾的「在班 / 休」中直接给出，请直接读取。',
+  get_store_info: '门店名称、地址、电话、营业时间、税率已在 <门店档案> 的 LOCATION/HOURS/TAX 段中直接给出，请直接读取。',
+  list_rooms: '房间与工位（含 resourceId、容量）已在 <门店档案> 的 ROOMS 段中直接给出，请直接读取。',
+  list_staff_skills: '技师技能已在 <门店档案> STAFF 段的技能列中直接给出，请直接读取。',
+  search_appointments: '预约数据（含 appointmentId）已在 <预约日历> 中直接给出，请直接读取。',
+  validate_task_draft: '本工具已下线 —— 直接调 propose_task_plan 提交方案，服务端会自动完成全部预检并把问题回报给你。',
+};
 
 /**
  * 构建完整的副驾工具定义列表，按权限过滤并排序（以保持缓存逐字节稳定）

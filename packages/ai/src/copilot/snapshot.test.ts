@@ -9,7 +9,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  formatFloorSnapshot, roughTokens, SNAPSHOT_TOKEN_BUDGET, type FloorSnapshot,
+  formatFloorSnapshot, roughTokens, CONTEXT_TOKEN_BUDGETS, type FloorSnapshot,
 } from './snapshot';
 
 const base: FloorSnapshot = {
@@ -129,29 +129,8 @@ describe('NOW / NEXT / WAIT', () => {
   });
 });
 
-describe('服务项目与员工名册', () => {
-  it('正确格式化 SERVICES 与 STAFF，包含 UUID 和中英文名', () => {
-    const withCatalog = formatFloorSnapshot({
-      ...base,
-      services: [
-        { id: 'svc-1', name: '经络足道', englishName: 'Foot Reflexology', durationMin: 60, priceDollars: '75.00' },
-        { id: 'svc-2', name: '单色美甲', durationMin: 45, priceDollars: '40.00' },
-      ],
-      staff: [
-        { membershipId: 'm-1', name: 'Amy', isBookable: true },
-        { membershipId: 'm-2', name: 'Lisa', isBookable: false },
-      ],
-    });
-
-    expect(withCatalog).toContain('SERVICES:');
-    expect(withCatalog).toContain('[svc-1] 经络足道 (Foot Reflexology) 60m $75.00');
-    expect(withCatalog).toContain('[svc-2] 单色美甲 45m $40.00');
-    expect(withCatalog).toContain('STAFF: [m-1] Amy | [m-2] Lisa [non-bookable]');
-  });
-});
-
 describe('预算', () => {
-  it('⭐ 一家忙店的快照要远小于 1.5k token（05 §6.1 的第一杠杆）', () => {
+  it('⭐ 一家忙店的现场快照不该膨胀 —— 这一段只讲「此刻」', () => {
     // 12 个技师、8 个在做、20 条预约、10 个等位 —— 比真实的忙店还夸张
     const busy: FloorSnapshot = {
       header: { ...base.header, onFloor: 12, queueWaiting: 10 },
@@ -172,7 +151,7 @@ describe('预算', () => {
       idle: ['A', 'B', 'C'],
     };
     const out = formatFloorSnapshot(busy);
-    expect(roughTokens(out)).toBeLessThan(SNAPSHOT_TOKEN_BUDGET);
+    expect(roughTokens(out)).toBeLessThan(CONTEXT_TOKEN_BUDGETS.FLOOR_SNAPSHOT);
   });
 
   it('普通一天的快照小得多', () => {

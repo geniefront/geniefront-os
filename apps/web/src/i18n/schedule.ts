@@ -51,6 +51,7 @@ export const schedule = {
   'schedule.copilotProposalExpired': { 'zh-Hans': '提案已过期，请重新生成', en: 'Proposal expired; generate a new one', ko: '제안이 만료되었습니다. 다시 생성하세요', es: 'La propuesta ha caducado; genera otra', vi: 'Đề xuất đã hết hạn; hãy tạo lại' },
   'schedule.copilotUndoOk': { 'zh-Hans': '已撤销刚才的操作', en: 'The action was undone', ko: '작업을 실행 취소했습니다', es: 'La acción se deshizo', vi: 'Đã hoàn tác thao tác' },
   'schedule.copilotUndoFailed': { 'zh-Hans': '撤销失败：{p0}', en: 'Undo failed: {p0}', ko: '실행 취소 실패: {p0}', es: 'No se pudo deshacer: {p0}', vi: 'Hoàn tác thất bại: {p0}' },
+  'schedule.copilotUndo': { 'zh-Hans': '撤销刚才的操作', en: 'Undo', ko: '실행 취소', es: 'Deshacer', vi: 'Hoàn tác' },
   'schedule.copilotUndoing': { 'zh-Hans': '撤销中…', en: 'Undoing…', ko: '실행 취소 중…', es: 'Deshaciendo…', vi: 'Đang hoàn tác…' },
   'schedule.copilotUndone': { 'zh-Hans': '已撤销', en: 'Undone', ko: '실행 취소됨', es: 'Deshecho', vi: 'Đã hoàn tác' },
   'schedule.copilotRoomChange': { 'zh-Hans': '工位/房间状态变更', en: 'Room / station status change', ko: '룸·스테이션 상태 변경', es: 'Cambio de estado de sala o puesto', vi: 'Đổi trạng thái phòng / vị trí' },

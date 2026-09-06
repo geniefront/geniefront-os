@@ -34,6 +34,19 @@ export const OPUS_5_RATES: ModelRates = {
   cacheWritePerMTok: 625_000,
 };
 
+/**
+ * Sonnet 5 的价格，单位毫分（$3 / $15 每百万 token，05 §7 说了别按优惠价算）。
+ *
+ * 仍在用的是价目表提取、门店文案生成、评价分析这几个 Sonnet 场景；
+ * 前台副驾早已换到 Luna，费率见 `runtime/config.ts` 的 LUNA_RATES。
+ */
+export const SONNET_5_RATES: ModelRates = {
+  inputPerMTok: 300_000,
+  outputPerMTok: 1_500_000,
+  cacheReadPerMTok: 30_000,
+  cacheWritePerMTok: 375_000,
+};
+
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;

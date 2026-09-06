@@ -233,8 +233,22 @@ export async function executeSingleAppointmentInTx(
     overbook?: 'warn' | 'block';
   };
 
-  // ── 项目与时长 ────────────────────────────────────────────────────────────
-  const serviceIds = [...new Set(input.items.map((i) => i.serviceId))];
+  // ── 项目、加项与时长 ──────────────────────────────────────────────────────
+  //
+  // ⭐ **加项是独立收费的服务，必须算进价格快照。**
+  //
+  // 这里以前只查主项目，`addonIds` 原样存进 `addon_ids` 就不管了 —— 而
+  // `ticket.ts` 开工单时直接取 `price_cents_snapshot`，全链路没有任何一处
+  // 回头读 `addon_ids` 去补价。结果是：凡是从前台或副驾建的带加项的单
+  //（「足疗 60 分钟 + 拔罐」），加项的钱最后一分都收不到。
+  //
+  // 公开预约那条路（`public/routes.ts` 的 `priceAndDuration`）本来就是累加的，
+  // 所以这不是「改规则」，是把另外两条路对齐到同一个口径上。
+  //
+  // 时长的口径和价格不同：调用方**显式给了 `durationMin` 就以它为准**
+  //（截图导入时「60min + 拔罐」往往已经写成了总时长 75），没给才按
+  // 主项目 + 各加项的标准时长累加。价格没有这个歧义，一律累加。
+  const serviceIds = [...new Set(input.items.flatMap((i) => [i.serviceId, ...i.addonIds]))];
   const services = await tx<{ id: string; duration_min: number; base_price_cents: number }[]>`
     select id, duration_min, base_price_cents from services
     where id = any(${serviceIds}) and active = true`;
@@ -243,14 +257,25 @@ export async function executeSingleAppointmentInTx(
   const resolved = input.items.map((item) => {
     const svc = svcById.get(item.serviceId);
     if (!svc) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { serviceId: item.serviceId } });
+
+    const addons = item.addonIds.map((id) => {
+      const a = svcById.get(id);
+      // 加项查不到就直接拒，不静默丢掉：存一个悬空的 addon_id 比报错糟糕得多
+      if (!a) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { addonId: id } });
+      return a;
+    });
+
+    const addonCents = addons.reduce((n, a) => n + a.base_price_cents, 0);
+    const addonMinutes = addons.reduce((n, a) => n + a.duration_min, 0);
+
     const startsAt = new Date(item.startsAt);
-    const durationMin = item.durationMin ?? svc.duration_min;
+    const durationMin = item.durationMin ?? (svc.duration_min + addonMinutes);
     return {
       ...item,
       startsAt,
       endsAt: new Date(startsAt.getTime() + durationMin * 60_000),
       durationMin,
-      priceCents: item.priceCentsOverride ?? svc.base_price_cents,
+      priceCents: item.priceCentsOverride ?? (svc.base_price_cents + addonCents),
     };
   });
 

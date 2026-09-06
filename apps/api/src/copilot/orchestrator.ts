@@ -1,12 +1,19 @@
 /**
- * Luna 编排器引擎 (29 §4.2, §5.1, §5.2, §8.2)
+ * Luna 编排器引擎
  *
  * 负责：
- * 1. 维护模型多轮循环 (支持 8 轮动态预算)；
+ * 1. 维护模型多轮循环；
  * 2. 只读工具调用与结果回填；
  * 3. 遇到 ask_user_clarification 挂起为 needs_input；
  * 4. 收到 propose_task_plan 提交预检器并签发不可变 Revision；
  * 5. 模型校验失败时的反思与自我修复循环。
+ *
+ * ## 上下文由调用方组装好再传进来
+ *
+ * 门店档案（稳定段，进 instructions 吃前缀缓存）与现场快照 / 预约日历
+ * （易变段，进 user turn）都是调用方查好、格式化好之后传进来的。
+ * 编排器不认识数据库 —— 这样 `/turns` 和 `/stream` 两条路能共用同一份
+ * 上下文，不会出现两边组装得不一样的情况。
  */
 
 import {
@@ -43,6 +50,10 @@ export interface CopilotOrchestratorArgs {
   taskId?: string | undefined;
   image?: { base64: string; mediaType?: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | undefined } | undefined;
   snapshot: FloorSnapshot;
+  /** 门店档案文本（已由 formatStoreProfile 格式化）。拼进 instructions 吃前缀缓存 */
+  storeProfileText?: string | undefined;
+  /** 预约日历文本（已由 formatBookingCalendar 格式化）。每轮重建，不进缓存 */
+  calendarText?: string | undefined;
   timeAnchor: TimeAnchor;
   readOnlyExecutors: Map<string, (input: Record<string, unknown>) => Promise<unknown>>;
   callbacks?: {
@@ -83,12 +94,13 @@ export async function runCopilotOrchestration(
   });
 
   const commandCatalog = commandCatalogTextForPermissions(ctx.permissions);
-  const instructions = copilotSystemText(commandCatalog);
-  const userPrompt = copilotUserText(
-    formatFloorSnapshot(args.snapshot),
-    args.question,
-    args.timeAnchor,
-  );
+  const instructions = copilotSystemText(commandCatalog, args.storeProfileText);
+  const userPrompt = copilotUserText({
+    timeAnchor: args.timeAnchor,
+    snapshot: formatFloorSnapshot(args.snapshot),
+    calendar: args.calendarText,
+    question: args.question,
+  });
 
   const tools: LunaTool[] = buildCopilotTools(ctx.permissions);
   const toolsUsedSet = new Set<string>();
@@ -122,12 +134,29 @@ export async function runCopilotOrchestration(
     });
   }
 
-  let finalAnswer = '';
+  /**
+   * 逐轮累积模型的文本输出。
+   *
+   * ⚠️ 旧实现是 `finalAnswer = response.text || finalAnswer`，只保留最后
+   * 一轮有文本的那一轮。但 `onDelta` 是**每一轮都往前端推**的，于是前端
+   * 流式看到的是 A+B，落库和最终 `answer` 却只有 B —— 流结束的瞬间画面
+   * 会跳一下，历史记录里也少了一半。改为累积，与推给前端的内容一致。
+   */
+  const answerParts: string[] = [];
   let planRevision: PreviewPayload | null = null;
   let canonicalHash: string | null = null;
   let currentRevision: number | null = null;
   let clarification: AskClarificationInput | null = null;
   let round = 0;
+  /**
+   * 下一次编译要用的版本号。
+   *
+   * 模型第一次提交的方案预检不通过时会被打回重提，每一次重提都必须占用
+   * 一个新版本号 —— 否则两次编译共用同一个 revision，`savePlanRevision`
+   * 的 upsert 会把上一版原地覆盖，而 `copilot_task_steps` 里步骤数变少时
+   * 多出来的旧行不会被清掉，执行时就会带上已经作废的步骤。
+   */
+  let nextRevision = task.currentRevision;
 
   while (round < COPILOT_MAX_ROUNDS) {
     round++;
@@ -149,7 +178,9 @@ export async function runCopilotOrchestration(
     });
 
     usages.push(response.usage);
-    finalAnswer = response.text || finalAnswer;
+    if (response.text && response.text.trim()) {
+      answerParts.push(response.text.trim());
+    }
 
     if (!response.toolCalls || response.toolCalls.length === 0) {
       // 模型没有进一步工具调用，直接输出回答
@@ -173,7 +204,6 @@ export async function runCopilotOrchestration(
         const parsed = askClarificationInput.safeParse(toolCall.arguments);
         if (parsed.success) {
           clarification = parsed.data;
-          finalAnswer = clarification.question;
           await updateTaskStatus(ctx, task.id, 'needs_input');
           await appendTaskEvent(ctx, task.id, 'NEEDS_CLARIFICATION', {
             question: clarification.question,
@@ -190,10 +220,12 @@ export async function runCopilotOrchestration(
         const parsed = proposeTaskPlanInput.safeParse(toolCall.arguments);
         if (parsed.success) {
           args.callbacks?.onStep?.('方案已生成，正在执行业务规则与排期预检...');
+          const revisionForThisAttempt = nextRevision;
+          nextRevision += 1;
           const compiled = await compileTaskPlan(
             ctx,
             task.id,
-            task.currentRevision,
+            revisionForThisAttempt,
             parsed.data,
             args.timeAnchor,
           );
@@ -220,7 +252,7 @@ export async function runCopilotOrchestration(
           // 持久化 Revision 到数据库
           const savedRev = await savePlanRevision(ctx, {
             taskId: task.id,
-            revision: task.currentRevision,
+            revision: revisionForThisAttempt,
             canonicalHash: compiled.canonicalHash,
             previewPayload: compiled.previewPayload,
             executionMode: compiled.executionMode,
@@ -246,9 +278,6 @@ export async function runCopilotOrchestration(
           planRevision = savedRev.previewPayload;
           canonicalHash = savedRev.canonicalHash;
           currentRevision = savedRev.revision;
-          if (!finalAnswer) {
-            finalAnswer = savedRev.previewPayload.summary || savedRev.previewPayload.title;
-          }
           stopLoop = true;
           break;
         } else {
@@ -294,13 +323,15 @@ export async function runCopilotOrchestration(
     if (stopLoop) break;
   }
 
+  let finalAnswer = answerParts.join('\n\n').trim();
+
   if (!finalAnswer) {
     if (clarification?.question) {
       finalAnswer = clarification.question;
     } else if (planRevision?.summary || planRevision?.title) {
       finalAnswer = planRevision.summary || planRevision.title;
     } else {
-      // 8 轮耗尽但仍未产出最终文本回答，发起一次无工具强制收敛总结 (Graceful fallback)
+      // 轮次耗尽但一个字都没产出，发起一次禁用工具的强制收敛总结
       try {
         args.callbacks?.onStep?.('正在整理并输出最终分析结果...');
         const fallbackResp = await luna.invoke({
@@ -316,7 +347,7 @@ export async function runCopilotOrchestration(
           finalAnswer = fallbackResp.text.trim();
         }
       } catch {
-        // ignore fallback failure and use hard fallback below
+        // 收敛调用本身也失败了，走下面的兜底文案
       }
 
       if (!finalAnswer) {

@@ -11,6 +11,7 @@
 import { AppError, ERROR_CODES, type CommandContext } from '@gf/contracts';
 import { withTenant } from '@gf/db';
 import { dispatch } from '../bus.js';
+import { issueCopilotProposal } from './proposalToken.js';
 import { flushEmails } from '../email/flush.js';
 import { flushSms } from '../sms/flush.js';
 import {
@@ -35,6 +36,51 @@ export interface ExecuteTaskResult {
     error?: string | undefined;
     undoToken?: string | undefined;
   }>;
+}
+
+/**
+ * 撤销令牌的有效期。
+ *
+ * 前台按错一下，抬头发现建错了单，5 分钟够她反应过来；再久就该走正常的
+ * 预约取消流程了 —— 那条路有取消原因、有通知客人的开关，撤销按钮没有。
+ */
+const UNDO_TTL_MS = 5 * 60_000;
+
+/**
+ * 为可逆的步骤签发一枚撤销令牌。
+ *
+ * ⚠️ 这里签出来的令牌是**唯一**还能走 `POST /v1/ai/copilot/execute` 的东西，
+ * 且那条路只放行 `appointment.cancel`（见 routes.ts 的 UNDO_COMMANDS）。
+ *
+ * 早先执行结果里的 `undoToken` 塞的是命令总线返回的审计条目 id，前端拿到
+ * 之后没有任何接口能兑现它 —— 撤销按钮点了就是一个 400。
+ */
+function issueUndoToken(
+  ctx: CommandContext,
+  command: string,
+  result: unknown,
+): string | undefined {
+  if (command !== 'appointment.create') return undefined;
+  const appt = result as { appointmentId?: string } | null;
+  if (!appt?.appointmentId) return undefined;
+
+  // ⚠️ 签发失败绝不能把已经成功的写入拖成 failed。
+  //
+  // 签名要读 APP_JWT_SECRET，配置缺失或密钥轮换的瞬间会抛 —— 而这一步跑到
+  // 这里时预约**已经真的建好了**。让它冒泡出去会被外层 catch 记成步骤失败，
+  // 前台看到「建单失败」，实际库里躺着一条单，比没有撤销按钮糟糕得多。
+  try {
+    return issueCopilotProposal(
+      ctx,
+      'appointment.cancel',
+      { appointmentId: appt.appointmentId, reason: 'input_error', notifyCustomer: false },
+      '撤销刚才创建的预约',
+      new Date(),
+      UNDO_TTL_MS,
+    ).token;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function executeTaskPlan(
@@ -182,21 +228,23 @@ export async function executeTaskPlan(
         idempotencyKey: step.operationKey,
       });
 
+      const undoToken = issueUndoToken(ctx, step.command, dispatchResult.result);
+
       await updateStepStatus(ctx, {
         taskId: args.taskId,
         revision: args.revision,
         stepIndex: step.stepIndex,
         status: 'succeeded',
         executionResult: dispatchResult.result as Record<string, unknown>,
-        undoToken: dispatchResult.undoToken,
-        undoExpiresAt: dispatchResult.undoToken ? new Date(Date.now() + 60_000) : null,
+        undoToken,
+        undoExpiresAt: undoToken ? new Date(Date.now() + UNDO_TTL_MS) : null,
       });
 
+      // 事件流里不放令牌：SSE 会被回放、会落库，撤销令牌不该跟着到处跑。
       await appendTaskEvent(ctx, args.taskId, 'STEP_SUCCEEDED', {
         stepIndex: step.stepIndex,
         command: step.command,
         result: dispatchResult.result,
-        undoToken: dispatchResult.undoToken,
       });
 
       executedSteps.push({
@@ -204,7 +252,7 @@ export async function executeTaskPlan(
         command: step.command,
         status: 'succeeded',
         result: dispatchResult.result,
-        undoToken: dispatchResult.undoToken,
+        undoToken,
       });
       hasSuccess = true;
     } catch (err: any) {

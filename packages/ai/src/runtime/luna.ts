@@ -280,7 +280,9 @@ export class LunaRuntime {
         input,
         tools,
         tool_choice: this.formatToolChoice(opts.toolChoice),
-        parallel_tool_calls: false,
+        // 编排器本来就是把一轮里的每个 toolCall 逐个执行完再回填，允许模型
+        // 在一轮里同时要几样东西（比如「找客户」+「算空档」）能少一整轮往返。
+        parallel_tool_calls: true,
       };
 
       const responseStream = await this.client.responses.create(
@@ -294,7 +296,18 @@ export class LunaRuntime {
       const stream = (responseStream as unknown) as AsyncIterable<any>;
 
       let fullText = '';
-      const toolCallsMap = new Map<string, { name: string; argsText: string }>();
+      /**
+       * 流式工具调用的累积缓冲，键是 output item 的 id。
+       *
+       * ⚠️ 这里必须用 **item_id** 而不是 call_id 归并。
+       * `response.output_item.added` 带的是 `item.id` + `item.call_id`，
+       * 而 `response.function_call_arguments.delta` 只带 `item_id` ——
+       * 旧实现两处各取各的（一处 `item.call_id || item.id`，另一处
+       * `event.call_id || event.item_id`），同一个工具调用会被拆成两条记录：
+       * 一条有名字没参数，一条有参数没名字。平时靠优先读 `rawResponse.output`
+       * 掩盖住了，一旦流被截断（status = incomplete）就会拿到空参数的调用。
+       */
+      const toolCallsMap = new Map<string, { callId: string; name: string; argsText: string }>();
       const toolCallStepCountMap = new Map<string, number>();
       let rawResponse: any = null;
 
@@ -304,30 +317,47 @@ export class LunaRuntime {
           fullText += delta;
           opts.onDelta?.(delta);
         } else if (event.type === 'response.function_call_arguments.delta') {
-          const callId = event.call_id || event.item_id || 'default';
-          const prev = toolCallsMap.get(callId) || { name: event.name || '', argsText: '' };
+          const itemId = event.item_id || event.call_id || 'default';
+          const prev = toolCallsMap.get(itemId)
+            || { callId: event.call_id || itemId, name: event.name || '', argsText: '' };
+          if (event.call_id && !prev.callId) prev.callId = event.call_id;
           if (event.name && !prev.name) {
             prev.name = event.name;
-            opts.onToolCallStart?.(event.name, callId);
+            opts.onToolCallStart?.(event.name, prev.callId);
           }
           prev.argsText += event.delta ?? '';
-          toolCallsMap.set(callId, prev);
+          toolCallsMap.set(itemId, prev);
 
           if (prev.name === 'propose_task_plan' && opts.onToolCallProgress) {
             const stepMatches = prev.argsText.match(/"command"\s*:\s*"[^"]+"/g);
             const count = stepMatches ? stepMatches.length : 0;
-            const last = toolCallStepCountMap.get(callId) || 0;
+            const last = toolCallStepCountMap.get(itemId) || 0;
             if (count > last) {
-              toolCallStepCountMap.set(callId, count);
+              toolCallStepCountMap.set(itemId, count);
               opts.onToolCallProgress(prev.name, `正在整理第 ${count} 项预约方案...`);
             }
           }
         } else if (event.type === 'response.output_item.added') {
           if (event.item?.type === 'function_call') {
-            const callId = event.item.call_id || event.item.id;
+            const itemId = event.item.id || event.item.call_id;
             const name = event.item.name || '';
-            toolCallsMap.set(callId, { name, argsText: '' });
-            opts.onToolCallStart?.(name, callId);
+            toolCallsMap.set(itemId, {
+              callId: event.item.call_id || itemId,
+              name,
+              argsText: '',
+            });
+            opts.onToolCallStart?.(name, event.item.call_id || itemId);
+          }
+        } else if (event.type === 'response.output_item.done') {
+          // 参数在 done 事件里是完整的一份，用它覆盖增量拼出来的那份，
+          // 避免中间丢过一个 delta 导致 JSON 截断。
+          if (event.item?.type === 'function_call') {
+            const itemId = event.item.id || event.item.call_id;
+            toolCallsMap.set(itemId, {
+              callId: event.item.call_id || itemId,
+              name: event.item.name || toolCallsMap.get(itemId)?.name || '',
+              argsText: event.item.arguments ?? toolCallsMap.get(itemId)?.argsText ?? '',
+            });
           }
         } else if (event.type === 'response.completed' || event.type === 'response.incomplete' || event.type === 'response.failed') {
           rawResponse = event.response;
@@ -357,7 +387,8 @@ export class LunaRuntime {
           }
         }
       } else {
-        for (const [callId, info] of toolCallsMap.entries()) {
+        for (const info of toolCallsMap.values()) {
+          if (!info.name) continue;
           let parsedArgs: Record<string, unknown> = {};
           try {
             parsedArgs = JSON.parse(info.argsText || '{}');
@@ -365,7 +396,7 @@ export class LunaRuntime {
             parsedArgs = {};
           }
           toolCalls.push({
-            callId,
+            callId: info.callId,
             name: info.name,
             arguments: parsedArgs,
             rawArguments: info.argsText || '{}',

@@ -4,7 +4,7 @@
 
 import type { CommandContext } from '@gf/contracts';
 import { withTenant } from '@gf/db';
-import { pickText } from '@gf/contracts';
+import { businessDayStart } from '@gf/scheduling';
 import { loadSlotContext, summariseSlots } from '../../queries/slots.js';
 
 function norm(s: string): string {
@@ -41,9 +41,19 @@ export async function planAppointmentSlots(
   let around = new Date();
   if (dateStr) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-      // 纯日期格式按当天 16:00 UTC（纽约本地时间中午 12:00 EDT）解析，避免 UTC 零点在西区（如 UTC-4）回退到前一天晚上
-      const [y = 2026, m = 1, d = 1] = dateStr.split('-').map(Number);
-      around = new Date(Date.UTC(y, m - 1, d, 16, 0, 0));
+      // 纯日期没带时刻，要落在门店那一天的中段。
+      //
+      // ⚠️ 旧实现写死 `Date.UTC(y, m-1, d, 16)`（"纽约中午"），西海岸和夏威夷
+      // 的店会整体偏几个小时，冬夏令时切换后连东部也会偏一小时。改为按门店
+      // 真实时区算：营业日起点（cutoff，通常 04:00 本地）往后推 8 小时，
+      // 落在当天正午上下，且自动跟随夏令时。
+      const [loc] = await withTenant(ctx, (tx) => tx<{ tz: string; cutoff: string }[]>`
+        select timezone as tz, business_day_cutoff::text as cutoff
+        from locations where id = ${ctx.locationId}`);
+      around = new Date(
+        businessDayStart(dateStr, loc?.tz ?? 'America/New_York', loc?.cutoff ?? '04:00').getTime()
+        + 8 * 60 * 60_000,
+      );
     } else if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(dateStr)) {
       around = new Date(dateStr.replace(' ', 'T'));
     } else {
@@ -114,67 +124,6 @@ export async function planAppointmentSlots(
     slots: top.map((s) => ({
       startsAt: s.startsAt.toISOString(),
       staff: s.staff,
-    })),
-  };
-}
-
-export async function searchAppointments(
-  ctx: CommandContext,
-  input: Record<string, unknown>,
-): Promise<unknown> {
-  const date = String(input['businessDate'] ?? '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'businessDate 格式需为 YYYY-MM-DD' };
-
-  const customerId = input['customerId'] ? String(input['customerId']) : null;
-  const staffMembershipId = input['staffMembershipId'] ? String(input['staffMembershipId']) : null;
-  const limit = Math.max(1, Math.min(100, Number(input['limit'] ?? 40)));
-
-  const rows = await withTenant(ctx, (tx) => tx<{
-    item_id: string;
-    appointment_id: string;
-    starts_at: string | Date;
-    duration_min: number;
-    customer_id: string | null;
-    customer_name: string | null;
-    walk_in_name: string | null;
-    service_name: unknown;
-    staff_name: unknown;
-    staff_id: string | null;
-    status: string;
-    is_request: boolean;
-  }[]>`
-    select ai.id as item_id, ai.appointment_id, ai.starts_at, ai.duration_min,
-           a.customer_id, c.display_name as customer_name, a.walk_in_name,
-           s.name as service_name, sp.display_name as staff_name, ai.membership_id as staff_id,
-           ai.status, ai.is_request
-    from appointment_items ai
-    join appointments a on a.id = ai.appointment_id
-    join services s on s.id = ai.service_id
-    left join staff_profiles sp on sp.membership_id = ai.membership_id
-    left join customers c on c.id = a.customer_id
-    where ai.location_id = ${ctx.locationId}
-      and a.business_date = ${date}
-      and ai.status <> 'cancelled'
-      ${customerId ? tx`and a.customer_id = ${customerId}` : tx``}
-      ${staffMembershipId ? tx`and ai.membership_id = ${staffMembershipId}` : tx``}
-    order by ai.starts_at
-    limit ${limit}`);
-
-  return {
-    businessDate: date,
-    totalCount: rows.length,
-    appointments: rows.map((r) => ({
-      appointmentId: r.appointment_id,
-      itemId: r.item_id,
-      customerId: r.customer_id,
-      customer: r.customer_name ?? r.walk_in_name ?? '散客',
-      service: pickText(r.service_name, ctx.locale),
-      staffId: r.staff_id,
-      staff: r.staff_name ? pickText(r.staff_name, ctx.locale) : null,
-      startsAt: new Date(r.starts_at).toISOString(),
-      durationMin: r.duration_min,
-      status: r.status,
-      isRequest: r.is_request,
     })),
   };
 }
