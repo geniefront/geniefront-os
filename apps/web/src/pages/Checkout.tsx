@@ -740,7 +740,7 @@ function CheckoutContent() {
               {paymentStage === 'service' && t('checkout.stageServiceHint')}
               {paymentStage === 'tip' && t('checkout.stageTipHint')}
               {paymentStage === 'combined' && selected.checkoutTiming === 'upfront_combined' && t('checkout.stageUpfrontHint')}
-              {paymentStage === 'combined' && selected.checkoutTiming === 'after_service_combined' && t('checkout.stageAfterHint')}
+              {paymentStage === 'combined' && selected.checkoutTiming !== 'upfront_combined' && t('checkout.stageAfterHint')}
               {!paymentStage && (selected.serviceSettledAt
                 ? t('checkout.stagePaidWaitingCompletion')
                 : t('checkout.stageWaitingCompletion'))}

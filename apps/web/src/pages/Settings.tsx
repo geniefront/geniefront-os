@@ -2696,6 +2696,16 @@ export function Settings() {
                 onChange={(event) => setServiceStaffCount(event.target.value)}
                 className="w-24 font-mono text-xs"
               />
+            </div>
+
+            {/* 必需技能是独立的一节：和「技师人数」分开标注，避免被当成说明文字 */}
+            <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <label className="flex items-center justify-between text-[11px] font-bold text-slate-700 uppercase">
+                <span>{t('settings.stRequiredSkillsLabel')}</span>
+                {serviceRequiredSkillIds.length > 0 && (
+                  <span className="text-teal-700 normal-case">{t('settings.stRequiredSkillsSelected', { p0: String(serviceRequiredSkillIds.length) })}</span>
+                )}
+              </label>
               <div className="text-[10px] leading-relaxed text-slate-500">{t('settings.stRequiredSkillsHint')}</div>
               <div className="flex flex-wrap gap-1.5">
                 {(settings?.skills ?? [])
@@ -2707,16 +2717,19 @@ export function Settings() {
                     <button
                       key={skill.id}
                       type="button"
+                      aria-pressed={checked}
                       onClick={() => setServiceRequiredSkillIds((current) => checked
                         ? current.filter((id) => id !== skill.id)
                         : [...current, skill.id])}
                       className={cn(
-                        'rounded-full border px-2.5 py-1 text-[10px] font-bold transition',
-                        checked ? 'border-teal-500 bg-teal-50 text-teal-800' : 'border-slate-200 bg-white text-slate-600',
+                        'rounded-full border px-2.5 py-1 text-[10px] font-bold transition cursor-pointer',
+                        checked
+                          ? 'border-teal-500 bg-teal-500 text-white shadow-sm'
+                          : 'border-slate-300 bg-white text-slate-600 hover:border-teal-400 hover:text-teal-700',
                         !skill.active && 'opacity-60',
                       )}
                     >
-                      {checked ? '✓ ' : ''}{skill.name}{!skill.active ? t('settings.stSkillInactive') : ''}
+                      {checked ? '✓ ' : '+ '}{skill.name}{!skill.active ? t('settings.stSkillInactive') : ''}
                     </button>
                   );
                 })}

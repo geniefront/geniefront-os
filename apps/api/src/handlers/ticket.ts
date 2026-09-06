@@ -662,8 +662,10 @@ async function closeOneTicket(args: {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'zero_tip_payment_not_allowed' } });
     }
   } else {
+    // service_then_tip 只有在服务尚未完工时才必须走两阶段；一旦全部项目完工且
+    // 未收过任何款，就允许一次性合并结清，否则现场客直接入座做完的工单会卡死。
     if (ticket.serviceSettledAt || ticket.tipSettledAt
-      || (ticket.checkoutTiming === 'service_then_tip')) {
+      || (ticket.checkoutTiming === 'service_then_tip' && !serviceCompleted)) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'combined_stage_not_available' } });
     }
   }

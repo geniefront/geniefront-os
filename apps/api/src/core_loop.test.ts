@@ -316,6 +316,61 @@ describe('预约到收银的真实闭环', () => {
     await setCheckoutTiming('after_service_combined');
   });
 
+  it('service_then_tip 下现场客做完才结账：两阶段窗口已过，允许一次性合并结清', async () => {
+    await setCheckoutTiming('service_then_tip');
+    const appointmentId = await createAppointment();
+    await run('queue.join', { appointmentId, source: 'desk' }, `checkin-a2-${appointmentId}`);
+    const opened = await run<{
+      ticketId: string; ticketItemIds: string[]; subtotalCents: number;
+    }>('ticket.open', {
+      appointmentId,
+      customerId: null,
+      items: [{ serviceId, membershipId, minutes: 45 }],
+    }, `timing-a2-${appointmentId}`);
+
+    // 完工前从未收过服务款
+    await run('ticket.finishItem', { ticketItemId: opened.result.ticketItemIds[0]!, membershipId });
+
+    // combined 结清应放行（此前会抛 combined_stage_not_available，工单卡死）
+    await run('ticket.pay', {
+      ticketId: opened.result.ticketId,
+      paymentStage: 'combined',
+      payments: [{ method: 'card', amountCents: dueCents(opened.result.subtotalCents), tipCents: 0 }],
+    }, `timing-a2-combined-${appointmentId}`);
+
+    const [closed] = await withTenant(tenant, (tx) => tx<{
+      status: string; service_settled_at: string | null; tip_settled_at: string | null;
+    }[]>`select status, service_settled_at::text, tip_settled_at::text
+          from tickets where id = ${opened.result.ticketId}`);
+    expect(closed?.status).toBe('closed');
+    expect(closed?.service_settled_at).toBeTruthy();
+    expect(closed?.tip_settled_at).toBeTruthy();
+    await setCheckoutTiming('after_service_combined');
+  });
+
+  it('service_then_tip 下服务未完工时，combined 结账仍被拒绝', async () => {
+    await setCheckoutTiming('service_then_tip');
+    const appointmentId = await createAppointment();
+    await run('queue.join', { appointmentId, source: 'desk' }, `checkin-a3-${appointmentId}`);
+    const opened = await run<{
+      ticketId: string; ticketItemIds: string[]; subtotalCents: number;
+    }>('ticket.open', {
+      appointmentId,
+      customerId: null,
+      items: [{ serviceId, membershipId, minutes: 45 }],
+    }, `timing-a3-${appointmentId}`);
+
+    await expect(run('ticket.pay', {
+      ticketId: opened.result.ticketId,
+      paymentStage: 'combined',
+      payments: [{ method: 'card', amountCents: dueCents(opened.result.subtotalCents), tipCents: 0 }],
+    }, `timing-a3-combined-${appointmentId}`)).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      details: { reason: 'combined_stage_not_available' },
+    });
+    await setCheckoutTiming('after_service_combined');
+  });
+
   it('开工前合并收款，完工时自动关单且不重复收款', async () => {
     await setCheckoutTiming('upfront_combined');
     const appointmentId = await createAppointment();

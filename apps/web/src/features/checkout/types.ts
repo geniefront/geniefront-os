@@ -122,6 +122,9 @@ export function paymentStageFor(ticket: OpenTicket): PaymentStage | null {
   if (ticket.checkoutTiming === 'service_then_tip') {
     if (!ticket.serviceSettledAt && !ticket.serviceCompleted) return 'service';
     if (ticket.serviceSettledAt && ticket.serviceCompleted && !ticket.tipSettledAt) return 'tip';
+    // 服务已完工却从未预收服务款（如现场客直接入座做完才结账）：两阶段窗口已过，
+    // 没有可走的先服务后小费路径，退化为一次性合并结账，避免工单卡死无法收款。
+    if (!ticket.serviceSettledAt && !ticket.tipSettledAt && ticket.serviceCompleted) return 'combined';
     return null;
   }
   if (ticket.checkoutTiming === 'upfront_combined') {

@@ -95,5 +95,29 @@
 - `dev:web:local` 冒烟：Vite ready、`curl 127.0.0.1:5177` = 200。
 
 ### 仍待办
-- staging 上做一次真人冒烟（新增员工回读、目录停用、多人房逐项完成）—— 需要 staging 登录凭据，本轮未做。
 - 生产迁移（如果要上生产）：`GF_CONFIRM_PRODUCTION=deploy-production pnpm migrate:production`。
+
+## 2026-09-06 staging 真人冒烟发现的两个问题（已修，未部署）
+
+用户在 staging（金足足疗 / SPA 店）冒烟时报了两个：
+
+### 问题 1：`service_then_tip` 结账时机下，现场客做完才结账 → 工单卡死收不了款
+- 现象：结账页显示「等待下一阶段 / 当前模式要求服务完成后结账，请等待全部项目完工」，收款按钮永久禁用；用户强行提交时后端返回 `VALIDATION_FAILED / combined_stage_not_available`。
+- 根因：`service_then_tip`（先结服务款、后结小费）由 commit `f8169ca` 引入，设计前提是**服务完工前**先收服务款。房态入座 / 现场客流程**从不预收服务款** —— 入座→做→完工→才去结账。此时 `paymentStageFor` 返回 `null`（服务已完工但从未结算），两阶段都走不了。**不是本次房态/员工重构引入的**；默认时机 `after_service_combined` 全程正常（本机复现：入座→完工→结账 $60/$80 成功）。
+- 修复（最小改动，保留两阶段语义）：
+  - `apps/web/src/features/checkout/types.ts` `paymentStageFor`：`service_then_tip` 且服务已完工、未收过任何款 → 返回 `'combined'`（两阶段窗口已过，退化为一次性合并）。
+  - `apps/api/src/handlers/ticket.ts` `closeOneTicket` combined 分支：`service_then_tip` 只在**服务未完工**时才拒绝 combined；完工后放行。
+  - `apps/web/src/pages/Checkout.tsx`：combined 阶段的提示文案对非 `upfront_combined` 一律用 `stageAfterHint`。
+  - 回归：`core_loop.test.ts` 新增 2 例（完工前无收款→combined 放行关单；未完工→combined 仍拒绝）。15/15 绿。本机浏览器复验：原本卡死的 `service_then_tip` 工单结账 $80 成功。
+- 备注：若店家确实要两阶段，须在**标记项目完工前**先收服务款（模式设计本就如此，见 `checkout-timing.test.ts` 用例 A）。
+
+### 问题 2：找不到「编辑项目必需技能」的入口
+- 现象：用户进到 Settings → 服务项目与价目 → 编辑服务，没认出必需技能编辑器。
+- 根因：技能选择器**在**弹窗里，但和「该项目同时需要的技师人数」挤在同一个框、位于说明文字下方，渲染成一排灰色药丸，没有可点交互暗示，被当成了说明文字。
+- 修复（`apps/web/src/pages/Settings.tsx` + `i18n/settings.ts`）：把「必需技能」拆成独立带标题的一节，标题右侧显示「已选 N 项」；未选药丸加 `+ ` 前缀 + hover 高亮，已选填充实心 teal + `✓` + `aria-pressed`。本机复验：点击切换正常，`aria-pressed` / 配色正确。
+
+### 本轮验证
+- `pnpm --filter @gf/web typecheck` / `@gf/api typecheck`：通过。
+- `apps/web` 全量：52 files / 260 tests 绿。
+- `apps/api`：`core_loop`(15)、`money`(16)、`checkout-timing`(6)、`ticketLifecycle`(2) 绿；全量回归见会话。
+- 未部署 —— 这 6 个文件的改动待用户 review 后再 push。
