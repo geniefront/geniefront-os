@@ -214,11 +214,19 @@ export function registerCopilotRoutes(
         throw new AppError(ERROR_CODES.NOT_FOUND, { details: { resource: 'copilot_task', id: req.params.id } });
       }
 
+      reply.hijack();
+      const origin = req.headers.origin;
       reply.raw.writeHead(200, {
-        'Content-Type': 'text/event-stream',
+        'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
         'Connection': 'keep-alive',
+        ...(origin ? {
+          'Access-Control-Allow-Origin': origin,
+          'Access-Control-Allow-Credentials': 'true',
+          'Vary': 'Origin',
+        } : {}),
       });
+      reply.raw.flushHeaders();
 
       const afterSeq = Number(req.query.after ?? 0);
       const pastEvents = await getTaskEventsAfter(ctx, req.params.id, afterSeq);
@@ -366,28 +374,20 @@ export function registerCopilotRoutes(
     sessionId?: string;
     image?: { base64: string; mediaType?: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' };
   } }>('/v1/ai/copilot/stream', { bodyLimit: COPILOT_BODY_LIMIT }, async (req, reply) => {
-    const ctx = await ctxFromHeaders(req);
-    if (!ctx.permissions.has('ai.use')) {
-      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
-    }
-
-    const question = (req.body?.question ?? '').trim();
-    const imageInput = parseCopilotImage(req.body?.image);
-
-    const timeAnchor = await buildTimeAnchor(ctx);
-    const turn = await beginCopilotTurn(ctx, req.body?.sessionId, question, Boolean(imageInput));
-    const snapshot = await withTenant(ctx, (tx) => loadFloorSnapshot(tx, ctx));
-
-    const readOnlyExecutors = createReadOnlyToolExecutors(ctx);
-
-    // AUD-03 准入闸门
-    await assertAiAdmission(ctx);
+    reply.hijack();
+    const origin = req.headers.origin;
 
     reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
+      'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
+      ...(origin ? {
+        'Access-Control-Allow-Origin': origin,
+        'Access-Control-Allow-Credentials': 'true',
+        'Vary': 'Origin',
+      } : {}),
     });
+    reply.raw.flushHeaders();
 
     const sendEvent = (obj: Record<string, unknown>) => {
       try {
@@ -400,6 +400,24 @@ export function registerCopilotRoutes(
     sendEvent({ type: 'step', step: '正在连接智能引擎...' });
 
     try {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('ai.use')) {
+        sendEvent({ type: 'error', error: 'Permission denied: need ai.use' });
+        reply.raw.end();
+        return;
+      }
+
+      const question = (req.body?.question ?? '').trim();
+      const imageInput = parseCopilotImage(req.body?.image);
+
+      const timeAnchor = await buildTimeAnchor(ctx);
+      const turn = await beginCopilotTurn(ctx, req.body?.sessionId, question, Boolean(imageInput));
+      const snapshot = await withTenant(ctx, (tx) => loadFloorSnapshot(tx, ctx));
+
+      const readOnlyExecutors = createReadOnlyToolExecutors(ctx);
+
+      // AUD-03 准入闸门
+      await assertAiAdmission(ctx);
       const result = await runCopilotOrchestration(ctx, {
         question,
         sessionId: turn.sessionId,

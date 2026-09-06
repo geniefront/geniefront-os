@@ -99,10 +99,11 @@ export function buildServer(): FastifyInstance {
     // Cloudflare 在前面，真实 IP 在 CF-Connecting-IP / X-Forwarded-For
     trustProxy: true,
     bodyLimit: 1_000_000,
-    // ⚠️ 请求超时：防止慢查询 / 慢客户端无限占用连接。
-    requestTimeout: 30_000,
-    // 连接建立但迟迟不发送首行，10s 关掉
-    connectionTimeout: 10_000,
+    // ⚠️ 请求超时：防止慢查询 / 慢客户端无限占用连接（AI 端点可能需要数十秒）。
+    requestTimeout: 120_000,
+    // 连接超时关掉，避免长请求（如 AI 编排）在 10s 被 Node 强制切断
+    connectionTimeout: 0,
+    keepAliveTimeout: 65_000,
   });
 
   // ── CORS ──────────────────────────────────────────────────────────────────
