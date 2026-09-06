@@ -17,7 +17,7 @@ import { parseTs } from '@gf/db';
 import { pickText, type CommandContext } from '@gf/contracts';
 import { computeStanding, FULL_TURN } from '@gf/rotation';
 import { businessDateOf } from '@gf/scheduling';
-import type { FloorSnapshot } from '@gf/ai';
+import type { FloorSnapshot, FloorSnapshotService, FloorSnapshotStaff } from '@gf/ai';
 import { loadRotation, currentBusinessDate, stripRank } from '../handlers/rotation';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
@@ -177,6 +177,44 @@ export async function loadFloorSnapshot(
     };
   });
 
+  // ── 全店服务目录（一次性下发，消除反复调 get_service_catalog 的往返）────
+  const serviceRows = await tx<{
+    id: string;
+    name: unknown;
+    duration_min: number;
+    base_price_cents: number;
+  }[]>`
+    select s.id, s.name, s.duration_min, s.base_price_cents
+    from services s
+    where s.location_id = ${ctx.locationId} and s.active = true
+    order by s.sort nulls last, s.name`;
+
+  const services: FloorSnapshotService[] = serviceRows.map((s) => ({
+    id: s.id,
+    name: pickText(s.name, ctx.locale),
+    englishName: typeof s.name === 'object' && s.name ? ((s.name as Record<string, string>)['en'] || (s.name as Record<string, string>)['en-US'] || null) : null,
+    durationMin: s.duration_min,
+    priceDollars: (s.base_price_cents / 100).toFixed(2),
+  }));
+
+  // ── 全店技师员工花名册（含 ID 与可预约状态，消除反复调 get_staff_directory）──
+  const staffRows = await tx<{
+    membership_id: string;
+    display_name: unknown;
+    is_bookable: boolean;
+  }[]>`
+    select sp.membership_id, sp.display_name, sp.is_bookable
+    from staff_profiles sp
+    join memberships m on m.id = sp.membership_id and m.status = 'active'
+    where sp.location_id = ${ctx.locationId}
+    order by sp.is_bookable desc, sp.employee_no nulls last, sp.display_name->>'en'`;
+
+  const staff: FloorSnapshotStaff[] = staffRows.map((s) => ({
+    membershipId: s.membership_id,
+    name: pickText(s.display_name, ctx.locale),
+    isBookable: s.is_bookable,
+  }));
+
   return {
     header: {
       clock: wallClock(now, tz),
@@ -229,6 +267,8 @@ export async function loadFloorSnapshot(
       .map((e) => e.name),
 
     skills: skillsMap,
+    services,
+    staff,
   };
 }
 

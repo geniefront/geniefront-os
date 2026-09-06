@@ -123,6 +123,20 @@ export interface QueueEntry {
   wants?: string;
 }
 
+export interface FloorSnapshotService {
+  id: string;
+  name: string;
+  englishName?: string | null;
+  durationMin: number;
+  priceDollars: string;
+}
+
+export interface FloorSnapshotStaff {
+  membershipId: string;
+  name: string;
+  isBookable: boolean;
+}
+
 export interface FloorSnapshot {
   header: FloorHeader;
   turn: TurnEntry[];
@@ -134,6 +148,10 @@ export interface FloorSnapshot {
   idle: string[];
   /** 技师技能标签（技师名 -> 技能项），让模型 0 次工具往返直接回答项目指派与资格 */
   skills?: Record<string, string[]>;
+  /** 全店服务目录（包含 serviceId、中英文名、时长、价格），让模型 0 次工具往返直接生成 appointment 提案 */
+  services?: FloorSnapshotService[];
+  /** 全店技师员工名单（包含 membershipId、姓名、可排单状态），让模型 0 次工具往返直接匹配技师 ID */
+  staff?: FloorSnapshotStaff[];
 }
 
 /** 一行最多带几个 NEXT。再多前台自己也记不住，而模型会被它们带偏 */
@@ -205,6 +223,21 @@ export function formatFloorSnapshot(s: FloorSnapshot): string {
     if (s.queue.length > MAX_QUEUE) {
       lines.push(`      (+${s.queue.length - MAX_QUEUE} more waiting)`);
     }
+  }
+
+  if (s.services && s.services.length > 0) {
+    const rows = s.services.map((svc) => {
+      const en = svc.englishName && svc.englishName !== svc.name ? ` (${svc.englishName})` : '';
+      return `[${svc.id}] ${svc.name}${en} ${svc.durationMin}m $${svc.priceDollars}`;
+    });
+    lines.push(`SERVICES:\n${rows.map((r) => `  ${r}`).join('\n')}`);
+  }
+
+  if (s.staff && s.staff.length > 0) {
+    const rows = s.staff.map((st) =>
+      `[${st.membershipId}] ${st.name}${st.isBookable ? '' : ' [non-bookable]'}`
+    );
+    lines.push(`STAFF: ${rows.join(' | ')}`);
   }
 
   return lines.join('\n');

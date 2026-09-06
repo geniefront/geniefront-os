@@ -38,7 +38,18 @@ export async function planAppointmentSlots(
 ): Promise<unknown> {
   const durationMin = Number(input['durationMin']) || 45;
   const dateStr = String(input['date'] ?? input['around'] ?? '').trim();
-  const around = dateStr ? new Date(dateStr) : new Date();
+  let around = new Date();
+  if (dateStr) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      // 纯日期格式按当天 16:00 UTC（纽约本地时间中午 12:00 EDT）解析，避免 UTC 零点在西区（如 UTC-4）回退到前一天晚上
+      const [y = 2026, m = 1, d = 1] = dateStr.split('-').map(Number);
+      around = new Date(Date.UTC(y, m - 1, d, 16, 0, 0));
+    } else if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(dateStr)) {
+      around = new Date(dateStr.replace(' ', 'T'));
+    } else {
+      around = new Date(dateStr);
+    }
+  }
   if (Number.isNaN(around.getTime())) return { error: 'date/around 不是合法时间' };
 
   let preferredMembershipId = input['preferredMembershipId'] ? String(input['preferredMembershipId']) : null;
@@ -98,8 +109,8 @@ export async function planAppointmentSlots(
     timezone,
     guidance:
       top.length === 0
-        ? '所选时段没有满足条件的空档。请向前台建议调整日期或更换技师。'
-        : '以下为系统根据班表与已占时段计算出的权威空档，仅能从中选择：',
+        ? '所选时段暂未查到满足排班条件的空档（如该日期尚未发布技师排班，或技师已被约满）。若为外部导入或前台录单，可在 appointment.create 中将 membershipId 设为 null（无指定技师/待分配）以正常创建。'
+        : '以下为系统根据班表与已占时段计算出的权威空档：',
     slots: top.map((s) => ({
       startsAt: s.startsAt.toISOString(),
       staff: s.staff,
