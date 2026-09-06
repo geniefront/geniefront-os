@@ -226,7 +226,8 @@ function RotationContent() {
     if (!rotation?.entries) return null;
     return (
       rotation.entries.find((e) => e.membershipId === rotation.nextUpMembershipId) ||
-      rotation.entries.find((e) => e.position === 1 && e.state === 'available') ||
+      rotation.entries.find((e) => (e.position === 0 || e.position === 1) && e.state === 'available') ||
+      rotation.entries.find((e) => e.state === 'available') ||
       null
     );
   }, [rotation]);
@@ -1021,7 +1022,7 @@ function RotationContent() {
                                       : 'bg-slate-100 text-slate-400 border-dashed border-slate-300'
                                 }`}
                               >
-                                {entry.position ?? '—'}
+                                {entry.position !== null ? entry.position + 1 : '—'}
                               </div>
                             </div>
 
@@ -1726,7 +1727,7 @@ function RotationContent() {
       >
         <div className="space-y-4 py-1 text-xs">
           <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-950">
-            <p className="font-bold">{t('rotation.rotCurrentPosition')} {assignTarget?.position}  {t('rotation.rotPosSuffix3')}</p>
+            <p className="font-bold">{t('rotation.rotCurrentPosition')} {assignTarget?.position !== null && assignTarget?.position !== undefined ? assignTarget.position + 1 : '—'}  {t('rotation.rotPosSuffix3')}</p>
             <p className="text-[11px] text-emerald-800 mt-0.5">
               
               {t('rotation.rotDispatchEffect')}

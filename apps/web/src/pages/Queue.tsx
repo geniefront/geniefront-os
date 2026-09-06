@@ -626,6 +626,15 @@ function QueueContent() {
     filteredStaffAttendance.filter((s) => s.state === 'off' || s.state === 'not_arrived')
   ), [filteredStaffAttendance]);
 
+  const nextUpStaff = useMemo(() => {
+    if (onDutyStaff.length === 0) return null;
+    if (rotationData?.nextUpMembershipId) {
+      const found = onDutyStaff.find((s) => s.membershipId === rotationData.nextUpMembershipId);
+      if (found && found.state === 'available') return found;
+    }
+    return onDutyStaff.find((s) => s.state === 'available') ?? null;
+  }, [onDutyStaff, rotationData?.nextUpMembershipId]);
+
   const attendanceMetrics = useMemo(() => {
     const total = allStaffAttendance.length;
     const onDuty = allStaffAttendance.filter(
@@ -4600,41 +4609,16 @@ function QueueContent() {
         isOpen={isStaffAttendanceModalOpen}
         onOpenChange={setIsStaffAttendanceModalOpen}
         title={
-          <div className="flex items-center justify-between w-full pr-8">
-            <div className="flex items-center gap-2 text-slate-900 font-bold">
-              <UserCheck className="w-5 h-5 text-teal-600" />
-              <span>{t('queue.quStaffPunchModalTitle')}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setIsStaffAttendanceModalOpen(false);
-                navigate('/rotation');
-              }}
-              className="text-xs font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 px-2.5 py-1 rounded-xl flex items-center gap-1 cursor-pointer transition-colors shrink-0 shadow-2xs"
-              title={t('queue.quGoToRotationDesc')}
-            >
-              <span>{t('queue.quGoToRotation')}</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </button>
+          <div className="flex items-center gap-2 text-slate-900 font-bold">
+            <UserCheck className="w-5 h-5 text-teal-600" />
+            <span>{t('queue.quStaffPunchModalTitle')}</span>
           </div>
         }
         description={t('queue.quStaffPunchModalDesc')}
         size="md"
         className="max-w-xl"
         footer={
-          <div className="flex items-center justify-between w-full">
-            <button
-              type="button"
-              onClick={() => {
-                setIsStaffAttendanceModalOpen(false);
-                navigate('/rotation');
-              }}
-              className="text-xs text-teal-600 hover:text-teal-800 font-bold flex items-center gap-1 cursor-pointer transition-colors"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span>{t('queue.quGoToRotation')}</span>
-            </button>
+          <div className="flex items-center justify-end w-full">
             <Button
               variant="secondary"
               size="sm"
@@ -4713,24 +4697,27 @@ function QueueContent() {
                         <span className="w-2 h-2 rounded-full bg-teal-500" />
                         <span>{t('queue.quRotationActiveQueue')} ({onDutyStaff.length})</span>
                       </span>
-                      {onDutyStaff[0]?.state === 'available' && (
+                      {nextUpStaff && (
                         <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/80 border border-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping" />
-                          <span>★ #1 {onDutyStaff[0].name} {t('queue.quRotationNextUp')}</span>
+                          <span>
+                            ★ #{nextUpStaff.position !== null && nextUpStaff.position !== undefined ? nextUpStaff.position + 1 : onDutyStaff.indexOf(nextUpStaff) + 1} {nextUpStaff.name} {t('queue.quRotationNextUp')}
+                          </span>
                         </span>
                       )}
                     </div>
 
                     <div className="space-y-1.5">
-                      {onDutyStaff.map((s) => {
+                      {onDutyStaff.map((s, idx) => {
                         const isActing = actingAttendanceStaffId === s.membershipId;
                         const isAvailable = s.state === 'available';
                         const isOnBreak = s.state === 'on_break';
                         const isInService = s.state === 'in_service';
-                        const isFirstUp = s.position === 1 && isAvailable;
+                        const isNextUp = nextUpStaff?.membershipId === s.membershipId;
+                        const rankNumber = s.position !== null && s.position !== undefined ? s.position + 1 : idx + 1;
 
                         let statusBadge: React.ReactNode = null;
-                        if (isFirstUp) {
+                        if (isNextUp) {
                           statusBadge = (
                             <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 font-black">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
@@ -4765,7 +4752,7 @@ function QueueContent() {
                             key={s.membershipId}
                             className={cn(
                               "p-2.5 bg-white border rounded-xl flex items-center justify-between gap-2.5 transition-all",
-                              isFirstUp
+                              isNextUp
                                 ? "border-emerald-300 bg-emerald-50/20 shadow-xs ring-1 ring-emerald-400/30"
                                 : "border-slate-200 hover:border-teal-200 shadow-2xs"
                             )}
@@ -4775,13 +4762,13 @@ function QueueContent() {
                               <div
                                 className={cn(
                                   "w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs shrink-0 border shadow-2xs",
-                                  isFirstUp
+                                  isNextUp
                                     ? "bg-gradient-to-br from-emerald-500 to-teal-600 text-white border-emerald-600"
                                     : "bg-slate-100 text-slate-700 border-slate-200"
                                 )}
-                                title={isFirstUp ? t('queue.quRotationNextUp') : `第 ${s.position} 顺位`}
+                                title={isNextUp ? t('queue.quRotationNextUp') : `第 ${rankNumber} 顺位`}
                               >
-                                #{s.position ?? '—'}
+                                #{rankNumber}
                               </div>
 
                               <div className="min-w-0">
