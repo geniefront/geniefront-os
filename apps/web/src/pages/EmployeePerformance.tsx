@@ -169,8 +169,10 @@ function EmployeePerformanceContent() {
   const [selectedLevelFilter, setSelectedLevelFilter] = useState('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('all');
 
-  // 控制不可接项目展开收起（全局或单卡）
-  const [expandedCannotDoStaffId, setExpandedCannotDoStaffId] = useState<string | null>(null);
+  // 紧凑卡片：单卡「展开明细」（可做 / 不可做项目 · 提成 · 备注）
+  const [expandedStaffId, setExpandedStaffId] = useState<string | null>(null);
+  // 编辑弹窗内技能搜索关键字
+  const [skillSearch, setSkillSearch] = useState('');
 
   // 通用二次防误触确认弹窗
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState | null>(null);
@@ -268,6 +270,7 @@ function EmployeePerformanceContent() {
     setFormJobTitleId('');
     setFormLevelId('');
     setFormSkills([]);
+    setSkillSearch('');
     setFormStatus('active');
     setFormHireDate(new Date().toISOString().slice(0, 10));
     setFormPlanKind('commission');
@@ -292,6 +295,7 @@ function EmployeePerformanceContent() {
     setFormJobTitleId(staff.jobTitleId ?? '');
     setFormLevelId(staff.levelId ?? '');
     setFormSkills([...staff.skillIds]);
+    setSkillSearch('');
     setFormStatus(staff.status);
     setFormHireDate(staff.hireDate);
     setFormPlanKind(staff.payroll.kind);
@@ -590,27 +594,30 @@ function EmployeePerformanceContent() {
           <p className="text-xs text-slate-400 mt-1">{t('rotation.empNoMatchHint')}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {filteredStaff.map((staff) => {
             const { canDo, cannotDo } = getStaffServicesStatus(staff.skillIds);
-            const isCannotDoExpanded = expandedCannotDoStaffId === staff.id;
+            const isExpanded = expandedStaffId === staff.id;
+            const shownSkills = staff.skills.slice(0, 3);
+            const moreSkills = staff.skills.length - shownSkills.length;
+            const SERVICE_CAP = 12;
 
             return (
               <Card
                 key={staff.id}
                 className="rounded-2xl border-2 border-slate-200 hover:border-teal-400 transition-all shadow-xs hover:shadow-md bg-white flex flex-col justify-between overflow-hidden"
               >
-                <CardContent className="p-4 space-y-3">
-                  {/* Row 1: Header Info & Status & Commission */}
+                <CardContent className="p-3.5 space-y-2">
+                  {/* 紧凑摘要行：姓名 / 状态 / 岗位 / 职级 / 可预约 / 技能数量 */}
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-base shadow-xs shrink-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm shadow-xs shrink-0">
                         {staff.name.slice(0, 1)}
                       </div>
 
-                      <div className="space-y-0.5">
+                      <div className="space-y-0.5 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-extrabold text-slate-900 text-base leading-tight">
+                          <h3 className="font-extrabold text-slate-900 text-sm leading-tight truncate">
                             {staff.name}
                           </h3>
                           <span className="font-mono text-[10px] text-slate-500 font-bold bg-slate-100 px-1.5 py-0.2 rounded">
@@ -619,100 +626,106 @@ function EmployeePerformanceContent() {
                           {getStatusBadge(staff.status)}
                         </div>
 
-                        <div className="flex items-center gap-1.5 text-xs pt-0.5">
+                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
                           <Badge className="bg-teal-50 text-teal-900 border-teal-200 font-bold text-[10px]">
                             {presetLabel(staff.jobTitle)}
                           </Badge>
                           <Badge className="bg-purple-50 text-purple-900 border-purple-200 font-bold text-[10px]">
                             {presetLabel(staff.level)}
                           </Badge>
-                          <span className="text-[11px] text-slate-400">· 📞 {formatPhoneDisplay(staff.phone)}</span>
+                          <Badge className={staff.isBookable ? 'bg-emerald-50 text-emerald-900 border-emerald-200 font-bold text-[10px]' : 'bg-slate-100 text-slate-500 border-slate-200 font-bold text-[10px]'}>
+                            {staff.isBookable ? t('rotation.empBookableYes') : t('rotation.empBookableNo')}
+                          </Badge>
                         </div>
                       </div>
                     </div>
-
-                    <div className="text-right shrink-0">
-                      <span className="text-xs font-mono font-black text-teal-700 bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-200 block">
-
-                        {t('rotation.empCommission')} {staff.payroll.ratePercent}% ({staff.payroll.base === 'net' ? t('rotation.empNetBasis') : t('rotation.empGrossBasis')})
-                      </span>
-                    </div>
                   </div>
 
-                  {/* Row 2: Can-Do Services (可接项目) */}
-                  <div className="p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-200/80 space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-bold text-emerald-950">
-                      <span className="flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>{t('rotation.empQualifiedPrefix')}{canDo.length}{t('rotation.empCountSuffix')}</span>
+                  {/* 技能数量 + 最多 3 个 + 「另 N 项」 */}
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <span className="font-bold text-slate-600 shrink-0">{t('rotation.empSkillsCount', { p0: staff.skills.length })}</span>
+                    {shownSkills.map((skill) => (
+                      <span key={skill} className="bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded font-medium">
+                        {presetLabel(skill)}
                       </span>
-                      <span className="text-[10px] text-emerald-700 font-medium">{t('rotation.empPriorityDispatch')}</span>
-                    </div>
-
-                    <div className="flex flex-wrap gap-1">
-                      {canDo.length > 0 ? (
-                        canDo.map((srv) => (
-                          <span
-                            key={srv.id}
-                            className="bg-white text-emerald-900 border border-emerald-300 text-[11px] font-semibold px-2 py-0.5 rounded-md shadow-2xs"
-                          >
-                            {srv.name}{srv.requiredSkillIds.length === 0 ? t('rotation.empNoSkillReq') : ''} (${centsToDollars(srv.priceCents)})
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-[11px] text-slate-400 italic">
-
-                          {t('rotation.empNoQualified')}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Row 3: Cannot-Do Services (技能盲区 / 不可接项目) */}
-                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                      <span className="flex items-center gap-1 text-slate-700">
-                        <Ban className="w-3.5 h-3.5 text-slate-400" />
-                        <span>{t('rotation.empBlockedPrefix')}{cannotDo.length}{t('rotation.empCountSuffix2')}</span>
-                      </span>
-                      <button
-                        onClick={() =>
-                          setExpandedCannotDoStaffId(isCannotDoExpanded ? null : staff.id)
-                        }
-                        className="text-[10px] text-teal-700 hover:text-teal-900 font-bold flex items-center gap-0.5"
-                      >
-                        <span>{isCannotDoExpanded ? t('rotation.empCollapse') : t('rotation.empExpand')}</span>
-                        {isCannotDoExpanded ? (
-                          <ChevronUp className="w-3 h-3" />
-                        ) : (
-                          <ChevronDown className="w-3 h-3" />
-                        )}
-                      </button>
-                    </div>
-
-                    {isCannotDoExpanded ? (
-                      <div className="flex flex-wrap gap-1 pt-1">
-                        {cannotDo.map((srv) => (
-                          <span
-                            key={srv.id}
-                            className="bg-white text-slate-500 border border-dashed border-slate-300 text-[10px] font-medium px-1.5 py-0.2 rounded"
-                          >
-                            {srv.name}{srv.requiredSkillIds.length === 0 ? t('rotation.empNoSkillReq') : ''}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-[11px] text-slate-400 truncate">
-                        {cannotDo.map((s) => s.name).join('、') || t('rotation.empAllCategories')}
-                      </p>
+                    ))}
+                    {moreSkills > 0 && (
+                      <span className="text-slate-400">{t('rotation.empSkillsMore', { p0: moreSkills })}</span>
                     )}
                   </div>
 
-                  {/* Note */}
-                  {staff.note && (
-                    <p className="text-[11px] text-slate-500 bg-slate-50 p-1.5 rounded-lg border border-slate-100">
-                      📝 {staff.note}
-                    </p>
+                  {/* 可做 / 盲区计数 + 展开明细 */}
+                  <div className="flex items-center gap-3 text-[11px] text-slate-500">
+                    <span className="flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />{t('rotation.empQualifiedShort', { p0: canDo.length })}</span>
+                    <span className="flex items-center gap-1"><Ban className="w-3.5 h-3.5 text-slate-400" />{t('rotation.empBlockedShort', { p0: cannotDo.length })}</span>
+                    <button
+                      onClick={() => setExpandedStaffId(isExpanded ? null : staff.id)}
+                      className="ml-auto text-teal-700 hover:text-teal-900 font-bold flex items-center gap-0.5"
+                    >
+                      <span>{isExpanded ? t('rotation.empCollapse') : t('rotation.empViewDetail')}</span>
+                      {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    </button>
+                  </div>
+
+                  {/* 展开区：提成 · 可做 / 不可做项目 · 电话 · 备注 */}
+                  {isExpanded && (
+                    <div className="space-y-2 pt-1.5 border-t border-slate-100">
+                      <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                        <span className="font-mono font-black text-teal-700 bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-200">
+                          {t('rotation.empCommission')} {staff.payroll.ratePercent}% ({staff.payroll.base === 'net' ? t('rotation.empNetBasis') : t('rotation.empGrossBasis')})
+                        </span>
+                        {staff.phone && <span>📞 {formatPhoneDisplay(staff.phone)}</span>}
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-200/80 space-y-1.5">
+                        <div className="flex items-center gap-1 text-xs font-bold text-emerald-950">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>{t('rotation.empQualifiedPrefix')}{canDo.length}{t('rotation.empCountSuffix')}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {canDo.length > 0 ? (
+                            <>
+                              {canDo.slice(0, SERVICE_CAP).map((srv) => (
+                                <span key={srv.id} className="bg-white text-emerald-900 border border-emerald-300 text-[11px] font-semibold px-2 py-0.5 rounded-md shadow-2xs">
+                                  {srv.name}{srv.requiredSkillIds.length === 0 ? t('rotation.empNoSkillReq') : ''} (${centsToDollars(srv.priceCents)})
+                                </span>
+                              ))}
+                              {canDo.length > SERVICE_CAP && (
+                                <span className="text-[11px] text-slate-400">{t('rotation.empSkillsMore', { p0: canDo.length - SERVICE_CAP })}</span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 italic">{t('rotation.empNoQualified')}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+                        <div className="flex items-center gap-1 text-xs font-bold text-slate-700">
+                          <Ban className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{t('rotation.empBlockedPrefix')}{cannotDo.length}{t('rotation.empCountSuffix2')}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {cannotDo.slice(0, SERVICE_CAP).map((srv) => (
+                            <span key={srv.id} className="bg-white text-slate-500 border border-dashed border-slate-300 text-[10px] font-medium px-1.5 py-0.2 rounded">
+                              {srv.name}{srv.requiredSkillIds.length === 0 ? t('rotation.empNoSkillReq') : ''}
+                            </span>
+                          ))}
+                          {cannotDo.length > SERVICE_CAP && (
+                            <span className="text-[10px] text-slate-400">{t('rotation.empSkillsMore', { p0: cannotDo.length - SERVICE_CAP })}</span>
+                          )}
+                          {cannotDo.length === 0 && (
+                            <span className="text-[11px] text-slate-400">{t('rotation.empAllCategories')}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {staff.note && (
+                        <p className="text-[11px] text-slate-500 bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                          📝 {staff.note}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </CardContent>
 
@@ -964,35 +977,56 @@ function EmployeePerformanceContent() {
             </div>
           </div>
 
-          {/* 技能勾选与实时可接/不可接项目动态预览 */}
+          {/* 「技能」区：可搜索列表 + 已选摘要 + 清除，限高可滚动（iPad 保存键可达） */}
           <div className="pt-2 border-t border-slate-100 space-y-2">
             <h4 className="font-bold text-slate-700 uppercase text-xs flex items-center justify-between">
               <span>{t('rotation.empSkillTagsTitle')}</span>
-              <span className="text-[11px] text-teal-700 font-normal">{t('rotation.empSelected')} {formSkills.length}  {t('rotation.empSelectedUnit')}</span>
+              <span className="flex items-center gap-2 text-[11px] font-normal">
+                <span className="text-teal-700">{t('rotation.empSelected')} {formSkills.length}  {t('rotation.empSelectedUnit')}</span>
+                {formSkills.length > 0 && (
+                  <button type="button" onClick={() => setFormSkills([])} className="text-slate-400 hover:text-slate-700 underline">
+                    {t('rotation.empSkillClearSel')}
+                  </button>
+                )}
+              </span>
             </h4>
 
+            <Input
+              value={skillSearch}
+              onChange={(e) => setSkillSearch(e.target.value)}
+              placeholder={t('rotation.empSkillSearchPlaceholder')}
+              className="text-xs"
+            />
+
             {/* 技能标签选择 —— 只能勾选本店已有技能目录项（U02 / W2） */}
-            <div className="flex flex-wrap gap-1.5">
-              {Array.from(new Set([...(staffData?.skills ?? []).filter((skill) => skill.active).map((skill) => skill.id), ...formSkills])).map((skill) => {
-                const isSelected = formSkills.includes(skill);
-                const meta = staffData?.skills?.find((option) => option.id === skill);
-                return (
-                  <button
-                    key={skill}
-                    type="button"
-                    onClick={() => toggleSkill(skill)}
-                    className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-all ${
-                      isSelected
-                        ? 'bg-teal-600 text-white border-teal-700 font-bold shadow-xs'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    {isSelected && '✓ '}
-                    {presetLabel(skill)}
-                    {meta && !meta.active ? ` ${t('rotation.empOptionInactive')}` : ''}
-                  </button>
-                );
-              })}
+            <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+              {Array.from(new Set([...(staffData?.skills ?? []).filter((skill) => skill.active).map((skill) => skill.id), ...formSkills]))
+                .filter((skill) => {
+                  const q = skillSearch.trim().toLowerCase();
+                  if (!q) return true;
+                  if (formSkills.includes(skill)) return true; // 已选项始终可见，避免搜索时误以为丢了
+                  return presetLabel(skill).toLowerCase().includes(q);
+                })
+                .map((skill) => {
+                  const isSelected = formSkills.includes(skill);
+                  const meta = staffData?.skills?.find((option) => option.id === skill);
+                  return (
+                    <button
+                      key={skill}
+                      type="button"
+                      onClick={() => toggleSkill(skill)}
+                      className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-all ${
+                        isSelected
+                          ? 'bg-teal-600 text-white border-teal-700 font-bold shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      {isSelected && '✓ '}
+                      {presetLabel(skill)}
+                      {meta && !meta.active ? ` ${t('rotation.empOptionInactive')}` : ''}
+                    </button>
+                  );
+                })}
             </div>
             {(staffData?.skills ?? []).length === 0 && (
               <p className="text-[11px] text-amber-700">{t('rotation.empDirectoryEmptyHint')}</p>

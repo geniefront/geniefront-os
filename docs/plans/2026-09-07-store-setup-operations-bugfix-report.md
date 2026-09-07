@@ -12,7 +12,7 @@
 |---|---|---|---|
 | U09 平台短信串店 | W0 | **部分完成**：专属线归属已隔离；平台共享号细分仍待做 | #1 |
 | U01/U08 默认设置、健康表首发、房间门禁、AI 线路 | W1 | **部分完成**：AI 电话新线默认不接（U08，#4）已修；健康表首发、房间门禁、setup readiness DTO 未开始 | #4 |
-| U02/U13 员工目录与员工中心 | W2 | **U02 主体完成**：岗位 / 职级 / 技能改 ID 契约，服务端不再据自由文本新建目录项、跨店 / 伪造 / 未知值拒绝、停用项只对已关联者保留；`sql/0114` 补 `job_title_id` + 回填 + 只读盘点视图；新增 `staff.reorderDirectoryOptions` 原子重排。剩：行业预设生成（W1）、`user.updateProfile` 自助技能自由文本、W2b 员工中心紧凑卡片（U13） | #6 #7 |
+| U02/U13 员工目录与员工中心 | W2 / W2b | **U02 主体 + U13 完成**：岗位 / 职级 / 技能改 ID 契约，服务端不再据自由文本新建目录项、跨店 / 伪造 / 未知值拒绝、停用项只对已关联者保留；`sql/0114` 补 `job_title_id` + 回填 + 只读盘点视图；新增 `staff.reorderDirectoryOptions` 原子重排（#7）。员工中心改默认紧凑卡片 + 单卡展开明细，编辑弹窗技能区可搜索 + 限高滚动（#8）。剩：行业预设生成（属 W1）、`user.updateProfile` 自助技能自由文本、真机 iPad 扫屏（W6b） | #6 #7 #8 |
 | U03/U06/U11 预约日期、时长、详情状态 | W3 | **部分完成**：时长输入（#2）、新建默认日期不取营业日（#3）、详情顶部进度不误报空工单/取消（#5）已修；跨午夜/Calls 草稿 UTC 日期、allowedActions DTO 未做 | #2 #3 #5 |
 | U04 服务导入、技师人数、网约、批量编辑 | W4 | **小修**：Settings 分类筛选栏换行不再裁切主操作（#6）；导入默认网约、批量 PATCH 未做 | #6 |
 | U05 Google review 同步权限 | W5 | **小修**：配置读接口带 `manualSyncEnabled`，未开放时按钮禁用+提示，不再显示成权限不足（#6）；分状态文案与调查未做 | #6 |
@@ -711,3 +711,73 @@ handler 对 `jobTitle` / `level` / `skills` 三个自由文本字段**匹配不�
 3. 迁移：`drop view staff_directory_legacy_audit; alter table staff_profiles drop column job_title_id;`
    （回退会重新打开「自由文本新建目录项」，属计划明确不希望方向，仅用于该批本身回归时止血）。
    已回填的 `staff_job_titles` 新行保留无害。
+
+---
+
+## 批次 #8 — W2b：员工中心信息密度（U13）
+
+**日期**：2026-09-07
+**改动范围**：纯前端 —— `pages/EmployeePerformance.tsx` + `i18n/rotation.ts`（9 条新词条）+
+`EmployeePerformance.test.tsx`（+1 用例）。无契约 / DB 改动。
+
+### 这一刀解决了什么
+
+计划 §5.3 末三条 / §9.3：员工卡片默认铺开**全部**可做 / 不可做项目（`canDo.map` 无截断）
++ 提成 + 备注，30 项技能 / 50 名员工时卡片被标签撑爆，iPad 上尤甚；编辑弹窗技能标签区无限高，
+底部保存键要滑过整列标签才够得到。
+
+### 改了什么（都在 `EmployeePerformance.tsx`）
+
+**1. 卡片改默认紧凑，明细进单卡展开区**
+
+- 紧凑行只留：头像、姓名、工号、状态徽章、岗位、职级、**可预约 / 不可约徽章**、
+  **技能数量 + 最多 3 个技能 +「另 N 项」**、`可做 X · 盲区 Y` 计数、「展开明细 / 收起」。
+- 展开区（`expandedStaffId` 单卡状态，替换原来只管不可做项目的 `expandedCannotDoStaffId`）：
+  提成徽章 + 电话 + 可做项目（截断 12 + 「另 N 项」）+ 不可做项目（截断 12）+ 备注。
+- 卡片 padding `p-4`→`p-3.5`，头像 `w-10`→`w-9`，网格 gap `3.5`→`3`。
+- 页脚操作（休假 / 复职 / 删除 / 编辑）不变。
+
+**2. 编辑弹窗「技能」区：可搜索 + 已选摘要 + 清除 + 限高滚动**
+
+- 标题行加「清除所选」按钮（`setFormSkills([])`）。
+- 新增技能搜索框（`skillSearch` 状态，打开弹窗时清空）：按 `presetLabel` 名称子串过滤；
+  **已选项始终可见**（搜索时不因过滤误以为丢了 —— 对应 §5.3「搜索/筛选仍覆盖全部技能」）。
+- 标签容器 `max-h-40 overflow-y-auto` + 边框底色，30 项技能不再把保存键顶出屏幕。
+- 弹窗整体本就 `max-h-[72vh] overflow-y-auto`，分区标题（基本信息 / 岗位职级 / 技能 / 薪酬）已在，
+  本批不再重排分区结构。
+
+**3. i18n（`i18n/rotation.ts`，5 语言齐全）**
+
+`empBookableYes` / `empBookableNo` / `empSkillsCount` / `empSkillsMore` / `empQualifiedShort` /
+`empBlockedShort` / `empViewDetail` / `empSkillSearchPlaceholder` / `empSkillClearSel`。
+`{p0}` 占位，非中文无 CJK。
+
+### 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 类型 | `pnpm --filter @gf/web exec tsc --noEmit` | exit 0 |
+| 组件单测 | `vitest run src/pages/EmployeePerformance.test.tsx` | 2 passed（新增「30 项技能折叠成计数 +『另 N 项』，明细点开才出现」）|
+| 多语言完整性 | `vitest run src/i18n` | 7 passed |
+| Web 全量单测 | `pnpm --filter @gf/web test` | 58 files / 325 passed |
+| 守卫 | `pnpm lint:guards` | ✓ |
+
+未做：浏览器 / 真机交互验证（EmployeePerformance 需登录整套栈；按计划 §12 / H 阶段单列）。
+0 / 3 / 30 项技能与多员工的排版仅在组件单测层面覆盖 30 项一档，真机 iPad 竖屏扫屏留待 W6b（U12）。
+
+### 计划 §5.3 / T12 对照
+
+| 验收点 | 本批状态 |
+|---|---|
+| 默认紧凑行：姓名 / 状态 / 岗位 / 职级 / 可预约 / 技能数量 / 更多操作 | ✅ |
+| 最多 2–3 个技能 +「另 N 项」 | ✅ 取 3 |
+| 全部技能 / 可做不可做 / 收入细节移到展开区 | ✅ 单卡展开区 |
+| 搜索 / 筛选仍覆盖全部技能（不因折叠搜不到） | ✅ 顶部搜索走 `fuzzySearch` 的 `skills` 键未动；弹窗内搜索保留已选项可见 |
+| 编辑弹窗技能搜索区限高可滚动、iPad 保存键可达 | ✅ `max-h-40 overflow-y-auto` |
+| 编辑弹窗分「个人信息 / 工作设置 / 技能」区 | 🔸 分区标题已在（基本信息 / 岗位职级 / 技能 / 薪酬），未按字面合并成 3 个 |
+| T12 零 / 三 / 三十项技能与五十名员工不被标签撑满 | 🔸 组件单测覆盖 30 项一档；真机 iPad 竖屏留 W6b |
+
+### 回退
+
+`git checkout apps/web/src/pages/EmployeePerformance.tsx apps/web/src/pages/EmployeePerformance.test.tsx`
++ 移除 `i18n/rotation.ts` 的 9 条 `emp*` 词条。无数据 / 契约影响。
