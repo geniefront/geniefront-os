@@ -9,7 +9,7 @@ import { useSchedule, useScheduleMutations, UNASSIGNED_STAFF_ID } from '@/contex
 import { isOverridableConflict, OVERRIDE_REASONS, type Override } from '@/features/schedule/api';
 import { deskAppointmentCustomer } from '@/features/schedule/deskCustomer';
 import { useSaveCustomerProfile } from '@/features/customers/api';
-import { wallMinutesToInstant } from '@/lib/time';
+import { wallMinutesToInstant, instantToWallDate, nowWallHhMm } from '@/lib/time';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { centsToDollars } from '@/features/checkout/api';
 import { toast } from '@heroui/react';
@@ -45,10 +45,35 @@ export interface AppointmentItemDraft {
   serviceId: string;
   membershipId: string;
   startTime: string; // HH:mm
+  /** 已确认的有效时长（分钟）。预约起止、价格预览、提交都读它，永远是合法整数 */
   durationMin: number;
+  /** 时长输入框正在编辑的原文。允许编辑过程中暂时为空或非法；失焦/提交才收敛 */
+  durationText: string;
   priceCents: number;
   isRequest: boolean;
 }
+
+/**
+ * 预约项时长的服务端契约：正整数、上限 600 分钟
+ * （`packages/contracts/src/commands/appointment.ts` 的 `durationMin`）。
+ * 目录 SaveService 的 5 分钟下限是目录侧的约束，不套到预约 override 上。
+ */
+const DURATION_MIN = 1;
+const DURATION_MAX = 600;
+
+type DurationParse =
+  | { ok: true; value: number }
+  | { ok: false; reason: 'empty' | 'format' | 'range' };
+
+/** 只在失焦/提交时调用 —— 逐次按键不做任何强制回填 */
+export const parseDuration = (text: string): DurationParse => {
+  const trimmed = text.trim();
+  if (trimmed === '') return { ok: false, reason: 'empty' };
+  if (!/^\d{1,4}$/.test(trimmed)) return { ok: false, reason: 'format' };
+  const value = Number(trimmed);
+  if (value < DURATION_MIN || value > DURATION_MAX) return { ok: false, reason: 'range' };
+  return { ok: true, value };
+};
 
 const timeToMins = (time: string) => {
   const [h, m] = time.split(':').map(Number);
@@ -60,6 +85,39 @@ const minsToTime = (mins: number) => {
   const m = mins % 60;
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 };
+
+/**
+ * 新建预约弹窗打开时，默认落在哪个日期与钟点（U03「预约偶尔变昨天」）。
+ *
+ * 规则（计划 §6.1）：
+ *  · 有 `defaultDate`（日历格子、日历页顶部新建）→ 按其明确选择，不改；
+ *  · 无 `defaultDate`（全局「新建预约」、Queue、Calls 带号）→ 门店**日历日**今天，
+ *    **不是营业日**（营业日在 cutoff 前是昨天）；
+ *  · 有 `defaultTime`（日历格子）→ 按格子的钟点；
+ *  · 目标日期就是今天 → 门店墙上钟点按 30 分钟步长向上取整，落在营业时段内才用，
+ *    否则退到开门时间；
+ *  · 目标日期不是今天（未来日 / 历史补录）→ 一律从开门时间起，不把「现在」的钟点套上去。
+ *
+ * 纯函数：时区换算（`calendarToday` / `nowWallMinutes`）由调用方在 effect 里算好传入。
+ */
+export function resolveInitialDateTime(params: {
+  defaultDate?: string;
+  defaultTime?: string;
+  calendarToday: string;
+  nowWallMinutes: number;
+  openMin: number;
+  closeMin: number;
+}): { date: string; time: string } {
+  const targetDate = params.defaultDate || params.calendarToday;
+  if (params.defaultTime) return { date: targetDate, time: params.defaultTime };
+  if (targetDate !== params.calendarToday) {
+    return { date: targetDate, time: minsToTime(params.openMin) };
+  }
+  const snapped = Math.ceil(params.nowWallMinutes / 30) * 30;
+  const startM =
+    snapped >= params.openMin && snapped < params.closeMin - 30 ? snapped : params.openMin;
+  return { date: targetDate, time: minsToTime(startM) };
+}
 
 /** label/desc 只存词典键，id 是唯一持久化/比对的值 */
 const PAST_BOOKING_REASONS: Array<{ id: string; labelKey: TranslationKey; descKey: TranslationKey }> = [
@@ -110,6 +168,22 @@ export function CreateAppointmentModal({
   // 聚合多项目行列表
   const [items, setItems] = useState<AppointmentItemDraft[]>([]);
 
+  /**
+   * 草稿生命周期。
+   *
+   * 初始化 effect 的依赖里有 `services` / `staff` —— `useDaySnapshot` 每次
+   * 后台 refetch 都会给这两个数组换新引用，历史上这会把用户已经改过的
+   * 时长、日期、客户、备注整个重置掉（U03/U11 的「数字跳回去」）。
+   *
+   * 现在：一次「打开」只播种一次；用户一旦动过任何字段（`dirtyRef`），
+   * refetch 和切换日期都不再重置草稿。关闭时清掉标记，下次打开重新播种。
+   */
+  const seededRef = React.useRef(false);
+  const dirtyRef = React.useRef(false);
+  const markDirty = () => {
+    dirtyRef.current = true;
+  };
+
   // 过去时间强提醒模态状态
   const [pastTimeConfirmModal, setPastTimeConfirmModal] = useState<{
     isOpen: boolean;
@@ -128,42 +202,55 @@ export function CreateAppointmentModal({
 
   // 初始化多项目
   useEffect(() => {
-    if (isOpen) {
-      setCustomerName(defaultCustomerName);
-      setPhone(defaultPhone);
-      setDate(defaultDate || currentDate);
-      setNotes('');
-      setNameError(false);
-      setConflictError(null);
-      setPastTimeConfirmModal(null);
-
-      let initialTime = defaultTime;
-      if (!initialTime) {
-        const now = new Date();
-        const currentMins = now.getHours() * 60 + now.getMinutes();
-        const snappedMins = Math.ceil(currentMins / 30) * 30;
-        let startM = openMin;
-        if (snappedMins >= openMin && snappedMins < closeMin - 30) {
-          startM = snappedMins;
-        }
-        initialTime = minsToTime(startM);
-      }
-
-      const firstSvc = services.find((s) => s.id === defaultServiceId) || services[0];
-      const initialStaffId = defaultStaffId || UNASSIGNED_STAFF_ID;
-
-      setItems([
-        {
-          id: crypto.randomUUID(),
-          serviceId: firstSvc?.id || '',
-          membershipId: initialStaffId,
-          startTime: initialTime,
-          durationMin: firstSvc?.durationMin || 60,
-          priceCents: firstSvc?.priceCents || 0,
-          isRequest: false,
-        },
-      ]);
+    if (!isOpen) {
+      seededRef.current = false;
+      dirtyRef.current = false;
+      return;
     }
+    // 已播种且用户动过草稿：后台 refetch（services/staff 换引用）与切日期都不再重置
+    if (seededRef.current && dirtyRef.current) return;
+
+    setCustomerName(defaultCustomerName);
+    setPhone(defaultPhone);
+    setNotes('');
+    setNameError(false);
+    setConflictError(null);
+    setPastTimeConfirmModal(null);
+
+    // 时区换算（不纯的部分）在这里做，落点规则交给 resolveInitialDateTime
+    const nowIso = new Date().toISOString();
+    const calendarToday = timezone ? instantToWallDate(nowIso, timezone) : currentDate;
+    const nowWall = timezone
+      ? nowWallHhMm(timezone)
+      : `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`;
+
+    const { date: targetDate, time: initialTime } = resolveInitialDateTime({
+      defaultDate,
+      defaultTime,
+      calendarToday,
+      nowWallMinutes: timeToMins(nowWall),
+      openMin,
+      closeMin,
+    });
+    setDate(targetDate);
+
+    const firstSvc = services.find((s) => s.id === defaultServiceId) || services[0];
+    const initialStaffId = defaultStaffId || UNASSIGNED_STAFF_ID;
+    const initialDuration = firstSvc?.durationMin || 60;
+
+    setItems([
+      {
+        id: crypto.randomUUID(),
+        serviceId: firstSvc?.id || '',
+        membershipId: initialStaffId,
+        startTime: initialTime,
+        durationMin: initialDuration,
+        durationText: String(initialDuration),
+        priceCents: firstSvc?.priceCents || 0,
+        isRequest: false,
+      },
+    ]);
+    seededRef.current = true;
   }, [
     isOpen,
     defaultDate,
@@ -175,6 +262,7 @@ export function CreateAppointmentModal({
     services,
     staff,
     currentDate,
+    timezone,
     openMin,
     closeMin,
   ]);
@@ -183,6 +271,7 @@ export function CreateAppointmentModal({
   const handleAddItem = () => {
     const defaultSvc = services[0];
     if (!defaultSvc) return;
+    markDirty();
 
     // 默认接在最后一个项目结束后开始
     const lastItem = items[items.length - 1];
@@ -198,6 +287,7 @@ export function CreateAppointmentModal({
       (s) => s.membershipId !== UNASSIGNED_STAFF_ID && !usedStaffIds.has(s.membershipId),
     );
 
+    const addDuration = defaultSvc.durationMin || 60;
     setItems((prev) => [
       ...prev,
       {
@@ -205,7 +295,8 @@ export function CreateAppointmentModal({
         serviceId: defaultSvc.id,
         membershipId: nextStaff?.membershipId || UNASSIGNED_STAFF_ID,
         startTime: nextStart,
-        durationMin: defaultSvc.durationMin || 60,
+        durationMin: addDuration,
+        durationText: String(addDuration),
         priceCents: defaultSvc.priceCents || 0,
         isRequest: false,
       },
@@ -218,23 +309,35 @@ export function CreateAppointmentModal({
       toast.danger(t('schedule.apptKeepOneService'));
       return;
     }
+    markDirty();
     setItems((prev) => prev.filter((item) => item.id !== id));
   };
 
   // 修改单行属性
   const handleUpdateItem = (id: string, patch: Partial<AppointmentItemDraft>) => {
+    markDirty();
     setItems((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item;
         let nextDuration = item.durationMin;
+        let nextDurationText = item.durationText;
         let nextPrice = item.priceCents;
 
+        // 切换服务：目录默认时长只在这一刻填入，之后店主手改的值不被后续刷新冲掉
         if (patch.serviceId && patch.serviceId !== item.serviceId) {
           const svc = services.find((s) => s.id === patch.serviceId);
           if (svc) {
             nextDuration = svc.durationMin;
+            nextDurationText = String(svc.durationMin);
             nextPrice = svc.priceCents;
           }
+        }
+
+        // 时长输入：逐次按键只存原文，能解析成合法值才更新已确认时长；否则保留上一个合法值
+        if (patch.durationText !== undefined) {
+          nextDurationText = patch.durationText;
+          const parsed = parseDuration(patch.durationText);
+          if (parsed.ok) nextDuration = parsed.value;
         }
 
         let nextMembershipId = patch.membershipId !== undefined ? patch.membershipId : item.membershipId;
@@ -259,12 +362,32 @@ export function CreateAppointmentModal({
           ...patch,
           membershipId: nextMembershipId,
           isRequest: nextIsRequest,
-          durationMin: patch.durationMin ?? nextDuration,
+          durationMin: nextDuration,
+          durationText: nextDurationText,
           priceCents: patch.priceCents ?? nextPrice,
         };
       }),
     );
   };
+
+  /** 时长框失焦：合法则规范化（去空格 / "090"→"90"），非法则原样留着让行内错误显示 */
+  const handleDurationBlur = (id: string) => {
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        const parsed = parseDuration(item.durationText);
+        if (!parsed.ok) return item;
+        return { ...item, durationMin: parsed.value, durationText: String(parsed.value) };
+      }),
+    );
+  };
+
+  const durationErrorText = (reason: 'empty' | 'format' | 'range'): string =>
+    reason === 'empty'
+      ? t('schedule.apptDurationRequired')
+      : reason === 'range'
+      ? t('schedule.apptDurationRange')
+      : t('schedule.apptDurationInvalid');
 
   // 计算当前时间编排模式（同时并行 vs 顺次接力 vs 自定义）
   const activeAlignMode = useMemo<'parallel' | 'sequential' | 'custom' | null>(() => {
@@ -295,6 +418,7 @@ export function CreateAppointmentModal({
       toast.info(t('schedule.apptAlreadyParallel', { p0: baseTime }));
       return;
     }
+    markDirty();
     setItems((prev) => prev.map((item) => ({ ...item, startTime: baseTime })));
     toast.success(
       t('schedule.apptAlignedParallelDynamic', {
@@ -323,6 +447,7 @@ export function CreateAppointmentModal({
       return;
     }
 
+    markDirty();
     let currentMins = timeToMins(items[0].startTime);
     let totalDuration = 0;
     const nextItems = items.map((item, idx) => {
@@ -407,6 +532,14 @@ export function CreateAppointmentModal({
       toast.danger(t('schedule.apptServiceRequired'));
       return;
     }
+    // 时长非法就地拦下 —— 不把空值当 30 分钟、也不把 "60abc" 截成 60 提交
+    const badDuration = items
+      .map((it) => parseDuration(it.durationText))
+      .find((p): p is Extract<DurationParse, { ok: false }> => !p.ok);
+    if (badDuration) {
+      toast.danger(durationErrorText(badDuration.reason));
+      return;
+    }
 
     const idempotencyKey = retryKey || crypto.randomUUID();
     const finalNotes = (customNotes !== undefined ? customNotes : notes).trim() || undefined;
@@ -478,6 +611,13 @@ export function CreateAppointmentModal({
     setNameError(false);
     if (items.some((i) => !i.serviceId)) {
       toast.danger(t('schedule.apptServicePerRow'));
+      return;
+    }
+    const firstBadDuration = items
+      .map((it) => parseDuration(it.durationText))
+      .find((p): p is Extract<DurationParse, { ok: false }> => !p.ok);
+    if (firstBadDuration) {
+      toast.danger(durationErrorText(firstBadDuration.reason));
       return;
     }
 
@@ -554,6 +694,7 @@ export function CreateAppointmentModal({
                 <Input
                   value={customerName}
                   onChange={(e) => {
+                    markDirty();
                     setCustomerName(e.target.value);
                     if (nameError && e.target.value.trim()) setNameError(false);
                   }}
@@ -573,7 +714,10 @@ export function CreateAppointmentModal({
                 </label>
                 <Input
                   value={phone}
-                  onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
+                  onChange={(e) => {
+                    markDirty();
+                    setPhone(formatPhoneInput(e.target.value));
+                  }}
                   placeholder="(555) 000-0000"
                   maxLength={14}
                 />
@@ -583,7 +727,14 @@ export function CreateAppointmentModal({
                   <Calendar className="w-3.5 h-3.5 text-teal-600" />
                   {t('date') || t('schedule.apptDate')}
                 </label>
-                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                <Input
+                  type="date"
+                  value={date}
+                  onChange={(e) => {
+                    markDirty();
+                    setDate(e.target.value);
+                  }}
+                />
               </div>
             </div>
           </div>
@@ -639,6 +790,8 @@ export function CreateAppointmentModal({
                 const svc = services.find((s) => s.id === item.serviceId);
                 const endMins = timeToMins(item.startTime) + (item.durationMin || 30);
                 const itemEnd = minsToTime(endMins);
+                const durationParse = parseDuration(item.durationText);
+                const durationError = durationParse.ok ? null : durationErrorText(durationParse.reason);
 
                 return (
                   <div
@@ -781,15 +934,20 @@ export function CreateAppointmentModal({
                         <div className="flex items-center gap-2">
                           <div className="relative flex-1">
                             <Input
-                              type="number"
-                              min={5}
-                              max={600}
-                              step={5}
-                              value={item.durationMin}
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              maxLength={4}
+                              value={item.durationText}
                               onChange={(e) =>
-                                handleUpdateItem(item.id, { durationMin: parseInt(e.target.value) || 30 })
+                                handleUpdateItem(item.id, { durationText: e.target.value })
                               }
-                              className="h-9 min-h-0 py-1 pl-2.5 pr-6 text-xs font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none w-full"
+                              onBlur={() => handleDurationBlur(item.id)}
+                              aria-invalid={durationError !== null}
+                              className={cn(
+                                "h-9 min-h-0 py-1 pl-2.5 pr-6 text-xs font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none w-full",
+                                durationError && "border-rose-400 focus:border-rose-500 focus:ring-rose-500/20 bg-rose-50/20",
+                              )}
                             />
                             <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none font-medium">
                               m
@@ -800,6 +958,9 @@ export function CreateAppointmentModal({
                             → {itemEnd}
                           </div>
                         </div>
+                        {durationError && (
+                          <p className="text-[11px] text-rose-600 font-medium mt-1">{durationError}</p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -871,7 +1032,10 @@ export function CreateAppointmentModal({
             </label>
             <Input
               value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setNotes(e.target.value);
+              }}
               placeholder={t('schedule.apptNotesPlaceholder')}
             />
           </div>
