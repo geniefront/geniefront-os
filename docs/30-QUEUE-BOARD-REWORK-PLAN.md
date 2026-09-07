@@ -562,3 +562,29 @@ https://claude.ai/code/artifact/1080079c-2d7e-4522-a2f4-daac58eb3fbb
 **验证**：`lint:guards`、web/API typecheck 通过；web 57 文件 / 305 项通过（assignment 8 项、rotationRank 5 项为新增）。浏览器实测：徽章由 `#0..#3` 变为 `#1..#5`，候选卡顺位与轮牌块一致，未到岗的才显示 `—`，理由由「顾客指定」改为「预约排班」。
 
 本轮只改前端，`apps/api` 无改动。
+
+### 2026-09-07 — 签过问卷的客人被写成「本店未配置电子健康问卷」
+
+店主在 staging 上看到：客人明明签了问卷，入座弹窗却写「本店未配置电子健康问卷」。
+
+**根因：`healthFormHonesty()` 永远返回不了 `signed`。**
+
+它读的是 `healthConfirmed` 与 `completedForms` —— 这两个字段**没有任何生产调用方会提供**：`healthConfirmed` 在 `KanbanItem` 上声明了但从不赋值，`completedForms` 压根不是 `KanbanItem` 的字段（只是传给 `CheckInModal` 的一个 prop 名）。于是只要 `pendingForms === 0` 就一律落到 `'none'`，签没签过完全没进判断。
+
+单测当时是绿的 —— 因为它直接喂了那两个字段。这是「测试通过、功能是死的」的典型：断言用的输入形状生产环境根本不会出现。
+
+**服务端其实一直算好了。** `queries/queue.ts` 返回 `intakeSigned`（`signed_form_count > 0 && pending_forms === 0`），但前端 `QueueEntry` 类型里没声明这个字段，一路被丢掉。
+
+**修复**：`QueueEntry` 补上 `intakeSigned`；三处队列卡片（waiting / called）带上它；`healthFormHonesty()` 只认这个真实信号，删掉那两个死输入；`KanbanItem` 上从不赋值的 `healthConfirmed` 一并删除。测试改用真实数据形状。
+
+**浏览器验收**（本机，莲花美甲）：
+
+| 客人 | 有效问卷 | 之前 | 现在 |
+|---|---|---|---|
+| Lisa Chen | 1 份 | 本店未配置电子健康问卷 | ✓ 顾客已完成…签署 · 已签署合规 |
+| David Miller | 0 份 | 待签署 | ⚠️ 顾客尚未填写…（带扫码/复制链接） |
+| 门店无模板 | — | 本店未配置 | 本店未配置（只有此时才出现）|
+
+代码由店主侧提交为 `f2a3d2b`。本轮只改前端，`apps/api` 无改动。
+
+**另记**：服务单一页纸的打印入口在**卡片「⋯」菜单 →「打印服务单」**，入座成功后才有 —— 一页纸要印项目、技师、工位与起止时间，这些在开单之前都不存在。入座弹窗内没有打印按钮。
