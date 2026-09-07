@@ -49,6 +49,75 @@ describe('staff directory persistence', () => {
     const person = await dispatch<{ membershipId: string }>('staff.saveProfile', { name: 'Job regression', jobTitle: 'Regression job', inRotation: false }, ctx);
     await dispatch('staff.saveDirectoryOption', { kind: 'job', id: job.result.id, name: 'Renamed job' }, ctx);
     const directory = await withTenant(tenant, (tx) => loadStaffDirectory(tx, ctx));
-    expect(directory.staff.find((row) => row.id === person.result.membershipId)?.jobTitle).toBe('Renamed job');
+    const saved = directory.staff.find((row) => row.id === person.result.membershipId);
+    expect(saved?.jobTitle).toBe('Renamed job');
+    expect(saved?.jobTitleId).toBe(job.result.id);
+  });
+});
+
+describe('staff directory ID contract (U02 / W2)', () => {
+  it('rejects free-text job/level/skill values with no matching directory row', async () => {
+    await expect(dispatch('staff.saveProfile', { name: 'Free job', jobTitle: 'Totally made up title', inRotation: false }, ctx))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'unknown_job_title' } });
+    await expect(dispatch('staff.saveProfile', { name: 'Free level', level: 'Invented tier', inRotation: false }, ctx))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'unknown_level' } });
+    await expect(dispatch('staff.saveProfile', { name: 'Free skill', skills: ['Invented technique'], inRotation: false }, ctx))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'unknown_skill' } });
+    // 拒绝后没有新建任何目录项
+    const { jobs, levels, skills } = await withTenant(tenant, (tx) => loadStaffDirectory(tx, ctx));
+    expect(jobs.some((j) => j.name === 'Totally made up title')).toBe(false);
+    expect(levels.some((l) => l.name === 'Invented tier')).toBe(false);
+    expect(skills.some((s) => s.name === 'Invented technique')).toBe(false);
+  });
+
+  it('accepts a directory id and stores it; round-trips via loadStaffDirectory', async () => {
+    const job = await dispatch<{ id: string }>('staff.saveDirectoryOption', { kind: 'job', name: 'Contract job' }, ctx);
+    const level = await dispatch<{ id: string }>('staff.saveDirectoryOption', { kind: 'level', name: 'Contract level' }, ctx);
+    const skill = await dispatch<{ id: string }>('staff.saveDirectoryOption', { kind: 'skill', name: 'Contract skill' }, ctx);
+    const person = await dispatch<{ membershipId: string }>('staff.saveProfile', {
+      name: 'ID contract staff', inRotation: false, isBookable: false,
+      jobTitleId: job.result.id, levelId: level.result.id, skillIds: [skill.result.id],
+    }, ctx);
+    const { staff } = await withTenant(tenant, (tx) => loadStaffDirectory(tx, ctx));
+    const row = staff.find((s) => s.id === person.result.membershipId);
+    expect(row).toMatchObject({ jobTitleId: job.result.id, levelId: level.result.id, skillIds: [skill.result.id] });
+    expect(row?.jobTitle).toBe('Contract job');
+  });
+
+  it('rejects a directory id that belongs to another location', async () => {
+    const SPA = { orgId: '22222222-2222-4222-8222-222222222222', locationId: 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb', membershipId: null };
+    const [foreign] = await withTenant(SPA, (tx) => tx<{ id: string }[]>`
+      insert into staff_job_titles (org_id, location_id, name, sort, active)
+      values (${SPA.orgId}, ${SPA.locationId}, 'Foreign store job', 0, true) returning id`);
+    await expect(dispatch('staff.saveProfile', { name: 'Cross store', jobTitleId: foreign!.id, inRotation: false }, ctx))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'invalid_or_inactive_job_title' } });
+  });
+
+  it('blocks a deactivated option for a new hire but keeps it for the person already assigned', async () => {
+    const job = await dispatch<{ id: string }>('staff.saveDirectoryOption', { kind: 'job', name: 'Sunset job' }, ctx);
+    const holder = await dispatch<{ membershipId: string }>('staff.saveProfile', {
+      name: 'Sunset holder', inRotation: false, isBookable: false, jobTitleId: job.result.id,
+    }, ctx);
+    await dispatch('staff.saveDirectoryOption', { kind: 'job', id: job.result.id, name: 'Sunset job', active: false, sort: 0 }, ctx);
+    // 新员工不能再选停用项
+    await expect(dispatch('staff.saveProfile', { name: 'Late hire', jobTitleId: job.result.id, inRotation: false }, ctx))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'invalid_or_inactive_job_title' } });
+    // 已关联者改无关字段仍能保存，关联不丢
+    await dispatch('staff.saveProfile', { membershipId: holder.result.membershipId, phone: '+16175550143' }, ctx);
+    const { staff } = await withTenant(tenant, (tx) => loadStaffDirectory(tx, ctx));
+    expect(staff.find((s) => s.id === holder.result.membershipId)).toMatchObject({ jobTitleId: job.result.id, phone: '+16175550143' });
+  });
+
+  it('reorderDirectoryOptions persists a stable order and rejects a partial / foreign list', async () => {
+    const a = await dispatch<{ id: string }>('staff.saveDirectoryOption', { kind: 'level', name: 'Reorder A' }, ctx);
+    const b = await dispatch<{ id: string }>('staff.saveDirectoryOption', { kind: 'level', name: 'Reorder B' }, ctx);
+    const before = await withTenant(tenant, (tx) => loadStaffDirectory(tx, ctx));
+    const ids = before.levels.map((l) => l.id);
+    const reversed = [...ids].reverse();
+    await dispatch('staff.reorderDirectoryOptions', { kind: 'level', orderedIds: reversed }, ctx);
+    const after = await withTenant(tenant, (tx) => loadStaffDirectory(tx, ctx));
+    expect(after.levels.map((l) => l.id)).toEqual(reversed);
+    await expect(dispatch('staff.reorderDirectoryOptions', { kind: 'level', orderedIds: [a.result.id, b.result.id] }, ctx))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'directory_reorder_mismatch' } });
   });
 });

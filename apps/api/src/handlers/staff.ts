@@ -8,7 +8,7 @@
 import type postgres from 'postgres';
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import {
-  SaveStaffDirectoryOption, TicketStartItem, TicketFinishItem, TicketMoveItemStaff,
+  SaveStaffDirectoryOption, ReorderStaffDirectoryOptions, TicketStartItem, TicketFinishItem, TicketMoveItemStaff,
   TicketSaveServiceNote, StaffRecordDirectCashTip,
   TimeclockPunch, SetMyLocale,
   AddStaff, SetEmployment, StaffSaveProfile, IssueStaffClaimCode, RevokeStaffSessions,
@@ -815,29 +815,67 @@ registerHandler(StaffSaveProfile, async ({ input, ctx, tx, audit, emit }: Handle
   if (input.status === 'on_leave') dbStatus = 'suspended';
   if (input.status === 'resigned') dbStatus = 'left';
 
-  // 1. 解析/创建职级 levelId
-  let levelId = input.levelId;
-  if (!levelId && input.level) {
-    const [existingLevel] = await tx<{ id: string }[]>`
-      select id from staff_levels
-      where location_id = ${ctx.locationId} and (key = ${input.level} or name->>'zh-Hans' = ${input.level} or name->>'en' = ${input.level})
-      limit 1`;
-    if (existingLevel) {
-      levelId = existingLevel.id;
+  /**
+   * 岗位 / 职级 / 技能一律解析到本店已存在的目录项，服务端不再新建。
+   * ID 字段是权威入口；自由文本仅在能规范化匹配到现存项时被接受。
+   * 停用项只允许「已关联的同一员工」继续保存，不能新加给别人。
+   */
+  const priorMembershipId = input.membershipId ?? null;
+
+  // 1. 职级 levelId
+  const levelProvided = input.level !== undefined || input.levelId !== undefined;
+  let levelId: string | null | undefined = input.levelId;
+  if (levelId === undefined && input.level !== undefined) {
+    const wanted = input.level.trim();
+    if (!wanted) {
+      levelId = null;
     } else {
-      const [newLevel] = await tx<{ id: string }[]>`
-        insert into staff_levels (org_id, location_id, key, name, sort)
-        values (${ctx.orgId}, ${ctx.locationId}, ${input.level}, ${jsonb({ en: input.level, 'zh-Hans': input.level })}::jsonb, 5)
-        returning id`;
-      levelId = newLevel!.id;
+      const [row] = await tx<{ id: string }[]>`
+        select id from staff_levels
+        where location_id = ${ctx.locationId}
+          and (key = ${wanted} or lower(btrim(name->>'zh-Hans')) = ${wanted.toLowerCase()} or lower(btrim(name->>'en')) = ${wanted.toLowerCase()})
+        limit 1`;
+      if (!row) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'unknown_level' } });
+      levelId = row.id;
     }
   }
-
   if (levelId) {
     const [validLevel] = await tx<{ id: string }[]>`select id from staff_levels
       where id = ${levelId} and location_id = ${ctx.locationId}
-      and (active or exists (select 1 from staff_profiles where membership_id = ${input.membershipId ?? null} and level_id = ${levelId}))`;
+      and (active or exists (select 1 from staff_profiles where membership_id = ${priorMembershipId} and level_id = ${levelId}))`;
     if (!validLevel) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'invalid_or_inactive_level' } });
+  }
+
+  // 2. 岗位 jobTitleId（+ 同步反规范化显示名 jobTitleName）
+  const jobProvided = input.jobTitle !== undefined || input.jobTitleId !== undefined;
+  let jobTitleId: string | null | undefined = input.jobTitleId;
+  let jobTitleName: string | null = null;
+  if (jobTitleId === undefined && input.jobTitle !== undefined) {
+    const wanted = input.jobTitle.trim();
+    jobTitleId = wanted
+      ? undefined // 交给下面按名称解析
+      : null;
+    if (wanted) {
+      const [row] = await tx<{ id: string; name: string; active: boolean }[]>`
+        select id, name, active from staff_job_titles
+        where location_id = ${ctx.locationId} and lower(btrim(name)) = ${wanted.toLowerCase()}
+        limit 1`;
+      if (!row) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'unknown_job_title' } });
+      jobTitleId = row.id;
+      jobTitleName = row.name;
+    }
+  }
+  if (jobTitleId) {
+    const [row] = await tx<{ id: string; name: string; active: boolean }[]>`
+      select id, name, active from staff_job_titles
+      where id = ${jobTitleId} and location_id = ${ctx.locationId}`;
+    if (!row) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'invalid_or_inactive_job_title' } });
+    if (!row.active) {
+      const [assigned] = await tx<{ ok: number }[]>`select 1 as ok from staff_profiles
+        where membership_id = ${priorMembershipId} and job_title_id = ${jobTitleId}`;
+      if (!assigned) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'invalid_or_inactive_job_title' } });
+    }
+    jobTitleName = row.name;
   }
   let membershipId = input.membershipId;
   let isNew = false;
@@ -862,12 +900,13 @@ registerHandler(StaffSaveProfile, async ({ input, ctx, tx, audit, emit }: Handle
       update staff_profiles set
         display_name = case when ${input.name !== undefined || input.displayName !== undefined} then ${jsonb(input.displayName ?? { en: input.name, 'zh-Hans': input.name })}::jsonb else display_name end,
         employee_no = case when ${input.employeeNo !== undefined} then ${input.employeeNo ?? null} else employee_no end,
-        job_title = case when ${input.jobTitle !== undefined} then ${input.jobTitle ?? null} else job_title end,
+        job_title = case when ${jobProvided} then ${jobTitleName} else job_title end,
+        job_title_id = case when ${jobProvided} then ${jobTitleId ?? null} else job_title_id end,
         notes = case when ${input.note !== undefined} then ${input.note ?? null} else notes end,
         hire_date = case when ${input.hireDate !== undefined} then ${input.hireDate ?? null} else hire_date end,
         phone_e164 = case when ${input.phone !== undefined} then ${input.phone || null} else phone_e164 end,
         contact_email = case when ${input.email !== undefined} then ${input.email || null} else contact_email end,
-        level_id = case when ${input.level !== undefined || input.levelId !== undefined} then ${levelId ?? null} else level_id end,
+        level_id = case when ${levelProvided} then ${levelId ?? null} else level_id end,
         is_bookable = coalesce(${input.isBookable ?? null}, is_bookable),
         max_concurrent_appointments = coalesce(${input.maxConcurrentAppointments ?? null}, max_concurrent_appointments)
       where membership_id = ${membershipId}`;
@@ -890,12 +929,12 @@ registerHandler(StaffSaveProfile, async ({ input, ctx, tx, audit, emit }: Handle
     await tx`
       insert into staff_profiles (
         membership_id, org_id, location_id, display_name, employee_no,
-        job_title, notes, hire_date, phone_e164, contact_email, level_id,
+        job_title, job_title_id, notes, hire_date, phone_e164, contact_email, level_id,
         is_bookable, max_concurrent_appointments
       ) values (
         ${membershipId}, ${ctx.orgId}, ${ctx.locationId},
         ${jsonb({ en: input.name, 'zh-Hans': input.name })}::jsonb,
-        ${input.employeeNo ?? null}, ${input.jobTitle ?? null}, ${input.note ?? null},
+        ${input.employeeNo ?? null}, ${jobTitleName}, ${jobTitleId ?? null}, ${input.note ?? null},
         ${input.hireDate ?? null}, ${input.phone || null}, ${input.email || null}, ${levelId ?? null},
         ${input.isBookable ?? true}, ${input.maxConcurrentAppointments ?? 1}
       )`;
@@ -920,34 +959,27 @@ registerHandler(StaffSaveProfile, async ({ input, ctx, tx, audit, emit }: Handle
       and (sk.active or exists (select 1 from staff_skills ss where ss.skill_id = sk.id and ss.membership_id = ${membershipId}))`;
     if (allowed.length !== uniqueIds.length) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'invalid_or_inactive_skill' } });
   }
-  if (input.jobTitle?.trim()) {
-    await tx`insert into staff_job_titles (org_id, location_id, name)
-      values (${ctx.orgId}, ${ctx.locationId}, ${input.jobTitle.trim()}) on conflict do nothing`;
-  }
   const priorSkills = await tx<{ skill_id: string }[]>`select skill_id from staff_skills where membership_id = ${membershipId}`;
-  // 2. 技能标签同步
+  // 2. 技能标签同步 —— 自由文本只解析、不新建；解析不到即拒绝
   if (input.skills || input.skillIds) {
     await tx`delete from staff_skills where membership_id = ${membershipId}`;
     for (const skName of input.skills ?? []) {
       if (!skName.trim()) continue;
+      const wanted = skName.trim();
       const [existingSkill] = await tx<{ id: string; active: boolean }[]>`
         select id, active from skills
-        where location_id = ${ctx.locationId} and (key = ${skName} or name->>'zh-Hans' = ${skName} or name->>'en' = ${skName})
+        where location_id = ${ctx.locationId}
+          and (key = ${wanted} or lower(btrim(name->>'zh-Hans')) = ${wanted.toLowerCase()} or lower(btrim(name->>'en')) = ${wanted.toLowerCase()})
         limit 1`;
-      if (existingSkill && !existingSkill.active && !priorSkills.some((skill) => skill.skill_id === existingSkill.id)) {
-        throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'invalid_or_inactive_skill' } });
+      if (!existingSkill) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'unknown_skill' } });
       }
-      let skillId = existingSkill?.id;
-      if (!skillId) {
-        const [newSkill] = await tx<{ id: string }[]>`
-          insert into skills (org_id, location_id, key, name)
-          values (${ctx.orgId}, ${ctx.locationId}, ${skName}, ${jsonb({ en: skName, 'zh-Hans': skName })}::jsonb)
-          returning id`;
-        skillId = newSkill!.id;
+      if (!existingSkill.active && !priorSkills.some((skill) => skill.skill_id === existingSkill.id)) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'invalid_or_inactive_skill' } });
       }
       await tx`
         insert into staff_skills (membership_id, skill_id, proficiency)
-        values (${membershipId}, ${skillId}, 1)
+        values (${membershipId}, ${existingSkill.id}, 1)
         on conflict do nothing`;
     }
   }
@@ -1087,8 +1119,10 @@ registerHandler(SaveStaffDirectoryOption, async ({ input, ctx, tx, audit, emit }
     if (input.kind === 'job') {
       await tx`update staff_job_titles set name = ${input.name}, sort = ${input.sort}, active = ${input.active}
         where id = ${id} and location_id = ${ctx.locationId}`;
+      // 反规范化显示名跟着改：优先按稳定关联，兼容尚未回填 job_title_id 的旧行
       await tx`update staff_profiles set job_title = ${input.name}
-        where location_id = ${ctx.locationId} and job_title = ${String(existing.name)}`;
+        where location_id = ${ctx.locationId}
+          and (job_title_id = ${id} or (job_title_id is null and job_title = ${String(existing.name)}))`;
     } else {
       await tx`update ${tx(table)} set name = name || ${jsonb({ [ctx.locale]: input.name })}::jsonb,
         sort = ${input.sort}, active = ${input.active} where id = ${id} and location_id = ${ctx.locationId}`;
@@ -1106,4 +1140,24 @@ registerHandler(SaveStaffDirectoryOption, async ({ input, ctx, tx, audit, emit }
   audit({ entityType: 'staff_directory_option', entityId: id, after: input });
   emit({ type: 'staff.changed', entityId: id });
   return { id };
+});
+
+registerHandler(ReorderStaffDirectoryOptions, async ({ input, ctx, tx, audit, emit }) => {
+  // 表名只来自这个封闭枚举，永远不是调用方传来的 SQL。
+  const table = { job: 'staff_job_titles', level: 'staff_levels', skill: 'skills' }[input.kind];
+  const rows = await tx<{ id: string }[]>`
+    select id from ${tx(table)} where location_id = ${ctx.locationId} for update`;
+  const have = new Set(rows.map((r) => r.id));
+  const want = input.orderedIds;
+  // 必须是「该类当前全部项」的一个排列：数量一致、无重复、无越权 / 越类 ID
+  const uniqueWant = new Set(want);
+  if (uniqueWant.size !== want.length || want.length !== have.size || want.some((wid) => !have.has(wid))) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'directory_reorder_mismatch' } });
+  }
+  for (let i = 0; i < want.length; i++) {
+    await tx`update ${tx(table)} set sort = ${i} where id = ${want[i]!} and location_id = ${ctx.locationId}`;
+  }
+  audit({ entityType: 'staff_directory_option', entityId: ctx.locationId, after: { kind: input.kind, orderedIds: want } });
+  emit({ type: 'staff.changed', entityId: ctx.locationId });
+  return { kind: input.kind, count: want.length };
 });

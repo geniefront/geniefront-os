@@ -369,6 +369,16 @@ describe('五大核心中台工作台后端 API 完整增改验证测试', () =>
     let createdStaffMemberId: string;
 
     it('staff.saveProfile 支持新建员工、工号、职位、技能与薪酬方案联动', async () => {
+      // 岗位 / 职级 / 技能须先入本店目录（ID 契约，U02 / W2）
+      for (const name of ['资深美甲美睫师']) {
+        await dispatch('staff.saveDirectoryOption', { kind: 'job', name }, ownerCtx);
+      }
+      for (const name of ['高级技师']) {
+        await dispatch('staff.saveDirectoryOption', { kind: 'level', name }, ownerCtx);
+      }
+      for (const name of ['法式光疗', '手部SPA', '日式睫毛']) {
+        await dispatch('staff.saveDirectoryOption', { kind: 'skill', name }, ownerCtx);
+      }
       const saveRes = await dispatch<{ membershipId: string; created: boolean }>(
         'staff.saveProfile',
         {

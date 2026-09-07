@@ -84,7 +84,14 @@ export const SaveStaffProfile = defineCommand({
     employeeNo: z.string().trim().max(30).optional(),
     phone: phoneE164.optional().or(z.literal('')).nullable(),
     email: z.string().email('邮箱格式不正确').optional().or(z.literal('')).nullable(),
+    /**
+     * 岗位 / 职级 / 技能一律从本店已启用目录中选。
+     * ID 字段（`jobTitleId` / `levelId` / `skillIds`）是权威入口。
+     * 兼容用的自由文本字段（`jobTitle` / `level` / `skills`）只在能规范化
+     * 匹配到现存目录项时被接受；匹配不到即拒绝，服务端不再据此新建目录项。
+     */
     jobTitle: z.string().trim().max(50).optional(),
+    jobTitleId: uuid.nullable().optional(),
     level: z.string().trim().max(50).optional(),
     levelId: uuid.nullable().optional(),
     skills: z.array(z.string().trim()).optional(),
@@ -639,8 +646,28 @@ export const SaveStaffDirectoryOption = defineCommand({
   idempotency: 'optional',
 });
 
+/**
+ * 一次性稳定重排某一类目录项的显示顺序。
+ *
+ * 取代前端「上移 / 下移」的两条串行写：整份有序 ID 在服务端一个事务里
+ * 按下标重写 `sort`，并发重排不再互相覆盖。`orderedIds` 必须正好是该类
+ * 目前全部项（启用 + 停用），少一个或混入他类 / 他店 ID 即拒绝。
+ */
+export const ReorderStaffDirectoryOptions = defineCommand({
+  name: 'staff.reorderDirectoryOptions',
+  input: z.object({
+    kind: z.enum(['job', 'level', 'skill']),
+    orderedIds: z.array(uuid).min(1).max(500),
+  }),
+  output: z.object({ kind: z.enum(['job', 'level', 'skill']), count: z.number().int() }),
+  permission: 'staff.manage',
+  ai: { description: '按给定顺序重排门店岗位 / 职级 / 技能目录的显示位置。', confirm: 'always' },
+  reversible: true,
+  idempotency: 'optional',
+});
+
 export const SETUP_COMMANDS = [
-  SaveStaffDirectoryOption, SaveService, SaveServiceCategory, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
+  SaveStaffDirectoryOption, ReorderStaffDirectoryOptions, SaveService, SaveServiceCategory, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
   SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
   SaveCheckoutSettings, Apply10Dlc, SaveIntakeWaiver, SaveWebhooks, SetEmailLocale,

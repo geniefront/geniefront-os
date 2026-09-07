@@ -113,8 +113,10 @@ export const staffProfiles = pgTable('staff_profiles', {
   locale: text('locale'),
   /** 员工工号，如 EMP-1001 */
   employeeNo: text('employee_no'),
-  /** 岗位职位，如 美甲师 / 芳疗理疗师 */
+  /** 岗位职位显示名（保留供旧读取路径），如 美甲师 / 芳疗理疗师 */
   jobTitle: text('job_title'),
+  /** 岗位目录关联（sql/0114）。稳定主键，改名 / 切语言不失联。 */
+  jobTitleId: uuid('job_title_id').references(() => staffJobTitles.id),
   /** 员工档案备忘 */
   notes: text('notes'),
   /** 上机码的摘要。明文只在老板屏幕上出现一次 */

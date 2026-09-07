@@ -17,7 +17,9 @@ export interface StaffDirectoryItem {
   phone: string;
   email?: string | null | undefined;
   jobTitle: string;
+  jobTitleId: string | null;
   level: string;
+  levelId: string | null;
   skills: string[];
   skillIds: string[];
   status: 'active' | 'on_leave' | 'resigned';
@@ -43,8 +45,10 @@ export async function loadStaffDirectory(
     display_name: unknown;
     phone_e164: string | null;
     job_title: string | null;
+    job_title_id: string | null;
     notes: string | null;
     hire_date: string | null;
+    level_id: string | null;
     level_name: unknown;
     status: string;
     user_email: string | null;
@@ -54,8 +58,10 @@ export async function loadStaffDirectory(
            sp.display_name,
            sp.phone_e164,
            sp.job_title,
+           sp.job_title_id,
            sp.notes,
            sp.hire_date::text as hire_date,
+           sp.level_id,
            sl.name as level_name,
            m.status,
            coalesce(sp.contact_email, u.email) as user_email
@@ -132,7 +138,9 @@ export async function loadStaffDirectory(
       phone: r.phone_e164 ?? '',
       ...(r.user_email ? { email: r.user_email } : {}),
       jobTitle,
+      jobTitleId: r.job_title_id,
       level,
+      levelId: r.level_id,
       skills: skillsByMember.get(r.membership_id) ?? [],
       skillIds: skillRows.filter((skill) => skill.membership_id === r.membership_id).map((skill) => skill.id),
       status: mappedStatus,
