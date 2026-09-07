@@ -23,7 +23,7 @@ import { queueNextAction } from '@/features/queue/nextAction';
 import { rotationRank } from '@/features/queue/rotationRank';
 import type { QueueNextAction } from '@/features/queue/nextAction';
 import { buildCheckoutStaffList, computeCheckoutTotals, UNRESOLVED_STAFF_KEY } from '@/features/queue/checkoutMath';
-import { useBeginCleaning, useRoomsQuery } from '@/features/rooms/api';
+import { useBeginCleaning, useCompleteCleaning, useRoomsQuery } from '@/features/rooms/api';
 import { useDayCloseQuery } from '@/features/dayclose/api';
 import { settledRevenueCents } from '@/features/queue/kanbanMetrics';
 import { completeQueueService, resolveQueueRoomId } from '@/features/queue/completeService';
@@ -75,6 +75,7 @@ import { ROLLBACK_REASONS, PAYMENT_METHOD_LABEL_KEYS, CONTRAINDICATION_NONE, CON
 import type { TagOption, KanbanStage, KanbanItem, AddOnItem } from './queue/model';
 import { AttendanceModal } from './queue/AttendanceModal';
 import { KanbanBoard } from './queue/KanbanBoard';
+import { RoomsQuickModal, roomNeedsCleaning } from './queue/RoomsQuickModal';
 import { CheckInModal } from './queue/modals/CheckInModal';
 import { CheckoutModal } from './queue/modals/CheckoutModal';
 import { StartServiceModal } from './queue/modals/StartServiceModal';
@@ -140,6 +141,10 @@ function QueueContent() {
   const finishTicketItemMutation = useFinishTicketItem();
   const saveServiceNoteMutation = useSaveServiceNote();
   const beginCleaningMutation = useBeginCleaning();
+  const completeCleaningMutation = useCompleteCleaning();
+  /* 看板上的房间快捷清理。cleaningRoomId 只用于逐行 spinner，不锁死整个面板。 */
+  const [isRoomsPanelOpen, setIsRoomsPanelOpen] = useState(false);
+  const [cleaningRoomId, setCleaningRoomId] = useState<string | null>(null);
   const shareFormMutation = useShareForm();
   const [formShares, setFormShares] = useState<Record<string, FormShareResult>>({});
 
@@ -254,6 +259,7 @@ function QueueContent() {
   };
 
   const rooms = roomsData?.rooms ?? [];
+  const roomsNeedingCleaning = rooms.filter(roomNeedsCleaning).length;
   const rotationEntries = rotationData?.entries ?? [];
 
   // Top 3 On-Duty Technicians in Rotation
@@ -1360,6 +1366,30 @@ function QueueContent() {
     window.open(`/print/service-brief/${ticketId}`, '_blank', 'noopener');
   };
 
+  /**
+   * 「打扫完毕」—— 一下把位子放回可接客。
+   *
+   * 服务端分两步：`cleaning_required`（刚做完，还没人动手）要先 begin 再
+   * complete。前台心里只有「我扫完了」这一个动作，因此这里替她把两步接上，
+   * 而不是在界面上要求她先点「开始打扫」。
+   */
+  const handleRoomCleanDone = async (room: { id: string; name: string; status: string; rawStatus?: string }) => {
+    if (cleaningRoomId) return;
+    setCleaningRoomId(room.id);
+    try {
+      if (room.rawStatus === 'cleaning_required') {
+        await beginCleaningMutation.mutateAsync({ resourceId: room.id });
+      }
+      await completeCleaningMutation.mutateAsync({ resourceId: room.id });
+      toast.success(t('queue.quRoomCleaned', { p0: room.name }));
+      await refetchRooms();
+    } catch (err) {
+      toast.danger(errorMessage(err));
+    } finally {
+      setCleaningRoomId(null);
+    }
+  };
+
   /** 打开作废弹窗。默认原因为「录入错误」——它是唯一会把客人退回候客区的分支。 */
   const requestVoid = (item: KanbanItem, reason: VoidReason = 'input_error') => {
     if (!canVoidTicket) {
@@ -2109,16 +2139,36 @@ function QueueContent() {
             </div>
           </div>
 
-          {/* 房间空位卡片 */}
-          <div className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center gap-2.5">
-            <BedDouble className="w-4 h-4 text-indigo-600 shrink-0" />
+          {/*
+            房间空位卡片。可点开 —— 前台在看板上最常问「哪个位子扫好了没有」，
+            此前答案只在房间状态页里，扫完一个位子要离开看板、切页、再切回来，
+            而这中间客人就站在台前等位。
+          */}
+          <button
+            type="button"
+            aria-label={t('queue.quRoomsOpenPanel')}
+            onClick={() => setIsRoomsPanelOpen(true)}
+            className={cn(
+              'px-3.5 py-2 rounded-xl border shadow-sm flex items-center gap-2.5 text-left transition-colors',
+              roomsNeedingCleaning > 0
+                ? 'bg-amber-50/80 border-amber-200 hover:bg-amber-100'
+                : 'bg-white border-slate-200 hover:bg-slate-50',
+            )}
+          >
+            <BedDouble className={cn('w-4 h-4 shrink-0', roomsNeedingCleaning > 0 ? 'text-amber-600' : 'text-indigo-600')} />
             <div className="text-xs">
               <span className="text-slate-400 block text-xs">{t('queue.quRoomsFree')}</span>
               <span className="font-bold text-emerald-700 font-mono">
                 {availableRoomsCount} / {totalRoomsCount}  {t('queue.quRoomsAvailableUnit')}
               </span>
+              {/* 待清洁数量直接摆在这里：它是唯一挡着下一位客人的状态。 */}
+              {roomsNeedingCleaning > 0 && (
+                <span className="block font-bold text-amber-800">
+                  {t('queue.quRoomsNeedCleaning', { p0: roomsNeedingCleaning })}
+                </span>
+              )}
             </div>
-          </div>
+          </button>
 
           {/* 今日总单 */}
           <div className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center gap-2.5">
@@ -2563,6 +2613,14 @@ function QueueContent() {
           </div>
         </Modal>
       )}
+
+      <RoomsQuickModal
+        isOpen={isRoomsPanelOpen}
+        rooms={rooms}
+        cleaningRoomId={cleaningRoomId}
+        onOpenChange={setIsRoomsPanelOpen}
+        onCleanDone={handleRoomCleanDone}
+      />
 
       <AttendanceModal
         isOpen={isStaffAttendanceModalOpen}
