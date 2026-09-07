@@ -21,6 +21,7 @@ import { assertDayOpen } from '../money';
 import { assertStaffCapacity, lockServiceCapacity } from '../serviceCapacity';
 import { assertResourceStaffLimit } from '../resourceStaffLimit';
 import { occupyServiceResource } from './serviceResource';
+import { consumeRotationTurnForItem } from './rotation';
 import { hashPin, verifyPin } from '../auth/pin';
 
 async function bizDate(tx: postgres.TransactionSql, locationId: string): Promise<string> {
@@ -111,6 +112,7 @@ registerHandler(TicketStartItem, async ({ input, ctx, tx, audit, emit }: Handler
    * 误报 STAFF_OVER_CAPACITY 的地方。
    */
   let overbooked = false;
+  const firstStart = row.started_at === null;
   if (!row.started_at) {
     const assignments = await tx<{ membership_id: string }[]>`
       select membership_id from ticket_item_staff where ticket_item_id = ${row.id}`;
@@ -125,6 +127,17 @@ registerHandler(TicketStartItem, async ({ input, ctx, tx, audit, emit }: Handler
   }
 
   await occupyServiceResource(tx, ctx, row);
+
+  /*
+   * ⭐ 轮次在这里消耗 —— 只在**第一次**真正开始时。
+   *
+   * 此前这条路一条轮牌事件都不写：技师从看板接了客，累计轮次仍是 0，
+   * 下一位还是他。轮牌是排序不是门禁，因此这一步失败不该挡住开工，
+   * 具体的跳过条件写在 consumeRotationTurnForItem 里。
+   */
+  if (firstStart) {
+    await consumeRotationTurnForItem(tx, ctx, row);
+  }
 
   // 重复点「开始」不报错，保持原来的时刻 —— 技师在嘈杂环境里多点一下很常见，
   // 而把开始时间往后推会让工时凭空缩水。

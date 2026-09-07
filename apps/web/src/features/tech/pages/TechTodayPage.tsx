@@ -13,6 +13,7 @@ import {
   ListOrdered,
   RefreshCw,
 } from 'lucide-react';
+import { rotationRank } from '@/features/queue/rotationRank';
 import { useLanguage } from '@/LanguageContext';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -251,7 +252,7 @@ export function TechTodayPage() {
                 <span>{t('rotationPosition')}</span>
               </div>
               <div className="text-[11px] text-slate-400 mt-0.5">
-                {rotation.isNextUp ? t('nextUpSoon') : t('stayReadyPrompt').replace('{pos}', String(rotation.position ?? '-'))}
+                {rotation.isNextUp ? t('nextUpSoon') : t('stayReadyPrompt').replace('{pos}', String(rotationRank(rotation.position) ?? '-'))}
               </div>
             </div>
           </div>
@@ -408,7 +409,7 @@ export function TechTodayPage() {
             <h3 className="text-lg font-bold text-slate-900 tracking-tight">{t('noActiveTask')}</h3>
             <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
               {onDuty
-                ? t('stayReadyPrompt').replace('{pos}', String(rotation.position ?? '-'))
+                ? t('stayReadyPrompt').replace('{pos}', String(rotationRank(rotation.position) ?? '-'))
                 : t('clockInPrompt')}
             </p>
           </div>

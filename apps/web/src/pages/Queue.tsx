@@ -20,6 +20,7 @@ import { useCloseTicket, useOpenTickets, centsToDollars, dollarsToCents } from '
 import { paymentStageFor } from '@/features/checkout/types';
 import type { PaymentStage } from '@/features/checkout/types';
 import { queueNextAction } from '@/features/queue/nextAction';
+import { rotationRank } from '@/features/queue/rotationRank';
 import type { QueueNextAction } from '@/features/queue/nextAction';
 import { buildCheckoutStaffList, computeCheckoutTotals, UNRESOLVED_STAFF_KEY } from '@/features/queue/checkoutMath';
 import { useBeginCleaning, useRoomsQuery } from '@/features/rooms/api';
@@ -2097,7 +2098,8 @@ function QueueContent() {
                         "w-3.5 h-3.5 rounded text-xs flex items-center justify-center font-bold",
                         idx === 0 ? "bg-amber-100 text-amber-900" : idx === 1 ? "bg-slate-200 text-slate-700" : "bg-orange-100 text-orange-900"
                       )}>
-                        {entry.position ?? idx + 1}
+                        {/* 引擎的 position 是 0 基，第一位要显示 #1 —— 与入座弹窗、考勤面板同一份规则。 */}
+                        {rotationRank(entry.position, idx)}
                       </span>
                       <span>{entry.name}</span>
                     </span>

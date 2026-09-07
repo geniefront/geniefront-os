@@ -391,6 +391,62 @@ describe('预约到收银的真实闭环', () => {
     await setCheckoutTiming('after_service_combined');
   });
 
+  it('接客消耗轮次：开工后该技师的累计轮次上升，不再霸占第一位', async () => {
+    const date = await businessDate();
+
+    // 让两位技师都在今天的轮牌里，且都已到店 —— 否则不进队列，无从比较顺位。
+    for (const id of [membershipId, secondMembershipId]) {
+      await withTenant(tenant, (tx) => tx`
+        insert into rotation_participants (org_id, location_id, business_date, membership_id, in_rotation)
+        values (${ORG_ID}, ${LOCATION_ID}, ${date}, ${id}, true)
+        on conflict (location_id, business_date, membership_id) do update set in_rotation = true`);
+      await run('rotation.checkIn', { membershipId: id });
+    }
+
+    const before = await withTenant(tenant, (tx) => tx<{ n: number }[]>`
+      select count(*)::int as n from rotation_events
+      where location_id = ${LOCATION_ID} and business_date = ${date}
+        and membership_id = ${membershipId} and reason = 'served'`);
+    expect(before[0]?.n).toBe(0);
+
+    const appointmentId = await createAppointment();
+    await run('queue.join', { appointmentId, source: 'desk' }, `checkin-turn-${appointmentId}`);
+    const opened = await run<{ ticketId: string; ticketItemIds: string[] }>('ticket.open', {
+      appointmentId,
+      customerId: null,
+      items: [{ serviceId, membershipId, minutes: 45 }],
+    }, `turn-open-${appointmentId}`);
+
+    /*
+     * 开单本身不消耗轮次 —— 人还没被占用。此前整条路一条事件都不写，
+     * 技师接了客累计轮次仍是 0，下一位还是他。
+     */
+    const afterOpen = await withTenant(tenant, (tx) => tx<{ n: number }[]>`
+      select count(*)::int as n from rotation_events
+      where location_id = ${LOCATION_ID} and business_date = ${date}
+        and membership_id = ${membershipId} and reason = 'served'`);
+    expect(afterOpen[0]?.n).toBe(0);
+
+    const ticketItemId = opened.result.ticketItemIds[0]!;
+    await run('ticket.startItem', { ticketItemId, membershipId });
+
+    const afterStart = await withTenant(tenant, (tx) => tx<{ n: number; delta: number }[]>`
+      select count(*)::int as n, coalesce(sum(delta_bp), 0)::int as delta
+      from rotation_events
+      where location_id = ${LOCATION_ID} and business_date = ${date}
+        and membership_id = ${membershipId} and reason = 'served'`);
+    expect(afterStart[0]?.n).toBe(1);
+    expect(afterStart[0]?.delta).toBeGreaterThan(0);
+
+    // 重复点「开始」不该再记一次 —— 那一下本来就是幂等的。
+    await run('ticket.startItem', { ticketItemId, membershipId });
+    const afterRepeat = await withTenant(tenant, (tx) => tx<{ n: number }[]>`
+      select count(*)::int as n from rotation_events
+      where location_id = ${LOCATION_ID} and business_date = ${date}
+        and membership_id = ${membershipId} and reason = 'served'`);
+    expect(afterRepeat[0]?.n).toBe(1);
+  });
+
   it('服务单一页纸：逐项目技师与工位、到店次数、避开部位；无权限时只给结论层', async () => {
     const appointmentId = await createAppointment();
     await run('queue.join', { appointmentId, source: 'desk' }, `checkin-brief-${appointmentId}`);

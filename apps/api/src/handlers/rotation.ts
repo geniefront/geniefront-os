@@ -163,6 +163,75 @@ async function insertEvent(
   return row!.id;
 }
 
+/**
+ * ⭐ 接客消耗轮次 —— 由开工那条路调用。
+ *
+ * ## 为什么必须有这个函数
+ *
+ * 轮牌的排序键是累计轮次（`engine.ts` 里 `a.turnsBp - b.turnsBp`）。此前
+ * **只有「技师轮牌」页上手动的 `rotation.assign` 会写 `served` 事件**，
+ * 而前台从运营看板入座、开工，一条轮牌事件都不写。于是技师接了客，
+ * `turnsBp` 仍是 0，下一位还是他 —— 轮牌在真实动线里等同于不存在。
+ * （staging 实测：当日已开工 3 个项目，轮牌事件 0 条。）
+ *
+ * ## 消耗的时点是「开始做」，不是开单也不是做完
+ *
+ * 开单只是记下要做什么，人还没被占用；做完才记账则来不及 —— 队列必须在
+ * 他接手的那一刻就重排，否则下一位走进来还会被派给同一个人。
+ * 因此挂在 `ticket.startItem` 的首次开始上，与技师并发的闸门同一处。
+ *
+ * ## ⚠️ 记账失败绝不能挡住开工
+ *
+ * 轮牌是排序，开工是服务。技师不在今天的轮牌名单里（临时帮忙、不参与轮牌）
+ * 时直接跳过，不报错 —— 让客人躺在床上等一条排序记录，是本末倒置。
+ */
+export async function consumeRotationTurnForItem(
+  tx: postgres.TransactionSql,
+  ctx: CommandContext,
+  item: { id: string; ticket_id: string; business_date: string },
+): Promise<void> {
+  const { policy, tiers } = await currentBusinessDate(tx, ctx.locationId);
+  if (!policy.enabled) return;
+
+  const rows = await tx<{
+    membership_id: string; total_cents: number; is_request: boolean;
+  }[]>`
+    select tis.membership_id, ti.total_cents,
+           coalesce(bool_or(ai.is_request), false) as is_request
+    from ticket_items ti
+    join ticket_item_staff tis on tis.ticket_item_id = ti.id
+    join tickets t on t.id = ti.ticket_id
+    -- 点钟标记在预约项目上。同一预约同服务可能有多条，任一为点钟即算点钟。
+    left join appointment_items ai
+      on ai.appointment_id = t.appointment_id
+     and ai.service_id = ti.service_id
+     and ai.membership_id = tis.membership_id
+    where ti.id = ${item.id}
+    group by tis.membership_id, ti.total_cents`;
+
+  for (const row of rows) {
+    /*
+     * 只给今天真正在轮牌里的人记账。不在名单里的（临时顶班、不参与轮牌的
+     * 专属技师）没有位次可言，写事件只会在轮牌页上凭空多出一个人。
+     */
+    const [participant] = await tx<{ in_rotation: boolean }[]>`
+      select in_rotation from rotation_participants
+      where location_id = ${ctx.locationId} and business_date = ${item.business_date}
+        and membership_id = ${row.membership_id}`;
+    if (!participant?.in_rotation) continue;
+
+    // 轮次按金额折算：一个 $10 的加钟不该和一单全身按摩烧掉同样多的轮次。
+    const consumedBp = turnValueByAmount(row.total_cents, tiers);
+    await insertEvent(
+      tx, ctx, item.business_date, row.membership_id,
+      // 点钟是否真的消耗由策略决定，引擎按 reason 自行判断，这里只如实记录。
+      row.is_request ? 'request_not_counted' : 'served',
+      consumedBp,
+      `ticket_item:${item.id}`,
+    );
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────── 手动调序
 
 registerHandler(RotationReorder, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
