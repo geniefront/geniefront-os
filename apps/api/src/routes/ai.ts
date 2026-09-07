@@ -43,8 +43,8 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
     }
     if (!ctx.permissions.has('ai.use')) throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
     const url = req.body?.url?.trim() ?? '';
-    const apiKey = process.env['ANTHROPIC_API_KEY'];
-    if (!apiKey) throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
+    const apiKey = process.env['OPENAI_API_KEY'];
+    if (!apiKey) throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'openai' } });
     // ⛔ 准入闸门（AUD-03）：欠费 / 额度耗尽 / 刷得太快，都在这里挡下，
     // **一次 token 都不花**。放在紧挨模型调用的上一行，中间不留任何 IO。
     await assertAiAdmission(ctx);
@@ -87,9 +87,9 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
         details: { reason: 'invalid_health_form_ai_request' },
       });
     }
-    const apiKey = process.env['ANTHROPIC_API_KEY'];
+    const apiKey = process.env['OPENAI_API_KEY'];
     if (!apiKey) {
-      throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
+      throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'openai' } });
     }
 
     // ⛔ 准入闸门（AUD-03）：欠费 / 额度耗尽 / 刷得太快，都在这里挡下，
@@ -123,10 +123,10 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
     if (!ctx.permissions.has('ai.use')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
     }
-    const apiKey = process.env['ANTHROPIC_API_KEY'];
+    const apiKey = process.env['OPENAI_API_KEY'];
     if (!apiKey) {
-      req.log.error('ANTHROPIC_API_KEY 未配置，建站工单生成不可用');
-      throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
+      req.log.error('OPENAI_API_KEY 未配置，建站工单生成不可用');
+      throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'openai' } });
     }
 
     const tenant = { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId };
@@ -251,10 +251,10 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
         throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
       }
 
-      const apiKey = process.env['ANTHROPIC_API_KEY'];
+      const apiKey = process.env['OPENAI_API_KEY'];
       if (!apiKey) {
-        req.log.error('ANTHROPIC_API_KEY 未配置，拍照开店不可用');
-        throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
+        req.log.error('OPENAI_API_KEY 未配置，拍照开店不可用');
+        throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'openai' } });
       }
 
       const body = req.body as {
@@ -374,9 +374,9 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
     if (!ctx.permissions.has('catalog.manage') || !ctx.permissions.has('ai.use')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'catalog.manage+ai.use' } });
     }
-    const apiKey = process.env['ANTHROPIC_API_KEY'];
+    const apiKey = process.env['OPENAI_API_KEY'];
     if (!apiKey) {
-      throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
+      throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'openai' } });
     }
 
     const im = (req.body ?? {}) as {
@@ -432,9 +432,9 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
       if (!ctx.permissions.has('ai.use')) {
         throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ai.use' } });
       }
-      const apiKey = process.env['ANTHROPIC_API_KEY'];
+      const apiKey = process.env['OPENAI_API_KEY'];
       if (!apiKey) {
-        throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
+        throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'openai' } });
       }
 
       const view = await withTenant(

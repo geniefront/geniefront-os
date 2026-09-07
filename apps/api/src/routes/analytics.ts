@@ -106,9 +106,9 @@ export function registerAnalyticsRoutes(app: FastifyInstance, ctxFromHeaders: Ct
       if (!ctx.permissions.has('report.view')) {
         throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'report.view' } });
       }
-      const apiKey = process.env['ANTHROPIC_API_KEY'];
+      const apiKey = process.env['OPENAI_API_KEY'];
       if (!apiKey) {
-        throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'anthropic' } });
+        throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'openai' } });
       }
       return generateAndSaveBusinessSummary(ctx, apiKey);
     }

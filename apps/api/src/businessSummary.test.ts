@@ -73,8 +73,8 @@ async function setStatus(orgId: string, locationId: string, status: string) {
 }
 
 beforeAll(async () => {
-  previousApiKey = process.env['ANTHROPIC_API_KEY'];
-  process.env['ANTHROPIC_API_KEY'] = 'test-anthropic-key';
+  previousApiKey = process.env['OPENAI_API_KEY'];
+  process.env['OPENAI_API_KEY'] = 'test-openai-key';
 
   const [owner] = await withTenant(nailTenant, (tx) => tx<{ id: string; user_id: string }[]>`
     select m.id, m.user_id from memberships m
@@ -94,8 +94,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (previousApiKey === undefined) delete process.env['ANTHROPIC_API_KEY'];
-  else process.env['ANTHROPIC_API_KEY'] = previousApiKey;
+  if (previousApiKey === undefined) delete process.env['OPENAI_API_KEY'];
+  else process.env['OPENAI_API_KEY'] = previousApiKey;
   await setStatus(NAIL_ORG, NAIL_LOC, 'active');
   await closeDb();
 });

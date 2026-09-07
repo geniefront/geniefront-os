@@ -168,6 +168,9 @@ export class LunaRuntime {
 
   constructor(apiKey?: string, baseURL?: string) {
     const key = apiKey || process.env.OPENAI_API_KEY || '';
+    if (key.startsWith('sk-ant-')) {
+      throw new LunaRuntimeError('upstream_error', 'OpenAI runtime requires an OpenAI API key; Anthropic credentials are not supported');
+    }
     const base = baseURL || process.env.OPENAI_BASE_URL;
     this.client = new OpenAI({
       apiKey: key,

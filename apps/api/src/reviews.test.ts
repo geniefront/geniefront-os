@@ -100,7 +100,7 @@ async function runFullSync(records: Record<string, unknown>[]) {
 beforeAll(async () => {
   setEnv('BRIGHT_DATA_API_KEY', 'brd-test');
   setEnv('BRIGHT_DATA_COST_PER_RECORD_MILLICENTS', '150');
-  setEnv('ANTHROPIC_API_KEY', 'test-anthropic-key');
+  setEnv('OPENAI_API_KEY', 'test-openai-key');
   // 门店必须先配好抓取入参，否则整条链路会正确地跳过
   await withTenant(tenant, (tx) => tx`
     update locations set google_maps_url = 'https://maps.example/shop'

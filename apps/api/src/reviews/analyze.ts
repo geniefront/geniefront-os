@@ -96,7 +96,7 @@ export async function analyzeNewReviews(
   ctx: CommandContext,
   opts: { limit?: number; log?: { warn: (o: unknown, m: string) => void } | undefined } = {},
 ): Promise<AnalyzeOutcome> {
-  const apiKey = process.env['ANTHROPIC_API_KEY'];
+  const apiKey = process.env['OPENAI_API_KEY'];
   if (!apiKey) return { analyzed: 0, updated: 0, state: 'disabled' };
 
   const limit = Math.min(opts.limit ?? ANALYZE_BATCH, ANALYZE_BATCH);
@@ -151,7 +151,7 @@ export async function generateReviewSummary(
   ctx: CommandContext,
   opts: { force?: boolean; log?: { warn: (o: unknown, m: string) => void } | undefined } = {},
 ): Promise<SummaryOutcome> {
-  const apiKey = process.env['ANTHROPIC_API_KEY'];
+  const apiKey = process.env['OPENAI_API_KEY'];
   if (!apiKey) {
     return { state: 'disabled', summaryId: null, reviewCount: 0, excerptRatioBp: 0 };
   }

@@ -13,7 +13,7 @@
  * ## 这个文件怎么证明「没花钱」
  *
  * 不去 mock `@gf/ai`（那只能证明我们没调那个包）。
- * 直接把 `ANTHROPIC_API_KEY` 设成一个**必然被上游拒绝**的值，
+ * 直接把 `OPENAI_API_KEY` 设成一个**必然被上游拒绝**的值，
  * 然后断言错误码是 `AI_QUOTA_EXHAUSTED` / `SUBSCRIPTION_PAST_DUE`
  * 而**不是** `UPSTREAM_UNAVAILABLE` / `EXTRACTION_FAILED`。
  *
