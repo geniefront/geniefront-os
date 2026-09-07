@@ -13,14 +13,18 @@
  *
  * ## ⚠️ 这里有一个跨租户的边界，是绕开的不是无视的
  *
- * `sms_inbound` 是**平台级**的表（没有 org_id）：客人回的是平台号，
- * 那条短信不属于任何一家店（sql/0034）。但前台**只该看到自己店的客人** ——
- * 所以这里不是「查所有入站短信」，而是：
+ * `sms_inbound` 是**平台级**的表（没有 org_id）。归属分两种情况（sql/0112）：
  *
- *   先在**本店的客户**里按号码找 → 再拿这些号码去查入站短信
+ *   1. **发到本店专属线**（`phone_lines` 里 `ai_voice` / `sms` 的号，全局唯一，
+ *      webhook 靠它反查门店）—— 归属确定，就是那条线指向的 org + location，
+ *      跟发件人是不是别家客户没关系，**新客未建档也算**。
+ *   2. **发到平台共享号**（没有任何门店在 `phone_lines` 里认领）—— 那条短信
+ *      不属于任何一家店，只能靠「发件号码是本店客户」来推（沿用 sql/0079）。
  *
- * 于是一家店看到的永远是自己客人发来的那些。别人店的客人发了什么，
- * 在这里查不到，也不需要一条跨租户的连接（宪法第 5 条）。
+ * RLS（`inbound_select_own`，sql/0112）已经按同一套规则收窄了 SELECT；
+ * 这里的显式过滤是纵深防御的第二道，改错一处不会漏。
+ * 判断「某个被叫号是不是别家专属线」要跨 org，走 `gf_sms_line_owner()`
+ * 这个极窄的 SECURITY DEFINER 函数，不自己 join `phone_lines`（会被 RLS 挡住）。
  */
 
 import type postgres from 'postgres';
@@ -42,10 +46,21 @@ export async function loadInboundSms(
   tx: postgres.TransactionSql, ctx: CommandContext, days = 14,
 ): Promise<{ messages: InboundSms[]; needsAttention: number }> {
   /**
-   * 只看本店客户的号码。
+   * (1) 本店专属线（`ai_voice` / `sms`）。发到这些号的短信一律归本店，
+   *     包括还没建档的新客咨询 —— 与发件人是不是别家客户无关。
+   */
+  const lineRows = await tx<{ e164: string }[]>`
+    select e164 from phone_lines
+    where org_id = ${ctx.orgId} and location_id = ${ctx.locationId}
+      and purpose in ('ai_voice', 'sms') and active`;
+  const ownLines = lineRows.map((r) => r.e164);
+
+  /**
+   * (2) 平台共享号的回落归属：发件号码是本店客户，且在本店有过预约。
    *
-   * ⚠️ 走 `customers` 而不是直接扫 `sms_inbound`：后者会把别的店的
-   * 客人发来的短信也捞进来 —— 那张表是平台级的。
+   * ⚠️ 走 `customers` 而不是直接扫 `sms_inbound`：平台共享号那条短信不属于
+   * 任何一家店，只能靠「是我们的客人」来推。这条口径沿用 sql/0079，
+   * 尚未细分同 org 两店（routingScope 工作项）。
    */
   const phones = await tx<{ phone_e164: string }[]>`
     select distinct c.phone_e164
@@ -56,16 +71,24 @@ export async function loadInboundSms(
         select 1 from appointments a
         where a.customer_id = c.id and a.location_id = ${ctx.locationId})`;
 
-  const list = phones.map((p) => p.phone_e164);
-  if (list.length === 0) return { messages: [], needsAttention: 0 };
+  const custPhones = phones.map((p) => p.phone_e164);
+  if (ownLines.length === 0 && custPhones.length === 0) {
+    return { messages: [], needsAttention: 0 };
+  }
 
   const rows = await tx<{
     id: string; from_e164: string; body: string; intent: string; received_at: string;
   }[]>`
     select id, from_e164, body, intent, received_at::text as received_at
     from sms_inbound
-    where from_e164 = any(${list})
-      and received_at > now() - (${days} || ' days')::interval
+    where received_at > now() - (${days} || ' days')::interval
+      and (
+        to_e164 = any(${ownLines})
+        or (
+          from_e164 = any(${custPhones})
+          and not exists (select 1 from gf_sms_line_owner(sms_inbound.to_e164))
+        )
+      )
     order by received_at desc
     limit 100`;
   if (rows.length === 0) return { messages: [], needsAttention: 0 };

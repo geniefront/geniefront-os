@@ -283,7 +283,23 @@ describe('文案', () => {
 
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+const SPA_ORG = '22222222-2222-4222-8222-222222222222';
+const SPA_LOC = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
 const tenant = { orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null };
+const spaTenant = { orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null };
+
+/** 拿某家店 owner/manager 的登录上下文 —— 前台列表查询要一个真实 ctx */
+async function deskCtx(loc: string) {
+  const [m] = await withTenant(
+    { orgId: loc === NAIL_LOC ? NAIL_ORG : SPA_ORG, locationId: loc, membershipId: null },
+    (tx) => tx<{ id: string; user_id: string }[]>`
+      select m.id, m.user_id from memberships m
+      join membership_roles mr on mr.membership_id = m.id
+      join roles r on r.id = mr.role_id
+      where m.location_id = ${loc} and m.status = 'active'
+        and r.key in ('owner','manager') limit 1`);
+  return buildContext({ userId: m!.user_id, membershipId: m!.id });
+}
 
 afterAll(async () => { await closeDb(); });
 
@@ -364,6 +380,52 @@ describe('入站短信列表（docs/09 §5.3）', () => {
 
     const out = await withTenant(tenant, (tx) => loadInboundSms(tx, ctx, 14));
     expect(out.messages.some((x) => x.fromE164 === stranger)).toBe(false);
+  });
+
+  it('🔴 发到本店专属线的短信只有本店可读 —— 同号在别店也是客户也不串（sql/0112）', async () => {
+    // 同一个手机号在 NAIL 和 SPA 都建了客户。这个人给 NAIL 的 AI 落地号
+    // 发了一条，SPA 不该因为「他也是我们客户」而看到正文。
+    const phone = `+1617888${String(Math.floor(Math.random() * 9000) + 1000)}`;
+
+    const [nailLine] = await withTenant(tenant, (tx) => tx<{ e164: string }[]>`
+      select e164 from phone_lines
+      where location_id = ${NAIL_LOC} and purpose = 'ai_voice' and active limit 1`);
+    expect(nailLine?.e164).toBeTruthy();
+
+    const made = await withTenant(tenant, async (tx) => {
+      const [c] = await tx<{ id: string }[]>`
+        insert into customers (org_id, primary_location_id, display_name, phone_e164, source)
+        values (${NAIL_ORG}, ${NAIL_LOC}, 'Shared Number NAIL', ${phone}, 'web') returning id`;
+      return { nailCustomer: c!.id };
+    });
+    const spaMade = await withTenant(spaTenant, async (tx) => {
+      const [c] = await tx<{ id: string }[]>`
+        insert into customers (org_id, primary_location_id, display_name, phone_e164, source)
+        values (${SPA_ORG}, ${SPA_LOC}, 'Shared Number SPA', ${phone}, 'web') returning id`;
+      return { spaCustomer: c!.id };
+    });
+
+    await recordInboundSms({ fromE164: phone, toE164: nailLine!.e164,
+                             body: 'Can I move my 3pm?', intent: 'unknown' });
+
+    const nailCtx = await deskCtx(NAIL_LOC);
+    const spaCtx = await deskCtx(SPA_LOC);
+
+    const nailOut = await withTenant(tenant, (tx) => loadInboundSms(tx, nailCtx, 14));
+    const spaOut = await withTenant(spaTenant, (tx) => loadInboundSms(tx, spaCtx, 14));
+
+    // NAIL 收到自己号上的这条（发件人建不建档都算）
+    expect(nailOut.messages.some((x) => x.fromE164 === phone && x.body === 'Can I move my 3pm?'))
+      .toBe(true);
+    // SPA 完全看不到 —— 查询层
+    expect(spaOut.messages.some((x) => x.fromE164 === phone)).toBe(false);
+    // SPA 完全看不到 —— RLS（直接扫表也拿不到正文）
+    const spaRaw = await withTenant(spaTenant, (tx) => tx<{ id: string }[]>`
+      select id from sms_inbound where from_e164 = ${phone} and to_e164 = ${nailLine!.e164}`);
+    expect(spaRaw.length).toBe(0);
+
+    await withTenant(tenant, (tx) => tx`delete from customers where id = ${made.nailCustomer}`);
+    await withTenant(spaTenant, (tx) => tx`delete from customers where id = ${spaMade.spaCustomer}`);
   });
 });
 
