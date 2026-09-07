@@ -59,6 +59,36 @@ const ERROR_MESSAGE_KEYS: Record<ErrorCode, TranslationKey> = {
 };
 
 /**
+ * `details.reason` 到文案 key 的二级映射。
+ *
+ * 服务端把「为什么失败」放在 `details.reason` 里，顶层错误码只说明失败的类别。
+ * 此前这一层被整个丢弃，于是 `combined_stage_not_available` 在前台显示成
+ * 「输入内容格式有误，请核对」—— 前台无论如何都无法据此行动。
+ *
+ * 文案一律写成可执行句式：告诉前台**下一步该点哪里**，而不是复述失败原因。
+ * 与错误码映射同理，键必须逐条显式列出，不得运行期拼接。
+ */
+const ERROR_REASON_KEYS: Record<string, TranslationKey> = {
+  // 收款阶段
+  service_stage_not_available: 'errorReasonServiceStageNotAvailable',
+  service_stage_tip_must_be_zero: 'errorReasonServiceStageTipMustBeZero',
+  tip_stage_not_available: 'errorReasonTipStageNotAvailable',
+  combined_stage_not_available: 'errorReasonCombinedStageNotAvailable',
+  zero_tip_payment_not_allowed: 'errorReasonZeroTipPaymentNotAllowed',
+  package_cannot_pay_tip: 'errorReasonPackageCannotPayTip',
+  stored_value_cannot_pay_tip: 'errorReasonStoredValueCannotPayTip',
+  tip_split_override_disabled: 'errorReasonTipSplitOverrideDisabled',
+  ticket_items_frozen_after_service_settlement: 'errorReasonTicketItemsFrozen',
+  // 工单与预约
+  ticket_exists_requires_void: 'errorReasonTicketExistsRequiresVoid',
+  closed_ticket_requires_void: 'errorReasonClosedTicketRequiresVoid',
+  appointment_ticket_exists: 'errorReasonAppointmentTicketExists',
+  // 工位
+  resource_not_available: 'errorReasonResourceNotAvailable',
+  resource_has_active_occupancies: 'errorReasonResourceHasActiveOccupancies',
+};
+
+/**
  * 返回一个把任意异常转换为母语文案的函数。
  *
  * 非 `ApiError`（网络中断、解析失败等）没有稳定的错误码可依据，
@@ -70,6 +100,16 @@ export function useErrorMessage(): (err: unknown) => string {
   return useCallback(
     (err: unknown) => {
       if (err instanceof ApiError) {
+        /*
+         * 先取 `details.reason`：同一个 VALIDATION_FAILED 之下有十几种成因，
+         * 只有 reason 能区分出前台该做什么。没有对应文案时才退回错误码级别的
+         * 泛化说明 —— 泛化文案至少能说明失败的类别，好过展示原始标识符。
+         */
+        const reason = err.details?.['reason'];
+        if (typeof reason === 'string') {
+          const reasonKey = ERROR_REASON_KEYS[reason];
+          if (reasonKey) return t(reasonKey);
+        }
         const key = ERROR_MESSAGE_KEYS[err.code as ErrorCode];
         if (key) return t(key);
       }
@@ -79,5 +119,5 @@ export function useErrorMessage(): (err: unknown) => string {
   );
 }
 
-/** 供完整性测试使用：错误码与文案 key 的对照表。 */
-export { ERROR_MESSAGE_KEYS };
+/** 供完整性测试使用：错误码、失败原因与文案 key 的对照表。 */
+export { ERROR_MESSAGE_KEYS, ERROR_REASON_KEYS };

@@ -13,6 +13,10 @@ function ticket(overrides: Partial<TicketSummary> = {}): TicketSummary {
     status: 'in_service',
     customerName: 'Guest',
     subtotalCents: 8500,
+    checkoutTiming: 'after_service_combined',
+    serviceSettledAt: null,
+    tipSettledAt: null,
+    serviceCompleted: false,
     groupId: null,
     groupLabel: null,
     businessDate: '2026-08-30',
@@ -54,6 +58,44 @@ describe('resolveQueueRoomId', () => {
 });
 
 describe('completeQueueService', () => {
+  it('finishes a shared-staff service once and cleans every distinct station', async () => {
+    const first = { ...ticket().items[0]!, resourceId: 'room-1' };
+    const cmds = commands();
+    await completeQueueService({
+      rawTicket: ticket({ items: [first, { ...first, membershipId: 'assistant' },
+        { ...first, ticketItemId: 'item-2', resourceId: 'room-2' }] }),
+      technicianNotes: '', markRoomCleaning: true, roomId: 'room-1', addedAddOns: [],
+    }, cmds);
+    expect(cmds.finishItem).toHaveBeenCalledTimes(2);
+    expect(cmds.beginCleaning).toHaveBeenCalledTimes(2);
+    expect(cmds.beginCleaning).toHaveBeenCalledWith({ resourceId: 'room-2' });
+  });
+
+  it.each([true, false])('finishes every unfinished item, including unstarted items (second started: %s)', async (started) => {
+    const first = ticket().items[0]!;
+    const cmds = commands({ finishItem: vi.fn()
+      .mockResolvedValueOnce({ actualMinutes: 58, ticketDone: false })
+      .mockResolvedValueOnce({ actualMinutes: 30, ticketDone: true }) });
+    const result = await completeQueueService({
+      rawTicket: ticket({ items: [first, { ...first, ticketItemId: 'item-2',
+        membershipId: 'staff-2', startedAt: started ? first.startedAt : null }] }),
+      technicianNotes: '', markRoomCleaning: false, roomId: null, addedAddOns: [],
+    }, cmds);
+    expect(cmds.finishItem).toHaveBeenNthCalledWith(2, {
+      ticketItemId: 'item-2', membershipId: 'staff-2',
+    });
+    expect(result).toMatchObject({ ok: true, ticketDone: true, actualMinutes: 88 });
+  });
+
+  it('rejects an empty ticket without finishing anything', async () => {
+    const cmds = commands();
+    expect(await completeQueueService({
+      rawTicket: ticket({ items: [] }), technicianNotes: '',
+      markRoomCleaning: false, roomId: null, addedAddOns: [],
+    }, cmds)).toEqual({ ok: false, reason: 'no_active_service' });
+    expect(cmds.finishItem).not.toHaveBeenCalled();
+  });
+
   it('finishes the active item when there is no note and no room cleaning', async () => {
     const cmds = commands();
     const result = await completeQueueService({

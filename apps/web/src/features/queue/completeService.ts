@@ -6,6 +6,7 @@
  * occupancy (`cleaning_required`). Success is only returned when every
  * requested step succeeded.
  */
+import { queueTicketItems } from './ticketItems';
 import type { TicketSummary } from '@/features/tickets/types';
 
 export interface CompleteServiceAddOn {
@@ -87,7 +88,9 @@ export async function completeQueueService(
   if (!input.rawTicket) {
     return { ok: false, reason: 'missing_ticket' };
   }
-  if (input.markRoomCleaning && !input.roomId) {
+  const roomIds = [...new Set([input.roomId, ...input.rawTicket.items.map((item) => item.resourceId)]
+    .filter((id): id is string => Boolean(id)))];
+  if (input.markRoomCleaning && roomIds.length === 0) {
     return { ok: false, reason: 'missing_room' };
   }
 
@@ -113,8 +116,8 @@ export async function completeQueueService(
   }
 
   const unfinished = [
-    ...ticket.items
-      .filter((ticketItem) => ticketItem.startedAt && !ticketItem.finishedAt)
+    ...queueTicketItems(ticket.items)
+      .filter((ticketItem) => !ticketItem.finishedAt)
       .map((ticketItem) => ({
         ticketItemId: ticketItem.ticketItemId,
         membershipId: ticketItem.membershipId,
@@ -161,9 +164,9 @@ export async function completeQueueService(
     return { ok: false, reason: 'command_failed', step: 'finish', cause };
   }
 
-  if (input.markRoomCleaning && input.roomId) {
+  if (input.markRoomCleaning) {
     try {
-      await commands.beginCleaning({ resourceId: input.roomId });
+      for (const resourceId of roomIds) await commands.beginCleaning({ resourceId });
     } catch (cause) {
       return {
         ok: false,

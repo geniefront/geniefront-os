@@ -47,11 +47,13 @@ import {
   LogIn,
   LogOut,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
 import { UNASSIGNED_STAFF_ID, toScheduleItem } from '@/context/ScheduleContext';
 import { useDaySnapshot } from '@/features/schedule/api';
 import { useSession } from '@/lib/session';
-import { instantToWallDate, nowWallHhMm } from '@/lib/time';
+import { instantToWallDate, nowWallHhMm, formatIsoWallClock } from '@/lib/time';
+import { queueTicketItems } from '@/features/queue/ticketItems';
 import { completedCardClock } from '@/features/queue/completedClock';
 import { cn, formatI18n, formatPhoneDisplay, formatPhoneInput } from '@/lib/utils';
 import { customerInitials, walkInShowsNoPhone } from '@/lib/displayName';
@@ -67,6 +69,10 @@ import {
 import { OVERRIDE_REASONS } from '@/features/schedule/api';
 import type { Override, OverrideReason } from '@/features/schedule/api';
 import { useCloseTicket, useOpenTickets, centsToDollars, dollarsToCents, verifyGiftCard } from '@/features/checkout/api';
+import { paymentStageFor } from '@/features/checkout/types';
+import type { PaymentStage } from '@/features/checkout/types';
+import { queueNextAction } from '@/features/queue/nextAction';
+import type { QueueNextAction } from '@/features/queue/nextAction';
 import { buildCheckoutStaffList, computeCheckoutTotals, UNRESOLVED_STAFF_KEY } from '@/features/queue/checkoutMath';
 import { useBeginCleaning, useRoomsQuery } from '@/features/rooms/api';
 import { useDayCloseQuery } from '@/features/dayclose/api';
@@ -89,6 +95,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
+import { ActionMenu } from '@/components/ui/ActionMenu';
 import { Modal } from '@/components/ui/Modal';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -211,6 +218,7 @@ export type RollbackTargetStage = Extract<KanbanStage, 'booked' | 'waiting' | 'i
 
 export function canRollbackTo(item: KanbanItem, toStage: KanbanStage): toStage is RollbackTargetStage {
   if (!item.appointmentId) return false;
+  if (item.ticketId || item.rawTicket) return toStage === 'in_service';
   return toStage !== 'ready_checkout' && toStage !== 'completed';
 }
 
@@ -236,6 +244,50 @@ const PAYMENT_METHOD_LABEL_KEYS: Record<'card' | 'cash' | 'gift_card' | 'apple_p
   apple_pay: 'queue.quCoPayApplePay',
 };
 
+/** 卡片主按钮的配色。颜色沿用各阶段既有的视觉语言，前台无需重新学习。 */
+const NEXT_ACTION_STYLE: Record<Exclude<QueueNextAction['kind'], 'blocked'>, string> = {
+  check_in: 'bg-amber-500 hover:bg-amber-600',
+  seat: 'bg-teal-600 hover:bg-teal-700',
+  start_item: 'bg-teal-600 hover:bg-teal-700',
+  finish_item: 'bg-violet-600 hover:bg-violet-700',
+  pay_service: 'bg-emerald-600 hover:bg-emerald-700',
+  pay_tip: 'bg-emerald-600 hover:bg-emerald-700',
+  pay_combined: 'bg-emerald-600 hover:bg-emerald-700',
+};
+
+const NEXT_ACTION_ICON: Record<Exclude<QueueNextAction['kind'], 'blocked'>, LucideIcon> = {
+  check_in: UserCheck,
+  seat: Scissors,
+  start_item: Scissors,
+  finish_item: CheckCircle,
+  pay_service: CreditCard,
+  pay_tip: Award,
+  pay_combined: CreditCard,
+};
+
+/**
+ * 主按钮文案。
+ *
+ * 一次性收款在两种结账时机下的语义并不相同：`upfront_combined` 是开工前预收，
+ * `after_service_combined` 是做完再结。文案必须区分，否则前台无法判断
+ * 此刻按下去究竟发生什么。
+ */
+function nextActionLabelKey(action: QueueNextAction, item: KanbanItem): TranslationKey {
+  switch (action.kind) {
+    case 'check_in': return 'queue.quCheckInGuest';
+    case 'seat': return 'queue.quWiAssignSeat';
+    case 'start_item': return 'queue.quStartItem';
+    case 'finish_item': return 'queue.quFinishAndBill';
+    case 'pay_service': return 'queue.quPayServiceBtn';
+    case 'pay_tip': return 'queue.quPayTipBtn';
+    case 'pay_combined':
+      return item.rawTicket?.checkoutTiming === 'upfront_combined'
+        ? 'queue.quPayUpfrontBtn'
+        : 'queue.quSettleAndPrint';
+    case 'blocked': return action.reasonKey;
+  }
+}
+
 export type KanbanStage = 'booked' | 'waiting' | 'in_service' | 'ready_checkout' | 'completed';
 
 export const STAGE_ORDER: KanbanStage[] = ['booked', 'waiting', 'in_service', 'ready_checkout', 'completed'];
@@ -256,6 +308,7 @@ export const STAGE_NAME_KEYS: Record<KanbanStage, TranslationKey> = {
 };
 
 export interface AddOnItem {
+  roomId?: string;
   idempotencyKey: string;
   serviceId: string;
   name: string;
@@ -763,6 +816,7 @@ function QueueContent() {
       durationMin: number;
       staffCount: number;
       staffIds: string[];
+      roomId: string;
     }>;
     extraAddOnServiceId: string;
     extraAddOnStaffId: string;
@@ -844,6 +898,14 @@ function QueueContent() {
     customStaffTips: Record<string, string>;
     // 支付通道与Gift Card
     paymentMethod: 'card' | 'cash' | 'gift_card' | 'apple_pay';
+    /**
+     * 本次收款的阶段。
+     *
+     * 看板此前一律按 `combined` 发起收款，门店只要把结账时机设为
+     * 先服务后小费，收银必然被服务端拒绝。阶段由工单事实推导，
+     * 决定金额口径、可用支付方式与幂等键。
+     */
+    paymentStage: PaymentStage;
     tenderedDollars: string;
     keepChange: boolean;
     giftCardCode: string;
@@ -865,6 +927,7 @@ function QueueContent() {
     splitStrategy: 'proportional',
     customStaffTips: {},
     paymentMethod: 'card',
+    paymentStage: 'combined',
     tenderedDollars: '',
     keepChange: false,
     giftCardCode: '',
@@ -1163,7 +1226,11 @@ function QueueContent() {
     if (ticketsData?.tickets) {
       ticketsData.tickets.forEach((tk: any) => {
         const override = localOverrides[`ticket-${tk.ticketId}`];
-        const tkItems = Array.isArray(tk.items) ? tk.items : [];
+        const tkItems = queueTicketItems(Array.isArray(tk.items) ? tk.items : []);
+        const starts = tkItems.flatMap((entry) => entry.startedAt ? [Date.parse(entry.startedAt)] : []);
+        const ends = tkItems.flatMap((entry) => entry.startedAt
+          ? [entry.finishedAt ? Date.parse(entry.finishedAt) : Date.parse(entry.startedAt) + entry.durationMin * 60_000] : []);
+        const clock = (ms: number) => formatIsoWallClock(new Date(ms).toISOString(), timezone);
         list.push({
           id: `ticket-${tk.ticketId}`,
           stage: override?.stage || (tk.status === 'ready_to_pay' ? 'ready_checkout' : 'in_service'),
@@ -1173,11 +1240,11 @@ function QueueContent() {
           serviceName: tkItems.map((i: any) => formatI18n(i.name, language)).join(', ') || t('queue.quMixedService'),
           durationMin: tkItems.reduce((acc: number, i: any) => acc + (i.durationMin || 0), 0),
           priceCents: asCents(tk.subtotalCents ?? 0),
-          staffName: formatI18n(tkItems[0]?.staffName, language),
-          roomName: tkItems[0]?.roomName || override?.roomName,
+          staffName: [...new Set(tkItems.map((entry) => entry.staffName).filter(Boolean))].join(' / '),
+          roomName: [...new Set(tkItems.map((entry) => entry.roomName).filter(Boolean))].join(' / ') || override?.roomName,
           roomId: override?.roomId,
           isRequest: false,
-          timeDisplay: `$${centsToDollars(tk.subtotalCents)}`,
+          timeDisplay: starts.length ? `${clock(Math.min(...starts))} – ${clock(Math.max(...ends))}` : t('queue.quElapsedNotStarted'),
           rawTicket: tk,
         });
       });
@@ -1190,11 +1257,16 @@ function QueueContent() {
   const filteredItems = useMemo(() => {
     let list = kanbanItems;
     if (staffFilter !== 'all') {
-      list = list.filter((item) =>
-        staffFilter === UNASSIGNED_STAFF_ID
+      list = list.filter((item) => {
+        if (item.rawTicket) {
+          return staffFilter === UNASSIGNED_STAFF_ID
+            ? item.rawTicket.items.every((entry) => !entry.membershipId || entry.membershipId === UNASSIGNED_STAFF_ID)
+            : item.rawTicket.items.some((entry) => entry.membershipId === staffFilter || entry.staffName === staffFilter);
+        }
+        return staffFilter === UNASSIGNED_STAFF_ID
           ? !item.staffId || item.staffId === UNASSIGNED_STAFF_ID
-          : item.staffId === staffFilter || (item.staffName && item.staffName === staffFilter),
-      );
+          : item.staffId === staffFilter || item.staffName === staffFilter;
+      });
     }
     if (searchTerm.trim()) {
       list = fuzzySearch(list, searchTerm, {
@@ -1319,6 +1391,7 @@ function QueueContent() {
             durationMin: item.durationMin,
             addonIds: [],
           }] : [];
+      const availableRoom = rooms.find((r) => r.status === 'available')?.id || '';
       const assignments = requestedItems.map((requested) => {
         const service = services.find((entry) => entry.id === requested.serviceId) ?? {
           id: requested.serviceId,
@@ -1342,13 +1415,13 @@ function QueueContent() {
           serviceName: service.name,
           durationMin: requested.durationMin,
           staffCount: service.staffCount,
+          roomId: availableRoom,
           staffIds: candidates.filter((candidate) => candidate.eligible)
             .slice(0, service.staffCount).map((candidate) => candidate.staff.membershipId),
         };
       });
       const defaultStaff = assignments[0]?.staffIds[0] ?? '';
       
-      const availableRoom = rooms.find((r) => r.status === 'available')?.id || rooms[0]?.id || '';
       const timeStr = nowWallHhMm(timezone);
 
       setStartServiceModal({
@@ -1386,29 +1459,145 @@ function QueueContent() {
       });
     } else if (item.stage === 'ready_checkout' && targetStage === 'completed') {
       // 结账 ➔ 收银：弹窗录入支付方式、小费与Amount结算
-      setCheckoutModal({
-        isOpen: true,
-        item,
-        discountDollars: '0',
-        enableTax: Number.parseFloat(checkoutSettings?.salesTaxRatePercent || '0') > 0,
-        taxRatePercent: checkoutSettings?.salesTaxRatePercent || '0',
-        enableCardSurcharge: false,
-        cardSurchargePercent: '3.0',
-        tipMode: 'total_split',
-        tipPercentage: 15,
-        totalTipDollars: '',
-        splitStrategy: 'proportional',
-        customStaffTips: {},
-        paymentMethod: 'card',
-        tenderedDollars: centsToDollars(item.priceCents),
-        keepChange: false,
-        giftCardCode: '',
-        giftCardId: '',
-        giftCardVerified: false,
-        giftCardBalanceCents: 0,
-        isVerifyingGiftCard: false,
-      });
+      openCheckoutModal(item, resolvePaymentStage(item));
     }
+  };
+
+  /**
+   * 执行卡片主按钮判定出的下一步。
+   *
+   * 主按钮此前直接绑在看板列上，「服务中」列一定发完工、「待收银」列一定发合并收款，
+   * 与门店的结账时机设置和工单的实际进度都无关。现改为由 `queueNextAction()` 判定，
+   * 这里只负责把判定结果接到既有的弹窗与命令上。
+   */
+  const runNextAction = async (item: KanbanItem, action: QueueNextAction) => {
+    switch (action.kind) {
+      case 'check_in':
+        initiateStageTransition(item, 'waiting');
+        return;
+      case 'seat':
+        initiateStageTransition(item, 'in_service');
+        return;
+      case 'pay_service':
+      case 'pay_tip':
+      case 'pay_combined':
+        openCheckoutModal(item, action.kind === 'pay_service' ? 'service' : action.kind === 'pay_tip' ? 'tip' : 'combined');
+        return;
+      case 'start_item': {
+        const entry = queueTicketItems(item.rawTicket?.items ?? [])
+          .find((candidate) => candidate.ticketItemId === action.ticketItemId);
+        try {
+          await startTicketItemMutation.mutateAsync({
+            ticketItemId: action.ticketItemId,
+            membershipId: entry?.membershipId,
+          });
+          await Promise.all([refetchTickets(), refetchRooms(), refetchSchedule()]);
+        } catch (error) {
+          toast.danger(errorMessage(error));
+        }
+        return;
+      }
+      case 'finish_item': {
+        /*
+         * 「服务中」列的完工要走核算弹窗：那里还要处理中途加项、工位清洁与
+         * 技师备注，直接发命令会把这些一并跳过。其余情形（例如回退后仍留在
+         * 待收银列的单）没有弹窗可依托，按项目直接完工。
+         */
+        if (item.stage === 'in_service') {
+          initiateStageTransition(item, 'ready_checkout');
+          return;
+        }
+        const entry = queueTicketItems(item.rawTicket?.items ?? [])
+          .find((candidate) => candidate.ticketItemId === action.ticketItemId);
+        try {
+          await finishTicketItemMutation.mutateAsync({
+            ticketItemId: action.ticketItemId,
+            membershipId: entry?.membershipId,
+          });
+          await Promise.all([refetchTickets(), refetchRooms(), refetchSchedule()]);
+        } catch (error) {
+          toast.danger(errorMessage(error));
+        }
+        return;
+      }
+      case 'blocked':
+        toast.info(t(action.reasonKey));
+    }
+  };
+
+  /**
+   * 卡片上的显式回退入口。
+   *
+   * 此前回退只能靠拖拽触发，而前台用的是 iPad —— HTML5 拖拽在触屏上根本不会
+   * 触发，于是这条路径在真实门店里等同于不存在。规则与服务端保持一致：
+   * 已开单的单子只能回到「服务中」，其余情形必须先作废。不满足条件时给出
+   * 下一步怎么做，绝不允许点了没有任何反应。
+   */
+  const requestRollback = (item: KanbanItem) => {
+    if (item.stage === 'booked') {
+      toast.info(t('queue.quRollbackAtStart'));
+      return;
+    }
+    if (!item.appointmentId) {
+      toast.danger(t('queue.quRollbackWalkInHint'));
+      return;
+    }
+    const target: KanbanStage = (item.ticketId || item.rawTicket)
+      ? 'in_service'
+      : STAGE_ORDER[Math.max(0, STAGE_ORDER.indexOf(item.stage) - 1)]!;
+    if (item.stage === target) {
+      toast.info(t('queue.quRollbackAtStart'));
+      return;
+    }
+    if (!canRollbackTo(item, target)) {
+      toast.danger(t('errorReasonTicketExistsRequiresVoid'));
+      return;
+    }
+    initiateStageTransition(item, target);
+  };
+
+  /**
+   * 判定这张卡片当前该收哪一笔。
+   *
+   * 一律以工单事实为准并复用收银页的 `paymentStageFor()`；工单尚未读到时
+   * 退回 `combined`，与改造前的行为一致，不至于让老单子失去收款入口。
+   */
+  const resolvePaymentStage = (item: KanbanItem): PaymentStage => {
+    const ticket = item.rawTicket;
+    return (ticket ? paymentStageFor(ticket) : null) ?? 'combined';
+  };
+
+  /**
+   * 打开收银弹窗。
+   *
+   * 小费阶段的服务款已经收过，本次应收基数为零，因此现金实收默认值也必须清零 ——
+   * 沿用整单金额会让前台照着一个已经收过的数字再收一遍。
+   */
+  const openCheckoutModal = (item: KanbanItem, stage: PaymentStage) => {
+    const isTipOnly = stage === 'tip';
+    setCheckoutModal({
+      isOpen: true,
+      item,
+      discountDollars: '0',
+      enableTax: !isTipOnly && Number.parseFloat(checkoutSettings?.salesTaxRatePercent || '0') > 0,
+      taxRatePercent: checkoutSettings?.salesTaxRatePercent || '0',
+      enableCardSurcharge: false,
+      cardSurchargePercent: '3.0',
+      tipMode: 'total_split',
+      tipPercentage: 15,
+      totalTipDollars: '',
+      splitStrategy: 'proportional',
+      customStaffTips: {},
+      paymentMethod: 'card',
+      paymentStage: stage,
+      tenderedDollars: isTipOnly ? '' : centsToDollars(item.priceCents),
+      keepChange: false,
+      giftCardCode: '',
+      giftCardId: '',
+      giftCardVerified: false,
+      giftCardBalanceCents: 0,
+      isVerifyingGiftCard: false,
+    });
   };
 
   /**
@@ -1572,6 +1761,7 @@ function QueueContent() {
         ...prev.addedAddOns,
         {
           idempotencyKey: crypto.randomUUID(),
+          roomId: prev.assignments[0]?.roomId ?? '',
           serviceId: selectedService.id,
           name: selectedService.name,
           priceCents: selectedService.priceCents,
@@ -1632,10 +1822,10 @@ function QueueContent() {
       }
 
       let ticketId = item.ticketId ?? item.rawTicket?.ticketId;
-      let ticketItemIds = item.rawTicket?.items
+      let ticketItemIds = item.rawTicket ? queueTicketItems(item.rawTicket.items)
         .filter((ticketItem) => !ticketItem.startedAt)
-        .map((ticketItem) => ticketItem.ticketItemId) ?? [];
-      if (!item.ticketId) {
+        .map((ticketItem) => ticketItem.ticketItemId) : [];
+      if (!ticketId) {
         const appointmentItems = item.rawQueue?.items ?? [];
         const itemsToOpen = appointmentItems.length > 0
           ? appointmentItems.map((appointmentItem, index) => {
@@ -1648,7 +1838,7 @@ function QueueContent() {
                   minutes: appointmentItem.durationMin,
                 })),
                 minutes: appointmentItem.durationMin,
-                ...(index === 0 && roomId ? { resourceId: roomId } : {}),
+                ...(assignment?.roomId ? { resourceId: assignment.roomId } : {}),
               };
             })
           : [{
@@ -1659,7 +1849,7 @@ function QueueContent() {
                 minutes: serviceDurationMin,
               })),
               minutes: serviceDurationMin,
-              ...(roomId ? { resourceId: roomId } : {}),
+              ...(assignments[0]?.roomId ? { resourceId: assignments[0].roomId } : {}),
             }];
         const opened = await openTicketMutation.mutateAsync({
           customerId: item.rawQueue?.customerId ?? null,
@@ -1672,33 +1862,28 @@ function QueueContent() {
         ticketItemIds = opened.ticketItemIds;
       }
 
-      // 启动弹窗里的加项先挂到已开的服务单；这样预约本身仍保持原预约项目，
-      // 同时前台可以在安排入座时一次性把临时增补项目记入当前账单。
+      const itemsToStart = ticketItemIds.map((ticketItemId, index) => ({
+        ticketItemId,
+        membershipId: item.rawTicket?.items.find((entry) => entry.ticketItemId === ticketItemId)?.membershipId
+          ?? assignments[index]?.staffIds[0],
+      }));
       if (ticketId) {
         for (const addOn of addedAddOns) {
-          await addTicketItemMutation.mutateAsync({
-            ticketId,
-            serviceId: addOn.serviceId,
-            membershipId: addOn.staffId,
-            kind: 'addon',
-            minutes: addOn.durationMin,
-            idempotencyKey: addOn.idempotencyKey,
+          const added = await addTicketItemMutation.mutateAsync({
+            ticketId, serviceId: addOn.serviceId, membershipId: addOn.staffId,
+            kind: 'addon', minutes: addOn.durationMin, idempotencyKey: addOn.idempotencyKey,
+            ...(addOn.roomId ? { resourceId: addOn.roomId } : {}),
           });
+          itemsToStart.push({ ticketItemId: added.ticketItemId, membershipId: addOn.staffId });
         }
       }
 
-      const firstTicketItemId = ticketItemIds[0];
-      const firstStaffId = assignments[0]?.staffIds[0];
-      if (firstTicketItemId && firstStaffId) {
-        // 多项目按顺序流转：入座时只启动第一项，其余保留为 waiting，
-        // 完成前一项后由下一位已指派技师从技师端启动。
-        //
-        // ⚠️ 技师并发的闸门在这一步（不在开单）。撞上上限时服务端返回
-        // STAFF_OVER_CAPACITY，门店允许超排的话前台确认后带 reason 重试。
+      // Open/add keys survive retries; startItem preserves the original start timestamp.
+      for (const target of itemsToStart) {
+        if (!target.membershipId) throw new Error(t('queue.quAddOnStaffRequired'));
         try {
           await startTicketItemMutation.mutateAsync({
-            ticketItemId: firstTicketItemId,
-            membershipId: firstStaffId,
+            ticketItemId: target.ticketItemId, membershipId: target.membershipId,
             ...(override ? { override } : {}),
           });
         } catch (startErr) {
@@ -1778,9 +1963,18 @@ function QueueContent() {
 
   // 4. Checkout Tender Confirm Submit
   const handleConfirmCheckout = async () => {
-    const { item, paymentMethod, tenderedDollars, keepChange, giftCardCode, giftCardId, giftCardVerified, giftCardBalanceCents } = checkoutModal;
+    const { item, paymentMethod, paymentStage, tenderedDollars, keepChange, giftCardCode, giftCardId, giftCardVerified, giftCardBalanceCents } = checkoutModal;
     if (!item) return;
     if (closeTicketMutation.isPending) return;
+
+    /*
+     * 服务端拒绝以礼品卡或客户储值支付小费。在这里提前拦下，
+     * 前台就不必先填完整个弹窗再去读一条校验失败。
+     */
+    if (paymentStage === 'tip' && paymentMethod === 'gift_card') {
+      toast.danger(t('queue.quCoStageTipNoStoredValue'));
+      return;
+    }
 
     if (!item.ticketId) {
       toast.danger(t('queue.quCoNoTicket'));
@@ -1818,6 +2012,8 @@ function QueueContent() {
       totalTipDollars: checkoutModal.totalTipDollars,
       splitStrategy: checkoutModal.splitStrategy,
       customStaffTips: checkoutModal.customStaffTips,
+      paymentStage,
+      tipBaseCents: baseCents,
     });
 
     let tipCents = totals.totalTipCents;
@@ -1905,7 +2101,13 @@ function QueueContent() {
          * 而这类错误往往要到对账时才被发现。此前这里没有传，
          * 每次重试都会拿到一个新的随机键，幂等保护形同虚设。
          */
-        idempotencyKey: `queue-checkout-${item.ticketId}`,
+        paymentStage,
+        /*
+         * ⚠️ 幂等键必须稳定，且必须包含收款阶段。超时重试若换了键，
+         * 客人会被扣两次款；而两个阶段共用一个键，第二笔会被判为重放 ——
+         * 小费收不进来，且服务端不会报错，只有对账时才发现。
+         */
+        idempotencyKey: `queue-pay-${item.ticketId}-${paymentStage}`,
         payments: [
           {
             method: paymentMethod === 'apple_pay' ? 'card' : paymentMethod,
@@ -1922,7 +2124,12 @@ function QueueContent() {
 
       setCheckoutModal((prev) => ({ ...prev, isOpen: false, item: null }));
 
-      toast.success(t('queue.quCheckoutDone', { p0: item.customerName }), {
+      const successKey = paymentStage === 'service'
+        ? 'queue.quCoStageServiceDone'
+        : paymentStage === 'tip'
+          ? 'queue.quCoStageTipDone'
+          : 'queue.quCheckoutDone';
+      toast.success(t(successKey, { p0: item.customerName }), {
         description: t('queue.quCheckoutDetail', {
           p0: centsToDollars(finalTotalCents),
           p1: t(PAYMENT_METHOD_LABEL_KEYS[paymentMethod]),
@@ -1964,7 +2171,7 @@ function QueueContent() {
       toast.warning(t('queue.quRolledBack', { p0: item.customerName, p1: t(STAGE_NAME_KEYS[toStage]) }), {
         description: t('queue.quRollbackReason', { p0: reasonOption ? t(reasonOption.labelKey) : '' }),
       });
-      await Promise.all([refetchQueue(), refetchSchedule(), refetchTickets()]);
+      await Promise.all([refetchQueue(), refetchSchedule(), refetchTickets(), refetchRooms()]);
     } catch (err: any) {
       toast.danger(`${t('queue.quRollbackFailed')} ${errorMessage(err) || t('queue.quNetworkError2')}`);
     }
@@ -2242,11 +2449,17 @@ function QueueContent() {
                       <div className="h-40 border-2 border-dashed border-slate-200/80 rounded-xl flex flex-col items-center justify-center text-center p-3">
                         <col.icon className="w-6 h-6 text-slate-300 mb-1" />
                         <span className="text-xs text-slate-400 font-medium">{t(col.emptyKey)}</span>
-                        <span className="text-xs text-slate-400 mt-0.5">{t('queue.quDragInOrder')}</span>
+                        <span className="text-xs text-slate-400 mt-0.5">{t('queue.quAdvanceByButtons')}</span>
                       </div>
                     ) : (
                       colItems.map((item) => {
                         const isDragging = draggingItemId === item.id;
+                        const nextAction = queueNextAction({
+                          stage: item.stage,
+                          ticket: item.rawTicket
+                            ? { ...item.rawTicket, items: queueTicketItems(item.rawTicket.items) }
+                            : null,
+                        });
 
                         return (
                           <motion.div
@@ -2284,16 +2497,36 @@ function QueueContent() {
                                 </div>
                               </div>
 
-                              {item.ticketNumber && (
-                                <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded-lg bg-amber-100 text-amber-800 shrink-0">
-                                  #{item.ticketNumber}
-                                </span>
-                              )}
+                              <div className="flex shrink-0 items-center gap-1">
+                                {item.ticketNumber && (
+                                  <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded-lg bg-amber-100 text-amber-800">
+                                    #{item.ticketNumber}
+                                  </span>
+                                )}
+                                {/* 主按钮之外的动作统一收进这里，回退不再依赖拖拽。 */}
+                                <ActionMenu
+                                  label={t('queue.quCardMenuLabel')}
+                                  items={[
+                                    {
+                                      id: 'detail',
+                                      label: t('queue.quViewDetail'),
+                                      icon: <FileText className="h-4 w-4" />,
+                                      onSelect: () => handleViewDetails(item),
+                                    },
+                                    {
+                                      id: 'rollback',
+                                      label: t('queue.quRollbackAction'),
+                                      icon: <ArrowLeft className="h-4 w-4" />,
+                                      onSelect: () => requestRollback(item),
+                                    },
+                                  ]}
+                                />
+                              </div>
                             </div>
 
                             {/* Service Info, Room & Staff */}
                             <div className="text-xs space-y-1 my-2 bg-slate-50/70 p-2 rounded-lg border border-slate-100">
-                              <div className="flex items-center justify-between text-slate-700 font-medium">
+                              {!item.rawTicket && <div className="flex items-center justify-between text-slate-700 font-medium">
                                 <span className="truncate flex items-center gap-1">
                                   <Scissors className="w-3 h-3 text-teal-600 shrink-0" />
                                   {item.serviceName}
@@ -2303,7 +2536,36 @@ function QueueContent() {
                                     ${centsToDollars(item.priceCents)}
                                   </span>
                                 )}
-                              </div>
+                              </div>}
+
+                              {item.rawTicket && (
+                                <ul className="space-y-2 border-t border-slate-100 pt-2">
+                                  {queueTicketItems(item.rawTicket.items).map((service) => (
+                                    <li key={service.ticketItemId} className="space-y-1 text-xs">
+                                      <div className="flex justify-between gap-2"><span>{service.name} · {service.durationMin}m</span>
+                                        <span>${centsToDollars(service.totalCents)}</span></div>
+                                      <div>{service.staffName} · {service.roomName || t('queue.quRoomUnassigned')}</div>
+                                      <div className="flex flex-wrap items-center justify-between gap-1 text-slate-500">
+                                        <span>{service.startedAt ? `${formatIsoWallClock(service.startedAt, timezone)} – ${formatIsoWallClock(
+                                          service.finishedAt ?? new Date(Date.parse(service.startedAt) + service.durationMin * 60_000).toISOString(), timezone,
+                                        )}` : t('queue.quElapsedNotStarted')}</span>
+                                        <span>{service.finishedAt ? t('queue.quItemFinished') : service.startedAt ? t('queue.quInServiceStatus') : t('queue.quItemWaiting')}</span>
+                                      </div>
+                                      {!service.finishedAt && <Button size="sm" variant="secondary"
+                                        isDisabled={startTicketItemMutation.isPending || finishTicketItemMutation.isPending}
+                                        onPress={async () => {
+                                          try {
+                                            const command = service.startedAt ? finishTicketItemMutation : startTicketItemMutation;
+                                            await command.mutateAsync({ ticketItemId: service.ticketItemId, membershipId: service.membershipId });
+                                            await Promise.all([refetchTickets(), refetchRooms(), refetchSchedule()]);
+                                          } catch (error) { toast.danger(errorMessage(error)); }
+                                        }}>
+                                        {service.startedAt ? t('queue.quFinishItem') : t('queue.quStartItem')}
+                                      </Button>}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
 
                               {item.bookedItems && item.bookedItems.length > 1 && (
                                 <ul className="space-y-0.5 border-t border-slate-100/80 pt-1">
@@ -2321,7 +2583,7 @@ function QueueContent() {
                                 </ul>
                               )}
 
-                              <div className="flex items-center justify-between text-xs text-slate-500 pt-1 border-t border-slate-100/80">
+                              {!item.rawTicket && <div className="flex items-center justify-between text-xs text-slate-500 pt-1 border-t border-slate-100/80">
                                 <span className="truncate flex items-center gap-1">
                                   <User className="w-3 h-3 text-slate-400 shrink-0" />
                                   <span className={item.staffName ? 'text-slate-800 font-semibold' : 'text-slate-400'}>
@@ -2339,7 +2601,16 @@ function QueueContent() {
                                     {t('queue.quRequested')}
                                   </span>
                                 )}
-                              </div>
+                              </div>}
+                              {/*
+                                单项目单的合计等于唯一那一行的金额，再列一次只是重复信息。
+                                简单单子不应为了与多项目单版式统一而变复杂。
+                              */}
+                              {item.rawTicket && queueTicketItems(item.rawTicket.items).length > 1 && (
+                                <div className="border-t border-slate-100 pt-1 text-right font-mono font-bold">
+                                  ${centsToDollars(item.priceCents)}
+                                </div>
+                              )}
 
                               {item.notes && (
                                 <p className="text-xs text-amber-700 bg-amber-50/60 p-1 rounded font-medium truncate">
@@ -2387,60 +2658,37 @@ function QueueContent() {
                                 <span>{t('queue.quViewDetail')}</span>
                               </Button>
 
-                              {/* 右侧正向推进主动作按钮 */}
-                              {col.id === 'booked' && (
-                                <Button
-                                  size="sm"
-                                  className="w-full h-8 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-xl gap-1 shadow-sm"
-                                  onClick={() => initiateStageTransition(item, 'waiting')}
-                                >
-                                  <UserCheck className="w-3.5 h-3.5" />
-                                  <span>{t('queue.quCheckInGuest')}</span>
-                                  <ChevronRight className="w-3.5 h-3.5" />
-                                </Button>
-                              )}
-
-                              {col.id === 'waiting' && (
-                                <Button
-                                  size="sm"
-                                  className="w-full h-8 text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white rounded-xl gap-1 shadow-sm"
-                                  onClick={() => initiateStageTransition(item, 'in_service')}
-                                >
-                                  <Scissors className="w-3.5 h-3.5" />
-                                  <span>{t('queue.quWiAssignSeat')}</span>
-                                  <ChevronRight className="w-3.5 h-3.5" />
-                                </Button>
-                              )}
-
-                              {col.id === 'in_service' && (
-                                <Button
-                                  size="sm"
-                                  className="w-full h-8 text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white rounded-xl gap-1 shadow-sm"
-                                  onClick={() => initiateStageTransition(item, 'ready_checkout')}
-                                >
-                                  <CheckCircle className="w-3.5 h-3.5" />
-                                  <span>{t('queue.quFinishAndBill')}</span>
-                                  <ChevronRight className="w-3.5 h-3.5" />
-                                </Button>
-                              )}
-
-                              {col.id === 'ready_checkout' && (
-                                <Button
-                                  size="sm"
-                                  className="w-full h-8 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl gap-1 shadow-sm"
-                                  onClick={() => initiateStageTransition(item, 'completed')}
-                                >
-                                  <CreditCard className="w-3.5 h-3.5" />
-                                  <span>{t('queue.quSettleAndPrint')}</span>
-                                  <ChevronRight className="w-3.5 h-3.5" />
-                                </Button>
-                              )}
-
-                              {col.id === 'completed' && (
+                              {/*
+                                主按钮：一张卡片同一时刻只有一个，且由 `queueNextAction()`
+                                按工单事实推导。此前按列硬编码，门店把结账时机设为
+                                先服务后小费时，这个按钮发出的命令必然被服务端拒绝。
+                              */}
+                              {col.id === 'completed' ? (
                                 <div className="text-center py-1 text-xs text-emerald-700 font-mono font-medium flex items-center justify-center gap-1 bg-emerald-50 rounded-lg">
                                   <CheckCircle2 className="w-3.5 h-3.5" />
                                   <span>{t('queue.quArchived')}</span>
                                 </div>
+                              ) : nextAction.kind === 'blocked' ? (
+                                <p className="rounded-lg bg-slate-50 px-2 py-1.5 text-center text-xs text-slate-500">
+                                  {t(nextAction.reasonKey)}
+                                </p>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  className={cn(
+                                    'w-full h-8 text-xs font-bold text-white rounded-xl gap-1 shadow-sm',
+                                    NEXT_ACTION_STYLE[nextAction.kind],
+                                  )}
+                                  isDisabled={isSyncing}
+                                  onPress={() => { void runNextAction(item, nextAction); }}
+                                >
+                                  {(() => {
+                                    const Icon = NEXT_ACTION_ICON[nextAction.kind];
+                                    return <Icon className="w-3.5 h-3.5" />;
+                                  })()}
+                                  <span>{t(nextActionLabelKey(nextAction, item))}</span>
+                                  <ChevronRight className="w-3.5 h-3.5" />
+                                </Button>
                               )}
                             </div>
                           </motion.div>
@@ -3289,17 +3537,44 @@ function QueueContent() {
                     </span>
                     <span className="text-xs text-slate-400">{t('queue.quAutoRecommended')}</span>
                   </label>
-                  <select
-                    value={startServiceModal.roomId}
-                    onChange={(e) => setStartServiceModal((prev) => ({ ...prev, roomId: e.target.value }))}
-                    className="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-900 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 truncate"
-                  >
-                    {rooms.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name} · {r.type === 'room' ? t('queue.quRoomTypeRoom') : t('queue.quRoomTypeStation')} ({r.status === 'available' ? t('queue.quRoomFree') : r.status === 'cleaning' ? t('queue.quRoomCleaning') : t('queue.quRoomOccupied')})
-                      </option>
-                    ))}
-                  </select>
+                  {startServiceModal.assignments.map((assignment, index) => (
+                    <label key={`${assignment.serviceId}-${index}`} className="block space-y-1 text-xs">
+                      {startServiceModal.assignments.length > 1 && <span>{index + 1}. {assignment.serviceName}</span>}
+                      <select
+                        aria-label={`${assignment.serviceName} · ${t('queue.quAssignRoomRequired')}`}
+                        value={assignment.roomId}
+                        onChange={(event) => {
+                          const selectedRoomId = event.target.value;
+                          setStartServiceModal((prev) => ({
+                            ...prev,
+                            roomId: index === 0 ? selectedRoomId : prev.roomId,
+                            assignments: prev.assignments.map((entry, entryIndex) => entryIndex === index
+                              ? { ...entry, roomId: selectedRoomId } : entry),
+                          }));
+                        }}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs"
+                      >
+                        <option value="">{t('queue.quRoomUnassigned')}</option>
+                        {rooms.map((room) => <option key={room.id} value={room.id}>
+                          {room.name} · {room.status === 'available' ? t('queue.quRoomFree') : t('queue.quRoomOccupied')}
+                        </option>)}
+                      </select>
+                    </label>
+                  ))}
+                  {startServiceModal.addedAddOns.map((addOn, index) => (
+                    <label key={addOn.idempotencyKey} className="block space-y-1 text-xs">
+                      <span>{addOn.name}</span>
+                      <select aria-label={`${addOn.name} · ${t('queue.quAssignRoomRequired')}`}
+                        value={addOn.roomId ?? ''}
+                        onChange={(event) => { const roomId = event.target.value;
+                          setStartServiceModal((prev) => ({ ...prev, addedAddOns: prev.addedAddOns.map((entry, i) =>
+                            i === index ? { ...entry, roomId } : entry) })); }}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs">
+                        <option value="">{t('queue.quRoomUnassigned')}</option>
+                        {rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
+                      </select>
+                    </label>
+                  ))}
                   {assignedRoom && (
                     <div className="p-2 bg-slate-50 rounded-xl text-xs text-slate-600 flex justify-between items-center gap-1.5">
                       <span className="truncate">{t('queue.quTypeLabel')} {assignedRoom.type === 'room' ? t('queue.quPrivateRoom') : t('queue.quOpenStation')}  {t('queue.quCapacityPrefix')} {assignedRoom.capacity}{t('queue.quCapacitySuffix')}</span>
@@ -3857,7 +4132,12 @@ function QueueContent() {
           totalTipDollars: checkoutModal.totalTipDollars,
           splitStrategy: checkoutModal.splitStrategy,
           customStaffTips: checkoutModal.customStaffTips,
+          paymentStage: checkoutModal.paymentStage,
+          tipBaseCents: baseCents,
         });
+        // 阶段决定界面的可编辑范围：只收服务款时没有小费，只收小费时没有折扣、税与手续费。
+        const isServiceStage = checkoutModal.paymentStage === 'service';
+        const isTipStage = checkoutModal.paymentStage === 'tip';
         const hasCard = checkoutModal.paymentMethod === 'card' || checkoutModal.paymentMethod === 'apple_pay';
         const tenderedCents = dollarsToCents(checkoutModal.tenderedDollars || '0');
         const rawChangeDue = Math.max(0, tenderedCents - totals.chargedTotalCents);
@@ -3925,6 +4205,14 @@ function QueueContent() {
                 </div>
               </div>
 
+              {/* 分阶段收款的口径说明。前台必须先知道这一笔收的是什么，再看金额。 */}
+              {(isServiceStage || isTipStage) && (
+                <p className="rounded-2xl border border-amber-200 bg-amber-50 p-2.5 text-xs font-medium text-amber-900">
+                  {t(isServiceStage ? 'queue.quCoStageServiceBanner' : 'queue.quCoStageTipBanner')}
+                  {isTipStage && <span className="mt-1 block">{t('queue.quCoStageTipNoStoredValue')}</span>}
+                </p>
+              )}
+
               {/* 2. 项目明细与多技师执行归属 */}
               <section className="rounded-2xl border border-slate-200 bg-white p-3">
                 <h4 className="flex items-center justify-between font-semibold text-slate-800">
@@ -3957,7 +4245,8 @@ function QueueContent() {
                 </div>
               </section>
 
-              {/* 3. 小费分账 */}
+              {/* 3. 小费分账。服务款阶段服务端要求小费为 0，此处不提供录入口。 */}
+              {!isServiceStage && (
               <section className="rounded-2xl border border-slate-200 bg-white p-3">
                 <div className="flex items-center justify-between">
                   <h4 className="flex items-center gap-1.5 font-semibold text-slate-800">
@@ -4002,7 +4291,12 @@ function QueueContent() {
                   <div className="mt-2 space-y-2">
                     <div className="grid grid-cols-5 gap-1.5">
                       {tipPresets.map((percent) => {
-                        const tipAmount = centsToDollars(Math.round((totals.afterDiscountCents * percent) / 100));
+                        /*
+                         * 小费阶段的服务款已经收过，本次应收基数为 0；百分比必须按原服务
+                         * 金额计算，否则每一档都会显示成 $0.00，前台只能改用手工输入。
+                         */
+                        const tipBase = isTipStage ? baseCents : totals.afterDiscountCents;
+                        const tipAmount = centsToDollars(Math.round((tipBase * percent) / 100));
                         const isSelected = checkoutModal.tipPercentage === percent && checkoutModal.totalTipDollars === '';
                         return (
                           <button
@@ -4097,8 +4391,10 @@ function QueueContent() {
                   </div>
                 </div>
               </section>
+              )}
 
-              {/* 4. 税费与刷卡附加费 */}
+              {/* 4. 税费与刷卡附加费。小费阶段这两项已锁定为 0，不再显示以免误导。 */}
+              {!isTipStage && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-white p-3">
                   <div className="flex items-center justify-between">
@@ -4165,19 +4461,23 @@ function QueueContent() {
                   )}
                 </div>
               </div>
+              )}
 
               {/* 5. 费用核算汇总 */}
               <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50 p-3">
                 <div className="flex justify-between text-slate-600">
                   <span>{t('queue.quCoSubtotalLine')}</span>
-                  <span className="font-mono font-semibold text-slate-800">${centsToDollars(baseCents)}</span>
+                  <span className="font-mono font-semibold text-slate-800">
+                    ${centsToDollars(totals.afterDiscountCents + totals.discountCents)}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-slate-600">
                   <label htmlFor="checkout-discount">{t('queue.quCoDiscountLine')}</label>
                   <Input
                     id="checkout-discount"
                     inputMode="decimal"
-                    value={checkoutModal.discountDollars}
+                    value={isTipStage ? '0' : checkoutModal.discountDollars}
+                    disabled={isTipStage}
                     onChange={(e) => setCheckoutModal((prev) => ({ ...prev, discountDollars: e.target.value }))}
                     className="h-7 w-24 text-right font-mono text-sm"
                     placeholder="0"
@@ -4215,12 +4515,15 @@ function QueueContent() {
                       key={method.id}
                       type="button"
                       aria-pressed={checkoutModal.paymentMethod === method.id}
+                      /* 小费不能由礼品卡或客户储值支付，按钮直接禁用并在上方给出原因。 */
+                      disabled={isTipStage && method.id === 'gift_card'}
                       onClick={() => setCheckoutModal((prev) => ({ ...prev, paymentMethod: method.id }))}
                       className={cn(
                         'flex flex-col items-center gap-1 rounded-lg border p-2 text-xs font-medium transition-colors',
                         checkoutModal.paymentMethod === method.id
                           ? 'border-teal-500 bg-teal-50 font-semibold text-teal-900'
                           : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+                        isTipStage && method.id === 'gift_card' && 'cursor-not-allowed opacity-40 hover:bg-white',
                       )}
                     >
                       <method.icon className="h-4 w-4" />
@@ -4445,9 +4748,14 @@ function QueueContent() {
               资源释放由服务端在回退时一并处理，前台没有开关可选 ——
               此前这里是一个复选框，勾与不勾结果完全相同，现改为如实说明。
             */}
-            <p className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs leading-relaxed text-slate-600">
-              {t('queue.quRollbackResourceNotice')}
-            </p>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs leading-relaxed text-slate-600">
+              {/* 外层此前是 <p>，内嵌 <ul> 属于非法嵌套，浏览器会重排 DOM 并触发水合告警。 */}
+              <p>{t('queue.quRollbackResourceNotice')}</p>
+              {rollbackModal.item?.rawTicket && <ul className="mt-2 list-disc pl-4">
+                {queueTicketItems(rollbackModal.item.rawTicket.items).filter((entry) => entry.finishedAt).map((entry) =>
+                  <li key={entry.ticketItemId}>{entry.name} · {entry.roomName || t('queue.quRoomUnassigned')}</li>)}
+              </ul>}
+            </div>
 
             {/* 具体备注说明 */}
             <div>

@@ -13,6 +13,10 @@ const ticket = (items: Array<{ membershipId: string; staffName: string; name: st
   status: 'ready_to_pay',
   customerName: 'Guest',
   subtotalCents: items.reduce((sum, item) => sum + item.totalCents, 0),
+  checkoutTiming: 'after_service_combined',
+  serviceSettledAt: null,
+  tipSettledAt: null,
+  serviceCompleted: true,
   groupId: null,
   groupLabel: null,
   businessDate: '2026-09-04',
@@ -165,5 +169,58 @@ describe('computeCheckoutTotals', () => {
     expect(totals.afterDiscountCents).toBe(0);
     expect(totals.taxCents).toBe(0);
     expect(totals.totalDueCents).toBe(0);
+  });
+});
+
+describe('computeCheckoutTotals 的分阶段收款', () => {
+  const one: CheckoutStaffShare[] = [
+    { membershipId: 'm-1', name: 'Bo', items: [], totalRevenueCents: 10_000 },
+  ];
+
+  it('服务款阶段不收小费，即使前台填了金额也归零', () => {
+    const totals = computeCheckoutTotals({
+      ...base, staffList: one, paymentStage: 'service', totalTipDollars: '20.00',
+    });
+    expect(totals.totalTipCents).toBe(0);
+    expect(totals.tipAllocations.every((entry) => entry.allocatedTipCents === 0)).toBe(true);
+    // 实收即「服务 + 税」，不含任何小费。
+    expect(totals.chargedTotalCents).toBe(totals.totalDueCents);
+  });
+
+  it('服务款阶段按人录入的小费同样归零，分账之和不会与上报总额不符', () => {
+    const totals = computeCheckoutTotals({
+      ...base,
+      staffList: one,
+      paymentStage: 'service',
+      tipMode: 'custom_per_staff',
+      customStaffTips: { 'm-1': '15.00' },
+    });
+    expect(totals.totalTipCents).toBe(0);
+    expect(totals.tipAllocations[0]?.allocatedTipCents).toBe(0);
+  });
+
+  it('小费阶段只收小费，折扣、税与刷卡手续费全部锁定为 0', () => {
+    const totals = computeCheckoutTotals({
+      ...base,
+      staffList: one,
+      paymentStage: 'tip',
+      tipBaseCents: 10_000,
+      discountDollars: '5.00',
+      enableTax: true,
+      enableCardSurcharge: true,
+    });
+    expect(totals.discountCents).toBe(0);
+    expect(totals.afterDiscountCents).toBe(0);
+    expect(totals.taxCents).toBe(0);
+    expect(totals.cardSurchargeCents).toBe(0);
+    // 百分比按原服务金额计算：10000 分的 20% 就是前台按下的那个 20%。
+    expect(totals.totalTipCents).toBe(2_000);
+    expect(totals.chargedTotalCents).toBe(2_000);
+  });
+
+  it('不传阶段时行为与既有一次性结账完全一致', () => {
+    const combined = computeCheckoutTotals({ ...base, staffList: one, paymentStage: 'combined' });
+    const legacy = computeCheckoutTotals({ ...base, staffList: one });
+    expect(combined).toEqual(legacy);
   });
 });

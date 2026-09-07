@@ -118,7 +118,21 @@ export interface CloseResult {
 
 export type PaymentStage = 'service' | 'tip' | 'combined';
 
-export function paymentStageFor(ticket: OpenTicket): PaymentStage | null {
+/**
+ * 判定收款阶段所需的最小事实集。
+ *
+ * 收银页传的是 `OpenTicket`，运营看板传的是 `TicketSummary` —— 两者来自同一个
+ * 服务端查询，但类型定义各自独立。这里以结构化子集为入参，使两条路径共用同一份
+ * 阶段判定，避免看板另写一套而与收银页产生分歧。
+ */
+export interface PaymentStageFacts {
+  checkoutTiming: 'service_then_tip' | 'upfront_combined' | 'after_service_combined';
+  serviceSettledAt: string | null;
+  tipSettledAt: string | null;
+  serviceCompleted: boolean;
+}
+
+export function paymentStageFor(ticket: PaymentStageFacts): PaymentStage | null {
   if (ticket.checkoutTiming === 'service_then_tip') {
     if (!ticket.serviceSettledAt && !ticket.serviceCompleted) return 'service';
     if (ticket.serviceSettledAt && ticket.serviceCompleted && !ticket.tipSettledAt) return 'tip';

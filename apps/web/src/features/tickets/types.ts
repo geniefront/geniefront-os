@@ -5,16 +5,31 @@ export interface TicketItem {
   durationMin: number;
   startedAt: string | null;
   finishedAt: string | null;
+  resourceId?: string | null;
+  roomName?: string | null;
   staffName: string;
   membershipId: string;
 }
+
+/** 门店结账时机。与服务端 `location_settings.checkout_timing` 的快照一致。 */
+export type CheckoutTiming = 'service_then_tip' | 'upfront_combined' | 'after_service_combined';
 
 export interface TicketSummary {
   ticketId: string;
   appointmentId: string | null;
   status: 'open' | 'in_service' | 'ready_to_pay';
   customerName: string;
+  customerId?: string | null;
   subtotalCents: number;
+  /**
+   * 收款阶段判定所需的三项事实。`GET /v1/desk/tickets` 一直在返回，
+   * 此前类型上没有声明，运营看板因此拿不到阶段信息，只能一律按 combined 发起收款。
+   */
+  checkoutTiming: CheckoutTiming;
+  serviceSettledAt: string | null;
+  tipSettledAt: string | null;
+  /** 全部项目均已完工时为真。由服务端按项目聚合，前端不再自行推断。 */
+  serviceCompleted: boolean;
   groupId: string | null;
   groupLabel: string | null;
   businessDate: string;

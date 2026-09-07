@@ -14,6 +14,8 @@ import './handlers/kiosk';
 import './handlers/ticket';
 import './handlers/staff';
 import './handlers/resource';
+import './handlers/rotation';
+import { loadRooms } from './queries/rooms';
 import { loadDayMoney } from './handlers/dayclose';
 import { locationTaxCents } from './tax';
 
@@ -181,6 +183,70 @@ afterEach(async () => {
 afterAll(async () => { await closeDb(); });
 
 describe('预约到收银的真实闭环', () => {
+  it.each([false, true])('multi-item seating, rollback and payment preserve resources (shared station: %s)', async (shared) => {
+    const appointmentId = await createAppointment();
+    await withTenant(tenant, (tx) => tx`insert into appointment_items
+      (org_id, location_id, appointment_id, service_id, membership_id,
+       starts_at, ends_at, price_cents_snapshot, duration_min, seq)
+      select org_id, location_id, appointment_id, service_id, null,
+       starts_at, ends_at, price_cents_snapshot, duration_min, 2
+      from appointment_items where appointment_id = ${appointmentId}`);
+    const [secondStaff] = await withTenant(tenant, (tx) => tx<{ membership_id: string }[]>`
+      select sp.membership_id from staff_profiles sp join memberships m on m.id = sp.membership_id
+      where sp.location_id = ${LOCATION_ID} and sp.is_bookable and m.status = 'active'
+        and sp.membership_id <> ${membershipId} order by sp.membership_id limit 1`);
+    const assignedStaff = [membershipId, shared ? membershipId : secondStaff!.membership_id];
+    const firstRoom = (await run<{ resourceId: string }>('resource.save', {
+      name: `Queue P0 ${randomUUID()}`, capacity: 1,
+    })).result.resourceId;
+    const secondRoom = shared ? firstRoom : (await run<{ resourceId: string }>('resource.save', {
+      name: `Queue P0 ${randomUUID()}`, capacity: 1,
+    })).result.resourceId;
+    const opened = (await run<{ ticketId: string; ticketItemIds: string[]; subtotalCents: number }>('ticket.open', {
+      appointmentId, customerId: null, items: [firstRoom, secondRoom].map((resourceId, index) => ({
+        serviceId, membershipId: assignedStaff[index], minutes: 45, resourceId,
+      })),
+    })).result;
+    const snapshots = await withTenant(tenant, (tx) => tx<{ membership_id: string; resource_id: string }[]>`
+      select membership_id, resource_id from appointment_items where appointment_id = ${appointmentId} order by seq`);
+    expect(snapshots).toEqual([firstRoom, secondRoom].map((resource_id, index) => ({ membership_id: assignedStaff[index], resource_id })));
+    for (const [index, ticketItemId] of opened.ticketItemIds.entries()) await run('ticket.startItem', { ticketItemId, membershipId: assignedStaff[index] });
+    const rooms = await withTenant(tenant, (tx) => loadRooms(tx, ctx));
+    expect(rooms.rooms.find((room) => room.id === firstRoom)?.occupiedCount).toBe(1);
+    for (const [index, ticketItemId] of opened.ticketItemIds.entries()) {
+      await run('ticket.finishItem', { ticketItemId, membershipId: assignedStaff[index] });
+      if (shared && index === 0) {
+        const activeRoom = (await withTenant(tenant, (tx) => loadRooms(tx, ctx))).rooms.find((room) => room.id === firstRoom)!;
+        expect(activeRoom.occupiedCount).toBe(1);
+        expect(activeRoom.waitingCleaningCount).toBe(0);
+      }
+    }
+    const rollback = { appointmentId, fromStage: 'ready_to_pay', targetStage: 'in_service', reason: 'service_restart' };
+    // Reopening must not bypass housekeeping or leave the first item partially reopened.
+    await run('resource.beginCleaning', { resourceId: secondRoom });
+    await expect(run('queue.rollbackStage', rollback)).rejects.toMatchObject({ code: 'RESOURCE_CONFLICT' });
+    const stillFinished = await withTenant(tenant, (tx) => tx<{ n: number }[]>`
+      select count(*)::int as n from ticket_items where ticket_id = ${opened.ticketId} and finished_at is not null`);
+    expect(stillFinished[0]?.n).toBe(2);
+    await run('resource.completeCleaning', { resourceId: secondRoom });
+    await run('queue.rollbackStage', rollback);
+    const reopened = await withTenant(tenant, (tx) => tx<{ finished_at: string | null; occupancy: string }[]>`
+      select ti.finished_at, ro.status as occupancy from ticket_items ti
+      join resource_occupancies ro on ro.ticket_item_id = ti.id and ro.resource_id = ti.resource_id
+      where ti.ticket_id = ${opened.ticketId}`);
+    expect(reopened).toHaveLength(2);
+    expect(reopened.every((item) => item.finished_at === null && item.occupancy === 'in_use')).toBe(true);
+    for (const [index, ticketItemId] of opened.ticketItemIds.entries()) await run('ticket.finishItem', { ticketItemId, membershipId: assignedStaff[index] });
+    await run('ticket.pay', { ticketId: opened.ticketId, paymentStage: 'combined',
+      payments: [{ method: 'cash', amountCents: dueCents(opened.subtotalCents), tipCents: 0,
+        tenderedCents: dueCents(opened.subtotalCents) }],
+    });
+    for (const resourceId of new Set([firstRoom, secondRoom])) {
+      await run('resource.beginCleaning', { resourceId });
+      await run('resource.completeCleaning', { resourceId });
+    }
+  });
+
   it('真实角色权限边界与门店岗位一致', async () => {
     const roleContext = async (orgId: string, locationId: string, roleKey: string) => {
       const [member] = await withTenant(
@@ -313,6 +379,92 @@ describe('预约到收银的真实闭环', () => {
     expect(closed?.status).toBe('closed');
     expect(closed?.service_settled_at).toBeTruthy();
     expect(closed?.tip_settled_at).toBeTruthy();
+    await setCheckoutTiming('after_service_combined');
+  });
+
+  it('看板路径的两阶段收款：多项目单先收服务款，全部完工后按阶段键收小费', async () => {
+    await setCheckoutTiming('service_then_tip');
+    const appointmentId = await createAppointment();
+    await run('queue.join', { appointmentId, source: 'desk' }, `checkin-stage-${appointmentId}`);
+    const opened = await run<{
+      ticketId: string; ticketItemIds: string[]; subtotalCents: number;
+    }>('ticket.open', {
+      appointmentId,
+      customerId: null,
+      items: [{ serviceId, membershipId, minutes: 45 }],
+    }, `stage-open-${appointmentId}`);
+
+    /*
+     * 入座后立即加一项，复现看板上的真实单据形态：一位客人两项服务。
+     * 单项目单走不到本用例要保护的路径 —— 服务款收过之后仍有项目未完工。
+     * 加项必须在收服务款之前完成：结算之后条目即被冻结。
+     */
+    const added = await run<{ ticketItemId: string; subtotalCents: number }>('ticket.addItem', {
+      ticketId: opened.result.ticketId,
+      serviceId,
+      membershipId,
+      kind: 'addon',
+      minutes: 45,
+    }, `stage-addon-${appointmentId}`);
+    const ticketItemIds = [...opened.result.ticketItemIds, added.result.ticketItemId];
+    expect(ticketItemIds).toHaveLength(2);
+
+    /*
+     * 看板的幂等键格式为 `queue-pay-<ticketId>-<paymentStage>`。
+     * 此处照搬该格式，用以固定 D7：两个阶段必须落在不同的键上。
+     */
+    const serviceKey = `queue-pay-${opened.result.ticketId}-service`;
+    const tipKey = `queue-pay-${opened.result.ticketId}-tip`;
+
+    const serviceDueCents = dueCents(added.result.subtotalCents);
+    await run('ticket.pay', {
+      ticketId: opened.result.ticketId,
+      paymentStage: 'service',
+      payments: [{ method: 'card', amountCents: serviceDueCents, tipCents: 0 }],
+    }, serviceKey);
+
+    // 服务款收完后仍未完工，此时收小费必须被拒绝，且要给出可执行的原因。
+    await expect(run('ticket.pay', {
+      ticketId: opened.result.ticketId,
+      paymentStage: 'tip',
+      payments: [{ method: 'cash', amountCents: 2000, tipCents: 2000 }],
+    }, tipKey)).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      details: { reason: 'tip_stage_not_available' },
+    });
+
+    for (const ticketItemId of ticketItemIds) {
+      await run('ticket.finishItem', { ticketItemId, membershipId });
+    }
+
+    /*
+     * 复用服务款阶段的幂等键会被判定为重放：命令不执行，小费收不进来，
+     * 且不会报错 —— 这正是 D7 描述的失败形态，故在此固定住。
+     */
+    await run('ticket.pay', {
+      ticketId: opened.result.ticketId,
+      paymentStage: 'tip',
+      payments: [{ method: 'cash', amountCents: 2000, tipCents: 2000 }],
+    }, serviceKey);
+    const [replayed] = await withTenant(tenant, (tx) => tx<{ tip_settled_at: string | null }[]>`
+      select tip_settled_at::text from tickets where id = ${opened.result.ticketId}`);
+    expect(replayed?.tip_settled_at).toBeNull();
+
+    await run('ticket.pay', {
+      ticketId: opened.result.ticketId,
+      paymentStage: 'tip',
+      payments: [{ method: 'cash', amountCents: 2000, tipCents: 2000 }],
+    }, tipKey);
+
+    const [settled] = await withTenant(tenant, (tx) => tx<{
+      status: string; tip_cents: number;
+      service_settled_at: string | null; tip_settled_at: string | null;
+    }[]>`select status, tip_cents, service_settled_at::text, tip_settled_at::text
+          from tickets where id = ${opened.result.ticketId}`);
+    expect(settled?.status).toBe('closed');
+    expect(settled?.tip_cents).toBe(2000);
+    expect(settled?.service_settled_at).toBeTruthy();
+    expect(settled?.tip_settled_at).toBeTruthy();
     await setCheckoutTiming('after_service_combined');
   });
 

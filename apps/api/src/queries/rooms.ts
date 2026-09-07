@@ -255,7 +255,7 @@ export async function loadRooms(
       status: effectiveStatus,
       currentSession,
       currentSessions,
-      occupiedCount: currentSessions.length,
+      occupiedCount: new Set(currentSessions.map((session) => session.ticketId)).size,
       rawStatus: r.status,
       waitingCleaningCount: cleaningRows.find((row) => row.resource_id === r.id)?.waiting ?? 0,
       cleaningCount: cleaningRows.find((row) => row.resource_id === r.id)?.cleaning ?? 0,

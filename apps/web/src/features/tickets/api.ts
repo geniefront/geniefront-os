@@ -59,6 +59,7 @@ export function useOpenTicket() {
 }
 
 export interface AddTicketItemInput {
+  resourceId?: string;
   ticketId: string;
   serviceId: string;
   membershipId: string;

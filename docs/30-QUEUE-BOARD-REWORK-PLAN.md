@@ -1,6 +1,6 @@
 # 运营看板（Queue）重构与缺陷修复计划
 
-状态：规格已定稿，**代码尚未改动**。执行方：接手的 AI。
+状态：规格已定稿，**P0 实现与验收进行中，尚未完成整份计划**。执行方：接手的 AI。最新交接状态见第 9 节。
 范围：`apps/web/src/pages/Queue.tsx` 及其 `features/queue/*`、`apps/api` 侧对应命令与查询。
 基线 commit：`a5c94f8`。工作区当前有 copilot 相关未提交改动，**与本任务无关，不要动、不要提交、不要 revert**。
 
@@ -325,3 +325,97 @@ export type QueueNextAction =
 - 不要删除疑似测试数据（`礼品卡结账测试` 等），先核实来源。
 - 每批完成后在本文件末尾追加「本轮已完成 / 验证状态 / 未解决问题」，**不允许把计划直接标成完成**。
 - 现有已通过的测试与公开签名必须保持可用；本次不改 `/收银结账` 页的既有行为，只让运营看板向它对齐。
+
+
+## 9. 执行交接日志
+
+### 2026-09-06 — 开始 P0（进行中）
+
+- 实际接手基线为 `e588424`，初始 `git status --short` 为空；原文的 `a5c94f8` 与 copilot 未提交状态已过时。
+- 本轮已完成：阅读计划，核对完工、入座、回退和工单查询实现；为 D1 添加多项目及未开始项目回归测试，先运行确认失败。
+- 验证状态：待运行；尚未完成任何批次，未提交、未部署。
+- 执行口径：P0 按第 5 节实现入座启动全部项目；逐项目动作在后续主动作整合时继续完善。项目行按钮为局部动作，卡片主按钮为整单下一步。
+- 未解决问题：同工位多项目全部启动可能触发按项目计数的容量限制；回退当前不恢复工位占用，不能只删除 `limit 1`。需验证并处理后方可宣称 P0 完成。
+- 下一步：先完成 D1 最小回归，再接入逐项目工位/启动、卡片事实、预约回写和回退占用；按计划补验证记录。
+
+
+### 2026-09-06 — P0 实现检查点（仍未验收）
+
+- 本轮已完成：D1 未开始项目纳入完工，新增测试先红后绿；入座逐项目选择工位、全部项目和入座加项启动；卡片逐项目显示与开始/完成按钮；时间恢复为门店时区起止时间；抽屉优先显示工单项目；开单按预约项目真实 ID 回写主技师和工位（兼容取消项目造成的 seq 空洞）。
+- 新发现并处理：desk/tickets 对双技师项目返回重复行，`features/queue/ticketItems.ts` 在看板/完工/抽屉去重；查询新增 resourceId，但保持收银页原有返回形状与行为。
+- 回退改为全部已完工项，事务中检查技师容量和工位冲突、恢复占用，保留开始时间及已收款；UI 列出重开项目和后果。资源占用容量按同工位的不同工单数计算，同客多项目共用一个位置。辅助写入位于 `handlers/serviceResource.ts`，遵守命令总线约束。
+- 验证状态：`pnpm lint:guards` 已通过；web 全量 53 文件 / 271 测试通过（新增去重测试尚待下一次运行）；web/API typecheck 最近一次通过，最新改动待复查。首轮新增 API 测试因测试输入漏了必填 customerId 失败，已补齐后重跑；原有 core_loop 与 rooms 测试通过。
+- 环境核实：根 .env 为云 staging；TEST_DATABASE_URL / TEST_MIGRATION_DATABASE_URL 实际均为 127.0.0.1:55322，API setupFiles 每个测试文件自动重置 Lotus/Golden Foot 种子。只通过 `bash scripts/run-env.sh local ...` 跑 API 测试。
+- 未解决/下一步：完成新 API 用例与全量 API 测试；核对多工位完工清洁、单项目卡片重复信息、回退权限和冲突文案；进行浏览器验收后才可标 P0 完成。P1/P2/P3 尚未开始，未提交或部署。
+
+
+### 2026-09-06 — P0 数据库验证与环境差异
+
+- 新增迁移：`packages/db/sql/20260907032345_queue_resource_capacity_by_guest.sql`。文件名由 Supabase CLI 生成，迁至本仓库实际执行器扫描的 `packages/db/sql`；只在本机 55322 应用，未应用 staging/production。
+- 迁移修复预约容量触发器按项目计数导致同客多项目同工位开单失败的问题，保留资源行锁和 distinct 技师限制。集成测试包含不同技师/不同工位，以及同工位容量为 1 的两项目；预约 seq 故意使用 0/2 验证回写不依赖连续序号。
+- 新增测试验证：回退遇到清洁冲突时全部项目仍保持完工；清洁完成后全部项目及占用恢复，随后可完工收款。共享同一工位时，只有最后一个进行中项目结束才进入待清洁。
+- 首轮全量 API：84 文件通过，2 文件/20 项失败。定位为 .env.local 的 BOOKING_PAGE_ORIGIN 与 STAGING_OTP_CODE 不符合原有 public/ghostStaff 测试假设，不是业务代码失败。
+- 已验证重跑命令（125 项全通过）：
+  `bash scripts/run-env.sh local env BOOKING_PAGE_ORIGIN=https://book.geniefront.com STAGING_OTP_CODE= pnpm --filter @gf/api test src/public.test.ts src/ghostStaff.test.ts src/core_loop.test.ts src/rooms.test.ts`
+- 最终全量 API 请用同样的两个测试变量覆盖，去掉文件列表。不要清空数据库连接变量；不要修改根 .env。完整输出暂存 `/tmp/queue-p0-api-final.log`，前端为 `/tmp/queue-p0-web-final.log`。
+- 浏览器验收：browser-act CLI 不存在，改用内置 CUA。独立本机 web 5188 / API 3011，均由 run-env.sh local 启动；已使用本机种子账号登录。不能在全量 API 重置种子时做持久化 UI 用例，等待测试结束后再操作。
+- 尚未完成：最终全量复核与浏览器走单；P1/P2/P3 均未开始。没有提交或部署。
+
+
+### 2026-09-06 — 当前交接快照
+
+- 当前工作区无提交；基线仍为 `e588424`。不要 `reset`、`checkout` 或清理本轮改动。
+- 最新静态检查：`pnpm lint:guards`、`pnpm --filter @gf/web typecheck`、`pnpm --filter @gf/api typecheck`、`git diff --check` 均通过。
+- 最新前端全量：54 个测试文件、273 项通过。最新 API 全量：86 个测试文件、1162 项通过。API 使用本机测试库和覆盖环境变量：`bash scripts/run-env.sh local env BOOKING_PAGE_ORIGIN=https://book.geniefront.com STAGING_OTP_CODE= pnpm --filter @gf/api test`；覆盖仅用于匹配现有 public/ghostStaff 测试假设，不要修改根 `.env`。
+- 最新定向回归：web queue 13 项通过；API `core_loop.test.ts` + `rooms.test.ts` 25 项通过。
+- P0 代码已覆盖 D1–D5 的主要路径，并新增同工位容量/共享清洁/原子回退回归；但 P0 仍不能标记完成：尚未在浏览器中完整执行“两项目 + 两技师 + 两工位 → 完工 → 回退 → 再完工 → 收款”，也未验证入座前加项的实际 UI 全路径。
+- 浏览器只做了登录和只读看板检查；当前页面仍能看到空列中的“请按流程依序拖入”旧文案，R3/P3 尚未处理。浏览器验收不要在 API 全量测试重置种子时进行。
+- P1（`nextAction`、`paymentStage`、阶段幂等键、`details.reason` 五语种）尚未开始；P2 打印服务单尚未开始；P3 显式回退菜单、弹窗吸底、计数口径统一、Queue.tsx 拆分尚未完成。
+- 本轮新增/未跟踪文件：`apps/api/src/handlers/serviceResource.ts`、`apps/web/src/features/queue/ticketItems.ts`、`apps/web/src/features/queue/ticketItems.test.ts`、`packages/db/sql/20260907032345_queue_resource_capacity_by_guest.sql`。迁移已只应用到本机 55322，尚未部署云环境。
+- 当前没有提交、没有部署。下一步先做浏览器 P0 验收；验收失败时保留失败场景和截图/日志，再决定修复范围。
+
+### 2026-09-07 — P0 浏览器验收通过；P1 完成；P3 部分完成
+
+**P0 浏览器验收（本机 web 5177 / API 3000，莲花美甲种子库，前台账号 mia@maildrop.cc）**
+
+在运营看板上完整跑通「两项目 + 两技师 + 两工位 → 完工 → 回退 → 再完工 → 收款」，全程只用看板按钮，未使用拖拽：
+
+- 造数：`Lisa Chen` 今日预约两项（甲油胶美甲 / 艾米、尊享手足 SPA / 林玲）。
+- **入座前加项**：到店签到弹窗选「温和卸甲」并指定金金，入座弹窗随即出现为第 3 项，逐项工位下拉三条齐备（D2 验证通过）。
+- 入座后三项全部进入「服务中」，各自显示技师、工位（1/2/3 号美甲位）与真实起止时间（D1/D3/D4 验证通过）。
+- 「完工核算账单」一次结掉全部三项，含从未单独 start 的加项（D1 验证通过）。
+- 卡片「⋯」→「回退」（点击路径，非拖拽）回到服务中：三项全部重开，保留原开始时间与原工位。
+- 再次完工后「结算收银出票」收款 $110 + 小费 $16.50，按两位技师营收比例 50/50 分账，卡片进入「今日已结」。
+
+**P1 浏览器验收（门店结账时机切到 `service_then_tip`）**
+
+- 新单入座后主按钮为「先收服务款」；弹窗顶部写明「本次只收服务款，小费在服务结束后单独收」，小费区整块不渲染。
+- 收完服务款主按钮变为「完工核算账单」；全部完工后变为「收小费」。
+- 小费弹窗：折扣锁定、税与刷卡手续费整块不渲染、礼品卡按钮禁用并说明原因、百分比按原服务金额计算。
+- 两阶段分别以 `queue-pay-<ticketId>-service` 与 `-tip` 提交，均成功入账（营收 $201.50 → $279.50）。
+- 验收后已把门店结账时机改回 `after_service_combined`。
+
+**本轮代码改动**
+
+- P1：新增 `features/queue/nextAction.ts`（纯函数 + 17 项单测），卡片主按钮改由它推导，不再按看板列硬编码。
+- P1：`checkoutMath.ts` 增加 `paymentStage` / `tipBaseCents`，服务款阶段小费恒为 0、小费阶段服务基数与折扣税费恒为 0；缺省行为与改造前完全一致（有对比测试）。
+- P1：看板收银接入 `paymentStage`，幂等键改为 `queue-pay-<ticketId>-<stage>`；`TicketSummary` 补齐 `checkoutTiming / serviceSettledAt / tipSettledAt / serviceCompleted`；`paymentStageFor()` 改收结构化子集，收银页与看板共用同一份阶段判定。
+- P1：`errorMessage.ts` 增加 `details.reason` 二级映射（14 条，含计划点名的 9 条），五语种齐备，新增 `lib/errorMessage.test.ts` 守住完整性。
+- P1：`core_loop.test.ts` 新增看板路径两阶段收款端到端用例，并固定「复用服务款阶段幂等键会被判重放、小费收不进来」这一 D7 失败形态。
+- P3（部分）：空列文案由「请按流程依序拖入」改为「用卡片上的按钮推进，拖拽只是鼠标端的快捷方式」；卡片新增「⋯」菜单（查看详情 / 回退），回退不再依赖拖拽，散客单与已开工单分别给出可执行提示。
+- 顺带修复：小费阶段百分比预设全部显示 $0.00；回退弹窗 `<p>` 内嵌 `<ul>` 触发水合告警；单项目卡片重复显示合计。
+
+**验证状态**
+
+- `pnpm lint:guards`、web/API typecheck 通过；web 全量 56 文件 / 294 项通过。
+- API 全量按既有覆盖变量执行（`BOOKING_PAGE_ORIGIN` / `STAGING_OTP_CODE`）。
+
+**未解决 / 下一步**
+
+1. 回退成功后看板偶发不自动刷新：`queue.rollbackStage` 返回 201、服务端数据已正确，但卡片仍显示「已完工 / 结算收银出票」，手动点「刷新」后恢复。怀疑是 15 秒轮询的响应乱序覆盖了回退后的 refetch 结果，尚未定位，未修。
+2. P2 服务单一页纸未开始 —— 计划第 5 节要求「先出版式样张给店主确认，再写代码」，样张尚未产出，因此本轮没有写代码。
+3. P3 未完成部分：「⋯」菜单还缺加项 / 换技师 / 换工位 / 作废（这四项目前没有独立入口，需要新建弹窗）；回退弹窗尚未提供「作废工单并回退」这条路径；`Queue.tsx` 拆分未做（当前 5175 行）。
+4. 弹窗主按钮吸底：`components/ui/Modal.tsx` 的 footer 与 body 是同级结构，浏览器验收中四个弹窗的主按钮均常驻可见，判定 R5 已满足，未再叠加 CSS。
+5. D10 计数口径：抽屉已在 P0 改为优先读工单事实，看板计数与列徽章同源于 `kanbanItems`，本轮验收中未观察到不一致。
+6. 迁移文件已由 `20260907032345_queue_resource_capacity_by_guest.sql` 改名为 `0111_queue_resource_capacity_by_guest.sql`，与 `packages/db/sql` 的既有序号约定一致；内容是 `create or replace function`，改名后重跑无副作用。仍只应用到本机 55322，未部署云环境。
+7. 仍未部署。本机 55322 开发库在验收中留下了两张测试工单与两个测试预约，且为登录把 `qa-owner` / `amy` / `mia` 的口令改为本地口令 —— 均随种子重置失效。

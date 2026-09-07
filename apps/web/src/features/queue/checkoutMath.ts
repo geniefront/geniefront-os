@@ -5,6 +5,7 @@
  * 两份代码不一致 —— 界面上的小费分账明细压根没有出口，前台看到的数字与技师
  * 实际拿到的提成对不上。现在渲染与提交共用同一份结果，看到什么就发送什么。
  */
+import type { PaymentStage } from '@/features/checkout/types';
 import type { TicketSummary } from '@/features/tickets/types';
 
 /** 参与本单的一位技师，及其执行明细。 */
@@ -96,6 +97,22 @@ export interface CheckoutTotalsInput {
   splitStrategy: 'proportional' | 'equal';
   /** 键为 membershipId。 */
   customStaffTips: Record<string, string>;
+  /**
+   * 收款阶段。缺省等同 `combined`（一次性收清）。
+   *
+   * 分阶段收款并非在界面上「少显示几个输入框」那么简单：服务端对
+   * `service` 阶段要求小费为 0，对 `tip` 阶段只接受小费金额。若仍按整单
+   * 金额计算再提交，必然被判 PAYMENT_MISMATCH。故金额口径在此统一收敛，
+   * 渲染与提交共用同一结果。
+   */
+  paymentStage?: PaymentStage;
+  /**
+   * 小费百分比的计算基数。
+   *
+   * 小费阶段的服务金额已经收过，本次应收基数为 0，按 0 取百分比只会得到 0。
+   * 因此该阶段必须显式传入原服务金额，前台的「20%」才是客人理解的那个 20%。
+   */
+  tipBaseCents?: number;
 }
 
 export interface CheckoutTipAllocation extends CheckoutStaffShare {
@@ -160,31 +177,43 @@ function allocateTips(
 }
 
 export function computeCheckoutTotals(input: CheckoutTotalsInput): CheckoutTotals {
-  const discountCents = Math.max(0, toCents(input.discountDollars));
-  const afterDiscountCents = Math.max(0, input.baseCents - discountCents);
-  const taxCents = Math.round(afterDiscountCents * toRate(input.taxRatePercent));
+  const stage = input.paymentStage ?? 'combined';
+  /*
+   * 小费阶段的服务款已经收过，本次不再重复收取，因此服务基数、折扣、税与
+   * 刷卡手续费一律归零 —— 这些字段在界面上也是锁死的，两边必须一致。
+   */
+  const isTipOnly = stage === 'tip';
+  const discountCents = isTipOnly ? 0 : Math.max(0, toCents(input.discountDollars));
+  const afterDiscountCents = isTipOnly ? 0 : Math.max(0, input.baseCents - discountCents);
+  const taxCents = isTipOnly ? 0 : Math.round(afterDiscountCents * toRate(input.taxRatePercent));
 
-  const totalTipCents = input.tipMode === 'total_split'
+  const tipBaseCents = input.tipBaseCents ?? afterDiscountCents;
+  const enteredTipCents = input.tipMode === 'total_split'
     ? (input.totalTipDollars !== ''
         ? Math.max(0, toCents(input.totalTipDollars))
-        : Math.round((afterDiscountCents * input.tipPercentage) / 100))
+        : Math.round((tipBaseCents * input.tipPercentage) / 100))
     : Object.values(input.customStaffTips).reduce(
         (sum, value) => sum + Math.max(0, toCents(value || '0')),
         0,
       );
+  // 服务款阶段服务端要求小费必须为 0，界面上也不提供录入口。
+  const totalTipCents = stage === 'service' ? 0 : enteredTipCents;
 
   /*
    * 刷卡附加费只按「服务 + 税」计收。
    * 多数州禁止对小费部分加收刷卡手续费 —— 把小费算进基数是实打实的合规风险。
    */
   const cardAccepted = input.paymentMethod === 'card' || input.paymentMethod === 'apple_pay';
-  const cardSurchargeCents = input.enableCardSurcharge && cardAccepted
+  const cardSurchargeCents = !isTipOnly && input.enableCardSurcharge && cardAccepted
     ? Math.round((afterDiscountCents + taxCents) * toRate(input.cardSurchargePercent))
     : 0;
 
-  const allocated = input.tipMode === 'custom_per_staff'
-    ? input.staffList.map((staff) => Math.max(0, toCents(input.customStaffTips[staff.membershipId] || '0')))
-    : allocateTips(input.staffList, totalTipCents, input.splitStrategy);
+  // 小费为 0（服务款阶段必然如此）时不得再按人分配，否则分账之和会与上报总额不符。
+  const allocated = totalTipCents === 0
+    ? input.staffList.map(() => 0)
+    : input.tipMode === 'custom_per_staff'
+      ? input.staffList.map((staff) => Math.max(0, toCents(input.customStaffTips[staff.membershipId] || '0')))
+      : allocateTips(input.staffList, totalTipCents, input.splitStrategy);
 
   const tipAllocations: CheckoutTipAllocation[] = input.staffList.map((staff, index) => {
     const allocatedTipCents = allocated[index] ?? 0;

@@ -102,7 +102,7 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   let customerId = input.customerId;
   let walkInName = input.walkInName ?? null;
   let appointmentItemSnapshots: Array<{
-    serviceId: string; durationMin: number; priceCents: number; resourceId: string | null;
+    appointmentItemId: string; serviceId: string; durationMin: number; priceCents: number; resourceId: string | null;
   }> | null = null;
   if (input.appointmentId) {
     // Lock the appointment before looking for an existing ticket. Without the lock,
@@ -140,9 +140,9 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
       });
     }
     const appointmentItems = await tx<{
-      service_id: string; duration_min: number; price_cents_snapshot: number; resource_id: string | null;
+      id: string; service_id: string; duration_min: number; price_cents_snapshot: number; resource_id: string | null;
     }[]>`
-      select service_id, duration_min, price_cents_snapshot, resource_id from appointment_items
+      select id, service_id, duration_min, price_cents_snapshot, resource_id from appointment_items
       where appointment_id = ${appointment.id} and status <> 'cancelled'
       order by seq`;
     const expectedServices = appointmentItems.map((item) => item.service_id);
@@ -154,6 +154,7 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
       });
     }
     appointmentItemSnapshots = appointmentItems.map((item) => ({
+      appointmentItemId: item.id,
       serviceId: item.service_id,
       durationMin: item.duration_min,
       priceCents: item.price_cents_snapshot,
@@ -316,9 +317,13 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
              where appointment_id = ${input.appointmentId}
                and status not in ('cancelled','completed')`;
     for (const [seq, it] of input.items.entries()) {
-      if (it.resourceId) {
-        await tx`update appointment_items set resource_id = ${it.resourceId}
-                 where appointment_id = ${input.appointmentId} and seq = ${seq}
+      const snapshot = appointmentItemSnapshots?.[seq];
+      const primary = assignmentsFor(it).find((assignment) => assignment.role === 'primary');
+      if (snapshot && primary) {
+        // Match the captured item ID because cancelled appointment rows can leave sequence gaps.
+        await tx`update appointment_items
+                 set resource_id = ${it.resourceId ?? snapshot.resourceId}, membership_id = ${primary.membershipId}
+                 where id = ${snapshot.appointmentItemId}
                    and status not in ('cancelled','completed')`;
       }
     }

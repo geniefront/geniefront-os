@@ -7,6 +7,9 @@
  * 而那恰恰是门店里最需要说清楚的东西（决策 12）。
  */
 
+import { occupyServiceResource } from './serviceResource';
+import { lockServiceCapacity, assertStaffCapacity } from '../serviceCapacity';
+import { assertDayOpen } from '../money';
 import type postgres from 'postgres';
 import {
   RotationAssign, RotationReorder, RotationSetBreak, RotationSkip, QueueRollbackStage,
@@ -265,16 +268,18 @@ registerHandler(RotationAssign, async ({ input, ctx, tx, audit, emit }: HandlerA
 
 registerHandler(QueueRollbackStage, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof QueueRollbackStage.input._type>) => {
+  await lockServiceCapacity(tx, ctx.locationId);
   const [apt] = await tx<{ id: string; status: string; business_date: string }[]>`
     select id, status, business_date::text as business_date
     from appointments
-    where id = ${input.appointmentId} and location_id = ${ctx.locationId}`;
+    where id = ${input.appointmentId} and location_id = ${ctx.locationId} for update`;
 
   if (!apt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
+  await assertDayOpen(tx, ctx.locationId, apt.business_date);
 
   const [ticket] = await tx<{ id: string; status: string }[]>`
     select id, status from tickets
-    where appointment_id = ${apt.id} and status <> 'voided'
+    where appointment_id = ${apt.id} and status not in ('voided','refunded')
     limit 1`;
   if (ticket && input.targetStage !== 'in_service') {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
@@ -292,17 +297,21 @@ registerHandler(QueueRollbackStage, async ({ input, ctx, tx, audit, emit }: Hand
         details: { reason: 'closed_ticket_requires_void', ticketId: ticket.id },
       });
     }
-    await tx`update tickets set status = 'in_service' where id = ${ticket.id}`;
-    // Re-open the most recently completed item. A ticket cannot be in_service
-    // while every item remains finished; that contradictory state used to make
-    // the staff view and checkout view disagree.
+    const reopening = await tx<{ id: string; ticket_id: string; resource_id: string | null }[]>`
+      select id, ticket_id, resource_id from ticket_items
+      where ticket_id = ${ticket.id} and finished_at is not null
+      order by resource_id, id`;
+    const assignments = await tx<{ membership_id: string }[]>`
+      select distinct membership_id from ticket_item_staff
+      where ticket_item_id = any(${reopening.map((item) => item.id)})`;
+    await assertStaffCapacity({ tx, ctx, businessDate: apt.business_date,
+      membershipIds: assignments.map((entry) => entry.membership_id), ticketId: ticket.id });
+    // Reclaim resources before changing completion facts; any conflict rolls back the whole command.
+    for (const item of reopening) await occupyServiceResource(tx, ctx, item, true);
     await tx`update ticket_items set finished_at = null
-             where id = (
-               select id from ticket_items
-               where ticket_id = ${ticket.id}
-               order by finished_at desc nulls last, seq desc
-               limit 1
-             )`;
+      where ticket_id = ${ticket.id} and finished_at is not null`;
+    await tx`update tickets set status = 'in_service' where id = ${ticket.id}`;
+    emit({ type: 'ticket.changed', entityId: ticket.id, businessDate: apt.business_date });
   }
 
   // 回退 appointment 状态

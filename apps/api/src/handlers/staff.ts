@@ -18,7 +18,7 @@ import { parseTs, ts, jsonb } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
 import { assertDayOpen } from '../money';
 import { assertStaffCapacity, lockServiceCapacity } from '../serviceCapacity';
-import { assertResourceStaffLimit } from '../resourceStaffLimit';
+import { occupyServiceResource } from './serviceResource';
 import { hashPin, verifyPin } from '../auth/pin';
 
 async function bizDate(tx: postgres.TransactionSql, locationId: string): Promise<string> {
@@ -122,35 +122,7 @@ registerHandler(TicketStartItem, async ({ input, ctx, tx, audit, emit }: Handler
     overbooked = result.overridden;
   }
 
-  if (row.resource_id) {
-    const [resource] = await tx<{ id: string; status: string; capacity: number }[]>`
-      select id, status, capacity from resources
-      where id = ${row.resource_id} and location_id = ${ctx.locationId} for update`;
-    if (!resource || ['maintenance', 'cleaning', 'cleaning_required'].includes(resource.status)) {
-      throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, {
-        details: { resourceId: row.resource_id, status: resource?.status ?? 'missing' },
-      });
-    }
-    const [usage] = await tx<{ active: number; dirty: number }[]>`
-      select count(*) filter (where status = 'in_use')::int as active,
-             count(*) filter (where status in ('cleaning_required','cleaning'))::int as dirty
-      from resource_occupancies where resource_id = ${row.resource_id} and status <> 'released'`;
-    const [existing] = await tx<{ id: string }[]>`
-      select id from resource_occupancies
-      where ticket_item_id = ${row.id} and resource_id = ${row.resource_id}`;
-    if (!existing && ((usage?.dirty ?? 0) > 0 || (usage?.active ?? 0) >= resource.capacity)) {
-      throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, {
-        details: { resourceId: row.resource_id, reason: 'resource_not_available' },
-      });
-    }
-    await assertResourceStaffLimit(tx, row.resource_id, row.id);
-    await tx`insert into resource_occupancies
-      (org_id, location_id, resource_id, ticket_item_id, status, updated_by)
-      values (${ctx.orgId}, ${ctx.locationId}, ${row.resource_id}, ${row.id}, 'in_use', ${ctx.membershipId})
-      on conflict (ticket_item_id, resource_id) do update set status = 'in_use',
-        released_at = null, updated_by = excluded.updated_by`;
-    await tx`update resources set status = 'in_use' where id = ${row.resource_id}`;
-  }
+  await occupyServiceResource(tx, ctx, row);
 
   // 重复点「开始」不报错，保持原来的时刻 —— 技师在嘈杂环境里多点一下很常见，
   // 而把开始时间往后推会让工时凭空缩水。
@@ -225,7 +197,16 @@ registerHandler(TicketFinishItem, async ({ input, ctx, tx, audit, emit }: Handle
 
   if (row.resource_id) {
     await tx`select id from resources where id = ${row.resource_id} for update`;
-    await tx`update resource_occupancies set status = 'cleaning_required', updated_by = ${ctx.membershipId}
+    // A shared seat needs cleaning only when this guest's final active item leaves it.
+    const [sharedSeat] = await tx<{ active: boolean }[]>`
+      select exists(select 1 from resource_occupancies ro
+        join ticket_items ti on ti.id = ro.ticket_item_id
+        where ro.resource_id = ${row.resource_id} and ro.status = 'in_use'
+          and ti.ticket_id = ${row.ticket_id} and ti.id <> ${row.id}) as active`;
+    await tx`update resource_occupancies
+      set status = ${sharedSeat?.active ? 'released' : 'cleaning_required'},
+          released_at = case when ${sharedSeat?.active ?? false} then now() else released_at end,
+          updated_by = ${ctx.membershipId}
       where ticket_item_id = ${row.id} and status = 'in_use'`;
     const [active] = await tx<{ value: number }[]>`
       select count(*)::int as value from resource_occupancies

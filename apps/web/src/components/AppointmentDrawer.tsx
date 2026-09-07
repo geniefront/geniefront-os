@@ -1,3 +1,4 @@
+import { queueTicketItems } from '@/features/queue/ticketItems';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -358,9 +359,15 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
   const customerInitials = initialsOf(activeCustomerName);
   const knownStatus = ['booked', 'checked_in', 'waiting', 'in_service', 'done', 'completed'].includes(appointment.status);
   const statusRank = appointmentStepperRank(
-    knownStatus ? appointment.status : initialStatus,
+    activeTicket ? (activeTicket.items.every((item) => item.finishedAt) ? 'done' : 'in_service')
+      : knownStatus ? appointment.status : initialStatus,
     appointment.items,
   );
+  const serviceItems = activeTicket ? queueTicketItems(activeTicket.items).map((item) => ({
+    itemId: item.ticketItemId, serviceName: item.name, durationMin: item.durationMin,
+    priceCents: item.totalCents, staffName: item.staffName, resourceName: item.roomName,
+    startsAt: item.startedAt,
+  })) : appointment.items;
   const totalCents = activeTicket?.subtotalCents ?? appointment.items.reduce((sum, item) => sum + item.priceCents, 0);
 
   return shell(<>
@@ -425,7 +432,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
 
         <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
           <div className="flex items-center justify-between gap-2"><SectionTitle icon={<Scissors size={15}/>} label={t('schedule.adBookedServices')} /><div className="flex gap-1.5"><GuardedButton permission="appointment.write" size="sm" variant="secondary" className="h-7 gap-1 bg-teal-50 px-2.5 text-[11px] font-bold text-teal-800" onPress={() => openReschedule(null)}><CalendarClock size={13}/>{t('schedule.adReschedule')}</GuardedButton><GuardedButton permission={activeTicket ? 'ticket.write' : 'appointment.write'} size="sm" variant="secondary" className="h-7 gap-1 bg-violet-50 px-2.5 text-[11px] font-bold text-violet-800" onPress={() => { setServiceId(''); setAddStaffId(activeTicket ? activeTicketFallbackStaffId : appointment.items[0]?.staffId ?? ''); setAddOpen(true); }}><Plus size={13}/>{t('schedule.adAddOn')}</GuardedButton></div></div>
-          <div className="divide-y divide-slate-100">{appointment.items.map((item) => <article key={item.itemId} className="space-y-2 py-3 first:pt-1 last:pb-1"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><h4 className="font-bold text-slate-900">{item.serviceName}</h4><Badge variant="secondary" className="px-1.5 py-0 font-mono text-[10px]">{item.durationMin}m</Badge></div><div className="flex items-center gap-2 shrink-0"><span className="font-mono font-black text-teal-700">${centsToDollars(item.priceCents)}</span>{!activeTicket && <GuardedButton permission="appointment.write" size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[11px] font-bold text-slate-500 hover:text-teal-700" onPress={() => openReschedule(item)}><Edit3 size={12}/>{t('schedule.adEditItem')}</GuardedButton>}</div></div><div className="grid grid-cols-2 gap-2 text-[11px] font-medium text-slate-600"><span className="flex items-center gap-1"><User size={13} className="text-slate-400"/>{item.staffName ?? t('schedule.adUnassignedStaff')}</span><span className="flex items-center gap-1"><BedDouble size={13} className="text-slate-400"/>{item.resourceName ?? t('schedule.adNoRoom')}</span><span className="col-span-2 flex items-center gap-1"><CalendarClock size={13} className="text-slate-400"/>{storeTime.dateTime(item.startsAt)}</span></div></article>)}</div>
+          <div className="divide-y divide-slate-100">{serviceItems.map((item) => <article key={item.itemId} className="space-y-2 py-3 first:pt-1 last:pb-1"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><h4 className="font-bold text-slate-900">{item.serviceName}</h4><Badge variant="secondary" className="px-1.5 py-0 font-mono text-[10px]">{item.durationMin}m</Badge></div><div className="flex items-center gap-2 shrink-0"><span className="font-mono font-black text-teal-700">${centsToDollars(item.priceCents)}</span>{!activeTicket && <GuardedButton permission="appointment.write" size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[11px] font-bold text-slate-500 hover:text-teal-700" onPress={() => openReschedule(appointment.items.find((entry) => entry.itemId === item.itemId) ?? null)}><Edit3 size={12}/>{t('schedule.adEditItem')}</GuardedButton>}</div></div><div className="grid grid-cols-2 gap-2 text-[11px] font-medium text-slate-600"><span className="flex items-center gap-1"><User size={13} className="text-slate-400"/>{item.staffName ?? t('schedule.adUnassignedStaff')}</span><span className="flex items-center gap-1"><BedDouble size={13} className="text-slate-400"/>{item.resourceName ?? t('schedule.adNoRoom')}</span><span className="col-span-2 flex items-center gap-1"><CalendarClock size={13} className="text-slate-400"/>{item.startsAt ? storeTime.dateTime(item.startsAt) : t('queue.quElapsedNotStarted')}</span></div></article>)}</div>
           {!activeTicket && <p className="rounded-xl border border-teal-100 bg-teal-50/60 p-2.5 text-[11px] font-medium text-teal-800">{t('schedule.adAppointmentAddItemHint')}</p>}
         </section>
 
