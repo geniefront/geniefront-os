@@ -459,3 +459,30 @@ https://claude.ai/code/artifact/1080079c-2d7e-4522-a2f4-daac58eb3fbb
 **浏览器验收**：同一张在途工单上依次完成换技师（金金 → 艾米，开始时间保留）、换工位（未指定 → 1 号美甲位）、加项（温和卸甲，合计 $25 → $35，主按钮自动变为「开始此项」）。
 
 **检查**：`lint:guards`、web/API typecheck 通过；web 56 文件 / 294 项，API 86 文件 / 1164 项全部通过。
+
+### 2026-09-07 — P3 收尾：`Queue.tsx` 拆分（D11）
+
+`pages/Queue.tsx` 5799 行 → **2570 行**，拆出 9 个文件：
+
+| 文件 | 行数 | 内容 |
+|---|---|---|
+| `pages/queue/model.ts` | 330 | 泳道配置、标签选项、卡片形态、`canRollbackTo` 等纯判定 |
+| `pages/queue/KanbanBoard.tsx` | 400 | 五列看板与卡片 |
+| `pages/queue/AttendanceModal.tsx` | 411 | 技师考勤打卡与轮牌 |
+| `pages/queue/modals/CheckInModal.tsx` | 567 | 到店签到 |
+| `pages/queue/modals/StartServiceModal.tsx` | 638 | 安排入座 |
+| `pages/queue/modals/CompleteServiceModal.tsx` | 398 | 服务完工 |
+| `pages/queue/modals/CheckoutModal.tsx` | 620 | 收银结算 |
+| `pages/queue/modals/RollbackStageModal.tsx` | 179 | 阶段回退 |
+| `pages/queue/modals/VoidTicketModal.tsx` | 121 | 作废工单 |
+| `pages/queue/modals/TicketItemActionModal.tsx` | 193 | 加项 / 换技师 / 换工位 |
+
+口径：**纯搬运，不夹带行为改动**。状态、查询与命令仍全部留在 `QueueContent`，拆出的组件只接收 props 负责呈现与采集。唯二的结构性调整是两处原本内联在 JSX 里的逻辑上提为页面的具名回调（逐项目开始/完成 `handleToggleTicketItem`）与一处只服务于单个弹窗的局部状态下沉（完工弹窗速选加项的「更多」）。
+
+计划原文把这一步写成「纯搬运」，实际并非如此：几个弹窗都直接读组件作用域里几十个 state 与 handler，搬出去必须设计 props 边界。因此每个弹窗都显式声明了 props 接口，由 typecheck 兜底 —— 漏一个依赖就是编译错误，不会留到运行期。
+
+顺带清掉了页面文件里 49 个搬走后失效的 import。
+
+**验证**：`lint:guards`、web/API typecheck 通过；web 56 文件 / 294 项通过。浏览器复核：五列看板正常渲染、12 张卡片的「⋯」菜单可用、入座弹窗与考勤弹窗均能打开并显示正确内容。
+
+至此 P3 全部完成。P2 等店主确认后再写代码。
