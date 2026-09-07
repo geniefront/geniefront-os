@@ -926,14 +926,31 @@ export function PublicHealthForm() {
         description={copy('confirmSubmitBody')}
         size="sm"
         footer={(
-          <div className="flex w-full justify-end gap-2">
-            <Button variant="outline" onClick={() => setConfirmSubmitOpen(false)}>
+          /*
+           * 装不下就换行，而不是挤成一行溢出去。
+           *
+           * ⚠️ 这里**不能用 `sm:` 这类断点** —— 断点跟的是视口宽度，而溢出
+           * 取决于对话框自身的宽度：`size="sm"` 的弹窗只有 336px，1280px 的
+           * 桌面视口下照样装不下「Review answers」+「Confirm and submit
+           * securely」（138 + 224 + 8 = 370px）。原来就是这么溢出的：靠右对齐
+           * 时多出来的部分从左边顶出去，看着像文字从药丸里挤了出来。
+           *
+           * `flex-wrap` 按真实可用空间决定换不换行，因此中文（「返回检查」
+           * 「确认并安全提交」）仍是一行，英文自动折成两行。`shrink-0` 保证
+           * 按钮不会被压缩到比自己的文字还窄。
+           */
+          <div className="flex w-full flex-wrap justify-end gap-2">
+            <Button
+              variant="outline"
+              className="shrink-0"
+              onClick={() => setConfirmSubmitOpen(false)}
+            >
               {copy('cancel')}
             </Button>
             <Button
               disabled={submitForm.isPending}
               onClick={() => void submitConfirmed()}
-              className="bg-teal-600 font-bold text-white hover:bg-teal-700"
+              className="shrink-0 bg-teal-600 font-bold text-white hover:bg-teal-700"
             >
               {submitForm.isPending ? copy('submitting') : copy('confirmSubmitAction')}
             </Button>
