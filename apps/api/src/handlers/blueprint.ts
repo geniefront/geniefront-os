@@ -594,8 +594,9 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
                 ${jsonb(draft.name)}::jsonb,
                 ${draft.durationMin}, ${draft.basePriceCents},
                 -- ⭐ 模型判断出来的「这是加项」（05 §5.3）一直到这里才有地方存。
-                -- 丢掉它，电话 AI 就会把「热石 +$15」当成一个完整项目报给客人
-                false, false, ${r.kind === 'addon'}, true)
+                -- 丢掉它，电话 AI 就会把「热石 +$15」当成一个完整项目报给客人。
+                -- 普通导入项默认「支持网上预约」，加项不进独立网约目录（U04 / §7.2）。
+                false, ${r.kind !== 'addon'}, ${r.kind === 'addon'}, true)
         returning id`;
       createdServiceIds.push(svc!.id);
       for (const text of Object.values(draft.name)) serviceIdsByName.set(nameKey(text), svc!.id);

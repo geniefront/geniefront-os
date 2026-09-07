@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto';
 import {
-  SaveService, SaveServiceCategory, ArchiveService,
+  SaveService, BulkUpdateServices, SaveServiceCategory, ArchiveService,
   SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
   SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
@@ -46,20 +46,28 @@ registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
     }
   };
   if (input.serviceId) {
-    const [exists] = await tx<{ id: string }[]>`
-      select id from services where id = ${input.serviceId} and location_id = ${ctx.locationId}`;
+    const [exists] = await tx<{ id: string; is_addon: boolean; online_bookable: boolean }[]>`
+      select id, is_addon, online_bookable from services
+      where id = ${input.serviceId} and location_id = ${ctx.locationId}`;
     if (!exists) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'service' } });
+
+    // 加项不进网约目录：按「本次生效后」的 isAddon / onlineBookable 组合判定
+    const effAddon = input.isAddon ?? exists.is_addon;
+    const effOnline = input.onlineBookable ?? exists.online_bookable;
+    if (effAddon && effOnline) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'addon_not_online_bookable' } });
+    }
 
     await tx`update services set
         category_id = ${input.categoryId === undefined ? tx`category_id` : input.categoryId},
         name = ${jsonb(input.name)}::jsonb,
         duration_min = ${input.durationMin},
         base_price_cents = ${input.basePriceCents},
-        taxable = ${input.taxable},
-        online_bookable = ${input.onlineBookable},
-        is_addon = ${input.isAddon},
+        taxable = ${input.taxable === undefined ? tx`taxable` : input.taxable},
+        online_bookable = ${input.onlineBookable === undefined ? tx`online_bookable` : input.onlineBookable},
+        is_addon = ${input.isAddon === undefined ? tx`is_addon` : input.isAddon},
         staff_count = coalesce(${input.staffCount ?? null}, staff_count),
-        active = ${input.active}
+        active = ${input.active === undefined ? tx`active` : input.active}
       where id = ${input.serviceId}`;
 
     await syncRequiredSkills(input.serviceId);
@@ -69,13 +77,20 @@ registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
     return { serviceId: input.serviceId, created: false };
   }
 
+  const isAddon = input.isAddon ?? false;
+  // 普通项目新建默认「支持网上预约」；加项默认不进网约目录（§7.2）
+  const onlineBookable = input.onlineBookable ?? !isAddon;
+  if (isAddon && onlineBookable) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'addon_not_online_bookable' } });
+  }
+
   const [row] = await tx<{ id: string }[]>`
     insert into services
       (org_id, location_id, category_id, name, duration_min, base_price_cents,
        taxable, online_bookable, is_addon, staff_count, active)
     values (${ctx.orgId}, ${ctx.locationId}, ${input.categoryId ?? null}, ${jsonb(input.name)}::jsonb,
             ${input.durationMin}, ${input.basePriceCents},
-            ${input.taxable}, ${input.onlineBookable}, ${input.isAddon}, ${input.staffCount ?? 1}, ${input.active})
+            ${input.taxable ?? false}, ${onlineBookable}, ${isAddon}, ${input.staffCount ?? 1}, ${input.active ?? true})
     returning id`;
 
   await syncRequiredSkills(row!.id);
@@ -120,6 +135,93 @@ registerHandler(ArchiveService, async ({ input, ctx, tx, audit }: HandlerArgs<
 
   audit({ entityType: 'service', entityId: input.serviceId, after: { active: false } });
   return { serviceId: input.serviceId };
+});
+
+registerHandler(BulkUpdateServices, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof BulkUpdateServices.input._type>) => {
+  const { set } = input;
+  const ids = [...new Set(input.serviceIds)];
+
+  // 1. 目标项目必须全部属于本店；缺一即整批失败
+  const targets = await tx<{ id: string; is_addon: boolean; online_bookable: boolean }[]>`
+    select id, is_addon, online_bookable from services
+    where location_id = ${ctx.locationId} and id = any(${ids})
+    for update`;
+  if (targets.length !== ids.length) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'service' } });
+  }
+
+  // 2. 加项不进网约目录
+  if (set.onlineBookable === true) {
+    const addons = targets.filter((s) => s.is_addon).map((s) => s.id);
+    if (addons.length > 0) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'addon_not_online_bookable', serviceIds: addons },
+      });
+    }
+  }
+
+  // 3. 分类归属校验
+  if (set.categoryId) {
+    const [category] = await tx<{ id: string }[]>`
+      select id from service_categories where id = ${set.categoryId} and location_id = ${ctx.locationId}`;
+    if (!category) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'service_category' } });
+  }
+
+  // 4. 技能归属校验（add / remove / replace 用到的 ID 全部要是本店技能）
+  const skillIds = [...new Set([
+    ...(set.skillsAdd ?? []), ...(set.skillsRemove ?? []), ...(set.skillsReplace ?? []),
+  ])];
+  if (skillIds.length > 0) {
+    const valid = await tx<{ id: string }[]>`
+      select id from skills where location_id = ${ctx.locationId} and id = any(${skillIds})`;
+    if (valid.length !== skillIds.length) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'skill' } });
+    }
+  }
+
+  // 5. 标量字段一条 UPDATE 打完（不传即不改）
+  if (set.onlineBookable !== undefined || set.staffCount !== undefined || set.categoryId !== undefined) {
+    await tx`update services set
+        online_bookable = ${set.onlineBookable === undefined ? tx`online_bookable` : set.onlineBookable},
+        staff_count = ${set.staffCount === undefined ? tx`staff_count` : set.staffCount},
+        category_id = ${set.categoryId === undefined ? tx`category_id` : set.categoryId}
+      where location_id = ${ctx.locationId} and id = any(${ids})`;
+  }
+
+  // 6. 技能：replace 整组覆盖；add / remove 增量
+  if (set.skillsReplace !== undefined) {
+    const want = [...new Set(set.skillsReplace)];
+    await tx`delete from service_skill_requirements
+      where location_id = ${ctx.locationId} and service_id = any(${ids})`;
+    for (const serviceId of ids) {
+      for (const skillId of want) {
+        await tx`insert into service_skill_requirements (org_id, location_id, service_id, skill_id)
+          values (${ctx.orgId}, ${ctx.locationId}, ${serviceId}, ${skillId})`;
+      }
+    }
+  } else {
+    if (set.skillsRemove && set.skillsRemove.length > 0) {
+      await tx`delete from service_skill_requirements
+        where location_id = ${ctx.locationId} and service_id = any(${ids})
+          and skill_id = any(${[...new Set(set.skillsRemove)]})`;
+    }
+    if (set.skillsAdd && set.skillsAdd.length > 0) {
+      for (const serviceId of ids) {
+        for (const skillId of [...new Set(set.skillsAdd)]) {
+          await tx`insert into service_skill_requirements (org_id, location_id, service_id, skill_id)
+            values (${ctx.orgId}, ${ctx.locationId}, ${serviceId}, ${skillId})
+            on conflict do nothing`;
+        }
+      }
+    }
+  }
+
+  audit({
+    entityType: 'service', entityId: ctx.locationId,
+    after: { bulk: true, serviceIds: ids, fields: Object.keys(set).filter((k) => set[k as keyof typeof set] !== undefined) },
+  });
+  return { updated: ids.length };
 });
 
 

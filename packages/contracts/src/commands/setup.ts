@@ -19,20 +19,25 @@ export const SaveService = defineCommand({
     name: i18nText,
     durationMin: z.number().int().min(5).max(600),
     basePriceCents: cents.nonnegative(),
-    /** 服务在多数州不收销售税，零售才收（00 §1.6） */
-    taxable: z.boolean().default(false),
-    onlineBookable: z.boolean().default(false),
+    /**
+     * 以下布尔 / 人数 / 技能字段一律「不传即不改」（PATCH 语义）。
+     * 新建时缺省：`taxable=false`、`isAddon=false`、`active=true`、
+     * `onlineBookable` = 普通项目 true / 加项 false、`staffCount=1`。
+     * 编辑时省略任一字段保留原值，绝不被缺省值覆写（U04 / §7.2）。
+     */
+    taxable: z.boolean().optional(),
+    onlineBookable: z.boolean().optional(),
     /**
      * ⭐ 加项：只能加在主项目上，不能单独预约（sql/0035）。
      * 「热石 +$15」「French +$10」这种勾上，电话 AI 才不会把它当成
-     * 一个完整项目报给客人。
+     * 一个完整项目报给客人。加项不进独立网约目录：`isAddon && onlineBookable` 会被拒。
      */
-    isAddon: z.boolean().default(false),
+    isAddon: z.boolean().optional(),
     /** 同时参与同一项目的技师人数；2 表示双技师项目。 */
     staffCount: z.number().int().min(1).max(5).optional(),
     /** 履约硬门槛；为空数组表示该项目不限制技能。 */
     requiredSkillIds: z.array(uuid).max(30).optional(),
-    active: z.boolean().default(true),
+    active: z.boolean().optional(),
   }),
   output: z.object({ serviceId: uuid, created: z.boolean() }),
   permission: 'catalog.manage',
@@ -72,6 +77,43 @@ export const ArchiveService = defineCommand({
     confirm: 'always',
   },
   reversible: true,
+  idempotency: 'optional',
+});
+
+/**
+ * 批量修改一组项目的**部分字段**（U04 / §7.2）。
+ *
+ * - 只动 `set` 里明确给出的字段；不碰价格 / 时长 / 名称 —— 因此对并发编辑那两项天然安全。
+ * - 单事务全成全败；任一项跨店 / 类型不符 / 技能无效即整批回滚，不做「部分成功」。
+ * - 技能三选一：`skillsReplace`（整组覆盖）与 `skillsAdd` / `skillsRemove` 互斥。
+ * - 加项不进网约目录：受影响项目若 `is_addon` 为真且要设 `onlineBookable=true`，整批拒绝。
+ */
+export const BulkUpdateServices = defineCommand({
+  name: 'catalog.bulkUpdateServices',
+  input: z.object({
+    serviceIds: z.array(uuid).min(1).max(200),
+    set: z.object({
+      onlineBookable: z.boolean().optional(),
+      staffCount: z.number().int().min(1).max(5).optional(),
+      categoryId: uuid.nullable().optional(),
+      skillsAdd: z.array(uuid).max(30).optional(),
+      skillsRemove: z.array(uuid).max(30).optional(),
+      skillsReplace: z.array(uuid).max(30).optional(),
+    }).refine(
+      (s) => Object.values(s).some((v) => v !== undefined),
+      { message: '至少要指定一个要修改的字段' },
+    ).refine(
+      (s) => !(s.skillsReplace !== undefined && (s.skillsAdd !== undefined || s.skillsRemove !== undefined)),
+      { message: 'skillsReplace 不能与 skillsAdd / skillsRemove 同时使用' },
+    ),
+  }),
+  output: z.object({ updated: z.number().int() }),
+  permission: 'catalog.manage',
+  ai: {
+    description: '批量修改一组项目的网上预约开关、同时技师人数、分类或所需技能。不改价格与时长。',
+    confirm: 'always',
+  },
+  reversible: false,
   idempotency: 'optional',
 });
 
@@ -667,7 +709,7 @@ export const ReorderStaffDirectoryOptions = defineCommand({
 });
 
 export const SETUP_COMMANDS = [
-  SaveStaffDirectoryOption, ReorderStaffDirectoryOptions, SaveService, SaveServiceCategory, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
+  SaveStaffDirectoryOption, ReorderStaffDirectoryOptions, SaveService, BulkUpdateServices, SaveServiceCategory, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
   SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
   SaveCheckoutSettings, Apply10Dlc, SaveIntakeWaiver, SaveWebhooks, SetEmailLocale,
