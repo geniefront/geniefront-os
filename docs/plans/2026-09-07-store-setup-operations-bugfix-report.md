@@ -876,7 +876,7 @@ handler 对 `jobTitle` / `level` / `skills` 三个自由文本字段**匹配不�
 | 相邻套件 | `vitest run src/blueprint.test.ts src/settings_enhancements.test.ts src/phone.test.ts src/public.test.ts` | 192 passed |
 | Web 全量单测 | `pnpm --filter @gf/web test` | 58 files / 325 passed（两处 Settings 测试的 api mock 补 `useBulkUpdateServices`）|
 | 守卫 | `pnpm lint:guards` | ✓ |
-| 完整 `pnpm --filter @gf/api test` | isolated 库 | 见提交时运行记录 |
+| 完整 `pnpm --filter @gf/api test` | isolated 库一次跑通 | 87 files / 1184 passed（无 flaky） |
 
 未做：浏览器 / 真机交互验证（Settings 服务 tab 需登录整套栈；按计划 §12 / H 阶段单列）。
 
