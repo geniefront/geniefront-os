@@ -53,7 +53,7 @@ export const print = {
   'print.answerNo': { 'zh-Hans': '否', en: 'No', ko: '아니오', es: 'No', vi: 'Không' },
 
   'print.sectionHandoff': { 'zh-Hans': '前台交接', en: 'From the front desk', ko: '프런트 인계', es: 'Nota de recepción', vi: 'Bàn giao từ lễ tân' },
-  'print.confidential': { 'zh-Hans': '本页含健康问卷内容，仅供本次服务的技师使用。服务结束后请交回前台销毁，不要留在工位上。每次打印都会记录打印人与时间。', en: 'This sheet contains health form content and is for the therapist on this service only. Return it to the front desk to be destroyed after the service; do not leave it at the station. Every print is logged with who printed it and when.', ko: '이 시트에는 문진 내용이 포함되어 있으며 해당 시술 관리사만 사용합니다. 시술 후 프런트에 반납해 폐기하고 스테이션에 두지 마세요. 인쇄할 때마다 인쇄자와 시각이 기록됩니다.', es: 'Esta hoja contiene el cuestionario de salud y es solo para el terapeuta de este servicio. Devuélvela a recepción para destruirla al terminar; no la dejes en el puesto. Cada impresión queda registrada con quién y cuándo.', vi: 'Phiếu này chứa nội dung bảng hỏi sức khỏe, chỉ dành cho kỹ thuật viên của ca này. Xong việc hãy trả lại lễ tân để hủy, đừng để lại tại vị trí. Mỗi lần in đều ghi lại người in và thời gian.' },
+  'print.confidential': { 'zh-Hans': '服务结束后请交回前台。', en: 'Please return this to the front desk after the service.', ko: '시술이 끝나면 프런트에 반납해 주세요.', es: 'Devuelve esta hoja a recepción al terminar el servicio.', vi: 'Xong dịch vụ vui lòng trả lại quầy lễ tân.' },
 
   /*
    * 由服务端按解密后的问卷答案推导出的技师可执行建议。

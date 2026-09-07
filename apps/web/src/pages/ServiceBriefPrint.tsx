@@ -15,7 +15,7 @@
  * 店主已明确技师可以看到全部健康信息，因此问卷原文直接印在纸上。
  * 服务端每取一次都会写一条 `form_access_log`（理由 `export`），
  * 没有 `customer.view_health_form` 的账号只拿得到结论层。
- * 纸上固定印一行保密提示：这张纸服务结束后要交回前台销毁。
+ * 纸上固定印一行回收提示：服务结束后交回前台 —— 前台要留存归档，不销毁。
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';

@@ -516,3 +516,9 @@ https://claude.ai/code/artifact/1080079c-2d7e-4522-a2f4-daac58eb3fbb
 顺带修了一处自相矛盾：健康提示原本只看客户档案上的 `health_flag`，客人明明勾了三项却写着「问卷未标记禁忌」，而那三项就印在这句话下面。现改为两个证据来源任一为真即为真。
 
 至此 P0–P3 与 P2 全部完成。
+
+### 2026-09-07 — 服务单页脚改为回收提示；staging 迁移已同步
+
+- 页脚原本写「交回前台销毁」。前台要留存归档，销毁是错的；整段也过长。改为一句「服务结束后请交回前台。」，五语种同步。
+- `packages/db/sql/0111_queue_resource_capacity_by_guest.sql` **已应用到 staging**（`yfqybhuvzluvrapodahw`）。应用前只读核对过：staging 与 production 都只差这一条，不会顺带带入别人的迁移。应用后核对函数体：按客人预约计数、保留 distinct 技师限制、保留资源行锁，三项均正确。
+- **production 尚未应用**。`scripts/migrate-env.sh` 对生产要求显式确认（`GF_CONFIRM_PRODUCTION=deploy-production`），这道闸就是用来防止自动执行的，因此没有自行绕过。生产库当前同样只差这一条。
