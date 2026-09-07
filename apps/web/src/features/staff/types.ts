@@ -10,7 +10,9 @@ export interface StaffDirectoryItem {
   phone: string;
   email?: string;
   jobTitle: string;
+  jobTitleId: string | null;
   level: string;
+  levelId: string | null;
   skills: string[];
   skillIds: string[];
   status: 'active' | 'on_leave' | 'resigned';
@@ -32,6 +34,7 @@ export interface SaveStaffProfileInput {
   email?: string | null;
   employeeNo?: string;
   jobTitle?: string;
+  jobTitleId?: string | null;
   level?: string;
   levelId?: string | null;
   skills?: string[];

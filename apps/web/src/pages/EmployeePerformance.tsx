@@ -102,8 +102,10 @@ export interface StaffMember {
   name: string; // 员工姓名
   phone: string; // 手机号码
   email?: string; // 电子邮箱
-  jobTitle: string; // 岗位职位
-  level: string; // 职位等级
+  jobTitle: string; // 岗位职位显示名（展示用）
+  jobTitleId: string | null; // 岗位目录项 ID（关联主键）
+  level: string; // 职位等级显示名（展示用）
+  levelId: string | null; // 职级目录项 ID（关联主键）
   skills: string[];
   skillIds: string[]; // 技能标签
   status: 'active' | 'on_leave' | 'resigned'; // 状态: 在职 / 休假 / 离职
@@ -186,10 +188,10 @@ function EmployeePerformanceContent() {
   const [formEmployeeNo, setFormEmployeeNo] = useState('');
   const [formPhone, setFormPhone] = useState('');
   const [formEmail, setFormEmail] = useState('');
-  const [formJobTitle, setFormJobTitle] = useState('');
-  const [formLevel, setFormLevel] = useState('');
+  // 岗位 / 职级 / 技能一律存目录项 ID，只能从本店已启用目录中选（U02 / W2）
+  const [formJobTitleId, setFormJobTitleId] = useState('');
+  const [formLevelId, setFormLevelId] = useState('');
   const [formSkills, setFormSkills] = useState<string[]>([]);
-  const [customSkillInput, setCustomSkillInput] = useState('');
   const [formStatus, setFormStatus] = useState<'active' | 'on_leave' | 'resigned'>('active');
   const [formHireDate, setFormHireDate] = useState(new Date().toISOString().slice(0, 10));
   const [formPlanKind, setFormPlanKind] = useState<PlanKind>('commission');
@@ -263,10 +265,9 @@ function EmployeePerformanceContent() {
     setFormEmployeeNo('');
     setFormPhone('');
     setFormEmail('');
-    setFormJobTitle('');
-    setFormLevel('');
+    setFormJobTitleId('');
+    setFormLevelId('');
     setFormSkills([]);
-    setCustomSkillInput('');
     setFormStatus('active');
     setFormHireDate(new Date().toISOString().slice(0, 10));
     setFormPlanKind('commission');
@@ -288,10 +289,9 @@ function EmployeePerformanceContent() {
     setFormEmployeeNo(staff.employeeNo);
     setFormPhone(formatPhoneDisplay(staff.phone) || '');
     setFormEmail(staff.email || '');
-    setFormJobTitle(staff.jobTitle);
-    setFormLevel(staff.level);
+    setFormJobTitleId(staff.jobTitleId ?? '');
+    setFormLevelId(staff.levelId ?? '');
     setFormSkills([...staff.skillIds]);
-    setCustomSkillInput('');
     setFormStatus(staff.status);
     setFormHireDate(staff.hireDate);
     setFormPlanKind(staff.payroll.kind);
@@ -319,7 +319,12 @@ function EmployeePerformanceContent() {
       title: isEditing ? t('rotation.empEditConfirmTitle', { p0: formName }) : t('rotation.empAddConfirmTitle', { p0: formName }),
       description: isEditing
         ? t('rotation.empEditConfirmDesc', { p0: formName, p1: formServiceStatus.canDo.length, p2: formServiceStatus.cannotDo.length })
-        : t('rotation.empAddConfirmDesc', { p0: formName, p1: formEmployeeNo, p2: presetLabel(formJobTitle), p3: presetLabel(formLevel) }),
+        : t('rotation.empAddConfirmDesc', {
+            p0: formName,
+            p1: formEmployeeNo,
+            p2: staffData?.jobs?.find((job) => job.id === formJobTitleId)?.name ?? '—',
+            p3: staffData?.levels?.find((level) => level.id === formLevelId)?.name ?? '—',
+          }),
       confirmText: t('rotation.empSaveConfirmButton', { p0: actionText }),
       confirmTone: 'primary',
       onConfirm: async () => {
@@ -334,11 +339,9 @@ function EmployeePerformanceContent() {
             phone: normalizePhoneE164(formPhone),
             email: formEmail.trim(),
             employeeNo: formEmployeeNo.trim(),
-            jobTitle: formJobTitle,
-            level: formLevel,
-            levelId: staffData?.levels?.find((level) => level.name === formLevel)?.id,
+            jobTitleId: formJobTitleId || null,
+            levelId: formLevelId || null,
             skillIds: formSkills.filter((id) => staffData?.skills.some((skill) => skill.id === id)),
-            skills: formSkills.filter((id) => !staffData?.skills.some((skill) => skill.id === id)),
             status: formStatus,
             hireDate: formHireDate || undefined,
             note: formNote.trim() || undefined,
@@ -404,17 +407,6 @@ function EmployeePerformanceContent() {
     setFormSkills((prev) =>
       prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill],
     );
-  };
-
-  // 添加自定义技能标签
-  const handleAddCustomSkill = () => {
-    if (!customSkillInput.trim()) return;
-    const entered = customSkillInput.trim();
-    const val = staffData?.skills.find((skill) => skill.name === entered || skill.key === entered)?.id ?? entered;
-    if (!formSkills.includes(val)) {
-      setFormSkills((prev) => [...prev, val]);
-    }
-    setCustomSkillInput('');
   };
 
   // 执行通用二次确认
@@ -926,24 +918,48 @@ function EmployeePerformanceContent() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block font-bold text-slate-700 uppercase mb-1">
-
                   {t('rotation.empRoleLabel')}
                 </label>
-                <Input value={formJobTitle} onChange={(e) => setFormJobTitle(e.target.value)} list="jobTitle-options" />
-                <datalist id="jobTitle-options">
-                  {Array.from(new Set([...(staffData?.jobs ?? []).filter((option) => option.active).map((option) => option.name), formJobTitle])).filter(Boolean).map((value) => <option key={value} value={value} />)}
-                </datalist>
+                <select
+                  value={formJobTitleId}
+                  onChange={(e) => setFormJobTitleId(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
+                >
+                  <option value="">{t('rotation.empUnset')}</option>
+                  {(staffData?.jobs ?? [])
+                    .filter((option) => option.active || option.id === formJobTitleId)
+                    .map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.name}{!option.active ? ` ${t('rotation.empOptionInactive')}` : ''}
+                      </option>
+                    ))}
+                </select>
+                {(staffData?.jobs ?? []).length === 0 && (
+                  <p className="mt-1 text-[11px] text-amber-700">{t('rotation.empDirectoryEmptyHint')}</p>
+                )}
               </div>
 
               <div>
                 <label className="block font-bold text-slate-700 uppercase mb-1">
-
                   {t('rotation.empLevelLabel')}
                 </label>
-                <Input value={formLevel} onChange={(e) => setFormLevel(e.target.value)} list="level-options" />
-                <datalist id="level-options">
-                  {Array.from(new Set([...(staffData?.levels ?? []).filter((option) => option.active).map((option) => option.name), formLevel])).filter(Boolean).map((value) => <option key={value} value={value} />)}
-                </datalist>
+                <select
+                  value={formLevelId}
+                  onChange={(e) => setFormLevelId(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
+                >
+                  <option value="">{t('rotation.empUnset')}</option>
+                  {(staffData?.levels ?? [])
+                    .filter((option) => option.active || option.id === formLevelId)
+                    .map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.name}{!option.active ? ` ${t('rotation.empOptionInactive')}` : ''}
+                      </option>
+                    ))}
+                </select>
+                {(staffData?.levels ?? []).length === 0 && (
+                  <p className="mt-1 text-[11px] text-amber-700">{t('rotation.empDirectoryEmptyHint')}</p>
+                )}
               </div>
             </div>
           </div>
@@ -955,10 +971,11 @@ function EmployeePerformanceContent() {
               <span className="text-[11px] text-teal-700 font-normal">{t('rotation.empSelected')} {formSkills.length}  {t('rotation.empSelectedUnit')}</span>
             </h4>
 
-            {/* 技能标签选择 */}
+            {/* 技能标签选择 —— 只能勾选本店已有技能目录项（U02 / W2） */}
             <div className="flex flex-wrap gap-1.5">
               {Array.from(new Set([...(staffData?.skills ?? []).filter((skill) => skill.active).map((skill) => skill.id), ...formSkills])).map((skill) => {
                 const isSelected = formSkills.includes(skill);
+                const meta = staffData?.skills?.find((option) => option.id === skill);
                 return (
                   <button
                     key={skill}
@@ -972,30 +989,14 @@ function EmployeePerformanceContent() {
                   >
                     {isSelected && '✓ '}
                     {presetLabel(skill)}
+                    {meta && !meta.active ? ` ${t('rotation.empOptionInactive')}` : ''}
                   </button>
                 );
               })}
             </div>
-
-            {/* 自定义技能标签输入 */}
-            <div className="flex items-center gap-2 pt-1">
-              <Input
-                value={customSkillInput}
-                onChange={(e) => setCustomSkillInput(e.target.value)}
-                placeholder={t('rotation.empCustomSkillPlaceholder')}
-                className="text-xs"
-              />
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="shrink-0 font-bold"
-                onClick={handleAddCustomSkill}
-              >
-
-                {t('rotation.empAddTag')}
-              </Button>
-            </div>
+            {(staffData?.skills ?? []).length === 0 && (
+              <p className="text-[11px] text-amber-700">{t('rotation.empDirectoryEmptyHint')}</p>
+            )}
 
             {/* 动态对比：可做 vs 不可做项目 */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2">

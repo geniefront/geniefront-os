@@ -78,3 +78,20 @@ export function useSaveDirectoryOption() {
     },
   });
 }
+
+/** 一次性稳定重排某一类目录项 —— 取代前端两条串行写，避免并发互相覆盖。 */
+export function useReorderDirectoryOptions() {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { kind: 'job' | 'level' | 'skill'; orderedIds: string[] }) =>
+      runCommand('staff.reorderDirectoryOptions', input, membershipId!),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: staffKeys.all }),
+        queryClient.invalidateQueries({ queryKey: ['desk', 'settings'] }),
+        queryClient.invalidateQueries({ queryKey: ['desk', 'day'] }),
+      ]);
+    },
+  });
+}

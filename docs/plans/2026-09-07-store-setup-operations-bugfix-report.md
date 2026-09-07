@@ -12,7 +12,7 @@
 |---|---|---|---|
 | U09 平台短信串店 | W0 | **部分完成**：专属线归属已隔离；平台共享号细分仍待做 | #1 |
 | U01/U08 默认设置、健康表首发、房间门禁、AI 线路 | W1 | **部分完成**：AI 电话新线默认不接（U08，#4）已修；健康表首发、房间门禁、setup readiness DTO 未开始 | #4 |
-| U02/U13 员工目录与员工中心 | W2 | **小修**：员工基础设置不再外露 DB sort 数字、新项追加末尾、加 ▲▼ 上移下移（#6）；ID 契约/迁移、员工中心紧凑卡片未做 | #6 |
+| U02/U13 员工目录与员工中心 | W2 | **U02 主体完成**：岗位 / 职级 / 技能改 ID 契约，服务端不再据自由文本新建目录项、跨店 / 伪造 / 未知值拒绝、停用项只对已关联者保留；`sql/0114` 补 `job_title_id` + 回填 + 只读盘点视图；新增 `staff.reorderDirectoryOptions` 原子重排。剩：行业预设生成（W1）、`user.updateProfile` 自助技能自由文本、W2b 员工中心紧凑卡片（U13） | #6 #7 |
 | U03/U06/U11 预约日期、时长、详情状态 | W3 | **部分完成**：时长输入（#2）、新建默认日期不取营业日（#3）、详情顶部进度不误报空工单/取消（#5）已修；跨午夜/Calls 草稿 UTC 日期、allowedActions DTO 未做 | #2 #3 #5 |
 | U04 服务导入、技师人数、网约、批量编辑 | W4 | **小修**：Settings 分类筛选栏换行不再裁切主操作（#6）；导入默认网约、批量 PATCH 未做 | #6 |
 | U05 Google review 同步权限 | W5 | **小修**：配置读接口带 `manualSyncEnabled`，未开放时按钮禁用+提示，不再显示成权限不足（#6）；分状态文案与调查未做 | #6 |
@@ -591,3 +591,123 @@ i18n：`common.ts` 加 `groupComms` / `groupConfig` / `groupAccount`（5 语）�
 | U06 剩余 | allowedActions DTO / 看板-抽屉共用状态映射、部分完成 N/M |
 | U09 剩余 | 平台共享号 routingScope（`sms_inbound` 加归属证据列） |
 | U03 剩余 | 跨午夜营业 day-offset |
+
+---
+
+## 批次 #7 — W2：员工目录 ID 契约 + 旧值迁移（U02 主体）
+
+**日期**：2026-09-07
+**改动范围**：1 个新迁移 + 1 个 drizzle schema + 2 个契约命令 + `handlers/staff.ts` + `queries/staffList.ts` + 3 个前端文件 + 4 条 i18n + `staffDirectory.test.ts` / `workstations_backend.test.ts` 两个测试文件。
+公共层（迁移 / 契约 / handler / 查询）与消费者（前端）分两个 commit，公共层在前。
+
+### 这一刀解决了什么
+
+计划 §5.1 / §3.2：`staff_profiles.level_id` 早已是外键、技能走 `staff_skills` 关联表，
+唯独**岗位只有一列自由文本** `staff_profiles.job_title`；而且 `staff.saveProfile`
+handler 对 `jobTitle` / `level` / `skills` 三个自由文本字段**匹配不到就当场 `insert` 新目录项** ——
+「只换前端控件不算强校验」正是指这条后端路径。前端 `EmployeePerformance.tsx`
+用 `Input + datalist`（只是候选提示，不拦自由输入），技能还有「自定义技能标签」输入框。
+
+### 改了什么
+
+**1. `packages/db/sql/0114_staff_directory_id_contract.sql`（新）**
+
+- `staff_profiles` 补 `job_title_id uuid references staff_job_titles(id)` + 索引。
+- 回填：规范化（`lower(btrim())`）后同店同名匹配；多行命中取「启用优先、sort 靠前」。
+- 仍匹配不到的历史自由值：迁移流程内补建为本店目录项（`on conflict (location_id, name) do nothing`）再关联 ——
+  §5.3「匹配不到的历史值可迁为本店历史目录项；只在迁移流程处理」。
+- 只读盘点视图 `staff_directory_legacy_audit`（`security_invoker`，`relkind='v'` 不受 RLS 覆盖检查约束，
+  `grant select ... to app_user`）：每个仍带自由文本岗位的档案 → 解析到的目录行 + `match_kind`
+  (`exact` / `normalized` / `unresolved` / `none`)。正常应全部非空；自由文本路径若回归，未解析行会在此冒出。
+- 全文可重复执行（`add column if not exists` + `update ... where job_title_id is null`）。
+
+**2. `packages/db/src/schema/identity.ts`**：`staffProfiles` 加 `jobTitleId`，与迁移一致。
+
+**3. 契约 `packages/contracts/src/commands/setup.ts`**
+
+- `staff.saveProfile` 加 `jobTitleId: uuid.nullable().optional()`。自由文本字段保留但语义收窄
+  （见 handler）。
+- 新增 `staff.reorderDirectoryOptions`（`kind` + `orderedIds`，`permission: 'staff.manage'`）：
+  取代前端「上移 / 下移」的两条串行写。`orderedIds` 必须正好是该类当前全部项的一个排列。
+
+**4. `apps/api/src/handlers/staff.ts`**
+
+- `StaffSaveProfile`：
+  - **职级**：`levelId` 优先；`level` 自由文本只按 `key` / 规范化 `name` 解析现存项，解析不到抛
+    `VALIDATION_FAILED { reason: 'unknown_level' }`；**删掉** `insert into staff_levels` 自动建项。
+  - **岗位**（新）：`jobTitleId` 优先，校验同店；`jobTitle` 自由文本按规范化 `name` 解析现存项，
+    解析不到抛 `unknown_job_title`；跨店 / 伪造 ID 抛 `invalid_or_inactive_job_title`。
+    停用岗位只允许「已关联该 membership」的人继续保存。持久化 `job_title_id` +
+    反规范化显示名 `job_title`（保持旧读取路径可用）。省略字段不动旧值（`case when jobProvided`）。
+  - **技能**：`skills` 自由文本解析不到现存项抛 `unknown_skill`；**删掉** `insert into skills` 自动建项。
+    停用技能非已关联者仍抛 `invalid_or_inactive_skill`（原逻辑保留）。
+  - **删掉** 尾部 `if (input.jobTitle?.trim()) insert into staff_job_titles ...` 兜底建项。
+- `SaveStaffDirectoryOption`（岗位改名）：反规范化显示名同步改为「优先按 `job_title_id` 命中，
+  兼容尚未回填 id 的旧行按旧名匹配」。
+- 新增 `ReorderStaffDirectoryOptions` handler：`for update` 锁全类行 → 校验 `orderedIds`
+  是全排列（数量一致、无重复、无越权 / 越类 ID，否则 `directory_reorder_mismatch`）→
+  一个事务里按下标重写 `sort`。审计记 `orderedIds`。
+
+**5. `apps/api/src/queries/staffList.ts`**：`StaffDirectoryItem` 加 `jobTitleId` / `levelId`
+（前端做 ID 回显选择需要），查询 `select sp.job_title_id, sp.level_id`。
+
+**6. 前端**
+
+- `features/staff/types.ts`：`StaffDirectoryItem` + `SaveStaffProfileInput` 加 `jobTitleId` / `levelId`。
+- `features/staff/api.ts`：加 `useReorderDirectoryOptions`。
+- `features/staff/DirectorySettings.tsx`：`move()` 从两条串行 `saveDirectoryOption` 改为一次
+  `reorderDirectoryOptions({ kind, orderedIds })`；`busy` 合并两个 mutation 的 pending。
+- `pages/EmployeePerformance.tsx`：
+  - 岗位 / 职级从 `Input + datalist` 改**原生 `<select>`**，`value` 是目录项 ID，
+    选项 = 启用项 +（当前值若停用）该停用项并标注「（已停用）」；目录为空显示
+    「请先在页面顶部『岗位 / 职级 / 技能设置』中添加」提示。
+  - 技能保留可勾选标签，**删掉「自定义技能标签」输入框**与 `handleAddCustomSkill`；
+    只能勾 `staffData.skills`；目录为空同样给提示。
+  - 提交只发 `jobTitleId` / `levelId` / `skillIds`（都是 ID），不再发 `jobTitle` / `level` / `skills`
+    自由文本；确认弹窗按 ID 查显示名。
+- `i18n/rotation.ts`：`empUnset` / `empOptionInactive` / `empDirectoryEmptyHint`（5 语言齐全）。
+
+### 明确未改（超出本批 / 留给后续）
+
+- **`user.updateProfile`（技师自助改本人档案，`handlers/profile.ts`）** 仍按自由文本解析 / 自动建 `skills`。
+  它是独立的自助编辑面（`Pages/Profile.tsx` 有整套预设建议 + 自定义输入 + 写 `staff_profiles.skills` text[]），
+  改成 ID-only 是一个自带 UI 的子项目，且会牵动技师端。**本批不动**；`staff_skills` 关联仍由它写，
+  排班 / 履约的技能判定不受影响。计划 §3.2「所有 `staff.saveProfile` 调用方」已全部收口
+  （`routes/settings.ts` → 同一 handler；`features/settings` 员工弹窗与向导 `TeamStepForm` 本就不传
+  job/level/skill）。
+- **行业预设一键生成**（§5.2 静态字典）：属于 W1 向导「员工基础设置」步骤，本批未做。
+- **W2b 员工中心紧凑卡片（U13）**：独立工作包，未动。
+- **旧值「人工冲突列表」产物**：迁移用 `staff_directory_legacy_audit` 视图代替离线报表；
+  没有单独产出 CSV。运营切换后查该视图 `where match_kind in ('unresolved','normalized')` 复核。
+
+### 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 迁移（本机 55322 隔离库） | `MIGRATION_DATABASE_URL=<local> pnpm db:migrate` | `0114 ... OK`；`✓ RLS 覆盖检查通过` |
+| 类型 | `@gf/contracts` / `@gf/db` / `@gf/api` / `@gf/web` `tsc --noEmit` | 全部 exit 0 |
+| 员工目录套件 | `vitest run src/staffDirectory.test.ts` | 8 passed（3 原有 + 5 新增：未知自由值拒绝 / ID 存取回环 / 跨店 ID 拒绝 / 停用项对新人拦对已关联者放行 / reorder 持久化 + 部分列表拒绝） |
+| 员工相邻套件 | `vitest run src/workstations_backend.test.ts src/profile_and_notifications.test.ts src/staffCapacity.test.ts src/staff.test.ts src/settings_enhancements.test.ts src/rooms.test.ts src/blueprint.test.ts src/ticketLifecycle.test.ts` | 全绿（workstations 测试已改为先建目录项） |
+| DB 套件 | `pnpm --filter @gf/db test` | 9 files / 91 passed（`rls.test.ts` 39 passed） |
+| Web 全量单测 + i18n | `pnpm --filter @gf/web test` / `vitest run src/i18n` | 58 files / 324 passed；i18n 7 passed（词条全语言非空、非中文无 CJK） |
+| 守卫 | `pnpm lint:guards` | ✓ |
+| 完整 `pnpm --filter @gf/api test` | isolated 库一次跑通 | 86 files / 1176 passed（无 flaky） |
+
+未做：浏览器 / 真机交互验证（EmployeePerformance 弹窗需登录整套栈；按计划 §12 / H 阶段单列）。
+
+### 计划 §5 / T08–T11 对照
+
+| 验收点 | 本批状态 |
+|---|---|
+| T08 预设重复生成 / 切换行业不重复不覆盖不自动授技能 | ⚠️ 预设生成属 W1，未做；ID 契约层面「岗位不改系统权限」✅ |
+| T09 员工新建 / 编辑 / 导入仅本店合法目录 ID；自由值 / 跨店值拒绝 | ✅ handler 强校验 + 新测试覆盖（`staff.saveProfile` 全部调用方已收口） |
+| T10 历史自由值 / 停用关联：有迁移、保留历史；改无关字段不丢关联 | ✅ `sql/0114` 回填 + 盘点视图；停用项对已关联者保留（测试覆盖「改 phone 不丢 jobTitleId」） |
+| T11 目录重排与刷新：上下移动持久化，不改权限 / 轮牌 / 工资 | ✅ `staff.reorderDirectoryOptions` 原子重排；只写 `sort`，不碰 rotation / compensation（测试覆盖） |
+
+### 回退
+
+1. 前端：`git revert` 消费者 commit。
+2. 契约 + handler + 查询：`git revert` 公共层 commit。
+3. 迁移：`drop view staff_directory_legacy_audit; alter table staff_profiles drop column job_title_id;`
+   （回退会重新打开「自由文本新建目录项」，属计划明确不希望方向，仅用于该批本身回归时止血）。
+   已回填的 `staff_job_titles` 新行保留无害。

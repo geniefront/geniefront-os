@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useLanguage } from '@/LanguageContext';
 import { useErrorMessage } from '@/lib/errorMessage';
-import { useSaveDirectoryOption } from './api';
+import { useSaveDirectoryOption, useReorderDirectoryOptions } from './api';
 import type { DirectoryOption } from './types';
 
 type Kind = 'job' | 'level' | 'skill';
@@ -17,6 +17,7 @@ export function DirectorySettings({ jobs, levels, skills }: { jobs: DirectoryOpt
   const [editing, setEditing] = useState<DirectoryOption | null>(null);
   const [name, setName] = useState('');
   const mutation = useSaveDirectoryOption();
+  const reorder = useReorderDirectoryOptions();
   const errorMessage = useErrorMessage();
   const options = { job: jobs, level: levels, skill: skills }[kind];
   const reset = () => { setEditing(null); setName(''); };
@@ -33,14 +34,16 @@ export function DirectorySettings({ jobs, levels, skills }: { jobs: DirectoryOpt
       toast.success(zh ? '已保存' : 'Saved');
     } catch (error) { toast.danger(errorMessage(error)); }
   };
-  /** 上移 / 下移：和相邻项互换排序值。写入 index 而非 ±1，legacy 全 0 的列表移几次即归位 */
+  /** 上移 / 下移：整份有序 ID 交服务端一个事务里按下标重写 sort，并发重排不再互相覆盖 */
+  const busy = mutation.isPending || reorder.isPending;
   const move = async (index: number, dir: -1 | 1) => {
     const a = options[index];
     const b = options[index + dir];
-    if (!a || !b || mutation.isPending) return;
+    if (!a || !b || busy) return;
+    const orderedIds = options.map((o) => o.id);
+    [orderedIds[index], orderedIds[index + dir]] = [orderedIds[index + dir]!, orderedIds[index]!];
     try {
-      await mutation.mutateAsync({ kind, id: a.id, name: a.name, sort: index + dir, active: a.active });
-      await mutation.mutateAsync({ kind, id: b.id, name: b.name, sort: index, active: b.active });
+      await reorder.mutateAsync({ kind, orderedIds });
     } catch (error) { toast.danger(errorMessage(error)); }
   };
   return <>
@@ -54,8 +57,8 @@ export function DirectorySettings({ jobs, levels, skills }: { jobs: DirectoryOpt
         <div className="max-h-72 overflow-auto divide-y">
           {options.map((option, index) => <div key={option.id} className="flex items-center gap-3 py-2">
             <div className="flex flex-col">
-              <button type="button" aria-label={zh ? '上移' : 'Move up'} disabled={index === 0 || mutation.isPending} onClick={() => void move(index, -1)} className="text-slate-400 hover:text-slate-700 disabled:opacity-30 leading-none">▲</button>
-              <button type="button" aria-label={zh ? '下移' : 'Move down'} disabled={index === options.length - 1 || mutation.isPending} onClick={() => void move(index, 1)} className="text-slate-400 hover:text-slate-700 disabled:opacity-30 leading-none">▼</button>
+              <button type="button" aria-label={zh ? '上移' : 'Move up'} disabled={index === 0 || busy} onClick={() => void move(index, -1)} className="text-slate-400 hover:text-slate-700 disabled:opacity-30 leading-none">▲</button>
+              <button type="button" aria-label={zh ? '下移' : 'Move down'} disabled={index === options.length - 1 || busy} onClick={() => void move(index, 1)} className="text-slate-400 hover:text-slate-700 disabled:opacity-30 leading-none">▼</button>
             </div>
             <span className="flex-1">{option.name}{!option.active && (zh ? '（已停用）' : ' (inactive)')}</span>
             <Button size="sm" variant="secondary" disabled={mutation.isPending} onClick={() => { setEditing(option); setName(option.name); }}>{zh ? '编辑' : 'Edit'}</Button>
