@@ -20,6 +20,23 @@ export interface AppointmentItemDetailDto {
   status: string;
 }
 
+/** 详情与看板共用的状态映射所需的活动工单事实（`queueNextAction` / `paymentStageFor` 的入参子集）。 */
+export interface AppointmentTicketFactsDto {
+  ticketId: string;
+  number: number | null;
+  status: string;
+  checkoutTiming: 'service_then_tip' | 'upfront_combined' | 'after_service_combined';
+  serviceSettledAt: string | null;
+  tipSettledAt: string | null;
+  serviceCompleted: boolean;
+  items: Array<{
+    ticketItemId: string;
+    name: string;
+    startedAt: string | null;
+    finishedAt: string | null;
+  }>;
+}
+
 export interface AppointmentDetailDto {
   appointmentId: string;
   status: string;
@@ -32,8 +49,54 @@ export interface AppointmentDetailDto {
     allergiesSummary: string | null;
   };
   items: AppointmentItemDetailDto[];
+  /** 有活动工单（open / in_service / ready_to_pay）时非空。 */
+  ticket: AppointmentTicketFactsDto | null;
   notes: string | null;
   createdAt: string;
+}
+
+async function loadTicketFacts(
+  tx: postgres.TransactionSql,
+  ctx: CommandContext,
+  appointmentId: string,
+): Promise<AppointmentTicketFactsDto | null> {
+  const [tk] = await tx<{
+    id: string; status: string;
+    checkout_timing_snapshot: string;
+    service_settled_at: string | null; tip_settled_at: string | null;
+  }[]>`
+    select t.id, t.status, t.checkout_timing_snapshot,
+           t.service_settled_at::text as service_settled_at,
+           t.tip_settled_at::text as tip_settled_at
+    from tickets t
+    where t.appointment_id = ${appointmentId} and t.location_id = ${ctx.locationId}
+    order by t.opened_at desc
+    limit 1`;
+  if (!tk) return null;
+
+  const itemRows = await tx<{
+    id: string; name_snapshot: string; started_at: string | null; finished_at: string | null;
+  }[]>`
+    select ti.id, ti.name_snapshot, ti.started_at::text as started_at, ti.finished_at::text as finished_at
+    from ticket_items ti
+    where ti.ticket_id = ${tk.id}
+    order by ti.seq`;
+
+  return {
+    ticketId: tk.id,
+    number: null,
+    status: tk.status,
+    checkoutTiming: (tk.checkout_timing_snapshot as AppointmentTicketFactsDto['checkoutTiming']) || 'after_service_combined',
+    serviceSettledAt: tk.service_settled_at,
+    tipSettledAt: tk.tip_settled_at,
+    serviceCompleted: itemRows.length > 0 && itemRows.every((r) => r.finished_at !== null),
+    items: itemRows.map((r) => ({
+      ticketItemId: r.id,
+      name: r.name_snapshot,
+      startedAt: r.started_at,
+      finishedAt: r.finished_at,
+    })),
+  };
 }
 
 export async function loadAppointmentDetail(
@@ -124,6 +187,7 @@ export async function loadAppointmentDetail(
         allergiesSummary: null,
       },
       items,
+      ticket: null,
       notes: null,
       createdAt: wq.joined_at,
     };
@@ -199,6 +263,8 @@ export async function loadAppointmentDetail(
     };
   });
 
+  const ticket = await loadTicketFacts(tx, ctx, apt.id);
+
   return {
     appointmentId: apt.id,
     status: apt.status,
@@ -211,6 +277,7 @@ export async function loadAppointmentDetail(
       allergiesSummary,
     },
     items,
+    ticket,
     notes: apt.notes,
     createdAt: apt.created_at,
   };
