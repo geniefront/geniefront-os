@@ -48,6 +48,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { Ban } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
 import { UNASSIGNED_STAFF_ID, toScheduleItem } from '@/context/ScheduleContext';
 import { useDaySnapshot } from '@/features/schedule/api';
@@ -63,7 +64,7 @@ import {
   useJoinQueue, useQueue, useRollbackQueueStage, useUpdateQueueEntry,
 } from '@/features/queue/api';
 import {
-  useAddTicketItem, useFinishTicketItem, useOpenTicket, useSaveServiceNote, useStartTicketItem, useTicketsList,
+  useAddTicketItem, useFinishTicketItem, useOpenTicket, useSaveServiceNote, useStartTicketItem, useTicketsList, useVoidTicket,
   isOverbookConfirmable, overbookDetail,
 } from '@/features/tickets/api';
 import { OVERRIDE_REASONS } from '@/features/schedule/api';
@@ -89,7 +90,7 @@ import type { RotationEntryState } from '@/features/rotation/types';
 import { QUEUE_LEFT_REASONS } from '@/features/queue/types';
 import type { QueueEntry, QueueLeftReason, QueueStatus } from '@/features/queue/types';
 import type { ScheduleItem } from '@/context/ScheduleContext';
-import type { TicketSummary } from '@/features/tickets/types';
+import type { TicketSummary, VoidReason } from '@/features/tickets/types';
 import type { RoomItem } from '@/features/rooms/types';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -479,6 +480,7 @@ function QueueContent() {
   const { data: rotationData, isLoading: rotationLoading, refetch: refetchRotation } = useRotationQuery();
   const onlineTechIds = useLocationTechPresence();
   const closeTicketMutation = useCloseTicket();
+  const voidTicketMutation = useVoidTicket();
   const openTicketMutation = useOpenTicket();
   const addTicketItemMutation = useAddTicketItem();
   const startTicketItemMutation = useStartTicketItem();
@@ -557,6 +559,11 @@ function QueueContent() {
   const update = useUpdateQueueEntry();
   const rollbackStageMutation = useRollbackQueueStage();
   const canManage = useCanWrite('queue.manage');
+  /*
+   * 作废是管理动作，前台默认没有该权限。按权限决定「画不画」——
+   * 亮着却点出 403 的按钮，在门店里会被当成系统故障。
+   */
+  const canVoidTicket = useCanWrite('ticket.void');
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -938,6 +945,21 @@ function QueueContent() {
   });
 
   // 5. Reverse Rollback Warning Modal (Backward Stage Move)
+  /**
+   * 作废工单。
+   *
+   * 已开工的单子只能回退到「服务中」，要把客人退回候客区必须先作废 ——
+   * 此前看板上没有作废入口，前台被告知「不支持」之后无路可走，只能改去
+   * 订单记录页找这张单。作废的两种后果差别很大（退回候客区可重开 /
+   * 连预约一起取消），因此弹窗按所选原因如实说明会发生什么。
+   */
+  const [voidModal, setVoidModal] = useState<{
+    isOpen: boolean;
+    item: KanbanItem | null;
+    reason: VoidReason;
+    notes: string;
+  }>({ isOpen: false, item: null, reason: 'input_error', notes: '' });
+
   const [rollbackModal, setRollbackModal] = useState<{
     isOpen: boolean;
     item: KanbanItem | null;
@@ -1550,10 +1572,43 @@ function QueueContent() {
       return;
     }
     if (!canRollbackTo(item, target)) {
-      toast.danger(t('errorReasonTicketExistsRequiresVoid'));
+      // 已开工的单子回不到候客区，但作废是一条真实可走的路 —— 直接把它摆出来。
+      requestVoid(item);
       return;
     }
     initiateStageTransition(item, target);
+  };
+
+  /** 打开作废弹窗。默认原因为「录入错误」——它是唯一会把客人退回候客区的分支。 */
+  const requestVoid = (item: KanbanItem, reason: VoidReason = 'input_error') => {
+    if (!canVoidTicket) {
+      toast.danger(t('queue.quVoidNoPermission'));
+      return;
+    }
+    if (!item.ticketId && !item.rawTicket) {
+      toast.info(t('queue.quVoidNoTicket'));
+      return;
+    }
+    setRollbackModal({ isOpen: false, item: null, fromStage: null, toStage: null, reason: 'entry_error', notes: '' });
+    setVoidModal({ isOpen: true, item, reason, notes: '' });
+  };
+
+  const handleConfirmVoid = async () => {
+    const { item, reason, notes } = voidModal;
+    const ticketId = item?.ticketId ?? item?.rawTicket?.ticketId;
+    if (!item || !ticketId || voidTicketMutation.isPending) return;
+    try {
+      await voidTicketMutation.mutateAsync({
+        ticketId,
+        reason,
+        ...(notes ? { note: notes } : {}),
+      });
+      setVoidModal({ isOpen: false, item: null, reason: 'input_error', notes: '' });
+      toast.warning(t('queue.quVoided', { p0: item.customerName }));
+      await Promise.all([refetchQueue(), refetchSchedule(), refetchTickets(), refetchRooms()]);
+    } catch (err) {
+      toast.danger(`${t('queue.quVoidFailed')} ${errorMessage(err)}`);
+    }
   };
 
   /**
@@ -2526,6 +2581,14 @@ function QueueContent() {
                                     icon: <ArrowLeft className="h-4 w-4" />,
                                     onSelect: () => requestRollback(item),
                                   },
+                                  ...(canVoidTicket ? [{
+                                    id: 'void',
+                                    label: t('queue.quVoidAction'),
+                                    icon: <Ban className="h-4 w-4" />,
+                                    tone: 'danger' as const,
+                                    isDisabled: !item.ticketId && !item.rawTicket,
+                                    onSelect: () => requestVoid(item),
+                                  }] : []),
                                 ]}
                               />
                             </div>
@@ -4763,6 +4826,25 @@ function QueueContent() {
               </ul>}
             </div>
 
+            {/*
+              已开工的单子回不到候客区。与其只丢一句「不支持」，不如把唯一
+              可走的路直接摆出来 —— 前台要的是下一步怎么办，不是规则说明。
+            */}
+            {rollbackModal.item && (rollbackModal.item.ticketId || rollbackModal.item.rawTicket) && canVoidTicket && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-xs leading-relaxed text-amber-900">
+                <p>{t('queue.quRollbackNeedsVoid')}</p>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="mt-2 gap-1 border-rose-200 bg-white text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                  onPress={() => { if (rollbackModal.item) requestVoid(rollbackModal.item); }}
+                >
+                  <Ban className="h-3.5 w-3.5" />
+                  {t('queue.quRollbackVoidInstead')}
+                </Button>
+              </div>
+            )}
+
             {/* 具体备注说明 */}
             <div>
               <label className="block text-xs font-bold text-slate-800 mb-1">{t('queue.quRollbackNoteLabel')}</label>
@@ -4770,6 +4852,93 @@ function QueueContent() {
                 value={rollbackModal.notes}
                 onChange={(e) => setRollbackModal((prev) => ({ ...prev, notes: e.target.value }))}
                 placeholder={t('queue.quRollbackNotePlaceholder')}
+                className="text-xs"
+              />
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 弹窗 6: 作废工单。已开工的单子退回候客区的唯一路径。 */}
+      {voidModal.isOpen && voidModal.item && (
+        <Modal
+          isOpen={voidModal.isOpen}
+          onOpenChange={(open) => { if (!open) setVoidModal((prev) => ({ ...prev, isOpen: false, item: null })); }}
+          title={
+            <div className="flex items-center gap-2 font-bold text-rose-800">
+              <Ban className="h-5 w-5 text-rose-600" />
+              <span>{t('queue.quVoidTitle')}</span>
+            </div>
+          }
+          size="sm"
+          footer={
+            <div className="flex w-full justify-end gap-2">
+              <Button
+                variant="secondary"
+                isDisabled={voidTicketMutation.isPending}
+                onPress={() => setVoidModal((prev) => ({ ...prev, isOpen: false, item: null }))}
+              >
+                {t('cancel')}
+              </Button>
+              <Button
+                className={DANGER_ACTION_CLASS}
+                isDisabled={voidTicketMutation.isPending}
+                onPress={handleConfirmVoid}
+              >
+                {voidTicketMutation.isPending
+                  ? <><Spinner size="sm" />{t('queue.quProcessing')}</>
+                  : <><Ban className="h-4 w-4" />{t('queue.quVoidConfirm')}</>}
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-3 py-1 text-xs text-slate-700">
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3">
+              <span className="block font-bold text-rose-950">{voidModal.item.customerName}</span>
+              <span className="block text-rose-800">{voidModal.item.serviceName}</span>
+            </div>
+
+            <p className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 leading-relaxed text-slate-600">
+              {t('queue.quVoidWarning')}
+            </p>
+
+            <div>
+              <label htmlFor="queue-void-reason" className="mb-1.5 block text-xs font-bold text-slate-800">
+                {t('checkout.tkVoidReasonLabel')}
+              </label>
+              <select
+                id="queue-void-reason"
+                value={voidModal.reason}
+                onChange={(e) => setVoidModal((prev) => ({ ...prev, reason: e.target.value as VoidReason }))}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800"
+              >
+                <option value="input_error">{t('checkout.tkVoidReasonWrongItem')}</option>
+                <option value="duplicate_booking">{t('checkout.tkVoidReasonDuplicate')}</option>
+                <option value="guest_changed_mind">{t('checkout.tkVoidReasonChangedMind')}</option>
+                <option value="walk_out">{t('checkout.tkVoidReasonWaited')}</option>
+                <option value="paid_externally">{t('checkout.tkVoidReasonSettledElsewhere')}</option>
+                <option value="other">{t('checkout.tkVoidReasonOther')}</option>
+              </select>
+              {/*
+                两种后果差别很大，且完全由所选原因决定。此处按当前选择只显示
+                实际会发生的那一条 —— 同时列出两条等于让前台自己去对号入座。
+              */}
+              <p className="mt-1.5 leading-relaxed text-slate-500">
+                {t(voidModal.reason === 'input_error' || voidModal.reason === 'duplicate_booking'
+                  ? 'queue.quVoidOutcomeReopen'
+                  : 'queue.quVoidOutcomeCancel')}
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="queue-void-note" className="mb-1 block text-xs font-bold text-slate-800">
+                {t('checkout.tkVoidNotesLabel')}
+              </label>
+              <Input
+                id="queue-void-note"
+                value={voidModal.notes}
+                onChange={(e) => setVoidModal((prev) => ({ ...prev, notes: e.target.value }))}
+                placeholder={t('checkout.tkVoidNotesPlaceholder')}
                 className="text-xs"
               />
             </div>

@@ -478,7 +478,7 @@ function TicketsContent() {
       await voidMutation.mutateAsync({
         ticketId: voidModalRecord.ticketId,
         reason: voidReason,
-        notes: voidNotes || undefined,
+        note: voidNotes || undefined,
       });
       toast.success(t('voided') || t('checkout.tkVoided'), { description: voidModalRecord.ticketId });
       setVoidModalRecord(null);

@@ -54,7 +54,12 @@ export type VoidReason =
 export interface VoidTicketInput {
   ticketId: string;
   reason: VoidReason;
-  notes?: string;
+  /**
+   * ⚠️ 字段名必须是 `note`，与 `ticket.void` 的契约一致。
+   * 此前这里叫 `notes`，zod 会静默剥掉未声明的键 —— 前台填的作废说明
+   * 一路发到服务端就消失了，且没有任何报错。
+   */
+  note?: string;
 }
 
 export interface OrderItemDto {
