@@ -89,3 +89,7 @@ GF_QA_ALLOW_RESET=1 NODE_ENV=test pnpm test:e2e
 ```
 
 手测批次与账号见 [`qa/TEST-PLAYBOOK.md`](qa/TEST-PLAYBOOK.md)。
+
+## 组合项目套餐实施计划
+
+- [组合项目套餐：全链路实施与验收计划](plans/2026-09-07-service-bundles-implementation.md)：导入、新建、看板、服务、结账、退款、提成及其他入口的执行任务与验收标准（待执行）。
