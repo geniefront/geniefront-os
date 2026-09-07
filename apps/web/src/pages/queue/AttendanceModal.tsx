@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import { useLanguage } from '@/LanguageContext';
+import { rotationRank } from '@/features/queue/rotationRank';
 import type { RotationEntryState } from '@/features/rotation/types';
 
 /** 考勤面板里的一行。轮牌里没有的在岗技师也要出现，否则打不了卡。 */
@@ -157,7 +158,7 @@ export function AttendanceModal({
                     <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/80 border border-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping" />
                       <span>
-                        ★ #{nextUpStaff.position !== null && nextUpStaff.position !== undefined ? nextUpStaff.position + 1 : onDutyStaff.indexOf(nextUpStaff) + 1} {nextUpStaff.name} {t('queue.quRotationNextUp')}
+                        ★ #{rotationRank(nextUpStaff.position, onDutyStaff.indexOf(nextUpStaff))} {nextUpStaff.name} {t('queue.quRotationNextUp')}
                       </span>
                     </span>
                   )}
@@ -170,7 +171,7 @@ export function AttendanceModal({
                     const isOnBreak = s.state === 'on_break';
                     const isInService = s.state === 'in_service';
                     const isNextUp = nextUpStaff?.membershipId === s.membershipId;
-                    const rankNumber = s.position !== null && s.position !== undefined ? s.position + 1 : idx + 1;
+                    const rankNumber = rotationRank(s.position, idx);
 
                     let statusBadge: React.ReactNode = null;
                     if (isNextUp) {

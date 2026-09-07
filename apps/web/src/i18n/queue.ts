@@ -373,6 +373,8 @@ export const queue = {
   'queue.quCandidate_busy': { 'zh-Hans': '并发已满', en: 'At capacity', ko: '동시 작업 한도', es: 'Capacidad completa', vi: 'Đã đủ tải' },
   'queue.quCandidate_on_break': { 'zh-Hans': '休息中', en: 'On break', ko: '휴식 중', es: 'En descanso', vi: 'Đang nghỉ' },
   'queue.quCandidate_off_duty': { 'zh-Hans': '未到岗', en: 'Not on duty', ko: '근무 전', es: 'Fuera de turno', vi: 'Chưa vào ca' },
+  /* 预约排给他，但客人并没有点钟。与 quCandidate_requested 必须区分开：前者只是排班，后者是客人指名。 */
+  'queue.quCandidate_assigned': { 'zh-Hans': '预约排班', en: 'Booked with them', ko: '예약 배정', es: 'Asignado en la cita', vi: 'Lịch hẹn đã xếp' },
   'queue.quCandidate_requested': { 'zh-Hans': '顾客指定', en: 'Requested', ko: '고객 지정', es: 'Solicitado', vi: 'Khách chỉ định' },
   'queue.quCandidate_offline': { 'zh-Hans': '手机离线', en: 'Phone offline', ko: '휴대폰 오프라인', es: 'Teléfono sin conexión', vi: 'Điện thoại ngoại tuyến' },
   'queue.quRecommendedForService': { 'zh-Hans': '首位空闲且技能匹配', en: 'First idle, skill-matched therapist', ko: '첫 번째 대기 · 기술 일치', es: 'Primero libre con habilidades coincidentes', vi: 'Đầu tiên rảnh và đúng kỹ năng' },

@@ -13,6 +13,7 @@ import { Spinner } from '@heroui/react';
 import { useLanguage } from '@/LanguageContext';
 import { healthFormHonesty } from '@/features/queue/healthFormStatus';
 import { rankStaffCandidates } from '@/features/queue/assignment';
+import { rotationRank, rotationRankLabel } from '@/features/queue/rotationRank';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -99,6 +100,7 @@ export function StartServiceModal(props: StartServiceModalProps) {
         scheduledItems,
         onlineIds: onlineTechIds,
         requestedStaffId: item.staffId,
+        isRequest: item.isRequest,
         nowMs: Date.now(),
       }),
     };
@@ -206,7 +208,8 @@ export function StartServiceModal(props: StartServiceModalProps) {
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {rotationEntries.map((entry, index) => {
                     const recommended = assignmentCandidates.some(({ candidates }) => candidates.find((candidate) => candidate.eligible)?.staff.membershipId === entry.membershipId);
-                    const position = entry.position ?? index + 1;
+                    // 引擎的 position 是 0 基，第一位要显示成 #1，不是 #0。
+                    const position = rotationRank(entry.position, index);
                     const statusClass = entry.state === 'available'
                       ? 'border-slate-300 bg-white'
                       : entry.state === 'in_service'
@@ -307,7 +310,7 @@ export function StartServiceModal(props: StartServiceModalProps) {
                           <div className="flex items-center justify-between gap-2">
                             <span className="flex min-w-0 items-center gap-1.5">
                               <span className={cn('grid h-7 min-w-7 place-items-center rounded-lg px-1 font-mono text-xs font-bold', recommended ? 'bg-emerald-700 text-white' : warning ? 'bg-amber-600 text-white' : selected ? 'bg-sky-700 text-white' : 'bg-slate-800 text-white')}>
-                                {rotationPosition ? `#${rotationPosition}` : '—'}
+                                {rotationRankLabel(rotationPosition)}
                               </span>
                               <span className="truncate text-sm font-bold text-slate-950">{candidate.staff.name}</span>
                             </span>

@@ -522,3 +522,43 @@ https://claude.ai/code/artifact/1080079c-2d7e-4522-a2f4-daac58eb3fbb
 - 页脚原本写「交回前台销毁」。前台要留存归档，销毁是错的；整段也过长。改为一句「服务结束后请交回前台。」，五语种同步。
 - `packages/db/sql/0111_queue_resource_capacity_by_guest.sql` **已应用到 staging**（`yfqybhuvzluvrapodahw`）。应用前只读核对过：staging 与 production 都只差这一条，不会顺带带入别人的迁移。应用后核对函数体：按客人预约计数、保留 distinct 技师限制、保留资源行锁，三项均正确。
 - **production 尚未应用**。`scripts/migrate-env.sh` 对生产要求显式确认（`GF_CONFIRM_PRODUCTION=deploy-production`），这道闸就是用来防止自动执行的，因此没有自行绕过。生产库当前同样只差这一条。
+
+### 2026-09-07 — 轮牌顺位显示与派单评分（店主授权由执行方定权重）
+
+店主在 staging 上发现「完整轮牌顺序」里出现 `#0`，追查出三个互相独立的缺陷。
+
+**一、轮牌顺位是 0 基的，被当成人读名次直接印**
+
+`packages/rotation/src/engine.ts` 里 `naturalQueue.forEach((e, i) => { e.position = i })`，`position === 0` 表示「下一位轮到他」。入座弹窗两处渲染各自出错，且方向相反：
+
+- `entry.position ?? index + 1` —— `??` 只在 null/undefined 回退，`0` 原样透出 → 前台看到 `#0`；
+- `rotationPosition ? '#'+n : '—'` —— `0` 是 falsy → **正好轮到的那一位显示成「没有顺位」**。
+
+同一个人在同一个弹窗里出现两个说法。`AttendanceModal` 与 `Rotation.tsx` 本来就是对的（`position + 1` 且判 `!== null`），只有入座弹窗错。已抽出 `features/queue/rotationRank.ts` 收敛规则并加单测，入座弹窗与考勤面板改用它。
+
+**二、「预约排给谁」被当成「顾客点钟」**
+
+调用方传的 `requestedStaffId` 是预约的排班归属，却被当成 `requested` 给 2000 分，候选卡上还写「顾客指定」。核实过 staging 上王明那一单：`membership_id = 华师傅` 但 **`is_request = false`** —— 客人没点钟，前台却被告知不能改人。
+
+现在两者分开：`isRequest` 为真才算点钟（`requested`），仅排班的走新的 `assigned`，文案「预约排班」。
+
+**三、手机在线压过整个轮牌**
+
+原权重里 `online` 是 300 分，而轮牌总跨度只有 200 分（每位 10 分）—— 一个手机在线的末位能压过离线的首位。Desk-Only 的店根本没人开技师端 app，却因此改变了谁接单。
+
+**新权重（店主授权由执行方定，按「折合多少个轮牌位次」标定）**
+
+| 因素 | 分值 | 折合位次 |
+|---|---|---|
+| 可接单（硬门槛） | 10000 | — |
+| 顾客点钟 | 5000 | 全场 |
+| 预约排班归属 | 120 | 约 2.4 位 |
+| 轮牌顺位 | 1000 − 位次×50 | 每位 50 |
+| 手机在线 | 25 | 半位，纯 tiebreaker |
+| 每有一单在做 | −150 | 3 位 |
+
+口径：**轮牌是主排序**，因为它决定谁接单也就决定谁挣钱；只有客人点名能整体压过它。排班归属有分量但不绝对——差一两位时它说了算，差五位以上轮牌说了算。在线降到不足一个位次，只在完全并列时起作用。
+
+**验证**：`lint:guards`、web/API typecheck 通过；web 57 文件 / 305 项通过（assignment 8 项、rotationRank 5 项为新增）。浏览器实测：徽章由 `#0..#3` 变为 `#1..#5`，候选卡顺位与轮牌块一致，未到岗的才显示 `—`，理由由「顾客指定」改为「预约排班」。
+
+本轮只改前端，`apps/api` 无改动。

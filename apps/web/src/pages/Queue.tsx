@@ -1098,6 +1098,8 @@ function QueueContent() {
           scheduledItems: todaySnapshot?.items ?? [],
           onlineIds: onlineTechIds,
           requestedStaffId: requested.staffId,
+          // 卡片级的点钟标记。队列项本身不带 isRequest，这是现有最准的信号。
+          isRequest: item.isRequest,
           nowMs: Date.now(),
         });
         return {
