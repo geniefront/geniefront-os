@@ -695,3 +695,14 @@ staging 实测坐实了这一点：当日 5 个项目已开工，`rotation_parti
 
 ⚠️ 历史数据不会自动补：修复只影响此后新开工的项目，当天已开工的 5 项不会
 追认轮次。若需要，另行按 `ticket_items.started_at` 回填 `rotation_events`。
+
+### 2026-09-07 — 取消预约时同步清理排队看板
+
+**问题**：前台在日程视图取消已签到的预约后，关联的排队记录（`walkin_queue`）未同步更新，导致运营看板上依然残留该预约的排队卡片。
+
+**修复**：
+1. `apps/api/src/handlers/appointment.ts`：在 `AppointmentCancel` 中同步将该预约关联的排队记录更新为 `status = 'left', left_at = now(), left_reason = 'appointment_cancelled'`；
+2. `apps/api/src/queries/queue.ts`：`loadQueue` 增加防御性过滤，排除关联预约处于 `cancelled` 的等待/呼叫/入座条目；
+3. `apps/web/src/features/schedule/api.ts`：`useCancelAppointment` 成功后同步使 `['desk', 'queue']` 失效，前台看板即时刷新；
+4. `apps/api/src/bus.test.ts`：增加回归测试，验证取消预约后排队队列条目正确转为 `left` 且不出现在等待列表中。
+

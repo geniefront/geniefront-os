@@ -238,6 +238,7 @@ export function useCancelAppointment(date: string) {
       )).result,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: scheduleKeys.day(membershipId, date) });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'queue'] });
     },
   });
 }

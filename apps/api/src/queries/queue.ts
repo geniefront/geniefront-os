@@ -133,6 +133,13 @@ export async function loadQueue(
     left join staff_profiles sp on sp.membership_id = coalesce(q.requested_staff_id, ai.membership_id)
     left join resources r on r.id = ai.resource_id
     where q.location_id = ${ctx.locationId} and q.business_date = ${businessDate}
+      and not (
+        q.status in ('waiting', 'called', 'seated')
+        and exists (
+          select 1 from appointments a
+          where a.id = q.appointment_id and a.status = 'cancelled'
+        )
+      )
     order by q.ticket_number`;
 
   const appointmentIds = [...new Set(rows

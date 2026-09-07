@@ -920,6 +920,12 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit }: HandlerArgs
   await tx`update appointment_items set status = 'cancelled'
     where appointment_id = ${appt.id} and status <> 'cancelled'`;
 
+  // Checked-in appointments also own a queue entry; cancelling must end both.
+  await tx`update walkin_queue set status = 'left', left_at = now(),
+      left_reason = coalesce(left_reason, 'appointment_cancelled')
+    where appointment_id = ${appt.id} and location_id = ${ctx.locationId}
+      and status in ('waiting', 'called', 'seated')`;
+
   await notifyAppointmentChange(tx, ctx, {
     appointmentId: appt.id,
     event: 'appointment_cancelled',

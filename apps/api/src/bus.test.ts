@@ -10,6 +10,7 @@ import { AppError } from '@gf/contracts';
 import { dispatch } from './bus';
 import { PUBLIC_SOURCES } from './handlers/appointment';
 import { buildContext } from './actor';
+import { loadQueue } from './queries/queue';
 
 /** 测试里从 membership 反查 userId —— 生产环境这个值来自已验签的 JWT */
 async function ctxFor(membershipId: string, extra: Record<string, unknown> = {}) {
@@ -505,11 +506,30 @@ describe('确认信/短信只发给客人自己订的单', () => {
       source: 'ai_copilot',
       items: [{ serviceId: gelService, membershipId: null, startsAt: at(3, 30) }],
     });
+    const queueId = randomUUID();
+    await withTenant(ctx, async (tx) => {
+      await tx`insert into walkin_queue
+        (id, org_id, location_id, business_date, ticket_number, customer_id, appointment_id, source)
+        values (${queueId}, ${ctx.orgId}, ${ctx.locationId}, ${TEST_DAY}, 9001,
+          ${lisa}, ${result.appointmentId}, 'desk')`;
+      expect((await loadQueue(tx, ctx, TEST_DAY)).waiting.some(q => q.queueId === queueId)).toBe(true);
+    });
     await dispatch('appointment.cancel', {
       appointmentId: result.appointmentId, reason: 'input_error', keepStaffTurn: false,
     }, ctx, { idempotencyKey: randomUUID() });
 
     expect(await outboxCountsFor(result.appointmentId)).toEqual({ emails: 0, sms: 0 });
+    await withTenant(ctx, async (tx) => {
+      const [entry] = await tx`select status, left_at, left_reason from walkin_queue where id = ${queueId}`;
+      expect(entry!.status).toBe('left');
+      expect(entry!.left_at).not.toBeNull();
+      expect(entry!.left_reason).toBe('appointment_cancelled');
+      // Simulate a stale entry left behind by the old cancellation handler.
+      await tx`update walkin_queue set status = 'waiting' where id = ${queueId}`;
+      const queue = await loadQueue(tx, ctx, TEST_DAY);
+      expect(queue.waiting.some(q => q.queueId === queueId)).toBe(false);
+      await tx`delete from walkin_queue where id = ${queueId}`;
+    });
   });
 
   it('⭐ 白名单里只有客人自己发起的那两条路', () => {
