@@ -13,7 +13,7 @@
 | U09 平台短信串店 | W0 | **部分完成**：专属线归属已隔离；平台共享号细分仍待做 | #1 |
 | U01/U08 默认设置、健康表首发、房间门禁、AI 线路 | W1 | **部分完成**：AI 电话新线默认不接（U08，#4）已修；健康表首发、房间门禁、setup readiness DTO 未开始 | #4 |
 | U02/U13 员工目录与员工中心 | W2 | 未开始 | — |
-| U03/U06/U11 预约日期、时长、详情状态 | W3 | **部分完成**：时长输入（U11 前半，#2）、新建默认日期不再取营业日（U03 主因，#3）已修；跨午夜/Calls 草稿 UTC 日期、详情状态（U06）未做 | #2 #3 |
+| U03/U06/U11 预约日期、时长、详情状态 | W3 | **部分完成**：时长输入（#2）、新建默认日期不取营业日（#3）、详情顶部进度不误报空工单/取消（#5）已修；跨午夜/Calls 草稿 UTC 日期、allowedActions DTO 未做 | #2 #3 #5 |
 | U04 服务导入、技师人数、网约、批量编辑 | W4 | 未开始 | — |
 | U05 Google review 同步权限 | W5 | 未开始 | — |
 | U07/U11/U12 导航、生日选择、全端 iPad | W6 | 未开始 | — |
@@ -430,3 +430,70 @@ webhook 正是拿被叫号码反查门店。短信发到这种号上，归属是
 `git checkout apps/api/src/handlers/phone.ts apps/api/src/telnyx/routes.ts
 packages/db/src/schema/phone.ts` + 删测试。`SET DEFAULT` 回退不影响已落库的
 行，历史 true/false 都保留。
+
+---
+
+## 批次 #5 — W3：预约详情顶部进度不再误报（U06 / §6.4 的两处硬伤）
+
+**日期**：2026-09-07
+**改动范围**：`apps/web/src/features/schedule/stepper.ts` + `AppointmentDrawer.tsx` + 3 条 i18n + `stepper.test.ts`。纯前端。
+
+### 这一刀解决了什么
+
+计划 §6.4：「用 `activeTicket.items.every(finishedAt)` 推导完成，需要补查空数组
+`every=true`、已作废单……取消/no_show 等非正常阶段不能伪装成已预约」。本批取
+其中两处能一句话说清、且明确误导前台的：
+
+1. **空工单显示成「已结束」**：`AppointmentDrawer.tsx` 里
+   `activeTicket.items.every((i) => i.finishedAt) ? 'done' : 'in_service'`。
+   `[].every(...)` 返回 `true` —— 一张工单已开、服务项全被移除 / 作废的预约，
+   顶部四步进度会画成 4/4 全勾，并据此给出结账入口。
+2. **取消 / 爽约伪装成「已预约」**：`appointment.status` 为 `cancelled` /
+   `no_show` 时不在 `knownStatus` 白名单里，回落到上次打开残留的
+   `initialStatus`（默认 `booked`），终态被画成进度条第 1 步。
+
+### 改了什么
+
+**`features/schedule/stepper.ts`** — 新增纯函数 `deriveDrawerStage()`：
+- `cancelled` / `no_show` → `{ stage, terminal: 'cancelled' | 'no_show' }`，终态优先于
+  一切（哪怕还挂着活动工单）。
+- 有活动工单：`items.length === 0` → `checked_in`（工单已开、无服务项，**不是**完成）；
+  否则 `every(finishedAt) ? 'done' : 'in_service'`（原逻辑，但现在保证非空）。
+- 没有活动工单：认识的 `appointment.status` 用它，不认识的才回落 `initialStatus`。
+
+**`components/AppointmentDrawer.tsx`**：
+- 用 `deriveDrawerStage` 替掉内联三元；`statusRank` 消费它的 `stage`。
+- `terminal` 非空时，顶部四步进度换成一个终态标签
+  （`schedule.adStatusCancelled` / `adStatusNoShow` + `adStatusTerminalHint`
+  “该预约已结束，仅可查看”），不再画会让人以为还能推进的进度条。
+
+**`i18n/schedule.ts`**：3 条新词条（5 语言）。
+**`stepper.test.ts`**：`deriveDrawerStage` 5 组断言（空工单、全/部分完成、
+取消/爽约终态、终态压过工单、回落语义）。
+
+### 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 类型 | `pnpm --filter @gf/web exec tsc --noEmit` | exit 0 |
+| stepper + i18n | `vitest run src/features/schedule/stepper.test.ts src/i18n` | 19 passed |
+| Web 全量单测 | `pnpm --filter @gf/web test` | 58 files / 323 passed |
+| 守卫 | `pnpm lint:guards` | ✓ |
+
+未做浏览器验证（需登录整套栈）。
+
+### 明确未覆盖 / 交接给下一位（§6.4 的其余部分）
+
+1. **`allowedActions` DTO / 共享状态映射表没做** —— 计划 §6.4 的主体：后端
+   或共享纯函数返回「当前业务状态 → 允许的主操作 + 不可执行原因」，抽屉与
+   看板共用同一套判断、命令和校验。本批只修了顶部进度的显示，抽屉里的
+   动作按钮仍是各自的老逻辑。
+2. **部分完成 N/M 展示**、履约状态与付款状态分列 —— 未做。
+3. **过期 `initialStatus`、已作废关联单的精确恢复操作** —— `deriveDrawerStage`
+   现在把不认识的状态稳妥回落，但没有「恢复 / 查看收据」这类终态专属动作。
+4. **看板与抽屉的动作编排抽取**（§6.4「优先抽取看板动作编排组件/hook」）未做。
+
+### 回退
+
+`git checkout apps/web/src/features/schedule/stepper.ts apps/web/src/components/AppointmentDrawer.tsx` +
+移除 `stepper.test.ts` 新增 describe 与 `schedule.ts` 的 3 条词条。

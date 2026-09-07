@@ -35,7 +35,7 @@ import { instantToWallDate, instantToWallMinutes, useStoreTime, wallMinutesToIns
 import { centsToDollars } from '@/features/checkout/api';
 import { cn, formatPhoneDisplay, formatPhoneInput, normalizePhoneE164 } from '@/lib/utils';
 import { customerInitials as initialsOf } from '@/lib/displayName';
-import { appointmentStepperRank } from '@/features/schedule/stepper';
+import { appointmentStepperRank, deriveDrawerStage } from '@/features/schedule/stepper';
 
 interface AppointmentDrawerProps {
   onClose: () => void;
@@ -357,12 +357,12 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
   ];
   const activeCustomerName = customerQ.data?.displayName || appointment.customer.name;
   const customerInitials = initialsOf(activeCustomerName);
-  const knownStatus = ['booked', 'checked_in', 'waiting', 'in_service', 'done', 'completed'].includes(appointment.status);
-  const statusRank = appointmentStepperRank(
-    activeTicket ? (activeTicket.items.every((item) => item.finishedAt) ? 'done' : 'in_service')
-      : knownStatus ? appointment.status : initialStatus,
-    appointment.items,
-  );
+  const { stage: derivedStage, terminal: terminalStatus } = deriveDrawerStage({
+    appointmentStatus: appointment.status,
+    activeTicketItems: activeTicket ? activeTicket.items : null,
+    initialStatus,
+  });
+  const statusRank = appointmentStepperRank(derivedStage, appointment.items);
   const serviceItems = activeTicket ? queueTicketItems(activeTicket.items).map((item) => ({
     itemId: item.ticketItemId, serviceName: item.name, durationMin: item.durationMin,
     priceCents: item.totalCents, staffName: item.staffName, resourceName: item.roomName,
@@ -417,9 +417,18 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
         </div>
         <Button size="icon" variant="ghost" aria-label={t('close')} onPress={onClose} className="shrink-0 rounded-full"><X size={20} /></Button>
       </div>
-      <div className="grid grid-cols-4 gap-1 border-t border-slate-200/80 pt-3">
-        {[t('schedule.adStageBooked'), t('schedule.adStageArrived'), t('schedule.adStageInService'), t('schedule.adStageFinished')].map((label, index) => { const reached = statusRank >= index + 1; return <div key={label} className={cn('flex flex-col items-center gap-1 text-[10px] font-bold', reached ? 'text-teal-700' : 'text-slate-400')}><span className={cn('grid h-5 w-5 place-items-center rounded-full text-[10px]', reached ? 'bg-teal-500 text-white shadow-sm' : 'bg-slate-200 text-slate-500')}>{reached && statusRank > index + 1 ? <Check size={12}/> : index + 1}</span><span>{label}</span></div>; })}
-      </div>
+      {terminalStatus ? (
+        <div className="flex items-center gap-2 border-t border-slate-200/80 pt-3">
+          <Badge variant={terminalStatus === 'no_show' ? 'warning' : 'outline'} className="text-[11px] font-black">
+            {t(terminalStatus === 'no_show' ? 'schedule.adStatusNoShow' : 'schedule.adStatusCancelled')}
+          </Badge>
+          <span className="text-[11px] font-semibold text-slate-500">{t('schedule.adStatusTerminalHint')}</span>
+        </div>
+      ) : (
+        <div className="grid grid-cols-4 gap-1 border-t border-slate-200/80 pt-3">
+          {[t('schedule.adStageBooked'), t('schedule.adStageArrived'), t('schedule.adStageInService'), t('schedule.adStageFinished')].map((label, index) => { const reached = statusRank >= index + 1; return <div key={label} className={cn('flex flex-col items-center gap-1 text-[10px] font-bold', reached ? 'text-teal-700' : 'text-slate-400')}><span className={cn('grid h-5 w-5 place-items-center rounded-full text-[10px]', reached ? 'bg-teal-500 text-white shadow-sm' : 'bg-slate-200 text-slate-500')}>{reached && statusRank > index + 1 ? <Check size={12}/> : index + 1}</span><span>{label}</span></div>; })}
+        </div>
+      )}
     </section>
     <div className="flex shrink-0 border-b border-slate-200 bg-white" role="tablist">{tabs.map(([id, label, Icon]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={cn('flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 py-3 text-xs font-bold transition', tab === id ? 'border-teal-500 bg-teal-50/50 text-teal-800' : 'border-transparent text-slate-500 hover:bg-slate-50')}><Icon size={14}/>{label}</button>)}</div>
     <main className="flex-1 overflow-y-auto bg-slate-50/70 p-4">
