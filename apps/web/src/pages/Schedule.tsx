@@ -885,7 +885,11 @@ function ScheduleContent() {
                       onMouseLeave={() => setHoveredColId(null)}
                       className={`group border-r border-slate-200 relative ${member.id === UNASSIGNED_STAFF_ID ? 'bg-teal-50/20' : ''} transition-all duration-200 ease-out ${
                         isWeek 
-                          ? 'flex-1 basis-0 min-w-0' 
+                          ? isThisHovered
+                            ? 'flex-[3] basis-0 min-w-0 bg-slate-50/30 shadow-lg z-10'
+                            : isAnyHovered
+                              ? 'flex-[1] basis-0 min-w-0 opacity-80'
+                              : 'flex-1 basis-0 min-w-0'
                           : isStoreView
                             ? 'flex-1 min-w-0'
                             : isThisHovered 
