@@ -522,7 +522,9 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
        * （`active = false`）不是一回事。
        */
       greeting: {
-        aiAnswer: line?.ai_answer ?? true,
+        // ⚠️ fail closed：查不到 active 的 ai_voice 线（线路没配好 / 被停用）
+        // 时按「不接」返回，不回填 true。绑号不等于开启接听（U08，sql/0113）。
+        aiAnswer: line?.ai_answer ?? false,
         assistantName: line?.assistant_name || null,
         mode: line?.greeting_ai_generated
           ? 'generate'

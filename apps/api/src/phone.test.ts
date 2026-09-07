@@ -1342,3 +1342,34 @@ describe('开场白可配（批 3）', () => {
     expect(g.assistantName).toBeNull();
   });
 });
+
+describe('AI 接听默认关闭（U08 / sql/0113）', () => {
+  const greetingFor = async () =>
+    (await telnyxCall('/v1/telnyx/tools/start_call',
+      { to: AI_LINE, from: '+15125551234' })).json().greeting;
+
+  it('绑号 / 存配置时没传 aiAnswer → 这条线默认不接', async () => {
+    // beforeAll 和上面几条都 savePhoneLine 过，全程没带 aiAnswer
+    await run('location.savePhoneLine', { e164: AI_LINE, purpose: 'ai_voice' });
+    expect((await greetingFor()).aiAnswer).toBe(false);
+  });
+
+  it('显式开启后，改无关字段不会把它悄悄关掉', async () => {
+    await run('location.savePhoneLine', { e164: AI_LINE, purpose: 'ai_voice', aiAnswer: true });
+    expect((await greetingFor()).aiAnswer).toBe(true);
+
+    // 只改转接方式，没碰 aiAnswer
+    await run('location.savePhoneLine', {
+      e164: AI_LINE, purpose: 'ai_voice', forwardingMode: 'busy_no_answer',
+    });
+    expect((await greetingFor()).aiAnswer).toBe(true);
+  });
+
+  it('显式关闭要落库', async () => {
+    await run('location.savePhoneLine', { e164: AI_LINE, purpose: 'ai_voice', aiAnswer: true });
+    expect((await greetingFor()).aiAnswer).toBe(true);
+
+    await run('location.savePhoneLine', { e164: AI_LINE, purpose: 'ai_voice', aiAnswer: false });
+    expect((await greetingFor()).aiAnswer).toBe(false);
+  });
+});

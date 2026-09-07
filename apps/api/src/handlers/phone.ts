@@ -75,7 +75,7 @@ async function upsertLine(
             ${line.assistantId ?? null}, ${line.forwardingMode ?? null},
             ${line.toolTokenDigest ?? null}, true,
             ${line.assistantName ?? null}, ${line.greetingTemplate ?? null},
-            ${line.greetingAiGenerated ?? false}, ${line.aiAnswer ?? true})
+            ${line.greetingAiGenerated ?? false}, ${line.aiAnswer ?? false})
     on conflict (location_id, purpose) where active do update set
       e164 = excluded.e164,
       provider = excluded.provider,
@@ -88,11 +88,22 @@ async function upsertLine(
       assistant_name = coalesce(excluded.assistant_name, phone_lines.assistant_name),
       greeting_template = coalesce(excluded.greeting_template, phone_lines.greeting_template),
       greeting_ai_generated = excluded.greeting_ai_generated,
-      ai_answer = excluded.ai_answer,
-      -- ⚠️ 没给新摘要就**保留旧的**。前台在设置里改一下转接方式，
+      -- ⚠️ ai_answer 不在这里更新 —— 冲突路径（换号 / 改配置）没传 aiAnswer
+      -- 时必须保留旧值，否则前台改个转接方式就会把 AI 接听悄悄关掉。
+      -- 新建行由 INSERT 里的 aiAnswer-fallback-false 决定：绑号默认不接。
+      -- 显式的开/关在这条 upsert 之后单独 update。
+      -- 没给新摘要就**保留旧的**。前台在设置里改一下转接方式，
       -- 不该把这家店的电话 token 冲掉 —— 冲掉的表现是电话全部 401，
       -- 而她刚才只是点了个下拉框
       tool_token_digest = coalesce(excluded.tool_token_digest, phone_lines.tool_token_digest)`;
+
+  // 只有**显式**传了 aiAnswer 才动这一列。true / false 都照写，
+  // undefined = 前台在改别的字段，这条线的接听开关保持原样。
+  if (line.aiAnswer !== undefined) {
+    await tx`
+      update phone_lines set ai_answer = ${line.aiAnswer}
+      where location_id = ${ctx.locationId} and purpose = ${line.purpose} and active`;
+  }
 }
 
 registerHandler(SavePhoneLine, async ({ input, ctx, tx, audit }: HandlerArgs<

@@ -11,7 +11,7 @@
 | 用户项 | 工作包 | 状态 | 交接批次 |
 |---|---|---|---|
 | U09 平台短信串店 | W0 | **部分完成**：专属线归属已隔离；平台共享号细分仍待做 | #1 |
-| U01/U08 默认设置、健康表首发、房间门禁、AI 线路 | W1 | 未开始 | — |
+| U01/U08 默认设置、健康表首发、房间门禁、AI 线路 | W1 | **部分完成**：AI 电话新线默认不接（U08，#4）已修；健康表首发、房间门禁、setup readiness DTO 未开始 | #4 |
 | U02/U13 员工目录与员工中心 | W2 | 未开始 | — |
 | U03/U06/U11 预约日期、时长、详情状态 | W3 | **部分完成**：时长输入（U11 前半，#2）、新建默认日期不再取营业日（U03 主因，#3）已修；跨午夜/Calls 草稿 UTC 日期、详情状态（U06）未做 | #2 #3 |
 | U04 服务导入、技师人数、网约、批量编辑 | W4 | 未开始 | — |
@@ -335,3 +335,98 @@ webhook 正是拿被叫号码反查门店。短信发到这种号上，归属是
 
 `git checkout apps/web/src/components/CreateAppointmentModal.tsx` +
 删除 `CreateAppointmentModal.test.ts`。无数据 / 契约影响。
+
+---
+
+## 批次 #4 — W1：AI 电话新线默认不接（U08 / §4.2-4.3）
+
+**日期**：2026-09-07
+**改动范围**：1 个新迁移 + `handlers/phone.ts` + `telnyx/routes.ts` + drizzle schema + 3 个集成测试。
+
+### 这一刀解决了什么
+
+计划 §1/§4.1 静态确认：`phone_lines.ai_answer` 三处叠加默认「开」——
+
+1. 建列时（`sql/0041`）`default true`；
+2. `handlers/phone.ts` 的 `upsertLine` 没传 `aiAnswer` 时 INSERT 写 `true`，
+   且 `on conflict ... do update set ai_answer = excluded.ai_answer` **每次都覆盖**；
+3. `telnyx/routes.ts` 取通话上下文时 `line?.ai_answer ?? true` 兜底。
+
+结果：平台运营用 `ops/bindAiLine.ts`（走 `location.savePhoneLine`，不带
+`aiAnswer`）把号绑给新店的那一刻，AI 就开始接听了 —— 店主还没设开场白、
+还没确认要开。而且前台之后在设置里改个转接方式（不碰 aiAnswer），第 2 点
+的 `excluded.ai_answer` 会把它按 INSERT 兜底值重新写一遍。
+
+店主诉求（§4.2）：**分配号码 ≠ 开启接听**。开启由店主 / 运营的显式动作完成。
+
+### 改了什么
+
+**1. `packages/db/sql/0113_phone_line_ai_answer_default_off.sql`（新）**
+
+`alter table phone_lines alter column ai_answer set default false`。
+`SET DEFAULT` **不回写历史行** —— 已在营业、已开着 AI 接听的线一条不动
+（§4.4：新默认只用于新店，不全量强制关闭）。同步更新列注释。
+
+**2. `apps/api/src/handlers/phone.ts` `upsertLine`**
+
+- INSERT 值 `${'aiAnswer ?? true'}` → `${'aiAnswer ?? false'}`：新建行默认不接。
+- ON CONFLICT 的 SET 列表里**删掉** `ai_answer = excluded.ai_answer`：换号 /
+  改配置时没传 `aiAnswer` 就保留旧值（和 `assistant_name` / `tool_token_digest`
+  同一条纪律）。
+- upsert 之后，仅当 `line.aiAnswer !== undefined` 才 `update phone_lines set
+  ai_answer = ${'…'}` —— true / false 都照写，undefined = 没动这个开关。
+
+**3. `apps/api/src/telnyx/routes.ts`**（start_call 上下文）
+
+`aiAnswer: line?.ai_answer ?? true` → `?? false`。查不到 active 的 ai_voice
+线（线路没配好 / 被停用）时 fail closed，不回填 true。
+
+**4. `packages/db/src/schema/phone.ts`**：drizzle 的 `.default(true)` → `.default(false)`，
+与 SQL 迁移保持一致。
+
+**5. `apps/api/src/phone.test.ts`**：新 describe「AI 接听默认关闭」3 条 ——
+没传 aiAnswer → `greeting.aiAnswer === false`；显式开启后改无关字段仍为 true；
+显式 `aiAnswer: false` 落库。
+
+### 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 迁移（本机 55322） | `MIGRATION_DATABASE_URL=<local> pnpm db:migrate` | `0113 ... OK`；`✓ RLS 覆盖检查通过` |
+| 电话链路 | `vitest run src/phone.test.ts` | 76 passed（含 3 新增） |
+| DB 套件 | `pnpm --filter @gf/db test` | 9 files / 91 passed |
+| 类型 | `@gf/api` + `@gf/db` `tsc --noEmit` | exit 0 |
+| 守卫 | `pnpm lint:guards` | ✓ |
+
+### 计划 §4 对照
+
+| §4.3 / §4.4 要求 | 本批状态 |
+|---|---|
+| 电话新绑定 aiAnswer 默认 false | ✅ DB 默认 + handler INSERT 兜底 |
+| 更新线路时字段省略保留旧值，显式 false 必须保存 | ✅ upsert 不再覆盖 + 显式 update |
+| DB 默认、handler fallback、电话实际接入路径一起修 | ✅ 三处（0113 / phone.ts / routes.ts） |
+| 电话未就绪时后端 fail closed，不回填 true | ✅ routes.ts `?? false` |
+| 已有开启线路没有被迁移无故关闭 | ✅ `SET DEFAULT` 不动历史行 |
+| 号码撤销后不能继续接听 | 🔸 `active=false` 的线在 routes.ts 的 `where ... and active` 已被过滤，`?? false` 兜底；未单独测 |
+
+### 明确未覆盖 / 交接给下一位
+
+1. **「AI 电话准备状态」的独立 DTO / 状态机（§4.2 的五态表、§4.3 倒数两项）没做**：
+   计划要把「门店启用意愿」和「平台线路准备状态」分成两个维度，向导与
+   Calls 页读同一个 readiness DTO（`未启用/未分配`、`配置中`、`已就绪未开`、
+   `已开`、`配置失败`）。本批只把默认值和覆盖语义修对，没有引入新状态维度，
+   也没碰前端展示文案（「AI 电话设置中，等待平台分配号码」等）。
+2. **`ops/bindAiLine.ts` 未改**：它本来就没传 `aiAnswer`，改完后行为自动
+   变成「绑号但不接」，符合预期，无需改动；但如果将来要「绑号即开」需求，
+   应加显式 flag，不要改回默认值。
+3. **seed / 测试库**：`db:seed` 建的 ai_voice 线现在也是 `ai_answer=false`。
+   现有测试没有依赖它为 true（`phone.test.ts` 自己 savePhoneLine）；若之后有
+   E2E 依赖种子店「AI 在接」，需在种子里显式设 true。
+4. **W1 的其余部分**（健康表首发、房间门禁、setup readiness 统一 DTO）未开始。
+
+### 回退
+
+`alter table phone_lines alter column ai_answer set default true` +
+`git checkout apps/api/src/handlers/phone.ts apps/api/src/telnyx/routes.ts
+packages/db/src/schema/phone.ts` + 删测试。`SET DEFAULT` 回退不影响已落库的
+行，历史 true/false 都保留。

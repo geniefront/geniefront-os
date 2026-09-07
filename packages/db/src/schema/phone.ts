@@ -81,8 +81,11 @@ export const phoneLines = pgTable('phone_lines', {
    * ⚠️ 和 `active` 不是一回事：`active = false` 是「这个号不再属于本店」，
    * 反查会查不到它；`aiAnswer = false` 是「号还在、还能反查、但今天先别让
    * AI 接」—— 后者是个日常开关（今天前台人手够，或者 AI 说错话了先关掉）。
+   *
+   * ⚠️ 默认 `false`（sql/0113）：平台把号绑给门店不等于开启接听，
+   * 开启由店主 / 运营的显式动作完成。
    */
-  aiAnswer: boolean('ai_answer').notNull().default(true),
+  aiAnswer: boolean('ai_answer').notNull().default(false),
   /**
    * ⭐ 电话工具的第二把钥匙（sql/0036）。**只存摘要**，明文只在
    * `location.savePhoneLine` 的返回里出现一次。
