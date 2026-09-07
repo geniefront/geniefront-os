@@ -35,6 +35,14 @@ export interface QueueEntry {
   joinedAt: string;
   /** 尚未签署的健康表数量。叫号前就应知道，避免客人上床后才发现缺表。 */
   pendingForms: number;
+  /**
+   * 这位客人的到店问卷是否已签齐。服务端算好的
+   * （`signed_form_count > 0 && pending_forms === 0`）。
+   *
+   * ⚠️ 此前前端根本没声明这个字段，服务端返回了却一路被丢掉，于是
+   * 「已签署」这个状态在界面上永远出不来 —— 签过的客人被画成「本店未配置问卷」。
+   */
+  intakeSigned: boolean;
   items?: Array<{
     serviceId: string;
     serviceName: string;

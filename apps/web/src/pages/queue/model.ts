@@ -241,7 +241,8 @@ export interface KanbanItem {
   pendingForms?: number;
   notes?: string;
   addOns?: AddOnItem[];
-  healthConfirmed?: boolean;
+  /** 到店问卷是否已签齐。来自队列查询，`healthFormHonesty()` 的唯一真值来源。 */
+  intakeSigned?: boolean;
   massagePreference?: string;
   /** 未到店预约卡的项目明细（一预约多项目时逐条展示）。 */
   bookedItems?: Array<{
