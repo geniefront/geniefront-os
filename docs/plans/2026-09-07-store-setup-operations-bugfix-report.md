@@ -16,7 +16,7 @@
 | U03/U06/U11 预约日期、时长、详情状态 | W3 | **部分完成**：时长输入（#2）、新建默认日期不取营业日（#3）、详情顶部进度不误报空工单/取消（#5）已修；跨午夜/Calls 草稿 UTC 日期、allowedActions DTO 未做 | #2 #3 #5 |
 | U04 服务导入、技师人数、网约、批量编辑 | W4 | **主体完成**：导入 / 新建普通项默认网约、加项强制不网约（#9）；`SaveService` 布尔字段改 PATCH 语义（编辑省略不覆写）；新增 `catalog.bulkUpdateServices` + Settings 多选批量条（网约 / 人数 / 技能加移替 / 分类）。剩：draft 级人数编辑、分类栏窄屏下拉（→W6b）、逐字段乐观锁 | #6 #9 |
 | U05 Google review 同步权限 | W5 | **小修**：配置读接口带 `manualSyncEnabled`，未开放时按钮禁用+提示，不再显示成权限不足（#6）；分状态文案与调查未做 | #6 |
-| U07/U11/U12 导航、生日选择、全端 iPad | W6 | **部分**：U07 侧栏三分组 + 账号入口进侧栏（#6）已修；U11 生日选择器、U12 全端 iPad 未做 | #6 |
+| U07/U11/U12 导航、生日选择、全端 iPad | W6 | **U07 + U11 完成**：侧栏三分组 + 账号入口进侧栏（#6）；生日改「年直输 + 月日下拉」，`@gf/contracts.parseBirthdate` 共用校验（闰年 / 非法日 / 未来日 / date-only），接入公开健康表 / iPad 自助 / 客户档案（#10）。U12 全端 iPad 未做 | #6 #10 |
 | U10 组合套餐 | W7 | 未开始（独立主项目） | — |
 
 ---
@@ -897,3 +897,109 @@ handler 对 `jobTitle` / `level` / `skills` 三个自由文本字段**匹配不�
 2. 契约 + handler：`git revert` 公共层 commit（`SaveService` 字段恢复 `.default()`、
    删 `catalog.bulkUpdateServices`、blueprint 恢复 `online_bookable=false`）。
 无数据 / 迁移改动。
+
+---
+
+## 批次 #10 — W6a：生日 / date-only 输入（U11 后半 / §9.2）
+
+**日期**：2026-09-07
+**改动范围**：`@gf/contracts` 新增纯校验模块 `birthdate.ts`（+ 测试）；`apps/api` 公开表单
+响应加 `today`；`apps/web` + `apps/ipad` 各一个 `BirthdateField` 组件，接入 3 处
+（公开健康表 / iPad 自助健康表 / 客户档案）；4 组 i18n 词条。
+
+### 这一刀解决了什么
+
+计划 §9.2：生日全部用原生 `<input type="date">` —— iPad 上要逐月点几十年才到 1965；
+`apps/ipad` 还用 `max={new Date().toISOString().slice(0,10)}`（**UTC 今天**）当上限，
+出差 / 跨时区时会把「今天」判错。没有共用校验：闰年、切月后的非法日、未来日各页各写。
+
+### 改了什么
+
+**1. `packages/contracts/src/birthdate.ts`（新，纯函数，Web / iPad / API 共用）**
+
+- `BirthdateParts` = `{ year, month, day }`（字符串，允许编辑中途为空）。
+- `isoToParts` / `partsToISO`：`YYYY-MM-DD` ⇄ 三字段（拼不出返回 `null`，不代表错误）。
+- `daysInMonth(y, m)`：闰年按 4 / 100 / 400 判。
+- `parseBirthdate(iso, { today?, optional? })` → `{ ok, value }` | `{ ok:false, reason }`，
+  `reason ∈ incomplete | format | invalid_date | future`：
+  - date-only，**不转 UTC timestamp**；
+  - 真实日历日校验（`2001-02-31` / `1900-02-29` → `invalid_date`，不滚到 3 月）；
+  - `today`（`YYYY-MM-DD`，门店日历今天）给出时才判 `future`；**未给不判**
+    （§9.2「未加载时不先用设备 / UTC 日期」）；
+  - 空串：`optional` 时 `{ ok:true, value:null }`，否则 `incomplete`。
+- `parseBirthdateParts(parts, opts)`：区分「填了一半」（`incomplete`）与「填完但该月无此日」
+  （`invalid_date`）。
+- 15 条单测（`birthdate.test.ts`）：闰年、`1965-03-12` 直填、`2000-02-29` 过 / `1900-02-29` 拒、
+  `2月31` 拒、留空、未来日仅在 `today` 已知时拒、非 ISO 形状 → `format`。
+
+**2. `apps/api/src/public/formRoutes.ts`**
+
+`GET /public/v1/forms` 响应加 `today: businessDateOf(new Date(), link.timezone, '00:00')`
+—— **cutoff 00:00 = 纯日历日，不套营业日**（§9.2「不要用营业日 cutoff 判断生日」）。
+`PublicFormsResponse` 类型同步加 `today?: string`。
+
+**3. `apps/web/src/components/ui/BirthdateField.tsx`（新）**
+
+年：`inputMode="numeric"` 4 位文本直输；月 / 日：`<select>`。日永远列 1–31，越界的
+`<option disabled>`（**不移除、不静默改月**，配合下方红字）。`onChange` 发
+`partsToISO() ?? ''`；`value` 变化时回显但不冲掉正在编辑的一半。失焦后显示
+`parseBirthdateParts` 的错误（`incomplete` 不显示，允许继续编辑）。触摸目标 `min-h-[44px]`，
+字段 `aria-label` 关联。
+
+接入：
+- `pages/PublicHealthForm.tsx`：客户生日改用组件，`today={publicForms.data?.today}`，
+  `optional`；提交时 `parseBirthdate` 再校验一次，非法 toast。词条 `dobInvalid` /
+  `dobFuture` / `dobBadDay`（`publicCopy.ts`，5 语）。
+- `pages/Customers.tsx`：客户档案生日改用组件，`today` 取 `useStoreTime().timeZone` →
+  `instantToWallDate(now, tz)`；新建 / 编辑两个保存函数共用 `birthdayError()` 守卫。
+  词条 `crm.custBirthday{Invalid,Future,BadDay}`（5 语）。
+
+**4. `apps/ipad/src/components/BirthdateField.tsx`（新，平行实现）**
+
+同规则、同 `@gf/contracts` 校验函数；iPad 样式 + `useLanguage`。接入
+`pages/HealthFormPage.tsx`，去掉 `max=UTC今天`。提交时 `parseBirthdate` 校验。
+词条 `health.dob{BadDay,Invalid,Future,Year,Month,Day}`（`i18n/dict.ts`，5 语）。
+
+### 明确未做 / 交接
+
+- **iPad 端 `today`**：iPad 健康表数据来自路由 `location.state`（不是本页 fetch），
+  没有门店时区 / 今天。按 §9.2「未加载不用设备日期」，iPad 端**不判未来日**
+  （仍比原来的 UTC `max` 好：年直输 + 闰年 + 非法日提示）。要判未来需把 `businessDate`
+  从 kiosk 队列流程串进来，留作后续。
+- **健康表模板的「通用日期题」**：当前 `PublicHealthForm` / iPad 的问题渲染器只有
+  `choice / bool / multi / text`，**没有 `date` 题型**，故本批只处理客户 DOB。
+  日后新增 `date` 题型时复用 `BirthdateField` + `parseBirthdate`。
+- **隐藏 DOB 字段的不可见必填错误**：`BirthdateField` 的错误只在 `touched` 后显示且
+  `incomplete` 不显示，字段不渲染时不产生错误；未做额外处理。
+
+### 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 类型 | `@gf/contracts` / `@gf/api` / `@gf/web` / `@gf/ipad` `tsc --noEmit` | 全部 exit 0 |
+| 纯函数单测 | `vitest run src/birthdate.test.ts`（contracts） | 15 passed |
+| contracts 全量 | `pnpm --filter @gf/contracts test` | 8 files / 61 passed |
+| web 全量 | `pnpm --filter @gf/web test` | 58 files / 325 passed |
+| ipad 全量 | `pnpm --filter @gf/ipad test` | 9 files / 20 passed |
+| 公开表单 API | `vitest run src/formShare.test.ts src/public.test.ts` | 109 passed（`today` 字段未破坏既有断言） |
+| 守卫 | `pnpm lint:guards` | ✓ |
+
+未做：浏览器 / 真机 iPad Safari 交互验证（年直输 / 月日下拉 / VoiceOver / 外接键盘；
+按计划 §12 / H 阶段与 W6b 一起）。
+
+### 计划 §9.2 / T35 对照
+
+| 验收点 | 本批状态 |
+|---|---|
+| 直接输入 `1965-03-12` 无需翻月 | ✅ 年 4 位文本框 + 月 / 日下拉 |
+| `2000-02-29` 成功、`1900-02-29` 拒绝 | ✅ 纯函数单测覆盖；`invalid_date` |
+| 切月后非法日提示，不静默把 2/31 变 3 月 | ✅ 日 select 越界项 `disabled` + 红字，不改月 |
+| 不接受未来生日，比较基于门店日历今天；未加载不用设备 / UTC | ✅ Web：公开表 `today` 走门店时区、客户档案走 `useStoreTime`；iPad：无 `today` 则不判未来（不再用 UTC max） |
+| 可选生日允许留空；已有生日正确回显 | ✅ `optional` + `isoToParts` 回显 |
+| `YYYY-MM-DD` date-only 存储，不转 UTC，跨时区保存再打开不变 | ✅ 全程字符串，无 `new Date()` 解析 |
+| iPad Safari / 外接键盘 / 数字键盘 / VoiceOver / ≥44px | 🔸 代码层面 `inputMode=numeric` + `aria-label` + `min-h-[44px]`；真机未验 |
+
+### 回退
+
+`git revert` 消费者 commit + 公共层 commit。`@gf/contracts` 删 `birthdate.ts` 及其
+`index.ts` 导出；`formRoutes.ts` 去 `today` 字段。无数据 / 迁移改动。

@@ -12,6 +12,8 @@ import {
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { BirthdateField } from '@/components/ui/BirthdateField';
+import { parseBirthdate } from '@gf/contracts';
 import type { Language } from '@/i18n/types';
 import { INDUSTRY_PRESETS } from '@/features/forms/mockData';
 import { BodyMapSelector, type BodyMapValue } from '@/components/forms/BodyMapSelector';
@@ -154,6 +156,14 @@ export function PublicHealthForm() {
     if (clientInfo.emergencyPhone.trim() && !normalizePhoneE164(clientInfo.emergencyPhone)) {
       toast.danger(copy('phoneInvalid'));
       return;
+    }
+
+    if (clientInfo.dob.trim()) {
+      const dob = parseBirthdate(clientInfo.dob, { today: publicForms.data?.today, optional: true });
+      if (!dob.ok) {
+        toast.danger(copy(dob.reason === 'future' ? 'dobFuture' : 'dobInvalid'));
+        return;
+      }
     }
 
     if (template.requiresSignature && !signatureDataUrl) {
@@ -413,17 +423,18 @@ export function PublicHealthForm() {
                     className="text-xs"
                   />
                 </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    {copy('dateOfBirth')}
-                  </label>
-                  <Input
-                    type="date"
-                    value={clientInfo.dob}
-                    onChange={(e) => setClientInfo({ ...clientInfo, dob: e.target.value })}
-                    className="text-xs"
-                  />
-                </div>
+                <BirthdateField
+                  label={copy('dateOfBirth')}
+                  value={clientInfo.dob}
+                  onChange={(iso) => setClientInfo({ ...clientInfo, dob: iso })}
+                  today={publicForms.data?.today}
+                  optional
+                  errorText={{
+                    invalid_date: copy('dobBadDay'),
+                    format: copy('dobInvalid'),
+                    future: copy('dobFuture'),
+                  }}
+                />
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
                     {copy('phoneNumber')} <span className="text-red-500">*</span>

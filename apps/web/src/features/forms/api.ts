@@ -180,6 +180,8 @@ export interface PublicFormsResponse {
   shopPhone: string | null;
   maskedName: string | null;
   expiresAt: string;
+  /** 门店日历今天 YYYY-MM-DD，供生日等 date-only 字段判「未来」。 */
+  today?: string;
   forms: Array<{
     templateId: string;
     key: string;

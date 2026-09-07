@@ -4,10 +4,12 @@ import {
   HEALTH_FORM_EXPERIENCES,
   inferHealthFormCategory,
   normalizePhoneE164,
+  parseBirthdate,
 } from '@gf/contracts';
 import { AlertCircle, ArrowLeft, Check, ChevronRight, Loader2, ShieldCheck, User } from 'lucide-react';
 import { api } from '../api/client';
 import { BodyMapSelector, type BodyMapValue } from '../components/BodyMapSelector';
+import { BirthdateField } from '../components/BirthdateField';
 import { SignaturePad } from '../components/SignaturePad';
 import { useLanguage } from '../context/LanguageContext';
 import type { FormQuestionDto, GuestIntake, KioskFormTemplateDto, QueueJoinResult } from '../types';
@@ -186,6 +188,13 @@ export const HealthFormPage: React.FC = () => {
       setError(t('checkin.phoneTooShort'));
       return;
     }
+    if (clientInfo.dob.trim()) {
+      const dob = parseBirthdate(clientInfo.dob, { optional: true });
+      if (!dob.ok) {
+        setError(t(dob.reason === 'future' ? 'health.dobFuture' : 'health.dobInvalid'));
+        return;
+      }
+    }
     if (missingRequiredQuestionIds(current.form.questions, answers).length > 0) {
       setError(t('health.missingAnswers'));
       return;
@@ -340,11 +349,12 @@ export const HealthFormPage: React.FC = () => {
               <input value={clientInfo.fullName} maxLength={120} onChange={(event) => updateFullName(event.target.value)}
                 className="mt-1.5 w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-3 font-medium outline-none focus:border-teal-600 focus:bg-white" />
             </label>
-            <label className="text-sm font-bold text-slate-700">{t('health.dateOfBirth')}
-              <input type="date" max={new Date().toISOString().slice(0, 10)} value={clientInfo.dob}
-                onChange={(event) => setClientInfo({ ...clientInfo, dob: event.target.value })}
-                className="mt-1.5 w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-3 font-medium outline-none focus:border-teal-600 focus:bg-white" />
-            </label>
+            <BirthdateField
+              label={t('health.dateOfBirth')}
+              value={clientInfo.dob}
+              onChange={(iso) => setClientInfo({ ...clientInfo, dob: iso })}
+              optional
+            />
             <label className="text-sm font-bold text-slate-700">{t('health.phoneNumber')} <span className="text-rose-600">*</span>
               <input type="tel" inputMode="tel" autoComplete="tel" value={clientInfo.phone}
                 onChange={(event) => setClientInfo({ ...clientInfo, phone: formatPhoneInput(event.target.value) })}

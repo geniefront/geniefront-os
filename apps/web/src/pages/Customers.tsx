@@ -41,6 +41,9 @@ import { Button } from '@/components/ui/Button';
 import { GuardedButton } from '@/components/ui/GuardedButton';
 import { useCan } from '@/lib/permissions';
 import { Input } from '@/components/ui/Input';
+import { BirthdateField } from '@/components/ui/BirthdateField';
+import { parseBirthdate } from '@gf/contracts';
+import { useStoreTime, instantToWallDate } from '@/lib/time';
 import { Badge } from '@/components/ui/Badge';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -95,6 +98,8 @@ function Money({ cents, hiddenLabel }: { cents: number | null; hiddenLabel: stri
 function CustomersContent() {
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
+  const { timeZone } = useStoreTime();
+  const storeToday = instantToWallDate(new Date().toISOString(), timeZone);
   const canViewContact = useCan('customer.view_contact');
 
   // 从 URL 初始化默认选中 ID（如 /customers/cust_123）
@@ -275,12 +280,22 @@ function CustomersContent() {
     setEditPrefOpen(true);
   };
 
+  // 生日校验：留空放行；填了就按门店日历今天判有效性 / 未来
+  const birthdayError = (): string | null => {
+    if (!formBirthday.trim()) return null;
+    const r = parseBirthdate(formBirthday, { today: storeToday, optional: true });
+    if (r.ok) return null;
+    return r.reason === 'future' ? t('crm.custBirthdayFuture') : t('crm.custBirthdayInvalid');
+  };
+
   // 提交新建顾客
   const handleCreateCustomer = async () => {
     if (!formName.trim()) {
       toast.danger(t('crm.custNameRequired'));
       return;
     }
+    const be = birthdayError();
+    if (be) { toast.danger(be); return; }
     try {
       const res = await saveProfileMutation.mutateAsync({
         name: formName.trim(),
@@ -310,6 +325,8 @@ function CustomersContent() {
       toast.danger(t('crm.custNameRequired2'));
       return;
     }
+    const be = birthdayError();
+    if (be) { toast.danger(be); return; }
     try {
       await saveProfileMutation.mutateAsync({
         customerId: selectedId,
@@ -1193,17 +1210,18 @@ function CustomersContent() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 uppercase mb-1">
-                
-                {t('crm.custBirthdayLabel')}
-              </label>
-              <Input
-                type="date"
-                value={formBirthday}
-                onChange={(e) => setFormBirthday(e.target.value)}
-              />
-            </div>
+            <BirthdateField
+              label={t('crm.custBirthdayLabel')}
+              value={formBirthday}
+              onChange={setFormBirthday}
+              today={storeToday}
+              optional
+              errorText={{
+                invalid_date: t('crm.custBirthdayBadDay'),
+                format: t('crm.custBirthdayInvalid'),
+                future: t('crm.custBirthdayFuture'),
+              }}
+            />
 
             <div>
               <label className="block font-bold text-slate-700 uppercase mb-1">

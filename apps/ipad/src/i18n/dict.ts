@@ -407,6 +407,24 @@ export const dict = {
   'health.dateOfBirth': {
     'zh-Hans': '出生日期', en: 'Date of birth', ko: '생년월일', es: 'Fecha de nacimiento', vi: 'Ngày sinh',
   },
+  'health.dobBadDay': {
+    'zh-Hans': '所选月份没有这一天', en: 'That day does not exist in the chosen month', ko: '선택한 달에 해당 날짜가 없습니다', es: 'Ese día no existe en el mes elegido', vi: 'Tháng đã chọn không có ngày này',
+  },
+  'health.dobInvalid': {
+    'zh-Hans': '请填写有效的出生日期', en: 'Please enter a valid date of birth', ko: '유효한 생년월일을 입력해 주세요', es: 'Ingrese una fecha de nacimiento válida', vi: 'Vui lòng nhập ngày sinh hợp lệ',
+  },
+  'health.dobFuture': {
+    'zh-Hans': '出生日期不能晚于今天', en: 'Date of birth cannot be in the future', ko: '생년월일은 미래일 수 없습니다', es: 'La fecha de nacimiento no puede ser futura', vi: 'Ngày sinh không thể ở tương lai',
+  },
+  'health.dobYear': {
+    'zh-Hans': '年', en: 'Year', ko: '년', es: 'Año', vi: 'Năm',
+  },
+  'health.dobMonth': {
+    'zh-Hans': '月', en: 'Month', ko: '월', es: 'Mes', vi: 'Tháng',
+  },
+  'health.dobDay': {
+    'zh-Hans': '日', en: 'Day', ko: '일', es: 'Día', vi: 'Ngày',
+  },
   'health.phoneNumber': {
     'zh-Hans': '电话号码', en: 'Phone number', ko: '전화번호', es: 'Número de teléfono', vi: 'Số điện thoại',
   },
