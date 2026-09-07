@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { sql, withTenant, closeDb, listMembershipsForUser } from '@gf/db';
 import { AppError } from '@gf/contracts';
 import { dispatch } from './bus';
+import { PUBLIC_SOURCES } from './handlers/appointment';
 import { buildContext } from './actor';
 
 /** 测试里从 membership 反查 userId —— 生产环境这个值来自已验签的 JWT */
@@ -434,4 +435,88 @@ describe('加项计价（addonIds）', () => {
       }],
     })).rejects.toThrow(AppError);
   });
+});
+
+describe('确认信/短信只发给客人自己订的单', () => {
+  /**
+   * ⭐ **前台代订、到店散客、副驾录入 —— 一律不自动发。**
+   *
+   * 这些单里的手机号多半来自历史档案，客人从没勾过任何接收同意。往上面群发
+   * 确认短信，轻则被投诉，重则整个发送域被运营商和邮件服务商标记成垃圾源 ——
+   * 那会连带把官网自助和 AI 语音那两条**该发的**也一起送进垃圾箱。
+   *
+   * 只有 `web`（官网自助）和 `phone_ai`（AI 语音来电）放行：那两条路上客人是
+   * 主动交出联系方式、并且知道自己刚订了一单的。
+   */
+  async function outboxCountsFor(appointmentId: string) {
+    return withTenant({ orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null }, async (tx) => {
+      const [e] = await tx<{ n: number }[]>`
+        select count(*)::int as n from email_outbox
+        where entity_type = 'appointment' and entity_id = ${appointmentId}`;
+      const [s] = await tx<{ n: number }[]>`
+        select count(*)::int as n from sms_outbox
+        where entity_type = 'appointment' and entity_id = ${appointmentId}`;
+      return { emails: e!.n, sms: s!.n };
+    });
+  }
+
+  // ⚠️ 一律不指定技师。这一组验的是「通知发不发」，和派给谁无关，
+  // 而同文件里的容量用例会把 Linh 排满 —— 指定技师只会引入无关的失败。
+  const book = async (source: string, hour: number) => {
+    const ctx = await ctxFor(mia);
+    const { result } = await create(ctx, {
+      customerId: lisa,
+      source,
+      items: [{ serviceId: gelService, membershipId: null, startsAt: at(hour) }],
+    });
+    return outboxCountsFor(result.appointmentId);
+  };
+
+  it('⭐ 前台代订（desk）不发', async () => {
+    expect(await book('desk', 2)).toEqual({ emails: 0, sms: 0 });
+  });
+
+  it('⭐ 副驾录入（ai_copilot）不发 —— 批量导入几十条更不能群发', async () => {
+    expect(await book('ai_copilot', 3)).toEqual({ emails: 0, sms: 0 });
+  });
+
+  it('到店散客（walkin）不发', async () => {
+    expect(await book('walkin', 4)).toEqual({ emails: 0, sms: 0 });
+  });
+
+  it('⭐ 改期不给非公开来路的客人发变更通知', async () => {
+    const ctx = await ctxFor(mia);
+    const { result } = await create(ctx, {
+      customerId: lisa,
+      source: 'desk',
+      items: [{ serviceId: gelService, membershipId: null, startsAt: at(2, 30) }],
+    });
+    await dispatch('appointment.reschedule', {
+      appointmentId: result.appointmentId, startsAt: at(2, 45),
+    }, ctx, { idempotencyKey: randomUUID() });
+
+    expect(await outboxCountsFor(result.appointmentId)).toEqual({ emails: 0, sms: 0 });
+  });
+
+  it('⭐ 取消也不发 —— 建单时没通知过，取消时更不该突然冒出来一条', async () => {
+    const ctx = await ctxFor(mia);
+    const { result } = await create(ctx, {
+      customerId: lisa,
+      source: 'ai_copilot',
+      items: [{ serviceId: gelService, membershipId: null, startsAt: at(3, 30) }],
+    });
+    await dispatch('appointment.cancel', {
+      appointmentId: result.appointmentId, reason: 'input_error', keepStaffTurn: false,
+    }, ctx, { idempotencyKey: randomUUID() });
+
+    expect(await outboxCountsFor(result.appointmentId)).toEqual({ emails: 0, sms: 0 });
+  });
+
+  it('⭐ 白名单里只有客人自己发起的那两条路', () => {
+    // 正向（web 真的会入队一封确认信）由 `public.test.ts` 端到端覆盖 ——
+    // 那里走的是完整的公开预约接口，客人的邮箱手机是请求里带进来的。
+    // 这里锁的是**策略本身**：任何人往集合里加 'desk' / 'ai_copilot'，这条就红。
+    expect([...PUBLIC_SOURCES].sort()).toEqual(['phone_ai', 'web']);
+  });
+
 });

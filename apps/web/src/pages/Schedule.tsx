@@ -151,20 +151,6 @@ function ScheduleContent() {
   const [filterRole, setFilterRole] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // 预约项目容错模糊搜索过滤
-  const filteredItems = React.useMemo(() => {
-    if (!searchQuery.trim()) return items;
-    return fuzzySearch(items, searchQuery, {
-      keys: [
-        { name: 'customerName', weight: 0.5 },
-        { name: 'customerPhone', weight: 0.3 },
-        { name: 'serviceName', weight: 0.3 },
-      ],
-      threshold: 0.45,
-    });
-  }, [items, searchQuery]);
-
-  
   const parseLocal = (ds: string) => {
     if (!ds) return new Date();
     const [y, m, d] = ds.split('-').map(Number);
@@ -220,17 +206,31 @@ function ScheduleContent() {
    * 时间轴范围由营业时间与当日实际单据共同决定，不使用固定常量。
    * 详见 gridBounds 的说明：写死范围会静默裁掉范围外的单据。
    */
-  const { start: DAY_START, end: DAY_END } = React.useMemo(
-    () => gridBounds(storeOpenMin, storeCloseMin, items),
-    [storeOpenMin, storeCloseMin, items],
-  );
-
   const weekItemsByDate = useWeekItems(view === 'week' ? weekDays : []);
 
   const viewItems = React.useMemo(
     () => (view === 'week' ? [...weekItemsByDate.values()].flat() : items),
     [view, weekItemsByDate, items],
   );
+
+  const { start: DAY_START, end: DAY_END } = React.useMemo(
+    () => gridBounds(storeOpenMin, storeCloseMin, viewItems),
+    [storeOpenMin, storeCloseMin, viewItems],
+  );
+
+  // 预约项目容错模糊搜索过滤（基于当前视图的全部单据：单日视图为当日，周视图为全周7天）
+  const filteredItems = React.useMemo(() => {
+    if (!searchQuery.trim()) return viewItems;
+    return fuzzySearch(viewItems, searchQuery, {
+      keys: [
+        { name: 'customerName', weight: 0.5 },
+        { name: 'customerPhone', weight: 0.3 },
+        { name: 'serviceName', weight: 0.3 },
+      ],
+      threshold: 0.45,
+    });
+  }, [viewItems, searchQuery]);
+
   const monthDays = React.useMemo(() => getMonthDays(currentDate), [currentDate]);
 
   /*
@@ -437,7 +437,7 @@ function ScheduleContent() {
     const apptId = e.dataTransfer.getData('apptId');
     if (!apptId) return;
 
-    const appt = items.find(a => a.id === apptId);
+    const appt = viewItems.find(a => a.id === apptId);
     if (!appt) return;
 
     const rect = e.currentTarget.getBoundingClientRect();

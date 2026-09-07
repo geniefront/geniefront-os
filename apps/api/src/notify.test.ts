@@ -329,7 +329,18 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
         serviceId, addonIds: [], membershipId: null,
         startsAt: d.toISOString(), details: {},
       }],
-      partySize: 1, source: 'desk',
+      /*
+       * ⚠️ 必须是 `web`（客人自己在官网订的）。
+       *
+       * 顾客侧的改期/取消通知只发给 `PUBLIC_SOURCES` 里的来路 —— 前台代订、
+       * 到店散客、副驾录入的单，客人从没勾过接收同意，建单时就没发确认，
+       * 改期时更不会发（`handlers/appointment.ts` 的 notifyAppointmentChange）。
+       *
+       * 这一组用例验的是**模板渲染与 entity_type 分离**，不是来路策略，
+       * 所以这里要用一条真的会通知顾客的来路，否则整组都变成空跑。
+       * 来路策略本身由 `bus.test.ts` 那一组守。
+       */
+      partySize: 1, source: 'web',
     });
     return out.appointmentId;
   };

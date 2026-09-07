@@ -73,7 +73,16 @@ function issueUndoToken(
     return issueCopilotProposal(
       ctx,
       'appointment.cancel',
-      { appointmentId: appt.appointmentId, reason: 'input_error', notifyCustomer: false },
+      /*
+       * ⚠️ 入参形状必须和 `appointment.cancel` 的 schema 对齐：
+       * `keepStaffTurn` 是**必填**（没有默认值，强迫调用方表态），
+       * 而 `notifyCustomer` 根本不是这个命令的字段 —— 之前那份是照抄旧代码
+       * 带过来的，兑现时会被 Zod 直接打回，撤销按钮点了就是一个 400。
+       *
+       * `keepStaffTurn: false`：撤销的是一条刚建错、技师根本没碰过的单，
+       * 不该给他记上一轮。
+       */
+      { appointmentId: appt.appointmentId, reason: 'input_error', keepStaffTurn: false },
       '撤销刚才创建的预约',
       new Date(),
       UNDO_TTL_MS,

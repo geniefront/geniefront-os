@@ -20,7 +20,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { withTenant, ts } from '@gf/db';
 import { buildContext } from '../actor.js';
-import type { CommandContext, ProposeTaskPlanInput } from '@gf/contracts';
+import { getCommand, type CommandContext, type ProposeTaskPlanInput } from '@gf/contracts';
 import { compileTaskPlan } from './preflight.js';
 import { executeTaskPlan } from './executor.js';
 import { createTask, savePlanRevision, getTask, getRevision, updateStepStatus } from './taskStore.js';
@@ -838,5 +838,33 @@ describe('卡片预览的时间与金额', () => {
         serviceItems: [{ serviceId, startsAt: '2026-09-07T16:00:00Z' }] }],
     }, 'appointment.createBatch');
     expect(batch.resolvedInput['source']).toBe('ai_copilot');
+  });
+});
+
+describe('撤销令牌的入参形状', () => {
+  /**
+   * ⭐ 撤销令牌里那份入参必须能通过 `appointment.cancel` 的 schema。
+   *
+   * 它是被签名冻结起来、几分钟后才拿去兑现的 —— 形状错了在签发时一声不吭，
+   * 只有前台真的点了「撤销」才在总线上撞 VALIDATION_FAILED。而那一刻
+   * 客人正站在柜台前，前台需要的是这一单立刻消失，不是一个 400。
+   */
+  it('⭐ 带上必填的 keepStaffTurn，且不含 cancel 根本没有的字段', () => {
+    const def = getCommand('appointment.cancel');
+    const parsed = def!.input.safeParse({
+      appointmentId: randomUUID(),
+      reason: 'input_error',
+      keepStaffTurn: false,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('缺 keepStaffTurn 会被 schema 拒 —— 这正是旧实现踩的坑', () => {
+    const def = getCommand('appointment.cancel');
+    expect(def!.input.safeParse({
+      appointmentId: randomUUID(),
+      reason: 'input_error',
+      notifyCustomer: false,
+    }).success).toBe(false);
   });
 });
