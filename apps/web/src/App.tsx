@@ -32,6 +32,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard').then((m) => ({ default:
 const BusinessData = lazy(() => import('./pages/BusinessData').then((m) => ({ default: m.BusinessData })));
 const Schedule = lazy(() => import('./pages/Schedule').then((m) => ({ default: m.Schedule })));
 const Queue = lazy(() => import('./pages/Queue').then((m) => ({ default: m.Queue })));
+const ServiceBriefPrint = lazy(() => import('./pages/ServiceBriefPrint').then((m) => ({ default: m.ServiceBriefPrint })));
 const Rotation = lazy(() => import('./pages/Rotation').then((m) => ({ default: m.Rotation })));
 const Rooms = lazy(() => import('./pages/Rooms').then((m) => ({ default: m.Rooms })));
 const Tickets = lazy(() => import('./pages/Tickets').then((m) => ({ default: m.Tickets })));
@@ -334,6 +335,19 @@ function SessionGate() {
 
       {/* 已完成 setup 的门店不再进入向导。 */}
       <Route path="/setup" element={<Navigate to={activePortal === 'tech' ? '/tech/today' : '/dashboard'} replace />} />
+
+      {/*
+        入座服务单一页纸。刻意**不放进 Layout** —— 套在后台布局里打印会把
+        侧边栏与顶栏一并印上纸，技师拿到的是一张找不到重点的截图。
+      */}
+      <Route
+        path="/print/service-brief/:ticketId"
+        element={
+          <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}>
+            <ServiceBriefPrint />
+          </Suspense>
+        }
+      />
 
       {/* Main Application (Dashboard Layout) */}
       <Route path="/" element={<Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-50"><Spinner /></div>}><Layout /></Suspense>}>

@@ -1340,6 +1340,21 @@ function QueueContent() {
     }
   };
 
+  /**
+   * 打开服务单一页纸。
+   *
+   * 新开一个标签页而不是当前页跳转：前台打完这张纸要回到看板继续排下一位，
+   * 把她从看板上带走再让她自己找回来，是这类操作最常见的抱怨来源。
+   */
+  const openServiceBrief = (item: KanbanItem) => {
+    const ticketId = item.ticketId ?? item.rawTicket?.ticketId;
+    if (!ticketId) {
+      toast.info(t('queue.quItemActionNeedsTicket'));
+      return;
+    }
+    window.open(`/print/service-brief/${ticketId}`, '_blank', 'noopener');
+  };
+
   /** 打开作废弹窗。默认原因为「录入错误」——它是唯一会把客人退回候客区的分支。 */
   const requestVoid = (item: KanbanItem, reason: VoidReason = 'input_error') => {
     if (!canVoidTicket) {
@@ -2243,6 +2258,7 @@ function QueueContent() {
         onItemAction={openItemAction}
         onRequestRollback={requestRollback}
         onRequestVoid={requestVoid}
+        onPrintBrief={openServiceBrief}
         onToggleItem={handleToggleTicketItem}
       />
 

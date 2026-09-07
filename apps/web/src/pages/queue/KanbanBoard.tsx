@@ -12,7 +12,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import {
   AlertTriangle, ArrowLeft, ArrowRightLeft, Ban, BedDouble, CheckCircle2, ChevronRight,
-  FileText, FileWarning, Plus, Scissors, Timer, User,
+  FileText, FileWarning, Plus, Printer, Scissors, Timer, User,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -48,13 +48,14 @@ export interface KanbanBoardProps {
   onItemAction: (item: KanbanItem, mode: 'add' | 'staff' | 'room') => void;
   onRequestRollback: (item: KanbanItem) => void;
   onRequestVoid: (item: KanbanItem) => void;
+  onPrintBrief: (item: KanbanItem) => void;
   onToggleItem: (service: TicketItem) => void | Promise<void>;
 }
 
 export function KanbanBoard({
   items, timezone, draggingItemId, dragOverColumn, isSyncing, isItemMutating, canVoidTicket,
   onDragStart, onDragOver, onDragLeave, onDrop, onViewDetails, onOpenFormQr,
-  onRunNextAction, onItemAction, onRequestRollback, onRequestVoid, onToggleItem,
+  onRunNextAction, onItemAction, onRequestRollback, onRequestVoid, onPrintBrief, onToggleItem,
 }: KanbanBoardProps) {
   const { t } = useLanguage();
 
@@ -184,6 +185,13 @@ export function KanbanBoard({
                                 label: t('queue.quViewDetail'),
                                 icon: <FileText className="h-4 w-4" />,
                                 onSelect: () => onViewDetails(item),
+                              },
+                              {
+                                id: 'print-brief',
+                                label: t('queue.quPrintBriefAction'),
+                                icon: <Printer className="h-4 w-4" />,
+                                isDisabled: !item.rawTicket,
+                                onSelect: () => onPrintBrief(item),
                               },
                               {
                                 id: 'add-item',

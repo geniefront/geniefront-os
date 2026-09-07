@@ -13,9 +13,28 @@ import { withTenant } from '@gf/db';
 import { resolveDate } from '../handlers/dayclose';
 import { loadReport } from '../queries/money';
 import { loadQueue } from '../queries/queue';
+import { loadServiceBrief } from '../queries/serviceBrief';
 import type { CtxFromHeaders } from './utils';
 
 export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHeaders): void {
+
+  /*
+   * ── 查询：入座服务单一页纸 ───────────────────────────────────────────────
+   *
+   * 打印给技师看的那张纸。健康问卷原文由 `loadServiceBrief` 内部经
+   * `readSubmission()` 读取 —— 权限校验与访问留痕都在那里，本路由不重复。
+   * 这里只把门槛定在 `ticket.read`：没有工单读取权限的人连客人是谁都不该看到。
+   */
+  app.get<{ Params: { ticketId: string } }>('/v1/desk/tickets/:ticketId/service-brief', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('ticket.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ticket.read' } });
+    }
+    return withTenant(
+      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
+      (tx) => loadServiceBrief(tx, ctx, req.params.ticketId),
+    );
+  });
 
   // ── 查询：工单列表 ────────────────────────────────────────────────────────
   app.get<{ Querystring: { status?: string } }>('/v1/desk/tickets', async (req) => {

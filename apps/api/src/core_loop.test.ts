@@ -7,7 +7,7 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { closeDb, ts, withTenant } from '@gf/db';
+import { closeDb, jsonb, ts, withTenant } from '@gf/db';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
 import './handlers/kiosk';
@@ -16,6 +16,7 @@ import './handlers/staff';
 import './handlers/resource';
 import './handlers/rotation';
 import { loadRooms } from './queries/rooms';
+import { loadServiceBrief } from './queries/serviceBrief';
 import { loadDayMoney } from './handlers/dayclose';
 import { locationTaxCents } from './tax';
 
@@ -388,6 +389,49 @@ describe('预约到收银的真实闭环', () => {
     expect(closed?.service_settled_at).toBeTruthy();
     expect(closed?.tip_settled_at).toBeTruthy();
     await setCheckoutTiming('after_service_combined');
+  });
+
+  it('服务单一页纸：逐项目技师与工位、到店次数、避开部位；无权限时只给结论层', async () => {
+    const appointmentId = await createAppointment();
+    await run('queue.join', { appointmentId, source: 'desk' }, `checkin-brief-${appointmentId}`);
+    const opened = await run<{ ticketId: string; ticketItemIds: string[] }>('ticket.open', {
+      appointmentId,
+      customerId: null,
+      items: [{ serviceId, membershipId, minutes: 45 }],
+    }, `brief-open-${appointmentId}`);
+    await run('ticket.startItem', { ticketItemId: opened.result.ticketItemIds[0]!, membershipId });
+
+    // 避开部位属于操作信息，由健康表同步进客户档案，不需要查看问卷的权限。
+    await withTenant(tenant, (tx) => tx`
+      insert into customer_preferences (customer_id, org_id, profile)
+      values (${customerId}, ${ORG_ID},
+              ${jsonb({ avoid_areas: ['right_knee'], health_flag: true, strength: 'deep' })})
+      on conflict (customer_id) do update set profile = excluded.profile`);
+
+    const brief = await withTenant(tenant, (tx) => loadServiceBrief(tx, ctx, opened.result.ticketId));
+    expect(brief.items).toHaveLength(1);
+    expect(brief.items[0]?.staffNames.length).toBeGreaterThan(0);
+    expect(brief.items[0]?.startedAt).toBeTruthy();
+    expect(brief.preferences.avoidAreas).toEqual(['right_knee']);
+    expect(brief.preferences.strength).toBe('deep');
+    expect(brief.health.hasFlag).toBe(true);
+    // 到店次数含本单：第一次来的客人应当被标成首次。
+    expect(brief.visitCount).toBeGreaterThanOrEqual(1);
+
+    /*
+     * 没有 customer.view_health_form 的账号（多数技师）拿到的是降级结果：
+     * 避开部位与「有无禁忌」仍然给，问卷原文为 null。这样纸在任何账号下
+     * 都印得出来，只是详略不同。
+     */
+    const techCtx = {
+      ...ctx,
+      permissions: new Set([...ctx.permissions].filter((p) => p !== 'customer.view_health_form')),
+    };
+    const limited = await withTenant(tenant, (tx) => loadServiceBrief(tx, techCtx, opened.result.ticketId));
+    expect(limited.health.canViewForm).toBe(false);
+    expect(limited.health.form).toBeNull();
+    expect(limited.preferences.avoidAreas).toEqual(['right_knee']);
+    expect(limited.health.hasFlag).toBe(true);
   });
 
   it('服务中换技师：归属改写、开始时间保留，完工后按新技师结算', async () => {

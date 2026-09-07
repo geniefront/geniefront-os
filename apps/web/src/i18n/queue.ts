@@ -237,6 +237,7 @@ export const queue = {
   'queue.quCardMenuLabel': { 'zh-Hans': '更多操作', en: 'More actions', ko: '추가 작업', es: 'Más acciones', vi: 'Thao tác khác' },
   /* 技师打卡面板的搜索空结果。此前这个 key 在字典里不存在，界面上直接显示成了 queue.quNoMatch。 */
   'queue.quNoMatch': { 'zh-Hans': '没有匹配的技师', en: 'No therapist matches that search', ko: '검색과 일치하는 관리사가 없습니다', es: 'Ningún terapeuta coincide con la búsqueda', vi: 'Không có kỹ thuật viên nào khớp' },
+  'queue.quPrintBriefAction': { 'zh-Hans': '打印服务单', en: 'Print service brief', ko: '서비스 시트 인쇄', es: 'Imprimir hoja de servicio', vi: 'In phiếu dịch vụ' },
   'queue.quAddItemAction': { 'zh-Hans': '加项', en: 'Add a service', ko: '항목 추가', es: 'Añadir servicio', vi: 'Thêm dịch vụ' },
   'queue.quMoveStaffAction': { 'zh-Hans': '换技师', en: 'Change therapist', ko: '관리사 변경', es: 'Cambiar terapeuta', vi: 'Đổi kỹ thuật viên' },
   'queue.quMoveRoomAction': { 'zh-Hans': '换工位', en: 'Change station', ko: '스테이션 변경', es: 'Cambiar puesto', vi: 'Đổi vị trí' },

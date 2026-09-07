@@ -11,6 +11,7 @@ import { email } from './email';
 import { common } from './common';
 import { schedule } from './schedule';
 import { queue } from './queue';
+import { print } from './print';
 import { rotation } from './rotation';
 import { checkout } from './checkout';
 import { finance } from './finance';
@@ -36,6 +37,7 @@ const dict = {
   ...email,
   ...schedule,
   ...queue,
+  ...print,
   ...rotation,
   ...checkout,
   ...finance,

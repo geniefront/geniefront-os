@@ -1,0 +1,165 @@
+/*
+ * 入座服务单一页纸的版式。
+ *
+ * 单独一个 css 文件而不是 Tailwind 类：这一页的关键约束是**打印**，
+ * 需要 `@page`、mm 单位与 pt 字号，而这些在工具类体系里表达不出来。
+ * 屏幕上的样子只是给前台确认用的预览，纸上的样子才是产品。
+ */
+
+@page {
+  size: A4;
+  margin: 10mm;
+}
+
+.sbp {
+  background: #E7EBE9;
+  min-height: 100vh;
+  padding: 20px 16px 56px;
+  color: #16211F;
+}
+
+/* ── 屏幕上的控制条 ─────────────────────────────────────────────────────── */
+.sbp-chrome {
+  max-width: 210mm;
+  margin: 0 auto 18px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.sbp-chrome__eyebrow {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: #0E7C6B;
+}
+.sbp-chrome h1 { margin: 2px 0 0; font-size: 22px; font-weight: 700; }
+.sbp-chrome__controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.sbp-chrome__controls label { color: #5C6B67; }
+.sbp-chrome select {
+  font: inherit;
+  padding: 6px 10px;
+  border: 1px solid #C6D0CC;
+  border-radius: 4px;
+  background: #fff;
+  color: #16211F;
+}
+.sbp-chrome__print {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-weight: 600;
+  padding: 7px 14px;
+  border: 1px solid #0E7C6B;
+  border-radius: 4px;
+  background: #0E7C6B;
+  color: #fff;
+  cursor: pointer;
+}
+.sbp-chrome__print svg { width: 15px; height: 15px; }
+.sbp-chrome :is(select, button):focus-visible { outline: 2px solid #0E7C6B; outline-offset: 2px; }
+
+/* ── 纸张 ───────────────────────────────────────────────────────────────── */
+.sbp-sheet {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 13mm 14mm 11mm;
+  box-sizing: border-box;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(20, 32, 30, .16), 0 14px 34px rgba(20, 32, 30, .14);
+  display: flex;
+  flex-direction: column;
+  gap: 6mm;
+  font-size: 9.5pt;
+  line-height: 1.55;
+}
+.sbp--thermal .sbp-sheet { width: 80mm; min-height: 0; padding: 6mm 5mm 8mm; gap: 4mm; }
+
+.sbp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8mm; }
+.sbp-brand { font-size: 15pt; font-weight: 700; }
+.sbp-brand small { display: block; font-size: 8pt; font-weight: 400; color: #5C6B67; letter-spacing: .04em; margin-top: 1mm; }
+.sbp-meta { text-align: right; font-size: 8.5pt; color: #3D4B47; font-variant-numeric: tabular-nums; }
+.sbp-meta__no { display: block; font-size: 13pt; font-weight: 600; color: #16211F; }
+
+.sbp-rule { height: 1.5pt; background: #16211F; }
+
+.sbp-guest { display: flex; align-items: baseline; gap: 5mm; flex-wrap: wrap; }
+.sbp-guest__name { font-size: 18pt; font-weight: 700; }
+.sbp-guest__chips { display: flex; gap: 2.5mm; margin-left: auto; }
+.sbp-chip { font-size: 8pt; font-weight: 700; letter-spacing: .06em; border: .8pt solid #16211F; padding: 1mm 2.5mm; white-space: nowrap; }
+.sbp-chip--soft { border-color: #9AA8A4; color: #4A5854; font-weight: 500; letter-spacing: .02em; }
+
+.sbp-sec {
+  font-size: 8pt; font-weight: 700; letter-spacing: .2em; text-transform: uppercase;
+  margin: 0 0 2.5mm; display: flex; align-items: center; gap: 3mm;
+}
+.sbp-sec::after { content: ""; flex: 1; height: .5pt; background: #D5DDDA; }
+
+.sbp-table { width: 100%; border-collapse: collapse; }
+.sbp-table thead th {
+  text-align: left; font-size: 7.5pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: #5C6B67; padding: 0 0 1.5mm; border-bottom: .8pt solid #16211F;
+}
+.sbp-table tbody td { padding: 2.2mm 0; border-bottom: .5pt solid #E2E8E6; vertical-align: baseline; }
+.sbp-table tbody tr:last-child td { border-bottom: none; }
+.sbp-table tfoot td { padding-top: 2.5mm; border-top: 1.2pt solid #16211F; font-weight: 700; }
+.sbp-num { text-align: right; white-space: nowrap; }
+.sbp-mono { font-variant-numeric: tabular-nums; }
+.sbp-seq { color: #6B7A76; font-size: 8.5pt; padding-right: 2mm; }
+.sbp-svc { font-weight: 500; }
+.sbp-dim { color: #6B7A76; }
+
+.sbp-split { display: grid; grid-template-columns: 1fr 1fr; gap: 7mm; align-items: start; }
+.sbp--thermal .sbp-split { grid-template-columns: 1fr; gap: 4mm; }
+
+.sbp-kv { display: grid; grid-template-columns: 20mm 1fr; gap: 1.5mm 3mm; margin: 0; }
+.sbp-kv dt { font-size: 8pt; color: #5C6B67; letter-spacing: .04em; padding-top: .6mm; }
+.sbp-kv dd { margin: 0; font-weight: 500; }
+/* 问卷逐题一行，题目可能很长，因此不共用上面那套固定两列。 */
+.sbp-kv--wide { display: block; }
+.sbp-kv__row { display: flex; gap: 3mm; padding: 1.2mm 0; border-bottom: .4pt dotted #DCE3E0; }
+.sbp-kv__row dt { flex: 1; }
+.sbp-kv__row dd { font-weight: 600; text-align: right; max-width: 45%; }
+
+/* 避开部位是整张纸最不能看漏的一行，也是唯一一处强调色。 */
+.sbp-avoid { border-left: 2.5pt solid #9B2C3C; padding-left: 4mm; }
+.sbp-avoid__items { font-size: 12pt; font-weight: 700; color: #8A2634; }
+
+.sbp-flag { margin: 0; font-weight: 700; color: #7A4A08; }
+/* 客人自己勾的排查项。原样印出，技师看到的就是客人当时看到的那句话。 */
+.sbp-conditions { margin: 1.5mm 0 0; font-weight: 600; }
+.sbp-advice { margin: 2mm 0 0; padding-left: 5mm; }
+.sbp-advice li { margin-bottom: 1.2mm; }
+.sbp-advice--avoid { font-weight: 700; color: #8A2634; }
+
+.sbp-handoff { border: .8pt solid #16211F; padding: 3.5mm 4mm; }
+.sbp-handoff__label {
+  display: block; font-size: 7.5pt; font-weight: 700; letter-spacing: .18em;
+  text-transform: uppercase; color: #5C6B67; margin-bottom: 1.5mm;
+}
+
+.sbp-foot {
+  margin-top: auto; padding-top: 4mm; border-top: .5pt solid #D5DDDA;
+  font-size: 7.5pt; line-height: 1.5; color: #5C6B67;
+}
+.sbp--thermal .sbp-foot { margin-top: 4mm; }
+
+@media (max-width: 900px) {
+  .sbp-sheet { width: 100%; min-height: 0; padding: 8mm; }
+  .sbp--thermal .sbp-sheet { width: 100%; max-width: 80mm; }
+  .sbp-split { grid-template-columns: 1fr; gap: 5mm; }
+}
+
+/* ── 打印 ───────────────────────────────────────────────────────────────── */
+@media print {
+  .sbp-chrome { display: none !important; }
+  .sbp { background: #fff; padding: 0; min-height: 0; }
+  .sbp-sheet { width: auto; min-height: 0; box-shadow: none; padding: 0; margin: 0; }
+  /* 分栏与表格不允许被分页切断：半张表在两页上比没有更难用。 */
+  .sbp-table, .sbp-split, .sbp-handoff { break-inside: avoid; }
+}
