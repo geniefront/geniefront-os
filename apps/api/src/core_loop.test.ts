@@ -447,6 +447,43 @@ describe('预约到收银的真实闭环', () => {
     expect(afterRepeat[0]?.n).toBe(1);
   });
 
+  it('没有当天轮牌名单行时照样记账：缺行按「可接客即参与」处理', async () => {
+    const date = await businessDate();
+
+    /*
+     * 绝大多数营业日 rotation_participants 一行都没有 —— 只有人显式打卡或
+     * 店长调名单才会写。轮牌页与当日看板遇到缺行时按「可接客即参与」显示，
+     * 记账若反过来按「缺行即不参与」跳过，看板上的人就永远是 0 轮。
+     */
+    await withTenant(tenant, (tx) => tx`
+      delete from rotation_participants
+      where location_id = ${LOCATION_ID} and business_date = ${date}
+        and membership_id = ${membershipId}`);
+
+    const appointmentId = await createAppointment();
+    await run('queue.join', { appointmentId, source: 'desk' }, `checkin-noroster-${appointmentId}`);
+    const opened = await run<{ ticketId: string; ticketItemIds: string[] }>('ticket.open', {
+      appointmentId,
+      customerId: null,
+      items: [{ serviceId, membershipId, minutes: 45 }],
+    }, `noroster-open-${appointmentId}`);
+
+    const before = await withTenant(tenant, (tx) => tx<{ n: number }[]>`
+      select count(*)::int as n from rotation_events
+      where location_id = ${LOCATION_ID} and business_date = ${date}
+        and membership_id = ${membershipId} and reason = 'served'`);
+
+    await run('ticket.startItem', {
+      ticketItemId: opened.result.ticketItemIds[0]!, membershipId,
+    });
+
+    const after = await withTenant(tenant, (tx) => tx<{ n: number }[]>`
+      select count(*)::int as n from rotation_events
+      where location_id = ${LOCATION_ID} and business_date = ${date}
+        and membership_id = ${membershipId} and reason = 'served'`);
+    expect(after[0]!.n).toBe(before[0]!.n + 1);
+  });
+
   it('服务单一页纸：逐项目技师与工位、到店次数、避开部位；无权限时只给结论层', async () => {
     const appointmentId = await createAppointment();
     await run('queue.join', { appointmentId, source: 'desk' }, `checkin-brief-${appointmentId}`);

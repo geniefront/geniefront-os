@@ -194,13 +194,28 @@ export async function consumeRotationTurnForItem(
   if (!policy.enabled) return;
 
   const rows = await tx<{
-    membership_id: string; total_cents: number; is_request: boolean;
+    membership_id: string; total_cents: number; is_request: boolean; in_rotation: boolean;
   }[]>`
     select tis.membership_id, ti.total_cents,
-           coalesce(bool_or(ai.is_request), false) as is_request
+           coalesce(bool_or(ai.is_request), false) as is_request,
+           /*
+            * 参与与否的判定必须与读取路径一致：rotation_participants 只在有人
+            * 显式打卡或调整名单时才有行，绝大多数营业日一行都没有。轮牌页与
+            * 当日看板遇到缺行时按「可接客即参与」处理（queries/day.ts），此处
+            * 若反过来按「缺行即不参与」跳过，接客就永远记不上账 —— 那正是
+            * 累计轮次恒为 0、顺序纹丝不动的原因。
+            */
+           coalesce(bool_or(rp.in_rotation), bool_or(sp.is_bookable), false) as in_rotation
     from ticket_items ti
     join ticket_item_staff tis on tis.ticket_item_id = ti.id
     join tickets t on t.id = ti.ticket_id
+    -- 本店的技师档案；查无此人说明他不在这家店接客，不该出现在轮牌里。
+    join staff_profiles sp
+      on sp.membership_id = tis.membership_id and sp.location_id = ${ctx.locationId}
+    left join rotation_participants rp
+      on rp.location_id = ${ctx.locationId}
+     and rp.business_date = ${item.business_date}
+     and rp.membership_id = tis.membership_id
     -- 点钟标记在预约项目上。同一预约同服务可能有多条，任一为点钟即算点钟。
     left join appointment_items ai
       on ai.appointment_id = t.appointment_id
@@ -211,14 +226,10 @@ export async function consumeRotationTurnForItem(
 
   for (const row of rows) {
     /*
-     * 只给今天真正在轮牌里的人记账。不在名单里的（临时顶班、不参与轮牌的
-     * 专属技师）没有位次可言，写事件只会在轮牌页上凭空多出一个人。
+     * 只给今天真正在轮牌里的人记账。名单里明确关掉的（不参与轮牌的专属
+     * 技师）没有位次可言，写事件只会在轮牌页上凭空多出一个人。
      */
-    const [participant] = await tx<{ in_rotation: boolean }[]>`
-      select in_rotation from rotation_participants
-      where location_id = ${ctx.locationId} and business_date = ${item.business_date}
-        and membership_id = ${row.membership_id}`;
-    if (!participant?.in_rotation) continue;
+    if (!row.in_rotation) continue;
 
     // 轮次按金额折算：一个 $10 的加钟不该和一单全身按摩烧掉同样多的轮次。
     const consumedBp = turnValueByAmount(row.total_cents, tiers);

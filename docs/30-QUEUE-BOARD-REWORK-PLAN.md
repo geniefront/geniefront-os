@@ -661,3 +661,37 @@ staging 实测佐证：当日已开工 3 个项目，轮牌事件 0 条。
 造测试数据必须按真实写入路径的形状造。
 
 代码由店主侧提交为 `eb4a17f`。本轮只改前端，`apps/api` 无改动。
+
+### 2026-09-07 — 轮次仍然记不上账：名单缺行的默认值两边不一致
+
+店主反馈：技师的「今日已接」全是 0，轮牌顺序照旧不动 —— 与 `4902965` 修完后
+预期的行为不符。
+
+**根因不在开工那一步，而在记账时对「谁在轮牌里」的判断。**
+
+`4902965` 已经把轮次消耗挂到 `ticket.startItem` 的首次开始上，这一步没问题。
+问题出在 `consumeRotationTurnForItem` 里的参与判断：它逐人去 `rotation_participants`
+查当天的行，**查不到就跳过**。而 `rotation_participants` 只有在有人显式打卡、
+或店长手动调名单时才会写行 —— 绝大多数营业日一行都没有。
+
+读取路径一直是反过来的默认：`queries/day.ts` 与 `handlers/rotation.ts:loadRotation`
+遇到缺行时按 `in_rotation ?? is_bookable` 处理，即「可接客即参与」。于是轮牌页
+照常把人列出来，记账却一个都不记。
+
+staging 实测坐实了这一点：当日 5 个项目已开工，`rotation_participants` 当天 0 行，
+`rotation_events` 当天 0 条。
+
+**改法**：把参与判断合进主查询，并与读取路径取同一个默认值 ——
+`coalesce(bool_or(rp.in_rotation), bool_or(sp.is_bookable), false)`。
+名单里被明确关掉的（不参与轮牌的专属技师）仍然跳过，缺行则按可接客处理。
+顺带内联了 `staff_profiles`：查无本店档案说明这人不在这家店接客，不该进轮牌。
+
+**为什么上一轮的测试没拦住**：`core_loop.test.ts` 那条用例自己先
+`insert into rotation_participants ... in_rotation = true` 才开工，恰好绕开了
+真实门店的形状。已补一条不写名单行的用例，并确认其在旧实现下为红。
+
+> 教训与房间清理那次同源：**测试夹具必须按真实写入路径的形状造**。
+> 自己把前置状态补齐，测出来的就是自己造的世界。
+
+⚠️ 历史数据不会自动补：修复只影响此后新开工的项目，当天已开工的 5 项不会
+追认轮次。若需要，另行按 `ticket_items.started_at` 回填 `rotation_events`。
