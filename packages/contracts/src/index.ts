@@ -34,6 +34,7 @@ export * from './commands/support.js';
 export * from './commands/platform.js';
 export * from './aiSchema.js';
 export * from './healthForms.js';
+export * from './birthdate.js';
 
 export * from './registry.js';
 

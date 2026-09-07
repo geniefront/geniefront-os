@@ -35,6 +35,7 @@ import {
   type CommandContext, type Locale, type Permission,
 } from '@gf/contracts';
 import { withTenant, withFormShareToken, type FormShareRow } from '@gf/db';
+import { businessDateOf } from '@gf/scheduling';
 import { dispatch } from '../bus';
 import { hashFormToken } from '../forms/token';
 import { maskName } from '../kiosk/routes';
@@ -165,6 +166,8 @@ export function registerFormLinkRoutes(app: FastifyInstance): void {
            */
           maskedName: cust ? maskName(cust.display_name) : null,
           expiresAt: new Date(link.expiresAt).toISOString(),
+          // 门店日历今天（cutoff 00:00 = 纯日历日，不套营业日），供生日等 date-only 字段判「未来」
+          today: businessDateOf(new Date(), link.timezone, '00:00'),
           forms: rows.map((r) => ({
             templateId: r.id,
             key: r.key,
