@@ -30,6 +30,7 @@ vi.mock('@/features/settings/api', () => ({
   useSaveLocationProfile: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSaveBusinessHours: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSaveService: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useBulkUpdateServices: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSaveServiceCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useArchiveService: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSaveStaffProfile: () => ({ mutateAsync: vi.fn(), isPending: false }),

@@ -14,7 +14,7 @@
 | U01/U08 默认设置、健康表首发、房间门禁、AI 线路 | W1 | **部分完成**：AI 电话新线默认不接（U08，#4）已修；健康表首发、房间门禁、setup readiness DTO 未开始 | #4 |
 | U02/U13 员工目录与员工中心 | W2 / W2b | **U02 主体 + U13 完成**：岗位 / 职级 / 技能改 ID 契约，服务端不再据自由文本新建目录项、跨店 / 伪造 / 未知值拒绝、停用项只对已关联者保留；`sql/0114` 补 `job_title_id` + 回填 + 只读盘点视图；新增 `staff.reorderDirectoryOptions` 原子重排（#7）。员工中心改默认紧凑卡片 + 单卡展开明细，编辑弹窗技能区可搜索 + 限高滚动（#8）。剩：行业预设生成（属 W1）、`user.updateProfile` 自助技能自由文本、真机 iPad 扫屏（W6b） | #6 #7 #8 |
 | U03/U06/U11 预约日期、时长、详情状态 | W3 | **部分完成**：时长输入（#2）、新建默认日期不取营业日（#3）、详情顶部进度不误报空工单/取消（#5）已修；跨午夜/Calls 草稿 UTC 日期、allowedActions DTO 未做 | #2 #3 #5 |
-| U04 服务导入、技师人数、网约、批量编辑 | W4 | **小修**：Settings 分类筛选栏换行不再裁切主操作（#6）；导入默认网约、批量 PATCH 未做 | #6 |
+| U04 服务导入、技师人数、网约、批量编辑 | W4 | **主体完成**：导入 / 新建普通项默认网约、加项强制不网约（#9）；`SaveService` 布尔字段改 PATCH 语义（编辑省略不覆写）；新增 `catalog.bulkUpdateServices` + Settings 多选批量条（网约 / 人数 / 技能加移替 / 分类）。剩：draft 级人数编辑、分类栏窄屏下拉（→W6b）、逐字段乐观锁 | #6 #9 |
 | U05 Google review 同步权限 | W5 | **小修**：配置读接口带 `manualSyncEnabled`，未开放时按钮禁用+提示，不再显示成权限不足（#6）；分状态文案与调查未做 | #6 |
 | U07/U11/U12 导航、生日选择、全端 iPad | W6 | **部分**：U07 侧栏三分组 + 账号入口进侧栏（#6）已修；U11 生日选择器、U12 全端 iPad 未做 | #6 |
 | U10 组合套餐 | W7 | 未开始（独立主项目） | — |
@@ -781,3 +781,119 @@ handler 对 `jobTitle` / `level` / `skills` 三个自由文本字段**匹配不�
 
 `git checkout apps/web/src/pages/EmployeePerformance.tsx apps/web/src/pages/EmployeePerformance.test.tsx`
 + 移除 `i18n/rotation.ts` 的 9 条 `emp*` 词条。无数据 / 契约影响。
+
+---
+
+## 批次 #9 — W4：服务导入默认网约 + `catalog.saveService` PATCH 语义 + 批量编辑（U04）
+
+**日期**：2026-09-07
+**改动范围**：契约 `SaveService`（字段改可选）+ 新命令 `catalog.bulkUpdateServices` +
+`handlers/setup.ts` + `handlers/blueprint.ts`（一行）+ 前端 `Settings.tsx` / `settings/{api,types}.ts` +
+`i18n/settings.ts`（24 条）+ 新测试 `catalogBulk.test.ts`。公共层与消费者分两个 commit。
+
+### 这一刀解决了什么
+
+计划 §7.1 三处确认硬伤 + 缺失的批量编辑：
+
+1. `handlers/blueprint.ts` 服务发布 SQL 把 `online_bookable` 写死 `false` —— AI 照片导入的
+   普通项目一律不支持网约。
+2. `SaveService` 契约里 `taxable` / `onlineBookable` / `isAddon` / `active` 都是
+   `z.boolean().default(false|true)` —— 编辑时省略任一字段，Zod 先填默认值，handler 无从分辨
+   「没传」和「显式 false」，于是**编辑省略即覆写旧值**。
+3. 没有批量修改一组项目的命令，前端也没有多选 / 批量操作条。
+
+### 改了什么
+
+**1. 契约 `packages/contracts/src/commands/setup.ts`**
+
+- `SaveService`：`taxable` / `onlineBookable` / `isAddon` / `active` 从 `.default(...)` 改 `.optional()`
+  —— PATCH 语义，「不传即不改」。新建缺省在 handler 里给（见下）。
+- 新增 `catalog.bulkUpdateServices`（`permission: 'catalog.manage'`）：
+  `serviceIds`（1–200）+ `set`（`onlineBookable` / `staffCount` / `categoryId` /
+  `skillsAdd` / `skillsRemove` / `skillsReplace`）。zod `.refine` 挡两件事：`set` 至少一个字段、
+  `skillsReplace` 与 `skillsAdd` / `skillsRemove` 互斥。
+
+**2. `handlers/setup.ts` — `SaveService`**
+
+- 新建缺省：`taxable ?? false`、`isAddon ?? false`、`active ?? true`、`staffCount ?? 1`、
+  **`onlineBookable ?? !isAddon`（普通项目默认支持网约，加项默认不进网约目录，§7.2）**。
+- 编辑：`taxable` / `online_bookable` / `is_addon` / `active` 全部改
+  `${input.x === undefined ? tx\`x\` : input.x}`（对齐既有 `category_id` 的写法）；
+  `staff_count` 原本已是 `coalesce(... , staff_count)`，保留。
+- 加项守卫（新建 + 编辑）：按「本次生效后」的 `isAddon` / `onlineBookable` 组合，
+  若两者皆真 → `VALIDATION_FAILED { reason: 'addon_not_online_bookable' }`。
+
+**3. `handlers/setup.ts` — `catalog.bulkUpdateServices`（新 handler）**
+
+- 目标项目 `for update` 锁行，缺一即 `NOT_FOUND`（跨店 ID 整批失败，无半批写入）。
+- `set.onlineBookable === true` 且选中项含加项 → `VALIDATION_FAILED { reason: 'addon_not_online_bookable', serviceIds }`。
+- `categoryId` / 技能 ID 全部校验本店归属，缺一 `NOT_FOUND`。
+- 标量字段（online / staffCount / category）一条 `update ... where id = any(ids)`，不传即不改。
+- 技能：`skillsReplace` → 先 `delete` 再逐项 `insert`（空数组＝清空）；否则 `skillsRemove`
+  批量 `delete`、`skillsAdd` 逐项 `insert ... on conflict do nothing`。
+- **只动 online / staffCount / category / 技能，从不碰 price / duration / name** —— 因此对
+  「预览后他人改了价格 / 时长」天然安全（§7.2「不覆盖价格 / 时长」）。
+- 单事务全成全败（命令总线默认事务）。审计记 `serviceIds` + 改动字段名。
+
+**4. `handlers/blueprint.ts`**
+
+服务发布 `values (... online_bookable ...)` 从写死 `false` 改 `${r.kind !== 'addon'}`：
+普通导入项默认支持网约，加项仍 `false`。
+
+**5. 前端**
+
+- `settings/types.ts` + `settings/api.ts`：`BulkUpdateServicesInput` + `useBulkUpdateServices`
+  （成功后 invalidate `settingsKeys.desk` —— 公开目录 / 预约可用性走同一份 desk settings 查询）。
+- `pages/Settings.tsx` 服务 tab：
+  - 每行加复选框；顶部「全选当前 N 项 / 清空选择 / 已选 N」（列表未分页，`filteredServices`
+    就是全部筛选结果，无「本页 vs 全部」歧义）。
+  - 勾选后底部 `sticky` 批量操作条：设为可网约 / 取消网约 / 设置技师人数 / 添加技能 /
+    移除技能 / 替换技能 / 迁移分类。
+  - 一个批量确认弹窗：online/offline 给数量文案 + 选中含加项时红字阻止并禁用「应用」；
+    staffCount 数字输入（1–5）；技能三种操作共用可搜索标签列表（`max-h-40` 滚动）；
+    分类下拉（含「未分类」）。底部固定提示「批量操作不会改动价格、时长或名称」。
+- `i18n/settings.ts`：24 条 `settings.stBulk*`（5 语齐全，`{p0}` 占位，非中文无 CJK）。
+
+### 明确未做 / 交接
+
+- **draft 级「预览每项改技师人数」**（§7.2）：blueprint 草稿模型没有 `staff_count` 列，
+  导入一律落 1（＝「AI 无可靠依据不猜双技师」），店主导入后用**批量命令**或单项编辑改 2。
+  草稿行内人数编辑器需要 blueprint schema 迁移 + 契约 + `toServiceDrafts` 透传，留作后续。
+- **分类栏窄屏可搜索下拉**（§7.2）：批次 #6 的 `flex-wrap` 仍在；完整响应式（窄屏下拉 /
+  宽屏单行横滚 + `shrink-0`）随 W6b（U12）iPad 扫屏一起做。
+- **逐字段乐观锁**（「预览后他人改了所选字段」）：本命令字段范围窄（不碰价格 / 时长），
+  对未选字段天然安全；对所选字段是 last-write-wins。严格版本校验需要 `services.updated_at`
+  迁移 + 前端捕获，留作后续。
+- **部分成功 / 可重试集合**：本实现是单批事务全成全败（计划允许的默认），未做逐项结果返回。
+
+### 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 迁移 | 无新迁移 | — |
+| 类型 | `@gf/contracts` / `@gf/api` / `@gf/web` `tsc --noEmit` | 全部 exit 0 |
+| 新测试 | `vitest run src/catalogBulk.test.ts` | 8 passed（新建普通默认网约 / 加项不网约；编辑省略布尔保留旧值；加项设网约被拒；批量 online+人数一事务；skillsAdd 保留 / skillsReplace 覆盖；跨店 ID 整批拒绝无半写；批量加项设网约被拒；未知技能被拒）|
+| 相邻套件 | `vitest run src/blueprint.test.ts src/settings_enhancements.test.ts src/phone.test.ts src/public.test.ts` | 192 passed |
+| Web 全量单测 | `pnpm --filter @gf/web test` | 58 files / 325 passed（两处 Settings 测试的 api mock 补 `useBulkUpdateServices`）|
+| 守卫 | `pnpm lint:guards` | ✓ |
+| 完整 `pnpm --filter @gf/api test` | isolated 库 | 见提交时运行记录 |
+
+未做：浏览器 / 真机交互验证（Settings 服务 tab 需登录整套栈；按计划 §12 / H 阶段单列）。
+
+### 计划 §7 / T20–T24 对照
+
+| 验收点 | 本批状态 |
+|---|---|
+| T20 普通 / add-on / 次卡 / 套餐类型与默认网约正确 | ✅ 普通新建 + 导入默认 true，add-on 强制 false；套餐(U10) / 次卡不经 `services` 默认路径，未受影响 |
+| T21 导入双技师项目占两人容量 | 🔸 导入落 1，店主批量 / 单项设 2 后容量校验走既有 `serviceCapacity`（未在本批加断言）|
+| T22 批量加技能保留原技能，替换才清除 | ✅ 新测试覆盖 |
+| T23 批量关网约立即影响公开目录；跨页筛选选择 | ✅ 关网约 + `invalidate desk settings`；列表未分页，选择即全筛选结果 |
+| T24 跨店 ID / 失效技能 / 并发编辑拒绝且无半批 | ✅ 跨店 / 未知技能整批拒绝、单事务；严格并发版本校验留后续 |
+| 30 分类 / 200 项目 iPad 可过滤选中保存 | 🔸 上限 200、复选 + 批量条已具；iPad 扫屏留 W6b |
+
+### 回退
+
+1. 前端：`git revert` 消费者 commit。
+2. 契约 + handler：`git revert` 公共层 commit（`SaveService` 字段恢复 `.default()`、
+   删 `catalog.bulkUpdateServices`、blueprint 恢复 `online_bookable=false`）。
+无数据 / 迁移改动。

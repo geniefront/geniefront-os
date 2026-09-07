@@ -13,6 +13,7 @@ import type {
   SaveLocationProfileInput,
   SaveBusinessHoursInput,
   SaveServiceInput,
+  BulkUpdateServicesInput,
   SaveServiceCategoryInput,
   ArchiveServiceInput,
   SaveStaffProfileInput,
@@ -118,6 +119,25 @@ export function useSaveService() {
     mutationFn: async (input: SaveServiceInput) => {
       const res = await runCommand(
         'catalog.saveService',
+        input,
+        membershipId!,
+      );
+      return res.result;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: settingsKeys.desk(membershipId) });
+    },
+  });
+}
+
+export function useBulkUpdateServices() {
+  const queryClient = useQueryClient();
+  const { membershipId } = useSession();
+
+  return useMutation({
+    mutationFn: async (input: BulkUpdateServicesInput) => {
+      const res = await runCommand<{ updated: number }>(
+        'catalog.bulkUpdateServices',
         input,
         membershipId!,
       );

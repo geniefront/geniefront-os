@@ -65,6 +65,7 @@ import {
   useSaveLocationProfile,
   useSaveBusinessHours,
   useSaveService,
+  useBulkUpdateServices,
   useSaveServiceCategory,
   useArchiveService,
   useSaveStaffProfile,
@@ -87,6 +88,7 @@ import type {
   StaffItem,
   CheckoutSettings,
   WebhookConfigItem,
+  BulkUpdateServicesInput,
 } from '@/features/settings/types';
 import type { TranslationKey } from '@/i18n';
 import { HardwareServer } from './HardwareServer';
@@ -248,6 +250,7 @@ export function Settings() {
   const saveLocationMutation = useSaveLocationProfile();
   const saveHoursMutation = useSaveBusinessHours();
   const saveServiceMutation = useSaveService();
+  const bulkUpdateServicesMutation = useBulkUpdateServices();
   const saveServiceCategoryMutation = useSaveServiceCategory();
   const archiveServiceMutation = useArchiveService();
   const saveStaffMutation = useSaveStaffProfile();
@@ -337,6 +340,14 @@ export function Settings() {
   const [serviceStaffCount, setServiceStaffCount] = useState('1');
   const [serviceRequiredSkillIds, setServiceRequiredSkillIds] = useState<string[]>([]);
   const [archivingService, setArchivingService] = useState<ServiceItem | null>(null);
+
+  // 5b. 批量编辑（U04 / §7.2）
+  const [selectedServiceIds, setSelectedServiceIds] = useState<Set<string>>(new Set());
+  type BulkOp = 'online' | 'offline' | 'staffCount' | 'skillsAdd' | 'skillsRemove' | 'skillsReplace' | 'category';
+  const [bulkOp, setBulkOp] = useState<BulkOp | null>(null);
+  const [bulkStaffCount, setBulkStaffCount] = useState('1');
+  const [bulkSkillIds, setBulkSkillIds] = useState<string[]>([]);
+  const [bulkCategoryId, setBulkCategoryId] = useState<string>('');
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<ServiceCategoryItem | null>(null);
   const [categoryNameZh, setCategoryNameZh] = useState('');
@@ -857,6 +868,44 @@ export function Settings() {
     }
     return true;
   });
+
+  // ── 批量编辑：选择与提交 ──────────────────────────────────────────────
+  const filteredServiceIds = filteredServices.map((s) => s.id);
+  const selectedInView = filteredServiceIds.filter((id) => selectedServiceIds.has(id));
+  const allInViewSelected = filteredServiceIds.length > 0 && selectedInView.length === filteredServiceIds.length;
+  const toggleServiceSelected = (id: string) => {
+    setSelectedServiceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAllInView = () => {
+    setSelectedServiceIds((prev) => {
+      const next = new Set(prev);
+      if (allInViewSelected) filteredServiceIds.forEach((id) => next.delete(id));
+      else filteredServiceIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+  const clearSelection = () => setSelectedServiceIds(new Set());
+  const openBulk = (op: BulkOp) => {
+    setBulkSkillIds([]); setBulkStaffCount('1'); setBulkCategoryId('');
+    setBulkOp(op);
+  };
+  const selectedServiceObjs = (settings?.services ?? []).filter((s) => selectedServiceIds.has(s.id));
+  const bulkHasAddon = selectedServiceObjs.some((s) => s.isAddon);
+  const runBulk = async (set: BulkUpdateServicesInput['set']) => {
+    const serviceIds = [...selectedServiceIds];
+    try {
+      const res = await bulkUpdateServicesMutation.mutateAsync({ serviceIds, set });
+      toast.success(t('settings.stBulkDone', { p0: res.updated }));
+      clearSelection();
+      setBulkOp(null);
+    } catch (err: any) {
+      toast.danger(errorMessage(err));
+    }
+  };
 
   // 过滤员工列表
   const filteredStaff = (settings?.staff || []).filter((stf) => {
@@ -1908,21 +1957,46 @@ export function Settings() {
                   </div>
                 </div>
 
+                {/* 批量选择工具条（U04 / §7.2） */}
+                {filteredServices.length > 0 && (
+                  <div className="flex items-center gap-3 mb-2 text-xs">
+                    <label className="flex items-center gap-1.5 font-medium text-slate-600">
+                      <input type="checkbox" checked={allInViewSelected} onChange={toggleSelectAllInView} />
+                      {t('settings.stBulkSelectAll', { p0: filteredServices.length })}
+                    </label>
+                    {selectedServiceIds.size > 0 && (
+                      <>
+                        <span className="text-slate-400">{t('settings.stBulkSelected', { p0: selectedServiceIds.size })}</span>
+                        <button type="button" onClick={clearSelection} className="text-slate-400 hover:text-slate-700 underline">
+                          {t('settings.stBulkClear')}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+
                 {/* 服务列表 */}
                 <div className="rounded-2xl border border-slate-200 overflow-hidden divide-y divide-slate-100 bg-white">
                   {filteredServices.length === 0 ? (
                     <div className="p-8 text-center text-slate-400 text-xs">
-                      
+
                       {t('settings.stNoServiceMatch')}
                     </div>
                   ) : (
                     filteredServices.map((svc) => (
                       <div
                         key={svc.id}
-                        className="p-4 flex items-center justify-between hover:bg-slate-50/80 transition-colors"
+                        className="p-4 flex items-center justify-between gap-3 hover:bg-slate-50/80 transition-colors"
                       >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          className="shrink-0"
+                          checked={selectedServiceIds.has(svc.id)}
+                          onChange={() => toggleServiceSelected(svc.id)}
+                          aria-label={svc.displayName}
+                        />
+                        <div className="space-y-1 flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-slate-900 text-xs sm:text-sm">
                               {svc.displayName}
                             </span>
@@ -1975,9 +2049,100 @@ export function Settings() {
                     ))
                   )}
                 </div>
+
+                {/* 批量操作条：勾选后出现，提交前在弹窗里给数量 / 字段 / 覆盖影响 */}
+                {selectedServiceIds.size > 0 && (
+                  <div className="sticky bottom-0 mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 p-3 text-xs shadow-lg backdrop-blur">
+                    <span className="font-bold text-slate-700">{t('settings.stBulkSelected', { p0: selectedServiceIds.size })}</span>
+                    <Button size="sm" variant="secondary" onClick={() => openBulk('online')}>{t('settings.stBulkSetOnline')}</Button>
+                    <Button size="sm" variant="secondary" onClick={() => openBulk('offline')}>{t('settings.stBulkSetOffline')}</Button>
+                    <Button size="sm" variant="secondary" onClick={() => openBulk('staffCount')}>{t('settings.stBulkStaffCount')}</Button>
+                    <Button size="sm" variant="secondary" onClick={() => openBulk('skillsAdd')}>{t('settings.stBulkSkillsAdd')}</Button>
+                    <Button size="sm" variant="secondary" onClick={() => openBulk('skillsRemove')}>{t('settings.stBulkSkillsRemove')}</Button>
+                    <Button size="sm" variant="secondary" onClick={() => openBulk('skillsReplace')}>{t('settings.stBulkSkillsReplace')}</Button>
+                    <Button size="sm" variant="secondary" onClick={() => openBulk('category')}>{t('settings.stBulkCategory')}</Button>
+                  </div>
+                )}
               </SettingsCard>
             </div>
           )}
+
+          {/* 批量编辑确认弹窗 */}
+          <Modal
+            isOpen={bulkOp !== null}
+            onOpenChange={(open) => { if (!open) setBulkOp(null); }}
+            size="sm"
+            title={t('settings.stBulkTitle', { p0: selectedServiceIds.size })}
+            footer={
+              <div className="flex w-full justify-end gap-2">
+                <Button variant="secondary" onClick={() => setBulkOp(null)}>{t('settings.stServiceCancel')}</Button>
+                <Button
+                  disabled={bulkUpdateServicesMutation.isPending
+                    || ((bulkOp === 'skillsAdd' || bulkOp === 'skillsRemove') && bulkSkillIds.length === 0)
+                    || (bulkOp === 'online' && bulkHasAddon)}
+                  onClick={() => {
+                    if (bulkOp === 'online') void runBulk({ onlineBookable: true });
+                    else if (bulkOp === 'offline') void runBulk({ onlineBookable: false });
+                    else if (bulkOp === 'staffCount') void runBulk({ staffCount: Math.max(1, Math.min(5, parseInt(bulkStaffCount, 10) || 1)) });
+                    else if (bulkOp === 'skillsAdd') void runBulk({ skillsAdd: bulkSkillIds });
+                    else if (bulkOp === 'skillsRemove') void runBulk({ skillsRemove: bulkSkillIds });
+                    else if (bulkOp === 'skillsReplace') void runBulk({ skillsReplace: bulkSkillIds });
+                    else if (bulkOp === 'category') void runBulk({ categoryId: bulkCategoryId || null });
+                  }}
+                >
+                  {t('settings.stBulkApply')}
+                </Button>
+              </div>
+            }
+          >
+            <div className="space-y-3 py-1 text-xs text-slate-700">
+              {bulkOp === 'online' && (
+                <p>
+                  {t('settings.stBulkConfirmOnline', { p0: selectedServiceIds.size })}
+                  {bulkHasAddon && <span className="mt-1 block font-bold text-red-600">{t('settings.stBulkAddonBlocked')}</span>}
+                </p>
+              )}
+              {bulkOp === 'offline' && <p>{t('settings.stBulkConfirmOffline', { p0: selectedServiceIds.size })}</p>}
+              {bulkOp === 'staffCount' && (
+                <label className="block">
+                  <span className="mb-1 block font-bold text-slate-700">{t('settings.stBulkStaffCountLabel')}</span>
+                  <Input type="number" min={1} max={5} value={bulkStaffCount} onChange={(e) => setBulkStaffCount(e.target.value)} />
+                </label>
+              )}
+              {(bulkOp === 'skillsAdd' || bulkOp === 'skillsRemove' || bulkOp === 'skillsReplace') && (
+                <div>
+                  <p className="mb-1 font-bold text-slate-700">
+                    {bulkOp === 'skillsReplace' ? t('settings.stBulkSkillsReplaceHint') : t('settings.stBulkSkillsPick')}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+                    {(settings?.skills ?? []).filter((sk) => sk.active || bulkSkillIds.includes(sk.id)).map((sk) => {
+                      const on = bulkSkillIds.includes(sk.id);
+                      return (
+                        <button
+                          key={sk.id}
+                          type="button"
+                          onClick={() => setBulkSkillIds((prev) => on ? prev.filter((x) => x !== sk.id) : [...prev, sk.id])}
+                          className={`px-2 py-1 rounded-lg border text-xs font-medium ${on ? 'bg-teal-600 text-white border-teal-700' : 'bg-white text-slate-700 border-slate-200'}`}
+                        >
+                          {on && '✓ '}{sk.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {bulkOp === 'category' && (
+                <label className="block">
+                  <span className="mb-1 block font-bold text-slate-700">{t('settings.stBulkCategoryLabel')}</span>
+                  <select value={bulkCategoryId} onChange={(e) => setBulkCategoryId(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
+                    <option value="">{t('settings.stBulkCategoryNone')}</option>
+                    {(settings?.serviceCategories ?? []).map((c) => <option key={c.id} value={c.id}>{c.displayName}</option>)}
+                  </select>
+                </label>
+              )}
+              <p className="text-[11px] text-slate-400">{t('settings.stBulkPriceUntouched')}</p>
+            </div>
+          </Modal>
 
           {/* ============================================================ */}
           {/* TAB 6: 员工管理与调度 (staff) */}

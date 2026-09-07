@@ -235,6 +235,18 @@ export interface SaveServiceCategoryInput {
   sort?: number;
 }
 
+export interface BulkUpdateServicesInput {
+  serviceIds: string[];
+  set: {
+    onlineBookable?: boolean;
+    staffCount?: number;
+    categoryId?: string | null;
+    skillsAdd?: string[];
+    skillsRemove?: string[];
+    skillsReplace?: string[];
+  };
+}
+
 export interface ArchiveServiceInput {
   serviceId: string;
 }
