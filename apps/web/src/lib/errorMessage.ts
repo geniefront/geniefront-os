@@ -83,6 +83,13 @@ const ERROR_REASON_KEYS: Record<string, TranslationKey> = {
   ticket_exists_requires_void: 'errorReasonTicketExistsRequiresVoid',
   closed_ticket_requires_void: 'errorReasonClosedTicketRequiresVoid',
   appointment_ticket_exists: 'errorReasonAppointmentTicketExists',
+  // 换技师 / 换工位
+  item_already_finished: 'errorReasonItemAlreadyFinished',
+  staff_already_assigned: 'errorReasonStaffAlreadyAssigned',
+  staff_not_assigned: 'errorReasonStaffNotAssigned',
+  staff_not_active_at_location: 'errorReasonStaffNotActiveAtLocation',
+  resource_staff_limit: 'errorReasonResourceStaffLimit',
+  service_not_started: 'errorReasonServiceNotStarted',
   // 工位
   resource_not_available: 'errorReasonResourceNotAvailable',
   resource_has_active_occupancies: 'errorReasonResourceHasActiveOccupancies',

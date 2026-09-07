@@ -41,6 +41,42 @@ export const TicketStartItem = defineCommand({
   idempotency: 'optional',
 });
 
+/**
+ * ⭐ 把某一项服务换个技师做。
+ *
+ * 门店里这件事天天发生：技师临时被叫走、客人做到一半要求换人、前台派错了人。
+ * 此前系统里没有这条命令 —— 前台唯一的办法是作废整张单重开，
+ * 而那会丢掉已经走过的开始时间，多项目单还要连带把别人的项目一起重来。
+ *
+ * 只改归属，不动时间：开始时间是这一项真实的工时起点，换人不该让它归零。
+ * 提成按 `ticket_item_staff` 在结账时结算，因此换人必须发生在完工之前 ——
+ * 已完工的项目再改人，等于事后改动别人已经做完的工作的归属。
+ */
+export const TicketMoveItemStaff = defineCommand({
+  name: 'ticket.moveItemStaff',
+  input: z.object({
+    ticketItemId: uuid,
+    /** 接手的技师。 */
+    membershipId: uuid,
+    /** 双技师协作时指定换掉谁；不传则换掉主技师。 */
+    replacesMembershipId: uuid.optional(),
+    /** 换人必须留下理由：这条记录是日后核对提成争议的唯一依据。 */
+    reason: z.string().trim().min(2).max(500),
+  }),
+  output: z.object({
+    ticketItemId: uuid,
+    membershipId: uuid,
+    replacedMembershipId: uuid,
+  }),
+  permission: 'queue.manage',
+  ai: {
+    description: '把某一项服务改派给另一位技师（技师临时被换走、客人要求换人）。',
+    confirm: 'always',
+  },
+  reversible: false,
+  idempotency: 'required',
+});
+
 export const TicketFinishItem = defineCommand({
   name: 'ticket.finishItem',
   input: z.object({
@@ -278,6 +314,6 @@ export const RevokeStaffSessions = defineCommand({
 });
 
 export const STAFF_COMMANDS = [
-  TicketStartItem, TicketFinishItem, TicketSaveServiceNote, TimeclockPunch, SetMyLocale,
+  TicketStartItem, TicketFinishItem, TicketMoveItemStaff, TicketSaveServiceNote, TimeclockPunch, SetMyLocale,
   AddStaff, SetEmployment, IssueStaffClaimCode, RevokeStaffSessions,
 ] as const;

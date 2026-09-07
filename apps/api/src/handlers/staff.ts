@@ -8,7 +8,8 @@
 import type postgres from 'postgres';
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import {
-  SaveStaffDirectoryOption, TicketStartItem, TicketFinishItem, TicketSaveServiceNote, StaffRecordDirectCashTip,
+  SaveStaffDirectoryOption, TicketStartItem, TicketFinishItem, TicketMoveItemStaff,
+  TicketSaveServiceNote, StaffRecordDirectCashTip,
   TimeclockPunch, SetMyLocale,
   AddStaff, SetEmployment, StaffSaveProfile, IssueStaffClaimCode, RevokeStaffSessions,
   AppError, ERROR_CODES, actingMembership, type CommandContext,
@@ -18,6 +19,7 @@ import { parseTs, ts, jsonb } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
 import { assertDayOpen } from '../money';
 import { assertStaffCapacity, lockServiceCapacity } from '../serviceCapacity';
+import { assertResourceStaffLimit } from '../resourceStaffLimit';
 import { occupyServiceResource } from './serviceResource';
 import { hashPin, verifyPin } from '../auth/pin';
 
@@ -252,6 +254,107 @@ registerHandler(TicketFinishItem, async ({ input, ctx, tx, audit, emit }: Handle
     finishedAt: parseTs(updated!.finished_at).toISOString(),
     actualMinutes: Math.max(0, updated!.mins),
     ticketDone: done,
+  };
+});
+
+registerHandler(TicketMoveItemStaff, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
+  typeof TicketMoveItemStaff.input._type>) => {
+  // 容量判断同样是「读一遍 → 判断 → 写入」，锁必须先于任何相关读取。
+  await lockServiceCapacity(tx, ctx.locationId);
+
+  const [row] = await tx<{
+    id: string; ticket_id: string; started_at: string | null; finished_at: string | null;
+    status: string; business_date: string; resource_id: string | null;
+  }[]>`
+    select ti.id, ti.ticket_id, ti.started_at, ti.finished_at, t.status, ti.resource_id,
+           t.business_date::text as business_date
+    from ticket_items ti join tickets t on t.id = ti.ticket_id
+    where ti.id = ${input.ticketItemId} and t.location_id = ${ctx.locationId}
+    for update`;
+  if (!row) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket_item' } });
+  if (row.status === 'closed' || row.status === 'voided' || row.status === 'refunded') {
+    throw new AppError(ERROR_CODES.TICKET_ALREADY_CLOSED, { details: { status: row.status } });
+  }
+  /*
+   * 已完工的项目不允许改人：提成按 ticket_item_staff 在结账时结算，
+   * 事后改归属等于把别人已经做完的活记到另一个人头上，且无从对证。
+   */
+  if (row.finished_at !== null) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'item_already_finished' },
+    });
+  }
+  await assertDayOpen(tx, ctx.locationId, row.business_date);
+
+  const assigned = await tx<{ id: string; membership_id: string; role: string }[]>`
+    select id, membership_id, role from ticket_item_staff
+    where ticket_item_id = ${row.id} order by (role = 'primary') desc, membership_id`;
+  if (assigned.length === 0) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket_item_staff' } });
+  }
+  if (assigned.some((entry) => entry.membership_id === input.membershipId)) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'staff_already_assigned' },
+    });
+  }
+
+  // 不指定换谁就换主技师；协作单必须指定，否则前台无从判断动了哪一位。
+  const outgoing = input.replacesMembershipId
+    ? assigned.find((entry) => entry.membership_id === input.replacesMembershipId)
+    : assigned[0];
+  if (!outgoing) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'staff_not_assigned' },
+    });
+  }
+
+  const [incoming] = await tx<{ id: string }[]>`
+    select id from memberships
+    where id = ${input.membershipId} and location_id = ${ctx.locationId} and status = 'active'`;
+  if (!incoming) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'staff_not_active_at_location' },
+    });
+  }
+
+  /*
+   * 只有已经开始的项目才占用技师的并发名额 —— 未开始的项目改派不影响任何人的
+   * 当前负载，此时判容量会把一次纯粹的计划调整误判成超排。
+   */
+  if (row.started_at !== null) {
+    await assertStaffCapacity({
+      tx, ctx,
+      businessDate: row.business_date,
+      membershipIds: [input.membershipId],
+      ticketId: row.ticket_id,
+    });
+  }
+
+  await tx`update ticket_item_staff set membership_id = ${input.membershipId}
+           where id = ${outgoing.id}`;
+
+  // 换进来的人可能撞破这个工位的「同时最多几位技师」上限。
+  if (row.resource_id) {
+    await tx`select id from resources where id = ${row.resource_id} for update`;
+    await assertResourceStaffLimit(tx, row.resource_id, row.id);
+  }
+
+  audit({
+    entityType: 'ticket', entityId: row.ticket_id,
+    before: { itemId: row.id, membershipId: outgoing.membership_id },
+    after: {
+      itemId: row.id, action: 'move_staff',
+      membershipId: input.membershipId, role: outgoing.role,
+      started: row.started_at !== null,
+      reason: input.reason,
+    },
+  });
+  emit({ type: 'ticket.changed', entityId: row.ticket_id, businessDate: row.business_date });
+
+  return {
+    ticketItemId: row.id,
+    membershipId: input.membershipId,
+    replacedMembershipId: outgoing.membership_id,
   };
 });
 

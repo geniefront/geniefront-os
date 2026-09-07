@@ -48,7 +48,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { Ban } from 'lucide-react';
+import { Ban, ArrowRightLeft } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
 import { UNASSIGNED_STAFF_ID, toScheduleItem } from '@/context/ScheduleContext';
 import { useDaySnapshot } from '@/features/schedule/api';
@@ -64,7 +64,8 @@ import {
   useJoinQueue, useQueue, useRollbackQueueStage, useUpdateQueueEntry,
 } from '@/features/queue/api';
 import {
-  useAddTicketItem, useFinishTicketItem, useOpenTicket, useSaveServiceNote, useStartTicketItem, useTicketsList, useVoidTicket,
+  useAddTicketItem, useFinishTicketItem, useMoveTicketItemResource, useMoveTicketItemStaff,
+  useOpenTicket, useSaveServiceNote, useStartTicketItem, useTicketsList, useVoidTicket,
   isOverbookConfirmable, overbookDetail,
 } from '@/features/tickets/api';
 import { OVERRIDE_REASONS } from '@/features/schedule/api';
@@ -481,6 +482,8 @@ function QueueContent() {
   const onlineTechIds = useLocationTechPresence();
   const closeTicketMutation = useCloseTicket();
   const voidTicketMutation = useVoidTicket();
+  const moveItemStaffMutation = useMoveTicketItemStaff();
+  const moveItemResourceMutation = useMoveTicketItemResource();
   const openTicketMutation = useOpenTicket();
   const addTicketItemMutation = useAddTicketItem();
   const startTicketItemMutation = useStartTicketItem();
@@ -953,6 +956,23 @@ function QueueContent() {
    * 订单记录页找这张单。作废的两种后果差别很大（退回候客区可重开 /
    * 连预约一起取消），因此弹窗按所选原因如实说明会发生什么。
    */
+  /**
+   * 服务中的三个局部改动：加项、换技师、换工位。
+   *
+   * 三者共用一个弹窗：它们的形状是一样的 —— 选一项服务（单项目单自动选中）、
+   * 选一个新的目标、给一句理由。拆成三个弹窗只会让同一段选择逻辑抄三遍。
+   */
+  const [itemActionModal, setItemActionModal] = useState<{
+    isOpen: boolean;
+    mode: 'add' | 'staff' | 'room';
+    item: KanbanItem | null;
+    ticketItemId: string;
+    serviceId: string;
+    staffId: string;
+    resourceId: string;
+    reason: string;
+  }>({ isOpen: false, mode: 'add', item: null, ticketItemId: '', serviceId: '', staffId: '', resourceId: '', reason: '' });
+
   const [voidModal, setVoidModal] = useState<{
     isOpen: boolean;
     item: KanbanItem | null;
@@ -1577,6 +1597,99 @@ function QueueContent() {
       return;
     }
     initiateStageTransition(item, target);
+  };
+
+  /**
+   * 打开局部改动弹窗。
+   *
+   * 三种模式都要求已经开单 —— 加项、换技师、换工位改的都是工单条目，
+   * 尚未开单时没有可改的对象，此时给出的是「先安排工位入座」，
+   * 而不是一个打开后无从选择的空弹窗。
+   */
+  const openItemAction = (item: KanbanItem, mode: 'add' | 'staff' | 'room') => {
+    const entries = queueTicketItems(item.rawTicket?.items ?? []);
+    if (!item.rawTicket || entries.length === 0) {
+      toast.info(t('queue.quItemActionNeedsTicket'));
+      return;
+    }
+    if (mode === 'room' && !entries.some((entry) => entry.startedAt && !entry.finishedAt)) {
+      toast.info(t('errorReasonServiceNotStarted'));
+      return;
+    }
+    /*
+     * 换技师对未完工的项目成立；换工位还要求已经开工 —— 服务端搬的是
+     * 「正在占用的那个位置」，没开工就没有位置可搬（service_not_started）。
+     * 与其让前台选完再吃一个校验失败，不如一开始就不列出来。
+     */
+    const editable = mode === 'add'
+      ? entries
+      : entries.filter((entry) => !entry.finishedAt && (mode === 'staff' || entry.startedAt));
+    const preset = editable.length === 1 ? editable[0]! : undefined;
+    setItemActionModal({
+      isOpen: true,
+      mode,
+      item,
+      ticketItemId: preset?.ticketItemId ?? '',
+      serviceId: '',
+      staffId: '',
+      resourceId: '',
+      reason: '',
+    });
+  };
+
+  const handleConfirmItemAction = async () => {
+    const { mode, item, ticketItemId, serviceId, staffId, resourceId, reason } = itemActionModal;
+    if (!item?.rawTicket) return;
+    const close = () => setItemActionModal((prev) => ({ ...prev, isOpen: false, item: null }));
+    try {
+      if (mode === 'add') {
+        const service = services.find((entry) => entry.id === serviceId);
+        if (!service || !staffId) return;
+        await addTicketItemMutation.mutateAsync({
+          ticketId: item.rawTicket.ticketId,
+          serviceId: service.id,
+          membershipId: staffId,
+          kind: 'addon',
+          minutes: service.durationMin,
+          ...(resourceId ? { resourceId } : {}),
+          idempotencyKey: crypto.randomUUID(),
+        });
+        close();
+        toast.success(t('queue.quAddItemDone', { p0: service.name }));
+      } else if (mode === 'staff') {
+        if (!ticketItemId || !staffId || reason.trim().length < 2) return;
+        const entry = queueTicketItems(item.rawTicket.items).find((e) => e.ticketItemId === ticketItemId);
+        await moveItemStaffMutation.mutateAsync({
+          ticketItemId,
+          membershipId: staffId,
+          ...(entry?.membershipId ? { replacesMembershipId: entry.membershipId } : {}),
+          reason: reason.trim(),
+          idempotencyKey: crypto.randomUUID(),
+        });
+        close();
+        toast.success(t('queue.quMoveStaffDone', {
+          p0: entry?.name ?? item.serviceName,
+          p1: staff.find((member) => member.membershipId === staffId)?.name ?? '',
+        }));
+      } else {
+        if (!ticketItemId || !resourceId || reason.trim().length < 2) return;
+        const entry = queueTicketItems(item.rawTicket.items).find((e) => e.ticketItemId === ticketItemId);
+        await moveItemResourceMutation.mutateAsync({
+          ticketItemId,
+          resourceId,
+          reason: reason.trim(),
+          idempotencyKey: crypto.randomUUID(),
+        });
+        close();
+        toast.success(t('queue.quMoveRoomDone', {
+          p0: entry?.name ?? item.serviceName,
+          p1: rooms.find((room) => room.id === resourceId)?.name ?? '',
+        }));
+      }
+      await Promise.all([refetchTickets(), refetchRooms(), refetchSchedule()]);
+    } catch (err) {
+      toast.danger(`${t('queue.quMoveFailed')} ${errorMessage(err)}`);
+    }
   };
 
   /** 打开作废弹窗。默认原因为「录入错误」——它是唯一会把客人退回候客区的分支。 */
@@ -2574,6 +2687,27 @@ function QueueContent() {
                                     label: t('queue.quViewDetail'),
                                     icon: <FileText className="h-4 w-4" />,
                                     onSelect: () => handleViewDetails(item),
+                                  },
+                                  {
+                                    id: 'add-item',
+                                    label: t('queue.quAddItemAction'),
+                                    icon: <Plus className="h-4 w-4" />,
+                                    isDisabled: !item.rawTicket,
+                                    onSelect: () => openItemAction(item, 'add'),
+                                  },
+                                  {
+                                    id: 'move-staff',
+                                    label: t('queue.quMoveStaffAction'),
+                                    icon: <User className="h-4 w-4" />,
+                                    isDisabled: !item.rawTicket,
+                                    onSelect: () => openItemAction(item, 'staff'),
+                                  },
+                                  {
+                                    id: 'move-room',
+                                    label: t('queue.quMoveRoomAction'),
+                                    icon: <ArrowRightLeft className="h-4 w-4" />,
+                                    isDisabled: !item.rawTicket,
+                                    onSelect: () => openItemAction(item, 'room'),
                                   },
                                   {
                                     id: 'rollback',
@@ -4945,6 +5079,157 @@ function QueueContent() {
           </div>
         </Modal>
       )}
+
+      {/* 弹窗 7: 服务中的局部改动 —— 加项 / 换技师 / 换工位共用一套选择逻辑。 */}
+      {itemActionModal.isOpen && itemActionModal.item?.rawTicket && (() => {
+        const modal = itemActionModal;
+        const entries = queueTicketItems(modal.item!.rawTicket!.items);
+        const editable = modal.mode === 'add' ? entries : entries.filter((entry) => !entry.finishedAt);
+        const bookable = staff.filter((member) => member.membershipId !== UNASSIGNED_STAFF_ID && member.isBookable);
+        const chosen = entries.find((entry) => entry.ticketItemId === modal.ticketItemId);
+        const pending = addTicketItemMutation.isPending
+          || moveItemStaffMutation.isPending || moveItemResourceMutation.isPending;
+        const needsReason = modal.mode !== 'add';
+        const ready = modal.mode === 'add'
+          ? Boolean(modal.serviceId && modal.staffId)
+          : Boolean(modal.ticketItemId && modal.reason.trim().length >= 2
+            && (modal.mode === 'staff' ? modal.staffId : modal.resourceId));
+        const titleKey = modal.mode === 'add' ? 'queue.quAddItemTitle'
+          : modal.mode === 'staff' ? 'queue.quMoveStaffTitle' : 'queue.quMoveRoomTitle';
+
+        return (
+          <Modal
+            isOpen={modal.isOpen}
+            onOpenChange={(open) => { if (!open) setItemActionModal((prev) => ({ ...prev, isOpen: false, item: null })); }}
+            title={
+              <div className="flex items-center gap-2 font-bold text-slate-900">
+                <ArrowRightLeft className="h-5 w-5 text-teal-600" />
+                <span>{t(titleKey)}</span>
+              </div>
+            }
+            size="sm"
+            footer={
+              <div className="flex w-full justify-end gap-2">
+                <Button
+                  variant="secondary"
+                  isDisabled={pending}
+                  onPress={() => setItemActionModal((prev) => ({ ...prev, isOpen: false, item: null }))}
+                >
+                  {t('cancel')}
+                </Button>
+                <Button className={PRIMARY_ACTION_CLASS} isDisabled={pending || !ready} onPress={handleConfirmItemAction}>
+                  {pending
+                    ? <><Spinner size="sm" />{t('queue.quProcessing')}</>
+                    : <><Check className="h-4 w-4" />{t('queue.quMoveConfirm')}</>}
+                </Button>
+              </div>
+            }
+          >
+            <div className="space-y-3 py-1 text-xs text-slate-700">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <span className="block font-bold text-slate-900">{modal.item!.customerName}</span>
+                <span className="block text-slate-500">{modal.item!.serviceName}</span>
+              </div>
+
+              {/* 换技师 / 换工位先选改哪一项；单项目单已自动选中，此处仍显示以便核对。 */}
+              {needsReason && (
+                <div>
+                  <label htmlFor="qa-item" className="mb-1 block text-xs font-bold text-slate-800">{t('queue.quPickItem')}</label>
+                  <select
+                    id="qa-item"
+                    value={modal.ticketItemId}
+                    onChange={(e) => setItemActionModal((prev) => ({ ...prev, ticketItemId: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800"
+                  >
+                    <option value="">—</option>
+                    {editable.map((entry) => (
+                      <option key={entry.ticketItemId} value={entry.ticketItemId}>
+                        {entry.name} · {entry.staffName} · {entry.roomName || t('queue.quRoomUnassigned')}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {modal.mode === 'add' && (
+                <div>
+                  <label htmlFor="qa-service" className="mb-1 block text-xs font-bold text-slate-800">{t('queue.quPickService')}</label>
+                  <select
+                    id="qa-service"
+                    value={modal.serviceId}
+                    onChange={(e) => setItemActionModal((prev) => ({ ...prev, serviceId: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800"
+                  >
+                    <option value="">—</option>
+                    {services.map((service) => (
+                      <option key={service.id} value={service.id}>
+                        {service.name} · ${centsToDollars(service.priceCents)} · {service.durationMin}m
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {(modal.mode === 'add' || modal.mode === 'staff') && (
+                <div>
+                  <label htmlFor="qa-staff" className="mb-1 block text-xs font-bold text-slate-800">
+                    {t(modal.mode === 'add' ? 'queue.quPickStaff' : 'queue.quPickNewStaff')}
+                  </label>
+                  <select
+                    id="qa-staff"
+                    value={modal.staffId}
+                    onChange={(e) => setItemActionModal((prev) => ({ ...prev, staffId: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800"
+                  >
+                    <option value="">—</option>
+                    {bookable
+                      .filter((member) => modal.mode === 'add' || member.membershipId !== chosen?.membershipId)
+                      .map((member) => (
+                        <option key={member.membershipId} value={member.membershipId}>{member.name}</option>
+                      ))}
+                  </select>
+                </div>
+              )}
+
+              {(modal.mode === 'add' || modal.mode === 'room') && (
+                <div>
+                  <label htmlFor="qa-room" className="mb-1 block text-xs font-bold text-slate-800">
+                    {t(modal.mode === 'add' ? 'queue.quAssignRoomRequired' : 'queue.quPickNewRoom')}
+                  </label>
+                  <select
+                    id="qa-room"
+                    value={modal.resourceId}
+                    onChange={(e) => setItemActionModal((prev) => ({ ...prev, resourceId: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800"
+                  >
+                    <option value="">—</option>
+                    {rooms
+                      .filter((room) => modal.mode === 'add' || room.id !== chosen?.resourceId)
+                      .map((room) => (
+                        <option key={room.id} value={room.id}>
+                          {room.name}{room.status === 'available' ? '' : ` ${t('queue.quRoomBusy')}`}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+
+              {needsReason && (
+                <div>
+                  <label htmlFor="qa-reason" className="mb-1 block text-xs font-bold text-slate-800">{t('queue.quMoveReason')}</label>
+                  <Input
+                    id="qa-reason"
+                    value={modal.reason}
+                    onChange={(e) => setItemActionModal((prev) => ({ ...prev, reason: e.target.value }))}
+                    placeholder={t('queue.quMoveReasonPlaceholder')}
+                    className="text-xs"
+                  />
+                </div>
+              )}
+            </div>
+          </Modal>
+        );
+      })()}
 
       {/* 技师并发放行确认：服务端把这个错误标成可放行时才出现 */}
       {overbookConfirm && (

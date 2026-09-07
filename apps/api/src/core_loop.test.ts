@@ -42,6 +42,8 @@ let servicePriceCents = 0;
 let customerId = '';
 let otherServiceId = '';
 let otherMembershipId = '';
+/** 同店的第二位可派单技师。换技师用例需要一个真实的接手人。 */
+let secondMembershipId = '';
 const appointmentIds: string[] = [];
 
 async function businessDate(): Promise<string> {
@@ -94,6 +96,12 @@ beforeAll(async () => {
     limit 1`);
   membershipId = staff!.id;
   ctx = await buildContext({ userId: staff!.user_id, membershipId });
+
+  const [second] = await withTenant(tenant, (tx) => tx<{ membership_id: string }[]>`
+    select membership_id from staff_profiles
+    where location_id = ${LOCATION_ID} and is_bookable = true and membership_id <> ${membershipId}
+    limit 1`);
+  secondMembershipId = second!.membership_id;
 
   const [service] = await withTenant(tenant, (tx) => tx<{ id: string; price: number }[]>`
     select id, base_price_cents as price from services
@@ -380,6 +388,50 @@ describe('预约到收银的真实闭环', () => {
     expect(closed?.service_settled_at).toBeTruthy();
     expect(closed?.tip_settled_at).toBeTruthy();
     await setCheckoutTiming('after_service_combined');
+  });
+
+  it('服务中换技师：归属改写、开始时间保留，完工后按新技师结算', async () => {
+    const appointmentId = await createAppointment();
+    await run('queue.join', { appointmentId, source: 'desk' }, `checkin-mv-${appointmentId}`);
+    const opened = await run<{ ticketId: string; ticketItemIds: string[] }>('ticket.open', {
+      appointmentId,
+      customerId: null,
+      items: [{ serviceId, membershipId, minutes: 45 }],
+    }, `mv-open-${appointmentId}`);
+    const ticketItemId = opened.result.ticketItemIds[0]!;
+
+    await run('ticket.startItem', { ticketItemId, membershipId });
+    const [before] = await withTenant(tenant, (tx) => tx<{ started_at: string }[]>`
+      select started_at::text from ticket_items where id = ${ticketItemId}`);
+
+    // 换成同店另一位在职技师。原本没有这条命令，前台只能作废整张单重开。
+    const moved = await run<{ replacedMembershipId: string }>('ticket.moveItemStaff', {
+      ticketItemId,
+      membershipId: secondMembershipId,
+      reason: '技师临时被叫走',
+    }, `mv-staff-${appointmentId}`);
+    expect(moved.result.replacedMembershipId).toBe(membershipId);
+
+    const assigned = await withTenant(tenant, (tx) => tx<{ membership_id: string }[]>`
+      select membership_id from ticket_item_staff where ticket_item_id = ${ticketItemId}`);
+    expect(assigned.map((row) => row.membership_id)).toEqual([secondMembershipId]);
+
+    // 开始时间是这一项真实的工时起点，换人不该让它归零。
+    const [after] = await withTenant(tenant, (tx) => tx<{ started_at: string }[]>`
+      select started_at::text from ticket_items where id = ${ticketItemId}`);
+    expect(after?.started_at).toBe(before?.started_at);
+
+    // 已经在这一项上的人不能再被换进来。
+    await expect(run('ticket.moveItemStaff', {
+      ticketItemId, membershipId: secondMembershipId, reason: '重复换人',
+    })).rejects.toMatchObject({ details: { reason: 'staff_already_assigned' } });
+
+    await run('ticket.finishItem', { ticketItemId, membershipId: secondMembershipId });
+
+    // 完工之后不允许再改归属：那等于把别人做完的活记到另一个人头上。
+    await expect(run('ticket.moveItemStaff', {
+      ticketItemId, membershipId, reason: '完工后再改',
+    })).rejects.toMatchObject({ details: { reason: 'item_already_finished' } });
   });
 
   it('看板路径的两阶段收款：多项目单先收服务款，全部完工后按阶段键收小费', async () => {

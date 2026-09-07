@@ -83,6 +83,51 @@ export function useAddTicketItem() {
   });
 }
 
+/**
+ * 服务中换技师 / 换工位。
+ *
+ * 两者都要求 reason 并且幂等键必填 —— 它们改的是提成归属与房态，
+ * 重试换了键会在同一条项目上留下两条互相矛盾的变更记录。
+ */
+export function useMoveTicketItemStaff() {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ idempotencyKey, ...input }: {
+      ticketItemId: string;
+      membershipId: string;
+      replacesMembershipId?: string;
+      reason: string;
+      idempotencyKey: string;
+    }) => (await runCommand<{
+      ticketItemId: string; membershipId: string; replacedMembershipId: string;
+    }>('ticket.moveItemStaff', input, membershipId!, idempotencyKey)).result,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'schedule'] });
+    },
+  });
+}
+
+export function useMoveTicketItemResource() {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ idempotencyKey, ...input }: {
+      ticketItemId: string;
+      resourceId: string;
+      reason: string;
+      idempotencyKey: string;
+    }) => (await runCommand<{ ticketItemId: string; resourceId: string }>(
+      'ticket.moveItemResource', input, membershipId!, idempotencyKey,
+    )).result,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'rooms'] });
+    },
+  });
+}
+
 export function useSaveServiceNote() {
   const { membershipId } = useSession();
   return useMutation({
