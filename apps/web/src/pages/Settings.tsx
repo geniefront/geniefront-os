@@ -1859,11 +1859,12 @@ export function Settings() {
                     />
                     <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                   </div>
-                  <div className="flex items-center gap-1.5 text-xs">
+                  {/* U04：分类多、名称长时不再把主操作挤出屏幕 —— 换行而不是溢出裁切 */}
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs min-w-0">
                     <button
                       type="button"
                       onClick={() => setServiceCategoryFilter('all')}
-                      className={`px-2.5 py-1.5 rounded-lg font-medium ${
+                      className={`px-2.5 py-1.5 rounded-lg font-medium shrink-0 whitespace-nowrap ${
                         serviceCategoryFilter === 'all'
                           ? 'bg-slate-900 text-white'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -1875,7 +1876,7 @@ export function Settings() {
                     <button
                       type="button"
                       onClick={() => setServiceCategoryFilter('online')}
-                      className={`px-2.5 py-1.5 rounded-lg font-medium ${
+                      className={`px-2.5 py-1.5 rounded-lg font-medium shrink-0 whitespace-nowrap ${
                         serviceCategoryFilter === 'online'
                           ? 'bg-slate-900 text-white'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -1887,7 +1888,7 @@ export function Settings() {
                     <button
                       type="button"
                       onClick={() => setServiceCategoryFilter('addon')}
-                      className={`px-2.5 py-1.5 rounded-lg font-medium ${
+                      className={`px-2.5 py-1.5 rounded-lg font-medium shrink-0 whitespace-nowrap ${
                         serviceCategoryFilter === 'addon'
                           ? 'bg-slate-900 text-white'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -1901,7 +1902,7 @@ export function Settings() {
                         key={category.id}
                         type="button"
                         onClick={() => setServiceCategoryFilter(`category:${category.id}`)}
-                        className={`px-2.5 py-1.5 rounded-lg font-medium ${serviceCategoryFilter === `category:${category.id}` ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                        className={`px-2.5 py-1.5 rounded-lg font-medium shrink-0 whitespace-nowrap ${serviceCategoryFilter === `category:${category.id}` ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                       >{category.displayName}</button>
                     ))}
                   </div>

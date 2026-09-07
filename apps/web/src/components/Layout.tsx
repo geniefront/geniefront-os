@@ -28,6 +28,9 @@ import {
   Globe,
   Plus,
   ClipboardList,
+  Settings,
+  UserCircle,
+  LifeBuoy,
 } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
 import { UI_LANGUAGES as LANGUAGES } from '@/i18n/types';
@@ -301,16 +304,34 @@ export function Layout() {
       ],
     },
     {
-      group: t('groupAdmin') || 'AI 与系统配置',
+      // U07：沟通三页（AI 语音 / 消息 / 沟通日志）从「AI 与系统配置」里拆出来单独成组
+      group: t('groupComms') || '沟通与客服',
       items: [
         { name: t('calls') || 'AI 语音助手', icon: PhoneCall, path: '/calls' },
         { name: t('messages') || '消息沟通', icon: MessageSquare, path: '/messages' },
         { name: t('communicationLogs') || '沟通日志', icon: History, path: '/communication-logs' },
-        { name: t('storefrontBuilder') || '微店建站', icon: Globe, path: '/storefront-builder' },
-        { name: t('settings.healthForms'), icon: ClipboardList, path: '/health-forms' },
       ],
     },
-  ];
+    {
+      group: t('groupConfig') || '系统与配置',
+      items: [
+        { name: t('storefrontBuilder') || '微店建站', icon: Globe, path: '/storefront-builder' },
+        { name: t('settings.healthForms'), icon: ClipboardList, path: '/health-forms' },
+        // 系统设置进侧栏（此前只在头像菜单里）；可见性与路由权限一致
+        ...(canManageSettings
+          ? [{ name: t('settings') || '系统设置', icon: Settings, path: '/settings' }]
+          : []),
+      ],
+    },
+    {
+      // U07：账号入口不再只藏在头像菜单里
+      group: t('groupAccount') || '账号与帮助',
+      items: [
+        { name: t('profile') || '个人资料', icon: UserCircle, path: '/profile' },
+        { name: t('support') || '支持', icon: LifeBuoy, path: '/support' },
+      ],
+    },
+  ].filter((group) => group.items.length > 0);
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-slate-50 font-sans text-slate-900">

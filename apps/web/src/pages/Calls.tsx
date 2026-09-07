@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useErrorMessage } from '@/lib/errorMessage';
-import { useStoreTime } from '@/lib/time';
+import { useStoreTime, instantToWallDate } from '@/lib/time';
 import { useLanguage } from "@/LanguageContext";
 import { formatPhoneDisplay } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -204,8 +204,9 @@ export function Calls() {
     openCreateAppointment?.({
       defaultCustomerName: cust,
       defaultPhone: phone,
+      // 门店墙上日期，不是 UTC 日期：洛杉矶晚 8 点的槽位 toISOString() 会落到次日
       defaultDate: d.time?.slotStartsAt
-        ? new Date(d.time.slotStartsAt).toISOString().split("T")[0]
+        ? instantToWallDate(d.time.slotStartsAt, storeTime.timeZone)
         : undefined,
     });
     toast.success(t('crm.callDraftToSchedule', { p0: cust || phone }));

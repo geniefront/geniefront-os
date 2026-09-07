@@ -12,11 +12,11 @@
 |---|---|---|---|
 | U09 平台短信串店 | W0 | **部分完成**：专属线归属已隔离；平台共享号细分仍待做 | #1 |
 | U01/U08 默认设置、健康表首发、房间门禁、AI 线路 | W1 | **部分完成**：AI 电话新线默认不接（U08，#4）已修；健康表首发、房间门禁、setup readiness DTO 未开始 | #4 |
-| U02/U13 员工目录与员工中心 | W2 | 未开始 | — |
+| U02/U13 员工目录与员工中心 | W2 | **小修**：员工基础设置不再外露 DB sort 数字、新项追加末尾、加 ▲▼ 上移下移（#6）；ID 契约/迁移、员工中心紧凑卡片未做 | #6 |
 | U03/U06/U11 预约日期、时长、详情状态 | W3 | **部分完成**：时长输入（#2）、新建默认日期不取营业日（#3）、详情顶部进度不误报空工单/取消（#5）已修；跨午夜/Calls 草稿 UTC 日期、allowedActions DTO 未做 | #2 #3 #5 |
-| U04 服务导入、技师人数、网约、批量编辑 | W4 | 未开始 | — |
-| U05 Google review 同步权限 | W5 | 未开始 | — |
-| U07/U11/U12 导航、生日选择、全端 iPad | W6 | 未开始 | — |
+| U04 服务导入、技师人数、网约、批量编辑 | W4 | **小修**：Settings 分类筛选栏换行不再裁切主操作（#6）；导入默认网约、批量 PATCH 未做 | #6 |
+| U05 Google review 同步权限 | W5 | **小修**：配置读接口带 `manualSyncEnabled`，未开放时按钮禁用+提示，不再显示成权限不足（#6）；分状态文案与调查未做 | #6 |
+| U07/U11/U12 导航、生日选择、全端 iPad | W6 | **部分**：U07 侧栏三分组 + 账号入口进侧栏（#6）已修；U11 生日选择器、U12 全端 iPad 未做 | #6 |
 | U10 组合套餐 | W7 | 未开始（独立主项目） | — |
 
 ---
@@ -497,3 +497,97 @@ packages/db/src/schema/phone.ts` + 删测试。`SET DEFAULT` 回退不影响已�
 
 `git checkout apps/web/src/features/schedule/stepper.ts apps/web/src/components/AppointmentDrawer.tsx` +
 移除 `stepper.test.ts` 新增 describe 与 `schedule.ts` 的 3 条词条。
+
+---
+
+## 批次 #6 — 一批「小改动」（U07 / U04 分类栏 / U05 同步开关 / U02 排序 / U03 尾巴）
+
+**日期**：2026-09-07
+**范围**：都是各工作包里不依赖大重构、能独立审查的小修。大改动（U01 向导重构、
+U02 的 ID 契约与迁移、U04 批量编辑与导入契约、U12 全端 iPad、U10 套餐）留给下一位。
+
+### 1. U07 — 侧栏分组 + 账号入口进侧栏（§9.1）
+
+`components/Layout.tsx`：把原「AI 与系统配置」拆成三组，保留全部路由与深链接：
+
+- **沟通与客服**（`groupComms`）：`/calls`、`/messages`、`/communication-logs`
+- **系统与配置**（`groupConfig`）：`/storefront-builder`、`/health-forms`，以及
+  **系统设置 `/settings`**（此前只在头像菜单里；`canManageSettings =
+  settings.manage || staff.manage` 时才显示，侧栏可见性与路由权限一致）
+- **账号与帮助**（`groupAccount`）：`/profile`、`/support`
+
+`navGroups` 末尾 `.filter((g) => g.items.length > 0)`，`/settings` 被权限隐藏后
+不会留下空标题。头像菜单的快捷入口保留不动（§9.1 允许）。
+i18n：`common.ts` 加 `groupComms` / `groupConfig` / `groupAccount`（5 语）。
+
+### 2. U04 — 服务项目「分类筛选」栏不再把主操作挤出屏幕（§7.2 的小修）
+
+`pages/Settings.tsx` 服务项目 tab 的分类 chip 行：`flex` 无换行无滚动 →
+`flex flex-wrap ... min-w-0`，每个 chip 加 `shrink-0 whitespace-nowrap`。
+窄屏 / 分类多 / 名称长时换行，不再溢出裁切。§7.2 里「窄屏改可搜索下拉」的
+完整响应式方案未做。
+
+### 3. U05 — Google/Yelp 手动同步：区分「平台未开放」与「配置/权限问题」（§8.2）
+
+不新增错误码（那要动 contracts + 全语言错误词条）。改成配置读接口直接带状态：
+
+- `apps/api/src/queries/reviews.ts`：`ReviewSourcesDto` 加 `manualSyncEnabled`；
+  `loadReviewSources(tx, ctx, manualSyncEnabled)` 多一个入参。
+- `apps/api/src/routes/reviews.ts`：`GET /v1/desk/reviews/sources` 传入
+  `manualSyncEnabled()`（原来只在 POST /sync 里判，判完抛 `PERMISSION_DENIED`
+  + `reason=manual_review_sync_disabled`，前端只能显示成「权限不足」）。
+- `features/reviews/`：`types.ts` 同步加字段；`ReviewSourcesPanel.tsx` 同步
+  按钮在 `manualSyncEnabled === false` 时禁用，并显示
+  `reviews.syncNotOpen`「手动同步暂未开放，评价评分仍会自动刷新」——
+  不再发一个必然 403 的请求。
+- 测试：`ReviewSourcesPanel.test.tsx` 加一条「未开放 → 按钮禁用 + 文案」。
+
+`POST /sync` 的 `PERMISSION_DENIED`（缺 `settings.manage`）分支未动；§8.2 里
+「缺权限显示需要的角色能力 / 外部配置未就绪显示待配置」等更细的分状态文案、
+以及 §8 的调查（真实环境 HTTP 状态、error code、`REVIEW_SYNC_MANUAL_ENABLED`
+实际取值）仍待做。
+
+### 4. U02 — 员工基础设置不再外露 DB 排序数字（§5.3 的小修）
+
+`features/staff/DirectorySettings.tsx`：
+- 新增/编辑表单去掉「排序」数字输入框；新项 `sort = max(existing) + 1` 追加末尾。
+- 列表行的裸 `{option.sort}` 换成 ▲▼ 上移/下移按钮（和相邻项互换 sort 值，
+  写 index 而非 ±1，legacy 全 0 的列表移几次即归位）。
+- 加说明「显示顺序仅影响列表位置，不影响排班、轮牌或提成」。
+
+未做：服务端「批量稳定重排 + 版本冲突处理」端点（§5.3）—— 现在一次移动是
+两条串行 `saveDirectoryOption`，并发重排没有原子保证；legacy 全 0 数据要移动
+几次才逐步分出顺序。
+
+### 5. U03 尾巴 — Calls「批准通话草稿 → 新建预约」的日期
+
+`pages/Calls.tsx` `handleDirectApproveDraft`：
+`new Date(slotStartsAt).toISOString().split('T')[0]`（UTC 日期）→
+`instantToWallDate(slotStartsAt, storeTime.timeZone)`（门店墙上日期）。
+洛杉矶晚 8 点的槽位不再落到次日。
+
+### 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 类型 | `@gf/web` + `@gf/api` `tsc --noEmit` | exit 0 |
+| Web 全量单测 | `pnpm --filter @gf/web test` | 58 files / 324 passed（+1 review 用例） |
+| API 评价套件 | `vitest run src/reviews.test.ts` | 12 passed |
+| API 全量套件 | `pnpm --filter @gf/api test` | 见提交时的运行记录 |
+| 守卫 | `pnpm lint:guards` | ✓ |
+
+未做浏览器 / 真机验证。
+
+### 交接：剩下的都是「大改动」
+
+| 项 | 为什么大 |
+|---|---|
+| U01 开店向导 | 7 步领域化重构 + 字典前置 + 房间门禁（前后端 FinishSetup 检查）+ 健康表首发全链路（模板锁、幂等、发布服务复用） |
+| U02 / U13 员工目录 | job/level/skill 从自由文本 datalist 改 ID 选择：补岗位 ID 模型 + DTO、后端同店校验、旧自由值只读盘点与迁移、所有 `saveProfile` 调用方同步；员工中心紧凑卡片重排 |
+| U04 项目导入 / 批量编辑 | blueprint 发布写死 `online_bookable=false` 要改默认 + 字段透传；新建批量 PATCH 命令（契约、逐项校验、事务/部分成功语义、审计） |
+| U11 后半 生日选择器 | 三字段（年直输/月日选）新组件 + 闰年/未来日/留空校验，接入 PublicHealthForm、apps/ipad、客户档案 DOB 三处 |
+| U12 全端 iPad | 系统性逐页扫屏 + 真机验收，跨 apps/web、apps/ipad、apps/booking、apps/platform、apps/marketing |
+| U10 套餐 | 独立主项目，`docs/plans/2026-09-07-service-bundles-implementation.md`（P0–P8 / B01–B32） |
+| U06 剩余 | allowedActions DTO / 看板-抽屉共用状态映射、部分完成 N/M |
+| U09 剩余 | 平台共享号 routingScope（`sms_inbound` 加归属证据列） |
+| U03 剩余 | 跨午夜营业 day-offset |

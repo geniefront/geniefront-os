@@ -235,13 +235,21 @@ export function ReviewSourcesPanel() {
           </div>
           <Button
             onPress={() => setConfirmOpen(true)}
-            disabled={sync.isPending || !(sources?.googleReady || sources?.yelpReady)}
+            disabled={
+              sync.isPending
+              || !(sources?.googleReady || sources?.yelpReady)
+              || sources?.manualSyncEnabled === false
+            }
             className="shrink-0 bg-slate-900 text-white font-bold text-xs flex items-center gap-1.5"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${sync.isPending ? 'animate-spin' : ''}`} />
             <span>{sync.isPending ? t('reviews.syncing') : t('reviews.syncButton')}</span>
           </Button>
         </div>
+
+        {sources?.manualSyncEnabled === false && (
+          <p className="text-[11px] font-medium text-slate-500">{t('reviews.syncNotOpen')}</p>
+        )}
 
         {/* 上一次手动同步的逐平台结果。它是「我刚才点的那一下发生了什么」的答案 */}
         {lastResult && (

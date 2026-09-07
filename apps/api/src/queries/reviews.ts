@@ -184,11 +184,18 @@ export interface ReviewSourcesDto {
   /** 缺哪一项就抓不到哪个平台 —— 设置页要能直接告诉老板还差什么 */
   googleReady: boolean;
   yelpReady: boolean;
+  /**
+   * 平台侧是否放开了「手动同步」（`REVIEW_SYNC_MANUAL_ENABLED`）。
+   * false 时同步按钮该显示「暂未开放」而不是发一个必然 403 的请求，
+   * 也不该让老板以为是 Google 配置错了或自己没权限（§8.2）。
+   */
+  manualSyncEnabled: boolean;
 }
 
 export async function loadReviewSources(
   tx: postgres.TransactionSql,
   ctx: CommandContext,
+  manualSyncEnabled = false,
 ): Promise<ReviewSourcesDto> {
   const [row] = await tx<{
     google_place_id: string | null; google_maps_url: string | null; yelp_business_id: string | null;
@@ -202,6 +209,7 @@ export async function loadReviewSources(
     yelpBusinessId: row?.yelp_business_id ?? null,
     googleReady: Boolean(row?.google_maps_url || row?.google_place_id),
     yelpReady: Boolean(row?.yelp_business_id),
+    manualSyncEnabled,
   };
 }
 

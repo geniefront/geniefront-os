@@ -50,6 +50,7 @@ const linked: ReviewSources = {
   yelpBusinessId: 'lucky-nails-boston',
   googleReady: true,
   yelpReady: true,
+  manualSyncEnabled: true,
 };
 
 const syncResponse = (over: Partial<ManualSyncResponse['sync'][number]> = {}): ManualSyncResponse => ({
@@ -171,10 +172,17 @@ describe('手动同步', () => {
   it('两个平台都没配时同步按钮不可点', () => {
     sourcesState.data = {
       googlePlaceId: null, googleMapsUrl: null, yelpBusinessId: null,
-      googleReady: false, yelpReady: false,
+      googleReady: false, yelpReady: false, manualSyncEnabled: true,
     };
     renderPanel();
     expect(screen.getByRole('button', { name: /同步/ })).toHaveProperty('disabled', true);
+  });
+
+  it('平台侧未开放手动同步时：按钮禁用并显示「暂未开放」，不发请求', () => {
+    sourcesState.data = { ...linked, manualSyncEnabled: false };
+    renderPanel();
+    expect(screen.getByRole('button', { name: /同步/ })).toHaveProperty('disabled', true);
+    expect(screen.getByText(/暂未开放/)).toBeInTheDocument();
   });
 });
 

@@ -39,7 +39,7 @@ export function registerReviewsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
     if (!ctx.permissions.has('settings.manage')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
     }
-    return withTenant(ctx, (tx) => loadReviewSources(tx, ctx));
+    return withTenant(ctx, (tx) => loadReviewSources(tx, ctx, manualSyncEnabled()));
   });
 
   app.put<{ Body: Record<string, unknown> }>('/v1/desk/reviews/sources', async (req) => {

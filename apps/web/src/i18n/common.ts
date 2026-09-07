@@ -18,6 +18,9 @@ export const common = {
   groupCrm: { 'zh-Hans': '客户与营销', en: 'CRM & Marketing', ko: 'CRM 및 마케팅', es: 'CRM y Marketing', vi: 'CRM & Tiếp thị' },
   groupFinance: { 'zh-Hans': "收银与规则", en: "Checkout & Rules", ko: "결제 및 규정", es: "Caja y reglas", vi: "Thanh toán & Quy tắc" },
   groupAdmin: { 'zh-Hans': '系统与配置', en: 'Admin Settings', ko: '관리자 설정', es: 'Configuración', vi: 'Cài đặt' },
+  groupComms: { 'zh-Hans': '沟通与客服', en: 'Communication', ko: '커뮤니케이션', es: 'Comunicación', vi: 'Liên lạc' },
+  groupConfig: { 'zh-Hans': '系统与配置', en: 'System & Config', ko: '시스템 및 설정', es: 'Sistema y configuración', vi: 'Hệ thống & Cấu hình' },
+  groupAccount: { 'zh-Hans': '账号与帮助', en: 'Account & Help', ko: '계정 및 도움말', es: 'Cuenta y ayuda', vi: 'Tài khoản & Trợ giúp' },
   dashboard: { 'zh-Hans': '概览仪表盘', en: 'Dashboard', ko: '대시보드', es: 'Panel', vi: 'Bảng điều khiển' },
   // ── 全局搜索（⌘K）命令面板的副标题 ──────────────────────────────────────────
   // ⚠️ 这组以前是 `language === 'en' ? cmd.en : cmd.label` 二选一，外加一句

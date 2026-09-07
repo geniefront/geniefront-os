@@ -11,6 +11,11 @@ export interface ReviewSources {
   /** 缺哪一项就抓不到哪个平台 —— 设置页据此直接告诉老板还差什么 */
   googleReady: boolean;
   yelpReady: boolean;
+  /**
+   * 平台侧是否放开了「手动同步」。false 时同步按钮禁用并提示「暂未开放」，
+   * 不发一个必然 403 的请求，也不让老板误以为是配置/权限问题（§8.2）。
+   */
+  manualSyncEnabled: boolean;
 }
 
 export interface ConfigureReviewSourcesInput {
