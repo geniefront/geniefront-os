@@ -10,7 +10,19 @@ import { useErrorMessage } from '@/lib/errorMessage';
 import { useSession } from '@/lib/session';
 import { useLanguage } from '@/LanguageContext';
 import { settingsKeys } from '@/features/settings/api';
+import { useSaveBundleTemplate } from '@/features/bundles/api';
+import type { DeskSettings } from '@/features/settings/types';
 import { cn } from '@/lib/utils';
+
+/** 组合套餐 / 次卡分流启发式，与 packages/ai 的 classifyPackageKind 同口径（U10 决策 #3）。 */
+function guessPackageKind(sessions: number, serviceNames: readonly string[]): 'bundle' | 'sessions' | 'ambiguous' {
+  const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const distinct = new Set(serviceNames.map(norm).filter(Boolean)).size;
+  if (distinct >= 2 && sessions <= 1) return 'bundle';
+  if (sessions >= 2 && distinct <= 1) return 'sessions';
+  return 'ambiguous';
+}
+const normName = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 
 type Hours = Record<string, { open: string; close: string } | null>;
@@ -132,6 +144,12 @@ export function ImportWorkspace({
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [acceptedStaff, setAcceptedStaff] = useState<Set<number>>(new Set());
   const [editedItemIds, setEditedItemIds] = useState<Set<string>>(new Set());
+  /** 店主对某个 package 行「是组合套餐还是次卡」的手动裁决（覆盖启发式）。 */
+  const [bundleKindOverride, setBundleKindOverride] = useState<Map<string, 'bundle' | 'sessions'>>(new Map());
+  const saveBundleMut = useSaveBundleTemplate();
+  const effectivePkgKind = (item: BlueprintItem): 'bundle' | 'sessions' | 'ambiguous' =>
+    bundleKindOverride.get(item.itemId)
+      ?? guessPackageKind(item.packageSessions ?? 0, item.packageServiceNames ?? []);
   const [busy, setBusy] = useState(false);
   const [extracting, setExtracting] = useState<ExtractingState | null>(null);
   const [extractElapsed, setExtractElapsed] = useState(0);
@@ -146,6 +164,7 @@ export function ImportWorkspace({
     setAccepted(new Set(view.items.filter((item) => !item.lowConfidence && ['service', 'addon', 'package'].includes(item.kind)).map((item) => item.itemId)));
     setAcceptedStaff(new Set());
     setEditedItemIds(new Set());
+    setBundleKindOverride(new Map());
   }, []);
   const updateBlueprintItem = (itemId: string, patch: Partial<BlueprintItem>) => {
     setBlueprint((current) => current ? {
@@ -280,12 +299,18 @@ export function ImportWorkspace({
     if (!blueprint || !membershipId) return;
     setBusy(true);
     try {
+      // 被判定为「组合套餐」的 package 行：不建 package_template（reviewItems 里标 rejected），
+      // 等 blueprint.apply 建好组成服务之后，再用行数据 + 解析出的 serviceId 建 service_bundles。
+      const bundleRows = blueprint.items.filter((item) =>
+        accepted.has(item.itemId) && item.kind === 'package' && effectivePkgKind(item) === 'bundle');
+      const bundleRowIds = new Set(bundleRows.map((r) => r.itemId));
+
       if (blueprint.items.length > 0) {
         await runCommand('blueprint.reviewItems', {
           blueprintId: blueprint.blueprintId,
           items: blueprint.items.map((item) => ({
             itemId: item.itemId,
-            decision: accepted.has(item.itemId) ? 'accepted' : 'rejected',
+            decision: (accepted.has(item.itemId) && !bundleRowIds.has(item.itemId)) ? 'accepted' : 'rejected',
             ...(editedItemIds.has(item.itemId) ? {
               name: item.name,
               category: item.category,
@@ -310,10 +335,48 @@ export function ImportWorkspace({
         fallbackDurationMin: 45,
         applyLocationProposal,
         staffProposalIndexes: [...acceptedStaff],
-        allowNoServices: accepted.size === 0,
+        allowNoServices: accepted.size === 0 || accepted.size === bundleRowIds.size,
       }, membershipId);
       await queryClient.invalidateQueries({ queryKey: settingsKeys.desk(membershipId) });
-      toast.success(t('setupImportDraftSaved', { services: accepted.size }));
+
+      // 组合套餐：blueprint.apply 之后组成服务已入库，按名称匹配后建 service_bundles。
+      let bundlesCreated = 0;
+      const bundlesSkipped: string[] = [];
+      if (bundleRows.length > 0) {
+        const settings = await apiGet<DeskSettings>('/v1/desk/settings');
+        const svcByName = new Map<string, string>();
+        for (const s of settings.services) {
+          if (s.isAddon || !s.active) continue;
+          for (const v of [s.displayName, ...Object.values(s.name)]) {
+            if (v) svcByName.set(normName(v), s.id);
+          }
+        }
+        for (const row of bundleRows) {
+          const names = row.packageServiceNames ?? [];
+          const ids = names.map((n) => svcByName.get(normName(n))).filter((x): x is string => Boolean(x));
+          if (row.priceCents === null || ids.length < 2 || ids.length !== names.length) {
+            bundlesSkipped.push(row.displayName);
+            continue;
+          }
+          try {
+            await saveBundleMut.mutateAsync({
+              name: row.name,
+              priceCents: row.priceCents,
+              components: ids.map((serviceId, i) => ({ serviceId, qty: 1, seq: i })),
+              onlineBookable: false,
+            });
+            bundlesCreated += 1;
+          } catch {
+            bundlesSkipped.push(row.displayName);
+          }
+        }
+      }
+
+      toast.success(t('setupImportDraftSaved', { services: accepted.size - bundleRowIds.size }));
+      if (bundlesCreated > 0) toast.success(t('bundle.importCreated', { count: bundlesCreated }));
+      if (bundlesSkipped.length > 0) {
+        toast.danger(t('bundle.importSkipped', { names: bundlesSkipped.join('、') }));
+      }
       setBlueprint(null);
     } catch (error) {
       toast.danger(errorMessage(error));
@@ -404,7 +467,24 @@ export function ImportWorkspace({
                   <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2">
                     <Input value={item.displayName} onChange={(event) => updateBlueprintItem(item.itemId, { displayName: event.target.value, name: { ...item.name, [item.displayLocale]: event.target.value } })} className="h-9 text-xs font-semibold" />
                     {item.kind === 'package' ? (
-                      <Input type="number" min="0" value={item.packageSessions ?? 0} onChange={(event) => updateBlueprintItem(item.itemId, { packageSessions: Math.max(0, Number(event.target.value) || 0) })} className="h-9 text-xs" />
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={effectivePkgKind(item) === 'bundle' ? 'bundle' : 'sessions'}
+                          onChange={(event) => setBundleKindOverride((prev) => {
+                            const next = new Map(prev);
+                            next.set(item.itemId, event.target.value as 'bundle' | 'sessions');
+                            return next;
+                          })}
+                          className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs"
+                          aria-label={t('bundle.importPickKind')}
+                        >
+                          <option value="bundle">{t('bundle.importKindBundle')}</option>
+                          <option value="sessions">{t('bundle.importKindPackage')}</option>
+                        </select>
+                        {effectivePkgKind(item) !== 'bundle' && (
+                          <Input type="number" min="0" value={item.packageSessions ?? 0} onChange={(event) => updateBlueprintItem(item.itemId, { packageSessions: Math.max(0, Number(event.target.value) || 0) })} className="h-9 w-16 text-xs" aria-label={t('setupImportPackageItemsPending')} />
+                        )}
+                      </div>
                     ) : (
                       <Input value={item.category ?? ''} onChange={(event) => updateBlueprintItem(item.itemId, { category: event.target.value || null })} placeholder={t('setupImportUncategorized')} className="h-9 text-xs" />
                     )}
@@ -428,6 +508,13 @@ export function ImportWorkspace({
                           className="h-9 w-16 text-xs"
                         />
                       </label>
+                    )}
+                    {item.kind === 'package' && (
+                      <p className="text-[10px] text-slate-400 sm:col-span-2">
+                        {effectivePkgKind(item) === 'bundle'
+                          ? t('bundle.vsPackageHint')
+                          : t('bundle.importKindHint')}
+                      </p>
                     )}
                   </div>
                   {item.lowConfidence && <Badge variant="warning">{t('setupImportReview')}</Badge>}
