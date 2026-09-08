@@ -515,8 +515,11 @@ async function applyPackageRedemptions(args: {
   if (new Set(packageIds).size !== packageIds.length) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'duplicate_package_redemption' } });
   }
-  const ticketItems = await tx<{ id: string; service_id: string | null; total_cents: number; seq: number }[]>`
-    select id, service_id, total_cents, seq from ticket_items
+  const ticketItems = await tx<{
+    id: string; service_id: string | null; total_cents: number; seq: number;
+    bundle_instance_id: string | null;
+  }[]>`
+    select id, service_id, total_cents, seq, bundle_instance_id from ticket_items
     where ticket_id = ${ticket.id} order by seq, id`;
   const usedItemIds = new Set<string>();
   let coveredCents = 0;
@@ -557,7 +560,11 @@ async function applyPackageRedemptions(args: {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'package_already_redeemed_for_ticket' } });
     }
 
+    // 次卡不覆盖组合套餐子项（U10 / 计划 §4.5）。套餐子项 total_cents 已是分摊后
+    // 净额，若按 service_id 命中再全额核销一次，会对同一执行单元二次抵扣，且
+    // 提成基数、退款净额随之错位。散项（bundle_instance_id 为空）仍按既有规则核销。
     const eligible = ticketItems.filter((item) => !usedItemIds.has(item.id)
+      && item.bundle_instance_id === null
       && (pkg.service_ids.length === 0 || Boolean(item.service_id && pkg.service_ids.includes(item.service_id))));
     const selected: Array<{ id: string; service_id: string | null; total_cents: number; seq: number }> = [];
     if (policy.coverageMode === 'bundle' && pkg.service_ids.length > 0) {

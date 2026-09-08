@@ -13,6 +13,7 @@ import './handlers/setup';
 import './handlers/bundle';
 import './handlers/appointment';
 import './handlers/ticket';
+import './handlers/marketing';
 import './handlers/kiosk';
 import { loadQueue } from './queries/queue';
 
@@ -400,5 +401,199 @@ describe('ticket.open inherits the bundle instance (P3b)', () => {
     expect(new Set(titems.map((t) => t.bundle_component_id)).size).toBe(3);
     expect(titems.every((t) => t.bundle_list_price_cents != null)).toBe(true);
     expect(titems.reduce((n, t) => n + t.total_cents, 0)).toBe(15_000);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────── P5
+//
+// 结账 / 退款 / 提成对组合套餐安全（计划 §4.5 / §6，验收 B17 / B23 / B25 / B29）。
+// 关注点：套餐子项 total_cents 已是分摊后净额 —— 结账不得再叠一层优惠，
+// 提成基数按分摊实售额而非目录原价，次卡不核销套餐子项，退款按原提成冲销。
+
+describe('P5 结账 / 退款 / 提成对组合套餐安全', () => {
+  // NAIL 种子税率 8.875%（exclusive）：15000 净额对应税额 1331。
+  const TAX_ON_15000 = Math.round(15_000 * 0.08875);
+
+  const mkCustomer = () => withTenant(NAIL, (tx) => tx<{ id: string }[]>`
+    insert into customers (org_id, primary_location_id, display_name, phone_e164)
+    values (${NAIL.orgId}, ${NAIL.locationId}, 'U10 P5 客户',
+            ${`+1617${Math.floor(1_000_000 + Math.random() * 9_000_000)}`})
+    returning id`).then((r) => r[0]!.id);
+
+  /** 建套餐 → 预约（今日）→ 开单，返回一张待结账的组合套餐工单。 */
+  async function openBundleTicket(opts: {
+    customerId?: string | null; looseServiceIds?: string[];
+  } = {}) {
+    const customerId = opts.customerId ?? null;
+    const loose = opts.looseServiceIds ?? [];
+    const bundleId = (await save(abc())).result.bundleId;
+    const startsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const appt = await dispatch<{ appointmentId: string; bundleInstanceIds: string[] }>(
+      'appointment.create',
+      {
+        customerId, walkInName: customerId ? null : 'U10 P5',
+        items: loose.map((serviceId) => ({
+          serviceId, startsAt, addonIds: [], membershipId: staffId,
+        })),
+        bundleSelections: [{
+          bundleId, startsAt,
+          unitOverrides: [{ membershipId: staffId }, { membershipId: staffId }, { membershipId: staffId }],
+        }],
+        source: 'desk', override: { reason: 'desk_coordination' },
+      },
+      ctx, { idempotencyKey: randomUUID() },
+    ).then((r) => r.result);
+
+    // 预约子项顺序：散项在前（seq 0..），套餐执行单元在后。
+    const opened = await dispatch<{ ticketId: string; subtotalCents: number }>(
+      'ticket.open',
+      {
+        appointmentId: appt.appointmentId, customerId,
+        items: [...loose, A, B, C].map((serviceId) => ({ serviceId, membershipId: staffId })),
+      },
+      ctx, { idempotencyKey: randomUUID() },
+    ).then((r) => r.result);
+    return { ...opened, bundleInstanceId: appt.bundleInstanceIds[0]! };
+  }
+
+  const commissionOf = (ticketId: string) => withTenant(NAIL, (tx) => tx<{
+    amount: number; base: number;
+  }[]>`select coalesce(sum(amount_cents), 0)::int as amount,
+              coalesce(sum(base_cents), 0)::int as base
+       from earnings where ticket_id = ${ticketId} and kind = 'commission'`).then((r) => r[0]!);
+
+  it('结账：收款额 = 分摊净额 + 税，提成基数按分摊实售额（B25 / B29）', async () => {
+    const { ticketId, subtotalCents } = await openBundleTicket();
+    expect(subtotalCents).toBe(15_000);
+
+    await dispatch('ticket.close', {
+      ticketId,
+      payments: [{
+        method: 'cash', amountCents: 15_000 + TAX_ON_15000, tipCents: 0,
+        tenderedCents: 15_000 + TAX_ON_15000,
+      }],
+    }, ctx, { idempotencyKey: randomUUID() });
+
+    const [t] = await withTenant(NAIL, (tx) => tx<{
+      status: string; subtotal_cents: number; total_cents: number;
+      discount_cents: number; tax_cents: number;
+    }[]>`select status, subtotal_cents, total_cents, discount_cents, tax_cents
+         from tickets where id = ${ticketId}`);
+    expect(t).toMatchObject({
+      status: 'closed', subtotal_cents: 15_000, discount_cents: 0,
+      tax_cents: TAX_ON_15000, total_cents: 15_000 + TAX_ON_15000,
+    });
+
+    // 提成基数 = 分摊实售额 15000，不是目录原价 17000，也没有第 4 行父套餐收款。
+    const commission = await commissionOf(ticketId);
+    expect(commission.base).toBe(15_000);
+
+    const [rows] = await withTenant(NAIL, (tx) => tx<{ n: number; sum: number }[]>`
+      select count(*)::int as n, coalesce(sum(total_cents), 0)::int as sum
+      from ticket_items where ticket_id = ${ticketId}`);
+    expect(rows).toEqual({ n: 3, sum: 15_000 });
+  });
+
+  it('次卡：只核销散项，不覆盖套餐子项（B17）', async () => {
+    const customerId = await mkCustomer();
+    const loose = await mkService(`${tag()} loose-svc`, 4_000);
+    const template = await dispatch<{ templateId: string }>(
+      'package.saveTemplate',
+      { name: `${tag()} 单项次卡`, priceCents: 6_000, sessions: 2, serviceIds: [loose] },
+      ctx,
+    ).then((r) => r.result);
+    const issued = await dispatch<{ packageId: string }>(
+      'package.issue', { templateId: template.templateId, customerId }, ctx,
+      { idempotencyKey: randomUUID() },
+    ).then((r) => r.result);
+
+    const { ticketId } = await openBundleTicket({ customerId, looseServiceIds: [loose] });
+
+    // subtotal = 15000 套餐 + 4000 散项；次卡核销 4000（仅散项）；税基 15000。
+    await dispatch('ticket.pay', {
+      ticketId,
+      payments: [{
+        method: 'cash', amountCents: 15_000 + TAX_ON_15000, tipCents: 0,
+        tenderedCents: 15_000 + TAX_ON_15000,
+      }],
+      packageRedemptions: [{ customerPackageId: issued.packageId, units: 1 }],
+    }, ctx, { idempotencyKey: randomUUID() });
+
+    const looseItemId = await withTenant(NAIL, (tx) => tx<{ id: string }[]>`
+      select id from ticket_items where ticket_id = ${ticketId} and service_id = ${loose}`)
+      .then((r) => r[0]!.id);
+
+    const [redeem] = await withTenant(NAIL, (tx) => tx<{
+      covered: number; item_ids: string[];
+    }[]>`select (meta->>'coveredCents')::int as covered,
+                array(select jsonb_array_elements_text(meta->'ticketItemIds')) as item_ids
+         from customer_credit_ledger
+         where kind = 'package' and subject_id = ${issued.packageId}
+           and entry = 'redeem' and ticket_id = ${ticketId}`);
+    // 只覆盖散项：金额 = 散项净价，命中 item 只有散项那一行。
+    expect(redeem!.covered).toBe(4_000);
+    expect(redeem!.item_ids).toEqual([looseItemId]);
+
+    // 套餐三个子项净额分文未动。
+    const [bundleItems] = await withTenant(NAIL, (tx) => tx<{ n: number; sum: number }[]>`
+      select count(*)::int as n, coalesce(sum(total_cents), 0)::int as sum
+      from ticket_items where ticket_id = ${ticketId} and bundle_instance_id is not null`);
+    expect(bundleItems).toEqual({ n: 3, sum: 15_000 });
+  });
+
+  it('次卡：service_id 命中的仅是套餐子项时，核销被拒（不二次全额覆盖，§4.5）', async () => {
+    const customerId = await mkCustomer();
+    const template = await dispatch<{ templateId: string }>(
+      'package.saveTemplate',
+      { name: `${tag()} 命中子项次卡`, priceCents: 6_000, sessions: 2, serviceIds: [A] },
+      ctx,
+    ).then((r) => r.result);
+    const issued = await dispatch<{ packageId: string }>(
+      'package.issue', { templateId: template.templateId, customerId }, ctx,
+      { idempotencyKey: randomUUID() },
+    ).then((r) => r.result);
+
+    const { ticketId } = await openBundleTicket({ customerId });
+
+    await expect(dispatch('ticket.pay', {
+      ticketId,
+      payments: [{
+        method: 'cash', amountCents: 15_000 + TAX_ON_15000, tipCents: 0,
+        tenderedCents: 15_000 + TAX_ON_15000,
+      }],
+      packageRedemptions: [{ customerPackageId: issued.packageId, units: 1 }],
+    }, ctx, { idempotencyKey: randomUUID() }))
+      .rejects.toMatchObject({ details: { reason: 'package_services_not_on_ticket' } });
+
+    const [pkg] = await withTenant(NAIL, (tx) => tx<{ remaining_sessions: number }[]>`
+      select remaining_sessions from customer_packages where id = ${issued.packageId}`);
+    expect(pkg!.remaining_sessions).toBe(2); // 整笔回滚，未扣次
+  });
+
+  it('全额退款：提成按原政策冲销，父子不重复（B23）', async () => {
+    const { ticketId } = await openBundleTicket();
+    await dispatch('ticket.close', {
+      ticketId,
+      payments: [{
+        method: 'cash', amountCents: 15_000 + TAX_ON_15000, tipCents: 0,
+        tenderedCents: 15_000 + TAX_ON_15000,
+      }],
+    }, ctx, { idempotencyKey: randomUUID() });
+
+    const before = await commissionOf(ticketId);
+    expect(before.base).toBe(15_000);
+
+    await dispatch('ticket.refund', {
+      ticketId, refundAmountCents: 15_000 + TAX_ON_15000, refundTipCents: 0,
+      reason: 'wrong_charge', refundMethod: 'original_payment',
+    }, ctx, { idempotencyKey: randomUUID() });
+
+    const [t] = await withTenant(NAIL, (tx) => tx<{ status: string }[]>`
+      select status from tickets where id = ${ticketId}`);
+    expect(t!.status).toBe('refunded');
+
+    // 原提成 + 冲销 = 0：按分摊净额 15000 整额冲回，没有多冲（父套餐无独立收款行）。
+    const after = await commissionOf(ticketId);
+    expect(after).toEqual({ amount: 0, base: 0 });
   });
 });
