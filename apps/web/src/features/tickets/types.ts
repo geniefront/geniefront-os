@@ -9,6 +9,27 @@ export interface TicketItem {
   roomName?: string | null;
   staffName: string;
   membershipId: string;
+  /** 组合套餐子项归属（U10）。普通行全部为空。 */
+  bundleInstanceId?: string | null;
+  bundleComponentId?: string | null;
+  bundleUnitIndex?: number | null;
+  /** 下单时锁定的单项目录原价（收据展示「原价 / 套餐价」用）。 */
+  bundleListPriceCents?: number | null;
+}
+
+/** 一张工单上的一份组合套餐实例（U10）。 */
+export interface TicketBundle {
+  instanceId: string;
+  name: string;
+  bundlePriceCents: number;
+  discountCents: number;
+  extraDiscountCents: number;
+  unitCount: number;
+  /** 已完工的有效子项数。 */
+  doneCount: number;
+  /** 全部有效子项完工时为真 —— 完成 1/3 不让整单提前完工。 */
+  fulfilled: boolean;
+  status: 'active' | 'split' | 'cancelled' | string;
 }
 
 /** 门店结账时机。与服务端 `location_settings.checkout_timing` 的快照一致。 */
@@ -35,6 +56,8 @@ export interface TicketSummary {
   businessDate: string;
   daysAgo: number;
   items: TicketItem[];
+  /** 这张工单上的组合套餐实例（U10）。无套餐时为空数组。 */
+  bundles?: TicketBundle[];
 }
 
 export interface TicketsQueryResponse {

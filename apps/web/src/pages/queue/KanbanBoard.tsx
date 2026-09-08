@@ -22,7 +22,7 @@ import { cn, formatPhoneDisplay } from '@/lib/utils';
 import { useLanguage } from '@/LanguageContext';
 import { centsToDollars } from '@/features/checkout/api';
 import { formatIsoWallClock } from '@/lib/time';
-import { queueTicketItems } from '@/features/queue/ticketItems';
+import { queueTicketItems, groupTicketItemsByBundle } from '@/features/queue/ticketItems';
 import { queueNextAction } from '@/features/queue/nextAction';
 import type { QueueNextAction } from '@/features/queue/nextAction';
 import type { TicketItem } from '@/features/tickets/types';
@@ -261,9 +261,8 @@ export function KanbanBoard({
                           )}
                         </div>}
 
-                        {item.rawTicket && (
-                          <ul className="space-y-2 border-t border-slate-100 pt-2">
-                            {queueTicketItems(item.rawTicket.items).map((service) => (
+                        {item.rawTicket && (() => {
+                          const renderService = (service: typeof item.rawTicket.items[number]) => (
                               <li key={service.ticketItemId} className="space-y-1 text-xs">
                                 <div className="flex justify-between gap-2"><span>{service.name} · {service.durationMin}m</span>
                                   <span>${centsToDollars(service.totalCents)}</span></div>
@@ -280,9 +279,36 @@ export function KanbanBoard({
                                   {service.startedAt ? t('queue.quFinishItem') : t('queue.quStartItem')}
                                 </Button>}
                               </li>
-                            ))}
-                          </ul>
-                        )}
+                          );
+                          const groups = groupTicketItemsByBundle(
+                            queueTicketItems(item.rawTicket.items), item.rawTicket.bundles ?? [],
+                          );
+                          return (
+                            <ul className="space-y-2 border-t border-slate-100 pt-2">
+                              {groups.map((group, gi) => group.bundle ? (
+                                <li key={`b-${group.bundle.instanceId}`} className="rounded-lg bg-teal-50/60 border border-teal-100 p-2 space-y-1.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="flex items-center gap-1.5 min-w-0">
+                                      <Badge className="bg-teal-600 text-white shrink-0">{t('bundle.cardBadge')}</Badge>
+                                      <span className="font-semibold text-teal-900 truncate">{group.bundle.name}</span>
+                                    </span>
+                                    <span className="font-mono font-bold text-teal-800 shrink-0">${centsToDollars(group.bundle.bundlePriceCents)}</span>
+                                  </div>
+                                  <div className="text-[11px] font-semibold text-teal-700">
+                                    {group.bundle.fulfilled
+                                      ? t('bundle.cardFulfilled')
+                                      : t('bundle.cardProgress', { done: group.bundle.doneCount, total: group.bundle.unitCount })}
+                                  </div>
+                                  <ul className="space-y-2 pl-2 border-l-2 border-teal-200">
+                                    {group.items.map(renderService)}
+                                  </ul>
+                                </li>
+                              ) : (
+                                group.items.map(renderService)
+                              )).flat()}
+                            </ul>
+                          );
+                        })()}
 
                         {item.bookedItems && item.bookedItems.length > 1 && (
                           <ul className="space-y-0.5 border-t border-slate-100/80 pt-1">
