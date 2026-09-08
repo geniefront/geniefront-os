@@ -215,6 +215,7 @@ async function main() {
       'customer_credit_ledger', 'customer_packages', 'package_templates', 'coupon_templates',
       'gift_cards', 'gift_card_templates',
       'earnings', 'tip_payouts', 'cash_movements', 'day_closes',
+      'order_bundle_instances', 'service_bundle_components', 'service_bundles',
       'tip_allocations', 'payments', 'ticket_discounts', 'ticket_item_staff', 'ticket_items',
       'tickets', 'ticket_groups', 'tip_policies',
       'time_punches', 'staff_sessions', 'booking_manage_attempts',

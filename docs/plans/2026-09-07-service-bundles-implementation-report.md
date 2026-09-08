@@ -1,8 +1,8 @@
 # 组合项目套餐：实施报告
 
 计划：`docs/plans/2026-09-07-service-bundles-implementation.md`
-状态：**P0 完成 · P1 完成（纯函数 + 契约 + 迁移已写，隔离库未跑）· P2–P8 未开始**
-本轮范围：用户指定「P0 + P1 基础层」。P2–P8 留待后续会话。
+状态：**P0 ✅ · P1 ✅（本地 55322 已验证）· P2 后端 ✅（导入 UI/向导待前端）· P3–P8 未开始**
+本轮范围：P0 + P1 基础层 + P2 目录管理与报价（后端）。
 
 ---
 
@@ -117,25 +117,42 @@
 - [x] 确定实例生命周期（单行双归属）、加项明细存法、字段映射。追加结算方案留 P5。
 - [x] 记录与规则的分歧并按「大多数店」定调（见 §4：#1 分摊取整、#2 优惠叠加已定；#3 Combo/Sessions 分流留 P2）。
 
-### P1 · 模型 / 迁移 / 契约 / 纯计价 —— ✅ 代码完成，隔离库测试未跑
+### P1 · 模型 / 迁移 / 契约 / 纯计价 —— ✅ 完成（本地隔离库 55322 已验证）
 
 - [x] 新表 + 快照 + 约束 + RLS + 索引 + 迁移文件：`packages/db/sql/0118_service_bundles.sql`。
 - [x] drizzle schema：`packages/db/src/schema/bundles.ts`（+ `schema/index.ts` 导出）；
       `appointment_items` / `ticket_items` 补 4 个可空 `bundle_*` 列。
 - [x] 空库 / 升级兼容：全 `create/alter ... if not exists`，纯加法，既有行不动。
-- [x] 套餐管理 + 报价/展开契约、reason 判别串、命令注册、权限：
-      `packages/contracts/src/commands/bundle.ts`（`bundle.saveTemplate` /
-      `bundle.archiveTemplate` / `bundle.quote`），接入 `registry.ts`。
 - [x] 共享展开 + 整数分摊纯函数：`packages/payroll/src/bundle.ts`
       （`allocateBundle` / `refundableForUnit` / `BundlePricingError`）。
-- [x] 纯函数测试：`packages/payroll/src/bundle.test.ts`（21 例）——
-      数量、重复项目、加项、零金额、尾差、确定性、校验闸门、退款余额。
-- [x] 迁移测试（隔离库）：`packages/db/src/serviceBundles.migration.test.ts` ——
-      RLS 强制、列可空、既有行不动、check 约束拒绝、跨租户隔离、整文件可重放。
-      **本机无隔离库，未执行。**
-- [ ] handler 实现（`bundle.*` 命令目前无 handler，dispatch 会返回错误）—— 归 P2。
+- [x] 纯函数测试 `packages/payroll/src/bundle.test.ts`（21 例）+ 迁移测试
+      `packages/db/src/serviceBundles.migration.test.ts`（RLS 强制、列可空、既有行不动、
+      check 约束拒绝、跨租户隔离、整文件可重放）—— **均已在本地 55322 跑通**。
+- [x] `0118` 已应用到本地 55322（迁移测试的 finally 重放并登记 `_migrations`）。
 
-### P2–P8 —— 未开始
+### P2 · 目录管理 + 报价 —— ✅ 后端完成（本地库已验证）；导入 UI / 向导待前端排期
+
+- [x] 契约 `packages/contracts/src/commands/bundle.ts`：`bundle.saveTemplate` /
+      `bundle.archiveTemplate`（命令，接入 `registry.ts` 的 `BUNDLE_COMMANDS`）。
+      `bundleQuoteRequest` / `bundleQuoteResult` 保留为共享类型。
+- [x] **`bundle.quote` 不做成命令** —— 命令总线强制每条命令留审计，报价会被前端
+      预览高频调用。改为只读查询 `apps/api/src/queries/bundle.ts::quoteBundle`
+      （载入目录快照 + `allocateBundle`），创建 / 结账链路 P3–P5 直接调它。
+- [x] handler `apps/api/src/handlers/bundle.ts`：saveTemplate（组成/加项校验、
+      原价合计、`priceCents ≤ 原价`、编辑递增 version + `expectedVersion` 乐观锁、
+      组成 delete+reinsert、审计 before/after）、archiveTemplate（软下架）。
+      接入 `server.ts`。
+- [x] 集成测试 `apps/api/src/bundle.test.ts`（11 例，本地库跑通）：
+      建模板 / 价格超原价拒绝 / 少于两单元拒绝 / 加项当组成拒绝 / 版本递增 + 乐观锁；
+      quote 展开合计 = 锁价、C=1764、剩 13236（B20）、额外加项 16500、
+      手动优惠 $150→$130、coupon 无可叠加对象拒绝、版本不符拒绝、跨租户 + 已下架不可见。
+- [x] 种子重置 `packages/db/src/seed.ts` 清理列表补 3 张 bundle 表（在 `services` 前）。
+- [ ] AI schema / prompt / normalize 的 Combo↔Sessions 分流（决策 #3 的启发式）—— 未做。
+- [ ] 导入审核 UI、发布分流、项目管理 / 开店向导的套餐 CRUD 界面 —— **前端，待排期**。
+- [ ] 只读 HTTP 路由 `/v1/desk/bundles/quote` —— 未接（P3/P5 直接调 `quoteBundle` 函数；
+      前端预览需要时再补路由 + SDK）。
+
+### P3–P8 —— 未开始
 
 ---
 
@@ -143,21 +160,22 @@
 
 | 命令 | 结果 |
 |---|---|
-| `pnpm --filter @gf/payroll test` | ✅ 6 文件 / **128 例**通过（含新增 21 例 `bundle.test.ts`） |
-| `pnpm --filter @gf/contracts test` | ✅ 8 文件 / 61 例通过（含 `registry.test.ts` 命令注册校验） |
-| `pnpm typecheck`（turbo，全 16 包） | ✅ 16/16 通过（含 `@gf/api`、`@gf/web`、`@gf/db`、`@gf/contracts`、`@gf/payroll`） |
-| `pnpm lint:guards` | ✅ 全部通过 |
-| `pnpm test:unit`（全 workspace 非 api/db） | ✅ 全通过（payroll 128 / contracts 61 / ai 123 / web 341 / ipad 20 / booking 26 / scheduling 84 / rotation 30 / marketing 16 / yelp 20 / brightdata 22 / aws 14） |
+| `pnpm --filter @gf/payroll test` | ✅ 6 文件 / **128 例**（含新增 21 例 `bundle.test.ts`） |
+| `pnpm --filter @gf/contracts test` | ✅ 8 文件 / 61 例（含 `registry.test.ts` 命令注册校验） |
+| `pnpm --filter @gf/db test` | ✅ 10 文件 / **92 例**（含新增 `serviceBundles.migration.test.ts`，跑在本地 55322） |
+| `pnpm --filter @gf/api test` | ✅ 88 文件 / **1203 例**（含新增 11 例 `bundle.test.ts`，跑在本地 55322） |
+| `pnpm typecheck`（turbo，全 16 包） | ✅ 16/16 |
+| `pnpm lint:guards` | ✅ |
+| `pnpm test:unit` | ✅ 全通过 |
 
-### 未验证的环境 / 剩余缺口
+### 已验证 / 剩余缺口
 
-- **隔离 API/DB 测试未跑**：本机无 `DATABASE_TEST_TARGET=isolated` + `TEST_DATABASE_URL` /
-  `TEST_MIGRATION_DATABASE_URL`。`serviceBundles.migration.test.ts` 与 `@gf/api` 集成测试
-  （`pnpm test`）未执行。需在配了隔离库的环境跑一遍：`pnpm --filter @gf/db test` 及
-  `pnpm --filter @gf/api test`。
-- **迁移未落库**：`0118` 未对任何库执行（本机 / staging / 生产均未跑）。
-- **E2E / 浏览器**：无（P1 无 UI 变更，Checkout / Queue / 导入 UI 属 P2–P5）。
-- **B01–B32 验收矩阵**：全部未执行（依赖 P2–P8）。
+- **本地隔离库（55322）**：`@gf/db` + `@gf/api` 全套 + 迁移测试 + bundle 目录/报价
+  测试均已跑通。`0118` 已应用到本地 55322。
+- **迁移未上 staging / 生产**：只在本地。上线顺序见 §8。
+- **E2E / 浏览器**：无 UI 变更，未涉及。
+- **B01–B32 验收矩阵**：B04/B05/B06/B20/B32 的**金额口径**已由 `bundle.test.ts` /
+  `bundle` 纯函数测试覆盖；完整场景（预约/看板/结账/退款全链路）依赖 P3–P8。
 
 ---
 

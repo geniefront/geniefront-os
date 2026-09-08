@@ -27,6 +27,7 @@ import './handlers/dayclose';
 import './handlers/shift';
 import './handlers/staff';
 import './handlers/blueprint';
+import './handlers/bundle';
 import './handlers/phone';
 import './handlers/giftcard';
 import './handlers/notify';

@@ -163,26 +163,12 @@ export const bundleQuoteResult = z.object({
 });
 export type BundleQuoteResult = z.infer<typeof bundleQuoteResult>;
 
-/**
- * 只读报价预览。无副作用 —— 创建入口、结账复核、看板拆单预览共用同一张口径表，
- * 三条路各自 round 一次就会得出三个总额（同 split.ts 的教训）。
- */
-export const BundleQuote = defineCommand({
-  name: 'bundle.quote',
-  input: bundleQuoteRequest,
-  output: bundleQuoteResult,
-  permission: 'ticket.read',
-  ai: {
-    description: '预览一份组合套餐展开后的子项目与金额分摊，不产生任何写入。',
-    confirm: 'never',
-    exposed: false,
-  },
-  reversible: true,
-  idempotency: 'optional',
-});
+// ⚠️ 报价是**只读查询**，不是命令 —— 命令总线要求每条命令都留审计，套餐报价
+// 会被前端预览高频调用。实现是 `apps/api/src/queries/bundle.ts::quoteBundle`
+// （纯载入 + `@gf/payroll` 的 allocateBundle），创建 / 结账链路直接调它，
+// 前端走只读路由。上面的 `bundleQuoteRequest` / `bundleQuoteResult` 供两侧共享类型。
 
 export const BUNDLE_COMMANDS = [
   BundleSaveTemplate,
   BundleArchiveTemplate,
-  BundleQuote,
 ] as const;
