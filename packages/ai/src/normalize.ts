@@ -32,9 +32,29 @@ export interface DraftItem {
   packageSessions?: number;
   packageServiceNames?: string[];
   packageValidDays?: number | null;
+  /**
+   * `kind === 'package'` 时的细分（U10 决策 #3）。模型对「组合套餐」与「按次核销
+   * 次卡」一律给 `kind='package'`，这里按启发式再分一层，**只做建议不改 kind**：
+   *   `bundle`    —— 去重后 ≥ 2 个项目且次数 ≤ 1：更像一次买走的固定组合。
+   *   `sessions`  —— 次数 ≥ 2 且去重后 ≤ 1 个项目：更像预付次卡。
+   *   `ambiguous` —— 两者都不满足：发布时让店主选，不猜。
+   * 非 package 行为 `undefined`。
+   */
+  packageKind?: 'bundle' | 'sessions' | 'ambiguous';
   confidenceBp: number;
   sourceSeq: number;
   bbox: [number, number, number, number] | null;
+}
+
+/** U10 决策 #3 的启发式。仅对 `kind='package'` 调用。 */
+export function classifyPackageKind(
+  sessions: number,
+  serviceNames: readonly string[],
+): 'bundle' | 'sessions' | 'ambiguous' {
+  const distinct = new Set(serviceNames.map(nameKey).filter((n) => n.length > 0)).size;
+  if (distinct >= 2 && sessions <= 1) return 'bundle';
+  if (sessions >= 2 && distinct <= 1) return 'sessions';
+  return 'ambiguous';
 }
 
 export interface NormalizeOptions {
@@ -115,6 +135,9 @@ export function normalizeExtraction(
       packageSessions: raw.package_sessions,
       packageServiceNames: raw.package_service_names,
       packageValidDays: raw.package_valid_days > 0 ? raw.package_valid_days : null,
+      ...(raw.kind === 'package'
+        ? { packageKind: classifyPackageKind(raw.package_sessions, raw.package_service_names) }
+        : {}),
       confidenceBp,
       sourceSeq: opts.sourceSeq,
       bbox: clampBox(raw.bbox, opts.widthPx, opts.heightPx),

@@ -101,6 +101,22 @@ describe('normalizeExtraction', () => {
       extraction([row({ name: '足底按摩' })]), { sourceSeq: 0, locale: 'zh-Hans' });
     expect(item!.name).toEqual({ 'zh-Hans': '足底按摩' });
   });
+
+  it('package 行按启发式分 bundle / sessions / ambiguous（U10 决策 #3）', () => {
+    const [combo, punch, ambiguous, notPackage] = normalizeExtraction(extraction([
+      row({ kind: 'package', name: 'Relax Combo', package_sessions: 1,
+            package_service_names: ['Manicure', 'Pedicure', 'Facial'] }),
+      row({ kind: 'package', name: '10x Gel', package_sessions: 10,
+            package_service_names: ['Gel Manicure'] }),
+      row({ kind: 'package', name: 'Mystery', package_sessions: 3,
+            package_service_names: ['Massage', 'Facial'] }),
+      row({ kind: 'service', name: 'Plain Service' }),
+    ]), { sourceSeq: 0 });
+    expect(combo!.packageKind).toBe('bundle');
+    expect(punch!.packageKind).toBe('sessions');
+    expect(ambiguous!.packageKind).toBe('ambiguous');
+    expect(notPackage!.packageKind).toBeUndefined();
+  });
 });
 
 describe('mergeDrafts', () => {
