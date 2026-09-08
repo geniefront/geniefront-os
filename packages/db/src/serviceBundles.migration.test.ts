@@ -118,29 +118,26 @@ describe('0118 组合套餐结构', () => {
       );
       expect(bundleId).toBeTruthy();
 
-      await withTenant(
-        { orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null },
-        async (tx) => {
-          // discount must equal original - price
-          await expect(tx`
-            insert into order_bundle_instances
-              (org_id, location_id, appointment_id, bundle_id, template_version,
-               name_snapshot, original_total_cents, bundle_price_cents, discount_cents)
-            values (${NAIL_ORG}, ${NAIL_LOC}, ${null}, ${bundleId}, 1,
-               '{"en":"Relax Combo"}'::jsonb, 17000, 15000, 1999)
-          `).rejects.toThrow(); // owner_chk also fails here (no appointment/ticket)
-
-          // price must not exceed original
-          await expect(tx`
-            insert into order_bundle_instances
-              (org_id, location_id, ticket_id, bundle_id, template_version,
-               name_snapshot, original_total_cents, bundle_price_cents, discount_cents)
-            select ${NAIL_ORG}, ${NAIL_LOC}, t.id, ${bundleId}, 1,
-               '{"en":"Relax Combo"}'::jsonb, 10000, 15000, -5000
-            from tickets t where t.location_id = ${NAIL_LOC} limit 1
-          `).rejects.toThrow();
-        },
+      // check 约束（每条各自一条语句 —— 事务里一失败后续就全废）。
+      const badInsert = (cols: string, vals: string) => adminSql.unsafe(
+        `insert into order_bundle_instances (org_id, location_id, bundle_id, template_version,
+           name_snapshot, ${cols})
+         values ('${NAIL_ORG}', '${NAIL_LOC}', '${bundleId}', 1, '{"en":"x"}'::jsonb, ${vals})`,
       );
+      // 至少一个归属（appointment/ticket）必须非空。
+      await expect(badInsert(
+        'original_total_cents, bundle_price_cents, discount_cents', '17000, 15000, 2000',
+      )).rejects.toThrow(/owner_chk/);
+      // discount 必须等于 original − price。
+      await expect(badInsert(
+        'appointment_id, original_total_cents, bundle_price_cents, discount_cents',
+        `(select id from appointments where location_id = '${NAIL_LOC}' limit 1), 17000, 15000, 1999`,
+      )).rejects.toThrow(/discount_chk/);
+      // price 不得超过 original（此时 discount 必为负，先撞 discount 非负 check）。
+      await expect(badInsert(
+        'appointment_id, original_total_cents, bundle_price_cents, discount_cents',
+        `(select id from appointments where location_id = '${NAIL_LOC}' limit 1), 10000, 15000, -5000`,
+      )).rejects.toThrow(/check constraint/);
 
       // ── cross-tenant isolation ────────────────────────────────────────
       const leaked = await withTenant(
