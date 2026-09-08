@@ -19,6 +19,7 @@ import { emailConfigured } from '../email/send';
 import { hostedManageBookingUrl } from '../links';
 import { generateConfirmationCode, generateManageToken, hashManageToken, wrapManageToken } from '../public/bookingToken';
 import { guestManageLink, manageUrlVar } from '../notify/manageUrl';
+import { appointmentServiceLabel } from '../notify/appointmentServiceLabel';
 import { enqueueShopCopy } from '../email/shopCopy';
 import { renderConfirmSms } from '../sms/render';
 import { segmentsOf } from '../sms/segments';
@@ -842,7 +843,8 @@ async function enqueueConfirmEmail(
   const msg = renderConfirm({
     customerName: pickText(row!.customer_name, 'en', 'there'),
     shopName: pickText(row!.shop_name, 'en', ''),
-    serviceName: pickText(row!.service_name, 'en', 'your appointment'),
+    serviceName: await appointmentServiceLabel(
+      tx, ctx.locationId, appointmentId, pickText(row!.service_name, 'en', 'your appointment')),
     whenText: formatWhen(new Date(row!.starts_at).toISOString(), row!.timezone, 'en-US'),
     staffName: row!.staff_name ? pickText(row!.staff_name, 'en') : null,
     shopPhone: line?.e164 ?? null,
@@ -932,7 +934,8 @@ async function enqueueConfirmSms(
   const body = renderConfirmSms({
     shopName: row!.shop_name,
     shopSlug: row!.shop_slug,
-    serviceName: pickText(row!.service_name, 'en', 'your appointment'),
+    serviceName: await appointmentServiceLabel(
+      tx, ctx.locationId, appointmentId, pickText(row!.service_name, 'en', 'your appointment')),
     whenText: formatWhenSms(new Date(row!.starts_at).toISOString(), row!.timezone),
     shopPhone: line?.e164 ?? null,
     manageUrl,

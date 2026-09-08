@@ -2296,6 +2296,12 @@ describe('组合套餐（U10 / P6 公开预约）', () => {
     expect(items).toHaveLength(2);
     expect(items.every((i) => i.bundle_instance_id != null)).toBe(true);
     expect(items.reduce((n, i) => n + i.price_cents_snapshot, 0)).toBe(10_000);
+
+    // 确认短信按套餐名展示，不是首个子项名（U10 / 计划 §7 通知）
+    const [sms] = await withTenant(tenant, (tx) => tx<{ body: string }[]>`
+      select body from sms_outbox where entity_id = ${bookingId} and kind = 'appointment_confirm'`);
+    expect(sms?.body).toContain('U10 Public Combo');
+    expect(sms?.body).not.toContain('U10 Pub A');
   });
 
   it('官网不能订没勾线上的套餐', async () => {

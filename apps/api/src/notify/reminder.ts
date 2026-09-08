@@ -31,6 +31,7 @@ import { sql, withTenant } from '@gf/db';
 import type { CommandContext } from '@gf/contracts';
 import { notifyEvent } from './dispatch';
 import { guestManageLink, manageUrlVar } from './manageUrl';
+import { appointmentServiceLabel } from './appointmentServiceLabel';
 import { flushSms } from '../sms/flush';
 import { flushEmails } from '../email/flush';
 import { formatWhen } from '../email/render';
@@ -138,10 +139,13 @@ async function enqueueOneReminder(
     select e164 from phone_lines
     where location_id = ${tenant.locationId} and purpose = 'main' and active limit 1`;
 
+  const serviceLabel = await appointmentServiceLabel(
+    tx, tenant.locationId, appointmentId, pickText(row.service_name, 'en', ''));
+
   const vars = {
     customer_name: pickText(row.customer_name, 'en', ''),
     shop_name: pickText(row.shop_name, 'en', ''),
-    service_name: pickText(row.service_name, 'en', ''),
+    service_name: serviceLabel,
     staff_name: row.staff_name ? pickText(row.staff_name, 'en', '') : '',
     when: formatWhen(new Date(row.starts_at).toISOString(), row.timezone, 'en-US'),
     shop_phone: line?.e164 ?? '',
