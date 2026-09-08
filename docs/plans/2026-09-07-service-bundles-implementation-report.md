@@ -1,0 +1,181 @@
+# 组合项目套餐：实施报告
+
+计划：`docs/plans/2026-09-07-service-bundles-implementation.md`
+状态：**P0 完成 · P1 完成（纯函数 + 契约 + 迁移已写，隔离库未跑）· P2–P8 未开始**
+本轮范围：用户指定「P0 + P1 基础层」。P2–P8 留待后续会话。
+
+---
+
+## 0. 基线
+
+- 分支：`main`，起始 `440cd0a`。开工前 `git status` 干净。
+- 既有实现：**零**。全仓无 `service_bundle*` / `orderBundle*` 代码，只有计划文档
+  （`fc78cbf` 加入）。记忆中 U10 曾划给「另一个 AI」，本轮由用户改派。
+- 未做：未查询生产数据、未跑破坏性 DB 测试、未部署、未迁移生产。
+
+---
+
+## 1. 采用的模型（相对计划的取舍）
+
+| 计划建议 | 本轮采用 | 说明 |
+|---|---|---|
+| `service_bundles` | ✅ 同名 | 目录模板：org/loc、i18n 名称+描述、`price_cents`、`online_bookable`、`version`、`active`、`sort`、`updated_at`（触发器）。 |
+| `service_bundle_components` | ✅ 同名 | `id` 即稳定 component_id；`service_id`、`qty(1–20)`、`seq`、`included_addon_ids uuid[]`。 |
+| `order_bundle_instances` 关联 appointment/ticket | ✅ 采用「单行双归属」 | 一行同时可挂 `appointment_id` 与 `ticket_id`，预约转工单保留同一实例身份（计划 §5.2 首选方案）。`check` 至少一个非空。 |
+| 实例快照字段 | ✅ | `template_version`、`name_snapshot`、`original_total_cents`、`bundle_price_cents`、`discount_cents`、`extra_discount_cents`、`source`、`status(active/split/cancelled)`。历史财务字段不随模板更新重写。 |
+| `appointment_items` / `ticket_items` 加可空关联列 | ✅ | `bundle_instance_id`(FK, on delete set null)、`bundle_component_id`、`bundle_unit_index`、`bundle_list_price_cents`。全部可空，普通历史行为空。 |
+| 「不按数组 seq / service_id 配对」 | ✅ 部分唯一索引 | `(bundle_instance_id, bundle_component_id, bundle_unit_index)` 在两张 items 表上唯一（where instance not null）——一个执行单元最多映射一条 item。 |
+| 币种字段 | ❌ 省略 | 系统单币种（USD），既有 tickets/payments 无币种列，套餐实例不引入。 |
+| 独立 `services` 虚拟父项 | ❌ 不建 | 计划 §5.1 明确反对。套餐父分组仅存在于 `order_bundle_instances`，无收款行、不占资源、不计轮。 |
+| 唯一共享分摊实现 | ✅ 新纯函数 `allocateBundle`（`packages/payroll/src/bundle.ts`） | 与 `split.ts` / `commission.ts` / `tip.ts` 同处（本包即「差一分就吵架」的钱算术包）。**未新建 `@gf/pricing`**：零新 workspace 布线。分摊方法见「决策 #1」——不复用 `largestRemainderSplit`。 |
+| 分摊取整（决策 #1，**已定**） | ✅ 按原价权重摊内建优惠，下取整 + 余数给 seq 末几项 | 复现计划 §6.1 示例表与 B20 / B32 的字面数字（A=8824 / C=1764，退 C=1764、剩余 13236）。零价子项不接余数。用户指示「按大多数店」——1 分落点店主无感，以规格验收数字为准。 |
+| 额外优惠是否叠套餐（决策 #2，**已定**） | ✅ 默认**不叠**，可配 | `bundleUnitsEligibleForExtraDiscount` 默认 false：券 / 自动优惠只摊到额外加项（计划 §4.5「默认套餐部分不自动叠加优惠券」）。要「权限内手动优惠也作用于套餐子项」的店设 true。 |
+| 套餐错误码 | ✅ 用 `VALIDATION_FAILED` + `details.reason` 判别串 | 未新增 `ERROR_CODES` 枚举项：新增一项需同步 `httpStatusFor`、`errorMessage.ts`、`common.ts`（五语言），面过大且风险高。`details.reason` 判别串是仓库既有惯例（marketing / ticket handler）。reason 取值见 `packages/contracts/src/commands/bundle.ts` 头注释。 |
+
+---
+
+## 2. 入口矩阵（P0 交付 · 只读代码审查所得，执行 P2–P8 时须复核）
+
+| 链路 | 关键文件 | 现状 / 套餐需要做的改动 | 计划阶段 |
+|---|---|---|---|
+| AI 识别 | `packages/ai/src/prompt.ts:40`、`schema.ts:33/110`、`normalize.ts:32` | **Combo 与 Sessions 都进 `kind='package'`**，携带 `package_sessions` / `package_service_names` / `package_valid_days`。P2 需把「固定组合」与「按次核销」分流，或加 `kind` 子类型。 | P2 |
+| 导入契约 | `packages/contracts/src/commands/blueprint.ts:23/36/222/276`，`apps/api/src/handlers/blueprint.ts` | `blueprint_items.kind` 已含 `'package'`（sql/0104）。`createdPackageIds` 出现在发布输出。P2：发布按 bundle/package/addon 分流，普通服务先解析再建套餐，事务回滚 + 重试幂等。 | P2 |
+| 导入 UI | `apps/web/src/features/setup/ImportWorkspace.tsx` | 现按 sessions + 项目名输入。P2：加组成/数量/加项/总价结构化字段，未解析组成显示待补全，同名歧义强制选 ID。 | P2 |
+| 项目配置契约 | `packages/contracts/src/commands/setup.ts:11`（`SaveService`）、`apps/api/src/handlers/setup.ts:24` | 服务模型有 `isAddon`、`staffCount(1–5)`、`requiredSkillIds`，**无组合组成关系**。新 `bundle.saveTemplate` / `bundle.archiveTemplate` 契约已加（本轮），handler 待 P2。 | P2 |
+| 服务/预约表 | `packages/db/src/schema/scheduling.ts`（services / appointments / appointment_items） | `appointment_items` 有 `addon_ids uuid[]`、`price_cents_snapshot`、`duration_min`、`seq`。本轮已补 4 个可空 `bundle_*` 列。 | P1✅ |
+| 预约创建计价 | `apps/api/src/handlers/appointment.ts:244-288` | 主项 + add-on **价格累加**、时长「显式给 `durationMin` 就以它为准，否则累加」。P3：套餐走 `allocateBundle` 展开，不依赖前端展开。 | P3 |
+| 公开预约计价 | `apps/api/src/public/routes.ts`（自有 `priceAndDuration`，约 1014 行） | 与内部创建**分叉的**第二套累加逻辑。P3/P6 须统一接入套餐解析，避免二次分叉。 | P3/P6 |
+| 开单继承 | `apps/api/src/handlers/ticket.ts:83`（`recalcTotals`）、`:142-172`（从 appointment_items 快照） | `recalcTotals` = `sum(ticket_items.total_cents)` 直接写 `subtotal_cents` 与 `total_cents`。开单校验预约与工单 item 的 `service_id` 顺序完全一致、`price/minutes` override 与快照一致。P3：转工单按 `(instance, component, unit_index)` 稳定映射继承实例；P6 计价适配。 | P3 |
+| 折扣/次卡/退款 | `apps/api/src/handlers/ticket.ts:495-580`（次卡覆盖 + 提成基数）、`:1019-1296`（退款 + 提成冲销） | 次卡按 `service_id` 匹配 `ticket_items` 覆盖；退款校验 `refund_cents + amt <= total_cents`，按 `subtotal - discount` 算服务净额。P5：次卡不默认覆盖套餐子项；退款按分摊后净额。 | P5 |
+| 提成分摊 | `packages/payroll/src/commission.ts`、`split.ts`（`largestRemainderSplit`、`distributeBuckets`） | 已有唯一整数分拆实现。`packageCommissionBasis` 是**次卡**的开关，计划 §4.5 明确**不复用**它作套餐开关。 | P5 |
+| 看板 | `apps/api/src/queries/queue.ts`、`apps/web/src/pages/Queue.tsx`、`pages/queue/` | 项目级执行动作 + 看板阶段。P4：卡片套餐分组 + 进度、动作弹窗理解套餐关系，父分组不重复占资源/计轮。 | P4 |
+| 结账（两入口） | `apps/web/src/pages/Checkout.tsx`、`pages/queue/modals/CheckoutModal.tsx`、`apps/api/src/handlers/ticket.ts` 结账段（`:617-990`） | 已有折扣、次卡覆盖、分阶段付款、组单结账、退款。P5：两入口金额一致，组合优惠与额外折扣分开记。 | P5 |
+| 迁移执行 | `packages/db/src/migrate.ts` | 手写 SQL 目录 `packages/db/sql/NNNN_*.sql`（drizzle-kit 生成物停在 0010，实际建表全走手写 SQL）。新增 `0118_service_bundles.sql`。 | P1✅ |
+| 命令注册 | `packages/contracts/src/registry.ts` | `COMMAND_REGISTRY` 单一事实来源；`BUNDLE_COMMANDS` 已接入 `ALL`。`bundle` 前缀**未**加入 `COPILOT_OPERATIONAL_PREFIXES` —— 副驾集成属 P6。 | P1✅ / P6 |
+
+**尚未补查（P2–P8 执行者必做）**：改期/改项/删除/回退 handler 全量、queue 动作规则、税费引擎接入点、优惠券分摊、日报/CSV、通知模板、健康表匹配的 service_id 聚合、AI 工具链、kiosk 调用链。
+
+---
+
+## 3. 字段口径表（P0 交付）
+
+| 字段 | 所在 | 现含义 | 套餐接入注意 |
+|---|---|---|---|
+| `ticket_items.unit_price_cents` / `total_cents` | 工单行 | 行金额；`total_cents` 参与 `recalcTotals` 求和 | 套餐子项写**分摊后净额**进 `total_cents`；原价另存 `bundle_list_price_cents`，收据展示「原价/套餐价」用它，不参与求和 |
+| `ticket_items.discount_cents` | 工单行 | 行级折扣，参与提成基数计算（`ticket.ts:716-728`） | 套餐内建优惠**不**写这里（否则与已压低的 `total_cents` 叠加 → 二次打折）；额外整单折扣分摊到行才写这里 |
+| `tickets.subtotal_cents` / `total_cents` | 工单 | `recalcTotals` 两者都置为 `sum(ticket_items.total_cents)` | 若 `total_cents` 已是套餐净价，下游 `discount_cents` 不得再含同一笔套餐优惠 |
+| `appointment_items.price_cents_snapshot` | 预约行 | 主项 + add-on 累加后的快照；开单原样继承 | 套餐子项此值 = `allocateBundle` 的 `bundleNetCents`（未含额外优惠）；额外优惠在结账层分摊 |
+| `order_bundle_instances.discount_cents` | 套餐实例（新） | = `original_total_cents − bundle_price_cents`（DB check 强制） | 套餐**内建**优惠，与 `extra_discount_cents`（额外整单优惠分摊）分开记 |
+| `packageCommissionBasis` | 门店薪酬配置 | **次卡**提成基数开关 | 计划 §4.5：**不复用**为组合套餐开关 |
+
+---
+
+## 4. 决策记录（用户指示「按大多数店来，需要自定义就做成可配」）
+
+### 决策 #1 —— 分摊取整规则 · **已定**
+
+规格 §6 正文写「最大余数法」，但 §6.1 示例表与 **B20 / B32** 验收用例硬断言
+具体数字（`A=8824 / B=4412 / C=1764`；退 C = 1764、剩余套餐 13236）。这组数字
+对应的是「**按原价权重摊内建优惠 → 下取整 → 余数一分一分分给 seq 末几项（跳过
+零价子项）**」，不是严格最大余数法（后者对该例给 `[8823, 4412, 1765]`）。
+
+采用**匹配规格验收数字**的规则：`allocateBundle` 按此实现，`largestRemainderSplit`
+（提成 / 小费 / 组单收款用的最大余数法）不复用于套餐。理由：对店主而言 1 分
+落在哪个子项无感，而 B20/B32 是白纸黑字的验收标准，P5 不必再返工。
+`bundle.test.ts` 直接断言 `[8824, 4412, 1764]` 与「退 1764 / 剩 13236」。
+
+### 决策 #2 —— 额外整单优惠是否叠加到套餐子项 · **已定 + 可配**
+
+规格 §4.5：「默认套餐部分不自动叠加优惠券」。默认行为：额外整单优惠
+（券 / 自动折扣）**只摊到额外加项净额**，套餐子项 `extraDiscountCents` 恒为 0。
+需要「权限内的手动优惠也作用于套餐子项」的店，把
+`bundleUnitsEligibleForExtraDiscount` 设 true（契约 `bundle.quote` 入参，
+默认 false）；手动优惠的范围 / 上限仍由服务端按权限校验（P5）。
+
+### 决策 #3 —— AI 识别的 Combo / Sessions 分流 · P2 处理，建议如下
+
+现状两者同为 `kind='package'`。建议启发式（P2 在 `packages/ai` 落地）：
+`package_sessions >= 2` 且 `package_service_names` 去重后 ≤ 1 项 → 次卡（预付资产）；
+`package_sessions <= 1` 且 `package_service_names` ≥ 2 项 → 固定组合（bundle）；
+两者都不满足 → 保留草案让店主选，不猜。本轮不改 `packages/ai`（P2 范围）。
+
+---
+
+## 5. 每阶段状态
+
+### P0 · 代码复核与口径冻结 —— ✅ 完成
+
+- [x] 读约束、记基线、枚举入口（见 §2）与测试位置。
+- [x] 明确旧字段含义与消费者（见 §3），特别是折扣 / 提成 / 退款 / 支付阶段。
+- [x] 确定实例生命周期（单行双归属）、加项明细存法、字段映射。追加结算方案留 P5。
+- [x] 记录与规则的分歧并按「大多数店」定调（见 §4：#1 分摊取整、#2 优惠叠加已定；#3 Combo/Sessions 分流留 P2）。
+
+### P1 · 模型 / 迁移 / 契约 / 纯计价 —— ✅ 代码完成，隔离库测试未跑
+
+- [x] 新表 + 快照 + 约束 + RLS + 索引 + 迁移文件：`packages/db/sql/0118_service_bundles.sql`。
+- [x] drizzle schema：`packages/db/src/schema/bundles.ts`（+ `schema/index.ts` 导出）；
+      `appointment_items` / `ticket_items` 补 4 个可空 `bundle_*` 列。
+- [x] 空库 / 升级兼容：全 `create/alter ... if not exists`，纯加法，既有行不动。
+- [x] 套餐管理 + 报价/展开契约、reason 判别串、命令注册、权限：
+      `packages/contracts/src/commands/bundle.ts`（`bundle.saveTemplate` /
+      `bundle.archiveTemplate` / `bundle.quote`），接入 `registry.ts`。
+- [x] 共享展开 + 整数分摊纯函数：`packages/payroll/src/bundle.ts`
+      （`allocateBundle` / `refundableForUnit` / `BundlePricingError`）。
+- [x] 纯函数测试：`packages/payroll/src/bundle.test.ts`（19 例）——
+      数量、重复项目、加项、零金额、尾差、确定性、校验闸门、退款余额。
+- [x] 迁移测试（隔离库）：`packages/db/src/serviceBundles.migration.test.ts` ——
+      RLS 强制、列可空、既有行不动、check 约束拒绝、跨租户隔离、整文件可重放。
+      **本机无隔离库，未执行。**
+- [ ] handler 实现（`bundle.*` 命令目前无 handler，dispatch 会返回错误）—— 归 P2。
+
+### P2–P8 —— 未开始
+
+---
+
+## 6. 实际运行的命令与结果
+
+| 命令 | 结果 |
+|---|---|
+| `pnpm --filter @gf/payroll test` | ✅ 6 文件 / **126 例**通过（含新增 19 例 `bundle.test.ts`） |
+| `pnpm --filter @gf/contracts test` | ✅ 8 文件 / 61 例通过（含 `registry.test.ts` 命令注册校验） |
+| `pnpm typecheck`（turbo，全 16 包） | ✅ 16/16 通过（含 `@gf/api`、`@gf/web`、`@gf/db`、`@gf/contracts`、`@gf/payroll`） |
+| `pnpm lint:guards` | ✅ 全部通过 |
+| `pnpm test:unit`（全 workspace 非 api/db） | ✅ 全通过（payroll 126 / contracts 61 / ai 123 / web 341 / ipad 20 / booking 26 / scheduling 84 / rotation 30 / marketing 16 / yelp 20 / brightdata 22 / aws 14） |
+
+### 未验证的环境 / 剩余缺口
+
+- **隔离 API/DB 测试未跑**：本机无 `DATABASE_TEST_TARGET=isolated` + `TEST_DATABASE_URL` /
+  `TEST_MIGRATION_DATABASE_URL`。`serviceBundles.migration.test.ts` 与 `@gf/api` 集成测试
+  （`pnpm test`）未执行。需在配了隔离库的环境跑一遍：`pnpm --filter @gf/db test` 及
+  `pnpm --filter @gf/api test`。
+- **迁移未落库**：`0118` 未对任何库执行（本机 / staging / 生产均未跑）。
+- **E2E / 浏览器**：无（P1 无 UI 变更，Checkout / Queue / 导入 UI 属 P2–P5）。
+- **B01–B32 验收矩阵**：全部未执行（依赖 P2–P8）。
+
+---
+
+## 7. 历史 package 处理
+
+未处理（属 P7）。现状：`package_templates` / `customer_packages` 承载次卡，未区分其中
+是否混有「其实是固定组合」的历史行。P7 需提供只读扫描 + 逐条确认转换，不按
+`sessions=0/1` 自动判断。
+
+## 8. 待执行的生产操作
+
+无。本轮不含任何生产变更。后续 P1 落库顺序：`0118` 在 staging 迁移（加法式，
+可回退：回退只需 `drop` 3 张新表 + 4×2 列，无数据依赖），验证后再生产。
+
+---
+
+## 9. 最短复现步骤（P1 已交付部分）
+
+```bash
+cd geniefront-os
+pnpm --filter @gf/payroll test        # 纯分摊函数，含计划 §6.1 示例（注意待决策 #1）
+pnpm typecheck && pnpm lint:guards    # 全绿
+# 隔离库环境额外：
+# DATABASE_TEST_TARGET=isolated TEST_DATABASE_URL=... TEST_MIGRATION_DATABASE_URL=... \
+#   pnpm --filter @gf/db test -- serviceBundles.migration
+```
+
+`allocateBundle` 用法示例见 `packages/payroll/src/bundle.test.ts`。

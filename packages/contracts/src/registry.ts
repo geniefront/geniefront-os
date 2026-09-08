@@ -16,6 +16,7 @@ import { DAYCLOSE_COMMANDS } from './commands/dayclose.js';
 import { SHIFT_COMMANDS } from './commands/shift.js';
 import { STAFF_COMMANDS } from './commands/staff.js';
 import { BLUEPRINT_COMMANDS } from './commands/blueprint.js';
+import { BUNDLE_COMMANDS } from './commands/bundle.js';
 import { PHONE_COMMANDS } from './commands/phone.js';
 import { GIFTCARD_COMMANDS } from './commands/giftcard.js';
 import { NOTIFY_COMMANDS } from './commands/notify.js';
@@ -40,7 +41,7 @@ import { EMAIL_COMMANDS } from './commands/email.js';
 const ALL: readonly AnyCommandDef[] = [
   ...EMAIL_COMMANDS, ...APPOINTMENT_COMMANDS, ...ROTATION_COMMANDS, ...TICKET_COMMANDS, ...SETUP_COMMANDS,
   ...PAYROLL_COMMANDS, ...DAYCLOSE_COMMANDS, ...SHIFT_COMMANDS, ...STAFF_COMMANDS,
-  ...BLUEPRINT_COMMANDS, ...PHONE_COMMANDS,
+  ...BLUEPRINT_COMMANDS, ...BUNDLE_COMMANDS, ...PHONE_COMMANDS,
   ...GIFTCARD_COMMANDS, ...NOTIFY_COMMANDS, ...STOREFRONT_COMMANDS, ...YELP_COMMANDS, ...GOOGLE_COMMANDS, ...KIOSK_COMMANDS,
   ...BILLING_COMMANDS, ...AI_COMMANDS, ...ANALYTICS_COMMANDS,
   ...CUSTOMER_COMMANDS, ...SMS_COMMANDS, ...RESOURCE_COMMANDS, ...MARKETING_COMMANDS,

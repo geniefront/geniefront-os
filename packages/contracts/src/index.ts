@@ -11,6 +11,7 @@ export * from './commands/dayclose.js';
 export * from './commands/shift.js';
 export * from './commands/staff.js';
 export * from './commands/blueprint.js';
+export * from './commands/bundle.js';
 export * from './customerProfile.js';
 export * from './notification.js';
 export * from './commands/phone.js';

@@ -15,6 +15,7 @@ export * from './giftcard';
 export * from './notify';
 export * from './storefront';
 export * from './marketing';
+export * from './bundles';
 export * from './pairing';
 export * from './settings';
 export * from './notifications';

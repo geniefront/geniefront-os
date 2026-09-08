@@ -275,10 +275,24 @@ export const appointmentItems = pgTable('appointment_items', {
   overbookNote: text('overbook_note'),
   /** ⭐ 本次落单要素：力度/部位/甲型/色号…（02 §3.1） */
   details: jsonb('details').notNull().default(sql`'{}'::jsonb`),
+  /**
+   * ⭐ 组合套餐来源关联（U10 / sql/0118）。普通行全部为空。
+   *   bundleInstanceId    —— 属于哪一份套餐实例（order_bundle_instances.id）
+   *   bundleComponentId   —— 对应模板里的哪个组成（service_bundle_components.id）
+   *   bundleUnitIndex     —— 同一组成 qty>1 时的第几份，0 基
+   *   bundleListPriceCents—— 该执行单元的目录原价快照（收据展示「原价/套餐价」用）
+   * 不按数组 seq 或 service_id 配对（计划 §5.2）；一个预约子项最多映射一次
+   * 有效工单子项，由 sql/0118 的部分唯一索引强制。
+   */
+  bundleInstanceId: uuid('bundle_instance_id'),
+  bundleComponentId: uuid('bundle_component_id'),
+  bundleUnitIndex: integer('bundle_unit_index'),
+  bundleListPriceCents: integer('bundle_list_price_cents'),
 }, (t) => [
   index('appointment_items_staff_idx').on(t.locationId, t.membershipId, t.startsAt),
   index('appointment_items_resource_idx').on(t.locationId, t.resourceId, t.startsAt),
   index('appointment_items_appointment_idx').on(t.appointmentId),
+  index('appointment_items_bundle_idx').on(t.bundleInstanceId),
 ]);
 
 /** 处理时间拆段。资源排他约束只建在 active 段上，否则泡脚/等干场景排不进去。 */

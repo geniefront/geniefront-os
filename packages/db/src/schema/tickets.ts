@@ -124,10 +124,20 @@ export const ticketItems = pgTable('ticket_items', {
   overbookNote: text('overbook_note'),
   /** 落单要素快照：加钟改了力度、加了款式也在这（02 §3.1） */
   details: jsonb('details').notNull().default(sql`'{}'::jsonb`),
+  /**
+   * ⭐ 组合套餐来源关联（U10 / sql/0118）。与 appointment_items 同名同义；
+   * 预约转工单时按 (bundle_instance_id, bundle_component_id, bundle_unit_index)
+   * 稳定映射，不按数组顺序。普通行全部为空。
+   */
+  bundleInstanceId: uuid('bundle_instance_id'),
+  bundleComponentId: uuid('bundle_component_id'),
+  bundleUnitIndex: integer('bundle_unit_index'),
+  bundleListPriceCents: integer('bundle_list_price_cents'),
 }, (t) => [
   index('ticket_items_ticket_idx').on(t.ticketId),
   index('ticket_items_service_idx').on(t.serviceId),
   index('ticket_items_resource_idx').on(t.resourceId),
+  index('ticket_items_bundle_idx').on(t.bundleInstanceId),
 ]);
 
 /** 双技师 / 接力：一条 item 可以关联多个技师，各记各的工时 */
