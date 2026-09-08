@@ -10,7 +10,7 @@
 
 | 用户项 | 工作包 | 状态 | 交接批次 |
 |---|---|---|---|
-| U09 平台短信串店 | W0 | **部分完成**：专属线归属已隔离；平台共享号细分仍待做 | #1 |
+| U09 平台短信串店 | W0 / W0b | **完成**：专属线归属隔离（#1）+ 平台共享号 routingScope 落库、换绑冻结、重放去重（#12，`sql/0115`）。剩：平台运营只读收件箱（`platform`/`unresolved` 行现对所有租户不可见） | #1 #12 |
 | U01/U08 默认设置、健康表首发、房间门禁、AI 线路 | W1 | **部分完成**：AI 电话新线默认不接（U08，#4）已修；健康表首发、房间门禁、setup readiness DTO 未开始 | #4 |
 | U02/U13 员工目录与员工中心 | W2 / W2b | **U02 主体 + U13 完成**：岗位 / 职级 / 技能改 ID 契约，服务端不再据自由文本新建目录项、跨店 / 伪造 / 未知值拒绝、停用项只对已关联者保留；`sql/0114` 补 `job_title_id` + 回填 + 只读盘点视图；新增 `staff.reorderDirectoryOptions` 原子重排（#7）。员工中心改默认紧凑卡片 + 单卡展开明细，编辑弹窗技能区可搜索 + 限高滚动（#8）。剩：行业预设生成（属 W1）、`user.updateProfile` 自助技能自由文本、真机 iPad 扫屏（W6b） | #6 #7 #8 |
 | U03/U06/U11 预约日期、时长、详情状态 | W3 | **U06 + U11 前半完成**：时长输入（#2）、新建默认日期不取营业日（#3）、详情顶部进度不误报（#5）；详情复用看板 `queueNextAction`/`paymentStageFor` 显示当前状态 + 履约/付款分列 + 部分完成 N/M + 下一步深链（#11）。剩：U03 跨午夜、看板动作编排 hook 完整抽取 | #2 #3 #5 #11 |
@@ -1112,12 +1112,120 @@ items: [{ ticketItemId, name, startedAt, finishedAt }] }`。
 
 ---
 
+## 批次 #12 — W0b：平台共享号短信 routingScope（U09 剩余 · 计划 §3.3）
+
+**日期**：2026-09-07
+**改动范围**：1 个新迁移 `sql/0115` + `packages/db/src/sms.ts`（`recordInboundSms` 重写 + 两个解析函数）+ `apps/api/src/telnyx/routes.ts::handleInboundSms`（收 webhook 后规范 E.164）+ `apps/api/src/queries/smsInbound.ts::loadInboundSms`（读冻结归属列）+ `apps/api/src/sms.test.ts`（4 新用例 + 1 既有用例改造）。未碰前端、未碰实时订阅（本就没有）。
+
+### 这一刀解决了什么
+
+批次 #1（`sql/0112`）把「发到门店专属线」的入站短信隔离到唯一 (org, location)，靠 RLS 现场调
+`gf_sms_line_owner`。**平台共享号**（`TELNYX_SMS_FROM`，没有任何门店在 `phone_lines` 认领）仍回落
+`sql/0079` 口径「发件号码是本店客户」——批次 #1 报告 §3.4 自己列的三个未做项：同 org 两店不隔离、
+无法唯一归属的回复没有降级隐藏、归属靠现场反查（号码换绑后历史短信跟着新归属走）。
+
+### 改了什么
+
+**1. `packages/db/sql/0115_sms_inbound_routing_scope.sql`（新）**
+
+- `sms_inbound` 补 5 列（**均无外键**——这是永不删除的凭据表，既有 from/to 也是裸文本；
+  归属一旦冻结就与 `phone_lines` / 门店后续生命周期脱钩）：
+  `routing_scope`（`store` / `platform` / `unresolved`）、`bound_line_id`、
+  `resolved_org`、`resolved_location`、`resolved_at`。
+- `gf_sms_line_owner(text)`：0112 的函数，返回列补 `line_id`（返回类型变了必须 `drop` 重建；
+  0112 的策略引用了它，一并重建）。
+- `gf_sms_outbox_owner(text)`（新，`SECURITY DEFINER` / `search_path=public` / 只授 `app_user`）：
+  发件号码 → 对它发过站内短信的门店集合（去重，`limit 2`）。**恰好一行**时该回复唯一可归属。
+- **历史行回填**（计划 §3.3「只在有可靠证据时回填」）：命中当前专属线 → `store`；
+  否则恰好一家店对该发件号发过短信 → `store`；其余 → `platform`（系统关键词）/ `unresolved`。
+  **不**按客户手机号批量归店。收窄方向：发到平台号的历史行，此前「发件人是本店客户」就能看，
+  现在起只有拿到可靠绑定的那家店能看。
+- 约束：`routing_scope` not null default `unresolved` + check；`routing_scope='store'` 时
+  `resolved_org` / `resolved_location` 必非空；`unique (provider_id) where provider_id is not null`。
+- SELECT 策略 `inbound_select_own` 重写为纯列比较，**不再现场反查**：
+  `routing_scope='store' and resolved_org=app_org_id() and resolved_location=app_location_id()`。
+  `platform` / `unresolved` 对**所有**租户不可见（按用户给出的降级许可，计划 §3.2.5）。
+  INSERT 策略 `inbound_insert_platform`（0079）不变。
+
+**2. `packages/db/src/sms.ts` `recordInboundSms`**
+
+- 先 `normalizePhoneE164` 规范 from / to（`@gf/contracts`），解析不了退回原值。
+- `resolveInboundRouting(from, to, intent)`：① `gf_sms_line_owner(to)` 命中 → `store` + 写
+  `resolved_*` + `bound_line_id`；② 否则 `gf_sms_outbox_owner(from)` 恰好一行 → `store` + 写
+  `resolved_*`；③ 其余 → `intent==='unknown' ? 'unresolved' : 'platform'`，`resolved_*` 全空。
+- 落库**不用** `on conflict do nothing`：那会触发 SELECT 策略检查，而 `platform` / `unresolved` 行
+  对任何租户不可见，会被误判成越权（本批踩到）。改为捕获唯一冲突 `23505` 当幂等成功 ——
+  `sms_inbound_provider_id` 唯一索引仍然挡下重放，重放不增加未读、不重复通知。
+
+**3. `apps/api/src/telnyx/routes.ts::handleInboundSms`**
+
+验签已过（`verified()`）。`from` / `to` 先 `normalizePhoneE164` 再用 —— 归属与
+`setSmsConsent` 都按字符串精确匹配号码，上游偶发非规范写法（缺 `+`、带分隔符）才不会误判。
+
+**4. `apps/api/src/queries/smsInbound.ts::loadInboundSms`**
+
+删掉「本店专属线号列表 + 本店客户号列表」两段拼查，改为直接
+`where routing_scope='store' and resolved_org=… and resolved_location=…`（RLS 已保证一次，
+这里是纵深防御第二道）。`customers` / `upcoming` 富化逻辑不变（仍按 `from_e164` 在 org 内查）。
+
+### 明确未覆盖 / 交接给下一位
+
+1. **「可靠且唯一的会话归属证据」目前只认 `sms_outbox`**：恰好一家店对该发件号发过站内短信
+   （预约确认 / 提醒 / 前台手打），才把平台号回复归给那家店；≥2 家或 0 家 → 隐藏。
+   计划 §3.2.4 禁止的「同号客户 / 存在未来预约 / 最近发过短信」都没用。若产品想要更强的
+   会话线程绑定（reply-to 消息 ID），Telnyx 入站 payload 目前不带，需上游支持。
+2. **历史 `sms_outbox` 无时间窗**：`gf_sms_outbox_owner` 全时段去重。一个号若先后属于两家店
+   的客户，两家都发过 → 永远 `unresolved`。可接受（宁隐藏不串店），要更精细需加「最后 N 天」。
+3. **平台运营的只读收件箱**：`platform` / `unresolved` 行现在对所有租户上下文不可见。
+   若平台侧要审这些行做合规排障，需一个 `operator_only` 或 `SECURITY DEFINER` 的平台读路径
+   （本批没做，原始行一条没删，供后续接）。
+4. **E.164 规范化只在入口**：`recordInboundSms` 与 `handleInboundSms` 都规范了；既有历史行
+   若上游曾写过非规范值，回填按原样字符串匹配，可能漏解析（收窄方向，安全）。
+5. **`sms_consent` 仍平台级**：STOP / START 的同意状态处理未动（本就该平台级，docs/09 §5.1）。
+   只是 `handleInboundSms` 现在传规范化后的 `from` 给 `setSmsConsent`。
+
+### 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 迁移（本机 55322，先回退到 0114 再全新应用） | `MIGRATION_DATABASE_URL=<local> pnpm db:migrate` | `0115 … OK`；`✓ RLS 覆盖检查通过` |
+| 短信套件 | `vitest run src/sms.test.ts` | 39 passed（含 T32 / T33 / T34×2 新增 + CANCEL 用例改造为走 outbox 绑定） |
+| 相邻套件 | `vitest run src/sms_direct.test.ts src/telnyx` | 24 passed |
+| DB 套件（含 `rls.test.ts` search_path 检查） | `pnpm --filter @gf/db test` | 9 files / 91 passed |
+| 类型 | `@gf/db` / `@gf/api` `tsc --noEmit` | 全部 exit 0 |
+| 守卫 | `pnpm lint:guards` | ✓ 全部通过 |
+| 完整 API 套件（isolated 库一次跑通） | `pnpm --filter @gf/api test` | 87 files / 1188 passed（无 flaky） |
+
+未做：浏览器 / 真机验证（本批不涉及浏览器路径）。未在 staging / 生产执行迁移。
+
+### 计划 §3.4 / T31–T34 对照
+
+| 验收点 | 本批状态 |
+|---|---|
+| T31 同手机号 A/B 两店，To=A 独立号仅 A 可见（API/RLS/日志） | ✅ 批次 #1 已过，本批未回归（`sms.test.ts` 既有用例仍绿） |
+| T32 平台 START / 无法归属回复 → 门店均不可见；平台订阅处理不变 | ✅ 新用例：`routing_scope` 落 `platform` / `unresolved`，`loadInboundSms` + RLS 直查均 0 行 |
+| T33 明确关联的预约发件 / 回复只目标店可见，不用最近联系人猜 | ✅ 新用例：恰好一家店发过 → 归该店；两家都发过 → 谁都看不到 |
+| T34 同 org 多店、号码换绑、webhook 重试 | ✅ 换绑：改 `phone_lines.e164` 后历史短信仍归原店（读冻结列）、发到旧号的新短信不再归店；重试：同 `provider_id` 只落一行。同 org 两店由策略里的 `resolved_location` 保证（不只 `resolved_org`） |
+
+### 回退
+
+`git revert` 本 commit；`sql/0115` 的回退需手工：`drop policy inbound_select_own` → 重建 0112 版
+（现场反查 + 客户回落）→ `drop function gf_sms_outbox_owner` → `gf_sms_line_owner` 去 `line_id` 列 →
+`alter table sms_inbound drop column routing_scope, bound_line_id, resolved_org, resolved_location,
+resolved_at` + 删 `unique (provider_id)`。回退会**重新打开**平台共享号上的同号跨店可见与
+号码换绑历史漂移 —— 按计划 §3 这是明确不希望的方向。
+
+---
+
 ## 会话交接 —— 批次 #7–#11 之后剩余（给下一位）
 
 本轮会话完成 W2 / W2b / W4 / W6a / W6b(U11 部分) / W3b(U06)，`main` HEAD = `d61ebc2`。
 用户明确：**U01 向导重构、U12 全端 iPad、U10 套餐另找 AI**。本轮 5 项里还差 2 项没做：
 
 ### 1. U09 剩余 —— 平台共享号短信 routingScope（W0b，计划 §3.3）
+
+> **✅ 已在批次 #12 完成**（`sql/0115`）。下面是当时的现状记录，保留供追溯；
+> 批次 #12「明确未覆盖」列了新的交接点（平台运营只读收件箱、`sms_outbox` 时间窗等）。
 
 **未动**。本轮只读了代码，没写迁移。现状：
 - `sms_inbound` 表（`sql/0034` 建，`sql/0079` + `sql/0112` 收窄 SELECT）**只有**

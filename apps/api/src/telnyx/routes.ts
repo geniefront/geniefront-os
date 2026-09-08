@@ -14,7 +14,7 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
-  AppError, ERROR_CODES, pickText,
+  AppError, ERROR_CODES, pickText, normalizePhoneE164,
   type CommandContext, type Permission,
 } from '@gf/contracts';
 import {
@@ -1633,10 +1633,14 @@ async function handleInboundSms(
   payload: Record<string, unknown>,
   log: { info: (o: unknown, m: string) => void },
 ): Promise<{ ok: true; intent: string }> {
-  const from = str(((payload['from'] ?? {}) as Record<string, unknown>)['phone_number'])
+  const rawFrom = str(((payload['from'] ?? {}) as Record<string, unknown>)['phone_number'])
     ?? str(payload['from']) ?? '';
   const toArr = (payload['to'] ?? []) as Array<Record<string, unknown>>;
-  const to = str(toArr[0]?.['phone_number']) ?? str(payload['to']) ?? '';
+  const rawTo = str(toArr[0]?.['phone_number']) ?? str(payload['to']) ?? '';
+  // 验签已过（上游 verified()）。归属与同意状态都按字符串精确匹配号码，
+  // 先规范 E.164，上游偶发的非规范写法（缺 `+`、带分隔符）才不会误判（计划 §3.3）。
+  const from = normalizePhoneE164(rawFrom) ?? rawFrom;
+  const to = normalizePhoneE164(rawTo) ?? rawTo;
   const text = str(payload['text']) ?? '';
   const providerId = str(payload['id']) ?? null;
 

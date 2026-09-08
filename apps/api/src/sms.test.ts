@@ -338,6 +338,12 @@ describe('入站短信列表（docs/09 §5.3）', () => {
                 ${startsAt.toISOString()}::timestamptz,
                 ${new Date(startsAt.getTime() + 3600_000).toISOString()}::timestamptz,
                 0, ${svc!.duration_min})`;
+      // 平台共享号上的回复要唯一可归属，得先有「本店对这个号发过短信」的证据
+      // （sql/0115）——预约提醒就是这条会话的开端。
+      await tx`insert into sms_outbox
+        (org_id, location_id, kind, to_e164, from_e164, body, segments, entity_type, entity_id)
+        values (${NAIL_ORG}, ${NAIL_LOC}, 'appointment_reminder', ${phone}, '+17577706256',
+                'reminder', 1, 'appointment', ${a!.id})`;
       return { customerId: c!.id, appointmentId: a!.id };
     });
 
@@ -426,6 +432,102 @@ describe('入站短信列表（docs/09 §5.3）', () => {
 
     await withTenant(tenant, (tx) => tx`delete from customers where id = ${made.nailCustomer}`);
     await withTenant(spaTenant, (tx) => tx`delete from customers where id = ${spaMade.spaCustomer}`);
+  });
+});
+
+
+describe('平台共享号 routingScope（sql/0115 · U09 T32–T34）', () => {
+  const PLATFORM = '+17577706256';
+  const rnd = () => `+1978${String(Math.floor(Math.random() * 9_000_000) + 1_000_000)}`;
+
+  async function outboxRow(t: typeof tenant, org: string, loc: string, toPhone: string) {
+    await withTenant(t, (tx) => tx`
+      insert into sms_outbox
+        (org_id, location_id, kind, to_e164, from_e164, body, segments, entity_type, entity_id)
+      values (${org}, ${loc}, 'appointment_reminder', ${toPhone}, ${PLATFORM},
+              'reminder', 1, 'test', ${randomUUID()})`);
+  }
+
+  it('T32 · 平台号 START / 无归属回复 —— 各店都看不到', async () => {
+    const startFrom = rnd();
+    const strayFrom = rnd();
+    await recordInboundSms({ fromE164: startFrom, toE164: PLATFORM, body: 'START', intent: 'opt_in' });
+    await recordInboundSms({ fromE164: strayFrom, toE164: PLATFORM, body: 'hi?', intent: 'unknown' });
+
+    const nailCtx = await deskCtx(NAIL_LOC);
+    const out = await withTenant(tenant, (tx) => loadInboundSms(tx, nailCtx, 14));
+    expect(out.messages.some((m) => m.fromE164 === startFrom || m.fromE164 === strayFrom)).toBe(false);
+
+    const raw = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      select id from sms_inbound where from_e164 in (${startFrom}, ${strayFrom})`);
+    expect(raw.length).toBe(0); // RLS：非 store 归属对租户完全不可见
+  });
+
+  it('T33 · 只有恰好一家店与该号有过会话时，回复才归那家店', async () => {
+    // 一家店发过 → 唯一可归属
+    const solo = rnd();
+    await outboxRow(tenant, NAIL_ORG, NAIL_LOC, solo);
+    await recordInboundSms({ fromE164: solo, toE164: PLATFORM, body: 'can I move my 2pm?', intent: 'unknown' });
+
+    const nailOut = await withTenant(tenant, async (tx) => loadInboundSms(tx, await deskCtx(NAIL_LOC), 14));
+    const spaOut = await withTenant(spaTenant, async (tx) => loadInboundSms(tx, await deskCtx(SPA_LOC), 14));
+    expect(nailOut.messages.some((m) => m.fromE164 === solo)).toBe(true);
+    expect(spaOut.messages.some((m) => m.fromE164 === solo)).toBe(false);
+
+    // 两家店都发过 → 归属有歧义 → 谁都看不到（不靠「同号客户」猜）
+    const ambiguous = rnd();
+    await outboxRow(tenant, NAIL_ORG, NAIL_LOC, ambiguous);
+    await outboxRow(spaTenant, SPA_ORG, SPA_LOC, ambiguous);
+    await recordInboundSms({ fromE164: ambiguous, toE164: PLATFORM, body: 'hello', intent: 'unknown' });
+
+    const nail2 = await withTenant(tenant, async (tx) => loadInboundSms(tx, await deskCtx(NAIL_LOC), 14));
+    const spa2 = await withTenant(spaTenant, async (tx) => loadInboundSms(tx, await deskCtx(SPA_LOC), 14));
+    expect(nail2.messages.some((m) => m.fromE164 === ambiguous)).toBe(false);
+    expect(spa2.messages.some((m) => m.fromE164 === ambiguous)).toBe(false);
+    // sms_outbox 由种子重置清理（app_user 无 DELETE 权），随机号不会串批
+  });
+
+  it('T34 · webhook 重放去重 —— 同 provider_id 只落一行', async () => {
+    const dupFrom = rnd();
+    await outboxRow(tenant, NAIL_ORG, NAIL_LOC, dupFrom);
+    const pid = `telnyx-${randomUUID()}`;
+    await recordInboundSms({ fromE164: dupFrom, toE164: PLATFORM, body: 'CANCEL', intent: 'opt_out', providerId: pid });
+    await recordInboundSms({ fromE164: dupFrom, toE164: PLATFORM, body: 'CANCEL', intent: 'opt_out', providerId: pid });
+
+    const rows = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      select id from sms_inbound where provider_id = ${pid}`);
+    expect(rows.length).toBe(1);
+  });
+
+  it('T34 · 号码换绑后，旧归属冻结 —— 读取不再查 phone_lines 当前值', async () => {
+    const caller = rnd();
+    const [line] = await withTenant(tenant, (tx) => tx<{ id: string; e164: string }[]>`
+      select id, e164 from phone_lines
+      where location_id = ${NAIL_LOC} and purpose = 'ai_voice' and active limit 1`);
+    await recordInboundSms({ fromE164: caller, toE164: line!.e164, body: 'still on for 4?', intent: 'unknown' });
+
+    // 落库即归 NAIL
+    const nailOut = await withTenant(tenant, async (tx) => loadInboundSms(tx, await deskCtx(NAIL_LOC), 14));
+    expect(nailOut.messages.some((m) => m.fromE164 === caller)).toBe(true);
+
+    // 就地换号（同店换绑）：把这条线的 e164 改掉
+    const newNumber = rnd();
+    await withTenant(tenant, (tx) => tx`
+      update phone_lines set e164 = ${newNumber} where id = ${line!.id}`);
+    try {
+      // 历史短信仍归 NAIL —— loadInboundSms 读的是冻结的 resolved_*，不是 phone_lines
+      const stillNail = await withTenant(tenant, async (tx) => loadInboundSms(tx, await deskCtx(NAIL_LOC), 14));
+      expect(stillNail.messages.some((m) => m.fromE164 === caller)).toBe(true);
+
+      // 而发到「旧号码」的新短信，现在已无门店认领 → 不归任何店
+      const later = rnd();
+      await recordInboundSms({ fromE164: later, toE164: line!.e164, body: 'hello?', intent: 'unknown' });
+      const afterRebind = await withTenant(tenant, async (tx) => loadInboundSms(tx, await deskCtx(NAIL_LOC), 14));
+      expect(afterRebind.messages.some((m) => m.fromE164 === later)).toBe(false);
+    } finally {
+      await withTenant(tenant, (tx) => tx`
+        update phone_lines set e164 = ${line!.e164} where id = ${line!.id}`);
+    }
   });
 });
 
