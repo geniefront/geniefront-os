@@ -1,11 +1,11 @@
 # 组合项目套餐：实施报告
 
 计划：`docs/plans/2026-09-07-service-bundles-implementation.md`
-状态：**后端全链路 P0–P8 完成**（P3a/b/c/d · P5 结账退款次卡安全 · P6 公开预约入口 ·
-P7 只读扫描 + 转换脚本 · B14 拆单 · 决策 #3 分流启发式）。本地 55322 全绿
-（`@gf/api` 除预存在的 `copilot/acceptance.test.ts` 5 例外全过，见 §6），typecheck 16/16 + guards 绿。
-剩：全部前端（导入分流 UI（B02）/ 向导 / 看板卡片 / Checkout 套餐视图 / `apps/booking` 套餐界面）、
-通知模板套餐化、浏览器 + ipad 闭环 E2E。0118 迁移仅在本地，未上 staging / 生产（上线 / 回退见 §8）。
+状态：**后端 P0–P8 完成 + 前端主链路完成**（见 §11）。本地 55322 后端全绿
+（`@gf/api` 除预存在的 `copilot/acceptance.test.ts` 5 例外全过，见 §6），typecheck 16/16 + guards 绿；
+前端 `@gf/web` / `@gf/booking` typecheck + build + 单测绿。
+剩：导入分流 UI（B02，需 blueprint publish 流程改造 + 组成名解析）、通知模板套餐化、
+浏览器 + ipad 闭环 E2E。0118 迁移仅在本地，未上 staging / 生产（上线 / 回退见 §8）。
 
 ---
 
@@ -419,3 +419,57 @@ DATABASE_TEST_TARGET=isolated pnpm --filter @gf/db  exec vitest run serviceBundl
 安全见 `apps/api/src/bundle.test.ts` `describe('P5 …')`；公开预约见
 `apps/api/src/public.test.ts` `describe('组合套餐（U10 …')`；历史扫描见
 `describe('P7 …')`。
+
+---
+
+## 11. 前端实施（apps/web + apps/booking）
+
+按切片交付，每片 typecheck + build + 单测 + guards 绿。**未做浏览器 / ipad 端到端**。
+
+### 11.1 基础层
+- 后端读路由（`apps/api/src/routes/marketing.ts` + `queries/bundleCatalog.ts`）：
+  `GET /v1/desk/bundles`（目录，组成 / 服务名 / 目录价已解析，含 `nameI18n` /
+  `descriptionI18n` / `fulfillable` / `instanceCount`）、`POST /v1/desk/bundles/quote`
+  （复用 `queries/bundle.ts::quoteBundle`）。
+- `apps/web/src/features/bundles/{types,api}.ts`：`useBundleCatalogQuery` /
+  `useSaveBundleTemplate` / `useArchiveBundleTemplate` / `useSplitBundleInstance` / `quoteBundle`。
+- `apps/web/src/i18n/bundles.ts`（`bundle.*`，全 5 语言），注册进 `i18n/index.ts` 与
+  `LanguageContext.tsx` 懒加载表。
+
+### 11.2 目录管理面板（对应「开店向导套餐界面 / 项目管理」）
+`features/bundles/BundleManagerPanel.tsx`，挂在 `pages/Marketing.tsx` 新「组合套餐」标签页。
+列表卡片（原价划线 / 组合价 / 优惠 / 在售·可在线预约徽标 / 需修复 / 已售份数）+ 编辑器
+Modal（中英文名 + 组成 repeater + 组合价 + 在线预约开关，实时算原价合计 / 优惠）+ 复制 +
+下架确认。写走命令总线，`bundle_version_conflict` / `bundle_price_above_components` /
+`bundle_component_empty` / `bundle_service_inactive` 映射到本地化提示。`useCan('catalog.manage')` 门控。
+
+### 11.3 看板卡片分组
+`features/queue/ticketItems.ts::groupTicketItemsByBundle`（纯函数 + 3 单测）：同一
+`bundleInstanceId` 子项聚成一组带进度，散项各自成组。`KanbanBoard.tsx` 渲染成带
+「套餐」徽标 + 名称 + 组合价 + `{done}/{total}` 进度的分组卡片（完成 1/3 不显示已完工）。
+`features/tickets/types.ts` 的 `TicketItem` / `TicketSummary` 补 `bundle_*` / `bundles[]`
+（后端 P4 已返回）。
+
+### 11.4 结账套餐视图 + 拆单入口（B14）
+`features/bundles/BundleCheckoutSummary.tsx`：只读明细卡（原价合计 / 套餐优惠 / 套餐价 /
+子项，口径「原价 170 / 优惠 20 / 套餐价 150」），`pages/Checkout.tsx` 与看板
+`pages/queue/modals/CheckoutModal.tsx` 共用。`features/checkout/types.ts` 补
+`bundle_*` / `bundles[]`。看板套餐分组头加「拆成单项」按钮（`status=active` 且未开工才显示）
+→ `Queue.tsx` `ConfirmDialog` + `useSplitBundleInstance`，`bundle_split_with_extras_unsupported`
+本地化提示。
+
+### 11.5 官网在线预约（apps/booking）
+- 后端 `GET /public/v1/availability` 加 `bundleId`：按 `quoteBundle` 求整体时长排格子，
+  不接受指定技师。
+- `apps/booking/src/lib/api.ts`：`getBundles` / `Bundle` / `BookInput.bundleSelections` /
+  `getAvailability` 支持 `bundleId`；`lib/i18n.tsx` 5 语言补 `bundle.*`。
+- `BookPage.tsx`：选服务页顶部「套餐」区（原价划线 / 组合价 / 立省），选套餐后跳过选技师
+  直接进选时间，Confirm 与右侧摘要走套餐变体，提交发 `bundleSelections`。`BookPage.test.tsx`
+  +1（套餐全流程 12 例全绿）。
+
+### 11.6 待办（前端）
+- **导入分流 UI（B02）**：`ImportWorkspace.tsx` 需按 `classifyPackageKind`（`packages/ai`
+  已实现）区分「组合套餐 / 次卡」并让店主确认；发布时组合类走 `bundle.saveTemplate`。
+  依赖：blueprint publish 流程改造 + 未解析组成的 service 名解析 UI。属 P2 导入链路。
+- 通知 / 短信模板按套餐及子项展示（现按 `appointment_items` 平铺渲染，套餐子项即普通行）。
+- 浏览器 + ipad 端到端闭环（选套餐 → 看板 → 派单 → 服务 → 结账 → 收据 / 官网预约）。
