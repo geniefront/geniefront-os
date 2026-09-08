@@ -23,6 +23,7 @@ import { setup } from './setup';
 import { support } from './support';
 import { reviews } from './reviews';
 import { permissions } from './permissions';
+import { bundle } from './bundles';
 import { UI_LANGUAGES } from './types';
 import type { Language } from './types';
 
@@ -49,6 +50,7 @@ const dict = {
   ...support,
   ...reviews,
   ...permissions,
+  ...bundle,
 };
 
 export type TranslationKey = keyof typeof dict;

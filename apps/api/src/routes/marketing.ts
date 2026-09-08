@@ -14,6 +14,9 @@ import { withTenant } from '@gf/db';
 import { loadGiftCards, loadGiftCardVerify } from '../queries/giftcard';
 import { loadPackages, loadCoupons, loadLoyalty } from '../queries/marketing';
 import { scanLegacyPackageCandidates } from '../queries/bundleMigration';
+import { loadBundleCatalog } from '../queries/bundleCatalog';
+import { quoteBundle } from '../queries/bundle';
+import { bundleQuoteRequest } from '@gf/contracts';
 import type { CtxFromHeaders } from './utils';
 
 export function registerMarketingRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHeaders): void {
@@ -78,6 +81,31 @@ export function registerMarketingRoutes(app: FastifyInstance, ctxFromHeaders: Ct
         includePunchcards: req.query.includePunchcards === 'true',
       }));
     });
+
+  // 组合套餐目录（U10）：列表 + 编辑器用的可选服务 / 加项。
+  app.get('/v1/desk/bundles', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('catalog.manage') && !ctx.permissions.has('ticket.read')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'catalog.manage' } });
+    }
+    return withTenant(ctx, (tx) => loadBundleCatalog(tx, ctx));
+  });
+
+  // 组合套餐服务端权威报价（U10）：与下单 / 结账同一实现，前台预览「原价 / 优惠 / 套餐价 / 子项」。
+  app.post<{ Body: unknown }>('/v1/desk/bundles/quote', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('ticket.write') && !ctx.permissions.has('ticket.read')
+      && !ctx.permissions.has('catalog.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ticket.read' } });
+    }
+    const parsed = bundleQuoteRequest.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { issues: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })) },
+      });
+    }
+    return withTenant(ctx, (tx) => quoteBundle(tx, ctx, parsed.data));
+  });
 
   const handleCoupons = async (req: FastifyRequest) => {
     const ctx = await ctxFromHeaders(req);
