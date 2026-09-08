@@ -2,8 +2,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
-  ApiError, book, getAvailability, getHostedShop, getPublicKey, getServices, setPublicKey,
-  type Availability, type BookInput, type Catalog, type Service, type Shop,
+  ApiError, book, getAvailability, getBundles, getHostedShop, getPublicKey, getServices, setPublicKey,
+  type Availability, type Bundle, type BookInput, type Catalog, type Service, type Shop,
 } from '../lib/api';
 import { isEmbedded, reportBooked, reportHeight } from '../lib/embed';
 import {
@@ -20,6 +20,8 @@ import { useLanguage } from '../lib/i18n';
 
 export type Draft = {
   serviceId: string | null;
+  /** 组合套餐（U10）。与 serviceId 二选一。 */
+  bundleId: string | null;
   addonIds: string[];
   staffId: string | null;
   date: string | null;
@@ -27,7 +29,7 @@ export type Draft = {
 };
 
 const emptyDraft = (): Draft => ({
-  serviceId: null, addonIds: [], staffId: null, date: null, startsAt: null,
+  serviceId: null, bundleId: null, addonIds: [], staffId: null, date: null, startsAt: null,
 });
 
 export function BookPage() {
@@ -68,9 +70,15 @@ export function BookPage() {
     enabled: Boolean(shopQuery.data?.onlineBooking.enabled && getPublicKey()),
     queryFn: () => getServices(locale),
   });
+  const bundlesQuery = useQuery({
+    queryKey: ['hosted-bundles', slug, shopQuery.data?.publicKey, locale],
+    enabled: Boolean(shopQuery.data?.onlineBooking.enabled && getPublicKey()),
+    queryFn: () => getBundles(locale),
+  });
 
   const shop = shopQuery.data ?? null;
   const catalog = catalogQuery.data ?? null;
+  const bundles = (bundlesQuery.data?.bundles ?? []).filter((b) => b.bookable);
   const fatal = !slug
     ? 'NOT_FOUND'
     : shopQuery.isError
@@ -79,12 +87,15 @@ export function BookPage() {
 
   const loadSlots = useCallback(async (
     date: string, serviceId: string, addonIds: string[], staffId: string | null,
+    bundleId?: string | null,
   ) => {
     setAvailBusy(true);
     try {
       const a = await queryClient.fetchQuery({
-        queryKey: ['availability', date, serviceId, addonIds, staffId],
-        queryFn: () => getAvailability({ date, serviceId, addonIds, staffId }),
+        queryKey: ['availability', date, bundleId ?? serviceId, addonIds, staffId],
+        queryFn: () => getAvailability(
+          bundleId ? { date, bundleId } : { date, serviceId, addonIds, staffId },
+        ),
       });
       setAvail(a);
       return a;
@@ -98,11 +109,12 @@ export function BookPage() {
 
   async function findFirstDay(
     serviceId: string, addonIds: string[], staffId: string | null, start: string, horizon: number,
+    bundleId?: string | null,
   ) {
     const days = bookableDateCount(horizon);
     for (let i = 0; i < days; i++) {
       const date = addDays(start, i);
-      const a = await loadSlots(date, serviceId, addonIds, staffId);
+      const a = await loadSlots(date, serviceId, addonIds, staffId, bundleId);
       if (a && a.slots.length > 0) return date;
     }
     return start;
@@ -110,13 +122,25 @@ export function BookPage() {
 
   async function pickService(serviceId: string, addonIds: string[]) {
     if (!shop) return;
-    setDraft({ serviceId, addonIds, staffId: null, date: null, startsAt: null });
+    setDraft({ serviceId, bundleId: null, addonIds, staffId: null, date: null, startsAt: null });
     const start = bookingToday(shop.timezone, shop.businessDayCutoff);
     const date = await findFirstDay(
       serviceId, addonIds, null, start, shop.onlineBooking.maxDaysAhead,
     );
     setDraft((d) => ({ ...d, date }));
     setStep('specialist');
+  }
+
+  async function pickBundle(b: Bundle) {
+    if (!shop) return;
+    // 组合套餐不在官网选技师：子项由门店派单。直接进选时间。
+    setDraft({ serviceId: null, bundleId: b.id, addonIds: [], staffId: null, date: null, startsAt: null });
+    const start = bookingToday(shop.timezone, shop.businessDayCutoff);
+    const date = await findFirstDay(
+      '', [], null, start, shop.onlineBooking.maxDaysAhead, b.id,
+    );
+    setDraft((d) => ({ ...d, date }));
+    setStep('time');
   }
 
   async function pickStaff(staffId: string | null) {
@@ -148,8 +172,8 @@ export function BookPage() {
       if (e.isTaken) {
         setBanner('That time was just booked. Please pick another slot.');
         setStep('time');
-        if (draft.date && draft.serviceId) {
-          await loadSlots(draft.date, draft.serviceId, draft.addonIds, draft.staffId);
+        if (draft.date && (draft.serviceId || draft.bundleId)) {
+          await loadSlots(draft.date, draft.serviceId ?? '', draft.addonIds, draft.staffId, draft.bundleId);
         }
         return;
       }
@@ -198,6 +222,16 @@ export function BookPage() {
 
   const service = catalog?.services.find((s) => s.id === draft.serviceId) ?? null;
   const addons = catalog?.addons.filter((a) => draft.addonIds.includes(a.id)) ?? [];
+  const bundle = bundles.find((b) => b.id === draft.bundleId) ?? null;
+  const bundleForConfirm = bundle
+    ? {
+        id: bundle.id,
+        name: bundle.name,
+        priceCents: bundle.priceCents,
+        originalTotalCents: bundle.originalTotalCents,
+        durationMin: bundle.components.reduce((n, c) => n + c.durationMin * c.qty, 0),
+      }
+    : undefined;
 
   return (
     <div className="min-h-screen bg-[var(--paper)]">
@@ -212,7 +246,15 @@ export function BookPage() {
 
         {step === 'services' && (
           catalog
-            ? <ServiceStep catalog={catalog} shop={shop} onPick={(id, ids) => void pickService(id, ids)} />
+            ? (
+              <ServiceStep
+                catalog={catalog}
+                bundles={bundles}
+                shop={shop}
+                onPick={(id, ids) => void pickService(id, ids)}
+                onPickBundle={(b) => void pickBundle(b)}
+              />
+            )
             : <Card><Loading /></Card>
         )}
 
@@ -226,25 +268,27 @@ export function BookPage() {
           />
         )}
 
-        {step === 'time' && service && (
+        {step === 'time' && (service || bundle) && (
           <TimeStep
             shop={shop} draft={draft} avail={avail} busy={availBusy}
             onDate={(date) => {
               setDraft((d) => ({ ...d, date, startsAt: null }));
-              if (draft.serviceId) void loadSlots(date, draft.serviceId, draft.addonIds, draft.staffId);
+              if (draft.serviceId || draft.bundleId) {
+                void loadSlots(date, draft.serviceId ?? '', draft.addonIds, draft.staffId, draft.bundleId);
+              }
             }}
             onSlot={(startsAt) => {
               setBanner(null);
               setDraft((d) => ({ ...d, startsAt }));
               setStep('confirm');
             }}
-            onBack={() => { setBanner(null); setStep('specialist'); }}
+            onBack={() => { setBanner(null); setStep(bundle ? 'services' : 'specialist'); }}
           />
         )}
 
-        {step === 'confirm' && service && draft.startsAt && (
+        {step === 'confirm' && (service || bundleForConfirm) && draft.startsAt && (
           <ConfirmStep
-            shop={shop} service={service} addons={addons}
+            shop={shop} service={service} addons={addons} bundle={bundleForConfirm}
             startsAt={draft.startsAt} staffId={draft.staffId}
             openedAt={openedAt.current}
             onSubmit={submit}
@@ -270,10 +314,11 @@ export function BookPage() {
           )}
           </main>
 
-          {service && step !== 'success' && (
+          {(service || bundleForConfirm) && step !== 'success' && (
             <aside className="hidden md:block">
-              <Summary shop={shop} service={service} addons={addons} draft={draft} staffName={
-                draft.staffId ? avail?.staff.find((s) => s.id === draft.staffId)?.displayName ?? null : 'Any specialist'
+              <Summary shop={shop} service={service} addons={addons} bundle={bundleForConfirm} draft={draft} staffName={
+                bundleForConfirm ? null
+                  : draft.staffId ? avail?.staff.find((s) => s.id === draft.staffId)?.displayName ?? null : 'Any specialist'
               } />
             </aside>
           )}
@@ -284,12 +329,15 @@ export function BookPage() {
 }
 
 function Summary({
-  shop, service, addons, draft, staffName,
+  shop, service, addons, bundle, draft, staffName,
 }: {
-  shop: Shop; service: Service; addons: Service[]; draft: Draft; staffName: string | null;
+  shop: Shop; service: Service | null; addons: Service[];
+  bundle?: { name: string; priceCents: number; durationMin: number };
+  draft: Draft; staffName: string | null;
 }) {
-  const mins = service.durationMin + addons.reduce((n, a) => n + a.durationMin, 0);
-  const cents = service.priceCents + addons.reduce((n, a) => n + a.priceCents, 0);
+  const mins = bundle ? bundle.durationMin : (service?.durationMin ?? 0) + addons.reduce((n, a) => n + a.durationMin, 0);
+  const cents = bundle ? bundle.priceCents : (service?.priceCents ?? 0) + addons.reduce((n, a) => n + a.priceCents, 0);
+  const displayName = bundle ? bundle.name : (service?.name ?? '');
   const address = typeof shop.address === 'string'
     ? shop.address
     : shop.address ? Object.values(shop.address).filter(Boolean).join(', ') : '';
@@ -309,10 +357,10 @@ function Summary({
         <p className="step-kicker">Your appointment</p>
         <div className="mt-4 flex items-start justify-between gap-4">
           <div>
-            <p className="font-bold">{service.name}</p>
-            <p className="mt-1 text-sm text-[var(--muted)]">{duration(service.durationMin)}</p>
+            <p className="font-bold">{displayName}</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">{duration(mins)}</p>
           </div>
-          <p className="font-bold">{money(service.priceCents, shop.currency)}</p>
+          <p className="font-bold">{money(cents, shop.currency)}</p>
         </div>
         {addons.map((a) => (
           <div key={a.id} className="mt-3 flex justify-between gap-3 text-sm text-[var(--muted)]">
@@ -347,9 +395,11 @@ function SummaryRow({ icon, label, value, muted = false }: { icon: 'person' | 'c
 }
 
 function ServiceStep({
-  catalog, shop, onPick,
+  catalog, bundles, shop, onPick, onPickBundle,
 }: {
-  catalog: Catalog; shop: Shop; onPick: (id: string, addonIds: string[]) => void;
+  catalog: Catalog; bundles: Bundle[]; shop: Shop;
+  onPick: (id: string, addonIds: string[]) => void;
+  onPickBundle: (bundle: Bundle) => void;
 }) {
   const { t } = useLanguage();
   const [serviceId, setServiceId] = useState<string | null>(null);
@@ -370,6 +420,40 @@ function ServiceStep({
         <h2 className="text-3xl font-extrabold tracking-[-0.035em]">{t('step.selectService', 'Choose a service')}</h2>
         <p className="mt-2 text-[var(--muted)]">Select the service you would like to book.</p>
       </div>
+      {bundles.length > 0 && (
+        <Card className="mb-4">
+          <h3 className="text-base font-bold">{t('bundle.sectionTitle', 'Bundles')}</h3>
+          <p className="mt-1 text-sm text-[var(--muted)]">{t('bundle.orService', 'or pick a single service below')}</p>
+          <ul className="mt-3 grid gap-3">
+            {bundles.map((b) => (
+              <li key={b.id}>
+                <button
+                  type="button"
+                  data-testid={`bundle-${b.id}`}
+                  onClick={() => onPickBundle(b)}
+                  className="choice-card w-full rounded-2xl border border-[var(--brand)] bg-[var(--brand-soft)]/40 px-5 py-4 text-left"
+                >
+                  <span className="flex items-start justify-between gap-4">
+                    <span className="min-w-0">
+                      <span className="block font-bold">{b.name}</span>
+                      <span className="mt-1 block text-sm text-[var(--muted)]">
+                        {t('bundle.includes', 'Includes')}: {b.components.map((c) => `${c.name}${c.qty > 1 ? `×${c.qty}` : ''}`).join(' + ')}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block text-sm text-[var(--muted)] line-through">{money(b.originalTotalCents, shop.currency)}</span>
+                      <span className="block font-bold text-[var(--brand)]">{money(b.priceCents, shop.currency)}</span>
+                      {b.bundleDiscountCents > 0 && (
+                        <span className="text-xs font-semibold text-emerald-600">{t('bundle.youSave', 'You save')} {money(b.bundleDiscountCents, shop.currency)}</span>
+                      )}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
       <Card>
         {catalog.categories.length > 0 && (
           <div className="mb-4 flex gap-2 overflow-x-auto pb-1" aria-label={t('step.serviceCategories', 'Service categories')}>
@@ -588,11 +672,13 @@ function slotPeriod(startsAt: string, timezone: string): 'morning' | 'afternoon'
 }
 
 function ConfirmStep({
-  shop, service, addons, startsAt, staffId, openedAt, onSubmit, onBack,
+  shop, service, addons, bundle, startsAt, staffId, openedAt, onSubmit, onBack,
 }: {
   shop: Shop;
-  service: Service;
+  service: Service | null;
   addons: Service[];
+  /** 组合套餐（U10）。传了就走 bundleSelections，不传走单项 items。 */
+  bundle?: { id: string; name: string; priceCents: number; originalTotalCents: number; durationMin: number };
   startsAt: string;
   staffId: string | null;
   openedAt: number;
@@ -653,7 +739,9 @@ function ConfirmStep({
           ...(email.trim() ? { email: email.trim() } : {}),
           smsOptIn,
         },
-        items: [{ serviceId: service.id, addonIds: addons.map((a) => a.id), staffId, startsAt }],
+        ...(bundle
+          ? { items: [], bundleSelections: [{ bundleId: bundle.id, startsAt }] }
+          : { items: [{ serviceId: service!.id, addonIds: addons.map((a) => a.id), staffId, startsAt }] }),
         partySize: 1,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         website,
@@ -668,8 +756,13 @@ function ConfirmStep({
     }
   }
 
-  const mins = service.durationMin + addons.reduce((n, a) => n + a.durationMin, 0);
-  const cents = service.priceCents + addons.reduce((n, a) => n + a.priceCents, 0);
+  const mins = bundle
+    ? bundle.durationMin
+    : (service?.durationMin ?? 0) + addons.reduce((n, a) => n + a.durationMin, 0);
+  const cents = bundle
+    ? bundle.priceCents
+    : (service?.priceCents ?? 0) + addons.reduce((n, a) => n + a.priceCents, 0);
+  const displayName = bundle ? bundle.name : (service?.name ?? '');
 
   return (
     <>
@@ -681,7 +774,7 @@ function ConfirmStep({
       <Card>
         <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl bg-[var(--brand-soft)] px-4 py-3 text-sm text-[var(--brand-dark)]">
           <span className="font-bold">{dateOf(startsAt, shop.timezone)} at {timeOf(startsAt, shop.timezone)}</span>
-          <span aria-hidden="true">·</span><span>{service.name}</span><span aria-hidden="true">·</span><span>{duration(mins)}</span><span aria-hidden="true">·</span><span className="font-bold">{money(cents, shop.currency)}</span>
+          <span aria-hidden="true">·</span><span>{displayName}</span><span aria-hidden="true">·</span><span>{duration(mins)}</span><span aria-hidden="true">·</span><span className="font-bold">{money(cents, shop.currency)}</span>
         </div>
         <div className="mt-4 grid gap-3">
           <div className="grid gap-4 sm:grid-cols-2">

@@ -2261,6 +2261,16 @@ describe('组合套餐（U10 / P6 公开预约）', () => {
     expect(res.json().details.reason).toBe('bundle_not_online_bookable');
   });
 
+  it('/availability 支持 bundleId：按套餐整体时长排格子', async () => {
+    const res = await get(`/public/v1/availability?date=${bookDate}&bundleId=${bundleId}`);
+    expect(res.statusCode).toBe(200);
+    // 两个 30 分钟组成 → 60 分钟整体时长
+    expect(res.json().durationMin).toBe(60);
+    const hidden = await get(`/public/v1/availability?date=${bookDate}&bundleId=${hiddenBundleId}`);
+    expect(hidden.statusCode).toBe(400);
+    expect(hidden.json().details.reason).toBe('bundle_not_online_bookable');
+  });
+
   it('官网下单选套餐 → 展开成子项、建套餐实例、金额 = 组合价', async () => {
     __resetRateLimit();
     const startsAt = nextSlot();

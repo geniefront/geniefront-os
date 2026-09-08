@@ -103,6 +103,22 @@ export interface Catalog {
   addons: Service[];
 }
 
+/** 组合套餐（U10）：几个项目一起买走固定组合价。 */
+export interface Bundle {
+  id: string;
+  version: number;
+  name: string;
+  description: string | null;
+  priceCents: number;
+  originalTotalCents: number;
+  bundleDiscountCents: number;
+  components: Array<{
+    serviceId: string; name: string; qty: number; seq: number;
+    listPriceCents: number; durationMin: number;
+  }>;
+  bookable: boolean;
+}
+
 export interface Availability {
   date: string;
   timezone: string;
@@ -126,6 +142,8 @@ export interface BookInput {
   locale?: string;
   customer: { name: string; phone: string; email?: string; smsOptIn: boolean };
   items: Array<{ serviceId: string; addonIds: string[]; staffId: string | null; startsAt: string }>;
+  /** 组合套餐选择（U10）。与 items 二选一，服务端展开定价。 */
+  bundleSelections?: Array<{ bundleId: string; startsAt: string }>;
   partySize: number;
   notes?: string;
   website: string;
@@ -141,14 +159,18 @@ export const getShop = (locale = 'en') =>
 export const getServices = (locale = 'en') =>
   call<Catalog>('GET', `/public/v1/services?locale=${encodeURIComponent(locale)}`);
 
+export const getBundles = (locale = 'en') =>
+  call<{ bundles: Bundle[] }>('GET', `/public/v1/bundles?locale=${encodeURIComponent(locale)}`);
+
 export const getAvailability = (
   q: {
-    date: string; serviceId: string; addonIds?: readonly string[];
+    date: string; serviceId?: string; bundleId?: string; addonIds?: readonly string[];
     staffId?: string | null; excludeBookingId?: string | null;
   },
 ) =>
   call<Availability>('GET', `/public/v1/availability?${new URLSearchParams({
-    date: q.date, serviceId: q.serviceId,
+    date: q.date,
+    ...(q.bundleId ? { bundleId: q.bundleId } : { serviceId: q.serviceId ?? '' }),
     ...(q.addonIds?.length ? { addonIds: q.addonIds.join(',') } : {}),
     ...(q.staffId ? { staffId: q.staffId } : {}),
     ...(q.excludeBookingId ? { excludeBookingId: q.excludeBookingId } : {}),

@@ -438,7 +438,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
   // 三边看到的必须一致，否则官网上报的时间前台会说没有（宪法第 2 条）。
   app.get<{ Querystring: {
     date?: string; serviceId?: string; addonIds?: string; staffId?: string;
-    excludeBookingId?: string;
+    bundleId?: string; excludeBookingId?: string;
   } }>('/public/v1/availability', async (req) => {
     const shop = await resolveShop(req.headers, { requireOnlineBooking: true });
     assertOriginAllowed(originOf(req), shop);
@@ -447,12 +447,14 @@ export function registerPublicRoutes(app: FastifyInstance): void {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'bad_date' } });
     }
+    const bundleId = (req.query.bundleId ?? '').trim();
     const serviceId = (req.query.serviceId ?? '').trim();
-    if (!serviceId) {
+    if (!serviceId && !bundleId) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'missing_service' } });
     }
     const addonIds = (req.query.addonIds ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-    const staffId = (req.query.staffId ?? '').trim() || null;
+    // 组合套餐按整体时长排格子，且不接受指定技师（子项各自派单）。
+    const staffId = bundleId ? null : ((req.query.staffId ?? '').trim() || null);
     /**
      * ⭐ 改期时把本单自己占的格子排除掉（批 2）。
      *
@@ -474,7 +476,24 @@ export function registerPublicRoutes(app: FastifyInstance): void {
     return withTenant(
       { orgId: shop.orgId, locationId: shop.locationId, membershipId: null },
       async (tx) => {
-        const { durationMin } = await priceAndDuration(tx, shop, serviceId, addonIds);
+        let durationMin: number;
+        if (bundleId) {
+          const [bundle] = await tx<{ id: string }[]>`
+            select id from service_bundles
+            where id = ${bundleId} and location_id = ${shop.locationId}
+              and active = true and online_bookable = true`;
+          if (!bundle) {
+            throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+              details: { reason: 'bundle_not_online_bookable', bundleId },
+            });
+          }
+          const quote = await quoteBundle(tx, { locationId: shop.locationId }, {
+            bundleId, extraAddons: [], extraDiscountCents: 0, extraDiscountKind: 'manual',
+          });
+          durationMin = quote.units.reduce((n, u) => n + u.durationMin, 0);
+        } else {
+          ({ durationMin } = await priceAndDuration(tx, shop, serviceId, addonIds));
+        }
 
         // 正午作锚点求那一天：cutoff 最晚也就凌晨几点，正午永远落在同一个营业日
         const around = wallMinuteToInstant(date, shop.timezone, 12 * 60);

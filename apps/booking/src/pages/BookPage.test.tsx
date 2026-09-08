@@ -9,6 +9,7 @@ import { BookPage } from './BookPage';
 
 const getHostedShop = vi.fn();
 const getServices = vi.fn();
+const getBundles = vi.fn();
 const getAvailability = vi.fn();
 const book = vi.fn();
 const loadTurnstile = vi.fn();
@@ -19,6 +20,7 @@ vi.mock('../lib/api', async () => {
     ...actual,
     getHostedShop: (...args: unknown[]) => getHostedShop(...args),
     getServices: (...args: unknown[]) => getServices(...args),
+    getBundles: (...args: unknown[]) => getBundles(...args),
     getAvailability: (...args: unknown[]) => getAvailability(...args),
     book: (...args: unknown[]) => book(...args),
   };
@@ -99,6 +101,7 @@ beforeEach(() => {
   window.scrollTo = vi.fn();
   getHostedShop.mockReset().mockResolvedValue(shop);
   getServices.mockReset().mockResolvedValue(catalog);
+  getBundles.mockReset().mockResolvedValue({ bundles: [] });
   getAvailability.mockReset().mockResolvedValue(avail());
   book.mockReset();
   sessionStorage.clear();
@@ -316,5 +319,43 @@ describe('BookPage', () => {
 
     expect(screen.getByText('Keep this page or your confirmation text.')).toBeInTheDocument();
     expect(screen.queryByText(/Questions\? Call/)).not.toBeInTheDocument();
+  });
+
+  it('books a bundle: skips specialist, queries availability by bundleId, submits bundleSelections', async () => {
+    const user = userEvent.setup();
+    getBundles.mockResolvedValue({ bundles: [{
+      id: 'bnd-1', version: 1, name: 'Mani + Pedi Combo', description: null,
+      priceCents: 10000, originalTotalCents: 12000, bundleDiscountCents: 2000,
+      components: [
+        { serviceId: 'svc-1', name: 'Gel Manicure', qty: 1, seq: 0, listPriceCents: 4500, durationMin: 45 },
+        { serviceId: 'svc-2', name: 'Spa Pedicure', qty: 1, seq: 1, listPriceCents: 7500, durationMin: 60 },
+      ],
+      bookable: true,
+    }] });
+    book.mockResolvedValue({
+      bookingId: 'b1', confirmationCode: 'LN-9Z9Z', manageToken: 'mt_x',
+      replayed: false, startsAt: nySlot, durationMin: 105, status: 'booked',
+    });
+    renderBook();
+
+    await screen.findByText('Choose a service');
+    await user.click(await screen.findByTestId('bundle-bnd-1'));
+
+    // 直接进「选时间」，跳过选技师
+    await screen.findByText('Pick a time');
+    const bundleAvailCall = getAvailability.mock.calls.at(-1)?.[0] as { bundleId?: string };
+    expect(bundleAvailCall.bundleId).toBe('bnd-1');
+
+    await user.click(screen.getByTestId(`slot-${nySlot}`));
+    await user.type(screen.getByLabelText('Name'), 'Amy Chen');
+    await user.type(screen.getByLabelText('Mobile phone'), '6175550199');
+    await user.click(screen.getByRole('button', { name: 'Book appointment' }));
+    await screen.findByTestId('confirmation-code');
+
+    const body = book.mock.calls[0][0] as {
+      items: unknown[]; bundleSelections?: Array<{ bundleId: string; startsAt: string }>;
+    };
+    expect(body.items).toEqual([]);
+    expect(body.bundleSelections).toEqual([{ bundleId: 'bnd-1', startsAt: nySlot }]);
   });
 });
