@@ -103,6 +103,8 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   let walkInName = input.walkInName ?? null;
   let appointmentItemSnapshots: Array<{
     appointmentItemId: string; serviceId: string; durationMin: number; priceCents: number; resourceId: string | null;
+    bundleInstanceId: string | null; bundleComponentId: string | null;
+    bundleUnitIndex: number | null; bundleListPriceCents: number | null;
   }> | null = null;
   if (input.appointmentId) {
     // Lock the appointment before looking for an existing ticket. Without the lock,
@@ -141,8 +143,12 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     }
     const appointmentItems = await tx<{
       id: string; service_id: string; duration_min: number; price_cents_snapshot: number; resource_id: string | null;
+      bundle_instance_id: string | null; bundle_component_id: string | null;
+      bundle_unit_index: number | null; bundle_list_price_cents: number | null;
     }[]>`
-      select id, service_id, duration_min, price_cents_snapshot, resource_id from appointment_items
+      select id, service_id, duration_min, price_cents_snapshot, resource_id,
+             bundle_instance_id, bundle_component_id, bundle_unit_index, bundle_list_price_cents
+      from appointment_items
       where appointment_id = ${appointment.id} and status <> 'cancelled'
       order by seq`;
     const expectedServices = appointmentItems.map((item) => item.service_id);
@@ -159,6 +165,10 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
       durationMin: item.duration_min,
       priceCents: item.price_cents_snapshot,
       resourceId: item.resource_id,
+      bundleInstanceId: item.bundle_instance_id,
+      bundleComponentId: item.bundle_component_id,
+      bundleUnitIndex: item.bundle_unit_index,
+      bundleListPriceCents: item.bundle_list_price_cents,
     }));
     input.items.forEach((item, index) => {
       const snapshot = appointmentItemSnapshots![index]!;
@@ -285,6 +295,16 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
             ${input.groupId ?? null}, 'in_service', ${ctx.membershipId}, ${checkoutTiming})
     returning id`;
 
+  // 组合套餐实例：预约转工单**保留同一实例身份**（U10 / 计划 §5.2），只补 ticket_id。
+  for (const instanceId of new Set(
+    (appointmentItemSnapshots ?? [])
+      .map((s) => s.bundleInstanceId)
+      .filter((id): id is string => id != null),
+  )) {
+    await tx`update order_bundle_instances set ticket_id = ${ticket!.id}
+             where id = ${instanceId} and location_id = ${ctx.locationId} and ticket_id is null`;
+  }
+
   const ticketItemIds: string[] = [];
   for (const [seq, it] of input.items.entries()) {
     const svc = byId.get(it.serviceId);
@@ -297,9 +317,12 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     const [item] = await tx<{ id: string }[]>`
       insert into ticket_items
         (org_id, location_id, ticket_id, kind, service_id, name_snapshot,
-         qty, unit_price_cents, total_cents, duration_min, resource_id, seq)
+         qty, unit_price_cents, total_cents, duration_min, resource_id, seq,
+         bundle_instance_id, bundle_component_id, bundle_unit_index, bundle_list_price_cents)
       values (${ctx.orgId}, ${ctx.locationId}, ${ticket!.id}, 'service', ${it.serviceId},
-              ${pickText(svc.name, ctx.locale)}, 1, ${price}, ${price}, ${mins}, ${resourceId}, ${seq})
+              ${pickText(svc.name, ctx.locale)}, 1, ${price}, ${price}, ${mins}, ${resourceId}, ${seq},
+              ${snapshot?.bundleInstanceId ?? null}, ${snapshot?.bundleComponentId ?? null},
+              ${snapshot?.bundleUnitIndex ?? null}, ${snapshot?.bundleListPriceCents ?? null})
       returning id`;
     ticketItemIds.push(item!.id);
 

@@ -1,8 +1,8 @@
 # 组合项目套餐：实施报告
 
 计划：`docs/plans/2026-09-07-service-bundles-implementation.md`
-状态：**P0 ✅ · P1 ✅ · P2 后端 ✅ · P3a ✅（预约创建选套餐）· P3b/P3c/P4–P8 未做**
-（均在本地 55322 验证）本轮范围：P0–P2 + P3a。导入 UI / 向导 / 结账界面待前端排期。
+状态：**P0 ✅ · P1 ✅ · P2 后端 ✅ · P3a+P3b ✅（预约选套餐→开单继承）· P3c/P4–P8 未做**
+（均在本地 55322 验证）本轮范围：P0–P2 + P3a + P3b。导入 UI / 向导 / 结账界面待前端排期。
 
 ---
 
@@ -152,7 +152,7 @@
 - [ ] 只读 HTTP 路由 `/v1/desk/bundles/quote` —— 未接（P3/P5 直接调 `quoteBundle` 函数；
       前端预览需要时再补路由 + SDK）。
 
-### P3 · 创建 / 预约展开 —— 🔶 P3a 完成（预约创建），P3b/P3c 未做
+### P3 · 创建 / 预约展开 —— 🔶 P3a + P3b 完成，P3c 未做
 
 - [x] **P3a：`appointment.create` 支持 `bundleSelections`**（本地库已验证）。
       契约加 `bundleSelectionInput`（`bundleId` / `expectedVersion` / `startsAt` /
@@ -167,9 +167,10 @@
 - [x] 测试 `apps/api/src/bundle.test.ts` P3a 5 例（本地跑通）：单份展开+实例快照、
       两份同模板+散项互不串、手动优惠 $20 落到实例与子项、额外加项并入单元快照+addon_ids、
       版本不符整单回滚不留半份。
-- [ ] **P3b：`ticket.open` 继承套餐实例** —— 未做。当前从带套餐的预约开单，
-      工单金额正确（子项快照求和），但不建工单侧 `order_bundle_instances` 关联、
-      `ticket_items.bundle_*` 为空。看板分组 / 结账套餐视图依赖它。
+- [x] **P3b：`ticket.open` 继承套餐实例**（本地库已验证）。开单时读预约子项的
+      `bundle_*` 快照 → 同一 `order_bundle_instances` 行补 `ticket_id`（**保留实例
+      身份**，计划 §5.2）→ `ticket_items` 写全 4 个 `bundle_*` 列。`recalcTotals`
+      按子项快照求和不变，工单 subtotal = 套餐净价。测试 1 例（本地跑通）。
 - [ ] **P3c：整套改期 / 移除 / 拆单 / 直接开单选套餐 / walk-in** —— 未做。
       当前整单平移会带着子项一起动（可用）；单独改套餐子项、按实例移除、
       未开单拆单为单项均未实现。
@@ -185,7 +186,7 @@
 | `pnpm --filter @gf/payroll test` | ✅ 6 文件 / **128 例**（含新增 21 例 `bundle.test.ts`） |
 | `pnpm --filter @gf/contracts test` | ✅ 8 文件 / 61 例（含 `registry.test.ts` 命令注册校验） |
 | `pnpm --filter @gf/db test` | ✅ 10 文件 / **92 例**（含新增 `serviceBundles.migration.test.ts`，跑在本地 55322） |
-| `pnpm --filter @gf/api test` | ✅ 88 文件 / **1208 例**（含 `bundle.test.ts` 16 例：目录/报价 11 + 预约展开 5，跑在本地 55322） |
+| `pnpm --filter @gf/api test` | ✅ 88 文件 / **1209 例**（含 `bundle.test.ts` 17 例：目录/报价 11 + 预约展开 5 + 开单继承 1，本地 55322） |
 | `pnpm typecheck`（turbo，全 16 包） | ✅ 16/16 |
 | `pnpm lint:guards` | ✅ |
 | `pnpm test:unit` | ✅ 全通过 |

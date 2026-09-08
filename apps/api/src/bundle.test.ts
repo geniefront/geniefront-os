@@ -12,12 +12,14 @@ import { quoteBundle } from './queries/bundle';
 import './handlers/setup';
 import './handlers/bundle';
 import './handlers/appointment';
+import './handlers/ticket';
 
 const NAIL = { orgId: '11111111-1111-4111-8111-111111111111', locationId: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', membershipId: null };
 const SPA = { orgId: '22222222-2222-4222-8222-222222222222', locationId: 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb', membershipId: null };
 
 let ctx: Awaited<ReturnType<typeof buildContext>>;
 let A: string; let B: string; let C: string; let ADDON: string;
+let staffId: string;
 
 async function ownerCtx(tenant: typeof NAIL) {
   const [owner] = await withTenant(tenant, (tx) => tx<{ id: string; user_id: string }[]>`
@@ -47,6 +49,12 @@ beforeAll(async () => {
   B = await mkService(`${tag()} B`, 5_000);
   C = await mkService(`${tag()} C`, 2_000);
   ADDON = await mkService(`${tag()} hot-stone`, 1_500, true);
+  const [staff] = await withTenant(NAIL, (tx) => tx<{ id: string }[]>`
+    select sp.membership_id as id from staff_profiles sp
+    join memberships m on m.id = sp.membership_id
+    where sp.location_id = ${NAIL.locationId} and sp.is_bookable = true and m.status = 'active'
+    limit 1`);
+  staffId = staff!.id;
 });
 afterAll(closeDb);
 
@@ -259,5 +267,55 @@ describe('appointment.create + bundleSelections (P3a)', () => {
     const any = await withTenant(NAIL, (tx) => tx<{ n: number }[]>`
       select count(*)::int as n from order_bundle_instances where bundle_id = ${bundleId}`);
     expect(any[0]!.n).toBe(0); // 事务回滚，没留半份
+  });
+});
+
+describe('ticket.open inherits the bundle instance (P3b)', () => {
+  it('carries the same instance to the ticket and links ticket_items', async () => {
+    const bundleId = (await save(abc())).result.bundleId;
+    // 今天营业日内的预约（override 绕过营业时间闸门）。
+    const startsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const appt = await dispatch<{ appointmentId: string; bundleInstanceIds: string[] }>(
+      'appointment.create',
+      {
+        customerId: null, walkInName: 'U10 open', items: [],
+        bundleSelections: [{
+          bundleId, startsAt,
+          unitOverrides: [{ membershipId: staffId }, { membershipId: staffId }, { membershipId: staffId }],
+        }],
+        source: 'desk', override: { reason: 'desk_coordination' },
+      },
+      ctx, { idempotencyKey: randomUUID() },
+    ).then((r) => r.result);
+
+    const instanceId = appt.bundleInstanceIds[0]!;
+
+    const opened = await dispatch<{ ticketId: string; ticketItemIds: string[]; subtotalCents: number }>(
+      'ticket.open',
+      {
+        appointmentId: appt.appointmentId,
+        customerId: null,
+        items: [A, B, C].map((serviceId) => ({ serviceId, membershipId: staffId })),
+      },
+      ctx, { idempotencyKey: randomUUID() },
+    ).then((r) => r.result);
+
+    expect(opened.subtotalCents).toBe(15_000);
+
+    // 同一实例身份，只是补了 ticket_id
+    const inst = await withTenant(NAIL, (tx) => tx<{ id: string; appointment_id: string; ticket_id: string }[]>`
+      select id, appointment_id, ticket_id from order_bundle_instances where id = ${instanceId}`);
+    expect(inst[0]).toMatchObject({ appointment_id: appt.appointmentId, ticket_id: opened.ticketId });
+
+    const titems = await withTenant(NAIL, (tx) => tx<{
+      total_cents: number; bundle_instance_id: string | null;
+      bundle_component_id: string | null; bundle_unit_index: number | null; bundle_list_price_cents: number | null;
+    }[]>`select total_cents, bundle_instance_id, bundle_component_id, bundle_unit_index, bundle_list_price_cents
+       from ticket_items where ticket_id = ${opened.ticketId} order by seq`);
+    expect(titems).toHaveLength(3);
+    expect(titems.every((t) => t.bundle_instance_id === instanceId)).toBe(true);
+    expect(new Set(titems.map((t) => t.bundle_component_id)).size).toBe(3);
+    expect(titems.every((t) => t.bundle_list_price_cents != null)).toBe(true);
+    expect(titems.reduce((n, t) => n + t.total_cents, 0)).toBe(15_000);
   });
 });
