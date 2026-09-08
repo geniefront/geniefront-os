@@ -40,6 +40,32 @@ const MONEY_PATHS = [
   'tickets.*.totalCents', 'tickets.*.tipCents',
 ] as const;
 
+/**
+ * 直接开单选组合套餐（U10 / 计划 §7，walk-in）。带预约的套餐走 ticket.open 的
+ * 预约继承路径（P3b），不用这个字段。展开 / 报价由服务端 `quoteBundle` 完成，
+ * 每个执行单元必须指派恰好一位技师（`unitOverrides[i].membershipId`）。
+ */
+const ticketBundleSelectionInput = z.object({
+  bundleId: uuid,
+  /** 客户端取到的模板版本；不一致则整单失败（`bundle_version_conflict`）。 */
+  expectedVersion: z.number().int().min(1).optional(),
+  /** 按展开顺序给各执行单元指派技师 / 资源 / 时长；长度须覆盖全部单元。 */
+  unitOverrides: z.array(z.object({
+    membershipId: uuid,
+    resourceId: uuid.nullable().default(null),
+    durationMin: z.number().int().positive().max(600).optional(),
+  })).max(40).default([]),
+  /** 额外购买、不在模板包含范围内的加项，按正常价追加（计划 §4.2）。 */
+  extraAddons: z.array(z.object({
+    ref: z.string().min(1).max(64),
+    attachToUnit: z.string().min(1).max(80),
+    serviceId: uuid,
+    qty: z.number().int().min(1).max(20).default(1),
+  })).max(40).default([]),
+  extraDiscountCents: cents.nonnegative().default(0),
+  extraDiscountKind: z.enum(['manual', 'coupon']).default('manual'),
+});
+
 export const TicketOpen = defineCommand({
   name: 'ticket.open',
   input: z.object({
@@ -62,12 +88,18 @@ export const TicketOpen = defineCommand({
       priceCentsOverride: cents.optional(),
     }).refine((item) => Boolean(item.membershipId || item.staffAssignments?.length), {
       message: '每个项目至少需要一位技师',
-    })).min(1).max(20),
+    })).max(20).default([]),
+    /** 直接开单选组合套餐（walk-in）；与 `appointmentId` 互斥。 */
+    bundleSelections: z.array(ticketBundleSelectionInput).max(10).default([]),
+  }).refine((v) => v.items.length > 0 || v.bundleSelections.length > 0, {
+    message: 'items 与 bundleSelections 至少有一个非空',
   }),
   output: z.object({
     ticketId: uuid,
-    /** Newly created item ids, in the same order as input.items. */
+    /** Newly created item ids: input.items 顺序在前，套餐展开子项在后。 */
     ticketItemIds: z.array(uuid),
+    /** 本次开单直接创建的组合套餐实例 ID（按 bundleSelections 顺序）。 */
+    bundleInstanceIds: z.array(uuid).default([]),
     subtotalCents: cents,
   }),
   permission: 'ticket.write',

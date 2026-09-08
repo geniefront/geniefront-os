@@ -637,3 +637,78 @@ describe('P7 历史次卡候选扫描', () => {
       .toBe('likely_punchcard');
   });
 });
+
+// ─────────────────────────────────────────────────────────── walk-in 直接开单
+//
+// 直接 ticket.open 选组合套餐（U10 / 计划 §7）——不经预约，展开由服务端
+// quoteBundle 完成，建 ticket 归属的 order_bundle_instances。
+describe('ticket.open 直接选组合套餐（walk-in）', () => {
+  const openWalkIn = (bundleSelections: unknown[], extra: Record<string, unknown> = {}) =>
+    dispatch<{ ticketId: string; ticketItemIds: string[]; bundleInstanceIds: string[]; subtotalCents: number }>(
+      'ticket.open',
+      { customerId: null, walkInName: 'U10 walk-in', items: [], bundleSelections, ...extra },
+      ctx, { idempotencyKey: randomUUID() },
+    ).then((r) => r.result);
+
+  it('展开成子项、建 ticket 归属的实例、金额 = 组合价', async () => {
+    const bundleId = (await save(abc())).result.bundleId;
+    const res = await openWalkIn([{
+      bundleId,
+      unitOverrides: [{ membershipId: staffId }, { membershipId: staffId }, { membershipId: staffId }],
+    }]);
+    expect(res.bundleInstanceIds).toHaveLength(1);
+    expect(res.subtotalCents).toBe(15_000);
+    expect(res.ticketItemIds).toHaveLength(3);
+
+    const [inst] = await withTenant(NAIL, (tx) => tx<{
+      appointment_id: string | null; ticket_id: string | null;
+      bundle_price_cents: number; discount_cents: number; source: string; status: string;
+    }[]>`select appointment_id, ticket_id, bundle_price_cents, discount_cents, source, status
+         from order_bundle_instances where id = ${res.bundleInstanceIds[0]!}`);
+    expect(inst).toMatchObject({
+      appointment_id: null, ticket_id: res.ticketId, bundle_price_cents: 15_000,
+      discount_cents: 2_000, source: 'walk_in', status: 'active',
+    });
+
+    const items = await withTenant(NAIL, (tx) => tx<{
+      total_cents: number; bundle_instance_id: string | null; bundle_component_id: string | null;
+      bundle_list_price_cents: number | null;
+    }[]>`select total_cents, bundle_instance_id, bundle_component_id, bundle_list_price_cents
+         from ticket_items where ticket_id = ${res.ticketId} order by seq`);
+    expect(items).toHaveLength(3);
+    expect(items.every((i) => i.bundle_instance_id === res.bundleInstanceIds[0])).toBe(true);
+    expect(new Set(items.map((i) => i.bundle_component_id)).size).toBe(3);
+    expect(items.every((i) => i.bundle_list_price_cents != null)).toBe(true);
+    expect(items.reduce((n, i) => n + i.total_cents, 0)).toBe(15_000);
+  });
+
+  it('结账走通：收款 = 分摊净额 + 税（B26 walk-in 与前台同口径）', async () => {
+    const bundleId = (await save(abc())).result.bundleId;
+    const { ticketId } = await openWalkIn([{
+      bundleId,
+      unitOverrides: [{ membershipId: staffId }, { membershipId: staffId }, { membershipId: staffId }],
+    }]);
+    const tax = Math.round(15_000 * 0.08875);
+    await dispatch('ticket.close', {
+      ticketId,
+      payments: [{ method: 'cash', amountCents: 15_000 + tax, tipCents: 0, tenderedCents: 15_000 + tax }],
+    }, ctx, { idempotencyKey: randomUUID() });
+    const [t] = await withTenant(NAIL, (tx) => tx<{ status: string; total_cents: number; tax_cents: number }[]>`
+      select status, total_cents, tax_cents from tickets where id = ${ticketId}`);
+    expect(t).toMatchObject({ status: 'closed', total_cents: 15_000 + tax, tax_cents: tax });
+  });
+
+  it('与 appointmentId 互斥', async () => {
+    const bundleId = (await save(abc())).result.bundleId;
+    await expect(openWalkIn(
+      [{ bundleId, unitOverrides: [{ membershipId: staffId }, { membershipId: staffId }, { membershipId: staffId }] }],
+      { appointmentId: randomUUID(), items: [{ serviceId: A, membershipId: staffId }] },
+    )).rejects.toMatchObject({ details: { reason: 'bundle_selection_not_allowed_with_appointment' } });
+  });
+
+  it('unitOverrides 少于执行单元数 → 拒绝', async () => {
+    const bundleId = (await save(abc())).result.bundleId;
+    await expect(openWalkIn([{ bundleId, unitOverrides: [{ membershipId: staffId }] }]))
+      .rejects.toMatchObject({ details: { reason: 'bundle_unit_staff_required' } });
+  });
+});

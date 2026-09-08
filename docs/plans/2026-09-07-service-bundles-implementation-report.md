@@ -155,7 +155,7 @@ P6 后端（公开预约套餐入口）✅ · P7–P8 未做**
 - [ ] 只读 HTTP 路由 `/v1/desk/bundles/quote` —— 未接（P3/P5 直接调 `quoteBundle` 函数；
       前端预览需要时再补路由 + SDK）。
 
-### P3 · 创建 / 预约展开 —— 🔶 P3a + P3b + P3c（改期/取消）完成，直接开单/walk-in 选套餐未做
+### P3 · 创建 / 预约展开 —— 🔶 P3a/b/c + P3d（walk-in 直接开单）完成，拆单为单项未做
 
 - [x] **P3a：`appointment.create` 支持 `bundleSelections`**（本地库已验证）。
       契约加 `bundleSelectionInput`（`bundleId` / `expectedVersion` / `startsAt` /
@@ -179,8 +179,17 @@ P6 后端（公开预约套餐入口）✅ · P7–P8 未做**
       的全部子项一起挪，保持相对间隔，整体撞了一起回滚（计划 §4.3）。
       `appointment.cancel` 整单取消 → `order_bundle_instances.status='cancelled'`。
       测试 2 例。
-- [ ] 直接 `ticket.open` 选套餐（无预约 walk-in）—— 未做，需 `TicketOpen` 契约扩展；
-      拆单为单项（`status='split'`）—— 未做。P4/P5 不依赖这两项。
+- [x] **P3d：`ticket.open` 直接选套餐（walk-in）**（本地库已验证）。`TicketOpen` 契约加
+      `bundleSelections[]`（`bundleId` / `expectedVersion` / `unitOverrides[]`（每单元一位技师，
+      `membershipId` 必填）/ `extraAddons[]` / `extraDiscount*`），`items` 放宽可空 + refine，
+      output 加 `bundleInstanceIds`。与 `appointmentId` 互斥
+      （`bundle_selection_not_allowed_with_appointment`）。handler 调 `quoteBundle` 展开 →
+      建一行 `order_bundle_instances`（`ticket_id` 有 / `appointment_id` 空 / `source='walk_in'`）→
+      各子项 `ticket_items` 写 4 个 `bundle_*` 列 + 技师；额外加项并入归属单元的价与时长。
+      首版限制：组成服务 `staff_count` 必须为 1（`bundle_unit_multi_staff_unsupported`）。
+      测试 `bundle.test.ts` `describe('ticket.open 直接选组合套餐（walk-in）')` 4 例
+      （展开+实例+金额、结账走通、与 appointmentId 互斥、unitOverrides 不足被拒）。
+- [ ] 拆单为单项（`status='split'`）—— 未做（B14）。
 
 ### P4 · 看板与履约 —— 🔶 查询 DTO 完成（后端），前端卡片渲染待排期
 
@@ -362,7 +371,7 @@ P6 后端（公开预约套餐入口）✅ · P7–P8 未做**
 | B23 | ✅ | P5 退款用例断言按**原** earnings 行冲销，不按当前模板 / 费率重算；小费独立 `tip_allocations` |
 | B24 | 🔶 | 组单 `closeOneTicket` 逐单结、`distributeBuckets` 按方式填；套餐实例不跨 ticket（单行双归属）；组单含套餐专项浏览器用例未补 |
 | B25 | ✅ | `bundle.test.ts` P5「结账收款 = 分摊净额 + 税」；两 Checkout UI 一致性属前端 |
-| B26 | ✅ | `public.test.ts` U10：官网 `bundle-quote` / 下单复用 `quoteBundle` + `appointment.create`；前台 P3a 同路径；kiosk/AI 见 P6 段 |
+| B26 | ✅ | 前台预约 P3a / walk-in 直接开单 P3d / 官网 `public.test.ts` U10 三入口均走同一 `quoteBundle`；金额一致由测试断言（均 = 组合价 15000）。kiosk walk-in / AI 见 P6 段 |
 | B27 | ✅ | `bundle.test.ts` quote「跨租户 `bundle_not_found`」+ 0118 RLS 迁移测试（`serviceBundles.migration.test.ts`） |
 | B28 | ✅ | `bundle.saveTemplate` `expectedVersion` 乐观锁 + `quoteBundle` 版本校验（`bundle.test.ts` 多例）；报价服务端算 |
 | B29 | ✅ | P5「结账无第 4 行父套餐收款、提成基数 = 15000 非 17000」；日报 / CSV 按子项净额（无父行天然不重复） |

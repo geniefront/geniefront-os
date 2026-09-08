@@ -19,6 +19,7 @@ import {
 import { businessDateOf } from '@gf/scheduling';
 import { jsonb } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
+import { quoteBundle } from '../queries/bundle';
 import { redeemForTicket } from './giftcard';
 import {
   loadPlans, writeCommissionEarnings, writeTipEarning, assertDayOpen,
@@ -98,6 +99,14 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof TicketOpen.input._type>) => {
   const date = await bizDate(tx, ctx.locationId);
   await assertDayOpen(tx, ctx.locationId, date);
+
+  // 组合套餐：直接开单（walk-in）与「从带套餐的预约转工单」是两条路。后者
+  // 由下方的实例继承逻辑处理，前者才用 bundleSelections（U10 / 计划 §7）。
+  if (input.bundleSelections.length > 0 && input.appointmentId) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'bundle_selection_not_allowed_with_appointment' },
+    });
+  }
 
   let customerId = input.customerId;
   let walkInName = input.walkInName ?? null;
@@ -332,6 +341,125 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     }
   }
 
+  // ── 直接开单选组合套餐（U10 / 计划 §7，walk-in）─────────────────────────────
+  //
+  // 每份套餐调 `quoteBundle`（服务端唯一报价实现）展开成执行子项，建一行
+  // `order_bundle_instances`（appointment_id 空、ticket_id 有），子项写 4 个
+  // `bundle_*` 列。额外加项并入其归属执行单元的价格与时长（同 appointment.create）。
+  // 首版每个执行单元只支持指派一位技师，故组成服务的 `staff_count` 必须为 1。
+  const bundleInstanceIds: string[] = [];
+  let bundleSeq = input.items.length;
+  for (const sel of input.bundleSelections) {
+    const q = await quoteBundle(tx, ctx, {
+      bundleId: sel.bundleId,
+      ...(sel.expectedVersion !== undefined ? { expectedVersion: sel.expectedVersion } : {}),
+      extraAddons: sel.extraAddons,
+      extraDiscountCents: sel.extraDiscountCents,
+      extraDiscountKind: sel.extraDiscountKind,
+    });
+    if (sel.unitOverrides.length < q.units.length) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'bundle_unit_staff_required', expectedUnits: q.units.length },
+      });
+    }
+
+    // 组成服务：必须在册、在这家店、接客，且单人服务（首版限制）。
+    const unitServiceIds = [...new Set(q.units.map((u) => u.serviceId))];
+    const unitSvcs = await tx<{ id: string; name: unknown; staff_count: number }[]>`
+      select id, name, staff_count from services
+      where id = any(${unitServiceIds}) and location_id = ${ctx.locationId} and active = true`;
+    const unitSvcById = new Map(unitSvcs.map((s) => [s.id, s]));
+
+    const unitStaffIds = [...new Set(
+      q.units.map((_, u) => sel.unitOverrides[u]!.membershipId),
+    )];
+    const unitValidStaff = await tx<{ membership_id: string }[]>`
+      select sp.membership_id from staff_profiles sp
+      join memberships m on m.id = sp.membership_id
+      where sp.location_id = ${ctx.locationId} and sp.membership_id = any(${unitStaffIds})
+        and sp.is_bookable = true and m.status = 'active'`;
+    if (unitValidStaff.length !== unitStaffIds.length) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'staff' } });
+    }
+    const unitSkillRows = await tx<{ service_id: string; skill_id: string; membership_id: string | null }[]>`
+      select ssr.service_id, ssr.skill_id, ss.membership_id
+      from service_skill_requirements ssr
+      left join staff_skills ss on ss.skill_id = ssr.skill_id and ss.membership_id = any(${unitStaffIds})
+      where ssr.location_id = ${ctx.locationId} and ssr.service_id = any(${unitServiceIds})`;
+
+    const unitResourceIds = [...new Set(
+      q.units.map((_, u) => sel.unitOverrides[u]!.resourceId).filter((id): id is string => Boolean(id)),
+    )];
+    if (unitResourceIds.length > 0) {
+      const okResources = await tx<{ id: string }[]>`
+        select id from resources where location_id = ${ctx.locationId} and id = any(${unitResourceIds})`;
+      if (okResources.length !== unitResourceIds.length) {
+        throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'resource' } });
+      }
+    }
+
+    // 额外加项按归属执行单元聚合（价 + 时长并入子项，同 appointment.create）。
+    const extraByUnit = new Map<number, { cents: number; minutes: number }>();
+    for (const a of q.extraAddons) {
+      const cur = extraByUnit.get(a.unitOrdinal) ?? { cents: 0, minutes: 0 };
+      cur.cents += a.netCents;
+      cur.minutes += a.durationMin;
+      extraByUnit.set(a.unitOrdinal, cur);
+    }
+
+    const [inst] = await tx<{ id: string }[]>`
+      insert into order_bundle_instances
+        (org_id, location_id, customer_id, appointment_id, ticket_id, bundle_id,
+         template_version, name_snapshot, original_total_cents, bundle_price_cents,
+         discount_cents, extra_discount_cents, source, status)
+      values
+        (${ctx.orgId}, ${ctx.locationId}, ${customerId}, null, ${ticket!.id}, ${sel.bundleId},
+         ${q.version}, ${jsonb(q.nameSnapshot)}::jsonb, ${q.originalTotalCents}, ${q.bundlePriceCents},
+         ${q.bundleDiscountCents}, ${q.extraDiscountCents}, 'walk_in', 'active')
+      returning id`;
+    bundleInstanceIds.push(inst!.id);
+
+    for (let u = 0; u < q.units.length; u += 1) {
+      const unit = q.units[u]!;
+      const ov = sel.unitOverrides[u]!;
+      const svc = unitSvcById.get(unit.serviceId);
+      if (!svc) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { serviceId: unit.serviceId } });
+      if (svc.staff_count !== 1) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+          details: { reason: 'bundle_unit_multi_staff_unsupported', serviceId: unit.serviceId },
+        });
+      }
+      const requiredSkillIds = [...new Set(unitSkillRows
+        .filter((row) => row.service_id === unit.serviceId).map((row) => row.skill_id))];
+      const lacks = requiredSkillIds.some((skillId) => !unitSkillRows.some((row) => (
+        row.service_id === unit.serviceId && row.skill_id === skillId
+        && row.membership_id === ov.membershipId
+      )));
+      if (lacks) {
+        throw new AppError(ERROR_CODES.STAFF_LACKS_SKILL, {
+          details: { serviceId: unit.serviceId, membershipId: ov.membershipId },
+        });
+      }
+
+      const extra = extraByUnit.get(u);
+      const price = unit.netCents + (extra?.cents ?? 0);
+      const mins = (ov.durationMin ?? unit.durationMin) + (extra?.minutes ?? 0);
+      const [row] = await tx<{ id: string }[]>`
+        insert into ticket_items
+          (org_id, location_id, ticket_id, kind, service_id, name_snapshot,
+           qty, unit_price_cents, total_cents, duration_min, resource_id, seq,
+           bundle_instance_id, bundle_component_id, bundle_unit_index, bundle_list_price_cents)
+        values (${ctx.orgId}, ${ctx.locationId}, ${ticket!.id}, 'service', ${unit.serviceId},
+                ${pickText(svc.name, ctx.locale)}, 1, ${price}, ${price}, ${mins}, ${ov.resourceId}, ${bundleSeq},
+                ${inst!.id}, ${unit.componentId}, ${unit.unitIndex}, ${unit.listPriceCents})
+        returning id`;
+      ticketItemIds.push(row!.id);
+      bundleSeq += 1;
+      await tx`insert into ticket_item_staff (org_id, ticket_item_id, membership_id, role, minutes)
+               values (${ctx.orgId}, ${row!.id}, ${ov.membershipId}, 'primary', ${mins})`;
+    }
+  }
+
   const subtotal = await recalcTotals(tx, ticket!.id);
   if (input.appointmentId) {
     await tx`update appointments set status = 'in_service'
@@ -359,7 +487,7 @@ registerHandler(TicketOpen, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   for (const mid of new Set(input.items.flatMap((i) => assignmentsFor(i).map((a) => a.membershipId)))) {
     emit({ type: 'ticket.assigned', entityId: ticket!.id, membershipId: mid, businessDate: date });
   }
-  return { ticketId: ticket!.id, ticketItemIds, subtotalCents: subtotal };
+  return { ticketId: ticket!.id, ticketItemIds, bundleInstanceIds, subtotalCents: subtotal };
 });
 
 // ─────────────────────────────────────────────────────────────────── 加钟/加项
