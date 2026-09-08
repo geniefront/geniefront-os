@@ -89,12 +89,45 @@ describe('allocateBundle — 执行单元展开（不变量 3）', () => {
 });
 
 describe('allocateBundle — 额外整单优惠分摊（计划 §4.5 / 不变量 2）', () => {
-  it('默认：额外优惠不落到套餐子项，只摊到额外加项', () => {
+  it('默认（手动优惠）：$150 套餐再减 $20 → 各子项按净额权重分摊，合计付 $130', () => {
+    const r = allocateBundle({
+      components: [
+        comp({ componentId: 'A', serviceId: 'sa', listPriceCents: 10_000, seq: 0 }),
+        comp({ componentId: 'B', serviceId: 'sb', listPriceCents: 5_000, seq: 1 }),
+        comp({ componentId: 'C', serviceId: 'sc', listPriceCents: 2_000, seq: 2 }),
+      ],
+      bundlePriceCents: 15_000,
+      extraDiscountCents: 2_000, // 店主抹掉 $20
+    });
+    const totalDisc = r.units.reduce((n, u) => n + u.extraDiscountCents, 0);
+    expect(totalDisc).toBe(2_000);
+    expect(r.units.reduce((n, u) => n + u.netCents, 0)).toBe(13_000); // 顾客实付 $130
+    expect(r.serviceNetTotalCents).toBe(13_000);
+    expect(r.units.every((u) => u.netCents >= 0)).toBe(true);
+    // 摊到 A/B/C 上，谁都没被漏掉
+    expect(r.units.map((u) => u.extraDiscountCents).every((d) => d > 0)).toBe(true);
+  });
+
+  it('手动优惠也摊到额外加项', () => {
+    const r = allocateBundle({
+      components: [comp({ componentId: 'A', listPriceCents: 10_000, seq: 0 })],
+      bundlePriceCents: 9_000,
+      extraAddons: [{ ref: 'x1', attachToUnit: 'A#0', listPriceCents: 2_000 }],
+      extraDiscountCents: 1_100,
+    });
+    const total = r.units.reduce((n, u) => n + u.extraDiscountCents, 0)
+      + r.extraAddons.reduce((n, a) => n + a.extraDiscountCents, 0);
+    expect(total).toBe(1_100);
+    expect(r.serviceNetTotalCents).toBe(11_000 - 1_100);
+  });
+
+  it("kind='coupon'：不与套餐价叠加，只摊到额外加项（计划 §4.5）", () => {
     const r = allocateBundle({
       components: [comp({ componentId: 'A', listPriceCents: 10_000, seq: 0 })],
       bundlePriceCents: 9_000,
       extraAddons: [{ ref: 'x1', attachToUnit: 'A#0', listPriceCents: 2_000 }],
       extraDiscountCents: 500,
+      extraDiscountKind: 'coupon',
     });
     expect(r.units[0]!.extraDiscountCents).toBe(0);
     expect(r.units[0]!.netCents).toBe(9_000);
@@ -103,20 +136,13 @@ describe('allocateBundle — 额外整单优惠分摊（计划 §4.5 / 不变量
     expect(r.serviceNetTotalCents).toBe(10_500);
   });
 
-  it('显式允许时：额外优惠按净额权重摊到套餐子项，之和 === 该笔优惠', () => {
-    const r = allocateBundle({
-      components: [
-        comp({ componentId: 'A', listPriceCents: 10_000, seq: 0 }),
-        comp({ componentId: 'B', listPriceCents: 5_000, seq: 1 }),
-      ],
-      bundlePriceCents: 12_000,
-      extraDiscountCents: 1_200,
-      bundleUnitsEligibleForExtraDiscount: true,
-    });
-    const totalDisc = r.units.reduce((n, u) => n + u.extraDiscountCents, 0);
-    expect(totalDisc).toBe(1_200);
-    expect(r.serviceNetTotalCents).toBe(12_000 - 1_200);
-    expect(r.units.every((u) => u.netCents >= 0)).toBe(true);
+  it("kind='coupon' 且无额外加项时，非零额外优惠 → 报错（没有可叠加的对象）", () => {
+    expect(() => allocateBundle({
+      components: [comp({ listPriceCents: 5_000 })],
+      bundlePriceCents: 4_000,
+      extraDiscountCents: 100,
+      extraDiscountKind: 'coupon',
+    })).toThrow(/extra_discount_exceeds_eligible/);
   });
 
   it('额外优惠超过可分摊净额 → 报错，不产生负净额', () => {
@@ -124,7 +150,6 @@ describe('allocateBundle — 额外整单优惠分摊（计划 §4.5 / 不变量
       components: [comp({ listPriceCents: 5_000 })],
       bundlePriceCents: 4_000,
       extraDiscountCents: 4_500,
-      bundleUnitsEligibleForExtraDiscount: true,
     })).toThrow(BundlePricingError);
   });
 });

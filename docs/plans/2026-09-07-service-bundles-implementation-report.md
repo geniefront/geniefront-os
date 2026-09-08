@@ -29,7 +29,7 @@
 | 独立 `services` 虚拟父项 | ❌ 不建 | 计划 §5.1 明确反对。套餐父分组仅存在于 `order_bundle_instances`，无收款行、不占资源、不计轮。 |
 | 唯一共享分摊实现 | ✅ 新纯函数 `allocateBundle`（`packages/payroll/src/bundle.ts`） | 与 `split.ts` / `commission.ts` / `tip.ts` 同处（本包即「差一分就吵架」的钱算术包）。**未新建 `@gf/pricing`**：零新 workspace 布线。分摊方法见「决策 #1」——不复用 `largestRemainderSplit`。 |
 | 分摊取整（决策 #1，**已定**） | ✅ 按原价权重摊内建优惠，下取整 + 余数给 seq 末几项 | 复现计划 §6.1 示例表与 B20 / B32 的字面数字（A=8824 / C=1764，退 C=1764、剩余 13236）。零价子项不接余数。用户指示「按大多数店」——1 分落点店主无感，以规格验收数字为准。 |
-| 额外优惠是否叠套餐（决策 #2，**已定**） | ✅ 默认**不叠**，可配 | `bundleUnitsEligibleForExtraDiscount` 默认 false：券 / 自动优惠只摊到额外加项（计划 §4.5「默认套餐部分不自动叠加优惠券」）。要「权限内手动优惠也作用于套餐子项」的店设 true。 |
+| 额外优惠是否叠套餐（决策 #2，**已定**） | ✅ 按优惠类型分 | `extraDiscountKind`：`manual`（默认，店主/前台手动折扣）作用于套餐子项＋额外加项 —— 覆盖「$150 套餐再减 $20 = $130」的常见场景；`coupon`（优惠券/自动促销）只摊额外加项，不叠套餐价（计划 §4.5）。 |
 | 套餐错误码 | ✅ 用 `VALIDATION_FAILED` + `details.reason` 判别串 | 未新增 `ERROR_CODES` 枚举项：新增一项需同步 `httpStatusFor`、`errorMessage.ts`、`common.ts`（五语言），面过大且风险高。`details.reason` 判别串是仓库既有惯例（marketing / ticket handler）。reason 取值见 `packages/contracts/src/commands/bundle.ts` 头注释。 |
 
 ---
@@ -84,13 +84,20 @@
 落在哪个子项无感，而 B20/B32 是白纸黑字的验收标准，P5 不必再返工。
 `bundle.test.ts` 直接断言 `[8824, 4412, 1764]` 与「退 1764 / 剩 13236」。
 
-### 决策 #2 —— 额外整单优惠是否叠加到套餐子项 · **已定 + 可配**
+### 决策 #2 —— 额外整单优惠按类型区分是否叠加到套餐子项 · **已定**
 
-规格 §4.5：「默认套餐部分不自动叠加优惠券」。默认行为：额外整单优惠
-（券 / 自动折扣）**只摊到额外加项净额**，套餐子项 `extraDiscountCents` 恒为 0。
-需要「权限内的手动优惠也作用于套餐子项」的店，把
-`bundleUnitsEligibleForExtraDiscount` 设 true（契约 `bundle.quote` 入参，
-默认 false）；手动优惠的范围 / 上限仍由服务端按权限校验（P5）。
+规格 §4.5 同时说了两件事：「默认套餐部分不自动叠加**优惠券**」＋「**权限允许的
+手动优惠**可以应用，记录原因，服务端检查范围和上限」。所以按优惠类型分：
+
+- `extraDiscountKind='manual'`（**默认**）—— 店主 / 前台权限内的手动折扣 / 抹零。
+  **作用于套餐子项 ＋ 额外加项**，按各子项净额权重分摊。这正是店主说的
+  「$150 套餐再给你减 $20，收 $130」——`extraDiscountCents = 2000`，摊到
+  A/B/C 上（提成 / 退款 / 报表按分摊后净额结算）。范围 / 上限由服务端按权限校验（P5）。
+- `extraDiscountKind='coupon'` —— 优惠券 / 自动促销。**只摊到额外加项净额**，
+  不与套餐价叠加。
+
+`bundle.quote` 入参 `extraDiscountKind`（默认 `manual`）。`bundle.test.ts` 有
+「$150 → $130」默认用例与 `coupon` 不叠加用例。
 
 ### 决策 #3 —— AI 识别的 Combo / Sessions 分流 · P2 处理，建议如下
 
@@ -121,7 +128,7 @@
       `bundle.archiveTemplate` / `bundle.quote`），接入 `registry.ts`。
 - [x] 共享展开 + 整数分摊纯函数：`packages/payroll/src/bundle.ts`
       （`allocateBundle` / `refundableForUnit` / `BundlePricingError`）。
-- [x] 纯函数测试：`packages/payroll/src/bundle.test.ts`（19 例）——
+- [x] 纯函数测试：`packages/payroll/src/bundle.test.ts`（21 例）——
       数量、重复项目、加项、零金额、尾差、确定性、校验闸门、退款余额。
 - [x] 迁移测试（隔离库）：`packages/db/src/serviceBundles.migration.test.ts` ——
       RLS 强制、列可空、既有行不动、check 约束拒绝、跨租户隔离、整文件可重放。
@@ -136,11 +143,11 @@
 
 | 命令 | 结果 |
 |---|---|
-| `pnpm --filter @gf/payroll test` | ✅ 6 文件 / **126 例**通过（含新增 19 例 `bundle.test.ts`） |
+| `pnpm --filter @gf/payroll test` | ✅ 6 文件 / **128 例**通过（含新增 21 例 `bundle.test.ts`） |
 | `pnpm --filter @gf/contracts test` | ✅ 8 文件 / 61 例通过（含 `registry.test.ts` 命令注册校验） |
 | `pnpm typecheck`（turbo，全 16 包） | ✅ 16/16 通过（含 `@gf/api`、`@gf/web`、`@gf/db`、`@gf/contracts`、`@gf/payroll`） |
 | `pnpm lint:guards` | ✅ 全部通过 |
-| `pnpm test:unit`（全 workspace 非 api/db） | ✅ 全通过（payroll 126 / contracts 61 / ai 123 / web 341 / ipad 20 / booking 26 / scheduling 84 / rotation 30 / marketing 16 / yelp 20 / brightdata 22 / aws 14） |
+| `pnpm test:unit`（全 workspace 非 api/db） | ✅ 全通过（payroll 128 / contracts 61 / ai 123 / web 341 / ipad 20 / booking 26 / scheduling 84 / rotation 30 / marketing 16 / yelp 20 / brightdata 22 / aws 14） |
 
 ### 未验证的环境 / 剩余缺口
 

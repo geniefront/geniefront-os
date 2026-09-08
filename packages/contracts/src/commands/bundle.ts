@@ -114,15 +114,16 @@ export const bundleQuoteRequest = z.object({
     qty: z.number().int().min(1).max(20).default(1),
   })).max(40).default([]),
   /**
-   * 额外整单优惠（券 / 手动折扣）分摊到本套餐实例的部分，整数分。
-   * 默认只摊到额外加项净额 —— 大多数店券不与套餐价叠加（计划 §4.5）。
+   * 额外整单优惠分摊到本套餐实例的部分，整数分。
+   * 典型：套餐锁价 $150，店主结账时再抹 $20 → 顾客付 $130，这 $20 传这里。
    */
   extraDiscountCents: cents.nonnegative().default(0),
   /**
-   * 是否让额外优惠也落到套餐子项净额上（默认 false）。
-   * 仅供「权限内的手动优惠明确要作用于套餐子项」的店；范围 / 上限仍由服务端校验。
+   * 优惠类型，决定它是否落到套餐子项：
+   *   `manual`（默认）—— 店主 / 前台权限内的手动折扣，作用于套餐子项 ＋ 额外加项；
+   *   `coupon` —— 优惠券 / 自动促销，只摊到额外加项，不与套餐价叠加（计划 §4.5）。
    */
-  bundleUnitsEligibleForExtraDiscount: z.boolean().default(false),
+  extraDiscountKind: z.enum(['manual', 'coupon']).default('manual'),
 });
 export type BundleQuoteRequest = z.infer<typeof bundleQuoteRequest>;
 

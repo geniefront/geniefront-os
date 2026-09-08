@@ -89,19 +89,24 @@ export interface AllocateBundleInput {
   /** 额外加项，可空。 */
   extraAddons?: readonly BundleExtraAddonSpec[];
   /**
-   * 额外整单优惠（券 / 手动折扣）分摊到本套餐实例的部分，整数分。
+   * 额外整单优惠分摊到本套餐实例的部分，整数分。
    * 套餐内建优惠（原价 − 套餐价）与它分开记录（计划 §4.5）。
+   *
+   * 典型：套餐锁价 $150，店主在结账时又抹掉 $20 → 顾客付 $130。这 $20 就是
+   * `extraDiscountCents = 2000`，会按各子项净额权重摊到 A/B/C 上（供提成 /
+   * 退款 / 报表按分摊后净额结算）。
    */
   extraDiscountCents?: number;
   /**
-   * 额外整单优惠是否落到**套餐子项**净额上。
+   * 这笔额外优惠的类型，决定它**是否落到套餐子项**：
    *
-   * 默认 `false` —— 大多数店：券 / 自动优惠不与套餐价叠加（计划 §4.5
-   * 「默认套餐部分不自动叠加优惠券」），额外优惠只摊到额外加项。
-   * 需要「权限内的手动优惠也作用于套餐子项」的店把它设 `true`
-   * （手动优惠的范围 / 上限仍由服务端按权限校验）。
+   *   `'manual'`（默认）—— 店主 / 前台权限内的手动抹零 / 折扣。**作用于套餐子项**
+   *     ＋额外加项。这是「$150 套餐再减 $20 = $130」的常见情形。手动优惠的范围 /
+   *     上限仍由服务端按权限校验。
+   *   `'coupon'` —— 优惠券 / 自动促销。**只摊到额外加项**，不与套餐价叠加
+   *     （计划 §4.5「默认套餐部分不自动叠加优惠券」）。
    */
-  bundleUnitsEligibleForExtraDiscount?: boolean;
+  extraDiscountKind?: 'manual' | 'coupon';
 }
 
 /** 一个执行单元 = 一次可履约的子项目。 */
@@ -167,7 +172,8 @@ function assertInt(label: string, v: number): void {
 export function allocateBundle(input: AllocateBundleInput): AllocateBundleResult {
   const { components, bundlePriceCents } = input;
   const extraDiscountCents = input.extraDiscountCents ?? 0;
-  const bundleEligible = input.bundleUnitsEligibleForExtraDiscount ?? false;
+  // 手动优惠作用于套餐子项（常见：$150 套餐再减 $20）；优惠券不叠套餐价（§4.5）。
+  const bundleEligible = (input.extraDiscountKind ?? 'manual') === 'manual';
 
   assertInt('bundlePriceCents', bundlePriceCents);
   assertInt('extraDiscountCents', extraDiscountCents);
