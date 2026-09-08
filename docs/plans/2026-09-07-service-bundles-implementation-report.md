@@ -1,10 +1,11 @@
 # 组合项目套餐：实施报告
 
 计划：`docs/plans/2026-09-07-service-bundles-implementation.md`
-状态：**后端 P0–P8 完成 + 前端主链路完成**（见 §11）。本地 55322 后端全绿
+状态：**后端 P0–P8 + 前端全链路完成**（见 §11：目录 CRUD / 看板分组 / 结账视图 / B14 拆单 /
+官网预约 / B02 导入分流 / 通知模板 / 目录 CRUD 的浏览器 E2E）。本地 55322 后端全绿
 （`@gf/api` 除预存在的 `copilot/acceptance.test.ts` 5 例外全过，见 §6），typecheck 16/16 + guards 绿；
 前端 `@gf/web` / `@gf/booking` typecheck + build + 单测绿。
-剩：通知 / 短信确认模板的套餐汇总行、浏览器 + ipad 闭环 E2E。
+剩：整链浏览器 E2E（booking → 看板 → 结账，种子重、留手测）、ipad / kiosk 触屏。
 0118 迁移仅在本地，未上 staging / 生产（上线 / 回退见 §8）。
 
 ---
@@ -474,8 +475,22 @@ Modal（中英文名 + 组成 repeater + 组合价 + 在线预约开关，实时
 跳过并 toast 列名（店主到「组合套餐」页手建 —— 不猜、不静默漏项，计划 §7）。
 未解析组成的「选择 / 新建」交互仍走既有 blueprint 服务行，本切片不加独立 UI。
 
-### 11.7 待办
-- 通知 / 短信确认模板的套餐汇总行：现模板只渲染**首个** `appointment_item` 的 `service_name`
-  （多项目预约既有限制，非套餐特有）。补一行「<套餐名>（N 项）」需改共享模板变量契约 +
-  email/SMS 模板 + 测试，留作后续。
-- 浏览器 + ipad 端到端闭环（选套餐 → 看板 → 派单 → 服务 → 结账 → 收据 / 官网预约）。
+### 11.7 通知 / 提醒模板按套餐名展示 ✅
+`notify/appointmentServiceLabel.ts::composeServiceLabel`（纯函数 + 查库包装）：预约含活跃套餐
+实例 → 用 `order_bundle_instances.name_snapshot`（多份 ` + ` 连接），还有散项补 `+ N more`；
+无套餐多项目 → `<首项> + N more`；单项目 → 首项名（旧行为不变）。三处 `serviceName` 改走它 ——
+`enqueueConfirmEmail` / `enqueueConfirmSms`（`handlers/appointment.ts`）+ `enqueueOneReminder`
+（`notify/reminder.ts`），不再只取首个 `appointment_item`。顾客侧恒英语，`+ N more` 用字面量。
+纯函数 5 例；`public.test.ts` 断言官网套餐预约的确认短信含套餐名、不含首个子项名。
+
+### 11.8 浏览器 E2E ✅（目录 CRUD）+ 待办
+- `e2e/specs/bundles.spec.ts`：Marketing →「组合套餐」标签页 → 新建（两个执行单元 + 组合价）
+  → 保存 → 卡片显示原价合计 / 组合价，刷新后仍在。真实 `bundle.saveTemplate` +
+  `GET /v1/desk/bundles` 闭环，本地 Playwright（Chromium）通过。
+- 顺带修 `packages/db/src/qa/reset.ts`：`TABLES_IN_ORDER` 补 `order_bundle_instances` /
+  `service_bundle_components` / `service_bundles` —— 0118 引入的三张 FK 表没进重置列表，
+  库里有过组合套餐后 `pnpm qa:seed` 会撞 `service_bundle_components_service_id_fkey`。
+- **待办**：booking → 看板 → 派单 → 服务 → 结账 → 收据的整链 E2E（种子数据更重，留手测，
+  TEST-PLAYBOOK §2）；ipad / kiosk 触屏（Playwright 不起）。
+- ⚠️ `operations.spec.ts` 的 #6（礼品卡结账，2min 超时）/ #7（日结）在 `bf07a7f`（前端改动
+  之前）+ 仅本次 reset 修复的状态下同样失败 —— 预存在环境 flakiness，与 U10 无关。
