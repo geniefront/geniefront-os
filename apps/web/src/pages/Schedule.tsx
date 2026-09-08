@@ -24,7 +24,7 @@ import { CANCEL_REASONS } from '@/features/schedule/types';
 import {
   isOverridableConflict, OVERRIDE_REASONS, type Override,
 } from '@/features/schedule/api';
-import { formatWallTime, instantToWallDate, instantToWallMinutes, useBusinessDay, wallMinutesToInstant } from '@/lib/time';
+import { formatWallTime, instantToWallDate, instantToWallMinutes, useBusinessDay, wallMinutesToInstant, wallSlotTarget } from '@/lib/time';
 import { gridBounds } from '@/features/schedule/gridBounds';
 import { useDaysRange } from '@/features/schedule/api';
 import { useCanWrite } from '@/lib/permissions';
@@ -348,24 +348,30 @@ function ScheduleContent() {
     openCreateAppointment?.({ defaultDate: targetDate || currentDate });
   };
 
-  const handleSlotClick = (staffId: string, timeString: string, date?: string) => {
+  /**
+   * `rawMins` 是格子相对**营业日 00:00** 的分钟数，跨午夜营业时可 ≥ 1440
+   * （例：营业到次日 02:00，凌晨 01:30 的格子 rawMins = 1530）。
+   * 这类格子的真实日历日是营业日的次日，钟点是 rawMins − 1440 —— 不能把
+   * 归一化后的 "01:30" 直接配营业日，那样 startsAt 会早一整天（计划 §6.2）。
+   */
+  const handleSlotClick = (staffId: string, rawMins: number, date?: string) => {
     if (!canWriteAppointment) return;
-    const [h, m] = timeString.split(':').map(Number);
-    const mins = h * 60 + m;
-    
+    const { date: realDate, minuteOfDay } = wallSlotTarget(date || currentDate, rawMins);
+    const timeString = minsToTime(minuteOfDay);
+
     const openModal = () => {
       openCreateAppointment?.({
         defaultStaffId: staffId === 't0' ? UNASSIGNED_STAFF_ID : staffId,
         defaultTime: timeString,
-        defaultDate: date || currentDate,
+        defaultDate: realDate,
       });
     };
 
-    if (mins < storeOpenMin || mins >= storeCloseMin) {
+    if (rawMins < storeOpenMin || rawMins >= storeCloseMin) {
       setConfirmModal({
         isOpen: true,
         title: t('offHoursTitle'),
-        message: `${timeString} · ${minsToTime(storeOpenMin)}–${minsToTime(storeCloseMin)}｜${t('offHoursBody')}`,
+        message: `${minsToTime(rawMins)} · ${minsToTime(storeOpenMin)}–${minsToTime(storeCloseMin)}｜${t('offHoursBody')}`,
         confirmText: t('confirmCreate'),
         onConfirm: () => {
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
@@ -951,17 +957,18 @@ function ScheduleContent() {
                         onDrop={(e) => (!isWeek && !isStoreView) ? handleDrop(e, member.id) : undefined}
                         onDragLeave={() => (!isWeek && !isStoreView) ? setDragTarget(null) : undefined}
                       >
-                        {timeSlots.map((time) => {
+                        {timeSlots.map((time, slotIdx) => {
                           const isHour = time.endsWith(':00');
                           const hourNum = parseInt(time.split(':')[0]);
                           const isAlternate = hourNum % 2 === 0;
+                          const rawMins = DAY_START + slotIdx * 30;
                           return (
-                          <div 
+                          <div
                             key={time}
                             className={`h-[60px] border-b ${isHour ? 'border-slate-200' : 'border-slate-100'} ${isAlternate ? 'bg-slate-50/30' : 'bg-transparent'} hover:bg-teal-50/50 cursor-pointer transition-colors relative group/cell`}
                             onClick={() => handleSlotClick(
-                              isWeek ? (filterStaffId !== 'all' ? filterStaffId : UNASSIGNED_STAFF_ID) : (isStoreView ? UNASSIGNED_STAFF_ID : member.id), 
-                              time, 
+                              isWeek ? (filterStaffId !== 'all' ? filterStaffId : UNASSIGNED_STAFF_ID) : (isStoreView ? UNASSIGNED_STAFF_ID : member.id),
+                              rawMins,
                               isWeek ? member.id : currentDate
                             )}
                           >

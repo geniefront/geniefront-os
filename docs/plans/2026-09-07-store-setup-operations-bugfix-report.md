@@ -13,7 +13,7 @@
 | U09 平台短信串店 | W0 / W0b | **完成**：专属线归属隔离（#1）+ 平台共享号 routingScope 落库、换绑冻结、重放去重（#12，`sql/0115`）。剩：平台运营只读收件箱（`platform`/`unresolved` 行现对所有租户不可见） | #1 #12 |
 | U01/U08 默认设置、健康表首发、房间门禁、AI 线路 | W1 | **部分完成**：AI 电话新线默认不接（U08，#4）已修；健康表首发、房间门禁、setup readiness DTO 未开始 | #4 |
 | U02/U13 员工目录与员工中心 | W2 / W2b | **U02 主体 + U13 完成**：岗位 / 职级 / 技能改 ID 契约，服务端不再据自由文本新建目录项、跨店 / 伪造 / 未知值拒绝、停用项只对已关联者保留；`sql/0114` 补 `job_title_id` + 回填 + 只读盘点视图；新增 `staff.reorderDirectoryOptions` 原子重排（#7）。员工中心改默认紧凑卡片 + 单卡展开明细，编辑弹窗技能区可搜索 + 限高滚动（#8）。剩：行业预设生成（属 W1）、`user.updateProfile` 自助技能自由文本、真机 iPad 扫屏（W6b） | #6 #7 #8 |
-| U03/U06/U11 预约日期、时长、详情状态 | W3 | **U06 + U11 前半完成**：时长输入（#2）、新建默认日期不取营业日（#3）、详情顶部进度不误报（#5）；详情复用看板 `queueNextAction`/`paymentStageFor` 显示当前状态 + 履约/付款分列 + 部分完成 N/M + 下一步深链（#11）。剩：U03 跨午夜、看板动作编排 hook 完整抽取 | #2 #3 #5 #11 |
+| U03/U06/U11 预约日期、时长、详情状态 | W3 | **U06 + U11 前半完成**：时长输入（#2）、新建默认日期不取营业日（#3）、详情顶部进度不误报（#5）；详情复用看板 `queueNextAction`/`paymentStageFor` 显示当前状态 + 履约/付款分列 + 部分完成 N/M + 下一步深链（#11）；U03 跨午夜 day-offset（#13，`resolveInitialDateTime` 尾段 + `wallSlotTarget`）。剩：看板动作编排 hook 完整抽取 | #2 #3 #5 #11 #13 |
 | U04 服务导入、技师人数、网约、批量编辑 | W4 | **主体完成**：导入 / 新建普通项默认网约、加项强制不网约（#9）；`SaveService` 布尔字段改 PATCH 语义（编辑省略不覆写）；新增 `catalog.bulkUpdateServices` + Settings 多选批量条（网约 / 人数 / 技能加移替 / 分类）。剩：draft 级人数编辑、分类栏窄屏下拉（→W6b）、逐字段乐观锁 | #6 #9 |
 | U05 Google review 同步权限 | W5 | **小修**：配置读接口带 `manualSyncEnabled`，未开放时按钮禁用+提示，不再显示成权限不足（#6）；分状态文案与调查未做 | #6 |
 | U07/U11/U12 导航、生日选择、全端 iPad | W6 | **U07 + U11 完成**：侧栏三分组 + 账号入口进侧栏（#6）；生日改「年直输 + 月日下拉」，`@gf/contracts.parseBirthdate` 共用校验（闰年 / 非法日 / 未来日 / date-only），接入公开健康表 / iPad 自助 / 客户档案（#10）。U12 全端 iPad 未做 | #6 #10 |
@@ -1217,6 +1217,80 @@ resolved_at` + 删 `unique (provider_id)`。回退会**重新打开**平台共�
 
 ---
 
+## 批次 #13 — W3c：跨午夜营业的 day-offset（U03 剩余 · 计划 §6.1–§6.2）
+
+**日期**：2026-09-07
+**改动范围**：`apps/web/src/components/CreateAppointmentModal.tsx`（`resolveInitialDateTime` 加跨午夜尾段分支）+ `apps/web/src/lib/time.ts`（新纯函数 `wallSlotTarget`）+ `apps/web/src/pages/Schedule.tsx`（格子点击传相对营业日 00:00 的原始分钟数，经 `wallSlotTarget` 还原真实日历日）+ `CreateAppointmentModal.test.ts` / `time.test.ts`（+8 断言）。纯前端，无契约 / DB 改动。
+
+### 这一刀解决了什么
+
+batch #3 抽出的 `resolveInitialDateTime` 对「营业到次日凌晨、此刻墙上 01:30 门店仍在营业」
+会因 `snapped(90) < openMin(600)` 把默认退回开门时间。且日历格子对 ≥ 24:00 的格子
+（`minsToTime` 归一化成 "01:30"）把归一化钟点直接配营业日 → 提交的 `startsAt` 早一整天。
+
+### 改了什么
+
+**1. `resolveInitialDateTime`（`CreateAppointmentModal.tsx`）**
+
+「目标日期就是今天」分支里，除了常规营业窗口，新增 `inCrossMidnightTail`：
+`closeMin > 1440 && snapped < openMin && snapped + 1440 < closeMin` —— 把当前凌晨钟点
+当作「昨日营业日 + 24h」判断是否仍在延长营业段内。命中则直接用当前钟点（配 `calendarToday`，
+即凌晨那一刻的日历日），提交时 `wallMinutesToInstant` 得唯一时刻。尾段不套常规窗口那 30 分钟
+余量（凌晨这头更在意「别把 01:45 的新建默认踢回 10:00」）。非跨午夜门店行为完全不变。
+
+**2. `wallSlotTarget(businessDate, rawMinutes)`（`lib/time.ts` 新）**
+
+`rawMinutes`（相对营业日 00:00，跨午夜可 ≥ 1440）→ `{ date, minuteOfDay }`：
+`dayOffset = floor(raw / 1440)`，`date = shiftDate(businessDate, dayOffset)`，
+`minuteOfDay = raw mod 1440`。例：营业日 09-07 的第 1530 分钟 → `{ '2026-09-08', 90 }`。
+
+**3. `Schedule.tsx` 格子点击**
+
+`timeSlots.map` 现在带 `slotIdx`，算出 `rawMins = DAY_START + slotIdx * 30`（不经 `minsToTime`
+归一化）传给 `handleSlotClick`。`handleSlotClick` 签名 `timeString: string` → `rawMins: number`，
+走 `wallSlotTarget` 还原真实日历日 + 当日钟点，再作为 `defaultDate` / `defaultTime` 交给弹窗。
+营业时段外判定（`rawMins < storeOpenMin || rawMins >= storeCloseMin`）现在用原始分钟数，
+凌晨延长段的格子不再被误判成营业时段外。
+
+### 明确未覆盖 / 交接给下一位
+
+1. **格子标签仍显示归一化钟点**（"01:30" 而非 "25:30"）：点击逻辑已用原始分钟数，
+   仅显示层未改。若要让跨午夜网格更直观（连续 10:00→26:00 标注），是纯视觉改动，本批未做。
+2. **DST × 跨午夜**：`resolveInitialDateTime` 只做分钟算术，真正的时刻构造在提交时由
+   `wallMinutesToInstant`（已覆盖 DST，见 `time.test.ts`）完成，本批未改这条路径。
+3. **浏览器 / e2e 未验**：需要一家 `closeMin > 1440` 的门店 + 冻结墙上时钟。
+   建议 H 阶段给 `e2e/specs/business-day.spec.ts` 补「跨午夜门店凌晨从全局入口新建 →
+   日期是次日日历日、钟点是当前」以及「点 25:30 格子 → startsAt 落在次日」两条。
+4. **`Calls.tsx` 批准通话草稿**：batch #6 已把它从 UTC 日期改成 `instantToWallDate`，
+   跨午夜槽位由 `wallMinutesToInstant` 自然处理，本批未再动。
+
+### 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 类型 | `pnpm --filter @gf/web exec tsc --noEmit` | exit 0 |
+| 纯函数单测 | `vitest run src/lib/time.test.ts src/components/CreateAppointmentModal.test.ts` | 50 passed（time +4 跨午夜格子、modal +4 跨午夜尾段） |
+| Web 全量单测 | `pnpm --filter @gf/web test` | 59 files / 341 passed |
+| 守卫 | `pnpm lint:guards` | ✓ 全部通过 |
+
+### 计划 §6.1–§6.2 / T13–T17 对照
+
+| 验收点 | 本批状态 |
+|---|---|
+| T13 凌晨 cutoff 前全局新建用门店实际日历日 | ✅ batch #3 已修主体；本批补跨午夜门店此刻钟点不再退回开门 |
+| T14 浏览器与门店时区不同 → startsAt / DB / 显示一致 | ✅ 不变（`instantToWallDate` + `nowWallHhMm` + `wallMinutesToInstant`） |
+| T15 昨日日历 / 跨午夜格子 / 未来日：保留明确选中语义，格子 offset 不丢 | ✅ `wallSlotTarget` 把 ≥ 24:00 的格子还原到次日日历日 + 当日钟点 |
+| T16 DST 缺失 / 重复钟点 | 🔸 沿用 `wallMinutesToInstant` 既有 DST 覆盖，本批未新增 DST 测试 |
+| T17 弹窗编辑中 refetch / 切店不重置 | ✅ 不变（batch #2 的 `dirtyRef` 守卫） |
+
+### 回退
+
+`git checkout apps/web/src/components/CreateAppointmentModal.tsx apps/web/src/pages/Schedule.tsx` +
+`lib/time.ts` 删 `wallSlotTarget` 及其测试、`CreateAppointmentModal.test.ts` 删跨午夜 4 条。
+无数据 / 契约影响。
+
+---
+
 ## 会话交接 —— 批次 #7–#11 之后剩余（给下一位）
 
 本轮会话完成 W2 / W2b / W4 / W6a / W6b(U11 部分) / W3b(U06)，`main` HEAD = `d61ebc2`。
@@ -1251,6 +1325,9 @@ resolved_at` + 删 `unique (provider_id)`。回退会**重新打开**平台共�
 验收 `T32`–`T34`（`T31` batch #1 已过）。
 
 ### 2. U03 剩余 —— 跨午夜营业 day-offset（W3c，计划 §6.1–§6.2）
+
+> **✅ 已在批次 #13 完成**（`resolveInitialDateTime` 尾段分支 + `wallSlotTarget` + Schedule 格子）。
+> 剩：格子标签仍显示归一化钟点、浏览器 / e2e 未验（见批次 #13「明确未覆盖」）。
 
 **未动**。batch #3 抽出的纯函数 `resolveInitialDateTime`（`apps/web/src/components/CreateAppointmentModal.tsx`，
 已 export，有 `CreateAppointmentModal.test.ts`）对「营业到次日凌晨、此刻墙上 01:30 仍属今天营业」

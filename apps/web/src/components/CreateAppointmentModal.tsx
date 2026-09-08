@@ -98,6 +98,14 @@ const minsToTime = (mins: number) => {
  *    否则退到开门时间；
  *  · 目标日期不是今天（未来日 / 历史补录）→ 一律从开门时间起，不把「现在」的钟点套上去。
  *
+ * ## 跨午夜营业（`closeMin > 1440`，计划 §6.1–§6.2）
+ *
+ * 例：10:00 开、次日 02:00 打烊（`closeMin = 1560`）。此刻墙上 01:30，`calendarToday`
+ * 已经是次日的日历日 —— 门店其实**还在营业**（属于昨日营业日的凌晨延长段）。
+ * 旧逻辑因 `snapped(90) < openMin(600)` 把默认退到开门时间 10:00，是错的。
+ * 现在：识别「墙上钟点 + 1440 仍落在延长营业段内」，直接用当前钟点（`calendarToday`
+ * 01:30），提交时由 `wallMinutesToInstant` 得到唯一时刻。
+ *
  * 纯函数：时区换算（`calendarToday` / `nowWallMinutes`）由调用方在 effect 里算好传入。
  */
 export function resolveInitialDateTime(params: {
@@ -114,8 +122,15 @@ export function resolveInitialDateTime(params: {
     return { date: targetDate, time: minsToTime(params.openMin) };
   }
   const snapped = Math.ceil(params.nowWallMinutes / 30) * 30;
-  const startM =
-    snapped >= params.openMin && snapped < params.closeMin - 30 ? snapped : params.openMin;
+  const inRegularWindow = snapped >= params.openMin && snapped < params.closeMin - 30;
+  // 跨午夜营业：当前是凌晨（早于开门），但把它当作「昨日营业日 + 24h」看仍在营业段内。
+  // 尾段贴着打烊时刻，不套常规窗口那 30 分钟余量（那是白天的排期余地，凌晨这头
+  // 更在意「别把 01:45 的新建默认踢回 10:00」）。
+  const inCrossMidnightTail =
+    params.closeMin > 1440 &&
+    snapped < params.openMin &&
+    snapped + 1440 < params.closeMin;
+  const startM = inRegularWindow || inCrossMidnightTail ? snapped : params.openMin;
   return { date: targetDate, time: minsToTime(startM) };
 }
 

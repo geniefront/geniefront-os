@@ -150,6 +150,25 @@ export function shiftDate(date: string, days: number): string {
 }
 
 /**
+ * 日历格子的分钟数（相对营业日 00:00，跨午夜营业时可 ≥ 1440）→ 真实日历日 + 当日钟点。
+ *
+ * 例：营业日 2026-09-07、格子 rawMinutes = 1530（营业到次日、凌晨 01:30 的格子）
+ *     → `{ date: '2026-09-08', minuteOfDay: 90 }`。
+ * 不做这一步就会把 "01:30" 直接配 2026-09-07，`startsAt` 早一整天（计划 §6.2）。
+ */
+export function wallSlotTarget(
+  businessDate: string,
+  rawMinutes: number,
+): { date: string; minuteOfDay: number } {
+  const dayOffset = Math.floor(rawMinutes / MINUTES_PER_DAY);
+  const minuteOfDay = ((rawMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+  return {
+    date: dayOffset === 0 ? businessDate : shiftDate(businessDate, dayOffset),
+    minuteOfDay,
+  };
+}
+
+/**
  * ── 呈现层格式化 ────────────────────────────────────────────────────────────
  *
  * ⚠️ **不得直接调用 `new Date(x).toLocaleString()`。** 无参调用同时踩中两个坑：

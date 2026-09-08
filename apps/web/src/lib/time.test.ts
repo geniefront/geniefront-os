@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 import {
   instantToWallMinutes, instantToWallDate, wallMinutesToInstant,
   formatWallTime, formatIsoWallClock, nowWallHhMm, shiftDate, businessToday, businessDateAt,
-  occupancyElapsedMinutes, ganttOffsetMinutes,
+  occupancyElapsedMinutes, ganttOffsetMinutes, wallSlotTarget,
 } from './time';
 
 const NY = 'America/New_York';
@@ -39,6 +39,25 @@ describe('instantToWallDate', () => {
     expect(instantToWallDate('2026-08-31T04:30:00.000Z', NY)).toBe('2026-08-31');
     expect(instantToWallDate('2026-08-31T04:30:00.000Z', LA)).toBe('2026-08-30');
     expect(shiftDate(instantToWallDate('2026-08-31T04:30:00.000Z', LA), -1)).toBe('2026-08-29');
+  });
+});
+
+describe('wallSlotTarget（跨午夜格子 → 真实日历日 + 钟点）', () => {
+  it('常规格子（< 1440）：日期不变', () => {
+    expect(wallSlotTarget('2026-09-07', 14 * 60)).toEqual({ date: '2026-09-07', minuteOfDay: 840 });
+    expect(wallSlotTarget('2026-09-07', 0)).toEqual({ date: '2026-09-07', minuteOfDay: 0 });
+  });
+
+  it('营业到次日：01:30 的格子（rawMinutes = 1530）落到次日日历日', () => {
+    expect(wallSlotTarget('2026-09-07', 25 * 60 + 30)).toEqual({ date: '2026-09-08', minuteOfDay: 90 });
+  });
+
+  it('恰好 24:00：算次日 00:00，不是当日 24:00', () => {
+    expect(wallSlotTarget('2026-09-07', 24 * 60)).toEqual({ date: '2026-09-08', minuteOfDay: 0 });
+  });
+
+  it('跨月边界', () => {
+    expect(wallSlotTarget('2026-09-30', 25 * 60)).toEqual({ date: '2026-10-01', minuteOfDay: 60 });
   });
 });
 

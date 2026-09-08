@@ -91,6 +91,50 @@ describe('resolveInitialDateTime', () => {
     });
     expect(r).toEqual({ date: '2026-09-06', time: '10:00' });
   });
+
+  // 跨午夜营业：10:00 开、次日 02:00 打烊（closeMin = 26:00 = 1560）
+  const XM_OPEN = 10 * 60;
+  const XM_CLOSE = 26 * 60;
+
+  it('跨午夜营业 · 凌晨 01:30 仍在营业段：默认当前钟点，不退回开门时间', () => {
+    const r = resolveInitialDateTime({
+      calendarToday: '2026-09-08', // instantToWallDate 在凌晨已是次日日历日
+      nowWallMinutes: 1 * 60 + 30,
+      openMin: XM_OPEN,
+      closeMin: XM_CLOSE,
+    });
+    expect(r).toEqual({ date: '2026-09-08', time: '01:30' });
+  });
+
+  it('跨午夜营业 · 凌晨 05:00 已过延长营业段：退回开门时间', () => {
+    const r = resolveInitialDateTime({
+      calendarToday: '2026-09-08',
+      nowWallMinutes: 5 * 60,
+      openMin: XM_OPEN,
+      closeMin: XM_CLOSE,
+    });
+    expect(r.time).toBe('10:00');
+  });
+
+  it('跨午夜营业 · 傍晚 20:00 走常规窗口，不误判成延长段', () => {
+    const r = resolveInitialDateTime({
+      calendarToday: '2026-09-07',
+      nowWallMinutes: 20 * 60,
+      openMin: XM_OPEN,
+      closeMin: XM_CLOSE,
+    });
+    expect(r).toEqual({ date: '2026-09-07', time: '20:00' });
+  });
+
+  it('非跨午夜门店 · 凌晨 01:30：维持旧行为，退回开门时间', () => {
+    const r = resolveInitialDateTime({
+      calendarToday: '2026-09-07',
+      nowWallMinutes: 1 * 60 + 30,
+      openMin: OPEN,
+      closeMin: CLOSE, // 21:00，未跨午夜
+    });
+    expect(r.time).toBe('10:00');
+  });
 });
 
 describe('parseDuration', () => {
