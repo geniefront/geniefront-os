@@ -1042,6 +1042,11 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit }: HandlerArgs
   await tx`update appointment_items set status = 'cancelled'
     where appointment_id = ${appt.id} and status <> 'cancelled'`;
 
+  // 组合套餐实例随之作废（计划 §4.3：取消项单独显示，不伪装完成）。
+  // 尚未开单（前面已挡掉有 ticket 的情况），实例只挂在这条预约上。
+  await tx`update order_bundle_instances set status = 'cancelled'
+    where appointment_id = ${appt.id} and status <> 'cancelled'`;
+
   // Checked-in appointments also own a queue entry; cancelling must end both.
   await tx`update walkin_queue set status = 'left', left_at = now(),
       left_reason = coalesce(left_reason, 'appointment_cancelled')
@@ -1136,8 +1141,10 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
 
   const itemRows = await tx<{
     id: string; membership_id: string | null; starts_at: string; ends_at: string;
+    bundle_instance_id: string | null;
   }[]>`
-    select id, membership_id, starts_at::text as starts_at, ends_at::text as ends_at
+    select id, membership_id, starts_at::text as starts_at, ends_at::text as ends_at,
+           bundle_instance_id
     from appointment_items
     where appointment_id = ${appt.id} and status <> 'cancelled'
     order by starts_at`;
@@ -1145,11 +1152,22 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
     throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment_items' } });
   }
 
-  const targets = input.itemId
+  let targets = input.itemId
     ? itemRows.filter((r) => r.id === input.itemId)
     : itemRows;
   if (targets.length === 0) {
     throw new AppError(ERROR_CODES.NOT_FOUND, { details: { itemId: input.itemId } });
+  }
+
+  // 组合套餐整套改期（计划 §4.3）：单独改一个套餐子项时，把同一实例的所有
+  // 子项一起挪，保持相对间隔。整体撞了就一起回滚，不留半套。
+  const targetInstanceIds = new Set(
+    targets.map((t) => t.bundle_instance_id).filter((id): id is string => id != null),
+  );
+  if (input.itemId && targetInstanceIds.size > 0) {
+    targets = itemRows.filter(
+      (r) => r.id === input.itemId || (r.bundle_instance_id != null && targetInstanceIds.has(r.bundle_instance_id)),
+    );
   }
 
   /**

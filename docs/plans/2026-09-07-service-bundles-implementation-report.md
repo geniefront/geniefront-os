@@ -1,8 +1,8 @@
 # 组合项目套餐：实施报告
 
 计划：`docs/plans/2026-09-07-service-bundles-implementation.md`
-状态：**P0 ✅ · P1 ✅ · P2 后端 ✅ · P3a+P3b ✅（预约选套餐→开单继承）· P3c/P4–P8 未做**
-（均在本地 55322 验证）本轮范围：P0–P2 + P3a + P3b。导入 UI / 向导 / 结账界面待前端排期。
+状态：**P0–P2 ✅ · P3（a/b/c）✅ · P4 后端 ✅ · P5–P8 未做**（均在本地 55322 验证）
+本轮范围：P0–P4 后端。导入 UI / 向导 / 看板卡片 / 结账界面待前端排期。
 
 ---
 
@@ -152,7 +152,7 @@
 - [ ] 只读 HTTP 路由 `/v1/desk/bundles/quote` —— 未接（P3/P5 直接调 `quoteBundle` 函数；
       前端预览需要时再补路由 + SDK）。
 
-### P3 · 创建 / 预约展开 —— 🔶 P3a + P3b 完成，P3c 未做
+### P3 · 创建 / 预约展开 —— 🔶 P3a + P3b + P3c（改期/取消）完成，直接开单/walk-in 选套餐未做
 
 - [x] **P3a：`appointment.create` 支持 `bundleSelections`**（本地库已验证）。
       契约加 `bundleSelectionInput`（`bundleId` / `expectedVersion` / `startsAt` /
@@ -171,11 +171,29 @@
       `bundle_*` 快照 → 同一 `order_bundle_instances` 行补 `ticket_id`（**保留实例
       身份**，计划 §5.2）→ `ticket_items` 写全 4 个 `bundle_*` 列。`recalcTotals`
       按子项快照求和不变，工单 subtotal = 套餐净价。测试 1 例（本地跑通）。
-- [ ] **P3c：整套改期 / 移除 / 拆单 / 直接开单选套餐 / walk-in** —— 未做。
-      当前整单平移会带着子项一起动（可用）；单独改套餐子项、按实例移除、
-      未开单拆单为单项均未实现。
+- [x] **P3c：套餐感知的改期 / 取消**（本地库已验证）。
+      `appointment.reschedule` 单独改一个套餐子项 → 自动把同一 `bundle_instance_id`
+      的全部子项一起挪，保持相对间隔，整体撞了一起回滚（计划 §4.3）。
+      `appointment.cancel` 整单取消 → `order_bundle_instances.status='cancelled'`。
+      测试 2 例。
+- [ ] 直接 `ticket.open` 选套餐（无预约 walk-in）—— 未做，需 `TicketOpen` 契约扩展；
+      拆单为单项（`status='split'`）—— 未做。P4/P5 不依赖这两项。
 
-### P4–P8 —— 未开始
+### P4 · 看板与履约 —— 🔶 查询 DTO 完成（后端），前端卡片渲染待排期
+
+- [x] `apps/api/src/queries/queue.ts`（走单队列）：`items[]` 每项加
+      `bundleInstanceId/bundleComponentId/bundleUnitIndex`；entry 加 `bundles[]`
+      （instanceId / name / bundlePriceCents / discountCents / extraDiscountCents /
+      unitCount / status）。
+- [x] `apps/api/src/routes/tickets.ts`（`/v1/desk/tickets` 看板）：`items[]` 加
+      4 个 `bundle_*` 字段；ticket 加 `bundles[]`（+ `doneCount` / `fulfilled`）——
+      进度按**有效子项**（全部 `finishedAt` 才 `fulfilled`），完成 1/3 不提前完工（§4.3）。
+- [x] 测试 P4 1 例：走单队列 entry 暴露 `bundles[]` + 各 item 的套餐归属。
+- [ ] 前端看板卡片分组渲染、动作弹窗理解套餐关系、技师端套餐上下文 —— **前端，待排期**。
+- [ ] 父套餐不重复占资源 / 不计轮：当前子项各自走既有资源 / 轮牌规则，
+      无「父分组」额外占用（结构上不存在父行）；专项回归留 P8。
+
+### P5–P8 —— 未开始
 
 ---
 
@@ -186,7 +204,7 @@
 | `pnpm --filter @gf/payroll test` | ✅ 6 文件 / **128 例**（含新增 21 例 `bundle.test.ts`） |
 | `pnpm --filter @gf/contracts test` | ✅ 8 文件 / 61 例（含 `registry.test.ts` 命令注册校验） |
 | `pnpm --filter @gf/db test` | ✅ 10 文件 / **92 例**（含新增 `serviceBundles.migration.test.ts`，跑在本地 55322） |
-| `pnpm --filter @gf/api test` | ✅ 88 文件 / **1209 例**（含 `bundle.test.ts` 17 例：目录/报价 11 + 预约展开 5 + 开单继承 1，本地 55322） |
+| `pnpm --filter @gf/api test` | ✅ 88 文件 / **1212 例**（含 `bundle.test.ts` 20 例：目录/报价 11 + P3a 5 + P3b 1 + P3c 2 + P4 1，本地 55322） |
 | `pnpm typecheck`（turbo，全 16 包） | ✅ 16/16 |
 | `pnpm lint:guards` | ✅ |
 | `pnpm test:unit` | ✅ 全通过 |

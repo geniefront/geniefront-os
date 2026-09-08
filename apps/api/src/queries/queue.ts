@@ -47,6 +47,20 @@ export interface QueueEntryView {
     durationMin: number;
     basePriceCents: number;
     addonIds: string[];
+    /** 组合套餐来源（U10）。普通项目为 null。 */
+    bundleInstanceId: string | null;
+    bundleComponentId: string | null;
+    bundleUnitIndex: number | null;
+  }>;
+  /** 本条预约里的组合套餐实例（U10 / 计划 §7「看板卡片」）。 */
+  bundles?: Array<{
+    instanceId: string;
+    name: string;
+    bundlePriceCents: number;
+    discountCents: number;
+    extraDiscountCents: number;
+    unitCount: number;
+    status: string;
   }>;
 }
 
@@ -151,10 +165,12 @@ export async function loadQueue(
         membership_id: string | null; staff_name: unknown; duration_min: number;
         base_price_cents: number;
         addon_ids: string[];
+        bundle_instance_id: string | null; bundle_component_id: string | null; bundle_unit_index: number | null;
       }[]>`
         select ai.appointment_id, ai.service_id, s.name as service_name,
                ai.membership_id, sp.display_name as staff_name,
-               ai.duration_min, s.base_price_cents, ai.addon_ids
+               ai.duration_min, s.base_price_cents, ai.addon_ids,
+               ai.bundle_instance_id, ai.bundle_component_id, ai.bundle_unit_index
         from appointment_items ai
         join services s on s.id = ai.service_id
         left join staff_profiles sp on sp.membership_id = ai.membership_id
@@ -172,8 +188,38 @@ export async function loadQueue(
       durationMin: item.duration_min,
       basePriceCents: item.base_price_cents,
       addonIds: item.addon_ids,
+      bundleInstanceId: item.bundle_instance_id,
+      bundleComponentId: item.bundle_component_id,
+      bundleUnitIndex: item.bundle_unit_index,
     });
     itemsByAppointment.set(item.appointment_id, list);
+  }
+
+  // 组合套餐实例摘要（U10 / 计划 §7「看板卡片：套餐名称、套餐价、子项数、进度」）。
+  const bundleRows = appointmentIds.length > 0
+    ? await tx<{
+        appointment_id: string; id: string; name_snapshot: unknown;
+        bundle_price_cents: number; discount_cents: number; extra_discount_cents: number; status: string;
+      }[]>`
+        select appointment_id, id, name_snapshot,
+               bundle_price_cents, discount_cents, extra_discount_cents, status
+        from order_bundle_instances
+        where appointment_id = any(${appointmentIds})`
+    : [];
+  const bundlesByAppointment = new Map<string, NonNullable<QueueEntryView['bundles']>>();
+  for (const b of bundleRows) {
+    const unitCount = appointmentItemRows.filter((i) => i.bundle_instance_id === b.id).length;
+    const list = bundlesByAppointment.get(b.appointment_id) ?? [];
+    list.push({
+      instanceId: b.id,
+      name: pickText(b.name_snapshot, ctx.locale),
+      bundlePriceCents: b.bundle_price_cents,
+      discountCents: b.discount_cents,
+      extraDiscountCents: b.extra_discount_cents,
+      unitCount,
+      status: b.status,
+    });
+    bundlesByAppointment.set(b.appointment_id, list);
   }
 
   const now = Date.now();
@@ -221,7 +267,12 @@ export async function loadQueue(
       intakeSigned,
       contraindications,
       ...(r.appointment_id
-        ? { items: itemsByAppointment.get(r.appointment_id) ?? [] }
+        ? {
+            items: itemsByAppointment.get(r.appointment_id) ?? [],
+            ...(bundlesByAppointment.has(r.appointment_id)
+              ? { bundles: bundlesByAppointment.get(r.appointment_id)! }
+              : {}),
+          }
         : {}),
     };
   };

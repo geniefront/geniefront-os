@@ -13,6 +13,8 @@ import './handlers/setup';
 import './handlers/bundle';
 import './handlers/appointment';
 import './handlers/ticket';
+import './handlers/kiosk';
+import { loadQueue } from './queries/queue';
 
 const NAIL = { orgId: '11111111-1111-4111-8111-111111111111', locationId: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', membershipId: null };
 const SPA = { orgId: '22222222-2222-4222-8222-222222222222', locationId: 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb', membershipId: null };
@@ -267,6 +269,87 @@ describe('appointment.create + bundleSelections (P3a)', () => {
     const any = await withTenant(NAIL, (tx) => tx<{ n: number }[]>`
       select count(*)::int as n from order_bundle_instances where bundle_id = ${bundleId}`);
     expect(any[0]!.n).toBe(0); // 事务回滚，没留半份
+  });
+});
+
+describe('bundle-aware reschedule / cancel (P3c)', () => {
+  const startsAt = new Date(Date.now() + 26 * 60 * 60 * 1000).toISOString();
+  const createOne = async () => {
+    const bundleId = (await save(abc())).result.bundleId;
+    const res = await dispatch<{ appointmentId: string; bundleInstanceIds: string[] }>(
+      'appointment.create',
+      {
+        customerId: null, walkInName: 'U10 p3c', items: [],
+        bundleSelections: [{ bundleId, startsAt }],
+        source: 'desk', override: { reason: 'desk_coordination' },
+      },
+      ctx, { idempotencyKey: randomUUID() },
+    ).then((r) => r.result);
+    return res;
+  };
+  const items = (appointmentId: string) => withTenant(NAIL, (tx) => tx<{
+    id: string; starts_at: string; bundle_instance_id: string | null; seq: number;
+  }[]>`select id, starts_at, bundle_instance_id, seq from appointment_items
+       where appointment_id = ${appointmentId} order by seq`);
+
+  it('rescheduling one bundle sub-item moves the whole instance, keeping offsets', async () => {
+    const res = await createOne();
+    const before = await items(res.appointmentId);
+    const gap01 = new Date(before[1]!.starts_at).getTime() - new Date(before[0]!.starts_at).getTime();
+
+    const newStart = new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString();
+    await dispatch('appointment.reschedule', {
+      appointmentId: res.appointmentId, itemId: before[0]!.id, startsAt: newStart,
+      override: { reason: 'desk_coordination' },
+    }, ctx, { idempotencyKey: randomUUID() });
+
+    const after = await items(res.appointmentId);
+    expect(new Date(after[0]!.starts_at).toISOString()).toBe(new Date(newStart).toISOString());
+    // 三个子项一起挪，相对间隔不变
+    expect(new Date(after[1]!.starts_at).getTime() - new Date(after[0]!.starts_at).getTime()).toBe(gap01);
+    expect(new Date(after[2]!.starts_at).getTime()).toBeGreaterThan(new Date(after[1]!.starts_at).getTime());
+  });
+
+  it('cancelling the appointment marks the bundle instance cancelled', async () => {
+    const res = await createOne();
+    await dispatch('appointment.cancel', {
+      appointmentId: res.appointmentId, reason: 'input_error', keepStaffTurn: false,
+    }, ctx, { idempotencyKey: randomUUID() });
+    const instId = res.bundleInstanceIds[0]!;
+    const inst = await withTenant(NAIL, (tx) => tx<{ status: string }[]>`
+      select status from order_bundle_instances where id = ${instId}`);
+    expect(inst[0]!.status).toBe('cancelled');
+  });
+});
+
+describe('queue view carries bundle grouping (P4)', () => {
+  it('walk-in queue entry exposes bundles[] + per-item bundle linkage', async () => {
+    const bundleId = (await save(abc())).result.bundleId;
+    const startsAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    const appt = await dispatch<{ appointmentId: string; bundleInstanceIds: string[]; businessDate: string }>(
+      'appointment.create',
+      {
+        customerId: null, walkInName: 'U10 p4', items: [],
+        bundleSelections: [{ bundleId, startsAt }],
+        source: 'desk', override: { reason: 'desk_coordination' },
+      },
+      ctx, { idempotencyKey: randomUUID() },
+    ).then((r) => r.result);
+
+    await dispatch('queue.join', {
+      appointmentId: appt.appointmentId, source: 'desk',
+    }, ctx, { idempotencyKey: randomUUID() });
+
+    const q = await withTenant(NAIL, (tx) => loadQueue(tx, ctx, appt.businessDate));
+    const entry = [...q.waiting, ...q.called, ...q.seated]
+      .find((e) => e.appointmentId === appt.appointmentId);
+    expect(entry).toBeTruthy();
+    expect(entry!.bundles).toHaveLength(1);
+    expect(entry!.bundles![0]).toMatchObject({
+      instanceId: appt.bundleInstanceIds[0], bundlePriceCents: 15_000, unitCount: 3,
+    });
+    expect(entry!.items!.every((i) => i.bundleInstanceId === appt.bundleInstanceIds[0])).toBe(true);
+    expect(new Set(entry!.items!.map((i) => i.bundleComponentId)).size).toBe(3);
   });
 });
 

@@ -93,6 +93,8 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           item_id: string; service_id: string | null; item_name: string; item_total: number;
           duration_min: number; started_at: string | null; finished_at: string | null;
           staff_name: unknown; membership_id: string; room_name: string | null; resource_id: string | null;
+          bundle_instance_id: string | null; bundle_component_id: string | null;
+          bundle_unit_index: number | null; bundle_list_price_cents: number | null;
         }[]>`
           select t.id as ticket_id, t.appointment_id, t.status,
                   t.checkout_timing_snapshot, t.service_settled_at::text as service_settled_at,
@@ -105,7 +107,9 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
                   ti.total_cents as item_total, ti.duration_min,
                   ti.started_at::text as started_at, ti.finished_at::text as finished_at,
                   sp.display_name as staff_name, tis.membership_id,
-                  r.name as room_name, ti.resource_id
+                  r.name as room_name, ti.resource_id,
+                  ti.bundle_instance_id, ti.bundle_component_id,
+                  ti.bundle_unit_index, ti.bundle_list_price_cents
           from tickets t
           left join customers c on c.id = t.customer_id
           left join ticket_groups g on g.id = t.group_id
@@ -134,6 +138,7 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           businessDate: string; daysAgo: number;
           items: Array<Record<string, unknown>>;
           availablePackages: Array<Record<string, unknown>>;
+          bundles: Array<Record<string, unknown>>;
         }>();
 
         const today = await resolveDate(tx, ctx.locationId);
@@ -161,12 +166,15 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
             daysAgo: daysAgoOf(r.business_date),
             items: [],
             availablePackages: [],
+            bundles: [],
           };
           t.items.push({
             ticketItemId: r.item_id, serviceId: r.service_id, name: r.item_name, totalCents: r.item_total,
             durationMin: r.duration_min, staffName: pickText(r.staff_name, ctx.locale),
             membershipId: r.membership_id, startedAt: r.started_at, finishedAt: r.finished_at,
             roomName: r.room_name, resourceId: r.resource_id,
+            bundleInstanceId: r.bundle_instance_id, bundleComponentId: r.bundle_component_id,
+            bundleUnitIndex: r.bundle_unit_index, bundleListPriceCents: r.bundle_list_price_cents,
           });
           t.serviceCompleted = t.serviceCompleted && r.finished_at !== null;
           map.set(r.ticket_id, t);
@@ -198,6 +206,41 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
               }));
           }
         }
+
+        // ── 组合套餐分组（U10 / 计划 §7「看板卡片」、§4.3「按有效子项进度」）──
+        const ticketIds = tickets.map((t) => t.ticketId);
+        if (ticketIds.length > 0) {
+          const bundleRows = await tx<{
+            id: string; ticket_id: string; name_snapshot: unknown;
+            bundle_price_cents: number; discount_cents: number; extra_discount_cents: number; status: string;
+          }[]>`
+            select id, ticket_id, name_snapshot,
+                   bundle_price_cents, discount_cents, extra_discount_cents, status
+            from order_bundle_instances
+            where location_id = ${ctx.locationId} and ticket_id = any(${ticketIds})`;
+          for (const ticket of tickets) {
+            ticket.bundles = bundleRows
+              .filter((b) => b.ticket_id === ticket.ticketId)
+              .map((b) => {
+                const units = ticket.items.filter((i) => i['bundleInstanceId'] === b.id);
+                // 完成进度按**有效子项**：全部 finishedAt 非空才算这份套餐履约完成，
+                // 完成 1/3 不让整单提前完工（计划 §4.3）。
+                const done = units.filter((i) => i['finishedAt'] != null).length;
+                return {
+                  instanceId: b.id,
+                  name: pickText(b.name_snapshot, ctx.locale, '套餐'),
+                  bundlePriceCents: b.bundle_price_cents,
+                  discountCents: b.discount_cents,
+                  extraDiscountCents: b.extra_discount_cents,
+                  unitCount: units.length,
+                  doneCount: done,
+                  fulfilled: units.length > 0 && done === units.length,
+                  status: b.status,
+                };
+              });
+          }
+        }
+
         return {
           businessDate: today,
           tickets,
