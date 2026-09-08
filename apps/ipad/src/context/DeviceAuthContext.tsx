@@ -154,3 +154,8 @@ export function useDeviceAuth(): DeviceAuthContextValue {
   }
   return ctx;
 }
+
+/** 非强制版：没有 Provider（如被单测直接挂载的子页）时返回 null，不抛错。 */
+export function useDeviceAuthOptional(): DeviceAuthContextValue | null {
+  return useContext(DeviceAuthContext);
+}

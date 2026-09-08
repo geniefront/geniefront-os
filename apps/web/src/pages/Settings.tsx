@@ -1908,53 +1908,49 @@ export function Settings() {
                     />
                     <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                   </div>
-                  {/* U04：分类多、名称长时不再把主操作挤出屏幕 —— 换行而不是溢出裁切 */}
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs min-w-0">
-                    <button
-                      type="button"
-                      onClick={() => setServiceCategoryFilter('all')}
-                      className={`px-2.5 py-1.5 rounded-lg font-medium shrink-0 whitespace-nowrap ${
-                        serviceCategoryFilter === 'all'
-                          ? 'bg-slate-900 text-white'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      
-                      {t('settings.stFilterAll')}{settings?.services.length || 0})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setServiceCategoryFilter('online')}
-                      className={`px-2.5 py-1.5 rounded-lg font-medium shrink-0 whitespace-nowrap ${
-                        serviceCategoryFilter === 'online'
-                          ? 'bg-slate-900 text-white'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      
-                      {t('settings.stFilterBookable')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setServiceCategoryFilter('addon')}
-                      className={`px-2.5 py-1.5 rounded-lg font-medium shrink-0 whitespace-nowrap ${
-                        serviceCategoryFilter === 'addon'
-                          ? 'bg-slate-900 text-white'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      
-                      {t('settings.stFilterAddOn')}
-                    </button>
-                    {(settings?.serviceCategories ?? []).map((category) => (
-                      <button
-                        key={category.id}
-                        type="button"
-                        onClick={() => setServiceCategoryFilter(`category:${category.id}`)}
-                        className={`px-2.5 py-1.5 rounded-lg font-medium shrink-0 whitespace-nowrap ${serviceCategoryFilter === `category:${category.id}` ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                      >{category.displayName}</button>
-                    ))}
-                  </div>
+                  {/*
+                   * U04 / §7.2：窄屏用下拉，不把主操作挤出屏幕；宽屏单行横向滚动
+                   * （容器 min-w-0 + overflow-x-auto，按钮 shrink-0），不换行不裁切。
+                   */}
+                  {(() => {
+                    const catOpts: Array<{ value: string; label: string }> = [
+                      { value: 'all', label: `${t('settings.stFilterAll')}${settings?.services.length || 0})` },
+                      { value: 'online', label: t('settings.stFilterBookable') },
+                      { value: 'addon', label: t('settings.stFilterAddOn') },
+                      ...(settings?.serviceCategories ?? []).map((c) => ({
+                        value: `category:${c.id}`, label: c.displayName,
+                      })),
+                    ];
+                    return (
+                      <>
+                        {/* 窄屏：下拉 */}
+                        <select
+                          value={serviceCategoryFilter}
+                          onChange={(e) => setServiceCategoryFilter(e.target.value)}
+                          className="sm:hidden text-xs rounded-lg border border-slate-200 bg-white px-2 py-1.5 min-w-0 w-full max-w-[12rem]"
+                        >
+                          {catOpts.map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                        {/* 宽屏：单行横向滚动的 chip */}
+                        <div className="hidden sm:flex items-center gap-1.5 text-xs min-w-0 max-w-full overflow-x-auto">
+                          {catOpts.map((o) => (
+                            <button
+                              key={o.value}
+                              type="button"
+                              onClick={() => setServiceCategoryFilter(o.value)}
+                              className={`px-2.5 py-1.5 rounded-lg font-medium shrink-0 whitespace-nowrap ${
+                                serviceCategoryFilter === o.value
+                                  ? 'bg-slate-900 text-white'
+                                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              }`}
+                            >{o.label}</button>
+                          ))}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* 批量选择工具条（U04 / §7.2） */}

@@ -12,6 +12,7 @@ import { BodyMapSelector, type BodyMapValue } from '../components/BodyMapSelecto
 import { BirthdateField } from '../components/BirthdateField';
 import { SignaturePad } from '../components/SignaturePad';
 import { useLanguage } from '../context/LanguageContext';
+import { useDeviceAuthOptional } from '../context/DeviceAuthContext';
 import type { FormQuestionDto, GuestIntake, KioskFormTemplateDto, QueueJoinResult } from '../types';
 import { formatPhoneInput } from '../utils/phone';
 
@@ -72,7 +73,18 @@ export const HealthFormPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { language, t, pickText } = useLanguage();
+  const storeInfo = useDeviceAuthOptional()?.storeInfo ?? null;
   const state = (location.state as LocationState | null) ?? null;
+
+  /*
+   * 生日未来日校验的基准 = 门店**日历**今天（计划 §9.2：不用营业日 cutoff、
+   * 不用设备 / UTC 日期）。kiosk 已配对，`storeInfo.timezone` 一定在；
+   * `en-CA` 直接给出 YYYY-MM-DD。timezone 缺失时不传 today —— parseBirthdate
+   * 不给 today 就不判未来日，仍好过用设备日期。
+   */
+  const storeCalendarToday = storeInfo?.timezone
+    ? new Intl.DateTimeFormat('en-CA', { timeZone: storeInfo.timezone }).format(new Date())
+    : undefined;
 
   const tasks = useMemo<FormTask[]>(() => {
     const forms = state?.forms ?? [];
@@ -189,7 +201,7 @@ export const HealthFormPage: React.FC = () => {
       return;
     }
     if (clientInfo.dob.trim()) {
-      const dob = parseBirthdate(clientInfo.dob, { optional: true });
+      const dob = parseBirthdate(clientInfo.dob, { optional: true, today: storeCalendarToday });
       if (!dob.ok) {
         setError(t(dob.reason === 'future' ? 'health.dobFuture' : 'health.dobInvalid'));
         return;
@@ -353,6 +365,7 @@ export const HealthFormPage: React.FC = () => {
               label={t('health.dateOfBirth')}
               value={clientInfo.dob}
               onChange={(iso) => setClientInfo({ ...clientInfo, dob: iso })}
+              today={storeCalendarToday}
               optional
             />
             <label className="text-sm font-bold text-slate-700">{t('health.phoneNumber')} <span className="text-rose-600">*</span>

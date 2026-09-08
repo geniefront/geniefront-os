@@ -1338,6 +1338,55 @@ batch #3 抽出的 `resolveInitialDateTime` 对「营业到次日凌晨、此刻
 
 ---
 
+## 批次 #15 — 一批小改动（U04 分类栏窄屏下拉 / U11 iPad 生日未来日基准）
+
+**日期**：2026-09-07
+**范围**：两处独立小修，均纯前端、无契约 / DB 改动。
+
+### 1. U04 — 服务分类筛选栏窄屏改下拉（计划 §7.2）
+
+`apps/web/src/pages/Settings.tsx` 服务项目 tab：batch #6 只做了 `flex-wrap`。现在按 §7.2：
+- **窄屏（`< sm`）**：原生 `<select>`（`sm:hidden`），选项 = 全部 / 可网约 / 加项 / 各分类，
+  `max-w-[12rem]` 不挤走搜索框与主操作。
+- **宽屏（`sm+`）**：单行横向滚动的 chip（`hidden sm:flex ... overflow-x-auto`，
+  容器 `min-w-0 max-w-full`，chip `shrink-0 whitespace-nowrap`），不换行不裁切。
+
+选项集合抽成一个 `catOpts` 数组，两种呈现共用同一份，值语义不变
+（`all` / `online` / `addon` / `category:<id>`），`filteredServices` 过滤逻辑一字未改。
+
+### 2. U11 — iPad 健康表生日未来日按门店日历今天判（计划 §9.2）
+
+`apps/ipad/src/pages/HealthFormPage.tsx`：此前 `parseBirthdate` 不传 `today`，iPad 端完全
+不判未来日（batch #10 交接项）。现在从 `useDeviceAuthOptional()?.storeInfo`（kiosk 配对后
+一定在）取 `timezone`，用 `Intl.DateTimeFormat('en-CA', { timeZone })` 得门店**日历**今天
+（`YYYY-MM-DD`，无营业日 cutoff、非设备 / UTC 日期），传给 `BirthdateField` 的 `today`
+与提交前的 `parseBirthdate`。`timezone` 缺失时仍不传 `today`（不判未来，好过用设备日期）。
+
+`context/DeviceAuthContext.tsx` 新增 `useDeviceAuthOptional()` —— 无 Provider（如被单测直接
+挂载的子页）时返回 `null` 不抛错，`HealthFormPage.test.tsx` 无需引入整个 DeviceAuthProvider。
+
+### 明确未覆盖 / 交接
+
+- 分类栏窄屏用的是原生 `<select>`（有平台 type-ahead），不是全自定义可搜索 combobox；
+  §7.2「可搜索下拉」的完整交互（大量分类时的筛选输入）留作后续。
+- iPad `en-CA` locale 在所有目标 iPad Safari 上都产出 `YYYY-MM-DD`；已在 tsc + 单测覆盖逻辑，
+  真机未验（按 §12 / H 阶段）。
+
+### 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 类型 | `@gf/web` / `@gf/ipad` `tsc --noEmit` | exit 0 |
+| Web 全量单测 | `pnpm --filter @gf/web test` | 59 files / 341 passed |
+| iPad 全量单测 | `pnpm --filter @gf/ipad test` | 9 files / 20 passed |
+| 守卫 | `pnpm lint:guards` | ✓ |
+
+### 回退
+
+`git checkout apps/web/src/pages/Settings.tsx apps/ipad/src/pages/HealthFormPage.tsx apps/ipad/src/context/DeviceAuthContext.tsx`。无数据 / 契约影响。
+
+---
+
 ## 会话交接 —— 批次 #7–#11 之后剩余（给下一位）
 
 本轮会话完成 W2 / W2b / W4 / W6a / W6b(U11 部分) / W3b(U06)，`main` HEAD = `d61ebc2`。
@@ -1387,10 +1436,10 @@ batch #3 抽出的 `resolveInitialDateTime` 对「营业到次日凌晨、此刻
 - **W2**：~~`user.updateProfile` 技师自助改本人技能仍自由文本 + 自动建 `skills`~~ —— **✅ 批次 #14 完成**
   （契约加 `skillIds`、handler 收成「解析现存项 / 否则拒绝」、`Profile.tsx` 改字典勾选）。行业预设一键生成属 W1。
 - **W4**：blueprint 草稿模型无 `staff_count` 列 → 导入一律落 1，草稿行内人数编辑器待做
-  （需 blueprint schema 迁移 + 契约 + `toServiceDrafts` 透传）；服务分类栏窄屏可搜索下拉
-  （batch #6 只做了 `flex-wrap`）→ 与 W6b iPad 一起；批量命令逐字段乐观锁需 `services.updated_at`。
-- **W6a**：iPad 健康表数据走 router `location.state`，没有门店 `today` → iPad 端不判未来日
-  （已比原来的 UTC `max` 好）；要判需把 kiosk 队列流程的 `businessDate` 串进来。
+  （需 blueprint schema 迁移 + 契约 + `toServiceDrafts` 透传）；~~服务分类栏窄屏下拉~~
+  **✅ 批次 #15**（窄屏 `<select>` / 宽屏横向滚动 chip）；批量命令逐字段乐观锁需 `services.updated_at`（未做）。
+- **W6a**：~~iPad 健康表没有门店 `today` → 不判未来日~~ **✅ 批次 #15**
+  （`HealthFormPage` 从 `storeInfo.timezone` 用 `Intl` 取门店日历今天，传 `BirthdateField.today` + `parseBirthdate`）。
   健康表模板目前无 `date` 题型，新增时复用 `BirthdateField` + `@gf/contracts.parseBirthdate`。
 - **W3b（U06）**：`Queue.tsx`（2650 行）的 CheckIn/Start/Finish/Checkout 弹窗编排未抽成 hook；
   抽屉走深链 `navigate('/queue')` 执行，`/queue` 无 `?focus=<id>` 定位；返回的是「下一步单动作 +
