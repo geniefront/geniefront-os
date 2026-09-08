@@ -4,8 +4,8 @@
 状态：**后端 P0–P8 完成 + 前端主链路完成**（见 §11）。本地 55322 后端全绿
 （`@gf/api` 除预存在的 `copilot/acceptance.test.ts` 5 例外全过，见 §6），typecheck 16/16 + guards 绿；
 前端 `@gf/web` / `@gf/booking` typecheck + build + 单测绿。
-剩：导入分流 UI（B02，需 blueprint publish 流程改造 + 组成名解析）、通知模板套餐化、
-浏览器 + ipad 闭环 E2E。0118 迁移仅在本地，未上 staging / 生产（上线 / 回退见 §8）。
+剩：通知 / 短信确认模板的套餐汇总行、浏览器 + ipad 闭环 E2E。
+0118 迁移仅在本地，未上 staging / 生产（上线 / 回退见 §8）。
 
 ---
 
@@ -328,8 +328,7 @@
 - **迁移未上 staging / 生产**：只在本地。上线 / 回退顺序见 §8。
 - **E2E / 浏览器 / ipad**：套餐无前端，未验证。后端契约、金额口径、RLS、幂等、
   并发（乐观锁）已由集成测试覆盖；前台完整闭环、触屏、断网、多语言 UI 待前端排期后补测。
-- **B01–B32**：逐条落点见 §9（✅ 后端有测试证据 22 项 · 🔶 就位缺专项 / 依赖前端 9 项 ·
-  ⛔ 未做 1 项：B02 导入草稿 UI，纯前端）。
+- **B01–B32**：逐条落点见 §9（前端主链路已交付；剩通知模板汇总行 + E2E）。
 
 ---
 
@@ -368,7 +367,7 @@
 | ID | 覆盖 | 证据 / 缺口 |
 |---|---|---|
 | B01 | 🔶 后端 | `bundle.saveTemplate` 与 `package.saveTemplate` 分属两套契约 / 两组表；导入分流属前端 P2 |
-| B02 | ⛔ 前端 | 导入草稿待选 UI，未做 |
+| B02 | 🔶 前端 | `ImportWorkspace.tsx` 组合/次卡分流选择器 + 发布走 `bundle.saveTemplate`（§11.6）；未解析组成走既有 blueprint 服务行，无独立选择 UI |
 | B03 | 🔶 | `bundle.saveTemplate` 幂等 `optional`；导入发布幂等属 P2 前端 |
 | B04 | ✅ | `bundle.test.ts` P3a「两份同模板」+ `allocateBundle` qty 展开（`payroll/bundle.test.ts`） |
 | B05 | ✅ | `bundle.test.ts` quote「extra add-on → serviceNet 16500」；原价 185 / 优惠 20 / 应付 165 口径 |
@@ -467,9 +466,16 @@ Modal（中英文名 + 组成 repeater + 组合价 + 在线预约开关，实时
   直接进选时间，Confirm 与右侧摘要走套餐变体，提交发 `bundleSelections`。`BookPage.test.tsx`
   +1（套餐全流程 12 例全绿）。
 
-### 11.6 待办（前端）
-- **导入分流 UI（B02）**：`ImportWorkspace.tsx` 需按 `classifyPackageKind`（`packages/ai`
-  已实现）区分「组合套餐 / 次卡」并让店主确认；发布时组合类走 `bundle.saveTemplate`。
-  依赖：blueprint publish 流程改造 + 未解析组成的 service 名解析 UI。属 P2 导入链路。
-- 通知 / 短信模板按套餐及子项展示（现按 `appointment_items` 平铺渲染，套餐子项即普通行）。
+### 11.6 导入分流 UI（B02）✅
+`ImportWorkspace.tsx`：package 行加「组合套餐 / 次卡」选择器，默认按 `guessPackageKind`
+启发式（与 `packages/ai::classifyPackageKind` 同口径），店主可手动改。发布时判定为组合套餐的
+行在 `blueprint.reviewItems` 里标 `rejected`（不建 `package_template`），`blueprint.apply`
+建好组成服务后按名称匹配 → `bundle.saveTemplate`（在线预约默认关）；组成不全 / 价格缺失的行
+跳过并 toast 列名（店主到「组合套餐」页手建 —— 不猜、不静默漏项，计划 §7）。
+未解析组成的「选择 / 新建」交互仍走既有 blueprint 服务行，本切片不加独立 UI。
+
+### 11.7 待办
+- 通知 / 短信确认模板的套餐汇总行：现模板只渲染**首个** `appointment_item` 的 `service_name`
+  （多项目预约既有限制，非套餐特有）。补一行「<套餐名>（N 项）」需改共享模板变量契约 +
+  email/SMS 模板 + 测试，留作后续。
 - 浏览器 + ipad 端到端闭环（选套餐 → 看板 → 派单 → 服务 → 结账 → 收据 / 官网预约）。
