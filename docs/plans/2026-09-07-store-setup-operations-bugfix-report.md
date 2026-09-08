@@ -1109,3 +1109,64 @@ items: [{ ticketItemId, name, startedAt, finishedAt }] }`。
 
 `git revert` 消费者 commit（抽屉 + `appointmentBoardState.ts` + `nextActionLabelKey` 迁移
 + i18n）与公共层 commit（`appointmentDetail.ts` 去 `ticket` 字段）。无数据 / 迁移改动。
+
+---
+
+## 会话交接 —— 批次 #7–#11 之后剩余（给下一位）
+
+本轮会话完成 W2 / W2b / W4 / W6a / W6b(U11 部分) / W3b(U06)，`main` HEAD = `d61ebc2`。
+用户明确：**U01 向导重构、U12 全端 iPad、U10 套餐另找 AI**。本轮 5 项里还差 2 项没做：
+
+### 1. U09 剩余 —— 平台共享号短信 routingScope（W0b，计划 §3.3）
+
+**未动**。本轮只读了代码，没写迁移。现状：
+- `sms_inbound` 表（`sql/0034` 建，`sql/0079` + `sql/0112` 收窄 SELECT）**只有**
+  `from_e164 / to_e164 / body / intent / provider_id / received_at`，**没有归属证据列**。
+- `sql/0112` 的 `gf_sms_line_owner()` 已把**专属线**（`phone_lines.purpose in ('ai_voice','sms')`）
+  隔离到唯一 (org, location)；平台共享号仍回落「发件号码是本店客户」——
+  同 org 两店不隔离、无预约新客咨询要走这条、无法唯一归属的回复没有降级隐藏。
+- 写入路径：`apps/api/src/telnyx/routes.ts::handleInboundSms` → `packages/db/src/sms.ts::recordInboundSms`
+  （直接 `insert into sms_inbound (from_e164,to_e164,body,intent,provider_id)`，**未规范化 E.164**，
+  `to` 取 `payload.to[0].phone_number`）。
+- **读路径**：全仓只有 `apps/api/src/queries/smsInbound.ts::loadInboundSms` 一条
+  （Messages / CommunicationLogs 两页都走它），无实时订阅、无搜索/导出消费者、无独立通知写入
+  （batch #1 已确认，见批次 #1「明确未覆盖」）。
+- `provider_id` 去重：`sql/0034` 无 `sms_inbound` 唯一约束 —— webhook 重放会插重复行。
+  routingScope 迁移里应一并加 `unique (provider_id) where provider_id is not null`。
+
+要做（计划 §3.3）：新迁移给 `sms_inbound` 加 `routing_scope`（store/platform/unresolved）、
+`bound_line_id`、`resolved_org` / `resolved_location`、`resolved_at`；`recordInboundSms` 收 webhook 后
+先规范 E.164 再解析 To、**落库即定归属**（`gf_sms_line_owner` 命中 → store + 写 resolved；
+平台号有唯一会话/预约证据 → store；否则 platform / unresolved）；重写 `inbound_select_own` 策略
+与 `loadInboundSms` 都读 `resolved_org = app_org_id() and resolved_location = app_location_id()`；
+`unresolved` / `platform` 不显示在店铺端。号码换绑：归属已冻结在行里，不再查 `phone_lines` 当前值。
+验收 `T32`–`T34`（`T31` batch #1 已过）。
+
+### 2. U03 剩余 —— 跨午夜营业 day-offset（W3c，计划 §6.1–§6.2）
+
+**未动**。batch #3 抽出的纯函数 `resolveInitialDateTime`（`apps/web/src/components/CreateAppointmentModal.tsx`，
+已 export，有 `CreateAppointmentModal.test.ts`）对「营业到次日凌晨、此刻墙上 01:30 仍属今天营业」
+会因 `snapped(90) < openMin` 退到 `openMin`。需处理 `closeMin > 1440` 的 day-offset 语义、
+日历格子传真实日期还是明确 offset（不把营业日直接当 `startsAt` 的日期）。复现矩阵见计划 §6.2。
+可扩展 `e2e/specs/business-day.spec.ts`。验收 `T13`–`T17`。
+
+### 3. 本轮各批次留下的次要项（非阻塞，随相关大包做）
+
+- **W2**：`user.updateProfile`（技师自助改本人技能，`handlers/profile.ts`）仍自由文本 + 自动建
+  `skills` —— 独立自助面，改 ID-only 是带 UI 的子项目。行业预设一键生成属 W1。
+- **W4**：blueprint 草稿模型无 `staff_count` 列 → 导入一律落 1，草稿行内人数编辑器待做
+  （需 blueprint schema 迁移 + 契约 + `toServiceDrafts` 透传）；服务分类栏窄屏可搜索下拉
+  （batch #6 只做了 `flex-wrap`）→ 与 W6b iPad 一起；批量命令逐字段乐观锁需 `services.updated_at`。
+- **W6a**：iPad 健康表数据走 router `location.state`，没有门店 `today` → iPad 端不判未来日
+  （已比原来的 UTC `max` 好）；要判需把 kiosk 队列流程的 `businessDate` 串进来。
+  健康表模板目前无 `date` 题型，新增时复用 `BirthdateField` + `@gf/contracts.parseBirthdate`。
+- **W3b（U06）**：`Queue.tsx`（2650 行）的 CheckIn/Start/Finish/Checkout 弹窗编排未抽成 hook；
+  抽屉走深链 `navigate('/queue')` 执行，`/queue` 无 `?focus=<id>` 定位；返回的是「下一步单动作 +
+  阻塞原因」不是全量 `allowedActions` 数组。
+- **W1 / W5 / W6b / W7**：本轮完全未碰（W5 仅 batch #6 小修）。
+
+### 环境备忘（同交接文档 §0）
+
+下一个迁移号 `0115`（`0114` 已用）。跑迁移到本地必须显式覆盖 `MIGRATION_DATABASE_URL` /
+`APP_DB_PASSWORD` 指向本机 55322，否则命中 staging。API 集成测试
+`DATABASE_TEST_TARGET=isolated pnpm --filter @gf/api exec vitest run <file>`。
