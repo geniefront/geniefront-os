@@ -25,7 +25,7 @@ import { formatIsoWallClock } from '@/lib/time';
 import { queueTicketItems, groupTicketItemsByBundle } from '@/features/queue/ticketItems';
 import { queueNextAction } from '@/features/queue/nextAction';
 import type { QueueNextAction } from '@/features/queue/nextAction';
-import type { TicketItem } from '@/features/tickets/types';
+import type { TicketItem, TicketBundle } from '@/features/tickets/types';
 import { COLUMNS, NEXT_ACTION_ICON, NEXT_ACTION_STYLE, nextActionLabelKey } from './model';
 import type { KanbanItem, KanbanStage } from './model';
 
@@ -53,12 +53,14 @@ export interface KanbanBoardProps {
   onRequestVoid: (item: KanbanItem) => void;
   onPrintBrief: (item: KanbanItem) => void;
   onToggleItem: (service: TicketItem) => void | Promise<void>;
+  /** 未开工未付款时把一份组合套餐拆成按原价单独计费的项目（U10 / B14）。 */
+  onSplitBundle?: (ticketId: string, bundle: TicketBundle) => void;
 }
 
 export function KanbanBoard({
   items, focusItemId, timezone, draggingItemId, dragOverColumn, isSyncing, isItemMutating, canVoidTicket,
   onDragStart, onDragOver, onDragLeave, onDrop, onViewDetails, onOpenFormQr,
-  onRunNextAction, onItemAction, onRequestRollback, onRequestVoid, onPrintBrief, onToggleItem,
+  onRunNextAction, onItemAction, onRequestRollback, onRequestVoid, onPrintBrief, onToggleItem, onSplitBundle,
 }: KanbanBoardProps) {
   const { t } = useLanguage();
   const focusRef = useRef<HTMLDivElement>(null);
@@ -294,10 +296,22 @@ export function KanbanBoard({
                                     </span>
                                     <span className="font-mono font-bold text-teal-800 shrink-0">${centsToDollars(group.bundle.bundlePriceCents)}</span>
                                   </div>
-                                  <div className="text-[11px] font-semibold text-teal-700">
-                                    {group.bundle.fulfilled
-                                      ? t('bundle.cardFulfilled')
-                                      : t('bundle.cardProgress', { done: group.bundle.doneCount, total: group.bundle.unitCount })}
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[11px] font-semibold text-teal-700">
+                                      {group.bundle.fulfilled
+                                        ? t('bundle.cardFulfilled')
+                                        : t('bundle.cardProgress', { done: group.bundle.doneCount, total: group.bundle.unitCount })}
+                                    </span>
+                                    {onSplitBundle && item.ticketId
+                                      && group.bundle.status === 'active' && group.bundle.doneCount === 0 && (
+                                      <button
+                                        type="button"
+                                        className="text-[11px] font-semibold text-teal-700 underline hover:text-teal-900"
+                                        onClick={() => onSplitBundle(item.ticketId!, group.bundle!)}
+                                      >
+                                        {t('bundle.split')}
+                                      </button>
+                                    )}
                                   </div>
                                   <ul className="space-y-2 pl-2 border-l-2 border-teal-200">
                                     {group.items.map(renderService)}

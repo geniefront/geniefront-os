@@ -18,6 +18,7 @@ import { useErrorMessage } from '@/lib/errorMessage';
 import { toast } from '@/lib/toast';
 import { centsToDollars, dollarsToCents, verifyGiftCard } from '@/features/checkout/api';
 import { buildCheckoutStaffList, computeCheckoutTotals } from '@/features/queue/checkoutMath';
+import { BundleCheckoutSummary } from '@/features/bundles/BundleCheckoutSummary';
 import { customerInitials } from '@/lib/displayName';
 import { PAYMENT_METHOD_LABEL_KEYS } from '../model';
 import type { KanbanItem } from '../model';
@@ -177,6 +178,12 @@ export function CheckoutModal({
             {isTipStage && <span className="mt-1 block">{t('queue.quCoStageTipNoStoredValue')}</span>}
           </p>
         )}
+
+        {/* 组合套餐明细（U10）：原价 / 套餐优惠 / 套餐价 / 子项 */}
+        <BundleCheckoutSummary
+          bundles={item.rawTicket?.bundles}
+          items={item.rawTicket?.items ?? []}
+        />
 
         {/* 2. 项目明细与多技师执行归属 */}
         <section className="rounded-2xl border border-slate-200 bg-white p-3">

@@ -15,6 +15,24 @@ export interface TicketItem {
   staffName: string | null;
   membershipId: string | null;
   roomName?: string | null;
+  /** 组合套餐子项归属（U10）。普通行全部为空。 */
+  bundleInstanceId?: string | null;
+  bundleComponentId?: string | null;
+  bundleUnitIndex?: number | null;
+  bundleListPriceCents?: number | null;
+}
+
+/** 结账页展示用：一张工单上的一份组合套餐（U10）。 */
+export interface CheckoutBundle {
+  instanceId: string;
+  name: string;
+  bundlePriceCents: number;
+  discountCents: number;
+  extraDiscountCents: number;
+  unitCount: number;
+  doneCount: number;
+  fulfilled: boolean;
+  status: 'active' | 'split' | 'cancelled' | string;
 }
 
 export interface CheckoutPackage {
@@ -47,6 +65,8 @@ export interface OpenTicket {
   daysAgo: number;
   items: TicketItem[];
   availablePackages: CheckoutPackage[];
+  /** 这张工单上的组合套餐（U10）。无套餐时为空数组。 */
+  bundles?: CheckoutBundle[];
 }
 
 export interface OpenTicketsView {

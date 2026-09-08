@@ -18,6 +18,7 @@ import {
 import { PAYMENT_METHODS } from '@/features/checkout/types';
 import { paymentStageFor } from '@/features/checkout/types';
 import type { OpenTicket, PaymentLine, PaymentMethod } from '@/features/checkout/types';
+import { BundleCheckoutSummary } from '@/features/bundles/BundleCheckoutSummary';
 import { useSchedule, UNASSIGNED_STAFF_ID } from '@/context/ScheduleContext';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -745,6 +746,9 @@ function CheckoutContent() {
                 ? t('checkout.stagePaidWaitingCompletion')
                 : t('checkout.stageWaitingCompletion'))}
             </div>
+
+            {/* 组合套餐明细（U10）：原价 / 套餐优惠 / 套餐价 / 子项 */}
+            <BundleCheckoutSummary bundles={selected.bundles} items={selected.items} />
 
             {/* 1. 项目、加项、包厢、多技师分工明细卡片 */}
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">

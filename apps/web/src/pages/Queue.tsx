@@ -38,7 +38,9 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
 import { ActionMenu } from '@/components/ui/ActionMenu';
-import { Modal } from '@/components/ui/Modal';
+import { Modal, ConfirmDialog } from '@/components/ui/Modal';
+import { useSplitBundleInstance } from '@/features/bundles/api';
+import type { TicketBundle } from '@/features/tickets/types';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QRCodeZoomModal } from '@/components/QRCodeZoomModal';
@@ -155,6 +157,8 @@ function QueueContent() {
   const startTicketItemMutation = useStartTicketItem();
   const finishTicketItemMutation = useFinishTicketItem();
   const saveServiceNoteMutation = useSaveServiceNote();
+  const splitBundleMutation = useSplitBundleInstance();
+  const [splitTarget, setSplitTarget] = useState<{ ticketId: string; bundle: TicketBundle } | null>(null);
   const beginCleaningMutation = useBeginCleaning();
   const completeCleaningMutation = useCompleteCleaning();
   /* 看板上的房间快捷清理。cleaningRoomId 只用于逐行 spinner，不锁死整个面板。 */
@@ -1249,6 +1253,26 @@ function QueueContent() {
    * 已开单的单子只能回到「服务中」，其余情形必须先作废。不满足条件时给出
    * 下一步怎么做，绝不允许点了没有任何反应。
    */
+  const handleSplitBundleConfirm = async () => {
+    if (!splitTarget) return;
+    try {
+      await splitBundleMutation.mutateAsync({
+        ticketId: splitTarget.ticketId,
+        bundleInstanceId: splitTarget.bundle.instanceId,
+      });
+      toast.success(t('bundle.splitDone'));
+      setSplitTarget(null);
+    } catch (err: unknown) {
+      const reason = (err as { details?: { reason?: string } })?.details?.reason;
+      if (reason === 'bundle_split_with_extras_unsupported') {
+        toast.danger(t('bundle.splitUnsupportedExtras'));
+      } else {
+        toast.danger(errorMessage(err));
+      }
+      throw err;
+    }
+  };
+
   const requestRollback = (item: KanbanItem) => {
     if (item.stage === 'booked') {
       toast.info(t('queue.quRollbackAtStart'));
@@ -2332,6 +2356,16 @@ function QueueContent() {
         onRequestVoid={requestVoid}
         onPrintBrief={openServiceBrief}
         onToggleItem={handleToggleTicketItem}
+        onSplitBundle={(ticketId, bundle) => setSplitTarget({ ticketId, bundle })}
+      />
+
+      <ConfirmDialog
+        isOpen={splitTarget !== null}
+        onOpenChange={(o) => { if (!o) setSplitTarget(null); }}
+        title={t('bundle.splitConfirmTitle')}
+        description={t('bundle.splitConfirmBody')}
+        confirmLabel={t('bundle.split')}
+        onConfirm={handleSplitBundleConfirm}
       />
 
 
