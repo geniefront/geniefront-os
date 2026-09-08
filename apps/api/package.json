@@ -9,6 +9,7 @@
     "dev:raw": "tsx watch src/main.ts",
     "tidy": "tsx --env-file=../../.env src/tidy.ts",
     "marketing-domain": "tsx --env-file=../../.env src/ops/marketingDomainCli.ts",
+    "legacy-package-to-bundle": "tsx --env-file=../../.env src/ops/legacyPackageToBundleCli.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

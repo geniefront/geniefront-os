@@ -1,11 +1,11 @@
 # 组合项目套餐：实施报告
 
 计划：`docs/plans/2026-09-07-service-bundles-implementation.md`
-状态：**P0–P2 ✅ · P3（a/b/c）✅ · P4 后端 ✅ · P5 后端（结账/退款/提成安全）✅ ·
-P6 后端（公开预约套餐入口）✅ · P7–P8 未做**
-本轮范围：P0–P4 已交付；P5 结账链路对套餐安全的关键修复 + 回归；P6 官网自助预约
-套餐入口（目录 / 报价 / 下单）。导入 UI / 向导 / 看板卡片 / 结账界面 / booking 前端待前端排期。
-⚠️ P5 / P6 新增集成测试尚未在本地 55322 跑过（需重置种子库，待授权）；typecheck 16/16 + guards 绿。
+状态：**后端全链路 P0–P8 完成**（P3a/b/c/d · P5 结账退款次卡安全 · P6 公开预约入口 ·
+P7 只读扫描 + 转换脚本 · B14 拆单 · 决策 #3 分流启发式）。本地 55322 全绿
+（`@gf/api` 除预存在的 `copilot/acceptance.test.ts` 5 例外全过，见 §6），typecheck 16/16 + guards 绿。
+剩：全部前端（导入分流 UI（B02）/ 向导 / 看板卡片 / Checkout 套餐视图 / `apps/booking` 套餐界面）、
+通知模板套餐化、浏览器 + ipad 闭环 E2E。0118 迁移仅在本地，未上 staging / 生产（上线 / 回退见 §8）。
 
 ---
 
@@ -102,7 +102,12 @@ P6 后端（公开预约套餐入口）✅ · P7–P8 未做**
 `bundle.quote` 入参 `extraDiscountKind`（默认 `manual`）。`bundle.test.ts` 有
 「$150 → $130」默认用例与 `coupon` 不叠加用例。
 
-### 决策 #3 —— AI 识别的 Combo / Sessions 分流 · P2 处理，建议如下
+### 决策 #3 —— AI 识别的 Combo / Sessions 分流 · **已实现启发式（`packages/ai`）**
+
+`normalize.ts` 加 `classifyPackageKind(sessions, serviceNames)` + `DraftItem.packageKind`
+（`bundle` / `sessions` / `ambiguous`，仅 `kind='package'` 行）：去重后 ≥ 2 项且次数 ≤ 1 →
+`bundle`；次数 ≥ 2 且去重后 ≤ 1 项 → `sessions`；其余 `ambiguous`。**只标不改 `kind`**，
+发布分流由 P2 blueprint publish 消费（前端排期）。`normalize.test.ts` 1 例。下方为原始建议：
 
 现状两者同为 `kind='package'`。建议启发式（P2 在 `packages/ai` 落地）：
 `package_sessions >= 2` 且 `package_service_names` 去重后 ≤ 1 项 → 次卡（预付资产）；
@@ -150,7 +155,8 @@ P6 后端（公开预约套餐入口）✅ · P7–P8 未做**
       quote 展开合计 = 锁价、C=1764、剩 13236（B20）、额外加项 16500、
       手动优惠 $150→$130、coupon 无可叠加对象拒绝、版本不符拒绝、跨租户 + 已下架不可见。
 - [x] 种子重置 `packages/db/src/seed.ts` 清理列表补 3 张 bundle 表（在 `services` 前）。
-- [ ] AI schema / prompt / normalize 的 Combo↔Sessions 分流（决策 #3 的启发式）—— 未做。
+- [x] normalize 的 Combo↔Sessions 分流（决策 #3 启发式）—— `DraftItem.packageKind`，见决策 #3。
+      prompt / schema 保持不动（模型仍只给 `kind='package'`）。
 - [ ] 导入审核 UI、发布分流、项目管理 / 开店向导的套餐 CRUD 界面 —— **前端，待排期**。
 - [ ] 只读 HTTP 路由 `/v1/desk/bundles/quote` —— 未接（P3/P5 直接调 `quoteBundle` 函数；
       前端预览需要时再补路由 + SDK）。
@@ -189,7 +195,12 @@ P6 后端（公开预约套餐入口）✅ · P7–P8 未做**
       首版限制：组成服务 `staff_count` 必须为 1（`bundle_unit_multi_staff_unsupported`）。
       测试 `bundle.test.ts` `describe('ticket.open 直接选组合套餐（walk-in）')` 4 例
       （展开+实例+金额、结账走通、与 appointmentId 互斥、unitOverrides 不足被拒）。
-- [ ] 拆单为单项（`status='split'`）—— 未做（B14）。
+- [x] **B14：拆单为单项** —— 新命令 `bundle.splitInstance`（`apps/api/src/handlers/bundle.ts`）。
+      仅未开工（无 `started_at`）未付款（无 `payments`、`service_settled_at` 空）可拆：各子项
+      `total_cents` 恢复为锁定的 `bundle_list_price_cents`，四个 `bundle_*` 关联列清空，
+      `order_bundle_instances.status='split'` 留作来源凭据，`recalc` 工单金额。首版不支持带
+      额外加项 / 额外优惠的实例（`bundle_split_with_extras_unsupported`）——走作废重建。
+      `bundle.test.ts` 拆单 4 例。
 
 ### P4 · 看板与履约 —— 🔶 查询 DTO 完成（后端），前端卡片渲染待排期
 
@@ -247,15 +258,16 @@ P6 后端（公开预约套餐入口）✅ · P7–P8 未做**
       隐藏套餐下单被拒、items 与 bundleSelections 皆空 400。
 - [x] **kiosk 已签到的套餐预约** —— 分组 / 报价经 P4 的共享 `queries/queue.ts` 暴露（`bundles[]` +
       每项 `bundle_*`），无需 kiosk 侧改动。
-- [ ] **kiosk 现场新建选套餐（walk-in）** —— 未做。同 P3 遗留的「直接 `ticket.open` 选套餐」，
-      需 `JoinQueue` / `TicketOpen` 契约扩展；当前给「请前台办理」提示（计划 §7）。
+- [x] **walk-in 现场开单选套餐** —— `ticket.open` 的 `bundleSelections`（P3d）。kiosk 的
+      `JoinQueue` 是「单项目排队」快捷流，套餐 walk-in 走前台 `ticket.open`；kiosk 侧本身
+      不新增套餐选择器（计划 §7「入口能力不足时给人工办理提示」）。
 - [ ] **AI 副驾 / 电话** —— `appointment.create` 的 `bundleSelections` 参数已在命令契约中，
       桌面副驾走 `appointment` 前缀即可提议；`bundle.saveTemplate/archiveTemplate` 属目录设置，
-      **不进副驾操作前缀**（同 `catalog.*`）。`packages/ai` 价目表识别的 Combo↔Sessions 分流
-      （决策 #3 启发式）—— 未做，属导入链路（P2 范围），无 P6 硬门槛。
+      **不进副驾操作前缀**（同 `catalog.*`）。`packages/ai` 的 Combo↔Sessions 分流启发式已落
+      （决策 #3，`DraftItem.packageKind`）；发布分流由 P2 前端消费。
 - [ ] 通知模板按套餐 / 子项展示 —— 未改；现有模板按 `appointment_items` 渲染，套餐子项即普通行。
 
-### P7 · 历史数据与上线准备 —— 🔶 只读扫描 + 上线/回退方案完成，一次性转换脚本待写
+### P7 · 历史数据与上线准备 —— ✅ 只读扫描 + 转换脚本 + 上线/回退方案
 
 - [x] **只读历史 package 候选扫描** —— `apps/api/src/queries/bundleMigration.ts::scanLegacyPackageCandidates`
       + 路由 `GET /v1/desk/bundles/legacy-scan`（`catalog.manage`）。按「去重项目数 + 次数」
@@ -263,7 +275,13 @@ P6 后端（公开预约套餐入口）✅ · P7–P8 未做**
       sessions≥2，默认不列）、`ambiguous`（其余，交店主判断）。**不改写任何数据**，
       每条附一句话建议 + 已发/在用 `customer_packages` 计数供人工比对。测试
       `bundle.test.ts` `describe('P7 …')` 1 例。
-- [ ] **逐条确认转换脚本**（设计见下）—— 未写。属一次性运维脚本，不进产品代码路径。
+- [x] **逐条确认转换脚本** —— `apps/api/src/ops/legacyPackageToBundleCli.ts`
+      （`pnpm --filter @gf/api legacy-package-to-bundle <plan|apply> <org-id> <location-id> <mapping.json>`）。
+      运维先跑 `legacy-scan` 拉候选，人工挑出真组合、按实际份数编 `mapping.json`，
+      `plan` 只校验预览（模板在本店 / 服务有效非加项 / qty≥1 / 展开≥2 单元 / 组合价≤原价合计），
+      `apply` 在一个事务里建 `service_bundles` + 组成、可选 `package_templates.active=false`，
+      并把 `templateId→bundleId` 映射写 `<mapping.json>.applied.json`。**已售 `customer_packages` 不迁移**。
+      本地 55322 `plan` 空映射冒烟通过；无自动化测试（同 `ops/marketingDomainCli.ts`）。
 - [x] **加法式迁移顺序 / 旧版本兼容 / 功能开关 / 回退**（见 §8）。
 
 **转换脚本设计（P7 未实现，供执行）**：
@@ -294,30 +312,33 @@ P6 后端（公开预约套餐入口）✅ · P7–P8 未做**
 
 | 命令 | 结果 |
 |---|---|
-| `pnpm --filter @gf/payroll test` | ✅ 6 文件 / **128 例**（含 `bundle.test.ts` 21 例 `allocateBundle`/`refundableForUnit`） |
-| `pnpm --filter @gf/contracts test` | ✅ 8 文件 / **61 例**（含 `registry.test.ts` 命令注册校验，`bundle.*` 已接入） |
-| `pnpm --filter @gf/db test` | ✅ 10 文件 / **92 例**（含 `serviceBundles.migration.test.ts`：RLS / 列可空 / check / 跨租户 / 可重放） |
-| `DATABASE_TEST_TARGET=isolated pnpm --filter @gf/api test` | ✅ 88 文件 / **1223 例**（`bundle.test.ts` 25 例 = 目录/报价 11 + P3a 5 + P3b 1 + P3c 2 + P4 1 + **P5 4** + **P7 1**；`public.test.ts` +**6** U10 例） |
+| `pnpm --filter @gf/payroll test` | ✅ 6 文件 / **128 例**（`bundle.test.ts` 21 例 `allocateBundle`/`refundableForUnit`） |
+| `pnpm --filter @gf/contracts test` | ✅ 8 文件 / **61 例**（`registry.test.ts` 命令注册，`bundle.splitInstance` 已接入） |
+| `pnpm --filter @gf/ai test` | ✅ 12 文件 / **124 例**（`normalize.test.ts` +1 决策 #3 `packageKind` 分类） |
+| `pnpm --filter @gf/db test` | ✅ 10 文件 / **92 例**（`serviceBundles.migration.test.ts`：RLS / 列可空 / check / 跨租户 / 可重放） |
+| `DATABASE_TEST_TARGET=isolated pnpm --filter @gf/api test` | 🔶 **1226 例通过 / 5 失败**。失败全在 `src/copilot/acceptance.test.ts`（场景 1/2/3/4/6），**在干净 `main` 上即为红**（`git stash` 后复现），order/time 敏感，与 U10 无关（已开 background task 修）。`bundle.test.ts` 33 例 = 目录/报价 11 + P3a 5 + P3b 1 + P3c 2 + P3d(walk-in) 4 + P4 1 + P5 4 + P7 1 + 拆单 4；`public.test.ts` +6 U10。 |
 | `pnpm typecheck`（turbo，全 16 包） | ✅ 16/16 |
 | `pnpm lint:guards` | ✅ 全通过 |
 
 ### 已验证 / 剩余缺口
 
-- **本地隔离库（55322）**：上表全套跑通（含 P5 结账/退款/次卡、P6 公开预约、P7 扫描）。
-  `0118` 已应用到本地 55322。
+- **本地隔离库（55322）**：上表全套跑通。`0118` 已应用到本地 55322。
+- **`ops/legacyPackageToBundleCli.ts`**：`plan` 空映射冒烟通过；无自动化测试（同类 ops CLI 惯例）。
+- **预存在失败**：`copilot/acceptance.test.ts` 5 例，非本工作引入，判读时按「除该文件外全绿」。
 - **迁移未上 staging / 生产**：只在本地。上线 / 回退顺序见 §8。
 - **E2E / 浏览器 / ipad**：套餐无前端，未验证。后端契约、金额口径、RLS、幂等、
   并发（乐观锁）已由集成测试覆盖；前台完整闭环、触屏、断网、多语言 UI 待前端排期后补测。
-- **B01–B32**：逐条落点见 §9（✅ 后端有测试证据 21 项 · 🔶 就位缺专项 / 依赖前端 9 项 ·
-  ⛔ 未做 2 项：B02 导入草稿 UI、B14 未付款拆单）。
+- **B01–B32**：逐条落点见 §9（✅ 后端有测试证据 22 项 · 🔶 就位缺专项 / 依赖前端 9 项 ·
+  ⛔ 未做 1 项：B02 导入草稿 UI，纯前端）。
 
 ---
 
 ## 7. 历史 package 处理
 
-只读扫描已交付（`scanLegacyPackageCandidates` / `GET /v1/desk/bundles/legacy-scan`，见 P7）。
-一次性转换脚本未写，设计见 P7 段。原则：不按 `sessions=0/1` 自动判断；已售
-`customer_packages` 与历史工单不随扫描迁移；转换保留 `template_id → bundle_id` 映射。
+只读扫描（`scanLegacyPackageCandidates` / `GET /v1/desk/bundles/legacy-scan`）+ 逐条确认
+转换脚本（`ops/legacyPackageToBundleCli.ts`）均已交付，见 P7。原则：不按 `sessions=0/1`
+自动判断；已售 `customer_packages` 与历史工单不随扫描 / 转换迁移；转换保留
+`template_id → bundle_id` 映射（写 `.applied.json`）。
 
 ## 8. 待执行的生产操作与上线 / 回退
 
@@ -359,7 +380,7 @@ P6 后端（公开预约套餐入口）✅ · P7–P8 未做**
 | B11 | 🔶 | 顺排 + 营业日按门店 tz/cutoff（P3a）；DST / wait 段专项未补 |
 | B12 | 🔶 | 子项各自 `ticket_item_staff`；看板进度按有效子项（P4 `doneCount`/`fulfilled`）；两技师三项专项浏览器用例未补 |
 | B13 | 🔶 | `order_bundle_instances.status`（active/split/cancelled）+ P4 进度不提前完工；部分取消调整流程属前端 |
-| B14 | ⛔ | 未付款拆单（`status='split'`）—— 未做（P3 遗留） |
+| B14 | ✅ | `bundle.splitInstance`：未开工未付款拆回锁定单项原价，实例置 `split` 留来源。`bundle.test.ts` 拆单 4 例（恢复原价 17000 / 二次拆被拒 / 带额外优惠不支持 / 已结账不能拆）。带额外加项的实例走作废重建 |
 | B15 | ✅ | 结账 `settlementStage` service/tip 分离对套餐单成立（子项净额进 subtotal），`bundle.test.ts` P5 结账用例 |
 | B16 | 🔶 | 付款后加项补差走既有 `service_settled_at` 冻结 + 追加结算；套餐特有分支无（子项即普通行） |
 | B17 | ✅ | `bundle.test.ts` P5「次卡只核散项」「命中子项被拒」；`ticket.ts` `applyPackageRedemptions` 排除 `bundle_instance_id` |
