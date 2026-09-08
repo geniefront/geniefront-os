@@ -36,6 +36,8 @@ import { centsToDollars } from '@/features/checkout/api';
 import { cn, formatPhoneDisplay, formatPhoneInput, normalizePhoneE164 } from '@/lib/utils';
 import { customerInitials as initialsOf } from '@/lib/displayName';
 import { appointmentStepperRank, deriveDrawerStage } from '@/features/schedule/stepper';
+import { deriveAppointmentBoardState } from '@/features/schedule/appointmentBoardState';
+import { nextActionLabelKey } from '@/features/queue/nextAction';
 
 interface AppointmentDrawerProps {
   onClose: () => void;
@@ -363,6 +365,17 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
     initialStatus,
   });
   const statusRank = appointmentStepperRank(derivedStage, appointment.items);
+  // 详情与看板共用的状态映射：当前阶段 + 履约 / 付款 + 下一步动作（U06 / §6.4）
+  const boardState = deriveAppointmentBoardState({
+    appointmentStatus: appointment.status,
+    items: appointment.items,
+    ticket: appointment.ticket,
+  });
+  const STAGE_LABEL_KEY = {
+    booked: 'schedule.adStageBooked', waiting: 'schedule.adStageArrived',
+    in_service: 'schedule.adStageInService', ready_checkout: 'schedule.adStageReadyCheckout',
+    completed: 'schedule.adStageCompleted',
+  } as const;
   const serviceItems = activeTicket ? queueTicketItems(activeTicket.items).map((item) => ({
     itemId: item.ticketItemId, serviceName: item.name, durationMin: item.durationMin,
     priceCents: item.totalCents, staffName: item.staffName, resourceName: item.roomName,
@@ -433,6 +446,34 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
     <div className="flex shrink-0 border-b border-slate-200 bg-white" role="tablist">{tabs.map(([id, label, Icon]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={cn('flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 py-3 text-xs font-bold transition', tab === id ? 'border-teal-500 bg-teal-50/50 text-teal-800' : 'border-transparent text-slate-500 hover:bg-slate-50')}><Icon size={14}/>{label}</button>)}</div>
     <main className="flex-1 overflow-y-auto bg-slate-50/70 p-4">
       {tab === 'service' && <div className="space-y-4">
+        {!terminalStatus && (
+          <section className="space-y-2.5 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
+              <span className="rounded-lg bg-slate-100 px-2 py-1 text-slate-500">{t('schedule.adFulfillmentLabel')}</span>
+              <span className="rounded-lg bg-teal-50 px-2 py-1 text-teal-800">{t(STAGE_LABEL_KEY[boardState.stage])}</span>
+              {boardState.fulfillment.total > 1 && boardState.fulfillment.done < boardState.fulfillment.total && boardState.fulfillment.done > 0 && (
+                <span className="rounded-lg bg-amber-50 px-2 py-1 text-amber-800">
+                  {t('schedule.adPartialDone', { p0: boardState.fulfillment.done, p1: boardState.fulfillment.total })}
+                </span>
+              )}
+              <span className="rounded-lg bg-slate-100 px-2 py-1 text-slate-500">{t('schedule.adPaymentLabel')}</span>
+              <span className={cn('rounded-lg px-2 py-1', boardState.paid ? 'bg-emerald-50 text-emerald-800' : boardState.paymentStage ? 'bg-rose-50 text-rose-800' : 'bg-slate-100 text-slate-500')}>
+                {boardState.paid ? t('schedule.adPaid') : boardState.paymentStage ? t('schedule.adPaymentDue') : t('schedule.adPaymentNone')}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
+              <span className="text-[11px] font-semibold text-slate-500">
+                {t('schedule.adNextStep')}: {t(nextActionLabelKey(boardState.nextAction, { checkoutTiming: appointment.ticket?.checkoutTiming }))}
+              </span>
+              {boardState.nextAction.kind !== 'blocked' && (
+                <Button size="sm" variant="secondary" className="h-7 gap-1 bg-teal-50 px-2.5 text-[11px] font-bold text-teal-800" onPress={() => { onClose(); navigate('/queue'); }}>
+                  {t('schedule.adGoToBoard')}
+                  <ChevronRight size={13} />
+                </Button>
+              )}
+            </div>
+          </section>
+        )}
         <section className="grid grid-cols-3 gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
           <Metric label={t('schedule.adVisitFrequency')} value={`${customerQ.data?.visits.total ?? '—'} ${t('schedule.adVisitUnit')}`} />
           <Metric label={t('schedule.adLastVisit')} value={customerQ.data?.visits.lastAt ? storeTime.dateTime(customerQ.data.visits.lastAt) : t('schedule.adFirstVisitToday')} compact />

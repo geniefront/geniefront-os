@@ -16,6 +16,22 @@ export interface AppointmentItemDetail {
   status?: string;
 }
 
+export interface AppointmentTicketFacts {
+  ticketId: string;
+  number: number | null;
+  status: string;
+  checkoutTiming: 'service_then_tip' | 'upfront_combined' | 'after_service_combined';
+  serviceSettledAt: string | null;
+  tipSettledAt: string | null;
+  serviceCompleted: boolean;
+  items: Array<{
+    ticketItemId: string;
+    name: string;
+    startedAt: string | null;
+    finishedAt: string | null;
+  }>;
+}
+
 export interface AppointmentDetail {
   appointmentId: string;
   status: string;
@@ -28,6 +44,7 @@ export interface AppointmentDetail {
     allergiesSummary: string | null;
   };
   items: AppointmentItemDetail[];
+  ticket: AppointmentTicketFacts | null;
   notes: string | null;
   createdAt: string;
 }

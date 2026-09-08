@@ -389,7 +389,7 @@ export function KanbanBoard({
                               const Icon = NEXT_ACTION_ICON[nextAction.kind];
                               return <Icon className="w-3.5 h-3.5" />;
                             })()}
-                            <span>{t(nextActionLabelKey(nextAction, item))}</span>
+                            <span>{t(nextActionLabelKey(nextAction, { checkoutTiming: item.rawTicket?.checkoutTiming }))}</span>
                             <ChevronRight className="w-3.5 h-3.5" />
                           </Button>
                         )}

@@ -14,6 +14,29 @@ import { paymentStageFor } from '@/features/checkout/types';
 import type { PaymentStageFacts } from '@/features/checkout/types';
 import type { TranslationKey } from '@/i18n';
 
+/**
+ * 看板 / 详情主按钮文案。一次性收款在两种结账时机下语义不同：
+ * `upfront_combined` 开工前预收，`after_service_combined` 做完再结，文案必须区分。
+ */
+export function nextActionLabelKey(
+  action: QueueNextAction,
+  ctx?: { checkoutTiming?: string | null },
+): TranslationKey {
+  switch (action.kind) {
+    case 'check_in': return 'queue.quCheckInGuest';
+    case 'seat': return 'queue.quWiAssignSeat';
+    case 'start_item': return 'queue.quStartItem';
+    case 'finish_item': return 'queue.quFinishAndBill';
+    case 'pay_service': return 'queue.quPayServiceBtn';
+    case 'pay_tip': return 'queue.quPayTipBtn';
+    case 'pay_combined':
+      return ctx?.checkoutTiming === 'upfront_combined'
+        ? 'queue.quPayUpfrontBtn'
+        : 'queue.quSettleAndPrint';
+    case 'blocked': return action.reasonKey;
+  }
+}
+
 /** 卡片所处的看板阶段。与 `Queue.tsx` 的 `KanbanStage` 取值一致。 */
 export type QueueNextActionStage =
   | 'booked'

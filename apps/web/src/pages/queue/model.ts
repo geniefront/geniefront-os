@@ -163,28 +163,7 @@ export const NEXT_ACTION_ICON: Record<Exclude<QueueNextAction['kind'], 'blocked'
   pay_combined: CreditCard,
 };
 
-/**
- * 主按钮文案。
- *
- * 一次性收款在两种结账时机下的语义并不相同：`upfront_combined` 是开工前预收，
- * `after_service_combined` 是做完再结。文案必须区分，否则前台无法判断
- * 此刻按下去究竟发生什么。
- */
-export function nextActionLabelKey(action: QueueNextAction, item: KanbanItem): TranslationKey {
-  switch (action.kind) {
-    case 'check_in': return 'queue.quCheckInGuest';
-    case 'seat': return 'queue.quWiAssignSeat';
-    case 'start_item': return 'queue.quStartItem';
-    case 'finish_item': return 'queue.quFinishAndBill';
-    case 'pay_service': return 'queue.quPayServiceBtn';
-    case 'pay_tip': return 'queue.quPayTipBtn';
-    case 'pay_combined':
-      return item.rawTicket?.checkoutTiming === 'upfront_combined'
-        ? 'queue.quPayUpfrontBtn'
-        : 'queue.quSettleAndPrint';
-    case 'blocked': return action.reasonKey;
-  }
-}
+export { nextActionLabelKey } from '@/features/queue/nextAction';
 
 export type KanbanStage = 'booked' | 'waiting' | 'in_service' | 'ready_checkout' | 'completed';
 

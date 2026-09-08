@@ -13,7 +13,7 @@
 | U09 平台短信串店 | W0 | **部分完成**：专属线归属已隔离；平台共享号细分仍待做 | #1 |
 | U01/U08 默认设置、健康表首发、房间门禁、AI 线路 | W1 | **部分完成**：AI 电话新线默认不接（U08，#4）已修；健康表首发、房间门禁、setup readiness DTO 未开始 | #4 |
 | U02/U13 员工目录与员工中心 | W2 / W2b | **U02 主体 + U13 完成**：岗位 / 职级 / 技能改 ID 契约，服务端不再据自由文本新建目录项、跨店 / 伪造 / 未知值拒绝、停用项只对已关联者保留；`sql/0114` 补 `job_title_id` + 回填 + 只读盘点视图；新增 `staff.reorderDirectoryOptions` 原子重排（#7）。员工中心改默认紧凑卡片 + 单卡展开明细，编辑弹窗技能区可搜索 + 限高滚动（#8）。剩：行业预设生成（属 W1）、`user.updateProfile` 自助技能自由文本、真机 iPad 扫屏（W6b） | #6 #7 #8 |
-| U03/U06/U11 预约日期、时长、详情状态 | W3 | **部分完成**：时长输入（#2）、新建默认日期不取营业日（#3）、详情顶部进度不误报空工单/取消（#5）已修；跨午夜/Calls 草稿 UTC 日期、allowedActions DTO 未做 | #2 #3 #5 |
+| U03/U06/U11 预约日期、时长、详情状态 | W3 | **U06 + U11 前半完成**：时长输入（#2）、新建默认日期不取营业日（#3）、详情顶部进度不误报（#5）；详情复用看板 `queueNextAction`/`paymentStageFor` 显示当前状态 + 履约/付款分列 + 部分完成 N/M + 下一步深链（#11）。剩：U03 跨午夜、看板动作编排 hook 完整抽取 | #2 #3 #5 #11 |
 | U04 服务导入、技师人数、网约、批量编辑 | W4 | **主体完成**：导入 / 新建普通项默认网约、加项强制不网约（#9）；`SaveService` 布尔字段改 PATCH 语义（编辑省略不覆写）；新增 `catalog.bulkUpdateServices` + Settings 多选批量条（网约 / 人数 / 技能加移替 / 分类）。剩：draft 级人数编辑、分类栏窄屏下拉（→W6b）、逐字段乐观锁 | #6 #9 |
 | U05 Google review 同步权限 | W5 | **小修**：配置读接口带 `manualSyncEnabled`，未开放时按钮禁用+提示，不再显示成权限不足（#6）；分状态文案与调查未做 | #6 |
 | U07/U11/U12 导航、生日选择、全端 iPad | W6 | **U07 + U11 完成**：侧栏三分组 + 账号入口进侧栏（#6）；生日改「年直输 + 月日下拉」，`@gf/contracts.parseBirthdate` 共用校验（闰年 / 非法日 / 未来日 / date-only），接入公开健康表 / iPad 自助 / 客户档案（#10）。U12 全端 iPad 未做 | #6 #10 |
@@ -1003,3 +1003,109 @@ handler 对 `jobTitle` / `level` / `skills` 三个自由文本字段**匹配不�
 
 `git revert` 消费者 commit + 公共层 commit。`@gf/contracts` 删 `birthdate.ts` 及其
 `index.ts` 导出；`formRoutes.ts` 去 `today` 字段。无数据 / 迁移改动。
+
+---
+
+## 批次 #11 — W3b：详情动作与下一步 · 共享状态映射（U06 / §6.4）
+
+**日期**：2026-09-07
+**改动范围**：`apps/api/src/queries/appointmentDetail.ts`（DTO 加 `ticket` 事实）；
+`apps/web` 新增纯函数 `features/schedule/appointmentBoardState.ts`（+ 测试）；
+`nextActionLabelKey` 从 `pages/queue/model.ts` 迁到 `features/queue/nextAction.ts`（去 `KanbanItem` 依赖）；
+`AppointmentDrawer.tsx` 顶部服务页加「当前状态 + 下一步」；`i18n/schedule.ts` +11 词条。
+
+### 这一刀解决了什么
+
+计划 §6.4：抽屉此前**只显示**四步进度（batch #5 已修误报），**没有任何推进动作** ——
+签到 / 开始 / 完成 / 结账全部只在看板上；抽屉也没有把履约状态与付款状态分开，
+更没有「部分完成 N/M」。而看板早已有一份设计良好的「主按钮唯一真值来源」
+`queueNextAction()` + `paymentStageFor()`。本批不新写状态机，而是让抽屉复用这份推导。
+
+### 改了什么
+
+**1. `apps/api/src/queries/appointmentDetail.ts`**
+
+`AppointmentDetailDto` 加 `ticket: AppointmentTicketFactsDto | null` ——
+`queueNextAction` / `paymentStageFor` 的入参子集：
+`{ ticketId, status, checkoutTiming, serviceSettledAt, tipSettledAt, serviceCompleted,
+items: [{ ticketItemId, name, startedAt, finishedAt }] }`。
+新增 `loadTicketFacts()`：按 `appointment_id` 取**最近一张**工单（不按状态过滤，
+已结清的「已结束」也能拿到工单 id 供查看）+ 其 `ticket_items` 的 started/finished。
+`serviceCompleted` = 全部 item 有 `finished_at`。walk-in 分支返回 `ticket: null`。
+
+**2. `apps/web/src/features/schedule/appointmentBoardState.ts`（新纯函数）**
+
+`deriveAppointmentBoardState({ appointmentStatus, items, ticket })` → 
+`{ stage, terminal, fulfillment: {done,total}, paymentStage, paid, nextAction }`：
+
+- `cancelled` / `no_show` → `terminal`，`nextAction` blocked（**不回落 booked**）。
+- 有工单：全部 item 完工 → `paymentStage` 非空则 `ready_checkout`、否则 `completed`；
+  未全完工 → `in_service`。`fulfillment` 数已完工 item / 总 item。
+- 无工单：`checked_in`/`waiting`/`arrived` → `waiting`；`completed`/`paid`/`closed` → `completed`；
+  否则 `booked`。
+- `paymentStage` = `paymentStageFor(facts)`；`paid` = 阶段为 null 且至少一笔已结。
+- `nextAction` = `queueNextAction({ stage, ticket })` —— **与看板同一函数**，
+  多项目单不会被一键误完工（先 `start_item` 未开始项，再 `finish_item` 进行中项）。
+
+**3. `nextActionLabelKey` 迁移**
+
+从 `pages/queue/model.ts` 移到 `features/queue/nextAction.ts`（叶子模块），
+签名从 `(action, item: KanbanItem)` 收成 `(action, { checkoutTiming? })`。
+`model.ts` re-export 保持 `KanbanBoard.tsx` 导入不变（调用点已改传 `{ checkoutTiming: item.rawTicket?.checkoutTiming }`）。
+抽屉与看板现在共用同一份文案函数。
+
+**4. `AppointmentDrawer.tsx`**
+
+服务页顶部（非终态时）加一张卡：
+- 「履约」当前阶段徽章（`adStageBooked/Arrived/InService/ReadyCheckout/Completed`）
+  + 「部分完成 N/M」（仅 `0 < done < total` 时）；
+- 「收款」徽章：已结清 / 待收款 / 暂无待收（三色）；
+- 「下一步: <动作文案>」+（非 blocked 时）「在看板处理」按钮 →
+  `onClose(); navigate('/queue')`。命令执行仍由看板的分步弹窗负责
+  （§6.4「优先抽取看板动作编排组件 / hook，再接详情；避免详情 import 整个 Queue 页」——
+  本批用共享**纯推导** + 深链，不把 CheckIn/Start/Complete/Checkout 弹窗复制进抽屉）。
+
+**5. i18n `schedule.ts`**：`adStageReadyCheckout` / `adStageCompleted` /
+`adFulfillmentLabel` / `adPaymentLabel` / `adPaid` / `adPaymentDue` / `adPaymentNone` /
+`adPartialDone` / `adNextStep` / `adGoToBoard`（+ 复用 `adStageBooked` 等）。5 语齐全。
+
+### 明确未做 / 交接
+
+- **看板动作编排 hook 的完整抽取**：`Queue.tsx`（2650 行）里的 CheckIn / Start / Finish /
+  Checkout 弹窗编排未抽成独立 hook；抽屉走深链到 `/queue` 而非在抽屉内直接执行命令。
+  「共用命令与校验」目前落在「共用推导 + 看板执行」这个边界上。
+- **深链定位到具体卡片**：`/queue` 无 `?focus=<id>` 参数，跳过去是整块看板。
+  加参数需要 Queue 支持卡片滚动 / 高亮，留作后续。
+- **`allowedActions` 全量清单**：本批返回的是「下一步单个主动作 + 阻塞原因」
+  （与看板主按钮一致），不是「所有可执行动作的数组」。次要动作（改期 / 加项 / 取消）
+  仍是抽屉里各自的既有按钮，未纳入统一 DTO。
+- **`ticket.number`**：`tickets` 表无日序号列，DTO 里恒为 `null`（占位）。
+
+### 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 类型 | `@gf/api` / `@gf/web` `tsc --noEmit` | exit 0 |
+| 纯函数单测 | `vitest run src/features/schedule/appointmentBoardState.test.ts` | 8 passed（取消/爽约非 booked、无工单 booked→check_in、多项目 start 未开始项、一完一未 finish 进行中、全完工待收款 ready_checkout+pay_combined、先服务后小费 pay_service、已付 completed、空工单非 done）|
+| Web 全量单测 | `pnpm --filter @gf/web test` | 59 files / 333 passed |
+| API 详情穿透 | `vitest run src/audit_fixes.test.ts` | 9 passed（`ticket` 字段未破坏既有断言）|
+| 完整 `pnpm --filter @gf/api test` | isolated 库一次跑通 | 87 files / 1184 passed（无 flaky） |
+| 守卫 | `pnpm lint:guards` | ✓ |
+
+未做：浏览器 / 真机交互验证（抽屉 ↔ 看板双向同步；按计划 §12 / H 阶段单列）。
+
+### 计划 §6.4 / T27–T29 对照
+
+| 验收点 | 本批状态 |
+|---|---|
+| 枚举真实状态 + 一张共享映射表，不新增字符串状态机 | ✅ `deriveAppointmentBoardState` 复用 `queueNextAction`/`paymentStageFor`，无新枚举 |
+| 详情顶部分开显示履约与付款状态；部分完成 N/M | ✅ |
+| 后端 DTO 或共享纯函数返回 allowedActions 与不可执行原因；UI 与看板共用判断 | 🔸 共用「下一步 + 阻塞原因」纯函数 + 文案函数；全量 allowedActions 数组与命令编排 hook 未做（深链到看板执行）|
+| T27 详情走完签到→服务→完成→结账，看板同步 | 🔸 详情显示每一步的下一动作并深链；实际执行在看板，双向 query 失效沿用既有 |
+| T28 取消/爽约/空工单/部分完工：精确状态，无假完成 | ✅ 纯函数单测覆盖 |
+| T29 先付后做/双终端重复点击：不重收不重复开单 | ✅ 推导层：`pay_service` 先于 `start_item`；命令幂等 / 并发沿用看板既有 |
+
+### 回退
+
+`git revert` 消费者 commit（抽屉 + `appointmentBoardState.ts` + `nextActionLabelKey` 迁移
++ i18n）与公共层 commit（`appointmentDetail.ts` 去 `ticket` 字段）。无数据 / 迁移改动。
