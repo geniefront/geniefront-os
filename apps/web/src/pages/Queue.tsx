@@ -1,6 +1,6 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { asCents } from '@gf/contracts';
-import { useOutletContext, useNavigate } from 'react-router-dom';
+import { useOutletContext, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast, Spinner } from '@heroui/react';
 import { CalendarDays, Clock, UserCheck, AlertTriangle, FileWarning, Plus, RotateCcw, Sparkles, CreditCard, Scissors, Search, Filter, BedDouble, CheckCircle, Check, User, DollarSign, QrCode, Copy } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
@@ -88,6 +88,21 @@ function QueueContent() {
   const errorMessage = useErrorMessage();
   const { t, language } = useLanguage();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // 预约详情抽屉「在看板处理」深链过来时带 ?focus=<appointmentId>，
+  // 用它把对应卡片滚进视野并高亮；高亮约 4s 后自行淡出（清掉 query）。
+  const focusApptId = searchParams.get('focus');
+  useEffect(() => {
+    if (!focusApptId) return;
+    const timer = window.setTimeout(() => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('focus');
+        return next;
+      }, { replace: true });
+    }, 4000);
+    return () => window.clearTimeout(timer);
+  }, [focusApptId, setSearchParams]);
   const { openAppointment, openCreateAppointment } = useOutletContext<{
     setRightDrawerOpen: (open: boolean) => void;
     openAppointment?: (id?: string | null, status?: 'booked' | 'checked_in' | 'in_service' | 'done') => void;
@@ -2298,6 +2313,7 @@ function QueueContent() {
 
       <KanbanBoard
         items={filteredItems}
+        focusItemId={focusApptId}
         timezone={timezone}
         draggingItemId={draggingItemId}
         dragOverColumn={dragOverColumn}

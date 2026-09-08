@@ -1443,6 +1443,50 @@ blueprint_items_staff_count, drop column staff_count`。落地行为回到「一
 
 ---
 
+## 批次 #17 — W3b 尾巴：详情「在看板处理」深链定位到具体卡片（U06 / §6.4）
+
+**日期**：2026-09-07
+**改动范围**：`apps/web/src/components/AppointmentDrawer.tsx`（navigate 带 `?focus=`）+ `apps/web/src/pages/Queue.tsx`（读 `?focus=`、4s 后自清）+ `apps/web/src/pages/queue/KanbanBoard.tsx`（`focusItemId` prop：滚动 + 高亮）。纯前端，无契约 / DB 改动。
+
+### 这一刀解决了什么
+
+批次 #11 让抽屉的「下一步」按钮深链到 `/queue`，但 handoff 明确「`/queue` 无 `?focus=<id>`
+定位，跳过去是整块看板」——前台在几十张卡片里还得自己找刚才那位客人。
+
+### 改了什么
+
+- **抽屉**：`navigate('/queue')` → `navigate(\`/queue?focus=${appointmentId}\`)`。
+- **Queue**：`useSearchParams` 读 `focus`，传给 `KanbanBoard`；4s 后 `replace` 掉该 query
+  （高亮转瞬即逝，且再次点同一张卡能重新触发）。
+- **KanbanBoard**：新增 `focusItemId` prop。匹配 `item.appointmentId`（或退回 `item.id`）的卡片
+  挂 `ref`，`useEffect` 里 `scrollIntoView({ block: 'center', behavior: 'smooth' })`，
+  并加 `ring-2 ring-teal-400 ring-offset-2` 高亮环。
+
+### 明确未覆盖 / 交接（U06 §6.4 剩余）
+
+1. **看板动作编排 hook 完整抽取**：`Queue.tsx`（~2670 行）的 CheckIn / Start / Finish / Checkout
+   弹窗编排仍在页面里，抽屉走深链而非在抽屉内直接执行命令。这是纯结构重构、无行为变化、
+   回归面大，未做。
+2. **全量 `allowedActions` 数组**：抽屉返回的仍是「下一步单个主动作 + 阻塞原因」（与看板主按钮
+   同一函数），次要动作（改期 / 加项 / 取消）仍是抽屉里各自的按钮。
+
+### 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 类型 | `pnpm --filter @gf/web exec tsc --noEmit` | exit 0 |
+| Web 全量单测 | `pnpm --filter @gf/web test` | 59 files / 341 passed |
+| 守卫 | `pnpm lint:guards` | ✓ |
+
+未做：浏览器验证（需登录 + 看板有卡片 + 开抽屉点「在看板处理」）。逻辑简单，
+建议 H 阶段随抽屉 ↔ 看板双向同步一并回归。
+
+### 回退
+
+`git checkout apps/web/src/components/AppointmentDrawer.tsx apps/web/src/pages/Queue.tsx apps/web/src/pages/queue/KanbanBoard.tsx`。
+
+---
+
 ## 会话交接 —— 批次 #7–#11 之后剩余（给下一位）
 
 本轮会话完成 W2 / W2b / W4 / W6a / W6b(U11 部分) / W3b(U06)，`main` HEAD = `d61ebc2`。
@@ -1497,9 +1541,10 @@ blueprint_items_staff_count, drop column staff_count`。落地行为回到「一
 - **W6a**：~~iPad 健康表没有门店 `today` → 不判未来日~~ **✅ 批次 #15**
   （`HealthFormPage` 从 `storeInfo.timezone` 用 `Intl` 取门店日历今天，传 `BirthdateField.today` + `parseBirthdate`）。
   健康表模板目前无 `date` 题型，新增时复用 `BirthdateField` + `@gf/contracts.parseBirthdate`。
-- **W3b（U06）**：`Queue.tsx`（2650 行）的 CheckIn/Start/Finish/Checkout 弹窗编排未抽成 hook；
-  抽屉走深链 `navigate('/queue')` 执行，`/queue` 无 `?focus=<id>` 定位；返回的是「下一步单动作 +
-  阻塞原因」不是全量 `allowedActions` 数组。
+- **W3b（U06）**：~~`/queue` 无 `?focus=<id>` 定位~~ **✅ 批次 #17**（抽屉带 `?focus=`，
+  KanbanBoard 滚动 + 高亮）。剩：`Queue.tsx`（~2670 行）的 CheckIn/Start/Finish/Checkout 弹窗编排
+  未抽成 hook（纯结构重构、回归面大）；返回的仍是「下一步单动作 + 阻塞原因」不是全量
+  `allowedActions` 数组。
 - **W1 / W5 / W6b / W7**：本轮完全未碰（W5 仅 batch #6 小修）。
 
 ### 环境备忘（同交接文档 §0）

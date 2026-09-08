@@ -466,7 +466,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
                 {t('schedule.adNextStep')}: {t(nextActionLabelKey(boardState.nextAction, { checkoutTiming: appointment.ticket?.checkoutTiming }))}
               </span>
               {boardState.nextAction.kind !== 'blocked' && (
-                <Button size="sm" variant="secondary" className="h-7 gap-1 bg-teal-50 px-2.5 text-[11px] font-bold text-teal-800" onPress={() => { onClose(); navigate('/queue'); }}>
+                <Button size="sm" variant="secondary" className="h-7 gap-1 bg-teal-50 px-2.5 text-[11px] font-bold text-teal-800" onPress={() => { onClose(); navigate(appointmentId ? `/queue?focus=${appointmentId}` : '/queue'); }}>
                   {t('schedule.adGoToBoard')}
                   <ChevronRight size={13} />
                 </Button>

@@ -9,6 +9,7 @@
  * 因此每一步流转都必须另有点击路径。
  * 从 `pages/Queue.tsx` 原样搬出，状态与命令仍留在页面。
  */
+import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   AlertTriangle, ArrowLeft, ArrowRightLeft, Ban, BedDouble, CheckCircle2, ChevronRight,
@@ -30,6 +31,8 @@ import type { KanbanItem, KanbanStage } from './model';
 
 export interface KanbanBoardProps {
   items: KanbanItem[];
+  /** 深链 ?focus=<appointmentId>：把匹配卡片滚进视野并高亮。 */
+  focusItemId?: string | null;
   timezone: string;
   draggingItemId: string | null;
   dragOverColumn: KanbanStage | null;
@@ -53,11 +56,19 @@ export interface KanbanBoardProps {
 }
 
 export function KanbanBoard({
-  items, timezone, draggingItemId, dragOverColumn, isSyncing, isItemMutating, canVoidTicket,
+  items, focusItemId, timezone, draggingItemId, dragOverColumn, isSyncing, isItemMutating, canVoidTicket,
   onDragStart, onDragOver, onDragLeave, onDrop, onViewDetails, onOpenFormQr,
   onRunNextAction, onItemAction, onRequestRollback, onRequestVoid, onPrintBrief, onToggleItem,
 }: KanbanBoardProps) {
   const { t } = useLanguage();
+  const focusRef = useRef<HTMLDivElement>(null);
+  const isFocusMatch = (item: KanbanItem) =>
+    Boolean(focusItemId) && (item.appointmentId === focusItemId || item.id === focusItemId);
+  useEffect(() => {
+    if (focusItemId && focusRef.current) {
+      focusRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }, [focusItemId, items]);
 
   return (
   <div className="custom-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-auto pb-6">
@@ -127,6 +138,7 @@ export function KanbanBoard({
               <AnimatePresence mode="popLayout">
                 {colItems.map((item) => {
                   const isDragging = draggingItemId === item.id;
+                  const isFocused = isFocusMatch(item);
                   const nextAction = queueNextAction({
                     stage: item.stage,
                     ticket: item.rawTicket
@@ -137,6 +149,7 @@ export function KanbanBoard({
                   return (
                     <motion.div
                       key={item.id}
+                      ref={isFocused ? focusRef : undefined}
                       layout
                       initial={{ opacity: 0, y: 8, scale: 0.98 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -147,6 +160,7 @@ export function KanbanBoard({
                       className={cn(
                         'p-3 bg-white rounded-xl border border-slate-200/90 shadow-sm hover:shadow-md transition-all cursor-grab active:cursor-grabbing group relative select-none',
                         isDragging && 'opacity-40 scale-95 border-teal-400',
+                        isFocused && 'ring-2 ring-teal-400 ring-offset-2 border-teal-400',
                       )}
                     >
                       {/* Card Top: Customer & Tags */}
