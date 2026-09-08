@@ -23,6 +23,7 @@ const fail = (reason: string, extra: Record<string, unknown> = {}): never => {
 interface ServiceRow {
   id: string;
   base_price_cents: number;
+  duration_min: number;
   is_addon: boolean;
   active: boolean;
 }
@@ -33,7 +34,7 @@ export async function loadBundleServices(
   const unique = [...new Set(ids)];
   if (unique.length === 0) return new Map();
   const rows = await tx<ServiceRow[]>`
-    select id, base_price_cents, is_addon, active
+    select id, base_price_cents, duration_min, is_addon, active
     from services where location_id = ${locationId} and id = any(${unique})`;
   if (rows.length !== unique.length) fail('bundle_component_service_invalid', { entity: 'service' });
   return new Map(rows.map((r) => [r.id, r]));
@@ -44,8 +45,8 @@ export async function quoteBundle(
   ctx: Pick<CommandContext, 'locationId'>,
   req: BundleQuoteRequest,
 ): Promise<BundleQuoteResult> {
-  const [bundle] = await tx<{ id: string; version: number; price_cents: number; active: boolean }[]>`
-    select id, version, price_cents, active from service_bundles
+  const [bundle] = await tx<{ id: string; version: number; price_cents: number; active: boolean; name: Record<string, string> }[]>`
+    select id, version, price_cents, active, name from service_bundles
     where id = ${req.bundleId} and location_id = ${ctx.locationId}`;
   if (!bundle || !bundle.active) fail('bundle_not_found', { bundleId: req.bundleId });
   if (req.expectedVersion !== undefined && req.expectedVersion !== bundle!.version) {
@@ -110,9 +111,20 @@ export async function quoteBundle(
     throw err;
   }
 
+  // component_id → 其包含加项、时长（供子项排程）
+  const componentById = new Map(components.map((c) => [c.id, c]));
+  const durationOfComponent = (componentId: string): number => {
+    const c = componentById.get(componentId)!;
+    const s = svc.get(c.service_id)!;
+    return c.included_addon_ids.reduce((n, id) => n + svc.get(id)!.duration_min, s.duration_min);
+  };
+
+  const unitKeyToOrdinal = new Map(result.units.map((u, i) => [u.unitKey, i]));
+
   return {
     bundleId: bundle!.id,
     version: bundle!.version,
+    nameSnapshot: bundle!.name,
     units: result.units.map((u) => ({
       componentId: u.componentId,
       serviceId: u.serviceId,
@@ -123,16 +135,24 @@ export async function quoteBundle(
       bundleNetCents: u.bundleNetCents,
       extraDiscountCents: u.extraDiscountCents,
       netCents: u.netCents,
+      durationMin: durationOfComponent(u.componentId),
+      includedAddonIds: componentById.get(u.componentId)!.included_addon_ids,
     })),
-    extraAddons: result.extraAddons.map((a, i) => ({
-      ref: a.ref,
-      attachToUnit: a.attachToUnit,
-      serviceId: specExtraAddons[i]!.serviceId,
-      qty: a.qty,
-      listPriceCents: a.listPriceCents,
-      extraDiscountCents: a.extraDiscountCents,
-      netCents: a.netCents,
-    })),
+    extraAddons: result.extraAddons.map((a, i) => {
+      const ordinal = unitKeyToOrdinal.get(specExtraAddons[i]!.attachToUnit);
+      if (ordinal === undefined) fail('bundle_addon_unit_not_found', { attachToUnit: specExtraAddons[i]!.attachToUnit });
+      return {
+        ref: a.ref,
+        attachToUnit: a.attachToUnit,
+        unitOrdinal: ordinal!,
+        serviceId: specExtraAddons[i]!.serviceId,
+        qty: a.qty,
+        listPriceCents: a.listPriceCents,
+        extraDiscountCents: a.extraDiscountCents,
+        netCents: a.netCents,
+        durationMin: svc.get(specExtraAddons[i]!.serviceId)!.duration_min * a.qty,
+      };
+    }),
     originalTotalCents: result.originalTotalCents,
     bundlePriceCents: result.bundlePriceCents,
     bundleDiscountCents: result.bundleDiscountCents,

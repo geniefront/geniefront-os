@@ -1,8 +1,8 @@
 # 组合项目套餐：实施报告
 
 计划：`docs/plans/2026-09-07-service-bundles-implementation.md`
-状态：**P0 ✅ · P1 ✅（本地 55322 已验证）· P2 后端 ✅（导入 UI/向导待前端）· P3–P8 未开始**
-本轮范围：P0 + P1 基础层 + P2 目录管理与报价（后端）。
+状态：**P0 ✅ · P1 ✅ · P2 后端 ✅ · P3a ✅（预约创建选套餐）· P3b/P3c/P4–P8 未做**
+（均在本地 55322 验证）本轮范围：P0–P2 + P3a。导入 UI / 向导 / 结账界面待前端排期。
 
 ---
 
@@ -152,7 +152,29 @@
 - [ ] 只读 HTTP 路由 `/v1/desk/bundles/quote` —— 未接（P3/P5 直接调 `quoteBundle` 函数；
       前端预览需要时再补路由 + SDK）。
 
-### P3–P8 —— 未开始
+### P3 · 创建 / 预约展开 —— 🔶 P3a 完成（预约创建），P3b/P3c 未做
+
+- [x] **P3a：`appointment.create` 支持 `bundleSelections`**（本地库已验证）。
+      契约加 `bundleSelectionInput`（`bundleId` / `expectedVersion` / `startsAt` /
+      `unitOverrides[]` / `extraAddons[]` / `extraDiscount*`）；`items` 放宽到可空，
+      加 refine「items 或 bundleSelections 至少一个非空」；output 加 `bundleInstanceIds`。
+- [x] handler：调 `quoteBundle` 展开 → 从 `startsAt` **顺排**子项（每子项标准时长）→
+      每份套餐建一行 `order_bundle_instances`（appointment_id 有、ticket_id 空）→
+      各子项 `appointment_items` 写 `bundle_instance_id/component_id/unit_index/list_price`。
+      买两份 = 两个独立实例，散项照旧。子项走既有容量 / 资源 / 冲突检查。
+- [x] `quoteBundle` 补 `nameSnapshot`、每单元 `durationMin` + `includedAddonIds`、
+      额外加项 `unitOrdinal` + `durationMin`（供排程与快照）。
+- [x] 测试 `apps/api/src/bundle.test.ts` P3a 5 例（本地跑通）：单份展开+实例快照、
+      两份同模板+散项互不串、手动优惠 $20 落到实例与子项、额外加项并入单元快照+addon_ids、
+      版本不符整单回滚不留半份。
+- [ ] **P3b：`ticket.open` 继承套餐实例** —— 未做。当前从带套餐的预约开单，
+      工单金额正确（子项快照求和），但不建工单侧 `order_bundle_instances` 关联、
+      `ticket_items.bundle_*` 为空。看板分组 / 结账套餐视图依赖它。
+- [ ] **P3c：整套改期 / 移除 / 拆单 / 直接开单选套餐 / walk-in** —— 未做。
+      当前整单平移会带着子项一起动（可用）；单独改套餐子项、按实例移除、
+      未开单拆单为单项均未实现。
+
+### P4–P8 —— 未开始
 
 ---
 
@@ -163,7 +185,7 @@
 | `pnpm --filter @gf/payroll test` | ✅ 6 文件 / **128 例**（含新增 21 例 `bundle.test.ts`） |
 | `pnpm --filter @gf/contracts test` | ✅ 8 文件 / 61 例（含 `registry.test.ts` 命令注册校验） |
 | `pnpm --filter @gf/db test` | ✅ 10 文件 / **92 例**（含新增 `serviceBundles.migration.test.ts`，跑在本地 55322） |
-| `pnpm --filter @gf/api test` | ✅ 88 文件 / **1203 例**（含新增 11 例 `bundle.test.ts`，跑在本地 55322） |
+| `pnpm --filter @gf/api test` | ✅ 88 文件 / **1208 例**（含 `bundle.test.ts` 16 例：目录/报价 11 + 预约展开 5，跑在本地 55322） |
 | `pnpm typecheck`（turbo，全 16 包） | ✅ 16/16 |
 | `pnpm lint:guards` | ✅ |
 | `pnpm test:unit` | ✅ 全通过 |

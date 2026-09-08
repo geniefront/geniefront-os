@@ -29,6 +29,7 @@ import {
 } from '@gf/scheduling';
 import { ts, jsonb, parseTs } from '@gf/db';
 import { registerHandler, type HandlerArgs } from '../bus';
+import { quoteBundle } from '../queries/bundle';
 import { notifyEvent } from '../notify/dispatch';
 
 type Input = typeof AppointmentCreate.input._type;
@@ -222,6 +223,7 @@ export async function executeSingleAppointmentInTx(
   appointmentId: string;
   itemIds: string[];
   overbookedItemIds: string[];
+  bundleInstanceIds: string[];
   businessDate: string;
   offHoursOverride: boolean;
 }> {
@@ -262,7 +264,25 @@ export async function executeSingleAppointmentInTx(
     where id = any(${serviceIds}) and active = true`;
   const svcById = new Map(services.map((s) => [s.id, s]));
 
-  const resolved = input.items.map((item) => {
+  interface ResolvedItem {
+    serviceId: string;
+    addonIds: string[];
+    membershipId: string | null;
+    isRequest: boolean;
+    resourceId: string | null;
+    startsAt: Date;
+    endsAt: Date;
+    durationMin: number;
+    priceCents: number;
+    details: Record<string, unknown>;
+    /** 组合套餐来源（U10）。普通项目全部 undefined。 */
+    bundleRef?: number;
+    bundleComponentId?: string;
+    bundleUnitIndex?: number;
+    bundleListPriceCents?: number;
+  }
+
+  const resolved: ResolvedItem[] = input.items.map((item) => {
     const svc = svcById.get(item.serviceId);
     if (!svc) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { serviceId: item.serviceId } });
 
@@ -279,13 +299,90 @@ export async function executeSingleAppointmentInTx(
     const startsAt = new Date(item.startsAt);
     const durationMin = item.durationMin ?? (svc.duration_min + addonMinutes);
     return {
-      ...item,
+      serviceId: item.serviceId,
+      addonIds: item.addonIds,
+      membershipId: item.membershipId,
+      isRequest: item.isRequest,
+      resourceId: item.resourceId,
       startsAt,
       endsAt: new Date(startsAt.getTime() + durationMin * 60_000),
       durationMin,
       priceCents: item.priceCentsOverride ?? (svc.base_price_cents + addonCents),
+      details: item.details,
     };
   });
+
+  // ── 组合套餐展开（U10 / 计划 §4.3）────────────────────────────────────────
+  //
+  // 每份套餐调 `quoteBundle` 得到执行单元 + 分摊净额，从 `startsAt` 起**顺排**，
+  // 每个子项用其标准时长（组成 + 包含加项）。服务端拥有「哪些子项、多少钱、
+  // 实例身份」，前端只放时间和技师。买两份 = 两个 `order_bundle_instances`。
+  interface BundlePlan {
+    ref: number;
+    version: number;
+    nameSnapshot: Record<string, string>;
+    originalTotalCents: number;
+    bundlePriceCents: number;
+    bundleDiscountCents: number;
+    extraDiscountCents: number;
+  }
+  const bundlePlans: BundlePlan[] = [];
+  for (let b = 0; b < input.bundleSelections.length; b += 1) {
+    const sel = input.bundleSelections[b]!;
+    const q = await quoteBundle(tx, ctx, {
+      bundleId: sel.bundleId,
+      expectedVersion: sel.expectedVersion,
+      extraAddons: sel.extraAddons,
+      extraDiscountCents: sel.extraDiscountCents,
+      extraDiscountKind: sel.extraDiscountKind,
+    });
+    bundlePlans.push({
+      ref: b,
+      version: q.version,
+      nameSnapshot: q.nameSnapshot,
+      originalTotalCents: q.originalTotalCents,
+      bundlePriceCents: q.bundlePriceCents,
+      bundleDiscountCents: q.bundleDiscountCents,
+      extraDiscountCents: q.extraDiscountCents,
+    });
+
+    // 额外加项按归属执行单元聚合（跟随主项目履约，价并入子项快照）。
+    const extraByUnit = new Map<number, { cents: number; minutes: number; ids: string[] }>();
+    for (const a of q.extraAddons) {
+      const cur = extraByUnit.get(a.unitOrdinal) ?? { cents: 0, minutes: 0, ids: [] };
+      cur.cents += a.netCents;
+      cur.minutes += a.durationMin;
+      for (let k = 0; k < a.qty; k += 1) cur.ids.push(a.serviceId);
+      extraByUnit.set(a.unitOrdinal, cur);
+    }
+
+    let cursor = new Date(sel.startsAt);
+    for (let u = 0; u < q.units.length; u += 1) {
+      const unit = q.units[u]!;
+      const ov = sel.unitOverrides[u];
+      const extra = extraByUnit.get(u);
+      const durationMin = (ov?.durationMin ?? unit.durationMin) + (extra?.minutes ?? 0);
+      const startsAt = new Date(cursor);
+      const endsAt = new Date(startsAt.getTime() + durationMin * 60_000);
+      resolved.push({
+        serviceId: unit.serviceId,
+        addonIds: [...unit.includedAddonIds, ...(extra?.ids ?? [])],
+        membershipId: ov?.membershipId ?? null,
+        isRequest: ov?.isRequest ?? false,
+        resourceId: ov?.resourceId ?? null,
+        startsAt,
+        endsAt,
+        durationMin,
+        priceCents: unit.netCents + (extra?.cents ?? 0),
+        details: ov?.details ?? {},
+        bundleRef: b,
+        bundleComponentId: unit.componentId,
+        bundleUnitIndex: unit.unitIndex,
+        bundleListPriceCents: unit.listPriceCents,
+      });
+      cursor = endsAt;
+    }
+  }
 
   const windowStart = new Date(Math.min(...resolved.map((r) => r.startsAt.getTime())));
   const windowEnd = new Date(Math.max(...resolved.map((r) => r.endsAt.getTime())));
@@ -416,17 +513,36 @@ export async function executeSingleAppointmentInTx(
        ${input.isBackfill ?? false}, ${input.backfillReason ?? null}, ${input.backfillNotes ?? null})
     returning id`;
 
+  // 组合套餐实例：每份一行，先建再写子项关联（U10）。
+  const bundleInstanceIds: string[] = [];
+  for (const plan of bundlePlans) {
+    const [inst] = await tx<{ id: string }[]>`
+      insert into order_bundle_instances
+        (org_id, location_id, customer_id, appointment_id, ticket_id, bundle_id,
+         template_version, name_snapshot, original_total_cents, bundle_price_cents,
+         discount_cents, extra_discount_cents, source, status)
+      values
+        (${ctx.orgId}, ${ctx.locationId}, ${customerId}, ${appt!.id}, null,
+         ${input.bundleSelections[plan.ref]!.bundleId}, ${plan.version},
+         ${jsonb(plan.nameSnapshot)}::jsonb, ${plan.originalTotalCents}, ${plan.bundlePriceCents},
+         ${plan.bundleDiscountCents}, ${plan.extraDiscountCents}, ${input.source}, 'active')
+      returning id`;
+    bundleInstanceIds.push(inst!.id);
+  }
+
   const itemIds: string[] = [];
   const overbookedItemIds: string[] = [];
 
   for (const [idx, item] of resolved.entries()) {
     const isOver = overbookedIdx.has(idx);
+    const bundleInstanceId = item.bundleRef !== undefined ? bundleInstanceIds[item.bundleRef]! : null;
     try {
       const [row] = await tx<{ id: string }[]>`
         insert into appointment_items
           (org_id, location_id, appointment_id, service_id, addon_ids, membership_id,
            is_request, resource_id, starts_at, ends_at, price_cents_snapshot,
-           duration_min, seq, overbooked, overbook_reason, overbook_note, details)
+           duration_min, seq, overbooked, overbook_reason, overbook_note, details,
+           bundle_instance_id, bundle_component_id, bundle_unit_index, bundle_list_price_cents)
         values
           (${ctx.orgId}, ${ctx.locationId}, ${appt!.id}, ${item.serviceId},
            ${item.addonIds}, ${item.membershipId}, ${item.isRequest}, ${item.resourceId},
@@ -434,7 +550,9 @@ export async function executeSingleAppointmentInTx(
            ${item.priceCents}, ${item.durationMin}, ${idx},
            ${isOver}, ${isOver ? input.override!.reason : null},
            ${isOver ? (input.override!.note ?? null) : null},
-           ${jsonb(item.details)}::jsonb)
+           ${jsonb(item.details)}::jsonb,
+           ${bundleInstanceId}, ${item.bundleComponentId ?? null},
+           ${item.bundleUnitIndex ?? null}, ${item.bundleListPriceCents ?? null})
         returning id`;
       itemIds.push(row!.id);
       if (isOver) overbookedItemIds.push(row!.id);
@@ -479,6 +597,7 @@ export async function executeSingleAppointmentInTx(
     appointmentId: appt!.id,
     itemIds,
     overbookedItemIds,
+    bundleInstanceIds,
     businessDate,
     offHoursOverride,
   };
@@ -495,6 +614,7 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
       source: input.source,
       itemCount: result.itemIds.length,
       overbooked: result.overbookedItemIds.length,
+      bundleCount: result.bundleInstanceIds.length,
       offHours: result.offHoursOverride,
       overrideReason: input.override?.reason ?? null,
       confirmationCode: input.guest?.confirmationCode ?? null,
@@ -505,6 +625,7 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
     appointmentId: result.appointmentId,
     itemIds: result.itemIds,
     overbookedItemIds: result.overbookedItemIds,
+    bundleInstanceIds: result.bundleInstanceIds,
     businessDate: result.businessDate,
   };
 });
@@ -539,6 +660,7 @@ registerHandler(AppointmentCreateBatch, async ({ input, ctx, tx, audit }: Handle
       customerId: item.customerId ?? null,
       walkInName: item.walkInName,
       items: item.serviceItems,
+      bundleSelections: [],
       partySize: 1,
       notes: item.notes,
       source: input.source,

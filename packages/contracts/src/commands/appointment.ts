@@ -48,13 +48,46 @@ const appointmentItemInput = z.object({
   priceCentsOverride: cents.optional(),
 });
 
+/**
+ * ⭐ 组合套餐选择（U10 / 计划 §4.3）。服务端按 `bundle.quote` 的展开顺序
+ * （seq → unitIndex）把套餐拆成执行子项，从 `startsAt` 起**按顺序**排时间，
+ * 每个子项用其标准时长（组成服务 + 包含加项）。前端不自行展开、不自算价。
+ */
+const bundleSelectionInput = z.object({
+  bundleId: uuid,
+  /** 客户端取到的模板版本；不一致则整单失败（`bundle_version_conflict`）。 */
+  expectedVersion: z.number().int().min(1).optional(),
+  /** 整个套餐第一个子项的开始时刻，其余子项顺排。 */
+  startsAt: z.string().datetime({ offset: true }),
+  /** 按展开顺序给各执行单元指派技师 / 资源 / 时长 / 落单要素；可短于单元数，其余留空。 */
+  unitOverrides: z.array(z.object({
+    membershipId: uuid.nullable().default(null),
+    resourceId: uuid.nullable().default(null),
+    durationMin: z.number().int().positive().max(600).optional(),
+    isRequest: z.boolean().default(false),
+    details: z.record(z.string(), z.unknown()).default({}),
+  })).max(40).default([]),
+  /** 额外购买、不在模板包含范围内的加项，按正常价追加（计划 §4.2）。 */
+  extraAddons: z.array(z.object({
+    ref: z.string().min(1).max(64),
+    /** 归属到哪个执行单元：`bundle.quote` 返回的 `unitKey`。 */
+    attachToUnit: z.string().min(1).max(80),
+    serviceId: uuid,
+    qty: z.number().int().min(1).max(20).default(1),
+  })).max(40).default([]),
+  extraDiscountCents: cents.nonnegative().default(0),
+  extraDiscountKind: z.enum(['manual', 'coupon']).default('manual'),
+});
+
 export const AppointmentCreate = defineCommand({
   name: 'appointment.create',
   input: z.object({
     customerId: uuid.nullable(),
     /** 匿名 walk-in：不给 customerId，只留个名字，事后可合并 */
     walkInName: z.string().max(120).optional(),
-    items: z.array(appointmentItemInput).min(1).max(20),
+    items: z.array(appointmentItemInput).max(20).default([]),
+    /** 组合套餐选择；与 `items` 至少有一个非空。买两份产生两个独立实例。 */
+    bundleSelections: z.array(bundleSelectionInput).max(10).default([]),
     partySize: z.number().int().positive().max(20).default(1),
     notes: z.string().max(2000).optional(),
     source: appointmentSource.default('desk'),
@@ -117,12 +150,17 @@ export const AppointmentCreate = defineCommand({
         smsOptIn: z.boolean().default(false),
       }),
     }).optional(),
+  }).refine((v) => v.items.length > 0 || v.bundleSelections.length > 0, {
+    message: 'items 与 bundleSelections 至少有一个非空',
+    path: ['items'],
   }),
   output: z.object({
     appointmentId: uuid,
     itemIds: z.array(uuid),
     /** 哪些 item 是超卖放行的，前台看板要高亮 */
     overbookedItemIds: z.array(uuid),
+    /** 本次创建的组合套餐实例 ID（按 bundleSelections 顺序）。 */
+    bundleInstanceIds: z.array(uuid),
     businessDate: z.string(), // 门店本地营业日 YYYY-MM-DD，按 business_day_cutoff 算
   }),
   permission: 'appointment.write',

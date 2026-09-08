@@ -138,21 +138,30 @@ export const bundleQuoteUnit = z.object({
   bundleNetCents: cents,
   extraDiscountCents: cents,
   netCents: cents,
+  /** 该执行单元的标准履约时长（组成服务 + 其包含加项的分钟数之和）。 */
+  durationMin: z.number().int(),
+  /** 该组成包含、随子项一起履约、不额外收费的 add-on 服务 ID（计划 §4.2）。 */
+  includedAddonIds: z.array(uuid),
 });
 export type BundleQuoteUnit = z.infer<typeof bundleQuoteUnit>;
 
 export const bundleQuoteResult = z.object({
   bundleId: uuid,
   version: z.number().int(),
+  /** 下单时锁定用的 i18n 名称快照。 */
+  nameSnapshot: z.record(z.string(), z.string()),
   units: z.array(bundleQuoteUnit),
   extraAddons: z.array(z.object({
     ref: z.string(),
     attachToUnit: z.string(),
+    /** 归属到第几个执行单元（`units` 的下标）。 */
+    unitOrdinal: z.number().int(),
     serviceId: uuid,
     qty: z.number().int(),
     listPriceCents: cents,
     extraDiscountCents: cents,
     netCents: cents,
+    durationMin: z.number().int(),
   })),
   originalTotalCents: cents,
   bundlePriceCents: cents,
