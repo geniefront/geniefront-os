@@ -49,6 +49,7 @@ export const bundle = {
   'bundle.fieldOnlineBookable': { 'zh-Hans': '允许在线预约', en: 'Allow online booking', ko: '온라인 예약 허용', es: 'Permitir reserva en línea', vi: 'Cho phép đặt trực tuyến' },
   'bundle.fieldOnlineBookableHint': { 'zh-Hans': '打开后，这个套餐会出现在门店官网的预约页。', en: 'When on, this bundle appears on your online booking page.', ko: '켜면 이 묶음 상품이 온라인 예약 페이지에 표시됩니다.', es: 'Si está activo, este paquete aparece en tu página de reservas en línea.', vi: 'Khi bật, gói này xuất hiện trên trang đặt lịch trực tuyến.' },
   'bundle.save': { 'zh-Hans': '保存', en: 'Save', ko: '저장', es: 'Guardar', vi: 'Lưu' },
+  'bundle.saving': { 'zh-Hans': '保存中…', en: 'Saving…', ko: '저장 중…', es: 'Guardando…', vi: 'Đang lưu…' },
   'bundle.saved': { 'zh-Hans': '组合套餐已保存', en: 'Bundle saved', ko: '묶음 상품을 저장했습니다', es: 'Paquete guardado', vi: 'Đã lưu gói' },
   'bundle.duplicate': { 'zh-Hans': '复制一份', en: 'Duplicate', ko: '복제', es: 'Duplicar', vi: 'Nhân bản' },
   'bundle.archive': { 'zh-Hans': '下架', en: 'Archive', ko: '내리기', es: 'Archivar', vi: 'Lưu trữ' },

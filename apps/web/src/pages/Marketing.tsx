@@ -70,6 +70,8 @@ import type {
 } from '@/features/marketing/types';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
+import { BundleManagerPanel } from '@/features/bundles/BundleManagerPanel';
+import { Package } from 'lucide-react';
 
 import type { TranslationKey } from '@/i18n';
 
@@ -641,10 +643,14 @@ function MarketingContent() {
 
       {/* 3. Five Core Marketing Pillars Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="w-full bg-white p-1 rounded-2xl border border-slate-200 shadow-xs grid grid-cols-2 sm:grid-cols-5 gap-1">
+        <TabsList className="w-full bg-white p-1 rounded-2xl border border-slate-200 shadow-xs grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1">
           <TabsTrigger value="packages" className="py-2.5 rounded-xl text-xs font-bold gap-1.5">
             <Ticket className="w-4 h-4" />
             <span>{t('crm.mktTabPackages')}</span>
+          </TabsTrigger>
+          <TabsTrigger value="bundles" className="py-2.5 rounded-xl text-xs font-bold gap-1.5">
+            <Package className="w-4 h-4" />
+            <span>{t('bundle.navLabel')}</span>
           </TabsTrigger>
           <TabsTrigger value="coupons" className="py-2.5 rounded-xl text-xs font-bold gap-1.5">
             <Tag className="w-4 h-4" />
@@ -850,6 +856,11 @@ function MarketingContent() {
               </div>
             )}
           </div>
+        </TabsContent>
+
+        {/* ── Tab: 组合套餐（U10）── */}
+        <TabsContent value="bundles" className="space-y-4 pt-4">
+          <BundleManagerPanel />
         </TabsContent>
 
         {/* ── Tab 2: 优惠券与折扣活动 ── */}

@@ -26,7 +26,10 @@ export interface BundleComponentDto {
 export interface BundleTemplateDto {
   id: string;
   name: string;
+  /** 原始多语言名称，供编辑器回填（避免整表替换时丢掉未展示的语言）。 */
+  nameI18n: Record<string, string>;
   description: string | null;
+  descriptionI18n: Record<string, string> | null;
   priceCents: number;
   originalTotalCents: number;
   bundleDiscountCents: number;
@@ -112,7 +115,9 @@ export async function loadBundleCatalog(
     return {
       id: b.id,
       name: pickText(b.name, ctx.locale, '—'),
+      nameI18n: (b.name ?? {}) as Record<string, string>,
       description: b.description ? pickText(b.description, ctx.locale, '') : null,
+      descriptionI18n: b.description ? (b.description as Record<string, string>) : null,
       priceCents: b.price_cents,
       originalTotalCents,
       bundleDiscountCents: Math.max(0, originalTotalCents - b.price_cents),

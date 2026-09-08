@@ -21,7 +21,9 @@ export interface BundleComponentView {
 export interface BundleTemplateView {
   id: string;
   name: string;
+  nameI18n: Record<string, string>;
   description: string | null;
+  descriptionI18n: Record<string, string> | null;
   priceCents: number;
   originalTotalCents: number;
   bundleDiscountCents: number;

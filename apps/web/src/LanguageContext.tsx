@@ -87,7 +87,8 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       loadSafe(() => import('./i18n/email')),
       loadSafe(() => import('./i18n/reviews')),
       loadSafe(() => import('./i18n/permissions')),
-    ]).then(([schedule, queue, rotation, checkout, finance, crm, settings, healthForms, tech, setup, support, email, reviews, permissions]) => {
+      loadSafe(() => import('./i18n/bundles')),
+    ]).then(([schedule, queue, rotation, checkout, finance, crm, settings, healthForms, tech, setup, support, email, reviews, permissions, bundle]) => {
       if (cancelled) return;
       clearTimeout(safetyTimer);
       const merged: DomainDict = {
@@ -106,6 +107,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         ...email?.email,
         ...reviews?.reviews,
         ...permissions?.permissions,
+        ...bundle?.bundle,
       };
       setTranslations(flatten(merged));
       setReady(true);
