@@ -431,7 +431,8 @@ describe('P5 结账 / 退款 / 提成对组合套餐安全', () => {
     const appt = await dispatch<{ appointmentId: string; bundleInstanceIds: string[] }>(
       'appointment.create',
       {
-        customerId, walkInName: customerId ? null : 'U10 P5',
+        customerId,
+        ...(customerId ? {} : { walkInName: 'U10 P5' }),
         items: loose.map((serviceId) => ({
           serviceId, startsAt, addonIds: [], membershipId: staffId,
         })),
