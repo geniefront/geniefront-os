@@ -23,6 +23,8 @@ export interface DraftItem {
   name: Record<string, string>;
   category: string | null;
   durationMin: number | null;
+  /** 同时需要几位技师（1–5）。null / undefined = 未设置，落地按 1。 */
+  staffCount?: number | null;
   priceCents: number | null;
   pricingUnit?: string | null;
   priceIsFrom: boolean;
@@ -201,6 +203,8 @@ export interface ServiceDraft {
   name: Record<string, string>;
   durationMin: number;
   basePriceCents: number;
+  /** 同时需要几位技师。null = 未设置，落地按 1。变体继承所属项目的值。 */
+  staffCount: number | null;
 }
 
 /**
@@ -234,6 +238,7 @@ export function toServiceDrafts(
       ),
       durationMin: dur(v.durationMin),
       basePriceCents: v.priceCents,
+      staffCount: item.staffCount ?? null,
     }));
   }
 
@@ -241,5 +246,6 @@ export function toServiceDrafts(
     name: { ...item.name },
     durationMin: dur(null),
     basePriceCents: item.priceCents ?? 0,
+    staffCount: item.staffCount ?? null,
   }];
 }

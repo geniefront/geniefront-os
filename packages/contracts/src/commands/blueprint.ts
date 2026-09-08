@@ -24,6 +24,8 @@ const draftItem = z.object({
   name: i18nText,
   category: z.string().max(120).nullable(),
   durationMin: z.number().int().min(1).max(600).nullable(),
+  /** 同时需要几位技师。null = 未设置，落地按 1（与 catalog.saveService 同范围）。 */
+  staffCount: z.number().int().min(1).max(5).nullable().default(null),
   priceCents: cents.min(0).max(500_000).nullable(),
   priceIsFrom: z.boolean(),
   variants: z.array(z.object({
@@ -214,6 +216,7 @@ export const ReviewBlueprintItem = defineCommand({
      */
     name: i18nText.optional(),
     durationMin: z.number().int().min(1).max(600).nullable().optional(),
+    staffCount: z.number().int().min(1).max(5).nullable().optional(),
     priceCents: cents.min(0).max(500_000).nullable().optional(),
     category: z.string().max(120).nullable().optional(),
     packageSessions: z.number().int().min(0).max(10_000).optional(),
@@ -267,6 +270,7 @@ export const ReviewBlueprintItems = defineCommand({
       decision: z.enum(['accepted', 'rejected']),
       name: i18nText.optional(),
       durationMin: z.number().int().min(1).max(600).nullable().optional(),
+      staffCount: z.number().int().min(1).max(5).nullable().optional(),
       priceCents: cents.min(0).max(500_000).nullable().optional(),
       category: z.string().max(120).nullable().optional(),
       packageSessions: z.number().int().min(0).max(10_000).optional(),

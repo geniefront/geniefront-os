@@ -34,6 +34,7 @@ interface BlueprintItem {
   name: Record<string, string>;
   category: string | null;
   durationMin: number | null;
+  staffCount: number | null;
   priceCents: number | null;
   confidenceBp: number;
   lowConfidence: boolean;
@@ -289,6 +290,7 @@ export function ImportWorkspace({
               name: item.name,
               category: item.category,
               durationMin: item.durationMin,
+              staffCount: item.staffCount,
               priceCents: item.priceCents,
               packageSessions: item.packageSessions,
               packageServiceNames: item.packageServiceNames,
@@ -412,6 +414,21 @@ export function ImportWorkspace({
                       <Input type="number" min="1" value={item.durationMin ?? 45} onChange={(event) => updateBlueprintItem(item.itemId, { durationMin: Math.max(1, Number(event.target.value) || 45) })} className="h-9 text-xs" />
                     )}
                     <Input type="number" min="0" step="0.01" value={item.priceCents === null ? '' : item.priceCents / 100} onChange={(event) => updateBlueprintItem(item.itemId, { priceCents: event.target.value === '' ? null : Math.round(Number(event.target.value) * 100) })} placeholder={t('setupImportPricePending')} className="h-9 text-xs" />
+                    {item.kind !== 'package' && (
+                      <label className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                        <span className="shrink-0">{t('setupImportStaffCount')}</span>
+                        <Input
+                          type="number"
+                          min="1"
+                          max="5"
+                          value={item.staffCount ?? 1}
+                          onChange={(event) => updateBlueprintItem(item.itemId, {
+                            staffCount: Math.min(5, Math.max(1, Number(event.target.value) || 1)),
+                          })}
+                          className="h-9 w-16 text-xs"
+                        />
+                      </label>
+                    )}
                   </div>
                   {item.lowConfidence && <Badge variant="warning">{t('setupImportReview')}</Badge>}
                 </div>

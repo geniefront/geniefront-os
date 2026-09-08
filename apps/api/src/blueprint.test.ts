@@ -288,6 +288,28 @@ describe('回填落地', () => {
     expect(rows[1]!.base_price_cents).toBe(5500);
   });
 
+  it('确认页设的技师人数透传到 services.staff_count；没设的按 1', async () => {
+    const id = await freshDraft();
+    const view = await withTenant(tenant, (tx) => loadBlueprint(tx, ctx, id));
+    const gel = view.items.find((i) => i.name['en'] === 'Gel Manicure')!;
+    const ped = view.items.find((i) => i.name['en'] === 'Deluxe Pedicure')!;
+
+    await run('blueprint.reviewItem', { itemId: gel.itemId, decision: 'accepted', staffCount: 2 });
+    await run('blueprint.reviewItem', { itemId: ped.itemId, decision: 'accepted' });
+
+    const out = await run<{ createdServiceIds: string[] }>(
+      'blueprint.apply', { blueprintId: id, fallbackDurationMin: 60 });
+
+    const rows = await withTenant(tenant, (tx) => tx<{
+      name: Record<string, string>; staff_count: number;
+    }[]>`
+      select name, staff_count from services
+      where id = any(${out.createdServiceIds}::uuid[])`);
+    const byName = new Map(rows.map((r) => [r.name['en'], r.staff_count]));
+    expect(byName.get('Gel Manicure')).toBe(2);
+    expect(byName.get('Deluxe Pedicure')).toBe(1);
+  });
+
   it('价目表上的分类跟着落地，同名只建一个', async () => {
     // 之前这里写死 category: null —— 分类只在确认页显示，一落地就丢了。
     // 结果是开单页面上三十几个项目排成一长条，前台滚半天才找到 Pedicure。

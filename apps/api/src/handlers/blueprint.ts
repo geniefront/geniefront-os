@@ -83,12 +83,12 @@ registerHandler(SaveBlueprintExtraction, async ({ input, ctx, tx, audit }: Handl
     await tx`
       insert into blueprint_items
         (org_id, location_id, blueprint_id, seq, kind, name, category,
-         duration_min, price_cents, price_is_from, variants,
+         duration_min, staff_count, price_cents, price_is_from, variants,
          package_sessions, package_service_names, package_valid_days,
          confidence_bp, source_seq, bbox)
       values (${ctx.orgId}, ${ctx.locationId}, ${input.blueprintId}, ${seq++},
               ${it.kind}, ${jsonb(it.name)}::jsonb, ${it.category},
-              ${it.durationMin}, ${it.priceCents}, ${it.priceIsFrom},
+              ${it.durationMin}, ${it.staffCount ?? null}, ${it.priceCents}, ${it.priceIsFrom},
               ${jsonb(it.variants)}::jsonb, ${it.packageSessions},
               ${jsonb(it.packageServiceNames)}::jsonb, ${it.packageValidDays},
               ${it.confidenceBp}, ${it.sourceSeq},
@@ -206,7 +206,8 @@ registerHandler(ReviewBlueprintItem, async ({ input, ctx, tx, audit }: HandlerAr
   // 落地时 source 标记不同（宪法第 6 条）。
   const edited = input.name !== undefined
     || input.priceCents !== undefined
-    || input.durationMin !== undefined || input.category !== undefined
+    || input.durationMin !== undefined || input.staffCount !== undefined
+    || input.category !== undefined
     || input.packageSessions !== undefined || input.packageServiceNames !== undefined
     || input.packageValidDays !== undefined;
 
@@ -233,6 +234,7 @@ registerHandler(ReviewBlueprintItem, async ({ input, ctx, tx, audit }: HandlerAr
       name_auto = ${input.name ? jsonb(nextAuto) : jsonb(nextAuto)}::jsonb,
       price_cents = ${input.priceCents === undefined ? tx`price_cents` : input.priceCents},
       duration_min = ${input.durationMin === undefined ? tx`duration_min` : input.durationMin},
+      staff_count = ${input.staffCount === undefined ? tx`staff_count` : input.staffCount},
       category = ${input.category === undefined ? tx`category` : input.category},
       package_sessions = ${input.packageSessions === undefined ? tx`package_sessions` : input.packageSessions},
       package_service_names = ${input.packageServiceNames === undefined ? tx`package_service_names` : jsonb(input.packageServiceNames)}::jsonb,
@@ -374,12 +376,13 @@ registerHandler(ReviewBlueprintItems, async ({ input, ctx, tx, audit }: HandlerA
         decision = ${item.decision},
         name = coalesce(${item.name ? jsonb(item.name) : null}::jsonb, name),
         duration_min = case when ${item.durationMin !== undefined} then ${item.durationMin ?? null} else duration_min end,
+        staff_count = case when ${item.staffCount !== undefined} then ${item.staffCount ?? null} else staff_count end,
         price_cents = case when ${item.priceCents !== undefined} then ${item.priceCents ?? null} else price_cents end,
         category = case when ${item.category !== undefined} then ${item.category ?? null} else category end,
         package_sessions = case when ${item.packageSessions !== undefined} then ${item.packageSessions ?? 0} else package_sessions end,
         package_service_names = case when ${item.packageServiceNames !== undefined} then ${item.packageServiceNames ? jsonb(item.packageServiceNames) : jsonb([])}::jsonb else package_service_names end,
         package_valid_days = case when ${item.packageValidDays !== undefined} then ${item.packageValidDays ?? null} else package_valid_days end,
-        edited_at = case when ${Boolean(item.name || item.durationMin !== undefined || item.priceCents !== undefined || item.category !== undefined || item.packageSessions !== undefined || item.packageServiceNames !== undefined || item.packageValidDays !== undefined)} then now() else edited_at end
+        edited_at = case when ${Boolean(item.name || item.durationMin !== undefined || item.staffCount !== undefined || item.priceCents !== undefined || item.category !== undefined || item.packageSessions !== undefined || item.packageServiceNames !== undefined || item.packageValidDays !== undefined)} then now() else edited_at end
       where id = ${item.itemId} and blueprint_id = ${input.blueprintId}
         and location_id = ${ctx.locationId}
       returning id`;
@@ -402,12 +405,12 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
 
   const rows = await tx<{
     id: string; kind: string; name: unknown; category: string | null;
-    duration_min: number | null;
+    duration_min: number | null; staff_count: number | null;
     price_cents: number | null; price_is_from: boolean; variants: unknown;
     package_sessions: number; package_service_names: unknown; package_valid_days: number | null;
     confidence_bp: number; source_seq: number | null; edited_at: Date | null;
   }[]>`
-    select id, kind, name, category, duration_min, price_cents, price_is_from, variants,
+    select id, kind, name, category, duration_min, staff_count, price_cents, price_is_from, variants,
            package_sessions, package_service_names, package_valid_days,
            confidence_bp, source_seq, edited_at
     from blueprint_items
@@ -577,6 +580,7 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
       name: nameMap,
       category: r.category,
       durationMin: r.duration_min,
+      staffCount: r.staff_count,
       priceCents: r.price_cents,
       priceIsFrom: r.price_is_from,
       variants: (r.variants as DraftItem['variants']) ?? [],
@@ -588,11 +592,14 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
     for (const draft of toServiceDrafts(item, input.fallbackDurationMin)) {
       const [svc] = await tx<{ id: string }[]>`
         insert into services
-          (org_id, location_id, category_id, name, duration_min, base_price_cents,
+          (org_id, location_id, category_id, name, duration_min, staff_count, base_price_cents,
            taxable, online_bookable, is_addon, active)
         values (${ctx.orgId}, ${ctx.locationId}, ${categoryId},
                 ${jsonb(draft.name)}::jsonb,
-                ${draft.durationMin}, ${draft.basePriceCents},
+                ${draft.durationMin},
+                -- 确认页设过的技师人数透传；没设过按 1（与 services.staff_count 默认一致，U04）。
+                ${draft.staffCount ?? 1},
+                ${draft.basePriceCents},
                 -- ⭐ 模型判断出来的「这是加项」（05 §5.3）一直到这里才有地方存。
                 -- 丢掉它，电话 AI 就会把「热石 +$15」当成一个完整项目报给客人。
                 -- 普通导入项默认「支持网上预约」，加项不进独立网约目录（U04 / §7.2）。

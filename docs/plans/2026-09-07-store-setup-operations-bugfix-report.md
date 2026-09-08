@@ -1387,6 +1387,62 @@ batch #3 抽出的 `resolveInitialDateTime` 对「营业到次日凌晨、此刻
 
 ---
 
+## 批次 #16 — W4 尾巴：拍照开店草案行支持「同时技师人数」（U04 / §7.2）
+
+**日期**：2026-09-07
+**改动范围**：1 个新迁移 `sql/0116` + drizzle schema + `@gf/ai`（`DraftItem` / `ServiceDraft` / `toServiceDrafts` + 测试）+ `packages/contracts/src/commands/blueprint.ts`（`draftItem` / `ReviewBlueprintItem` / `ReviewBlueprintItems`）+ `apps/api/src/handlers/blueprint.ts`（3 处：`saveExtraction` 入库、`reviewItem*` 更新、`apply` 落地）+ `apps/api/src/queries/blueprint.ts`（DTO）+ `apps/web/src/features/setup/ImportWorkspace.tsx` + `i18n/setup.ts`（+1 词条）+ `blueprint.test.ts`（+1 用例）。
+
+### 这一刀解决了什么
+
+计划 §7.2 / §7.1：`blueprint.apply` 建 `services` 时**根本没写 `staff_count`**，全部吃 DB
+默认 1。价目表上印着「双人四手」的项目导入后只占一个技师容量，排期校验会放行本不该
+放的单。批次 #6/#9 做了「批量设人数」但没打通导入草案这条链（handoff W4 交接项：
+「blueprint 草稿模型无 `staff_count` 列 → 导入一律落 1」）。
+
+### 改了什么
+
+- **`sql/0116`**：`blueprint_items` 加 `staff_count integer`（**可空**）+ check `null or 1..5`
+  （对齐 `catalog.saveService` 契约）。纯加列，不回填。`null` = 老板没在确认页设 → 落地按 1。
+- **`@gf/ai`**：`DraftItem.staffCount?` / `ServiceDraft.staffCount`；`toServiceDrafts` 透传，
+  变体继承所属项目的值。
+- **契约**：`draftItem` 加 `staffCount`（`.nullable().default(null)`）；`ReviewBlueprintItem` /
+  `ReviewBlueprintItems` 各加可选 `staffCount`，语义与 `durationMin` 一致（`undefined` = 不改、
+  `null` = 清空回落 1），并计入 `editedAt` 判定。
+- **handler**：`saveExtraction` 入库带 `staff_count`（模型一般不返回 → null）；两个 review handler
+  `staff_count = case when provided then value else keep end`；`apply` 的 `select` 取 `staff_count`、
+  `services` insert 写 `${draft.staffCount ?? 1}`。
+- **前端**：`ImportWorkspace` 确认页每个非套餐行加一个 1–5 的「同时技师人数」输入，走
+  `updateBlueprintItem`（自动进 `editedItemIds`）→ `blueprint.reviewItems` payload。
+
+### 明确未覆盖 / 交接
+
+1. **模型不推断双技师**：`staffCount` 不进提取 prompt（计划 §7.2「AI 无可靠依据时不猜双技师，
+   交给店主确认」）—— 提取阶段恒为 null，只由老板在确认页设。
+2. **套餐（package）行不设人数**：套餐落地走 `blueprint_packages`，不是 `services` 单行；
+   套餐的技师人数由其绑定的成员项目决定，本批不在套餐行加输入。
+3. **批量命令逐字段乐观锁**（`services.updated_at`）仍未做（handoff W4 另一项）。
+
+### 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 迁移（本机 55322，回退到 0115 再全新应用） | `MIGRATION_DATABASE_URL=<local> pnpm db:migrate` | `0116 … OK`；`✓ RLS 覆盖检查通过` |
+| `@gf/ai` 全量 | `pnpm --filter @gf/ai test` | 12 files / 123 passed（含 `toServiceDrafts` 透传新断言 + 既有断言补 `staffCount: null`） |
+| blueprint 套件 | `vitest run src/blueprint.test.ts` | 20 passed（+1：确认页设 2 → `services.staff_count = 2`，没设 → 1） |
+| 类型 | `@gf/contracts` / `@gf/ai` / `@gf/db` / `@gf/api` / `@gf/web` `tsc --noEmit` | 全部 exit 0 |
+| Web 全量 + i18n | `pnpm --filter @gf/web test` / `vitest run src/i18n` | 59 files / 341 passed；i18n 7 passed |
+| 守卫 | `pnpm lint:guards` | ✓ |
+| 完整 API 套件（isolated 库） | `pnpm --filter @gf/api test` | 87 files / 1190 passed（无 flaky） |
+
+未做：浏览器 / 真机验证（确认页需登录整套栈 + 传图）。未在 staging / 生产执行迁移。
+
+### 回退
+
+`git revert` 本 commit；`sql/0116` 回退：`alter table blueprint_items drop constraint
+blueprint_items_staff_count, drop column staff_count`。落地行为回到「一律 1」。
+
+---
+
 ## 会话交接 —— 批次 #7–#11 之后剩余（给下一位）
 
 本轮会话完成 W2 / W2b / W4 / W6a / W6b(U11 部分) / W3b(U06)，`main` HEAD = `d61ebc2`。
@@ -1435,9 +1491,9 @@ batch #3 抽出的 `resolveInitialDateTime` 对「营业到次日凌晨、此刻
 
 - **W2**：~~`user.updateProfile` 技师自助改本人技能仍自由文本 + 自动建 `skills`~~ —— **✅ 批次 #14 完成**
   （契约加 `skillIds`、handler 收成「解析现存项 / 否则拒绝」、`Profile.tsx` 改字典勾选）。行业预设一键生成属 W1。
-- **W4**：blueprint 草稿模型无 `staff_count` 列 → 导入一律落 1，草稿行内人数编辑器待做
-  （需 blueprint schema 迁移 + 契约 + `toServiceDrafts` 透传）；~~服务分类栏窄屏下拉~~
-  **✅ 批次 #15**（窄屏 `<select>` / 宽屏横向滚动 chip）；批量命令逐字段乐观锁需 `services.updated_at`（未做）。
+- **W4**：~~blueprint 草稿人数编辑器~~ **✅ 批次 #16**（`sql/0116` 加 `blueprint_items.staff_count`
+  + `toServiceDrafts` 透传 + 确认页 1–5 输入）；~~服务分类栏窄屏下拉~~ **✅ 批次 #15**；
+  批量命令逐字段乐观锁需 `services.updated_at`（**未做** —— W4 唯一剩项）。
 - **W6a**：~~iPad 健康表没有门店 `today` → 不判未来日~~ **✅ 批次 #15**
   （`HealthFormPage` 从 `storeInfo.timezone` 用 `Intl` 取门店日历今天，传 `BirthdateField.today` + `parseBirthdate`）。
   健康表模板目前无 `date` 题型，新增时复用 `BirthdateField` + `@gf/contracts.parseBirthdate`。

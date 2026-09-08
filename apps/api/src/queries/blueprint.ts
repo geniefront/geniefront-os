@@ -42,6 +42,7 @@ export interface BlueprintItemView {
   displayName: string;
   category: string | null;
   durationMin: number | null;
+  staffCount: number | null;
   priceCents: number | null;
   priceIsFrom: boolean;
   variants: Array<{ label: string; priceCents: number; durationMin: number | null }>;
@@ -122,13 +123,14 @@ export async function loadBlueprint(
 
   const rows = await tx<{
     id: string; kind: string; name: unknown; category: string | null;
-    duration_min: number | null; price_cents: number | null; price_is_from: boolean;
+    duration_min: number | null; staff_count: number | null;
+    price_cents: number | null; price_is_from: boolean;
     seq: number; name_auto: unknown;
     variants: unknown; confidence_bp: number; source_seq: number | null;
     package_sessions: number; package_service_names: unknown; package_valid_days: number | null;
     bbox: unknown; decision: string; edited_at: Date | null;
   }[]>`
-    select id, seq, kind, name, name_auto, category, duration_min, price_cents,
+    select id, seq, kind, name, name_auto, category, duration_min, staff_count, price_cents,
            price_is_from, variants, package_sessions, package_service_names, package_valid_days,
            confidence_bp, source_seq, bbox, decision, edited_at
     from blueprint_items where blueprint_id = ${blueprintId} order by seq`;
@@ -140,6 +142,7 @@ export async function loadBlueprint(
     displayName: pickText(r.name, ctx.locale),
     category: r.category,
     durationMin: r.duration_min,
+    staffCount: r.staff_count,
     priceCents: r.price_cents,
     priceIsFrom: r.price_is_from,
     variants: (r.variants as BlueprintItemView['variants']) ?? [],

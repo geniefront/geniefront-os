@@ -185,8 +185,17 @@ describe('toServiceDrafts', () => {
 
   it('没印时长的用兜底值 —— 逼老板给 38 个项目逐个填时长，他会放弃', () => {
     expect(toServiceDrafts(base, 45)).toEqual([
-      { name: { en: 'Gel Manicure' }, durationMin: 45, basePriceCents: 4500 },
+      { name: { en: 'Gel Manicure' }, durationMin: 45, basePriceCents: 4500, staffCount: null },
     ]);
+  });
+
+  it('确认页设过的技师人数透传（变体继承）', () => {
+    const out = toServiceDrafts({
+      ...base,
+      staffCount: 2,
+      variants: [{ label: 'Long', priceCents: 5500, durationMin: 60 }],
+    }, 30);
+    expect(out.every((d) => d.staffCount === 2)).toBe(true);
   });
 
   it('变体拆成多个项目，各自的时长优先于兜底值', () => {
@@ -199,8 +208,8 @@ describe('toServiceDrafts', () => {
     }, 30);
 
     expect(out).toEqual([
-      { name: { en: 'Gel Manicure · Short' }, durationMin: 30, basePriceCents: 4500 },
-      { name: { en: 'Gel Manicure · Long' }, durationMin: 60, basePriceCents: 5500 },
+      { name: { en: 'Gel Manicure · Short' }, durationMin: 30, basePriceCents: 4500, staffCount: null },
+      { name: { en: 'Gel Manicure · Long' }, durationMin: 60, basePriceCents: 5500, staffCount: null },
     ]);
   });
 

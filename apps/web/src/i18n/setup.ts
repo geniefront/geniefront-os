@@ -86,6 +86,7 @@ export const setup = {
   setupImportDraftLabel: { 'zh-Hans': '价目表 · {p0}', en: 'Price list · {p0}', ko: '가격표 · {p0}', vi: 'Bảng giá · {p0}', es: 'Lista de precios · {p0}' },
   setupImportUncategorized: { 'zh-Hans': '未分类', en: 'Uncategorized', ko: '미분류', vi: 'Chưa phân loại', es: 'Sin categoría' },
   setupImportPricePending: { 'zh-Hans': '价格待确认', en: 'Price to confirm', ko: '가격 확인 필요', vi: 'Giá cần xác nhận', es: 'Precio por confirmar' },
+  setupImportStaffCount: { 'zh-Hans': '同时技师人数', en: 'Technicians at once', ko: '동시 시술 인원', vi: 'Số kỹ thuật viên cùng lúc', es: 'Técnicos a la vez' },
   setupImportMinutes: { 'zh-Hans': '{count} 分钟', en: '{count} min', ko: '{count}분', vi: '{count} phút', es: '{count} min' },
   setupImportReview: { 'zh-Hans': '请核对', en: 'Review', ko: '확인 필요', vi: 'Cần kiểm', es: 'Revisar' },
   setupImportStaff: { 'zh-Hans': '官网员工（默认不导入）', en: 'Staff from the website (off by default)', ko: '웹사이트 직원 (기본 미도입)', vi: 'Nhân viên trên website (mặc định không nhập)', es: 'Personal de la web (desactivado)' },

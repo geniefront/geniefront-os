@@ -133,6 +133,8 @@ export const blueprintItems = pgTable('blueprint_items', {
   /** 价目表上的分类标题，如 "Manicure" / "足疗"。不强制，很多小店没有分类 */
   category: text('category'),
   durationMin: integer('duration_min'),
+  /** 同时需要几位技师（1–5）。null = 未在确认页设置，落地按 1（sql/0116）。 */
+  staffCount: integer('staff_count'),
   priceCents: integer('price_cents'),
   /** "$25 & up" / "from $40" —— 开放价（05 §5.3） */
   priceIsFrom: boolean('price_is_from').notNull().default(false),
