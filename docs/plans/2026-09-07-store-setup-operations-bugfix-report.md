@@ -1605,3 +1605,39 @@ drop function gf_touch_updated_at(); alter table services drop column updated_at
 下一个迁移号 `0115`（`0114` 已用）。跑迁移到本地必须显式覆盖 `MIGRATION_DATABASE_URL` /
 `APP_DB_PASSWORD` 指向本机 55322，否则命中 staging。API 集成测试
 `DATABASE_TEST_TARGET=isolated pnpm --filter @gf/api exec vitest run <file>`。
+
+---
+
+## 会话交接 —— 批次 #12–#18 之后（第二轮，给下一位）
+
+用户指令：「除了 U01 / U12 / U10 另找 AI，其余全改」。本轮把 #7–#11 交接单里的
+**两大项 + 全部次要项**做完，`main` HEAD = `74f1045`。逐项：
+
+| 项 | 批次 | 迁移 |
+|---|---|---|
+| U09 平台共享号 routingScope（W0b） | #12 | `sql/0115` |
+| U03 跨午夜营业 day-offset（W3c） | #13 | — |
+| `user.updateProfile` 技能 ID-only（W2 尾） | #14 | — |
+| U04 分类栏窄屏下拉 + iPad 生日 today（W4 / W6a 小修） | #15 | — |
+| blueprint 草稿「同时技师人数」（W4 尾） | #16 | `sql/0116` |
+| 详情「在看板处理」`?focus=` 定位（U06 尾） | #17 | — |
+| 批量编辑逐项乐观锁（W4 收尾） | #18 | `sql/0117` |
+
+下一个迁移号 **`0118`**。
+
+### 唯一剩下没做的（本轮判定为「大改动、无浏览器验证路径、零用户可见收益」，故不硬做）
+
+**看板动作编排 hook 完整抽取（U06 / §6.4）**：`Queue.tsx`（~2670 行）里的
+CheckIn / Start / Finish / Checkout 四个弹窗的编排状态与 handler 仍在页面里。理想是抽成
+`useQueueActions()` hook，让预约详情抽屉能直接调用同一套命令编排（而不是像 #17 那样深链跳
+`/queue`）。**没做的理由**：这是纯结构重构、零行为变化，而 `Queue.tsx` 状态极密、
+现有测试对弹窗编排覆盖浅，抽错一处会静默弄坏整个操作板，本会话又没有登录整套栈的浏览器
+验证路径。深链方案（#17）已把「详情 → 看板执行」这条路打通到可用。
+
+**连带项**：详情返回的仍是「下一步单个主动作 + 阻塞原因」（与看板主按钮同一函数），
+不是全量 `allowedActions` 数组 —— 次要动作（改期 / 加项 / 取消）仍是抽屉里各自的按钮。
+这一项依赖上面的 hook 抽取，一起做。
+
+入口：`apps/web/src/pages/Queue.tsx`（`checkInModal` / `startServiceModal` / `completeServiceModal` /
+`checkoutModal` 四组 state + `handleConfirmCheckIn` 等）、`apps/web/src/pages/queue/modals/*`、
+`apps/web/src/components/AppointmentDrawer.tsx`（`adGoToBoard` 按钮那块）。
