@@ -1291,6 +1291,53 @@ batch #3 抽出的 `resolveInitialDateTime` 对「营业到次日凌晨、此刻
 
 ---
 
+## 批次 #14 — W2 尾巴：`user.updateProfile` 技能改 ID-only（技师自助面）
+
+**日期**：2026-09-07
+**改动范围**：`packages/contracts/src/commands/profile.ts`（加 `skillIds`）+ `apps/api/src/handlers/profile.ts`（技能同步重写）+ `apps/api/src/queries/profile.ts`（DTO 加 `skillIds` / `skillDirectory`）+ `apps/web/src/features/profile/types.ts` + `apps/web/src/pages/Profile.tsx`（技能区改字典勾选）+ `apps/web/src/i18n/settings.ts`（+3 词条、-4 死词条）+ `profile_and_notifications.test.ts`（+1 用例、既有用例改造）。无 DB 迁移。
+
+### 这一刀解决了什么
+
+批次 #7 把 `staff.saveProfile` 的所有调用方收口成「只从本店技能字典按 ID 选、服务端不再据自由文本新建」，但**留了一个口子**：技师自助面 `user.updateProfile`（`handlers/profile.ts`）仍按自由文本解析，匹配不到就 `insert into skills` 现场建字典项。任何技师在「个人资料 → 接单设置」里敲一个新词就能往门店技能字典塞行。
+
+### 改了什么
+
+**1. 契约 `UpdateUserProfile`**：加 `skillIds: uuid[].optional()`。`skills` 自由文本保留但语义收窄（见 handler）。
+
+**2. `handlers/profile.ts` 技能同步**（与批次 #7 `staff.saveProfile` 同一套）：
+- `skillIds` 权威：校验全部属于本店 + `active`（或本人已关联的停用项），否则 `invalid_or_inactive_skill`。
+- `skills` 自由文本：只按 `key` / 规范化 `name` 解析现存项，**删掉 `insert into skills`**；解析不到 → `unknown_skill`；停用且非已关联 → `invalid_or_inactive_skill`。
+- 两者取并集后 `delete from staff_skills` 重建；`staff_profiles.skills` 反规范化数组按最终集合的 zh-Hans 名重写（读取层顺序保持一致）。
+
+**3. `queries/profile.ts`**：`staffInfo` 加 `skillIds`（`staff_skills` 里的 id）+ `skillDirectory`（本店 `active` 技能 + 本人已关联的停用项，`{ id, name, active }`）。
+
+**4. `Profile.tsx`**：删 `PRESET_SALON_SKILLS` / `PRESET_SKILL_LABEL_KEYS` / `presetSkillLabel` / 自定义技能输入框 / `handleAddSkill`；技能区改为「从 `skillDirectory` 搜索 + 勾选」，`skillIds` 状态，提交只发 `skillIds`。字典为空显示「先在门店技能设置里添加」提示（复用 `rotation.empDirectoryEmptyHint`）。
+
+### 明确未覆盖 / 交接给下一位
+
+1. **旧客户端仍可发 `skills` 自由文本**：契约保留该字段是为兼容；行为已收成「解析现存项，否则拒绝」。等所有端确认走 `skillIds` 后可在契约层移除 `skills`。
+2. **技师端（`apps/tech` / TechProfilePage）只读展示技能**，未涉及编辑，本批未动。
+3. **行业预设一键生成技能字典**（计划 §5.2）属 W1 向导，未做。
+4. **`staff_profiles.skills` 反规范化数组**仍在维护（读取层 `legacy_skills` 排序依赖它）；长期可只靠 `staff_skills` + 查询侧 `jsonb_agg`。
+
+### 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 类型 | `@gf/contracts` / `@gf/api` / `@gf/web` `tsc --noEmit` | 全部 exit 0 |
+| 个人资料后端套件 | `vitest run src/profile_and_notifications.test.ts` | 14 passed（含新增「自由文本未知值拒绝 + 不新建字典」「对得上字典名/key 仍解析」） |
+| Web 全量单测 | `pnpm --filter @gf/web test` | 59 files / 341 passed |
+| i18n 完整性 | `vitest run src/i18n` | 7 passed |
+| 守卫 | `pnpm lint:guards` | ✓ |
+
+未做：浏览器 / 真机验证（Profile 页技能勾选需登录整套栈）。
+
+### 回退
+
+`git revert` 本 commit。契约去 `skillIds`；`handlers/profile.ts` 恢复旧自由文本 + 自动建项块；`queries/profile.ts` 去 `skillIds` / `skillDirectory`；`Profile.tsx` 与 `settings.ts` 恢复。无数据 / 迁移影响。
+
+---
+
 ## 会话交接 —— 批次 #7–#11 之后剩余（给下一位）
 
 本轮会话完成 W2 / W2b / W4 / W6a / W6b(U11 部分) / W3b(U06)，`main` HEAD = `d61ebc2`。
@@ -1337,8 +1384,8 @@ batch #3 抽出的 `resolveInitialDateTime` 对「营业到次日凌晨、此刻
 
 ### 3. 本轮各批次留下的次要项（非阻塞，随相关大包做）
 
-- **W2**：`user.updateProfile`（技师自助改本人技能，`handlers/profile.ts`）仍自由文本 + 自动建
-  `skills` —— 独立自助面，改 ID-only 是带 UI 的子项目。行业预设一键生成属 W1。
+- **W2**：~~`user.updateProfile` 技师自助改本人技能仍自由文本 + 自动建 `skills`~~ —— **✅ 批次 #14 完成**
+  （契约加 `skillIds`、handler 收成「解析现存项 / 否则拒绝」、`Profile.tsx` 改字典勾选）。行业预设一键生成属 W1。
 - **W4**：blueprint 草稿模型无 `staff_count` 列 → 导入一律落 1，草稿行内人数编辑器待做
   （需 blueprint schema 迁移 + 契约 + `toServiceDrafts` 透传）；服务分类栏窄屏可搜索下拉
   （batch #6 只做了 `flex-wrap`）→ 与 W6b iPad 一起；批量命令逐字段乐观锁需 `services.updated_at`。

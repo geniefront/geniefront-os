@@ -67,36 +67,71 @@ registerHandler(UpdateUserProfile, async ({ input, ctx, tx, audit }: HandlerArgs
         display_name = coalesce(${displayNameJson}::jsonb, display_name),
         nickname = coalesce(${input.nickname ?? null}, nickname),
         is_bookable = coalesce(${input.isBookable ?? null}, is_bookable),
-        max_concurrent_appointments = coalesce(${input.maxConcurrentAppointments ?? null}, max_concurrent_appointments),
-        skills = coalesce(${input.skills ?? null}, skills)
+        max_concurrent_appointments = coalesce(${input.maxConcurrentAppointments ?? null}, max_concurrent_appointments)
       where membership_id = ${ctx.membershipId}`;
 
-    // Keep the normalized skill catalog authoritative for scheduling and
-    // assignment while preserving the legacy array for older clients.
-    if (input.skills !== undefined) {
-      await tx`delete from staff_skills where membership_id = ${ctx.membershipId}`;
-      for (const rawName of input.skills) {
-        const skillName = rawName.trim();
-        if (!skillName) continue;
-        const [existingSkill] = await tx<{ id: string }[]>`
-          select id from skills
-          where location_id = ${ctx.locationId}
-            and (key = ${skillName} or name->>'zh-Hans' = ${skillName} or name->>'en' = ${skillName})
-          limit 1`;
-        let skillId = existingSkill?.id;
-        if (!skillId) {
-          const [createdSkill] = await tx<{ id: string }[]>`
-            insert into skills (org_id, location_id, key, name)
-            values (${ctx.orgId}, ${ctx.locationId}, ${skillName},
-                    ${jsonb({ en: skillName, 'zh-Hans': skillName })}::jsonb)
-            returning id`;
-          skillId = createdSkill!.id;
+    /*
+     * 技能同步 —— 与 `staff.saveProfile`（sql/0114 / 批次 #7）同一条纪律：
+     *   · `skillIds` 是权威入口，校验本店 + 可用（active 或本人已关联）；
+     *   · `skills` 自由文本只解析现存项、**不再新建**，解析不到即拒绝。
+     * 自助编辑面不承担创建门店技能字典的职责。
+     */
+    if (input.skillIds !== undefined || input.skills !== undefined) {
+      const priorSkills = await tx<{ skill_id: string }[]>`
+        select skill_id from staff_skills where membership_id = ${ctx.membershipId}`;
+      const heldIds = new Set(priorSkills.map((s) => s.skill_id));
+      const resolvedIds = new Set<string>();
+
+      if (input.skillIds) {
+        const uniqueIds = [...new Set(input.skillIds)];
+        if (uniqueIds.length > 0) {
+          const allowed = await tx<{ id: string }[]>`
+            select sk.id from skills sk
+            where sk.location_id = ${ctx.locationId} and sk.id = any(${uniqueIds})
+              and (sk.active or sk.id = any(${[...heldIds]}))`;
+          if (allowed.length !== uniqueIds.length) {
+            throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'invalid_or_inactive_skill' } });
+          }
+          for (const id of uniqueIds) resolvedIds.add(id);
         }
+      }
+
+      for (const rawName of input.skills ?? []) {
+        const wanted = rawName.trim();
+        if (!wanted) continue;
+        const [existingSkill] = await tx<{ id: string; active: boolean }[]>`
+          select id, active from skills
+          where location_id = ${ctx.locationId}
+            and (key = ${wanted}
+                 or lower(btrim(name->>'zh-Hans')) = ${wanted.toLowerCase()}
+                 or lower(btrim(name->>'en')) = ${wanted.toLowerCase()})
+          limit 1`;
+        if (!existingSkill) {
+          throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'unknown_skill' } });
+        }
+        if (!existingSkill.active && !heldIds.has(existingSkill.id)) {
+          throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'invalid_or_inactive_skill' } });
+        }
+        resolvedIds.add(existingSkill.id);
+      }
+
+      await tx`delete from staff_skills where membership_id = ${ctx.membershipId}`;
+      for (const skillId of resolvedIds) {
         await tx`
           insert into staff_skills (membership_id, skill_id, proficiency)
           values (${ctx.membershipId}, ${skillId}, 1)
           on conflict do nothing`;
       }
+
+      // 反规范化的 legacy 数组按最终集合的 zh-Hans 名重写，保持读取层顺序一致。
+      const names = resolvedIds.size > 0
+        ? await tx<{ name: string }[]>`
+            select coalesce(name->>'zh-Hans', name->>'en', key) as name
+            from skills where id = any(${[...resolvedIds]}) order by key`
+        : [];
+      await tx`
+        update staff_profiles set skills = ${names.map((n) => n.name)}
+        where membership_id = ${ctx.membershipId}`;
     }
   }
 
@@ -110,6 +145,7 @@ registerHandler(UpdateUserProfile, async ({ input, ctx, tx, audit }: HandlerArgs
       isBookable: input.isBookable,
       maxConcurrentAppointments: input.maxConcurrentAppointments,
       skills: input.skills,
+      skillIds: input.skillIds,
     },
   });
 

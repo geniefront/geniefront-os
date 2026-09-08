@@ -85,6 +85,12 @@ describe('个人资料与通知中心全量功能后端测试', () => {
   // ───────────────────────────────────────────────────────── 1. 个人资料与账号管理
   describe('1. 个人资料与账号管理 (Profile & Identity)', () => {
     it('user.updateProfile 更新个人姓名、昵称、手机号、技能与接单设置', async () => {
+      // 技能一律走本店技能字典 ID（sql/0114 / 批次 #7 契约），自助端不新建
+      const dir = await withTenant(ownerTenant(), (tx) => tx<{ id: string; key: string }[]>`
+        select id, key from skills where location_id = ${NAIL_LOC} order by key`);
+      const gel = dir.find((s) => s.key === 'gel')!;
+      const pedicure = dir.find((s) => s.key === 'pedicure')!;
+
       const res = await dispatch<{ userId: string; updated: boolean }>(
         'user.updateProfile',
         {
@@ -96,7 +102,7 @@ describe('个人资料与通知中心全量功能后端测试', () => {
           timezone: 'America/New_York',
           isBookable: true,
           maxConcurrentAppointments: 2,
-          skills: ['日式光疗美甲', '手足精油SPA', '前台店务调度'],
+          skillIds: [gel.id, pedicure.id],
         },
         ownerCtx,
       );
@@ -110,7 +116,37 @@ describe('个人资料与通知中心全量功能后端测试', () => {
       expect(profile.phone).toBe('+15550192834');
       expect(profile.staffInfo?.isBookable).toBe(true);
       expect(profile.staffInfo?.maxConcurrentAppointments).toBe(2);
-      expect(profile.staffInfo?.skills).toEqual(['日式光疗美甲', '手足精油SPA', '前台店务调度']);
+      expect(new Set(profile.staffInfo?.skillIds)).toEqual(new Set([gel.id, pedicure.id]));
+      expect(profile.staffInfo?.skills.slice().sort()).toEqual(['手足 SPA', '甲油胶彩绘']);
+      // 字典给出的是本店实际技能，含刚勾选的两项
+      expect(profile.staffInfo?.skillDirectory.map((s) => s.id)).toEqual(
+        expect.arrayContaining([gel.id, pedicure.id]),
+      );
+    });
+
+    it('user.updateProfile 自由文本技能只解析现存项，未知值拒绝、不新建字典', async () => {
+      const before = await withTenant(ownerTenant(), (tx) => tx<{ n: string }[]>`
+        select count(*)::text as n from skills where location_id = ${NAIL_LOC}`);
+
+      await expect(dispatch(
+        'user.updateProfile',
+        { skills: ['谁也没听过的技能'] },
+        ownerCtx,
+      )).rejects.toThrow(/VALIDATION_FAILED|unknown_skill/);
+
+      const after = await withTenant(ownerTenant(), (tx) => tx<{ n: string }[]>`
+        select count(*)::text as n from skills where location_id = ${NAIL_LOC}`);
+      expect(after[0]!.n).toBe(before[0]!.n); // 一行都没新建
+
+      // 而对得上字典名 / key 的自由文本仍可解析
+      const ok = await dispatch<{ updated: boolean }>(
+        'user.updateProfile',
+        { skills: ['甲油胶彩绘', 'pedicure'] },
+        ownerCtx,
+      );
+      expect(ok.result.updated).toBe(true);
+      const profile = await withTenant(ownerTenant(), (tx) => loadUserProfile(tx, ownerCtx));
+      expect(profile.staffInfo?.skills.slice().sort()).toEqual(['手足 SPA', '甲油胶彩绘']);
     });
 
     it('GET /v1/me/profile 获取当前登录用户档案信息', async () => {
@@ -125,7 +161,9 @@ describe('个人资料与通知中心全量功能后端测试', () => {
       expect(data.fullName).toBe('Emily Watson');
       expect(data.nickname).toBe('Lisa');
       expect(data.staffInfo).toBeTruthy();
-      expect(data.staffInfo.skills).toContain('日式光疗美甲');
+      expect(data.staffInfo.skills).toContain('甲油胶彩绘');
+      expect(Array.isArray(data.staffInfo.skillIds)).toBe(true);
+      expect(Array.isArray(data.staffInfo.skillDirectory)).toBe(true);
     });
 
     it('staff.setPin 设置 4 位数字安全 PIN 码并验证已保存哈希', async () => {

@@ -68,7 +68,6 @@ import {
   useSavePersonalNotificationPreferences,
 } from '@/features/profile/api';
 import type { PersonalNotificationPreferences } from '@/features/profile/types';
-import type { TranslationKey } from '@/i18n';
 import { persistRecommendedInAppPrefs } from '@/features/profile/recommendedPrefs';
 
 import {
@@ -80,40 +79,6 @@ import {
 } from '@/lib/avatarPresets';
 
 const PRESET_AVATARS = PRESET_AVATAR_GRADIENTS;
-
-const PRESET_SALON_SKILLS = [
-  '日式光疗美甲',
-  '水晶琉璃延长',
-  '俄式极致修甲',
-  '手足精油SPA',
-  '火山热石理疗',
-  '全身芳香开背',
-  '足底全息反射',
-  '日式单根美睫',
-  '3D山茶花美睫',
-  '头部舒压理疗',
-  '半永久野生眉',
-  '染烫色彩造型',
-];
-
-/**
- * 展示译文映射 —— 只翻译文字，不改 value（原因同 EmployeePerformance.tsx
- * 里那份一模一样的映射：value 是存进 `staff_profiles.skills` 的原始值）。
- */
-const PRESET_SKILL_LABEL_KEYS: Record<string, TranslationKey> = {
-  '日式光疗美甲': 'rotation.empSkillGelNail',
-  '水晶琉璃延长': 'rotation.empSkillCrystalExt',
-  '俄式极致修甲': 'rotation.empSkillRussianMani',
-  '手足精油SPA': 'rotation.empSkillHandFootSpa',
-  '火山热石理疗': 'rotation.empSkillHotStone',
-  '全身芳香开背': 'rotation.empSkillAromaMassage',
-  '足底全息反射': 'rotation.empSkillFootReflex',
-  '日式单根美睫': 'rotation.empSkillLashSingle',
-  '3D山茶花美睫': 'rotation.empSkillLashCamellia',
-  '头部舒压理疗': 'rotation.empSkillScalpRelax',
-  '半永久野生眉': 'rotation.empSkillMicroblading',
-  '染烫色彩造型': 'rotation.empSkillColorPerm',
-};
 
 type ConfirmActionType =
   | 'sign_out'
@@ -128,10 +93,6 @@ type ConfirmActionType =
 export function Profile() {
   const errorMessage = useErrorMessage();
   const { t, language, setLanguage } = useLanguage();
-  const presetSkillLabel = (value: string): string => {
-    const key = PRESET_SKILL_LABEL_KEYS[value];
-    return key ? t(key) : value;
-  };
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') || 'general';
 
@@ -182,8 +143,8 @@ export function Profile() {
   // Provider Settings State
   const [isBookable, setIsBookable] = useState(true);
   const [maxConcurrent, setMaxConcurrent] = useState('2');
-  const [skills, setSkills] = useState<string[]>([]);
-  const [newSkillInput, setNewSkillInput] = useState('');
+  const [skillIds, setSkillIds] = useState<string[]>([]);
+  const [skillSearch, setSkillSearch] = useState('');
 
   // Permissions filter state
   const [permissionQuery, setPermissionQuery] = useState('');
@@ -217,7 +178,7 @@ export function Profile() {
       if (profile.staffInfo) {
         setIsBookable(profile.staffInfo.isBookable);
         setMaxConcurrent(String(profile.staffInfo.maxConcurrentAppointments || 2));
-        setSkills(profile.staffInfo.skills || []);
+        setSkillIds(profile.staffInfo.skillIds || []);
       }
     }
   }, [profile]);
@@ -316,7 +277,7 @@ export function Profile() {
       title: t('settings.profSaveProviderConfirmTitle'),
       description: t('settings.profSaveProviderConfirmDesc', {
         p0: isBookable ? t('settings.profToggleOn') : t('settings.profToggleOff'),
-        p1: maxConcurrent, p2: skills.length,
+        p1: maxConcurrent, p2: skillIds.length,
       }),
       tone: 'default',
       confirmLabel: t('settings.profSaveProviderConfirmButton'),
@@ -398,7 +359,7 @@ export function Profile() {
           await updateProfileMutation.mutateAsync({
             isBookable,
             maxConcurrentAppointments: parseInt(maxConcurrent, 10) || 1,
-            skills,
+            skillIds,
           });
           toast.success(t('settings.profBookingPrefsSaved'));
           break;
@@ -436,19 +397,8 @@ export function Profile() {
     }
   };
 
-  const handleAddSkill = (skillToAdd?: string) => {
-    const val = (skillToAdd || newSkillInput).trim();
-    if (!val) return;
-    if (skills.includes(val)) {
-      toast.warning(t('settings.profSkillExists'));
-      return;
-    }
-    setSkills([...skills, val]);
-    if (!skillToAdd) setNewSkillInput('');
-  };
-
-  const handleRemoveSkill = (skillToRemove: string) => {
-    setSkills(skills.filter((s) => s !== skillToRemove));
+  const toggleSkill = (id: string) => {
+    setSkillIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
   };
 
   const handleCopyEmail = () => {
@@ -1287,70 +1237,63 @@ export function Profile() {
                   </div>
                 </div>
 
-                {/* 技能标签管理 */}
-                <div className="space-y-3">
-                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                    <Tag className="w-4 h-4 text-teal-600" />
-                    <span>{t('settings.profSkillsHeld')}{skills.length})</span>
-                  </label>
+                {/* 技能 —— 一律从门店技能字典按 ID 勾选，自助端不新建字典项 */}
+                {(() => {
+                  const directory = profile?.staffInfo?.skillDirectory ?? [];
+                  const q = skillSearch.trim().toLowerCase();
+                  const filtered = q
+                    ? directory.filter((s) => s.name.toLowerCase().includes(q))
+                    : directory;
+                  return (
+                    <div className="space-y-3">
+                      <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <Tag className="w-4 h-4 text-teal-600" />
+                        <span>{t('settings.profSkillsHeld')}{skillIds.length})</span>
+                      </label>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        {t('settings.profSkillPickHint')}
+                      </p>
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    {skills.map((skill) => (
-                      <span
-                        key={skill}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 text-teal-800 border border-teal-200 text-xs font-bold shadow-xs"
-                      >
-                        <span>{presetSkillLabel(skill)}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveSkill(skill)}
-                          className="text-teal-600 hover:text-teal-900 rounded-full font-bold ml-0.5"
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-
-                  {/* 快捷推荐技能标签 */}
-                  <div className="space-y-1.5 pt-2">
-                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                      
-                      {t('settings.profSuggestedSkills')}
-                    </span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {PRESET_SALON_SKILLS.filter((s) => !skills.includes(s)).map((preset) => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => handleAddSkill(preset)}
-                          className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-teal-50 hover:text-teal-700 text-slate-600 text-xs font-medium transition-colors border border-slate-200/60"
-                        >
-                          + {presetSkillLabel(preset)}
-                        </button>
-                      ))}
+                      {directory.length === 0 ? (
+                        <p className="text-xs text-slate-400">{t('rotation.empDirectoryEmptyHint')}</p>
+                      ) : (
+                        <>
+                          <Input
+                            value={skillSearch}
+                            onChange={(e) => setSkillSearch(e.target.value)}
+                            placeholder={t('settings.profSkillSearchPlaceholder')}
+                            className="rounded-xl text-xs max-w-md"
+                          />
+                          <div className="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto pr-1">
+                            {filtered.map((s) => {
+                              const on = skillIds.includes(s.id);
+                              return (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  onClick={() => toggleSkill(s.id)}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                                    on
+                                      ? 'bg-teal-50 text-teal-800 border-teal-300'
+                                      : 'bg-slate-100 hover:bg-teal-50 hover:text-teal-700 text-slate-600 border-slate-200/60'
+                                  } ${!s.active ? 'opacity-60' : ''}`}
+                                >
+                                  {on ? '✓ ' : '+ '}{s.name}
+                                  {!s.active ? ` ${t('rotation.empOptionInactive')}` : ''}
+                                </button>
+                              );
+                            })}
+                            {filtered.length === 0 && (
+                              <span className="text-xs text-slate-400">
+                                {t('settings.profSkillNoneMatch')}
+                              </span>
+                            )}
+                          </div>
+                        </>
+                      )}
                     </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 max-w-md pt-2">
-                    <Input
-                      value={newSkillInput}
-                      onChange={(e) => setNewSkillInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddSkill())}
-                      placeholder={t('settings.profCustomSkillPlaceholder')}
-                      className="rounded-xl text-xs"
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleAddSkill()}
-                      className="rounded-xl text-xs font-bold shrink-0"
-                    >
-                      
-                      {t('settings.profAddSkill')}
-                    </Button>
-                  </div>
-                </div>
+                  );
+                })()}
               </CardContent>
             </Card>
           )}

@@ -22,6 +22,10 @@ export interface UserProfileDto {
     jobTitle?: string | undefined;
     levelName?: string | undefined;
     skills: string[];
+    /** 当前持有的技能字典 ID（自助编辑用 ID 选择，与 staff.saveProfile 同契约）。 */
+    skillIds: string[];
+    /** 本店可选技能字典：启用项 + 本人已关联的停用项。 */
+    skillDirectory: Array<{ id: string; name: string; active: boolean }>;
     isBookable: boolean;
     maxConcurrentAppointments: number;
     inRotation: boolean;
@@ -105,6 +109,7 @@ export async function loadUserProfile(
       job_title: string | null;
       level_name: unknown;
       skill_names: unknown;
+      skill_ids: unknown;
       legacy_skills: string[] | null;
       is_bookable: boolean;
       max_concurrent_appointments: number;
@@ -116,6 +121,9 @@ export async function loadUserProfile(
              coalesce((select jsonb_agg(sk.name order by sk.key)
                from staff_skills ss join skills sk on sk.id = ss.skill_id
                where ss.membership_id = sp.membership_id), '[]'::jsonb) as skill_names,
+             coalesce((select jsonb_agg(ss.skill_id order by ss.skill_id)
+               from staff_skills ss
+               where ss.membership_id = sp.membership_id), '[]'::jsonb) as skill_ids,
              sp.skills as legacy_skills, sp.is_bookable, sp.max_concurrent_appointments,
              coalesce(rp.in_rotation, false) as in_rotation,
              sp.pin_hash
@@ -126,6 +134,20 @@ export async function loadUserProfile(
        and rp.location_id = ${ctx.locationId}
        and rp.business_date = current_date
       where sp.membership_id = ${ctx.membershipId}`;
+
+    let skillDirectory: Array<{ id: string; name: string; active: boolean }> = [];
+    if (ctx.membershipId) {
+      const dirRows = await tx<{ id: string; name: unknown; active: boolean }[]>`
+        select sk.id, sk.name, sk.active from skills sk
+        where sk.location_id = ${ctx.locationId}
+          and (sk.active or exists (
+            select 1 from staff_skills ss
+            where ss.skill_id = sk.id and ss.membership_id = ${ctx.membershipId}))
+        order by sk.key`;
+      skillDirectory = dirRows.map((r) => ({
+        id: r.id, name: pickText(r.name, ctx.locale) || '', active: r.active,
+      }));
+    }
 
     if (sp) {
       const canonicalSkills = Array.isArray(sp.skill_names)
@@ -145,6 +167,8 @@ export async function loadUserProfile(
         skills: canonicalSkills.length > 0
           ? (legacyMatchesCanonical ? legacySkills : canonicalSkills)
           : legacySkills,
+        skillIds: Array.isArray(sp.skill_ids) ? (sp.skill_ids as string[]) : [],
+        skillDirectory,
         isBookable: sp.is_bookable,
         maxConcurrentAppointments: sp.max_concurrent_appointments,
         inRotation: sp.in_rotation,

@@ -18,6 +18,8 @@ export interface UserProfileData {
     jobTitle?: string;
     levelName?: string;
     skills: string[];
+    skillIds: string[];
+    skillDirectory: Array<{ id: string; name: string; active: boolean }>;
     isBookable: boolean;
     maxConcurrentAppointments: number;
     inRotation: boolean;
@@ -34,6 +36,7 @@ export interface UpdateUserProfileInput {
   bio?: string;
   isBookable?: boolean;
   maxConcurrentAppointments?: number;
+  skillIds?: string[];
   skills?: string[];
 }
 

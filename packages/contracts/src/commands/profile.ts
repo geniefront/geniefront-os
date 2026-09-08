@@ -3,7 +3,7 @@
  */
 
 import { z } from 'zod';
-import { defineCommand, phoneE164 } from '../command';
+import { defineCommand, phoneE164, uuid } from '../command';
 
 /** 更新当前用户个人档案与技师接单配置 */
 export const UpdateUserProfile = defineCommand({
@@ -18,6 +18,12 @@ export const UpdateUserProfile = defineCommand({
     timezone: z.string().max(50).optional(),
     isBookable: z.boolean().optional(),
     maxConcurrentAppointments: z.number().int().min(1).max(10).optional(),
+    /**
+     * 技能一律走本店技能字典的 ID（与 `staff.saveProfile` 同一条契约）。
+     * `skills` 自由文本仅为兼容旧客户端保留：服务端只解析现存项、不再新建，
+     * 解析不到即拒绝（`unknown_skill`）。自助端不承担创建字典的职责。
+     */
+    skillIds: z.array(uuid).optional(),
     skills: z.array(z.string().trim()).optional(),
   }),
   output: z.object({
