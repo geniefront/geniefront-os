@@ -13,6 +13,7 @@ const SKIP_TENANT_DELETE = new Set(['sms_inbound', 'sms_consent']);
 const TABLES_IN_ORDER = [
   'ai_business_summaries',
   'support_request_notes', 'support_requests',
+  'order_bundle_instances',
   'day_close_events', 'ticket_refunds', 'ticket_service_notes', 'resource_occupancies',
   'in_app_notifications', 'user_notification_preferences', 'user_device_sessions',
   'location_webhooks', 'location_10dlc_registrations', 'location_intake_templates',
@@ -36,6 +37,7 @@ const TABLES_IN_ORDER = [
   'appointment_item_blocks', 'appointment_items', 'appointments',
   'rotation_events', 'rotation_participants', 'rotation_policies',
   'customer_preferences', 'customers',
+  'service_bundle_components', 'service_bundles',
   'service_option_defs', 'services', 'service_categories',
   'resources', 'resource_types',
   'staff_profiles', 'staff_skills', 'skills', 'staff_levels', 'staff_job_titles',

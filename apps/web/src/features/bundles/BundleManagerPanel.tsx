@@ -148,7 +148,7 @@ export function BundleManagerPanel() {
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-bold text-slate-700">{t('bundle.tabTitle')} ({templates.length})</span>
         {canManage && (
-          <Button onPress={openNew} className="bg-teal-600 text-white font-bold" size="sm">
+          <Button onPress={openNew} data-testid="bundle-new" className="bg-teal-600 text-white font-bold" size="sm">
             <Plus className="w-4 h-4" />
             <span>{t('bundle.newButton')}</span>
           </Button>
@@ -171,7 +171,7 @@ export function BundleManagerPanel() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {templates.map((b) => (
-            <div key={b.id} className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3 shadow-xs">
+            <div key={b.id} data-testid="bundle-card" className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3 shadow-xs">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="font-bold text-slate-800 truncate">{b.name}</div>
@@ -247,6 +247,7 @@ export function BundleManagerPanel() {
             </Button>
             <Button
               className="bg-teal-600 text-white font-bold"
+              data-testid="bundle-save"
               isDisabled={saveMut.isPending}
               onPress={handleSave}
             >
@@ -260,6 +261,7 @@ export function BundleManagerPanel() {
             <label className="text-xs font-semibold text-slate-600 space-y-1 block">
               <span>{t('bundle.fieldName')} · 中文</span>
               <input
+                data-testid="bundle-name-zh"
                 value={nameZh}
                 onChange={(e) => setNameZh(e.target.value)}
                 placeholder={t('bundle.fieldNamePlaceholder')}
@@ -269,6 +271,7 @@ export function BundleManagerPanel() {
             <label className="text-xs font-semibold text-slate-600 space-y-1 block">
               <span>{t('bundle.fieldName')} · English</span>
               <input
+                data-testid="bundle-name-en"
                 value={nameEn}
                 onChange={(e) => setNameEn(e.target.value)}
                 className="w-full h-9 px-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-teal-500"
@@ -290,6 +293,7 @@ export function BundleManagerPanel() {
               <span className="text-xs font-semibold text-slate-600">{t('bundle.fieldComponents')}</span>
               <Button
                 variant="ghost" size="sm"
+                data-testid="bundle-add-component"
                 onPress={() => setRows((r) => [...r, { serviceId: services[0]?.id ?? '', qty: 1 }])}
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -302,6 +306,7 @@ export function BundleManagerPanel() {
             {rows.map((row, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <select
+                    data-testid="bundle-component-select"
                     value={row.serviceId}
                     onChange={(e) => setRows((rs) => rs.map((r, j) => j === i ? { ...r, serviceId: e.target.value } : r))}
                     className="flex-1 h-9 px-2 rounded-xl border border-slate-200 text-sm bg-white"
@@ -335,6 +340,7 @@ export function BundleManagerPanel() {
               <div className="relative">
                 <span className="absolute left-3 top-2 text-slate-400 text-sm">$</span>
                 <input
+                  data-testid="bundle-price"
                   value={priceDollars}
                   onChange={(e) => setPriceDollars(e.target.value)}
                   inputMode="decimal"
