@@ -1,8 +1,11 @@
 # 组合项目套餐：实施报告
 
 计划：`docs/plans/2026-09-07-service-bundles-implementation.md`
-状态：**P0–P2 ✅ · P3（a/b/c）✅ · P4 后端 ✅ · P5–P8 未做**（均在本地 55322 验证）
-本轮范围：P0–P4 后端。导入 UI / 向导 / 看板卡片 / 结账界面待前端排期。
+状态：**P0–P2 ✅ · P3（a/b/c）✅ · P4 后端 ✅ · P5 后端（结账/退款/提成安全）✅ ·
+P6 后端（公开预约套餐入口）✅ · P7–P8 未做**
+本轮范围：P0–P4 已交付；P5 结账链路对套餐安全的关键修复 + 回归；P6 官网自助预约
+套餐入口（目录 / 报价 / 下单）。导入 UI / 向导 / 看板卡片 / 结账界面 / booking 前端待前端排期。
+⚠️ P5 / P6 新增集成测试尚未在本地 55322 跑过（需重置种子库，待授权）；typecheck 16/16 + guards 绿。
 
 ---
 
@@ -193,7 +196,57 @@
 - [ ] 父套餐不重复占资源 / 不计轮：当前子项各自走既有资源 / 轮牌规则，
       无「父分组」额外占用（结构上不存在父行）；专项回归留 P8。
 
-### P5–P8 —— 未开始
+### P5 · 结账 / 退款 / 提成 / 报表 —— 🔶 后端关键项完成，前端结账视图待排期
+
+事实核对（相对计划 §3 的口径表）：P3a 起套餐子项的 `appointment_items.price_cents_snapshot`
+写的是 `allocateBundle` 的 **`netCents`（已含额外优惠）**，不是口径表初稿说的 `bundleNetCents`。
+即额外优惠在**创建时**已落进子项快照与 `subtotal_cents`，结账层不再二次分摊 ——
+`order_bundle_instances.extra_discount_cents` / `discount_cents` 为快照/报表字段，
+下游 `recalcTotals` / 税 / 提成 / 退款一律以子项 `total_cents` 为准，无父子重复。
+
+- [x] **次卡不覆盖套餐子项（计划 §4.5 / B17）** —— `apps/api/src/handlers/ticket.ts`
+      `applyPackageRedemptions`：可核销范围新增 `bundle_instance_id is null` 过滤。
+      此前按 `service_id` 命中会把已是分摊净额的子项再全额核销一次，错位提成基数与退款净额。
+      散项照旧。`service_ids` 仅命中套餐子项服务时整笔拒（`package_services_not_on_ticket`）。
+- [x] **提成基数按分摊实售额** —— `writeCommissionEarnings` 取子项 `total_cents`（= 分摊净额），
+      不引入 `bundle_list_price_cents`；`packageCommissionBasis` 不复用为套餐开关（计划 §4.5）。
+- [x] **税 / 结账收款校验** —— `closeOneTicket` 的 `subtotal − discount − 次卡覆盖 + 税 + 小费`
+      对套餐单成立（subtotal 已是子项净额之和），无父行计税、无二次优惠。
+- [x] **退款冲销按原提成政策** —— `TicketRefund` 读 `earnings` 原始行按净额比例冲回，
+      从不按当前模板/费率重算历史；套餐单全额退 → 提成 amount/base 各归零。
+- [x] 回归测试 `apps/api/src/bundle.test.ts` 新增 `describe('P5 …')` 4 例（B17 / B23 / B25 / B29）：
+      结账收款+税+提成基数、次卡只核散项、次卡命中子项被拒、全额退款提成冲销归零。
+- [ ] 两个 Checkout UI 的套餐视图（原价/套餐优惠/套餐价/加项分行展示）—— **前端，待排期**。
+- [ ] 付款后加项补差、分阶段小费下的套餐、组单里含套餐单 —— 现有实现按子项净额通用处理，
+      未见套餐特有分叉；专项用例留 P8。
+
+### P6 · 顾客端与 AI 入口 —— 🔶 公开预约（官网自助）套餐入口完成，kiosk 读路径可用，AI 分流待排期
+
+- [x] **公开预约下单支持套餐** —— `apps/api/src/public/routes.ts` `POST /public/v1/bookings`：
+      body 加 `bundleSelections[]`（`bundleId` + `startsAt` + 可选 `extraAddons`），`items` 放宽可空
+      + refine「两者至少一个非空」。校验：套餐必须本店 `active AND online_bookable`，额外加项必须
+      本店 `online_bookable AND is_addon`，`startsAt` 过下单窗口闸门。展开 / 排程 / 定价全部交给
+      `appointment.create` 的 `bundleSelections` 路径（P3a，调 `quoteBundle`）——
+      `source='web'`、`override` 永不传、版本/优惠/技师不接受客户端传入。
+- [x] **只读套餐目录** —— `GET /public/v1/bundles`：仅 `online_bookable` 套餐，返回组成、
+      目录原价合计、组合价、内建优惠、各子项时长。
+- [x] **只读服务端报价** —— `POST /public/v1/bundle-quote`：直接复用 `queries/bundle.ts::quoteBundle`
+      （与下单同一实现，满足计划交付门槛「不同入口同一选择 → 同一组成与金额」），
+      额外优惠强制为 0。没勾线上的套餐一律 `VALIDATION_FAILED { reason: 'bundle_not_online_bookable' }`。
+- [x] 回归测试 `apps/api/src/public.test.ts` 新增 `describe('组合套餐（U10 / P6 …')` 6 例：
+      目录只出线上套餐、报价子项净额=组合价、隐藏套餐 400、下单展开+建实例+金额、
+      隐藏套餐下单被拒、items 与 bundleSelections 皆空 400。
+- [x] **kiosk 已签到的套餐预约** —— 分组 / 报价经 P4 的共享 `queries/queue.ts` 暴露（`bundles[]` +
+      每项 `bundle_*`），无需 kiosk 侧改动。
+- [ ] **kiosk 现场新建选套餐（walk-in）** —— 未做。同 P3 遗留的「直接 `ticket.open` 选套餐」，
+      需 `JoinQueue` / `TicketOpen` 契约扩展；当前给「请前台办理」提示（计划 §7）。
+- [ ] **AI 副驾 / 电话** —— `appointment.create` 的 `bundleSelections` 参数已在命令契约中，
+      桌面副驾走 `appointment` 前缀即可提议；`bundle.saveTemplate/archiveTemplate` 属目录设置，
+      **不进副驾操作前缀**（同 `catalog.*`）。`packages/ai` 价目表识别的 Combo↔Sessions 分流
+      （决策 #3 启发式）—— 未做，属导入链路（P2 范围），无 P6 硬门槛。
+- [ ] 通知模板按套餐 / 子项展示 —— 未改；现有模板按 `appointment_items` 渲染，套餐子项即普通行。
+
+### P7–P8 —— 未开始
 
 ---
 

@@ -29,6 +29,7 @@ import { AppError, ERROR_CODES, pickText, phoneE164 } from '@gf/contracts';
 import { withTenant, ts, parseTs, type PublicShopRow } from '@gf/db';
 import { businessDateOf, isBookableDate, wallMinuteToInstant } from '@gf/scheduling';
 import { dispatch } from '../bus';
+import { quoteBundle } from '../queries/bundle';
 import { loadSlotContext } from '../queries/slots';
 import { flushEmails } from '../email/flush';
 import { flushSms } from '../sms/flush';
@@ -107,13 +108,42 @@ const bookingBody = z.object({
     addonIds: z.array(z.string().uuid()).max(6).default([]),
     staffId: z.string().uuid().nullable().default(null),
     startsAt: z.string().datetime({ offset: true }),
-  })).min(1).max(8),
+  })).max(8).default([]),
+  /**
+   * 组合套餐选择（U10 / 计划 §7）。官网只提供 bundleId + 起始时刻 +（可选）
+   * 额外加项；技师指派、额外优惠、模板版本一律不接受客户端传入 —— 展开、
+   * 排程与定价全部由服务端 `appointment.create` 调 `quoteBundle` 完成。
+   */
+  bundleSelections: z.array(z.object({
+    bundleId: z.string().uuid(),
+    startsAt: z.string().datetime({ offset: true }),
+    extraAddons: z.array(z.object({
+      ref: z.string().min(1).max(64),
+      attachToUnit: z.string().min(1).max(80),
+      serviceId: z.string().uuid(),
+      qty: z.number().int().min(1).max(10).default(1),
+    })).max(20).default([]),
+  })).max(4).default([]),
   partySize: z.number().int().min(1).max(20).default(1),
   notes: z.string().max(500).optional(),
   /** 蜜罐。真人看不见这个字段，所以它永远是空的 */
   website: z.string().max(200).optional(),
   /** 从打开表单到提交过了多久。见 MIN_FILL_MS 上面那段的保留意见 */
   formElapsedMs: z.number().int().min(0).max(86_400_000).optional(),
+}).refine((b) => b.items.length > 0 || b.bundleSelections.length > 0, {
+  message: 'items 与 bundleSelections 至少有一个非空',
+});
+
+/** 组合套餐报价请求（只读路由 /public/v1/bundle-quote）。 */
+const bundleQuoteBody = z.object({
+  locale: z.string().max(16).optional(),
+  bundleId: z.string().uuid(),
+  extraAddons: z.array(z.object({
+    ref: z.string().min(1).max(64),
+    attachToUnit: z.string().min(1).max(80),
+    serviceId: z.string().uuid(),
+    qty: z.number().int().min(1).max(10).default(1),
+  })).max(20).default([]),
 });
 
 const cancelBody = z.object({
@@ -289,6 +319,119 @@ export function registerPublicRoutes(app: FastifyInstance): void {
       });
   });
 
+  // ── 2b. 可在线预约的组合套餐（U10 / 计划 §7）──────────────────────────────
+  //
+  // 只返回 online_bookable 且 active 的套餐及其组成快照（含目录原价、组合价、
+  // 内建优惠）。价格口径与 `quoteBundle` 一致 —— 展开与最终分摊仍以下单时
+  // 服务端报价为准，这里只供列表展示。
+  app.get<{ Querystring: { locale?: string } }>('/public/v1/bundles', async (req) => {
+    const shop = await resolveShop(req.headers, { requireOnlineBooking: true });
+    assertOriginAllowed(originOf(req), shop);
+    const locale = localeOf(req.query.locale, shop);
+
+    return withTenant(
+      { orgId: shop.orgId, locationId: shop.locationId, membershipId: null },
+      async (tx) => {
+        const bundles = await tx<{
+          id: string; name: unknown; description: unknown; price_cents: number;
+          version: number; sort: number;
+        }[]>`
+          select id, name, description, price_cents, version, sort
+          from service_bundles
+          where location_id = ${shop.locationId} and active = true and online_bookable = true
+          order by sort, id`;
+        if (bundles.length === 0) return { bundles: [] };
+
+        const components = await tx<{
+          bundle_id: string; service_id: string; qty: number; seq: number;
+          included_addon_ids: string[]; svc_name: unknown; base_price_cents: number;
+          duration_min: number; svc_active: boolean;
+        }[]>`
+          select c.bundle_id, c.service_id, c.qty, c.seq, c.included_addon_ids,
+                 s.name as svc_name, s.base_price_cents, s.duration_min, s.active as svc_active
+          from service_bundle_components c
+          join services s on s.id = c.service_id
+          where c.bundle_id = any(${bundles.map((b) => b.id)})
+          order by c.seq, c.id`;
+        const addonIds = [...new Set(components.flatMap((c) => c.included_addon_ids))];
+        const addonById = new Map(
+          addonIds.length === 0 ? [] : (await tx<{ id: string; base_price_cents: number }[]>`
+            select id, base_price_cents from services where id = any(${addonIds})`)
+            .map((a) => [a.id, a.base_price_cents] as const),
+        );
+
+        return {
+          bundles: bundles.map((b) => {
+            const comps = components.filter((c) => c.bundle_id === b.id);
+            const originalTotalCents = comps.reduce((n, c) => {
+              const included = c.included_addon_ids.reduce(
+                (m, id) => m + (addonById.get(id) ?? 0), 0);
+              return n + (c.base_price_cents + included) * c.qty;
+            }, 0);
+            return {
+              id: b.id,
+              version: b.version,
+              name: pickText(b.name, locale),
+              description: b.description ? pickText(b.description, locale, '') : null,
+              priceCents: b.price_cents,
+              originalTotalCents,
+              bundleDiscountCents: Math.max(0, originalTotalCents - b.price_cents),
+              components: comps.map((c) => ({
+                serviceId: c.service_id,
+                name: pickText(c.svc_name, locale),
+                qty: c.qty,
+                seq: c.seq,
+                listPriceCents: c.base_price_cents
+                  + c.included_addon_ids.reduce((m, id) => m + (addonById.get(id) ?? 0), 0),
+                durationMin: c.duration_min,
+              })),
+              bookable: comps.every((c) => c.svc_active),
+            };
+          }),
+        };
+      });
+  });
+
+  // ── 2c. 组合套餐报价（只读）──────────────────────────────────────────────
+  //
+  // 服务端权威报价：官网预览「原价 / 优惠 / 套餐价 / 各子项」用它，
+  // 与下单时 `appointment.create` 调的是同一个 `quoteBundle`（计划交付门槛：
+  // 不同入口同一选择 → 同一组成与金额）。额外优惠不接受客户端传入。
+  app.post<{ Body: unknown }>('/public/v1/bundle-quote', async (req, reply) => {
+    const shop = await resolveShop(req.headers, { requireOnlineBooking: true });
+    assertOriginAllowed(originOf(req), shop);
+
+    const parsed = bundleQuoteBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { issues: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })) },
+      });
+    }
+    const body = parsed.data;
+    const locale = localeOf(body.locale, shop);
+
+    return withTenant(
+      { orgId: shop.orgId, locationId: shop.locationId, membershipId: null },
+      async (tx) => {
+        const [bundle] = await tx<{ id: string }[]>`
+          select id from service_bundles
+          where id = ${body.bundleId} and location_id = ${shop.locationId}
+            and active = true and online_bookable = true`;
+        if (!bundle) {
+          throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+            details: { reason: 'bundle_not_online_bookable', bundleId: body.bundleId },
+          });
+        }
+        const quote = await quoteBundle(tx, { locationId: shop.locationId }, {
+          bundleId: body.bundleId,
+          extraAddons: body.extraAddons,
+          extraDiscountCents: 0,
+          extraDiscountKind: 'manual',
+        });
+        return { ...quote, name: pickText(quote.nameSnapshot, locale) };
+      });
+  });
+
   // ── 3. 空档 ───────────────────────────────────────────────────────────────
   //
   // ⭐ 走的是 `loadSlotContext` —— 和 AI 电话、和前台「最近有空」**同一份答案**。
@@ -439,13 +582,8 @@ export function registerPublicRoutes(app: FastifyInstance): void {
 
         const earliest = Date.now() + shop.onlineBooking.minMinutesAhead * 60_000;
         const today = businessDateOf(new Date(), shop.timezone, shop.businessDayCutoff);
-
-        const items = [];
-        for (const item of body.items) {
-          const { durationMin, priceCents } = await priceAndDuration(
-            tx, shop, item.serviceId, item.addonIds);
-
-          const startsAt = new Date(item.startsAt);
+        const assertWithinWindow = (raw: string) => {
+          const startsAt = new Date(raw);
           if (Number.isNaN(startsAt.getTime()) || startsAt.getTime() < earliest) {
             throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
               details: { reason: 'too_soon', minMinutesAhead: shop.onlineBooking.minMinutesAhead },
@@ -457,6 +595,48 @@ export function registerPublicRoutes(app: FastifyInstance): void {
               details: { reason: 'date_out_of_window', maxDaysAhead: shop.onlineBooking.maxDaysAhead },
             });
           }
+          return startsAt;
+        };
+
+        // ── 组合套餐（U10）：只放行老板勾了 online_bookable 的模板；额外加项必须
+        //    是本店 online_bookable 的 add-on。展开 / 定价交给 appointment.create。
+        const bundles = [];
+        for (const sel of body.bundleSelections) {
+          const [bundle] = await tx<{ id: string }[]>`
+            select id from service_bundles
+            where id = ${sel.bundleId} and location_id = ${shop.locationId}
+              and active = true and online_bookable = true`;
+          if (!bundle) {
+            throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+              details: { reason: 'bundle_not_online_bookable', bundleId: sel.bundleId },
+            });
+          }
+          assertWithinWindow(sel.startsAt);
+          if (sel.extraAddons.length > 0) {
+            const addonIds = [...new Set(sel.extraAddons.map((a) => a.serviceId))];
+            const ok = await tx<{ id: string }[]>`
+              select id from services
+              where location_id = ${shop.locationId} and id = any(${addonIds})
+                and active = true and online_bookable = true and is_addon = true`;
+            if (ok.length !== addonIds.length) {
+              throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+                details: { reason: 'bundle_addon_not_online_bookable' },
+              });
+            }
+          }
+          bundles.push({
+            bundleId: sel.bundleId,
+            startsAt: new Date(sel.startsAt).toISOString(),
+            extraAddons: sel.extraAddons,
+          });
+        }
+
+        const items = [];
+        for (const item of body.items) {
+          const { durationMin, priceCents } = await priceAndDuration(
+            tx, shop, item.serviceId, item.addonIds);
+
+          const startsAt = assertWithinWindow(item.startsAt);
           if (item.staffId) await assertBookableStaff(tx, shop, item.staffId);
 
           items.push({
@@ -473,7 +653,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
             priceCentsOverride: priceCents,
           });
         }
-        return items;
+        return { items, bundles };
       });
 
     // ── 建单 ──────────────────────────────────────────────────────────────
@@ -484,7 +664,8 @@ export function registerPublicRoutes(app: FastifyInstance): void {
       'appointment.create',
       {
         customerId: null,
-        items: checked,
+        items: checked.items,
+        bundleSelections: checked.bundles,
         partySize: body.partySize,
         notes: body.notes,
         source: 'web',
@@ -511,7 +692,10 @@ export function registerPublicRoutes(app: FastifyInstance): void {
     void flushEmails(notify, req.log);
     void flushSms(notify, req.log);
 
-    const first = checked[0]!;
+    // 展示用的「起始时刻」：优先散项，其次套餐第一子项（时刻取客户端所选、
+    // 服务端已校窗）。durationMin 仅散项有意义，纯套餐单返回 null。
+    const first = checked.items[0]
+      ?? { startsAt: checked.bundles[0]!.startsAt, durationMin: null as number | null };
     /**
      * ⭐ 重放（同一个幂等键再来一次）时**不能**返回新生成的令牌 ——
      * 库里存的是第一次那个的摘要，新的这个验不过。

@@ -2188,3 +2188,120 @@ describe('guest reschedule slot enforcement', () => {
     expect(res.json().details).toEqual({ entity: 'booking' });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────── U10
+//
+// 组合套餐的顾客端入口（计划 §7 / P6）。交付门槛：官网选套餐生成的组成与
+// 金额，与前台 `appointment.create` 调同一个 `quoteBundle` 完全一致。
+describe('组合套餐（U10 / P6 公开预约）', () => {
+  let bundleId = '';
+  let hiddenBundleId = '';
+  let bSvcA = '';
+  let bSvcB = '';
+
+  beforeAll(async () => {
+    bSvcA = (await run<{ serviceId: string }>('catalog.saveService', {
+      name: { en: 'U10 Pub A', 'zh-Hans': 'U10 甲' }, durationMin: 30, basePriceCents: 8000,
+    })).serviceId;
+    bSvcB = (await run<{ serviceId: string }>('catalog.saveService', {
+      name: { en: 'U10 Pub B', 'zh-Hans': 'U10 乙' }, durationMin: 30, basePriceCents: 4000,
+    })).serviceId;
+    await withTenant(tenant, (tx) => tx`
+      update services set online_bookable = true where id in (${bSvcA}, ${bSvcB})`);
+
+    bundleId = (await run<{ bundleId: string }>('bundle.saveTemplate', {
+      name: { en: 'U10 Public Combo', 'zh-Hans': 'U10 公开套餐' },
+      priceCents: 10_000,
+      components: [
+        { serviceId: bSvcA, qty: 1, seq: 0 },
+        { serviceId: bSvcB, qty: 1, seq: 1 },
+      ],
+      onlineBookable: true,
+    })).bundleId;
+
+    // 老板没勾线上可预约的套餐 —— 官网一律看不到、订不了。
+    hiddenBundleId = (await run<{ bundleId: string }>('bundle.saveTemplate', {
+      name: { en: 'U10 Hidden Combo', 'zh-Hans': 'U10 隐藏套餐' },
+      priceCents: 9_000,
+      components: [
+        { serviceId: bSvcA, qty: 1, seq: 0 },
+        { serviceId: bSvcB, qty: 1, seq: 1 },
+      ],
+    })).bundleId;
+  });
+
+  it('/bundles 只给线上可预约的套餐，带原价 / 组合价 / 内建优惠', async () => {
+    const res = await get('/public/v1/bundles');
+    expect(res.statusCode).toBe(200);
+    const list = res.json().bundles as Array<Record<string, any>>;
+    const mine = list.find((b) => b.id === bundleId);
+    expect(mine).toBeTruthy();
+    expect(mine).toMatchObject({
+      priceCents: 10_000, originalTotalCents: 12_000, bundleDiscountCents: 2_000,
+      bookable: true,
+    });
+    expect(mine!.components).toHaveLength(2);
+    expect(list.some((b) => b.id === hiddenBundleId)).toBe(false);
+  });
+
+  it('/bundle-quote 服务端权威报价：子项净额合计 = 锁定组合价', async () => {
+    const res = await post('/public/v1/bundle-quote', { bundleId });
+    expect(res.statusCode).toBe(200);
+    const q = res.json();
+    expect(q.bundlePriceCents).toBe(10_000);
+    expect(q.bundleDiscountCents).toBe(2_000);
+    expect(q.units).toHaveLength(2);
+    expect((q.units as Array<{ bundleNetCents: number }>)
+      .reduce((n, u) => n + u.bundleNetCents, 0)).toBe(10_000);
+  });
+
+  it('/bundle-quote 对没勾线上的套餐返回 400 bundle_not_online_bookable', async () => {
+    const res = await post('/public/v1/bundle-quote', { bundleId: hiddenBundleId });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().details.reason).toBe('bundle_not_online_bookable');
+  });
+
+  it('官网下单选套餐 → 展开成子项、建套餐实例、金额 = 组合价', async () => {
+    __resetRateLimit();
+    const startsAt = nextSlot();
+    const res = await post('/public/v1/bookings', bookingPayload({
+      items: [], bundleSelections: [{ bundleId, startsAt }],
+    }), { 'idempotency-key': randomUUID() });
+    expect(res.statusCode).toBe(201);
+    const bookingId = res.json().bookingId as string;
+
+    const inst = await withTenant(tenant, (tx) => tx<{
+      bundle_price_cents: number; discount_cents: number; source: string; status: string;
+    }[]>`select bundle_price_cents, discount_cents, source, status
+         from order_bundle_instances where appointment_id = ${bookingId}`);
+    expect(inst).toHaveLength(1);
+    expect(inst[0]).toMatchObject({
+      bundle_price_cents: 10_000, discount_cents: 2_000, source: 'web', status: 'active',
+    });
+
+    const items = await withTenant(tenant, (tx) => tx<{
+      price_cents_snapshot: number; bundle_instance_id: string | null;
+    }[]>`select price_cents_snapshot, bundle_instance_id from appointment_items
+         where appointment_id = ${bookingId} order by seq`);
+    expect(items).toHaveLength(2);
+    expect(items.every((i) => i.bundle_instance_id != null)).toBe(true);
+    expect(items.reduce((n, i) => n + i.price_cents_snapshot, 0)).toBe(10_000);
+  });
+
+  it('官网不能订没勾线上的套餐', async () => {
+    __resetRateLimit();
+    const res = await post('/public/v1/bookings', bookingPayload({
+      items: [], bundleSelections: [{ bundleId: hiddenBundleId, startsAt: nextSlot() }],
+    }), { 'idempotency-key': randomUUID() });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().details.reason).toBe('bundle_not_online_bookable');
+  });
+
+  it('items 与 bundleSelections 都空 → 400', async () => {
+    __resetRateLimit();
+    const res = await post('/public/v1/bookings', bookingPayload({
+      items: [], bundleSelections: [],
+    }), { 'idempotency-key': randomUUID() });
+    expect(res.statusCode).toBe(400);
+  });
+});
