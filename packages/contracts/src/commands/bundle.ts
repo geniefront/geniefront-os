@@ -94,6 +94,38 @@ export const BundleArchiveTemplate = defineCommand({
   idempotency: 'optional',
 });
 
+// ─────────────────────────────────────────────────────────── 拆单为单项
+
+/**
+ * 把工单上一份组合套餐拆回按锁定单项原价计费的普通项目（计划 §4.4，B14）。
+ *
+ * 仅限**未开工、未付款**：任一子项已 `started_at` 或工单已有 `payments` 即拒。
+ * 拆后各子项 `total_cents` = 下单时锁定的 `bundle_list_price_cents`（子项之和 =
+ * 实例 `original_total_cents`），四个 `bundle_*` 关联列清空；`order_bundle_instances`
+ * 行保留并置 `status='split'` 作为来源凭据。首版不支持带额外加项 / 额外优惠的实例
+ * （`bundle_split_with_extras_unsupported`）—— 那种走作废重建。
+ */
+export const BundleSplitInstance = defineCommand({
+  name: 'bundle.splitInstance',
+  input: z.object({
+    ticketId: uuid,
+    bundleInstanceId: uuid,
+  }),
+  output: z.object({
+    ticketId: uuid,
+    bundleInstanceId: uuid,
+    splitItemCount: z.number().int(),
+    subtotalCents: cents,
+  }),
+  permission: 'ticket.write',
+  ai: {
+    description: '把工单上的一份组合套餐拆成按原价单独计费的项目（仅未开工未付款时）。',
+    confirm: 'always',
+  },
+  reversible: false,
+  idempotency: 'optional',
+});
+
 // ─────────────────────────────────────────────────────────── 报价 / 展开
 
 /** 报价请求：一次选购的套餐 + 额外加项 + 额外整单优惠。 */
@@ -180,4 +212,5 @@ export type BundleQuoteResult = z.infer<typeof bundleQuoteResult>;
 export const BUNDLE_COMMANDS = [
   BundleSaveTemplate,
   BundleArchiveTemplate,
+  BundleSplitInstance,
 ] as const;

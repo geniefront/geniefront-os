@@ -11,7 +11,7 @@
  */
 
 import {
-  BundleSaveTemplate, BundleArchiveTemplate,
+  BundleSaveTemplate, BundleArchiveTemplate, BundleSplitInstance,
   AppError, ERROR_CODES, pickText,
 } from '@gf/contracts';
 import { jsonb } from '@gf/db';
@@ -136,4 +136,75 @@ registerHandler(BundleArchiveTemplate, async ({ input, ctx, tx, audit }: Handler
   if (rows.length === 0) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'service_bundle' } });
   audit({ entityType: 'service_bundle', entityId: input.bundleId, after: { active: false } });
   return { bundleId: input.bundleId };
+});
+
+// ─────────────────────────────────────────────────────────── splitInstance
+
+registerHandler(BundleSplitInstance, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
+  typeof BundleSplitInstance.input._type>) => {
+  const [ticket] = await tx<{
+    id: string; status: string; business_date: string; service_settled_at: string | null;
+  }[]>`
+    select id, status, business_date::text as business_date, service_settled_at::text as service_settled_at
+    from tickets where id = ${input.ticketId} and location_id = ${ctx.locationId} for update`;
+  if (!ticket) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ticket' } });
+  // 计划 §4.4：仅「未开工、未付款」允许拆单。
+  if (ticket.status !== 'in_service' || ticket.service_settled_at) {
+    fail('bundle_split_ticket_not_open', { status: ticket.status });
+  }
+  const [paid] = await tx<{ n: number }[]>`
+    select count(*)::int as n from payments where ticket_id = ${input.ticketId}`;
+  if ((paid?.n ?? 0) > 0) fail('bundle_split_after_payment');
+
+  const [inst] = await tx<{ status: string; bundle_price_cents: number }[]>`
+    select status, bundle_price_cents from order_bundle_instances
+    where id = ${input.bundleInstanceId} and ticket_id = ${input.ticketId}
+      and location_id = ${ctx.locationId}
+    for update`;
+  if (!inst) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'order_bundle_instance' } });
+  if (inst.status !== 'active') fail('bundle_instance_not_active', { status: inst.status });
+
+  const items = await tx<{
+    id: string; total_cents: number; bundle_list_price_cents: number | null; started_at: string | null;
+  }[]>`
+    select id, total_cents, bundle_list_price_cents, started_at::text as started_at
+    from ticket_items
+    where ticket_id = ${input.ticketId} and bundle_instance_id = ${input.bundleInstanceId}
+    order by seq`;
+  if (items.length === 0) fail('bundle_instance_no_items');
+  if (items.some((i) => i.started_at != null)) fail('bundle_split_after_start');
+  if (items.some((i) => i.bundle_list_price_cents == null)) fail('bundle_split_missing_list_price');
+  // 额外加项 / 额外优惠的实例：净额之和 ≠ 锁定组合价，拆回单项原价会丢掉加项金额。
+  // 首版不支持，走作废重建。
+  const netSum = items.reduce((n, i) => n + i.total_cents, 0);
+  if (netSum !== inst.bundle_price_cents) fail('bundle_split_with_extras_unsupported');
+
+  await tx`update ticket_items set
+      unit_price_cents = bundle_list_price_cents,
+      total_cents = bundle_list_price_cents,
+      bundle_instance_id = null, bundle_component_id = null,
+      bundle_unit_index = null, bundle_list_price_cents = null
+    where ticket_id = ${input.ticketId} and bundle_instance_id = ${input.bundleInstanceId}`;
+  await tx`update order_bundle_instances set status = 'split', updated_at = now()
+           where id = ${input.bundleInstanceId}`;
+
+  const [row] = await tx<{ subtotal: number }[]>`
+    select coalesce(sum(total_cents), 0)::int as subtotal
+    from ticket_items where ticket_id = ${input.ticketId}`;
+  const subtotal = row?.subtotal ?? 0;
+  await tx`update tickets set subtotal_cents = ${subtotal}, total_cents = ${subtotal}
+           where id = ${input.ticketId}`;
+
+  audit({
+    entityType: 'ticket', entityId: input.ticketId,
+    after: { action: 'bundle_split', bundleInstanceId: input.bundleInstanceId, splitItemCount: items.length },
+  });
+  emit({ type: 'ticket.changed', entityId: input.ticketId, businessDate: ticket.business_date });
+
+  return {
+    ticketId: input.ticketId,
+    bundleInstanceId: input.bundleInstanceId,
+    splitItemCount: items.length,
+    subtotalCents: subtotal,
+  };
 });

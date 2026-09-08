@@ -712,3 +712,69 @@ describe('ticket.open 直接选组合套餐（walk-in）', () => {
       .rejects.toMatchObject({ details: { reason: 'bundle_unit_staff_required' } });
   });
 });
+
+// ─────────────────────────────────────────────────────────── 拆单为单项（B14）
+describe('bundle.splitInstance 拆单为单项', () => {
+  const overrides = () => [{ membershipId: staffId }, { membershipId: staffId }, { membershipId: staffId }];
+  const openWalkIn = (sel: Record<string, unknown>) =>
+    dispatch<{ ticketId: string; bundleInstanceIds: string[] }>(
+      'ticket.open',
+      { customerId: null, walkInName: 'U10 split', items: [], bundleSelections: [sel] },
+      ctx, { idempotencyKey: randomUUID() },
+    ).then((r) => r.result);
+  const split = (ticketId: string, bundleInstanceId: string) =>
+    dispatch<{ splitItemCount: number; subtotalCents: number }>(
+      'bundle.splitInstance', { ticketId, bundleInstanceId }, ctx, { idempotencyKey: randomUUID() },
+    ).then((r) => r.result);
+
+  it('未开工未付款：恢复锁定单项原价，实例置 split，subtotal = 原价合计', async () => {
+    const bundleId = (await save(abc())).result.bundleId;
+    const { ticketId, bundleInstanceIds } = await openWalkIn({ bundleId, unitOverrides: overrides() });
+    const res = await split(ticketId, bundleInstanceIds[0]!);
+    expect(res).toMatchObject({ splitItemCount: 3, subtotalCents: 17_000 });
+
+    const items = await withTenant(NAIL, (tx) => tx<{
+      total_cents: number; bundle_instance_id: string | null; bundle_component_id: string | null;
+    }[]>`select total_cents, bundle_instance_id, bundle_component_id
+         from ticket_items where ticket_id = ${ticketId} order by seq`);
+    expect(items.map((i) => i.total_cents).sort((a, b) => a - b)).toEqual([2_000, 5_000, 10_000]);
+    expect(items.every((i) => i.bundle_instance_id === null && i.bundle_component_id === null)).toBe(true);
+
+    const [inst] = await withTenant(NAIL, (tx) => tx<{ status: string }[]>`
+      select status from order_bundle_instances where id = ${bundleInstanceIds[0]!}`);
+    expect(inst!.status).toBe('split');
+
+    const [t] = await withTenant(NAIL, (tx) => tx<{ subtotal_cents: number; total_cents: number }[]>`
+      select subtotal_cents, total_cents from tickets where id = ${ticketId}`);
+    expect(t).toMatchObject({ subtotal_cents: 17_000, total_cents: 17_000 });
+  });
+
+  it('二次拆同一实例 → bundle_instance_not_active', async () => {
+    const bundleId = (await save(abc())).result.bundleId;
+    const { ticketId, bundleInstanceIds } = await openWalkIn({ bundleId, unitOverrides: overrides() });
+    await split(ticketId, bundleInstanceIds[0]!);
+    await expect(split(ticketId, bundleInstanceIds[0]!))
+      .rejects.toMatchObject({ details: { reason: 'bundle_instance_not_active' } });
+  });
+
+  it('带额外优惠的实例暂不支持拆单', async () => {
+    const bundleId = (await save(abc())).result.bundleId;
+    const { ticketId, bundleInstanceIds } = await openWalkIn({
+      bundleId, unitOverrides: overrides(), extraDiscountCents: 2_000,
+    });
+    await expect(split(ticketId, bundleInstanceIds[0]!))
+      .rejects.toMatchObject({ details: { reason: 'bundle_split_with_extras_unsupported' } });
+  });
+
+  it('已结账工单不能拆', async () => {
+    const bundleId = (await save(abc())).result.bundleId;
+    const { ticketId, bundleInstanceIds } = await openWalkIn({ bundleId, unitOverrides: overrides() });
+    const tax = Math.round(15_000 * 0.08875);
+    await dispatch('ticket.close', {
+      ticketId,
+      payments: [{ method: 'cash', amountCents: 15_000 + tax, tipCents: 0, tenderedCents: 15_000 + tax }],
+    }, ctx, { idempotencyKey: randomUUID() });
+    await expect(split(ticketId, bundleInstanceIds[0]!))
+      .rejects.toMatchObject({ details: { reason: 'bundle_split_ticket_not_open' } });
+  });
+});
