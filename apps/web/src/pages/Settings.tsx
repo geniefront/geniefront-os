@@ -897,12 +897,19 @@ export function Settings() {
   const bulkHasAddon = selectedServiceObjs.some((s) => s.isAddon);
   const runBulk = async (set: BulkUpdateServicesInput['set']) => {
     const serviceIds = [...selectedServiceIds];
+    // 乐观锁：带上确认页看到的每个项目版本，期间被人改过则整批拒绝（§7.2）。
+    const expectedVersions: Record<string, string> = {};
+    for (const s of selectedServiceObjs) expectedVersions[s.id] = s.updatedAt;
     try {
-      const res = await bulkUpdateServicesMutation.mutateAsync({ serviceIds, set });
+      const res = await bulkUpdateServicesMutation.mutateAsync({ serviceIds, expectedVersions, set });
       toast.success(t('settings.stBulkDone', { p0: res.updated }));
       clearSelection();
       setBulkOp(null);
     } catch (err: any) {
+      if (err?.details?.reason === 'stale_services') {
+        toast.danger(t('settings.stBulkStale'));
+        return;
+      }
       toast.danger(errorMessage(err));
     }
   };

@@ -290,9 +290,9 @@ describe('回填落地', () => {
 
   it('确认页设的技师人数透传到 services.staff_count；没设的按 1', async () => {
     const id = await freshDraft();
-    const view = await withTenant(tenant, (tx) => loadBlueprint(tx, ctx, id));
-    const gel = view.items.find((i) => i.name['en'] === 'Gel Manicure')!;
-    const ped = view.items.find((i) => i.name['en'] === 'Deluxe Pedicure')!;
+    const v = (await view(id))!;
+    const gel = v.items.find((i) => i.name['en'] === 'Gel Manicure')!;
+    const ped = v.items.find((i) => i.name['en'] === 'Deluxe Pedicure')!;
 
     await run('blueprint.reviewItem', { itemId: gel.itemId, decision: 'accepted', staffCount: 2 });
     await run('blueprint.reviewItem', { itemId: ped.itemId, decision: 'accepted' });

@@ -143,12 +143,30 @@ registerHandler(BulkUpdateServices, async ({ input, ctx, tx, audit }: HandlerArg
   const ids = [...new Set(input.serviceIds)];
 
   // 1. 目标项目必须全部属于本店；缺一即整批失败
-  const targets = await tx<{ id: string; is_addon: boolean; online_bookable: boolean }[]>`
-    select id, is_addon, online_bookable from services
+  const targets = await tx<{
+    id: string; is_addon: boolean; online_bookable: boolean; updated_at: Date;
+  }[]>`
+    select id, is_addon, online_bookable, updated_at from services
     where location_id = ${ctx.locationId} and id = any(${ids})
     for update`;
   if (targets.length !== ids.length) {
     throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'service' } });
+  }
+
+  // 1b. 乐观锁：确认页取到的版本与当前不一致 = 期间被人改过，整批拒绝（§7.2）。
+  if (input.expectedVersions) {
+    const expected = input.expectedVersions;
+    const stale = targets
+      .filter((s) => {
+        const want = expected[s.id];
+        return want !== undefined && new Date(want).getTime() !== new Date(s.updated_at).getTime();
+      })
+      .map((s) => s.id);
+    if (stale.length > 0) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+        details: { reason: 'stale_services', serviceIds: stale },
+      });
+    }
   }
 
   // 2. 加项不进网约目录

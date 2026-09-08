@@ -92,6 +92,12 @@ export const BulkUpdateServices = defineCommand({
   name: 'catalog.bulkUpdateServices',
   input: z.object({
     serviceIds: z.array(uuid).min(1).max(200),
+    /**
+     * 乐观锁：确认页取到的每个项目的 `updatedAt`（ISO 字符串）。传了就逐项比对，
+     * 期间被人改过的项目会让整批以 `stale_services` 拒绝（附漂移的 id 列表）。
+     * 不传 = 不做版本校验（向后兼容旧客户端）。
+     */
+    expectedVersions: z.record(uuid, z.string()).optional(),
     set: z.object({
       onlineBookable: z.boolean().optional(),
       staffCount: z.number().int().min(1).max(5).optional(),

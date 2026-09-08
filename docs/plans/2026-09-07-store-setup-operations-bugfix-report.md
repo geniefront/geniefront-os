@@ -14,7 +14,7 @@
 | U01/U08 默认设置、健康表首发、房间门禁、AI 线路 | W1 | **部分完成**：AI 电话新线默认不接（U08，#4）已修；健康表首发、房间门禁、setup readiness DTO 未开始 | #4 |
 | U02/U13 员工目录与员工中心 | W2 / W2b | **U02 主体 + U13 完成**：岗位 / 职级 / 技能改 ID 契约，服务端不再据自由文本新建目录项、跨店 / 伪造 / 未知值拒绝、停用项只对已关联者保留；`sql/0114` 补 `job_title_id` + 回填 + 只读盘点视图；新增 `staff.reorderDirectoryOptions` 原子重排（#7）。员工中心改默认紧凑卡片 + 单卡展开明细，编辑弹窗技能区可搜索 + 限高滚动（#8）。剩：行业预设生成（属 W1）、`user.updateProfile` 自助技能自由文本、真机 iPad 扫屏（W6b） | #6 #7 #8 |
 | U03/U06/U11 预约日期、时长、详情状态 | W3 | **U06 + U11 前半完成**：时长输入（#2）、新建默认日期不取营业日（#3）、详情顶部进度不误报（#5）；详情复用看板 `queueNextAction`/`paymentStageFor` 显示当前状态 + 履约/付款分列 + 部分完成 N/M + 下一步深链（#11）；U03 跨午夜 day-offset（#13，`resolveInitialDateTime` 尾段 + `wallSlotTarget`）。剩：看板动作编排 hook 完整抽取 | #2 #3 #5 #11 #13 |
-| U04 服务导入、技师人数、网约、批量编辑 | W4 | **主体完成**：导入 / 新建普通项默认网约、加项强制不网约（#9）；`SaveService` 布尔字段改 PATCH 语义（编辑省略不覆写）；新增 `catalog.bulkUpdateServices` + Settings 多选批量条（网约 / 人数 / 技能加移替 / 分类）。剩：draft 级人数编辑、分类栏窄屏下拉（→W6b）、逐字段乐观锁 | #6 #9 |
+| U04 服务导入、技师人数、网约、批量编辑 | W4 | **完成**：导入 / 新建普通项默认网约、加项强制不网约（#9）；`SaveService` PATCH 语义；`catalog.bulkUpdateServices` + Settings 多选批量条（#6 #9）；draft 级人数编辑（#16，`sql/0116`）；分类栏窄屏下拉（#15）；批量编辑乐观锁（#18，`sql/0117` + `expectedVersions` + `stale_services`） | #6 #9 #15 #16 #18 |
 | U05 Google review 同步权限 | W5 | **小修**：配置读接口带 `manualSyncEnabled`，未开放时按钮禁用+提示，不再显示成权限不足（#6）；分状态文案与调查未做 | #6 |
 | U07/U11/U12 导航、生日选择、全端 iPad | W6 | **U07 + U11 完成**：侧栏三分组 + 账号入口进侧栏（#6）；生日改「年直输 + 月日下拉」，`@gf/contracts.parseBirthdate` 共用校验（闰年 / 非法日 / 未来日 / date-only），接入公开健康表 / iPad 自助 / 客户档案（#10）。U12 全端 iPad 未做 | #6 #10 |
 | U10 组合套餐 | W7 | 未开始（独立主项目） | — |
@@ -1487,6 +1487,59 @@ blueprint_items_staff_count, drop column staff_count`。落地行为回到「一
 
 ---
 
+## 批次 #18 — W4 收尾：批量编辑逐项乐观锁（U04 / §7.2）
+
+**日期**：2026-09-07
+**改动范围**：1 个新迁移 `sql/0117` + drizzle schema + `packages/contracts/src/commands/setup.ts`（`BulkUpdateServices` 加 `expectedVersions`）+ `apps/api/src/handlers/setup.ts`（版本比对）+ `apps/api/src/queries/settings.ts`（DTO 加 `updatedAt`）+ `apps/web/src/features/settings/types.ts` + `apps/web/src/pages/Settings.tsx`（提交带 `expectedVersions` + `stale_services` 文案）+ `i18n/settings.ts`（+1 词条）+ `catalogBulk.test.ts`（+2 用例）。
+
+### 这一刀解决了什么
+
+`catalog.bulkUpdateServices` 在确认页展示一批项目、老板勾选后提交。这中间若有别人改了
+其中某项，批量提交会**悄悄覆盖**。`services` 表此前**没有任何版本 / 时间戳列**。
+
+### 改了什么
+
+- **`sql/0117`**：`services` 加 `updated_at timestamptz not null default now()` + 通用触发器函数
+  `gf_touch_updated_at()`（`before update` 挂到 `services`）。**任何** UPDATE 路径
+  （SaveService / 批量 / blueprint 落地 / archive…）都自动推进它，不用各改法各记时间。
+- **契约**：`BulkUpdateServices` 加 `expectedVersions: Record<uuid, string>`（可选，serviceId → ISO
+  `updatedAt`）。不传 = 不校验（向后兼容）。
+- **handler**：取 `for update` 锁行时一并取 `updated_at`；`expectedVersions` 给出的项目里，
+  版本与当前不一致的收集成 `stale`，非空即整批 `VALIDATION_FAILED { reason: 'stale_services',
+  serviceIds }`（在任何写之前，天然全批回滚）。
+- **前端**：`ServiceItem` DTO 加 `updatedAt`；`Settings.tsx` `runBulk` 从选中项目对象收集
+  `expectedVersions` 一起提交；catch 到 `stale_services` 提示「刚被别人改过，刷新重试」。
+
+### 明确未覆盖 / 交接
+
+1. **`stale_services` 只拒绝、不合并**：按 §7.2「拒绝旧版本覆盖**或**显式合并」取前者。
+   前端提示后由老板重新加载再操作，没有做逐字段三方合并 UI。
+2. **单项 `SaveService` 无乐观锁**：单项编辑仍是「后写胜」。本批只给批量加锁（批量是
+   「预览-勾选-提交」有时间窗的那条）。要给单项加需另配 `expectedVersion` 入参。
+3. **触发器只挂了 `services`**：`gf_touch_updated_at()` 是通用函数，别的表要同款行为可直接复用。
+
+### 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 迁移（本机 55322，回退到 0116 再全新应用） | `MIGRATION_DATABASE_URL=<local> pnpm db:migrate` | `0117 … OK`；`✓ RLS 覆盖检查通过` |
+| 批量编辑套件 | `vitest run src/catalogBulk.test.ts` | 10 passed（+2：期间被改 → `stale_services` 整批拒绝无部分写、用新版本重取可提交；触发器推进版本） |
+| 相邻套件 | `vitest run src/settings_enhancements.test.ts` | 14 passed |
+| 类型 | `@gf/contracts` / `@gf/db` / `@gf/api` / `@gf/web` `tsc --noEmit` | 全部 exit 0 |
+| Web 全量 + i18n | `pnpm --filter @gf/web test` / `vitest run src/i18n` | 59 files / 341 passed；i18n 7 passed |
+| 守卫 | `pnpm lint:guards` | ✓ |
+| 完整 API 套件（isolated 库） | `pnpm --filter @gf/api test` | 87 files / 1192 passed（无 flaky） |
+
+未做：浏览器验证。未在 staging / 生产执行迁移。
+
+### 回退
+
+`git revert` 本 commit；`sql/0117` 回退：`drop trigger services_touch_updated_at on services;
+drop function gf_touch_updated_at(); alter table services drop column updated_at;`。
+批量编辑回到「无版本校验、后写胜」。
+
+---
+
 ## 会话交接 —— 批次 #7–#11 之后剩余（给下一位）
 
 本轮会话完成 W2 / W2b / W4 / W6a / W6b(U11 部分) / W3b(U06)，`main` HEAD = `d61ebc2`。
@@ -1535,9 +1588,9 @@ blueprint_items_staff_count, drop column staff_count`。落地行为回到「一
 
 - **W2**：~~`user.updateProfile` 技师自助改本人技能仍自由文本 + 自动建 `skills`~~ —— **✅ 批次 #14 完成**
   （契约加 `skillIds`、handler 收成「解析现存项 / 否则拒绝」、`Profile.tsx` 改字典勾选）。行业预设一键生成属 W1。
-- **W4**：~~blueprint 草稿人数编辑器~~ **✅ 批次 #16**（`sql/0116` 加 `blueprint_items.staff_count`
-  + `toServiceDrafts` 透传 + 确认页 1–5 输入）；~~服务分类栏窄屏下拉~~ **✅ 批次 #15**；
-  批量命令逐字段乐观锁需 `services.updated_at`（**未做** —— W4 唯一剩项）。
+- **W4**：~~blueprint 草稿人数编辑器~~ **✅ 批次 #16**；~~服务分类栏窄屏下拉~~ **✅ 批次 #15**；
+  ~~批量命令乐观锁~~ **✅ 批次 #18**（`sql/0117` 加 `services.updated_at` + 触发器，
+  `bulkUpdateServices` 收 `expectedVersions`，漂移则 `stale_services` 整批拒绝）。**W4 全清。**
 - **W6a**：~~iPad 健康表没有门店 `today` → 不判未来日~~ **✅ 批次 #15**
   （`HealthFormPage` 从 `storeInfo.timezone` 用 `Intl` 取门店日历今天，传 `BirthdateField.today` + `parseBirthdate`）。
   健康表模板目前无 `date` 题型，新增时复用 `BirthdateField` + `@gf/contracts.parseBirthdate`。

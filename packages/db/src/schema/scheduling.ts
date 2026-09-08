@@ -115,6 +115,8 @@ export const services = pgTable('services', {
   isAddon: boolean('is_addon').notNull().default(false),
   active: boolean('active').notNull().default(true),
   sort: integer('sort').notNull().default(0),
+  /** 由 services_touch_updated_at 触发器自动维护，批量编辑乐观锁用（sql/0117）。 */
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index('services_location_idx').on(t.locationId, t.active),
 ]);

@@ -126,4 +126,48 @@ describe('catalog.bulkUpdateServices (U04 / §7.2)', () => {
       serviceIds: ids, set: { skillsAdd: ['00000000-0000-4000-8000-000000000000'] },
     }, ctx)).rejects.toMatchObject({ code: 'NOT_FOUND', details: { entity: 'skill' } });
   });
+
+  it('乐观锁：期间被人改过 → 整批 stale_services 拒绝，无部分写入（§7.2）', async () => {
+    const ids = await makeServices(2);
+    const versions = await withTenant(tenant, (tx) => tx<{ id: string; updated_at: string }[]>`
+      select id, updated_at::text as updated_at from services where id = any(${ids})`);
+    const expectedVersions = Object.fromEntries(versions.map((v) => [v.id, v.updated_at]));
+
+    // 另一个人（另一条命令）改了其中一个项目
+    await dispatch('catalog.saveService', {
+      serviceId: ids[0]!, name: { en: 'Touched By Someone Else' }, durationMin: 30, basePriceCents: 1000,
+    }, ctx);
+
+    await expect(dispatch('catalog.bulkUpdateServices', {
+      serviceIds: ids, expectedVersions, set: { staffCount: 4 },
+    }, ctx)).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED', details: { reason: 'stale_services', serviceIds: [ids[0]!] },
+    });
+
+    // 未被改的那个也没被批量动到（整批回滚）
+    expect((await svc(ids[1]!)).staff_count).not.toBe(4);
+
+    // 用最新版本重取后可正常提交
+    const fresh = await withTenant(tenant, (tx) => tx<{ id: string; updated_at: string }[]>`
+      select id, updated_at::text as updated_at from services where id = any(${ids})`);
+    const res = await dispatch<{ updated: number }>('catalog.bulkUpdateServices', {
+      serviceIds: ids,
+      expectedVersions: Object.fromEntries(fresh.map((v) => [v.id, v.updated_at])),
+      set: { staffCount: 4 },
+    }, ctx);
+    expect(res.result.updated).toBe(2);
+    expect((await svc(ids[1]!)).staff_count).toBe(4);
+  });
+
+  it('updated_at 触发器：任何 UPDATE 都推进版本', async () => {
+    const ids = await makeServices(1);
+    const id = ids[0]!;
+    const before = await withTenant(tenant, (tx) => tx<{ updated_at: string }[]>`
+      select updated_at::text as updated_at from services where id = ${id}`);
+    await new Promise((r) => setTimeout(r, 5));
+    await dispatch('catalog.bulkUpdateServices', { serviceIds: [id], set: { staffCount: 3 } }, ctx);
+    const after = await withTenant(tenant, (tx) => tx<{ updated_at: string }[]>`
+      select updated_at::text as updated_at from services where id = ${id}`);
+    expect(new Date(after[0]!.updated_at).getTime()).toBeGreaterThan(new Date(before[0]!.updated_at).getTime());
+  });
 });

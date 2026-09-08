@@ -307,10 +307,10 @@ export async function loadDeskSettings(
     id: string; name: unknown; duration_min: number; base_price_cents: number;
     category_id: string | null;
     taxable: boolean; online_bookable: boolean; is_addon: boolean; active: boolean;
-    staff_count: number; required_skill_ids: string[];
+    staff_count: number; required_skill_ids: string[]; updated_at: string;
   }[]>`
     select s.id, s.name, s.category_id, s.duration_min, s.base_price_cents, s.taxable, s.online_bookable,
-           s.is_addon, s.active, s.staff_count,
+           s.is_addon, s.active, s.staff_count, s.updated_at::text as updated_at,
            coalesce((select array_agg(ssr.skill_id order by ssr.skill_id)
              from service_skill_requirements ssr where ssr.service_id = s.id), '{}') as required_skill_ids
     from services s where s.location_id = ${ctx.locationId}
@@ -434,6 +434,7 @@ export async function loadDeskSettings(
       staffCount: s.staff_count,
       requiredSkillIds: s.required_skill_ids,
       active: s.active,
+      updatedAt: s.updated_at,
     })),
     serviceCategories: serviceCategories.map((category) => ({
       id: category.id,

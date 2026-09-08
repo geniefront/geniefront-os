@@ -40,6 +40,8 @@ export interface ServiceItem {
   staffCount: number;
   requiredSkillIds: string[];
   active: boolean;
+  /** 乐观锁版本（ISO）。批量编辑提交时回传，期间被改过则整批拒绝。 */
+  updatedAt: string;
 }
 
 export interface ServiceCategoryItem {
@@ -237,6 +239,8 @@ export interface SaveServiceCategoryInput {
 
 export interface BulkUpdateServicesInput {
   serviceIds: string[];
+  /** serviceId → 确认页取到的 updatedAt。期间被人改过则整批 stale_services 拒绝。 */
+  expectedVersions?: Record<string, string>;
   set: {
     onlineBookable?: boolean;
     staffCount?: number;
