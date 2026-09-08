@@ -246,55 +246,146 @@ P6 后端（公开预约套餐入口）✅ · P7–P8 未做**
       （决策 #3 启发式）—— 未做，属导入链路（P2 范围），无 P6 硬门槛。
 - [ ] 通知模板按套餐 / 子项展示 —— 未改；现有模板按 `appointment_items` 渲染，套餐子项即普通行。
 
-### P7–P8 —— 未开始
+### P7 · 历史数据与上线准备 —— 🔶 只读扫描 + 上线/回退方案完成，一次性转换脚本待写
+
+- [x] **只读历史 package 候选扫描** —— `apps/api/src/queries/bundleMigration.ts::scanLegacyPackageCandidates`
+      + 路由 `GET /v1/desk/bundles/legacy-scan`（`catalog.manage`）。按「去重项目数 + 次数」
+      两条启发式分类：`likely_bundle`（≥2 项且 sessions≤1）、`likely_punchcard`（≤1 项且
+      sessions≥2，默认不列）、`ambiguous`（其余，交店主判断）。**不改写任何数据**，
+      每条附一句话建议 + 已发/在用 `customer_packages` 计数供人工比对。测试
+      `bundle.test.ts` `describe('P7 …')` 1 例。
+- [ ] **逐条确认转换脚本**（设计见下）—— 未写。属一次性运维脚本，不进产品代码路径。
+- [x] **加法式迁移顺序 / 旧版本兼容 / 功能开关 / 回退**（见 §8）。
+
+**转换脚本设计（P7 未实现，供执行）**：
+1. 运维先跑 `legacy-scan`，人工在 `likely_bundle` / `ambiguous` 里逐条勾出「确实是固定组合」。
+2. 对每个勾中的 `package_templates` 行：用其 `service_ids`（按当前目录价）建一条
+   `service_bundles` + `service_bundle_components`（`qty` 由运维按实际组合填，不猜），
+   `service_bundles.price_cents = package_templates.price_cents`。
+3. 记 `template_id → bundle_id` 映射表（新表或 `service_bundles.meta`），便于审计与回滚。
+4. **已售 `customer_packages` 不迁移**：老客户手里的次卡按旧核销路径继续用到用完；
+   新销售改走 `bundle.saveTemplate` + `appointment.create` 的 `bundleSelections`。
+5. 被转换的旧 `package_templates` 行 `active=false`（`onlineSale=false`），停止新发卡，
+   历史工单与在用次卡不受影响。
+
+### P8 · 完整验证与交接 —— 🔶 后端测试矩阵 + 报告完成；浏览器/ipad 闭环依赖前端
+
+- [x] 受影响包全量测试 + typecheck + guards（结果见 §6）。
+- [x] B01–B32 逐条落点见 §9。
+- [ ] 浏览器验证前台完整闭环（选套餐→看板→派单→服务→结账→收据）—— **无前端，未验证**。
+      booking / ipad E2E 同理。后端契约与金额口径已由集成测试覆盖。
+- [ ] 多语言 / 时区 / 触屏 / 断网 —— 后端：i18n 名称快照随实例落库（`name_snapshot`、
+      `nameSnapshot`），营业日沿用门店 `timezone` / `business_day_cutoff`；前端场景未验证。
 
 ---
 
 ## 6. 实际运行的命令与结果
 
+全部于 2026-09-08 在本地隔离库（55322）跑过一遍，全绿：
+
 | 命令 | 结果 |
 |---|---|
-| `pnpm --filter @gf/payroll test` | ✅ 6 文件 / **128 例**（含新增 21 例 `bundle.test.ts`） |
-| `pnpm --filter @gf/contracts test` | ✅ 8 文件 / 61 例（含 `registry.test.ts` 命令注册校验） |
-| `pnpm --filter @gf/db test` | ✅ 10 文件 / **92 例**（含新增 `serviceBundles.migration.test.ts`，跑在本地 55322） |
-| `pnpm --filter @gf/api test` | ✅ 88 文件 / **1212 例**（含 `bundle.test.ts` 20 例：目录/报价 11 + P3a 5 + P3b 1 + P3c 2 + P4 1，本地 55322） |
+| `pnpm --filter @gf/payroll test` | ✅ 6 文件 / **128 例**（含 `bundle.test.ts` 21 例 `allocateBundle`/`refundableForUnit`） |
+| `pnpm --filter @gf/contracts test` | ✅ 8 文件 / **61 例**（含 `registry.test.ts` 命令注册校验，`bundle.*` 已接入） |
+| `pnpm --filter @gf/db test` | ✅ 10 文件 / **92 例**（含 `serviceBundles.migration.test.ts`：RLS / 列可空 / check / 跨租户 / 可重放） |
+| `DATABASE_TEST_TARGET=isolated pnpm --filter @gf/api test` | ✅ 88 文件 / **1223 例**（`bundle.test.ts` 25 例 = 目录/报价 11 + P3a 5 + P3b 1 + P3c 2 + P4 1 + **P5 4** + **P7 1**；`public.test.ts` +**6** U10 例） |
 | `pnpm typecheck`（turbo，全 16 包） | ✅ 16/16 |
-| `pnpm lint:guards` | ✅ |
-| `pnpm test:unit` | ✅ 全通过 |
+| `pnpm lint:guards` | ✅ 全通过 |
 
 ### 已验证 / 剩余缺口
 
-- **本地隔离库（55322）**：`@gf/db` + `@gf/api` 全套 + 迁移测试 + bundle 目录/报价
-  测试均已跑通。`0118` 已应用到本地 55322。
-- **迁移未上 staging / 生产**：只在本地。上线顺序见 §8。
-- **E2E / 浏览器**：无 UI 变更，未涉及。
-- **B01–B32 验收矩阵**：B04/B05/B06/B20/B32 的**金额口径**已由 `bundle.test.ts` /
-  `bundle` 纯函数测试覆盖；完整场景（预约/看板/结账/退款全链路）依赖 P3–P8。
+- **本地隔离库（55322）**：上表全套跑通（含 P5 结账/退款/次卡、P6 公开预约、P7 扫描）。
+  `0118` 已应用到本地 55322。
+- **迁移未上 staging / 生产**：只在本地。上线 / 回退顺序见 §8。
+- **E2E / 浏览器 / ipad**：套餐无前端，未验证。后端契约、金额口径、RLS、幂等、
+  并发（乐观锁）已由集成测试覆盖；前台完整闭环、触屏、断网、多语言 UI 待前端排期后补测。
+- **B01–B32**：逐条落点见 §9（✅ 后端有测试证据 21 项 · 🔶 就位缺专项 / 依赖前端 9 项 ·
+  ⛔ 未做 2 项：B02 导入草稿 UI、B14 未付款拆单）。
 
 ---
 
 ## 7. 历史 package 处理
 
-未处理（属 P7）。现状：`package_templates` / `customer_packages` 承载次卡，未区分其中
-是否混有「其实是固定组合」的历史行。P7 需提供只读扫描 + 逐条确认转换，不按
-`sessions=0/1` 自动判断。
+只读扫描已交付（`scanLegacyPackageCandidates` / `GET /v1/desk/bundles/legacy-scan`，见 P7）。
+一次性转换脚本未写，设计见 P7 段。原则：不按 `sessions=0/1` 自动判断；已售
+`customer_packages` 与历史工单不随扫描迁移；转换保留 `template_id → bundle_id` 映射。
 
-## 8. 待执行的生产操作
+## 8. 待执行的生产操作与上线 / 回退
 
-无。本轮不含任何生产变更。后续 P1 落库顺序：`0118` 在 staging 迁移（加法式，
-可回退：回退只需 `drop` 3 张新表 + 4×2 列，无数据依赖），验证后再生产。
+**未执行任何生产变更。** `0118` 仅在本地 55322。
+
+**上线顺序**（加法式，逐步可回退）：
+1. `0118_service_bundles.sql` 应用到 staging（`MIGRATION_DATABASE_URL` 必须显式指向
+   staging，勿踩 `db-env-footgun`）。纯加法：3 张新表 + `appointment_items` / `ticket_items`
+   各 4 个可空列 + 索引 + RLS，既有行不动。
+2. 部署带 P1–P7 的 API。此时后端能建 / 报价 / 展开 / 结账 / 退款 / 公开预约套餐。
+3. 前端排期后再放开 UI；在此之前套餐对前台不可见 —— `bundle.saveTemplate` 是唯一
+   建模板入口，没有模板就没有可选套餐（隐性功能开关）。
+4. 验证无回归后同样顺序上生产。
+
+**回退**（不删已用的表）：
+- 轻回退：把所有 `service_bundles.active=false`（并 `online_bookable=false`）——
+  停止一切新套餐销售 / 预约，已建实例（`order_bundle_instances`）仍可查看 / 履约 / 结算 / 退款。
+- 代码回退：回退 API 到 P0 之前；`bundle_*` 列与新表保留（可空、无 `not null` 依赖），
+  历史 `order_bundle_instances` 成为只读记录，不会让已开工单变孤儿。
+- **不可** `drop` 已有 `order_bundle_instances` 行的三张表 —— 那会切断历史工单的套餐归属。
+  仅当 staging 上尚无任何实例时才允许整体 `drop`（回退脚本自带该断言）。
 
 ---
 
-## 9. 最短复现步骤（P1 已交付部分）
+## 9. B01–B32 验收矩阵落点
+
+| ID | 覆盖 | 证据 / 缺口 |
+|---|---|---|
+| B01 | 🔶 后端 | `bundle.saveTemplate` 与 `package.saveTemplate` 分属两套契约 / 两组表；导入分流属前端 P2 |
+| B02 | ⛔ 前端 | 导入草稿待选 UI，未做 |
+| B03 | 🔶 | `bundle.saveTemplate` 幂等 `optional`；导入发布幂等属 P2 前端 |
+| B04 | ✅ | `bundle.test.ts` P3a「两份同模板」+ `allocateBundle` qty 展开（`payroll/bundle.test.ts`） |
+| B05 | ✅ | `bundle.test.ts` quote「extra add-on → serviceNet 16500」；原价 185 / 优惠 20 / 应付 165 口径 |
+| B06 | ✅ | 同上：包含加项计入原价不另收，额外加项全价且带 `unitOrdinal` 归属 |
+| B07 | ✅ | `bundle.test.ts` P3a「两份同模板 + 散项，两实例互不串」 |
+| B08 | ✅ | `order_bundle_instances` 快照（`name_snapshot`/`bundle_price_cents`/`template_version`）+ `bundle.archiveTemplate` 后旧报价用快照；`quoteBundle` 对停用服务 `bundle_service_inactive` |
+| B09 | ✅ | `bundle.test.ts` P3b「ticket.open 继承同一实例」+ 三元组唯一索引防重复展开 |
+| B10 | 🔶 | 子项走既有容量 / 资源硬约束（P3a 复用 `appointment.create` 校验）；整套原子失败由事务保证（P3a「版本不符整单回滚」用例）；专项资源不足用例未补 |
+| B11 | 🔶 | 顺排 + 营业日按门店 tz/cutoff（P3a）；DST / wait 段专项未补 |
+| B12 | 🔶 | 子项各自 `ticket_item_staff`；看板进度按有效子项（P4 `doneCount`/`fulfilled`）；两技师三项专项浏览器用例未补 |
+| B13 | 🔶 | `order_bundle_instances.status`（active/split/cancelled）+ P4 进度不提前完工；部分取消调整流程属前端 |
+| B14 | ⛔ | 未付款拆单（`status='split'`）—— 未做（P3 遗留） |
+| B15 | ✅ | 结账 `settlementStage` service/tip 分离对套餐单成立（子项净额进 subtotal），`bundle.test.ts` P5 结账用例 |
+| B16 | 🔶 | 付款后加项补差走既有 `service_settled_at` 冻结 + 追加结算；套餐特有分支无（子项即普通行） |
+| B17 | ✅ | `bundle.test.ts` P5「次卡只核散项」「命中子项被拒」；`ticket.ts` `applyPackageRedemptions` 排除 `bundle_instance_id` |
+| B18 | ✅ | 额外优惠 `manual`/`coupon` 分流 + 服务端算（`allocateBundle`，`bundle.test.ts` quote 两例）；不信客户端金额 |
+| B19 | 🔶 | 子项税按各自明细进既有税引擎（`closeOneTicket` 按 subtotal 算，无父行）；混合税属性专项未补 |
+| B20 | ✅ | `bundle.test.ts` quote「退 C = 1764 / 剩 13236」+ `payroll/bundle.test.ts` `refundableForUnit` |
+| B21 | ✅ | `TicketRefund` 累计 `refund_cents + amt <= total`、按 earnings 原行比例冲销、幂等键；`bundle.test.ts` P5 全额退款用例 |
+| B22 | ✅ | P5 全额退款：状态 `refunded`、提成 amount/base 归零、预约 / 队列收场（`isFullRefund` 分支） |
+| B23 | ✅ | P5 退款用例断言按**原** earnings 行冲销，不按当前模板 / 费率重算；小费独立 `tip_allocations` |
+| B24 | 🔶 | 组单 `closeOneTicket` 逐单结、`distributeBuckets` 按方式填；套餐实例不跨 ticket（单行双归属）；组单含套餐专项浏览器用例未补 |
+| B25 | ✅ | `bundle.test.ts` P5「结账收款 = 分摊净额 + 税」；两 Checkout UI 一致性属前端 |
+| B26 | ✅ | `public.test.ts` U10：官网 `bundle-quote` / 下单复用 `quoteBundle` + `appointment.create`；前台 P3a 同路径；kiosk/AI 见 P6 段 |
+| B27 | ✅ | `bundle.test.ts` quote「跨租户 `bundle_not_found`」+ 0118 RLS 迁移测试（`serviceBundles.migration.test.ts`） |
+| B28 | ✅ | `bundle.saveTemplate` `expectedVersion` 乐观锁 + `quoteBundle` 版本校验（`bundle.test.ts` 多例）；报价服务端算 |
+| B29 | ✅ | P5「结账无第 4 行父套餐收款、提成基数 = 15000 非 17000」；日报 / CSV 按子项净额（无父行天然不重复） |
+| B30 | ✅ | 纯加法迁移 + 既有测试全绿（`@gf/api` 全量，见 §6）；旧普通服务 / 加项 / 次卡行为不变 |
+| B31 | 🔶 | 断网只读、旧客户端不改快照 —— 后端不建离线写队列；前端场景未验证 |
+| B32 | ✅ | i18n 名称快照落库（`name_snapshot`）；分摊数字（A=8824 / C=1764）`payroll/bundle.test.ts` 断言；触屏 / 裸 key 属前端 |
+
+图例：✅ 后端有测试证据 · 🔶 后端就位但缺专项用例或依赖前端 · ⛔ 未做
+
+---
+
+## 10. 最短复现步骤
 
 ```bash
 cd geniefront-os
-pnpm --filter @gf/payroll test        # 纯分摊函数，含计划 §6.1 示例（注意待决策 #1）
+pnpm --filter @gf/payroll test        # allocateBundle / refundableForUnit 纯函数（§6.1 数字）
 pnpm typecheck && pnpm lint:guards    # 全绿
-# 隔离库环境额外：
-# DATABASE_TEST_TARGET=isolated TEST_DATABASE_URL=... TEST_MIGRATION_DATABASE_URL=... \
-#   pnpm --filter @gf/db test -- serviceBundles.migration
+# 隔离库（会重置本地 55322 种子数据）：
+DATABASE_TEST_TARGET=isolated pnpm --filter @gf/api exec vitest run bundle.test public.test
+DATABASE_TEST_TARGET=isolated pnpm --filter @gf/db  exec vitest run serviceBundles.migration
 ```
 
-`allocateBundle` 用法示例见 `packages/payroll/src/bundle.test.ts`。
+`allocateBundle` 用法见 `packages/payroll/src/bundle.test.ts`；结账 / 退款 / 次卡对套餐
+安全见 `apps/api/src/bundle.test.ts` `describe('P5 …')`；公开预约见
+`apps/api/src/public.test.ts` `describe('组合套餐（U10 …')`；历史扫描见
+`describe('P7 …')`。
