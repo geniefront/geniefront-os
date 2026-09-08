@@ -9,6 +9,7 @@ import { withTenant, closeDb } from '@gf/db';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
 import { quoteBundle } from './queries/bundle';
+import { scanLegacyPackageCandidates } from './queries/bundleMigration';
 import './handlers/setup';
 import './handlers/bundle';
 import './handlers/appointment';
@@ -596,5 +597,43 @@ describe('P5 结账 / 退款 / 提成对组合套餐安全', () => {
     // 原提成 + 冲销 = 0：按分摊净额 15000 整额冲回，没有多冲（父套餐无独立收款行）。
     const after = await commissionOf(ticketId);
     expect(after).toEqual({ amount: 0, base: 0 });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────── P7
+//
+// 历史 package_templates 的组合套餐候选扫描（计划 §7）——只读，只给建议。
+describe('P7 历史次卡候选扫描', () => {
+  const savePkg = (input: Record<string, unknown>) =>
+    dispatch<{ templateId: string }>('package.saveTemplate', input, ctx)
+      .then((r) => r.result.templateId);
+
+  it('按「去重项目数 + 次数」分类，默认不列纯次卡', async () => {
+    const combo = await savePkg({
+      name: `${tag()} 三选一组合`, priceCents: 12_000, sessions: 1, serviceIds: [A, B, C],
+    });
+    const ambiguous = await savePkg({
+      name: `${tag()} 说不清`, priceCents: 9_000, sessions: 5, serviceIds: [A, B],
+    });
+    const punch = await savePkg({
+      name: `${tag()} 十次卡`, priceCents: 8_000, sessions: 10, serviceIds: [A],
+    });
+
+    const scan = await withTenant(NAIL, (tx) => scanLegacyPackageCandidates(tx, ctx));
+    const mine = new Map(scan.candidates.map((c) => [c.templateId, c]));
+
+    expect(mine.get(combo)?.classification).toBe('likely_bundle');
+    expect(mine.get(ambiguous)?.classification).toBe('ambiguous');
+    // 纯次卡默认不出现在候选里
+    expect(mine.has(punch)).toBe(false);
+    // 只读：不建任何 service_bundles 行
+    const [n] = await withTenant(NAIL, (tx) => tx<{ c: number }[]>`
+      select count(*)::int as c from service_bundles where name->>'en' like '%三选一组合%'`);
+    expect(n!.c).toBe(0);
+
+    const scanAll = await withTenant(NAIL, (tx) =>
+      scanLegacyPackageCandidates(tx, ctx, { includePunchcards: true }));
+    expect(scanAll.candidates.find((c) => c.templateId === punch)?.classification)
+      .toBe('likely_punchcard');
   });
 });

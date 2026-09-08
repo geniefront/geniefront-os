@@ -13,6 +13,7 @@ import { AppError, ERROR_CODES } from '@gf/contracts';
 import { withTenant } from '@gf/db';
 import { loadGiftCards, loadGiftCardVerify } from '../queries/giftcard';
 import { loadPackages, loadCoupons, loadLoyalty } from '../queries/marketing';
+import { scanLegacyPackageCandidates } from '../queries/bundleMigration';
 import type { CtxFromHeaders } from './utils';
 
 export function registerMarketingRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHeaders): void {
@@ -65,6 +66,18 @@ export function registerMarketingRoutes(app: FastifyInstance, ctxFromHeaders: Ct
   app.get('/v1/desk/packages', handlePackages);
   app.get('/v1/desk/marketing/packages', handlePackages);
   app.get('/api/marketing/packages', handlePackages);
+
+  // 历史次卡模板里疑似「固定组合」的候选扫描（U10 / 计划 P7）——只读，不迁移。
+  app.get<{ Querystring: { includePunchcards?: string } }>(
+    '/v1/desk/bundles/legacy-scan', async (req) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('catalog.manage')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'catalog.manage' } });
+      }
+      return withTenant(ctx, (tx) => scanLegacyPackageCandidates(tx, ctx, {
+        includePunchcards: req.query.includePunchcards === 'true',
+      }));
+    });
 
   const handleCoupons = async (req: FastifyRequest) => {
     const ctx = await ctxFromHeaders(req);
