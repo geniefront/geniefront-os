@@ -20,6 +20,7 @@ const TenDlc = lazy(() => import('./pages/TenDlc').then((m) => ({ default: m.Ten
 const TenDlcDetail = lazy(() => import('./pages/TenDlcDetail').then((m) => ({ default: m.TenDlcDetail })));
 const WebsiteRequests = lazy(() => import('./pages/WebsiteRequests').then((m) => ({ default: m.WebsiteRequests })));
 const WebsiteRequestDetail = lazy(() => import('./pages/WebsiteRequestDetail').then((m) => ({ default: m.WebsiteRequestDetail })));
+const Licenses = lazy(() => import('./pages/Licenses').then((m) => ({ default: m.Licenses })));
 const Audit = lazy(() => import('./pages/Audit').then((m) => ({ default: m.Audit })));
 const TestInbox = lazy(() => import('./pages/TestInbox').then((m) => ({ default: m.TestInbox })));
 
@@ -58,6 +59,7 @@ function SessionGate() {
           <Route path="/10dlc/:locationId" element={<TenDlcDetail />} />
           <Route path="/website-requests" element={<WebsiteRequests />} />
           <Route path="/website-requests/:briefId" element={<WebsiteRequestDetail />} />
+          <Route path="/licenses" element={<Licenses />} />
           <Route path="/audit" element={<Audit />} />
           <Route path="/email" element={<Email />} />
           <Route path="/test-inbox" element={<TestInbox />} />

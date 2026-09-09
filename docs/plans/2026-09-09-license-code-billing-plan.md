@@ -1,6 +1,6 @@
 # 订阅码计费（Stripe 之外的第二条计费权威）实施计划
 
-日期：2026-09-09 · 状态：**批 1–7 已实现**（批 8 前端进行中）· 范围：后端为主，运营台前端单列一批
+日期：2026-09-09 · 状态：**批 1–8 全部实现**· 范围：后端为主，运营台前端单列一批
 
 ## 1. 要解决的问题
 
@@ -217,7 +217,7 @@ Stripe 的状态和到期日 —— 表现是"这家店明明续到年底，某�
 | 5 | `ops/licenseSweep.ts`：到期置 `expired`、到期前提醒、额度按 30 天滚动清零 | sweep 单测用可注入时钟，不 sleep |
 | 6 | 运营直接开店（`store_open` 码 → `gf_provision_tenant` → 激活信） | 端到端：签发 → 开店 → 收到 magic link → 能开单 |
 | 7 | `billing_invoices` 留痕（§8） | 发票页出现该行 |
-| 8 | 运营台前端（`apps/platform`：Licenses 页 + StoreDetail 计费卡片）与 desk 兑换入口 | **等你点名再做** —— 按分工前端默认不动 |
+| 8 | 运营台前端（`apps/platform`：Licenses 页 + StoreDetail 计费卡片）与 desk 兑换入口 | ✅ 已完成，见 §13 |
 
 ## 12. 实现记录（2026-09-09，批 1–7 完成）
 
@@ -294,10 +294,7 @@ POST   /v1/platform/stores                                     运营直接开�
 
 ### 已知待办
 
-- 批 8（前端）进行中。
-- `apps/web` 的 `subscriptionStatusKey` 还不认 `expired`，会落到「未知」文案；
-  `billingSource === 'license'` 的店也仍会看到「管理订阅」（Stripe 客户门户）入口。
-  两处都在批 8。
+（批 1–7 的待办已在批 8 中清掉，见 §13。）
 - 批 7 已完成：面值 > 0 的码在兑换时写一行 `status='paid'`、
   `stripe_invoice_id = null` 的发票，号码 `LIC-<codeId 前 8 位>`。
   没写面值的码（补偿性赠送）不写发票 —— 没收到钱就不该有单据。
@@ -322,3 +319,72 @@ POST   /v1/platform/stores                                     运营直接开�
 - 不做面向公众的未登录兑换页；
 - 不做码换积分与分钟之间的任何换算（决策 8）；
 - 不让运营直接 update `billing_accounts` —— 所有 license 写入必经 `applyLicense()`。
+
+## 13. 批 8 实现记录（前端，2026-09-09）
+
+### 运营台 `apps/platform`
+
+| 文件 | 内容 |
+| --- | --- |
+| `src/pages/Licenses.tsx` | 新页面：列表（状态/类型/前缀·收款说明·门店 三种筛选）+ 签发表单 + 撤销 |
+| `src/components/LicensePanel.tsx` | 门店详情里的「计费权威」卡片 + 四个动作 + 兑换历史 |
+| `src/pages/Stores.tsx` | 加「不经 Stripe 开一家店」表单（super_admin 才显示） |
+| `src/lib/license.ts` | 类型 + `centsFromUsdInput` / `intFromInput` / `usdFromCents` |
+| `src/pages/StoreDetail.tsx` | license 门店不再显示「Open Stripe Customer Portal」 |
+
+四个动作**故意长得不一样**，因为它们不是一件事的四个选项：
+
+- **Grant / renew** —— 已经归订阅码管，加天数就完了；
+- **Switch off Stripe → code** —— 独立按钮。它会先在 Stripe 那边删掉**这家店那个
+  item**（最后一个 item 时才取消订阅），是一个**对外**的动作，文案里必须说清；
+- **Change end date** —— `note` 必填，`extend` 从 `max(今天, 现有到期)` 起算；
+- **Revoke now** —— 当场到期，红色按钮，且说明「不动兑换历史」。
+
+界面上把 Grant 在 `billingSource === 'stripe'` 时藏起来 —— 服务端那时会直接拒
+（`stripe_active_switch_required`），而那个拒绝是对的。
+
+`super_admin` 之外只读：签发/改期/收回的按钮都不渲染。**这只是免得 support 点了
+之后收到一个看不懂的 403，判定仍然在数据库里**（`gf_license_issue`）。
+
+明文码只在签发响应里出现一次，页面上用一块必须手动关掉的面板显示 + 复制按钮，
+**不做「重新查看」**（那需要把明文存下来）。
+
+### 门店端 `apps/web`
+
+| 文件 | 内容 |
+| --- | --- |
+| `features/billing/api.ts` | `useRedeemLicenseCode()`（走 REST 路由，因为限频在路由上） |
+| `features/billing/BillingPanel.tsx` | 兑换码输入块；license 门店不显示 Stripe 客户门户与「未绑卡」 |
+| `features/billing/display.ts` | `expired` 文案与红色徽章；`subscriptionNotice` 的 license 分支；`isLicenseBilling` |
+| `i18n/settings.ts` | 12 个新词条 × 5 种界面语言 |
+
+三处判断值得记下来：
+
+1. **`subscriptionNotice` 里 license 分支排在最前面。** 它下面那几档全是 Stripe 的
+   语汇（「期末取消」是客户门户的产物、「下次扣款」的前提是有一张卡），
+   落到 license 门店身上会显示「X 日自动续费」，而事实是到那天就停。
+2. **到期的门店，兑换框仍然可用。** 冻结时唯一还该能做的写操作就是把冻结解决掉
+   （`bus.ts` 的 `WRITE_ALLOWED_WHILE_PAST_DUE` 放行 `billing.` 前缀）。
+   禁用它等于把唯一的自救出口关掉。
+3. **失败必须说三句不同的话**：码无效 / 试太快了 / 你还在 Stripe 上。
+   合成一句「兑换失败」的话，一个正在被 Stripe 扣款的老板会一直重试一张
+   本来就对的码。
+
+### 面值的币种（已知取舍）
+
+`amount_cents` 没有币种列，而私下收款很可能是人民币。运营台把这一格标成
+**Amount collected (USD)** 并提示「非美元请填美元等值」—— 因为发票页在
+`apps/web` 里是按美元渲染的，存一个人民币数字进去会显示成一个错的 `$`。
+真要支持多币种得给 `billing_invoices` 加一列，那会牵动发票渲染，不在这一轮。
+
+### 测试
+
+| 文件 | 数量 | 覆盖 |
+| --- | --- | --- |
+| `apps/platform/src/lib/license.test.ts` | 13 | 金额与数量的输入解析（不许 parseFloat / Number 取巧） |
+| `apps/web/.../display.test.ts` | +6 | license 分支的判据顺序、`expired`、Stripe 四档没被误伤 |
+| `apps/web/.../BillingPanel.test.tsx` | +7 | 不给 Stripe 入口、到期只读文案、兑换成功/三档失败 |
+
+运营台的两个页面**没有做渲染测试**：`apps/platform` 里没有 testing-library，
+为这一轮引一个新依赖不划算。它们靠 typecheck + `vite build` + 后端那 35 项
+接口测试兜着，页面本身很薄。

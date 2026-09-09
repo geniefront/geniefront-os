@@ -4,6 +4,7 @@ import { useSession } from "@/lib/session";
 import { isRelativeAppPath, PORTAL_RETURN_PATH } from "./display";
 import type {
   BillingResponse,
+  RedeemCodeResponse,
   SetAutoTopupInput,
   BillingInvoicesResponse,
   TaxProfile,
@@ -112,6 +113,35 @@ export function useCreatePaymentMethodSession() {
         { successUrl: path, cancelUrl: path },
         { headers: { "X-Membership-Id": membershipId! } },
       );
+    },
+  });
+}
+
+/**
+ * 兑换一张订阅码 / 额度包码（迁移 0120）。
+ *
+ * ## 为什么走 REST 路由而不是 `runCommand`
+ *
+ * 那条路由在命令之前先过**限频**（按 IP 与门店各一条）。码是「捡到就能用」
+ * 的凭证，没有限频的兑换接口本身就是一个可以无限次试的口子。
+ * 命令总线没有限频这一层，所以这一步必须在路由上（同 `/v1/billing/topup`）。
+ *
+ * ⚠️ 兑换成功后要把**整个** billing 查询失效，不只是余额：一张订阅码同时
+ * 改了到期日、状态和套餐内额度档位，只刷余额的话界面会显示一个
+ * 「已到期但有额度」的自相矛盾状态。
+ */
+export function useRedeemLicenseCode() {
+  const { membershipId } = useSession();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (code: string) => apiPost<RedeemCodeResponse>(
+      "/v1/desk/billing/redeem-code",
+      { code },
+      { headers: { "X-Membership-Id": membershipId! } },
+    ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["desk", "billing"] });
     },
   });
 }

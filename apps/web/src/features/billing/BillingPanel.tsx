@@ -6,13 +6,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { toast } from '@heroui/react';
-import { AlertCircle, CheckCircle2, PhoneCall, Sparkles } from 'lucide-react';
+import { AlertCircle, CheckCircle2, PhoneCall, Sparkles, Ticket } from 'lucide-react';
 import {
   useBillingQuery,
   useCreateBillingPortalSession,
   useCreatePaymentMethodSession,
   useCreateTopup,
   useInvoicesQuery,
+  useRedeemLicenseCode,
   useSetAutoTopup,
 } from './api';
 import { useDeskSettingsQuery, useSetEmailLocale } from '@/features/settings/api';
@@ -21,6 +22,7 @@ import {
   formatIsoDate,
   formatUsdFromCents,
   invoiceStatusKey,
+  isLicenseBilling,
   planLabelKey,
   PORTAL_RETURN_PATH,
   safeHttpsUrl,
@@ -30,7 +32,7 @@ import {
   subscriptionStatusKey,
   subscriptionNotice,
 } from './display';
-import type { QuotaUnit, QuotaView } from './types';
+import type { BillingView, QuotaUnit, QuotaView } from './types';
 
 /**
  * 账单类邮件的可选语言。
@@ -90,6 +92,14 @@ export function BillingPanel() {
     || billing?.subscriptionStatus === 'incomplete_expired');
   const canceled = billing?.subscriptionStatus === 'canceled' && !trialing;
   const hasPaymentMethod = billing?.hasPaymentMethod === true;
+  /**
+   * ⭐ 由订阅码付费的门店（迁移 0120）。
+   *
+   * 它**没有** Stripe 客户门户，也没有卡 —— 那两个按钮给他等于给一个 404
+   * 和一句「请绑卡」，而他的续期对象是我们。
+   */
+  const licenseBilled = isLicenseBilling(billing);
+  const expired = billing?.subscriptionStatus === 'expired';
   const packPrice = billing ? formatUsdFromCents(billing.topupPriceCents) : '$50.00';
 
   const openPortal = async () => {
@@ -183,7 +193,9 @@ export function BillingPanel() {
               className={`p-5 rounded-2xl text-white shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 ${
                 pastDue || cancelPending
                   ? 'bg-gradient-to-r from-amber-900 to-slate-900'
-                  : canceled
+                  : expired
+                    ? 'bg-gradient-to-r from-red-900 to-slate-900'
+                    : canceled
                     ? 'bg-gradient-to-r from-slate-700 to-slate-900'
                     : 'bg-gradient-to-r from-teal-900 to-slate-900'
               }`}
@@ -200,40 +212,56 @@ export function BillingPanel() {
                     ? t(notice.key, { p0: formatIsoDate(notice.date) ?? '' })
                     : t(notice.key)}
                 </p>
-                <p className="text-xs text-teal-100/80">
-                  {hasPaymentMethod
-                    ? (billing.paymentMethodLabel
-                      ? t('settings.stPaymentMethod', { p0: billing.paymentMethodLabel })
-                      : t('settings.stPaymentMethodOnFile'))
-                    : t('settings.stNoPaymentMethod')}
-                </p>
+                {/* license 店没有卡，也不需要有 —— 少说一句「未绑定支付方式」 */}
+                {licenseBilled ? null : (
+                  <p className="text-xs text-teal-100/80">
+                    {hasPaymentMethod
+                      ? (billing.paymentMethodLabel
+                        ? t('settings.stPaymentMethod', { p0: billing.paymentMethodLabel })
+                        : t('settings.stPaymentMethodOnFile'))
+                      : t('settings.stNoPaymentMethod')}
+                  </p>
+                )}
               </div>
               <div className="flex flex-col items-stretch sm:items-end gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={portalMutation.isPending}
-                  onClick={() => void openPortal()}
-                  className="text-xs font-bold bg-white/10 hover:bg-white/20 text-white border-white/20"
-                >
-                  {portalMutation.isPending ? t('settings.stBillingLoading') : t('settings.stManageSubscription')}
-                </Button>
-                {!hasPaymentMethod && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={paymentMethodMutation.isPending}
-                    onClick={() => void addPaymentMethod()}
-                    className="text-xs font-bold bg-white/10 hover:bg-white/20 text-white border-white/20"
-                  >
-                    {paymentMethodMutation.isPending
-                      ? t('settings.stBillingLoading')
-                      : t('settings.stAddPaymentMethod')}
-                  </Button>
+                {licenseBilled ? (
+                  /*
+                   * ⚠️ 这里**一个 Stripe 按钮都不给**。这家店没有 Stripe 客户，
+                   * 「管理订阅」会打开一个 404，「添加支付方式」则是在问一个
+                   * 他从来没答应过的问题。
+                   */
+                  <p className="text-[11px] text-white/70 max-w-[18rem] sm:text-right">
+                    {t('settings.stLicenseHint')}
+                  </p>
+                ) : (
+                  <>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={portalMutation.isPending}
+                      onClick={() => void openPortal()}
+                      className="text-xs font-bold bg-white/10 hover:bg-white/20 text-white border-white/20"
+                    >
+                      {portalMutation.isPending ? t('settings.stBillingLoading') : t('settings.stManageSubscription')}
+                    </Button>
+                    {!hasPaymentMethod && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={paymentMethodMutation.isPending}
+                        onClick={() => void addPaymentMethod()}
+                        className="text-xs font-bold bg-white/10 hover:bg-white/20 text-white border-white/20"
+                      >
+                        {paymentMethodMutation.isPending
+                          ? t('settings.stBillingLoading')
+                          : t('settings.stAddPaymentMethod')}
+                      </Button>
+                    )}
+                    <p className="text-[11px] text-white/70 max-w-[16rem] sm:text-right">
+                      {t('settings.stPortalHint')}
+                    </p>
+                  </>
                 )}
-                <p className="text-[11px] text-white/70 max-w-[16rem] sm:text-right">
-                  {t('settings.stPortalHint')}
-                </p>
               </div>
             </div>
 
@@ -317,6 +345,8 @@ export function BillingPanel() {
               </div>
               <p className="text-[11px] text-slate-400">{t('settings.stAutoTopupHint')}</p>
             </div>
+
+            <RedeemCodeSection billing={billing} />
 
             <div className="space-y-3">
               <h4 className="font-bold text-xs uppercase tracking-wider text-slate-500">
@@ -408,6 +438,105 @@ export function BillingPanel() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * 兑换订阅码 / 额度包码（迁移 0120）。
+ *
+ * ## ⭐ 到期的门店照样能在这里兑
+ *
+ * 到期之后整店写操作被冻结（`bus.ts` 的闸门），但 `billing.` 前缀是**放行**
+ * 的 —— 欠费时唯一还该能做的写操作，就是把欠费这件事解决掉。所以这一块
+ * 不能因为 `expired` 就禁用，那会把唯一的自救出口关掉。
+ *
+ * ## 失败只有三句话
+ *
+ * 服务端把「不存在 / 已用过 / 已撤销 / 过了兑换期」一律收敛成一个
+ * `code_invalid`（避免这个接口变成枚举探针），所以界面上也只能说
+ * 「这个码不能用」。另外两句是限频和「你还在 Stripe 上」。
+ */
+function RedeemCodeSection({ billing }: { billing: BillingView }) {
+  const { t } = useLanguage();
+  const redeem = useRedeemLicenseCode();
+  const [code, setCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  const submit = async () => {
+    setError(null);
+    setDone(null);
+    try {
+      const res = await redeem.mutateAsync(code.trim());
+      setCode('');
+      if (res.kind === 'quota_pack' && res.unit !== null && res.amount !== null) {
+        const amountText = t(
+          res.unit === 'voice_minute' ? 'settings.stRedeemUnitMinutes' : 'settings.stRedeemUnitCredits',
+          { p0: String(res.amount) },
+        );
+        setDone(t('settings.stRedeemOkQuota', { p0: amountText }));
+      } else {
+        setDone(t('settings.stRedeemOkSubscription', {
+          p0: formatIsoDate(res.periodEnd) ?? '',
+        }));
+      }
+      toast.success(t('settings.stRedeemButton'));
+    } catch (err: unknown) {
+      /*
+       * ⚠️ 这三档要分开说。把它们合成一句「兑换失败」的话，
+       * 一个正在被 Stripe 扣款的老板会一直重试一张本来就对的码。
+       */
+      const e = err as { code?: string; details?: Record<string, unknown> };
+      const reason = e.details?.['reason'];
+      if (e.code === 'RATE_LIMITED') {
+        setError(t('settings.stRedeemTooMany'));
+      } else if (reason === 'stripe_active_switch_required') {
+        setError(t('settings.stRedeemStripeConflict'));
+      } else {
+        setError(t('settings.stRedeemInvalid'));
+      }
+    }
+  };
+
+  return (
+    <div className="space-y-2 mb-6">
+      <h4 className="font-bold text-xs uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+        <Ticket className="w-4 h-4 text-teal-600" />
+        {t('settings.stRedeemTitle')}
+      </h4>
+      <p className="text-[11px] text-slate-400">{t('settings.stRedeemDesc')}</p>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input
+          className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono tracking-wide uppercase"
+          placeholder="GF-XXXXX-XXXXX-XXXXX-XXXXX"
+          value={code}
+          onChange={(e) => { setCode(e.target.value); setError(null); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && code.trim() !== '') void submit(); }}
+          aria-label={t('settings.stRedeemTitle')}
+        />
+        <Button
+          size="sm"
+          disabled={code.trim().length < 8 || redeem.isPending}
+          onClick={() => void submit()}
+          className="text-xs font-bold"
+        >
+          {redeem.isPending ? t('settings.stBillingLoading') : t('settings.stRedeemButton')}
+        </Button>
+      </div>
+      {error ? (
+        <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>
+      ) : null}
+      {done ? (
+        <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">{done}</p>
+      ) : null}
+      {/* 已经归订阅码管的店，顺手把「到期日」再说一遍 —— 兑换成功之后
+          他第一件想确认的事就是「现在到哪天了」 */}
+      {billing.billingSource === 'license' && billing.licensePeriodEnd ? (
+        <p className="text-[11px] text-slate-400">
+          {t('settings.stLicenseUntil', { p0: formatIsoDate(billing.licensePeriodEnd) ?? '' })}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

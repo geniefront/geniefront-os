@@ -31,6 +31,16 @@ export interface BillingView {
   subscriptionStatus: string;
   currentPeriodEnd: string | null;
   hasSubscription: boolean;
+  /**
+   * 这一行的付费状态由谁说了算（迁移 0120）：
+   * `none` 从未接计费 · `stripe` 订阅在 Stripe · `license` 运营签发的订阅码。
+   *
+   * ⚠️ 界面必须据此分叉：`license` 的门店**没有** Stripe 客户门户可去 ——
+   * 把「管理订阅」按钮给他会打开一个 404，而他要续期是找我们，不是找 Stripe。
+   */
+  billingSource: string;
+  /** license 模式下的到期时刻（与 currentPeriodEnd 镜像同一个值） */
+  licensePeriodEnd: string | null;
   trialEndsAt: string | null;
   trialing: boolean;
   /**
@@ -51,6 +61,18 @@ export interface BillingView {
 export interface BillingResponse {
   billing: BillingView | null;
   autoTopup: unknown;
+}
+
+/** 兑换订阅码 / 额度包码的结果（迁移 0120） */
+export interface RedeemCodeResponse {
+  kind: 'subscription' | 'quota_pack' | 'store_open';
+  codePrefix: string;
+  plan: string | null;
+  periodEnd: string | null;
+  unit: QuotaUnit | null;
+  amount: number | null;
+  balanceAfter: number | null;
+  invoiceId: string | null;
 }
 
 export interface SetAutoTopupInput {

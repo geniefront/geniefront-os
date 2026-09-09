@@ -40,6 +40,11 @@ const topupState = {
   isPending: false,
   mutateAsync: (...args: unknown[]) => topupMutate(...args),
 };
+const redeemMutate = vi.fn();
+const redeemState = {
+  isPending: false,
+  mutateAsync: (code: string) => redeemMutate(code) as Promise<unknown>,
+};
 const autoTopupState = {
   isPending: false,
   mutateAsync: async (input: { unit: QuotaView['unit']; enabled: boolean; thresholdUnits: number }) => {
@@ -76,6 +81,7 @@ vi.mock('./api', () => ({
   useCreatePaymentMethodSession: () => paymentMethodState,
   useCreateTopup: () => topupState,
   useSetAutoTopup: () => autoTopupState,
+  useRedeemLicenseCode: () => redeemState,
 }));
 
 /**
@@ -115,6 +121,8 @@ function essentialTrial(over: Partial<BillingView> = {}): BillingView {
     subscriptionStatus: 'trialing',
     currentPeriodEnd: '2026-09-07T00:00:00.000Z',
     hasSubscription: true,
+    billingSource: 'stripe',
+    licensePeriodEnd: null,
     trialEndsAt: '2026-09-07T00:00:00.000Z',
     trialing: true,
     cancelAtPeriodEnd: false,
@@ -144,6 +152,7 @@ describe('BillingPanel 真实计费状态', () => {
     paymentMethodMutate.mockReset();
     topupMutate.mockReset();
     autoTopupMutate.mockReset();
+    redeemMutate.mockReset();
     billingState.refetch.mockReset();
     billingState.isLoading = false;
     invoicesState.isLoading = false;
@@ -447,5 +456,130 @@ describe('BillingPanel 真实计费状态', () => {
     expect(screen.queryByText('切换至此套餐')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Essential/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Growth/ })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * 订阅码付费的门店（迁移 0120）。
+ *
+ * 这一组验的是**界面必须分叉**的那几处：给一个没有 Stripe 客户的老板
+ * 一个「管理订阅」按钮，他点开的是一个 404；跟他说「未绑定支付方式」，
+ * 说的是一件他从来没答应过的事。
+ */
+describe('BillingPanel 订阅码付费', () => {
+  const licensed = (over: Partial<BillingView> = {}): BillingView => essentialTrial({
+    subscriptionStatus: 'active',
+    trialing: false,
+    trialEndsAt: null,
+    billingSource: 'license',
+    licensePeriodEnd: '2026-12-31T23:59:59.000Z',
+    currentPeriodEnd: '2026-12-31T23:59:59.000Z',
+    hasPaymentMethod: false,
+    ...over,
+  });
+
+  beforeEach(() => {
+    toast.success.mockReset();
+    toast.danger.mockReset();
+    redeemMutate.mockReset();
+    billingState.isLoading = false;
+    invoicesState.isLoading = false;
+    invoicesState.data = { invoices: [] };
+    billingState.data = { billing: licensed(), autoTopup: null };
+  });
+
+  it('不给 Stripe 客户门户入口，也不说「未绑定支付方式」', () => {
+    renderPanel();
+    expect(screen.queryByRole('button', { name: '管理订阅与支付' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '添加支付方式' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/未绑定支付方式/)).not.toBeInTheDocument();
+    expect(screen.getByText(/由 GenieFront 直接开通/)).toBeInTheDocument();
+  });
+
+  it('显示服务有效期，而不是「自动续费」', () => {
+    renderPanel();
+    expect(screen.getAllByText(/服务有效期至 2026-12-31/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/下次续费/)).not.toBeInTheDocument();
+  });
+
+  it('到期显示「已到期」与只读说明，且兑换入口仍然可用', () => {
+    billingState.data = {
+      billing: licensed({ subscriptionStatus: 'expired' }),
+      autoTopup: null,
+    };
+    renderPanel();
+    expect(screen.getAllByText(/已到期/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/当前为只读/)).toBeInTheDocument();
+    // ⭐ 冻结时唯一还该能做的写操作就是把冻结解决掉
+    expect(screen.getByLabelText('兑换订阅码')).toBeEnabled();
+  });
+
+  it('兑换订阅码成功后显示新的有效期', async () => {
+    redeemMutate.mockResolvedValue({
+      kind: 'subscription', codePrefix: 'GF-3F7K', plan: 'growth',
+      periodEnd: '2027-03-31T23:59:59.000Z',
+      unit: null, amount: null, balanceAfter: null, invoiceId: 'inv-1',
+    });
+    renderPanel();
+    await userEvent.type(screen.getByLabelText('兑换订阅码'), 'GF-3F7K-ABCDE-FGHJK-MNPQR');
+    await userEvent.click(screen.getByRole('button', { name: '兑换' }));
+    await waitFor(() => {
+      expect(screen.getByText(/兑换成功，服务有效期至 2027-03-31/)).toBeInTheDocument();
+    });
+  });
+
+  it('兑换额度包成功后说清加了多少额度', async () => {
+    redeemMutate.mockResolvedValue({
+      kind: 'quota_pack', codePrefix: 'GF-9K2M', plan: null, periodEnd: null,
+      unit: 'voice_minute', amount: 200, balanceAfter: 200, invoiceId: null,
+    });
+    renderPanel();
+    await userEvent.type(screen.getByLabelText('兑换订阅码'), 'GF-9K2M-ABCDE-FGHJK-MNPQR');
+    await userEvent.click(screen.getByRole('button', { name: '兑换' }));
+    await waitFor(() => {
+      expect(screen.getByText(/已到账 200 分钟 AI 通话时长/)).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * ⚠️ 三种失败必须说三句不同的话。合成一句「兑换失败」的话，
+   * 一个正在被 Stripe 扣款的老板会一直重试一张本来就对的码。
+   */
+  it('码无效 / 限频 / 还在 Stripe 上，三句话各不相同', async () => {
+    redeemMutate.mockRejectedValue({
+      code: 'VALIDATION_FAILED', details: { reason: 'code_invalid' },
+    });
+    const first = renderPanel();
+    await userEvent.type(screen.getByLabelText('兑换订阅码'), 'GF-BADBAD-BADBAD');
+    await userEvent.click(screen.getByRole('button', { name: '兑换' }));
+    await waitFor(() => {
+      expect(screen.getByText(/这个码无效、已被使用或已过期/)).toBeInTheDocument();
+    });
+    first.unmount();
+
+    redeemMutate.mockRejectedValue({ code: 'RATE_LIMITED', details: {} });
+    const second = renderPanel();
+    await userEvent.type(screen.getByLabelText('兑换订阅码'), 'GF-BADBAD-BADBAD');
+    await userEvent.click(screen.getByRole('button', { name: '兑换' }));
+    await waitFor(() => {
+      expect(screen.getByText(/尝试次数过多/)).toBeInTheDocument();
+    });
+    second.unmount();
+
+    redeemMutate.mockRejectedValue({
+      code: 'VALIDATION_FAILED', details: { reason: 'stripe_active_switch_required' },
+    });
+    renderPanel();
+    await userEvent.type(screen.getByLabelText('兑换订阅码'), 'GF-GOODCODE-HERE1');
+    await userEvent.click(screen.getByRole('button', { name: '兑换' }));
+    await waitFor(() => {
+      expect(screen.getByText(/当前由 Stripe 订阅管理/)).toBeInTheDocument();
+    });
+  });
+
+  it('Stripe 付费的店照样有客户门户入口（没被误伤）', () => {
+    billingState.data = { billing: essentialTrial(), autoTopup: null };
+    renderPanel();
+    expect(screen.getByRole('button', { name: '管理订阅与支付' })).toBeInTheDocument();
   });
 });

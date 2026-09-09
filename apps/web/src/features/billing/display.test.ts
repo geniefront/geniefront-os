@@ -10,9 +10,11 @@ import {
   planLabelKey,
   planNavBadge,
   PORTAL_RETURN_PATH,
+  isLicenseBilling,
   statusBadgeVariant,
   stripeHostedUrl,
   stripePortalUrl,
+  subscriptionNotice,
   subscriptionStatusKey,
 } from './display';
 
@@ -97,5 +99,88 @@ describe('Settings 账单写路径不再包含假套餐', () => {
     expect(panel).not.toMatch(/useBuyAddonMutation/);
     expect(api).not.toMatch(/billing\.buyAddon/);
     expect(api).not.toMatch(/useBuyAddonMutation/);
+  });
+});
+
+/**
+ * 订阅码付费的门店（迁移 0120）。
+ *
+ * 这一组是纯函数级的判据，和界面无关 —— 而界面上「说错一句话」的后果
+ * 恰恰是从这里开始的：把 license 的门店落进 Stripe 那几档文案，
+ * 就会显示一句「X 日自动续费」，而事实是到那天就停。
+ */
+describe('订阅码付费的展示判据', () => {
+  it('expired 有自己的状态文案与红色徽章，不复用 past_due', () => {
+    expect(subscriptionStatusKey('expired', false)).toBe('settings.stStatusExpired');
+    expect(statusBadgeVariant('expired', false)).toBe('error');
+    // past_due 仍然是「还在重试扣款」那一档
+    expect(subscriptionStatusKey('past_due', false)).toBe('settings.stStatusPastDue');
+  });
+
+  it('license 门店显示「服务有效期至」，而不是续费或期末取消', () => {
+    const notice = subscriptionNotice({
+      trialing: false, trialEndsAt: null,
+      cancelAtPeriodEnd: false, cancelAt: null,
+      currentPeriodEnd: '2026-12-31T23:59:59.000Z',
+      subscriptionStatus: 'active',
+      billingSource: 'license',
+      licensePeriodEnd: '2026-12-31T23:59:59.000Z',
+    });
+    expect(notice.key).toBe('settings.stLicenseUntil');
+    expect(notice.date).toBe('2026-12-31T23:59:59.000Z');
+  });
+
+  /**
+   * ⚠️ 这一条挡的是「顺序写反」。`cancelAtPeriodEnd` 那一档排在前面的话，
+   * 一行历史上留下的 true 会让 license 门店显示「已取消」——
+   * 而那两列是 Stripe 客户门户的产物，订阅码从来不写它们。
+   */
+  it('license 判据排在期末取消之前', () => {
+    const notice = subscriptionNotice({
+      trialing: false, trialEndsAt: null,
+      cancelAtPeriodEnd: true, cancelAt: '2026-10-01T00:00:00.000Z',
+      currentPeriodEnd: '2026-12-31T23:59:59.000Z',
+      subscriptionStatus: 'active',
+      billingSource: 'license',
+      licensePeriodEnd: '2026-12-31T23:59:59.000Z',
+    });
+    expect(notice.key).toBe('settings.stLicenseUntil');
+  });
+
+  it('license 到期后说清「只读」，而不是「已取消」', () => {
+    const notice = subscriptionNotice({
+      trialing: false, trialEndsAt: null,
+      cancelAtPeriodEnd: false, cancelAt: null,
+      currentPeriodEnd: '2026-09-01T00:00:00.000Z',
+      subscriptionStatus: 'expired',
+      billingSource: 'license',
+      licensePeriodEnd: '2026-09-01T00:00:00.000Z',
+    });
+    expect(notice.key).toBe('settings.stLicenseExpired');
+  });
+
+  it('Stripe 门店的四档判据一个都没被改动', () => {
+    const base = {
+      trialing: false, trialEndsAt: null,
+      cancelAtPeriodEnd: false, cancelAt: null,
+      currentPeriodEnd: '2026-10-01T00:00:00.000Z',
+      subscriptionStatus: 'active',
+      billingSource: 'stripe',
+      licensePeriodEnd: null,
+    };
+    expect(subscriptionNotice(base).key).toBe('settings.stRenewsOn');
+    expect(subscriptionNotice({ ...base, cancelAtPeriodEnd: true }).key).toBe('settings.stCancelsOn');
+    expect(subscriptionNotice({ ...base, subscriptionStatus: 'none' }).key)
+      .toBe('settings.stNoSubscriptionHint');
+    expect(subscriptionNotice({
+      ...base, trialing: true, trialEndsAt: '2026-09-15T00:00:00.000Z',
+    }).key).toBe('settings.stTrialEnds');
+  });
+
+  it('isLicenseBilling 只看 billingSource', () => {
+    expect(isLicenseBilling({ billingSource: 'license' })).toBe(true);
+    expect(isLicenseBilling({ billingSource: 'stripe' })).toBe(false);
+    expect(isLicenseBilling({ billingSource: 'none' })).toBe(false);
+    expect(isLicenseBilling(null)).toBe(false);
   });
 });

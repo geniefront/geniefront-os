@@ -41,6 +41,13 @@ export function subscriptionStatusKey(
       return 'settings.stStatusPastDue';
     case 'canceled':
       return 'settings.stStatusCanceled';
+    /*
+     * 订阅码到期（迁移 0120）。和 past_due 分开是有意的：
+     * 对一个微信转账付款的店家说「你的卡扣不上」是**错的信息**，
+     * 而他下一步该做的事也不一样（找我们续期，不是去换卡）。
+     */
+    case 'expired':
+      return 'settings.stStatusExpired';
     case 'trialing':
       return 'settings.stStatusTrial';
     // 从未接过计费（sql/0085）。和「已取消」是两回事：那家店从来没订过，
@@ -61,6 +68,8 @@ export function statusBadgeVariant(
   if (status === 'past_due' || status === 'unpaid' || status === 'incomplete_expired') {
     return 'warning';
   }
+  // 到期已经是「现在就用不了」，比 past_due（还在重试扣款）更硬
+  if (status === 'expired') return 'error';
   if (status === 'canceled') return 'secondary';
   return 'outline';
 }
@@ -77,9 +86,26 @@ export function subscriptionNotice(
     trialing: boolean; trialEndsAt: string | null;
     cancelAtPeriodEnd: boolean; cancelAt: string | null;
     currentPeriodEnd: string | null; subscriptionStatus: string;
+    billingSource?: string | undefined;
+    licensePeriodEnd?: string | null | undefined;
   } | null,
 ): { key: TranslationKey; date: string | null } {
   if (!billing) return { key: 'settings.stPortalHint', date: null };
+
+  /*
+   * ⭐ 订阅码排在最前面（迁移 0120）。
+   *
+   * 它下面那几档全是 Stripe 的语汇：「期末取消」是客户门户的产物、
+   * 「下次扣款」的前提是有一张卡。license 的门店一个都不适用 ——
+   * 落到它们身上会显示一句「X 日自动续费」，而事实是到那天就停。
+   */
+  if (billing.billingSource === 'license') {
+    const end = billing.licensePeriodEnd ?? billing.currentPeriodEnd;
+    return billing.subscriptionStatus === 'expired'
+      ? { key: 'settings.stLicenseExpired', date: end }
+      : { key: 'settings.stLicenseUntil', date: end };
+  }
+
   if (billing.subscriptionStatus === 'none') {
     return { key: 'settings.stNoSubscriptionHint', date: null };
   }
@@ -143,4 +169,17 @@ export function stripeHostedUrl(res: { url?: string | null } | null | undefined)
 
 export function isRelativeAppPath(value: string | undefined): value is string {
   return Boolean(value && value.startsWith('/') && !value.startsWith('//') && !value.includes('://'));
+}
+
+/**
+ * 这家店是不是由订阅码（而不是 Stripe）付费的。
+ *
+ * ⚠️ 判据只有 `billingSource`，**不看有没有 stripe_subscription_id** ——
+ * 切换到订阅码时那个 id 是留着的（webhook 靠它定位租户），按它判断的话
+ * 一家已经改用订阅码的店仍然会被显示成 Stripe 订阅。
+ */
+export function isLicenseBilling(
+  billing: { billingSource?: string | undefined } | null,
+): boolean {
+  return billing?.billingSource === 'license';
 }

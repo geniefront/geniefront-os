@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { platformGet, platformSend } from '@/lib/api';
+import { LicensePanel, useLicensePanel } from '@/components/LicensePanel';
 
 type Detail = {
   overview: {
@@ -70,6 +71,12 @@ function copy(value: string) {
 
 export function StoreDetail() {
   const { locationId } = useParams();
+  /*
+   * ⚠️ 同一个 react-query key 和下面 `<LicensePanel>` 用的是同一份缓存 ——
+   * 这里读它只为了回答一个问题：**这家店还有没有 Stripe 客户门户可去**。
+   * 由订阅码接管的店没有 Stripe 客户，那个按钮会打开一个 404。
+   */
+  const license = useLicensePanel(locationId ?? '');
   const q = useQuery({
     queryKey: ['platform', 'store', locationId],
     queryFn: () => platformGet<Detail>(`/v1/platform/stores/${locationId}`),
@@ -152,12 +159,21 @@ export function StoreDetail() {
             <p className="text-xs text-slate-500 pt-2">
               Paid plan and credit balances are Stripe truth. This console cannot set active, change plan locally, or grant credits.
             </p>
-            <button type="button" onClick={() => void openPortal()} className="mt-2 rounded-lg bg-slate-900 text-white px-3 py-1.5 text-sm">
-              Open Stripe Customer Portal
-            </button>
+            {license.data?.account?.billingSource === 'license' ? (
+              <p className="mt-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-900">
+                This shop pays outside Stripe (billing authority <span className="font-mono">license</span>).
+                There is no Stripe customer portal for it — renew from the panel below.
+              </p>
+            ) : (
+              <button type="button" onClick={() => void openPortal()} className="mt-2 rounded-lg bg-slate-900 text-white px-3 py-1.5 text-sm">
+                Open Stripe Customer Portal
+              </button>
+            )}
           </>
         ) : <p className="text-sm text-slate-500">No billing account row.</p>}
       </section>
+
+      <LicensePanel locationId={locationId!} />
 
       <Link className="block rounded-xl border bg-white p-4 text-teal-700" to="/email">Email delivery, subaccounts and DNS work orders →</Link>
       <MessagingPanel locationId={locationId!} />

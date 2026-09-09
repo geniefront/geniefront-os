@@ -695,6 +695,28 @@ export const settings = {
   'settings.stStatusPastDue': { 'zh-Hans': '已逾期', en: 'Past due', ko: '연체', es: 'Vencida', vi: 'Quá hạn' },
   'settings.stStatusCanceled': { 'zh-Hans': '已取消', en: 'Canceled', ko: '취소됨', es: 'Cancelada', vi: 'Đã hủy' },
   'settings.stStatusUnknown': { 'zh-Hans': '状态未知', en: 'Unknown status', ko: '상태 불명', es: 'Estado desconocido', vi: 'Trạng thái không rõ' },
+  // ── 订阅码（迁移 0120）：Stripe 之外的第二条计费权威 ──────────────────
+  //
+  // ⚠️ 「到期」与「逾期」是两句不同的话。对一个微信 / 支付宝转账付款的店家
+  // 说「你的卡扣不上」是错的信息，而他下一步该做的事也不一样 ——
+  // 找我们续期，不是去换卡。
+  'settings.stStatusExpired': { 'zh-Hans': '已到期', en: 'Expired', ko: '기간 만료', es: 'Caducada', vi: 'Đã hết hạn' },
+  'settings.stLicenseUntil': { 'zh-Hans': '服务有效期至 {p0}', en: 'Service active until {p0}', ko: '{p0}까지 이용 가능', es: 'Servicio activo hasta el {p0}', vi: 'Dịch vụ có hiệu lực đến {p0}' },
+  'settings.stLicenseExpired': { 'zh-Hans': '已于 {p0} 到期，当前为只读：可查看与导出数据，但开不了新单', en: 'Expired on {p0} — read-only: you can still view and export data, but cannot open new tickets', ko: '{p0}에 만료됨 — 읽기 전용: 데이터 조회·내보내기는 가능하지만 새 주문은 만들 수 없습니다', es: 'Caducó el {p0}: solo lectura. Puedes ver y exportar datos, pero no abrir tickets nuevos', vi: 'Hết hạn ngày {p0} — chỉ đọc: vẫn xem và xuất dữ liệu được, nhưng không mở phiếu mới' },
+  // 这家店的账不在 Stripe 上，所以界面上不能给他 Stripe 客户门户的入口 ——
+  // 那个链接对他而言是个 404，而他要续期的对象是我们
+  'settings.stLicenseHint': { 'zh-Hans': '本门店的订阅由 GenieFront 直接开通（未绑定信用卡）。续期、升级或购买额度包请联系我们。', en: 'This location is activated directly by GenieFront (no card on file). Contact us to renew, change plan, or buy credit packs.', ko: '이 매장은 GenieFront가 직접 활성화했습니다(등록된 카드 없음). 갱신·요금제 변경·크레딧 구매는 저희에게 문의하세요.', es: 'Esta sucursal la activa GenieFront directamente (sin tarjeta). Contáctanos para renovar, cambiar de plan o comprar paquetes.', vi: 'Cửa hàng này do GenieFront kích hoạt trực tiếp (không lưu thẻ). Liên hệ chúng tôi để gia hạn, đổi gói hoặc mua thêm hạn mức.' },
+  'settings.stRedeemTitle': { 'zh-Hans': '兑换订阅码', en: 'Redeem a code', ko: '코드 사용', es: 'Canjear un código', vi: 'Đổi mã' },
+  'settings.stRedeemDesc': { 'zh-Hans': '收到我们发的订阅码或额度包码，在这里兑换即可立即生效。', en: 'If we sent you a subscription or credit-pack code, redeem it here and it takes effect immediately.', ko: '보내드린 구독 코드나 크레딧 코드를 여기에 입력하면 즉시 적용됩니다.', es: 'Si te enviamos un código de suscripción o de paquete, canjéalo aquí y se aplica al instante.', vi: 'Nếu chúng tôi đã gửi mã thuê bao hoặc mã hạn mức, hãy đổi tại đây và mã có hiệu lực ngay.' },
+  'settings.stRedeemButton': { 'zh-Hans': '兑换', en: 'Redeem', ko: '사용하기', es: 'Canjear', vi: 'Đổi mã' },
+  'settings.stRedeemInvalid': { 'zh-Hans': '这个码无效、已被使用或已过期。请核对后重试，或联系我们。', en: 'That code is invalid, already used, or expired. Check it and try again, or contact us.', ko: '코드가 유효하지 않거나 이미 사용되었거나 만료되었습니다. 다시 확인하시거나 문의해 주세요.', es: 'Ese código no es válido, ya se usó o caducó. Revísalo e inténtalo de nuevo, o contáctanos.', vi: 'Mã không hợp lệ, đã dùng hoặc đã hết hạn. Hãy kiểm tra lại hoặc liên hệ chúng tôi.' },
+  'settings.stRedeemTooMany': { 'zh-Hans': '尝试次数过多，请稍后再试。', en: 'Too many attempts. Please try again later.', ko: '시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.', es: 'Demasiados intentos. Inténtalo más tarde.', vi: 'Thử quá nhiều lần. Vui lòng thử lại sau.' },
+  // 两个权威同时生效的话，客户会一边用着订阅码一边被按月扣款
+  'settings.stRedeemStripeConflict': { 'zh-Hans': '本门店当前由 Stripe 订阅管理，兑换前需要先由我们切换计费方式。请联系我们。', en: 'This location is currently billed through Stripe. We need to switch it over before a code can apply — please contact us.', ko: '이 매장은 현재 Stripe로 결제됩니다. 코드를 적용하려면 먼저 저희가 결제 방식을 전환해야 합니다. 문의해 주세요.', es: 'Esta sucursal se factura por Stripe. Debemos cambiar el método antes de aplicar un código: contáctanos.', vi: 'Cửa hàng này đang thanh toán qua Stripe. Chúng tôi cần chuyển đổi trước khi áp mã — vui lòng liên hệ.' },
+  'settings.stRedeemOkSubscription': { 'zh-Hans': '兑换成功，服务有效期至 {p0}', en: 'Redeemed — service is active until {p0}', ko: '적용 완료 — {p0}까지 이용 가능', es: 'Canjeado: servicio activo hasta el {p0}', vi: 'Đã đổi — dịch vụ có hiệu lực đến {p0}' },
+  'settings.stRedeemOkQuota': { 'zh-Hans': '兑换成功，已到账 {p0}', en: 'Redeemed — {p0} added', ko: '적용 완료 — {p0} 충전됨', es: 'Canjeado: se añadieron {p0}', vi: 'Đã đổi — đã cộng {p0}' },
+  'settings.stRedeemUnitCredits': { 'zh-Hans': '{p0} 个 AI 积分', en: '{p0} AI credits', ko: 'AI 크레딧 {p0}개', es: '{p0} créditos de IA', vi: '{p0} tín dụng AI' },
+  'settings.stRedeemUnitMinutes': { 'zh-Hans': '{p0} 分钟 AI 通话时长', en: '{p0} AI voice minutes', ko: 'AI 통화 {p0}분', es: '{p0} minutos de voz IA', vi: '{p0} phút gọi AI' },
   // 从未接过计费（sql/0085 的 subscription_status = 'none'）：能开单，但 AI 额度为 0
   'settings.stStatusNone': { 'zh-Hans': '未订阅', en: 'Not subscribed', ko: '미구독', es: 'Sin suscripción', vi: 'Chưa đăng ký' },
   // ⚠️ 期末取消时 Stripe 的 status 仍然是 active —— 这一句是界面上唯一说清

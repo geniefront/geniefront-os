@@ -1,12 +1,13 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import {
-  LayoutDashboard, Store, LifeBuoy, ShieldCheck, Globe, ScrollText, Inbox, LogOut,
+  LayoutDashboard, Store, LifeBuoy, ShieldCheck, Globe, ScrollText, Inbox, LogOut, Ticket,
 } from 'lucide-react';
 import { usePlatformSession } from '@/lib/session';
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/stores', label: 'Stores', icon: Store },
+  { to: '/licenses', label: 'Subscription codes', icon: Ticket },
   { to: '/support', label: 'Support', icon: LifeBuoy },
   { to: '/10dlc', label: '10DLC', icon: ShieldCheck },
   { to: '/website-requests', label: 'Website Requests', icon: Globe },
