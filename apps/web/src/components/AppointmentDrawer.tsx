@@ -486,6 +486,47 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
           {!activeTicket && <p className="rounded-xl border border-teal-100 bg-teal-50/60 p-2.5 text-[11px] font-medium text-teal-800">{t('schedule.adAppointmentAddItemHint')}</p>}
         </section>
 
+        {(appointment.bundles ?? []).filter((b) => b.status === 'active').length > 0 && (
+          <section className="space-y-3 rounded-2xl border border-teal-200 bg-white p-3.5 shadow-sm">
+            <SectionTitle icon={<Tag size={15}/>} label={t('bundle.drawerSectionTitle')} />
+            {(appointment.bundles ?? []).filter((b) => b.status === 'active').map((b) => {
+              const subItems = appointment.items.filter((it) => it.bundleInstanceId === b.instanceId);
+              return (
+                <div key={b.instanceId} className="rounded-xl border border-teal-100 bg-teal-50/50 p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-teal-900">{b.name}</span>
+                    <span className="flex items-baseline gap-2">
+                      {b.originalTotalCents > b.bundlePriceCents && <span className="font-mono text-[11px] text-slate-400 line-through">${centsToDollars(b.originalTotalCents)}</span>}
+                      <span className="font-mono font-black text-teal-700">${centsToDollars(b.bundlePriceCents)}</span>
+                    </span>
+                  </div>
+                  {b.bundleDiscountCents > 0 && (
+                    <div className="flex justify-between text-[11px] font-semibold text-emerald-600">
+                      <span>{t('bundle.pickerSavings')}</span>
+                      <span className="font-mono">−${centsToDollars(b.bundleDiscountCents)}</span>
+                    </div>
+                  )}
+                  <ul className="space-y-1.5 border-l-2 border-teal-200 pl-2.5">
+                    {subItems.map((it, i) => (
+                      <li key={it.itemId} className="text-[11px] font-medium text-slate-600">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-slate-800">{i + 1}. {it.serviceName}</span>
+                          <Badge variant="secondary" className="px-1.5 py-0 font-mono text-[10px]">{it.durationMin}m</Badge>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 pt-0.5">
+                          <span className="flex items-center gap-1"><User size={12} className="text-slate-400"/>{it.staffName ?? t('schedule.adUnassignedStaff')}</span>
+                          <span className="flex items-center gap-1"><CalendarClock size={12} className="text-slate-400"/>{it.startsAt ? storeTime.dateTime(it.startsAt) : t('queue.quElapsedNotStarted')}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+            <p className="text-[11px] font-medium text-slate-500">{t('bundle.drawerHint')}</p>
+          </section>
+        )}
+
         <section className="space-y-2.5 rounded-2xl border border-amber-200 bg-amber-50/80 p-3.5 shadow-sm">
           <div className="flex items-center justify-between gap-2"><SectionTitle icon={<AlertTriangle size={15}/>} label={t('schedule.adServiceBriefTitle')} amber />{!briefEditing && <GuardedButton permission="appointment.write" size="sm" variant="secondary" className="h-7 bg-white px-2.5 text-[11px] font-bold text-amber-900" onPress={() => setBriefEditing(true)}><Edit3 size={13}/>{t('schedule.adEditBrief')}</GuardedButton>}</div>
           {briefEditing ? <><textarea value={serviceBrief} onChange={(event) => setServiceBrief(event.target.value)} maxLength={2000} rows={4} autoFocus className="w-full resize-none rounded-xl border border-amber-300 bg-white p-3 text-sm outline-none focus:ring-2 focus:ring-amber-200" placeholder={t('schedule.adServiceBriefPlaceholder')} /><div className="flex justify-end gap-2"><Button size="sm" variant="ghost" onPress={() => { setServiceBrief(appointment.notes ?? ''); setBriefEditing(false); }}>{t('cancel')}</Button><GuardedButton permission="appointment.write" size="sm" onPress={() => void runSaveBrief()} isPending={saveBriefM.isPending}>{t('schedule.adSaveBrief')}</GuardedButton></div></> : <p className="rounded-xl border border-amber-200/80 bg-white/90 p-3 text-sm font-medium leading-relaxed text-slate-700">{appointment.notes || t('schedule.adNoServiceBrief')}</p>}

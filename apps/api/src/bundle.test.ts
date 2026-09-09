@@ -17,6 +17,7 @@ import './handlers/ticket';
 import './handlers/marketing';
 import './handlers/kiosk';
 import { loadQueue } from './queries/queue';
+import { loadAppointmentDetail } from './queries/appointmentDetail';
 
 const NAIL = { orgId: '11111111-1111-4111-8111-111111111111', locationId: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', membershipId: null };
 const SPA = { orgId: '22222222-2222-4222-8222-222222222222', locationId: 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb', membershipId: null };
@@ -352,6 +353,36 @@ describe('queue view carries bundle grouping (P4)', () => {
     });
     expect(entry!.items!.every((i) => i.bundleInstanceId === appt.bundleInstanceIds[0])).toBe(true);
     expect(new Set(entry!.items!.map((i) => i.bundleComponentId)).size).toBe(3);
+  });
+});
+
+describe('appointment detail exposes the selected bundle (U10 抽屉只读展示)', () => {
+  it('bundles[] carries locked totals + sub-items link back to the instance', async () => {
+    const bundleId = (await save(abc())).result.bundleId;
+    const startsAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    const appt = await dispatch<{ appointmentId: string; bundleInstanceIds: string[] }>(
+      'appointment.create',
+      {
+        customerId: null, walkInName: 'U10 drawer', items: [],
+        bundleSelections: [{ bundleId, startsAt, unitOverrides: [{ membershipId: staffId }] }],
+        source: 'desk', override: { reason: 'desk_coordination' },
+      },
+      ctx, { idempotencyKey: randomUUID() },
+    ).then((r) => r.result);
+
+    const detail = await withTenant(NAIL, (tx) => loadAppointmentDetail(tx, ctx, appt.appointmentId));
+    expect(detail.bundles).toHaveLength(1);
+    expect(detail.bundles[0]).toMatchObject({
+      instanceId: appt.bundleInstanceIds[0],
+      bundlePriceCents: 15_000,
+      originalTotalCents: 17_000,
+      bundleDiscountCents: 2_000,
+      unitCount: 3,
+      status: 'active',
+    });
+    const sub = detail.items.filter((i) => i.bundleInstanceId === appt.bundleInstanceIds[0]);
+    expect(sub).toHaveLength(3);
+    expect(sub.every((i) => Boolean(i.serviceName) && Boolean(i.startsAt))).toBe(true);
   });
 });
 

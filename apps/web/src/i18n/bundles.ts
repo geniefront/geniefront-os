@@ -118,4 +118,8 @@ export const bundle = {
   'bundle.pickerStartTime': { 'zh-Hans': '套餐开始时刻', en: 'Bundle start time', ko: '묶음 시작 시각', es: 'Hora de inicio del paquete', vi: 'Giờ bắt đầu gói' },
   'bundle.pickerSubItemsFollow': { 'zh-Hans': '子项从这个时刻起按标准时长顺排', en: 'Sub-items run back-to-back from this time at their standard durations', ko: '하위 항목은 이 시각부터 표준 소요시간으로 연이어 배치됩니다', es: 'Los subelementos se encadenan desde esta hora con su duración estándar', vi: 'Các mục con nối tiếp nhau từ giờ này theo thời lượng chuẩn' },
   'bundle.errNotFound': { 'zh-Hans': '这个组合套餐已不存在，请刷新后重试', en: 'This bundle no longer exists — refresh and try again', ko: '이 묶음 상품은 더 이상 존재하지 않습니다. 새로고침 후 다시 시도하세요', es: 'Este paquete ya no existe: actualiza e inténtalo de nuevo', vi: 'Gói này không còn tồn tại — làm mới và thử lại' },
+
+  // ── 预约详情抽屉：只读展示已选套餐 ─────────────────────────────────────────
+  'bundle.drawerSectionTitle': { 'zh-Hans': '已选组合套餐', en: 'Selected bundle', ko: '선택한 묶음 상품', es: 'Paquete elegido', vi: 'Gói đã chọn' },
+  'bundle.drawerHint': { 'zh-Hans': '子项的改期 / 换技师用上方「改期」，服务端会按套餐整体感知处理。', en: 'To reschedule or reassign a sub-item, use “Reschedule” above — the server handles it bundle-aware.', ko: '하위 항목의 일정 변경·담당자 변경은 위의 “일정 변경”을 사용하세요. 서버가 묶음 단위로 처리합니다.', es: 'Para reprogramar o reasignar un subelemento, usa «Reprogramar» arriba; el servidor lo gestiona a nivel de paquete.', vi: 'Để đổi lịch hoặc đổi KTV cho mục con, dùng “Đổi lịch” ở trên — máy chủ xử lý theo cả gói.' },
 } satisfies DomainDict;

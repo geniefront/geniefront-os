@@ -18,6 +18,20 @@ export interface AppointmentItemDetailDto {
   durationMin: number;
   priceCents: number;
   status: string;
+  /** 组合套餐来源（U10）。普通预约项为 null。 */
+  bundleInstanceId: string | null;
+}
+
+/** 本条预约里的组合套餐实例（U10 / 计划 §7「预约详情：只读展示已选套餐」）。 */
+export interface AppointmentBundleDto {
+  instanceId: string;
+  name: string;
+  originalTotalCents: number;
+  bundlePriceCents: number;
+  bundleDiscountCents: number;
+  extraDiscountCents: number;
+  unitCount: number;
+  status: string;
 }
 
 /** 详情与看板共用的状态映射所需的活动工单事实（`queueNextAction` / `paymentStageFor` 的入参子集）。 */
@@ -49,6 +63,8 @@ export interface AppointmentDetailDto {
     allergiesSummary: string | null;
   };
   items: AppointmentItemDetailDto[];
+  /** 组合套餐实例。无则为空数组。 */
+  bundles: AppointmentBundleDto[];
   /** 有活动工单（open / in_service / ready_to_pay）时非空。 */
   ticket: AppointmentTicketFactsDto | null;
   notes: string | null;
@@ -163,6 +179,7 @@ export async function loadAppointmentDetail(
           durationMin: svc.duration_min,
           priceCents: svc.base_price_cents,
           status: wq.status === 'in_service' ? 'in_service' : 'booked',
+          bundleInstanceId: null,
         }];
       }
     }
@@ -187,6 +204,7 @@ export async function loadAppointmentDetail(
         allergiesSummary: null,
       },
       items,
+      bundles: [],
       ticket: null,
       notes: null,
       createdAt: wq.joined_at,
@@ -228,12 +246,14 @@ export async function loadAppointmentDetail(
     membership_id: string | null; staff_display_name: unknown;
     user_full_name: string | null; resource_id: string | null;
     resource_name: string | null; status: string;
+    bundle_instance_id: string | null;
   }[]>`
     select ai.id as item_id, ai.service_id, s.name as service_name,
            ai.price_cents_snapshot as price_cents, ai.duration_min, ai.starts_at::text as starts_at,
            ai.membership_id, sp.display_name as staff_display_name,
            u.full_name as user_full_name,
-           ai.resource_id, r.name as resource_name, ai.status
+           ai.resource_id, r.name as resource_name, ai.status,
+           ai.bundle_instance_id
     from appointment_items ai
     join services s on s.id = ai.service_id
     left join memberships m on m.id = ai.membership_id
@@ -260,8 +280,31 @@ export async function loadAppointmentDetail(
       durationMin: r.duration_min,
       priceCents: r.price_cents,
       status: r.status,
+      bundleInstanceId: r.bundle_instance_id,
     };
   });
+
+  // 组合套餐实例（只读展示）。金额取下单时锁定的快照，不重算。
+  const bundleRows = await tx<{
+    id: string; name_snapshot: unknown;
+    original_total_cents: number; bundle_price_cents: number;
+    discount_cents: number; extra_discount_cents: number; status: string;
+  }[]>`
+    select id, name_snapshot, original_total_cents, bundle_price_cents,
+           discount_cents, extra_discount_cents, status
+    from order_bundle_instances
+    where appointment_id = ${appointmentId} and location_id = ${ctx.locationId}
+    order by created_at asc`;
+  const bundles = bundleRows.map((b) => ({
+    instanceId: b.id,
+    name: pickText(b.name_snapshot, ctx.locale, '组合套餐'),
+    originalTotalCents: b.original_total_cents,
+    bundlePriceCents: b.bundle_price_cents,
+    bundleDiscountCents: b.discount_cents,
+    extraDiscountCents: b.extra_discount_cents,
+    unitCount: itemRows.filter((r) => r.bundle_instance_id === b.id).length,
+    status: b.status,
+  }));
 
   const ticket = await loadTicketFacts(tx, ctx, apt.id);
 
@@ -277,6 +320,7 @@ export async function loadAppointmentDetail(
       allergiesSummary,
     },
     items,
+    bundles,
     ticket,
     notes: apt.notes,
     createdAt: apt.created_at,

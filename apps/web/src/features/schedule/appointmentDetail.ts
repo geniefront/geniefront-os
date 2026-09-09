@@ -14,6 +14,20 @@ export interface AppointmentItemDetail {
   durationMin: number;
   priceCents: number;
   status?: string;
+  /** 组合套餐来源（U10）。普通预约项为 null。 */
+  bundleInstanceId?: string | null;
+}
+
+/** 本条预约里的组合套餐实例（U10）。只读展示，金额取下单时快照。 */
+export interface AppointmentBundle {
+  instanceId: string;
+  name: string;
+  originalTotalCents: number;
+  bundlePriceCents: number;
+  bundleDiscountCents: number;
+  extraDiscountCents: number;
+  unitCount: number;
+  status: string;
 }
 
 export interface AppointmentTicketFacts {
@@ -44,6 +58,8 @@ export interface AppointmentDetail {
     allergiesSummary: string | null;
   };
   items: AppointmentItemDetail[];
+  /** 组合套餐实例。无则为空数组（旧后端可能不返回，按空处理）。 */
+  bundles?: AppointmentBundle[];
   ticket: AppointmentTicketFacts | null;
   notes: string | null;
   createdAt: string;
