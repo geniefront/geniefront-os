@@ -2,7 +2,8 @@
 
 计划：`docs/plans/2026-09-07-service-bundles-implementation.md`
 状态：**后端 P0–P8 + 前端全链路完成**（见 §11：目录 CRUD / 看板分组 / 结账视图 / B14 拆单 /
-官网预约 / B02 导入分流 / 通知模板 / 目录 CRUD 的浏览器 E2E）。本地 55322 后端全绿
+官网预约 / B02 导入分流 / 通知模板 / 前台落单选套餐（新建预约 + 预约详情 + 看板 walk-in，§11.9）/
+目录 CRUD 的浏览器 E2E）。本地 55322 后端全绿
 （`@gf/api` 除预存在的 `copilot/acceptance.test.ts` 5 例外全过，见 §6），typecheck 16/16 + guards 绿；
 前端 `@gf/web` / `@gf/booking` typecheck + build + 单测绿。
 剩：整链浏览器 E2E（booking → 看板 → 结账，种子重、留手测）、ipad / kiosk 触屏。
@@ -494,3 +495,59 @@ Modal（中英文名 + 组成 repeater + 组合价 + 在线预约开关，实时
   TEST-PLAYBOOK §2）；ipad / kiosk 触屏（Playwright 不起）。
 - ⚠️ `operations.spec.ts` 的 #6（礼品卡结账，2min 超时）/ #7（日结）在 `bf07a7f`（前端改动
   之前）+ 仅本次 reset 修复的状态下同样失败 —— 预存在环境 flakiness，与 U10 无关。
+
+### 11.9 前台落单选套餐（桌面新建预约 / 预约详情 / 看板 walk-in）✅
+
+补齐 `grep bundleSelections apps/web/src` 此前零命中的最后一块：前台能选散项却选不到套餐。
+按三片提交（`959ba88` / `0b1b224` / `6d0cc20`）。
+
+**A. 新建 / 编辑预约的套餐选择器 —— `components/CreateAppointmentModal.tsx`**
+- 弹窗顶部加「单项 / 组合套餐」切换。套餐模式：
+  - 目录 `useBundleCatalogQuery({ enabled: isOpen && useCan('appointment.write') && mode==='bundle' })`，
+    只列 `active`；`fulfillable=false` 的 `<option disabled>` 并附「组成项目已停用，去组合套餐页修复」。
+  - 选中即 `quoteBundle({ bundleId, expectedVersion: version })`，按 `units[]` 顺序逐单元渲染
+    （序号 + 组成服务名 + 标准时长 + 起止钟点），前台逐单元指派技师 / 点钟（写 `unitOverrides[i]`，
+    顺序与 `units[]` 一致；未指派留待分配池 = `membershipId: null`）。
+  - 价格区 `originalTotalCents`（划线）/ `bundlePriceCents` / `bundleDiscountCents` **全部取自 quote**，
+    前端不加不减。
+  - `startsAt` 复用弹窗已有时间选择（`bundleStartTime`，播种同 `resolveInitialDateTime`）；
+    过去时间强提醒沿用 `earliestStartTime`（套餐模式 = 套餐起点）。
+  - 提交：`CreateAppointmentInput` 加 `bundleSelections`，`useCreateAppointment` mutationFn 透传，
+    `items` 传 `[]`（契约 refine 只要求两者之一非空）。
+  - 错误 `bundle_version_conflict` / `bundle_service_inactive` / `bundle_not_found`
+    （`err.details.reason` 判别，同 `BundleManagerPanel`）→ 本地化 toast。
+- 新增纯函数 `buildBundleSelections(...)` + `CreateAppointmentModal.test.ts` 6 例：
+  `unitOverrides` 与 `units` 一一对应、待分配留 `null` 且清点钟标记、`assignments` 短于单元数其余留空、
+  未传 `expectedVersion` 不塞该键、买两份 = 两次调用拼接（两个独立实例）、`items:[]` 可与 `bundleSelections` 并存。
+
+**B. 预约详情抽屉只读展示 —— `components/AppointmentDrawer.tsx`**
+- 「已预约项目」下方新增「已选组合套餐」区块：套餐名、原价合计（划线）/ 组合价 / 套餐优惠，
+  展开的各子项（序号 + 服务名 + 标准时长 + 技师 + 时刻）。逐项改期 / 换技师沿用上方既有「改期」
+  入口（`appointment.reschedule` P3c 套餐感知整体挪动），本轮不做整套编辑器。
+- 读投影（非契约）additively 扩展，照搬 P4 看板查询做法：
+  `queries/appointmentDetail.ts` 的 `AppointmentItemDetailDto` 加 `bundleInstanceId`，
+  `AppointmentDetailDto` 加 `bundles[]`（`instanceId` / `name` / `originalTotalCents` /
+  `bundlePriceCents` / `bundleDiscountCents` / `extraDiscountCents` / `unitCount` / `status`），
+  金额取 `order_bundle_instances` 下单快照，不重算；walkin_queue 回退路径填空数组。
+  前端 `features/schedule/appointmentDetail.ts` 同步类型（`bundles` 可选，旧后端不返回按空处理）。
+- `bundle.test.ts` 补一例：`appointment.create + bundleSelections` 后 `loadAppointmentDetail`
+  返回 `bundles[0]`（锁定 totals）且子项 `bundleInstanceId` 回链正确。
+
+**C. 看板 walk-in 直接开单选套餐 —— `pages/Queue.tsx` + `pages/queue/modals/WalkInBundleModal.tsx`**
+- 「快捷动作」区加「套餐开单」按钮（`useCanWrite('ticket.write')` 门禁），打开自成一体的
+  `WalkInBundleModal`：填客人称呼 + 选在售套餐 → `quoteBundle` 展开 → 逐子项指定技师
+  （**必填**，无待分配项）→ 价格区同 A。
+- 提交走 `ticket.open` 的 `bundleSelections`、`items:[]`、**不带 `appointmentId`**，
+  幂等键按「客人 + 套餐」固定。带预约的套餐仍走既有 `ticket.open` 预约继承路径（P3b），不经此弹窗。
+- `OpenTicketInput` 加 `bundleSelections`（透传）。错误另加 `bundle_unit_multi_staff_unsupported`
+  （首版组成服务 `staff_count` 须为 1，后端 P3d 校验）/ `bundle_unit_staff_required` 映射。
+- 后端 walk-in 直接开单链路已由 `bundle.test.ts`「ticket.open 直接选组合套餐（walk-in）」覆盖。
+
+**门槛（全绿）**：`pnpm --filter @gf/web exec tsc --noEmit`、`pnpm --filter @gf/web build`、
+`pnpm --filter @gf/web exec vitest run`（59 文件 / 350 例）、`pnpm lint:guards`、`pnpm typecheck`（16/16）、
+`TEST_SUPABASE_URL=http://127.0.0.1:55321 pnpm --filter @gf/api exec vitest run bundle.test`（34 例，含新增一例）
++ `audit_fixes.test`（9 例）。i18n `bundle.picker*` / `bundle.drawer*` / `bundle.walkIn*` / `bundle.err*`
+五语言（zh-Hans/en/ko/es/vi）齐备。
+
+**未做（本轮范围外）**：预约详情里整套套餐编辑器（逐单元批量改）；看板 StartServiceModal 里把已排队
+的散项 walk-in 现场转成套餐（现只在「套餐开单」新入口支持无预约直开）。
