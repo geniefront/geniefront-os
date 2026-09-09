@@ -93,3 +93,7 @@ GF_QA_ALLOW_RESET=1 NODE_ENV=test pnpm test:e2e
 ## 组合项目套餐实施计划
 
 - [组合项目套餐：全链路实施与验收计划](plans/2026-09-07-service-bundles-implementation.md)：导入、新建、看板、服务、结账、退款、提成及其他入口的执行任务与验收标准（待执行）。
+
+## U01 开店向导重构
+
+- [U01 实施计划与实时交接](plans/2026-09-08-u01-setup-refactor.md)：七步向导、房间门禁、健康表首发、AI 电话准备状态；包含逐步状态、验证矩阵及下一步入口。

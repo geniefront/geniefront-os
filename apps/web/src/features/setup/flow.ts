@@ -1,70 +1,112 @@
 import {
   ClipboardCheck,
+  DoorOpen,
+  IdCard,
   Scissors,
+  SlidersHorizontal,
   Store,
   UsersRound,
   type LucideIcon,
 } from 'lucide-react';
+import type { TranslationKey } from '@/i18n';
 
+/**
+ * 开店向导的七个领域。步骤 id 与后端 `SETUP_STEP_IDS`
+ * （`packages/contracts/src/setupReadiness.ts`）逐一对应，完成度一律由
+ * 后端 `GET /v1/desk/setup/readiness` 推导，这里不再自己算。
+ *
+ * ⚠️ 标题 / 简称 / 描述一律走 i18n key，绝不写死中文 —— 写死过一次，
+ * 五种语言下顶栏都显示中文，且类型检查抓不到（见 i18n/setup.ts 注释）。
+ */
 export type SetupStepId =
   | 'store'
+  | 'directory'
+  | 'rooms'
   | 'catalog'
   | 'team'
+  | 'features'
   | 'launch';
 
 export interface SetupStep {
   id: SetupStepId;
   number: number;
   icon: LucideIcon;
-  title: string;
-  shortTitle: string;
-  description: string;
-  required: boolean;
+  titleKey: TranslationKey;
+  shortTitleKey: TranslationKey;
+  descriptionKey: TranslationKey;
+  /** 是否是开店硬门槛。false 的步骤（员工基础设置、功能设置）关着也能开店。 */
+  blocksLaunch: boolean;
 }
 
-/**
- * 开店向导只描述用户完成一家店所需的领域，不存“走到第几步”。
- * 真正进度后续应由门店、项目、员工等实际数据推导，避免跨设备出现假进度。
- */
 export const SETUP_STEPS: SetupStep[] = [
   {
     id: 'store',
     number: 1,
     icon: Store,
-    title: '确认门店资料',
-    shortTitle: '门店资料',
-    description: '可从 Yelp 或官网导入公开资料，再确认店名、地址、电话、时区和营业时间。',
-    required: true,
+    titleKey: 'setupStepStoreTitle',
+    shortTitleKey: 'setupStepStoreShort',
+    descriptionKey: 'setupStepStoreDesc',
+    blocksLaunch: true,
+  },
+  {
+    id: 'directory',
+    number: 2,
+    icon: IdCard,
+    titleKey: 'setupStepDirectoryTitle',
+    shortTitleKey: 'setupStepDirectoryShort',
+    descriptionKey: 'setupStepDirectoryDesc',
+    blocksLaunch: false,
+  },
+  {
+    id: 'rooms',
+    number: 3,
+    icon: DoorOpen,
+    titleKey: 'setupStepRoomsTitle',
+    shortTitleKey: 'setupStepRoomsShort',
+    descriptionKey: 'setupStepRoomsDesc',
+    blocksLaunch: true,
   },
   {
     id: 'catalog',
-    number: 2,
+    number: 4,
     icon: Scissors,
-    title: '设置项目与价格',
-    shortTitle: '项目价格',
-    description: '可拍照识别价目表，或手工建立至少一个可售项目。',
-    required: true,
+    titleKey: 'setupStepCatalogTitle',
+    shortTitleKey: 'setupStepCatalogShort',
+    descriptionKey: 'setupStepCatalogDesc',
+    blocksLaunch: true,
   },
   {
     id: 'team',
-    number: 3,
+    number: 5,
     icon: UsersRound,
-    title: '添加员工与排班',
-    shortTitle: '员工日程',
-    description: '添加至少一位可接单员工；详细班表、技能和轮牌规则可在开店后完善。',
-    required: true,
+    titleKey: 'setupStepTeamTitle',
+    shortTitleKey: 'setupStepTeamShort',
+    descriptionKey: 'setupStepTeamDesc',
+    blocksLaunch: true,
+  },
+  {
+    id: 'features',
+    number: 6,
+    icon: SlidersHorizontal,
+    titleKey: 'setupStepFeaturesTitle',
+    shortTitleKey: 'setupStepFeaturesShort',
+    descriptionKey: 'setupStepFeaturesDesc',
+    blocksLaunch: false,
   },
   {
     id: 'launch',
-    number: 4,
+    number: 7,
     icon: ClipboardCheck,
-    title: '测试并正式开店',
-    shortTitle: '测试开店',
-    description: '确认开店检查项，通过后正式营业；测试预约和结账可在后台继续完成。',
-    required: true,
+    titleKey: 'setupStepLaunchTitle',
+    shortTitleKey: 'setupStepLaunchShort',
+    descriptionKey: 'setupStepLaunchDesc',
+    blocksLaunch: true,
   },
 ];
 
-export const REQUIRED_SETUP_STEP_IDS = SETUP_STEPS
-  .filter((step) => step.required)
+export const SETUP_STEP_IDS = SETUP_STEPS.map((step) => step.id);
+
+/** 开店硬门槛步骤（对应后端会给出 `missing` 的领域 + launch 自身）。 */
+export const LAUNCH_BLOCKING_STEP_IDS = SETUP_STEPS
+  .filter((step) => step.blocksLaunch)
   .map((step) => step.id);

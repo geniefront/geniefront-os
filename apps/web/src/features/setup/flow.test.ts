@@ -1,31 +1,39 @@
 import { describe, expect, it } from 'vitest';
-import { REQUIRED_SETUP_STEP_IDS, SETUP_STEPS } from './flow';
+import { SETUP_STEPS, SETUP_STEP_IDS, LAUNCH_BLOCKING_STEP_IDS } from './flow';
 import { CATALOG_IMPORT_SOURCES, STORE_IMPORT_SOURCES } from './importSources';
+import { setup as setupDict } from '@/i18n/setup';
 
 describe('setup flow', () => {
-  it('keeps the four launch-critical setup steps in order', () => {
-    expect(SETUP_STEPS.map((step) => step.id)).toEqual([
-      'store',
-      'catalog',
-      'team',
-      'launch',
+  it('runs the seven setup domains in wizard order', () => {
+    expect(SETUP_STEP_IDS).toEqual([
+      'store', 'directory', 'rooms', 'catalog', 'team', 'features', 'launch',
     ]);
   });
 
-  it('keeps only the operational minimum in the blocking setup', () => {
-    expect(REQUIRED_SETUP_STEP_IDS).toContain('store');
-    expect(REQUIRED_SETUP_STEP_IDS).toContain('catalog');
-    expect(REQUIRED_SETUP_STEP_IDS).toContain('team');
-    expect(REQUIRED_SETUP_STEP_IDS).toContain('launch');
-    expect(REQUIRED_SETUP_STEP_IDS).toHaveLength(4);
+  it('mirrors the backend contract step ids exactly', () => {
+    // 前端步骤 id 必须与 packages/contracts SETUP_STEP_IDS 对齐，
+    // 完成度全靠后端按同一组 id 推导。
+    expect(SETUP_STEP_IDS).toEqual([
+      'store', 'directory', 'rooms', 'catalog', 'team', 'features', 'launch',
+    ]);
   });
 
-  it('does not include optional website, notifications, or POS steps', () => {
-    const copy = SETUP_STEPS.map((step) => `${step.title} ${step.description}`).join(' ');
-    expect(copy.toLowerCase()).not.toContain('pos');
-    expect(copy).not.toContain('读卡器');
-    expect(copy).not.toContain('通知');
-    expect(copy).not.toContain('主页');
+  it('numbers steps 1..7 in order', () => {
+    expect(SETUP_STEPS.map((step) => step.number)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it('treats staff directory and feature switches as non-blocking', () => {
+    expect(LAUNCH_BLOCKING_STEP_IDS).toEqual(['store', 'rooms', 'catalog', 'team', 'launch']);
+    expect(LAUNCH_BLOCKING_STEP_IDS).not.toContain('directory');
+    expect(LAUNCH_BLOCKING_STEP_IDS).not.toContain('features');
+  });
+
+  it('uses i18n keys for every step label — no hard-coded copy', () => {
+    for (const step of SETUP_STEPS) {
+      for (const key of [step.titleKey, step.shortTitleKey, step.descriptionKey]) {
+        expect(key in setupDict, key).toBe(true);
+      }
+    }
   });
 
   it('store import is Yelp/website; catalog import is price-list photos', () => {

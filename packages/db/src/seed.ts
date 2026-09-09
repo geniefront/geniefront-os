@@ -325,6 +325,11 @@ async function main() {
               fri:{open:'09:30',close:'20:00'}, sat:{open:'09:00',close:'20:00'},
               sun:{open:'10:00',close:'18:00'} })},
         ${J({
+          features: {
+            health_forms_enabled: true,
+            ai_voice_requested: false,
+            confirmed_at: '2026-01-01T00:00:00.000Z',
+          },
           capacity: { slot_minutes: 15, max_concurrent_per_slot: null, overbook: 'warn' },
           online_booking: {
             enabled: true, max_days_ahead: 60, min_minutes_ahead: 120,
@@ -346,6 +351,11 @@ async function main() {
               fri:{open:'10:00',close:'01:00'}, sat:{open:'10:00',close:'01:00'},
               sun:{open:'10:00',close:'23:00'} })},
         ${J({
+          features: {
+            health_forms_enabled: true,
+            ai_voice_requested: false,
+            confirmed_at: '2026-01-01T00:00:00.000Z',
+          },
           capacity: { slot_minutes: 15, max_concurrent_per_slot: null, overbook: 'warn' },
           online_booking: {
             enabled: true, max_days_ahead: 60, min_minutes_ahead: 120,

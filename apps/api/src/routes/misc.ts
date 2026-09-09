@@ -16,6 +16,7 @@ import { searchBusinesses, getBusiness } from '@gf/yelp';
 import { searchGooglePlaces, getGooglePlace } from '../integrations/googlePlaces';
 import { loadCallDrafts } from '../queries/callDrafts';
 import { loadCalls } from '../queries/calls';
+import { loadAiVoiceReadiness } from '../queries/aiVoiceReadiness';
 import { loadInboundSms } from '../queries/smsInbound';
 import { loadMySupportRequests } from '../queries/support';
 import type { CtxFromHeaders } from './utils';
@@ -57,9 +58,13 @@ export function registerMiscRoutes(app: FastifyInstance, ctxFromHeaders: CtxFrom
     }
     return withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
-      (tx) => loadCalls(tx, ctx, {
-        days: Number(req.query.days ?? '7') || 7,
-        limit: Number(req.query.limit ?? '50') || 50,
+      async (tx) => ({
+        ...(await loadCalls(tx, ctx, {
+          days: Number(req.query.days ?? '7') || 7,
+          limit: Number(req.query.limit ?? '50') || 50,
+        })),
+        // 向导「功能设置」步骤与本页共用同一份就绪推导。
+        aiVoice: await loadAiVoiceReadiness(tx, ctx),
       }));
   });
 

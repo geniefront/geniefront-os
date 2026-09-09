@@ -83,7 +83,11 @@ export const resourceSaveInput = z.object({
   resourceTypeId: uuid.optional(),
   capacity: z.number().int().min(1).default(1),
   maxStaff: z.number().int().min(1).optional().nullable(),
-  active: z.boolean().default(true),
+  /**
+   * Compatibility switch for older room editors. Omitted means keep the current
+   * status; false enters maintenance and true restores a maintenance resource.
+   */
+  active: z.boolean().optional(),
 });
 export type ResourceSaveInput = z.infer<typeof resourceSaveInput>;
 

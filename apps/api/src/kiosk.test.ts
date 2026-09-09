@@ -27,6 +27,9 @@ import './handlers/kiosk';
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const tenant = { orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null };
+const SPA_ORG = '22222222-2222-4222-8222-222222222222';
+const SPA_LOC = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+const spaTenant = { orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null };
 
 let ctx: Awaited<ReturnType<typeof buildContext>>;
 let app: ReturnType<typeof buildServer>;
@@ -145,6 +148,33 @@ describe('Kiosk 健康表选择', () => {
     const recheckRes = await kiosk('GET', `/v1/kiosk/forms/required?appointmentId=${apptId}`);
     expect(recheckRes.statusCode).toBe(200);
     expect(recheckRes.json().forms.length).toBe(0);
+  });
+
+  it('关闭后不再派发且队列不提醒，但跨店对象仍先按 404 拒绝', async () => {
+    const [foreignAppointment] = await withTenant(spaTenant, (tx) => tx<{ id: string }[]>`
+      select id from appointments where location_id = ${SPA_LOC} limit 1`);
+    await withTenant(tenant, (tx) => tx`
+      update locations set settings = jsonb_set(
+        settings, '{features,health_forms_enabled}', 'false'::jsonb, true
+      ) where id = ${NAIL_LOC}`);
+    try {
+      const own = await kiosk('GET', `/v1/kiosk/forms/required?queueId=${formQueueId}`);
+      expect(own.statusCode).toBe(200);
+      expect(own.json().forms).toEqual([]);
+
+      const queue = await withTenant(tenant, (tx) => loadQueue(tx, ctx, todayDate()));
+      expect(queue.waiting.find((item) => item.queueId === formQueueId)?.pendingForms).toBe(0);
+
+      const foreign = await kiosk(
+        'GET', `/v1/kiosk/forms/required?appointmentId=${foreignAppointment!.id}`,
+      );
+      expect(foreign.statusCode).toBe(404);
+    } finally {
+      await withTenant(tenant, (tx) => tx`
+        update locations set settings = jsonb_set(
+          settings, '{features,health_forms_enabled}', 'true'::jsonb, true
+        ) where id = ${NAIL_LOC}`);
+    }
   });
 });
 

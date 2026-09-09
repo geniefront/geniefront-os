@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from '@heroui/react';
 import {
@@ -7,7 +7,6 @@ import {
   Clock3,
   Plus,
   Rocket,
-  Save,
   ShieldCheck,
   Store,
   UserRoundPlus,
@@ -25,87 +24,22 @@ import {
   useSaveLocationProfile,
   useSaveService,
   useSaveStaffProfile,
+  useSetupReadinessQuery,
 } from '@/features/settings/api';
-import type { DeskSettings } from '@/features/settings/types';
 import { ImportWorkspace } from '@/features/setup/ImportWorkspace';
+import { CatalogPresetPicker } from '@/features/setup/CatalogPresetPicker';
+import { Field, SaveBar, StepHeading, Toggle, fieldClass, selectClass } from '@/features/setup/primitives';
+import type { SetupStepId } from '@/features/setup/flow';
 import { useLanguage } from '@/LanguageContext';
 import type { TranslationKey } from '@/i18n';
 
-const fieldClass = 'h-11 text-sm';
-const selectClass = 'h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20';
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-  return (
-    <label className="space-y-1.5">
-      <span className="text-sm font-semibold text-slate-800">{label}</span>
-      {children}
-      {hint && <span className="block text-xs leading-5 text-slate-500">{hint}</span>}
-    </label>
-  );
-}
-
-function Toggle({ checked, onChange, label, description }: {
-  checked: boolean; onChange: (checked: boolean) => void; label: string; description?: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className="flex w-full items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 text-left"
-    >
-      <span>
-        <span className="block text-sm font-semibold text-slate-900">{label}</span>
-        {description && <span className="mt-1 block text-xs leading-5 text-slate-500">{description}</span>}
-      </span>
-      <span className={cn('relative h-6 w-11 shrink-0 rounded-full transition-colors', checked ? 'bg-teal-600' : 'bg-slate-300')}>
-        <span className={cn('absolute top-1 size-4 rounded-full bg-white shadow-sm transition-transform', checked ? 'translate-x-6' : 'translate-x-1')} />
-      </span>
-    </button>
-  );
-}
-
-/**
- * ⚠️ `label`/`badge` 不再给中文默认值——那样一旦调用方漏传，
- * 界面就会在任意语言下都显示中文。缺省改成 `undefined`，
- * 由组件内部按当前语言取词典默认值。
- */
-function SaveBar({ saving, onSave, permission, label }: { saving: boolean; onSave: () => void; permission: string; label?: string }) {
-  const { t } = useLanguage();
-  return (
-    <div className="flex justify-end border-t border-slate-100 pt-5">
-      <GuardedButton permission={permission} onClick={onSave} isDisabled={saving} className="gap-2">
-        <Save className="size-4" />
-        {saving ? t('setupSaving') : (label ?? t('setupSaveContinue'))}
-      </GuardedButton>
-    </div>
-  );
-}
-
-function StepHeading({ eyebrow, title, description, badge }: {
-  eyebrow: string; title: string; description: string; badge?: string;
-}) {
-  const { t } = useLanguage();
-  const resolvedBadge = badge ?? t('setupRequiredBadge');
-  return (
-    <div>
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm font-semibold text-teal-700">{eyebrow}</p>
-        <Badge variant={resolvedBadge === t('setupRequiredBadge') ? 'default' : 'secondary'}>{resolvedBadge}</Badge>
-      </div>
-      <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">{title}</h2>
-      <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{description}</p>
-    </div>
-  );
-}
 
 const DAY_KEYS: ReadonlyArray<readonly [string, TranslationKey]> = [
   ['mon', 'mon'], ['tue', 'tue'], ['wed', 'wed'], ['thu', 'thu'],
   ['fri', 'fri'], ['sat', 'sat'], ['sun', 'sun'],
 ];
 
-export function StoreStepForm({ onSaved }: { onSaved: () => void }) {
+export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void; stepNumber?: number }) {
   const { t } = useLanguage();
   const { data } = useDeskSettingsQuery();
   const saveProfile = useSaveLocationProfile();
@@ -154,7 +88,7 @@ export function StoreStepForm({ onSaved }: { onSaved: () => void }) {
 
   return (
     <div className="space-y-6">
-      <StepHeading eyebrow={t('setupStep1Eyebrow')} title={t('setupStep1Title')} description={t('setupStep1Desc')} />
+      <StepHeading eyebrow={t('setupStepLabel', { number: stepNumber })} title={t('setupStepStoreTitle')} description={t('setupStepStoreDesc')} />
       <ImportWorkspace mode="store" initialName={form.name} initialPlace={form.addressZip || form.addressCity} />
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">{t('setupImportOrManual')}</p>
       <div className="grid gap-4 md:grid-cols-2">
@@ -210,7 +144,7 @@ export function StoreStepForm({ onSaved }: { onSaved: () => void }) {
   );
 }
 
-export function CatalogStepForm({ onSaved }: { onSaved: () => void }) {
+export function CatalogStepForm({ onSaved, stepNumber = 4 }: { onSaved: () => void; stepNumber?: number }) {
   const { t } = useLanguage();
   const { data } = useDeskSettingsQuery();
   const saveService = useSaveService();
@@ -218,6 +152,7 @@ export function CatalogStepForm({ onSaved }: { onSaved: () => void }) {
   const [price, setPrice] = useState('');
   const [duration, setDuration] = useState('60');
   const active = data?.services.filter((service) => service.active) ?? [];
+  const existingNames = (data?.services ?? []).map((service) => service.displayName);
 
   const add = async () => {
     const priceMatch = price.trim().match(/^(\d+)(?:\.(\d{1,2}))?$/);
@@ -244,7 +179,12 @@ export function CatalogStepForm({ onSaved }: { onSaved: () => void }) {
 
   return (
     <div className="space-y-6">
-      <StepHeading eyebrow={t('setupStep2Eyebrow')} title={t('setupStep2Title')} description={t('setupStep2Desc')} />
+      <StepHeading eyebrow={t('setupStepLabel', { number: stepNumber })} title={t('setupStepCatalogTitle')} description={t('setupStepCatalogDesc')} />
+      <CatalogPresetPicker
+        businessType={data?.location.businessType ?? null}
+        existingNames={existingNames}
+        onAdded={onSaved}
+      />
       <ImportWorkspace mode="catalog" />
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">{t('setupImportOrManual')}</p>
       <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-5 md:grid-cols-[1.4fr_.7fr_.7fr_auto]">
@@ -261,7 +201,7 @@ export function CatalogStepForm({ onSaved }: { onSaved: () => void }) {
   );
 }
 
-export function TeamStepForm({ onSaved }: { onSaved: () => void }) {
+export function TeamStepForm({ onSaved, stepNumber = 5 }: { onSaved: () => void; stepNumber?: number }) {
   const { t } = useLanguage();
   const { data } = useDeskSettingsQuery();
   const saveStaff = useSaveStaffProfile();
@@ -278,7 +218,7 @@ export function TeamStepForm({ onSaved }: { onSaved: () => void }) {
   const staff = data?.staff ?? [];
   return (
     <div className="space-y-6">
-      <StepHeading eyebrow={t('setupStep3Eyebrow')} title={t('setupStep3Title')} description={t('setupStep3Desc')} />
+      <StepHeading eyebrow={t('setupStepLabel', { number: stepNumber })} title={t('setupStepTeamTitle')} description={t('setupStepTeamDesc')} />
       <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-5 md:grid-cols-2">
         <Field label={t('setupFieldStaffName')}><Input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="Amy" /></Field>
         <div className="flex items-end"><GuardedButton permission="staff.manage" onClick={add} isDisabled={saveStaff.isPending} className="h-11 w-full gap-2"><UserRoundPlus className="size-4" />{t('setupAddStaff')}</GuardedButton></div>
@@ -294,23 +234,35 @@ export function TeamStepForm({ onSaved }: { onSaved: () => void }) {
   );
 }
 
-function launchChecks(settings: DeskSettings | undefined, t: (key: string) => string) {
-  if (!settings) return [];
-  return [
-    { label: t('setupCheckProfileConfirmed'), ok: Boolean(settings.location.profileConfirmedAt) },
-    { label: t('setupCheckHoursSet'), ok: Object.values(settings.location.businessHours ?? {}).some(Boolean) },
-    { label: t('setupCheckServiceActive'), ok: settings.services.some((service) => service.active) },
-    { label: t('setupCheckStaffBookable'), ok: settings.staff.some((staff) => staff.isBookable) },
-  ];
-}
+/** 开店硬门槛步骤 → 检查项文案。完成度一律来自后端 readiness。 */
+const LAUNCH_CHECK_LABEL: Partial<Record<SetupStepId, TranslationKey>> = {
+  store: 'setupCheckProfileConfirmed',
+  rooms: 'setupCheckRoomActive',
+  catalog: 'setupCheckServiceActive',
+  team: 'setupCheckStaffBookable',
+};
 
-export function LaunchStep({ onGoToStep }: { onGoToStep: (step: 'store' | 'catalog' | 'team') => void }) {
+const WARNING_LABEL: Record<string, TranslationKey> = {
+  directory_recommended: 'setupWarnDirectoryRecommended',
+  active_room_repair: 'setupWarnActiveRoomRepair',
+  ai_voice_pending: 'setupWarnAiVoicePending',
+};
+
+export function LaunchStep({ onGoToStep, stepNumber = 7 }: {
+  onGoToStep: (step: SetupStepId) => void; stepNumber?: number;
+}) {
   const { t } = useLanguage();
   const navigate = useNavigate();
-  const { data, refetch, isFetching } = useDeskSettingsQuery();
+  const { data: readiness, refetch, isFetching, isError, isLoading } = useSetupReadinessQuery();
   const finish = useFinishSetup();
-  const checks = useMemo(() => launchChecks(data, t), [data, t]);
-  const ready = checks.length > 0 && checks.every((check) => check.ok);
+
+  const checks = (readiness?.steps ?? [])
+    .filter((step): step is { id: SetupStepId; complete: boolean } => step.id in LAUNCH_CHECK_LABEL)
+    .map((step) => ({ stepId: step.id, label: t(LAUNCH_CHECK_LABEL[step.id]!), ok: step.complete }));
+  const ready = Boolean(readiness?.canLaunch);
+  const blockers = readiness?.missing ?? [];
+  const warnings = readiness?.warnings ?? [];
+
   const launch = async () => {
     try {
       await refetch();
@@ -321,13 +273,58 @@ export function LaunchStep({ onGoToStep }: { onGoToStep: (step: 'store' | 'catal
     }
     catch (error) { toast.danger(t('setupLaunchFailed', { p0: error instanceof Error ? error.message : 'UNKNOWN' })); }
   };
+
+  if (isLoading) {
+    return <div className="py-10 text-center text-sm text-slate-500">{t('setupReadinessLoading')}</div>;
+  }
+  if (isError || !readiness) {
+    return (
+      <div className="space-y-3 py-8 text-center">
+        <p className="text-sm text-slate-600">{t('setupReadinessError')}</p>
+        <Button variant="outline" onClick={() => void refetch()}>{t('setupRetry')}</Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <StepHeading eyebrow={t('setupStep4Eyebrow')} title={t('setupStep4Title')} description={t('setupStep4Desc')} />
+      <StepHeading eyebrow={t('setupStepLabel', { number: stepNumber })} title={t('setupStepLaunchTitle')} description={t('setupStepLaunchDesc')} />
       <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200">
-        {checks.map((check) => <div key={check.label} className="flex items-center justify-between gap-3 px-5 py-4"><div className="flex items-center gap-3">{check.ok ? <CheckCircle2 className="size-5 text-emerald-600" /> : <Clock3 className="size-5 text-amber-500" />}<span className="text-sm font-semibold text-slate-800">{check.label}</span></div><Badge variant={check.ok ? 'success' : 'warning'}>{check.ok ? t('setupCheckDone') : t('setupCheckPending')}</Badge></div>)}
+        {checks.map((check) => (
+          <div key={check.stepId} className="flex items-center justify-between gap-3 px-5 py-4">
+            <div className="flex items-center gap-3">
+              {check.ok ? <CheckCircle2 className="size-5 text-emerald-600" /> : <Clock3 className="size-5 text-amber-500" />}
+              <span className="text-sm font-semibold text-slate-800">{check.label}</span>
+            </div>
+            {check.ok
+              ? <Badge variant="success">{t('setupCheckDone')}</Badge>
+              : <button type="button" onClick={() => onGoToStep(check.stepId)} className="text-xs font-semibold text-teal-700 underline underline-offset-2">{t('setupFixInStep')}</button>}
+          </div>
+        ))}
       </div>
-      {!ready && <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => onGoToStep('store')}><Store className="size-4" />{t('setupGoToStore')}</Button><Button variant="outline" onClick={() => onGoToStep('catalog')}><CircleDollarSign className="size-4" />{t('setupGoToCatalog')}</Button><Button variant="outline" onClick={() => onGoToStep('team')}><UsersRound className="size-4" />{t('setupGoToTeam')}</Button></div>}
+
+      {blockers.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {blockers.map((item) => (
+            <Button key={item.code} variant="outline" onClick={() => onGoToStep(item.stepId as SetupStepId)}>
+              <CircleDollarSign className="size-4" />
+              {t(LAUNCH_CHECK_LABEL[item.stepId as SetupStepId] ?? 'setupFixInStep')}
+            </Button>
+          ))}
+        </div>
+      )}
+
+      {warnings.length > 0 && (
+        <div className="space-y-2 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          {warnings.map((w) => (
+            <button key={w.code} type="button" onClick={() => onGoToStep(w.stepId as SetupStepId)} className="flex w-full items-start gap-2 text-left text-sm text-amber-900">
+              <Clock3 className="mt-0.5 size-4 shrink-0" />
+              <span>{t(WARNING_LABEL[w.code] ?? 'setupWarnDirectoryRecommended')}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-5">
         <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-teal-700" /><div><h3 className="font-bold text-teal-950">{t('setupTrialRunTitle')}</h3><ol className="mt-2 space-y-1 text-sm leading-6 text-teal-900"><li>1. {t('setupTrialStep1')}</li><li>2. {t('setupTrialStep2')}</li><li>3. {t('setupTrialStep3')}</li></ol></div></div>
       </div>

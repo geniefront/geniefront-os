@@ -160,6 +160,27 @@ describe('分享：令牌', () => {
     expect(res.statusCode).toBe(404);
     expect(res.json().details.reason).toBe('link_unusable');
   });
+
+  it('关闭健康表只阻止新分享，已签发链接仍可完成', async () => {
+    const issued = await share();
+    await withTenant(tenant, (tx) => tx`
+      update locations set settings = jsonb_set(
+        settings, '{features,health_forms_enabled}', 'false'::jsonb, true
+      ) where id = ${NAIL_LOC}`);
+    try {
+      await expect(share()).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED', details: { reason: 'health_forms_disabled' },
+      });
+      const opened = await link('GET', '/public/v1/forms', issued.token);
+      expect(opened.statusCode).toBe(200);
+      expect(opened.json().forms[0].templateId).toBe(templateId);
+    } finally {
+      await withTenant(tenant, (tx) => tx`
+        update locations set settings = jsonb_set(
+          settings, '{features,health_forms_enabled}', 'true'::jsonb, true
+        ) where id = ${NAIL_LOC}`);
+    }
+  });
 });
 
 describe('分享：客人那一页看得到什么', () => {

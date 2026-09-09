@@ -63,7 +63,9 @@ async function main(): Promise<void> {
     'location.savePhoneLine',
     { e164, purpose: 'ai_voice', rotateToolToken: rotate },
     ctx,
-    { idempotencyKey: crypto.randomUUID() },
+    // `location.savePhoneLine` 是平台自有命令（S1 §5）：绑号 / 铸 token 不对
+    // 店主与泛化 HTTP 入口开放。这条 CLI 经可信 server-origin 显式声明来源。
+    { idempotencyKey: crypto.randomUUID(), systemOrigin: 'ops_bind_ai_line' },
   );
 
   console.log(`\n✓ ${e164}  →  ${loc.name}`);

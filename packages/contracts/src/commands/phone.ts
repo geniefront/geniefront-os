@@ -238,9 +238,21 @@ export const RecordCall = defineCommand({
   idempotency: 'required',
 });
 
-/** 把一个 Telnyx 号码绑到门店。老板在开店配置里做一次。 */
+/**
+ * 把一个 Telnyx 号码绑到门店，并生成 / 轮换电话工具 token（sql/0036）。
+ *
+ * ⚠️ **平台自有（`system: true`）。** 落地号是我们买来、由我们绑给门店的
+ * （docs/09 §2），工具 token 是电话工具的第二把钥匙。这两样都不能由店主
+ * 或「按名字执行任意命令」的泛化 HTTP 入口写入 —— 否则店主能把任意号码
+ * 绑成本店的 AI 接听线并铸出 token（S1 §5 的缺口）。
+ *
+ * 生产里由开户编排 / `ops/bindAiLine.ts`（经可信 server-origin）调用。
+ * 店主侧改开场白、转接方式、今日接听开关走 `location.savePhoneAssistantLine`。
+ */
 export const SavePhoneLine = defineCommand({
   name: 'location.savePhoneLine',
+  /** 平台自有：只能由服务端编排在可信来源下调用（AUD-01 / S1 §5）。 */
+  system: true,
   input: z.object({
     e164: phoneE164,
     provider: z.enum(['telnyx', 'twilio']).default('telnyx'),
@@ -291,7 +303,59 @@ export const SavePhoneLine = defineCommand({
   }),
   permission: 'settings.manage',
   ai: {
-    description: '把一个电话号码绑定到本店（AI 接听线 / 主线 / 短信线）。',
+    description: '（内部）把一个电话号码绑定到本店并生成电话工具 token。',
+    confirm: 'never',
+    exposed: false,
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
+/**
+ * 店主侧编辑本店 AI 电话线的**话术与今日接听开关**（批 3 起老板可改）。
+ *
+ * 和 `location.savePhoneLine` 拆开：绑号 / 铸 token 是平台动作，改开场白、
+ * 转接方式、今天让不让 AI 接是店主的日常动作。这条命令：
+ *
+ *   · 只作用于**已经绑好的** active `ai_voice` 线 —— 没有就报 `NOT_FOUND`，
+ *     不会凭空建线。
+ *   · `aiAnswer = true` 时校验线路本地就绪（工具 token 已生成），
+ *     未就绪则拒绝（`reason: 'ai_voice_not_ready'`）—— 绑号 ≠ 能接。
+ *   · 话术字段沿用「不传就不动、显式传 null 才清空」（sql/0041）。
+ */
+export const SavePhoneAssistantLine = defineCommand({
+  name: 'location.savePhoneAssistantLine',
+  input: z.object({
+    /** AI 自报家门的名字。不传 = 不动；传 null = 清空（不报名字）。 */
+    assistantName: z.string().max(60).nullable().optional(),
+    /**
+     * 开场白。支持 `{{store_name}}` / `{{caller_name}}` / `{{assistant_name}}`。
+     * 不传 = 不动；传 null = 清空回系统默认。
+     */
+    greetingTemplate: z.string().max(600).nullable().optional(),
+    /** 让 AI 按 `greetingTemplate` 的调子自己组织欢迎语（见 SavePhoneLine 注释）。 */
+    greetingAiGenerated: z.boolean().optional(),
+    /** 店家在自己运营商那儿设的转接方式（记录用，校验与话术都靠它）。 */
+    forwardingMode: z.enum(['all', 'busy', 'no_answer', 'busy_no_answer']).nullable().optional(),
+    /**
+     * 这条线今天让不让 AI 接。日常开关，和 `active`（号还属不属于本店）不是
+     * 一回事。开启前线路必须本地就绪。
+     */
+    aiAnswer: z.boolean().optional(),
+  }).superRefine((value, ctx) => {
+    if (Object.values(value).every((v) => v === undefined)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '至少要改一个字段' });
+    }
+  }),
+  output: z.object({
+    locationId: uuid,
+    aiAnswer: z.boolean(),
+    /** 本地可证明的就绪（线已绑 + 工具 token 已生成）。 */
+    ready: z.boolean(),
+  }),
+  permission: 'settings.manage',
+  ai: {
+    description: '编辑本店 AI 电话线的开场白、转接方式与今日接听开关。',
     confirm: 'always',
   },
   reversible: true,
@@ -430,5 +494,5 @@ export const SettingsSavePhoneAssistant = defineCommand({
 
 export const PHONE_COMMANDS = [
   DraftFromCall, ReviewCallDraft, RecordCall, AttachCallTranscript, SavePhoneLine,
-  RequestAiVoice, SaveAiChangePolicy, SettingsSavePhoneAssistant,
+  SavePhoneAssistantLine, RequestAiVoice, SaveAiChangePolicy, SettingsSavePhoneAssistant,
 ] as const;

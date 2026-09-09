@@ -28,24 +28,48 @@ test.describe('desk authentication and setup', () => {
     await loginDesk(page, qaEmail('growth_setup'), '/dashboard');
     await expect(page).toHaveURL(/\/setup$/);
 
+    const next = () => page.getByRole('button', { name: /^(Next|下一步)$/ }).click();
+
+    // 第 1 步 · 门店资料 —— 保存并继续，进入「员工基础设置」（第 2 步）。
     await page.getByRole('button', { name: '七天使用周一时间' }).click();
     await page.getByRole('button', { name: '保存并继续' }).click();
-    await expect(page.getByRole('heading', { name: '设置项目与价格' }).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: '员工基础设置' }).first()).toBeVisible();
     await evidence(page, 'qa-001-save-and-continue-advances');
 
+    // 第 2 步 · 员工基础设置（可选）—— 直接下一步。
+    await next();
+    await expect(page.getByRole('heading', { name: '设置房间与工位' }).first()).toBeVisible();
+
+    // 第 3 步 · 房间（门槛）—— 加一个「大厅」房间。
+    await page.getByLabel('名称').fill('Browser QA Hall');
+    await page.getByRole('button', { name: '添加房间' }).click();
+    await expect(page.getByText('Browser QA Hall')).toBeVisible();
+    await next();
+    await expect(page.getByRole('heading', { name: '设置项目与价格' }).first()).toBeVisible();
+
+    // 第 4 步 · 服务项目（门槛）—— 手工加一个项目。
     await page.getByLabel('项目名称').fill('Browser QA Manicure');
     await page.getByLabel('价格（美元）').fill('42.50');
     await page.getByLabel('时长（分钟）').fill('45');
     await page.getByRole('button', { name: '添加项目' }).click();
     await expect(page.getByText('Browser QA Manicure')).toBeVisible();
-    await page.getByRole('button', { name: /Next|下一步/ }).click();
+    await next();
+    await expect(page.getByRole('heading', { name: '添加员工与排班' }).first()).toBeVisible();
 
+    // 第 5 步 · 员工与排班（门槛）—— 加一个可接单员工。
     await page.getByLabel('员工姓名').fill('Browser QA Tech');
     await page.getByRole('button', { name: '添加员工' }).click();
     await expect(page.getByText('Browser QA Tech')).toBeVisible();
-    await page.getByRole('button', { name: /Next|下一步/ }).click();
+    await next();
+    await expect(page.getByRole('heading', { name: '功能设置' }).first()).toBeVisible();
 
+    // 第 6 步 · 功能设置（可选，两开关默认关）—— 保存并确认，进入 launch。
+    await page.getByRole('button', { name: '保存并确认这一步' }).click();
+    await expect(page.getByRole('heading', { name: '检查并正式开店' }).first()).toBeVisible();
+
+    // 第 7 步 · 检查并开店 —— 门槛项全绿（检查项来自后端 readiness）。
     await expect(page.getByText('门店资料和时区已确认')).toBeVisible();
+    await expect(page.getByText('至少有一个可用房间')).toBeVisible();
     await expect(page.getByText('至少有一个启用项目')).toBeVisible();
     await expect(page.getByText('至少有一位可接单员工')).toBeVisible();
     await evidence(page, 'known-3-setup-ready');

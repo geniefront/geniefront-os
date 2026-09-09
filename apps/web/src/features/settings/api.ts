@@ -5,6 +5,7 @@
  * 写：通过命令总线调用各配置变更命令。
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { SetupReadiness } from '@gf/contracts';
 import { apiGet, runCommand } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import type { BillingResponse } from '@/features/billing/types';
@@ -32,7 +33,53 @@ import type {
 export const settingsKeys = {
   desk: (membershipId: string | null) => ['desk', 'settings', membershipId] as const,
   billing: (membershipId: string | null) => ['desk', 'billing', membershipId] as const,
+  // 前缀落在 desk() 之下 —— 任何 `settingsKeys.desk` 失效（保存门店资料 /
+  // 营业时间 / 项目 / 员工 / 房间…）都会顺带刷新开店进度，无需逐个 mutation 补一行。
+  setupReadiness: (membershipId: string | null) =>
+    ['desk', 'settings', membershipId, 'setup-readiness'] as const,
 };
+
+/**
+ * 开店向导七步的完成度。**唯一事实源**是后端按真实数据推导的
+ * `GET /v1/desk/setup/readiness`（含 `steps` / `missing` / `warnings` /
+ * `canLaunch` / `aiVoice`）；前端不再自己算完成度。
+ */
+export function useSetupReadinessQuery(opts?: { enabled?: boolean }) {
+  const { membershipId, status } = useSession();
+  return useQuery({
+    queryKey: settingsKeys.setupReadiness(membershipId),
+    queryFn: () => apiGet<SetupReadiness>('/v1/desk/setup/readiness'),
+    enabled: (opts?.enabled ?? true) && status === 'ready' && membershipId !== null,
+  });
+}
+
+export interface SaveSetupFeaturesInput {
+  healthFormsEnabled?: boolean;
+  aiVoiceRequested?: boolean;
+  confirmSetup?: boolean;
+}
+
+/** 开店向导「功能设置」步骤：按字段 PATCH，`false` 是有效选择（S3/S5）。 */
+export function useSaveSetupFeatures() {
+  const queryClient = useQueryClient();
+  const { membershipId } = useSession();
+  return useMutation({
+    mutationFn: async (input: SaveSetupFeaturesInput) => {
+      const res = await runCommand<{
+        locationId: string;
+        healthFormsEnabled: boolean | null;
+        effectiveHealthFormsEnabled: boolean;
+        aiVoiceRequested: boolean | null;
+        confirmedAt: string | null;
+      }>('settings.saveSetupFeatures', input, membershipId!);
+      return res.result;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: settingsKeys.desk(membershipId) });
+      void queryClient.invalidateQueries({ queryKey: settingsKeys.setupReadiness(membershipId) });
+    },
+  });
+}
 
 export function useDeskSettingsQuery(opts?: { enabled?: boolean }) {
   const { membershipId, status } = useSession();

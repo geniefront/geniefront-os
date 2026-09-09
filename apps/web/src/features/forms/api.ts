@@ -33,6 +33,14 @@ export interface FormsResponse {
   submissions: FormSubmissionSummary[];
   shares: FormShareSummary[];
   canViewContent: boolean;
+  healthForms: {
+    enabled: boolean | null;
+    effectiveEnabled: boolean;
+    confirmedAt: string | null;
+    templateKey: string;
+    publishedTemplateId: string | null;
+    publishedTemplateVersion: number | null;
+  };
 }
 
 export interface FormSubmissionSummary {

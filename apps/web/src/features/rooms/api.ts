@@ -91,6 +91,8 @@ export function useSaveResource() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['desk', 'rooms'] });
+      // 开店向导的「房间」步骤完成度由 setup readiness 推导，键落在 desk settings 下。
+      queryClient.invalidateQueries({ queryKey: ['desk', 'settings'] });
     },
   });
 }

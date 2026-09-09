@@ -65,6 +65,9 @@ const MUST_BE_SYSTEM = [
   'notification.create',
   'storefront.saveDrafts',
   'setup.claimLocation',
+  // 绑落地号 / 铸电话工具 token 是平台动作，不对店主与泛化 HTTP 入口开放
+  // （S1 §5）。店主侧改话术 / 今日接听走 location.savePhoneAssistantLine。
+  'location.savePhoneLine',
 ] as const;
 
 let app: ReturnType<typeof buildServer>;

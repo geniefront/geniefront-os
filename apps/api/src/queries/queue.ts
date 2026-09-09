@@ -106,6 +106,9 @@ export async function loadQueue(
              select count(*) from form_templates ft
              where ft.location_id = q.location_id and ft.active = true
                and ft.published_at is not null
+               and coalesce((select
+                 (l.settings #>> '{features,health_forms_enabled}')::boolean
+                 from locations l where l.id = q.location_id), true)
                and ft.key = case (
                  select business_type from locations where id = q.location_id
                )

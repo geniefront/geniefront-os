@@ -11,7 +11,7 @@
 
 import {
   DraftFromCall, ReviewCallDraft, RecordCall, AttachCallTranscript, SavePhoneLine, RequestAiVoice,
-  SaveAiChangePolicy, SettingsSavePhoneAssistant,
+  SavePhoneAssistantLine, SaveAiChangePolicy, SettingsSavePhoneAssistant,
   AppError, ERROR_CODES,
 } from '@gf/contracts';
 import { jsonb, ts } from '@gf/db';
@@ -174,6 +174,67 @@ registerHandler(SavePhoneLine, async ({ input, ctx, tx, audit }: HandlerArgs<
     },
   });
   return { e164: input.e164, locationId: ctx.locationId, toolToken };
+});
+
+/**
+ * 店主侧改本店 AI 电话线的话术 / 转接方式 / 今日接听开关。
+ *
+ * 只碰**已经绑好的** active `ai_voice` 线：绑号和铸 token 是平台动作
+ * （`location.savePhoneLine`，system-only）。这里既建不出线也换不了号。
+ */
+registerHandler(SavePhoneAssistantLine, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SavePhoneAssistantLine.input._type>) => {
+  const [line] = await tx<{
+    id: string; ai_answer: boolean; tool_token_digest: string | null;
+  }[]>`
+    select id, ai_answer, tool_token_digest from phone_lines
+    where location_id = ${ctx.locationId} and purpose = 'ai_voice' and active
+    for update`;
+  if (!line) {
+    // 没有绑定的落地号 —— 店主改不了一条还不存在的线。平台先绑号。
+    throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'ai_voice_line' } });
+  }
+
+  const ready = Boolean(line.tool_token_digest);
+  if (input.aiAnswer === true && !ready) {
+    // 绑号 ≠ 能接：工具 token 没生成，供应商侧多半也没配好。fail closed。
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'ai_voice_not_ready' },
+    });
+  }
+
+  // 话术沿用「不传就不动、显式 null 才清空」：SQL 里「没传」和「传 null」
+  // 到了参数里都是 NULL，所以显式 null 先翻译成空字符串（读取侧与 null 等价）。
+  const blankIfNull = <T extends string>(v: T | null | undefined): T | '' | undefined =>
+    v === null ? '' : v;
+  const assistantName = blankIfNull(input.assistantName);
+  const greetingTemplate = blankIfNull(input.greetingTemplate);
+
+  await tx`
+    update phone_lines set
+      assistant_name = coalesce(${assistantName ?? null}, assistant_name),
+      greeting_template = coalesce(${greetingTemplate ?? null}, greeting_template),
+      greeting_ai_generated = coalesce(${input.greetingAiGenerated ?? null}, greeting_ai_generated),
+      forwarding_mode = coalesce(${blankIfNull(input.forwardingMode) ?? null}, forwarding_mode),
+      ai_answer = coalesce(${input.aiAnswer ?? null}, ai_answer)
+    where id = ${line.id}`;
+
+  const [after] = await tx<{ ai_answer: boolean }[]>`
+    select ai_answer from phone_lines where id = ${line.id}`;
+
+  audit({
+    entityType: 'phone_line', entityId: ctx.locationId,
+    before: { aiAnswer: line.ai_answer },
+    after: {
+      aiAnswer: after!.ai_answer,
+      ...(input.assistantName !== undefined ? { assistantNameChanged: true } : {}),
+      ...(input.greetingTemplate !== undefined ? { greetingChanged: true } : {}),
+      ...(input.greetingAiGenerated !== undefined
+        ? { greetingAiGenerated: input.greetingAiGenerated } : {}),
+      ...(input.forwardingMode !== undefined ? { forwardingMode: input.forwardingMode } : {}),
+    },
+  });
+  return { locationId: ctx.locationId, aiAnswer: after!.ai_answer, ready };
 });
 
 /**

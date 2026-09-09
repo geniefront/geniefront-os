@@ -9,10 +9,15 @@ import {
 import { jsonb } from '@gf/db';
 import { assertResourceStaffLimit } from '../resourceStaffLimit';
 import { registerHandler } from '../bus';
+import {
+  assertActiveRoomNotRemoved, countActiveRooms, lockSetupResources,
+} from '../setupResources';
 
 // ─────────────────────────────────────────────────────────── resource.setStatus
 
 registerHandler(resourceSetStatus, async ({ input, ctx, tx, audit }) => {
+  await lockSetupResources(tx, ctx.locationId);
+  const activeRoomsBefore = await countActiveRooms(tx, ctx.locationId);
   const [res] = await tx<{ id: string; status: string; name: string }[]>`
     select id, status, name from resources
     where id = ${input.resourceId} and location_id = ${ctx.locationId} for update`;
@@ -42,6 +47,7 @@ registerHandler(resourceSetStatus, async ({ input, ctx, tx, audit }) => {
     update resources
     set status = ${input.status}
     where id = ${input.resourceId} and location_id = ${ctx.locationId}`;
+  await assertActiveRoomNotRemoved(tx, ctx.locationId, activeRoomsBefore);
 
   audit({
     entityType: 'resource',
@@ -167,8 +173,19 @@ registerHandler(ticketMoveItemResource, async ({ input, ctx, tx, audit }) => {
 // ─────────────────────────────────────────────────────────── resource.save
 
 registerHandler(resourceSave, async ({ input, ctx, tx, audit }) => {
+  await lockSetupResources(tx, ctx.locationId);
+  const activeRoomsBefore = await countActiveRooms(tx, ctx.locationId);
   let typeId = input.resourceTypeId;
-  if (!typeId) {
+  if (typeId) {
+    const [ownedType] = await tx<{ id: string }[]>`
+      select id from resource_types
+      where id = ${typeId} and org_id = ${ctx.orgId} and location_id = ${ctx.locationId}`;
+    if (!ownedType) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, {
+        details: { entity: 'resource_type', id: typeId },
+      });
+    }
+  } else {
     const typeKey = (input.type || 'room').toLowerCase();
     const [existingType] = await tx<{ id: string }[]>`
       select id from resource_types
@@ -186,8 +203,8 @@ registerHandler(resourceSave, async ({ input, ctx, tx, audit }) => {
   }
 
   if (input.resourceId) {
-    const [res] = await tx<{ id: string }[]>`
-      select id from resources
+    const [res] = await tx<{ id: string; status: string }[]>`
+      select id, status from resources
       where id = ${input.resourceId} and location_id = ${ctx.locationId} for update`;
     if (!res) {
       throw new AppError(ERROR_CODES.NOT_FOUND, {
@@ -202,13 +219,24 @@ registerHandler(resourceSave, async ({ input, ctx, tx, audit }) => {
       select name, resource_type_id, capacity, max_staff, status from resources
       where id = ${input.resourceId}`;
 
+    const nextStatus = input.active === false
+      ? 'maintenance'
+      : input.active === true && res.status === 'maintenance' ? 'available' : res.status;
+    if (nextStatus === 'maintenance' && res.status !== 'maintenance' && (occupied?.count ?? 0) > 0) {
+      throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, {
+        details: { reason: 'resource_has_active_occupancies' },
+      });
+    }
+
     await tx`
       update resources set
         name = ${input.name},
         resource_type_id = ${typeId},
         capacity = ${input.capacity},
-        max_staff = ${input.maxStaff ?? null}
+        max_staff = ${input.maxStaff ?? null},
+        status = ${nextStatus}
       where id = ${input.resourceId} and location_id = ${ctx.locationId}`;
+    await assertActiveRoomNotRemoved(tx, ctx.locationId, activeRoomsBefore);
 
     const [after] = await tx<Record<string, unknown>[]>`
       select name, resource_type_id, capacity, max_staff, status from resources
@@ -230,9 +258,10 @@ registerHandler(resourceSave, async ({ input, ctx, tx, audit }) => {
       org_id, location_id, resource_type_id, name, capacity, max_staff, status
     ) values (
       ${ctx.orgId}, ${ctx.locationId}, ${typeId}, ${input.name},
-      ${input.capacity}, ${input.maxStaff ?? null}, 'available'
+      ${input.capacity}, ${input.maxStaff ?? null}, ${input.active === false ? 'maintenance' : 'available'}
     )
     returning id`;
+  await assertActiveRoomNotRemoved(tx, ctx.locationId, activeRoomsBefore);
 
   const [after] = await tx<Record<string, unknown>[]>`
     select name, resource_type_id, capacity, max_staff, status from resources
@@ -251,12 +280,23 @@ registerHandler(resourceSave, async ({ input, ctx, tx, audit }) => {
 // ─────────────────────────────────────────────────────────── resource.delete
 
 registerHandler(resourceDelete, async ({ input, ctx, tx, audit }) => {
+  await lockSetupResources(tx, ctx.locationId);
+  const activeRoomsBefore = await countActiveRooms(tx, ctx.locationId);
   const [res] = await tx<{ id: string; name: string; status: string }[]>`
     select id, name, status from resources
-    where id = ${input.resourceId} and location_id = ${ctx.locationId}`;
+    where id = ${input.resourceId} and location_id = ${ctx.locationId} for update`;
   if (!res) {
     throw new AppError(ERROR_CODES.NOT_FOUND, {
       details: { entity: 'resource', id: input.resourceId },
+    });
+  }
+
+  const [occupied] = await tx<{ count: number }[]>`
+    select count(*)::int as count from resource_occupancies
+    where resource_id = ${input.resourceId} and status <> 'released'`;
+  if ((occupied?.count ?? 0) > 0) {
+    throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, {
+      details: { reason: 'resource_has_active_occupancies' },
     });
   }
 
@@ -290,6 +330,7 @@ registerHandler(resourceDelete, async ({ input, ctx, tx, audit }) => {
   await tx`
     delete from resources
     where id = ${input.resourceId} and location_id = ${ctx.locationId}`;
+  await assertActiveRoomNotRemoved(tx, ctx.locationId, activeRoomsBefore);
 
   audit({
     entityType: 'resource',

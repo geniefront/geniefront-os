@@ -24,6 +24,8 @@ import { generateFormToken, hashFormToken, formShareUrl } from '../forms/token';
 import { qrSvg } from '../forms/qr';
 import { renderFormInvite, formatWhen } from '../email/render';
 import type postgres from 'postgres';
+import { publishFormTemplate } from '../forms/templates';
+import { loadHealthFormsFeatureState } from '../forms/features';
 
 /** 门店此刻的营业日 */
 async function currentDate(tx: postgres.TransactionSql, locationId: string): Promise<string> {
@@ -384,39 +386,20 @@ registerHandler(UpdateQueueEntry, async ({ input, ctx, tx, audit, emit }: Handle
 
 registerHandler(SaveFormTemplate, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof SaveFormTemplate.input._type>) => {
-  // 改内容 = 发新版本。已发布的那一版不可改（sql/0016 的触发器兜底）——
-  // submissions 指着「他当时签的第几版」，就地改会让证据链断掉
-  const [prev] = await tx<{ v: number }[]>`
-    select max(version) as v from form_templates
-    where location_id = ${ctx.locationId} and key = ${input.key}`;
-  const version = (prev?.v ?? 0) + 1;
-
-  // 老版本下架，但**留着** —— 历史签名还指向它
-  await tx`
-    update form_templates set active = false
-    where location_id = ${ctx.locationId} and key = ${input.key}`;
-
-  const [row] = await tx<{ id: string }[]>`
-    insert into form_templates
-      (org_id, location_id, key, version, title, schema,
-       requires_signature, valid_days, service_ids, published_at, active)
-    values (${ctx.orgId}, ${ctx.locationId}, ${input.key}, ${version},
-            ${jsonb(input.title)}::jsonb, ${jsonb(input.questions)}::jsonb,
-            ${input.requiresSignature}, ${input.validDays},
-            ${jsonb(input.serviceIds)}::jsonb, now(), true)
-    returning id`;
+  // Manual publication and automatic first publication use the same key lock and writer.
+  const published = await publishFormTemplate(tx, ctx, input);
 
   audit({
-    entityType: 'form_template', entityId: row!.id,
+    entityType: 'form_template', entityId: published.templateId,
     after: {
-      key: input.key, version,
+      key: input.key, version: published.version,
       title: pickText(input.title, ctx.locale),
       questionCount: input.questions.length,
       requiresSignature: input.requiresSignature,
       validDays: input.validDays,
     },
   });
-  return { templateId: row!.id, version };
+  return { templateId: published.templateId, version: published.version };
 });
 
 registerHandler(SubmitForm, async ({ input, ctx, tx, audit }: HandlerArgs<
@@ -824,6 +807,15 @@ registerHandler(ShareForm, async ({ input, ctx, tx, audit }: HandlerArgs<
     resolvedCustomerId = appointment.customer_id ?? resolvedCustomerId;
   }
 
+  // Validate visit ownership first; disabled state must not reveal whether an
+  // appointment belongs to another store.
+  const feature = await loadHealthFormsFeatureState(tx, ctx.locationId);
+  if (!feature.effectiveEnabled) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: { reason: 'health_forms_disabled' },
+    });
+  }
+
   /**
    * 要签哪一份。预约/到店入口不点名时，根据门店固定业态选择唯一模板，
    * 避免把其它行业的表一并发给顾客。
@@ -837,6 +829,7 @@ registerHandler(ShareForm, async ({ input, ctx, tx, audit }: HandlerArgs<
     ? await tx<{ id: string; title: unknown }[]>`
         select id, title from form_templates
         where location_id = ${ctx.locationId} and active
+          and published_at is not null
           and id in ${tx(input.templateIds)}`
     : await tx<{ id: string; title: unknown }[]>`
         select id, title from form_templates

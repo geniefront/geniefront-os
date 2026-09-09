@@ -35,10 +35,13 @@ export * from './commands/support.js';
 export * from './commands/platform.js';
 export * from './aiSchema.js';
 export * from './healthForms.js';
+export * from './healthFormPresets.js';
+export * from './catalogPresets.js';
+export * from './aiVoiceReadiness.js';
+export * from './setupReadiness.js';
 export * from './birthdate.js';
 
 export * from './registry.js';
 
 export * from './commands/email.js';
 export * from './copilot.js';
-

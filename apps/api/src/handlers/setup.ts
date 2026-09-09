@@ -10,16 +10,26 @@ import {
   SaveService, BulkUpdateServices, SaveServiceCategory, ArchiveService,
   SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
+  SaveSetupFeatures,
   SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
   SaveCheckoutSettings, Apply10Dlc, SaveIntakeWaiver, SaveWebhooks, SetEmailLocale,
   ROLE_PRESETS,
   AppError, ERROR_CODES, pickText,
   parseShopSlug, shopSlugFromName,
+  healthFormTemplateKeyForBusinessType,
+  LEGACY_SETUP_MISSING_BY_CODE,
 } from '@gf/contracts';
 import { normalizeOrigin } from '../public/origin';
 import { jsonb } from '@gf/db';
 import { businessDateOf } from '@gf/scheduling';
 import { registerHandler, type HandlerArgs } from '../bus';
+import { loadSetupReadiness } from '../queries/setupReadiness';
+import { lockSetupResources } from '../setupResources';
+import {
+  ensureIndustryHealthFormPublished,
+  lockFormTemplateKey,
+} from '../forms/templates';
+import { loadHealthFormsFeatureState } from '../forms/features';
 
 registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof SaveService.input._type>) => {
@@ -481,38 +491,17 @@ registerHandler(SaveLocationProfile, async ({ input, ctx, tx, audit }: HandlerAr
  */
 registerHandler(FinishSetup, async ({ ctx, tx, audit }: HandlerArgs<
   typeof FinishSetup.input._type>) => {
-  const [readiness] = await tx<{
-    status: string;
-    profile_confirmed: boolean;
-    hours_configured: boolean;
-    active_services: number;
-    bookable_staff: number;
-  }[]>`
-    select l.status,
-           (l.settings ? 'profile_confirmed_at') as profile_confirmed,
-           exists (
-             select 1 from jsonb_each(l.business_hours) as h
-             where h.value <> 'null'::jsonb
-           ) as hours_configured,
-           (select count(*)::int from services s
-             where s.location_id = l.id and s.active = true) as active_services,
-           (select count(*)::int from staff_profiles sp
-             where sp.location_id = l.id and sp.is_bookable = true) as bookable_staff
-    from locations l where l.id = ${ctx.locationId}`;
-  if (!readiness) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
+  await lockSetupResources(tx, ctx.locationId);
+  const readiness = await loadSetupReadiness(tx, ctx);
 
-  if (readiness.status === 'setup') {
-    const missing = [
-      !readiness.profile_confirmed && 'profile',
-      !readiness.hours_configured && 'business_hours',
-      readiness.active_services < 1 && 'active_service',
-      readiness.bookable_staff < 1 && 'bookable_staff',
-    ].filter((value): value is string => Boolean(value));
-    if (missing.length > 0) {
-      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-        details: { reason: 'setup_incomplete', missing },
-      });
-    }
+  if (!readiness.canLaunch) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
+      details: {
+        reason: 'setup_incomplete',
+        missing: readiness.missing.map(({ code }) => LEGACY_SETUP_MISSING_BY_CODE[code]),
+        repairs: readiness.missing,
+      },
+    });
   }
 
   const [row] = await tx<{ status: string }[]>`
@@ -532,6 +521,83 @@ registerHandler(FinishSetup, async ({ ctx, tx, audit }: HandlerArgs<
   audit({ entityType: 'location', entityId: ctx.locationId,
           before: { status: 'setup' }, after: { status: 'active' } });
   return { locationId: ctx.locationId, status: row.status };
+});
+
+registerHandler(SaveSetupFeatures, async ({ input, ctx, tx, audit }: HandlerArgs<
+  typeof SaveSetupFeatures.input._type>) => {
+  await tx`select pg_advisory_xact_lock(hashtext(${`setup-features:${ctx.locationId}`}))`;
+
+  // Keep the global order aligned with manual form publication: template key -> location row.
+  // Otherwise manual publication can hold the template lock while its FK waits on locations,
+  // as this command holds locations and waits on the template lock.
+  if (input.healthFormsEnabled === true) {
+    const [identity] = await tx<{ business_type: string }[]>`
+      select business_type from locations where id = ${ctx.locationId}`;
+    if (!identity) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
+    await lockFormTemplateKey(
+      tx,
+      ctx.locationId,
+      healthFormTemplateKeyForBusinessType(identity.business_type),
+    );
+  }
+
+  const [location] = await tx<{
+    settings: Record<string, unknown>;
+    business_type: string;
+  }[]>`select settings, business_type from locations
+      where id = ${ctx.locationId} for update`;
+  if (!location) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
+
+  const before = (location.settings['features'] ?? {}) as Record<string, unknown>;
+  const next = { ...before };
+  if (input.healthFormsEnabled !== undefined) {
+    next['health_forms_enabled'] = input.healthFormsEnabled;
+  }
+  if (input.aiVoiceRequested !== undefined) {
+    next['ai_voice_requested'] = input.aiVoiceRequested;
+  }
+  if (input.confirmSetup) next['confirmed_at'] = new Date().toISOString();
+
+  let published: { templateId: string; version: number } | null = null;
+  if (input.healthFormsEnabled === true) {
+    published = await ensureIndustryHealthFormPublished(tx, ctx, location.business_type);
+  }
+
+  await tx`update locations
+    set settings = jsonb_set(settings, '{features}', ${jsonb(next)}::jsonb, true),
+        updated_at = now()
+    where id = ${ctx.locationId}`;
+
+  // 关掉「要 AI 电话」的意愿时，把当前线路的今日接听也一并关掉 —— 否则
+  // 界面显示「已关闭」而电话还在接。开启意愿不自动开接听：绑号 / 就绪 /
+  // 显式打开是三件独立的事（S1 §5）。
+  if (input.aiVoiceRequested === false) {
+    await tx`update phone_lines set ai_answer = false
+      where location_id = ${ctx.locationId} and purpose = 'ai_voice' and active
+        and ai_answer = true`;
+  }
+
+  const state = await loadHealthFormsFeatureState(tx, ctx.locationId);
+
+  audit({
+    entityType: 'location', entityId: ctx.locationId,
+    before: { features: before },
+    after: {
+      features: next,
+      healthFormTemplateId: published?.templateId ?? state.publishedTemplateId,
+      healthFormTemplateVersion: published?.version ?? state.publishedTemplateVersion,
+    },
+  });
+  return {
+    locationId: ctx.locationId,
+    healthFormsEnabled: state.enabled,
+    effectiveHealthFormsEnabled: state.effectiveEnabled,
+    aiVoiceRequested: typeof next['ai_voice_requested'] === 'boolean'
+      ? next['ai_voice_requested'] : null,
+    confirmedAt: state.confirmedAt,
+    healthFormTemplateId: published?.templateId ?? state.publishedTemplateId,
+    healthFormTemplateVersion: published?.version ?? state.publishedTemplateVersion,
+  };
 });
 
 // ──────────────────────────────────────────────── 官网对接（docs/13）

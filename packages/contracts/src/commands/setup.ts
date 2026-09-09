@@ -323,6 +323,47 @@ export const FinishSetup = defineCommand({
   idempotency: 'optional',
 });
 
+/** Persist the setup feature choices without conflating "off" with unfinished. */
+export const SaveSetupFeatures = defineCommand({
+  name: 'settings.saveSetupFeatures',
+  input: z.object({
+    healthFormsEnabled: z.boolean().optional(),
+    aiVoiceRequested: z.boolean().optional(),
+    /** The setup screen sends both choices before marking this domain complete. */
+    confirmSetup: z.boolean().default(false),
+  }).superRefine((value, ctx) => {
+    if (value.healthFormsEnabled === undefined
+      && value.aiVoiceRequested === undefined
+      && !value.confirmSetup) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '至少要保存一个功能设置' });
+    }
+    if (value.confirmSetup
+      && (value.healthFormsEnabled === undefined || value.aiVoiceRequested === undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['confirmSetup'],
+        message: '确认功能步骤时必须同时提交健康表和 AI 电话选择',
+      });
+    }
+  }),
+  output: z.object({
+    locationId: uuid,
+    healthFormsEnabled: z.boolean().nullable(),
+    effectiveHealthFormsEnabled: z.boolean(),
+    aiVoiceRequested: z.boolean().nullable(),
+    confirmedAt: z.string().nullable(),
+    healthFormTemplateId: uuid.nullable(),
+    healthFormTemplateVersion: z.number().int().nullable(),
+  }),
+  permission: 'settings.manage',
+  ai: {
+    description: '保存开店功能选择；启用健康表时确保当前行业模板已经发布。',
+    confirm: 'always',
+  },
+  reversible: true,
+  idempotency: 'optional',
+});
+
 /**
  * 官网在线预约的开关与护栏（docs/13）。
  *
@@ -716,7 +757,7 @@ export const ReorderStaffDirectoryOptions = defineCommand({
 
 export const SETUP_COMMANDS = [
   SaveStaffDirectoryOption, ReorderStaffDirectoryOptions, SaveService, BulkUpdateServices, SaveServiceCategory, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
-  ClaimLocation, SaveLocationProfile, FinishSetup,
+  ClaimLocation, SaveLocationProfile, FinishSetup, SaveSetupFeatures,
   SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
   SaveCheckoutSettings, Apply10Dlc, SaveIntakeWaiver, SaveWebhooks, SetEmailLocale,
 ] as const;

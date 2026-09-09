@@ -69,8 +69,7 @@ beforeAll(async () => {
    * 明文**只有这一次**拿得到，库里只有摘要。
    * 拿不到它，下面每一个工具调用都会 401。
    */
-  const line = await run<{ toolToken: string | null }>(
-    'location.savePhoneLine',
+  const line = await bindLine<{ toolToken: string | null }>(
     // ⚠️ 一定要 rotate：上一次跑挂在半路的话这条线还在，
     // 而**已经有 token 的线不会再返回明文** —— 那样这一整个文件会在
     // beforeAll 里死掉，报错却指向一个和真正原因无关的地方
@@ -166,6 +165,15 @@ afterAll(async () => {
 
 const run = async <T>(name: string, input: unknown, key: string = randomUUID()) =>
   (await dispatch<T>(name, input, ctx, { idempotencyKey: key })).result;
+
+/**
+ * 绑落地号 / 铸电话工具 token —— `location.savePhoneLine` 是平台自有命令
+ * （S1 §5 / systemOnly.test.ts）：店主与泛化 HTTP 入口调不到。生产里由
+ * 开户编排 / `ops/bindAiLine.ts` 经可信 server-origin 调用；测试里用店主
+ * ctx（有 settings.manage）加显式来源声明走同一条路。
+ */
+const bindLine = async <T>(input: unknown, key: string = randomUUID()) =>
+  (await dispatchSystem<T>('location.savePhoneLine', input, ctx, { idempotencyKey: key })).result;
 
 /**
  * 电话 AI 那个系统上下文 —— 和 telnyx/routes.ts 的 systemContext 一致。
@@ -272,9 +280,21 @@ describe('号码 → 门店', () => {
         select id from locations where id <> ${NAIL_LOC} and org_id = ${NAIL_ORG} limit 1`);
     if (!other) return;   // 种子里只有一家店时跳过
     const otherCtx = { ...ctx, locationId: other.id };
-    await expect(dispatch('location.savePhoneLine',
+    await expect(dispatchSystem('location.savePhoneLine',
       { e164: AI_LINE, purpose: 'ai_voice' }, otherCtx, { idempotencyKey: randomUUID() }))
       .rejects.toMatchObject({ code: 'RESOURCE_CONFLICT' });
+  });
+
+  it('⭐ 店主 / 泛化 HTTP 入口伪造绑号被拒 —— 绑落地号是平台动作（S1 §5）', async () => {
+    // `location.savePhoneLine` 现在是 system-only：少了可信来源声明，
+    // 在入参校验和权限检查**之前**就被挡下，失败方向是拒绝。
+    await expect(dispatch('location.savePhoneLine',
+      { e164: '+15125550777', purpose: 'ai_voice', rotateToolToken: true },
+      ctx, { idempotencyKey: randomUUID() }))
+      .rejects.toMatchObject({
+        code: 'PERMISSION_DENIED',
+        details: { reason: 'system_only_command' },
+      });
   });
 });
 
@@ -388,19 +408,16 @@ describe('第二把钥匙：每条 AI 线一串不可猜的 token（sql/0036）'
     expect(row!.digest).not.toContain(shopToken);
   });
 
-  it('前台改别的设置不会把 token 冲掉 —— 冲掉的表现是电话全哑', async () => {
-    // 只是重新保存一次同一条线（比如改转接方式）
-    const again = await run<{ toolToken: string | null }>(
-      'location.savePhoneLine', { e164: AI_LINE, purpose: 'ai_voice' });
-    expect(again.toolToken).toBeNull();                 // 没换新的
+  it('店主改话术不会碰 token —— 改话术这条路根本铸不出 token', async () => {
+    // 店主侧走 savePhoneAssistantLine，它既建不出线也换不了 token。
+    await run('location.savePhoneAssistantLine', { forwardingMode: 'busy_no_answer' });
 
     const res = await telnyxCall('/v1/telnyx/tools/list_services', { to: AI_LINE });
     expect(res.statusCode).toBe(200);                   // 旧 token 照样能用
   });
 
   it('轮换之后旧 token 立刻失效', async () => {
-    const rotated = await run<{ toolToken: string | null }>(
-      'location.savePhoneLine',
+    const rotated = await bindLine<{ toolToken: string | null }>(
       { e164: AI_LINE, purpose: 'ai_voice', rotateToolToken: true });
     expect(rotated.toolToken).toMatch(/^st_/);
     expect(rotated.toolToken).not.toBe(shopToken);
@@ -1294,8 +1311,7 @@ describe('开场白可配（批 3）', () => {
   });
 
   it('⭐ 配了逐字稿 → mode=verbatim，变量被替换掉', async () => {
-    await run('location.savePhoneLine', {
-      e164: AI_LINE, purpose: 'ai_voice',
+    await run('location.savePhoneAssistantLine', {
       assistantName: 'Emily',
       greetingTemplate: 'Hi, {{store_name}} here. {{assistant_name}} speaking.',
     });
@@ -1307,8 +1323,7 @@ describe('开场白可配（批 3）', () => {
   });
 
   it('⭐ 开了 AI 生成 → mode=generate，text 变成语气参考', async () => {
-    await run('location.savePhoneLine', {
-      e164: AI_LINE, purpose: 'ai_voice',
+    await run('location.savePhoneAssistantLine', {
       greetingAiGenerated: true,
     });
     expect((await telnyxCall('/v1/telnyx/tools/start_call',
@@ -1316,12 +1331,12 @@ describe('开场白可配（批 3）', () => {
   });
 
   it('⭐ 改转接方式不该把开场白清空 —— 没传就不动', async () => {
-    await run('location.savePhoneLine', {
-      e164: AI_LINE, purpose: 'ai_voice', assistantName: 'Emily',
+    await run('location.savePhoneAssistantLine', {
+      assistantName: 'Emily',
       greetingTemplate: 'Keep me.', greetingAiGenerated: false,
     });
     // 只改一个无关字段
-    await run('location.savePhoneLine', { e164: AI_LINE, purpose: 'ai_voice' });
+    await run('location.savePhoneAssistantLine', { forwardingMode: 'busy_no_answer' });
 
     const g = (await telnyxCall('/v1/telnyx/tools/start_call',
       { to: AI_LINE, from: '+15125551234' })).json().greeting;
@@ -1330,11 +1345,11 @@ describe('开场白可配（批 3）', () => {
   });
 
   it('显式传 null 才是清空', async () => {
-    await run('location.savePhoneLine', {
-      e164: AI_LINE, purpose: 'ai_voice', greetingTemplate: 'Bye.', assistantName: 'Emily',
+    await run('location.savePhoneAssistantLine', {
+      greetingTemplate: 'Bye.', assistantName: 'Emily',
     });
-    await run('location.savePhoneLine', {
-      e164: AI_LINE, purpose: 'ai_voice', greetingTemplate: null, assistantName: null,
+    await run('location.savePhoneAssistantLine', {
+      greetingTemplate: null, assistantName: null,
     });
     const g = (await telnyxCall('/v1/telnyx/tools/start_call',
       { to: AI_LINE, from: '+15125551234' })).json().greeting;
@@ -1348,28 +1363,43 @@ describe('AI 接听默认关闭（U08 / sql/0113）', () => {
     (await telnyxCall('/v1/telnyx/tools/start_call',
       { to: AI_LINE, from: '+15125551234' })).json().greeting;
 
-  it('绑号 / 存配置时没传 aiAnswer → 这条线默认不接', async () => {
-    // beforeAll 和上面几条都 savePhoneLine 过，全程没带 aiAnswer
-    await run('location.savePhoneLine', { e164: AI_LINE, purpose: 'ai_voice' });
+  it('绑号时没传 aiAnswer → 这条线默认不接', async () => {
+    // beforeAll 的 bindLine 建线时没带 aiAnswer；平台重绑也不碰这一列
+    await bindLine({ e164: AI_LINE, purpose: 'ai_voice' });
     expect((await greetingFor()).aiAnswer).toBe(false);
   });
 
   it('显式开启后，改无关字段不会把它悄悄关掉', async () => {
-    await run('location.savePhoneLine', { e164: AI_LINE, purpose: 'ai_voice', aiAnswer: true });
+    await run('location.savePhoneAssistantLine', { aiAnswer: true });
     expect((await greetingFor()).aiAnswer).toBe(true);
 
     // 只改转接方式，没碰 aiAnswer
-    await run('location.savePhoneLine', {
-      e164: AI_LINE, purpose: 'ai_voice', forwardingMode: 'busy_no_answer',
-    });
+    await run('location.savePhoneAssistantLine', { forwardingMode: 'busy_no_answer' });
     expect((await greetingFor()).aiAnswer).toBe(true);
   });
 
   it('显式关闭要落库', async () => {
-    await run('location.savePhoneLine', { e164: AI_LINE, purpose: 'ai_voice', aiAnswer: true });
+    await run('location.savePhoneAssistantLine', { aiAnswer: true });
     expect((await greetingFor()).aiAnswer).toBe(true);
 
-    await run('location.savePhoneLine', { e164: AI_LINE, purpose: 'ai_voice', aiAnswer: false });
+    await run('location.savePhoneAssistantLine', { aiAnswer: false });
     expect((await greetingFor()).aiAnswer).toBe(false);
+  });
+
+  it('⭐ 线路本地未就绪（无工具 token）时开启接听被拒，且不落库', async () => {
+    // 暂时抹掉 token 摘要 —— 模拟「号绑了但还没铸 token / 供应商还没配」
+    await withTenant(tenant, (tx) => tx`
+      update phone_lines set tool_token_digest = null, ai_answer = false
+      where location_id = ${NAIL_LOC} and purpose = 'ai_voice' and active`);
+    try {
+      await expect(run('location.savePhoneAssistantLine', { aiAnswer: true }))
+        .rejects.toMatchObject({ details: { reason: 'ai_voice_not_ready' } });
+      // start_call 也 fail closed：token 缺失一律不接
+      expect((await greetingFor()).aiAnswer).toBe(false);
+    } finally {
+      await withTenant(tenant, (tx) => tx`
+        update phone_lines set tool_token_digest = ${createHash('sha256').update(shopToken).digest('hex')}
+        where location_id = ${NAIL_LOC} and purpose = 'ai_voice' and active`);
+    }
   });
 });

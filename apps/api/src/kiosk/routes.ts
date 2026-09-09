@@ -25,7 +25,6 @@ import type { FastifyInstance } from 'fastify';
 import {
   AppError,
   ERROR_CODES,
-  healthFormTemplateKeyForBusinessType,
   normalizePhoneE164,
   pickText,
 } from '@gf/contracts';
@@ -34,6 +33,7 @@ import { businessDateOf } from '@gf/scheduling';
 import { dispatch } from '../bus';
 import { verifyDeviceToken, type DeviceSession } from './deviceAuth';
 import '../handlers/kiosk';
+import { loadHealthFormsFeatureState } from '../forms/features';
 
 const DEVICE_HEADER = 'x-device-token';
 
@@ -452,9 +452,11 @@ export function registerKioskRoutes(app: FastifyInstance): void {
           }
         }
 
-        const [location] = await tx<{ business_type: string }[]>`
-          select business_type from locations where id = ${ctx.locationId}`;
-        const selectedKey = healthFormTemplateKeyForBusinessType(location?.business_type ?? 'nail');
+        // Visit ownership is fully checked above. Only now is it safe to apply
+        // the feature gate; disabled means "nothing required", not "bad visit".
+        const feature = await loadHealthFormsFeatureState(tx, ctx.locationId);
+        if (!feature.effectiveEnabled) return { forms: [] };
+        const selectedKey = feature.templateKey;
 
         // Kiosk and Web must render the same currently-published business form.
         // Do not return every active industry preset: that previously made a nail
@@ -470,7 +472,9 @@ export function registerKioskRoutes(app: FastifyInstance): void {
           order by version desc, created_at desc
           limit 1`;
 
-        if (templates.length === 0) {
+        // Legacy stores without an explicit switch keep the old any-published
+        // fallback. Explicitly enabled stores must use their industry template.
+        if (templates.length === 0 && feature.enabled === null) {
           templates = await tx<{
             id: string; key: string; version: number; title: unknown; schema: unknown;
             requires_signature: boolean; service_ids: unknown;

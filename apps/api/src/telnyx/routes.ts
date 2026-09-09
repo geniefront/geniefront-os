@@ -447,8 +447,10 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
       (tx) => tx<{
         assistant_name: string | null; greeting_template: string | null;
         greeting_ai_generated: boolean; ai_answer: boolean;
+        tool_token_digest: string | null;
       }[]>`
-        select assistant_name, greeting_template, greeting_ai_generated, ai_answer
+        select assistant_name, greeting_template, greeting_ai_generated, ai_answer,
+               tool_token_digest
         from phone_lines
         where location_id = ${t.locationId} and purpose = 'ai_voice' and active
         limit 1`);
@@ -522,9 +524,10 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
        * （`active = false`）不是一回事。
        */
       greeting: {
-        // ⚠️ fail closed：查不到 active 的 ai_voice 线（线路没配好 / 被停用）
-        // 时按「不接」返回，不回填 true。绑号不等于开启接听（U08，sql/0113）。
-        aiAnswer: line?.ai_answer ?? false,
+        // ⚠️ fail closed：查不到 active 的 ai_voice 线（线路没配好 / 被停用），
+        // 或工具 token 还没铸好（本地未就绪），一律按「不接」返回，不回填 true。
+        // 绑号 ≠ 就绪 ≠ 开启接听（U08 / S4，sql/0113）。
+        aiAnswer: Boolean(line?.ai_answer && line?.tool_token_digest),
         assistantName: line?.assistant_name || null,
         mode: line?.greeting_ai_generated
           ? 'generate'

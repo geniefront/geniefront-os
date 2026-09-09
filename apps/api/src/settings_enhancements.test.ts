@@ -15,6 +15,7 @@ import { issueStaffSession, STAFF_TOKEN_HEADER } from './auth/staffSession';
 import {
   loadDeskSettings, loadCheckoutSettings, load10DlcStatus, loadIntakeWaiver, loadWebhooks,
 } from './queries/settings';
+import { setupReadiness } from '@gf/contracts';
 
 const NAIL_ORG = '11111111-1111-4111-8111-111111111111';
 const NAIL_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -55,6 +56,20 @@ afterAll(async () => {
 });
 
 describe('系统设置增强模块与全新 REST API 接口测试', () => {
+
+  it('GET /v1/desk/setup/readiness 返回统一的结构化开店检查', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/desk/setup/readiness',
+      headers: { [STAFF_TOKEN_HEADER]: staffToken },
+    });
+    expect(res.statusCode).toBe(200);
+    const parsed = setupReadiness.parse(res.json());
+    expect(parsed.locationId).toBe(NAIL_LOC);
+    expect(parsed.steps.map((step) => step.id)).toEqual([
+      'store', 'directory', 'rooms', 'catalog', 'team', 'features', 'launch',
+    ]);
+  });
 
   // 1. 门店基础档案与营业时间
   describe('1. 基础档案与营业时间', () => {

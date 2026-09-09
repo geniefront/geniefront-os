@@ -25,6 +25,7 @@
 import type postgres from 'postgres';
 import { AppError, ERROR_CODES, type CommandContext } from '@gf/contracts';
 import { loadFormKey, decryptAnswers } from '../kiosk/crypto';
+import { loadHealthFormsFeatureState, type HealthFormsFeatureState } from '../forms/features';
 
 export interface FormTemplateView {
   templateId: string;
@@ -89,12 +90,14 @@ export async function loadForms(
   templates: FormTemplateView[];
   submissions: FormSubmissionView[];
   shares: FormShareView[];
+  healthForms: HealthFormsFeatureState;
   /** 能不能看内容。前端靠它决定「查看」按钮是不是灰的 */
   canViewContent: boolean;
 }> {
   const days = Math.min(365, Math.max(1, opts.days ?? 30));
   const limit = Math.min(200, Math.max(1, opts.limit ?? 100));
   const canSeeContact = ctx.permissions.has('customer.view_contact');
+  const healthForms = await loadHealthFormsFeatureState(tx, ctx.locationId);
 
   const templates = await tx<{
     id: string; key: string; version: number; title: unknown; schema: unknown;
@@ -151,6 +154,7 @@ export async function loadForms(
   const today = new Date().toISOString().slice(0, 10);
 
   return {
+    healthForms,
     canViewContent: ctx.permissions.has('customer.view_health_form'),
     templates: templates.map((t) => ({
       templateId: t.id,

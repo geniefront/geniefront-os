@@ -24,7 +24,9 @@ import { dispatch } from './bus';
 import { provisionFromSession } from './signup/webhook';
 import type { Stripe } from './stripe/client';
 import './handlers/setup';
+import './handlers/resource';
 import { dispatchSystem } from './test/systemDispatch';
+import { loadSetupReadiness } from './queries/setupReadiness';
 
 /** 固定的自测 session。真实的 session id 长这样：cs_test_a1B2… */
 const SESSION = 'cs_test_gf_selftest_signup';
@@ -78,6 +80,8 @@ async function unclaim(): Promise<void> {
                select id from memberships where location_id = ${tenant.locationId})`;
     await tx`delete from staff_profiles where location_id = ${tenant.locationId}`;
     await tx`delete from services where location_id = ${tenant.locationId}`;
+    await tx`delete from resources where location_id = ${tenant.locationId}`;
+    await tx`delete from resource_types where location_id = ${tenant.locationId}`;
     await tx`delete from memberships where location_id = ${tenant.locationId}`;
     await tx`delete from role_permissions where role_id in (
                select id from roles where location_id = ${tenant.locationId})`;
@@ -90,11 +94,21 @@ async function unclaim(): Promise<void> {
      * 下面那几个用例会真的改时区和业态（那正是要验的东西），
      * 而这家店是**跨次复用**的：不还原的话，第二次跑测试看到的是
      * 上一次改完的状态，然后在一个和被测代码毫无关系的断言上失败。
+     *
+     * `settings.features` 一并归位到 `gf_provision_tenant` + sql/0119
+     * 触发器对新店写入的显式默认值（两项功能均关闭）。这家自测门店的
+     * 行早于 0119 触发器建出，不还原的话「新店默认关闭」断言会在一个
+     * 跨次复用产物上误红。
      */
     await tx`update locations set
                status = 'setup', timezone = 'America/Chicago', business_type = 'nail',
                business_hours = '{}'::jsonb,
-               settings = settings - 'profile_confirmed_at'
+               settings = jsonb_set(
+                 settings - 'profile_confirmed_at',
+                 '{features}',
+                 '{"health_forms_enabled": false, "ai_voice_requested": false}'::jsonb,
+                 true
+               )
              where id = ${tenant.locationId}`;
     await tx`delete from command_idempotency where location_id = ${tenant.locationId}`;
     await tx`update organizations set owner_user_id = '00000000-0000-4000-8000-000000000000'
@@ -146,14 +160,18 @@ describe('A · 建租户', () => {
 
   it('新店落在 setup 状态，且带得上时区和业态', async () => {
     const [loc] = await withTenant({ ...tenant, membershipId: null }, (tx) =>
-      tx<{ status: string; timezone: string; business_type: string; name: Record<string, string> }[]>`
-        select status, timezone, business_type, name from locations where id = ${tenant.locationId}`);
+      tx<{ status: string; timezone: string; business_type: string; name: Record<string, string>; settings: Record<string, unknown> }[]>`
+        select status, timezone, business_type, name, settings from locations where id = ${tenant.locationId}`);
     expect(loc!.status).toBe('setup');
     expect(loc!.timezone).toBe('America/Chicago');
     expect(loc!.business_type).toBe('nail');
     // 店名同时写进 en 和母语：只写母语的话英文界面下顶栏是空的
     expect(loc!.name['en']).toBe('Selftest Nails');
     expect(loc!.name['zh-Hans']).toBe('Selftest Nails');
+    expect(loc!.settings['features']).toMatchObject({
+      health_forms_enabled: false,
+      ai_voice_requested: false,
+    });
   });
 
   it('计费账户跟着建出来，套餐是官网传的那一个', async () => {
@@ -292,8 +310,17 @@ describe('C · 向导完成', () => {
 
     await expect(dispatch('location.finishSetup', {}, ctx)).rejects.toMatchObject({
       code: 'VALIDATION_FAILED',
-      details: { reason: 'setup_incomplete' },
+      details: {
+        reason: 'setup_incomplete',
+        repairs: expect.arrayContaining([{ code: 'active_room', stepId: 'rooms' }]),
+      },
     });
+
+    const before = await withTenant({ ...tenant, membershipId: m!.id }, (tx) =>
+      loadSetupReadiness(tx, ctx));
+    expect(before.canLaunch).toBe(false);
+    expect(before.missing).toContainEqual({ code: 'active_room', stepId: 'rooms' });
+    expect(before.steps).toContainEqual({ id: 'launch', complete: false });
 
     await withTenant({ ...tenant, membershipId: m!.id }, async (tx) => {
       await tx`update locations set
@@ -305,14 +332,78 @@ describe('C · 向导完成', () => {
       await tx`insert into services
         (org_id, location_id, name, duration_min, base_price_cents, active)
         values (${tenant.orgId}, ${tenant.locationId}, '{"en":"Test service"}'::jsonb, 60, 5000, true)`;
+      const [roomType] = await tx<{ id: string }[]>`insert into resource_types
+        (org_id, location_id, key, name)
+        values (${tenant.orgId}, ${tenant.locationId}, 'room', '{"en":"Room"}'::jsonb)
+        returning id`;
+      await tx`insert into resources
+        (org_id, location_id, resource_type_id, name, capacity, status)
+        values (${tenant.orgId}, ${tenant.locationId}, ${roomType!.id}, 'Launch room', 1, 'available')`;
     });
 
     const first = await dispatch<{ status: string }>('location.finishSetup', {}, ctx);
     expect(first.result.status).toBe('active');
 
+    const after = await withTenant({ ...tenant, membershipId: m!.id }, (tx) =>
+      loadSetupReadiness(tx, ctx));
+    expect(after.canLaunch).toBe(true);
+    expect(after.missing).toEqual([]);
+    expect(after.steps).toContainEqual({ id: 'rooms', complete: true });
+    expect(after.steps).toContainEqual({ id: 'launch', complete: true });
+
     // 老板在两台设备上各点一次「完成」，不该看到一个错误
     const again = await dispatch<{ status: string }>('location.finishSetup', {}, ctx);
     expect(again.result.status).toBe('active');
+  });
+
+  it('开店与最后一间房停用共用同一把门店锁', async () => {
+    const [m] = await withTenant({ ...tenant, membershipId: null }, (tx) =>
+      tx<{ id: string }[]>`select id from memberships where location_id = ${tenant.locationId}`);
+    const ctx = await buildContext({ userId: OWNER_USER, membershipId: m!.id });
+    const [room] = await withTenant({ ...tenant, membershipId: m!.id }, (tx) =>
+      tx<{ id: string }[]>`select r.id from resources r
+        join resource_types rt on rt.id = r.resource_type_id
+        where r.location_id = ${tenant.locationId} and rt.key = 'room' limit 1`);
+
+    // 停用先提交：setup 门店允许调整资源，随后开店必须在锁内重查并失败。
+    await withTenant({ ...tenant, membershipId: m!.id }, (tx) => tx`
+      update locations set status = 'setup' where id = ${tenant.locationId}`);
+    await dispatch('resource.setStatus', { resourceId: room!.id, status: 'maintenance' }, ctx);
+    await expect(dispatch('location.finishSetup', {}, ctx)).rejects.toMatchObject({
+      details: { reason: 'setup_incomplete', missing: expect.arrayContaining(['active_room']) },
+    });
+
+    // 开店先提交：门店变 active 后，最后一间有效房间不能再停用。
+    await dispatch('resource.setStatus', { resourceId: room!.id, status: 'available' }, ctx);
+    await dispatch('location.finishSetup', {}, ctx);
+    await expect(dispatch('resource.setStatus', {
+      resourceId: room!.id, status: 'maintenance',
+    }, ctx)).rejects.toMatchObject({
+      code: 'RESOURCE_CONFLICT', details: { reason: 'last_active_room' },
+    });
+
+    // 真并发不假设调度顺序，但只能有一个动作提交，不能得到 active + 零房间。
+    await withTenant({ ...tenant, membershipId: m!.id }, (tx) => tx`
+      update locations set status = 'setup' where id = ${tenant.locationId}`);
+    const race = await Promise.allSettled([
+      dispatch('location.finishSetup', {}, ctx),
+      dispatch('resource.setStatus', { resourceId: room!.id, status: 'maintenance' }, ctx),
+    ]);
+    expect(race.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const state = await withTenant({ ...tenant, membershipId: m!.id }, async (tx) => {
+      const [loc] = await tx<{ status: string }[]>`
+        select status from locations where id = ${tenant.locationId}`;
+      const [res] = await tx<{ status: string }[]>`
+        select status from resources where id = ${room!.id}`;
+      return { location: loc!.status, room: res!.status };
+    });
+    expect(state).not.toEqual({ location: 'active', room: 'maintenance' });
+
+    // 给本文件后续用例保留一个稳定状态。
+    await withTenant({ ...tenant, membershipId: m!.id }, async (tx) => {
+      await tx`update locations set status = 'active' where id = ${tenant.locationId}`;
+      await tx`update resources set status = 'available' where id = ${room!.id}`;
+    });
   });
 
   it('时区认不出来的话，宁可当场拒绝也不写进去', async () => {

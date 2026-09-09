@@ -20,10 +20,21 @@ import { dispatch } from '../bus';
 import {
   loadDeskSettings, loadCheckoutSettings, load10DlcStatus, loadIntakeWaiver, loadWebhooks,
 } from '../queries/settings';
+import { loadSetupReadiness } from '../queries/setupReadiness';
 import { loadNotificationSettings } from '../queries/notificationSettings';
 import type { CtxFromHeaders } from './utils';
 
 export function registerSettingsRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHeaders): void {
+
+  const handleSetupReadiness = async (req: FastifyRequest) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
+    }
+    return withTenant(ctx, (tx) => loadSetupReadiness(tx, ctx));
+  };
+  app.get('/v1/desk/setup/readiness', handleSetupReadiness);
+  app.get('/api/desk/setup/readiness', handleSetupReadiness);
 
   // ── 系统设置与门店配置 ───────────────────────────────────────────────────
   const handleDeskSettings = async (req: FastifyRequest) => {

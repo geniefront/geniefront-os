@@ -1641,3 +1641,24 @@ CheckIn / Start / Finish / Checkout 四个弹窗的编排状态与 handler 仍�
 入口：`apps/web/src/pages/Queue.tsx`（`checkInModal` / `startServiceModal` / `completeServiceModal` /
 `checkoutModal` 四组 state + `handleConfirmCheckIn` 等）、`apps/web/src/pages/queue/modals/*`、
 `apps/web/src/components/AppointmentDrawer.tsx`（`adGoToBoard` 按钮那块）。
+
+
+## U01 / S1 — 2026-09-08：实施前盘点与接口设计
+
+用户授权开始第一步。基线 `26bc57b`；仅文档变更，业务重构尚未开始。
+
+- 计划与实时状态：[`2026-09-08-u01-setup-refactor.md`](2026-09-08-u01-setup-refactor.md)。
+- 逐路径盘点、设计决策、下一步和回退：[`2026-09-08-u01-s1-inventory.md`](2026-09-08-u01-s1-inventory.md)。
+- 发现：健康表实际使用 mockData 中的行业预设，旧 presets.ts 非页面事实源；resource.save.active 被 handler 忽略；SavePhoneLine 为 settings.manage 可调用，不能声称平台专用绑定已落实。
+- 基线验证：contracts healthForms/phone 共 12 项，web setup flow 4 项通过。它们验证当前实现，T01–T07 仍未执行。
+- 未覆盖：数据库连通性、真实旧店数量、API/DB 集成、浏览器和真实电话。未迁移、重置、部署或推送。
+- S2 已完成：共享 readiness、房间门禁、同店类型验证与并发保护；下一步 S3 健康表首发。
+
+### 2026-09-08 / U01 S2：统一开店检查、房间门禁与并发保护
+
+- 共享七步 readiness 契约与服务端 loader 已落地，GET 查询和 FinishSetup 不再各自复制 SQL 判断。
+- setup→active 新增有效房间硬门槛；有效房间严格限定 room/vip/couples_room、正容量和非 maintenance 已知状态；可排员工只计 active membership。
+- 开店、资源保存、人工维护和删除使用同一门店事务锁，保证竞争结果只能是“先停用则开店失败”或“先开店则停用失败”。
+- active 店禁止删/停最后一间有效房间；旧 active 零房店不降级，只给结构化修复提示；force 仍不能越过当前占用与最后房门禁。
+- resourceTypeId 增加同店显式校验；resource.save 的 active 字段不再静默吞掉。
+- isolated 验证共 104 项通过（contracts 63、signup/rooms 26、settings route 15；另 workstations 15 项回归通过），contracts/API/web 类型检查通过。未迁移、未部署、未访问线上库。
