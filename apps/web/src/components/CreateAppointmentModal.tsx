@@ -160,6 +160,8 @@ export function buildBundleSelections(params: {
   unitCount: number;
   assignments: BundleUnitAssignmentDraft[];
   unassignedId: string;
+  /** 额外加项，`attachToUnit` 用 `quote` 的 `unitKey`；金额由服务端算。 */
+  extraAddons?: Array<{ ref: string; attachToUnit: string; serviceId: string; qty: number }>;
 }): CreateBundleSelectionInput[] {
   const unitOverrides = Array.from({ length: params.unitCount }, (_, i) => {
     const a = params.assignments[i];
@@ -175,6 +177,7 @@ export function buildBundleSelections(params: {
     ...(params.expectedVersion ? { expectedVersion: params.expectedVersion } : {}),
     startsAt: params.startsAt,
     unitOverrides,
+    ...(params.extraAddons?.length ? { extraAddons: params.extraAddons } : {}),
   }];
 }
 
@@ -261,10 +264,19 @@ export function CreateAppointmentModal({
   const [selectedBundleId, setSelectedBundleId] = useState('');
   const [bundleStartTime, setBundleStartTime] = useState('10:00');
   const [unitStaff, setUnitStaff] = useState<BundleUnitAssignmentDraft[]>([]);
+  /** 额外加项：不在套餐模板内、按正常价追加，归属到某个执行单元（`attachToUnit` = quote 的 `unitKey`）。 */
+  const [bundleExtraAddons, setBundleExtraAddons] = useState<
+    Array<{ ref: string; attachToUnit: string; serviceId: string; qty: number }>
+  >([]);
   const [bundleQuote, setBundleQuote] = useState<{
     status: 'idle' | 'loading' | 'ready' | 'error';
     data: BundleQuoteResult | null;
   }>({ status: 'idle', data: null });
+  // 加项变化要重新报价；用稳定字符串做 effect 依赖。
+  const bundleExtraAddonsKey = useMemo(
+    () => JSON.stringify(bundleExtraAddons.map((a) => [a.attachToUnit, a.serviceId, a.qty])),
+    [bundleExtraAddons],
+  );
 
   // 只在弹窗打开且切到「套餐」标签后才拉目录；避免每次开弹窗都打一发请求。
   const bundleCatalog = useBundleCatalogQuery({
@@ -284,14 +296,42 @@ export function CreateAppointmentModal({
     for (const c of selectedBundle?.components ?? []) m.set(c.componentId, c.serviceName);
     return m;
   }, [selectedBundle]);
+  const bundleAvailableAddons = useMemo(
+    () => bundleCatalog.data?.availableAddons ?? [],
+    [bundleCatalog.data],
+  );
+  const bundleAddonById = useMemo(
+    () => new Map(bundleAvailableAddons.map((a) => [a.id, a])),
+    [bundleAvailableAddons],
+  );
+
+  const addBundleAddon = (unitKey: string, serviceId: string) => {
+    if (!serviceId) return;
+    markDirty();
+    setBundleExtraAddons((prev) => [
+      ...prev,
+      { ref: crypto.randomUUID(), attachToUnit: unitKey, serviceId, qty: 1 },
+    ]);
+  };
+  const removeBundleAddon = (ref: string) => {
+    markDirty();
+    setBundleExtraAddons((prev) => prev.filter((a) => a.ref !== ref));
+  };
+  const setBundleAddonQty = (ref: string, qty: number) => {
+    markDirty();
+    setBundleExtraAddons((prev) => prev.map((a) => (
+      a.ref === ref ? { ...a, qty: Math.min(20, Math.max(1, Number.isFinite(qty) ? qty : 1)) } : a
+    )));
+  };
 
   const availableStaff = useMemo(() => {
     return staff.filter((s) => s.membershipId === UNASSIGNED_STAFF_ID || s.isBookable);
   }, [staff]);
 
   /**
-   * 选中套餐（或其版本变化）后取服务端权威报价。金额、展开顺序、排程都以
-   * `quote` 为准，前端不自算。切回单项模式或清空选择即丢弃。
+   * 选中套餐（或版本 / 加项变化）后取服务端权威报价。金额、展开顺序、排程都以
+   * `quote` 为准，前端不自算。加项变化会重新报价 —— 此时**保留**已指派的技师
+   * （单元数不变），只在首次报价或单元数变化时按默认技师铺一遍。
    */
   useEffect(() => {
     if (!isOpen || mode !== 'bundle') return;
@@ -301,17 +341,29 @@ export function CreateAppointmentModal({
       return;
     }
     let cancelled = false;
-    setBundleQuote({ status: 'loading', data: null });
-    quoteBundle({ bundleId: tpl.id, expectedVersion: tpl.version })
+    setBundleQuote((prev) => ({ status: 'loading', data: prev.data }));
+    quoteBundle({
+      bundleId: tpl.id,
+      expectedVersion: tpl.version,
+      ...(bundleExtraAddons.length
+        ? {
+            extraAddons: bundleExtraAddons.map((a) => ({
+              ref: a.ref, attachToUnit: a.attachToUnit, serviceId: a.serviceId, qty: a.qty,
+            })),
+          }
+        : {}),
+    })
       .then((res) => {
         if (cancelled) return;
         setBundleQuote({ status: 'ready', data: res });
-        setUnitStaff(
-          res.units.map(() => ({
-            membershipId: defaultStaffId || UNASSIGNED_STAFF_ID,
-            isRequest: false,
-          })),
-        );
+        setUnitStaff((prev) => (
+          prev.length === res.units.length
+            ? prev
+            : res.units.map((_, i) => prev[i] ?? {
+                membershipId: defaultStaffId || UNASSIGNED_STAFF_ID,
+                isRequest: false,
+              })
+        ));
       })
       .catch(() => {
         if (!cancelled) setBundleQuote({ status: 'error', data: null });
@@ -319,7 +371,8 @@ export function CreateAppointmentModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, mode, selectedBundleId, bundleTemplates, defaultStaffId]);
+    // bundleExtraAddons 经 bundleExtraAddonsKey 参与依赖（内容变化才重新报价）。
+  }, [isOpen, mode, selectedBundleId, bundleTemplates, bundleExtraAddonsKey, bundleExtraAddons, defaultStaffId]);
 
   // 初始化多项目
   useEffect(() => {
@@ -358,6 +411,7 @@ export function CreateAppointmentModal({
     setMode('items');
     setSelectedBundleId('');
     setUnitStaff([]);
+    setBundleExtraAddons([]);
     setBundleQuote({ status: 'idle', data: null });
 
     const firstSvc = services.find((s) => s.id === defaultServiceId) || services[0];
@@ -718,6 +772,7 @@ export function CreateAppointmentModal({
           unitCount: bundleQuote.data.units.length,
           assignments: unitStaff,
           unassignedId: UNASSIGNED_STAFF_ID,
+          extraAddons: bundleExtraAddons,
         });
         await create.mutateAsync({
           customerId,
@@ -1200,7 +1255,12 @@ export function CreateAppointmentModal({
                 ) : (
                   <select
                     value={selectedBundleId}
-                    onChange={(e) => { markDirty(); setSelectedBundleId(e.target.value); }}
+                    onChange={(e) => {
+                      markDirty();
+                      setSelectedBundleId(e.target.value);
+                      setBundleExtraAddons([]);
+                      setUnitStaff([]);
+                    }}
                     className="w-full h-9 px-2.5 py-1 text-xs rounded-xl border border-slate-200 bg-white font-medium"
                   >
                     <option value="">{t('bundle.pickerPlaceholder')}</option>
@@ -1303,6 +1363,48 @@ export function CreateAppointmentModal({
                               <span>{t('schedule.apptRequested')}</span>
                             </label>
                           </div>
+
+                          {/* 额外加项：归属到这个执行单元，价 / 时长由服务端重新报价并入 */}
+                          <div className="pt-1.5 border-t border-slate-100 space-y-1.5">
+                            <span className="text-[10px] font-bold text-slate-400">{t('bundle.addonSectionLabel')}</span>
+                            {bundleExtraAddons.filter((ad) => ad.attachToUnit === u.unitKey).map((ad) => (
+                              <div key={ad.ref} className="flex items-center gap-1.5">
+                                <span className="flex-1 truncate text-[11px] text-slate-700">
+                                  {bundleAddonById.get(ad.serviceId)?.name ?? '—'}
+                                </span>
+                                <input
+                                  type="number" min={1} max={20} value={ad.qty}
+                                  onChange={(e) => setBundleAddonQty(ad.ref, parseInt(e.target.value, 10))}
+                                  aria-label={t('bundle.addonQty')}
+                                  className="w-12 h-7 px-1.5 text-[11px] text-center rounded-lg border border-slate-200"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => removeBundleAddon(ad.ref)}
+                                  aria-label={t('bundle.addonRemove')}
+                                  className="text-slate-400 hover:text-rose-500 p-1"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                            {bundleAvailableAddons.length === 0 ? (
+                              <p className="text-[10px] text-slate-400">{t('bundle.addonNone')}</p>
+                            ) : (
+                              <select
+                                value=""
+                                onChange={(e) => { addBundleAddon(u.unitKey, e.target.value); e.target.value = ''; }}
+                                className="w-full h-7 px-2 text-[11px] rounded-lg border border-slate-200 bg-white text-slate-600"
+                              >
+                                <option value="">{t('bundle.addonPick')}</option>
+                                {bundleAvailableAddons.map((ad) => (
+                                  <option key={ad.id} value={ad.id}>
+                                    {ad.name} (+${centsToDollars(ad.priceCents)})
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -1323,6 +1425,18 @@ export function CreateAppointmentModal({
                       <span>{t('bundle.pickerBundlePrice')}</span>
                       <span className="font-mono">${centsToDollars(readyQuote.bundlePriceCents)}</span>
                     </div>
+                    {readyQuote.extraAddonListTotalCents > 0 && (
+                      <>
+                        <div className="flex justify-between text-slate-600">
+                          <span>{t('bundle.addonExtraLine')}</span>
+                          <span className="font-mono">+${centsToDollars(readyQuote.extraAddonListTotalCents)}</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-teal-900 border-t border-teal-200 pt-1">
+                          <span>{t('bundle.addonNetTotal')}</span>
+                          <span className="font-mono">${centsToDollars(readyQuote.serviceNetTotalCents)}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </>
               )}

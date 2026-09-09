@@ -119,6 +119,15 @@ export const bundle = {
   'bundle.pickerSubItemsFollow': { 'zh-Hans': '子项从这个时刻起按标准时长顺排', en: 'Sub-items run back-to-back from this time at their standard durations', ko: '하위 항목은 이 시각부터 표준 소요시간으로 연이어 배치됩니다', es: 'Los subelementos se encadenan desde esta hora con su duración estándar', vi: 'Các mục con nối tiếp nhau từ giờ này theo thời lượng chuẩn' },
   'bundle.errNotFound': { 'zh-Hans': '这个组合套餐已不存在，请刷新后重试', en: 'This bundle no longer exists — refresh and try again', ko: '이 묶음 상품은 더 이상 존재하지 않습니다. 새로고침 후 다시 시도하세요', es: 'Este paquete ya no existe: actualiza e inténtalo de nuevo', vi: 'Gói này không còn tồn tại — làm mới và thử lại' },
 
+  // ── 套餐额外加项（新建预约 / 看板 walk-in 通用）─────────────────────────
+  'bundle.addonSectionLabel': { 'zh-Hans': '额外加项（可选）', en: 'Extra add-ons (optional)', ko: '추가 옵션(선택)', es: 'Complementos extra (opcional)', vi: 'Tùy chọn thêm (không bắt buộc)' },
+  'bundle.addonPick': { 'zh-Hans': '添加加项…', en: 'Add an add-on…', ko: '옵션 추가…', es: 'Añadir un complemento…', vi: 'Thêm tùy chọn…' },
+  'bundle.addonQty': { 'zh-Hans': '数量', en: 'Qty', ko: '수량', es: 'Cant.', vi: 'SL' },
+  'bundle.addonRemove': { 'zh-Hans': '移除加项', en: 'Remove add-on', ko: '옵션 제거', es: 'Quitar complemento', vi: 'Xóa tùy chọn' },
+  'bundle.addonExtraLine': { 'zh-Hans': '额外加项', en: 'Extra add-ons', ko: '추가 옵션', es: 'Complementos extra', vi: 'Tùy chọn thêm' },
+  'bundle.addonNetTotal': { 'zh-Hans': '应付合计', en: 'Amount due', ko: '결제 금액', es: 'Total a pagar', vi: 'Tổng phải trả' },
+  'bundle.addonNone': { 'zh-Hans': '这个门店还没有可加的加项', en: 'No add-on services available at this location', ko: '이 지점에 추가할 수 있는 옵션이 없습니다', es: 'No hay complementos disponibles en esta sede', vi: 'Chi nhánh này chưa có dịch vụ tùy chọn' },
+
   // ── 预约详情抽屉：只读展示已选套餐 ─────────────────────────────────────────
   'bundle.drawerSectionTitle': { 'zh-Hans': '已选组合套餐', en: 'Selected bundle', ko: '선택한 묶음 상품', es: 'Paquete elegido', vi: 'Gói đã chọn' },
   'bundle.drawerHint': { 'zh-Hans': '子项的改期 / 换技师用上方「改期」，服务端会按套餐整体感知处理。', en: 'To reschedule or reassign a sub-item, use “Reschedule” above — the server handles it bundle-aware.', ko: '하위 항목의 일정 변경·담당자 변경은 위의 “일정 변경”을 사용하세요. 서버가 묶음 단위로 처리합니다.', es: 'Para reprogramar o reasignar un subelemento, usa «Reprogramar» arriba; el servidor lo gestiona a nivel de paquete.', vi: 'Để đổi lịch hoặc đổi KTV cho mục con, dùng “Đổi lịch” ở trên — máy chủ xử lý theo cả gói.' },

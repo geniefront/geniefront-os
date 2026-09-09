@@ -210,6 +210,34 @@ describe('buildBundleSelections（U10 组合套餐落单载荷）', () => {
     ]);
   });
 
+  it('额外加项原样透传（金额留给服务端算）', () => {
+    const out = buildBundleSelections({
+      bundleId: 'b1',
+      startsAt: START,
+      unitCount: 2,
+      assignments: [
+        { membershipId: 'staff-a', isRequest: false },
+        { membershipId: 'staff-b', isRequest: false },
+      ],
+      unassignedId: UNASSIGNED,
+      extraAddons: [
+        { ref: 'r1', attachToUnit: 'u:0', serviceId: 'addon-x', qty: 1 },
+        { ref: 'r2', attachToUnit: 'u:1', serviceId: 'addon-y', qty: 3 },
+      ],
+    });
+    expect(out[0].extraAddons).toEqual([
+      { ref: 'r1', attachToUnit: 'u:0', serviceId: 'addon-x', qty: 1 },
+      { ref: 'r2', attachToUnit: 'u:1', serviceId: 'addon-y', qty: 3 },
+    ]);
+  });
+
+  it('无额外加项时不塞 extraAddons 键', () => {
+    const out = buildBundleSelections({
+      bundleId: 'b1', startsAt: START, unitCount: 1, assignments: [], unassignedId: UNASSIGNED,
+    });
+    expect('extraAddons' in out[0]).toBe(false);
+  });
+
   it('未传 expectedVersion 时不塞该字段（避免落一个 undefined）', () => {
     const out = buildBundleSelections({
       bundleId: 'b1',

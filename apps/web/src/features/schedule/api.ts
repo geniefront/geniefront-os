@@ -120,6 +120,8 @@ export interface CreateBundleSelectionInput {
     durationMin?: number;
     isRequest: boolean;
   }>;
+  /** 额外购买、不在模板范围内的加项，按正常价追加；`attachToUnit` 用 `quote` 的 `unitKey`。 */
+  extraAddons?: Array<{ ref: string; attachToUnit: string; serviceId: string; qty: number }>;
 }
 
 export interface CreateAppointmentInput {
@@ -192,6 +194,16 @@ export function useCreateAppointment(date: string) {
                     isRequest: u.isRequest,
                     ...(u.durationMin ? { durationMin: u.durationMin } : {}),
                   })),
+                  ...(sel.extraAddons?.length
+                    ? {
+                        extraAddons: sel.extraAddons.map((a) => ({
+                          ref: a.ref,
+                          attachToUnit: a.attachToUnit,
+                          serviceId: a.serviceId,
+                          qty: a.qty,
+                        })),
+                      }
+                    : {}),
                 })),
               }
             : {}),

@@ -10,7 +10,7 @@
  * 收到 `bundle_unit_multi_staff_unsupported` 时给出可读提示。
  */
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Package } from 'lucide-react';
+import { AlertTriangle, Package, Trash2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -22,11 +22,19 @@ import type { BundleQuoteResult, BundleTemplateView } from '@/features/bundles/t
 import type { DayStaff } from '@/features/schedule/types';
 import { UNASSIGNED_STAFF_ID } from '@/context/ScheduleContext';
 
+export interface WalkInBundleExtraAddon {
+  ref: string;
+  attachToUnit: string;
+  serviceId: string;
+  qty: number;
+}
+
 export interface WalkInBundleSubmit {
   walkInName: string;
   bundleId: string;
   expectedVersion: number;
   unitStaffIds: string[];
+  extraAddons: WalkInBundleExtraAddon[];
 }
 
 export interface WalkInBundleModalProps {
@@ -48,6 +56,7 @@ export function WalkInBundleModal({
   const [walkInName, setWalkInName] = useState('');
   const [selectedId, setSelectedId] = useState('');
   const [unitStaff, setUnitStaff] = useState<string[]>([]);
+  const [extraAddons, setExtraAddons] = useState<WalkInBundleExtraAddon[]>([]);
   const [quote, setQuote] = useState<{
     status: 'idle' | 'loading' | 'ready' | 'error';
     data: BundleQuoteResult | null;
@@ -68,6 +77,27 @@ export function WalkInBundleModal({
     for (const c of selected?.components ?? []) m.set(c.componentId, c.serviceName);
     return m;
   }, [selected]);
+  const availableAddons = useMemo(
+    () => catalog.data?.availableAddons ?? [],
+    [catalog.data],
+  );
+  const addonById = useMemo(
+    () => new Map(availableAddons.map((a) => [a.id, a])),
+    [availableAddons],
+  );
+  const extraAddonsKey = useMemo(
+    () => JSON.stringify(extraAddons.map((a) => [a.attachToUnit, a.serviceId, a.qty])),
+    [extraAddons],
+  );
+
+  const addExtraAddon = (unitKey: string, serviceId: string) => {
+    if (!serviceId) return;
+    setExtraAddons((prev) => [...prev, { ref: crypto.randomUUID(), attachToUnit: unitKey, serviceId, qty: 1 }]);
+  };
+  const removeExtraAddon = (ref: string) => setExtraAddons((prev) => prev.filter((a) => a.ref !== ref));
+  const setExtraAddonQty = (ref: string, qty: number) => setExtraAddons((prev) => prev.map((a) => (
+    a.ref === ref ? { ...a, qty: Math.min(20, Math.max(1, Number.isFinite(qty) ? qty : 1)) } : a
+  )));
 
   const bookableStaff = useMemo(
     () => staff.filter((s) => s.membershipId !== UNASSIGNED_STAFF_ID && s.isBookable),
@@ -80,11 +110,13 @@ export function WalkInBundleModal({
     setWalkInName('');
     setSelectedId('');
     setUnitStaff([]);
+    setExtraAddons([]);
     setQuote({ status: 'idle', data: null });
     setFormError(null);
   }, [isOpen]);
 
-  // 选中套餐（或版本变化）后取服务端权威报价。
+  // 选中套餐（或版本 / 加项变化）后取服务端权威报价。加项变化重新报价时
+  // 保留已指派技师（单元数不变），只在首次或单元数变化时铺一遍空值。
   useEffect(() => {
     if (!isOpen) return;
     const tpl = templates.find((b) => b.id === selectedId);
@@ -93,18 +125,31 @@ export function WalkInBundleModal({
       return;
     }
     let cancelled = false;
-    setQuote({ status: 'loading', data: null });
-    quoteBundle({ bundleId: tpl.id, expectedVersion: tpl.version })
+    setQuote((prev) => ({ status: 'loading', data: prev.data }));
+    quoteBundle({
+      bundleId: tpl.id,
+      expectedVersion: tpl.version,
+      ...(extraAddons.length
+        ? {
+            extraAddons: extraAddons.map((a) => ({
+              ref: a.ref, attachToUnit: a.attachToUnit, serviceId: a.serviceId, qty: a.qty,
+            })),
+          }
+        : {}),
+    })
       .then((res) => {
         if (cancelled) return;
         setQuote({ status: 'ready', data: res });
-        setUnitStaff(res.units.map(() => ''));
+        setUnitStaff((prev) => (
+          prev.length === res.units.length ? prev : res.units.map((_, i) => prev[i] ?? '')
+        ));
       })
       .catch(() => {
         if (!cancelled) setQuote({ status: 'error', data: null });
       });
     return () => { cancelled = true; };
-  }, [isOpen, selectedId, templates]);
+    // extraAddons 经 extraAddonsKey 参与依赖。
+  }, [isOpen, selectedId, templates, extraAddonsKey, extraAddons]);
 
   const readyQuote = quote.status === 'ready' ? quote.data : null;
   const allUnitsAssigned = readyQuote != null
@@ -131,6 +176,7 @@ export function WalkInBundleModal({
         bundleId: selectedId,
         expectedVersion: readyQuote.version,
         unitStaffIds: unitStaff,
+        extraAddons,
       });
     } catch (err: unknown) {
       const reason = (err as { details?: { reason?: string } })?.details?.reason;
@@ -195,7 +241,7 @@ export function WalkInBundleModal({
           ) : (
             <select
               value={selectedId}
-              onChange={(e) => setSelectedId(e.target.value)}
+              onChange={(e) => { setSelectedId(e.target.value); setExtraAddons([]); setUnitStaff([]); }}
               className="w-full h-9 px-2.5 py-1 text-xs rounded-xl border border-slate-200 bg-white font-medium"
             >
               <option value="">{t('bundle.pickerPlaceholder')}</option>
@@ -249,6 +295,46 @@ export function WalkInBundleModal({
                       <option key={s.membershipId} value={s.membershipId}>{s.name}</option>
                     ))}
                   </select>
+
+                  {/* 额外加项：归属这个执行单元，价 / 时长由服务端重新报价并入 */}
+                  <div className="pt-1.5 border-t border-slate-100 space-y-1.5">
+                    <span className="text-[10px] font-bold text-slate-400">{t('bundle.addonSectionLabel')}</span>
+                    {extraAddons.filter((ad) => ad.attachToUnit === u.unitKey).map((ad) => (
+                      <div key={ad.ref} className="flex items-center gap-1.5">
+                        <span className="flex-1 truncate text-[11px] text-slate-700">
+                          {addonById.get(ad.serviceId)?.name ?? '—'}
+                        </span>
+                        <input
+                          type="number" min={1} max={20} value={ad.qty}
+                          onChange={(e) => setExtraAddonQty(ad.ref, parseInt(e.target.value, 10))}
+                          aria-label={t('bundle.addonQty')}
+                          className="w-12 h-7 px-1.5 text-[11px] text-center rounded-lg border border-slate-200"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeExtraAddon(ad.ref)}
+                          aria-label={t('bundle.addonRemove')}
+                          className="text-slate-400 hover:text-rose-500 p-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    {availableAddons.length === 0 ? (
+                      <p className="text-[10px] text-slate-400">{t('bundle.addonNone')}</p>
+                    ) : (
+                      <select
+                        value=""
+                        onChange={(e) => { addExtraAddon(u.unitKey, e.target.value); e.target.value = ''; }}
+                        className="w-full h-7 px-2 text-[11px] rounded-lg border border-slate-200 bg-white text-slate-600"
+                      >
+                        <option value="">{t('bundle.addonPick')}</option>
+                        {availableAddons.map((ad) => (
+                          <option key={ad.id} value={ad.id}>{ad.name} (+${centsToDollars(ad.priceCents)})</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -268,6 +354,18 @@ export function WalkInBundleModal({
                 <span>{t('bundle.pickerBundlePrice')}</span>
                 <span className="font-mono">${centsToDollars(readyQuote.bundlePriceCents)}</span>
               </div>
+              {readyQuote.extraAddonListTotalCents > 0 && (
+                <>
+                  <div className="flex justify-between text-slate-600">
+                    <span>{t('bundle.addonExtraLine')}</span>
+                    <span className="font-mono">+${centsToDollars(readyQuote.extraAddonListTotalCents)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-teal-900 border-t border-teal-200 pt-1">
+                    <span>{t('bundle.addonNetTotal')}</span>
+                    <span className="font-mono">${centsToDollars(readyQuote.serviceNetTotalCents)}</span>
+                  </div>
+                </>
+              )}
             </div>
           </>
         )}

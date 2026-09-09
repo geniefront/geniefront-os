@@ -2102,6 +2102,7 @@ function QueueContent() {
         bundleId: input.bundleId,
         expectedVersion: input.expectedVersion,
         unitOverrides: input.unitStaffIds.map((membershipId) => ({ membershipId })),
+        ...(input.extraAddons.length ? { extraAddons: input.extraAddons } : {}),
       }],
       idempotencyKey: `queue-walkin-bundle-${input.walkInName}-${input.bundleId}`,
     });

@@ -510,6 +510,11 @@ Modal（中英文名 + 组成 repeater + 组合价 + 在线预约开关，实时
     顺序与 `units[]` 一致；未指派留待分配池 = `membershipId: null`）。
   - 价格区 `originalTotalCents`（划线）/ `bundlePriceCents` / `bundleDiscountCents` **全部取自 quote**，
     前端不加不减。
+  - **额外加项**：每个执行单元下可加不在模板内的加项（`bundle_*` catalog 的 `availableAddons`），
+    写 `extraAddons[{ ref, attachToUnit=unitKey, serviceId, qty }]`；加项变化即以新 `extraAddons`
+    重新 `quoteBundle`（**保留已指派技师**，单元数不变则不重铺），价格区补「额外加项
+    `+extraAddonListTotalCents`」与「应付合计 `serviceNetTotalCents`」两行。加项的价 / 时长
+    由服务端并入其归属子项，前端不自算。
   - `startsAt` 复用弹窗已有时间选择（`bundleStartTime`，播种同 `resolveInitialDateTime`）；
     过去时间强提醒沿用 `earliestStartTime`（套餐模式 = 套餐起点）。
   - 提交：`CreateAppointmentInput` 加 `bundleSelections`，`useCreateAppointment` mutationFn 透传，
@@ -536,7 +541,8 @@ Modal（中英文名 + 组成 repeater + 组合价 + 在线预约开关，实时
 **C. 看板 walk-in 直接开单选套餐 —— `pages/Queue.tsx` + `pages/queue/modals/WalkInBundleModal.tsx`**
 - 「快捷动作」区加「套餐开单」按钮（`useCanWrite('ticket.write')` 门禁），打开自成一体的
   `WalkInBundleModal`：填客人称呼 + 选在售套餐 → `quoteBundle` 展开 → 逐子项指定技师
-  （**必填**，无待分配项）→ 价格区同 A。
+  （**必填**，无待分配项）+ 逐子项加额外加项（同 A，`ticket.open` 的 `bundleSelections[].extraAddons`）
+  → 价格区同 A。
 - 提交走 `ticket.open` 的 `bundleSelections`、`items:[]`、**不带 `appointmentId`**，
   幂等键按「客人 + 套餐」固定。带预约的套餐仍走既有 `ticket.open` 预约继承路径（P3b），不经此弹窗。
 - `OpenTicketInput` 加 `bundleSelections`（透传）。错误另加 `bundle_unit_multi_staff_unsupported`

@@ -48,6 +48,8 @@ export interface OpenTicketInput {
     bundleId: string;
     expectedVersion?: number;
     unitOverrides: Array<{ membershipId: string; resourceId?: string | null; durationMin?: number }>;
+    /** 额外购买、不在模板范围内的加项；`attachToUnit` 用 `quote` 的 `unitKey`。 */
+    extraAddons?: Array<{ ref: string; attachToUnit: string; serviceId: string; qty: number }>;
   }>;
   idempotencyKey: string;
 }
