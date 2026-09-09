@@ -378,3 +378,68 @@ export function renderSubscriptionCanceled(d: SubscriptionCanceledData): Rendere
 
   return { subject: `${d.shopName}: subscription cancelled`, html, text };
 }
+
+// ═══════════════════════════════════════ 店主侧 · 订阅码即将到期 / 已到期
+
+export interface LicenseExpiringData {
+  shopName: string;
+  /** 已按门店时区与店主语言格式化好的到期时刻 */
+  endsAtText: string;
+  /** 还剩几天。0 = 今天到期或已经到期 */
+  daysLeft: number;
+  locale: OwnerLocale;
+}
+
+/**
+ * 订阅码到期提醒。
+ *
+ * ## ⚠️ 这封信里**没有任何自助续费链接**
+ *
+ * 这批客户恰恰是不走 Stripe 的那批（微信 / 支付宝 / 现金私下付款）。
+ * 给他们一个「管理订阅」按钮会跳到一个他从来没有过的 Stripe 客户门户 ——
+ * 而他点不动之后的下一步是打电话来问「你们的链接坏了」。
+ *
+ * 正确的下一步是**联系我们**，所以正文只说这一件事。
+ *
+ * ## 为什么正文不写「已付多少钱」
+ *
+ * 面值（`amount_cents`）是我们内部对账用的留档，而私下转账的金额可能
+ * 含折扣、含代付、含好几家店。在信里复述一个我们没有凭据的数字，
+ * 只会制造一次没必要的争执。
+ */
+export function renderLicenseExpiring(d: LicenseExpiringData): Rendered {
+  if (isZhLocale(d.locale)) {
+    const head = d.daysLeft > 0
+      ? `${d.shopName}：服务将于 ${d.endsAtText} 到期`
+      : `${d.shopName}：服务已到期`;
+    const body = d.daysLeft > 0
+      ? `您的服务有效期至 ${d.endsAtText}（还剩 ${d.daysLeft} 天）。`
+        + '到期后门店转为只读：还能查看数据、导出报表，但开不了新单。'
+      : `您的服务已于 ${d.endsAtText} 到期，门店当前为只读状态。`
+        + '数据不会被删除，续期后立刻恢复。';
+    const text = [head, '', body, '', '需要续期请联系 GenieFront 客服，我们会为您延长有效期。'].join('\n');
+    const html = wrapEmailHtml([
+      emailHeading('订阅', esc(head)),
+      `<p>${esc(body)}</p>`,
+      '<p>需要续期请联系 GenieFront 客服，我们会为您延长有效期。</p>',
+    ].join('\n'), { variant: 'owner', zh: true });
+    return { subject: head, html, text };
+  }
+
+  const head = d.daysLeft > 0
+    ? `${d.shopName}: service ends on ${d.endsAtText}`
+    : `${d.shopName}: service has ended`;
+  const body = d.daysLeft > 0
+    ? `Your service is active until ${d.endsAtText} (${d.daysLeft} days left). `
+      + 'After that the location becomes read-only: you can still view and export '
+      + 'your data, but you cannot open new tickets.'
+    : `Your service ended on ${d.endsAtText} and this location is now read-only. `
+      + 'Your data is kept and comes back the moment the term is extended.';
+  const text = [head, '', body, '', 'To extend your term, contact GenieFront support.'].join('\n');
+  const html = wrapEmailHtml([
+    emailHeading('Billing', esc(head)),
+    `<p>${esc(body)}</p>`,
+    '<p>To extend your term, contact GenieFront support.</p>',
+  ].join('\n'), { variant: 'owner' });
+  return { subject: head, html, text };
+}

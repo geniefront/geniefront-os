@@ -40,6 +40,10 @@ async function upsertAuthUser(email: string, fullName: string): Promise<string> 
       'mia@maildrop.cc': 'd84f499d-4100-4791-a0ae-dca645aa2661',
       'ops@maildrop.cc': '33333333-3333-4333-8333-333333333333',
       'exops@maildrop.cc': '44444444-4444-4444-8444-444444444444',
+      // ⚠️ 必须列在这里。不列的话 id 走 deterministicUuid(email)，
+      // 而 `PLATFORM_SUPPORT_USER_ID` 那个常量就指不到这一行 ——
+      // 表现是「support 明明是 active，函数却说 not_platform_operator」
+      'support@maildrop.cc': '77777777-7777-4777-8777-777777777777',
     };
     return fixed[email] ?? deterministicUuid(email);
   }
@@ -88,12 +92,23 @@ const SEED_USER_EMAILS = [
   'owner@maildrop.cc',
   'ops@maildrop.cc',
   'exops@maildrop.cc',
+  'support@maildrop.cc',
 ] as const;
 
 const OPS_USER = '33333333-3333-4333-8333-333333333333';
 const EXOPS_USER = '44444444-4444-4444-8444-444444444444';
 const OPS_OPERATOR_ID = '55555555-5555-4555-8555-555555555555';
 const EXOPS_OPERATOR_ID = '66666666-6666-4666-8666-666666666666';
+/**
+ * ⭐ 一个**活着的** support 运营（sql/0120 / 计划批 2）。
+ *
+ * 在它之前，种子里只有「活着的 super_admin」和「被撤销的 support」——
+ * 于是「support 能看不能发」这条规则在测试里**验不出来**：拿被撤销的那个
+ * 去签发，撞的是 `not_platform_operator`，看起来也是拒绝，
+ * 但拒绝的原因完全不同（他连门都没进来）。
+ */
+const SUPPORT_USER = '77777777-7777-4777-8777-777777777777';
+const SUPPORT_OPERATOR_ID = '88888888-8888-4888-8888-888888888888';
 
 const MASSAGE_OPTIONS = [
   {
@@ -223,6 +238,7 @@ async function main() {
       'form_access_log', 'form_submissions', 'form_share_links', 'form_templates',
       'walkin_queue',
       'call_drafts', 'phone_calls', 'phone_lines', 'sms_inbound', 'sms_consent', 'sms_outbox', 'email_outbox',
+      'license_redemptions', 'license_codes',
       'credit_ledger', 'usage_events', 'stripe_events', 'billing_invoices', 'billing_accounts', 'location_subscriptions',
       'pairing_sessions', 'discount_reasons', 'notification_rules', 'notification_templates',
       'storefront_revisions', 'storefront_drafts', 'storefront_briefs', 'blueprint_items', 'blueprint_sources', 'shop_blueprints',
@@ -261,6 +277,51 @@ async function main() {
           await tx`delete from auth.users
                    where lower(email) = any(${[...SEED_USER_EMAILS, ...legacy]})`;
         }
+      } else if (t === 'license_redemptions') {
+        /*
+         * ⚠️ 必须在删 locations / platform_operators 之前清掉。订阅码那两张表
+         * （sql/0120）对 locations、organizations **和 platform_operators**
+         * 都有外键，而这个脚本会把所有种子运营删掉重建 ——
+         * 漏掉它的表现是一句和订阅码毫无关系的报错：
+         *   `violates foreign key constraint "license_codes_issued_by_operator_id_fkey"`
+         *
+         * 删得动是因为 `gf_license_redemption_append_only` 只拦 `app_user`
+         * （同 credit_ledger 的 ledger_append_only）。
+         *
+         * ⭐ 判据有两条：种子门店里的兑换，**以及任何由种子运营签发的码**的
+         * 兑换 —— 后者可能落在种子之外的门店上（`signup.test.ts` /
+         * 运营代开店那条路径建出来的自测店不在这两个 org 里，永远不会被清）。
+         */
+        await tx.unsafe(
+          `delete from ${t}
+            where location_id = any($1)
+               or code_id in (
+                 select id from license_codes
+                  where issued_by_operator_id in (select id from platform_operators))`,
+          [locs as never],
+        );
+      } else if (t === 'license_codes') {
+        /*
+         * 只删**种子造出来的**码：定向到种子租户的，或由种子运营签发的。
+         * 生产里由真实运营签发的码不在这两条里 —— 这个脚本也跑在开发库上，
+         * 顺手清掉别人的东西是不可接受的。
+         */
+        // ① 先把指针摘掉。`billing_accounts` 排在这条之后才被清，
+        //    而种子之外的门店（自测店）根本不会被清 —— 不摘就撞外键
+        await tx.unsafe(
+          `update billing_accounts set license_code_id = null
+            where license_code_id in (
+              select id from license_codes
+               where target_org_id = any($1) or target_location_id = any($2)
+                  or issued_by_operator_id in (select id from platform_operators))`,
+          [orgs as never, locs as never],
+        );
+        await tx.unsafe(
+          `delete from ${t}
+            where target_org_id = any($1) or target_location_id = any($2)
+               or issued_by_operator_id in (select id from platform_operators)`,
+          [orgs as never, locs as never],
+        );
       } else if (t === 'sms_consent' || t === 'sms_inbound' || t === 'sms_outbox' || t === 'email_outbox') {
         await tx.unsafe(`delete from ${t}`);
       } else if (t === 'staff_skills' || t === 'membership_roles' || t === 'permission_overrides') {
@@ -637,6 +698,7 @@ async function main() {
     for (const op of [
       { id: OPS_USER, email: 'ops@maildrop.cc', name: 'GenieFront Ops', operatorId: OPS_OPERATOR_ID, role: 'super_admin', status: 'active', revokedAt: null as string | null },
       { id: EXOPS_USER, email: 'exops@maildrop.cc', name: 'Former Ops', operatorId: EXOPS_OPERATOR_ID, role: 'support', status: 'revoked', revokedAt: '2026-01-01T00:00:00.000Z' },
+      { id: SUPPORT_USER, email: 'support@maildrop.cc', name: 'GenieFront Support', operatorId: SUPPORT_OPERATOR_ID, role: 'support', status: 'active', revokedAt: null as string | null },
     ] as const) {
       const authId = await upsertAuthUser(op.email, op.name);
       if (process.env.SEED_SKIP_AUTH === '1') {

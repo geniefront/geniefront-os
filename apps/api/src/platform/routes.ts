@@ -28,6 +28,8 @@ import {
   platformListAudit,
   platformTestInbox,
   platformTestMessage,
+  platformListLicenses,
+  platformLicensePanel,
 } from '@gf/db';
 import { stripeClient } from '../stripe/client';
 import { assertStripeCustomerBelongsTo } from '../stripe/routes';
@@ -42,6 +44,11 @@ import {
   updateStorefrontBrief,
   updateStorefrontRevision,
 } from './commands';
+import {
+  issueLicense, revokeLicense, applyLicenseToStore,
+  updateStoreLicensePeriod, revokeStoreLicense, switchStoreToLicense,
+} from './licenseCommands';
+import { createStoreByOperator } from './storeCommands';
 
 const uuid = z.string().uuid();
 const page = z.object({
@@ -353,5 +360,119 @@ export function registerPlatformRoutes(app: FastifyInstance): void {
       limit: paging.limit ?? 50,
       offset: paging.offset ?? 0,
     }));
+  });
+
+  // ────────────────────────────────────── 订阅码（sql/0120，计划批 2 / 批 6）
+
+  /**
+   * 这家店归哪个 org。
+   *
+   * ⚠️ 从门店详情里取，而不是让调用方传 org id：接受 org 入参的话
+   * 「知道别人的 org id 就能往他家账上挂额度」，而 org id 会出现在日志、
+   * 工单和 URL 里（同 `setup.location.create` 不接受 org 入参的理由）。
+   */
+  const orgOfLocation = async (userId: string, locationId: string): Promise<string> => {
+    const detail = await read(() => platformStoreDetail(userId, locationId)) as
+      { overview?: { orgId?: string } } | null;
+    const orgId = detail?.overview?.orgId;
+    if (!orgId) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
+    return orgId;
+  };
+
+  app.get('/v1/platform/licenses', async (req) => {
+    const op = await operatorFrom(req);
+    const q = req.query as Record<string, string | undefined>;
+    const paging = parseOrThrow(page, { limit: q['limit'], offset: q['offset'] });
+    return read(() => platformListLicenses(op.userId, {
+      status: q['status'] ?? null,
+      kind: q['kind'] ?? null,
+      query: q['q'] ?? null,
+    }, paging.limit ?? 50, paging.offset ?? 0));
+  });
+
+  /**
+   * 签发一张码。
+   *
+   * ⭐ 响应体里的 `code` 是**唯一**一次能看到明文的地方 —— 不落库、
+   * 不进日志、不进审计。运营要重发给店家只能重新签一张并撤掉旧的。
+   */
+  app.post('/v1/platform/licenses', async (req) => {
+    const op = await operatorFrom(req);
+    return issueLicense(op, req.body ?? {});
+  });
+
+  app.post<{ Params: { codeId: string } }>(
+    '/v1/platform/licenses/:codeId/revoke', async (req) => {
+      const op = await operatorFrom(req);
+      const codeId = parseOrThrow(uuid, req.params.codeId);
+      return revokeLicense(op, { ...(req.body as object ?? {}), codeId });
+    },
+  );
+
+  app.get<{ Params: { locationId: string } }>(
+    '/v1/platform/stores/:locationId/license', async (req) => {
+      const op = await operatorFrom(req);
+      const locationId = parseOrThrow(uuid, req.params.locationId);
+      const panel = await read(() => platformLicensePanel(op.userId, locationId));
+      if (!panel) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
+      return panel;
+    },
+  );
+
+  /** 定向签发 + 立即生效。等价于把一张码交给店家再替他兑掉 */
+  app.post<{ Params: { locationId: string } }>(
+    '/v1/platform/stores/:locationId/license/apply', async (req) => {
+      const op = await operatorFrom(req);
+      const locationId = parseOrThrow(uuid, req.params.locationId);
+      const orgId = await orgOfLocation(op.userId, locationId);
+      return applyLicenseToStore(op, orgId, locationId, req.body ?? {}, req.ip);
+    },
+  );
+
+  /**
+   * Stripe → 订阅码。**先删这家店在订阅上的那个 item，再挂订阅码。**
+   *
+   * ⚠️ 与 `/license/apply` 分开一条路：apply 会在这一行还归 Stripe 管时
+   * 直接拒绝（权威冲突），而那个拒绝是对的 —— 两个权威同时生效的话，
+   * 客户会一边用着订阅码一边被按月扣款。
+   */
+  app.post<{ Params: { locationId: string } }>(
+    '/v1/platform/stores/:locationId/license/switch-from-stripe', async (req) => {
+      const op = await operatorFrom(req);
+      const locationId = parseOrThrow(uuid, req.params.locationId);
+      const orgId = await orgOfLocation(op.userId, locationId);
+      return switchStoreToLicense(op, orgId, locationId, req.body ?? {}, req.ip);
+    },
+  );
+
+  /** 改有效期。`note` 必填（契约层挡） */
+  app.patch<{ Params: { locationId: string } }>(
+    '/v1/platform/stores/:locationId/license', async (req) => {
+      const op = await operatorFrom(req);
+      const locationId = parseOrThrow(uuid, req.params.locationId);
+      const orgId = await orgOfLocation(op.userId, locationId);
+      return updateStoreLicensePeriod(op, orgId, locationId, req.body ?? {}, req.ip);
+    },
+  );
+
+  /** 立刻收回。改账户，**不动兑换历史** */
+  app.post<{ Params: { locationId: string } }>(
+    '/v1/platform/stores/:locationId/license/revoke', async (req) => {
+      const op = await operatorFrom(req);
+      const locationId = parseOrThrow(uuid, req.params.locationId);
+      const orgId = await orgOfLocation(op.userId, locationId);
+      return revokeStoreLicense(op, orgId, locationId, req.body ?? {}, req.ip);
+    },
+  );
+
+  /**
+   * 运营直接开店（不经 Stripe，计划批 6）。
+   *
+   * 幂等：同一个店名 + 老板邮箱重复提交返回同一家店，不会建出第二家，
+   * 也**不会再挂一次订阅**（见 `storeCommands.ts` 的长注释）。
+   */
+  app.post('/v1/platform/stores', async (req) => {
+    const op = await operatorFrom(req);
+    return createStoreByOperator(op, req.body ?? {}, req.log, req.ip);
   });
 }

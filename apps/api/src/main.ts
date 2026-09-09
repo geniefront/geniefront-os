@@ -13,6 +13,7 @@ import { startCallReconciler } from './telnyx/schedule';
 import { startRetentionJob } from './ops/retention';
 import { startReminderJob } from './notify/reminder';
 import { startOutboxSweepJob } from './ops/outboxSweep';
+import { startLicenseSweepJob } from './ops/licenseSweep';
 import { startMarketingJob } from './notify/marketing';
 import { startReviewSyncJob } from './reviews/job';
 import { assertCommunicationSafety } from './comms/mode';
@@ -49,6 +50,12 @@ startRetentionJob(app);
 startReminderJob(app);
 // 发件箱兜底扫描。计费类的信没有任何业务动作会触发投递（sql/0090）
 startOutboxSweepJob(app);
+/*
+ * 订阅码到期扫描（sql/0120）。
+ * ⚠️ 这一条不能不挂：订阅码没有 webhook，到期这件事没有任何人会来通知我们 ——
+ * 少了它的表现是一家 30 天的店永久免费，而且不报错。
+ */
+startLicenseSweepJob(app);
 startEmailService(app);
 /*
  * 营销四事件（生日 / 节日 / 唤回 / 求评）。

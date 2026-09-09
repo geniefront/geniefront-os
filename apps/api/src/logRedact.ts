@@ -9,5 +9,7 @@ export const LOGGER_REDACT_PATHS = [
   'req.headers["x-device-token"]',
   'req.headers["x-staff-token"]',
   'req.body.manageToken',
+  // 订阅码（sql/0120）。它是「捡到就能用」的凭证，和 manage token 同一档
+  'req.body.code',
   'req.query.t',
 ] as const;

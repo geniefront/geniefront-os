@@ -11,6 +11,14 @@ import { withUser } from './client';
 
 export const PLATFORM_OPS_USER_ID = '33333333-3333-4333-8333-333333333333';
 export const PLATFORM_EXOPS_USER_ID = '44444444-4444-4444-8444-444444444444';
+/**
+ * 活着的 support 运营（种子）。
+ *
+ * ⚠️ 和 `PLATFORM_EXOPS_USER_ID` 不是一回事：那个是**被撤销的**运营，
+ * 用它去验「support 能不能签发订阅码」会撞在更早的一道门上
+ * （`not_platform_operator`），于是那条规则实际上没被验到。
+ */
+export const PLATFORM_SUPPORT_USER_ID = '77777777-7777-4777-8777-777777777777';
 
 export type PlatformOperatorRole = 'super_admin' | 'support';
 

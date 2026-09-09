@@ -152,6 +152,27 @@ export const billingAccounts = pgTable('billing_accounts', {
   /** 到期前提醒信发过没有。Stripe 的 trial_will_end 会重投，靠它去重 */
   trialWillEndNotifiedAt: timestamp('trial_will_end_notified_at', { withTimezone: true }),
 
+  // ── 第二条计费权威：运营签发的订阅码（迁移 0120）──────────────────────
+  //
+  // ⭐ **一行账户只有一个权威。** Stripe webhook 永不改写 `license` 行
+  // （`applySubscriptionToRow` 开头就跳过），订阅码永不改写 `stripe` 行
+  // （`applyLicense` 的权威冲突检查）。两边都能写的那一刻，
+  // 「这家店的到期日是谁定的」就变成了一个没有答案的问题。
+  /** none = 从未接计费 · stripe = 账期由 Stripe 回写 · license = 由订阅码决定 */
+  billingSource: text('billing_source').notNull().default('none'),
+  /**
+   * license 权威下的到期时刻，同时也是 `currentPeriodEnd` 的事实来源
+   * （两列在 license 模式下镜像同一个值，好让展示逻辑不必分叉）。
+   *
+   * ⚠️ 由签发 / 续期 / 运营改期那一刻算好**写死**，请求路径上不数日子 ——
+   * 这和「不自己数 Stripe 的账期」是同一条纪律，只是权威换成了我们自己。
+   */
+  licensePeriodEnd: timestamp('license_period_end', { withTimezone: true }),
+  /** 当前生效的那张码 */
+  licenseCodeId: uuid('license_code_id'),
+  /** 到期前提醒发过没有。用法同 `trialWillEndNotifiedAt` */
+  licenseExpiryNotifiedAt: timestamp('license_expiry_notified_at', { withTimezone: true }),
+
   createdAt: createdAt(),
 }, (t) => [
   uniqueIndex('billing_accounts_location_key').on(t.locationId),

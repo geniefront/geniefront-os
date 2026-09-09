@@ -14,6 +14,7 @@ import { dispatch } from '../bus';
 import { loadBilling } from '../queries/billing';
 import { loadBillingInvoices, loadTaxProfile } from '../queries/billingInvoices';
 import { maybeAutoTopup } from '../billing/autoTopup';
+import { checkRateLimits } from '../public/rateLimit';
 import type { CtxFromHeaders } from './utils';
 
 export function registerBillingRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHeaders): void {
@@ -61,6 +62,52 @@ export function registerBillingRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
         throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'billing.manage' } });
       }
       return withTenant(ctx, (tx) => loadBillingInvoices(tx, ctx));
+    }
+  );
+
+  /**
+   * 兑换一张运营签发的订阅码 / 额度包码（sql/0120）。
+   *
+   * ## ⭐ 必须限频
+   *
+   * 一张码是「捡到就能用」的凭证。20 位 base32 = 100 bit，暴力猜不动，
+   * 但**没有限频的兑换接口本身就是一个可以无限次试的口子** ——
+   * 而且每一次失败都要查一次库、拿一次行锁。
+   *
+   * 两条规则，先便宜的后贵的（顺序有意义，见 `checkRateLimits` 的注释）：
+   * 按 IP 每分钟 10 次，按门店每小时 30 次。
+   *
+   * ## 为什么错误只有一种
+   *
+   * 不存在 / 已用过 / 已撤销 / 过了兑换期 —— 一律 `code_invalid`
+   * （收敛在 `handlers/license.ts` 的 `claimLicense`）。区分开的话，
+   * 这个接口就成了一个能拿来枚举码的探针。
+   */
+  app.post<{ Body: { code?: string } }>(
+    '/v1/desk/billing/redeem-code', async (req, reply) => {
+      const ctx = await ctxFromHeaders(req);
+      if (!ctx.permissions.has('billing.manage')) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'billing.manage' } });
+      }
+
+      const verdict = await checkRateLimits([
+        { scope: 'redeem_ip', id: req.ip, limit: 10, windowSec: 60 },
+        { scope: 'redeem_location', id: ctx.locationId, limit: 30, windowSec: 3600 },
+      ], req.log);
+      if (!verdict.ok) {
+        // 形状与公开预约那一处一致（`public/routes.ts`）：429 + RATE_LIMITED。
+        // ⚠️ 不复用 VALIDATION_FAILED —— 前台要能区分「码不对」和
+        // 「你试太快了」，否则店家会一直重试一张本来就对的码
+        return reply.status(429).send({
+          code: 'RATE_LIMITED',
+          messageKey: 'error.RATE_LIMITED',
+          details: { scope: verdict.scope, retryAfterSec: verdict.retryAfterSec },
+          overridable: false,
+        });
+      }
+
+      const res = await dispatch('billing.redeemCode', req.body ?? {}, ctx);
+      return res.result;
     }
   );
 

@@ -47,7 +47,7 @@ import { includedFor, type QuotaUnit } from '@gf/payroll';
  * `none`（从未接过计费）**不在这里**：门店是真的，老板只是还没接上计费，
  * 把前台挡在门外解决不了任何问题。它的约束是「套餐内额度为 0」，在下面。
  */
-const FROZEN_STATUSES = new Set(['past_due', 'canceled']);
+const FROZEN_STATUSES = new Set(['past_due', 'canceled', 'expired']);
 
 /**
  * 每家门店的 AI 调用限频。

@@ -43,8 +43,29 @@ export const billingPlan = z.enum(['essential', 'growth']);
  * essential 档白拿一整份套餐内额度。`none` 不冻结写入，只把套餐内额度归零。
  */
 export const subscriptionStatus = z.enum([
-  'none', 'trialing', 'active', 'past_due', 'canceled',
+  'none', 'trialing', 'active', 'past_due', 'canceled', 'expired',
 ]);
+
+/**
+ * `expired` = **订阅码到期**（迁移 0120）。
+ *
+ * 为什么不复用 `past_due`：那句话的意思是「你的卡扣不上」，而对一个用微信
+ * 转账付款的店家来说这是**错的信息**，运营台上也分不清「卡被拒」和
+ * 「订阅码到期」。冻结行为与 `past_due` 完全一致（写冻结、读照常），
+ * 判据集中在 `bus.ts` 与 `billing/aiAdmission.ts` 的 `FROZEN_STATUSES`。
+ */
+
+/** 计费权威：谁说了算这家店的付费状态（迁移 0120） */
+export const billingSource = z.enum(['none', 'stripe', 'license']);
+
+/**
+ * 码的三种用途。
+ *
+ *   subscription  订阅码：买 N 天的某个套餐
+ *   quota_pack    额度包码：加一笔积分或语音分钟（走 credit_ledger）
+ *   store_open    开店码：运营直接建店 + 挂上订阅
+ */
+export const licenseKind = z.enum(['subscription', 'quota_pack', 'store_open']);
 
 // ─────────────────────────────────────────────────────────────── 老板可见
 
@@ -443,6 +464,56 @@ export const BillingBuyAddon = defineCommand({
   idempotency: 'optional',
 });
 
+/**
+ * 兑换一张运营签发的订阅码 / 额度包码（迁移 0120）。
+ *
+ * ## 这条命令为什么可以在「欠费冻结」时执行
+ *
+ * `bus.ts` 的 `WRITE_ALLOWED_WHILE_PAST_DUE` 已经放行 `billing.` 前缀 ——
+ * 于是一家已经到期、被冻成只读的门店**仍然能兑一张码把自己救回来**。
+ * 这不是巧合，是那份白名单本来就要守的语义：欠费时唯一还该能做的写操作
+ * 就是「把欠费这件事解决掉」。⚠️ 不要为这条命令另加白名单。
+ *
+ * ## 为什么明文码在这里出现，但不会留下痕迹
+ *
+ * 入参是明文，服务端算 sha256 之后只把 hash 交给数据库 ——
+ * 库里、日志里（`logRedact`）、审计里（handler 只记 codePrefix）
+ * 都不出现明文。它是「捡到就能用」的凭证，和 magic link 同一个量级。
+ */
+export const RedeemLicenseCode = defineCommand({
+  name: 'billing.redeemCode',
+  input: z.object({
+    /** 明文码，允许带或不带分隔符、大小写随意 —— 服务端做规范化 */
+    code: z.string().trim().min(8).max(64),
+  }),
+  output: z.object({
+    kind: licenseKind,
+    codePrefix: z.string(),
+    /** subscription / store_open：生效后的套餐与到期时刻 */
+    plan: z.string().nullable(),
+    periodEnd: z.string().nullable(),
+    /** quota_pack：加了哪一种额度、加了多少、加完之后的余额 */
+    unit: quotaUnit.nullable(),
+    amount: z.number().int().nullable(),
+    balanceAfter: z.number().int().nullable(),
+    /**
+     * 这次私下收款留下的那一行发票（计划批 7）。
+     * `null` = 这张码没写面值（例如补偿性赠送），那就不该有发票。
+     */
+    invoiceId: uuid.nullable(),
+  }),
+  permission: 'billing.manage',
+  ai: {
+    description: '兑换一张订阅码或额度包码。',
+    confirm: 'always',
+    // ⭐ 副驾永远不该碰它：让模型有能力把一段自然语言变成「服务已开通」，
+    // 等于把「这家店为什么能用到年底」的解释权交出去
+    exposed: false,
+  },
+  reversible: false,
+  idempotency: 'optional',
+});
+
 export const BillingSaveTaxProfile = defineCommand({
   name: 'billing.saveTaxProfile',
   input: z.object({
@@ -472,6 +543,7 @@ export const BILLING_COMMANDS = [
   BillingChangePlan,
   BillingBuyAddon,
   BillingSaveTaxProfile,
+  RedeemLicenseCode,
   RecordInvoice,
   RecordTopupReversal,
 ] as const;

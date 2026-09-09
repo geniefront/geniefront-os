@@ -12,4 +12,5 @@ export * from './sms';
 export * from './emailSuppression';
 export * from './staffSession';
 export * from './platform';
+export * from './license';
 export * from './reviewSync';

@@ -67,6 +67,13 @@ export interface AccountRow {
   auto_topup_minutes_threshold: number;
   auto_topup_minutes_last_at: string | Date | null;
   auto_topup_minutes_failures: number;
+
+  // ── 第二条计费权威（迁移 0120）────────────────────────────────────────
+  /** none | stripe | license。⭐ 一行账户只有一个权威 */
+  billing_source: string;
+  license_period_end: string | Date | null;
+  license_code_id: string | null;
+  license_expiry_notified_at: string | Date | null;
 }
 
 /**
@@ -295,7 +302,38 @@ async function applySubscriptionToRow(
   tx: postgres.TransactionSql,
   row: AccountRow,
   patch: SubscriptionPatch,
-): Promise<{ renewed: boolean }> {
+  scope: { isAnchor: boolean; namedInItems: boolean },
+): Promise<{ renewed: boolean; skipped: boolean }> {
+  /**
+   * ⭐⭐ **由订阅码接管的行不接受 Stripe 事件**（迁移 0120）。
+   *
+   * ## 不加这一条会怎样
+   *
+   * 多店经营共用同一条订阅，而退订之后 `stripe_subscription_id` 是**留着的**
+   * （webhook 靠它定位租户）。于是一家已经改用订阅码的店，仍然会被下面那段
+   * 兄弟门店查询按 `stripe_subscription_id` 捞出来 —— 一条
+   * `customer.subscription.updated` 就把它的状态和到期日**静默改回** Stripe 那一份。
+   *
+   * 表现是：这家店明明续到年底，某天早上突然显示欠费。没有任何报错，
+   * 而且只在老板名下还有别的店时才发生。
+   *
+   * ## 什么时候算「老板自己回去付费了」（接管，切回 stripe 权威）
+   *
+   * 两种证据，任一成立：
+   *   · 事件的 item 映射里**点名了这家店**（`/v1/billing/add-store` 建 item 时
+   *     写了 `gf_location_id`）—— 那是有人明确把这家店挂到订阅上；
+   *   · 它是本次事件解析出的**锚点店**，而且事件带的订阅 id 和这一行记着的
+   *     **不是同一条** —— 新走一次 Checkout 会建出一条新订阅，这就是它。
+   *
+   * 反过来，同一条旧订阅的后续事件（id 相同、没点名）一律跳过。
+   */
+  const takeover = scope.namedInItems
+    || (scope.isAnchor
+      && patch.subscriptionId !== null
+      && patch.subscriptionId !== row.stripe_subscription_id);
+  if (row.billing_source === 'license' && !takeover) {
+    return { renewed: false, skipped: true };
+  }
   /**
    * 试用结束时刻变了 = 换了一段试用，提醒信的去重标记要跟着清掉。
    *
@@ -338,10 +376,13 @@ async function applySubscriptionToRow(
           ? null : ts(row.trial_will_end_notified_at))}::timestamptz,
       included_credits_used = ${renewed ? 0 : row.included_credits_used},
       included_minutes_used = ${renewed ? 0 : row.included_minutes_used},
-      included_period_start = ${renewed ? tx`now()` : tx`included_period_start`}
+      included_period_start = ${renewed ? tx`now()` : tx`included_period_start`},
+      -- 接管：这一行的权威回到 Stripe。清空 subscription id 的事件不算
+      -- （那是退订，权威还是 Stripe，只是没订阅了）
+      billing_source = ${patch.subscriptionId !== null ? 'stripe' : tx`billing_source`}
     where id = ${row.id}`;
 
-  return { renewed };
+  return { renewed, skipped: false };
 }
 
 registerHandler(SyncSubscription, async ({ input, ctx, tx, audit }: HandlerArgs<
@@ -408,7 +449,11 @@ registerHandler(SyncSubscription, async ({ input, ctx, tx, audit }: HandlerArgs<
   };
 
   const anchorPatch = patchFor(acct);
-  const { renewed } = await applySubscriptionToRow(tx, acct, anchorPatch);
+  const anchorResult = await applySubscriptionToRow(tx, acct, anchorPatch, {
+    isAnchor: true,
+    namedInItems: itemByLocation.has(acct.location_id),
+  });
+  const renewed = anchorResult.renewed;
 
   /**
    * ⭐ **兄弟门店。** 多店经营共用同一条订阅（一个老板一张卡一张账单），
@@ -442,8 +487,13 @@ registerHandler(SyncSubscription, async ({ input, ctx, tx, audit }: HandlerArgs<
         for update`
     : [];
 
+  let skippedLicenseRows = anchorResult.skipped ? 1 : 0;
   for (const row of siblings) {
-    await applySubscriptionToRow(tx, row, patchFor(row));
+    const res = await applySubscriptionToRow(tx, row, patchFor(row), {
+      isAnchor: false,
+      namedInItems: itemByLocation.has(row.location_id),
+    });
+    if (res.skipped) skippedLicenseRows += 1;
   }
 
   audit({
@@ -461,6 +511,9 @@ registerHandler(SyncSubscription, async ({ input, ctx, tx, audit }: HandlerArgs<
       cancelAtPeriodEnd,
       // 一条事件同步了几家店。多店老板的账单纠纷第一句就是「哪几家店受影响」
       siblingsSynced: siblings.length,
+      // 有几家店因为已经改用订阅码而被跳过（迁移 0120）。留痕是必须的：
+      // 「为什么这家店没跟着退订」必须能在审计里一眼看到
+      skippedLicenseRows,
     },
   });
 

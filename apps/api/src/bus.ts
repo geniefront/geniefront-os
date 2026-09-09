@@ -268,8 +268,12 @@ async function assertSubscriptionAllowsWrite(
  * 还没有生效订阅的那种店都属于这一档。它们的约束是「套餐内 AI 额度为 0」
  * （handlers/billing.ts 的 `includedTotalOf`），不是把前台挡在门外。
  *
+ * `expired` = **订阅码到期**（迁移 0120）。冻结行为和欠费完全一样，
+ * 分开只是为了让界面和运营台能说对话 —— 对一个微信转账的店家说
+ * 「你的卡扣不上」是错的信息。
+ *
  * ⚠️ 只列**本地真的会出现**的值。`mapSubscriptionStatus` 已经把 Stripe 的
  * `unpaid` / `incomplete_expired` 收敛成 past_due / canceled，
  * 把它们留在集合里会让人误以为那是活的判据。
  */
-const FROZEN_STATUSES = new Set(['past_due', 'canceled']);
+const FROZEN_STATUSES = new Set(['past_due', 'canceled', 'expired']);

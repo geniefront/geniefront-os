@@ -59,6 +59,17 @@ export interface BillingView {
   currentPeriodEnd: string | null;
   hasSubscription: boolean;
 
+  /**
+   * 这一行的付费状态由谁说了算（迁移 0120）：
+   * `none` 从未接计费 / `stripe` 订阅在 Stripe / `license` 运营签发的订阅码。
+   *
+   * ⚠️ 界面必须据此分叉：`license` 的店**没有** Stripe 客户门户可去，
+   * 把「管理订阅」按钮给他会跳到一个 404。他要续期是找我们，不是找 Stripe。
+   */
+  billingSource: string;
+  /** license 模式下的到期时刻（与 currentPeriodEnd 镜像同一个值） */
+  licensePeriodEnd: string | null;
+
   /** 试用结束时刻。null = 从未试用，或已经转正（批 1） */
   trialEndsAt: string | null;
   /** 现在是不是在试用期内。界面上要显示「还剩 N 天」和首次扣款日 */
@@ -193,6 +204,9 @@ export async function loadBilling(
   return {
     plan: a.plan,
     subscriptionStatus: a.subscription_status,
+    billingSource: a.billing_source,
+    licensePeriodEnd: a.license_period_end
+      ? parseTs(a.license_period_end).toISOString() : null,
     currentPeriodEnd: a.current_period_end
       ? parseTs(a.current_period_end).toISOString() : null,
     /*
@@ -239,6 +253,7 @@ export async function loadBilling(
 /** billing_accounts 里这个视图用得到的列 */
 interface AccountFields {
   plan: string; subscription_status: string;
+  billing_source: string; license_period_end: string | Date | null;
   current_period_end: string | Date | null; stripe_subscription_id: string | null;
   trial_ends_at: string | Date | null;
   cancel_at_period_end: boolean; cancel_at: string | Date | null;

@@ -6,7 +6,7 @@ import { AppError, ERROR_CODES, type CommandContext } from '@gf/contracts';
 import { dispatch } from './bus';
 
 /** Same frozen statuses as bus.ts. Checked before the model call so we do not burn tokens on a frozen shop. Dispatch still enforces freeze on the write. */
-const FROZEN_STATUSES = new Set(['past_due', 'canceled', 'unpaid', 'incomplete_expired']);
+const FROZEN_STATUSES = new Set(['past_due', 'canceled', 'expired', 'unpaid', 'incomplete_expired']);
 
 interface SummaryFacts {
   periodStart: string;
