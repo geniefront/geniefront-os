@@ -40,6 +40,7 @@ import { Input } from '@/components/ui/Input';
 import { ActionMenu } from '@/components/ui/ActionMenu';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { useSplitBundleInstance } from '@/features/bundles/api';
+import { WalkInBundleModal, type WalkInBundleSubmit } from './queue/modals/WalkInBundleModal';
 import type { TicketBundle } from '@/features/tickets/types';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -241,6 +242,9 @@ function QueueContent() {
    * 亮着却点出 403 的按钮，在门店里会被当成系统故障。
    */
   const canVoidTicket = useCanWrite('ticket.void');
+  const canOpenTicket = useCanWrite('ticket.write');
+  /** walk-in 直接开单（组合套餐）弹窗（U10 / 计划 §7）。 */
+  const [walkInBundleOpen, setWalkInBundleOpen] = useState(false);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -2083,6 +2087,30 @@ function QueueContent() {
   };
 
   /**
+   * walk-in 直接开单（组合套餐，U10 / 计划 §7）。
+   *
+   * 无预约到店客：`ticket.open` 带 `bundleSelections`、不带 `appointmentId`，
+   * 每个执行单元恰好一位技师。展开 / 排程 / 分摊 / 计价全部服务端完成。
+   * 幂等键按「客人 + 套餐」固定，重试不会开出第二张单。
+   */
+  const handleOpenWalkInBundle = async (input: WalkInBundleSubmit) => {
+    await openTicketMutation.mutateAsync({
+      customerId: null,
+      walkInName: input.walkInName,
+      items: [],
+      bundleSelections: [{
+        bundleId: input.bundleId,
+        expectedVersion: input.expectedVersion,
+        unitOverrides: input.unitStaffIds.map((membershipId) => ({ membershipId })),
+      }],
+      idempotencyKey: `queue-walkin-bundle-${input.walkInName}-${input.bundleId}`,
+    });
+    setWalkInBundleOpen(false);
+    toast.success(t('bundle.walkInSuccess', { name: input.walkInName }));
+    await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms(), refetchQueue()]);
+  };
+
+  /**
    * 逐项目的开始 / 完成。
    *
    * 卡片上每一行都自带这个动作 —— 多项目单的第二项此前在看板上没有任何
@@ -2324,6 +2352,18 @@ function QueueContent() {
             <span>{t('queue.quRefresh')}</span>
           </Button>
 
+          {canOpenTicket && (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="text-xs font-semibold text-slate-700 gap-1.5 h-9 bg-white border-slate-200 hover:bg-slate-50 hover:text-teal-700 hover:border-teal-300 shadow-2xs"
+              onClick={() => setWalkInBundleOpen(true)}
+            >
+              <Plus className="w-3.5 h-3.5 text-teal-600" />
+              <span>{t('bundle.walkInButton')}</span>
+            </Button>
+          )}
+
           <Button
             size="sm"
             className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs gap-1.5 h-9"
@@ -2366,6 +2406,15 @@ function QueueContent() {
         description={t('bundle.splitConfirmBody')}
         confirmLabel={t('bundle.split')}
         onConfirm={handleSplitBundleConfirm}
+      />
+
+      <WalkInBundleModal
+        isOpen={walkInBundleOpen}
+        onClose={() => setWalkInBundleOpen(false)}
+        staff={staff}
+        canWrite={canOpenTicket}
+        isPending={openTicketMutation.isPending}
+        onSubmit={handleOpenWalkInBundle}
       />
 
 

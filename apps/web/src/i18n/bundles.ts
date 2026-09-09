@@ -122,4 +122,17 @@ export const bundle = {
   // ── 预约详情抽屉：只读展示已选套餐 ─────────────────────────────────────────
   'bundle.drawerSectionTitle': { 'zh-Hans': '已选组合套餐', en: 'Selected bundle', ko: '선택한 묶음 상품', es: 'Paquete elegido', vi: 'Gói đã chọn' },
   'bundle.drawerHint': { 'zh-Hans': '子项的改期 / 换技师用上方「改期」，服务端会按套餐整体感知处理。', en: 'To reschedule or reassign a sub-item, use “Reschedule” above — the server handles it bundle-aware.', ko: '하위 항목의 일정 변경·담당자 변경은 위의 “일정 변경”을 사용하세요. 서버가 묶음 단위로 처리합니다.', es: 'Para reprogramar o reasignar un subelemento, usa «Reprogramar» arriba; el servidor lo gestiona a nivel de paquete.', vi: 'Để đổi lịch hoặc đổi KTV cho mục con, dùng “Đổi lịch” ở trên — máy chủ xử lý theo cả gói.' },
+
+  // ── 看板 walk-in 直接开单（组合套餐）─────────────────────────────────────
+  'bundle.walkInButton': { 'zh-Hans': '套餐开单', en: 'Bundle ticket', ko: '묶음 접수', es: 'Ticket de paquete', vi: 'Mở phiếu gói' },
+  'bundle.walkInTitle': { 'zh-Hans': '直接开单 · 组合套餐', en: 'Open a ticket · bundle', ko: '바로 접수 · 묶음 상품', es: 'Abrir ticket · paquete', vi: 'Mở phiếu · gói kết hợp' },
+  'bundle.walkInSubtitle': { 'zh-Hans': '无预约到店客，选套餐直接开单；每个子项都要指定技师。', en: 'Walk-in with no appointment — pick a bundle and open the ticket now; every sub-item needs a therapist.', ko: '예약 없이 방문한 고객 — 묶음 상품을 골라 바로 접수합니다. 모든 하위 항목에 담당자를 지정해야 합니다.', es: 'Cliente sin cita: elige un paquete y abre el ticket ahora; cada subelemento necesita un terapeuta.', vi: 'Khách vãng lai không hẹn — chọn gói và mở phiếu ngay; mỗi mục con cần một KTV.' },
+  'bundle.walkInNameLabel': { 'zh-Hans': '客人称呼', en: 'Guest name', ko: '고객 이름', es: 'Nombre del cliente', vi: 'Tên khách' },
+  'bundle.walkInNamePlaceholder': { 'zh-Hans': '例如：王小姐', en: 'e.g. Jane', ko: '예: 홍길동', es: 'p. ej. Ana', vi: 'vd: Chị Lan' },
+  'bundle.walkInNameRequired': { 'zh-Hans': '请填写客人称呼', en: 'Enter a guest name', ko: '고객 이름을 입력하세요', es: 'Escribe el nombre del cliente', vi: 'Nhập tên khách' },
+  'bundle.walkInPickStaff': { 'zh-Hans': '选择技师…', en: 'Choose a therapist…', ko: '담당자 선택…', es: 'Elige un terapeuta…', vi: 'Chọn KTV…' },
+  'bundle.walkInSubmit': { 'zh-Hans': '开单', en: 'Open ticket', ko: '접수', es: 'Abrir ticket', vi: 'Mở phiếu' },
+  'bundle.walkInSubmitting': { 'zh-Hans': '开单中…', en: 'Opening…', ko: '접수 중…', es: 'Abriendo…', vi: 'Đang mở…' },
+  'bundle.walkInSuccess': { 'zh-Hans': '已为 {name} 开单', en: 'Ticket opened for {name}', ko: '{name} 님 접수 완료', es: 'Ticket abierto para {name}', vi: 'Đã mở phiếu cho {name}' },
+  'bundle.errUnitMultiStaff': { 'zh-Hans': '这个套餐里有需要多位技师的项目，暂不支持直接开单', en: 'This bundle contains a service that needs more than one therapist — direct ticketing is not supported yet', ko: '이 묶음에는 관리사가 여러 명 필요한 서비스가 있어 바로 접수를 지원하지 않습니다', es: 'Este paquete incluye un servicio que requiere más de un terapeuta: aún no se puede abrir el ticket directamente', vi: 'Gói này có dịch vụ cần nhiều KTV — chưa hỗ trợ mở phiếu trực tiếp' },
 } satisfies DomainDict;

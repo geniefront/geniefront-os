@@ -40,6 +40,15 @@ export interface OpenTicketInput {
     minutes?: number;
     priceCentsOverride?: number;
   }>;
+  /**
+   * 直接开单选组合套餐（U10 / 计划 §7，walk-in）。与 `appointmentId` 互斥；
+   * 带预约的套餐走预约继承路径（P3b）。每个执行单元必须恰好一位技师。
+   */
+  bundleSelections?: Array<{
+    bundleId: string;
+    expectedVersion?: number;
+    unitOverrides: Array<{ membershipId: string; resourceId?: string | null; durationMin?: number }>;
+  }>;
   idempotencyKey: string;
 }
 
