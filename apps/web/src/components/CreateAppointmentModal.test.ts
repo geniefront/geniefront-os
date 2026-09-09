@@ -9,7 +9,7 @@
  *     0、`"60abc"` 静默变成合法数字（U11）。
  */
 import { describe, it, expect } from 'vitest';
-import { resolveInitialDateTime, parseDuration } from './CreateAppointmentModal';
+import { resolveInitialDateTime, parseDuration, buildBundleSelections } from './CreateAppointmentModal';
 
 // 门店 10:00–21:00
 const OPEN = 10 * 60;
@@ -160,5 +160,93 @@ describe('parseDuration', () => {
   it('越界：0 和 601 都是 range', () => {
     expect(parseDuration('0')).toEqual({ ok: false, reason: 'range' });
     expect(parseDuration('601')).toEqual({ ok: false, reason: 'range' });
+  });
+});
+
+describe('buildBundleSelections（U10 组合套餐落单载荷）', () => {
+  const UNASSIGNED = '__unassigned__';
+  const START = '2026-09-08T14:00:00-04:00';
+
+  it('unitOverrides 与 quote 单元数一一对应，顺序不变', () => {
+    const out = buildBundleSelections({
+      bundleId: 'b1',
+      expectedVersion: 3,
+      startsAt: START,
+      unitCount: 3,
+      assignments: [
+        { membershipId: 'staff-a', isRequest: false },
+        { membershipId: UNASSIGNED, isRequest: false },
+        { membershipId: 'staff-c', isRequest: true },
+      ],
+      unassignedId: UNASSIGNED,
+    });
+
+    expect(out).toHaveLength(1);
+    const sel = out[0];
+    expect(sel).toEqual({
+      bundleId: 'b1',
+      expectedVersion: 3,
+      startsAt: START,
+      unitOverrides: [
+        { membershipId: 'staff-a', resourceId: null, isRequest: false },
+        // 待分配池 → null，且强制清掉点钟标记
+        { membershipId: null, resourceId: null, isRequest: false },
+        { membershipId: 'staff-c', resourceId: null, isRequest: true },
+      ],
+    });
+  });
+
+  it('assignments 短于单元数：其余单元留待分配', () => {
+    const out = buildBundleSelections({
+      bundleId: 'b1',
+      startsAt: START,
+      unitCount: 2,
+      assignments: [{ membershipId: 'staff-a', isRequest: true }],
+      unassignedId: UNASSIGNED,
+    });
+    expect(out[0].unitOverrides).toEqual([
+      { membershipId: 'staff-a', resourceId: null, isRequest: true },
+      { membershipId: null, resourceId: null, isRequest: false },
+    ]);
+  });
+
+  it('未传 expectedVersion 时不塞该字段（避免落一个 undefined）', () => {
+    const out = buildBundleSelections({
+      bundleId: 'b1',
+      startsAt: START,
+      unitCount: 1,
+      assignments: [],
+      unassignedId: UNASSIGNED,
+    });
+    expect('expectedVersion' in out[0]).toBe(false);
+  });
+
+  it('买两份同一套餐 = 两次调用结果拼接（两个独立实例）', () => {
+    const one = buildBundleSelections({
+      bundleId: 'b1', startsAt: START, unitCount: 1,
+      assignments: [{ membershipId: 'staff-a', isRequest: false }], unassignedId: UNASSIGNED,
+    });
+    const two = buildBundleSelections({
+      bundleId: 'b1', startsAt: START, unitCount: 1,
+      assignments: [{ membershipId: 'staff-b', isRequest: false }], unassignedId: UNASSIGNED,
+    });
+    const merged = [...one, ...two];
+    expect(merged).toHaveLength(2);
+    expect(merged.map((s) => s.unitOverrides[0].membershipId)).toEqual(['staff-a', 'staff-b']);
+  });
+
+  it('选了套餐即可不带散项：载荷可与 items:[] 并存（契约 refine 只要求两者之一非空）', () => {
+    const bundleSelections = buildBundleSelections({
+      bundleId: 'b1', startsAt: START, unitCount: 2,
+      assignments: [
+        { membershipId: 'staff-a', isRequest: false },
+        { membershipId: 'staff-b', isRequest: false },
+      ],
+      unassignedId: UNASSIGNED,
+    });
+    const payload = { customerId: null, walkInName: 'Jane', items: [] as unknown[], bundleSelections };
+    expect(payload.items).toHaveLength(0);
+    expect(payload.bundleSelections).toHaveLength(1);
+    expect(payload.bundleSelections[0].unitOverrides).toHaveLength(2);
   });
 });

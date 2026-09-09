@@ -100,4 +100,22 @@ export const bundle = {
   'bundle.importKindHint': { 'zh-Hans': '按次数与项目数自动判断，可手动改。', en: 'Guessed from the session count and service list; change it if wrong.', ko: '횟수와 서비스 수로 자동 판단합니다. 필요하면 변경하세요.', es: 'Deducido del número de sesiones y de servicios; cámbialo si no es correcto.', vi: 'Suy ra từ số buổi và số dịch vụ; đổi nếu sai.' },
   'bundle.importCreated': { 'zh-Hans': '已创建 {count} 个组合套餐', en: 'Created {count} bundle(s)', ko: '묶음 상품 {count}개를 만들었습니다', es: 'Se crearon {count} paquete(s)', vi: 'Đã tạo {count} gói' },
   'bundle.importSkipped': { 'zh-Hans': '这些组合的组成项目没找到，请在「组合套餐」页手动创建：{names}', en: 'These combos had unmatched component services — build them by hand under Bundles: {names}', ko: '구성 서비스를 찾지 못한 조합입니다. 묶음 상품 페이지에서 직접 만드세요: {names}', es: 'Estos combos tienen servicios sin coincidencia: créalos a mano en Paquetes: {names}', vi: 'Các combo này có dịch vụ thành phần chưa khớp — hãy tạo thủ công ở mục Gói: {names}' },
+
+  // ── 前台选套餐（新建预约 / 看板 walk-in 开单）─────────────────────────────
+  'bundle.pickerModeSingle': { 'zh-Hans': '单项', en: 'Single services', ko: '단품', es: 'Servicios sueltos', vi: 'Dịch vụ lẻ' },
+  'bundle.pickerModeBundle': { 'zh-Hans': '组合套餐', en: 'Bundle', ko: '묶음 상품', es: 'Paquete', vi: 'Gói kết hợp' },
+  'bundle.pickerHeading': { 'zh-Hans': '选择组合套餐', en: 'Choose a bundle', ko: '묶음 상품 선택', es: 'Elegir un paquete', vi: 'Chọn gói kết hợp' },
+  'bundle.pickerPlaceholder': { 'zh-Hans': '选择一个组合套餐…', en: 'Pick a bundle…', ko: '묶음 상품을 고르세요…', es: 'Elige un paquete…', vi: 'Chọn một gói…' },
+  'bundle.pickerNoTemplates': { 'zh-Hans': '暂无在售的组合套餐。先去「组合套餐」页建一个。', en: 'No active bundles yet. Create one under Bundles first.', ko: '판매 중인 묶음 상품이 없습니다. 먼저 묶음 상품 페이지에서 만드세요.', es: 'Aún no hay paquetes activos. Crea uno en Paquetes primero.', vi: 'Chưa có gói nào đang bán. Hãy tạo một gói ở mục Gói trước.' },
+  'bundle.pickerUnfulfillable': { 'zh-Hans': '组成项目已停用，去组合套餐页修复', en: 'A component service is inactive — fix it under Bundles', ko: '구성 서비스가 비활성입니다 — 묶음 상품 페이지에서 수정하세요', es: 'Un servicio del paquete está inactivo: corrígelo en Paquetes', vi: 'Một dịch vụ thành phần đã ngừng — hãy sửa ở mục Gói' },
+  'bundle.pickerUnitsHeading': { 'zh-Hans': '套餐子项（逐项指派技师）', en: 'Bundle sub-items (assign a therapist to each)', ko: '묶음 하위 항목(항목마다 담당자 지정)', es: 'Subelementos del paquete (asigna un terapeuta a cada uno)', vi: 'Các mục con của gói (phân công KTV cho từng mục)' },
+  'bundle.pickerLoadingQuote': { 'zh-Hans': '正在计算套餐明细…', en: 'Calculating bundle details…', ko: '묶음 상세 계산 중…', es: 'Calculando los detalles del paquete…', vi: 'Đang tính chi tiết gói…' },
+  'bundle.pickerQuoteFailed': { 'zh-Hans': '套餐报价失败，请重试', en: 'Could not price the bundle — try again', ko: '묶음 견적에 실패했습니다. 다시 시도하세요', es: 'No se pudo cotizar el paquete: inténtalo de nuevo', vi: 'Không thể báo giá gói — hãy thử lại' },
+  'bundle.pickerOriginalTotal': { 'zh-Hans': '原价合计', en: 'List total', ko: '정가 합계', es: 'Total de lista', vi: 'Tổng giá gốc' },
+  'bundle.pickerBundlePrice': { 'zh-Hans': '组合价', en: 'Bundle price', ko: '묶음 가격', es: 'Precio del paquete', vi: 'Giá gói' },
+  'bundle.pickerSavings': { 'zh-Hans': '套餐优惠', en: 'Bundle savings', ko: '묶음 할인', es: 'Ahorro del paquete', vi: 'Ưu đãi gói' },
+  'bundle.pickerStaffRequired': { 'zh-Hans': '每个子项都要指定技师', en: 'Every sub-item needs a therapist', ko: '모든 하위 항목에 담당자를 지정해야 합니다', es: 'Cada subelemento necesita un terapeuta', vi: 'Mỗi mục con cần một KTV' },
+  'bundle.pickerStartTime': { 'zh-Hans': '套餐开始时刻', en: 'Bundle start time', ko: '묶음 시작 시각', es: 'Hora de inicio del paquete', vi: 'Giờ bắt đầu gói' },
+  'bundle.pickerSubItemsFollow': { 'zh-Hans': '子项从这个时刻起按标准时长顺排', en: 'Sub-items run back-to-back from this time at their standard durations', ko: '하위 항목은 이 시각부터 표준 소요시간으로 연이어 배치됩니다', es: 'Los subelementos se encadenan desde esta hora con su duración estándar', vi: 'Các mục con nối tiếp nhau từ giờ này theo thời lượng chuẩn' },
+  'bundle.errNotFound': { 'zh-Hans': '这个组合套餐已不存在，请刷新后重试', en: 'This bundle no longer exists — refresh and try again', ko: '이 묶음 상품은 더 이상 존재하지 않습니다. 새로고침 후 다시 시도하세요', es: 'Este paquete ya no existe: actualiza e inténtalo de nuevo', vi: 'Gói này không còn tồn tại — làm mới và thử lại' },
 } satisfies DomainDict;

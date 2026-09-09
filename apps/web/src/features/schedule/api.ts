@@ -102,11 +102,33 @@ export interface CreateAppointmentItemInput {
   isRequest?: boolean;
 }
 
+/**
+ * 组合套餐选择（U10）。与 `packages/contracts` 的 `bundleSelectionInput` 对齐 ——
+ * 展开、排程、分摊、计价一律由服务端按 `bundle.quote` 的顺序完成，前端只负责
+ * 传「选了哪个套餐、第一个子项何时开始、各执行单元派给谁」。
+ */
+export interface CreateBundleSelectionInput {
+  bundleId: string;
+  /** catalog 里取到的模板版本，防止用旧价落单。 */
+  expectedVersion?: number;
+  /** 套餐第一个子项的开始时刻（datetime+offset），其余子项顺排。 */
+  startsAt: string;
+  /** 按 `quote` 展开顺序对应各执行单元；可短于单元数，其余留空。 */
+  unitOverrides: Array<{
+    membershipId: string | null;
+    resourceId: string | null;
+    durationMin?: number;
+    isRequest: boolean;
+  }>;
+}
+
 export interface CreateAppointmentInput {
   customerId: string | null;
   /** 匿名到店客：不建客户档案，仅留姓名，事后可合并。 */
   walkInName?: string;
   items: CreateAppointmentItemInput[];
+  /** 组合套餐选择；与 `items` 至少一个非空。买两份 = 放两条。 */
+  bundleSelections?: CreateBundleSelectionInput[];
   notes?: string;
   override?: Override;
 }
@@ -157,6 +179,22 @@ export function useCreateAppointment(date: string) {
             resourceId: it.resourceId ?? null,
             ...(it.durationMin ? { durationMin: it.durationMin } : {}),
           })),
+          // 选了套餐时 items 可为空数组；服务端 refine 只要求两者至少一个非空。
+          ...(input.bundleSelections?.length
+            ? {
+                bundleSelections: input.bundleSelections.map((sel) => ({
+                  bundleId: sel.bundleId,
+                  ...(sel.expectedVersion ? { expectedVersion: sel.expectedVersion } : {}),
+                  startsAt: sel.startsAt,
+                  unitOverrides: sel.unitOverrides.map((u) => ({
+                    membershipId: u.membershipId,
+                    resourceId: u.resourceId,
+                    isRequest: u.isRequest,
+                    ...(u.durationMin ? { durationMin: u.durationMin } : {}),
+                  })),
+                })),
+              }
+            : {}),
           source: 'desk',
           ...(input.notes ? { notes: input.notes } : {}),
           ...(input.override ? { override: input.override } : {}),

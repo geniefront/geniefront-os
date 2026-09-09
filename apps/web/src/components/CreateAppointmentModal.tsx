@@ -7,8 +7,12 @@ import { useLanguage } from '@/LanguageContext';
 import type { TranslationKey } from '@/i18n';
 import { useSchedule, useScheduleMutations, UNASSIGNED_STAFF_ID } from '@/context/ScheduleContext';
 import { isOverridableConflict, OVERRIDE_REASONS, type Override } from '@/features/schedule/api';
+import type { CreateBundleSelectionInput } from '@/features/schedule/api';
 import { deskAppointmentCustomer } from '@/features/schedule/deskCustomer';
 import { useSaveCustomerProfile } from '@/features/customers/api';
+import { useCan } from '@/lib/permissions';
+import { useBundleCatalogQuery, quoteBundle } from '@/features/bundles/api';
+import type { BundleQuoteResult, BundleTemplateView } from '@/features/bundles/types';
 import { wallMinutesToInstant, instantToWallDate, nowWallHhMm } from '@/lib/time';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { centsToDollars } from '@/features/checkout/api';
@@ -27,6 +31,7 @@ import {
   Layers,
   Zap,
   FastForward,
+  Package,
 } from 'lucide-react';
 
 export interface CreateAppointmentModalProps {
@@ -134,6 +139,45 @@ export function resolveInitialDateTime(params: {
   return { date: targetDate, time: minsToTime(startM) };
 }
 
+/**
+ * 组合套餐（U10）选择草稿 → `appointment.create` 的 `bundleSelections` 载荷。
+ *
+ * 纯函数，便于单测：展开顺序、金额、排程都由服务端按 `bundle.quote` 完成，
+ * 这里只把「第一个子项开始时刻 + 各执行单元派给谁」整理成契约形状。
+ * `unitOverrides` 与 `quote.units` 顺序一一对应；未指派技师留 `null`（进待分配池）。
+ * 买两份同一套餐 = 调两次本函数并把结果拼接。
+ */
+export interface BundleUnitAssignmentDraft {
+  /** UNASSIGNED_STAFF_ID 或真实 membershipId。 */
+  membershipId: string;
+  isRequest: boolean;
+}
+
+export function buildBundleSelections(params: {
+  bundleId: string;
+  expectedVersion?: number;
+  startsAt: string;
+  unitCount: number;
+  assignments: BundleUnitAssignmentDraft[];
+  unassignedId: string;
+}): CreateBundleSelectionInput[] {
+  const unitOverrides = Array.from({ length: params.unitCount }, (_, i) => {
+    const a = params.assignments[i];
+    const assigned = a && a.membershipId && a.membershipId !== params.unassignedId;
+    return {
+      membershipId: assigned ? a!.membershipId : null,
+      resourceId: null,
+      isRequest: assigned ? Boolean(a!.isRequest) : false,
+    };
+  });
+  return [{
+    bundleId: params.bundleId,
+    ...(params.expectedVersion ? { expectedVersion: params.expectedVersion } : {}),
+    startsAt: params.startsAt,
+    unitOverrides,
+  }];
+}
+
 /** label/desc 只存词典键，id 是唯一持久化/比对的值 */
 const PAST_BOOKING_REASONS: Array<{ id: string; labelKey: TranslationKey; descKey: TranslationKey }> = [
   { id: 'walk_in_backfill', labelKey: 'schedule.apptReasonWalkInLabel', descKey: 'schedule.apptReasonWalkInDesc' },
@@ -211,9 +255,71 @@ export function CreateAppointmentModal({
   const [conflictError, setConflictError] = useState<{ message: string; key: string } | null>(null);
   const [overrideReason, setOverrideReason] = useState<Override['reason']>('desk_coordination');
 
+  // ── 组合套餐（U10）─────────────────────────────────────────────────────
+  const canAppointmentWrite = useCan('appointment.write');
+  const [mode, setMode] = useState<'items' | 'bundle'>('items');
+  const [selectedBundleId, setSelectedBundleId] = useState('');
+  const [bundleStartTime, setBundleStartTime] = useState('10:00');
+  const [unitStaff, setUnitStaff] = useState<BundleUnitAssignmentDraft[]>([]);
+  const [bundleQuote, setBundleQuote] = useState<{
+    status: 'idle' | 'loading' | 'ready' | 'error';
+    data: BundleQuoteResult | null;
+  }>({ status: 'idle', data: null });
+
+  // 只在弹窗打开且切到「套餐」标签后才拉目录；避免每次开弹窗都打一发请求。
+  const bundleCatalog = useBundleCatalogQuery({
+    enabled: isOpen && canAppointmentWrite && mode === 'bundle',
+  });
+  const bundleTemplates = useMemo<BundleTemplateView[]>(
+    () => (bundleCatalog.data?.templates ?? []).filter((b) => b.active),
+    [bundleCatalog.data],
+  );
+  const selectedBundle = useMemo(
+    () => bundleTemplates.find((b) => b.id === selectedBundleId) ?? null,
+    [bundleTemplates, selectedBundleId],
+  );
+  // 组成项目名：quote 的 unit 只给 serviceId / componentId，名称从模板 components 取。
+  const componentNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of selectedBundle?.components ?? []) m.set(c.componentId, c.serviceName);
+    return m;
+  }, [selectedBundle]);
+
   const availableStaff = useMemo(() => {
     return staff.filter((s) => s.membershipId === UNASSIGNED_STAFF_ID || s.isBookable);
   }, [staff]);
+
+  /**
+   * 选中套餐（或其版本变化）后取服务端权威报价。金额、展开顺序、排程都以
+   * `quote` 为准，前端不自算。切回单项模式或清空选择即丢弃。
+   */
+  useEffect(() => {
+    if (!isOpen || mode !== 'bundle') return;
+    const tpl = bundleTemplates.find((b) => b.id === selectedBundleId);
+    if (!tpl) {
+      setBundleQuote({ status: 'idle', data: null });
+      return;
+    }
+    let cancelled = false;
+    setBundleQuote({ status: 'loading', data: null });
+    quoteBundle({ bundleId: tpl.id, expectedVersion: tpl.version })
+      .then((res) => {
+        if (cancelled) return;
+        setBundleQuote({ status: 'ready', data: res });
+        setUnitStaff(
+          res.units.map(() => ({
+            membershipId: defaultStaffId || UNASSIGNED_STAFF_ID,
+            isRequest: false,
+          })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setBundleQuote({ status: 'error', data: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, mode, selectedBundleId, bundleTemplates, defaultStaffId]);
 
   // 初始化多项目
   useEffect(() => {
@@ -248,6 +354,11 @@ export function CreateAppointmentModal({
       closeMin,
     });
     setDate(targetDate);
+    setBundleStartTime(initialTime);
+    setMode('items');
+    setSelectedBundleId('');
+    setUnitStaff([]);
+    setBundleQuote({ status: 'idle', data: null });
 
     const firstSvc = services.find((s) => s.id === defaultServiceId) || services[0];
     const initialStaffId = defaultStaffId || UNASSIGNED_STAFF_ID;
@@ -522,18 +633,23 @@ export function CreateAppointmentModal({
     };
   }, [items]);
 
+  // 套餐模式下「最早开始」就是套餐起点，其余子项顺排在后。
+  const earliestStartTime = mode === 'bundle' ? bundleStartTime : summary.earliestStart;
+  // 报价就绪后的快照。取成独立 const 便于在 map 闭包里保持非空收窄。
+  const readyQuote = bundleQuote.status === 'ready' ? bundleQuote.data : null;
+
   // 计算最早已过去时间（是否早于当前时刻 30 分钟）
   const pastMinutes = useMemo(() => {
-    if (!date || summary.earliestStart === '--:--') return 0;
+    if (!date || earliestStartTime === '--:--') return 0;
     try {
-      const startsAt = wallMinutesToInstant(date || currentDate, timeToMins(summary.earliestStart), timezone);
+      const startsAt = wallMinutesToInstant(date || currentDate, timeToMins(earliestStartTime), timezone);
       const apptTimestamp = new Date(startsAt).getTime();
       const nowTimestamp = Date.now();
       return Math.round((nowTimestamp - apptTimestamp) / 60000);
     } catch {
       return 0;
     }
-  }, [date, summary.earliestStart, currentDate, timezone]);
+  }, [date, earliestStartTime, currentDate, timezone]);
 
   const isPastOver30Min = pastMinutes > 30;
 
@@ -543,17 +659,24 @@ export function CreateAppointmentModal({
       toast.danger(t('schedule.apptNameRequired'));
       return;
     }
-    if (items.length === 0) {
-      toast.danger(t('schedule.apptServiceRequired'));
-      return;
-    }
-    // 时长非法就地拦下 —— 不把空值当 30 分钟、也不把 "60abc" 截成 60 提交
-    const badDuration = items
-      .map((it) => parseDuration(it.durationText))
-      .find((p): p is Extract<DurationParse, { ok: false }> => !p.ok);
-    if (badDuration) {
-      toast.danger(durationErrorText(badDuration.reason));
-      return;
+    if (mode === 'bundle') {
+      if (!selectedBundleId || bundleQuote.status !== 'ready' || !bundleQuote.data) {
+        toast.danger(t('bundle.pickerQuoteFailed'));
+        return;
+      }
+    } else {
+      if (items.length === 0) {
+        toast.danger(t('schedule.apptServiceRequired'));
+        return;
+      }
+      // 时长非法就地拦下 —— 不把空值当 30 分钟、也不把 "60abc" 截成 60 提交
+      const badDuration = items
+        .map((it) => parseDuration(it.durationText))
+        .find((p): p is Extract<DurationParse, { ok: false }> => !p.ok);
+      if (badDuration) {
+        toast.danger(durationErrorText(badDuration.reason));
+        return;
+      }
     }
 
     const idempotencyKey = retryKey || crypto.randomUUID();
@@ -584,6 +707,33 @@ export function CreateAppointmentModal({
         walkInName = identity.walkInName;
       }
 
+      if (mode === 'bundle' && bundleQuote.data) {
+        const startsAt = wallMinutesToInstant(
+          date || currentDate, timeToMins(bundleStartTime), timezone,
+        );
+        const bundleSelections = buildBundleSelections({
+          bundleId: selectedBundleId,
+          expectedVersion: bundleQuote.data.version,
+          startsAt,
+          unitCount: bundleQuote.data.units.length,
+          assignments: unitStaff,
+          unassignedId: UNASSIGNED_STAFF_ID,
+        });
+        await create.mutateAsync({
+          customerId,
+          walkInName,
+          items: [],
+          bundleSelections,
+          notes: finalNotes,
+          override,
+          idempotencyKey,
+        });
+        toast.success(t('saved') || t('schedule.apptCreated'));
+        setCurrentDate(date || currentDate);
+        onClose();
+        return;
+      }
+
       await create.mutateAsync({
         customerId,
         walkInName,
@@ -612,7 +762,12 @@ export function CreateAppointmentModal({
             : t('schedule.apptConflictGeneric');
         setConflictError({ message: conflictMsg, key: idempotencyKey });
       } else {
-        toast.danger(errorMessage(err));
+        // 组合套餐专属失败：服务端把成因放在 details.reason（见 BundleManagerPanel）。
+        const reason = (err as { details?: { reason?: string } })?.details?.reason;
+        if (reason === 'bundle_version_conflict') toast.danger(t('bundle.errVersionConflict'));
+        else if (reason === 'bundle_service_inactive') toast.danger(t('bundle.errInactiveService'));
+        else if (reason === 'bundle_not_found') toast.danger(t('bundle.errNotFound'));
+        else toast.danger(errorMessage(err));
       }
     }
   };
@@ -624,16 +779,31 @@ export function CreateAppointmentModal({
       return;
     }
     setNameError(false);
-    if (items.some((i) => !i.serviceId)) {
-      toast.danger(t('schedule.apptServicePerRow'));
-      return;
-    }
-    const firstBadDuration = items
-      .map((it) => parseDuration(it.durationText))
-      .find((p): p is Extract<DurationParse, { ok: false }> => !p.ok);
-    if (firstBadDuration) {
-      toast.danger(durationErrorText(firstBadDuration.reason));
-      return;
+    if (mode === 'bundle') {
+      if (!selectedBundleId) {
+        toast.danger(t('bundle.pickerPlaceholder'));
+        return;
+      }
+      if (bundleQuote.status === 'loading') {
+        toast.danger(t('bundle.pickerLoadingQuote'));
+        return;
+      }
+      if (bundleQuote.status !== 'ready' || !bundleQuote.data) {
+        toast.danger(t('bundle.pickerQuoteFailed'));
+        return;
+      }
+    } else {
+      if (items.some((i) => !i.serviceId)) {
+        toast.danger(t('schedule.apptServicePerRow'));
+        return;
+      }
+      const firstBadDuration = items
+        .map((it) => parseDuration(it.durationText))
+        .find((p): p is Extract<DurationParse, { ok: false }> => !p.ok);
+      if (firstBadDuration) {
+        toast.danger(durationErrorText(firstBadDuration.reason));
+        return;
+      }
     }
 
     if (isPastOver30Min) {
@@ -754,13 +924,32 @@ export function CreateAppointmentModal({
             </div>
           </div>
 
+          {/* 单项 / 组合套餐 切换（U10）*/}
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+            {(['items', 'bundle'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => { markDirty(); setMode(m); }}
+                className={cn(
+                  'flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-lg cursor-pointer transition-all',
+                  mode === m ? 'bg-white text-teal-700 shadow-2xs' : 'text-slate-500 hover:text-slate-700',
+                )}
+              >
+                {m === 'items' ? <Scissors className="w-3 h-3" /> : <Package className="w-3 h-3" />}
+                <span>{m === 'items' ? t('bundle.pickerModeSingle') : t('bundle.pickerModeBundle')}</span>
+              </button>
+            ))}
+          </div>
+
           {/* 多项目与多技师指派行编辑器 */}
+          {mode === 'items' && (
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
                   <Scissors className="w-3.5 h-3.5 text-teal-600" />
-                  
+
                   {t('schedule.apptServiceListPrefix')}{items.length})
                 </span>
               </div>
@@ -993,8 +1182,155 @@ export function CreateAppointmentModal({
               <span>{t('schedule.apptAddService')}</span>
             </button>
           </div>
+          )}
+
+          {/* 组合套餐选择（U10）*/}
+          {mode === 'bundle' && (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                  {t('bundle.pickerHeading')}
+                </label>
+                {bundleCatalog.isLoading ? (
+                  <p className="text-xs text-slate-400">{t('bundle.pickerLoadingQuote')}</p>
+                ) : bundleTemplates.length === 0 ? (
+                  <p className="text-xs text-slate-500 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    {t('bundle.pickerNoTemplates')}
+                  </p>
+                ) : (
+                  <select
+                    value={selectedBundleId}
+                    onChange={(e) => { markDirty(); setSelectedBundleId(e.target.value); }}
+                    className="w-full h-9 px-2.5 py-1 text-xs rounded-xl border border-slate-200 bg-white font-medium"
+                  >
+                    <option value="">{t('bundle.pickerPlaceholder')}</option>
+                    {bundleTemplates.map((b) => (
+                      <option key={b.id} value={b.id} disabled={!b.fulfillable}>
+                        {b.name}{b.fulfillable ? '' : ` — ${t('bundle.pickerUnfulfillable')}`}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {selectedBundle && !selectedBundle.fulfillable && (
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-600">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  {t('bundle.pickerUnfulfillable')}
+                </div>
+              )}
+
+              {selectedBundleId !== '' && (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                    {t('bundle.pickerStartTime')}
+                  </label>
+                  <Input
+                    type="time"
+                    value={bundleStartTime}
+                    onChange={(e) => { markDirty(); setBundleStartTime(e.target.value); }}
+                    className="h-9 min-h-0 py-1 px-2.5 text-xs font-mono w-40"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">{t('bundle.pickerSubItemsFollow')}</p>
+                </div>
+              )}
+
+              {bundleQuote.status === 'loading' && (
+                <p className="text-xs text-slate-400">{t('bundle.pickerLoadingQuote')}</p>
+              )}
+              {bundleQuote.status === 'error' && (
+                <p className="text-xs text-rose-600 font-medium">{t('bundle.pickerQuoteFailed')}</p>
+              )}
+
+              {readyQuote && (
+                <>
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                      {t('bundle.pickerUnitsHeading')}
+                    </span>
+                    {readyQuote.units.map((u, i) => {
+                      const startMins = timeToMins(bundleStartTime)
+                        + readyQuote.units.slice(0, i).reduce((n, x) => n + x.durationMin, 0);
+                      const endMins = startMins + u.durationMin;
+                      const a = unitStaff[i] ?? { membershipId: UNASSIGNED_STAFF_ID, isRequest: false };
+                      return (
+                        <div key={u.unitKey} className="p-2.5 bg-white border border-slate-200 rounded-2xl space-y-2 shadow-2xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-bold text-xs text-slate-900 truncate">
+                              {i + 1}. {componentNameById.get(u.componentId) ?? '—'}
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-500 whitespace-nowrap">
+                              {minsToTime(startMins)}–{minsToTime(endMins)} · {t('schedule.apptDurationMinutes', { p0: u.durationMin })}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={a.membershipId}
+                              onChange={(e) => {
+                                markDirty();
+                                const val = e.target.value;
+                                setUnitStaff((prev) => prev.map((x, j) => j === i
+                                  ? { membershipId: val, isRequest: val === UNASSIGNED_STAFF_ID ? false : x.isRequest }
+                                  : x));
+                              }}
+                              className="flex-1 h-8 px-2 text-xs rounded-xl border border-slate-200 bg-white font-medium truncate"
+                              aria-label={t('schedule.apptAssignStaff')}
+                            >
+                              <option value={UNASSIGNED_STAFF_ID}>{t('schedule.apptUnassignedPool')}</option>
+                              {availableStaff
+                                .filter((s) => s.membershipId !== UNASSIGNED_STAFF_ID && s.isBookable)
+                                .map((s) => (
+                                  <option key={s.membershipId} value={s.membershipId}>{s.name}</option>
+                                ))}
+                            </select>
+                            <label className={cn(
+                              'flex items-center gap-1 cursor-pointer text-[10px] px-1.5 py-0.5 rounded-md border select-none',
+                              a.isRequest
+                                ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold'
+                                : 'bg-slate-50 border-slate-200 text-slate-500',
+                            )}>
+                              <input
+                                type="checkbox"
+                                checked={a.isRequest}
+                                disabled={a.membershipId === UNASSIGNED_STAFF_ID}
+                                onChange={(e) => {
+                                  markDirty();
+                                  const checked = e.target.checked;
+                                  setUnitStaff((prev) => prev.map((x, j) => j === i ? { ...x, isRequest: checked } : x));
+                                }}
+                                className="w-3 h-3"
+                              />
+                              <span>{t('schedule.apptRequested')}</span>
+                            </label>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-1 text-xs">
+                    <div className="flex justify-between text-slate-500">
+                      <span>{t('bundle.pickerOriginalTotal')}</span>
+                      <span className="font-mono line-through">${centsToDollars(readyQuote.originalTotalCents)}</span>
+                    </div>
+                    {readyQuote.bundleDiscountCents > 0 && (
+                      <div className="flex justify-between text-emerald-600 font-semibold">
+                        <span>{t('bundle.pickerSavings')}</span>
+                        <span className="font-mono">−${centsToDollars(readyQuote.bundleDiscountCents)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-bold text-teal-900 border-t border-teal-200 pt-1">
+                      <span>{t('bundle.pickerBundlePrice')}</span>
+                      <span className="font-mono">${centsToDollars(readyQuote.bundlePriceCents)}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* 聚合开单汇总状态条 */}
+          {mode === 'items' && (
           <div className="p-3 bg-gradient-to-r from-teal-50/90 via-emerald-50/70 to-teal-50/90 border border-teal-200 rounded-2xl flex flex-wrap items-center justify-between gap-2 shadow-2xs">
             <div className="flex items-center gap-2 flex-wrap text-xs">
               <span className="flex items-center gap-1 font-bold text-slate-900 bg-white/90 px-2.5 py-1 rounded-xl border border-teal-100 shadow-2xs">
@@ -1016,6 +1352,7 @@ export function CreateAppointmentModal({
               <span>${centsToDollars(summary.totalPriceCents)}</span>
             </div>
           </div>
+          )}
 
           {/* 实时过去时间超过30分钟强警示卡片 */}
           {isPastOver30Min && (
@@ -1034,7 +1371,7 @@ export function CreateAppointmentModal({
                 </div>
                 <p className="text-[11px] text-amber-800 leading-relaxed">
                   
-                  {t('schedule.apptBackfillBody1')} <strong>{date} {summary.earliestStart}</strong>{t('schedule.apptBackfillBody2')}<strong>{t('schedule.apptBackfillBody3')}</strong>{t('schedule.apptBackfillBody4')}
+                  {t('schedule.apptBackfillBody1')} <strong>{date} {earliestStartTime}</strong>{t('schedule.apptBackfillBody2')}<strong>{t('schedule.apptBackfillBody3')}</strong>{t('schedule.apptBackfillBody4')}
                 </p>
               </div>
             </div>
@@ -1098,7 +1435,7 @@ export function CreateAppointmentModal({
                 <div className="p-2 bg-white/90 rounded-xl border border-amber-200">
                   <span className="text-slate-400 block text-[10px]">{t('schedule.apptEarliestStart')}</span>
                   <span className="font-mono font-bold text-slate-900 text-xs">
-                    {date} {summary.earliestStart}
+                    {date} {earliestStartTime}
                   </span>
                 </div>
                 <div className="p-2 bg-white/90 rounded-xl border border-amber-200">
