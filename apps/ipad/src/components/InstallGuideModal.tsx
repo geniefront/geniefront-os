@@ -35,13 +35,13 @@ export const InstallGuideModal: React.FC = () => {
 
   return (
     <>
-      {/* 底部悬浮提示条 */}
-      <div className="fixed bottom-6 left-6 right-6 sm:left-auto sm:right-6 sm:max-w-md z-40 flex items-center justify-between gap-3 p-3 sm:p-3.5 rounded-2xl bg-white/95 border border-teal-200 backdrop-blur-md shadow-xl text-xs text-slate-800 animate-slide-up">
+      {/* 占据布局空间，避免横屏时覆盖配对或签名提交按钮。 */}
+      <div className="relative mx-3 mb-3 shrink-0 z-40 flex items-center justify-between gap-3 p-3 sm:p-3.5 rounded-2xl bg-white/95 border border-teal-200 backdrop-blur-md shadow-xl text-xs text-slate-800 animate-slide-up">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-xl bg-teal-50 border border-teal-200 text-teal-600 flex items-center justify-center shrink-0">
             <Smartphone className="w-4 h-4" />
           </div>
-          <span className="font-bold text-slate-800 truncate">
+          <span className="font-bold text-slate-800">
             {t('pwa.installPrompt')}
           </span>
         </div>
@@ -68,7 +68,7 @@ export const InstallGuideModal: React.FC = () => {
       {/* 安装步骤引导弹窗 */}
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-xs animate-fade-in select-none">
-          <div className="w-full max-w-lg rounded-3xl bg-white border border-slate-200 shadow-2xl p-7 space-y-6">
+          <div className="w-full max-w-lg max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-3xl bg-white border border-slate-200 shadow-2xl p-7 space-y-6">
             <div className="flex items-center justify-between">
               <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
                 <Smartphone className="w-6 h-6 text-teal-600" />

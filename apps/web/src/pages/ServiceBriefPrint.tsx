@@ -1,3 +1,4 @@
+import { openPrintPreview } from '@/features/printing/preview';
 /**
  * 入座服务单一页纸（打印页）。
  *
@@ -127,12 +128,12 @@ interface FormQuestion {
 export function ServiceBriefPrint() {
   const { ticketId } = useParams<{ ticketId: string }>();
   const { language: uiLanguage } = useLanguage();
-  const { status } = useSession();
+  const { status, membershipId } = useSession();
   const [printLanguage, setPrintLanguage] = useState<Language>(uiLanguage);
-  const [format, setFormat] = useState<'a4' | 'thermal'>('a4');
+  const [format, setFormat] = useState<'letter' | 'thermal'>('letter');
 
   const query = useQuery({
-    queryKey: ['desk', 'service-brief', ticketId],
+    queryKey: ['desk', 'service-brief', membershipId, ticketId],
     queryFn: () => apiGet<ServiceBriefDto>(`/v1/desk/tickets/${ticketId}/service-brief`),
     enabled: status === 'ready' && Boolean(ticketId),
     /*
@@ -262,13 +263,13 @@ export function ServiceBriefPrint() {
           <select
             id="sbp-format"
             value={format}
-            onChange={(e) => setFormat(e.target.value as 'a4' | 'thermal')}
+            onChange={(e) => setFormat(e.target.value as 'letter' | 'thermal')}
           >
-            <option value="a4">{tp('print.formatA4')}</option>
+            <option value="letter">US Letter (8.5 × 11 in)</option>
             <option value="thermal">{tp('print.formatThermal')}</option>
           </select>
 
-          <button type="button" className="sbp-chrome__print" onClick={() => window.print()}>
+          <button type="button" className="sbp-chrome__print" disabled={query.isFetching} onClick={async () => { const result = await query.refetch(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); if (result.data && !result.error) openPrintPreview(document.querySelector('.sbp-sheet'), tp('print.briefTitle'), format); }}>
             <Printer aria-hidden />
             {tp('print.printAction')}
           </button>

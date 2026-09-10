@@ -1,0 +1,525 @@
+[
+  {
+    "repo": "shadcn-ui/ui",
+    "url": "https://github.com/shadcn-ui/ui",
+    "description": "A set of beautifully-designed, accessible components and a code distribution platform. Works with your favorite frameworks. Open Source. Open Code.",
+    "license": "MIT",
+    "pushed_at": "2026-09-08T07:47:49Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "TanStack/table",
+    "url": "https://github.com/TanStack/table",
+    "description": "🤖 Headless UI for building powerful tables & datagrids for TS/JS -  React-Table, Vue-Table, Solid-Table, Svelte-Table",
+    "license": "MIT",
+    "pushed_at": "2026-08-31T11:47:14Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "TanStack/query",
+    "url": "https://github.com/TanStack/query",
+    "description": "🤖 Powerful asynchronous state management, server-state utilities and data fetching for the web. TS/JS, React Query, Solid Query, Svelte Query and Vue Query.",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T15:40:20Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "TanStack/virtual",
+    "url": "https://github.com/TanStack/virtual",
+    "description": "🤖 Headless UI for Virtualizing Large Element Lists in JS/TS, React, Solid, Vue and Svelte",
+    "license": "MIT",
+    "pushed_at": "2026-09-07T19:44:28Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "react-hook-form/react-hook-form",
+    "url": "https://github.com/react-hook-form/react-hook-form",
+    "description": "📋 React Hooks for form state management and validation (Web + React Native)",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T09:42:51Z",
+    "archived": false,
+    "branch": "master"
+  },
+  {
+    "repo": "colinhacks/zod",
+    "url": "https://github.com/colinhacks/zod",
+    "description": "TypeScript-first schema validation with static type inference",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T17:53:27Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "clauderic/dnd-kit",
+    "url": "https://github.com/clauderic/dnd-kit",
+    "description": "The modern toolkit for building drag and drop interfaces",
+    "license": "MIT",
+    "pushed_at": "2026-09-06T12:37:10Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "jquense/react-big-calendar",
+    "url": "https://github.com/bigcalendar/react-big-calendar",
+    "description": "gcal/outlook like calendar component",
+    "license": "MIT",
+    "pushed_at": "2026-06-01T02:34:37Z",
+    "archived": false,
+    "branch": "master"
+  },
+  {
+    "repo": "date-fns/date-fns",
+    "url": "https://github.com/date-fns/date-fns",
+    "description": "⏳ Modern JavaScript date utility library ⌛️",
+    "license": null,
+    "pushed_at": "2026-08-30T01:05:02Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "mdehoog/rrule",
+    "error": "HTTP Error 404: Not Found"
+  },
+  {
+    "repo": "mikeMcl/decimal.js",
+    "url": "https://github.com/MikeMcl/decimal.js",
+    "description": "An arbitrary-precision Decimal type for JavaScript",
+    "license": "MIT",
+    "pushed_at": "2026-08-30T20:11:56Z",
+    "archived": false,
+    "branch": "master"
+  },
+  {
+    "repo": "dinerojs/dinero.js",
+    "url": "https://github.com/dinerojs/dinero.js",
+    "description": "Create, calculate, and format money in JavaScript and TypeScript",
+    "license": "MIT",
+    "pushed_at": "2026-09-07T23:54:54Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "i18next/react-i18next",
+    "url": "https://github.com/i18next/react-i18next",
+    "description": "Internationalization for react done right. Using the i18next i18n ecosystem.",
+    "license": "MIT",
+    "pushed_at": "2026-09-03T20:24:09Z",
+    "archived": false,
+    "branch": "master"
+  },
+  {
+    "repo": "recharts/recharts",
+    "url": "https://github.com/recharts/recharts",
+    "description": "Redefined chart library built with React and D3",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T17:59:53Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "eclipsesource/jsonforms",
+    "url": "https://github.com/eclipsesource/jsonforms",
+    "description": "Customizable JSON Schema-based forms with React, Angular and Vue support out of the box.",
+    "license": "MIT",
+    "pushed_at": "2026-08-27T16:03:50Z",
+    "archived": false,
+    "branch": "master"
+  },
+  {
+    "repo": "szimek/signature_pad",
+    "url": "https://github.com/szimek/signature_pad",
+    "description": "HTML5 canvas based smooth signature drawing",
+    "license": "MIT",
+    "pushed_at": "2026-09-03T03:39:06Z",
+    "archived": false,
+    "branch": "master"
+  },
+  {
+    "repo": "puckeditor/puck",
+    "url": "https://github.com/puckeditor/puck",
+    "description": "The visual editor for React.",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T16:40:03Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "payloadcms/payload",
+    "url": "https://github.com/payloadcms/payload",
+    "description": "Payload is the open-source, fullstack Next.js framework, giving you instant backend superpowers. Get a full TypeScript backend and admin panel instantly. Use Payload as a headless CMS or for building powerful applications.",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T16:21:01Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "ueberdosis/tiptap",
+    "url": "https://github.com/ueberdosis/tiptap",
+    "description": "The headless rich text editor framework for web artisans.",
+    "license": "MIT",
+    "pushed_at": "2026-09-08T07:43:23Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "vercel/ai",
+    "url": "https://github.com/vercel/ai",
+    "description": "The AI Toolkit for TypeScript. From the creators of Next.js, the AI SDK is a free open-source library for building AI-powered applications and agents ",
+    "license": "NOASSERTION",
+    "pushed_at": "2026-09-09T17:51:14Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "assistant-ui/assistant-ui",
+    "url": "https://github.com/assistant-ui/assistant-ui",
+    "description": "Typescript/React Library for AI Chat💬🚀",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T18:02:44Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "langfuse/langfuse",
+    "url": "https://github.com/langfuse/langfuse",
+    "description": "🪢 Open source AI engineering platform: LLM evals, observability, metrics, prompt management, playground, datasets. Integrates with OpenTelemetry, LangChain, OpenAI SDK, LiteLLM, and more. 🍊YC W23 ",
+    "license": "NOASSERTION",
+    "pushed_at": "2026-09-09T17:26:00Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "promptfoo/promptfoo",
+    "url": "https://github.com/promptfoo/promptfoo",
+    "description": "Test your prompts, agents, and RAGs. Red teaming/pentesting/vulnerability scanning for AI. Compare performance of GPT, Claude, Gemini, DeepSeek, and more. Simple declarative configs with command line and CI/CD integration.  Used by OpenAI and Anthropic.",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T17:54:12Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "mastra-ai/mastra",
+    "url": "https://github.com/mastra-ai/mastra",
+    "description": "Mastra is the modern TypeScript framework for AI-powered applications and agents.",
+    "license": "NOASSERTION",
+    "pushed_at": "2026-09-09T17:59:11Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "langchain-ai/langgraphjs",
+    "url": "https://github.com/langchain-ai/langgraphjs",
+    "description": "Framework to build resilient language agents as graphs.",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T18:02:55Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "docling-project/docling",
+    "url": "https://github.com/docling-project/docling",
+    "description": "Get your documents ready for gen AI",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T16:56:27Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "pgvector/pgvector",
+    "url": "https://github.com/pgvector/pgvector",
+    "description": "Open-source vector similarity search for Postgres",
+    "license": "NOASSERTION",
+    "pushed_at": "2026-09-08T14:26:31Z",
+    "archived": false,
+    "branch": "master"
+  },
+  {
+    "repo": "livekit/agents",
+    "url": "https://github.com/livekit/agents",
+    "description": "A framework for building realtime voice AI agents 🤖🎙️📹 ",
+    "license": "Apache-2.0",
+    "pushed_at": "2026-09-09T17:35:19Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "pipecat-ai/pipecat",
+    "url": "https://github.com/pipecat-ai/pipecat",
+    "description": "Open Source framework for voice agents, multimodal apps, and realtime AI. Maintained by Daily and the community.",
+    "license": "BSD-2-Clause",
+    "pushed_at": "2026-09-09T17:01:19Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "fastify/fastify",
+    "url": "https://github.com/fastify/fastify",
+    "description": "Fast and low overhead web framework, for Node.js",
+    "license": "MIT",
+    "pushed_at": "2026-09-08T20:25:36Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "drizzle-team/drizzle-orm",
+    "url": "https://github.com/drizzle-team/drizzle-orm",
+    "description": "ORM",
+    "license": "Apache-2.0",
+    "pushed_at": "2026-09-09T17:22:55Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "timgit/pg-boss",
+    "url": "https://github.com/timgit/pg-boss",
+    "description": "Queueing jobs in Postgres from Node.js like a boss",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T14:45:21Z",
+    "archived": false,
+    "branch": "master"
+  },
+  {
+    "repo": "taskforcesh/bullmq",
+    "url": "https://github.com/taskforcesh/bullmq",
+    "description": "BullMQ - Message Queue and Batch processing for NodeJS, Python, .NET, Elixir, Rust and PHP based on Redis or PostgreSQL",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T16:01:43Z",
+    "archived": false,
+    "branch": "master"
+  },
+  {
+    "repo": "temporalio/temporal",
+    "url": "https://github.com/temporalio/temporal",
+    "description": "Temporal service",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T17:48:27Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "better-auth/better-auth",
+    "url": "https://github.com/better-auth/better-auth",
+    "description": "The most comprehensive authentication framework",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T12:03:34Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "stalniy/casl",
+    "url": "https://github.com/stalniy/casl",
+    "description": "CASL is an isomorphic authorization JavaScript library which restricts what resources a given user is allowed to access",
+    "license": "MIT",
+    "pushed_at": "2026-09-08T15:54:12Z",
+    "archived": false,
+    "branch": "master"
+  },
+  {
+    "repo": "openfga/openfga",
+    "url": "https://github.com/openfga/openfga",
+    "description": "A high performance and flexible authorization/permission engine built for developers and inspired by Google Zanzibar",
+    "license": "Apache-2.0",
+    "pushed_at": "2026-09-09T00:14:21Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "ts-rest/ts-rest",
+    "url": "https://github.com/ts-rest/ts-rest",
+    "description": "RPC-like client, contract, and server implementation for a pure REST API",
+    "license": "MIT",
+    "pushed_at": "2026-02-06T20:47:21Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "scalar/scalar",
+    "url": "https://github.com/scalar/scalar",
+    "description": "Scalar is an open-source API platform:　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　🌐 Modern REST API Client　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　📖 Beautiful API References　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　✨ 1st-Class OpenAPI/Swagger Support",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T16:40:40Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "resend/react-email",
+    "url": "https://github.com/resend/react-email",
+    "description": "💌 Build and send emails using React",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T16:05:36Z",
+    "archived": false,
+    "branch": "canary"
+  },
+  {
+    "repo": "novu/novu",
+    "error": "HTTP Error 404: Not Found"
+  },
+  {
+    "repo": "axllent/mailpit",
+    "url": "https://github.com/axllent/mailpit",
+    "description": "An email and SMTP testing tool with API for developers",
+    "license": "MIT",
+    "pushed_at": "2026-09-06T06:31:31Z",
+    "archived": false,
+    "branch": "develop"
+  },
+  {
+    "repo": "chatwoot/chatwoot",
+    "url": "https://github.com/chatwoot/chatwoot",
+    "description": "Open-source live-chat, email support, omni-channel desk. An alternative to Intercom, Zendesk, Salesforce Service Cloud etc. 🔥💬",
+    "license": "NOASSERTION",
+    "pushed_at": "2026-09-09T17:51:24Z",
+    "archived": false,
+    "branch": "develop"
+  },
+  {
+    "repo": "calcom/cal.diy",
+    "url": "https://github.com/calcom/cal.diy",
+    "description": "Scheduling infrastructure for absolutely everyone.",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T08:25:29Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "alextselegidis/easyappointments",
+    "url": "https://github.com/alextselegidis/easyappointments",
+    "description": ":date: Easy!Appointments - Self Hosted Appointment Scheduler",
+    "license": "GPL-3.0",
+    "pushed_at": "2026-09-09T13:35:23Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "medusajs/medusa",
+    "url": "https://github.com/medusajs/medusa",
+    "description": "The world's most flexible commerce platform for agents and developers",
+    "license": "NOASSERTION",
+    "pushed_at": "2026-09-09T14:57:25Z",
+    "archived": false,
+    "branch": "develop"
+  },
+  {
+    "repo": "frappe/erpnext",
+    "url": "https://github.com/frappe/erpnext",
+    "description": "Free and Open Source Enterprise Resource Planning (ERP)",
+    "license": "GPL-3.0",
+    "pushed_at": "2026-09-09T14:50:45Z",
+    "archived": false,
+    "branch": "develop"
+  },
+  {
+    "repo": "frappe/hrms",
+    "url": "https://github.com/frappe/hrms",
+    "description": "Open Source HR and Payroll Software",
+    "license": "GPL-3.0",
+    "pushed_at": "2026-09-09T10:54:38Z",
+    "archived": false,
+    "branch": "develop"
+  },
+  {
+    "repo": "opensourcepos/opensourcepos",
+    "url": "https://github.com/opensourcepos/opensourcepos",
+    "description": "Open Source Point of Sale is a web based point of sale application written in PHP using CodeIgniter framework. It uses MySQL as the data back end and has a Bootstrap 3 based user interface. If you like this project, please give it a star! Doing so helps maintain Popular OSS status for the project.",
+    "license": "NOASSERTION",
+    "pushed_at": "2026-09-09T09:59:16Z",
+    "archived": false,
+    "branch": "master"
+  },
+  {
+    "repo": "odoo/odoo",
+    "url": "https://github.com/odoo/odoo",
+    "description": "Odoo. Open Source Apps To Grow Your Business.",
+    "license": "NOASSERTION",
+    "pushed_at": "2026-09-09T17:59:05Z",
+    "archived": false,
+    "branch": "19.0"
+  },
+  {
+    "repo": "marmelab/react-admin",
+    "url": "https://github.com/marmelab/react-admin",
+    "description": "A frontend Framework for single-page applications on top of REST/GraphQL APIs, using TypeScript, React and Material Design",
+    "license": "MIT",
+    "pushed_at": "2026-09-09T16:04:47Z",
+    "archived": false,
+    "branch": "master"
+  },
+  {
+    "repo": "refinedev/refine",
+    "url": "https://github.com/refinedev/refine",
+    "description": "A React Framework for building  internal tools, admin panels, dashboards & B2B apps with unmatched flexibility.",
+    "license": "MIT",
+    "pushed_at": "2026-06-05T15:19:38Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "metabase/metabase",
+    "url": "https://github.com/metabase/metabase",
+    "description": "The easy-to-use open source Business Intelligence and Embedded Analytics tool that lets everyone work with data :bar_chart:",
+    "license": "NOASSERTION",
+    "pushed_at": "2026-09-09T17:59:45Z",
+    "archived": false,
+    "branch": "master"
+  },
+  {
+    "repo": "makeplane/plane",
+    "url": "https://github.com/makeplane/plane",
+    "description": "🔥🔥🔥 Open-source Jira, Linear, Monday, and ClickUp alternative. Plane is a modern project management platform to manage tasks, sprints, docs, and triage.",
+    "license": "AGPL-3.0",
+    "pushed_at": "2026-09-09T10:33:27Z",
+    "archived": false,
+    "branch": "preview"
+  },
+  {
+    "repo": "twentyhq/twenty",
+    "url": "https://github.com/twentyhq/twenty",
+    "description": "The open alternative to Salesforce, designed for AI.",
+    "license": "NOASSERTION",
+    "pushed_at": "2026-09-09T18:00:27Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "appsmithorg/appsmith",
+    "url": "https://github.com/appsmithorg/appsmith",
+    "description": "Platform to build admin panels, internal tools, and dashboards. Integrates with 25+ databases and any API.",
+    "license": "Apache-2.0",
+    "pushed_at": "2026-09-09T17:59:30Z",
+    "archived": false,
+    "branch": "release"
+  },
+  {
+    "repo": "n8n-io/n8n",
+    "error": "HTTP Error 403: rate limit exceeded"
+  },
+  {
+    "repo": "activepieces/activepieces",
+    "url": "https://github.com/activepieces/activepieces",
+    "description": "AI Agents & MCPs & AI Workflow Automation • (~400 MCP servers for AI agents) • AI Automation / AI Agent with MCPs • AI Workflows & AI Agents • MCPs for AI Agents",
+    "license": "NOASSERTION",
+    "pushed_at": "2026-09-09T17:46:45Z",
+    "archived": false,
+    "branch": "main"
+  },
+  {
+    "repo": "microsoft/playwright",
+    "error": "HTTP Error 403: rate limit exceeded"
+  },
+  {
+    "repo": "mswjs/msw",
+    "error": "HTTP Error 403: rate limit exceeded"
+  },
+  {
+    "repo": "dubzzz/fast-check",
+    "error": "HTTP Error 403: rate limit exceeded"
+  },
+  {
+    "repo": "storybookjs/storybook",
+    "error": "HTTP Error 403: rate limit exceeded"
+  }
+]

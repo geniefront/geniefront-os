@@ -303,9 +303,9 @@ export function Messages() {
       />
 
       {/* 三栏式企业级沟通工作台 */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 h-[calc(100vh-16rem)] min-h-[580px]">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-5 xl:h-[calc(100dvh-16rem)] xl:min-h-[580px]">
         {/* 左栏：会话列表与搜索 (4 列) */}
-        <Card className="lg:col-span-4 p-4 flex flex-col h-full border-slate-200 shadow-sm overflow-hidden space-y-3">
+        <Card className="md:col-span-5 xl:col-span-4 min-w-0 p-4 flex flex-col h-[32rem] xl:h-full border-slate-200 shadow-sm overflow-hidden space-y-3">
           {/* 筛选 Tabs */}
           <div className="grid grid-cols-4 gap-1 p-1 bg-slate-100 rounded-xl text-xs font-semibold">
             {[
@@ -401,7 +401,7 @@ export function Messages() {
         </Card>
 
         {/* 中栏：交互式消息流与发送器 (5 列) */}
-        <Card className="lg:col-span-5 p-5 flex flex-col h-full border-slate-200 shadow-sm overflow-hidden space-y-4">
+        <Card className="md:col-span-7 xl:col-span-5 min-w-0 p-5 flex flex-col min-h-[32rem] xl:h-full border-slate-200 shadow-sm overflow-hidden space-y-4">
           {selectedSms ? (
             <>
               {/* 头部：当前会话联络人 */}
@@ -571,7 +571,7 @@ export function Messages() {
         </Card>
 
         {/* 右栏：客户 360° 画像与预约上下文 (3 列) */}
-        <Card className="lg:col-span-3 p-5 flex flex-col h-full border-slate-200 shadow-sm overflow-y-auto space-y-4">
+        <Card className="md:col-span-12 xl:col-span-3 min-w-0 p-5 flex flex-col xl:h-full border-slate-200 shadow-sm overflow-y-auto space-y-4">
           {selectedSms ? (
             <>
               <div className="border-b border-slate-100 pb-3">

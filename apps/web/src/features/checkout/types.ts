@@ -73,6 +73,7 @@ export interface OpenTicketsView {
   businessDate: string;
   tickets: OpenTicket[];
   checkoutSettings?: {
+    autoPrintReceipt?: boolean;
     salesTaxRatePercent: string;
     taxCalculationMode: 'exclusive' | 'inclusive';
     suggestedTipPercentages: number[];

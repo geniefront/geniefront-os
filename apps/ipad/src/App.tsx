@@ -60,7 +60,7 @@ const KioskLayout: React.FC = () => {
     <div className="h-full w-full flex flex-col bg-slate-50 text-slate-900 overflow-hidden relative font-sans">
       <Header />
 
-      <main className="flex-1 flex flex-col overflow-y-auto relative">
+      <main className="min-h-0 flex-1 flex flex-col overflow-y-auto relative">
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/pair" element={<PairingPage />} />

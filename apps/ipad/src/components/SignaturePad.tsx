@@ -34,7 +34,7 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({
 
     canvas.width = width * dpr;
     canvas.height = height * dpr;
-    canvas.style.width = `${width}px`;
+    canvas.style.width = '100%';
     canvas.style.height = `${height}px`;
 
     ctx.scale(dpr, dpr);
@@ -70,13 +70,13 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({
       const touch = e.touches[0];
       if (!touch) return { x: 0, y: 0 };
       return {
-        x: touch.clientX - rect.left,
-        y: touch.clientY - rect.top,
+        x: (touch.clientX - rect.left) * canvas.width / (window.devicePixelRatio || 1) / rect.width,
+        y: (touch.clientY - rect.top) * canvas.height / (window.devicePixelRatio || 1) / rect.height,
       };
     }
     return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
+      x: (e.clientX - rect.left) * canvas.width / (window.devicePixelRatio || 1) / rect.width,
+      y: (e.clientY - rect.top) * canvas.height / (window.devicePixelRatio || 1) / rect.height,
     };
   };
 
@@ -150,8 +150,8 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({
       ctx.putImageData(lastState, 0, 0);
       if (newHistory.length === 0) {
         setHasSignature(false);
-      }
-      if (onSave) {
+        onClear?.();
+      } else if (onSave) {
         onSave(canvas.toDataURL('image/png'));
       }
     }
@@ -202,6 +202,7 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({
           onTouchStart={startDrawing}
           onTouchMove={draw}
           onTouchEnd={stopDrawing}
+          onTouchCancel={stopDrawing}
           className="cursor-crosshair w-full h-[160px] sm:h-[180px]"
         />
 

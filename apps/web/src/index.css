@@ -157,3 +157,54 @@ div[data-slot="modal-container"] {
     background: #cbd5e1;
   }
 }
+
+/* Tablet reading scale also applies with an attached trackpad. Keep rem-based
+   spacing stable; enlarge text tokens instead of zooming the entire layout. */
+@media screen and (min-width: 600px) and (max-width: 1400px) {
+  :root {
+    --text-xs: 0.875rem;
+    --text-xs--line-height: 1.45;
+    --text-sm: 1rem;
+    --text-sm--line-height: 1.5;
+  }
+
+  .text-\[8px\], .text-\[9px\], .text-\[10px\], .text-\[11px\],
+  .text-\[12px\], .text-\[13px\] {
+    font-size: 0.875rem;
+    line-height: 1.45;
+  }
+}
+
+@media screen and (any-pointer: coarse) {
+  button, [role="button"], [role="tab"], [role="menuitem"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  select, textarea {
+    min-height: 44px;
+  }
+
+
+  /* Preserve intentionally large phone / code fields. */
+  :is(input, select, textarea):not(.text-lg):not(.text-xl):not(.text-2xl):not(.text-3xl):not(.text-4xl) {
+    font-size: max(1rem, 16px);
+  }
+
+  #desk-navigation a {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+}
+
+.gf-app-shell {
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+
+#desk-navigation {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}

@@ -1,3 +1,5 @@
+import { useSession } from '@/lib/session';
+import { openPrintPreview } from '@/features/printing/preview';
 import { Spinner } from '@heroui/react';
 import { ArrowLeft, FileCheck2, Printer } from 'lucide-react';
 import { useParams } from 'react-router-dom';
@@ -33,7 +35,7 @@ function displayValue(value: unknown, language: string): string {
 export function CompletedHealthForm() {
   const { submissionId = '' } = useParams();
   const errorMessage = useErrorMessage();
-  const submissionQ = useHealthFormSubmissionQuery(submissionId || null, Boolean(submissionId));
+  const submissionQ = useHealthFormSubmissionQuery(submissionId || null, Boolean(submissionId), 'export');
   const submission = submissionQ.data;
   const answers = submission?.answers ?? null;
   const clientInfo = answers && typeof answers.clientInfo === 'object' && answers.clientInfo
@@ -42,6 +44,8 @@ export function CompletedHealthForm() {
   // The evidence page mirrors the English customer form regardless of staff UI language.
   const language = 'en';
   const locale = 'en-US';
+  const { context } = useSession();
+  const timezone = context?.timezone || 'UTC';
   const isMassage = submission ? inferHealthFormCategory(submission.templateKey) === 'massage' : false;
   const signedLanguage = 'en';
 
@@ -53,7 +57,7 @@ export function CompletedHealthForm() {
             <ArrowLeft className="h-4 w-4" />
             Close this page
           </Button>
-          <Button onPress={() => window.print()}>
+          <Button isDisabled={!submission || submissionQ.isFetching} onPress={async () => { const result = await submissionQ.refetch(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); if (result.data && !result.error) openPrintPreview(document.querySelector('[data-print-health-record]'), 'Completed health form record'); }}>
             <Printer className="h-4 w-4" />
             Print record
           </Button>
@@ -68,7 +72,7 @@ export function CompletedHealthForm() {
         )}
 
         {submission && (
-          <article className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm print:rounded-none print:border-0 print:shadow-none">
+          <article data-print-health-record className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm print:rounded-none print:border-0 print:shadow-none">
             <header className="border-b border-slate-200 bg-slate-950 px-6 py-7 text-white sm:px-9">
               <div className="flex items-center gap-2 text-sm font-semibold text-teal-300"><FileCheck2 className="h-5 w-5" />Completed health form record</div>
               <h1 className="mt-3 text-2xl font-black sm:text-3xl">{submission.templateTitle.en ?? 'Health form'}</h1>
@@ -79,7 +83,7 @@ export function CompletedHealthForm() {
               <dl className="grid gap-4 rounded-2xl bg-slate-50 p-5 text-sm sm:grid-cols-2 lg:grid-cols-4">
                 <div><dt className="text-xs font-semibold text-slate-500">Customer</dt><dd className="mt-1 font-semibold">{submission.customerName ?? submission.signerName ?? '—'}</dd></div>
                 <div><dt className="text-xs font-semibold text-slate-500">Signed by</dt><dd className="mt-1 font-semibold">{submission.signerName ?? '—'}</dd></div>
-                <div><dt className="text-xs font-semibold text-slate-500">Submitted at</dt><dd className="mt-1 font-semibold">{submission.signedAt ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(submission.signedAt)) : '—'}</dd></div>
+                <div><dt className="text-xs font-semibold text-slate-500">Submitted at</dt><dd className="mt-1 font-semibold">{submission.signedAt ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone: timezone }).format(new Date(submission.signedAt)) : '—'} ({timezone})</dd></div>
                 <div><dt className="text-xs font-semibold text-slate-500">Form version / language</dt><dd className="mt-1 font-semibold">v{submission.templateVersion} · {submission.locale}</dd></div>
               </dl>
 

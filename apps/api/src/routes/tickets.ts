@@ -13,6 +13,8 @@ import { withTenant } from '@gf/db';
 import { resolveDate } from '../handlers/dayclose';
 import { loadReport } from '../queries/money';
 import { loadQueue } from '../queries/queue';
+import { loadReceipt } from '../queries/receipt';
+import { z } from 'zod';
 import { loadServiceBrief } from '../queries/serviceBrief';
 import type { CtxFromHeaders } from './utils';
 
@@ -25,7 +27,8 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
    * `readSubmission()` 读取 —— 权限校验与访问留痕都在那里，本路由不重复。
    * 这里只把门槛定在 `ticket.read`：没有工单读取权限的人连客人是谁都不该看到。
    */
-  app.get<{ Params: { ticketId: string } }>('/v1/desk/tickets/:ticketId/service-brief', async (req) => {
+  app.get<{ Params: { ticketId: string } }>('/v1/desk/tickets/:ticketId/service-brief', async (req, reply) => {
+    reply.header('Cache-Control', 'no-store');
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('ticket.read')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ticket.read' } });
@@ -34,6 +37,16 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
       (tx) => loadServiceBrief(tx, ctx, req.params.ticketId),
     );
+  });
+
+  app.get<{ Params: { ticketId: string } }>('/v1/desk/tickets/:ticketId/receipt', async (req, reply) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('ticket.read') && !ctx.permissions.has('report.view')) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ticket.read' } });
+    }
+    const ticketId = z.string().uuid().parse(req.params.ticketId);
+    reply.header('Cache-Control', 'no-store');
+    return withTenant(ctx, tx => loadReceipt(tx, ctx, ticketId));
   });
 
   // ── 查询：工单列表 ────────────────────────────────────────────────────────
@@ -54,12 +67,14 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           tax_calculation_mode: string;
           suggested_tip_percentages: number[];
           checkout_timing: string;
+          auto_print_receipt: boolean;
         }[]>`
-          select sales_tax_rate_percent::text, tax_calculation_mode, suggested_tip_percentages, checkout_timing
+          select sales_tax_rate_percent::text, tax_calculation_mode, suggested_tip_percentages, checkout_timing, auto_print_receipt
           from location_checkout_settings
           where location_id = ${ctx.locationId}`;
 
         const checkoutSettings = {
+          autoPrintReceipt: checkoutSettingsRow?.auto_print_receipt ?? true,
           salesTaxRatePercent: checkoutSettingsRow?.sales_tax_rate_percent ?? '0',
           taxCalculationMode: (checkoutSettingsRow?.tax_calculation_mode ?? 'exclusive') as 'exclusive' | 'inclusive',
           suggestedTipPercentages: checkoutSettingsRow?.suggested_tip_percentages ?? [15, 18, 20, 25],

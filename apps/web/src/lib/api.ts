@@ -91,14 +91,16 @@ async function parse<T>(res: Response): Promise<T> {
 export async function apiGet<T>(path: string, membershipId?: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { headers: await authHeaders(membershipId) });
   const out = await parse<T>(res);
-  void cache(`${membershipId ?? '-'}::${path}`, out);
+  if (!res.headers.get('Cache-Control')?.includes('no-store')) {
+    void cache(`${membershipId ?? activeMembershipId ?? '-'}::${path}`, out);
+  }
   return out;
 }
 
 export async function apiGetCached<T>(
   path: string, membershipId?: string,
 ): Promise<{ value: T; at: number } | null> {
-  return readCache<T>(`${membershipId ?? '-'}::${path}`);
+  return readCache<T>(`${membershipId ?? activeMembershipId ?? '-'}::${path}`);
 }
 
 export async function apiPost<T>(

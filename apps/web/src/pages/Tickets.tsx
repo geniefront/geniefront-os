@@ -1,5 +1,7 @@
+import { printTable } from '@/features/printing/preview';
 import { useMemo, useState } from 'react';
-import { asCents } from '@gf/contracts';
+import { useSession } from '@/lib/session';
+import { asCents, pickText } from '@gf/contracts';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -119,6 +121,7 @@ export interface EnrichedOrderRecord {
 
 
 function TicketsContent() {
+  const { membership } = useSession();
   const storeTime = useStoreTime();
   const errorMessage = useErrorMessage();
   const { t, language } = useLanguage();
@@ -568,7 +571,10 @@ function TicketsContent() {
     }
 
     if (exportFormat === 'print') {
-      window.print();
+      printTable(`Order statement — ${recordsToExport.length} loaded records (USD)`,
+        ['Receipt', 'Business date', 'Customer', 'Status', 'Total (USD)', 'Refund (USD)'],
+        recordsToExport.map(order => [order.orderNumber || order.ticketId, order.businessDate || '', order.customerName || '', order.status,
+          centsToDollars(order.totalPaidCents), centsToDollars(order.refundCents)]));
       setExportModalOpen(false);
       return;
     }
@@ -1223,7 +1229,7 @@ function TicketsContent() {
                 size="sm"
                 className="text-xs font-bold gap-1"
                 onClick={() => {
-                  window.print();
+                  navigate(`/print/receipt/${selectedRecord.ticketId}`);
                 }}
               >
                 <Printer className="w-3.5 h-3.5 text-slate-600" />
@@ -1272,7 +1278,7 @@ function TicketsContent() {
               {/* 店铺抬头 */}
               <div className="text-center pb-3 border-b border-dashed border-slate-300 space-y-1">
                 <h3 className="text-base font-black text-slate-900 tracking-wider">
-                  GENIEFRONT SPA & WELLNESS
+                  {pickText(membership?.locationName, 'en', '—')}
                 </h3>
                 <p className="text-[11px] text-slate-500">
                   
@@ -1476,7 +1482,7 @@ function TicketsContent() {
                       : 'border-slate-200 hover:bg-slate-50 text-slate-600',
                   )}
                 >
-                  <p className="font-bold text-xs">{t('checkout.tkScopeAll')}</p>
+                  <p className="font-bold text-xs">{exportFormat === 'print' ? 'All loaded records' : t('checkout.tkScopeAll')}</p>
                   <p className="text-[11px] text-slate-500 mt-0.5 font-mono">{t('checkout.tkTotalPrefix2')} {combinedOrders.length}  {t('checkout.tkOrderUnit4')}</p>
                 </button>
               </div>

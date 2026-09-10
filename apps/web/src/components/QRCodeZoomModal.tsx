@@ -1,3 +1,4 @@
+import { openPrintPreview } from '@/features/printing/preview';
 import React, { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -72,7 +73,8 @@ export function QRCodeZoomModal({
   };
 
   const handlePrint = () => {
-    window.print();
+    openPrintPreview(document.querySelector('[data-print-qr]'), modalTitle);
+    onClose();
   };
 
   return (
@@ -114,7 +116,8 @@ export function QRCodeZoomModal({
         </div>
       }
     >
-      <div className="space-y-4 py-2 text-xs text-slate-700 text-center">
+      <div data-print-qr className="space-y-4 py-2 text-xs text-slate-700 text-center">
+        <h1 data-print-only className="hidden text-xl font-bold">{modalTitle}</h1>
         {/* 顾客与服务信息卡片 */}
         {(customerName || phone || serviceName) && (
           <div className="p-3 bg-sky-50/70 border border-sky-200 rounded-2xl flex items-center justify-between text-left">
@@ -170,7 +173,7 @@ export function QRCodeZoomModal({
         </p>
 
         {/* 真实 URL 显示与一键复制 */}
-        <div className="space-y-1.5 text-left">
+        <div data-no-print className="space-y-1.5 text-left">
           <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
             URL
           </label>

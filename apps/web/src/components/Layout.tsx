@@ -100,8 +100,17 @@ const GLOBAL_COMMANDS: Array<{
 export function Layout() {
   const navigate = useNavigate();
   const { setCurrentDate, timezone } = useSchedule();
-  const [collapsed, setCollapsed] = useState(false);
+  const [desktopCollapsed, setCollapsed] = useState(false);
+  const [wideLayout, setWideLayout] = useState(() => window.matchMedia("(min-width: 1280px)").matches);
+  const collapsed = wideLayout && desktopCollapsed;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 1280px)");
+    const update = () => { setWideLayout(query.matches); setMobileNavOpen(false); };
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
   const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
   const [activeAppointmentId, setActiveAppointmentId] = useState<string | null>(null);
   const [activeAppointmentStatus, setActiveAppointmentStatus] = useState<'booked' | 'checked_in' | 'in_service' | 'done'>('booked');
@@ -207,6 +216,11 @@ export function Layout() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setGlobalSearchOpen(false);
+        setMobileNavOpen(false);
+        return;
+      }
       const disabled = localStorage.getItem('desk_shortcuts_enabled') === 'false';
       if (disabled) return;
 
@@ -216,10 +230,6 @@ export function Layout() {
         e.preventDefault();
         globalInputRef.current?.focus();
         setGlobalSearchOpen(true);
-        return;
-      }
-      if (e.key === 'Escape') {
-        setGlobalSearchOpen(false);
         return;
       }
 
@@ -246,7 +256,7 @@ export function Layout() {
   }, [navigate]);
 
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
+    function handleClickOutside(event: PointerEvent) {
       if (langMenuRef.current && !langMenuRef.current.contains(event.target as Node)) {
         setLangOpen(false);
       }
@@ -260,8 +270,8 @@ export function Layout() {
         setGlobalSearchOpen(false);
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("pointerdown", handleClickOutside);
+    return () => document.removeEventListener("pointerdown", handleClickOutside);
   }, []);
 
   // 换页时收起所有浮层 —— 不然点了侧栏，菜单还悬在新页面上
@@ -334,14 +344,16 @@ export function Layout() {
   ].filter((group) => group.items.length > 0);
 
   return (
-    <div className="flex h-dvh w-full overflow-hidden bg-slate-50 font-sans text-slate-900">
-      {mobileNavOpen && <button type="button" className="fixed inset-0 z-[89] bg-slate-950/40 lg:hidden" aria-label={t('close')} onClick={() => setMobileNavOpen(false)} />}
+    <div className="gf-app-shell flex h-dvh w-full overflow-hidden bg-slate-50 font-sans text-slate-900">
+      {mobileNavOpen && <button type="button" className="fixed inset-0 z-[89] bg-slate-950/40 xl:hidden" aria-label={t('close')} onClick={() => setMobileNavOpen(false)} />}
       {/* Sidebar */}
       <aside
+        id="desk-navigation"
+        inert={!wideLayout && !mobileNavOpen}
         className={cn(
-          "fixed inset-y-0 left-0 z-[90] flex w-72 max-w-[86vw] flex-col border-r border-slate-200 bg-white transition-transform duration-300 lg:relative lg:z-nav lg:max-w-none lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-[90] flex w-72 max-w-[86vw] flex-col border-r border-slate-200 bg-white transition-transform duration-300 xl:relative xl:z-nav xl:max-w-none xl:translate-x-0",
           mobileNavOpen ? "translate-x-0" : "-translate-x-full",
-          collapsed ? "lg:w-16" : "lg:w-60"
+          collapsed ? "xl:w-16" : "xl:w-60"
         )}
       >
         <div className="h-14 flex items-center gap-2.5 px-3.5 border-b border-slate-100 shrink-0">
@@ -388,7 +400,7 @@ export function Layout() {
             size="icon"
             aria-label={t('collapseSidebar')}
             onClick={() => setCollapsed(!collapsed)}
-            className={cn("hidden h-7 w-7 shrink-0 lg:flex", collapsed && "lg:hidden")}
+            className={cn("hidden h-7 w-7 shrink-0 xl:flex", collapsed && "xl:hidden")}
           >
             <ChevronLeft className="w-4 h-4" />
           </Button>
@@ -521,9 +533,9 @@ export function Layout() {
       {/* Main Content Wrapper */}
       <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Header */}
-        <header className="relative z-nav flex h-14 shrink-0 items-center border-b border-slate-200 bg-white px-3 sm:px-4 lg:h-16 lg:px-6">
-          <div className="flex shrink-0 items-center gap-2 lg:gap-3">
-            <Button variant="ghost" size="icon" aria-label={t('openNavigation')} onClick={() => setMobileNavOpen(true)} className="h-9 w-9 shrink-0 lg:hidden">
+        <header className="relative z-nav flex h-14 shrink-0 items-center border-b border-slate-200 bg-white px-3 sm:px-4 xl:h-16 xl:px-6">
+          <div className="flex shrink-0 items-center gap-2 xl:gap-3">
+            <Button variant="ghost" size="icon" aria-label={t('openNavigation')} aria-expanded={mobileNavOpen} aria-controls="desk-navigation" onClick={() => setMobileNavOpen(!mobileNavOpen)} className="h-9 w-9 shrink-0 xl:hidden">
               <Menu className="h-5 w-5" />
             </Button>
             {collapsed && (
@@ -534,7 +546,7 @@ export function Layout() {
           </div>
           
           {/* Global Search Bar - Dead Center with Fuzzy Search Dropdown */}
-          <div ref={globalSearchRef} className="group relative mx-3 hidden max-w-xl flex-1 md:flex lg:mx-5">
+          <div ref={globalSearchRef} className="group relative mx-3 hidden max-w-xl flex-1 md:flex xl:mx-5">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-teal-600 transition-colors" />
             <input 
               ref={globalInputRef}
@@ -717,7 +729,7 @@ export function Layout() {
         {!isOnline && (
           <div
             role="status"
-            className="flex shrink-0 items-start gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-900 sm:px-4 lg:px-6"
+            className="flex shrink-0 items-start gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-900 sm:px-4 xl:px-6"
           >
             <WifiOff className="w-4 h-4 mt-0.5 shrink-0" />
             <p className="text-xs font-medium leading-relaxed">{t('offlineBanner')}</p>
@@ -733,7 +745,7 @@ export function Layout() {
         */}
         <main
           tabIndex={-1}
-          className="isolate min-h-0 flex-1 overflow-auto bg-[var(--gf-canvas)] p-3 focus:outline-none sm:p-4 lg:p-6"
+          className="isolate min-h-0 flex-1 overflow-auto bg-[var(--gf-canvas)] p-3 focus:outline-none sm:p-4 xl:p-6"
         >
           <AnimatePresence mode="wait">
             <motion.div

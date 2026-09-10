@@ -256,7 +256,7 @@ export async function loadServiceBrief(
     locationName: (ticket.location_name ?? '') as Record<string, string> | string,
     timezone: ticket.timezone,
     customerName: ticket.customer_name ?? ticket.walk_in_name ?? '',
-    customerPhone: ticket.customer_phone,
+    customerPhone: ctx.permissions.has('customer.view_contact') ? ticket.customer_phone : null,
     visitCount,
     isFirstVisit: visitCount <= 1,
     items: [...itemMap.values()],

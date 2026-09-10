@@ -23,6 +23,8 @@ export interface OrderPaymentDto {
   method: string;
   amountCents: number;
   cardLast4: string | null;
+  tenderedCents?: number | null;
+  changeCents?: number;
 }
 
 export interface OrderRowDto {
@@ -53,6 +55,8 @@ export interface OrderRowDto {
 }
 
 export interface LoadOrdersParams {
+  /** Internal exact lookup, never a fuzzy receipt search. */
+  ticketId?: string;
   status?: string | undefined;
   from?: string | undefined;
   to?: string | undefined;
@@ -109,6 +113,7 @@ export async function loadOrders(
     left join ticket_item_staff tis on tis.ticket_item_id = ti.id
     left join payments p on p.ticket_id = t.id
     where t.location_id = ${ctx.locationId}
+      and (${params.ticketId ?? null}::uuid is null or t.id = ${params.ticketId ?? null}::uuid)
       and (${status}::text is null or (
         case
           when ${status} = 'completed' or ${status} = 'closed' then t.status = 'closed'
@@ -143,6 +148,7 @@ export async function loadOrders(
     left join ticket_item_staff tis on tis.ticket_item_id = ti.id
     left join payments p on p.ticket_id = t.id
     where t.location_id = ${ctx.locationId}
+      and (${params.ticketId ?? null}::uuid is null or t.id = ${params.ticketId ?? null}::uuid)
       and (${status}::text is null or (
         case
           when ${status} = 'completed' or ${status} = 'closed' then t.status = 'closed'
@@ -183,9 +189,9 @@ export async function loadOrders(
     order by ti.seq`;
 
   const payments = await tx<{
-    ticket_id: string; id: string; method: string; amount_cents: number;
+    ticket_id: string; id: string; method: string; amount_cents: number; tendered_cents: number | null; change_cents: number;
   }[]>`
-    select ticket_id, id, method, amount_cents
+    select ticket_id, id, method, amount_cents, tendered_cents, change_cents
     from payments
     where ticket_id in ${tx(ticketIds)}`;
 
@@ -200,9 +206,15 @@ export async function loadOrders(
   const itemsMap = new Map<string, OrderItemDto[]>();
   for (const i of items) {
     const list = itemsMap.get(i.ticket_id) ?? [];
+    const existing = list.find(item => item.itemId === i.id);
+    if (existing) {
+      const name = i.staff_name ? pickText(i.staff_name, ctx.locale) : null;
+      if (name && !existing.staffName?.split(' / ').includes(name)) existing.staffName = [existing.staffName, name].filter(Boolean).join(' / ');
+      continue;
+    }
     list.push({
       itemId: i.id,
-      name: pickText(i.service_name, ctx.locale, i.name_snapshot),
+      name: i.name_snapshot || pickText(i.service_name, ctx.locale),
       kind: i.kind,
       quantity: i.qty,
       unitPriceCents: i.unit_price_cents,
@@ -222,6 +234,8 @@ export async function loadOrders(
       method: p.method,
       amountCents: p.amount_cents,
       cardLast4: null,
+      tenderedCents: p.tendered_cents,
+      changeCents: p.change_cents,
     });
     paymentsMap.set(p.ticket_id, list);
   }

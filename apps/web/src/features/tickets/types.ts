@@ -102,6 +102,8 @@ export interface OrderPaymentDto {
   method: string;
   amountCents: number;
   cardLast4: string | null;
+  tenderedCents?: number | null;
+  changeCents?: number;
 }
 
 export interface OrderRowDto {

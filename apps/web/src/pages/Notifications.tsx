@@ -420,7 +420,7 @@ export function Notifications() {
       />
 
       {/* 4 大核心统计看板卡片 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         {[
           {
             key: 'all',
@@ -484,9 +484,9 @@ export function Notifications() {
 
       {/* 筛选与搜索工具条 */}
       <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden">
-        <div className="p-4 flex flex-col md:flex-row items-center justify-between gap-4 border-b border-slate-100">
+        <div className="p-4 flex flex-col xl:flex-row items-center justify-between gap-4 border-b border-slate-100">
           {/* 分类 Tabs */}
-          <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto custom-scrollbar">
+          <div className="flex items-center gap-1.5 overflow-x-auto w-full xl:w-auto custom-scrollbar">
             {categoryTabs.map((tab) => {
               const isActive = activeCategory === tab.id;
               return (
@@ -516,8 +516,8 @@ export function Notifications() {
           </div>
 
           {/* 搜索与仅看未读过滤 */}
-          <div className="flex items-center gap-3 w-full md:w-auto justify-end">
-            <div className="relative flex-1 md:w-64">
+          <div className="flex items-center gap-3 w-full xl:w-auto justify-end">
+            <div className="relative flex-1 xl:w-64">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"

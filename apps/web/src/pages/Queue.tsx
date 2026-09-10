@@ -1995,7 +1995,7 @@ function QueueContent() {
     }
 
     try {
-      await closeTicketMutation.mutateAsync({
+      const receipt = await closeTicketMutation.mutateAsync({
         ticketId: item.ticketId,
         discountCents: totals.discountCents,
         taxCents: totals.taxCents,
@@ -2045,7 +2045,8 @@ function QueueContent() {
         }),
       });
 
-      await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms(), refetchQueue(), openTicketsQ.refetch()]);
+      if (checkoutSettings?.autoPrintReceipt !== false) navigate(`/print/receipt/${receipt.ticketId}`);
+      await Promise.allSettled([refetchTickets(), refetchSchedule(), refetchRooms(), refetchQueue(), openTicketsQ.refetch()]);
     } catch (err: any) {
       toast.danger(`${t('queue.quCheckoutFailed')} ${errorMessage(err) || t('queue.quNetworkError3')}`);
     }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast, Spinner } from '@heroui/react';
 import {
   CreditCard, Banknote, Gift, Receipt, Trash2, Plus, AlertTriangle, Wallet,
@@ -99,6 +99,9 @@ function toPaymentLine(line: DraftLine): PaymentLine {
  * 收银结账台（高信息密度 · 完工单筛选 · 多技师小费拆分 · 职级提成 · 税费与手续费）。
  */
 function CheckoutContent() {
+  const navigate = useNavigate();
+  const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
+
   const errorMessage = useErrorMessage();
   const { t, language } = useLanguage();
   const [searchParams] = useSearchParams();
@@ -511,6 +514,8 @@ function CheckoutContent() {
        * ⚠️ 结账后不再弹「发送电子小票」——
        * 小票的短信与邮件已于 2026-09-01 整体取消，只保留打印（店主定）。
        */
+      setLastReceiptId(result.ticketId);
+      if (data?.checkoutSettings?.autoPrintReceipt !== false) navigate(`/print/receipt/${result.ticketId}`);
       if (paymentStage === 'service') setIdempotencyKey(crypto.randomUUID());
       else setSelectedId(null);
     } catch (err) {
@@ -529,9 +534,12 @@ function CheckoutContent() {
   }
 
   return (
-    <div className="h-full flex flex-col md:flex-row gap-4 overflow-hidden">
+    <div className="min-h-full lg:h-full flex flex-col lg:flex-row gap-4 lg:overflow-hidden">
+      {lastReceiptId && <div className="rounded-xl border border-teal-200 bg-white p-3 shrink-0" role="status">
+        <Button onClick={() => navigate(`/print/receipt/${lastReceiptId}`)}>Print last receipt</Button>
+      </div>}
       {/* 左栏：工单列表（带状态快速筛选） */}
-      <Card className="w-full md:w-80 shrink-0 flex flex-col overflow-hidden">
+      <Card className="w-full lg:w-80 max-h-[24rem] lg:max-h-none shrink-0 flex flex-col overflow-hidden">
         {/* 顶部标题与状态统计 */}
         <div className="p-3 border-b border-slate-100 bg-slate-50 space-y-2">
           <div className="flex items-center justify-between">

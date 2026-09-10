@@ -32,6 +32,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard').then((m) => ({ default:
 const BusinessData = lazy(() => import('./pages/BusinessData').then((m) => ({ default: m.BusinessData })));
 const Schedule = lazy(() => import('./pages/Schedule').then((m) => ({ default: m.Schedule })));
 const Queue = lazy(() => import('./pages/Queue').then((m) => ({ default: m.Queue })));
+const ReceiptPrint = lazy(() => import('./pages/ReceiptPrint').then(m => ({ default: m.ReceiptPrint })));
 const ServiceBriefPrint = lazy(() => import('./pages/ServiceBriefPrint').then((m) => ({ default: m.ServiceBriefPrint })));
 const Rotation = lazy(() => import('./pages/Rotation').then((m) => ({ default: m.Rotation })));
 const Rooms = lazy(() => import('./pages/Rooms').then((m) => ({ default: m.Rooms })));
@@ -300,6 +301,8 @@ function SessionGate() {
           </Suspense>
         }
       />
+
+      <Route path="/print/receipt/:ticketId" element={<Suspense fallback={<Spinner />}><ReceiptPrint /></Suspense>} />
 
       {/* 员工查看的签署存证页：需要登录，但采用独立版式便于新标签页阅读和打印。 */}
       <Route

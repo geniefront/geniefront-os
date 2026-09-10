@@ -14,6 +14,8 @@ artifacts/playwright/
 # Staging hosted-booking browser dumps. Never store raw manage tokens,
 # guest phones, or emails here.
 artifacts/staging-e2e/
+artifacts/ipad-review/
+artifacts/print-review/
 playwright-report/
 test-results/
 

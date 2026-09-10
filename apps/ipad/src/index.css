@@ -51,3 +51,30 @@
   min-height: 56px;
   min-width: 56px;
 }
+
+/* Kiosk is read at arm's length. Keep captions at 14px and body text at 16px. */
+@theme {
+  --text-xs: 0.875rem;
+  --text-xs--line-height: 1.45;
+  --text-sm: 1rem;
+  --text-sm--line-height: 1.5;
+}
+
+button, [role="button"] {
+  min-height: 48px;
+  min-width: 48px;
+}
+
+input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+  min-height: 48px;
+}
+
+.text-\[10px\], .text-\[11px\], .text-\[12px\] {
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+  /* Preserve intentionally large phone / code fields. */
+  :is(input, select, textarea):not(.text-lg):not(.text-xl):not(.text-2xl):not(.text-3xl):not(.text-4xl) {
+    font-size: max(1rem, 16px);
+  }

@@ -1,3 +1,5 @@
+import { openPrintPreview } from '@/features/printing/preview';
+import { pickText } from '@gf/contracts';
 import { useState, useEffect, useMemo } from 'react';
 import { useLanguage } from '@/LanguageContext';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -84,7 +86,7 @@ export function DayClose() {
   const storeTime = useStoreTime();
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
-  const { membershipId } = useSession();
+  const { membershipId, membership } = useSession();
   /**
    * ⭐ 日结是**唯一一个**「今天」错了就直接影响钱的页面（AUD-13）。
    *
@@ -1487,7 +1489,7 @@ export function DayClose() {
                   }`}
                 >
                   
-                  {t('checkout.dcA4Report')}
+                  US Letter
                 </button>
               </div>
 
@@ -1497,7 +1499,7 @@ export function DayClose() {
                   {t('checkout.dcZReportClose')}
                 </Button>
                 <Button
-                  onClick={() => window.print()}
+                  onClick={() => { openPrintPreview(document.querySelector('[data-print-zreport]'), 'Daily close report', printReceiptType === 'thermal' ? 'thermal' : 'letter'); setPrintModalOpen(false); }}
                   className="bg-teal-600 hover:bg-teal-700 text-white font-bold gap-1.5"
                 >
                   <Printer className="w-4 h-4" />
@@ -1509,14 +1511,14 @@ export function DayClose() {
           }
         >
           {/* Printable Receipt Preview */}
-          <div className="bg-slate-100 p-4 rounded-xl max-h-[60vh] overflow-y-auto">
+          <div data-print-zreport className="bg-slate-100 p-4 rounded-xl max-h-[60vh] overflow-y-auto">
             {printReceiptType === 'thermal' ? (
               <div className="bg-white p-6 rounded-lg shadow-sm font-mono text-xs max-w-[320px] mx-auto text-slate-900 border border-slate-200">
                 <div className="text-center pb-4 border-b border-dashed border-slate-300">
                   <h3 className="text-base font-bold tracking-wider uppercase">GENIE FRONT DAILY RECORD</h3>
                   <p className="text-[11px] text-slate-500">*** Z-REPORT (DAILY CLOSE) ***</p>
                   <p className="text-[10px] text-slate-400 mt-1">DATE: {dayClose.businessDate}</p>
-                  <p className="text-[10px] text-slate-400">STORE: Main Salon & Spa</p>
+                  <p className="text-[10px] text-slate-400">STORE: {pickText(membership?.locationName, 'en', '—')}</p>
                 </div>
 
                 <div className="py-3 border-b border-dashed border-slate-300 space-y-1.5 text-[11px]">
@@ -1582,7 +1584,7 @@ export function DayClose() {
               <div className="bg-white p-8 rounded-lg shadow-sm text-xs text-slate-900 border border-slate-200 space-y-6">
                 <div className="border-b border-slate-200 pb-4 text-center">
                   <h2 className="text-xl font-bold">{t('checkout.dcZReportTitle')}</h2>
-                  <p className="text-slate-500 mt-1">{t('checkout.dcZBusinessDate')} {dayClose.businessDate}  {t('checkout.dcZStoreName')}</p>
+                  <p className="text-slate-500 mt-1">{t('checkout.dcZBusinessDate')} {dayClose.businessDate}  {pickText(membership?.locationName, 'en', '—')}</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-6">
@@ -1626,7 +1628,7 @@ export function DayClose() {
                   {t('checkout.dcTipSlipClose')}
                 </Button>
                 <Button
-                  onClick={() => window.print()}
+                  onClick={() => { openPrintPreview(document.querySelector('[data-print-tip-slip]'), 'Tip acknowledgement', 'thermal'); setTipReceiptStaff(null); }}
                   className="bg-teal-600 hover:bg-teal-700 text-white font-bold gap-1.5"
                 >
                   <Printer className="w-4 h-4" />
@@ -1636,7 +1638,7 @@ export function DayClose() {
               </div>
             }
           >
-            <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 font-mono text-xs space-y-3">
+            <div data-print-tip-slip className="bg-slate-50 p-5 rounded-xl border border-slate-200 font-mono text-xs space-y-3">
               <div className="text-center border-b border-dashed pb-2">
                 <p className="font-bold text-sm text-slate-900">{t('checkout.dcTipSlipHeading')}</p>
                 <p className="text-[11px] text-slate-500">{dayClose.businessDate}</p>

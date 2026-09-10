@@ -186,13 +186,13 @@ export interface HealthFormSubmissionDetail {
   customerName: string | null;
 }
 
-export function useHealthFormSubmissionQuery(submissionId: string | null, enabled: boolean = false) {
+export function useHealthFormSubmissionQuery(submissionId: string | null, enabled: boolean = false, reason: 'service_prep' | 'export' = 'service_prep') {
   const { membershipId, status } = useSession();
   return useQuery({
-    queryKey: ['desk', 'form-submission', submissionId, membershipId],
+    queryKey: ['desk', 'form-submission', submissionId, membershipId, reason],
     queryFn: () => apiPost<HealthFormSubmissionDetail>(
       `/v1/desk/forms/submissions/${submissionId}/access`,
-      { reason: 'service_prep' },
+      { reason },
     ),
     enabled: status === 'ready' && Boolean(submissionId) && enabled,
   });

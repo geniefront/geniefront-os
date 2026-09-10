@@ -1,0 +1,36 @@
+/* This document lives outside the application and modal scroll containers. */
+#gf-print-root { position: fixed; inset: 0; z-index: 2147483647; overflow: auto; background: #e9edf0; padding: 20px; color: #111; }
+.gf-print-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; max-width: 8.5in; margin: 0 auto 12px; }
+.gf-print-toolbar strong { flex: 1 1 200px; }
+.gf-print-toolbar :is(button,select) { min-height: 44px; padding: 8px 14px; border: 1px solid #777; background: white; color: #111; border-radius: 6px; font: 16px system-ui; cursor: pointer; }
+.gf-print-toolbar button:disabled { opacity: .55; cursor: wait; }
+.gf-print-help { max-width: 8.5in; margin: 0 auto 20px; font: 14px/1.5 system-ui; }
+.gf-print-sheet { width: 100%; max-width: 8.5in; margin: auto; padding: .5in; background: white; font: 11pt/1.45 Arial, sans-serif; overflow-wrap: anywhere; }
+#gf-print-root[data-paper="thermal"] .gf-print-sheet { max-width: 74mm; padding: 3mm; font-size: 10pt; }
+/* Remove viewport constraints copied from the source card, including ancestors
+   that would otherwise clip multipage documents or print only visible rows. */
+.gf-print-sheet :is(div,section,article,header,footer,dl) { max-height: none !important; height: auto !important; overflow: visible !important; box-shadow: none !important; }
+.gf-print-sheet > * { width: 100% !important; max-width: none !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; }
+.gf-print-sheet * { color: #111 !important; background-color: transparent !important; text-shadow: none !important; }
+.gf-print-sheet :is(p,span,td,th,dt,dd,li) { font-size: inherit; }
+.gf-print-sheet table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.gf-print-sheet :is(th,td) { text-align: left; vertical-align: top; padding: 6px 4px; border-bottom: 1px solid #aaa; overflow-wrap: anywhere; }
+.gf-print-sheet thead { display: table-header-group; }
+.gf-print-sheet :is(tr,img,svg) { break-inside: avoid; }
+.gf-print-sheet :is(h1,h2,h3,h4) { break-after: avoid; }
+.gf-print-sheet img { max-width: 100%; object-fit: contain; }
+.gf-print-sheet svg { max-width: 100%; }
+.gf-print-sheet .sbp-table, .gf-print-sheet .sbp-split { break-inside: auto; }
+#gf-print-root[data-paper="thermal"] :is(.grid,.sbp-split) { grid-template-columns: 1fr !important; }
+@media screen and (max-width: 600px) { #gf-print-root { padding: 12px; } .gf-print-sheet { padding: 20px; } }
+@media print {
+  html:has(body.gf-print-open), body.gf-print-open { height: auto !important; overflow: visible !important; background: white !important; margin: 0 !important; padding: 0 !important; }
+  body.gf-print-open > :not(#gf-print-root) { display: none !important; }
+  #gf-print-root { position: static !important; display: block !important; overflow: visible !important; padding: 0; background: white; }
+  .gf-print-toolbar, .gf-print-help { display: none !important; }
+  .gf-print-sheet { width: auto; max-width: none; padding: 0; margin: 0; }
+  #gf-print-root[data-paper="thermal"] .gf-print-sheet { width: 74mm; max-width: 100%; padding: 0; margin: 0; }
+}
+
+.gf-print-sheet [data-print-only] { display: block !important; }
+.gf-print-sheet .receipt-document :is(th,td):last-child { width: 32%; text-align: right; }
