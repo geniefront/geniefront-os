@@ -49,36 +49,15 @@ export function buildCheckoutStaffList(
     map.set(membershipId, existing);
   };
 
-  /*
-   * ⚠️ `/v1/desk/tickets` 是 `join ticket_item_staff` —— 一个项目派了几位技师
-   * 就返回几行，**每一行都带着这个项目的完整金额**。直接遍历原始行会把双人
-   * 项目的 $100 记成 A 一百、B 一百，营收基数变成 $200；比例分账的权重正是
-   * 按这个基数算的，于是双人项目与单人项目混在同一张单里时，分出来的小费
-   * 与实际执行不符，弹窗上给前台看的每人营收也是错的。
-   *
-   * 因此这里按 ticketItemId 把金额在协作的技师之间均摊：一条项目的金额之和
-   * 恒等于它本身，而双技师各拿一半正是提成的实际口径。
-   */
+  /* 协作项目的金额在执行它的技师之间均摊，见 `splitItemRevenueAcrossStaff()`。 */
   const ticketItems = source.rawTicket?.items ?? [];
   if (ticketItems.length > 0) {
-    const staffCountByItem = new Map<string, number>();
-    for (const ticketItem of ticketItems) {
-      staffCountByItem.set(ticketItem.ticketItemId, (staffCountByItem.get(ticketItem.ticketItemId) ?? 0) + 1);
-    }
-    const assignedSoFar = new Map<string, number>();
-    ticketItems.forEach((ticketItem) => {
-      const shares = staffCountByItem.get(ticketItem.ticketItemId) ?? 1;
-      const index = assignedSoFar.get(ticketItem.ticketItemId) ?? 0;
-      assignedSoFar.set(ticketItem.ticketItemId, index + 1);
-      // 尾差补给最后一位，保证各行之和等于该项目的金额，不产生对不上的一分钱。
-      const share = index === shares - 1
-        ? ticketItem.totalCents - Math.floor(ticketItem.totalCents / shares) * (shares - 1)
-        : Math.floor(ticketItem.totalCents / shares);
+    splitItemRevenueAcrossStaff(ticketItems).forEach((ticketItem) => {
       push(
         ticketItem.membershipId || UNRESOLVED_STAFF_KEY,
         ticketItem.staffName || fallbackStaffName,
         ticketItem.name,
-        share,
+        ticketItem.shareCents,
       );
     });
     return [...map.values()];
@@ -173,12 +152,43 @@ const toRate = (percent: string): number => {
 };
 
 /**
+ * 把一条工单项目的金额摊到执行它的若干位技师头上。
+ *
+ * `/v1/desk/tickets` 是按 `ticket_item_staff` 展开的：一个项目派了几位技师就
+ * 返回几行，**每行都带着该项目的完整金额**。谁直接遍历原始行，谁的营收基数
+ * 就会翻倍 —— 而比例分账的权重正是按这个基数算的。看板与收银台都必须走这里。
+ *
+ * 返回值按 `ticketItemId` 聚合，`shareCents` 是该行技师应记的那一份；尾差补给
+ * 同一项目的最后一行，各行之和恒等于该项目的金额。
+ */
+export function splitItemRevenueAcrossStaff<T extends { ticketItemId: string; totalCents: number }>(
+  rows: readonly T[],
+): Array<T & { shareCents: number }> {
+  const staffCountByItem = new Map<string, number>();
+  for (const row of rows) {
+    staffCountByItem.set(row.ticketItemId, (staffCountByItem.get(row.ticketItemId) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  return rows.map((row) => {
+    const shares = staffCountByItem.get(row.ticketItemId) ?? 1;
+    const index = seen.get(row.ticketItemId) ?? 0;
+    seen.set(row.ticketItemId, index + 1);
+    const shareCents = index === shares - 1
+      ? row.totalCents - Math.floor(row.totalCents / shares) * (shares - 1)
+      : Math.floor(row.totalCents / shares);
+    return { ...row, shareCents };
+  });
+}
+
+/**
  * 把小费总额按策略分到各技师头上。
  *
- * 用最大余额法而不是逐个四舍五入：后者的和可能比总额多一分或少一分，
- * 而这一分会在日结对账时变成一条查不出来源的差异。
+ * 用最大余额法而不是逐个四舍五入：后者的和可能比总额多一分或少一分 ——
+ * 而服务端对 `tipSplits` 的校验是**硬拒**（`splitTotal !== totalTip` 直接抛
+ * PAYMENT_MISMATCH），差一分的后果不是对账多一条差异，而是这一单根本收不了款。
+ * 三位技师平摊 $10 就是最短的复现路径：round(1000/3)×3 = 999。
  */
-function allocateTips(
+export function allocateTips(
   staffList: CheckoutStaffShare[],
   totalTipCents: number,
   strategy: 'proportional' | 'equal',

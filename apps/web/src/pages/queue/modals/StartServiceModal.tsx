@@ -503,6 +503,13 @@ export function StartServiceModal(props: StartServiceModalProps) {
                         {room.name} · {seatability === 'seatable'
                           ? t('queue.quRoomFree')
                           : t(ROOM_SEATABILITY_LABEL_KEYS[seatability])}
+                        {/*
+                          同房技师数上限要写在选项上。这是 `resource_staff_limit`
+                          的唯一来源，而它只在确认那一步才由服务端抛出来 ——
+                          单人包厢（上限 1）放不下一家三口的三位技师，前台在这里
+                          看不到任何线索。
+                        */}
+                        {room.maxStaff != null ? ` · ${t('queue.quRoomMaxStaff', { p0: room.maxStaff })}` : ''}
                       </option>
                     );
                   })}

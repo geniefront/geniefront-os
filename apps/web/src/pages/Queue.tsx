@@ -28,7 +28,7 @@ import { useBeginCleaning, useCompleteCleaning, useRoomsQuery } from '@/features
 import { useDayCloseQuery } from '@/features/dayclose/api';
 import { settledRevenueCents } from '@/features/queue/kanbanMetrics';
 import { completeQueueService, resolveQueueRoomId } from '@/features/queue/completeService';
-import { pickDefaultRoomId, roomSeatability } from '@/features/queue/roomAvailability';
+import { assignDefaultRooms, roomSeatability } from '@/features/queue/roomAvailability';
 import { inlineGiftCardFields } from '@/features/queue/inlinePayment';
 import { useRotationQuery, useRotationCheckIn, useRotationCheckOut, useRotationSetBreak } from '@/features/rotation/api';
 import type { RotationEntryState } from '@/features/rotation/types';
@@ -1151,14 +1151,8 @@ function QueueContent() {
             durationMin: item.durationMin,
             addonIds: [],
           }] : [];
-      /*
-       * 同一张单的多个项目占的是同一个位置，因此默认工位对本单内部不去重；
-       * `assignedRooms` 只用来避免把已经分给本单前一项的工位重复推荐给
-       * **没有**位置可继承的后续项目 —— 真正的容量判定在 `roomSeatability()` 里。
-       */
       const ownTicketId = item.ticketId ?? item.rawTicket?.ticketId ?? null;
-      const defaultRoom = pickDefaultRoomId(rooms, new Set(), { ticketId: ownTicketId });
-      const assignments = requestedItems.map((requested) => {
+      const assignmentsWithoutRoom = requestedItems.map((requested) => {
         const service = services.find((entry) => entry.id === requested.serviceId) ?? {
           id: requested.serviceId,
           name: requested.serviceName,
@@ -1183,11 +1177,22 @@ function QueueContent() {
           serviceName: service.name,
           durationMin: requested.durationMin,
           staffCount: service.staffCount,
-          roomId: defaultRoom,
           staffIds: candidates.filter((candidate) => candidate.eligible)
             .slice(0, service.staffCount).map((candidate) => candidate.staff.membershipId),
         };
       });
+      /*
+       * 默认工位必须在技师定下来之后分配：同一张单的多个项目占同一个位置，
+       * 但**仅当它们由同一位技师做** —— 服务端按 distinct 技师数判
+       * `max_staff`，而门店里最常见的单人包厢上限就是 1。逐项分配见
+       * `assignDefaultRooms()`。
+       */
+      const defaultRooms = assignDefaultRooms(assignmentsWithoutRoom, rooms, { ticketId: ownTicketId });
+      const assignments = assignmentsWithoutRoom.map((assignment, index) => ({
+        ...assignment,
+        roomId: defaultRooms[index] ?? '',
+      }));
+      const defaultRoom = assignments[0]?.roomId ?? '';
       const defaultStaff = assignments[0]?.staffIds[0] ?? '';
       
       const timeStr = nowWallHhMm(timezone);

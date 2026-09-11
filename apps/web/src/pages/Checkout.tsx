@@ -15,6 +15,7 @@ import {
   useOpenTickets, useCloseTicket, useVoidTicket, verifyGiftCard,
   dollarsToCents, centsToDollars,
 } from '@/features/checkout/api';
+import { allocateTips, splitItemRevenueAcrossStaff } from '@/features/queue/checkoutMath';
 import { PAYMENT_METHODS } from '@/features/checkout/types';
 import { paymentStageFor } from '@/features/checkout/types';
 import type { OpenTicket, PaymentLine, PaymentMethod } from '@/features/checkout/types';
@@ -258,7 +259,14 @@ function CheckoutContent() {
       totalServiceCents: number;
     }>();
 
-    selected.items.forEach((item: any) => {
+    /*
+     * ⚠️ 必须先摊分再归并。`/v1/desk/tickets` 按 `ticket_item_staff` 展开：
+     * 一个项目派了几位技师就返回几行，**每行都带着该项目的完整金额**。直接
+     * 遍历原始行会把双人项目的 $100 记成 A 一百、B 一百 —— 而下面的比例分账
+     * 正是按 `totalServiceCents` 算权重的，双人项目与单人项目混在同一张单里
+     * 时，分给各人的小费与实际执行不符，页面上给前台看的每人营收也是错的。
+     */
+    splitItemRevenueAcrossStaff(selected.items as Array<{ ticketItemId: string; totalCents: number } & Record<string, any>>).forEach((item: any) => {
       const staffMember = staff.find((s) => s.membershipId === item.membershipId || s.name === item.staffName);
       const membershipId = item.membershipId || staffMember?.membershipId;
       if (!membershipId) return;
@@ -280,10 +288,10 @@ function CheckoutContent() {
       existing.items.push({
         name: formatI18n(item.name ?? item.name_snapshot ?? item.nameSnapshot, language) || t('service'),
         durationMin: item.durationMin ?? 0,
-        priceCents: item.totalCents,
+        priceCents: item.shareCents,
         roomName,
       });
-      existing.totalServiceCents += item.totalCents;
+      existing.totalServiceCents += item.shareCents;
       map.set(membershipId, existing);
     });
 
@@ -318,14 +326,24 @@ function CheckoutContent() {
     ? Math.round(afterDiscountCents * (parseFloat(taxRatePercent || '0') / 100))
     : 0;
 
-  // 计算小费分配
+  /*
+   * 小费总额。
+   *
+   * ⚠️ 按人录入时只累计**本单实际在册的技师**，不是把 `customStaffTips` 里所有
+   * 键相加。那份 record 是按 membershipId 存的，换单时若有一个键没被清掉，
+   * 上报的 `tipTotalCents` 就会比各行分账之和多出那一笔 —— 服务端对二者不等
+   * 是硬拒（PAYMENT_MISMATCH），这一单当场收不了款。总额与分账必须同源。
+   */
   const totalTipCents = useMemo(() => {
     if (paymentStage === 'service') return 0;
     if (tipMode === 'total_split') {
       return Math.max(0, dollarsToCents(totalTipInput));
     }
-    return Object.values(customStaffTips).reduce((sum, val) => sum + Math.max(0, dollarsToCents(val || '0')), 0);
-  }, [paymentStage, tipMode, totalTipInput, customStaffTips]);
+    return staffAssignments.reduce(
+      (sum, st) => sum + Math.max(0, dollarsToCents(customStaffTips[st.membershipId] || '0')),
+      0,
+    );
+  }, [paymentStage, tipMode, totalTipInput, customStaffTips, staffAssignments]);
 
   // 各技师分配到的小费明细
   const staffTipAllocations = useMemo(() => {
@@ -342,24 +360,28 @@ function CheckoutContent() {
       return staffAssignments.map((st) => ({ ...st, allocatedTipCents: 0, percent: 0 }));
     }
 
-    if (splitStrategy === 'equal') {
-      const perStaff = Math.floor(totalTipCents / staffAssignments.length);
-      let remainder = totalTipCents - perStaff * staffAssignments.length;
-      return staffAssignments.map((st) => {
-        const extra = remainder > 0 ? 1 : 0;
-        if (remainder > 0) remainder--;
-        const cents = perStaff + extra;
-        const percent = Math.round((cents / totalTipCents) * 100);
-        return { ...st, allocatedTipCents: cents, percent };
-      });
-    }
-
-    // proportional to service revenue
-    const totalService = staffAssignments.reduce((sum, s) => sum + s.totalServiceCents, 0) || 1;
-    return staffAssignments.map((st) => {
-      const cents = Math.round((st.totalServiceCents / totalService) * totalTipCents);
-      const percent = Math.round((cents / totalTipCents) * 100);
-      return { ...st, allocatedTipCents: cents, percent };
+    /*
+     * 平摊与按营收比例都走看板那份 `allocateTips()`（最大余额法）。
+     *
+     * ⚠️ 这里原本是逐人 `Math.round`，各行之和可以比总额多一分或少一分 ——
+     * 而服务端对 `tipSplits` 是**硬拒**：`splitTotal !== totalTip` 直接抛
+     * PAYMENT_MISMATCH。也就是说差这一分不是对账上多一条差异，而是这一单
+     * 当场收不了款，且前台完全看不出为什么。三位技师平摊 $10 就能复现：
+     * round(1000/3) × 3 = 999。
+     */
+    const allocated = allocateTips(
+      staffAssignments.map((st) => ({
+        membershipId: st.membershipId,
+        name: st.staffName,
+        items: [],
+        totalRevenueCents: st.totalServiceCents,
+      })),
+      totalTipCents,
+      splitStrategy,
+    );
+    return staffAssignments.map((st, index) => {
+      const cents = allocated[index] ?? 0;
+      return { ...st, allocatedTipCents: cents, percent: Math.round((cents / totalTipCents) * 100) };
     });
   }, [staffAssignments, tipMode, totalTipCents, splitStrategy, customStaffTips]);
 

@@ -193,6 +193,7 @@ export const queue = {
   'queue.quOverbookForce': { 'zh-Hans': '仍然开始服务', en: 'Start anyway', ko: '그래도 시작', es: 'Empezar igual', vi: 'Vẫn bắt đầu' },
   'queue.quSeatFailed': { 'zh-Hans': '入座失败:', en: 'Seating failed:', ko: '착석 처리 실패:', es: 'Error al sentar al cliente:', vi: 'Xếp chỗ thất bại:' },
   'queue.quMoveNeedsReason': { 'zh-Hans': '请选好要改的项目与新的目标，并写一句理由（至少两个字）。', en: 'Pick the service and its new target, and give a reason (at least 2 characters).', ko: '변경할 서비스와 새 대상을 선택하고 사유를 2자 이상 입력해 주세요.', es: 'Elige el servicio y su nuevo destino, e indica un motivo (mínimo 2 caracteres).', vi: 'Hãy chọn dịch vụ và mục tiêu mới, kèm lý do (ít nhất 2 ký tự).' },
+  'queue.quRoomMaxStaff': { 'zh-Hans': '限 {p0} 位技师', en: 'up to {p0} therapist(s)', ko: '관리사 {p0}명까지', es: 'hasta {p0} terapeuta(s)', vi: 'tối đa {p0} KTV' },
   'queue.quRoomOptionCleaning': { 'zh-Hans': '待清洁，不可用', en: 'needs cleaning — unavailable', ko: '청소 필요 — 사용 불가', es: 'requiere limpieza, no disponible', vi: 'cần dọn — không khả dụng' },
   'queue.quRoomOptionMaintenance': { 'zh-Hans': '停用检修，不可用', en: 'under maintenance — unavailable', ko: '점검 중 — 사용 불가', es: 'en mantenimiento, no disponible', vi: 'đang bảo trì — không khả dụng' },
   'queue.quRoomOptionFull': { 'zh-Hans': '已满，不可用', en: 'at capacity — unavailable', ko: '정원 초과 — 사용 불가', es: 'al límite, no disponible', vi: 'đã đầy — không khả dụng' },

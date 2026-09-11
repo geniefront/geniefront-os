@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  allocateTips,
   buildCheckoutStaffList,
   computeCheckoutTotals,
+  splitItemRevenueAcrossStaff,
   UNRESOLVED_STAFF_KEY,
   type CheckoutStaffShare,
 } from './checkoutMath';
@@ -205,6 +207,49 @@ describe('computeCheckoutTotals', () => {
     expect(totals.afterDiscountCents).toBe(0);
     expect(totals.taxCents).toBe(0);
     expect(totals.totalDueCents).toBe(0);
+  });
+});
+
+/*
+ * 服务端对 `tipSplits` 的校验是硬拒：`splitTotal !== totalTip` 直接抛
+ * PAYMENT_MISMATCH，这一单当场收不了款。所以「各行之和恒等于总额」不是
+ * 精度偏好，是一条不能破的不变量 —— 看板与收银台都靠 `allocateTips()` 守它。
+ */
+describe('allocateTips 的分账之和恒等于小费总额', () => {
+  const staffOf = (revenues: number[]): CheckoutStaffShare[] => revenues.map((cents, index) => ({
+    membershipId: `m-${index}`, name: `S${index}`, items: [], totalRevenueCents: cents,
+  }));
+
+  it.each([
+    ['三人平摊 $10 —— 逐人 Math.round 会得到 999', [100, 100, 100], 1_000, 'equal' as const],
+    ['三人等营收按比例 $10', [100, 100, 100], 1_000, 'proportional' as const],
+    ['七人不等营收的零头', [13, 29, 7, 101, 5, 61, 3], 999, 'proportional' as const],
+    ['营收全为零时退回平摊', [0, 0, 0], 100, 'proportional' as const],
+    ['单人拿满', [500], 333, 'proportional' as const],
+  ])('%s', (_label, revenues, tip, strategy) => {
+    const allocated = allocateTips(staffOf(revenues), tip, strategy);
+    expect(allocated.reduce((sum, cents) => sum + cents, 0)).toBe(tip);
+    expect(allocated.every((cents) => cents >= 0)).toBe(true);
+  });
+
+  it('小费为 0 或没有技师时不分配', () => {
+    expect(allocateTips(staffOf([100, 100]), 0, 'equal')).toEqual([0, 0]);
+    expect(allocateTips([], 500, 'equal')).toEqual([]);
+  });
+});
+
+describe('splitItemRevenueAcrossStaff', () => {
+  it('把协作项目的金额摊给各行，且各行之和等于项目金额', () => {
+    const rows = [
+      { ticketItemId: 'a', totalCents: 10_001 },
+      { ticketItemId: 'a', totalCents: 10_001 },
+      { ticketItemId: 'a', totalCents: 10_001 },
+      { ticketItemId: 'b', totalCents: 5_000 },
+    ];
+    const split = splitItemRevenueAcrossStaff(rows);
+    expect(split.filter((r) => r.ticketItemId === 'a').map((r) => r.shareCents)).toEqual([3_333, 3_333, 3_335]);
+    expect(split.find((r) => r.ticketItemId === 'b')!.shareCents).toBe(5_000);
+    expect(split.reduce((sum, r) => sum + r.shareCents, 0)).toBe(15_001);
   });
 });
 

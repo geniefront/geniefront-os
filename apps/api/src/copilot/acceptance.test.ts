@@ -36,6 +36,48 @@ const ORG_ID = '11111111-1111-4111-8111-111111111111';
 const LOCATION_ID = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const tenant = { orgId: ORG_ID, locationId: LOCATION_ID, membershipId: null };
 
+/**
+ * 本套件下单用的营业日 —— **必须相对当前时刻推导**。
+ *
+ * 这里原本写死成 `2026-09-07`。种子数据会把已经过去的营业日封账，而
+ * `appointment.create` 走 `assertDayOpen()`：那一天一旦落到过去，五个场景
+ * 会集体报 `business day ... is closed`，且失败信息（"expected 'failed' to be
+ * 'completed'"）完全看不出是日期过期。任何钉死绝对日期的用例都会这样烂掉，
+ * 只是时间早晚。
+ *
+ * 取下一个周一：既保证落在未来（不会被封账），又保持原用例选定的星期几，
+ * 免得撞上门店某一天不营业。UTC 偏移按该日在门店时区的实际值取，夏令时
+ * 前后自动跟着走。
+ */
+const NEW_YORK = 'America/New_York';
+
+function nextMondayInNewYork(): string {
+  const now = new Date();
+  for (let offsetDays = 1; offsetDays <= 14; offsetDays += 1) {
+    const candidate = new Date(now.getTime() + offsetDays * 86_400_000);
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: NEW_YORK, weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(candidate);
+    const get = (type: string) => parts.find((part) => part.type === type)!.value;
+    if (get('weekday') === 'Mon') return `${get('year')}-${get('month')}-${get('day')}`;
+  }
+  throw new Error('unreachable: 14 天内必有周一');
+}
+
+/** 该日在门店时区的 UTC 偏移，形如 `-04:00`。夏令时切换后自动变成 `-05:00`。 */
+function newYorkOffsetOn(date: string): string {
+  const noonUtc = new Date(`${date}T12:00:00Z`);
+  const name = new Intl.DateTimeFormat('en-US', { timeZone: NEW_YORK, timeZoneName: 'longOffset' })
+    .formatToParts(noonUtc).find((part) => part.type === 'timeZoneName')!.value;
+  const match = /GMT([+-]\d{2}:\d{2})/.exec(name);
+  return match ? match[1]! : '-05:00';
+}
+
+const BOOKING_DATE = nextMondayInNewYork();
+const BOOKING_OFFSET = newYorkOffsetOn(BOOKING_DATE);
+/** `2026-09-07T11:00:00-04:00` 的等价物，日期与偏移都跟着当前时刻走。 */
+const at = (hhmmss: string) => `${BOOKING_DATE}T${hhmmss}${BOOKING_OFFSET}`;
+
 let ctx: CommandContext;
 let staffMembershipId: string;
 let serviceId: string;
@@ -68,11 +110,11 @@ beforeAll(async () => {
   timeAnchor = {
     iso: new Date().toISOString(),
     timezone: 'America/New_York',
-    businessDate: '2026-09-07',
-    localDate: '2026-09-07',
+    businessDate: BOOKING_DATE,
+    localDate: BOOKING_DATE,
     localTime: '10:00:00',
     weekday: 'Monday',
-    utcOffset: '-04:00',
+    utcOffset: BOOKING_OFFSET,
     cutoff: '04:00',
   };
 });
@@ -99,7 +141,7 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
           items: [{
             serviceId,
             membershipId: staffMembershipId,
-            startsAt: '2026-09-07T11:00:00-04:00',
+            startsAt: at('11:00:00'),
           }],
           partySize: 1,
         },
@@ -168,17 +210,17 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
             {
               subKey: 'guest_alice',
               walkInName: 'Alice',
-              serviceItems: [{ serviceId, startsAt: '2026-09-07T14:00:00-04:00' }],
+              serviceItems: [{ serviceId, startsAt: at('14:00:00') }],
             },
             {
               subKey: 'guest_bob',
               walkInName: 'Bob',
-              serviceItems: [{ serviceId, startsAt: '2026-09-07T14:30:00-04:00' }],
+              serviceItems: [{ serviceId, startsAt: at('14:30:00') }],
             },
             {
               subKey: 'guest_carol',
               walkInName: 'Carol',
-              serviceItems: [{ serviceId, startsAt: '2026-09-07T15:00:00-04:00' }],
+              serviceItems: [{ serviceId, startsAt: at('15:00:00') }],
             },
           ],
         },
@@ -242,9 +284,9 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
           walkInName: 'Smith Family',
           partySize: 3,
           items: [
-            { serviceId, startsAt: '2026-09-07T16:00:00-04:00' },
-            { serviceId, startsAt: '2026-09-07T16:00:00-04:00' },
-            { serviceId, startsAt: '2026-09-07T16:00:00-04:00' },
+            { serviceId, startsAt: at('16:00:00') },
+            { serviceId, startsAt: at('16:00:00') },
+            { serviceId, startsAt: at('16:00:00') },
           ],
         },
         summary: '一家三口同行',
@@ -304,19 +346,19 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
         {
           stepKey: 'step_1',
           command: 'appointment.create',
-          input: { walkInName: 'Valid 1', items: [{ serviceId, startsAt: '2026-09-07T12:00:00-04:00' }] },
+          input: { walkInName: 'Valid 1', items: [{ serviceId, startsAt: at('12:00:00') }] },
           summary: '预约 1',
         },
         {
           stepKey: 'step_2',
           command: 'appointment.create',
-          input: { walkInName: 'Valid 2', items: [{ serviceId, startsAt: '2026-09-07T12:30:00-04:00' }] },
+          input: { walkInName: 'Valid 2', items: [{ serviceId, startsAt: at('12:30:00') }] },
           summary: '预约 2',
         },
         {
           stepKey: 'step_3',
           command: 'appointment.create',
-          input: { walkInName: 'Invalid 3', items: [{ serviceId: fakeServiceId, startsAt: '2026-09-07T13:00:00-04:00' }] },
+          input: { walkInName: 'Invalid 3', items: [{ serviceId: fakeServiceId, startsAt: at('13:00:00') }] },
           summary: '无效预约 3',
         },
       ],
@@ -381,7 +423,7 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
             confirmationCode: 'FAKE_CODE',
             manageToken: 'fake_token',
           },
-          items: [{ serviceId, startsAt: '2026-09-07T17:00:00-04:00' }],
+          items: [{ serviceId, startsAt: at('17:00:00') }],
         },
         summary: '新客预约步骤',
       }],
@@ -414,7 +456,7 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
         command: 'appointment.create',
         input: {
           walkInName: 'Concurrent Guy',
-          items: [{ serviceId, startsAt: '2026-09-07T17:30:00-04:00' }],
+          items: [{ serviceId, startsAt: at('17:30:00') }],
         },
         summary: '并发单笔',
       }],
@@ -470,7 +512,7 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
       steps: [{
         stepKey: 'step_crash',
         command: 'appointment.create',
-        input: { walkInName: 'Crash Recovery', items: [{ serviceId, startsAt: '2026-09-07T18:00:00-04:00' }] },
+        input: { walkInName: 'Crash Recovery', items: [{ serviceId, startsAt: at('18:00:00') }] },
         summary: '对账单',
       }],
     };
@@ -528,7 +570,7 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
       steps: [{
         stepKey: 'step_reload',
         command: 'appointment.create',
-        input: { walkInName: 'Reload Test', items: [{ serviceId, startsAt: '2026-09-07T18:30:00-04:00' }] },
+        input: { walkInName: 'Reload Test', items: [{ serviceId, startsAt: at('18:30:00') }] },
         summary: '刷新步骤',
       }],
     };
@@ -562,6 +604,7 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
 
   // ── 场景 9: 跨日跨时区 ───────────────────────────────────────────────────
   it('场景 9: 跨日跨时区 ── 跨午夜与营业日截止无偏差', () => {
+    // 纯日期运算，不碰数据库 —— 这里用固定日期才是对的，可读且可复现。
     const lateNight = new Date('2026-09-07T23:30:00-04:00');
     const bDate1 = businessDateOf(lateNight, 'America/New_York', '04:00');
     expect(bDate1).toBe('2026-09-07');
@@ -607,7 +650,7 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
       steps: [{
         stepKey: 'good_step',
         command: 'appointment.create',
-        input: { walkInName: 'Has Items', items: [{ serviceId, startsAt: '2026-09-07T19:00:00-04:00' }] },
+        input: { walkInName: 'Has Items', items: [{ serviceId, startsAt: at('19:00:00') }] },
         summary: '正常预约',
       }],
     };
@@ -637,7 +680,7 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
         input: {
           walkInName: 'Attacker',
           notes: injectionNotes,
-          items: [{ serviceId, startsAt: '2026-09-07T19:30:00-04:00' }],
+          items: [{ serviceId, startsAt: at('19:30:00') }],
         },
         summary: '预约附带恶意备注',
       }],

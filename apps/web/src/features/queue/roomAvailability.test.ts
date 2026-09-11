@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RoomItem } from '@/features/rooms/types';
-import { pickDefaultRoomId, roomSeatability } from './roomAvailability';
+import { assignDefaultRooms, pickDefaultRoomId, roomSeatability } from './roomAvailability';
 
 function room(overrides: Partial<RoomItem> = {}): RoomItem {
   return {
@@ -94,5 +94,53 @@ describe('pickDefaultRoomId', () => {
   it('returns an empty string when nothing is seatable', () => {
     expect(pickDefaultRoomId([room({ status: 'cleaning' })])).toBe('');
     expect(pickDefaultRoomId([])).toBe('');
+  });
+});
+
+/*
+ * 服务端 `assertResourceStaffLimit()` 数的是一间房里所有在用项目的 distinct
+ * 技师数。门店里最常见的 `max_staff = 1` 单人包厢放不下「三个项目、三位技师」
+ * 的一家三口 —— 而此前所有项目一律默认同一间房，这种单子在确认那一步必然
+ * 半途失败：前两项开工、第三项被拒，工单却已经开出来了。
+ */
+describe('assignDefaultRooms', () => {
+  it('三位技师、三间单人房 —— 各占一间', () => {
+    const rooms = [
+      room({ id: 'r1', maxStaff: 1 }), room({ id: 'r2', maxStaff: 1 }), room({ id: 'r3', maxStaff: 1 }),
+    ];
+    expect(assignDefaultRooms([{ staffIds: ['a'] }, { staffIds: ['b'] }, { staffIds: ['c'] }], rooms))
+      .toEqual(['r1', 'r2', 'r3']);
+  });
+
+  it('同一位技师的多个项目仍然并在同一间，不把一位客人拆到几个位子上', () => {
+    const rooms = [room({ id: 'r1', maxStaff: 1 }), room({ id: 'r2', maxStaff: 1 })];
+    expect(assignDefaultRooms([{ staffIds: ['a'] }, { staffIds: ['a'] }], rooms)).toEqual(['r1', 'r1']);
+  });
+
+  it('大房能容纳多位技师时就并进同一间', () => {
+    const rooms = [room({ id: 'hall', capacity: 3, maxStaff: 3 }), room({ id: 'r2', maxStaff: 1 })];
+    expect(assignDefaultRooms([{ staffIds: ['a'] }, { staffIds: ['b'] }, { staffIds: ['c'] }], rooms))
+      .toEqual(['hall', 'hall', 'hall']);
+  });
+
+  it('没有上限配置时不受技师数约束', () => {
+    const rooms = [room({ id: 'r1', maxStaff: null })];
+    expect(assignDefaultRooms([{ staffIds: ['a'] }, { staffIds: ['b'] }], rooms)).toEqual(['r1', 'r1']);
+  });
+
+  /* 塞一间必然被服务端拒掉的房，比留空更糟：留空是门店里成立的状态。 */
+  it('房不够时留空，而不是塞一间必然被拒的房', () => {
+    const rooms = [room({ id: 'r1', maxStaff: 1 })];
+    expect(assignDefaultRooms([{ staffIds: ['a'] }, { staffIds: ['b'] }], rooms)).toEqual(['r1', '']);
+  });
+
+  it('接不了客的房不参与分配', () => {
+    const rooms = [room({ id: 'dirty', maxStaff: 1, waitingCleaningCount: 1 }), room({ id: 'ok', maxStaff: 1 })];
+    expect(assignDefaultRooms([{ staffIds: ['a'] }], rooms)).toEqual(['ok']);
+  });
+
+  it('双技师协作的单项也按两位算', () => {
+    const rooms = [room({ id: 'r1', maxStaff: 1 }), room({ id: 'big', maxStaff: 2 })];
+    expect(assignDefaultRooms([{ staffIds: ['a', 'b'] }], rooms)).toEqual(['big']);
   });
 });

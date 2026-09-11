@@ -80,3 +80,46 @@ export function pickDefaultRoomId(
 ): string {
   return rooms.find((room) => !taken.has(room.id) && roomSeatability(room, ctx) === 'seatable')?.id ?? '';
 }
+
+/**
+ * 给一次入座里的每个项目挑默认工位，同时尊重工位的「同房技师数上限」。
+ *
+ * ⚠️ 同一张单的多个项目占的是同一个位置 —— 但**仅当它们由同一位技师做**。
+ * 服务端的 `assertResourceStaffLimit()` 数的是这间房里所有在用项目的 distinct
+ * 技师数，超过 `max_staff` 就抛 `resource_staff_limit`。门店里最常见的
+ * `max_staff = 1` 单人包厢，因此放不下「三个项目、三位技师」的一家三口。
+ *
+ * 此前所有项目一律默认同一间房，于是这种单子在确认那一步必然半途失败：前两项
+ * 开工、第三项被拒，工单已经开出来了。这里按技师集合逐项分配：能并进已选的
+ * 房就并（同一位技师的多个项目仍然在同一间），并不下就换下一间可接客的房。
+ *
+ * 实在没有合适的房时给空字符串（「未指定工位」）——留空是门店里成立的状态，
+ * 而塞一间必然被服务端拒掉的房不是。
+ */
+export function assignDefaultRooms(
+  assignments: ReadonlyArray<{ staffIds: readonly string[] }>,
+  rooms: RoomItem[],
+  ctx: RoomSeatabilityContext = {},
+): string[] {
+  const seatable = rooms.filter((room) => roomSeatability(room, ctx) === 'seatable');
+  /** 本次分配中，每间房已经被放进去的技师。 */
+  const placed = new Map<string, Set<string>>();
+
+  const fits = (room: RoomItem, staffIds: readonly string[]): boolean => {
+    if (room.maxStaff == null) return true;
+    const merged = new Set(placed.get(room.id) ?? []);
+    for (const id of staffIds) merged.add(id);
+    return merged.size <= room.maxStaff;
+  };
+
+  return assignments.map(({ staffIds }) => {
+    // 先试已经用过的房：同一位客人尽量不被拆到几个位子上。
+    const reused = seatable.find((room) => placed.has(room.id) && fits(room, staffIds));
+    const room = reused ?? seatable.find((candidate) => !placed.has(candidate.id) && fits(candidate, staffIds));
+    if (!room) return '';
+    const taken = placed.get(room.id) ?? new Set<string>();
+    for (const id of staffIds) taken.add(id);
+    placed.set(room.id, taken);
+    return room.id;
+  });
+}
