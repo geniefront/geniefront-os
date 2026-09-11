@@ -126,7 +126,6 @@ function CheckoutContent() {
   const [selectedPackageId, setSelectedPackageId] = useState('');
 
   // 税费开关与自定义Amount
-  const [enableTax, setEnableTax] = useState(false);
   const [taxRatePercent, setTaxRatePercent] = useState('0');
 
   // 信用卡手续费开关与比例
@@ -296,8 +295,18 @@ function CheckoutContent() {
     const raw = data?.checkoutSettings?.salesTaxRatePercent;
     if (raw == null || raw === '') return;
     setTaxRatePercent(String(raw));
-    setEnableTax(parseFloat(String(raw)) > 0);
   }, [data?.checkoutSettings]);
+
+  /*
+   * 本店是否开征销售税 —— 由税率直接推导，**不是**一个可勾选的开关。
+   *
+   * 此前它是一个 useState 加一个勾选框，而下面的 `taxCents` 从来不看它：
+   * 取消勾选只会让税这一行从费用明细里消失，`totalDueCents` 照样含税、
+   * 提交时照样上报 —— 前台对着一张不含税的单子收款，客人卡上却多扣了一笔。
+   * 反过来在未开征的店里勾上它，会露出一个税率输入框，而那个数字是真的会
+   * 改变应收的。销售税是法定的，不是收银台的选项。
+   */
+  const hasSalesTax = parseFloat(taxRatePercent || '0') > 0;
 
   // 折扣与基础应付
   const discountCents = canDiscount && paymentStage !== 'tip' ? Math.max(0, dollarsToCents(discountInput)) : 0;
@@ -374,8 +383,7 @@ function CheckoutContent() {
     setSelectedPackageId('');
     setTotalTipInput('0.00');
     setCustomStaffTips({});
-    const rate = enableTax ? parseFloat(taxRatePercent || '0') / 100 : 0;
-    const estTax = Math.round(ticket.subtotalCents * rate);
+    const estTax = Math.round(ticket.subtotalCents * (parseFloat(taxRatePercent || '0') / 100));
     const stage = paymentStageFor(ticket);
     setLines([
       {
@@ -982,18 +990,10 @@ function CheckoutContent() {
               {/* Sales Tax */}
               <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm space-y-2 text-xs">
                 <div className="flex items-center justify-between">
-                  <label className="font-bold text-slate-800 flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={enableTax}
-                      onChange={(e) => setEnableTax(e.target.checked)}
-                      className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500/20"
-                    />
-                    <span>{t('checkout.salesTaxToggle')}</span>
-                  </label>
+                  <span className="font-bold text-slate-800">{t('checkout.salesTaxToggle')}</span>
                   <span className="font-mono font-bold text-slate-700">+${centsToDollars(taxCents)}</span>
                 </div>
-                {enableTax && (
+                {hasSalesTax && (
                   <div className="flex items-center gap-2 pt-1">
                     <span className="text-[11px] text-slate-500">{t('checkout.taxRateLabel')}</span>
                     <Input
@@ -1080,7 +1080,7 @@ function CheckoutContent() {
                 </div>
               )}
 
-              {enableTax && (
+              {hasSalesTax && (
                 <div className="flex justify-between text-slate-600">
                   <span>{t('checkout.salesTax')} ({taxRatePercent}%)</span>
                   <span className="font-mono font-bold text-slate-800">+${centsToDollars(taxCents)}</span>

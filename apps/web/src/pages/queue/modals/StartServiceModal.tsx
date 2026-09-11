@@ -150,14 +150,16 @@ export function StartServiceModal(props: StartServiceModalProps) {
       }
       size="lg"
       footer={
-        <div className="flex w-full items-center justify-end gap-2">
+        <div className="flex w-full flex-wrap items-center justify-end gap-2">
           {/*
             按钮为什么点不动，必须写在按钮旁边。此前问卷未签署这一条只在**点下去
             之后**以 toast 的形式出现 —— 而勾选框在弹窗上半部分，前台看到的就是
             一个反复点、反复失败的确认按钮。
           */}
           {blockedReasonKey && (
-            <span className="mr-auto text-xs font-bold text-amber-800">{t(blockedReasonKey)}</span>
+            <span role="alert" className="order-first w-full rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-bold leading-snug text-amber-900">
+              {t(blockedReasonKey)}
+            </span>
           )}
           <Button
             variant="secondary"

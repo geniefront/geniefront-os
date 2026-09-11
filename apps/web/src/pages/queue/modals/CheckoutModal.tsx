@@ -103,6 +103,11 @@ export function CheckoutModal({
   const isServiceStage = state.paymentStage === 'service';
   const isTipStage = state.paymentStage === 'tip';
   const hasCard = state.paymentMethod === 'card' || state.paymentMethod === 'apple_pay';
+  /*
+   * 本店是否开征销售税 —— 由门店税率直接推导，不是收银台的开关。
+   * `computeCheckoutTotals` 恒按税率计收，这里只决定「显不显示这一行」。
+   */
+  const hasSalesTax = parseFloat(state.taxRatePercent || '0') > 0;
   const tenderedCents = dollarsToCents(state.tenderedDollars || '0');
   const rawChangeDue = Math.max(0, tenderedCents - totals.chargedTotalCents);
   const tipPresets = checkoutSettings?.suggestedTipPercentages?.length
@@ -378,16 +383,22 @@ export function CheckoutModal({
               <span className="font-medium text-slate-800">{t('queue.quCoSalesTax')}</span>
               <span className="font-mono font-semibold text-slate-700">+${centsToDollars(totals.taxCents)}</span>
             </div>
-            <div className="flex items-center gap-1.5 pt-1">
-              <label htmlFor="checkout-tax-rate" className="text-xs text-slate-500">{t('queue.quCoTaxRate')}</label>
-              <Input
-                id="checkout-tax-rate"
-                inputMode="decimal"
-                value={state.taxRatePercent}
-                onChange={(e) => onChange((prev) => ({ ...prev, taxRatePercent: e.target.value }))}
-                className="h-7 w-20 font-mono text-sm"
-              />
-            </div>
+            {/*
+              未开征的店不给税率入口：那个输入框里的数字是会真的加到应收上的，
+              而「本店收不收税」不是前台在收银那一刻的决定。与收银台页同一口径。
+            */}
+            {hasSalesTax && (
+              <div className="flex items-center gap-1.5 pt-1">
+                <label htmlFor="checkout-tax-rate" className="text-xs text-slate-500">{t('queue.quCoTaxRate')}</label>
+                <Input
+                  id="checkout-tax-rate"
+                  inputMode="decimal"
+                  value={state.taxRatePercent}
+                  onChange={(e) => onChange((prev) => ({ ...prev, taxRatePercent: e.target.value }))}
+                  className="h-7 w-20 font-mono text-sm"
+                />
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-white p-3">
