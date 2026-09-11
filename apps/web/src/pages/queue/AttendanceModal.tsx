@@ -50,13 +50,13 @@ export interface AttendanceModalProps {
   onCheckOut: (staffMember: { membershipId: string; name: string }) => void | Promise<void>;
   onBreak: (staffMember: { membershipId: string; name: string }, start: boolean) => void | Promise<void>;
   /** 正在提交打卡的那一位。逐行显示 spinner，避免整面板锁死。 */
-  actingStaffId: string | null;
+  actingStaffIds: ReadonlySet<string>;
 }
 
 export function AttendanceModal({
   isOpen, onOpenChange, search, onSearchChange,
   filteredStaffAttendance, onDutyStaff, offDutyStaff, nextUpStaff, attendanceMetrics,
-  onCheckIn, onCheckOut, onBreak, actingStaffId,
+  onCheckIn, onCheckOut, onBreak, actingStaffIds,
 }: AttendanceModalProps) {
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -166,7 +166,7 @@ export function AttendanceModal({
 
                 <div className="space-y-1.5">
                   {onDutyStaff.map((s, idx) => {
-                    const isActing = actingStaffId === s.membershipId;
+                    const isActing = actingStaffIds.has(s.membershipId);
                     const isAvailable = s.state === 'available';
                     const isOnBreak = s.state === 'on_break';
                     const isInService = s.state === 'in_service';
@@ -348,7 +348,7 @@ export function AttendanceModal({
 
                 <div className="space-y-1.5">
                   {offDutyStaff.map((s) => {
-                    const isActing = actingStaffId === s.membershipId;
+                    const isActing = actingStaffIds.has(s.membershipId);
                     return (
                       <div
                         key={s.membershipId}

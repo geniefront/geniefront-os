@@ -108,7 +108,14 @@ export interface CheckoutTotalsInput {
   staffList: CheckoutStaffShare[];
   baseCents: number;
   discountDollars: string;
-  enableTax: boolean;
+  /**
+   * 门店税率（百分数字符串）。税额恒按它计收。
+   *
+   * ⚠️ 这里**没有**「要不要收税」的开关，是刻意的：销售税是法定的，不是收银
+   * 台的选项。此前输入里有一个 `enableTax`，而本函数从头到尾没有读过它 ——
+   * 收银弹窗上那个勾选框因此只改变「摘要里显不显示税这一行」，钱照收。
+   * 前台取消勾选、看着一张不含税的摘要，客人卡上却被多扣了一笔。
+   */
   taxRatePercent: string;
   enableCardSurcharge: boolean;
   cardSurchargePercent: string;

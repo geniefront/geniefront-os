@@ -28,7 +28,6 @@ export interface CheckoutModalState {
   isOpen: boolean;
   item: KanbanItem | null;
   discountDollars: string;
-  enableTax: boolean;
   taxRatePercent: string;
   enableCardSurcharge: boolean;
   cardSurchargePercent: string;
@@ -88,7 +87,6 @@ export function CheckoutModal({
     staffList,
     baseCents,
     discountDollars: state.discountDollars,
-    enableTax: state.enableTax,
     taxRatePercent: state.taxRatePercent,
     enableCardSurcharge: state.enableCardSurcharge,
     cardSurchargePercent: state.cardSurchargePercent,
@@ -369,31 +367,27 @@ export function CheckoutModal({
         {/* 4. 税费与刷卡附加费。小费阶段这两项已锁定为 0，不再显示以免误导。 */}
         {!isTipStage && (
         <div className="grid grid-cols-2 gap-3">
+          {/*
+            销售税没有开关：它是法定的，不是收银台的选项，`computeCheckoutTotals`
+            也一直是按门店税率恒计的。此前这里画着一个勾选框 —— 它从来没有进过
+            任何一条计算路径，取消勾选只会让税这一行从摘要里消失，钱照收。
+            前台对着一张不含税的摘要收款，客人卡上却多扣了一笔。
+          */}
           <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-white p-3">
             <div className="flex items-center justify-between">
-              <label className="flex cursor-pointer items-center gap-1.5 font-medium text-slate-800">
-                <input
-                  type="checkbox"
-                  checked={state.enableTax}
-                  onChange={(e) => onChange((prev) => ({ ...prev, enableTax: e.target.checked }))}
-                  className="h-4 w-4 rounded text-teal-600"
-                />
-                <span>{t('queue.quCoSalesTax')}</span>
-              </label>
+              <span className="font-medium text-slate-800">{t('queue.quCoSalesTax')}</span>
               <span className="font-mono font-semibold text-slate-700">+${centsToDollars(totals.taxCents)}</span>
             </div>
-            {state.enableTax && (
-              <div className="flex items-center gap-1.5 pt-1">
-                <label htmlFor="checkout-tax-rate" className="text-xs text-slate-500">{t('queue.quCoTaxRate')}</label>
-                <Input
-                  id="checkout-tax-rate"
-                  inputMode="decimal"
-                  value={state.taxRatePercent}
-                  onChange={(e) => onChange((prev) => ({ ...prev, taxRatePercent: e.target.value }))}
-                  className="h-7 w-20 font-mono text-sm"
-                />
-              </div>
-            )}
+            <div className="flex items-center gap-1.5 pt-1">
+              <label htmlFor="checkout-tax-rate" className="text-xs text-slate-500">{t('queue.quCoTaxRate')}</label>
+              <Input
+                id="checkout-tax-rate"
+                inputMode="decimal"
+                value={state.taxRatePercent}
+                onChange={(e) => onChange((prev) => ({ ...prev, taxRatePercent: e.target.value }))}
+                className="h-7 w-20 font-mono text-sm"
+              />
+            </div>
           </div>
 
           <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-white p-3">
@@ -456,7 +450,7 @@ export function CheckoutModal({
               placeholder="0"
             />
           </div>
-          {state.enableTax && (
+          {totals.taxCents > 0 && (
             <div className="flex justify-between text-slate-600">
               <span>{t('queue.quCoTaxLine', { p0: state.taxRatePercent })}</span>
               <span className="font-mono font-semibold text-slate-800">+${centsToDollars(totals.taxCents)}</span>

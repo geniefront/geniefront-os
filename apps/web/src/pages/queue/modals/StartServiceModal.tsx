@@ -30,6 +30,7 @@ import type { DayStaff, DayService } from '@/features/schedule/types';
 import type { RoomItem } from '@/features/rooms/types';
 import type { DayItem } from '@/features/schedule/types';
 import type { RotationEntry } from '@/features/rotation/types';
+import type { TranslationKey } from '@/i18n';
 
 export interface StartServiceAssignment {
   serviceId: string;
@@ -91,6 +92,19 @@ export function StartServiceModal(props: StartServiceModalProps) {
   const ownTicketId = item.ticketId ?? item.rawTicket?.ticketId ?? null;
   const noSeatableRoom = rooms.length > 0
     && rooms.every((room) => roomSeatability(room, { ticketId: ownTicketId }) !== 'seatable');
+  /*
+   * 确认按钮点不动的原因，与提交处的校验一一对应（`handleConfirmStartService`）。
+   * 两边必须同源：只在提交处拦，按钮就是「点了没反应」；只在按钮上拦，并发改动
+   * 又会漏。这里负责说清楚，那里负责兜底。
+   */
+  const blockedReasonKey: TranslationKey | null =
+    state.assignments.length === 0 ? 'queue.quSeatNeedService'
+    : state.assignments.some((assignment) => assignment.staffIds.length !== assignment.staffCount)
+      ? 'queue.quSeatNeedStaff'
+    : state.addedAddOns.some((addOn) => !addOn.staffId || addOn.staffId === UNASSIGNED_STAFF_ID)
+      ? 'queue.quAddOnStaffRequired'
+    : hasPendingForms(item) && !state.requireBriefingAck ? 'queue.quSeatBriefingRequired'
+    : null;
   const assignmentCandidates = state.assignments.map((assignment) => {
     const service = services.find((entry) => entry.id === assignment.serviceId) ?? {
       id: assignment.serviceId, name: assignment.serviceName,
@@ -136,7 +150,15 @@ export function StartServiceModal(props: StartServiceModalProps) {
       }
       size="lg"
       footer={
-        <div className="flex justify-end gap-2 w-full">
+        <div className="flex w-full items-center justify-end gap-2">
+          {/*
+            按钮为什么点不动，必须写在按钮旁边。此前问卷未签署这一条只在**点下去
+            之后**以 toast 的形式出现 —— 而勾选框在弹窗上半部分，前台看到的就是
+            一个反复点、反复失败的确认按钮。
+          */}
+          {blockedReasonKey && (
+            <span className="mr-auto text-xs font-bold text-amber-800">{t(blockedReasonKey)}</span>
+          )}
           <Button
             variant="secondary"
             isDisabled={isPending}
@@ -147,8 +169,7 @@ export function StartServiceModal(props: StartServiceModalProps) {
           <Button
             className={PRIMARY_ACTION_CLASS}
             onPress={() => { void onConfirm(); }}
-            isDisabled={isPending
-              || state.assignments.some((assignment) => assignment.staffIds.length !== assignment.staffCount)}
+            isDisabled={isPending || blockedReasonKey !== null}
           >
             {isPending
               ? <><Spinner size="sm" />{t('queue.quProcessing')}</>

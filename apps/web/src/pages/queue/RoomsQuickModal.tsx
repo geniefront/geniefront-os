@@ -35,14 +35,14 @@ const STATUS_LABEL: Record<string, TranslationKey> = {
 export interface RoomsQuickModalProps {
   isOpen: boolean;
   rooms: RoomItem[];
-  /** 正在提交的那一间。逐行显示 spinner，不锁死整个面板。 */
-  cleaningRoomId: string | null;
+  /** 正在提交的那几间。逐行显示 spinner，彼此不互相阻塞。 */
+  cleaningRoomIds: ReadonlySet<string>;
   onOpenChange: (open: boolean) => void;
   onCleanDone: (room: RoomItem) => void | Promise<void>;
 }
 
 export function RoomsQuickModal({
-  isOpen, rooms, cleaningRoomId, onOpenChange, onCleanDone,
+  isOpen, rooms, cleaningRoomIds, onOpenChange, onCleanDone,
 }: RoomsQuickModalProps) {
   const { t } = useLanguage();
   if (!isOpen) return null;
@@ -84,7 +84,7 @@ export function RoomsQuickModal({
         <ul className="space-y-1.5">
           {ordered.map((room) => {
             const dirty = roomNeedsCleaning(room);
-            const busy = cleaningRoomId === room.id;
+            const busy = cleaningRoomIds.has(room.id);
             const guest = room.currentSession?.customerName
               ?? room.currentSessions?.[0]?.customerName
               ?? null;

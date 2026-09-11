@@ -63,7 +63,17 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
   { className, variant = 'default', size = 'default', onClick, onPress, disabled, isDisabled, ...props },
   ref,
 ) {
-  const handlePress = onPress ?? (onClick ? (e: unknown) => onClick(toMouseLike(e)) : undefined);
+  /*
+   * 两个都给时**两个都要跑**。此前是 `onPress ?? onClick`：同时传就静默丢掉
+   * onClick，而两者写法混用（模板留下 onClick、新代码写 onPress），一次粗心的
+   * 合并就能让某个按钮少做一半的事，且不报任何错。
+   */
+  const handlePress = onPress || onClick
+    ? (e: unknown) => {
+        onPress?.(e as Parameters<NonNullable<typeof onPress>>[0]);
+        onClick?.(toMouseLike(e));
+      }
+    : undefined;
 
   return (
     <HeroButton

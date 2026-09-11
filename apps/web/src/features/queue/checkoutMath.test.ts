@@ -36,7 +36,6 @@ const ticket = (items: Array<{ membershipId: string; staffName: string; name: st
 const base = {
   baseCents: 10_000,
   discountDollars: '0',
-  enableTax: false,
   taxRatePercent: '8.875',
   enableCardSurcharge: false,
   cardSurchargePercent: '3.0',
@@ -164,7 +163,6 @@ describe('computeCheckoutTotals', () => {
     const totals = computeCheckoutTotals({
       ...base,
       staffList: two,
-      enableTax: true,
       enableCardSurcharge: true,
       cardSurchargePercent: '3.0',
     });
@@ -193,16 +191,16 @@ describe('computeCheckoutTotals', () => {
     expect(totals.tipAllocations.map((entry) => entry.allocatedTipCents)).toEqual([1_200, 800]);
   });
 
-  it('门店税率 > 0 时即使关掉开关也按门店税率算，不信收银台勾选', () => {
+  it('税额恒按门店税率计收 —— 收银台没有、也不该有「不收税」这个选项', () => {
     const totals = computeCheckoutTotals({
-      ...base, staffList: two, enableTax: false, tipPercentage: 0,
+      ...base, staffList: two, tipPercentage: 0,
     });
     expect(totals.taxCents).toBe(888);
   });
 
   it('折扣先于税额生效，且不会把应收压成负数', () => {
     const totals = computeCheckoutTotals({
-      ...base, staffList: two, discountDollars: '150.00', enableTax: true, tipPercentage: 0,
+      ...base, staffList: two, discountDollars: '150.00', tipPercentage: 0,
     });
     expect(totals.afterDiscountCents).toBe(0);
     expect(totals.taxCents).toBe(0);
@@ -244,7 +242,6 @@ describe('computeCheckoutTotals 的分阶段收款', () => {
       paymentStage: 'tip',
       tipBaseCents: 10_000,
       discountDollars: '5.00',
-      enableTax: true,
       enableCardSurcharge: true,
     });
     expect(totals.discountCents).toBe(0);

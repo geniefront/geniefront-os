@@ -165,9 +165,16 @@ function QueueContent() {
   const [splitTarget, setSplitTarget] = useState<{ ticketId: string; bundle: TicketBundle } | null>(null);
   const beginCleaningMutation = useBeginCleaning();
   const completeCleaningMutation = useCompleteCleaning();
-  /* 看板上的房间快捷清理。cleaningRoomId 只用于逐行 spinner，不锁死整个面板。 */
+  /*
+   * 看板上的房间快捷清理。
+   *
+   * 用集合而不是单个 id：面板里每一行各自判忙碌（只有正在提交的那一行转圈），
+   * 界面因此邀请前台连着点好几间 —— 而单值版本会让第二间直接被丢掉，且
+   * 第一间做完时把还在跑的第二间的 spinner 一并抹掉。打扫几间位子本来就该
+   * 并行，它们之间没有任何依赖。
+   */
   const [isRoomsPanelOpen, setIsRoomsPanelOpen] = useState(false);
-  const [cleaningRoomId, setCleaningRoomId] = useState<string | null>(null);
+  const [cleaningRoomIds, setCleaningRoomIds] = useState<ReadonlySet<string>>(new Set());
   const shareFormMutation = useShareForm();
   const [formShares, setFormShares] = useState<Record<string, FormShareResult>>({});
 
@@ -176,11 +183,18 @@ function QueueContent() {
   const setBreakRotationMutation = useRotationSetBreak();
   const [isStaffAttendanceModalOpen, setIsStaffAttendanceModalOpen] = useState(false);
   const [staffAttendanceSearch, setStaffAttendanceSearch] = useState('');
-  const [actingAttendanceStaffId, setActingAttendanceStaffId] = useState<string | null>(null);
+  /* 同 `cleaningRoomIds`：逐行判忙碌，代打卡本就该能同时处理好几位。 */
+  const [actingAttendanceStaffIds, setActingAttendanceStaffIds] = useState<ReadonlySet<string>>(new Set());
+  const markAttendanceActing = (membershipId: string, acting: boolean) =>
+    setActingAttendanceStaffIds((prev) => {
+      const next = new Set(prev);
+      if (acting) next.add(membershipId); else next.delete(membershipId);
+      return next;
+    });
 
   const handleStaffAttendanceCheckIn = async (staffMember: { membershipId: string; name: string }) => {
     try {
-      setActingAttendanceStaffId(staffMember.membershipId);
+      markAttendanceActing(staffMember.membershipId, true);
       await checkInRotationMutation.mutateAsync({
         membershipId: staffMember.membershipId,
         note: '前台代签到',
@@ -190,13 +204,13 @@ function QueueContent() {
     } catch (err: any) {
       toast.danger(errorMessage(err));
     } finally {
-      setActingAttendanceStaffId(null);
+      markAttendanceActing(staffMember.membershipId, false);
     }
   };
 
   const handleStaffAttendanceCheckOut = async (staffMember: { membershipId: string; name: string }) => {
     try {
-      setActingAttendanceStaffId(staffMember.membershipId);
+      markAttendanceActing(staffMember.membershipId, true);
       await checkOutRotationMutation.mutateAsync({
         membershipId: staffMember.membershipId,
         note: '前台代打卡',
@@ -206,7 +220,7 @@ function QueueContent() {
     } catch (err: any) {
       toast.danger(errorMessage(err));
     } finally {
-      setActingAttendanceStaffId(null);
+      markAttendanceActing(staffMember.membershipId, false);
     }
   };
 
@@ -215,7 +229,7 @@ function QueueContent() {
     onBreak: boolean,
   ) => {
     try {
-      setActingAttendanceStaffId(staffMember.membershipId);
+      markAttendanceActing(staffMember.membershipId, true);
       await setBreakRotationMutation.mutateAsync({
         membershipId: staffMember.membershipId,
         onBreak,
@@ -230,7 +244,7 @@ function QueueContent() {
     } catch (err: any) {
       toast.danger(errorMessage(err));
     } finally {
-      setActingAttendanceStaffId(null);
+      markAttendanceActing(staffMember.membershipId, false);
     }
   };
 
@@ -258,16 +272,32 @@ function QueueContent() {
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  /**
+   * 取这张卡的问卷分享链接，没有就创建一条。
+   *
+   * 进行中的请求也要缓存，而不是只缓存结果：`formShares` 要等请求回来才落，
+   * 而「扫码」与「复制链接」两个按钮就挨在一起，前台先点一个再点另一个 ——
+   * 两次都读到空，于是给同一位客人建出两条分享记录，客人手上那个二维码
+   * 和前台复制走的链接还不是同一条。
+   */
+  const formSharesInFlight = useRef(new Map<string, Promise<FormShareResult>>());
   const getFormShare = async (item: KanbanItem) => {
     const existing = formShares[item.id];
     if (existing) return existing;
-    const created = await shareFormMutation.mutateAsync({
+    const pending = formSharesInFlight.current.get(item.id);
+    if (pending) return pending;
+    const request = shareFormMutation.mutateAsync({
       customerId: null,
       appointmentId: item.appointmentId ?? null,
       locale: language,
+    }).then((created) => {
+      setFormShares((current) => ({ ...current, [item.id]: created }));
+      return created;
+    }).finally(() => {
+      formSharesInFlight.current.delete(item.id);
     });
-    setFormShares((current) => ({ ...current, [item.id]: created }));
-    return created;
+    formSharesInFlight.current.set(item.id, request);
+    return request;
   };
 
   const openFormQr = async (item: KanbanItem) => {
@@ -608,7 +638,6 @@ function QueueContent() {
     item: KanbanItem | null;
     discountDollars: string;
     // 税费与信用卡手续费
-    enableTax: boolean;
     taxRatePercent: string;
     enableCardSurcharge: boolean;
     cardSurchargePercent: string;
@@ -639,7 +668,6 @@ function QueueContent() {
     isOpen: false,
     item: null,
     discountDollars: '0',
-    enableTax: false,
     taxRatePercent: '0',
     enableCardSurcharge: false,
     cardSurchargePercent: '3.0',
@@ -1456,8 +1484,8 @@ function QueueContent() {
    * 而不是在界面上要求她先点「开始打扫」。
    */
   const handleRoomCleanDone = async (room: { id: string; name: string; status: string; rawStatus?: string }) => {
-    if (cleaningRoomId) return;
-    setCleaningRoomId(room.id);
+    if (cleaningRoomIds.has(room.id)) return;
+    setCleaningRoomIds((prev) => new Set(prev).add(room.id));
     try {
       if (room.rawStatus === 'cleaning_required') {
         await beginCleaningMutation.mutateAsync({ resourceId: room.id });
@@ -1468,7 +1496,11 @@ function QueueContent() {
     } catch (err) {
       toast.danger(errorMessage(err));
     } finally {
-      setCleaningRoomId(null);
+      setCleaningRoomIds((prev) => {
+        const next = new Set(prev);
+        next.delete(room.id);
+        return next;
+      });
     }
   };
 
@@ -1527,7 +1559,6 @@ function QueueContent() {
       isOpen: true,
       item,
       discountDollars: '0',
-      enableTax: !isTipOnly && Number.parseFloat(checkoutSettings?.salesTaxRatePercent || '0') > 0,
       taxRatePercent: checkoutSettings?.salesTaxRatePercent || '0',
       enableCardSurcharge: false,
       cardSurchargePercent: '3.0',
@@ -1820,10 +1851,32 @@ function QueueContent() {
         committed = true;
       }
 
-      let ticketId = item.ticketId ?? item.rawTicket?.ticketId;
-      let ticketItemIds = item.rawTicket ? queueTicketItems(item.rawTicket.items)
-        .filter((ticketItem) => !ticketItem.startedAt)
-        .map((ticketItem) => ticketItem.ticketItemId) : [];
+      /**
+       * 待开工的项目，以及各自该记在谁头上。
+       *
+       * 这两件事**必须成对产生**。此前是先拼一个 `ticketItemIds`，再靠下标去
+       * `assignments` 里取技师 —— 而这两个数组只在「刚刚开单」那一种情况下同序：
+       * 单已存在时 `ticketItemIds` 来自工单未开工的项目，`assignments` 却是按
+       * 队列条目拼的，下标对上纯属巧合，对不上就把这一项记到别人头上。
+       */
+      const itemsToStart: Array<{ ticketItemId: string; membershipId: string | undefined }> = [];
+      let ticketId = item.rawTicket?.ticketId ?? item.ticketId;
+      if (ticketId && !item.rawTicket) {
+        /*
+         * 有单号却没有单据明细：看板不知道这张单上有哪些项目、各自开工了没有，
+         * 继续往下只会凭空跳过它们。如实要求刷新，不要假装做完了。
+         */
+        toast.danger(t('queue.quSeatStaleTicket'));
+        await abortStartServiceAttempt();
+        return;
+      }
+      if (item.rawTicket) {
+        // 归属以工单为准。左连接下未指派的行是空串，按「不指定」发送。
+        for (const entry of queueTicketItems(item.rawTicket.items)) {
+          if (entry.startedAt) continue;
+          itemsToStart.push({ ticketItemId: entry.ticketItemId, membershipId: entry.membershipId || undefined });
+        }
+      }
       if (!ticketId) {
         const appointmentItems = item.rawQueue?.items ?? [];
         const soleServiceId = item.serviceId;
@@ -1864,14 +1917,16 @@ function QueueContent() {
         });
         committed = true;
         ticketId = opened.ticketId;
-        ticketItemIds = opened.ticketItemIds;
+        /*
+         * 服务端按 `input.items` 的顺序逐条插入并回传 id（handlers/ticket.ts），
+         * 而 `itemsToOpen` 与 `assignments` 同序 —— 只有在这里，按下标取技师
+         * 才是成立的。
+         */
+        opened.ticketItemIds.forEach((ticketItemId, index) => {
+          itemsToStart.push({ ticketItemId, membershipId: assignments[index]?.staffIds[0] });
+        });
       }
 
-      const itemsToStart = ticketItemIds.map((ticketItemId, index) => ({
-        ticketItemId,
-        membershipId: item.rawTicket?.items.find((entry) => entry.ticketItemId === ticketItemId)?.membershipId
-          ?? assignments[index]?.staffIds[0],
-      }));
       if (ticketId) {
         for (const addOn of addedAddOns) {
           /*
@@ -2055,7 +2110,6 @@ function QueueContent() {
       staffList,
       baseCents,
       discountDollars: checkoutModal.discountDollars,
-      enableTax: checkoutModal.enableTax,
       taxRatePercent: checkoutModal.taxRatePercent,
       enableCardSurcharge: checkoutModal.enableCardSurcharge,
       cardSurchargePercent: checkoutModal.cardSurchargePercent,
@@ -2728,7 +2782,7 @@ function QueueContent() {
       <RoomsQuickModal
         isOpen={isRoomsPanelOpen}
         rooms={rooms}
-        cleaningRoomId={cleaningRoomId}
+        cleaningRoomIds={cleaningRoomIds}
         onOpenChange={setIsRoomsPanelOpen}
         onCleanDone={handleRoomCleanDone}
       />
@@ -2746,7 +2800,7 @@ function QueueContent() {
         onCheckIn={handleStaffAttendanceCheckIn}
         onCheckOut={handleStaffAttendanceCheckOut}
         onBreak={handleStaffAttendanceBreak}
-        actingStaffId={actingAttendanceStaffId}
+        actingStaffIds={actingAttendanceStaffIds}
       />
     </div>
   );
