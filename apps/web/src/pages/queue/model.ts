@@ -193,6 +193,15 @@ export interface AddOnItem {
   durationMin: number;
   staffId: string;
   staffName?: string;
+  /**
+   * 已经写进单据的那一条的 ticket_item id。
+   *
+   * 入座与完工弹窗里的加项清单原本只有「待发送」一种状态：提交到一半失败时，
+   * 已经落库的加项仍然显示成待发送，前台按常理把它删掉重选再提交一次 ——
+   * 而重选会生成新的 `idempotencyKey`，幂等保护随之失效，同一个加项进单两遍。
+   * 标上它之后，这一条既不可删也不可改派，重试也不会再发第二次。
+   */
+  sentTicketItemId?: string;
 }
 
 export interface KanbanItem {

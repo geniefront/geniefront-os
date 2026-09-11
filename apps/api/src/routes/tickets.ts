@@ -99,6 +99,16 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           order by effective_from desc, version desc limit 1`;
         checkoutSettings.tipDistributionBasis = (tipPolicy?.config?.['basis'] ?? 'active_minutes') as typeof checkoutSettings.tipDistributionBasis;
 
+        /*
+         * ⚠️ 技师那一跳必须是 left join。内连接会让**尚无技师归属**的项目整条
+         * 从响应里消失 —— 而 subtotal_cents 仍然含着它，于是看板卡片上的明细
+         * 与总额对不上，那一项也不会有任何可点的入口，单子就此卡死。归属为空
+         * 的行由调用方按「待指派」处理，不是把它藏起来。
+         *
+         * 另注意本查询是按 ticket_item_staff 展开的：一个项目派了几位技师就
+         * 返回几行，**每行都带着该项目的完整金额**。调用方必须按 ticketItemId
+         * 去重（前端的 queueTicketItems），把各行金额直接相加会得到翻倍的营收。
+         */
         const rows = await tx<{
           ticket_id: string; appointment_id: string | null; status: string;
           checkout_timing_snapshot: string; service_settled_at: string | null; tip_settled_at: string | null;
@@ -107,7 +117,7 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           subtotal_cents: number; discount_cents: number; tax_cents: number; total_cents: number;
           item_id: string; service_id: string | null; item_name: string; item_total: number;
           duration_min: number; started_at: string | null; finished_at: string | null;
-          staff_name: unknown; membership_id: string; room_name: string | null; resource_id: string | null;
+          staff_name: unknown; membership_id: string | null; room_name: string | null; resource_id: string | null;
           bundle_instance_id: string | null; bundle_component_id: string | null;
           bundle_unit_index: number | null; bundle_list_price_cents: number | null;
         }[]>`
@@ -129,7 +139,7 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           left join customers c on c.id = t.customer_id
           left join ticket_groups g on g.id = t.group_id
           join ticket_items ti on ti.ticket_id = t.id
-          join ticket_item_staff tis on tis.ticket_item_id = ti.id
+          left join ticket_item_staff tis on tis.ticket_item_id = ti.id
           left join staff_profiles sp on sp.membership_id = tis.membership_id
           left join resources r on r.id = ti.resource_id
           where t.location_id = ${ctx.locationId}
@@ -186,7 +196,8 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
           t.items.push({
             ticketItemId: r.item_id, serviceId: r.service_id, name: r.item_name, totalCents: r.item_total,
             durationMin: r.duration_min, staffName: pickText(r.staff_name, ctx.locale),
-            membershipId: r.membership_id, startedAt: r.started_at, finishedAt: r.finished_at,
+            // 尚无归属时回空串而不是 null：前端各处已经按 falsy 判「待指派」。
+            membershipId: r.membership_id ?? '', startedAt: r.started_at, finishedAt: r.finished_at,
             roomName: r.room_name, resourceId: r.resource_id,
             bundleInstanceId: r.bundle_instance_id, bundleComponentId: r.bundle_component_id,
             bundleUnitIndex: r.bundle_unit_index, bundleListPriceCents: r.bundle_list_price_cents,

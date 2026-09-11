@@ -13,9 +13,11 @@ import { Input } from '@/components/ui/Input';
 import { useLanguage } from '@/LanguageContext';
 import { centsToDollars } from '@/features/checkout/api';
 import { queueTicketItems } from '@/features/queue/ticketItems';
+import { roomSeatability, ROOM_SEATABILITY_LABEL_KEYS } from '@/features/queue/roomAvailability';
 import { UNASSIGNED_STAFF_ID } from '@/context/ScheduleContext';
 import { PRIMARY_ACTION_CLASS } from '../model';
 import type { KanbanItem } from '../model';
+import type { RoomItem } from '@/features/rooms/types';
 
 export interface TicketItemActionModalState {
   isOpen: boolean;
@@ -32,7 +34,7 @@ export interface TicketItemActionModalProps {
   state: TicketItemActionModalState;
   services: Array<{ id: string; name: string; priceCents: number; durationMin: number }>;
   staff: Array<{ membershipId: string; name: string; isBookable: boolean }>;
-  rooms: Array<{ id: string; name: string; status: string }>;
+  rooms: RoomItem[];
   isPending: boolean;
   onChange: React.Dispatch<React.SetStateAction<TicketItemActionModalState>>;
   onConfirm: () => void | Promise<void>;
@@ -62,6 +64,7 @@ export function TicketItemActionModal({
     <Modal
       isOpen={modal.isOpen}
       onOpenChange={(open) => { if (!open) onChange((prev) => ({ ...prev, isOpen: false, item: null })); }}
+      isDismissDisabled={pending}
       title={
         <div className="flex items-center gap-2 font-bold text-slate-900">
           <ArrowRightLeft className="h-5 w-5 text-teal-600" />
@@ -164,13 +167,20 @@ export function TicketItemActionModal({
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800"
             >
               <option value="">—</option>
+              {/*
+                与入座弹窗同一套判定：接不了客的工位置灰。本单自己正占着的那间
+                不算已满（服务端同样按 own_active 放行），因此要把 ticketId 传进去。
+              */}
               {rooms
                 .filter((room) => modal.mode === 'add' || room.id !== chosen?.resourceId)
-                .map((room) => (
-                  <option key={room.id} value={room.id}>
-                    {room.name}{room.status === 'available' ? '' : ` ${t('queue.quRoomBusy')}`}
-                  </option>
-                ))}
+                .map((room) => {
+                  const seatability = roomSeatability(room, { ticketId: modal.item!.rawTicket!.ticketId });
+                  return (
+                    <option key={room.id} value={room.id} disabled={seatability !== 'seatable'}>
+                      {room.name}{seatability === 'seatable' ? '' : ` · ${t(ROOM_SEATABILITY_LABEL_KEYS[seatability])}`}
+                    </option>
+                  );
+                })}
             </select>
           </div>
         )}

@@ -87,12 +87,53 @@ describe('completeQueueService', () => {
     expect(result).toMatchObject({ ok: true, ticketDone: true, actualMinutes: 88 });
   });
 
+  /*
+   * `committed` 是调用方判断「弹窗还能不能原样留着重试」的唯一依据。加项已经
+   * 记进单据、完工那一步才失败，是门店里最常见的一种半成功 —— 此时若让前台按
+   * 旧快照再点一次确认，被删掉重选的加项会拿到新的幂等键，同一项就进单两遍。
+   */
+  it('reports committed=false when the very first command fails', async () => {
+    const cmds = commands({ addItem: vi.fn().mockRejectedValue(new Error('boom')) });
+    expect(await completeQueueService({
+      rawTicket: ticket(), technicianNotes: '', markRoomCleaning: false, roomId: null,
+      addedAddOns: [{ idempotencyKey: 'k1', serviceId: 'svc-1', staffId: 'staff-1', durationMin: 15 }],
+    }, cmds)).toMatchObject({ ok: false, step: 'addOn', committed: false });
+  });
+
+  it('reports committed=true when an add-on landed but finishing failed', async () => {
+    const cmds = commands({ finishItem: vi.fn().mockRejectedValue(new Error('boom')) });
+    const result = await completeQueueService({
+      rawTicket: ticket(), technicianNotes: '', markRoomCleaning: false, roomId: null,
+      addedAddOns: [{ idempotencyKey: 'k1', serviceId: 'svc-1', staffId: 'staff-1', durationMin: 15 }],
+    }, cmds);
+    expect(cmds.addItem).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ ok: false, step: 'finish', committed: true });
+  });
+
+  it('never re-sends an add-on that already landed, and reports each one as it lands', async () => {
+    const onAddOnSent = vi.fn();
+    const cmds = commands({ onAddOnSent });
+    await completeQueueService({
+      rawTicket: ticket(), technicianNotes: '', markRoomCleaning: false, roomId: null,
+      addedAddOns: [
+        { idempotencyKey: 'k1', serviceId: 'svc-1', staffId: 'staff-1', durationMin: 15, sentTicketItemId: 'addon-0' },
+        { idempotencyKey: 'k2', serviceId: 'svc-2', staffId: 'staff-1', durationMin: 15 },
+      ],
+    }, cmds);
+    expect(cmds.addItem).toHaveBeenCalledTimes(1);
+    expect(cmds.addItem).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: 'k2' }));
+    expect(onAddOnSent).toHaveBeenCalledTimes(1);
+    expect(onAddOnSent).toHaveBeenCalledWith('k2', 'addon-1');
+    // 已落库的那一条照样要开工与完工，否则单子会卡在服务中。
+    expect(cmds.finishItem).toHaveBeenCalledWith({ ticketItemId: 'addon-0', membershipId: 'staff-1' });
+  });
+
   it('rejects an empty ticket without finishing anything', async () => {
     const cmds = commands();
     expect(await completeQueueService({
       rawTicket: ticket({ items: [] }), technicianNotes: '',
       markRoomCleaning: false, roomId: null, addedAddOns: [],
-    }, cmds)).toEqual({ ok: false, reason: 'no_active_service' });
+    }, cmds)).toEqual({ ok: false, reason: 'no_active_service', committed: false });
     expect(cmds.finishItem).not.toHaveBeenCalled();
   });
 

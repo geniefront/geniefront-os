@@ -182,6 +182,17 @@ export function overbookDetail(err: unknown): { limit: number; wouldBe: number }
  * warn 时该错误 `overridable: true`，前台确认后带 `override` 重试即可放行；
  * 设成 block 时 `overridable: false`，界面不得给放行入口。
  */
+/**
+ * 「替谁点的」为空时必须整个字段不发。
+ *
+ * 合同上它是 `uuid.optional()`：不传等于「自己点的」，而传一个空串会被
+ * zod 判为非法 uuid 直接拒掉整条命令。尚未指派技师的项目（工单列表对
+ * `ticket_item_staff` 是 left join，归属为空时回空串）正是会走到这里。
+ */
+const withOptionalActor = <T extends { membershipId?: string }>(input: T): T => (
+  input.membershipId ? input : { ...input, membershipId: undefined }
+);
+
 export function useStartTicketItem() {
   const { membershipId } = useSession();
   const queryClient = useQueryClient();
@@ -192,7 +203,7 @@ export function useStartTicketItem() {
       override?: Override;
     }) =>
       (await runCommand<{ ticketItemId: string; startedAt: string }>(
-        'ticket.startItem', input, membershipId!,
+        'ticket.startItem', withOptionalActor(input), membershipId!,
       )).result,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
@@ -208,7 +219,7 @@ export function useFinishTicketItem() {
     mutationFn: async (input: { ticketItemId: string; membershipId?: string }) =>
       (await runCommand<{
         ticketItemId: string; finishedAt: string; actualMinutes: number; ticketDone: boolean;
-      }>('ticket.finishItem', input, membershipId!)).result,
+      }>('ticket.finishItem', withOptionalActor(input), membershipId!)).result,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
       void queryClient.invalidateQueries({ queryKey: ['desk', 'day'] });

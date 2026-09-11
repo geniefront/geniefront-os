@@ -36,10 +36,16 @@ export interface KanbanBoardProps {
   timezone: string;
   draggingItemId: string | null;
   dragOverColumn: KanbanStage | null;
-  /** 任一写命令进行中。主按钮统一禁用，避免重复提交。 */
-  isSyncing: boolean;
-  /** 逐项目的开始/完成命令是否进行中。 */
-  isItemMutating: boolean;
+  /** 整块看板正在重新拉取。此时任何按钮按下去读到的都是旧事实，统一禁用。 */
+  isRefreshing: boolean;
+  /**
+   * 正在直接执行命令的那一张卡 / 那一行。
+   *
+   * ⚠️ 禁用范围必须精确到这一个目标。此前是一个全局布尔：任意一次开始或完工
+   * 进行中，整块看板十几张卡的按钮一起变灰 —— 门店里前台本来就是一边接这位、
+   * 一边给那位点完工，全屏冻结把并行的活儿强行串了起来。
+   */
+  busyTarget: { itemId: string; ticketItemId: string | null } | null;
   canVoidTicket: boolean;
   onDragStart: (e: React.DragEvent, item: KanbanItem) => void;
   onDragOver: (e: React.DragEvent, stage: KanbanStage) => void;
@@ -52,13 +58,13 @@ export interface KanbanBoardProps {
   onRequestRollback: (item: KanbanItem) => void;
   onRequestVoid: (item: KanbanItem) => void;
   onPrintBrief: (item: KanbanItem) => void;
-  onToggleItem: (service: TicketItem) => void | Promise<void>;
+  onToggleItem: (item: KanbanItem, service: TicketItem) => void | Promise<void>;
   /** 未开工未付款时把一份组合套餐拆成按原价单独计费的项目（U10 / B14）。 */
   onSplitBundle?: (ticketId: string, bundle: TicketBundle) => void;
 }
 
 export function KanbanBoard({
-  items, focusItemId, timezone, draggingItemId, dragOverColumn, isSyncing, isItemMutating, canVoidTicket,
+  items, focusItemId, timezone, draggingItemId, dragOverColumn, isRefreshing, busyTarget, canVoidTicket,
   onDragStart, onDragOver, onDragLeave, onDrop, onViewDetails, onOpenFormQr,
   onRunNextAction, onItemAction, onRequestRollback, onRequestVoid, onPrintBrief, onToggleItem, onSplitBundle,
 }: KanbanBoardProps) {
@@ -276,8 +282,8 @@ export function KanbanBoard({
                                   <span>{service.finishedAt ? t('queue.quItemFinished') : service.startedAt ? t('queue.quInServiceStatus') : t('queue.quItemWaiting')}</span>
                                 </div>
                                 {!service.finishedAt && <Button size="sm" variant="secondary"
-                                  isDisabled={isItemMutating}
-                                  onPress={() => { void onToggleItem(service); }}>
+                                  isDisabled={isRefreshing || busyTarget?.ticketItemId === service.ticketItemId}
+                                  onPress={() => { void onToggleItem(item, service); }}>
                                   {service.startedAt ? t('queue.quFinishItem') : t('queue.quStartItem')}
                                 </Button>}
                               </li>
@@ -436,7 +442,12 @@ export function KanbanBoard({
                               'w-full h-8 text-xs font-bold text-white rounded-xl gap-1 shadow-sm',
                               NEXT_ACTION_STYLE[nextAction.kind],
                             )}
-                            isDisabled={isSyncing}
+                            /*
+                              主按钮只在这张卡自己正在跑命令时禁用。开始 / 完工
+                              之外的分支（签到、入座、收银）点下去只是打开弹窗，
+                              重复提交由各弹窗自己的忙碌态与服务端幂等兜住。
+                            */
+                            isDisabled={isRefreshing || busyTarget?.itemId === item.id}
                             onPress={() => { void onRunNextAction(item, nextAction); }}
                           >
                             {(() => {

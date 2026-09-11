@@ -48,6 +48,7 @@ export function RollbackStageModal({
       onOpenChange={(open) => {
         if (!open) onChange((prev) => ({ ...prev, isOpen: false, item: null, fromStage: null, toStage: null }));
       }}
+      isDismissDisabled={isPending}
       title={
         <div className="flex items-center gap-2 text-rose-600 font-bold">
           <ShieldAlert className="w-5 h-5" />

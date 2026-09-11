@@ -28,6 +28,7 @@ import { useBeginCleaning, useCompleteCleaning, useRoomsQuery } from '@/features
 import { useDayCloseQuery } from '@/features/dayclose/api';
 import { settledRevenueCents } from '@/features/queue/kanbanMetrics';
 import { completeQueueService, resolveQueueRoomId } from '@/features/queue/completeService';
+import { pickDefaultRoomId, roomSeatability } from '@/features/queue/roomAvailability';
 import { inlineGiftCardFields } from '@/features/queue/inlinePayment';
 import { useRotationQuery, useRotationCheckIn, useRotationCheckOut, useRotationSetBreak } from '@/features/rotation/api';
 import type { RotationEntryState } from '@/features/rotation/types';
@@ -245,8 +246,15 @@ function QueueContent() {
    */
   const canVoidTicket = useCanWrite('ticket.void');
   const canOpenTicket = useCanWrite('ticket.write');
-  /** walk-in 直接开单（组合套餐）弹窗（U10 / 计划 §7）。 */
-  const [walkInBundleOpen, setWalkInBundleOpen] = useState(false);
+  /**
+   * walk-in 直接开单（组合套餐）弹窗（U10 / 计划 §7）。
+   *
+   * 打开时生成一次 `attemptKey`，作为本次开单幂等键的一部分 —— 见
+   * `handleOpenWalkInBundle`。
+   */
+  const [walkInBundle, setWalkInBundle] = useState<{ isOpen: boolean; attemptKey: string }>(
+    { isOpen: false, attemptKey: '' },
+  );
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -400,17 +408,21 @@ function QueueContent() {
     return { total, onDuty, available, onBreak, inService, off };
   }, [allStaffAttendance]);
 
-  // Room Vacancy Metrics
-  const availableRooms = useMemo(() => rooms.filter((r) => r.status === 'available'), [rooms]);
+  /*
+   * 顶部的「空位 X/Y」。口径必须与入座弹窗里那个工位下拉框完全一致 ——
+   * 只看 `status === 'available'` 会把还挂着待清洁占用、或并发已满的工位
+   * 也算进空位，前台照着这个数去安排客人，到确认那一步才被服务端拒绝。
+   */
+  const availableRooms = useMemo(
+    () => rooms.filter((room) => roomSeatability(room) === 'seatable'),
+    [rooms],
+  );
   const availableRoomsCount = availableRooms.length;
   const totalRoomsCount = rooms.length;
 
   // Search and Filter State
   const [searchTerm, setSearchTerm] = useState('');
   const [staffFilter, setStaffFilter] = useState('all');
-
-  // Manual fast-moved overrides cache for instant optimistic UI
-  const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<KanbanItem>>>({});
 
   // Drag and Drop Active Tracking
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
@@ -429,6 +441,12 @@ function QueueContent() {
     selectedAddOnId: string;
     addOnStaffId: string;
     notes: string;
+    /**
+     * 本次签到尝试的幂等键前缀。理由同入座弹窗的 `attemptKey`：现场加项的键
+     * 此前是 `queue-checkin-addon-<预约号>-<服务>`，永久固定 —— 客人真要同一
+     * 个加项来两份时，第二份会被服务端判为重放而静默吞掉，前台完全看不出来。
+     */
+    attemptKey: string;
   }>({
     isOpen: false,
     item: null,
@@ -441,6 +459,7 @@ function QueueContent() {
     selectedAddOnId: '',
     addOnStaffId: '',
     notes: '',
+    attemptKey: '',
   });
   const checkInFormsQ = useAppointmentFormsQuery(checkInModal.item?.appointmentId ?? null);
   /*
@@ -516,6 +535,18 @@ function QueueContent() {
     serviceDurationMin: number;
     requireBriefingAck: boolean;
     serviceBrief: string;
+    /**
+     * 本次入座尝试的幂等键前缀。打开弹窗时生成一次，关掉才作废。
+     *
+     * 此前开单的幂等键是 `queue-start-<预约号>` —— 永久固定。而
+     * `command_idempotency` 是长期表，于是一张单作废之后再给同一个预约安排
+     * 入座，服务端会原样把那张**已作废**的单回放回来，后续每一条命令都撞
+     * TICKET_ALREADY_CLOSED，前台再也开不出新单。
+     *
+     * 加上这一段之后：同一次尝试（含超排放行的重试）重放仍然是同一个键，
+     * 不会开出第二张单；重新打开弹窗则是一次新的意图，理应能开出新单。
+     */
+    attemptKey: string;
   }>({
     isOpen: false,
     item: null,
@@ -529,6 +560,7 @@ function QueueContent() {
     serviceDurationMin: 60,
     requireBriefingAck: true,
     serviceBrief: '',
+    attemptKey: '',
   });
   const saveServiceBriefMutation = useSaveAppointmentServiceBrief(startServiceModal.item?.appointmentId ?? null);
   /*
@@ -685,15 +717,6 @@ function QueueContent() {
     serviceName?: string;
   } | null>(null);
 
-  // 7. Walk-in / Queue Item Detail Modal State
-  const [viewingQueueModal, setViewingQueueModal] = useState<{
-    isOpen: boolean;
-    item: KanbanItem | null;
-  }>({
-    isOpen: false,
-    item: null,
-  });
-
   // 看板各阶段与抽屉生命周期状态映射
   const stageToDrawerStatus: Record<KanbanStage, 'booked' | 'checked_in' | 'in_service' | 'done'> = {
     booked: 'booked',
@@ -733,10 +756,9 @@ function QueueContent() {
       queue.waiting.forEach((q) => {
         if (q.appointmentId && ticketApptIds.has(q.appointmentId)) return;
         if (q.appointmentId) queuedApptIds.add(q.appointmentId);
-        const override = localOverrides[`queue-${q.queueId}`];
         list.push({
           id: `queue-${q.queueId}`,
-          stage: override?.stage || 'waiting',
+          stage: 'waiting',
           queueId: q.queueId,
           appointmentId: q.appointmentId,
           ticketNumber: q.ticketNumber,
@@ -745,18 +767,14 @@ function QueueContent() {
           serviceName: q.serviceName || t('queue.quGeneralService'),
           serviceId: q.serviceId,
           ...serviceFacts(q),
-          staffName: override?.staffName || q.staffName,
-          staffId: override?.staffId || q.staffId,
-          roomId: override?.roomId,
-          roomName: override?.roomName,
+          staffName: q.staffName,
+          staffId: q.staffId,
           isRequest: false,
           timeDisplay: t('queue.quWaitedFor', { p0: q.waitedMin }),
           waitedMin: q.waitedMin,
           overdue: q.overdue,
           pendingForms: q.pendingForms,
           intakeSigned: q.intakeSigned,
-          notes: override?.notes,
-          addOns: override?.addOns,
           rawQueue: q,
         });
       });
@@ -764,10 +782,9 @@ function QueueContent() {
       queue.called.forEach((q) => {
         if (q.appointmentId && ticketApptIds.has(q.appointmentId)) return;
         if (q.appointmentId) queuedApptIds.add(q.appointmentId);
-        const override = localOverrides[`queue-called-${q.queueId}`];
         list.push({
           id: `queue-called-${q.queueId}`,
-          stage: override?.stage || 'waiting',
+          stage: 'waiting',
           queueId: q.queueId,
           appointmentId: q.appointmentId,
           ticketNumber: q.ticketNumber,
@@ -776,18 +793,14 @@ function QueueContent() {
           serviceName: q.serviceName || t('queue.quGeneralService'),
           serviceId: q.serviceId,
           ...serviceFacts(q),
-          staffName: override?.staffName || q.staffName,
-          staffId: override?.staffId || q.staffId,
-          roomId: override?.roomId,
-          roomName: override?.roomName,
+          staffName: q.staffName,
+          staffId: q.staffId,
           isRequest: false,
           timeDisplay: t('queue.quCalledFor', { p0: q.waitedMin }),
           waitedMin: q.waitedMin,
           overdue: q.overdue,
           pendingForms: q.pendingForms,
           intakeSigned: q.intakeSigned,
-          notes: override?.notes,
-          addOns: override?.addOns,
           rawQueue: q,
         });
       });
@@ -795,10 +808,9 @@ function QueueContent() {
       queue.seated.forEach((q) => {
         if (q.appointmentId && ticketApptIds.has(q.appointmentId)) return;
         if (q.appointmentId) queuedApptIds.add(q.appointmentId);
-        const override = localOverrides[`queue-seated-${q.queueId}`];
         list.push({
           id: `queue-seated-${q.queueId}`,
-          stage: override?.stage || 'in_service',
+          stage: 'in_service',
           queueId: q.queueId,
           appointmentId: q.appointmentId,
           ticketNumber: q.ticketNumber,
@@ -807,14 +819,10 @@ function QueueContent() {
           serviceName: q.serviceName || t('queue.quInServiceItem'),
           serviceId: q.serviceId,
           ...serviceFacts(q),
-          staffName: override?.staffName || q.staffName,
-          staffId: override?.staffId || q.staffId,
-          roomId: override?.roomId,
-          roomName: override?.roomName,
+          staffName: q.staffName,
+          staffId: q.staffId,
           isRequest: false,
           timeDisplay: t('queue.quInServiceStatus'),
-          notes: override?.notes,
-          addOns: override?.addOns,
           rawQueue: q,
         });
       });
@@ -840,10 +848,9 @@ function QueueContent() {
         bucket.push(it);
         bookedByAppt.set(key, bucket);
       } else if (it.status === 'in_service') {
-        const override = localOverrides[`appt-insvc-${it.id}`];
         list.push({
           id: `appt-insvc-${it.id}`,
-          stage: override?.stage || 'in_service',
+          stage: 'in_service',
           appointmentId: it.appointmentId,
           customerName: it.customerName,
           phone: it.customerPhone ?? null,
@@ -851,22 +858,18 @@ function QueueContent() {
           serviceId: it.serviceId,
           durationMin: it.durationMin,
           priceCents: it.service?.priceCents || 0,
-          staffId: override?.staffId || it.staffId,
-          staffName: override?.staffName || staffName,
+          staffId: it.staffId,
+          staffName,
           staffColor: matchedStaff?.color ?? null,
-          roomId: override?.roomId || it.resourceId,
-          roomName: override?.roomName,
+          roomId: it.resourceId,
           isRequest: it.isRequest,
           timeDisplay: `${it.startTime} (${it.durationMin}m)`,
-          notes: override?.notes,
-          addOns: override?.addOns,
           rawItem: it,
         });
       } else if (it.status === 'completed') {
-        const override = localOverrides[`appt-done-${it.id}`];
         list.push({
           id: `appt-done-${it.id}`,
-          stage: override?.stage || 'completed',
+          stage: 'completed',
           appointmentId: it.appointmentId,
           customerName: it.customerName,
           phone: it.customerPhone ?? null,
@@ -895,7 +898,6 @@ function QueueContent() {
       const sorted = [...apptItems].sort((a, b) => a.startMins - b.startMins);
       const primary = sorted[0]!;
       const last = sorted[sorted.length - 1]!;
-      const override = localOverrides[`appt-${key}`];
       const staffIds = new Set(
         sorted.map((i) => i.staffId).filter((id) => id && id !== UNASSIGNED_STAFF_ID),
       );
@@ -905,15 +907,14 @@ function QueueContent() {
         if (!id || id === UNASSIGNED_STAFF_ID) return null;
         return staff.find((s) => s.membershipId === id)?.name ?? null;
       };
-      const staffName = override?.staffName
-        ?? (staffIds.size === 0
-          ? t('queue.quStaffUnassignedLong')
-          : staffIds.size === 1
-            ? (nameOfStaff(singleStaffId) ?? t('queue.quStaffUnassignedLong'))
-            : t('queue.quMultipleStaff'));
+      const staffName = staffIds.size === 0
+        ? t('queue.quStaffUnassignedLong')
+        : staffIds.size === 1
+          ? (nameOfStaff(singleStaffId) ?? t('queue.quStaffUnassignedLong'))
+          : t('queue.quMultipleStaff');
       list.push({
         id: `appt-${key}`,
-        stage: override?.stage || 'booked',
+        stage: 'booked',
         appointmentId: primary.appointmentId,
         customerName: primary.customerName,
         phone: primary.customerPhone ?? null,
@@ -923,17 +924,14 @@ function QueueContent() {
         serviceId: sorted.length === 1 ? primary.serviceId : null,
         durationMin: sorted.reduce((sum, i) => sum + i.durationMin, 0),
         priceCents: sorted.reduce((sum, i) => sum + (i.service?.priceCents || 0), 0),
-        staffId: override?.staffId || singleStaffId,
+        staffId: singleStaffId,
         staffName,
         staffColor: matchedStaff?.color ?? null,
-        roomId: override?.roomId || primary.resourceId,
-        roomName: override?.roomName,
+        roomId: primary.resourceId,
         isRequest: sorted.some((i) => i.isRequest),
         timeDisplay: sorted.length === 1
           ? `${primary.startTime} - ${primary.endTime}`
           : `${primary.startTime} - ${last.endTime}`,
-        notes: override?.notes,
-        addOns: override?.addOns,
         rawItem: primary,
         bookedItems: sorted.map((i) => ({
           itemId: i.id,
@@ -949,7 +947,6 @@ function QueueContent() {
     // 3. Open Tickets (ready for checkout)
     if (ticketsData?.tickets) {
       ticketsData.tickets.forEach((tk: any) => {
-        const override = localOverrides[`ticket-${tk.ticketId}`];
         const tkItems = queueTicketItems(Array.isArray(tk.items) ? tk.items : []);
         const starts = tkItems.flatMap((entry) => entry.startedAt ? [Date.parse(entry.startedAt)] : []);
         const ends = tkItems.flatMap((entry) => entry.startedAt
@@ -957,7 +954,7 @@ function QueueContent() {
         const clock = (ms: number) => formatIsoWallClock(new Date(ms).toISOString(), timezone);
         list.push({
           id: `ticket-${tk.ticketId}`,
-          stage: override?.stage || (tk.status === 'ready_to_pay' ? 'ready_checkout' : 'in_service'),
+          stage: tk.status === 'ready_to_pay' ? 'ready_checkout' : 'in_service',
           ticketId: tk.ticketId,
           appointmentId: tk.appointmentId,
           customerName: formatI18n(tk.customerName, language) || t('queue.quCheckedInGuest'),
@@ -965,8 +962,7 @@ function QueueContent() {
           durationMin: tkItems.reduce((acc: number, i: any) => acc + (i.durationMin || 0), 0),
           priceCents: asCents(tk.subtotalCents ?? 0),
           staffName: [...new Set(tkItems.map((entry) => entry.staffName).filter(Boolean))].join(' / '),
-          roomName: [...new Set(tkItems.map((entry) => entry.roomName).filter(Boolean))].join(' / ') || override?.roomName,
-          roomId: override?.roomId,
+          roomName: [...new Set(tkItems.map((entry) => entry.roomName).filter(Boolean))].join(' / ') || null,
           isRequest: false,
           timeDisplay: starts.length ? `${clock(Math.min(...starts))} – ${clock(Math.max(...ends))}` : t('queue.quElapsedNotStarted'),
           rawTicket: tk,
@@ -975,7 +971,7 @@ function QueueContent() {
     }
 
     return list;
-  }, [queue, items, staff, ticketsData, localOverrides, language, timezone, t]);
+  }, [queue, items, staff, ticketsData, language, timezone, t]);
 
   // Filtered items (支持错别字容错模糊搜索)
   const filteredItems = useMemo(() => {
@@ -1034,11 +1030,22 @@ function QueueContent() {
     };
   }, [kanbanItems, dayCloseData]);
 
+  /** 标题旁那枚小转圈：任何写命令在跑都转，纯指示性，不参与禁用。 */
   const isSyncing = join.isPending || update.isPending || closeTicketMutation.isPending
     || openTicketMutation.isPending || addTicketItemMutation.isPending
     || startTicketItemMutation.isPending
     || finishTicketItemMutation.isPending
     || rollbackStageMutation.isPending || isRefreshing;
+
+  /*
+   * 看板上正在直接执行命令的那一张卡 / 那一行。
+   *
+   * 此前禁用态是全局的：任意一次开始或完工进行中，**整块看板**十几张卡的
+   * 所有按钮一起变灰。门店里前台本来就是一边接这位、一边给那位点完工，
+   * 全屏冻结把并行的活儿强行串了起来。现在只锁住正在动的那一个目标 ——
+   * 重复提交的真正防线在服务端的幂等与 `coalesce(started_at, now())` 上。
+   */
+  const [busyTarget, setBusyTarget] = useState<{ itemId: string; ticketItemId: string | null } | null>(null);
 
   // Refresh All Operations Data
   const handleRefresh = async () => {
@@ -1102,6 +1109,7 @@ function QueueContent() {
         selectedAddOnId: '',
         addOnStaffId: item.staffId || '',
         notes: item.notes || '',
+        attemptKey: crypto.randomUUID(),
       });
     } else if (item.stage === 'waiting' && targetStage === 'in_service') {
       // 到店 ➔ 服务：弹窗指定技师与房间/工位
@@ -1115,7 +1123,13 @@ function QueueContent() {
             durationMin: item.durationMin,
             addonIds: [],
           }] : [];
-      const availableRoom = rooms.find((r) => r.status === 'available')?.id || '';
+      /*
+       * 同一张单的多个项目占的是同一个位置，因此默认工位对本单内部不去重；
+       * `assignedRooms` 只用来避免把已经分给本单前一项的工位重复推荐给
+       * **没有**位置可继承的后续项目 —— 真正的容量判定在 `roomSeatability()` 里。
+       */
+      const ownTicketId = item.ticketId ?? item.rawTicket?.ticketId ?? null;
+      const defaultRoom = pickDefaultRoomId(rooms, new Set(), { ticketId: ownTicketId });
       const assignments = requestedItems.map((requested) => {
         const service = services.find((entry) => entry.id === requested.serviceId) ?? {
           id: requested.serviceId,
@@ -1141,7 +1155,7 @@ function QueueContent() {
           serviceName: service.name,
           durationMin: requested.durationMin,
           staffCount: service.staffCount,
-          roomId: availableRoom,
+          roomId: defaultRoom,
           staffIds: candidates.filter((candidate) => candidate.eligible)
             .slice(0, service.staffCount).map((candidate) => candidate.staff.membershipId),
         };
@@ -1158,7 +1172,8 @@ function QueueContent() {
         extraAddOnServiceId: '',
         extraAddOnStaffId: defaultStaff,
         addedAddOns: [],
-        roomId: availableRoom,
+        attemptKey: crypto.randomUUID(),
+        roomId: defaultRoom,
         startTime: timeStr,
         serviceDurationMin: item.durationMin || 60,
         /* 问卷尚未签署时默认不勾选：这一勾是入座的前置门禁，必须由人主动确认。 */
@@ -1212,6 +1227,7 @@ function QueueContent() {
       case 'start_item': {
         const entry = queueTicketItems(item.rawTicket?.items ?? [])
           .find((candidate) => candidate.ticketItemId === action.ticketItemId);
+        setBusyTarget({ itemId: item.id, ticketItemId: action.ticketItemId });
         try {
           await startTicketItemMutation.mutateAsync({
             ticketItemId: action.ticketItemId,
@@ -1220,6 +1236,8 @@ function QueueContent() {
           await Promise.all([refetchTickets(), refetchRooms(), refetchSchedule()]);
         } catch (error) {
           toast.danger(errorMessage(error));
+        } finally {
+          setBusyTarget(null);
         }
         return;
       }
@@ -1235,6 +1253,7 @@ function QueueContent() {
         }
         const entry = queueTicketItems(item.rawTicket?.items ?? [])
           .find((candidate) => candidate.ticketItemId === action.ticketItemId);
+        setBusyTarget({ itemId: item.id, ticketItemId: action.ticketItemId });
         try {
           await finishTicketItemMutation.mutateAsync({
             ticketItemId: action.ticketItemId,
@@ -1243,6 +1262,8 @@ function QueueContent() {
           await Promise.all([refetchTickets(), refetchRooms(), refetchSchedule()]);
         } catch (error) {
           toast.danger(errorMessage(error));
+        } finally {
+          setBusyTarget(null);
         }
         return;
       }
@@ -1345,10 +1366,18 @@ function QueueContent() {
     const { mode, item, ticketItemId, serviceId, staffId, resourceId, reason } = itemActionModal;
     if (!item?.rawTicket) return;
     const close = () => setItemActionModal((prev) => ({ ...prev, isOpen: false, item: null }));
+    /*
+     * 校验不通过时必须出声。确认按钮的 `ready` 判定通常已经挡住了这些情形，
+     * 但目录在弹窗打开期间被改动、或状态与按钮判定漂开时，这里的裸 return
+     * 会让按钮变成「点了什么都不发生」—— 前台唯一能做的就是反复点它。
+     */
     try {
       if (mode === 'add') {
         const service = services.find((entry) => entry.id === serviceId);
-        if (!service || !staffId) return;
+        if (!service || !staffId) {
+          toast.danger(t('queue.quAddOnStaffRequired'));
+          return;
+        }
         await addTicketItemMutation.mutateAsync({
           ticketId: item.rawTicket.ticketId,
           serviceId: service.id,
@@ -1361,7 +1390,10 @@ function QueueContent() {
         close();
         toast.success(t('queue.quAddItemDone', { p0: service.name }));
       } else if (mode === 'staff') {
-        if (!ticketItemId || !staffId || reason.trim().length < 2) return;
+        if (!ticketItemId || !staffId || reason.trim().length < 2) {
+          toast.danger(t('queue.quMoveNeedsReason'));
+          return;
+        }
         const entry = queueTicketItems(item.rawTicket.items).find((e) => e.ticketItemId === ticketItemId);
         await moveItemStaffMutation.mutateAsync({
           ticketItemId,
@@ -1376,7 +1408,10 @@ function QueueContent() {
           p1: staff.find((member) => member.membershipId === staffId)?.name ?? '',
         }));
       } else {
-        if (!ticketItemId || !resourceId || reason.trim().length < 2) return;
+        if (!ticketItemId || !resourceId || reason.trim().length < 2) {
+          toast.danger(t('queue.quMoveNeedsReason'));
+          return;
+        }
         const entry = queueTicketItems(item.rawTicket.items).find((e) => e.ticketItemId === ticketItemId);
         await moveItemResourceMutation.mutateAsync({
           ticketItemId,
@@ -1572,6 +1607,7 @@ function QueueContent() {
       focusAreas,
       avoidAreas,
       notes,
+      attemptKey,
     } = checkInModal;
     if (!item) return;
     if (checkInPending) return;
@@ -1630,7 +1666,7 @@ function QueueContent() {
               ? addOnStaffId
               : item.staffId && item.staffId !== UNASSIGNED_STAFF_ID ? item.staffId : null,
             durationMin: addOnService.durationMin,
-            idempotencyKey: `queue-checkin-addon-${item.appointmentId}-${addOnService.id}`,
+            idempotencyKey: `queue-checkin-addon-${item.appointmentId}-${addOnService.id}-${attemptKey}`,
           });
         } catch {
           toast.warning(t('queue.quAddOnAddFailed'), { timeout: 8_000 });
@@ -1693,12 +1729,44 @@ function QueueContent() {
       : t('queue.quOverbookGeneric');
   };
 
+  /**
+   * 一次入座尝试已经产生了不可回滚的写入之后，如何收场。
+   *
+   * 关键在于：`startServiceModal.item` 是打开弹窗那一刻的快照。`ticket.open`
+   * 一旦成功，这张卡的身份就从「候客条目」变成了「工单」，快照里的
+   * `ticketId` 永远是空的。此时把弹窗留在屏幕上，前台再点一次确认，走的
+   * 依然是「这单还没开」那条分支 —— 于是同一间已经被自己占掉的房会被反复
+   * 申请，服务端每次都如实回一句 RESOURCE_CONFLICT，看上去就是「弹窗不消失，
+   * 越点越错」。因此这里一律收起弹窗并强制刷新，让前台面对的是卡片的真实状态。
+   */
+  const abortStartServiceAttempt = async () => {
+    setStartServiceModal((prev) => ({ ...prev, isOpen: false, item: null, addedAddOns: [] }));
+    await Promise.all([refetchQueue(), refetchTickets(), refetchSchedule(), refetchRooms()]);
+    toast.warning(t('queue.quSeatAborted'), { timeout: 10_000 });
+  };
+
+  /**
+   * 放弃超排放行。
+   *
+   * 走到这个确认框时工单已经开出来了，可能还有若干项目已经开工 —— 只把
+   * 确认框关掉等于把这半张单留在看板上而不告诉任何人。因此按「入座中止」
+   * 同一条路径收场：清弹窗、刷新、如实提示。
+   */
+  const declineOverbook = async () => {
+    setOverbookConfirm(null);
+    await abortStartServiceAttempt();
+  };
+
   /*
    * 2. Start Service Confirm Submit
    *
-   * `override` 由「技师已满，仍要开始」确认框回传。整个函数可以安全重放：
-   * 开单的幂等键按 item 固定，加项的幂等键在弹窗状态里，重试都会被服务端
-   * 判为同一次意图，不会开出第二张单。
+   * `override` 由「技师已满，仍要开始」确认框回传。**同一次尝试**可以安全
+   * 重放：开单的幂等键含本次的 `attemptKey`，加项的幂等键在弹窗状态里，
+   * 超排放行重试会被服务端判为同一次意图，不会开出第二张单。
+   *
+   * 但「重放」只对超排这条**保留弹窗状态**的路径成立。其余任何失败一旦已经
+   * 写过数据，`item` 这份快照就与服务端不符了，必须走 `abortStartServiceAttempt()`
+   * 收场，而不是让前台对着过期的快照再点一次 —— 见那个函数上的说明。
    */
   const handleConfirmStartService = async (override?: Override) => {
     const {
@@ -1711,18 +1779,35 @@ function QueueContent() {
       serviceDurationMin,
       requireBriefingAck,
       serviceBrief,
+      attemptKey,
     } = startServiceModal;
     if (!item) return;
     if (startServicePending) return;
 
     const assignedStaff = staff.find((s) => s.membershipId === staffId);
     const assignedRoom = rooms.find((r) => r.id === roomId);
+    /*
+     * 本次尝试是否已经动过服务端数据。校验不通过时它一直是 false，弹窗原样
+     * 留着让前台改；只要写过一笔，失败就必须走 `abortStartServiceAttempt()`。
+     */
+    let committed = false;
 
     try {
-      if (!item.serviceId || assignments.length === 0
-        || assignments.some((assignment) => assignment.staffIds.length !== assignment.staffCount)
-        || addedAddOns.some((addOn) => !addOn.staffId || addOn.staffId === UNASSIGNED_STAFF_ID)) {
-        toast.danger(t('queue.quSeatFailed'));
+      /*
+       * 校验失败必须说清楚是哪一项不满足。这四种情况此前共用一句「入座失败」，
+       * 前台看到的是一个点下去没有任何变化的按钮 —— 尤其是多项目预约聚合卡
+       * 缺 `serviceId` 那一种，怎么改都过不去，而界面上没有任何线索。
+       */
+      if (assignments.length === 0 || (!item.serviceId && (item.rawQueue?.items?.length ?? 0) === 0)) {
+        toast.danger(t('queue.quSeatNeedService'));
+        return;
+      }
+      if (assignments.some((assignment) => assignment.staffIds.length !== assignment.staffCount)) {
+        toast.danger(t('queue.quSeatNeedStaff'));
+        return;
+      }
+      if (addedAddOns.some((addOn) => !addOn.staffId || addOn.staffId === UNASSIGNED_STAFF_ID)) {
+        toast.danger(t('queue.quAddOnStaffRequired'));
         return;
       }
       if (hasPendingForms(item) && !requireBriefingAck) {
@@ -1732,6 +1817,7 @@ function QueueContent() {
 
       if (item.appointmentId && serviceBrief.trim() !== (item.notes || '').trim()) {
         await saveServiceBriefMutation.mutateAsync(serviceBrief.trim());
+        committed = true;
       }
 
       let ticketId = item.ticketId ?? item.rawTicket?.ticketId;
@@ -1740,6 +1826,11 @@ function QueueContent() {
         .map((ticketItem) => ticketItem.ticketItemId) : [];
       if (!ticketId) {
         const appointmentItems = item.rawQueue?.items ?? [];
+        const soleServiceId = item.serviceId;
+        if (appointmentItems.length === 0 && !soleServiceId) {
+          toast.danger(t('queue.quSeatNeedService'));
+          return;
+        }
         const itemsToOpen = appointmentItems.length > 0
           ? appointmentItems.map((appointmentItem, index) => {
               const assignment = assignments[index];
@@ -1755,7 +1846,7 @@ function QueueContent() {
               };
             })
           : [{
-              serviceId: item.serviceId,
+              serviceId: soleServiceId!,
               staffAssignments: assignments[0]!.staffIds.map((membershipId, staffIndex) => ({
                 membershipId,
                 role: staffIndex === 0 ? 'primary' as const : 'assistant' as const,
@@ -1769,8 +1860,9 @@ function QueueContent() {
           ...(item.rawQueue?.customerId ? {} : { walkInName: item.customerName }),
           ...(item.appointmentId ? { appointmentId: item.appointmentId } : {}),
           items: itemsToOpen,
-          idempotencyKey: `queue-start-${item.appointmentId ?? item.queueId ?? item.id}`,
+          idempotencyKey: `queue-start-${item.appointmentId ?? item.queueId ?? item.id}-${attemptKey}`,
         });
+        committed = true;
         ticketId = opened.ticketId;
         ticketItemIds = opened.ticketItemIds;
       }
@@ -1782,11 +1874,27 @@ function QueueContent() {
       }));
       if (ticketId) {
         for (const addOn of addedAddOns) {
+          /*
+           * 已经落库的加项不再重发。超排放行是唯一一条会保留弹窗状态重试的
+           * 路径，这一行就是为它写的 —— 幂等键虽然也挡得住重发，但把「已进单」
+           * 记在状态里，界面才能把这一条锁成不可删改，前台也就没有机会删掉它
+           * 重选出一个新的幂等键来。
+           */
+          if (addOn.sentTicketItemId) {
+            itemsToStart.push({ ticketItemId: addOn.sentTicketItemId, membershipId: addOn.staffId });
+            continue;
+          }
           const added = await addTicketItemMutation.mutateAsync({
             ticketId, serviceId: addOn.serviceId, membershipId: addOn.staffId,
             kind: 'addon', minutes: addOn.durationMin, idempotencyKey: addOn.idempotencyKey,
             ...(addOn.roomId ? { resourceId: addOn.roomId } : {}),
           });
+          committed = true;
+          setStartServiceModal((prev) => ({
+            ...prev,
+            addedAddOns: prev.addedAddOns.map((entry) => entry.idempotencyKey === addOn.idempotencyKey
+              ? { ...entry, sentTicketItemId: added.ticketItemId } : entry),
+          }));
           itemsToStart.push({ ticketItemId: added.ticketItemId, membershipId: addOn.staffId });
         }
       }
@@ -1799,8 +1907,16 @@ function QueueContent() {
             ticketItemId: target.ticketItemId, membershipId: target.membershipId,
             ...(override ? { override } : {}),
           });
+          committed = true;
         } catch (startErr) {
           if (!override && isOverbookConfirmable(startErr)) {
+            /*
+             * 只收起入座弹窗，不清空它的状态 —— 放行重试要原样重放这一次意图
+             * （开单与加项的幂等键都在这份状态里）。此前两个弹窗同时挂在
+             * z-[300] 上，前台看到的就是「点了没消失」，然后去点下面那个已经
+             * 失效的确认按钮。放行或取消之后，由各自的收尾逻辑清状态。
+             */
+            setStartServiceModal((prev) => ({ ...prev, isOpen: false }));
             setOverbookConfirm({ message: overbookMessageOf(startErr) });
             return;
           }
@@ -1810,13 +1926,19 @@ function QueueContent() {
       if (item.queueId) {
         await update.mutateAsync({ queueId: item.queueId, status: 'seated' });
       }
-      setStartServiceModal((prev) => ({ ...prev, isOpen: false, item: null }));
+      setStartServiceModal((prev) => ({ ...prev, isOpen: false, item: null, addedAddOns: [] }));
       toast.success(t('queue.quSeated', { p0: item.customerName }), {
         description: t('queue.quSeatedDetail', { p0: assignedStaff?.name || t('queue.quAssignedFallback'), p1: assignedRoom?.name || t('queue.quDesignatedRoomFallback'), p2: startTime, p3: serviceDurationMin }),
       });
       await Promise.all([refetchQueue(), refetchTickets(), refetchSchedule(), refetchRooms()]);
-    } catch (err: any) {
-      toast.danger(t('queue.quSeatFailed') + (err?.message || t('queue.quNetworkError2')));
+    } catch (err: unknown) {
+      /*
+       * `ApiError.message` 就是错误码本身（`super(code)`），直接拼进 toast 等于
+       * 让前台读「入座失败RESOURCE_CONFLICT」。本文件其余每一处 catch 走的都是
+       * `errorMessage()`，只有这里漏了。
+       */
+      toast.danger(`${t('queue.quSeatFailed')} ${errorMessage(err) || t('queue.quNetworkError2')}`);
+      if (committed) await abortStartServiceAttempt();
     }
   };
 
@@ -1840,31 +1962,49 @@ function QueueContent() {
         startItem: (input) => startTicketItemMutation.mutateAsync(input),
         finishItem: (input) => finishTicketItemMutation.mutateAsync(input),
         beginCleaning: (input) => beginCleaningMutation.mutateAsync(input),
+        onAddOnSent: (idempotencyKey, ticketItemId) => setCompleteServiceModal((prev) => ({
+          ...prev,
+          addedAddOns: prev.addedAddOns.map((entry) => entry.idempotencyKey === idempotencyKey
+            ? { ...entry, sentTicketItemId: ticketItemId } : entry),
+        })),
       },
     );
 
     if (!result.ok) {
+      /*
+       * 只要这一轮已经有命令落库，弹窗里的 `rawTicket` 快照就已经过期 ——
+       * 最常见的是加项已经记进单据、完工那一步才失败。此时把弹窗原样留着，
+       * 前台看到的是「失败了，加项还列在这儿」，于是删掉重选再点一次；而
+       * 重选会生成新的幂等键，同一个加项就在单据上出现第二遍。因此一律收起
+       * 弹窗并刷新，让前台面对单据的真实内容。
+       */
+      const settle = async (messageKey: TranslationKey, detail?: string) => {
+        toast.danger(detail ? `${t(messageKey)} ${detail}` : t(messageKey));
+        if (result.committed) {
+          setCompleteServiceModal((prev) => ({ ...prev, isOpen: false, item: null, addedAddOns: [] }));
+          await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms()]);
+          toast.warning(t('queue.quFinishAborted'), { timeout: 10_000 });
+        }
+      };
       if (result.reason === 'no_active_service') {
-        toast.danger(t('queue.quNoActiveService'));
+        await settle('queue.quNoActiveService');
         return;
       }
       if (result.reason === 'missing_ticket' || result.reason === 'missing_room') {
-        toast.danger(t('queue.quFinishFailed'));
+        await settle('queue.quFinishFailed');
         return;
       }
       if (result.finished) {
-        setCompleteServiceModal((prev) => ({ ...prev, isOpen: false, item: null }));
+        setCompleteServiceModal((prev) => ({ ...prev, isOpen: false, item: null, addedAddOns: [] }));
         toast.danger(t('queue.quFinishRoomFailed'));
         await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms()]);
         return;
       }
-      const cause = result.cause;
-      const message = cause instanceof Error ? cause.message : t('queue.quNetworkError2');
-      toast.danger(t('queue.quFinishFailed') + message);
+      await settle('queue.quFinishFailed', errorMessage(result.cause) || t('queue.quNetworkError2'));
       return;
     }
 
-    setCompleteServiceModal((prev) => ({ ...prev, isOpen: false, item: null }));
+    setCompleteServiceModal((prev) => ({ ...prev, isOpen: false, item: null, addedAddOns: [] }));
     toast.success(t(result.ticketDone ? 'queue.quServiceDone' : 'queue.quServiceStageDone', { p0: item.customerName }), {
       description: t(result.ticketDone ? 'queue.quServiceDoneDetail' : 'queue.quServiceStageDoneDetail', {
         p0: result.actualMinutes,
@@ -2096,7 +2236,10 @@ function QueueContent() {
    *
    * 无预约到店客：`ticket.open` 带 `bundleSelections`、不带 `appointmentId`，
    * 每个执行单元恰好一位技师。展开 / 排程 / 分摊 / 计价全部服务端完成。
-   * 幂等键按「客人 + 套餐」固定，重试不会开出第二张单。
+   *
+   * 幂等键按「客人 + 套餐 + 本次打开弹窗」固定：同一次提交重试不会开出第二
+   * 张单，而同名客人同一天再买一份同样的套餐（门店里就是两位都叫 Lisa 的
+   * walk-in）也不会被服务端当成重放静默吞掉。
    */
   const handleOpenWalkInBundle = async (input: WalkInBundleSubmit) => {
     await openTicketMutation.mutateAsync({
@@ -2109,9 +2252,9 @@ function QueueContent() {
         unitOverrides: input.unitStaffIds.map((membershipId) => ({ membershipId })),
         ...(input.extraAddons.length ? { extraAddons: input.extraAddons } : {}),
       }],
-      idempotencyKey: `queue-walkin-bundle-${input.walkInName}-${input.bundleId}`,
+      idempotencyKey: `queue-walkin-bundle-${input.walkInName}-${input.bundleId}-${walkInBundle.attemptKey}`,
     });
-    setWalkInBundleOpen(false);
+    setWalkInBundle({ isOpen: false, attemptKey: '' });
     toast.success(t('bundle.walkInSuccess', { name: input.walkInName }));
     await Promise.all([refetchTickets(), refetchSchedule(), refetchRooms(), refetchQueue()]);
   };
@@ -2122,13 +2265,19 @@ function QueueContent() {
    * 卡片上每一行都自带这个动作 —— 多项目单的第二项此前在看板上没有任何
    * 入口，工单会永久卡在服务中。
    */
-  const handleToggleTicketItem = async (service: { ticketItemId: string; membershipId: string; startedAt: string | null }) => {
+  const handleToggleTicketItem = async (
+    item: KanbanItem,
+    service: { ticketItemId: string; membershipId: string; startedAt: string | null },
+  ) => {
+    setBusyTarget({ itemId: item.id, ticketItemId: service.ticketItemId });
     try {
       const command = service.startedAt ? finishTicketItemMutation : startTicketItemMutation;
       await command.mutateAsync({ ticketItemId: service.ticketItemId, membershipId: service.membershipId });
       await Promise.all([refetchTickets(), refetchRooms(), refetchSchedule()]);
     } catch (error) {
       toast.danger(errorMessage(error));
+    } finally {
+      setBusyTarget(null);
     }
   };
 
@@ -2363,7 +2512,7 @@ function QueueContent() {
               size="sm"
               variant="secondary"
               className="text-xs font-semibold text-slate-700 gap-1.5 h-9 bg-white border-slate-200 hover:bg-slate-50 hover:text-teal-700 hover:border-teal-300 shadow-2xs"
-              onClick={() => setWalkInBundleOpen(true)}
+              onClick={() => setWalkInBundle({ isOpen: true, attemptKey: crypto.randomUUID() })}
             >
               <Plus className="w-3.5 h-3.5 text-teal-600" />
               <span>{t('bundle.walkInButton')}</span>
@@ -2387,8 +2536,8 @@ function QueueContent() {
         timezone={timezone}
         draggingItemId={draggingItemId}
         dragOverColumn={dragOverColumn}
-        isSyncing={isSyncing}
-        isItemMutating={startTicketItemMutation.isPending || finishTicketItemMutation.isPending}
+        isRefreshing={isRefreshing}
+        busyTarget={busyTarget}
         canVoidTicket={canVoidTicket}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
@@ -2415,8 +2564,8 @@ function QueueContent() {
       />
 
       <WalkInBundleModal
-        isOpen={walkInBundleOpen}
-        onClose={() => setWalkInBundleOpen(false)}
+        isOpen={walkInBundle.isOpen}
+        onClose={() => setWalkInBundle({ isOpen: false, attemptKey: '' })}
         staff={staff}
         canWrite={canOpenTicket}
         isPending={openTicketMutation.isPending}
@@ -2515,7 +2664,8 @@ function QueueContent() {
       {overbookConfirm && (
         <Modal
           isOpen={Boolean(overbookConfirm)}
-          onOpenChange={(open) => { if (!open) setOverbookConfirm(null); }}
+          onOpenChange={(open) => { if (!open) void declineOverbook(); }}
+          isDismissDisabled={startServicePending}
           title={
             <div className="flex items-center gap-2 text-amber-600">
               <AlertTriangle className="w-5 h-5" />
@@ -2525,7 +2675,7 @@ function QueueContent() {
           size="md"
           footer={
             <div className="flex justify-end gap-2 w-full">
-              <Button variant="secondary" onClick={() => setOverbookConfirm(null)}>
+              <Button variant="secondary" isDisabled={startServicePending} onClick={() => { void declineOverbook(); }}>
                 {t('cancel')}
               </Button>
               <Button
@@ -2573,150 +2723,6 @@ function QueueContent() {
           phone={qrZoomModal.phone}
           serviceName={qrZoomModal.serviceName}
         />
-      )}
-
-      {/* 现场候客/Walk-in Guest详情弹窗 (Walk-in / Queue Item Detail) */}
-      {viewingQueueModal.isOpen && viewingQueueModal.item && (
-        <Modal
-          isOpen={viewingQueueModal.isOpen}
-          onOpenChange={(open) => {
-            if (!open) setViewingQueueModal({ isOpen: false, item: null });
-          }}
-          title={
-            <div className="flex items-center gap-2 text-teal-800 font-bold">
-              <User className="w-5 h-5 text-teal-600" />
-              <span>{t('queue.quWiTitle', { p0: viewingQueueModal.item.customerName })}</span>
-            </div>
-          }
-          size="md"
-          footer={
-            <div className="flex justify-end gap-2 w-full">
-              <Button
-                variant="secondary"
-                onClick={() => setViewingQueueModal({ isOpen: false, item: null })}
-              >
-                {t('queue.quQrClose')}
-              </Button>
-              {viewingQueueModal.item.stage === 'waiting' && (
-                <Button
-                  className="bg-teal-600 hover:bg-teal-700 text-white font-bold gap-1 shadow-sm"
-                  onClick={() => {
-                    const it = viewingQueueModal.item!;
-                    setViewingQueueModal({ isOpen: false, item: null });
-                    initiateStageTransition(it, 'in_service');
-                  }}
-                >
-                  <Scissors className="w-4 h-4" />
-                  <span>{t('queue.quWiAssignSeat')}</span>
-                </Button>
-              )}
-            </div>
-          }
-        >
-          <div className="space-y-4 py-1 text-xs text-slate-700">
-            {/* 头部信息 */}
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center font-bold text-sm border border-teal-200">
-                  {viewingQueueModal.item.customerName.charAt(0)}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-sm text-slate-900">{viewingQueueModal.item.customerName}</span>
-                    {viewingQueueModal.item.ticketNumber && (
-                      <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900">
-                        #{viewingQueueModal.item.ticketNumber}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-xs text-slate-500 font-mono">
-                    {viewingQueueModal.item.phone ? formatPhoneDisplay(viewingQueueModal.item.phone) : t('queue.quWiNoPhone')}
-                  </span>
-                </div>
-              </div>
-              <div className="text-right">
-                <span className="block text-xs text-slate-500">{t('queue.quWiCurrentStatus')}</span>
-                <Badge variant="secondary" className="text-xs font-bold bg-amber-100 text-amber-800">
-                  {viewingQueueModal.item.timeDisplay}
-                </Badge>
-              </div>
-            </div>
-
-            {/* 服务与排号信息 */}
-            <div className="p-3.5 bg-white border border-slate-200 rounded-2xl space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">{t('queue.quWiRequestedService')}</span>
-                <span className="font-bold text-slate-900">{viewingQueueModal.item.serviceName}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">{t('queue.quWiAssignedStaff')}</span>
-                <span className="font-semibold text-slate-900">{viewingQueueModal.item.staffName || t('queue.quWiRotationPending')}</span>
-              </div>
-              {viewingQueueModal.item.roomName && (
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">{t('queue.quWiReservedRoom')}</span>
-                  <span className="font-bold text-teal-700">{viewingQueueModal.item.roomName}</span>
-                </div>
-              )}
-            </div>
-
-            {/* 健康问卷情况 */}
-            {(() => {
-              const it = viewingQueueModal.item;
-              const hasPending = Boolean((it.pendingForms && it.pendingForms > 0) || (it.rawQueue?.pendingForms && it.rawQueue.pendingForms > 0));
-
-              if (hasPending) {
-                return (
-                  <div className="p-3.5 bg-rose-50 border-2 border-rose-200 rounded-2xl space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-rose-950 text-xs flex items-center gap-1.5">
-                        <FileWarning className="w-4 h-4 text-rose-600" />
-                        <span>{t('queue.quWiFormPendingTitle')}</span>
-                      </span>
-                      <Badge variant="error" className="shrink-0 text-xs">{t('queue.quWiFormPendingBadge')}</Badge>
-                    </div>
-                    <p className="text-xs text-rose-800">
-                      {t('queue.quWiFormPendingHint')}
-                    </p>
-                    <div className="flex items-center gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setViewingQueueModal({ isOpen: false, item: null });
-                          void openFormQr(it);
-                        }}
-                        className="flex-1 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl flex items-center justify-center gap-1 text-xs shadow-xs cursor-pointer"
-                      >
-                        <QrCode className="w-3.5 h-3.5" />
-                        <span>{t('queue.quWiScanQr')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void copyFormLink(it);
-                        }}
-                        className="px-3 py-1.5 bg-white border border-rose-300 text-rose-800 font-bold rounded-xl flex items-center justify-center gap-1 text-xs shadow-2xs hover:bg-rose-50 cursor-pointer"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>{t('queue.quQrCopyLink')}</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              }
-
-              return (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between">
-                  <span className="font-bold text-emerald-950 text-xs flex items-center gap-1.5">
-                    <CheckCircle className="w-4 h-4 text-emerald-600" />
-                    <span>{t('queue.quWiSignedTitle')}</span>
-                  </span>
-                  <Badge variant="success" className="shrink-0 text-xs">{t('queue.quWiSignedBadge')}</Badge>
-                </div>
-              );
-            })()}
-          </div>
-        </Modal>
       )}
 
       <RoomsQuickModal

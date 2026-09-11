@@ -14,6 +14,7 @@ import { useLanguage } from '@/LanguageContext';
 import { healthFormHonesty } from '@/features/queue/healthFormStatus';
 import { rankStaffCandidates } from '@/features/queue/assignment';
 import { rotationRank, rotationRankLabel } from '@/features/queue/rotationRank';
+import { roomSeatability, ROOM_SEATABILITY_LABEL_KEYS } from '@/features/queue/roomAvailability';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -52,6 +53,8 @@ export interface StartServiceModalState {
   serviceDurationMin: number;
   requireBriefingAck: boolean;
   serviceBrief: string;
+  /** 本次尝试的幂等键前缀，由页面在打开弹窗时生成。 */
+  attemptKey: string;
 }
 
 export interface StartServiceModalProps {
@@ -84,6 +87,10 @@ export function StartServiceModal(props: StartServiceModalProps) {
   const item = state.item;
   const assignedStaff = staff.find((s) => s.membershipId === state.staffId);
   const assignedRoom = rooms.find((r) => r.id === state.roomId);
+  /* 本单已经占着的工位对自己不算「已满」—— 与服务端 own_active 的判定一致。 */
+  const ownTicketId = item.ticketId ?? item.rawTicket?.ticketId ?? null;
+  const noSeatableRoom = rooms.length > 0
+    && rooms.every((room) => roomSeatability(room, { ticketId: ownTicketId }) !== 'seatable');
   const assignmentCandidates = state.assignments.map((assignment) => {
     const service = services.find((entry) => entry.id === assignment.serviceId) ?? {
       id: assignment.serviceId, name: assignment.serviceName,
@@ -118,8 +125,9 @@ export function StartServiceModal(props: StartServiceModalProps) {
     <Modal
       isOpen={state.isOpen}
       onOpenChange={(open) => {
-        if (!open) onChange((prev) => ({ ...prev, isOpen: false, item: null }));
+        if (!open) onChange((prev) => ({ ...prev, isOpen: false, item: null, addedAddOns: [] }));
       }}
+      isDismissDisabled={isPending}
       title={
         <div className="flex items-center gap-2 text-teal-800 font-bold">
           <Scissors className="w-5 h-5 text-teal-600" />
@@ -131,7 +139,8 @@ export function StartServiceModal(props: StartServiceModalProps) {
         <div className="flex justify-end gap-2 w-full">
           <Button
             variant="secondary"
-            onClick={() => onChange((prev) => ({ ...prev, isOpen: false, item: null }))}
+            isDisabled={isPending}
+            onClick={() => onChange((prev) => ({ ...prev, isOpen: false, item: null, addedAddOns: [] }))}
           >
             {t('queue.quSeatCancel')}
           </Button>
@@ -359,16 +368,27 @@ export function StartServiceModal(props: StartServiceModalProps) {
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <span className="font-mono text-xs font-bold text-violet-800">${centsToDollars(addOn.priceCents)}</span>
-                      <button
-                        type="button"
-                        className="rounded-lg px-1.5 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50"
-                        onClick={() => onChange((prev) => ({
-                          ...prev,
-                          addedAddOns: prev.addedAddOns.filter((item) => item.idempotencyKey !== addOn.idempotencyKey),
-                        }))}
-                      >
-                        {t('queue.quRemoveAddOn')}
-                      </button>
+                      {/*
+                        已经写进单据的加项不再提供「移除」。删掉它只会让本地清单
+                        与单据不符，重新选一遍还会换一个新的幂等键，同一项就进单
+                        两遍 —— 真要去掉这一项，得走单据本身的作废或退款。
+                      */}
+                      {addOn.sentTicketItemId ? (
+                        <span className="rounded-lg bg-emerald-50 px-1.5 py-1 text-xs font-bold text-emerald-700">
+                          {t('queue.quAddOnAlreadyOnTicket')}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="rounded-lg px-1.5 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50"
+                          onClick={() => onChange((prev) => ({
+                            ...prev,
+                            addedAddOns: prev.addedAddOns.filter((item) => item.idempotencyKey !== addOn.idempotencyKey),
+                          }))}
+                        >
+                          {t('queue.quRemoveAddOn')}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -448,23 +468,49 @@ export function StartServiceModal(props: StartServiceModalProps) {
                   className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs"
                 >
                   <option value="">{t('queue.quRoomUnassigned')}</option>
-                  {rooms.map((room) => <option key={room.id} value={room.id}>
-                    {room.name} · {room.status === 'available' ? t('queue.quRoomFree') : t('queue.quRoomOccupied')}
-                  </option>)}
+                  {/*
+                    接不了客的工位一律置灰。此前它们与空位混在一起、只在名字后面
+                    缀一句「占用中」，前台选中后要填完整张表、点了确认才吃到
+                    RESOURCE_CONFLICT —— 而那时候工单已经开出来了。
+                  */}
+                  {rooms.map((room) => {
+                    const seatability = roomSeatability(room, { ticketId: ownTicketId });
+                    return (
+                      <option key={room.id} value={room.id} disabled={seatability !== 'seatable'}>
+                        {room.name} · {seatability === 'seatable'
+                          ? t('queue.quRoomFree')
+                          : t(ROOM_SEATABILITY_LABEL_KEYS[seatability])}
+                      </option>
+                    );
+                  })}
                 </select>
               </label>
             ))}
+            {noSeatableRoom && (
+              <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs font-bold text-amber-900">
+                {t('queue.quRoomNoneSeatable')}
+              </p>
+            )}
             {state.addedAddOns.map((addOn, index) => (
               <label key={addOn.idempotencyKey} className="block space-y-1 text-xs">
                 <span>{addOn.name}</span>
                 <select aria-label={`${addOn.name} · ${t('queue.quAssignRoomRequired')}`}
                   value={addOn.roomId ?? ''}
+                  /* 已进单的加项改工位要走「换工位」命令，不能靠重发开单参数。 */
+                  disabled={Boolean(addOn.sentTicketItemId)}
                   onChange={(event) => { const roomId = event.target.value;
                     onChange((prev) => ({ ...prev, addedAddOns: prev.addedAddOns.map((entry, i) =>
                       i === index ? { ...entry, roomId } : entry) })); }}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs">
+                  className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs disabled:bg-slate-100 disabled:text-slate-500">
                   <option value="">{t('queue.quRoomUnassigned')}</option>
-                  {rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
+                  {rooms.map((room) => {
+                    const seatability = roomSeatability(room, { ticketId: ownTicketId });
+                    return (
+                      <option key={room.id} value={room.id} disabled={seatability !== 'seatable'}>
+                        {room.name}{seatability === 'seatable' ? '' : ` · ${t(ROOM_SEATABILITY_LABEL_KEYS[seatability])}`}
+                      </option>
+                    );
+                  })}
                 </select>
               </label>
             ))}

@@ -71,8 +71,9 @@ export function CompleteServiceModal({
     <Modal
       isOpen={state.isOpen}
       onOpenChange={(open) => {
-        if (!open) onChange((prev) => ({ ...prev, isOpen: false, item: null }));
+        if (!open) onChange((prev) => ({ ...prev, isOpen: false, item: null, addedAddOns: [] }));
       }}
+      isDismissDisabled={isPending}
       title={
         <div className="flex items-center gap-2 text-violet-800 font-bold">
           <CheckCircle className="w-5 h-5 text-violet-600" />
@@ -84,7 +85,8 @@ export function CompleteServiceModal({
         <div className="flex justify-end gap-2 w-full">
           <Button
             variant="secondary"
-            onClick={() => onChange((prev) => ({ ...prev, isOpen: false, item: null }))}
+            isDisabled={isPending}
+            onClick={() => onChange((prev) => ({ ...prev, isOpen: false, item: null, addedAddOns: [] }))}
           >
             {t('queue.quFinishCancel')}
           </Button>
@@ -229,6 +231,8 @@ export function CompleteServiceModal({
                       <span className="text-xs text-slate-500">{t('queue.quCommissionTo')}</span>
                       <select
                         value={addon.staffId}
+                        /* 已进单的加项改归属要走「换技师」命令，不能靠重发加项参数。 */
+                        disabled={Boolean(addon.sentTicketItemId)}
                         onChange={(e) => {
                           const newStaff = staff.find((candidate) => candidate.membershipId === e.target.value);
                           onChange((prev) => ({
@@ -240,7 +244,7 @@ export function CompleteServiceModal({
                             ),
                           }));
                         }}
-                        className="px-2 py-0.5 text-xs rounded-lg border border-slate-200 bg-white font-medium text-slate-800"
+                        className="px-2 py-0.5 text-xs rounded-lg border border-slate-200 bg-white font-medium text-slate-800 disabled:bg-slate-100 disabled:text-slate-500"
                       >
                         {staff
                           .filter((s) => s.membershipId !== UNASSIGNED_STAFF_ID && s.isBookable)
@@ -252,18 +256,28 @@ export function CompleteServiceModal({
                       </select>
                     </div>
                     <span className="font-mono font-bold text-violet-800">${centsToDollars(addon.priceCents)}</span>
-                    <button
-                      type="button"
-                      className="text-rose-500 hover:text-rose-700 text-xs font-bold px-1"
-                      onClick={() => {
-                        onChange((prev) => ({
-                          ...prev,
-                          addedAddOns: prev.addedAddOns.filter((_, i) => i !== idx),
-                        }));
-                      }}
-                    >
-                      ✕
-                    </button>
+                    {/*
+                      已经写进单据的加项不提供「移除」：删掉只会让本地清单与单据
+                      不符，重新选一遍还会换一个新的幂等键，同一项就进单两遍。
+                    */}
+                    {addon.sentTicketItemId ? (
+                      <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-bold text-emerald-700">
+                        {t('queue.quAddOnAlreadyOnTicket')}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-rose-500 hover:text-rose-700 text-xs font-bold px-1"
+                        onClick={() => {
+                          onChange((prev) => ({
+                            ...prev,
+                            addedAddOns: prev.addedAddOns.filter((_, i) => i !== idx),
+                          }));
+                        }}
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}

@@ -193,6 +193,7 @@ export function WalkInBundleModal({
     <Modal
       isOpen={isOpen}
       onOpenChange={(o) => { if (!o) onClose(); }}
+      isDismissDisabled={isPending}
       size="lg"
       title={
         <span className="flex items-center gap-2">

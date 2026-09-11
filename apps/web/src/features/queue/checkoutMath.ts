@@ -49,14 +49,36 @@ export function buildCheckoutStaffList(
     map.set(membershipId, existing);
   };
 
+  /*
+   * ⚠️ `/v1/desk/tickets` 是 `join ticket_item_staff` —— 一个项目派了几位技师
+   * 就返回几行，**每一行都带着这个项目的完整金额**。直接遍历原始行会把双人
+   * 项目的 $100 记成 A 一百、B 一百，营收基数变成 $200；比例分账的权重正是
+   * 按这个基数算的，于是双人项目与单人项目混在同一张单里时，分出来的小费
+   * 与实际执行不符，弹窗上给前台看的每人营收也是错的。
+   *
+   * 因此这里按 ticketItemId 把金额在协作的技师之间均摊：一条项目的金额之和
+   * 恒等于它本身，而双技师各拿一半正是提成的实际口径。
+   */
   const ticketItems = source.rawTicket?.items ?? [];
   if (ticketItems.length > 0) {
+    const staffCountByItem = new Map<string, number>();
+    for (const ticketItem of ticketItems) {
+      staffCountByItem.set(ticketItem.ticketItemId, (staffCountByItem.get(ticketItem.ticketItemId) ?? 0) + 1);
+    }
+    const assignedSoFar = new Map<string, number>();
     ticketItems.forEach((ticketItem) => {
+      const shares = staffCountByItem.get(ticketItem.ticketItemId) ?? 1;
+      const index = assignedSoFar.get(ticketItem.ticketItemId) ?? 0;
+      assignedSoFar.set(ticketItem.ticketItemId, index + 1);
+      // 尾差补给最后一位，保证各行之和等于该项目的金额，不产生对不上的一分钱。
+      const share = index === shares - 1
+        ? ticketItem.totalCents - Math.floor(ticketItem.totalCents / shares) * (shares - 1)
+        : Math.floor(ticketItem.totalCents / shares);
       push(
         ticketItem.membershipId || UNRESOLVED_STAFF_KEY,
         ticketItem.staffName || fallbackStaffName,
         ticketItem.name,
-        ticketItem.totalCents,
+        share,
       );
     });
     return [...map.values()];

@@ -117,6 +117,7 @@ export function CheckoutModal({
       onOpenChange={(open) => {
         if (!open) onChange((prev) => ({ ...prev, isOpen: false, item: null }));
       }}
+      isDismissDisabled={isPending}
       title={
         <div className="flex items-center gap-2 font-semibold text-slate-900">
           <CreditCard className="h-5 w-5 text-emerald-600" />

@@ -37,6 +37,7 @@ export function VoidTicketModal({ state, isPending, onChange, onConfirm }: VoidT
     <Modal
       isOpen={state.isOpen}
       onOpenChange={(open) => { if (!open) onChange((prev) => ({ ...prev, isOpen: false, item: null })); }}
+      isDismissDisabled={isPending}
       title={
         <div className="flex items-center gap-2 font-bold text-rose-800">
           <Ban className="h-5 w-5 text-rose-600" />

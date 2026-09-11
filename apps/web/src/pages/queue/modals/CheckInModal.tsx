@@ -46,6 +46,8 @@ export interface CheckInModalState {
   selectedAddOnId: string;
   addOnStaffId: string;
   notes: string;
+  /** 本次尝试的幂等键前缀，由页面在打开弹窗时生成。 */
+  attemptKey: string;
 }
 
 export interface CheckInModalProps {
@@ -100,6 +102,7 @@ export function CheckInModal(props: CheckInModalProps) {
           onClearError();
         }
       }}
+      isDismissDisabled={isPending}
       title={
         <div className="flex items-center gap-2 text-amber-800 font-bold">
           <UserCheck className="w-5 h-5 text-amber-600" />
@@ -111,6 +114,7 @@ export function CheckInModal(props: CheckInModalProps) {
         <div className="flex justify-end gap-2 w-full">
           <Button
             variant="secondary"
+            isDisabled={isPending}
             onClick={() => {
               onChange((prev) => ({ ...prev, isOpen: false, item: null }));
               onPickSummary(null);

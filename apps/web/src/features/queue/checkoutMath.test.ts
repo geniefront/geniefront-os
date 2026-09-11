@@ -48,7 +48,45 @@ const base = {
   customStaffTips: {},
 };
 
+/** 一个项目派两位技师时 `/v1/desk/tickets` 返回的那两行：同一个 ticketItemId，各带完整金额。 */
+const sharedItemTicket = (): TicketSummary => {
+  const one = ticket([{ membershipId: 'm-1', staffName: 'Amy', name: 'Couples Massage', totalCents: 10_001 }]);
+  const row = one.items[0]!;
+  return { ...one, items: [row, { ...row, membershipId: 'm-2', staffName: 'Bo' }] };
+};
+
 describe('buildCheckoutStaffList', () => {
+  /*
+   * 双人项目此前被记成「A 一百、B 一百」，营收基数凭空翻倍。比例分账的权重
+   * 正是按这个基数算的，与单人项目混在同一张单里时分出来的小费就是错的。
+   */
+  it('把协作项目的金额在同一条项目的技师之间均摊，而不是每人记一份全额', () => {
+    const list = buildCheckoutStaffList(
+      { serviceName: 'Couples Massage', priceCents: 10_001, rawTicket: sharedItemTicket() },
+      'Lead',
+      (name) => `+ ${name}`,
+    );
+    expect(list.map((entry) => entry.totalRevenueCents)).toEqual([5_000, 5_001]);
+    // 各行之和恒等于该项目的金额 —— 不留一分钱的对账差异。
+    expect(list.reduce((sum, entry) => sum + entry.totalRevenueCents, 0)).toBe(10_001);
+  });
+
+  it('协作项目与单人项目同单时，比例分账按真实执行金额而不是翻倍后的基数', () => {
+    const shared = sharedItemTicket();
+    const solo = ticket([{ membershipId: 'm-1', staffName: 'Amy', name: 'Foot', totalCents: 5_000 }]);
+    const merged: TicketSummary = {
+      ...shared,
+      subtotalCents: 15_001,
+      items: [...shared.items, { ...solo.items[0]!, ticketItemId: 'ti-solo' }],
+    };
+    const list = buildCheckoutStaffList(
+      { serviceName: 'Mixed', priceCents: 15_001, rawTicket: merged }, 'Lead', (name) => `+ ${name}`,
+    );
+    // Amy 拿协作项目的一半加上自己那一项；Bo 只拿协作项目的另一半。
+    expect(list.find((entry) => entry.membershipId === 'm-1')!.totalRevenueCents).toBe(10_000);
+    expect(list.find((entry) => entry.membershipId === 'm-2')!.totalRevenueCents).toBe(5_001);
+  });
+
   it('归并时用 membershipId 而非姓名，同名技师不会被算成一个人', () => {
     const list = buildCheckoutStaffList(
       {

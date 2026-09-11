@@ -18,10 +18,20 @@ export interface ModalProps {
   footer?: React.ReactNode;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'cover' | 'full';
   className?: string;
+  /**
+   * 提交进行中：屏蔽一切「顺手关掉」的路径。
+   *
+   * 取消按钮加 `isDisabled` 是不够的 —— 右上角的 ✕、点遮罩、按 Esc 都会照常
+   * 触发 `onOpenChange(false)`。而这些弹窗的确认动作是一串不可回滚的写命令，
+   * 中途关掉只会让调用方把结果写进一个已经被清空的状态里，前台则看到一个
+   * 「什么都没发生」的界面，实际上单据已经改了。
+   */
+  isDismissDisabled?: boolean;
 }
 
 export function Modal({
   isOpen, onOpenChange, title, description, children, footer, size = 'md', className,
+  isDismissDisabled = false,
 }: ModalProps) {
   return (
     /*
@@ -32,12 +42,14 @@ export function Modal({
     <HeroModal.Backdrop
       variant="blur"
       isOpen={isOpen}
-      onOpenChange={onOpenChange}
+      onOpenChange={(open) => { if (!open && isDismissDisabled) return; onOpenChange(open); }}
+      isDismissable={!isDismissDisabled}
+      isKeyboardDismissDisabled={isDismissDisabled}
       className="!z-[300]"
     >
         <HeroModal.Container size={size} className={cn("!z-[301]", className)}>
           <HeroModal.Dialog className={className}>
-            <HeroModal.CloseTrigger />
+            {!isDismissDisabled && <HeroModal.CloseTrigger />}
             <HeroModal.Header>
               <HeroModal.Heading>{title}</HeroModal.Heading>
               {description ? <p className="text-sm text-slate-500">{description}</p> : null}
