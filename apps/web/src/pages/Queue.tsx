@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { asCents } from '@gf/contracts';
 import { useOutletContext, useNavigate, useSearchParams } from 'react-router-dom';
+import { useOpenInternalRoute } from '@/lib/navigation';
 import { toast, Spinner } from '@heroui/react';
 import { CalendarDays, Clock, UserCheck, AlertTriangle, FileWarning, Plus, RotateCcw, Sparkles, CreditCard, Scissors, Search, Filter, BedDouble, CheckCircle, Check, User, DollarSign, QrCode, Copy } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
@@ -91,6 +92,7 @@ function QueueContent() {
   const errorMessage = useErrorMessage();
   const { t, language } = useLanguage();
   const navigate = useNavigate();
+  const openInternalRoute = useOpenInternalRoute();
   const [searchParams, setSearchParams] = useSearchParams();
   // 预约详情抽屉「在看板处理」深链过来时带 ?focus=<appointmentId>，
   // 用它把对应卡片滚进视野并高亮；高亮约 4s 后自行淡出（清掉 query）。
@@ -1397,8 +1399,10 @@ function QueueContent() {
   /**
    * 打开服务单一页纸。
    *
-   * 新开一个标签页而不是当前页跳转：前台打完这张纸要回到看板继续排下一位，
-   * 把她从看板上带走再让她自己找回来，是这类操作最常见的抱怨来源。
+   * 浏览器标签页环境下新开一个标签页而不是当前页跳转：前台打完这张纸要回到
+   * 看板继续排下一位，把她从看板上带走再让她自己找回来，是这类操作最常见的
+   * 抱怨来源。独立窗口（添加到主屏幕的 iPad）没有标签页，改为压入历史栈后
+   * 由服务单页自带的返回控件回到看板 —— 详见 `@/lib/navigation`。
    */
   const openServiceBrief = (item: KanbanItem) => {
     const ticketId = item.ticketId ?? item.rawTicket?.ticketId;
@@ -1406,7 +1410,7 @@ function QueueContent() {
       toast.info(t('queue.quItemActionNeedsTicket'));
       return;
     }
-    window.open(`/print/service-brief/${ticketId}`, '_blank', 'noopener');
+    openInternalRoute(`/print/service-brief/${ticketId}`);
   };
 
   /**

@@ -1,5 +1,6 @@
 import { useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import { useGoBack } from '@/lib/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { apiGet } from '@/lib/api';
 import { useSession } from '@/lib/session';
@@ -9,7 +10,8 @@ import { openPrintPreview } from '@/features/printing/preview';
 export function ReceiptPrint() {
   const { ticketId } = useParams();
   const { membershipId, status } = useSession();
-  const navigate = useNavigate();
+  /* 独立页面，没有侧边栏可点；有站内历史就原路退回，否则落到收银台。 */
+  const goBack = useGoBack('/checkout');
   const documentRef = useRef<HTMLDivElement>(null);
   const query = useQuery({
     queryKey: ['desk', 'receipt', membershipId, ticketId],
@@ -20,7 +22,7 @@ export function ReceiptPrint() {
   return <main className="min-h-dvh bg-slate-100 p-4">
     <div className="mx-auto max-w-3xl">
       <div className="flex flex-wrap gap-3 mb-4 print:hidden">
-        <button className="rounded-lg border bg-white px-4 py-3" onClick={() => navigate('/checkout')}>Back to checkout</button>
+        <button className="rounded-lg border bg-white px-4 py-3" onClick={goBack}>Back</button>
         <button className="rounded-lg bg-teal-700 px-4 py-3 text-white disabled:opacity-50" disabled={!query.data || query.isFetching} onClick={() => openPrintPreview(documentRef.current, `Receipt ${ticketId}`, 'thermal')}>Print / Save PDF</button>
       </div>
       {query.isLoading && <p>Loading receipt…</p>}

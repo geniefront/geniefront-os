@@ -1,6 +1,7 @@
 import { queueTicketItems } from '@/features/queue/ticketItems';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useOpenInternalRoute } from '@/lib/navigation';
 import {
   AlertCircle, AlertTriangle, BedDouble, Calendar, CalendarClock, Check, ChevronRight,
   CreditCard, Edit2, Edit3, FileHeart, FileText, Gift, HeartPulse, Languages, Mail, Phone, Plus,
@@ -60,6 +61,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
   const errorMessage = useErrorMessage();
   const storeTime = useStoreTime();
   const navigate = useNavigate();
+  const openInternalRoute = useOpenInternalRoute();
   const { currentDate, services, staff, resources, timezone, refetch: refetchSchedule } = useSchedule();
   const appointmentQ = useAppointmentDetailQuery(appointmentId ?? null);
   const appointmentFormsQ = useAppointmentFormsQuery(appointmentId ?? null);
@@ -545,7 +547,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
       {tab === 'health' && <div className="space-y-4">
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex gap-3"><FileHeart className="text-teal-600" /><div><h4 className="font-bold">{t('schedule.adHealthRecord')}</h4><p className="text-xs text-slate-500">{appointmentForms.length > 0 ? t('schedule.adHealthAvailable') : t('schedule.adHealthMissing')}</p></div></div>
-          {appointmentForms.length > 0 && <div className="mt-4 space-y-2">{appointmentForms.map((form) => <article key={form.submissionId} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><div className="flex items-start justify-between gap-3"><span><span className="block text-sm font-bold text-emerald-950">{form.templateTitle[language] ?? form.templateTitle.en ?? 'Health form'}</span><span className="text-xs text-emerald-700">{storeTime.dateTime(form.signedAt ?? form.createdAt)}</span></span><Badge variant="success">v{form.version}</Badge></div><div className="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="secondary" className="h-8 bg-white text-xs font-bold text-teal-800" onPress={() => { setSelectedSubmissionId(form.submissionId); setHealthRequested(true); }}><Sparkles size={14}/>{t('schedule.adAiHealthSummary')}</Button><Button size="sm" variant="outline" className="h-8 bg-white text-xs font-bold" onPress={() => window.open(`/forms/submissions/${form.submissionId}`, '_blank', 'noopener,noreferrer')}><FileText size={14}/>{t('schedule.adViewHealth')}</Button></div></article>)}</div>}
+          {appointmentForms.length > 0 && <div className="mt-4 space-y-2">{appointmentForms.map((form) => <article key={form.submissionId} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><div className="flex items-start justify-between gap-3"><span><span className="block text-sm font-bold text-emerald-950">{form.templateTitle[language] ?? form.templateTitle.en ?? 'Health form'}</span><span className="text-xs text-emerald-700">{storeTime.dateTime(form.signedAt ?? form.createdAt)}</span></span><Badge variant="success">v{form.version}</Badge></div><div className="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="secondary" className="h-8 bg-white text-xs font-bold text-teal-800" onPress={() => { setSelectedSubmissionId(form.submissionId); setHealthRequested(true); }}><Sparkles size={14}/>{t('schedule.adAiHealthSummary')}</Button><Button size="sm" variant="outline" className="h-8 bg-white text-xs font-bold" onPress={() => openInternalRoute(`/forms/submissions/${form.submissionId}`)}><FileText size={14}/>{t('schedule.adViewHealth')}</Button></div></article>)}</div>}
         </section>
         {healthRequested && healthQ.isLoading && <Spinner />}
         {healthQ.isError && <p className="text-sm text-rose-600">{errorMessage(healthQ.error)}</p>}

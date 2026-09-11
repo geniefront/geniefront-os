@@ -158,23 +158,6 @@ div[data-slot="modal-container"] {
   }
 }
 
-/* Tablet reading scale also applies with an attached trackpad. Keep rem-based
-   spacing stable; enlarge text tokens instead of zooming the entire layout. */
-@media screen and (min-width: 600px) and (max-width: 1400px) {
-  :root {
-    --text-xs: 0.875rem;
-    --text-xs--line-height: 1.45;
-    --text-sm: 1rem;
-    --text-sm--line-height: 1.5;
-  }
-
-  .text-\[8px\], .text-\[9px\], .text-\[10px\], .text-\[11px\],
-  .text-\[12px\], .text-\[13px\] {
-    font-size: 0.875rem;
-    line-height: 1.45;
-  }
-}
-
 @media screen and (any-pointer: coarse) {
   button, [role="button"], [role="tab"], [role="menuitem"] {
     min-height: 44px;
@@ -196,6 +179,65 @@ div[data-slot="modal-container"] {
     min-height: 44px;
     display: flex;
     align-items: center;
+  }
+}
+
+/*
+ * ── 平板阅读字号 ────────────────────────────────────────────────────────────
+ *
+ * 门店 iPad 的观看距离比前台电脑远，桌面端字号在这块屏上普遍读不清 ——
+ * 这是种子店最集中的一条反馈。处理方式是**只抬字号刻度，不缩放整个布局**：
+ * 间距、圆角、控件高度继续用 rem 且不随之改变，版式关系保持原样，因此
+ * 放大之后不会出现错位或串行。
+ *
+ * 外接妙控键盘的 iPad 指针是精确指针，所以按宽度而非 `pointer` 判定；
+ * 上界 1400px 把真正的桌面显示器排除在外。
+ *
+ * ⚠️ 调整这里的数值之后必须跑 `node scripts/check-tablet-layout.mjs`：
+ * 该脚本在六种 iPad 视口下检查横向溢出与文本裁切，字号一抬就可能触发。
+ */
+@media screen and (min-width: 600px) and (max-width: 1400px) {
+  :root {
+    --text-xs: 0.9375rem;
+    --text-xs--line-height: 1.45;
+    --text-sm: 1.0625rem;
+    --text-sm--line-height: 1.5;
+    --text-base: 1.125rem;
+    --text-base--line-height: 1.55;
+    --text-lg: 1.25rem;
+    --text-lg--line-height: 1.5;
+    --text-xl: 1.375rem;
+    --text-xl--line-height: 1.4;
+  }
+
+  /*
+   * 历史页面里散落着近 750 处写死的 9–12px 任意字号。逐个改写风险高于收益，
+   * 在这里统一抬到与 `text-xs` 同级：它们承载的都是角标、元数据一类的辅助
+   * 信息，与 `text-xs` 本就是同一层级。
+   */
+  .text-\[8px\], .text-\[9px\], .text-\[10px\], .text-\[11px\],
+  .text-\[12px\], .text-\[13px\] {
+    font-size: 0.9375rem;
+    line-height: 1.45;
+  }
+
+  /*
+   * 字号抬高之后，原先按桌面字号掐死的固定行高容器会把字母的上下缘切掉
+   * （最典型的是徽章与状态标签的 `h-5` / `h-6`）。这里把「固定高度」放宽成
+   * 「最小高度」，容器按内容自行撑开，既不裁切也不改变它在版式中的位置。
+   */
+  :is(.h-5, .h-6, .h-7):is(.inline-flex, .flex, .grid, .badge) {
+    height: auto;
+    min-height: 1.5rem;
+  }
+
+  /*
+   * 输入控件跟随同一套刻度。触控分支里那条 `max(1rem, 16px)` 是为手机防止
+   * iOS 聚焦时自动放大页面而设的下限，在平板上反而比正文更小；这里声明在
+   * 其后覆盖掉，两者优先级相同，顺序决定胜负。
+   */
+  :is(input, select, textarea):not(.text-lg):not(.text-xl):not(.text-2xl):not(.text-3xl):not(.text-4xl) {
+    font-size: var(--text-sm);
   }
 }
 

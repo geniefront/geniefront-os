@@ -22,6 +22,12 @@
 .gf-print-sheet svg { max-width: 100%; }
 .gf-print-sheet .sbp-table, .gf-print-sheet .sbp-split { break-inside: auto; }
 #gf-print-root[data-paper="thermal"] :is(.grid,.sbp-split) { grid-template-columns: 1fr !important; }
+/* 80mm 纸卷可用宽度只有 74mm：屏幕预览若带入固定宽度（卡片、图片、签名图），
+   超出部分会被打印机直接裁掉右侧金额，故在热敏纸张下收敛后代宽度上限。
+   仅收敛上限、不改写 width，避免把 width:100% 的表格压成收缩宽度。 */
+#gf-print-root[data-paper="thermal"] .gf-print-sheet * { max-width: 100% !important; }
+/* 美国单据惯例：金额列右对齐并使用等宽数字，便于逐行核对。 */
+.gf-print-sheet :is(th,td).gf-print-num { text-align: right; font-variant-numeric: tabular-nums; }
 @media screen and (max-width: 600px) { #gf-print-root { padding: 12px; } .gf-print-sheet { padding: 20px; } }
 @media print {
   html:has(body.gf-print-open), body.gf-print-open { height: auto !important; overflow: visible !important; background: white !important; margin: 0 !important; padding: 0 !important; }

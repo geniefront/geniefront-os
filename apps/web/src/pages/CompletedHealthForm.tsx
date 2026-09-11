@@ -3,6 +3,7 @@ import { openPrintPreview } from '@/features/printing/preview';
 import { Spinner } from '@heroui/react';
 import { ArrowLeft, FileCheck2, Printer } from 'lucide-react';
 import { useParams } from 'react-router-dom';
+import { useGoBack } from '@/lib/navigation';
 import { Button } from '@/components/ui/Button';
 import { inferHealthFormCategory } from '@/features/forms/formExperience';
 import { publicText } from '@/features/forms/publicCopy';
@@ -45,6 +46,7 @@ export function CompletedHealthForm() {
   const language = 'en';
   const locale = 'en-US';
   const { context } = useSession();
+  const goBack = useGoBack('/queue');
   const timezone = context?.timezone || 'UTC';
   const isMassage = submission ? inferHealthFormCategory(submission.templateKey) === 'massage' : false;
   const signedLanguage = 'en';
@@ -53,9 +55,13 @@ export function CompletedHealthForm() {
     <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-950 print:bg-white print:p-0">
       <div className="mx-auto max-w-4xl">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3 print:hidden">
-          <Button variant="outline" onPress={() => window.close()}>
+          {/*
+            不能用 window.close()：非脚本打开的窗口关不掉，独立窗口（iPad
+            添加到主屏幕）下这个按钮等于没有，前台只能强退应用。
+          */}
+          <Button variant="outline" onPress={goBack}>
             <ArrowLeft className="h-4 w-4" />
-            Close this page
+            Back
           </Button>
           <Button isDisabled={!submission || submissionQ.isFetching} onPress={async () => { const result = await submissionQ.refetch(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); if (result.data && !result.error) openPrintPreview(document.querySelector('[data-print-health-record]'), 'Completed health form record'); }}>
             <Printer className="h-4 w-4" />

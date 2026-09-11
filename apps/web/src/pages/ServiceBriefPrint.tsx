@@ -20,7 +20,8 @@ import { openPrintPreview } from '@/features/printing/preview';
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Printer } from 'lucide-react';
+import { useGoBack } from '@/lib/navigation';
+import { ArrowLeft, Printer } from 'lucide-react';
 import { apiGet } from '@/lib/api';
 import { useQuery } from '@tanstack/react-query';
 import { useSession } from '@/lib/session';
@@ -131,6 +132,8 @@ export function ServiceBriefPrint() {
   const { status, membershipId } = useSession();
   const [printLanguage, setPrintLanguage] = useState<Language>(uiLanguage);
   const [format, setFormat] = useState<'letter' | 'thermal'>('letter');
+  /* 这一页不套后台布局，没有侧边栏可点；独立窗口下缺了返回控件就是死路。 */
+  const goBack = useGoBack('/queue');
 
   const query = useQuery({
     queryKey: ['desk', 'service-brief', membershipId, ticketId],
@@ -243,9 +246,15 @@ export function ServiceBriefPrint() {
     <div className={`sbp sbp--${format}`}>
       {/* 打印时整条隐藏。纸上不该出现任何界面控件。 */}
       <header className="sbp-chrome">
-        <div>
-          <span className="sbp-chrome__eyebrow">{tp('print.briefTitle')}</span>
-          <h1>{brief.customerName}</h1>
+        <div className="sbp-chrome__identity">
+          <button type="button" className="sbp-chrome__back" onClick={goBack}>
+            <ArrowLeft aria-hidden />
+            {tp('print.backAction')}
+          </button>
+          <div>
+            <span className="sbp-chrome__eyebrow">{tp('print.briefTitle')}</span>
+            <h1>{brief.customerName}</h1>
+          </div>
         </div>
         <div className="sbp-chrome__controls">
           <label htmlFor="sbp-lang">{tp('print.langLabel')}</label>

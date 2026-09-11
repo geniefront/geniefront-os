@@ -52,12 +52,20 @@
   min-width: 56px;
 }
 
-/* Kiosk is read at arm's length. Keep captions at 14px and body text at 16px. */
+/*
+ * 自助机是顾客站着、手臂长度之外读的，字号刻度整体比桌面端抬一档：
+ * 说明文字 15px、正文 17px、段落 18px。只动刻度、不动间距与控件尺寸，
+ * 版式关系保持不变。
+ */
 @theme {
-  --text-xs: 0.875rem;
+  --text-xs: 0.9375rem;
   --text-xs--line-height: 1.45;
-  --text-sm: 1rem;
+  --text-sm: 1.0625rem;
   --text-sm--line-height: 1.5;
+  --text-base: 1.125rem;
+  --text-base--line-height: 1.55;
+  --text-lg: 1.25rem;
+  --text-lg--line-height: 1.5;
 }
 
 button, [role="button"] {
@@ -69,12 +77,13 @@ input:not([type="checkbox"]):not([type="radio"]), select, textarea {
   min-height: 48px;
 }
 
-.text-\[10px\], .text-\[11px\], .text-\[12px\] {
-  font-size: 0.875rem;
+/* 写死的小字号统一抬到与 text-xs 同级，避免自助机上出现读不清的角标。 */
+.text-\[9px\], .text-\[10px\], .text-\[11px\], .text-\[12px\], .text-\[13px\] {
+  font-size: 0.9375rem;
   line-height: 1.45;
 }
 
-  /* Preserve intentionally large phone / code fields. */
-  :is(input, select, textarea):not(.text-lg):not(.text-xl):not(.text-2xl):not(.text-3xl):not(.text-4xl) {
-    font-size: max(1rem, 16px);
-  }
+/* 输入控件跟随同一刻度；16px 是 iOS 聚焦不自动放大页面的下限。 */
+:is(input, select, textarea):not(.text-lg):not(.text-xl):not(.text-2xl):not(.text-3xl):not(.text-4xl) {
+  font-size: max(1.0625rem, 16px);
+}

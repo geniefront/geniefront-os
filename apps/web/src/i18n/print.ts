@@ -11,6 +11,7 @@ export const print = {
   'print.briefTitle': { 'zh-Hans': '入座服务单', en: 'Service brief', ko: '서비스 시트', es: 'Hoja de servicio', vi: 'Phiếu dịch vụ' },
   'print.briefLoading': { 'zh-Hans': '正在生成服务单…', en: 'Building the service brief…', ko: '서비스 시트를 만드는 중…', es: 'Generando la hoja de servicio…', vi: 'Đang tạo phiếu dịch vụ…' },
   'print.briefFailed': { 'zh-Hans': '服务单打不开', en: 'Could not open the service brief', ko: '서비스 시트를 열지 못했습니다', es: 'No se pudo abrir la hoja de servicio', vi: 'Không mở được phiếu dịch vụ' },
+  'print.backAction': { 'zh-Hans': '返回看板', en: 'Back to board', ko: '보드로 돌아가기', es: 'Volver al tablero', vi: 'Về bảng điều phối' },
   'print.printAction': { 'zh-Hans': '打印', en: 'Print', ko: '인쇄', es: 'Imprimir', vi: 'In' },
   'print.langLabel': { 'zh-Hans': '打印语言', en: 'Print language', ko: '인쇄 언어', es: 'Idioma de impresión', vi: 'Ngôn ngữ in' },
   'print.formatLabel': { 'zh-Hans': '版式', en: 'Format', ko: '용지', es: 'Formato', vi: 'Khổ giấy' },

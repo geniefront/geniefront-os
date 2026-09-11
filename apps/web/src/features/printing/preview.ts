@@ -94,14 +94,33 @@ export function openPrintPreview(source: Element | null, title: string, paper: P
   return cleanup;
 }
 
-export function printTable(title: string, headers: string[], rows: Array<Array<string | number>>) {
+/**
+ * 打印用表头。内部单据跟随界面语言，因此数字列由调用方显式声明，
+ * 不能靠英文表头文案猜测。
+ */
+export type PrintColumn = string | { label: string; numeric?: boolean };
+
+export function printTable(title: string, headers: PrintColumn[], rows: Array<Array<string | number>>) {
   const article = document.createElement('article');
   const h1 = document.createElement('h1'); h1.textContent = title; article.append(h1);
   const table = document.createElement('table');
   const head = table.createTHead().insertRow();
-  headers.forEach(label => { const th = document.createElement('th'); th.textContent = label; head.append(th); });
+  const numeric = headers.map(column => typeof column !== 'string' && column.numeric === true);
+  headers.forEach((column, index) => {
+    const th = document.createElement('th');
+    th.textContent = typeof column === 'string' ? column : column.label;
+    if (numeric[index]) th.className = 'gf-print-num';
+    head.append(th);
+  });
   const body = table.createTBody();
-  rows.forEach(row => { const tr = body.insertRow(); row.forEach(value => { tr.insertCell().textContent = String(value); }); });
+  rows.forEach(row => {
+    const tr = body.insertRow();
+    row.forEach((value, index) => {
+      const cell = tr.insertCell();
+      cell.textContent = String(value);
+      if (numeric[index]) cell.className = 'gf-print-num';
+    });
+  });
   article.append(table);
   return openPrintPreview(article, title);
 }

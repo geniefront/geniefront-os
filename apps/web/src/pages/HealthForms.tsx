@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from '@heroui/react';
 import {
   Activity,
@@ -99,6 +100,7 @@ export interface EditableFormTemplate extends Omit<SaveFormTemplateInput, 'quest
 }
 
 export function HealthForms() {
+  const navigate = useNavigate();
   const { language, setLanguage, t } = useLanguage();
   const formsQ = useFormsQuery();
   const save = useSaveFormTemplate();
@@ -1215,7 +1217,7 @@ export function HealthForms() {
 
             {/* 底部打印与导出 */}
             <div className="flex justify-end gap-2 pt-2 border-t">
-              <Button size="sm" variant="outline" onClick={() => { window.location.assign(`/forms/submissions/${selectedRecord.id}`); }}>
+              <Button size="sm" variant="outline" onClick={() => { navigate(`/forms/submissions/${selectedRecord.id}`); }}>
                 <Printer className="mr-1.5 h-3.5 w-3.5" />
                 
                 {t('healthForms.healthForms29')}

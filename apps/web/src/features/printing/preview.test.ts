@@ -24,6 +24,13 @@ describe('isolated printing', () => {
     expect(document.querySelector('.gf-print-sheet img')).toBeNull();
     expect(document.querySelector('#gf-print-root style')?.textContent).toContain('letter');
   });
+  it('right-aligns money columns on the printed statement', () => {
+    // 数字列由调用方声明，表头翻译成任何语言都不影响对齐。
+    printTable('对账单', ['顾客', { label: '实收合计($)', numeric: true }], [['Ann', '12.00']]);
+    const cells = document.querySelectorAll('.gf-print-sheet tbody td');
+    expect(cells[0]?.className).toBe('');
+    expect(cells[1]?.className).toBe('gf-print-num');
+  });
   it('blocks printing when a signature image cannot load', async () => {
     const previous = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'decode');
     Object.defineProperty(HTMLImageElement.prototype, 'decode', {configurable:true, value:()=>Promise.reject(new Error('missing signature'))});

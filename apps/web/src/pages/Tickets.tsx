@@ -561,6 +561,16 @@ function TicketsContent() {
     }
   };
 
+  // 订单状态的界面语言文案：导出与打印共用同一套口径。
+  const statusLabel = (status: string) =>
+    status === 'completed'
+      ? t('checkout.tkExportStatusCompleted')
+      : status === 'open'
+        ? t('readyCheckoutLabel')
+        : status === 'voided'
+          ? t('statusVoided')
+          : t('statusRefunded');
+
   // 执行数据导出操作
   const handleExecuteExport = () => {
     const recordsToExport = exportScope === 'filtered' ? filteredOrders : combinedOrders;
@@ -571,9 +581,11 @@ function TicketsContent() {
     }
 
     if (exportFormat === 'print') {
-      printTable(`Order statement — ${recordsToExport.length} loaded records (USD)`,
-        ['Receipt', 'Business date', 'Customer', 'Status', 'Total (USD)', 'Refund (USD)'],
-        recordsToExport.map(order => [order.orderNumber || order.ticketId, order.businessDate || '', order.customerName || '', order.status,
+      // 内部对账单跟随界面语言；顾客面向的收据仍固定英文。
+      printTable(t('checkout.tkPrintStatementTitle', { p0: recordsToExport.length }),
+        [t('checkout.tkPrintColReceipt'), t('checkout.tkExportBusinessDate'), t('checkout.tkExportCustomerName'), t('checkout.tkExportStatus'),
+          { label: t('checkout.tkExportTotalCollected'), numeric: true }, { label: t('checkout.tkPrintColRefund'), numeric: true }],
+        recordsToExport.map(order => [order.orderNumber || order.ticketId, order.businessDate || '', order.customerName || '', statusLabel(order.status),
           centsToDollars(order.totalPaidCents), centsToDollars(order.refundCents)]));
       setExportModalOpen(false);
       return;
@@ -623,13 +635,7 @@ function TicketsContent() {
       ord.paymentMethodLabel || t('creditCardLabel'),
       ord.cardLast4 ? `*${ord.cardLast4}` : ord.transactionRef || '-',
       ord.cashierName || t('roleFrontDeskKey'),
-      ord.status === 'completed'
-        ? t('checkout.tkExportStatusCompleted')
-        : ord.status === 'open'
-          ? t('readyCheckoutLabel')
-          : ord.status === 'voided'
-            ? t('statusVoided')
-            : t('statusRefunded'),
+      statusLabel(ord.status),
       ord.voidReason ? `${ord.voidReason} ${ord.voidNotes ? `(${ord.voidNotes})` : ''}` : ord.notes || '',
     ]);
 

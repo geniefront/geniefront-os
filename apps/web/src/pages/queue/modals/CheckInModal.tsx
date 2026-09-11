@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
+import { useOpenInternalRoute } from '@/lib/navigation';
 import { centsToDollars } from '@/features/checkout/api';
 import { customerInitials, walkInShowsNoPhone } from '@/lib/displayName';
 import { formatPhoneDisplay } from '@/lib/utils';
@@ -79,6 +80,7 @@ export function CheckInModal(props: CheckInModalProps) {
     onChange, onConfirm, onOpenFormQr, onCopyFormLink, onPickSummary, onClearError,
   } = props;
   const { t } = useLanguage();
+  const openInternalRoute = useOpenInternalRoute();
   if (!state.isOpen || !state.item) return null;
 
   const item = state.item;
@@ -213,7 +215,7 @@ export function CheckInModal(props: CheckInModalProps) {
                     className="h-8 border-emerald-300 bg-white px-3 text-xs font-bold text-emerald-800"
                     onPress={() => {
                       const submissionId = completedForms[0]?.submissionId;
-                      if (submissionId) window.open(`/forms/submissions/${encodeURIComponent(submissionId)}`, '_blank', 'noopener,noreferrer');
+                      if (submissionId) openInternalRoute(`/forms/submissions/${encodeURIComponent(submissionId)}`);
                     }}
                   >
                     <ExternalLink className="h-3.5 w-3.5" />

@@ -28,6 +28,26 @@
   justify-content: space-between;
   gap: 12px;
 }
+.sbp-chrome__identity { display: flex; align-items: center; gap: 14px; }
+/*
+ * 返回控件。这一页刻意不套后台布局，独立窗口（iPad 添加到主屏幕）里既没有
+ * 侧边栏也没有浏览器后退键，缺了它前台就只能强退应用重进。
+ */
+.sbp-chrome__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-weight: 600;
+  padding: 9px 14px;
+  min-height: 44px;
+  border: 1px solid #C6D0CC;
+  border-radius: 4px;
+  background: #fff;
+  color: #16211F;
+  cursor: pointer;
+}
+.sbp-chrome__back svg { width: 16px; height: 16px; }
 .sbp-chrome__eyebrow {
   display: block;
   font-size: 11px;
