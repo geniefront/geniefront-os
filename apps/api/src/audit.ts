@@ -15,7 +15,7 @@ import { jsonb } from '@gf/db';
 /** 任何命令都不该把这些字段写进审计，无论是否显式声明 */
 const ALWAYS_REDACT = [
   'pinHash', 'pin_hash', 'tokenHash', 'token_hash',
-  'password', 'answersEncrypted', 'answers_encrypted',
+  'password', 'answersEncrypted', 'answers_encrypted', 'aiSummaryEncrypted', 'ai_summary_encrypted',
   'manageToken', 'manage_token',
   'manageTokenWrapped', 'manage_token_wrapped',
 ];

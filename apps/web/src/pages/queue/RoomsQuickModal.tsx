@@ -22,7 +22,8 @@ import type { RoomItem } from '@/features/rooms/types';
  * （已经在扫）对前台是同一件事：这个位子现在不能接客，扫完点一下。
  */
 export function roomNeedsCleaning(room: RoomItem): boolean {
-  return room.status === 'cleaning' || room.rawStatus === 'cleaning_required';
+  return room.status === 'cleaning' || room.rawStatus === 'cleaning_required' || room.rawStatus === 'cleaning'
+    || (room.waitingCleaningCount ?? 0) > 0 || (room.cleaningCount ?? 0) > 0;
 }
 
 const STATUS_LABEL: Record<string, TranslationKey> = {

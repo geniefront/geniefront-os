@@ -4,14 +4,8 @@ import {
   type IndustryHealthFormPreset,
 } from '@gf/contracts';
 
-export interface HealthAiSummary {
-  riskLevel: 'low' | 'moderate' | 'high';
-  headline: Record<string, string>;
-  keyAlerts: Record<string, string[]>;
-  avoidAreasList: Record<string, string[]>;
-  focusNotes: Record<string, string>;
-  technicianAdvice: Record<string, string>;
-}
+import type { HealthAiSummary } from '@gf/contracts';
+export type { HealthAiSummary } from '@gf/contracts';
 
 export interface FormSubmissionRecord {
   id: string;

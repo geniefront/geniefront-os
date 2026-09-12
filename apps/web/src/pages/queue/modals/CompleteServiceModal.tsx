@@ -157,7 +157,7 @@ export function CompleteServiceModal({
           </div>
         </div>
 
-        {/* 服务中途加项与提成技师归属 */}
+<details className="rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer font-semibold">{t('queue.quAddOnsTitle')} {state.addedAddOns.length > 0 ? `(${state.addedAddOns.length})` : ''}</summary>        {/* 服务中途加项与提成技师归属 */}
         <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-3 shadow-sm">
           <div className="flex items-center justify-between">
             <h4 className="font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
@@ -369,6 +369,7 @@ export function CompleteServiceModal({
           </div>
         </div>
 
+</details>
         {/* 包厢工位翻台清洁与技师跟进备注 */}
         <div className={state.roomId ? 'grid grid-cols-2 gap-3' : 'grid grid-cols-1 gap-3'}>
           {state.roomId && (

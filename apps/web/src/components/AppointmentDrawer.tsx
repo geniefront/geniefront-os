@@ -1,3 +1,4 @@
+import { HealthSummary } from '@/features/forms/HealthSummary';
 import { queueTicketItems } from '@/features/queue/ticketItems';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -25,7 +26,6 @@ import { useCancelAppointment, useRescheduleAppointment } from '@/features/sched
 import { useCustomerDetail, useSaveCustomerPreferences, useSaveCustomerProfile } from '@/features/customers/api';
 import { useAddTicketItem, useSaveServiceNote, useTicketsList } from '@/features/tickets/api';
 import { useShareForm, type FormShareResult } from '@/features/forms/api';
-import { generateAiHealthSummary } from '@/features/forms/mockData';
 import type { CancelReason } from '@/features/schedule/types';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
@@ -133,15 +133,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
   const appointmentForms = appointmentFormsQ.data?.forms.filter((form) => form.isLatest) ?? [];
   const activeForm = appointmentForms.find((form) => form.submissionId === selectedSubmissionId) ?? appointmentForms[0] ?? null;
   const healthQ = useHealthFormSubmissionQuery(activeForm?.submissionId ?? null, healthRequested);
-  const aiSummary = useMemo(() => {
-    if (!activeForm || !healthQ.data?.answers) return null;
-    const answers = healthQ.data.answers;
-    return generateAiHealthSummary({
-      templateKey: activeForm.templateKey,
-      answers,
-      avoidAreas: Array.isArray(answers.bodyMapAvoid) ? answers.bodyMapAvoid as string[] : [],
-    });
-  }, [activeForm, healthQ.data?.answers]);
+  const aiSummary = healthQ.data?.aiSummary ?? null;
 
   useEffect(() => {
     // 弹窗打开后由 openReschedule 负责预填（可能锁定某个具体项目），此处不再覆盖
@@ -562,7 +554,8 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
         {healthRequested && healthQ.isLoading && <Spinner />}
         {healthQ.isError && <p className="text-sm text-rose-600">{errorMessage(healthQ.error)}</p>}
         {healthQ.data?.answers && <>
-          {aiSummary && <section className="rounded-xl border border-teal-200 bg-teal-950 p-4 text-white"><div className="mb-3 flex items-center gap-2"><Sparkles size={16} className="text-teal-300"/><h4 className="font-semibold">{t('schedule.adAiHealthSummary')}</h4><Languages size={14} className="ml-auto text-teal-300"/></div><p className="text-sm font-semibold text-teal-50">{aiSummary.headline[language] ?? aiSummary.headline.en}</p>{(aiSummary.keyAlerts[language] ?? aiSummary.keyAlerts.en ?? []).length > 0 && <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-teal-100">{(aiSummary.keyAlerts[language] ?? aiSummary.keyAlerts.en).map((alert) => <li key={alert}>{alert}</li>)}</ul>}<p className="mt-3 text-xs leading-relaxed text-teal-100">{aiSummary.technicianAdvice[language] ?? aiSummary.technicianAdvice.en}</p></section>}
+          {aiSummary && <section className="rounded-xl border border-teal-200 bg-teal-50 p-4"><HealthSummary summary={aiSummary} /></section>}
+          {!aiSummary && <p className="text-sm text-amber-800">{t('queue.quAiSummaryFailed')}</p>}
           <section className="space-y-3 rounded-xl border border-slate-200 p-4">{healthQ.data.questions.map((question) => <div key={question.id}><p className="text-xs font-medium text-slate-500">{question.label[language] ?? question.label.en ?? question.id}</p><p className="break-words text-sm">{display(healthQ.data!.answers![question.id])}</p></div>)}</section>
         </>}
         <GuardedButton permission="form.submit" onPress={() => void runShare()} isPending={shareM.isPending}><QrCode size={16} />{t('schedule.adCreateFormLink')}</GuardedButton>

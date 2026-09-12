@@ -1,3 +1,4 @@
+import { HealthSummary } from '@/features/forms/HealthSummary';
 /**
  * 顾客到店签到：健康问卷排查、身体禁忌标记、按摩偏好、到店现场加项。
  *
@@ -201,18 +202,14 @@ export function CheckInModal(props: CheckInModalProps) {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
+{isSummaryFailed && (                  <Button
                     size="sm"
                     className="h-8 bg-teal-900 px-3 text-xs font-bold text-white"
-                    onPress={() => onPickSummary(
-                      aiSummarySubmissionId === completedForms[0]?.submissionId
-                        ? null
-                        : completedForms[0]?.submissionId ?? null,
-                    )}
+                    onPress={() => onPickSummary(aiSummarySubmissionId ?? completedForms[0]?.submissionId ?? null)}
                   >
                     <Sparkles className="h-3.5 w-3.5" />
                     {t('queue.quAiHealthSummary')}
-                  </Button>
+                  </Button>)}
                   <Button
                     size="sm"
                     variant="outline"
@@ -227,6 +224,9 @@ export function CheckInModal(props: CheckInModalProps) {
                   </Button>
                 </div>
               </div>
+              {completedForms.length > 1 && <select aria-label={t('queue.quHealthForm')} value={aiSummarySubmissionId ?? ''} onChange={(event) => onPickSummary(event.target.value)} className="w-full rounded-lg border border-emerald-300 bg-white p-2 text-sm">
+                {completedForms.map((form) => <option key={form.submissionId} value={form.submissionId}>{form.templateTitle[language] ?? form.templateTitle.en}</option>)}
+              </select>}
               {aiSummarySubmissionId && (
                 <div className="rounded-xl border border-teal-700 bg-teal-950 p-3 text-white">
                   <div className="flex items-center gap-2 text-xs font-bold text-teal-100">
@@ -237,15 +237,7 @@ export function CheckInModal(props: CheckInModalProps) {
                   {isSummaryLoading && <div className="mt-3 flex items-center gap-2 text-xs text-teal-100"><Spinner size="sm" />{t('queue.quAiSummaryLoading')}</div>}
                   {isSummaryFailed && <p className="mt-3 text-xs text-rose-200">{t('queue.quAiSummaryFailed')}</p>}
                   {aiSummary && (
-                    <div className="mt-3 space-y-2">
-                      <p className="text-sm font-semibold text-teal-50">{aiSummary.headline[language] ?? aiSummary.headline.en}</p>
-                      {(aiSummary.keyAlerts[language] ?? aiSummary.keyAlerts.en ?? []).length > 0 && (
-                        <ul className="list-disc space-y-1 pl-5 text-xs text-teal-100">
-                          {(aiSummary.keyAlerts[language] ?? aiSummary.keyAlerts.en).map((alert) => <li key={alert}>{alert}</li>)}
-                        </ul>
-                      )}
-                      <p className="text-xs leading-relaxed text-teal-100">{aiSummary.technicianAdvice[language] ?? aiSummary.technicianAdvice.en}</p>
-                    </div>
+                    <HealthSummary summary={aiSummary} />
                   )}
                 </div>
               )}
@@ -315,7 +307,7 @@ export function CheckInModal(props: CheckInModalProps) {
             })()}
           </div>}
 
-          {/* 禁忌快速排查标签 */}
+<details open={completedForms.length === 0} className="rounded-lg border border-slate-200 p-2"><summary className="cursor-pointer text-xs font-medium">{t('queue.quManualHealthNotes')}</summary>          {/* 禁忌快速排查标签 */}
           <div className={cn(!usesMassageIntake && 'hidden')}>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">
               {t('queue.quContraindicationsHint')}
@@ -359,10 +351,10 @@ export function CheckInModal(props: CheckInModalProps) {
                 );
               })}
             </div>
-          </div>
+          </div></details>
         </div>
 
-        {/* 3. 护理偏好与身体部位偏好 */}
+<details className="rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer font-semibold text-slate-700">{t('queue.quPreferencesTitle')}</summary>        {/* 3. 护理偏好与身体部位偏好 */}
         <div className={cn('bg-white p-3.5 rounded-2xl border border-slate-200 space-y-3 shadow-sm', !usesMassageIntake && 'hidden')}>
           <h4 className="font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-teal-600" />
@@ -504,7 +496,8 @@ export function CheckInModal(props: CheckInModalProps) {
           </div>
         </div>
 
-        {/* 4. 现场附加加项与指定技师 */}
+</details>
+<details className="rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer font-semibold text-slate-700">{t('queue.quAddOnTitle')}</summary>        {/* 4. 现场附加加项与指定技师 */}
         <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5 shadow-sm">
           <h4 className="font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
             <Plus className="w-3.5 h-3.5 text-teal-600" />
@@ -546,6 +539,7 @@ export function CheckInModal(props: CheckInModalProps) {
           </div>
         </div>
 
+</details>
         {/* 5. 前台特别叮嘱备注 */}
         <div>
           <label className="block text-xs font-bold text-slate-700 mb-1">

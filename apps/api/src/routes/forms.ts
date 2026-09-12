@@ -8,6 +8,7 @@
  * - 表单重填与版本追加 (/v1/desk/forms/re-submit)
  */
 
+import { summaryForSubmission } from '../forms/summary';
 import type { FastifyInstance } from 'fastify';
 import {
   AppError, ERROR_CODES, type CommandContext,
@@ -63,9 +64,10 @@ export function registerFormsRoutes(app: FastifyInstance, ctxFromHeaders: CtxFro
         details: { reason: 'bad_access_reason', allowed: [...FORM_ACCESS_REASONS] },
       });
     }
-    return withTenant(
+    const detail = await withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
       (tx) => readSubmission(tx, ctx, submissionId, reason));
+    return { ...detail, aiSummary: await summaryForSubmission(ctx, detail) };
   };
 
   app.get<{ Params: { id: string }; Querystring: { reason?: string } }>(

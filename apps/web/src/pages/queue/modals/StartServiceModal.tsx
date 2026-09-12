@@ -1,3 +1,7 @@
+import { roomNeedsCleaning } from '../RoomsQuickModal';
+import { useSession } from '@/lib/session';
+import { HealthSummary } from '@/features/forms/HealthSummary';
+import { useAppointmentFormsQuery, useHealthFormSubmissionQuery } from '@/features/schedule/appointmentDetail';
 /**
  * 安排入座与工位启动：逐项目指派技师、逐项目选工位、入座前加项、交接提示。
  *
@@ -62,6 +66,9 @@ export interface StartServiceModalProps {
   state: StartServiceModalState;
   staff: DayStaff[];
   rooms: RoomItem[];
+  cleaningRoomIds: ReadonlySet<string>;
+  onCleanDone: (room: RoomItem) => void | Promise<void>;
+  onBeginCleaning: (room: RoomItem) => void | Promise<void>;
   services: DayService[];
   /** 当前在线的技师端。用于在候选列表上标注「手机离线」。 */
   onlineTechIds: ReadonlySet<string>;
@@ -83,6 +90,11 @@ export function StartServiceModal(props: StartServiceModalProps) {
     onChange, onConfirm, onAddAddOn, onOpenFormQr, onCopyFormLink,
   } = props;
   const { t } = useLanguage();
+  const { can } = useSession();
+  const formsQ = useAppointmentFormsQuery(state.isOpen ? state.item?.appointmentId ?? null : null);
+  const latest = formsQ.data?.forms.find((form) => form.isLatest && !form.anonymized && (!form.expiresOn || form.expiresOn >= new Date().toISOString().slice(0, 10)));
+  const healthQ = useHealthFormSubmissionQuery(latest?.submissionId ?? null, state.isOpen && can('customer.view_health_form'));
+
   if (!state.isOpen || !state.item) return null;
 
   const item = state.item;
@@ -217,7 +229,7 @@ export function StartServiceModal(props: StartServiceModalProps) {
               </span>
               <span className="text-xs text-teal-600 font-normal">{t('queue.quRotationPriority')}</span>
             </label>
-            <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50/70 p-3">
+<details className="rounded-xl border border-slate-200 p-2"><summary className="cursor-pointer text-xs font-medium text-slate-600">{t('queue.quFullRotation')}</summary>            <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50/70 p-3">
               <div className="mb-2 flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <span className="grid h-7 w-7 place-items-center rounded-xl bg-indigo-600 text-white shadow-sm">
@@ -280,6 +292,7 @@ export function StartServiceModal(props: StartServiceModalProps) {
                 </div>
               )}
             </div>
+</details>
             <div className="space-y-3">
               {assignmentCandidates.map(({ assignment, service, candidates }, assignmentIndex) => (
                 <div key={`${assignment.serviceId}-${assignmentIndex}`} className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
@@ -364,7 +377,10 @@ export function StartServiceModal(props: StartServiceModalProps) {
             </div>
           </div>
 
-          {/* 入座前加项目 */}
+{latest && can('customer.view_health_form') && healthQ.isLoading && <p role="status" className="text-xs text-slate-600">{t('queue.quAiSummaryLoading')}</p>}
+{latest && can('customer.view_health_form') && (healthQ.isError || (healthQ.data && !healthQ.data.aiSummary)) && <p role="status" className="text-xs text-amber-900">{t('queue.quAiSummaryFailed')}</p>}
+{healthQ.data?.aiSummary && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3"><HealthSummary summary={healthQ.data.aiSummary} /></div>}
+<details className="rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer font-semibold">{t('queue.quSeatAddOnsTitle')} {state.addedAddOns.length > 0 ? `(${state.addedAddOns.length})` : ''}</summary>          {/* 入座前加项目 */}
           <div className="rounded-2xl border-2 border-violet-200 bg-violet-50/70 p-3.5 shadow-sm">
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -464,6 +480,7 @@ export function StartServiceModal(props: StartServiceModalProps) {
             </div>
           </div>
 
+</details>
           {/* 房间/工位分配 */}
           <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2 shadow-2xs">
             <label className="block text-xs font-bold text-slate-800 flex items-center justify-between">
@@ -516,6 +533,16 @@ export function StartServiceModal(props: StartServiceModalProps) {
                 </select>
               </label>
             ))}
+            {rooms.filter(roomNeedsCleaning).length > 0 && <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-xs font-medium text-amber-900">{t('queue.quCleanBeforeAssign')}</p>
+              {rooms.filter(roomNeedsCleaning).map((room) => <div key={room.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-medium">{room.name} · {t(room.rawStatus === 'cleaning_required' || (room.waitingCleaningCount ?? 0) > 0 ? 'queue.quRoomWaitingClean' : 'queue.quRoomStatusCleaning')}</span>
+                {can('queue.manage') && <div className="flex gap-2">
+                  {(room.rawStatus === 'cleaning_required' || (room.waitingCleaningCount ?? 0) > 0) && <Button size="sm" variant="secondary" isDisabled={props.cleaningRoomIds.has(room.id)} onPress={() => props.onBeginCleaning(room)}>{t('queue.quBeginCleaning')}</Button>}
+                  <Button size="sm" isDisabled={props.cleaningRoomIds.has(room.id)} onPress={() => props.onCleanDone(room)}>{t('queue.quRoomCleanDone')}</Button>
+                </div>}
+              </div>)}
+            </div>}
             {noSeatableRoom && (
               <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs font-bold text-amber-900">
                 {t('queue.quRoomNoneSeatable')}

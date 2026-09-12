@@ -1,3 +1,4 @@
+import type { HealthAiSummary } from '@gf/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { API_BASE, ApiError, apiGet, apiPost, runCommand } from '@/lib/api';
 import { useSession } from '@/lib/session';
@@ -64,6 +65,7 @@ export interface FormSubmissionSummary {
 }
 
 export interface FormSubmissionDetail {
+  aiSummary: HealthAiSummary | null;
   submissionId: string;
   templateTitle: Record<string, string>;
   templateVersion: number;

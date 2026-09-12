@@ -211,10 +211,10 @@ export const TicketClose = defineCommand({
     payments: z.array(paymentLine).min(1).max(5),
     discountCents: cents.nonnegative().default(0),
     taxCents: cents.nonnegative().default(0),
-    taxRateBp: z.number().int().nonnegative().optional(),
+    taxRateBp: z.number().min(0).max(10000).optional(),
     taxCalculationMode: z.enum(['exclusive', 'inclusive']).optional(),
     surchargeCents: cents.nonnegative().default(0),
-    surchargeRateBp: z.number().int().nonnegative().optional(),
+    surchargeRateBp: z.number().min(0).max(10000).optional(),
     tipTotalCents: cents.nonnegative().optional(),
     tipSplits: z.array(z.object({
       staffMembershipId: uuid,

@@ -72,7 +72,6 @@ import {
 import {
   INDUSTRY_PRESETS,
   AI_QUICK_PROMPTS,
-  generateAiHealthSummary,
   type FormSubmissionRecord,
   type IndustryPreset,
 } from '@/features/forms/mockData';
@@ -425,11 +424,11 @@ export function HealthForms() {
         answers: answerRecord,
         ...(detail.signatureUrl ? { signatureDataUrl: detail.signatureUrl } : {}),
       };
-      const aiSummary = generateAiHealthSummary(base);
+      const aiSummary = detail.aiSummary ?? undefined;
       setSelectedRecord({
         ...base,
-        hasHealthFlag: aiSummary.riskLevel !== 'low',
-        status: summary.expired ? 'expired' : aiSummary.riskLevel === 'low' ? 'valid' : 'flagged',
+        hasHealthFlag: (aiSummary ? aiSummary.riskLevel !== 'low' : hasHealthFlag),
+        status: summary.expired ? 'expired' : (aiSummary ? aiSummary.riskLevel === 'low' : !hasHealthFlag) ? 'valid' : 'flagged',
         aiSummary,
       });
     } catch (error) {
@@ -437,18 +436,10 @@ export function HealthForms() {
     }
   };
 
-  const regenerateSelectedSummary = () => {
-    setSelectedRecord((record) => {
-      if (!record) return record;
-      const aiSummary = generateAiHealthSummary(record);
-      return {
-        ...record,
-        aiSummary,
-        hasHealthFlag: aiSummary.riskLevel !== 'low',
-        status: record.status === 'expired' ? 'expired' : aiSummary.riskLevel === 'low' ? 'valid' : 'flagged',
-      };
-    });
-    toast.success(t('healthForms.success15'));
+  const regenerateSelectedSummary = async () => {
+    if (!selectedRecord) return;
+    const summary = formsQ.data?.submissions.find((entry) => entry.submissionId === selectedRecord.id);
+    if (summary) await openSubmission(summary);
   };
 
   const visibleCount = draft.questions.filter((q) => !q.hidden).length;
@@ -1112,6 +1103,7 @@ export function HealthForms() {
             </div>
 
             {/* ✨ 核心亮点：AI 临床与施术简报 (支持 5 语系即时切换与重新分析) */}
+            {!selectedRecord.aiSummary && <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{t('queue.quAiSummaryFailed')}</p>}
             {selectedRecord.aiSummary && (
               <div className="rounded-2xl border border-teal-200 bg-gradient-to-br from-teal-900 via-teal-800 to-slate-900 text-white p-4 shadow-md space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-teal-700/60 pb-2.5">

@@ -139,3 +139,12 @@ describe('parsePercent', () => {
     expect(parsePercent('', { allowEmpty: true })).toEqual({ ok: true, value: 0 });
   });
 });
+
+ describe('database checkout rates', () => {
+  it('accepts numeric scale padding without truncating checkout rates', () => {
+    for (const rate of ['0.0000', '8.2500', '8.8750']) expect(parsePercent(rate).ok).toBe(true);
+    expect(parsePercent('8.8750', { fractionalBp: true, maxDecimals: 4 })).toEqual({ ok: true, value: 887.5 });
+    expect(parsePercent('8.1234', { fractionalBp: true, maxDecimals: 4 })).toEqual({ ok: true, value: 812.34 });
+    expect(parsePercent('8.2o')).toEqual({ ok: false, reason: 'format' });
+  });
+});

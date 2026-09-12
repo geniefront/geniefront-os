@@ -1,3 +1,4 @@
+import type { HealthAiSummary } from '@gf/contracts';
 import { openPrintPreview, type PrintPaper } from '@/features/printing/preview';
 /**
  * 入座服务单一页纸（打印页）。
@@ -74,6 +75,7 @@ interface ServiceBriefDto {
   };
   handoffNote: string | null;
   health: {
+    summaries?: Array<{ submissionId: string; templateTitle: Record<string, string>; summary: HealthAiSummary | null }>;
     hasFlag: boolean;
     advice: AdviceItem[];
     form: {
@@ -85,6 +87,7 @@ interface ServiceBriefDto {
       answers: Record<string, unknown> | null;
     } | null;
     canViewForm: boolean;
+    forms?: NonNullable<ServiceBriefDto['health']['form']>[];
   };
 }
 
@@ -218,8 +221,7 @@ export function ServiceBriefPrint() {
   const hasPrefs = Boolean(prefs.strength || prefs.oil || prefs.focusAreas.length
     || prefs.allergies.length || prefs.freeNotes);
 
-  const questions = (brief.health.form?.questions ?? []) as FormQuestion[];
-  const answers = answersRaw;
+  const formDetails = brief.health.forms ?? (brief.health.form ? [brief.health.form] : []);
 
   /** 把一个答案渲染成人读的文字。布尔走词典，其余按原样印。 */
   const renderAnswer = (value: unknown): string => {
@@ -235,12 +237,12 @@ export function ServiceBriefPrint() {
     return value === null || value === undefined ? '' : String(value);
   };
 
-  const answeredQuestions = questions.filter((q) => {
-    if (q.hidden || !answers) return false;
-    const value = answers[q.id];
-    if (value === undefined || value === null || value === '') return false;
-    return !(Array.isArray(value) && value.length === 0);
-  });
+  const answeredQuestions = formDetails.flatMap((form) => (form.questions as FormQuestion[])
+    .filter((q) => {
+      const value = form.answers?.[q.id];
+      return !q.hidden && value !== undefined && value !== null && value !== '' && !(Array.isArray(value) && value.length === 0);
+    }).map((q) => ({ ...q, rowKey: `${form.submissionId}:${q.id}`, answer: form.answers?.[q.id] })));
+
 
   return (
     <div className={`sbp sbp--${format}`}>
@@ -398,6 +400,16 @@ export function ServiceBriefPrint() {
               ))}
             </ul>
           )}
+          {brief.health.summaries?.map((entry) => <div key={entry.submissionId} className="sbp-summary">
+            <h3 className="sbp-sec">{entry.templateTitle[printLanguage] ?? entry.templateTitle.en} · {tp('queue.quAiHealthSummary')}</h3>
+            {entry.summary ? <>
+              <p className="sbp-flag">{entry.summary.headline[printLanguage] ?? entry.summary.headline.en}</p>
+              <ul className="sbp-advice">{(entry.summary.keyAlerts[printLanguage] ?? entry.summary.keyAlerts.en).map((line) => <li key={line}>{line}</li>)}</ul>
+              <p>{tp('queue.quSummaryAvoid')}: {(entry.summary.avoidAreasList[printLanguage] ?? entry.summary.avoidAreasList.en).join(' · ') || tp('print.avoidNone')}</p>
+              <p>{entry.summary.focusNotes[printLanguage] ?? entry.summary.focusNotes.en}</p>
+              <p>{entry.summary.technicianAdvice[printLanguage] ?? entry.summary.technicianAdvice.en}</p>
+            </> : <p className="sbp-dim">{tp('queue.quAiSummaryFailed')}</p>}
+          </div>)}
           {!brief.health.canViewForm && <p className="sbp-dim">{tp('print.healthNoPermission')}</p>}
         </section>
 
@@ -414,9 +426,9 @@ export function ServiceBriefPrint() {
             )}
             <dl className="sbp-kv sbp-kv--wide">
               {answeredQuestions.map((q) => (
-                <div key={q.id} className="sbp-kv__row">
+                <div key={q.rowKey} className="sbp-kv__row">
                   <dt>{formatI18n(q.label ?? q.id, printLanguage)}</dt>
-                  <dd>{renderAnswer(answers?.[q.id])}</dd>
+                  <dd>{renderAnswer(q.answer)}</dd>
                 </div>
               ))}
             </dl>

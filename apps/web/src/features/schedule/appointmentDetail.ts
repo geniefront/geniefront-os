@@ -1,3 +1,4 @@
+import type { HealthAiSummary } from '@gf/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost, runCommand } from '@/lib/api';
 import { useSession } from '@/lib/session';
@@ -169,6 +170,7 @@ export function useAppointmentFormsQuery(appointmentId: string | null) {
 }
 
 export interface HealthFormSubmissionDetail {
+  aiSummary: HealthAiSummary | null;
   submissionId: string;
   templateKey: string;
   templateTitle: Record<string, string>;

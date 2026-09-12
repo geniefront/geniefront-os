@@ -7,6 +7,15 @@
 import type { DomainDict } from './types';
 
 export const queue = {
+  'queue.quManualHealthNotes': { 'zh-Hans': '补充现场健康提醒（选填）', en: 'Add reported concerns (optional)', ko: '추가 주의사항 (선택)', es: 'Añadir observaciones (opcional)', vi: 'Thêm lưu ý tại quầy (tùy chọn)' },
+  'queue.quTaxRateInvalid': { 'zh-Hans': '税率格式有误，请填写数字，例如 8.875。', en: 'Enter a valid tax rate, such as 8.875.', ko: '올바른 세율을 입력하세요(예: 8.875).', es: 'Introduce un impuesto válido, como 8.875.', vi: 'Nhập thuế suất hợp lệ, ví dụ 8.875.' },
+  'queue.quSurchargeRateInvalid': { 'zh-Hans': '附加费率格式有误，请填写数字，例如 3。', en: 'Enter a valid surcharge rate, such as 3.', ko: '올바른 추가 요금률을 입력하세요(예: 3).', es: 'Introduce un recargo válido, como 3.', vi: 'Nhập tỷ lệ phụ phí hợp lệ, ví dụ 3.' },
+  'queue.quSummaryAvoid': {"zh-Hans": "避开部位", "en": "Areas to avoid", "ko": "피해야 할 부위", "es": "Zonas a evitar", "vi": "Vùng cần tránh"},
+  'queue.quCleanBeforeAssign': {"zh-Hans": "房间尚未清洁。打扫完成后点击确认，即可选择安排。", "en": "Confirm cleaning is complete to make the room available.", "ko": "청소 완료를 확인하면 배정할 수 있습니다.", "es": "Confirma la limpieza para poder asignar la sala.", "vi": "Xác nhận đã dọn xong để phân phòng."},
+  'queue.quRoomWaitingClean': {"zh-Hans": "待打扫", "en": "Needs cleaning", "ko": "청소 필요", "es": "Pendiente de limpieza", "vi": "Cần dọn dẹp"},
+  'queue.quBeginCleaning': {"zh-Hans": "开始打扫", "en": "Start cleaning", "ko": "청소 시작", "es": "Iniciar limpieza", "vi": "Bắt đầu dọn"},
+  'queue.quCheckoutAdjustments': {"zh-Hans": "调整税费与附加费", "en": "Tax and surcharge adjustments", "ko": "세금 및 추가 요금 조정", "es": "Ajustar impuestos y recargos", "vi": "Điều chỉnh thuế và phụ phí"},
+  'queue.quCheckoutItems': {"zh-Hans": "查看项目明细", "en": "View service details", "ko": "서비스 내역 보기", "es": "Ver detalles del servicio", "vi": "Xem chi tiết dịch vụ"},
   'queue.quItemFinished': { 'zh-Hans': '已完工', en: 'Finished', ko: '완료', es: 'Terminado', vi: 'Đã xong' },
   'queue.quItemWaiting': { 'zh-Hans': '待开始', en: 'Waiting to start', ko: '시작 대기', es: 'Pendiente de inicio', vi: 'Chờ bắt đầu' },
   'queue.quStartItem': { 'zh-Hans': '开始此项', en: 'Start item', ko: '항목 시작', es: 'Iniciar servicio', vi: 'Bắt đầu mục này' },
@@ -197,7 +206,7 @@ export const queue = {
   'queue.quRoomOptionCleaning': { 'zh-Hans': '待清洁，不可用', en: 'needs cleaning — unavailable', ko: '청소 필요 — 사용 불가', es: 'requiere limpieza, no disponible', vi: 'cần dọn — không khả dụng' },
   'queue.quRoomOptionMaintenance': { 'zh-Hans': '停用检修，不可用', en: 'under maintenance — unavailable', ko: '점검 중 — 사용 불가', es: 'en mantenimiento, no disponible', vi: 'đang bảo trì — không khả dụng' },
   'queue.quRoomOptionFull': { 'zh-Hans': '已满，不可用', en: 'at capacity — unavailable', ko: '정원 초과 — 사용 불가', es: 'al límite, no disponible', vi: 'đã đầy — không khả dụng' },
-  'queue.quRoomNoneSeatable': { 'zh-Hans': '当前没有可接客的工位：先在「空位」面板把待清洁的工位扫出来。', en: 'No station can take a guest right now — clear a station in the Rooms panel first.', ko: '지금 접객 가능한 자리가 없습니다. 먼저 룸 패널에서 청소를 완료해 주세요.', es: 'Ahora mismo no hay ningún puesto disponible: libera uno en el panel de salas.', vi: 'Hiện chưa có vị trí nào nhận khách — hãy dọn một vị trí trong bảng phòng trước.' },
+  'queue.quRoomNoneSeatable': { 'zh-Hans': '暂无可用工位，请确认房间清洁和占用状态后再分配。', en: 'No station is available. Check cleaning and occupancy before assigning.', ko: '사용 가능한 자리가 없습니다. 청소 및 이용 상태를 확인하세요.', es: 'No hay puestos disponibles. Comprueba la limpieza y ocupación.', vi: 'Chưa có vị trí trống. Kiểm tra vệ sinh và tình trạng sử dụng.' },
   'queue.quAddOnAlreadyOnTicket': { 'zh-Hans': '已进单', en: 'On the ticket', ko: '주문에 반영됨', es: 'Ya en el ticket', vi: 'Đã vào phiếu' },
   'queue.quSeatNeedService': { 'zh-Hans': '这张卡上没有可开单的服务项目，请先在预约详情里补上服务再安排入座。', en: 'This card has no service to open a ticket with. Add the service in the appointment first, then seat the guest.', ko: '이 카드에는 주문을 열 수 있는 서비스가 없습니다. 예약에서 서비스를 추가한 뒤 착석시켜 주세요.', es: 'Esta tarjeta no tiene ningún servicio con el que abrir un ticket. Añade el servicio en la cita y luego sienta al cliente.', vi: 'Thẻ này chưa có dịch vụ để mở phiếu. Hãy thêm dịch vụ trong lịch hẹn rồi mới xếp chỗ.' },
   'queue.quSeatStaleTicket': { 'zh-Hans': '这张卡的单据明细已经过期，看板已刷新，请重新打开入座。', en: 'This card’s ticket details are stale; the board has been refreshed — reopen seating.', ko: '이 카드의 주문 내역이 오래되어 보드를 새로고침했습니다. 착석 화면을 다시 열어 주세요.', es: 'Los detalles del ticket de esta tarjeta están obsoletos; el tablero se ha actualizado: vuelve a abrir la asignación.', vi: 'Chi tiết phiếu của thẻ này đã cũ, bảng đã được làm mới — hãy mở lại phần xếp chỗ.' },

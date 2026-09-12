@@ -15,6 +15,7 @@ import './handlers/ticket';
 import './handlers/staff';
 import './handlers/resource';
 import './handlers/rotation';
+import { encryptAnswers, loadFormKey } from './kiosk/crypto';
 import { loadRooms } from './queries/rooms';
 import { loadServiceBrief } from './queries/serviceBrief';
 import { loadDayMoney } from './handlers/dayclose';
@@ -184,6 +185,7 @@ afterEach(async () => {
              where appointment_id = any(${ids})`;
     await tx`delete from walkin_queue where appointment_id = any(${ids})`;
     await tx`delete from appointment_items where appointment_id = any(${ids})`;
+    await tx`update form_submissions set appointment_id = null where appointment_id = any(${ids})`;
     await tx`delete from appointments where id = any(${ids})`;
     await tx`delete from command_idempotency where location_id = ${LOCATION_ID}`;
   });
@@ -501,6 +503,12 @@ describe('预约到收银的真实闭环', () => {
               ${jsonb({ avoid_areas: ['right_knee'], health_flag: true, strength: 'deep' })})
       on conflict (customer_id) do update set profile = excluded.profile`);
 
+    const [template] = await withTenant(tenant, (tx) => tx<{ id: string; version: number }[]>`select id, version from form_templates where location_id = ${LOCATION_ID} limit 1`);
+    expect(template).toBeTruthy();
+    const encrypted = encryptAnswers({ conditions: { pregnancy: true }, bodyMapAvoid: ['right_knee'] }, loadFormKey(process.env.FORM_ENCRYPTION_KEY));
+    const [submission] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
+      insert into form_submissions (org_id, location_id, customer_id, appointment_id, template_id, template_version, answers_encrypted, ai_summary_encrypted, signed_at)
+      values (${ORG_ID}, ${LOCATION_ID}, ${customerId}, ${appointmentId}, ${template!.id}, ${template!.version}, ${encrypted}, ${encrypted}, now()) returning id`);
     const brief = await withTenant(tenant, (tx) => loadServiceBrief(tx, ctx, opened.result.ticketId));
     expect(brief.items).toHaveLength(1);
     expect(brief.items[0]?.staffNames.length).toBeGreaterThan(0);
@@ -508,6 +516,8 @@ describe('预约到收银的真实闭环', () => {
     expect(brief.preferences.avoidAreas).toEqual(['right_knee']);
     expect(brief.preferences.strength).toBe('deep');
     expect(brief.health.hasFlag).toBe(true);
+    expect(brief.health.forms.some((form) => form.submissionId === submission!.id)).toBe(true);
+    expect(brief.health.advice).toContainEqual({ code: 'Pregnancy', severity: 'avoid' });
     // 到店次数含本单：第一次来的客人应当被标成首次。
     expect(brief.visitCount).toBeGreaterThanOrEqual(1);
 
@@ -521,6 +531,11 @@ describe('预约到收银的真实闭环', () => {
       permissions: new Set([...ctx.permissions].filter((p) => p !== 'customer.view_health_form')),
     };
     const limited = await withTenant(tenant, (tx) => loadServiceBrief(tx, techCtx, opened.result.ticketId));
+    expect(limited.health.forms).toEqual([]);
+    await withTenant(tenant, (tx) => tx`update form_submissions set answers_encrypted = null, anonymized_at = now() where id = ${submission!.id}`);
+    const [erased] = await withTenant(tenant, (tx) => tx<{ ai_summary_encrypted: Buffer | null }[]>`select ai_summary_encrypted from form_submissions where id = ${submission!.id}`);
+    expect(erased!.ai_summary_encrypted).toBeNull();
+
     expect(limited.health.canViewForm).toBe(false);
     expect(limited.health.form).toBeNull();
     expect(limited.preferences.avoidAreas).toEqual(['right_knee']);

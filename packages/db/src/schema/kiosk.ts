@@ -142,6 +142,7 @@ export const formSubmissions = pgTable('form_submissions', {
   templateVersion: integer('template_version').notNull(),
 
   answersEncrypted: bytea('answers_encrypted'),
+  aiSummaryEncrypted: bytea('ai_summary_encrypted'),
   /** 加密方案标识（如 `aes-256-gcm.v1`）。将来换算法时靠它区分 */
   encAlg: text('enc_alg'),
 

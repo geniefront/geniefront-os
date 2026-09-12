@@ -111,6 +111,7 @@ export interface ServiceBrief {
     } | null;
     /** false 表示当前账号没有查看权限，纸上只印结论层。 */
     canViewForm: boolean;
+    forms: NonNullable<ServiceBrief['health']['form']>[];
   };
 }
 
@@ -209,21 +210,24 @@ export async function loadServiceBrief(
    * 最近一份**有效**问卷：过期的不算。技师照着一份去年的问卷做，
    * 比没有问卷更危险 —— 他会以为自己已经确认过了。
    */
-  const [submission] = ticket.customer_id
-    ? await tx<{ id: string }[]>`
-        select s.id from form_submissions s
-        where s.customer_id = ${ticket.customer_id} and s.location_id = ${ctx.locationId}
-          and s.anonymized_at is null
-          and (s.expires_on is null or s.expires_on >= current_date)
-        order by s.signed_at desc nulls last, s.created_at desc
-        limit 1`
-    : [undefined];
+  const submissions = await tx<{ id: string }[]>`
+    select distinct on (s.template_id) s.id
+    from form_submissions s
+    where s.location_id = ${ctx.locationId}
+      and ((s.appointment_id = ${ticket.appointment_id}::uuid)
+        or (s.queue_id in (select id from walkin_queue where appointment_id = ${ticket.appointment_id}::uuid))
+        or (s.customer_id = ${ticket.customer_id}::uuid and s.appointment_id is null))
+      and s.anonymized_at is null and s.is_latest
+      and (s.expires_on is null or s.expires_on >= current_date)
+    order by s.template_id, (s.appointment_id = ${ticket.appointment_id}::uuid) desc nulls last,
+      s.signed_at desc nulls last, s.created_at desc`;
 
   const canViewForm = ctx.permissions.has('customer.view_health_form');
   let form: ServiceBrief['health']['form'] = null;
   const advice: ServiceBriefAdviceItem[] = [];
+  const forms: NonNullable<ServiceBrief['health']['form']>[] = [];
 
-  if (submission && canViewForm) {
+  for (const submission of canViewForm ? submissions : []) {
     /*
      * ⭐ 权限校验与访问留痕都在 readSubmission 里完成。
      * reason 记 `export`：这张纸会被打印出来带离系统，它比一次屏幕上的
@@ -239,6 +243,7 @@ export async function loadServiceBrief(
       answers: detail.answers,
     };
 
+    forms.push(form);
     const conditions = detail.answers?.['conditions'];
     if (conditions && typeof conditions === 'object' && !Array.isArray(conditions)) {
       for (const [key, value] of Object.entries(conditions as Record<string, unknown>)) {
@@ -274,7 +279,8 @@ export async function loadServiceBrief(
     health: {
       hasFlag: profile['health_flag'] === true,
       advice,
-      form,
+      form: forms[0] ?? null,
+      forms,
       canViewForm,
     },
   };

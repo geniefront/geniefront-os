@@ -164,6 +164,8 @@ export interface PercentOptions {
   max?: number;
   /** 允许的小数位数。税率常见到两位（如 8.875%），默认 3 位足够。 */
   maxDecimals?: number;
+  /** Tax settings can carry fractional basis points. */
+  fractionalBp?: boolean;
 }
 
 /**
@@ -186,7 +188,8 @@ export function parsePercent(
   if (trimmed === '') return allowEmpty ? { ok: true, value: 0 } : { ok: false, reason: 'empty' };
   if (!/^\d*(?:\.\d*)?$/.test(trimmed) || trimmed === '.') return { ok: false, reason: 'format' };
 
-  const [whole = '', frac = ''] = trimmed.split('.');
+  const [whole = '', rawFrac = ''] = trimmed.split('.');
+  const frac = rawFrac.replace(/0+$/, '');
   if (frac.length > maxDecimals) return { ok: false, reason: 'format' };
 
   /*
@@ -196,7 +199,7 @@ export function parsePercent(
    */
   const padded = `${frac}0000`.slice(0, 4);
   const bp = Number(whole || '0') * 10_000 + Number(padded);
-  const scaled = Math.trunc(bp / 100); // 四位小数 → bp（两位小数的百分数）
+  const scaled = options.fractionalBp ? bp / 100 : Math.trunc(bp / 100); // 四位小数 → bp（两位小数的百分数）
 
   if (scaled > max * 100) return { ok: false, reason: 'range' };
   return { ok: true, value: scaled };

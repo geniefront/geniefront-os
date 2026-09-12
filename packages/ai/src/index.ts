@@ -25,3 +25,4 @@ export {
 export * from './runtime/luna';
 
 
+export * from './healthSummary';

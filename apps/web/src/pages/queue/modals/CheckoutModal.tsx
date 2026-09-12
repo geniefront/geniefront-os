@@ -193,7 +193,7 @@ export function CheckoutModal({
         />
 
         {/* 2. 项目明细与多技师执行归属 */}
-        <section className="rounded-2xl border border-slate-200 bg-white p-3">
+<details className="rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer font-semibold">{t('queue.quCheckoutItems')}</summary>        <section className="rounded-2xl border border-slate-200 bg-white p-3">
           <h4 className="flex items-center justify-between font-semibold text-slate-800">
             <span className="flex items-center gap-1.5">
               <Scissors className="h-4 w-4 text-slate-400" />
@@ -224,6 +224,7 @@ export function CheckoutModal({
           </div>
         </section>
 
+</details>
         {/* 3. 小费分账。服务款阶段服务端要求小费为 0，此处不提供录入口。 */}
         {!isServiceStage && (
         <section className="rounded-2xl border border-slate-200 bg-white p-3">
@@ -372,7 +373,7 @@ export function CheckoutModal({
         </section>
         )}
 
-        {/* 4. 税费与刷卡附加费。小费阶段这两项已锁定为 0，不再显示以免误导。 */}
+<details className="rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer font-semibold">{t('queue.quCheckoutAdjustments')}</summary>        {/* 4. 税费与刷卡附加费。小费阶段这两项已锁定为 0，不再显示以免误导。 */}
         {!isTipStage && (
         <div className="grid grid-cols-2 gap-3">
           {/*
@@ -444,6 +445,7 @@ export function CheckoutModal({
         </div>
         )}
 
+</details>
         {/* 5. 费用核算汇总 */}
         <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <div className="flex justify-between text-slate-600">

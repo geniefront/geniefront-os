@@ -57,7 +57,6 @@ import { PageLoading, PageError } from '@/components/ui/QueryState';
 import type { TranslationKey } from '@/i18n';
 import type { FormShareResult } from '@/features/forms/api';
 import { useShareForm } from '@/features/forms/api';
-import { generateAiHealthSummary } from '@/features/forms/mockData';
 import { useAddAppointmentItem, useAppointmentFormsQuery, useHealthFormSubmissionQuery, useSaveAppointmentServiceBrief } from '@/features/schedule/appointmentDetail';
 import { useLocationTechPresence } from '@/features/tech/lib/useLocationTechPresence';
 import { rankStaffCandidates } from '@/features/queue/assignment';
@@ -117,7 +116,7 @@ function QueueContent() {
     openCreateAppointment?: (options?: any) => void;
   }>();
 
-  const { context } = useSession();
+  const { context, can } = useSession();
   const timezone = context?.timezone || 'America/New_York';
   // 排队/操作板锁定「今天」= 营业日的今天（AUD-13）。
   const { today: todayDate } = useBusinessDay();
@@ -502,7 +501,7 @@ function QueueContent() {
    */
   const saveCheckInBriefMutation = useSaveAppointmentServiceBrief(checkInModal.item?.appointmentId ?? null);
   const addAppointmentItemMutation = useAddAppointmentItem();
-  const completedCheckInForms = checkInFormsQ.data?.forms.filter((form) => form.isLatest) ?? [];
+  const completedCheckInForms = checkInFormsQ.data?.forms.filter((form) => form.isLatest && !form.anonymized && (!form.expiresOn || form.expiresOn >= todayDate)) ?? [];
   const [aiSummarySubmissionId, setAiSummarySubmissionId] = useState<string | null>(null);
   const [checkInError, setCheckInError] = useState<string | null>(null);
   /*
@@ -513,17 +512,10 @@ function QueueContent() {
   const checkoutSettings = openTicketsQ.data?.checkoutSettings;
   const allowTipSplitOverride = checkoutSettings?.allowTipSplitOverride !== false;
 
-  const aiSummaryForm = completedCheckInForms.find((form) => form.submissionId === aiSummarySubmissionId) ?? null;
-  const aiSummaryQ = useHealthFormSubmissionQuery(aiSummarySubmissionId, Boolean(aiSummarySubmissionId));
-  const checkInAiSummary = useMemo(() => {
-    if (!aiSummaryForm || !aiSummaryQ.data?.answers) return null;
-    const answers = aiSummaryQ.data.answers;
-    return generateAiHealthSummary({
-      templateKey: aiSummaryForm.templateKey,
-      answers,
-      avoidAreas: Array.isArray(answers.bodyMapAvoid) ? answers.bodyMapAvoid as string[] : [],
-    });
-  }, [aiSummaryForm, aiSummaryQ.data?.answers]);
+  const activeSummaryId = checkInModal.isOpen && can('customer.view_health_form')
+    ? completedCheckInForms.find((form) => form.submissionId === aiSummarySubmissionId)?.submissionId ?? completedCheckInForms[0]?.submissionId ?? null : null;
+  const aiSummaryQ = useHealthFormSubmissionQuery(activeSummaryId, Boolean(activeSummaryId));
+  const checkInAiSummary = aiSummaryQ.data?.aiSummary ?? null;
 
   /*
    * 放行原因 → 词条 key 的**显式**映射。
@@ -1501,11 +1493,11 @@ function QueueContent() {
    * complete。前台心里只有「我扫完了」这一个动作，因此这里替她把两步接上，
    * 而不是在界面上要求她先点「开始打扫」。
    */
-  const handleRoomCleanDone = async (room: { id: string; name: string; status: string; rawStatus?: string }) => {
+  const handleRoomCleanDone = async (room: { id: string; name: string; status: string; rawStatus?: string; waitingCleaningCount?: number }) => {
     if (cleaningRoomIds.has(room.id)) return;
     setCleaningRoomIds((prev) => new Set(prev).add(room.id));
     try {
-      if (room.rawStatus === 'cleaning_required') {
+      if (room.rawStatus === 'cleaning_required' || (room.waitingCleaningCount ?? 0) > 0) {
         await beginCleaningMutation.mutateAsync({ resourceId: room.id });
       }
       await completeCleaningMutation.mutateAsync({ resourceId: room.id });
@@ -2222,10 +2214,10 @@ function QueueContent() {
      * `parseFloat` 会给出一个看起来合理的错数（`8.2o` → 8.2），
      * 而这一单就按错的税率收了，且事后只能靠对账发现。
      */
-    const taxRate = parsePercent(checkoutModal.taxRatePercent, { allowEmpty: true, max: 100, maxDecimals: 3 });
-    const surchargeRate = parsePercent(checkoutModal.cardSurchargePercent, { allowEmpty: true, max: 100, maxDecimals: 3 });
+    const taxRate = parsePercent(paymentStage === 'tip' ? '0' : checkoutModal.taxRatePercent, { allowEmpty: true, max: 100, maxDecimals: 4, fractionalBp: true });
+    const surchargeRate = parsePercent(paymentStage !== 'tip' && checkoutModal.enableCardSurcharge && ['card', 'apple_pay'].includes(paymentMethod) ? checkoutModal.cardSurchargePercent : '0', { allowEmpty: true, max: 100, maxDecimals: 4, fractionalBp: true });
     if (!taxRate.ok || !surchargeRate.ok) {
-      toast.danger(t('queue.quCoRateInvalid'));
+      toast.danger(t(!taxRate.ok ? 'queue.quTaxRateInvalid' : 'queue.quSurchargeRateInvalid'));
       return;
     }
 
@@ -2670,9 +2662,9 @@ function QueueContent() {
         staff={staff}
         completedForms={completedCheckInForms}
         aiSummary={checkInAiSummary}
-        aiSummarySubmissionId={aiSummarySubmissionId}
+        aiSummarySubmissionId={activeSummaryId}
         isSummaryLoading={aiSummaryQ.isLoading}
-        isSummaryFailed={aiSummaryQ.isError}
+        isSummaryFailed={aiSummaryQ.isError || Boolean(aiSummaryQ.data && !checkInAiSummary)}
         language={language}
         formShare={checkInModal.item ? formShares[checkInModal.item.id] : undefined}
         errorText={checkInError}
@@ -2681,7 +2673,7 @@ function QueueContent() {
         onConfirm={handleConfirmCheckIn}
         onOpenFormQr={openFormQr}
         onCopyFormLink={copyFormLink}
-        onPickSummary={setAiSummarySubmissionId}
+        onPickSummary={(id) => { setAiSummarySubmissionId(id); if (id === activeSummaryId) void aiSummaryQ.refetch(); }}
         onClearError={() => setCheckInError(null)}
       />
 
@@ -2689,6 +2681,15 @@ function QueueContent() {
         state={startServiceModal}
         staff={staff}
         rooms={rooms}
+        cleaningRoomIds={cleaningRoomIds}
+        onCleanDone={handleRoomCleanDone}
+        onBeginCleaning={async (room) => {
+          if (cleaningRoomIds.has(room.id)) return;
+          setCleaningRoomIds((prev) => new Set(prev).add(room.id));
+          try { await beginCleaningMutation.mutateAsync({ resourceId: room.id }); await refetchRooms(); }
+          catch (err) { toast.danger(errorMessage(err)); }
+          finally { setCleaningRoomIds((prev) => { const next = new Set(prev); next.delete(room.id); return next; }); }
+        }}
         services={services}
         onlineTechIds={onlineTechIds}
         rotationEntries={orderedRotationEntries}

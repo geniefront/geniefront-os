@@ -503,10 +503,10 @@ function CheckoutContent() {
      * `parseFloat` 会给出一个看起来合理的错数（`8.2o` → 8.2），
      * 这一单就按错的税率收了，事后只能靠对账发现。
      */
-    const taxRateParsed = parsePercent(taxRatePercent, { allowEmpty: true, max: 100, maxDecimals: 3 });
-    const surchargeRateParsed = parsePercent(cardSurchargePercent, { allowEmpty: true, max: 100, maxDecimals: 3 });
+    const taxRateParsed = parsePercent(paymentStage === 'tip' ? '0' : taxRatePercent, { allowEmpty: true, max: 100, maxDecimals: 4, fractionalBp: true });
+    const surchargeRateParsed = parsePercent(paymentStage !== 'tip' && enableCardSurcharge && hasCardPayment ? cardSurchargePercent : '0', { allowEmpty: true, max: 100, maxDecimals: 4, fractionalBp: true });
     if (!taxRateParsed.ok || !surchargeRateParsed.ok) {
-      toast.danger(t('queue.quCoRateInvalid'));
+      toast.danger(t(!taxRateParsed.ok ? 'queue.quTaxRateInvalid' : 'queue.quSurchargeRateInvalid'));
       return;
     }
 

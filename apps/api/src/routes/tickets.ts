@@ -1,3 +1,4 @@
+import { summaryForSubmission } from '../forms/summary';
 /**
  * 工单、未记账断档与前台走单队列路由
  *
@@ -33,10 +34,15 @@ export function registerTicketsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
     if (!ctx.permissions.has('ticket.read')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'ticket.read' } });
     }
-    return withTenant(
+    const brief = await withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
       (tx) => loadServiceBrief(tx, ctx, req.params.ticketId),
     );
+    const summaries = await Promise.all(brief.health.forms.map(async (form) => ({
+      submissionId: form.submissionId, templateTitle: form.templateTitle,
+      summary: await summaryForSubmission(ctx, form),
+    })));
+    return { ...brief, health: { ...brief.health, summaries } };
   });
 
   app.get<{ Params: { ticketId: string } }>('/v1/desk/tickets/:ticketId/receipt', async (req, reply) => {

@@ -45,3 +45,4 @@ export * from './registry.js';
 
 export * from './commands/email.js';
 export * from './copilot.js';
+export * from './healthSummary.js';
