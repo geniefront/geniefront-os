@@ -1,3 +1,4 @@
+import type postgres from 'postgres';
 /**
  * 技师上机会话：技师怎么在自己手机上证明「我是店里的谁」（sql/0031）
  *
@@ -53,18 +54,19 @@ export async function issueStaffSession(
   t: { orgId: string; locationId: string; membershipId: string },
   method: 'claim_code' | 'phone_otp',
   deviceLabel: string | null,
+  transaction?: postgres.TransactionSql,
 ): Promise<IssuedSession> {
   const token = generateStaffToken();
   const expiresAt = new Date(Date.now() + STAFF_SESSION_DAYS * 24 * 3600_000);
 
-  await withTenant(
-    { orgId: t.orgId, locationId: t.locationId, membershipId: null },
-    (tx) => tx`
-      insert into staff_sessions
-        (org_id, location_id, membership_id, token_hash, method, device_label, expires_at)
-      values (${t.orgId}, ${t.locationId}, ${t.membershipId},
-              ${hashStaffToken(token)}, ${method}, ${deviceLabel},
-              ${expiresAt.toISOString()}::timestamptz)`);
+  const save = (tx: postgres.TransactionSql) => tx`
+    insert into staff_sessions
+      (org_id, location_id, membership_id, token_hash, method, device_label, expires_at)
+    values (${t.orgId}, ${t.locationId}, ${t.membershipId},
+            ${hashStaffToken(token)}, ${method}, ${deviceLabel},
+            ${expiresAt.toISOString()}::timestamptz)`;
+  if (transaction) await save(transaction);
+  else await withTenant({ ...t, membershipId: null }, save);
 
   return { token, expiresAt: expiresAt.toISOString() };
 }

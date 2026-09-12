@@ -13,11 +13,37 @@ alter role postgres set search_path = public, extensions;
 create schema if not exists auth;
 create table if not exists auth.users (
   id uuid primary key,
+  instance_id uuid,
+  aud text,
+  role text,
   email text,
+  encrypted_password text,
+  updated_at timestamptz,
+  confirmation_token text,
+  recovery_token text,
+  email_change_token_new text,
+  email_change text,
+  email_change_token_current text,
+  phone_change text,
+  phone_change_token text,
+  reauthentication_token text,
+  email_change_confirm_status integer,
   email_confirmed_at timestamptz,
   raw_user_meta_data jsonb not null default '{}'::jsonb,
   raw_app_meta_data jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
+);
+-- seed.ts models password identities even when remote Auth calls are disabled.
+create table if not exists auth.identities (
+  id uuid primary key default gen_random_uuid(),
+  provider_id text not null,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  identity_data jsonb not null,
+  provider text not null,
+  last_sign_in_at timestamptz,
+  created_at timestamptz,
+  updated_at timestamptz,
+  unique (provider_id, provider)
 );
 create or replace function auth.uid() returns uuid language sql stable set search_path = pg_catalog as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid

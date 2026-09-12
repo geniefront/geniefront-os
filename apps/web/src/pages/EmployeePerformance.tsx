@@ -1,3 +1,4 @@
+import { useCanWrite } from '@/lib/permissions';
 import { useState, useMemo } from 'react';
 import {
   User,
@@ -113,12 +114,7 @@ export interface StaffMember {
   skillIds: string[]; // 技能标签
   status: 'active' | 'on_leave' | 'resigned'; // 状态: 在职 / 休假 / 离职
   hireDate: string; // 入职日期
-  payroll: {
-    kind: PlanKind;
-    ratePercent: number; // 提成比例 %
-    hourlyRateDollars: number; // 底薪/时薪 $
-    base: CommissionBase; // 计提基数: 折后实收 (net) / 服务原价 (gross)
-  };
+  payroll: StaffDirectoryItem['payroll'];
   note?: string; // 备注说明
 }
 
@@ -132,6 +128,7 @@ interface ConfirmModalState {
 
 function EmployeePerformanceContent() {
   const errorMessage = useErrorMessage();
+  const canConfigurePayroll = useCanWrite('payroll.configure');
   const { t, language } = useLanguage();
   const zh = language === 'zh-Hans';
   /** 预设职位/职级/技能 → 展示译文；查不到映射（老板自己手打的）原样返回 */
@@ -309,10 +306,10 @@ function EmployeePerformanceContent() {
     setSkillSearch('');
     setFormStatus(staff.status);
     setFormHireDate(staff.hireDate);
-    setFormPlanKind(staff.payroll.kind);
-    setFormRatePercent(String(staff.payroll.ratePercent));
-    setFormHourlyRate(String(staff.payroll.hourlyRateDollars));
-    setFormCommBase(staff.payroll.base);
+    setFormPlanKind(staff.payroll?.kind ?? 'commission');
+    setFormRatePercent(String(staff.payroll?.ratePercent ?? 0));
+    setFormHourlyRate(String(staff.payroll?.hourlyRateDollars ?? 0));
+    setFormCommBase(staff.payroll?.base ?? 'net');
     setFormNote(staff.note || '');
     setIsFormModalOpen(true);
   };
@@ -386,12 +383,12 @@ function EmployeePerformanceContent() {
             status: formStatus,
             hireDate: formHireDate || undefined,
             note: formNote.trim() || undefined,
-            payroll: {
+            ...(canConfigurePayroll ? { payroll: {
               kind: formPlanKind,
               ratePercent: rate.value / 100,
               hourlyRateDollars: hourly.value / 100,
               base: formCommBase,
-            },
+            } } : {}),
           });
         toast.success(t(isEditing ? 'rotation.empUpdated' : 'rotation.empAdded', { p0: formName }));
         setIsFormModalOpen(false);
@@ -709,7 +706,7 @@ function EmployeePerformanceContent() {
                     <div className="space-y-2 pt-1.5 border-t border-slate-100">
                       <div className="flex items-center gap-2 text-[11px] text-slate-500">
                         <span className="font-mono font-black text-teal-700 bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-200">
-                          {t('rotation.empCommission')} {staff.payroll.ratePercent}% ({staff.payroll.base === 'net' ? t('rotation.empNetBasis') : t('rotation.empGrossBasis')})
+                          {t('rotation.empCommission')} {staff.payroll?.ratePercent ?? '—'}% ({staff.payroll?.base === 'net' ? t('rotation.empNetBasis') : t('rotation.empGrossBasis')})
                         </span>
                         {staff.phone && <span>📞 {formatPhoneDisplay(staff.phone)}</span>}
                       </div>

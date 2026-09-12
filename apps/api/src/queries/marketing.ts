@@ -241,10 +241,10 @@ export async function loadLoyalty(
   const [stats] = await tx<{
     cust_count: string; total_points: string;
   }[]>`
-    select count(distinct customer_id)::text as cust_count,
+    select count(distinct coalesce(c.merged_into_id, c.id))::text as cust_count,
            coalesce(sum(amount_cents), 0)::text as total_points
-    from customer_credit_ledger
-    where kind = 'points' and location_id = ${ctx.locationId}`;
+    from customer_credit_ledger ledger join customers c on c.id = ledger.customer_id
+    where ledger.kind = 'points' and ledger.location_id = ${ctx.locationId}`;
 
   return {
     enabled: rawLoyalty['enabled'] !== false,

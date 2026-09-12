@@ -161,75 +161,14 @@ function CustomersContent() {
   const [blockReason, setBlockReason] = useState(() => t('crm.custBlockReasonDefault'));
 
   // 查询数据
-  /*
-   * ⚠️ 搜索词必须传给服务端。
-   *
-   * 此前这里固定 `{ limit: 200 }`，搜索完全在取回来的那 200 行里做模糊匹配 ——
-   * 于是**超过 200 位客人的店，第 201 位在搜索框里永远找不到**。前台输了名字
-   * 没结果，只会判定「系统里没有这个人」，然后建一个重复档案。
-   *
-   * 服务端本来就支持（`queries/customer.ts` 的 `q`），而且**优先按手机后四位
-   * 匹配** —— 那正是前台在电话里问的第一句。这条能力此前一直没接上。
-   *
-   * 客户端的模糊匹配保留：它兜的是拼写错误，服务端的 SQL 匹配兜不住。
-   * 两层叠加 —— 服务端负责把候选集缩到对的那 200 行，客户端负责在其中容错排序。
-   */
   const debouncedQuery = useDebounced(query, 300);
-  const listParams = useMemo(
-    () => ({ limit: 200, ...(debouncedQuery.trim() ? { q: debouncedQuery.trim() } : {}) }),
-    [debouncedQuery],
-  );
-  const list = useCustomerList(listParams);
+  const [page, setPage] = useState(0);
+  useEffect(() => { setPage(0); }, [debouncedQuery, filterType]);
+  const list = useCustomerList({ limit: 100, offset: page * 100, filterType, q: debouncedQuery.trim() });
   const rawRows: CustomerListRow[] = list.data?.rows ?? [];
-
-  // 计算顶部全量汇总指标 (基于门店全部客户基准，不随过滤折叠)
-  const metrics = useMemo(() => {
-    const total = rawRows.length;
-    const vipCount = rawRows.filter((r) => r.vipLevel > 0).length;
-    const active30 = rawRows.filter(
-      (r) => r.daysSinceLastVisit !== null && r.daysSinceLastVisit <= 30,
-    ).length;
-    const sleep30 = rawRows.filter(
-      (r) => r.daysSinceLastVisit !== null && r.daysSinceLastVisit > 30,
-    ).length;
-    const sleep90 = rawRows.filter(
-      (r) => r.daysSinceLastVisit !== null && r.daysSinceLastVisit > 90,
-    ).length;
-
-    return {
-      total: list.data?.total ?? total,
-      vipCount,
-      active30,
-      sleep30,
-      sleep90,
-    };
-  }, [rawRows, list.data?.total]);
-
-  // 1. 容错模糊搜索过滤（即使姓名拼写打错或输入手机尾号也能搜到）
-  const searchedRows = useMemo(() => {
-    if (!query.trim()) return rawRows;
-    return fuzzySearch(rawRows, query, {
-      keys: [
-        { name: 'displayName', weight: 0.7 },
-        { name: 'phone', weight: 0.3 },
-      ],
-      threshold: 0.45,
-    });
-  }, [rawRows, query]);
-
-  // 2. 根据当前选中的分群药丸标签过滤显示列表
-  const rows = useMemo(() => {
-    return searchedRows.filter((r) => {
-      if (filterType === 'vip') return r.vipLevel > 0;
-      if (filterType === 'active30')
-        return r.daysSinceLastVisit !== null && r.daysSinceLastVisit <= 30;
-      if (filterType === 'sleep30')
-        return r.daysSinceLastVisit !== null && r.daysSinceLastVisit > 30;
-      if (filterType === 'sleep90')
-        return r.daysSinceLastVisit !== null && r.daysSinceLastVisit > 90;
-      return true;
-    });
-  }, [searchedRows, filterType]);
+  const rows = rawRows;
+  const metrics = list.data?.metrics ?? { total: 0, vipCount: 0, active30: 0, sleep30: 0, sleep90: 0 };
+  const mergeQuery = useCustomerList({ limit: 20, q: useDebounced(mergeSearchQuery, 300) }, mergeModalOpen);
 
   // 丝滑选择顾客 (使用 replaceState 同步 URL，零组件卸载重载)
   const handleSelectCustomer = (id: string) => {
@@ -253,13 +192,13 @@ function CustomersContent() {
 
   // 智能合并弹窗搜索候选列表 (容错模糊搜索)
   const mergeCandidates = useMemo(() => {
-    const candidates = rawRows.filter((r) => r.id !== selectedId);
+    const candidates = (mergeQuery.data?.rows ?? []).filter((r) => r.id !== selectedId);
     if (!mergeSearchQuery.trim()) return candidates.slice(0, 5);
     return fuzzySearch(candidates, mergeSearchQuery, {
       keys: ['displayName', 'phone'],
       threshold: 0.45,
     });
-  }, [rawRows, mergeSearchQuery, selectedId]);
+  }, [mergeQuery.data?.rows, mergeSearchQuery, selectedId]);
 
   // 打开新建弹窗
   const handleOpenCreateModal = () => {
@@ -626,6 +565,12 @@ function CustomersContent() {
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-3">
+        <Button variant="secondary" disabled={page === 0 || list.isFetching} onClick={() => setPage(p => p - 1)}>{t('crm.previousPage')}</Button>
+        <span className="tabular-nums">{page + 1} / {Math.max(1, Math.ceil((list.data?.total ?? 0) / 100))}</span>
+        <Button variant="secondary" disabled={list.isFetching || (page + 1) * 100 >= (list.data?.total ?? 0)} onClick={() => setPage(p => p + 1)}>{t('crm.nextPage')}</Button>
       </div>
 
       {/* 3. Main Workspace: Split View vs Full Table View */}

@@ -7,6 +7,8 @@
 import type { DomainDict } from './types';
 
 export const crm = {
+  'crm.previousPage': { 'zh-Hans': '上一页', en: 'Previous', ko: '이전', es: 'Anterior', vi: 'Trước' },
+  'crm.nextPage': { 'zh-Hans': '下一页', en: 'Next', ko: '다음', es: 'Siguiente', vi: 'Tiếp' },
   'crm.clearedRead': { 'zh-Hans': '已清空所有已读通知', en: 'Read notifications cleared', ko: '읽은 알림을 모두 지웠습니다', es: 'Notificaciones leídas eliminadas', vi: 'Đã xóa các thông báo đã đọc' },
   'crm.deleted': { 'zh-Hans': '已删除通知', en: 'Notification deleted', ko: '알림을 삭제했습니다', es: 'Notificación eliminada', vi: 'Đã xóa thông báo' },
   'crm.bulkMarkedRead': { 'zh-Hans': '已将选中的 {p0} 条通知标为已读', en: '{p0} notifications marked as read', ko: '선택한 {p0}건을 읽음으로 표시했습니다', es: '{p0} notificaciones marcadas como leídas', vi: 'Đã đánh dấu {p0} thông báo là đã đọc' },

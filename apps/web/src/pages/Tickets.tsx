@@ -1,3 +1,4 @@
+import { useCanWrite } from '@/lib/permissions';
 import { printTable } from '@/features/printing/preview';
 import { useMemo, useState } from 'react';
 import { useSession } from '@/lib/session';
@@ -135,6 +136,7 @@ function TicketsContent() {
   const salesTaxLine = t('checkout.tkSalesTaxLine', { p0: formatTaxRatePercent(taxRatePercent) });
   const voidMutation = useVoidTicket();
   const refundMutation = useRefundTicket();
+  const canRefund = useCanWrite('ticket.refund');
 
   // 1. 筛选状态控制
   const [searchTerm, setSearchTerm] = useState('');
@@ -497,6 +499,7 @@ function TicketsContent() {
   // 打开退款处理弹窗
   const handleOpenRefund = (record: EnrichedOrderRecord) => {
     const refundableCents = fullRefundCents(record);
+    if (!canRefund) return;
     setRefundModalRecord(record);
     setRefundType('full');
     setRefundAmountDollars(centsToDollars(refundableCents));
@@ -508,7 +511,7 @@ function TicketsContent() {
 
   // 执行退款处理
   const handleConfirmRefund = async () => {
-    if (!refundModalRecord) return;
+    if (!refundModalRecord || !canRefund) return;
     const remainingTipCents = Math.max(
       0,
       refundModalRecord.tipCents - refundModalRecord.refundTipCents,
@@ -1128,7 +1131,7 @@ function TicketsContent() {
 
                     {/* 状态徽章 (固定不折行药丸徽章) */}
                     <TableCell className="text-center">
-                      {ord.status === 'completed' && (
+                      {ord.status === 'completed' && canRefund && (
                         <div className="flex flex-col items-center gap-1">
                           <Badge variant="success" className="text-[10px] font-bold whitespace-nowrap px-2.5 py-0.5">
                             {t('checkout.tkStatusSettled')}
@@ -1181,7 +1184,7 @@ function TicketsContent() {
                           <Eye className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                           <span>{t('checkout.tkDetail')}</span>
                         </Button>
-                        {ord.status === 'completed' && (
+                        {ord.status === 'completed' && canRefund && (
                           <Button
                             size="sm"
                             variant="secondary"
@@ -1242,7 +1245,7 @@ function TicketsContent() {
                 <span>Print Receipt</span>
               </Button>
               <div className="flex items-center gap-2">
-                {selectedRecord.status === 'completed' && (
+                {selectedRecord.status === 'completed' && canRefund && (
                   <Button
                     size="sm"
                     variant="secondary"
@@ -1636,7 +1639,7 @@ function TicketsContent() {
               <Button
                 isPending={refundMutation.isPending}
                 className="bg-purple-600 hover:bg-purple-700 text-white font-bold gap-1 shadow-md shadow-purple-600/20"
-                disabled={refundMutation.isPending}
+                disabled={refundMutation.isPending || !canRefund}
                 onClick={handleConfirmRefund}
               >
                 <Check className="w-4 h-4" />

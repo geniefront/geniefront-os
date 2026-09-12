@@ -1,3 +1,4 @@
+import { useAttemptKey } from '@/lib/idempotency';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, runCommand } from '@/lib/api';
 import { useSession } from '@/lib/session';
@@ -277,6 +278,7 @@ export function useVoidTicket() {
 export function useRefundTicket() {
   const { membershipId } = useSession();
   const queryClient = useQueryClient();
+  const attempt = useAttemptKey();
 
   return useMutation({
     mutationFn: async (input: RefundTicketInput) => {
@@ -291,10 +293,12 @@ export function useRefundTicket() {
           notes: input.notes,
         },
         membershipId!,
+        attempt.take([membershipId, input]),
       );
       return res;
     },
-    onSuccess: () => {
+    onSuccess: (_, input) => {
+      attempt.settle([membershipId, input]);
       queryClient.invalidateQueries({ queryKey: ['desk', 'tickets'] });
       queryClient.invalidateQueries({ queryKey: ['desk', 'orders'] });
       queryClient.invalidateQueries({ queryKey: ['desk', 'dayclose'] });

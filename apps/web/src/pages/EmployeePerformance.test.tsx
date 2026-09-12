@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   save: vi.fn(), success: vi.fn(), danger: vi.fn(),
   staffData: { staff: [] as any[], skills: [] as any[], levels: [] as any[], jobs: [] as any[] },
 }));
+vi.mock('@/lib/permissions', () => ({ useCanWrite: () => true }));
 vi.mock('@heroui/react', () => ({ toast: { success: mocks.success, danger: mocks.danger }, Spinner: () => null }));
 vi.mock('@/LanguageContext', () => ({ useLanguage: () => ({ language: 'zh-Hans', t: (key: string) => key }) }));
 vi.mock('@/lib/errorMessage', () => ({ useErrorMessage: () => (error: Error) => error.message }));

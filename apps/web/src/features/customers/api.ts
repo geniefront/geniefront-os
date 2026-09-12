@@ -32,6 +32,7 @@ export interface CustomerListParams {
    * 因此输入框的提示语必须明确写出可以只输四位数字。
    */
   q?: string;
+  filterType?: 'all' | 'vip' | 'active30' | 'sleep30' | 'sleep90';
   vipOnly?: boolean;
   /** 沉睡客户阈值（天）。用于筛出多久没来的客人。 */
   sleepingDays?: number;
@@ -42,6 +43,7 @@ export interface CustomerListParams {
 function toQueryString(params: CustomerListParams): string {
   const search = new URLSearchParams();
   if (params.q) search.set('q', params.q);
+  if (params.filterType) search.set('filterType', params.filterType);
   if (params.vipOnly) search.set('vip', '1');
   if (params.sleepingDays) search.set('sleeping', String(params.sleepingDays));
   if (params.limit) search.set('limit', String(params.limit));
@@ -49,7 +51,7 @@ function toQueryString(params: CustomerListParams): string {
   return search.toString();
 }
 
-export function useCustomerList(params: CustomerListParams) {
+export function useCustomerList(params: CustomerListParams, enabled = true) {
   const { membershipId, status } = useSession();
   const qs = toQueryString(params);
   return useQuery({
@@ -58,10 +60,10 @@ export function useCustomerList(params: CustomerListParams) {
      * ⚠️ 返回形状是 `{ total, rows }` 而非 `{ customers }`。
      * `total` 是符合条件的总数（不受 limit 截断），分页与「共 N 位客人」都依赖它。
      */
-    queryFn: () => apiGet<{ total: number; rows: CustomerListRow[] }>(
+    queryFn: () => apiGet<{ total: number; rows: CustomerListRow[]; metrics: { total: number; vipCount: number; active30: number; sleep30: number; sleep90: number } }>(
       `/v1/desk/customers${qs ? `?${qs}` : ''}`,
     ),
-    enabled: status === 'ready' && membershipId !== null,
+    enabled: enabled && status === 'ready' && membershipId !== null,
     /*
      * 保留上一次结果作为占位，避免逐字输入搜索词时列表反复闪成空白。
      * 前台常常是一边打电话一边输入的，列表跳动会让她丢失刚看到的那一行。

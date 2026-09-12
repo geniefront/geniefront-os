@@ -181,8 +181,12 @@ registerHandler(customerMerge, async ({ input, ctx, tx, audit }) => {
     });
   }
 
-  const [target] = await tx<{ id: string; tags: string[] | null; no_show_count: number; late_cancel_count: number }[]>`
-    select id, tags, no_show_count, late_cancel_count from customers
+  // Serialize merges in one organization and lock both roots before moving ownership.
+  await tx`select pg_advisory_xact_lock(hashtext(${ctx.orgId}), hashtext('customer.merge'))`;
+  await tx`select id from customers where org_id = ${ctx.orgId}
+    and id = any(${[input.sourceCustomerId, input.targetCustomerId]}) order by id for update`;
+  const [target] = await tx<{ id: string; tags: string[] | null; no_show_count: number; late_cancel_count: number; merged_into_id: string | null }[]>`
+    select id, tags, no_show_count, late_cancel_count, merged_into_id from customers
     where id = ${input.targetCustomerId} and org_id = ${ctx.orgId}`;
   if (!target) {
     throw new AppError(ERROR_CODES.NOT_FOUND, {
@@ -197,6 +201,10 @@ registerHandler(customerMerge, async ({ input, ctx, tx, audit }) => {
     throw new AppError(ERROR_CODES.NOT_FOUND, {
       details: { entity: 'customer', id: input.sourceCustomerId, role: 'source' },
     });
+  }
+
+  if (target.merged_into_id) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'target_customer_already_merged' } });
   }
 
   if (source.merged_into_id) {
@@ -231,11 +239,7 @@ registerHandler(customerMerge, async ({ input, ctx, tx, audit }) => {
     where (purchaser_customer_id = ${input.sourceCustomerId} or holder_customer_id = ${input.sourceCustomerId})
       and org_id = ${ctx.orgId}`;
 
-  // 4. 迁移预付资产账本
-  await tx`
-    update customer_credit_ledger
-    set customer_id = ${input.targetCustomerId}
-    where customer_id = ${input.sourceCustomerId} and org_id = ${ctx.orgId}`;
+  // Asset entries remain immutable. Balance readers include the source via merged_into_id.
 
   // 5. 迁移次卡套餐
   await tx`
@@ -313,7 +317,7 @@ registerHandler(customerMerge, async ({ input, ctx, tx, audit }) => {
   await tx`
     update customers set
       merged_into_id = ${input.targetCustomerId}
-    where id = ${input.sourceCustomerId}`;
+    where id = ${input.sourceCustomerId} or merged_into_id = ${input.sourceCustomerId}`;
 
   const mergedCount = Number(appts[0]?.count ?? 0) + Number(tkts[0]?.count ?? 0);
 

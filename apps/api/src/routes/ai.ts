@@ -59,7 +59,7 @@ export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHe
       blueprintId: created.result.blueprintId, items: extracted.items, unresolved: extracted.unresolved,
       locationProposal: extracted.locationProposal,
       usage: { tokens: billableTokens(extracted.usage), costMillicents: cost, imagesOk: 0, imagesFailed: 0, feature: 'website_onboarding', model: extracted.model },
-    }, ctx);
+    }, ctx, { systemOrigin: 'website_onboarding' });
     void maybeAutoTopup(ctx, 'credit', req.log);
     return withTenant({ orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId }, (tx) => loadBlueprint(tx, ctx, created.result.blueprintId));
   });

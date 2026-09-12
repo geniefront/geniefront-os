@@ -18,16 +18,18 @@ import { useCallback, useRef } from 'react';
  *
  * 与页面上已有的 `attemptKey` / `seatAttempt` 是同一个思路，只是收成了一处。
  */
-export function useAttemptKey(): { take: () => string; settle: () => void } {
-  const keyRef = useRef<string | null>(null);
+export function useAttemptKey(): { take: (intent?: unknown) => string; settle: (intent?: unknown) => void } {
+  const keyRef = useRef(new Map<string, string>());
 
-  const take = useCallback(() => {
-    keyRef.current ??= crypto.randomUUID();
-    return keyRef.current;
+  const take = useCallback((intent?: unknown) => {
+    const fingerprint = JSON.stringify(intent) ?? 'default';
+    const key = keyRef.current.get(fingerprint) ?? crypto.randomUUID();
+    keyRef.current.set(fingerprint, key);
+    return key;
   }, []);
 
   /** 本次意图已经落定（成功），下一次调用应当拿到新键。 */
-  const settle = useCallback(() => { keyRef.current = null; }, []);
+  const settle = useCallback((intent?: unknown) => { keyRef.current.delete(JSON.stringify(intent) ?? 'default'); }, []);
 
   return { take, settle };
 }

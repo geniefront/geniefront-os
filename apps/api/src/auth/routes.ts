@@ -1,3 +1,4 @@
+import { issuePhoneSelection, verifyPhoneSelection, redeemPhoneSelection } from './phoneSelection';
 /**
  * 技师上机的三条路由（sql/0031、docs/09 §5）
  *
@@ -161,17 +162,21 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   });
 
   // ── ③ 验码换会话 ─────────────────────────────────────────────────────────
-  app.post<{ Body: { phone?: string; code?: string; locationId?: string; deviceLabel?: string } }>(
+  app.post<{ Body: { phone?: string; code?: string; selectionToken?: string; locationId?: string; deviceLabel?: string } }>(
     '/v1/auth/phone/verify', async (req) => {
-    const phone = normalizePhoneE164(req.body?.phone ?? '');
+    const selection = req.body?.selectionToken ? await verifyPhoneSelection(req.body.selectionToken) : null;
+    const phone = selection?.phone ?? normalizePhoneE164(req.body?.phone ?? '');
+    if (selection && req.body?.phone && normalizePhoneE164(req.body.phone) !== phone) {
+      throw new AppError(ERROR_CODES.UNAUTHENTICATED);
+    }
     const code = (req.body?.code ?? '').replace(/\D/g, '');
-    if (!phone || code.length < 4) {
+    if (!phone || (!selection && code.length < 4)) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'bad_input' } });
     }
     limit(`otp-verify:${phone}`, 8, 5 * 60_000);
     limit(`otp-verify-ip:${req.ip}`, 20, 60_000);
 
-    const ok = await checkPhoneCode(phone, code);
+    const ok = selection !== null || await checkPhoneCode(phone, code);
     if (!ok) {
       throw new AppError(ERROR_CODES.UNAUTHENTICATED, { details: { reason: 'bad_code' } });
     }
@@ -182,7 +187,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
      * ⚠️ 顺序不能反：先查花名册的话，「这个号码在不在」会从
      * 响应时间里漏出去，而这一条恰恰是上面费劲藏起来的东西。
      */
-    const found = await staffByPhone(phone);
+    const found = (await staffByPhone(phone)).filter(f => !selection || selection.memberships.includes(f.membershipId));
     if (found.length === 0) {
       // 码是真的，但这个号码不属于任何在岗员工 —— 多半是他离职了
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
@@ -192,7 +197,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
 
     /**
      * 一个技师在两家店上班就有两条 —— 这是常态，不是异常。
-     * 前端先拿到列表让他点一家，再带 `locationId` 来换令牌
+     * 前端先拿到列表让他点一家，再带 `locationId` + `selectionToken` 来换令牌
      * （和多店老板的选店器是同一件事）。
      */
     const picked = req.body?.locationId
@@ -202,12 +207,15 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     if (!picked) {
       return {
         needsLocation: true,
+        selectionToken: selection ? req.body.selectionToken : await issuePhoneSelection(phone, found),
         locations: await Promise.all(found.map((f) => whoAmI(f))),
       };
     }
 
-    const session = await issueStaffSession(
-      picked, 'phone_otp', (req.body?.deviceLabel ?? '').slice(0, 40) || null);
+    const label = (req.body?.deviceLabel ?? '').slice(0, 40) || null;
+    const session = selection
+      ? await redeemPhoneSelection(selection, picked, label)
+      : await issueStaffSession(picked, 'phone_otp', label);
     return { ...session, ...(await whoAmI(picked)) };
   });
 

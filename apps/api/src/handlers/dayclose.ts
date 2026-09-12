@@ -134,12 +134,14 @@ export async function loadDayMoney(
       and t.status = 'closed' and ta.reversed_at is null`;
 
   const [tk] = await tx<{
-    gross: number; discount: number; tax: number; surcharge: number;
+    gross: number; discount: number; net: number; tax: number; surcharge: number;
     service_charge: number; open_count: number;
   }[]>`
     select
       coalesce(sum(subtotal_cents) filter (where status in ('closed','refunded')), 0)::int as gross,
       coalesce(sum(discount_cents) filter (where status in ('closed','refunded')), 0)::int as discount,
+      coalesce(sum(total_cents - tax_cents - tip_cents - surcharge_cents - service_charge_cents)
+        filter (where status in ('closed','refunded')), 0)::int as net,
       coalesce(sum(tax_cents)      filter (where status in ('closed','refunded')), 0)::int as tax,
       coalesce(sum(surcharge_cents) filter (where status in ('closed','refunded')), 0)::int as surcharge,
       coalesce(sum(service_charge_cents) filter (where status in ('closed','refunded')), 0)::int as service_charge,
@@ -172,7 +174,7 @@ export async function loadDayMoney(
     customerCreditPaidCents: (pay?.credit ?? 0) - (refund?.credit ?? 0),
     grossCents: gross,
     discountCents: discount,
-    netCents: gross - discount - (refund?.service ?? 0),
+    netCents: (tk?.net ?? 0) - (refund?.service ?? 0),
     taxCents: (tk?.tax ?? 0) - (refund?.tax ?? 0),
     surchargeCents: tk?.surcharge ?? 0,
     serviceChargeCents: tk?.service_charge ?? 0,
