@@ -15,7 +15,8 @@ import {
   useOpenTickets, useCloseTicket, useVoidTicket, verifyGiftCard,
   dollarsToCents, centsToDollars,
 } from '@/features/checkout/api';
-import { parsePercent } from '@/lib/validation';
+import { useValidationMessage } from '@/lib/validationMessage';
+import { parseMoney, parsePercent } from '@/lib/validation';
 import { allocateTips, splitItemRevenueAcrossStaff } from '@/features/queue/checkoutMath';
 import { emptyLine, chargedCents, toPaymentLine, cashChange, patchPayment, distributeTip, type DraftLine } from '@/features/checkout/paymentDraft';
 import { PAYMENT_METHODS } from '@/features/checkout/types';
@@ -64,6 +65,7 @@ function CheckoutContent() {
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
 
   const errorMessage = useErrorMessage();
+  const invalid = useValidationMessage();
   const { t, language } = useLanguage();
   const [searchParams] = useSearchParams();
   const urlTicketId = searchParams.get('ticketId');
@@ -1193,7 +1195,11 @@ function CheckoutContent() {
                         <Input
                           inputMode="decimal"
                           value={line.tipCents ? centsToDollars(line.tipCents) : ''}
-                          onChange={(e) => patchLine(index, { tipCents: Math.max(0, dollarsToCents(e.target.value)), keepChange: false })}
+                          onChange={(e) => {
+                            const parsed = parseMoney(e.target.value, { allowEmpty: true });
+                            if (!parsed.ok) { toast.danger(invalid.money(parsed.reason)); return; }
+                            patchLine(index, { tipCents: parsed.value, keepChange: false });
+                          }}
                           placeholder="0.00"
                           className="font-mono text-xs font-bold text-teal-700"
                           disabled={paymentStage === 'service'}

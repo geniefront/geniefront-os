@@ -33,6 +33,8 @@ it('#23 submits matching channel tips, total and staff splits', async () => {
   render(<MemoryRouter><Checkout /></MemoryRouter>);
   await screen.findByText('checkout.confirmCheckout ($50.00)');
   fireEvent.change(inputAfterLabel('tip'), { target: { value: '10' } });
+  fireEvent.change(inputAfterLabel('tip'), { target: { value: '-5' } });
+  expect(inputAfterLabel('tip').value).toBe('10.00');
   fireEvent.click(screen.getByRole('button', { name: 'checkout.confirmCheckout ($60.00)' }));
   await waitFor(() => expect(state.close).toHaveBeenCalled());
   expect(state.close.mock.calls[0]![0]).toMatchObject({
