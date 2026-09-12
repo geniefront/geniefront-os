@@ -1,3 +1,4 @@
+import { exportToCSV } from '@/lib/exportUtils';
 import { useEffect, useMemo, useState } from 'react';
 import { Spinner, toast } from '@heroui/react';
 import { useFieldErrors } from '@/lib/formFeedback';
@@ -395,30 +396,12 @@ function CustomersContent() {
       t('crm.custExportName'), t('crm.custExportVipLevel'), t('crm.custExportPhone'),
       t('crm.custExportVisitCount'), t('crm.custExportDaysSinceVisit'), t('crm.custExportNoShowCount'),
     ];
-    const csvContent = [
-      headers.join(','),
-      ...rows.map((r) => {
-        const phone = canViewContact
-          ? (r.phone || '')
-          : (r.phone ? r.phone.replace(/(\+?1)?(\d{3})\d{3}(\d{4})/, '$2-***-$3') : '');
-        return [
-          `"${r.displayName}"`,
-          r.vipLevel,
-          `"${phone}"`,
-          r.visitCount,
-          r.daysSinceLastVisit ?? t('crm.custExportNeverVisited'),
-          r.noShowCount,
-        ].join(',');
-      }),
-    ].join('\n');
-
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `GenieFront_${t('crm.custExportFileSlug')}_${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    exportToCSV(`GenieFront_${t('crm.custExportFileSlug')}_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows.map(r => {
+      const phone = canViewContact ? (r.phone || '')
+        : (r.phone ? r.phone.replace(/(\+?1)?(\d{3})\d{3}(\d{4})/, '$2-***-$3') : '');
+      return [r.displayName, r.vipLevel, phone, r.visitCount,
+        r.daysSinceLastVisit ?? t('crm.custExportNeverVisited'), r.noShowCount];
+    }));
     toast.success(t('crm.custExported'));
   };
 

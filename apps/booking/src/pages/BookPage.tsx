@@ -43,12 +43,22 @@ export function BookPage() {
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [avail, setAvail] = useState<Availability | null>(null);
   const [availBusy, setAvailBusy] = useState(false);
+  const [staffChoices, setStaffChoices] = useState<Availability['staff']>([]);
   const [banner, setBanner] = useState<string | null>(null);
   const [done, setDone] = useState<{
     bookingId: string; confirmationCode: string | null; manageToken: string | null;
   } | null>(null);
   const [idem, setIdem] = useState(() => crypto.randomUUID());
   const openedAt = useRef(Date.now());
+  const selectionVersion = useRef(0);
+  const requestVersion = useRef(0);
+  const invalidateSlots = () => {
+    selectionVersion.current++;
+    requestVersion.current++;
+    setAvail(null);
+    setAvailBusy(false);
+  };
+  useEffect(() => () => { selectionVersion.current++; requestVersion.current++; }, [slug, locale]);
 
   useEffect(() => {
     if (embed) document.documentElement.classList.add('embed');
@@ -89,66 +99,79 @@ export function BookPage() {
     date: string, serviceId: string, addonIds: string[], staffId: string | null,
     bundleId?: string | null,
   ) => {
+    const request = ++requestVersion.current;
+    setAvail(null);
     setAvailBusy(true);
     try {
       const a = await queryClient.fetchQuery({
-        queryKey: ['availability', date, bundleId ?? serviceId, addonIds, staffId],
+        queryKey: ['availability', slug, locale, getPublicKey(), date, serviceId, bundleId, addonIds, staffId],
         queryFn: () => getAvailability(
           bundleId ? { date, bundleId } : { date, serviceId, addonIds, staffId },
         ),
       });
+      if (request !== requestVersion.current) return null;
       setAvail(a);
+      setStaffChoices(a.staff);
       return a;
     } catch {
-      setAvail(null);
+      if (request === requestVersion.current) setAvail(null);
       return null;
     } finally {
-      setAvailBusy(false);
+      if (request === requestVersion.current) setAvailBusy(false);
     }
-  }, [queryClient]);
+  }, [queryClient, slug, locale]);
 
   async function findFirstDay(
     serviceId: string, addonIds: string[], staffId: string | null, start: string, horizon: number,
     bundleId?: string | null,
   ) {
+    const selection = selectionVersion.current;
     const days = bookableDateCount(horizon);
     for (let i = 0; i < days; i++) {
       const date = addDays(start, i);
       const a = await loadSlots(date, serviceId, addonIds, staffId, bundleId);
+      if (selection !== selectionVersion.current) return null;
       if (a && a.slots.length > 0) return date;
     }
-    return start;
+    await loadSlots(start, serviceId, addonIds, staffId, bundleId);
+    return selection === selectionVersion.current ? start : null;
   }
 
   async function pickService(serviceId: string, addonIds: string[]) {
     if (!shop) return;
+    invalidateSlots();
     setDraft({ serviceId, bundleId: null, addonIds, staffId: null, date: null, startsAt: null });
     const start = bookingToday(shop.timezone, shop.businessDayCutoff);
     const date = await findFirstDay(
       serviceId, addonIds, null, start, shop.onlineBooking.maxDaysAhead,
     );
+    if (date === null) return;
     setDraft((d) => ({ ...d, date }));
     setStep('specialist');
   }
 
   async function pickBundle(b: Bundle) {
     if (!shop) return;
+    invalidateSlots();
     // 组合套餐不在官网选技师：子项由门店派单。直接进选时间。
     setDraft({ serviceId: null, bundleId: b.id, addonIds: [], staffId: null, date: null, startsAt: null });
     const start = bookingToday(shop.timezone, shop.businessDayCutoff);
     const date = await findFirstDay(
       '', [], null, start, shop.onlineBooking.maxDaysAhead, b.id,
     );
+    if (date === null) return;
     setDraft((d) => ({ ...d, date }));
     setStep('time');
   }
 
   async function pickStaff(staffId: string | null) {
     if (!shop || !draft.serviceId) return;
+    invalidateSlots();
     const start = bookingToday(shop.timezone, shop.businessDayCutoff);
     const date = await findFirstDay(
       draft.serviceId, draft.addonIds, staffId, start, shop.onlineBooking.maxDaysAhead,
     );
+    if (date === null) return;
     setDraft((d) => ({ ...d, staffId, date, startsAt: null }));
     setStep('time');
   }
@@ -261,10 +284,10 @@ export function BookPage() {
         {step === 'specialist' && service && (
           <SpecialistStep
             shop={shop}
-            staff={avail?.staff ?? []}
+            staff={staffChoices}
             busy={availBusy}
             onPick={(id) => void pickStaff(id)}
-            onBack={() => { setBanner(null); setStep('services'); }}
+            onBack={() => { invalidateSlots(); setBanner(null); setStep('services'); }}
           />
         )}
 
@@ -272,6 +295,7 @@ export function BookPage() {
           <TimeStep
             shop={shop} draft={draft} avail={avail} busy={availBusy}
             onDate={(date) => {
+              invalidateSlots();
               setDraft((d) => ({ ...d, date, startsAt: null }));
               if (draft.serviceId || draft.bundleId) {
                 void loadSlots(date, draft.serviceId ?? '', draft.addonIds, draft.staffId, draft.bundleId);
@@ -279,10 +303,11 @@ export function BookPage() {
             }}
             onSlot={(startsAt) => {
               setBanner(null);
+              if (availBusy || !avail?.slots.some(slot => slot.startsAt === startsAt)) return;
               setDraft((d) => ({ ...d, startsAt }));
               setStep('confirm');
             }}
-            onBack={() => { setBanner(null); setStep(bundle ? 'services' : 'specialist'); }}
+            onBack={() => { invalidateSlots(); setBanner(null); setStep(bundle ? 'services' : 'specialist'); }}
           />
         )}
 

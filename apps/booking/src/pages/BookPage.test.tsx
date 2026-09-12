@@ -359,3 +359,26 @@ describe('BookPage', () => {
     expect(body.bundleSelections).toEqual([{ bundleId: 'bnd-1', startsAt: nySlot }]);
   });
 });
+
+it.each(['success', 'failure'])('#25 keeps the latest date when the stale request ends in %s', async outcome => {
+  const user = userEvent.setup();
+  renderBook(); await throughToTime(user);
+  const days = screen.getAllByTestId(/^day-\d/).slice(1, 3);
+  const dates = days.map(button => button.getAttribute('data-testid')!.slice(4));
+  let resolveOld!: (value: Availability) => void;
+  let rejectOld!: (reason: Error) => void;
+  let resolveNew!: (value: Availability) => void;
+  getAvailability.mockImplementation(({ date }: { date: string }) => new Promise((resolve, reject) => {
+    if (date === dates[0]) { resolveOld = resolve; rejectOld = reject; }
+    else resolveNew = resolve;
+  }));
+  await user.click(days[0]!); await user.click(days[1]!);
+  const newSlot = `${dates[1]}T18:00:00.000Z`;
+  const oldSlot = `${dates[0]}T18:00:00.000Z`;
+  resolveNew(avail({ date: dates[1]!, slots: [{ startsAt: newSlot, staff: null }] }));
+  await screen.findByTestId(`slot-${newSlot}`);
+  if (outcome === 'failure') rejectOld(new Error('old request failed'));
+  else resolveOld(avail({ date: dates[0]!, slots: [{ startsAt: oldSlot, staff: null }] }));
+  await waitFor(() => expect(screen.queryByTestId(`slot-${oldSlot}`)).not.toBeInTheDocument());
+  expect(screen.getByTestId(`slot-${newSlot}`)).toBeInTheDocument();
+});
