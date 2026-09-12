@@ -1,0 +1,20 @@
+import { renderHook,act,waitFor } from '@testing-library/react';
+import { QueryClient,QueryClientProvider } from '@tanstack/react-query';
+import { describe,it,expect,vi } from 'vitest';
+import { useRefundTicket } from './api';
+import { runCommand } from '@/lib/api';
+vi.mock('@/lib/session',()=>({useSession:()=>({membershipId:'member'})}));
+vi.mock('@/lib/api',()=>({runCommand:vi.fn(),apiGet:vi.fn()}));
+it('#12 preserves the key across a lost refund response, isolates edits, and resets after success',async()=>{
+ const client=new QueryClient({defaultOptions:{mutations:{retry:false}}});
+ const {result}=renderHook(()=>useRefundTicket(),{wrapper:({children})=><QueryClientProvider client={client}>{children}</QueryClientProvider>});
+ const original={ticketId:'ticket',amountCents:1000,reason:'other' as const,method:'original_payment' as const};
+ vi.mocked(runCommand).mockRejectedValueOnce(new Error('response lost')).mockRejectedValueOnce(new Error('response lost')).mockResolvedValue({result:{ticketId:'ticket',status:'closed'},replayed:true} as any);
+ await act(async()=>{await result.current.mutateAsync(original).catch(()=>{});});
+ await act(async()=>{await result.current.mutateAsync({...original,amountCents:2000}).catch(()=>{});});
+ await act(async()=>{await result.current.mutateAsync(original);});
+ const calls=vi.mocked(runCommand).mock.calls;
+ expect(calls[0]![3]).toBe(calls[2]![3]);expect(calls[1]![3]).not.toBe(calls[0]![3]);
+ await act(async()=>{await result.current.mutateAsync(original);});
+ expect(vi.mocked(runCommand).mock.calls[3]![3]).not.toBe(calls[0]![3]);client.clear();
+});

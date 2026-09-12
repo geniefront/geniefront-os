@@ -133,7 +133,7 @@ export function registerFormsRoutes(app: FastifyInstance, ctxFromHeaders: CtxFro
       locale: ctx.locale,
       source: 'desk',
       supersedePrevious: true,
-    }, ctx);
+    }, ctx, { idempotencyKey: typeof req.headers['idempotency-key'] === 'string' ? req.headers['idempotency-key'] : '' });
 
     return {
       submissionId: out.result.submissionId,

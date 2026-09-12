@@ -1,0 +1,25 @@
+import { beforeAll,afterAll,it,expect,vi } from 'vitest';
+import Fastify from 'fastify';
+import { withTenant,closeDb } from '@gf/db';
+import { buildContext } from './actor';
+import { dispatch } from './bus';
+import './handlers/blueprint';
+import { registerAiRoutes } from './routes/ai';
+vi.mock('./onboarding/websiteFetch',()=>({fetchWebsitePages:async()=>[{url:'https://example.com',text:'Menu'}]}));
+vi.mock('./billing/aiAdmission',()=>({assertAiAdmission:async()=>{}}));
+vi.mock('./billing/autoTopup',()=>({maybeAutoTopup:async()=>{}}));
+vi.mock('@gf/ai',async original=>({...await original<typeof import('@gf/ai')>(),extractWebsite:async()=>({items:[],unresolved:[],locationProposal:{name:'Imported salon'},usage:{inputTokens:100,outputTokens:100,cacheReadInputTokens:0,cacheCreationInputTokens:0},model:'test-model'})}));
+afterAll(closeDb);
+it('#7 website HTTP import saves extraction and usage, while direct system command remains forbidden',async()=>{
+ process.env['OPENAI_API_KEY']='test-placeholder';
+ const tenant={orgId:'11111111-1111-4111-8111-111111111111',locationId:'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa',membershipId:null};
+ const [m]=await withTenant(tenant,tx=>tx<{id:string;user_id:string}[]>`select m.id,m.user_id from memberships m join membership_roles mr on mr.membership_id=m.id join roles r on r.id=mr.role_id where m.location_id=${tenant.locationId} and r.key='manager' limit 1`);
+ const ctx=await buildContext({userId:m!.user_id,membershipId:m!.id});
+ const app=Fastify();app.setErrorHandler((e:any,_req,reply)=>reply.code(400).send({code:e.code,details:e.details,message:e.message}));registerAiRoutes(app,async()=>ctx);
+ const res=await app.inject({method:'POST',url:'/v1/onboarding/website/extract',payload:{url:'https://example.com'}});
+ expect(res.json(),res.body).not.toHaveProperty('code');expect(res.statusCode).toBe(200);
+ const usage=await withTenant(ctx,tx=>tx`select id from usage_events where location_id=${ctx.locationId} and meta->>'feature'='website_onboarding'`);
+ expect(usage.length).toBeGreaterThan(0);
+ await expect(dispatch('blueprint.saveExtraction',{},ctx)).rejects.toMatchObject({code:'PERMISSION_DENIED',details:{reason:'system_only_command'}});
+ await app.close();
+});

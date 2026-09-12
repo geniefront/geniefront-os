@@ -415,39 +415,43 @@ export async function loadReport(
   toDate: string,
 ): Promise<Report> {
   const days = await tx<{
-    d: string; gross: number; discount: number; tax: number; tickets: number;
-    tip: number; total: number;
+    d: string; gross: number; discount: number; net: number; tax: number;
+    tickets: number; tip: number; total: number;
   }[]>`
-    select business_date::text as d,
-           coalesce(sum(subtotal_cents), 0)::int as gross,
-           coalesce(sum(discount_cents), 0)::int as discount,
-           coalesce(sum(tax_cents), 0)::int as tax,
-           count(*)::int as tickets,
-           coalesce(sum(tip_cents), 0)::int as tip,
-           coalesce(sum(total_cents), 0)::int as total
-    from tickets
-    where location_id = ${ctx.locationId}
-      and business_date between ${fromDate} and ${toDate}
-      and status = 'closed'
-    group by business_date
-    order by business_date`;
+    with entries as (
+      select business_date as d, subtotal_cents as gross, discount_cents as discount,
+             total_cents - tax_cents - tip_cents - surcharge_cents - service_charge_cents as net,
+             tax_cents as tax, tip_cents as tip, total_cents as total, 1 as tickets
+      from tickets
+      where location_id = ${ctx.locationId} and business_date between ${fromDate} and ${toDate}
+        and status in ('closed', 'refunded')
+      union all
+      select business_date, 0, 0, -service_cents, -tax_cents, -tip_cents, -amount_cents, 0
+      from ticket_refunds
+      where location_id = ${ctx.locationId} and business_date between ${fromDate} and ${toDate}
+    )
+    select d::text, sum(gross)::int as gross, sum(discount)::int as discount,
+           sum(net)::int as net, sum(tax)::int as tax, sum(tip)::int as tip,
+           sum(total)::int as total, sum(tickets)::int as tickets
+    from entries group by d order by d`;
 
   // 支付方式拆分单独查一遍。别想着在上面那条里用子查询把 payments 卷进来 ——
   // 一张单可以有多行收款（一部分现金一部分刷卡），join 上去会让 tickets
   // 的金额按收款行数翻倍，而且翻得毫无规律
   const paysByDay = await tx<{ d: string; cash: number; card: number }[]>`
-    select t.business_date::text as d,
-           -- ⚠️ **礼品卡既不是现金也不是刷卡**（批 8 收尾）。
-      -- 算进刷卡的话，晚上和刷卡机的 batch total 就永远差出这一笔 ——
-      -- 而那正是日结要发现的那种差额。external 保持原样归在刷卡侧。
-      coalesce(sum(p.amount_cents) filter (where p.method = 'cash'), 0)::int as cash,
-           coalesce(sum(p.amount_cents) filter (where p.method not in ('cash','gift_card')), 0)::int as card
-    from payments p
-    join tickets t on t.id = p.ticket_id
-    where t.location_id = ${ctx.locationId}
-      and t.business_date between ${fromDate} and ${toDate}
-      and t.status = 'closed'
-    group by t.business_date`;
+    with entries as (
+      select t.business_date as d,
+             case when p.method = 'cash' then p.amount_cents else 0 end as cash,
+             case when p.method in ('card','external') then p.amount_cents else 0 end as card
+      from payments p join tickets t on t.id = p.ticket_id
+      where t.location_id = ${ctx.locationId} and t.business_date between ${fromDate} and ${toDate}
+        and t.status in ('closed','refunded')
+      union all
+      select business_date, -cash_cents, -card_cents from ticket_refunds
+      where location_id = ${ctx.locationId} and business_date between ${fromDate} and ${toDate}
+    )
+    select d::text, sum(cash)::int as cash, sum(card)::int as card
+    from entries group by d`;
   const payBy = new Map(paysByDay.map((p) => [p.d, p]));
 
   // ⭐ 那天被人怎么标过（0032）。没有这一查，「没记」就会伪装成「0」
@@ -486,7 +490,7 @@ export async function loadReport(
       return {
         key: d, label: d,
         grossCents: r.gross, discountCents: r.discount,
-        netCents: r.gross - r.discount, taxCents: r.tax,
+        netCents: r.net, taxCents: r.tax,
         tipCents: r.tip, totalCents: r.total,
         cashCents: payBy.get(d)?.cash ?? 0,
         cardCents: payBy.get(d)?.card ?? 0,
@@ -590,7 +594,7 @@ export async function loadReport(
     join tickets t on t.id = ti.ticket_id
     where t.location_id = ${ctx.locationId}
       and t.business_date between ${fromDate} and ${toDate}
-      and t.status = 'closed'
+      and t.status in ('closed','refunded')
     group by ti.name_snapshot
     order by gross desc
     limit 100`;

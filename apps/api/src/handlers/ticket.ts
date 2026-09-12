@@ -1,3 +1,4 @@
+import { canonicalCustomer, customerAssetIds } from '../customerIdentity';
 /**
  * 工单命令实现。
  *
@@ -1017,13 +1018,14 @@ async function closeOneTicket(args: {
         details: { reason: 'customer_credit_requires_ticket_customer' },
       });
     }
+    ticket.customerId = await canonicalCustomer(tx, ticket.customerId, true);
     const [customer] = await tx<{ id: string }[]>`
       select id from customers where id = ${ticket.customerId} for update`;
     if (!customer) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'customer' } });
     const [balance] = await tx<{ value: number }[]>`
       select coalesce(sum(amount_cents), 0)::int as value
       from customer_credit_ledger
-      where kind = 'store_credit' and customer_id = ${ticket.customerId}`;
+      where kind = 'store_credit' and customer_id in ${customerAssetIds(tx, ticket.customerId)}`;
     const current = balance?.value ?? 0;
     if (current < customerCreditCents) {
       throw new AppError(ERROR_CODES.STORE_CREDIT_INSUFFICIENT, {
@@ -1216,7 +1218,10 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
     });
   }
 
-  const serviceTotal = Math.max(0, t.subtotal_cents - t.discount_cents);
+  // Stored totals already encode inclusive/exclusive tax and package value.
+  // Never reinterpret a historical payment using the shop's current tax mode.
+  const serviceTotal = Math.max(0, t.total_cents - t.tax_cents - t.tip_cents
+    - t.surcharge_cents - t.service_charge_cents);
   const feeTotal = t.surcharge_cents + t.service_charge_cents;
   let nonTipLeft = input.refundAmountCents - input.refundTipCents;
   const serviceCents = Math.min(nonTipLeft, Math.max(0, serviceTotal - (already?.service ?? 0)));
@@ -1282,11 +1287,11 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
         details: { reason: 'store_credit_requires_customer' },
       });
     }
-    await tx`select id from customers where id = ${t.customer_id} for update`;
+    t.customer_id = await canonicalCustomer(tx, t.customer_id, true);
     const [credit] = await tx<{ balance: number }[]>`
       select coalesce(sum(amount_cents), 0)::int as balance
       from customer_credit_ledger
-      where kind = 'store_credit' and customer_id = ${t.customer_id}`;
+      where kind = 'store_credit' and customer_id in ${customerAssetIds(tx, t.customer_id)}`;
     await tx`insert into customer_credit_ledger
       (org_id, location_id, kind, subject_id, customer_id, entry,
        amount_cents, balance_after_cents, ticket_id, reason,
@@ -1352,14 +1357,14 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
         details: { reason: 'customer_credit_refund_customer_missing' },
       });
     }
-    await tx`select id from customers where id = ${t.customer_id} for update`;
+    t.customer_id = await canonicalCustomer(tx, t.customer_id, true);
     const [used] = await tx<{ redeemed: number; returned: number }[]>`
       select
         coalesce(-sum(amount_cents) filter (where entry = 'redeem'), 0)::int as redeemed,
         coalesce(sum(amount_cents) filter (where entry = 'refund'
           and meta->>'originalCustomerCredit' = 'true'), 0)::int as returned
       from customer_credit_ledger
-      where kind = 'store_credit' and customer_id = ${t.customer_id} and ticket_id = ${t.id}`;
+      where kind = 'store_credit' and customer_id in ${customerAssetIds(tx, t.customer_id)} and ticket_id = ${t.id}`;
     if ((used?.redeemed ?? 0) - (used?.returned ?? 0) < customerCreditCents) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { reason: 'customer_credit_refund_source_missing' },
@@ -1367,7 +1372,7 @@ registerHandler(TicketRefund, async ({ input, ctx, tx, audit, emit }: HandlerArg
     }
     const [balance] = await tx<{ value: number }[]>`
       select coalesce(sum(amount_cents), 0)::int as value from customer_credit_ledger
-      where kind = 'store_credit' and customer_id = ${t.customer_id}`;
+      where kind = 'store_credit' and customer_id in ${customerAssetIds(tx, t.customer_id)}`;
     await tx`insert into customer_credit_ledger
       (org_id, location_id, kind, subject_id, customer_id, entry,
        amount_cents, balance_after_cents, ticket_id, reason,

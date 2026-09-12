@@ -198,7 +198,7 @@ export async function loadAppointmentDetail(
       customer: {
         id: wq.customer_id,
         name: wq.customer_name ?? wq.walk_in_name ?? '客人',
-        phone: wq.customer_phone,
+        phone: ctx.permissions.has('customer.view_contact') ? wq.customer_phone : maskPhone(wq.customer_phone),
         hasHealthForm,
         healthFormSubmissionId,
         allergiesSummary: null,

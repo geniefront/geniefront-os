@@ -188,7 +188,6 @@ if (undeclared.length) {
  * 每一条都写明为什么还没定，定了就从这里删掉。
  */
 const DEAD_PENDING_DECISION = {
-  'ticket.refund': '退款命令实际要求 ticket.void。改要求它 = 店长不能退款，是业务决定',
   'marketing.manage': '营销命令实际要求 settings.manage。两套分类没对齐，待定口径',
   'package.manage': '套餐命令实际要求 catalog.manage / ticket.write。同上',
   'ai.execute_without_confirm': '无代码路径读取，且与「每条 AI 命令都要确认」的断言相矛盾。建议删除',

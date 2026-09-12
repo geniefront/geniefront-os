@@ -106,7 +106,7 @@ export const ROLE_PRESETS = {
 
   manager: [
     'appointment.read', 'appointment.write', 'appointment.cancel', 'appointment.overbook',
-    'ticket.read', 'ticket.write', 'ticket.discount', 'ticket.void',
+    'ticket.read', 'ticket.write', 'ticket.discount', 'ticket.void', 'ticket.refund',
     'rotation.read', 'rotation.override',
     'payroll.view_own', 'payroll.view_all', 'payroll.configure',
     'dayclose.manage', 'tip.payout', 'report.view',

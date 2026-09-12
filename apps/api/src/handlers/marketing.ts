@@ -1,3 +1,4 @@
+import { canonicalCustomer, customerAssetIds } from '../customerIdentity';
 /**
  * 营销体系命令处理器（P1 次卡套餐 / 优惠券 / 会员积分）
  */
@@ -482,9 +483,10 @@ registerHandler(loyaltySaveRules, async ({ input, ctx, tx, audit }) => {
 });
 
 const handleLoyaltyAdjustPoints = async ({ input, ctx, tx, audit }: any) => {
+  const customerId = await canonicalCustomer(tx, input.customerId, true);
   const [cust] = await tx<{ id: string; display_name: string }[]>`
     select id, display_name from customers
-    where id = ${input.customerId} and org_id = ${ctx.orgId} for update`;
+    where id = ${customerId} and org_id = ${ctx.orgId} for update`;
   if (!cust) {
     throw new AppError(ERROR_CODES.NOT_FOUND, {
       details: { entity: 'customer', id: input.customerId },
@@ -497,7 +499,7 @@ const handleLoyaltyAdjustPoints = async ({ input, ctx, tx, audit }: any) => {
   const [balanceRow] = await tx<{ total: string }[]>`
     select coalesce(sum(amount_cents), 0)::text as total
     from customer_credit_ledger
-    where kind = 'points' and customer_id = ${input.customerId}`;
+    where kind = 'points' and customer_id in ${customerAssetIds(tx, customerId)}`;
 
   const beforePoints = asInt(balanceRow?.total, 0);
   const afterPoints = beforePoints + delta;
@@ -513,7 +515,7 @@ const handleLoyaltyAdjustPoints = async ({ input, ctx, tx, audit }: any) => {
       org_id, location_id, kind, subject_id, customer_id, entry,
       amount_cents, balance_after_cents, reason, actor_membership_id
     ) values (
-      ${ctx.orgId}, ${ctx.locationId}, 'points', ${input.customerId}, ${input.customerId},
+      ${ctx.orgId}, ${ctx.locationId}, 'points', ${customerId}, ${customerId},
       'adjust', ${delta}, ${afterPoints}, ${input.reason}, ${ctx.membershipId}
     )`;
 

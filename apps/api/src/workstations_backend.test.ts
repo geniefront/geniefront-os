@@ -426,7 +426,7 @@ describe('五大核心中台工作台后端 API 完整增改验证测试', () =>
       expect(vivian!.employeeNo).toBe('EMP-9088');
       expect(vivian!.name).toContain('Vivian');
       expect(vivian!.skills).toContain('法式光疗');
-      expect(vivian!.payroll.ratePercent).toBe(50);
+      expect(vivian!.payroll?.ratePercent).toBe(50);
       expect(vivian!.status).toBe('active');
     });
 

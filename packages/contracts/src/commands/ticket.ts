@@ -219,7 +219,7 @@ export const TicketClose = defineCommand({
     tipSplits: z.array(z.object({
       staffMembershipId: uuid,
       staffName: z.string().optional(),
-      amountCents: cents,
+      amountCents: cents.nonnegative(),
       percentageBp: z.number().optional(),
     })).optional(),
     packageRedemptions: z.array(z.object({
@@ -403,7 +403,7 @@ export const TicketRefund = defineCommand({
     refundedCents: cents,
     refundMethod: z.string(),
   }),
-  permission: 'ticket.void',
+  permission: 'ticket.refund',
   ai: {
     description: '对已结账单据发起部分或全额退款冲销。',
     confirm: 'always',

@@ -3,12 +3,29 @@ import { isIP } from 'node:net';
 import type { WebsitePage } from '@gf/ai';
 import { AppError, ERROR_CODES } from '@gf/contracts';
 
-function privateIp(ip: string): boolean {
-  if (ip === '::1' || /^(fc|fd|fe80:)/i.test(ip)) return true;
-  if (isIP(ip) !== 4) return false;
+export function privateIp(raw: string): boolean {
+  const ip = raw.replace(/^\[|\]$/g, '');
+  const family = isIP(ip);
+  if (family === 6) {
+    // WHATWG canonicalization also converts dotted IPv4 tails to hextets.
+    const canonical = new URL(`http://[${ip}]/`).hostname.slice(1, -1);
+    const [left = '', right] = canonical.split('::');
+    const head = left ? left.split(':').map(x => parseInt(x, 16)) : [];
+    const tail = right ? right.split(':').map(x => parseInt(x, 16)) : [];
+    const words = right === undefined ? head : [...head, ...Array(8 - head.length - tail.length).fill(0), ...tail];
+    if (words.slice(0, 5).every(x => x === 0) && words[5] === 0xffff) {
+      return privateIp(`${words[6]! >> 8}.${words[6]! & 255}.${words[7]! >> 8}.${words[7]! & 255}`);
+    }
+    // Unspecified, loopback, compatible IPv4, ULA, link-local and multicast.
+    return words.slice(0, 6).every(x => x === 0)
+      || (words[0]! & 0xfe00) === 0xfc00 || (words[0]! & 0xffc0) === 0xfe80
+      || (words[0]! & 0xff00) === 0xff00;
+  }
+  if (family !== 4) return true;
   const [a, b] = ip.split('.').map(Number);
   return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254)
-    || (a === 172 && b! >= 16 && b! <= 31) || (a === 192 && b === 168);
+    || (a === 172 && b! >= 16 && b! <= 31) || (a === 192 && b === 168)
+    || (a === 100 && b! >= 64 && b! <= 127) || a! >= 224;
 }
 async function validateUrl(raw: string): Promise<URL> {
   let url: URL;
@@ -16,7 +33,7 @@ async function validateUrl(raw: string): Promise<URL> {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'unsafe_website_url' } });
   }
-  const addresses = await lookup(url.hostname, { all: true });
+  const addresses = await lookup(url.hostname.replace(/^\[|\]$/g, ''), { all: true });
   if (!addresses.length || addresses.some((entry) => privateIp(entry.address))) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'private_website_address' } });
   }

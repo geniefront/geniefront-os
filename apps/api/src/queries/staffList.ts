@@ -29,7 +29,7 @@ export interface StaffDirectoryItem {
     ratePercent: number;
     hourlyRateDollars: number;
     base: 'net' | 'gross';
-  };
+  } | null;
   note?: string | null | undefined;
 }
 
@@ -37,6 +37,8 @@ export async function loadStaffDirectory(
   tx: postgres.TransactionSql,
   ctx: CommandContext,
 ): Promise<{ staff: StaffDirectoryItem[]; skills: DirectoryOption[]; levels: DirectoryOption[]; jobs: DirectoryOption[] }> {
+  const canManage = ctx.permissions.has('staff.manage');
+  const canSeeAllPay = ctx.permissions.has('payroll.view_all') || ctx.permissions.has('payroll.configure');
   const rows = await tx<{
     membership_id: string;
     employee_no: string | null;
@@ -135,8 +137,8 @@ export async function loadStaffDirectory(
       isBookable: r.is_bookable,
       maxConcurrentAppointments: r.max_concurrent_appointments,
       name,
-      phone: r.phone_e164 ?? '',
-      ...(r.user_email ? { email: r.user_email } : {}),
+      phone: canManage || r.membership_id === ctx.membershipId ? (r.phone_e164 ?? '') : '',
+      ...((canManage || r.membership_id === ctx.membershipId) && r.user_email ? { email: r.user_email } : {}),
       jobTitle,
       jobTitleId: r.job_title_id,
       level,
@@ -144,14 +146,14 @@ export async function loadStaffDirectory(
       skills: skillsByMember.get(r.membership_id) ?? [],
       skillIds: skillRows.filter((skill) => skill.membership_id === r.membership_id).map((skill) => skill.id),
       status: mappedStatus,
-      hireDate: r.hire_date ?? '',
-      payroll: {
+      hireDate: canManage ? (r.hire_date ?? '') : '',
+      payroll: canSeeAllPay || (r.membership_id === ctx.membershipId && ctx.permissions.has('payroll.view_own')) ? {
         kind,
         ratePercent: rateBp / 100,
         hourlyRateDollars: hourlyCents / 100,
         base,
-      },
-      ...(r.notes ? { note: r.notes } : {}),
+      } : null,
+      ...(canManage && r.notes ? { note: r.notes } : {}),
     };
   });
 

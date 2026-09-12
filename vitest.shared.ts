@@ -67,7 +67,8 @@ function readDotEnv(): Record<string, string> {
 }
 
 export function loadEnv(options: SharedTestOptions = {}): Record<string, string> {
-  const dotenv = readDotEnv();
+  // Reproduce CI without loading developer provider credentials.
+  const dotenv = process.env['GF_TEST_NO_DOTENV'] === '1' ? {} : readDotEnv();
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(dotenv)) {
     if (!NEVER_FROM_DOTENV.has(key)) {

@@ -1,3 +1,4 @@
+import { canonicalCustomer, customerAssetIds } from '../customerIdentity';
 /**
  * 客户档案聚合（批 6）。
  *
@@ -149,10 +150,11 @@ export async function loadCustomerDetail(
     where holder_customer_id = ${customerId} and status in ('active','depleted')
     order by created_at desc limit 20`;
 
+  const assetCustomerId = await canonicalCustomer(tx, customerId);
   const [storeCredit] = await tx<{ balance: number }[]>`
     select coalesce(sum(amount_cents), 0)::int as balance
     from customer_credit_ledger
-    where kind = 'store_credit' and customer_id = ${customerId}`;
+    where kind = 'store_credit' and customer_id in ${customerAssetIds(tx, assetCustomerId)}`;
 
   const tkRows = await tx<{
     id: string; business_date: string; status: string;
@@ -278,7 +280,8 @@ export async function loadCustomerList(
     limit?: number;
     offset?: number;
   },
-): Promise<{ rows: CustomerListRow[]; total: number }> {
+): Promise<{ rows: CustomerListRow[]; total: number; metrics: CustomerMetrics }> {
+  const today = await customerBusinessDate(tx, ctx);
   const canSeeContact = ctx.permissions.has('customer.view_contact');
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
   const offset = Math.max(opts.offset ?? 0, 0);
@@ -286,15 +289,16 @@ export async function loadCustomerList(
   const digits = searchStr.replace(/\D/g, '');
   const filter = opts.filterType ?? 'all';
 
-  const rows = await tx<{
+  type SearchRow = {
     id: string; display_name: string | null; phone_e164: string | null;
     vip_level: number; no_show_count: number; blocked_at: string | null;
     n: number; last_at: string | null; total: number;
-  }[]>`
+  };
+  const selection = tx`
     with v as (
       select customer_id, count(*)::int as n, max(business_date)::text as last_at
       from tickets
-      where location_id = ${ctx.locationId} and status = 'closed'
+      where location_id = ${ctx.locationId} and status in ('closed','refunded')
       group by customer_id
     )
     select c.id, c.display_name, c.phone_e164, c.vip_level, c.no_show_count, c.blocked_at::text as blocked_at,
@@ -309,20 +313,26 @@ export async function loadCustomerList(
         or c.display_name ilike ${'%' + searchStr + '%'}
       )` : tx``}
       ${(opts.vipOnly || filter === 'vip') ? tx`and c.vip_level > 0` : tx``}
-      ${filter === 'active30' ? tx`and v.last_at is not null and v.last_at >= (current_date - 30)::text` : tx``}
-      ${filter === 'sleep30' ? tx`and (v.last_at is null or v.last_at < (current_date - 30)::text)` : tx``}
-      ${filter === 'sleep90' ? tx`and (v.last_at is null or v.last_at < (current_date - 90)::text)` : tx``}
+      ${filter === 'active30' ? tx`and v.last_at is not null and v.last_at >= (${today}::date - 30)::text` : tx``}
+      ${filter === 'sleep30' ? tx`and (v.last_at is null or v.last_at < (${today}::date - 30)::text)` : tx``}
+      ${filter === 'sleep90' ? tx`and (v.last_at is null or v.last_at < (${today}::date - 90)::text)` : tx``}
       ${filter === 'blocked' ? tx`and c.blocked_at is not null` : tx``}
       ${opts.sleepingDays
-        ? tx`and (v.last_at is null or v.last_at < (current_date - ${opts.sleepingDays}::int)::text)`
+        ? tx`and (v.last_at is null or v.last_at < (${today}::date - ${opts.sleepingDays}::int)::text)`
         : tx``}
-    order by v.last_at desc nulls last, c.display_name
-    limit ${limit} offset ${offset}`;
+    `;
+  const rows = await tx<SearchRow[]>`${selection}
+    order by last_at desc nulls last, display_name, id limit ${limit} offset ${offset}`;
+  const [emptyCount] = rows.length ? [] : await tx<{ total: number }[]>`
+    select count(*)::int as total from (${selection}) matches`;
 
+
+  const metrics = await loadCustomerMetrics(tx, ctx, today);
   return {
-    total: rows[0]?.total ?? 0,
+    metrics,
+    total: rows[0]?.total ?? emptyCount?.total ?? 0,
     rows: rows.map((r) => {
-      const last = r.last_at ? new Date(`${r.last_at}T12:00:00Z`).getTime() : null;
+      const last = r.last_at ? Date.parse(`${r.last_at}T00:00:00Z`) : null;
       return {
         id: r.id,
         displayName: r.display_name ?? '',
@@ -330,9 +340,41 @@ export async function loadCustomerList(
         vipLevel: r.vip_level,
         visitCount: r.n,
         lastVisitDate: r.last_at,
-        daysSinceLastVisit: last ? Math.floor((Date.now() - last) / 86400_000) : null,
+        daysSinceLastVisit: last ? Math.floor((Date.parse(`${today}T00:00:00Z`) - last) / 86400_000) : null,
         noShowCount: r.no_show_count,
       };
     }),
   };
+}
+
+export interface CustomerMetrics {
+  total: number; vipCount: number; active30: number; sleep30: number; sleep90: number;
+}
+
+/** All-store metrics do not depend on search, segment or page. */
+export async function loadCustomerMetrics(tx: postgres.TransactionSql, ctx: CommandContext, date?: string): Promise<CustomerMetrics> {
+  const today = date ?? await customerBusinessDate(tx, ctx);
+  const [row] = await tx<CustomerMetrics[]>`
+    with visits as (
+      select customer_id, max(business_date) as last_at from tickets
+      where location_id = ${ctx.locationId} and status in ('closed','refunded') group by customer_id
+    ), day as (
+      select ${today}::date as today
+    )
+    select count(*)::int as total,
+      count(*) filter (where c.vip_level > 0)::int as "vipCount",
+      count(*) filter (where v.last_at >= day.today - 30)::int as "active30",
+      count(*) filter (where v.last_at is null or v.last_at < day.today - 30)::int as "sleep30",
+      count(*) filter (where v.last_at is null or v.last_at < day.today - 90)::int as "sleep90"
+    from customers c left join visits v on v.customer_id = c.id cross join day
+    where c.merged_into_id is null and (c.primary_location_id = ${ctx.locationId} or v.customer_id is not null)`;
+  return row ?? { total: 0, vipCount: 0, active30: 0, sleep30: 0, sleep90: 0 };
+}
+
+async function customerBusinessDate(tx: postgres.TransactionSql, ctx: CommandContext): Promise<string> {
+  const [row] = await tx<{ today: string }[]>`select
+    (now() at time zone timezone - (business_day_cutoff - time '00:00'))::date::text as today
+    from locations where id = ${ctx.locationId}`;
+  if (!row) throw new Error('Customer location missing');
+  return row.today;
 }

@@ -369,7 +369,10 @@ export async function loadStaffToday(
 
   const [payout] = await tx<{ paid: number; carry_in: number }[]>`
     select coalesce(sum(paid_cents) filter (where business_date = ${businessDate}), 0)::int as paid,
-           coalesce(max(carry_out_cents) filter (where business_date < ${businessDate}), 0)::int as carry_in
+           coalesce((select carry_out_cents from tip_payouts prior
+             where prior.location_id = ${ctx.locationId} and prior.membership_id = ${membershipId}
+               and prior.business_date < ${businessDate}
+             order by prior.business_date desc limit 1), 0)::int as carry_in
     from tip_payouts
     where location_id = ${ctx.locationId} and membership_id = ${membershipId}
       and business_date <= ${businessDate}`;

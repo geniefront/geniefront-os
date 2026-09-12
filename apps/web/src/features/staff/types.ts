@@ -22,7 +22,7 @@ export interface StaffDirectoryItem {
     ratePercent: number;
     hourlyRateDollars: number;
     base: CommissionBase;
-  };
+  } | null;
   note?: string;
 }
 
