@@ -103,7 +103,8 @@ export function RoomsStepForm({ onSaved, stepNumber = 3 }: { onSaved: () => void
         <Field label={t('setupFieldRoomCapacity')}>
           <Input className={fieldClass} type="number" min="1" step="1" value={capacity} onChange={(e) => setCapacity(e.target.value)} />
         </Field>
-        <GuardedButton permission="settings.manage" onClick={add} isDisabled={saveResource.isPending} className="h-11 self-end gap-2">
+        <GuardedButton
+          isPending={saveResource.isPending} permission="settings.manage" onClick={add} isDisabled={saveResource.isPending} className="h-11 self-end gap-2">
           <Plus className="size-4" />{t('setupAddRoom')}
         </GuardedButton>
       </div>

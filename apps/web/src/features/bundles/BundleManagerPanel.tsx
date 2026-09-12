@@ -10,11 +10,13 @@
  */
 import { useMemo, useState } from 'react';
 import { toast, Spinner } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
 import { Plus, Trash2, Edit2, Copy, Package, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { SectionError } from '@/components/ui/QueryState';
 import { useLanguage } from '@/LanguageContext';
 import { useCan } from '@/lib/permissions';
 import { useErrorMessage } from '@/lib/errorMessage';
@@ -91,9 +93,13 @@ export function BundleManagerPanel() {
     setEditorOpen(true);
   }
 
+  /** 组合套餐表单的字段级校验。 */
+  const bundleForm = useFieldErrors<'name'>();
+
   async function handleSave() {
+    bundleForm.clear();
     const primary = nameZh.trim() || nameEn.trim();
-    if (!primary) { toast.danger(t('bundle.errNameRequired')); return; }
+    if (!primary) { bundleForm.fail('name', t('bundle.errNameRequired')); return; }
     if (unitCount < 2) { toast.danger(t('bundle.errTwoUnits')); return; }
     if (priceCents > listTotalCents) { toast.danger(t('bundle.errPriceAboveList')); return; }
 
@@ -139,6 +145,14 @@ export function BundleManagerPanel() {
 
   if (catalog.isLoading) {
     return <div className="py-12 grid place-items-center"><Spinner /></div>;
+  }
+
+  /*
+   * 目录取不到时此前会落到「暂无组合套餐」的空状态上 —— 店主据此以为套餐被
+   * 清空了，接着重新录一遍。加载失败必须自己说话。
+   */
+  if (catalog.isError) {
+    return <SectionError error={catalog.error} onRetry={() => void catalog.refetch()} />;
   }
 
   return (
@@ -262,11 +276,22 @@ export function BundleManagerPanel() {
               <span>{t('bundle.fieldName')} · 中文</span>
               <input
                 data-testid="bundle-name-zh"
+                ref={bundleForm.bind('name').ref}
+                aria-invalid={bundleForm.errors.name ? true : undefined}
                 value={nameZh}
-                onChange={(e) => setNameZh(e.target.value)}
+                onChange={(e) => { setNameZh(e.target.value); bundleForm.clearField('name'); }}
                 placeholder={t('bundle.fieldNamePlaceholder')}
-                className="w-full h-9 px-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-teal-500"
+                className={`w-full h-9 px-3 rounded-xl border text-sm focus:outline-none ${
+                  bundleForm.errors.name
+                    ? 'border-red-400 focus:border-red-500'
+                    : 'border-slate-200 focus:border-teal-500'
+                }`}
               />
+              {bundleForm.errors.name && (
+                <span role="alert" className="block text-xs font-medium text-red-600">
+                  {bundleForm.errors.name}
+                </span>
+              )}
             </label>
             <label className="text-xs font-semibold text-slate-600 space-y-1 block">
               <span>{t('bundle.fieldName')} · English</span>

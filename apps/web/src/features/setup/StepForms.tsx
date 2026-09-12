@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
+import { parseDurationMinutes, parseMoney } from '@/lib/validation';
+import { useValidationMessage } from '@/lib/validationMessage';
 import {
   CheckCircle2,
   CircleDollarSign,
@@ -62,9 +65,13 @@ export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void
   }, [data]);
 
   const update = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  /** 门店资料表单的字段级校验。 */
+  const storeForm = useFieldErrors<'name'>();
+
   const save = async () => {
+    storeForm.clear();
     if (!form.name.trim() || !form.timezone.trim()) {
-      toast.danger(t('setupStep1MissingName'));
+      storeForm.fail('name', t('setupStep1MissingName'));
       return;
     }
     if (!Object.values(hours).some(Boolean)) {
@@ -92,7 +99,7 @@ export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void
       <ImportWorkspace mode="store" initialName={form.name} initialPlace={form.addressZip || form.addressCity} />
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">{t('setupImportOrManual')}</p>
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label={t('setupFieldStoreName')}><Input className={fieldClass} value={form.name} onChange={(e) => update('name', e.target.value)} /></Field>
+        <Field label={t('setupFieldStoreName')}><Input {...storeForm.bind('name')} className={fieldClass} value={form.name} onChange={(e) => { update('name', e.target.value); storeForm.clearField('name'); }} /></Field>
         <Field label={t('setupFieldBusinessType')}>
           <select className={selectClass} value={form.businessType} onChange={(e) => update('businessType', e.target.value)}>
             <option value="nail">{t('setupBizNail')}</option><option value="massage">{t('setupBizMassage')}</option>
@@ -154,15 +161,27 @@ export function CatalogStepForm({ onSaved, stepNumber = 4 }: { onSaved: () => vo
   const active = data?.services.filter((service) => service.active) ?? [];
   const existingNames = (data?.services ?? []).map((service) => service.displayName);
 
+  /** 项目录入表单的字段级校验。 */
+  const serviceForm = useFieldErrors<'name' | 'price' | 'duration'>();
+  const invalid = useValidationMessage();
+
   const add = async () => {
-    const priceMatch = price.trim().match(/^(\d+)(?:\.(\d{1,2}))?$/);
-    const priceCents = priceMatch
-      ? Number.parseInt(priceMatch[1]!, 10) * 100 + Number.parseInt((priceMatch[2] ?? '').padEnd(2, '0') || '0', 10)
-      : null;
-    const durationValue = Number.parseInt(duration, 10);
-    if (!name.trim() || priceCents === null || !Number.isFinite(durationValue) || durationValue < 5) {
-      toast.danger(t('setupStep2MissingFields')); return;
+    serviceForm.clear();
+    /*
+     * 原先三个字段共用一句「请补全项目信息」，而且价格与时长各自有一套行内
+     * 正则。现在改为逐项判定，每一项说清自己的问题落在自己那一格上 ——
+     * 判定规则统一来自 `lib/validation`，与设置页的目录编辑完全一致。
+     */
+    if (!name.trim()) { serviceForm.fail('name', t('setupStep2MissingFields')); return; }
+    const parsedPrice = parseMoney(price);
+    if (!parsedPrice.ok) { serviceForm.fail('price', invalid.money(parsedPrice.reason)); return; }
+    const parsedDuration = parseDurationMinutes(duration, { min: 5, max: 600 });
+    if (!parsedDuration.ok) {
+      serviceForm.fail('duration', invalid.duration(parsedDuration.reason, { min: 5, max: 600 }));
+      return;
     }
+    const priceCents = parsedPrice.value;
+    const durationValue = parsedDuration.value;
     try {
       const displayName = name.trim();
       await saveService.mutateAsync({
@@ -188,10 +207,11 @@ export function CatalogStepForm({ onSaved, stepNumber = 4 }: { onSaved: () => vo
       <ImportWorkspace mode="catalog" />
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">{t('setupImportOrManual')}</p>
       <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-5 md:grid-cols-[1.4fr_.7fr_.7fr_auto]">
-        <Field label={t('setupFieldServiceName')}><Input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('setupFieldServiceNamePlaceholder')} /></Field>
-        <Field label={t('setupFieldPriceUsd')}><Input className={fieldClass} type="number" min="0" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="65.00" /></Field>
-        <Field label={t('setupFieldDurationMin')}><Input className={fieldClass} type="number" min="5" step="5" value={duration} onChange={(e) => setDuration(e.target.value)} /></Field>
-        <GuardedButton permission="catalog.manage" onClick={add} isDisabled={saveService.isPending} className="h-11 self-end gap-2"><Plus className="size-4" />{t('setupAddService')}</GuardedButton>
+        <Field label={t('setupFieldServiceName')}><Input {...serviceForm.bind('name')} className={fieldClass} value={name} onChange={(e) => { setName(e.target.value); serviceForm.clearField('name'); }} placeholder={t('setupFieldServiceNamePlaceholder')} /></Field>
+        <Field label={t('setupFieldPriceUsd')}><Input {...serviceForm.bind('price')} className={fieldClass} type="number" min="0" step="0.01" value={price} onChange={(e) => { setPrice(e.target.value); serviceForm.clearField('price'); }} placeholder="65.00" /></Field>
+        <Field label={t('setupFieldDurationMin')}><Input {...serviceForm.bind('duration')} className={fieldClass} type="number" min="5" step="5" value={duration} onChange={(e) => { setDuration(e.target.value); serviceForm.clearField('duration'); }} /></Field>
+        <GuardedButton
+      isPending={saveService.isPending} permission="catalog.manage" onClick={add} isDisabled={saveService.isPending} className="h-11 self-end gap-2"><Plus className="size-4" />{t('setupAddService')}</GuardedButton>
       </div>
       <div>
         <div className="mb-3 flex items-center justify-between"><h3 className="font-bold text-slate-900">{t('setupCurrentServices')}</h3><Badge variant={active.length ? 'success' : 'warning'}>{t('setupServicesEnabledCount', { p0: active.length })}</Badge></div>
@@ -208,8 +228,11 @@ export function TeamStepForm({ onSaved, stepNumber = 5 }: { onSaved: () => void;
   const [name, setName] = useState('');
   const [bookable, setBookable] = useState(true);
   const [rotation, setRotation] = useState(true);
+  /** 员工录入表单的字段级校验。 */
+  const staffForm = useFieldErrors<'name'>();
   const add = async () => {
-    if (!name.trim()) { toast.danger(t('setupStep3MissingName')); return; }
+    staffForm.clear();
+    if (!name.trim()) { staffForm.fail('name', t('setupStep3MissingName')); return; }
     try {
       await saveStaff.mutateAsync({ name: name.trim(), isBookable: bookable, inRotation: rotation, maxConcurrentAppointments: 1 });
       setName(''); toast.success(t('setupStep3Saved')); onSaved();
@@ -220,8 +243,9 @@ export function TeamStepForm({ onSaved, stepNumber = 5 }: { onSaved: () => void;
     <div className="space-y-6">
       <StepHeading eyebrow={t('setupStepLabel', { number: stepNumber })} title={t('setupStepTeamTitle')} description={t('setupStepTeamDesc')} />
       <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-5 md:grid-cols-2">
-        <Field label={t('setupFieldStaffName')}><Input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="Amy" /></Field>
-        <div className="flex items-end"><GuardedButton permission="staff.manage" onClick={add} isDisabled={saveStaff.isPending} className="h-11 w-full gap-2"><UserRoundPlus className="size-4" />{t('setupAddStaff')}</GuardedButton></div>
+        <Field label={t('setupFieldStaffName')}><Input {...staffForm.bind('name')} className={fieldClass} value={name} onChange={(e) => { setName(e.target.value); staffForm.clearField('name'); }} placeholder="Amy" /></Field>
+        <div className="flex items-end"><GuardedButton
+        isPending={saveStaff.isPending} permission="staff.manage" onClick={add} isDisabled={saveStaff.isPending} className="h-11 w-full gap-2"><UserRoundPlus className="size-4" />{t('setupAddStaff')}</GuardedButton></div>
         <Toggle checked={bookable} onChange={setBookable} label={t('setupToggleBookableLabel')} description={t('setupToggleBookableDesc')} />
         <Toggle checked={rotation} onChange={setRotation} label={t('setupToggleRotationLabel')} description={t('setupToggleRotationDesc')} />
       </div>
@@ -330,7 +354,8 @@ export function LaunchStep({ onGoToStep, stepNumber = 7 }: {
       </div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
         <p className="text-xs leading-5 text-slate-500 sm:mr-auto">{t('setupStep4Footer')}</p>
-        <GuardedButton permission="settings.manage" onClick={launch} isDisabled={!ready || finish.isPending || isFetching} className="gap-2"><Rocket className="size-4" />{finish.isPending ? t('setupLaunching') : t('setupLaunchNow')}</GuardedButton>
+        <GuardedButton
+      isPending={finish.isPending} permission="settings.manage" onClick={launch} isDisabled={!ready || finish.isPending || isFetching} className="gap-2"><Rocket className="size-4" />{finish.isPending ? t('setupLaunching') : t('setupLaunchNow')}</GuardedButton>
       </div>
     </div>
   );

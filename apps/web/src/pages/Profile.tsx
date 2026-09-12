@@ -41,6 +41,8 @@ import {
   Store,
 } from 'lucide-react';
 import { toast } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
+import { parsePin } from '@/lib/validation';
 import { useLanguage } from '@/LanguageContext';
 import { UI_LANGUAGES as LANGUAGES, type Language } from '@/i18n/types';
 import { useSession } from '@/lib/session';
@@ -55,7 +57,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Modal, ConfirmDialog } from '@/components/ui/Modal';
-import { PageLoading } from '@/components/ui/QueryState';
+import { PageError, PageLoading } from '@/components/ui/QueryState';
 import { ImageUploader } from '@/components/ui/ImageUploader';
 import {
   useUserProfileQuery,
@@ -97,7 +99,13 @@ export function Profile() {
   const activeTab = searchParams.get('tab') || 'general';
 
   const { session, membership, locations, context, selectMembership, signOut } = useSession();
-  const { data: profile, isLoading: isProfileLoading } = useUserProfileQuery();
+  const {
+    data: profile,
+    isLoading: isProfileLoading,
+    isError: isProfileError,
+    error: profileError,
+    refetch: refetchProfile,
+  } = useUserProfileQuery();
   const { data: sessions, isLoading: isSessionsLoading } = useActiveSessionsQuery();
   const { data: notifPrefs } = usePersonalNotificationPreferencesQuery();
 
@@ -220,9 +228,13 @@ export function Profile() {
     });
   };
 
+  /** 个人资料表单的字段级校验。 */
+  const profileForm = useFieldErrors<'fullName'>();
+
   const requestSaveGeneralProfile = () => {
+    profileForm.clear();
     if (!fullName.trim()) {
-      toast.danger(t('settings.profNameRequired'));
+      profileForm.fail('fullName', t('settings.profNameRequired'));
       return;
     }
     setConfirmDialogState({
@@ -256,7 +268,12 @@ export function Profile() {
   };
 
   const requestSetPin = () => {
-    if (!/^\d{4,6}$/.test(pinCode)) {
+    /*
+     * PIN 用的是自绘数字键盘（一排圆点），没有可聚焦的输入框，因此仍以 toast
+     * 呈现；判定规则本身收到 `lib/validation`，与服务端的 4–6 位约束同源，
+     * 不再在页面里散一份正则。
+     */
+    if (!parsePin(pinCode).ok) {
       toast.danger(t('settings.profPinFormat'));
       return;
     }
@@ -408,7 +425,16 @@ export function Profile() {
   };
 
   if (isProfileLoading && !profile) {
-    return <PageLoading title={t('settings.profLoading')} description={t('settings.profLoadingDesc')} />;
+    return <PageLoading layout="detail" title={t('settings.profLoading')} description={t('settings.profLoadingDesc')} />;
+  }
+
+  /*
+   * 加载失败要说出来。此前只有加载态没有失败态：请求失败时 `profile` 为
+   * undefined，页面照常渲染成一张空白表单 —— 用户会以为资料真的是空的，
+   * 然后开始填写并保存。
+   */
+  if (isProfileError && !profile) {
+    return <PageError error={profileError} onRetry={() => void refetchProfile()} />;
   }
 
   const currentStoreName = membership ? pickText(membership.locationName, language) : '—';
@@ -779,8 +805,9 @@ export function Profile() {
                       <span className="text-red-500">*</span>
                     </label>
                     <Input
+                      {...profileForm.bind('fullName')}
                       value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
+                      onChange={(e) => { setFullName(e.target.value); profileForm.clearField('fullName'); }}
                       placeholder={t('settings.profNamePlaceholder')}
                       className="rounded-xl"
                     />

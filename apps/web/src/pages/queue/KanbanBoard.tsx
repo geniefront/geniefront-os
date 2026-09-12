@@ -83,9 +83,15 @@ export function KanbanBoard({
     {/*
       断点与 min-width 此前互相矛盾：min-w-[1100px] 让容器在任何视口下都不低于
       1100px，grid-cols-1 / md:grid-cols-3 因此永远不会生效，窄屏只会横向滚动。
-      现改为窄屏单列纵向排布，宽屏才进入 5 列并横向滚动。
+      现改为窄屏单列纵向排布，宽屏才进入多列。
+
+      ⚠️ 宽屏分支用 `auto-cols-[minmax(15.5rem,1fr)]` 而不是 `grid-cols-5`：
+      固定五等分会把列宽交给视口除以 5，平板横屏（1024–1194px，且平板字号刻度
+      比桌面大一档）下每列只剩 190px 左右，姓名截成两个字、电话折三行、状态
+      徽章竖排成一列字。改成「每列不低于 15.5rem，有余量再均分」之后，列宽有
+      下限，放不下的列由容器横向滚动承接，可读性不再随视口缩水。
     */}
-    <div className="grid grid-cols-1 items-start gap-3.5 md:grid-cols-3 lg:grid-cols-5 min-h-full lg:items-stretch">
+    <div className="grid grid-cols-1 items-start gap-3.5 md:grid-cols-3 lg:grid-flow-col lg:auto-cols-[minmax(15.5rem,1fr)] lg:grid-cols-none min-h-full lg:items-stretch">
       {COLUMNS.map((col) => {
         const colItems = items.filter((it) => it.stage === col.id);
         const isDropTarget = dragOverColumn === col.id;
@@ -115,14 +121,19 @@ export function KanbanBoard({
                 col.headerBg,
               )}
             >
-              <div className="flex items-center gap-2">
+              {/*
+                左侧标题组必须带 min-w-0：flex 子项的默认最小尺寸是内容宽度，
+                没有这一句时标题不会收缩，而是把右侧计数徽章挤出列外 ——
+                平板字号下五列看板每列的计数都被裁掉了一半。
+              */}
+              <div className="flex min-w-0 flex-1 items-center gap-2">
                 <col.icon className="w-4 h-4 shrink-0" />
                 <div className="min-w-0">
-                  <h3 className="font-bold text-xs leading-none truncate">{t(col.titleKey)}</h3>
+                  <h3 className="font-bold text-xs leading-tight truncate">{t(col.titleKey)}</h3>
                   <p className="text-xs text-slate-500 mt-0.5 opacity-80 truncate">{t(col.subtitleKey)}</p>
                 </div>
               </div>
-              <Badge variant={col.badgeVariant} className="font-mono text-xs px-2 py-0.5 font-bold">
+              <Badge variant={col.badgeVariant} className="shrink-0 font-mono text-xs px-2 py-0.5 font-bold">
                 {colItems.length}
               </Badge>
             </div>
@@ -172,7 +183,16 @@ export function KanbanBoard({
                       )}
                     >
                       {/* Card Top: Customer & Tags */}
-                      <div className="flex items-start justify-between gap-1 mb-1.5">
+                      {/*
+                        姓名与电话此前和排号徽章、操作菜单挤在同一行里分宽度。
+                        平板字号下留给姓名/电话的净宽不足 100px，结果是姓名截成
+                        「David …」、号码截成「(917) 555-01…」—— 前台最常用来
+                        核对身份的两项信息双双读不全。
+                        现在只让姓名与右侧徽章竞争（姓名短、能放下），电话独占
+                        下一行整幅卡宽，并用左内边距对齐到姓名的起始位置。
+                      */}
+                      <div className="mb-1.5">
+                      <div className="flex items-start justify-between gap-1">
                         <div className="flex items-center gap-1.5 min-w-0">
                           <div className="w-6 h-6 rounded-full bg-teal-50 text-teal-700 font-bold text-xs flex items-center justify-center shrink-0 border border-teal-200">
                             {item.customerName.charAt(0)}
@@ -184,11 +204,6 @@ export function KanbanBoard({
                             >
                               {item.customerName}
                             </span>
-                            {item.phone && (
-                              <span className="text-xs text-slate-400 block font-mono">
-                                {formatPhoneDisplay(item.phone)}
-                              </span>
-                            )}
                           </div>
                         </div>
 
@@ -253,6 +268,14 @@ export function KanbanBoard({
                             ]}
                           />
                         </div>
+                      </div>
+
+                      {/* 电话独占一行：`pl-[1.875rem]` = 头像 24px + 间隙 6px，与姓名左缘对齐 */}
+                      {item.phone && (
+                        <span className="mt-0.5 block truncate whitespace-nowrap pl-[1.875rem] font-mono text-xs text-slate-400">
+                          {formatPhoneDisplay(item.phone)}
+                        </span>
+                      )}
                       </div>
 
                       {/* Service Info, Room & Staff */}
@@ -383,15 +406,21 @@ export function KanbanBoard({
                       </div>
 
                       {/* Time Status / Alerts Bar */}
-                      <div className="flex items-center justify-between text-xs text-slate-500 pt-1 mb-2">
-                        <div className="flex items-center gap-1 font-mono font-medium">
+                      {/*
+                        计时、超时与待签署三者可能同时出现。此前是一行不换行的
+                        justify-between，窄列里 flex 会压缩每个徽章的宽度，中文
+                        文案随即被逐字竖排成一列。改为允许换行、且各徽章自身
+                        不收缩不折行：放不下就整块落到下一行，而不是被压扁。
+                      */}
+                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs text-slate-500 pt-1 mb-2">
+                        <div className="flex shrink-0 items-center gap-1 font-mono font-medium">
                           <Timer className="w-3 h-3 text-slate-400" />
                           <span>{item.timeDisplay}</span>
                         </div>
 
                         {item.overdue && (
-                          <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-bold text-xs flex items-center gap-0.5">
-                            <AlertTriangle className="w-2.5 h-2.5" />
+                          <span className="flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded bg-rose-100 px-1.5 py-0.5 text-xs font-bold text-rose-700">
+                            <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
                             {t('queue.quOverdueWait')}
                           </span>
                         )}
@@ -399,10 +428,10 @@ export function KanbanBoard({
                         {item.pendingForms && item.pendingForms > 0 ? (
                           <button
                             type="button"
-                            className="flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-200"
+                            className="flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-200"
                             onClick={(event) => { event.stopPropagation(); void onOpenFormQr(item); }}
                           >
-                            <FileWarning className="h-3 w-3" />
+                            <FileWarning className="h-3 w-3 shrink-0" />
                             {t('queue.quWiFormPendingBadge')}
                           </button>
                         ) : null}

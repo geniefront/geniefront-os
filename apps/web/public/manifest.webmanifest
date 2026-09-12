@@ -2,12 +2,11 @@
   "name": "GenieFront · 门店与技师工作台",
   "short_name": "GenieFront",
   "description": "GenieFront 门店前台与技师移动工作台",
-  "start_url": "/tech/today",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#F2FAF3",
   "theme_color": "#9BCDA3",
-  "orientation": "portrait-primary",
   "lang": "zh-Hans",
   "icons": [
     {

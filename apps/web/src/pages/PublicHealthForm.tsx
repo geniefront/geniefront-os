@@ -959,6 +959,7 @@ export function PublicHealthForm() {
               {copy('cancel')}
             </Button>
             <Button
+              isPending={submitForm.isPending}
               disabled={submitForm.isPending}
               onClick={() => void submitConfirmed()}
               className="shrink-0 bg-teal-600 font-bold text-white hover:bg-teal-700"

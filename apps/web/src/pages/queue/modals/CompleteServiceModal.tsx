@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import { Check, CheckCircle, Clock, Coins, Plus, Scissors, User } from 'lucide-react';
 import { Spinner } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -46,6 +47,8 @@ export function CompleteServiceModal({
   state, services, staff, rooms, isPending, onChange, onConfirm,
 }: CompleteServiceModalProps) {
   const { t } = useLanguage();
+  /** 追加项目时项目与技师两个下拉的字段级校验。 */
+  const addOnForm = useFieldErrors<'service' | 'staff'>();
   /* 速选加项的「更多」只影响这一个弹窗，状态留在这里即可，不必上提到页面。 */
   const [showAllFinishAddOns, setShowAllFinishAddOns] = useState(false);
   if (!state.isOpen || !state.item) return null;
@@ -287,12 +290,16 @@ export function CompleteServiceModal({
           {/* 从目录确认加项与执行技师 */}
           <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
             <select
+              ref={addOnForm.bind('service').ref}
+              aria-invalid={addOnForm.errors.service ? true : undefined}
               value={state.extraAddOnServiceId}
-              onChange={(e) => onChange((prev) => ({
-                ...prev,
-                extraAddOnServiceId: e.target.value,
-              }))}
-              className="col-span-1 px-2 py-1 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800"
+              onChange={(e) => {
+                addOnForm.clearField('service');
+                onChange((prev) => ({ ...prev, extraAddOnServiceId: e.target.value }));
+              }}
+              className={`col-span-1 px-2 py-1 text-xs rounded-xl border bg-white font-medium text-slate-800 ${
+                addOnForm.errors.service ? 'border-red-400' : 'border-slate-200'
+              }`}
             >
               <option value="">{t('queue.quSelectAddOn')}</option>
               {services.map((service) => (
@@ -302,12 +309,16 @@ export function CompleteServiceModal({
               ))}
             </select>
             <select
+              ref={addOnForm.bind('staff').ref}
+              aria-invalid={addOnForm.errors.staff ? true : undefined}
               value={state.extraAddOnStaffId}
-              onChange={(e) => onChange((prev) => ({
-                ...prev,
-                extraAddOnStaffId: e.target.value,
-              }))}
-              className="px-2 py-1 text-xs rounded-xl border border-slate-200 bg-white font-medium text-slate-800"
+              onChange={(e) => {
+                addOnForm.clearField('staff');
+                onChange((prev) => ({ ...prev, extraAddOnStaffId: e.target.value }));
+              }}
+              className={`px-2 py-1 text-xs rounded-xl border bg-white font-medium text-slate-800 ${
+                addOnForm.errors.staff ? 'border-red-400' : 'border-slate-200'
+              }`}
             >
               <option value="">{t('queue.quAddOnStaff')}</option>
               {staff
@@ -329,8 +340,9 @@ export function CompleteServiceModal({
                 const selectedStaff = staff.find(
                   (candidate) => candidate.membershipId === state.extraAddOnStaffId,
                 );
+                addOnForm.clear();
                 if (!selectedService || !selectedStaff || selectedStaff.membershipId === UNASSIGNED_STAFF_ID) {
-                  toast.danger(t('queue.quAddOnStaffRequired'));
+                  addOnForm.fail(selectedService ? 'staff' : 'service', t('queue.quAddOnStaffRequired'));
                   return;
                 }
                 onChange((prev) => ({

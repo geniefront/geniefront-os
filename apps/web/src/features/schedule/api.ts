@@ -66,6 +66,19 @@ export function useDaySnapshot(date: string) {
     queryFn: () => apiGet<DaySnapshot>(`/v1/desk/day?date=${encodeURIComponent(date)}`),
     // 门店未就绪时不得发起带店请求，否则服务端返回 VALIDATION_FAILED。
     enabled: status === 'ready' && membershipId !== null && Boolean(date),
+    /*
+     * 翻页时先留着上一天的数据，别把日历清空。
+     *
+     * 此前每按一次前/后一天，整个日历就变成一屏加载动画，前台在快速翻查档期时
+     * 反复经历「空白 → 重排」，既慢又晃。保留上一天的内容可以让翻页看起来是
+     * 连续的。
+     *
+     * ⚠️ 代价是：新日期的数据到达之前，屏幕上是**别的一天**。因此调用方必须
+     * 读 `isPlaceholderData` 并明确标注这一点、同时挡住这段时间里的操作 ——
+     * 见 `pages/Schedule.tsx` 的翻页遮罩。让前台在 9 月 11 日的界面上误以为
+     * 自己在看 9 月 12 日，比多看一秒加载动画严重得多。
+     */
+    placeholderData: (previous) => previous,
   });
 }
 

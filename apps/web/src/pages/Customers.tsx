@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Spinner, toast } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
 import {
   Search,
   Users,
@@ -289,11 +290,16 @@ function CustomersContent() {
   };
 
   // 提交新建顾客
+  /** 顾客档案表单的字段级校验（新建与编辑共用同一组输入框）。 */
+  const customerForm = useFieldErrors<'name'>();
+
   const handleCreateCustomer = async () => {
+    customerForm.clear();
     if (!formName.trim()) {
-      toast.danger(t('crm.custNameRequired'));
+      customerForm.fail('name', t('crm.custNameRequired'));
       return;
     }
+    // 生日由 BirthdateField 自行在字段下方报错，这里只补一条 toast
     const be = birthdayError();
     if (be) { toast.danger(be); return; }
     try {
@@ -321,8 +327,9 @@ function CustomersContent() {
 
   // 保存基本信息编辑
   const handleSaveProfile = async () => {
+    customerForm.clear();
     if (!selectedId || !formName.trim()) {
-      toast.danger(t('crm.custNameRequired2'));
+      customerForm.fail('name', t('crm.custNameRequired2'));
       return;
     }
     const be = birthdayError();
@@ -456,7 +463,7 @@ function CustomersContent() {
   };
 
   if (list.isLoading && rawRows.length === 0) {
-    return <PageLoading title={t('crm.custLoading')} description={t('crm.custLoadingDesc')} />;
+    return <PageLoading layout="list" title={t('crm.custLoading')} description={t('crm.custLoadingDesc')} />;
   }
 
   if (list.error && rawRows.length === 0) {
@@ -1122,6 +1129,7 @@ function CustomersContent() {
               {t('cancel') || t('crm.custCancel')}
             </Button>
             <Button
+              isPending={saveProfileMutation.isPending}
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
               onClick={createModalOpen ? handleCreateCustomer : handleSaveProfile}
               disabled={saveProfileMutation.isPending}
@@ -1139,8 +1147,9 @@ function CustomersContent() {
                 {t('crm.custNameLabel')}
               </label>
               <Input
+                {...customerForm.bind('name')}
                 value={formName}
-                onChange={(e) => setFormName(e.target.value)}
+                onChange={(e) => { setFormName(e.target.value); customerForm.clearField('name'); }}
                 placeholder={t('crm.custNamePlaceholder')}
               />
             </div>
@@ -1269,6 +1278,7 @@ function CustomersContent() {
               {t('cancel') || t('crm.custPrefsCancel')}
             </Button>
             <Button
+              isPending={savePreferencesMutation.isPending}
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
               onClick={handleSavePref}
               disabled={savePreferencesMutation.isPending}
@@ -1357,6 +1367,7 @@ function CustomersContent() {
               {t('cancel')}
             </Button>
             <Button
+              isPending={mergeMutation.isPending}
               className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
               onClick={handleSmartMerge}
               disabled={!selectedSourceCustomer || mergeMutation.isPending}
@@ -1453,8 +1464,10 @@ function CustomersContent() {
             <Button variant="secondary" onClick={() => setSmsModalOpen(false)}>
               {t('cancel') || t('crm.custSmsCancel')}
             </Button>
+            {/* 短信按条计费且无法撤回，发送期间必须挡住第二次点击 */}
             <Button
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold gap-1"
+              isPending={sendSmsMutation.isPending}
               onClick={handleSendSms}
             >
               <Send className="w-3.5 h-3.5" />
@@ -1524,6 +1537,7 @@ function CustomersContent() {
               {t('cancel') || t('crm.custBlockCancel')}
             </Button>
             <Button
+              isPending={setBlockedMutation.isPending}
               className={
                 currentDetail?.blockedAt
                   ? 'bg-emerald-600 hover:bg-emerald-700 text-white font-bold'

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toast, Spinner } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
 import { Sparkles, Lock, Store, User, ArrowRight, AlertCircle, CheckCircle2, Mail } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useSession } from '@/lib/session';
@@ -49,12 +50,16 @@ export function Activate() {
     }
   }, [session, fullName]);
 
+  /** 激活表单的字段级校验。 */
+  const activateForm = useFieldErrors<'password'>();
+
   async function handleActivateSubmit(e: React.FormEvent) {
     e.preventDefault();
 
     const targetEmail = (session?.user?.email || email).trim();
+    activateForm.clear();
     if (!targetEmail || !password) {
-      toast.danger(t('credentialsRequired'));
+      activateForm.fail('password', t('credentialsRequired'));
       return;
     }
     if (password.length < 6) {
@@ -265,11 +270,12 @@ export function Activate() {
           <div className="relative">
             <Input
               id="activate-password"
+              {...activateForm.bind('password')}
               type="password"
               autoComplete={session ? 'new-password' : 'current-password'}
               placeholder="••••••••"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => { setPassword(e.target.value); activateForm.clearField('password'); }}
               className="w-full h-10 bg-slate-50 focus:bg-white text-sm"
             />
             <Lock className="w-4 h-4 text-slate-400 absolute right-3 top-3 pointer-events-none" />

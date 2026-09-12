@@ -17,6 +17,7 @@
  */
 import * as React from 'react';
 import { Button as HeroButton } from '@heroui/react';
+import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type Variant = 'default' | 'outline' | 'ghost' | 'danger' | 'secondary';
@@ -57,10 +58,15 @@ export interface ButtonProps
   onClick?: React.MouseEventHandler<HTMLButtonElement>;
   disabled?: boolean;
   title?: string;
+  /**
+   * 进行中。按下后到服务端返回之间必须置起，它同时负责两件事：
+   * 显示转圈并变暗（用户知道点到了），以及屏蔽重复提交。
+   */
+  isPending?: boolean;
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { className, variant = 'default', size = 'default', onClick, onPress, disabled, isDisabled, ...props },
+  { className, variant = 'default', size = 'default', onClick, onPress, disabled, isDisabled, isPending, children, ...props },
   ref,
 ) {
   /*
@@ -75,16 +81,48 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
       }
     : undefined;
 
+  /*
+   * ── 进行中的可见反馈 ────────────────────────────────────────────────────────
+   *
+   * HeroUI 的 `isPending` 该拦的都拦住了：它置 `aria-disabled`，指针与键盘的
+   * press 一律不再触发 onPress，同时保留 `tabindex` 让焦点不丢。**缺的只是
+   * 「看得见」**—— 它在样式表里对应的 `status-pending` 仅有 `pointer-events:
+   * none` 一条规则，按钮不转圈、不变暗、外观毫无变化，只是突然点不动了。
+   * 对用户而言这与卡死无法区分：他们会继续点，或者以为没点上而重新操作。
+   *
+   * 因此适配层只补视觉：转圈 + 变暗。图标按钮的图标本身换成转圈，避免图标与
+   * 转圈并排挤爆固定尺寸的按钮。
+   *
+   * ⚠️ 不要顺手把 `isPending` 并进 `isDisabled`。`disabled` 会把按钮移出 Tab
+   * 序列 —— 用户刚按下的那个按钮在焦点还停在上面时突然不可聚焦，焦点被丢到
+   * document.body，键盘用户当场失去位置。拦截由 HeroUI 自己完成，这里不必重复。
+   */
+  const busy = isPending === true;
+  const iconOnly = size === 'icon';
+  const content = typeof children === 'function'
+    ? children
+    : busy
+      ? (
+        <>
+          <Loader2 className={cn('shrink-0 animate-spin', iconOnly ? 'h-4 w-4' : 'h-3.5 w-3.5')} aria-hidden="true" />
+          {!iconOnly && children}
+        </>
+      )
+      : children;
+
   return (
     <HeroButton
       ref={ref}
       variant={VARIANT[variant]}
       size={SIZE[size]}
-      isIconOnly={size === 'icon'}
+      isIconOnly={iconOnly}
       isDisabled={isDisabled ?? disabled ?? false}
-      className={cn(className)}
+      isPending={busy}
+      className={cn(busy && 'cursor-progress opacity-70', className)}
       {...(handlePress ? { onPress: handlePress } : {})}
       {...props}
-    />
+    >
+      {content as React.ReactNode}
+    </HeroButton>
   );
 });

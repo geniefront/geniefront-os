@@ -44,6 +44,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { toast, Spinner } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
 import {
   useDayCloseQuery,
   useSaveCashCount,
@@ -220,10 +221,14 @@ export function DayClose() {
   };
 
   // 保存实点Amount
+  /** 日结差异说明的字段级校验。 */
+  const closeForm = useFieldErrors<'varianceReason'>();
+
   const handleSaveCount = async () => {
     if (!dayClose) return;
+    closeForm.clear();
     if (needsReason && !varianceReason.trim()) {
-      toast.danger(t('varianceReasonRequired') || t('checkout.dcVarianceReasonRequired'));
+      closeForm.fail('varianceReason', t('varianceReasonRequired') || t('checkout.dcVarianceReasonRequired'));
       return;
     }
 
@@ -339,7 +344,7 @@ export function DayClose() {
   };
 
   if (isLoading && !dayClose) {
-    return <PageLoading title={t('checkout.dcLoading')} description={t('checkout.dcLoadingDesc')} />;
+    return <PageLoading layout="detail" title={t('checkout.dcLoading')} description={t('checkout.dcLoadingDesc')} />;
   }
 
   if (error && !dayClose) {
@@ -347,7 +352,7 @@ export function DayClose() {
   }
 
   if (!dayClose) {
-    return <PageLoading title={t('checkout.dcLoading2')} description={t('checkout.dcLoadingDesc2')} />;
+    return <PageLoading layout="detail" title={t('checkout.dcLoading2')} description={t('checkout.dcLoadingDesc2')} />;
   }
 
   const isClosed = dayClose.status === 'closed';
@@ -1081,9 +1086,10 @@ export function DayClose() {
                       {t('checkout.dcVarianceReasonLabel')} {needsReason && <span className="text-red-500">{t('checkout.dcRequired')}</span>}
                     </label>
                     <Input
+                      {...closeForm.bind('varianceReason')}
                       disabled={isClosed}
                       value={varianceReason}
-                      onChange={(e) => setVarianceReason(e.target.value)}
+                      onChange={(e) => { setVarianceReason(e.target.value); closeForm.clearField('varianceReason'); }}
                       placeholder={t('checkout.dcVarianceReasonPlaceholder')}
                       className="text-xs"
                     />
@@ -1111,6 +1117,7 @@ export function DayClose() {
 
                 {!isClosed && (
                   <Button
+                    isPending={saveCountMutation.isPending}
                     className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold gap-2 mt-2"
                     onClick={handleSaveCount}
                     disabled={saveCountMutation.isPending}
@@ -1142,6 +1149,7 @@ export function DayClose() {
                 </div>
                 {!isClosed && (
                   <Button
+                    isPending={payTipsMutation.isPending}
                     size="sm"
                     className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold gap-1.5"
                     onClick={handlePayAllTips}
@@ -1366,6 +1374,7 @@ export function DayClose() {
                 {t('cancel')}
               </Button>
               <Button
+                isPending={reopenMutation.isPending}
                 onClick={handleReopen}
                 disabled={!reopenReasonText.trim() || reopenMutation.isPending}
                 className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
@@ -1409,6 +1418,7 @@ export function DayClose() {
                 {t('checkout.dcPettyCancel')}
               </Button>
               <Button
+                isPending={recordMovementMutation.isPending}
                 onClick={handleRecordMovement}
                 disabled={recordMovementMutation.isPending}
                 className="bg-teal-600 hover:bg-teal-700 text-white font-bold"

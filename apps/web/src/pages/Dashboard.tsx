@@ -286,7 +286,7 @@ export function DashboardContent() {
   }, [reviewsSummary.recentReviews, reviewSearch]);
 
   if (isInitialLoading) {
-    return <PageLoading title={t('finance.dashLoading')} description={t('finance.dashLoadingDesc')} />;
+    return <PageLoading layout="cards" title={t('finance.dashLoading')} description={t('finance.dashLoadingDesc')} />;
   }
 
   if (scheduleError && !dayData) {

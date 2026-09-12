@@ -40,7 +40,13 @@ try {
     await page.goto('http://127.0.0.1:5187/notifications');
     const nav = page.locator('#desk-navigation');
     await expect(nav).toBeAttached();
-    if (width < 1280) {
+    /*
+     * 侧栏常驻的下界是 1024px（见 apps/web/src/components/Layout.tsx 的
+     * SIDEBAR_QUERY）。1024px 以下走抽屉，需要验证「默认不可聚焦 → 打开可用 →
+     * Escape 收回」这一整条；1024px 及以上侧栏常驻，只需确认它没有被 inert 掉、
+     * 且导航项本身达到触控尺寸即可。
+     */
+    if (width < 1024) {
       await expect(nav).toHaveAttribute('inert', '');
       await page.getByRole('button', { name: /Open navigation|打开导航/ }).click();
       await expect(nav).not.toHaveAttribute('inert');
@@ -49,6 +55,11 @@ try {
       expect(target.height).toBeGreaterThanOrEqual(44);
       await page.keyboard.press('Escape');
       await expect(nav).toHaveAttribute('inert', '');
+    } else {
+      await expect(nav).not.toHaveAttribute('inert');
+      await expect(nav.getByRole('link').first()).toBeVisible();
+      const target = await nav.getByRole('link').first().boundingBox();
+      expect(target.height).toBeGreaterThanOrEqual(44);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     const clipped = await page.evaluate(CLIPPING_PROBE);
@@ -56,8 +67,15 @@ try {
     await page.screenshot({path: `${output}desk-${width}.png`});
     console.log(`PASS desk navigation / overflow / clipping ${width}×${height}`);
   }
-  // A collapsed desktop sidebar must regain labels when opened after rotation.
-  await page.getByRole('button', {name: /Collapse sidebar|收起侧边栏/}).click();
+  /*
+   * 收起态的常驻侧栏在旋转到竖屏后必须重新显示文字标签。
+   *
+   * 1024–1279px（平板横屏）默认就是收起的图标轨，因此这里不必手动收起，
+   * 等待「收起侧边栏」按钮随图标轨一起隐藏即可确认已进入收起态 —— 断点变化
+   * 经由 matchMedia 监听驱动 React 重渲染，必须等它落地再旋转。
+   */
+  await page.setViewportSize({width:1180,height:820});
+  await expect(page.getByRole('button', {name: /Collapse sidebar|收起侧边栏/})).toBeHidden();
   await page.setViewportSize({width:820,height:1180});
   await page.getByRole('button', {name: /Open navigation|打开导航/}).click();
   await expect(page.locator('#desk-navigation a span').first()).toBeVisible();

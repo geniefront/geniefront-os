@@ -39,7 +39,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { PageLoading } from '@/components/ui/QueryState';
+import { PageLoading, SectionError } from '@/components/ui/QueryState';
 import { ConfirmDialog } from '@/components/ui/Modal';
 import {
   useNotificationsQuery,
@@ -125,7 +125,7 @@ export function Notifications() {
   });
 
   const { data: stats, isLoading: isStatsLoading } = useNotificationStatsQuery();
-  const { data: notifications, isLoading, refetch, isFetching } = useNotificationsQuery({
+  const { data: notifications, isLoading, isError, error, refetch, isFetching } = useNotificationsQuery({
     category: activeCategory,
     unreadOnly,
     searchQuery,
@@ -212,10 +212,16 @@ export function Notifications() {
     });
   };
 
-  // 执行二次确认操作
+  /*
+   * 执行二次确认操作。
+   *
+   * ⚠️ 不要在这里先关弹窗。批量删除可能要逐条发几十个请求，此前一按确认弹窗
+   * 就消失，整个过程界面上没有任何痕迹 —— 用户不知道在跑、也不知道跑到哪了。
+   * 交给 `ConfirmDialog`：它在 `onConfirm` 兑现之前保持打开、确认键转圈并锁住，
+   * 兑现后自行关闭，失败则留在原地让 toast 有处可依。
+   */
   const executeConfirmedAction = async () => {
     const { type, payload } = confirmDialogState;
-    setConfirmDialogState((prev) => ({ ...prev, isOpen: false }));
 
     try {
       switch (type) {
@@ -595,6 +601,12 @@ export function Notifications() {
               <Spinner size="md" />
               <p className="text-xs text-slate-400">{t('crm.loading')}</p>
             </div>
+          ) : isError ? (
+            /*
+              加载失败必须与「暂无通知」分开呈现。合在一起时，请求挂掉的界面
+              与真的没有通知的界面完全相同，用户据此认为今天没有任何通知。
+            */
+            <SectionError error={error} onRetry={() => void refetch()} />
           ) : !notifications || notifications.length === 0 ? (
             <EmptyState
               icon={<Bell className="w-8 h-8 text-slate-300" />}

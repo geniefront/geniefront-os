@@ -284,13 +284,21 @@ export function HealthForms() {
   };
 
   // AI 智能出题 / 增补
+  /*
+   * AI 生成耗时数秒且按次计费。按钮的禁用要等 `isAiGenerating` 渲染下来才生效，
+   * 而快捷提示词那一排按钮连点两下可能落在同一批更新里 —— 用 ref 做同步判定。
+   */
+  const aiGeneratingRef = useRef(false);
+
   const handleRunAi = async (customPrompt?: string, actionType?: string) => {
     const promptToUse = customPrompt || aiPrompt;
     if (!promptToUse.trim()) {
       toast.danger(t('healthForms.danger8'));
       return;
     }
+    if (aiGeneratingRef.current) return;
 
+    aiGeneratingRef.current = true;
     setIsAiGenerating(true);
     try {
       const result = await generateQuestions.mutateAsync({
@@ -315,6 +323,7 @@ export function HealthForms() {
     } catch (error) {
       toast.danger(errorMessage(error));
     } finally {
+      aiGeneratingRef.current = false;
       setIsAiGenerating(false);
     }
   };
@@ -491,6 +500,7 @@ export function HealthForms() {
             {t('healthForms.previewCustomerForm')}
           </Button>
           <Button
+            isPending={save.isPending}
             size="sm"
             onClick={handlePublishTemplate}
             disabled={save.isPending}
@@ -553,6 +563,7 @@ export function HealthForms() {
                     </div>
                   </div>
                   <Button
+                    isPending={accessSubmission.isPending}
                     size="sm"
                     onClick={() => void openSubmission(rec)}
                     disabled={accessSubmission.isPending}
@@ -610,7 +621,8 @@ export function HealthForms() {
                 <Button size="sm" variant="outline" onClick={() => void copyShareLink()} disabled={share.isPending} className="h-8 text-xs">
                   <Copy className="mr-1.5 h-3.5 w-3.5" />{t('healthForms.copyLink')}
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => void (async () => {
+                <Button
+                  isPending={share.isPending} size="sm" variant="outline" onClick={() => void (async () => {
                   const created = shareResult ?? await createShareLink();
                   if (created) setQrModalOpen(true);
                 })()} disabled={share.isPending} className="h-8 text-xs">
@@ -914,7 +926,8 @@ export function HealthForms() {
                   key={item.id}
                   type="button"
                   onClick={() => void handleRunAi(item.prompt, item.actionType)}
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-teal-50 hover:border-teal-300 transition-colors"
+                  disabled={isAiGenerating}
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-teal-50 hover:border-teal-300 transition-colors disabled:cursor-progress disabled:opacity-60"
                 >
                   {localized(item.label, language)}
                 </button>
@@ -928,7 +941,7 @@ export function HealthForms() {
             </Button>
             <Button
               size="sm"
-              disabled={isAiGenerating}
+              isPending={isAiGenerating}
               onClick={() => void handleRunAi()}
               className="bg-teal-600 text-white font-bold"
             >

@@ -163,7 +163,7 @@ export function CommunicationLogs() {
   };
 
   if (isInitialLoading) {
-    return <PageLoading title={t('crm.commLoading')} description={t('crm.commLoadingDesc')} />;
+    return <PageLoading layout="table" title={t('crm.commLoading')} description={t('crm.commLoadingDesc')} />;
   }
 
   if ((callsError || smsError) && !callData && !smsData) {

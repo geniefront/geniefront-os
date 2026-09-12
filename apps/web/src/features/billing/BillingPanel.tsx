@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { SectionError } from '@/components/ui/QueryState';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { toast } from '@heroui/react';
 import { AlertCircle, CheckCircle2, PhoneCall, Sparkles, Ticket } from 'lucide-react';
@@ -185,6 +186,9 @@ export function BillingPanel() {
       <CardContent className="p-6">
         {billingQuery.isLoading ? (
           <p className="text-xs text-slate-500">{t('settings.stBillingLoading')}</p>
+        ) : billingQuery.isError ? (
+          /* 取不到与「没有订阅」是两回事：前者要重试，后者要去开通 */
+          <SectionError error={billingQuery.error} onRetry={() => void billingQuery.refetch()} />
         ) : !billing ? (
           <EmptyState title={t('settings.stBillingUnavailable')} />
         ) : (
@@ -236,6 +240,7 @@ export function BillingPanel() {
                 ) : (
                   <>
                     <Button
+                      isPending={portalMutation.isPending}
                       variant="secondary"
                       size="sm"
                       disabled={portalMutation.isPending}
@@ -246,6 +251,7 @@ export function BillingPanel() {
                     </Button>
                     {!hasPaymentMethod && (
                       <Button
+                        isPending={paymentMethodMutation.isPending}
                         variant="secondary"
                         size="sm"
                         disabled={paymentMethodMutation.isPending}
@@ -354,6 +360,10 @@ export function BillingPanel() {
               </h4>
               {invoicesQuery.isLoading ? (
                 <p className="text-xs text-slate-500">{t('settings.stBillingLoading')}</p>
+              ) : invoicesQuery.isError ? (
+                <div className="border border-slate-200 rounded-2xl">
+                  <SectionError error={invoicesQuery.error} onRetry={() => void invoicesQuery.refetch()} className="py-8" />
+                </div>
               ) : invoices.length === 0 ? (
                 <div className="border border-slate-200 rounded-2xl">
                   <EmptyState title={t('settings.stNoInvoices')} className="py-8" />
@@ -515,6 +525,7 @@ function RedeemCodeSection({ billing }: { billing: BillingView }) {
           aria-label={t('settings.stRedeemTitle')}
         />
         <Button
+          isPending={redeem.isPending}
           size="sm"
           disabled={code.trim().length < 8 || redeem.isPending}
           onClick={() => void submit()}

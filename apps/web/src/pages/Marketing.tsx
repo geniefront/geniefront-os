@@ -1,5 +1,8 @@
 import { useState, useMemo } from 'react';
 import { toast, Spinner } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
+import { parseMoney } from '@/lib/validation';
+import { useValidationMessage } from '@/lib/validationMessage';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -295,20 +298,37 @@ function MarketingContent() {
     };
   }, [packages, giftCards, coupons, customers, playbooks]);
 
+  /** 营销页四个表单（次卡、发售、优惠券、积分）共用的字段级校验。 */
+  const mktForm = useFieldErrors<
+    'pkgName' | 'pkgServices' | 'buyerName' | 'cpnCode' | 'cpnName'
+    | 'pkgPrice' | 'cpnValue' | 'gcFaceValue' | 'gcSalePrice'
+  >();
+  const invalid = useValidationMessage();
+
   // 1. 创建次卡套餐
   const handleCreatePackage = async () => {
+    mktForm.clear();
     if (!pkgName.trim()) {
-      toast.danger(t('crm.mktPackageNameRequired'));
+      mktForm.fail('pkgName', t('crm.mktPackageNameRequired'));
       return;
     }
     if (pkgServiceIds.length === 0) {
+      /* 项目是一组勾选框而非输入框，没有可聚焦的单一控件，仍以 toast 呈现 */
       toast.danger(t('crm.mktPkgServicesRequired'));
       return;
     }
+    /*
+     * ⚠️ 不能直接把输入交给 `dollarsToCents`。它是结账流程用的宽容解析器，
+     * 会把非数字字符剔掉再算 —— `dollarsToCents('abc')` 返回 0，于是一张次卡
+     * 被静默按 0 元发布，谁都不会收到任何提示。先判定，再换算。
+     */
+    const pkgPriceParsed = parseMoney(pkgPrice);
+    if (!pkgPriceParsed.ok) return mktForm.fail('pkgPrice', invalid.money(pkgPriceParsed.reason));
+
     try {
       await savePackageMut.mutateAsync({
         name: pkgName.trim(),
-        priceCents: dollarsToCents(pkgPrice),
+        priceCents: pkgPriceParsed.value,
         serviceIds: pkgServiceIds,
         sessions: parseInt(pkgUnits, 10) || 5,
         validDays: parseInt(pkgValidDays, 10) || 365,
@@ -324,8 +344,9 @@ function MarketingContent() {
 
   // 2. 发售次卡给顾客
   const handleConfirmIssuePackage = async () => {
+    mktForm.clear();
     if (!issueTargetPkg || !issueCustomerName.trim()) {
-      toast.danger(t('crm.mktBuyerNameRequired'));
+      mktForm.fail('buyerName', t('crm.mktBuyerNameRequired'));
       return;
     }
     try {
@@ -374,19 +395,30 @@ function MarketingContent() {
 
   // 4. 创建优惠券
   const handleCreateCoupon = async () => {
+    mktForm.clear();
     if (!cpnCode.trim() || !cpnName.trim()) {
-      toast.danger(t('crm.mktCouponFieldsRequired'));
+      mktForm.fail(cpnCode.trim() ? 'cpnName' : 'cpnCode', t('crm.mktCouponFieldsRequired'));
       return;
     }
+    /*
+     * 面额券按金额判定；折扣券填的是百分比，`parseFloat('abc')` 得到 NaN，
+     * `Math.round(NaN * 100)` 依旧是 NaN —— 此前会原样提交给服务端。
+     * 百分比借金额解析器判形状（同样是「数字 + 至多两位小数」），再按百分点换算。
+     */
+    const cpnParsed = parseMoney(cpnValue);
+    if (!cpnParsed.ok) return mktForm.fail('cpnValue', invalid.money(cpnParsed.reason));
+    const minSpend = parseMoney(cpnMinSpend, { allowEmpty: true });
+    if (!minSpend.ok) return mktForm.fail('cpnValue', invalid.money(minSpend.reason));
+
     try {
       await saveCouponMut.mutateAsync({
         code: cpnCode.trim().toUpperCase(),
         name: cpnName.trim(),
         kind: cpnKind,
-        discountAmountCents: cpnKind === 'amount' ? dollarsToCents(cpnValue) : undefined,
-        discountPercentBp:
-          cpnKind === 'percent' ? Math.round(parseFloat(cpnValue) * 100) : undefined,
-        minSpendCents: dollarsToCents(cpnMinSpend),
+        discountAmountCents: cpnKind === 'amount' ? cpnParsed.value : undefined,
+        // 金额解析已按「分」返回，百分比同样是两位精度，因此直接就是基点
+        discountPercentBp: cpnKind === 'percent' ? cpnParsed.value : undefined,
+        minSpendCents: minSpend.value,
         validDays: parseInt(cpnValidDays, 10) || 30,
       });
       toast.success(t('crm.mktCouponPublished'));
@@ -418,10 +450,16 @@ function MarketingContent() {
 
   // 6. 发售Gift Card
   const handleCreateGiftCard = async () => {
+    mktForm.clear();
+    const face = parseMoney(gcFaceValue);
+    if (!face.ok) return mktForm.fail('gcFaceValue', invalid.money(face.reason));
+    const sale = parseMoney(gcSalePrice, { allowEmpty: true });
+    if (!sale.ok) return mktForm.fail('gcSalePrice', invalid.money(sale.reason));
+
     try {
       const res = await issueGiftCardMut.mutateAsync({
-        faceValueCents: dollarsToCents(gcFaceValue),
-        salePriceCents: dollarsToCents(gcSalePrice),
+        faceValueCents: face.value,
+        salePriceCents: sale.value,
         recipientName: gcRecipient.trim() || undefined,
         recipientNote: gcPurchaser.trim() ? t('crm.mktGiftCardPurchaserNote', { p0: gcPurchaser.trim() }) : undefined,
       });
@@ -512,7 +550,7 @@ function MarketingContent() {
   };
 
   if (isInitialLoading) {
-    return <PageLoading title={t('crm.mktLoading')} description={t('crm.mktLoadingDesc')} />;
+    return <PageLoading layout="cards" title={t('crm.mktLoading')} description={t('crm.mktLoadingDesc')} />;
   }
 
   if ((packagesQ.isError || couponsQ.isError) && !packagesQ.data && !couponsQ.data) {
@@ -1323,6 +1361,7 @@ function MarketingContent() {
               {t('cancel') || t('crm.mktPkgCancel')}
             </Button>
             <Button
+              isPending={savePackageMut.isPending}
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
               onClick={handleCreatePackage}
               disabled={savePackageMut.isPending}
@@ -1339,8 +1378,9 @@ function MarketingContent() {
               {t('crm.mktPkgNameLabel')}
             </label>
             <Input
+              {...mktForm.bind('pkgName')}
               value={pkgName}
-              onChange={(e) => setPkgName(e.target.value)}
+              onChange={(e) => { setPkgName(e.target.value); mktForm.clearField('pkgName'); }}
               placeholder={t('crm.mktPkgNamePlaceholder')}
             />
           </div>
@@ -1353,8 +1393,9 @@ function MarketingContent() {
               </label>
               <Input
                 type="number"
+                {...mktForm.bind('pkgPrice')}
                 value={pkgPrice}
-                onChange={(e) => setPkgPrice(e.target.value)}
+                onChange={(e) => { setPkgPrice(e.target.value); mktForm.clearField('pkgPrice'); }}
               />
             </div>
 
@@ -1428,6 +1469,7 @@ function MarketingContent() {
               {t('cancel') || t('crm.mktSellCancel')}
             </Button>
             <Button
+              isPending={issuePackageMut.isPending}
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
               onClick={handleConfirmIssuePackage}
               disabled={issuePackageMut.isPending}
@@ -1452,8 +1494,9 @@ function MarketingContent() {
               {t('crm.mktBuyerNameLabel')}
             </label>
             <Input
+              {...mktForm.bind('buyerName')}
               value={issueCustomerName}
-              onChange={(e) => setIssueCustomerName(e.target.value)}
+              onChange={(e) => { setIssueCustomerName(e.target.value); mktForm.clearField('buyerName'); }}
               placeholder={t('crm.mktBuyerNamePlaceholder')}
             />
           </div>
@@ -1494,6 +1537,7 @@ function MarketingContent() {
               {t('cancel') || t('crm.mktCouponCancel')}
             </Button>
             <Button
+              isPending={saveCouponMut.isPending}
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
               onClick={handleCreateCoupon}
               disabled={saveCouponMut.isPending}
@@ -1511,8 +1555,9 @@ function MarketingContent() {
                 {t('crm.mktCouponCodeLabel')}
               </label>
               <Input
+                {...mktForm.bind('cpnCode')}
                 value={cpnCode}
-                onChange={(e) => setCpnCode(e.target.value)}
+                onChange={(e) => { setCpnCode(e.target.value); mktForm.clearField('cpnCode'); }}
                 placeholder={t('crm.mktCouponCodePlaceholder')}
               />
             </div>
@@ -1523,8 +1568,9 @@ function MarketingContent() {
                 {t('crm.mktCouponNameLabel')}
               </label>
               <Input
+                {...mktForm.bind('cpnName')}
                 value={cpnName}
-                onChange={(e) => setCpnName(e.target.value)}
+                onChange={(e) => { setCpnName(e.target.value); mktForm.clearField('cpnName'); }}
                 placeholder={t('crm.mktCouponNamePlaceholder')}
               />
             </div>
@@ -1553,8 +1599,9 @@ function MarketingContent() {
               </label>
               <Input
                 type="number"
+                {...mktForm.bind('cpnValue')}
                 value={cpnValue}
-                onChange={(e) => setCpnValue(e.target.value)}
+                onChange={(e) => { setCpnValue(e.target.value); mktForm.clearField('cpnValue'); }}
               />
             </div>
 
@@ -1584,6 +1631,7 @@ function MarketingContent() {
               {t('cancel') || t('crm.mktGcCancel')}
             </Button>
             <Button
+              isPending={issueGiftCardMut.isPending}
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
               onClick={handleCreateGiftCard}
               disabled={issueGiftCardMut.isPending}
@@ -1601,8 +1649,9 @@ function MarketingContent() {
               </label>
               <Input
                 type="number"
+                {...mktForm.bind('gcFaceValue')}
                 value={gcFaceValue}
-                onChange={(e) => setGcFaceValue(e.target.value)}
+                onChange={(e) => { setGcFaceValue(e.target.value); mktForm.clearField('gcFaceValue'); }}
               />
             </div>
 
@@ -1612,8 +1661,9 @@ function MarketingContent() {
               </label>
               <Input
                 type="number"
+                {...mktForm.bind('gcSalePrice')}
                 value={gcSalePrice}
-                onChange={(e) => setGcSalePrice(e.target.value)}
+                onChange={(e) => { setGcSalePrice(e.target.value); mktForm.clearField('gcSalePrice'); }}
               />
             </div>
           </div>
@@ -1655,6 +1705,7 @@ function MarketingContent() {
               {t('cancel') || t('crm.mktPointsCancel')}
             </Button>
             <Button
+              isPending={saveLoyaltyMut.isPending}
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
               onClick={handleSaveLoyalty}
               disabled={saveLoyaltyMut.isPending}
@@ -1714,6 +1765,7 @@ function MarketingContent() {
               {t('cancel') || t('crm.mktAdjustCancel')}
             </Button>
             <Button
+              isPending={adjustLoyaltyMut.isPending}
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
               onClick={handleConfirmAdjustPoints}
               disabled={adjustLoyaltyMut.isPending}

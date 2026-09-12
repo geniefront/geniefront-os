@@ -88,7 +88,7 @@ export function HardwareServer({ embedded = false }: { embedded?: boolean } = {}
   };
 
   if ((devicesQuery.isLoading || settingsQuery.isLoading) && !devicesQuery.data && !settingsQuery.data) {
-    return <PageLoading title={t('settings.hwLoading')} description={t('settings.hwLoadingDesc')} />;
+    return <PageLoading layout="detail" title={t('settings.hwLoading')} description={t('settings.hwLoadingDesc')} />;
   }
 
   if ((devicesQuery.isError || settingsQuery.isError) && !devicesQuery.data && !settingsQuery.data) {
@@ -220,6 +220,7 @@ export function HardwareServer({ embedded = false }: { embedded?: boolean } = {}
 
                     <div className="flex items-center gap-2 self-end sm:self-auto">
                       <Button
+                        isPending={queueCommandMutation.isPending}
                         size="sm"
                         variant="secondary"
                         className="text-xs h-8 px-2.5 text-slate-700"

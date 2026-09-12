@@ -6,6 +6,7 @@
  */
 import * as React from 'react';
 import { Modal as HeroModal, Button } from '@heroui/react';
+import { Loader2 } from 'lucide-react';
 import { useLanguage } from '@/LanguageContext';
 import { cn } from '@/lib/utils';
 
@@ -76,6 +77,39 @@ export function ConfirmDialog({
   isOpen, onOpenChange, title, description, confirmLabel, tone = 'default', onConfirm,
 }: ConfirmDialogProps) {
   const { t } = useLanguage();
+  /*
+   * ⚠️ 确认按钮必须自带进行中状态。
+   *
+   * 这个弹窗守着的全是不可逆操作（作废单据、退款、删除员工）。此前按下确认后
+   * 到 `onConfirm` 兑现之间，按钮外观毫无变化也不拦第二次按下 —— 网络稍慢，
+   * 前台再点一次就是第二笔退款。
+   *
+   * `runningRef` 与 `running` 两者都要：状态更新要等下一次渲染才生效，而连续
+   * 两次点击可能落在同一批里；ref 是同步的，能挡住这种情况。
+   */
+  const [running, setRunning] = React.useState(false);
+  const runningRef = React.useRef(false);
+
+  // 弹窗关闭后重置，避免下次打开时还停在上一次的进行中状态
+  React.useEffect(() => {
+    if (!isOpen) { runningRef.current = false; setRunning(false); }
+  }, [isOpen]);
+
+  const handleConfirm = async () => {
+    if (runningRef.current) return;
+    runningRef.current = true;
+    setRunning(true);
+    try {
+      await onConfirm();
+      onOpenChange(false);
+    } catch {
+      // 失败时留着弹窗，toast 才看得到
+    } finally {
+      runningRef.current = false;
+      setRunning(false);
+    }
+  };
+
   return (
     <Modal
       isOpen={isOpen}
@@ -85,21 +119,19 @@ export function ConfirmDialog({
       size="sm"
       footer={
         <div className="flex gap-2 justify-end w-full">
-          <Button variant="tertiary" onPress={() => onOpenChange(false)} aria-label={t('cancel')}>
+          <Button variant="tertiary" onPress={() => onOpenChange(false)} isDisabled={running} aria-label={t('cancel')}>
             {t('cancel')}
           </Button>
           <Button
             variant={tone === 'danger' ? 'danger' : 'primary'}
             aria-label={typeof confirmLabel === 'string' ? confirmLabel : t('confirm')}
-            onPress={async () => {
-              try {
-                await onConfirm();
-                onOpenChange(false);
-              } catch {
-                // 失败时留着弹窗，toast 才看得到
-              }
-            }}
+            isDisabled={running}
+            isPending={running}
+            aria-busy={running || undefined}
+            className={running ? 'cursor-progress opacity-70' : undefined}
+            onPress={() => { void handleConfirm(); }}
           >
+            {running ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" /> : null}
             {confirmLabel ?? t('confirm')}
           </Button>
         </div>

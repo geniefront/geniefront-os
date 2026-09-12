@@ -8,6 +8,7 @@ import {
   QrCode, Scissors, Settings, Sparkles, Star, Stethoscope, Tag, User, X,
 } from 'lucide-react';
 import { Spinner, toast } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
 import { QRCodeSVG } from 'qrcode.react';
 import { useLanguage } from '@/LanguageContext';
 import { useSchedule, UNASSIGNED_STAFF_ID } from '@/context/ScheduleContext';
@@ -174,9 +175,13 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
     setEditCustomerOpen(true);
   };
 
+  /** 抽屉内顾客档案表单的字段级校验。 */
+  const custForm = useFieldErrors<'name'>();
+
   const handleSaveCustomerProfile = async () => {
+    custForm.clear();
     if (!custFormName.trim()) {
-      toast.danger(t('crm.custNameRequired'));
+      custForm.fail('name', t('crm.custNameRequired'));
       return;
     }
     const phoneE164 = custFormPhone.trim() ? (normalizePhoneE164(custFormPhone) ?? undefined) : undefined;
@@ -674,6 +679,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
             {t('cancel')}
           </Button>
           <Button
+            isPending={saveCustomerProfileM.isPending}
             className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
             onClick={handleSaveCustomerProfile}
             disabled={saveCustomerProfileM.isPending || updateApptCustomerM.isPending}
@@ -690,8 +696,9 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
               {t('crm.custNameLabel')} <span className="text-rose-500">*</span>
             </label>
             <Input
+              {...custForm.bind('name')}
               value={custFormName}
-              onChange={(e) => setCustFormName(e.target.value)}
+              onChange={(e) => { setCustFormName(e.target.value); custForm.clearField('name'); }}
               placeholder={t('crm.custNamePlaceholder')}
             />
           </div>

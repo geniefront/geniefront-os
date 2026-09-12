@@ -29,13 +29,13 @@ import { gridBounds } from '@/features/schedule/gridBounds';
 import { useDaysRange } from '@/features/schedule/api';
 import { useCanWrite } from '@/lib/permissions';
 import { fuzzySearch } from '@/lib/fuzzySearch';
-import { Search } from 'lucide-react';
+import { Loader2, Search } from 'lucide-react';
 import { toast, Spinner } from '@heroui/react';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { GuardedButton } from '@/components/ui/GuardedButton';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
-import { formatI18n } from '@/lib/utils';
+import { cn, formatI18n } from '@/lib/utils';
 
 /** 放行原因与取消原因的文案映射。取值与服务端枚举一一对应，不得增删。 */
 const OVERRIDE_REASON_LABELS = {
@@ -125,7 +125,7 @@ function ScheduleContent() {
   const { t, language } = useLanguage();
   const {
     services, staff, items, currentDate, setCurrentDate,
-    isLoading, error: dayError, refetch, timezone, openMin: storeOpenMin, closeMin: storeCloseMin,
+    isLoading, isStaleDate, error: dayError, refetch, timezone, openMin: storeOpenMin, closeMin: storeCloseMin,
   } = useSchedule();
   const { create, reschedule, cancel } = useScheduleMutations();
 
@@ -546,7 +546,7 @@ function ScheduleContent() {
    * 错误结论，可能导致她把客人推给别家。
    */
   if (isLoading) {
-    return <PageLoading title={t('schedule.loadingTitle')} description={t('schedule.loadingDesc')} />;
+    return <PageLoading layout="calendar" title={t('schedule.loadingTitle')} description={t('schedule.loadingDesc')} />;
   }
 
   if (dayError) {
@@ -554,10 +554,40 @@ function ScheduleContent() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-slate-50 text-slate-800 rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+    <div className="relative h-full flex flex-col bg-slate-50 text-slate-800 rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+      {/*
+        翻页遮罩。
+        为了不闪白屏，新日期的数据到达前屏幕上留的是上一天的日历（见
+        `features/schedule/api.ts` 的 placeholderData）。这段时间里屏幕内容与
+        标题上的日期并不一致，因此必须：**说明正在切换**，并**挡住这期间的所有
+        点击** —— 否则前台会在 9 月 11 日的格子上给 9 月 12 日落单。
+      */}
+      {isStaleDate && (
+        <div
+          role="status"
+          aria-live="polite"
+          /*
+            遮罩要足够厚。旧日历上每一列都写着「暂无预约」，而 items 是按
+            `currentDate` 过滤的 —— 切换期间新日期还没到，旧数据又对不上号，
+            那行字此刻是错的。半透明遮罩挡不住它，用户仍会读到「明天一单都没有」。
+          */
+          className="absolute inset-0 z-sticky flex items-start justify-center bg-white/80 backdrop-blur-[2px]"
+        >
+          <span className="mt-24 flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-lg">
+            <Loader2 className="h-4 w-4 animate-spin text-teal-600" />
+            {t('schedule.loadingTitle')}
+          </span>
+        </div>
+      )}
       <div className="flex-none min-h-16 bg-white border-b border-slate-200 px-3 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 z-10">
         <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-          <div className="relative flex items-center group cursor-pointer overflow-hidden rounded-md">
+          {/*
+            触屏下那条 44px 的输入框最小高度落在绝对定位的日期选择器上，它不会
+            撑开父容器；父容器只有标题行的高度（约 31px），overflow-hidden 于是
+            把可点区域的下缘切掉了 13px。这里给容器补上同样的最小高度，日期
+            选择器的整块热区才完整可点。
+          */}
+          <div className="relative flex min-h-11 items-center group cursor-pointer overflow-hidden rounded-md">
             <h2 className="text-xl font-bold text-slate-900 tracking-tight group-hover:text-teal-600 transition-colors pr-2 flex items-center gap-2">
               {(() => {
                 const d = parseLocal(currentDate);
@@ -791,9 +821,15 @@ function ScheduleContent() {
               <div className="w-16 flex-none bg-white border-r border-slate-200 z-50 sticky left-0 flex flex-col">
                 <div className="h-[72px] sticky top-0 bg-white border-b border-slate-200 z-50 flex-none" />
                 <div className="relative">
-                  {timeSlots.map(time => (
+                  {/*
+                    刻度文字用 `-top-3` 骑在格线上，第一格因此有一半落到上方 ——
+                    正好被 sticky 的 72px 表头盖住，平板字号下首个时刻被横着切掉
+                    上半截。首行改用 `top-0` 贴在格内：仅此一行与格线的相对位置
+                    略有差异，其余刻度的对齐关系不变。
+                  */}
+                  {timeSlots.map((time, idx) => (
                     <div key={time} className="h-[60px] relative border-b border-transparent">
-                      <span className="absolute -top-3 right-2 text-xs font-medium text-slate-400">{time}</span>
+                      <span className={cn('absolute right-2 text-xs font-medium text-slate-400', idx === 0 ? 'top-0' : '-top-3')}>{time}</span>
                     </div>
                   ))}
                 </div>
@@ -1061,7 +1097,24 @@ function ScheduleContent() {
                           
                           const cardPadding = (effectiveCols >= 3 && !isHovered) ? 'p-1' : (effectiveCols >= 2 && !isHovered) ? 'p-1.5' : 'p-2 sm:p-2.5';
                           const titleSize = (effectiveCols >= 3 && !isHovered) ? 'text-[10px] leading-tight' : 'text-xs sm:text-sm';
-                          const showDetails = isStoreView || (effectiveCols < 3 || isHovered);
+                          /*
+                           * 疏密此前只看横向重叠列数（effectiveCols），从不看卡片实际有多高。
+                           * 时间轴每 30 分钟 60px，因此一单 30 分钟的卡片净高只有 56px，而
+                           * 「姓名 + 时间 + 技师与项目」三行连同内边距需要 76px（平板字号下
+                           * 接近 97px）—— 项目名被 overflow-hidden 直接裁掉，且因为容器设了
+                           * 固定高度，裁掉的部分连滚动都取不回来。
+                           *
+                           * 这里按卡片净高再分一档：放不下第三行就不渲染第三行。项目名仍可
+                           * 通过悬停展开、tooltip 与详情抽屉读到，比渲染出来再被切掉可靠。
+                           */
+                          const cardHeight = height - 4;
+                          const fitsDetailRow = cardHeight >= 88;
+                          /*
+                           * 再低一档：30 分钟的卡片净高 56px，连「姓名 + 时间」两行都放不下。
+                           * 此时把开始时间并进姓名那一行 —— 信息一条不少，只占一行。
+                           */
+                          const fitsTimeRow = cardHeight >= 68 || isHovered;
+                          const showDetails = isStoreView || ((effectiveCols < 3 && fitsDetailRow) || isHovered);
                           const tooltipText = `${apt.customerName}\n${apt.startTime} - ${apt.endTime}\n${apt.serviceName}`;
                           
                           return (
@@ -1105,11 +1158,16 @@ function ScheduleContent() {
                                 <div className={`font-bold ${titleSize} tracking-tight ${!isHovered ? (effectiveCols >= 3 ? 'break-all line-clamp-2' : 'truncate') : 'whitespace-normal'} ${isCompleted || isNoShow ? 'line-through' : ''}`}>
                                   {apt.customerName}
                                 </div>
+                                {!fitsTimeRow && (
+                                  <span className="ml-auto shrink-0 text-xs font-medium opacity-90">{apt.startTime}</span>
+                                )}
                                 {apt.status === 'in_service' && <CheckCircle className="w-3 h-3 text-emerald-500 shrink-0 mt-0.5" />}
                               </div>
-                              <div className={`text-xs opacity-90 mt-0.5 ${!isHovered ? 'truncate' : 'whitespace-normal'} flex items-center gap-1`}>
-                                <Clock className="w-3 h-3 shrink-0" /> {apt.startTime} {isHovered && `- ${apt.endTime}`}
-                              </div>
+                              {fitsTimeRow && (
+                                <div className={`text-xs opacity-90 mt-0.5 ${!isHovered ? 'truncate' : 'whitespace-normal'} flex items-center gap-1`}>
+                                  <Clock className="w-3 h-3 shrink-0" /> {apt.startTime} {isHovered && `- ${apt.endTime}`}
+                                </div>
+                              )}
                               {showDetails && (() => {
                                 const aptStaff = staff.find(s => s.membershipId === apt.staffId);
                                 return (

@@ -612,7 +612,7 @@ function RotationContent() {
   };
 
   if (isLoading && !rotation) {
-    return <PageLoading title={t('rotation.rotLoading')} description={t('rotation.rotLoadingDesc')} />;
+    return <PageLoading layout="cards" title={t('rotation.rotLoading')} description={t('rotation.rotLoadingDesc')} />;
   }
 
   if (error && !rotation) {
@@ -1511,6 +1511,7 @@ function RotationContent() {
               {t('rotation.rotReorderCancel')}
             </Button>
             <Button
+              isPending={reorderMutation.isPending}
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold gap-1"
               onClick={handleConfirmDragReorder}
               disabled={reorderMutation.isPending}
@@ -1716,6 +1717,7 @@ function RotationContent() {
               {t('cancel') || t('rotation.rotDispatchCancel')}
             </Button>
             <Button
+              isPending={assignMutation.isPending}
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
               onClick={handleConfirmAssign}
               disabled={assignMutation.isPending}
@@ -1791,6 +1793,7 @@ function RotationContent() {
               {t('cancel') || t('rotation.rotSkipCancel')}
             </Button>
             <Button
+              isPending={skipMutation.isPending}
               className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
               onClick={handleConfirmSkip}
               disabled={skipMutation.isPending}
@@ -1862,6 +1865,7 @@ function RotationContent() {
               {t('cancel') || t('rotation.rotClockInCancel')}
             </Button>
             <Button
+              isPending={checkInMutation.isPending}
               className="bg-purple-600 hover:bg-purple-700 text-white font-bold"
               onClick={handleConfirmCheckIn}
               disabled={checkInMutation.isPending}
@@ -1909,6 +1913,7 @@ function RotationContent() {
               {t('cancel') || t('rotation.rotClockOutCancel')}
             </Button>
             <Button
+              isPending={checkOutMutation.isPending}
               className="bg-slate-800 hover:bg-slate-900 text-white font-bold"
               onClick={handleConfirmCheckOut}
               disabled={checkOutMutation.isPending}
@@ -1950,6 +1955,7 @@ function RotationContent() {
               {t('cancel') || t('rotation.rotPolicyCancel')}
             </Button>
             <Button
+              isPending={updatePolicyMutation.isPending}
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
               onClick={handleSavePolicy}
               disabled={updatePolicyMutation.isPending}

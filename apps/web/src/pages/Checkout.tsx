@@ -556,7 +556,7 @@ function CheckoutContent() {
   }
 
   if (isLoading && !data) {
-    return <PageLoading title={t('checkout.checkoutLoading')} description={t('checkout.checkoutLoadingDesc')} />;
+    return <PageLoading layout="list" title={t('checkout.checkoutLoading')} description={t('checkout.checkoutLoadingDesc')} />;
   }
 
   if (error && !data) {
@@ -584,7 +584,12 @@ function CheckoutContent() {
           </div>
 
           {/* 状态筛选切换器（默认：服务完成Open / Unpaid） */}
-          <div className="grid grid-cols-4 gap-1 p-1 bg-slate-200/70 rounded-xl text-[11px] font-bold text-slate-600">
+          {/*
+            四等分只在桌面的宽工单栏里放得下。平板字号下这条工具条每格仅约
+            65px，四个标签一律被截成「已完…」「服务中…」「已到店…」，彼此无法
+            区分。1280px 以下改为 2×2：格宽翻倍，标签完整可读。
+          */}
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-1 p-1 bg-slate-200/70 rounded-xl text-[11px] font-bold text-slate-600">
             <button
               type="button"
               onClick={() => { setUserPickedTicketFilter(true); setStatusFilter('ready_to_pay'); }}

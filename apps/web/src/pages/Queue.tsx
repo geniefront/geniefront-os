@@ -2369,7 +2369,7 @@ function QueueContent() {
   };
 
   if (isInitialLoading) {
-    return <PageLoading title={t('queue.quLoading')} description={t('queue.quLoadingDesc')} />;
+    return <PageLoading layout="board" title={t('queue.quLoading')} description={t('queue.quLoadingDesc')} />;
   }
 
   if (queueError && !queue) {

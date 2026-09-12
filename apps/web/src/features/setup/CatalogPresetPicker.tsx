@@ -133,7 +133,8 @@ export function CatalogPresetPicker({ businessType, existingNames, onAdded }: {
             <GuardedButton
               permission="catalog.manage"
               onClick={addSelected}
-              isDisabled={adding || selected.size === 0}
+              isPending={adding}
+              isDisabled={selected.size === 0}
               className="gap-2"
             >
               {adding ? t('setupPresetAdding') : t('setupPresetAddSelected', { count: selected.size })}

@@ -62,7 +62,8 @@ export function DirectorySettings({ jobs, levels, skills }: { jobs: DirectoryOpt
             </div>
             <span className="flex-1">{option.name}{!option.active && (zh ? '（已停用）' : ' (inactive)')}</span>
             <Button size="sm" variant="secondary" disabled={mutation.isPending} onClick={() => { setEditing(option); setName(option.name); }}>{zh ? '编辑' : 'Edit'}</Button>
-            <Button size="sm" variant="secondary" disabled={mutation.isPending} onClick={() => void save(option)}>{option.active ? (zh ? '停用' : 'Disable') : (zh ? '启用' : 'Enable')}</Button>
+            <Button
+          isPending={mutation.isPending} size="sm" variant="secondary" disabled={mutation.isPending} onClick={() => void save(option)}>{option.active ? (zh ? '停用' : 'Disable') : (zh ? '启用' : 'Enable')}</Button>
           </div>)}
         </div>
         <p className="text-xs text-slate-400">{zh ? '显示顺序仅影响列表位置，不影响排班、轮牌或提成。' : 'Display order only affects the list; it does not affect scheduling, rotation or payouts.'}</p>

@@ -412,7 +412,8 @@ export function ImportWorkspace({
         {pendingBusiness.isClosed && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{t('setupImportClosedWarning')}</div>}
         <div className="flex flex-wrap justify-between gap-3">
           <Button variant="ghost" onClick={() => setPendingBusiness(null)}>{t('setupImportBack')}</Button>
-          <Button onClick={() => void applyBusiness()} isDisabled={busy || businessFields.size === 0}>
+          <Button
+            isPending={busy} onClick={() => void applyBusiness()} isDisabled={busy || businessFields.size === 0}>
             {busy ? t('setupImportApplying') : t('setupImportApplyFields', { count: businessFields.size })}
           </Button>
         </div>
@@ -546,7 +547,8 @@ export function ImportWorkspace({
         )}
         <div className="flex flex-wrap justify-between gap-3">
           <Button variant="ghost" onClick={() => setBlueprint(null)}>{t('setupImportBack')}</Button>
-          <Button onClick={() => void applyBlueprint()} isDisabled={busy || !canApply}>
+          <Button
+            isPending={busy} onClick={() => void applyBlueprint()} isDisabled={busy || !canApply}>
             {busy ? t('setupImportBuilding') : t('setupImportConfirm', { services: accepted.size })}
           </Button>
         </div>

@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { SectionError } from '@/components/ui/QueryState';
 import { Input } from '@/components/ui/Input';
 import { ConfirmDialog } from '@/components/ui/Modal';
 import {
@@ -217,6 +218,7 @@ export function ReviewSourcesPanel() {
         <div className="flex items-center justify-between gap-3">
           <p className="text-[11px] text-slate-500">{t('reviews.clearHint')}</p>
           <Button
+            isPending={save.isPending}
             onPress={() => void handleSave()}
             disabled={save.isPending}
             className="shrink-0 bg-teal-600 text-white font-bold text-xs"
@@ -286,7 +288,10 @@ export function ReviewSourcesPanel() {
           <p className="text-xs text-slate-500">{t('reviews.logDesc')}</p>
         </div>
 
-        {runs.length === 0 ? (
+        {runsQ.isError ? (
+          /* 同步记录取不到 ≠ 从未同步过：后者会让店主以为采集根本没跑起来 */
+          <SectionError error={runsQ.error} onRetry={() => void runsQ.refetch()} />
+        ) : runs.length === 0 ? (
           <EmptyState icon={<RefreshCw />} title={t('reviews.logEmpty')} />
         ) : (
           <div className="overflow-x-auto">

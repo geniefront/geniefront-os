@@ -122,6 +122,7 @@ export function Support() {
             <p className="text-xs font-medium text-rose-600">{t('support.requiredHint')}</p>
           ) : <span />}
           <Button
+            isPending={submitting}
             className="bg-teal-600 text-white font-bold"
             disabled={submitting || submit.isPending || !subject.trim() || !description.trim()}
             onClick={() => void handleSubmit()}

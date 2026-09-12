@@ -34,6 +34,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { toast, Spinner } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
 import { Card, CardContent } from '@/components/ui/Card';
 import { fuzzySearch } from '@/lib/fuzzySearch';
 import { useErrorMessage } from '@/lib/errorMessage';
@@ -306,14 +307,18 @@ function EmployeePerformanceContent() {
     setIsFormModalOpen(true);
   };
 
+  /** 员工档案表单的字段级校验。 */
+  const staffForm = useFieldErrors<'name' | 'phone'>();
+
   // 3. 提交表单保存 (带二次确认)
   const handleSubmitFormWithConfirm = () => {
+    staffForm.clear();
     if (!formName.trim()) {
-      toast.danger(t('rotation.empNameRequired'));
+      staffForm.fail('name', t('rotation.empNameRequired'));
       return;
     }
     if (!formPhone.trim()) {
-      toast.danger(t('rotation.empPhoneRequired'));
+      staffForm.fail('phone', t('rotation.empPhoneRequired'));
       return;
     }
 
@@ -457,7 +462,7 @@ function EmployeePerformanceContent() {
   };
 
   if (isInitialLoading) {
-    return <PageLoading title={t('rotation.empLoading')} description={t('rotation.empLoadingDesc')} />;
+    return <PageLoading layout="table" title={t('rotation.empLoading')} description={t('rotation.empLoadingDesc')} />;
   }
 
   if (isStaffError && !staffData) {
@@ -845,8 +850,9 @@ function EmployeePerformanceContent() {
                   {t('rotation.empNameLabel')}
                 </label>
                 <Input
+                  {...staffForm.bind('name')}
                   value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
+                  onChange={(e) => { setFormName(e.target.value); staffForm.clearField('name'); }}
                   placeholder={t('rotation.empNamePlaceholder')}
                 />
               </div>
@@ -869,8 +875,9 @@ function EmployeePerformanceContent() {
                   {t('rotation.empPhoneLabel')}
                 </label>
                 <Input
+                  {...staffForm.bind('phone')}
                   value={formPhone}
-                  onChange={(e) => setFormPhone(formatPhoneInput(e.target.value))}
+                  onChange={(e) => { setFormPhone(formatPhoneInput(e.target.value)); staffForm.clearField('phone'); }}
                   placeholder="(555) 000-0000"
                   maxLength={14}
                 />

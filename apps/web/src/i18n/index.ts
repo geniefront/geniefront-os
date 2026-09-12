@@ -24,6 +24,7 @@ import { support } from './support';
 import { reviews } from './reviews';
 import { permissions } from './permissions';
 import { bundle } from './bundles';
+import { validation } from './validation';
 import { UI_LANGUAGES } from './types';
 import type { Language } from './types';
 
@@ -51,6 +52,7 @@ const dict = {
   ...reviews,
   ...permissions,
   ...bundle,
+  ...validation,
 };
 
 export type TranslationKey = keyof typeof dict;

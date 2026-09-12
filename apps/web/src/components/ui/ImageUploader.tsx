@@ -6,6 +6,7 @@ import { uploadImageToStorage, type ImageProcessOptions } from '@/lib/imageUploa
 import { useLanguage } from '@/LanguageContext';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { toast } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
 
 export interface ImageUploaderProps {
   value?: string;
@@ -126,9 +127,13 @@ export function ImageUploader({
     }
   }, []);
 
+  /** 图片 URL 输入的字段级校验。 */
+  const urlForm = useFieldErrors<'url'>();
+
   const handleApplyUrl = () => {
+    urlForm.clear();
     if (!urlDraft.trim()) {
-      toast.danger(t('settings.uploadUrlRequired'));
+      urlForm.fail('url', t('settings.uploadUrlRequired'));
       return;
     }
     onChange(urlDraft.trim());
@@ -253,8 +258,9 @@ export function ImageUploader({
             ) : (
               <div className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-xl animate-fadeIn">
                 <Input
+                  {...urlForm.bind('url')}
                   value={urlDraft}
-                  onChange={(e) => setUrlDraft(e.target.value)}
+                  onChange={(e) => { setUrlDraft(e.target.value); urlForm.clearField('url'); }}
                   placeholder={t('settings.uploadUrlPlaceholder')}
                   className="text-xs flex-1 bg-white"
                   autoFocus

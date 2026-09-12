@@ -32,7 +32,7 @@ export function Payouts() {
   };
 
   if (isLoading && !estimates.data && !dayClose.data) {
-    return <PageLoading title={t('finance.recordLoading')} description={t('finance.recordLoadingDesc')} />;
+    return <PageLoading layout="table" title={t('finance.recordLoading')} description={t('finance.recordLoadingDesc')} />;
   }
   if ((estimates.isError || dayClose.isError) && !estimates.data && !dayClose.data) {
     return <PageError title={t('finance.recordLoadError')} error={estimates.error || dayClose.error} onRetry={refresh} />;

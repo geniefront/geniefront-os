@@ -17,6 +17,9 @@ import { wallMinutesToInstant, instantToWallDate, nowWallHhMm } from '@/lib/time
 import { useErrorMessage } from '@/lib/errorMessage';
 import { centsToDollars } from '@/features/checkout/api';
 import { toast } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
+import { parseDurationMinutes } from '@/lib/validation';
+import type { DurationReason, ParseResult } from '@/lib/validation';
 import { cn, formatPhoneInput, formatPhoneDisplay } from '@/lib/utils';
 import {
   Calendar,
@@ -66,19 +69,17 @@ export interface AppointmentItemDraft {
 const DURATION_MIN = 1;
 const DURATION_MAX = 600;
 
-type DurationParse =
-  | { ok: true; value: number }
-  | { ok: false; reason: 'empty' | 'format' | 'range' };
+type DurationParse = ParseResult<number, DurationReason>;
 
-/** 只在失焦/提交时调用 —— 逐次按键不做任何强制回填 */
-export const parseDuration = (text: string): DurationParse => {
-  const trimmed = text.trim();
-  if (trimmed === '') return { ok: false, reason: 'empty' };
-  if (!/^\d{1,4}$/.test(trimmed)) return { ok: false, reason: 'format' };
-  const value = Number(trimmed);
-  if (value < DURATION_MIN || value > DURATION_MAX) return { ok: false, reason: 'range' };
-  return { ok: true, value };
-};
+/**
+ * 只在失焦/提交时调用 —— 逐次按键不做任何强制回填。
+ *
+ * 判定本身已收进 `lib/validation`，此处仅固定本场景的边界：预约内对单项时长的
+ * 覆盖允许低到 1 分钟（前台按实际情况微调），而目录里新建项目不得短于 5 分钟。
+ * 两者是不同的业务约束，因此下限由调用方给出而非写死在规则层。
+ */
+export const parseDuration = (text: string): DurationParse =>
+  parseDurationMinutes(text, { min: DURATION_MIN, max: DURATION_MAX });
 
 const timeToMins = (time: string) => {
   const [h, m] = time.split(':').map(Number);
@@ -225,7 +226,12 @@ export function CreateAppointmentModal({
   const [phone, setPhone] = useState(defaultPhone);
   const [date, setDate] = useState(defaultDate || currentDate);
   const [notes, setNotes] = useState('');
-  const [nameError, setNameError] = useState(false);
+  /*
+   * 顾客姓名的字段级校验。此前是手写的 `nameError` 布尔：红框与提示文案都有，
+   * 但不聚焦、不滚动，且无论字段是否在视口内都照弹 toast。改用共享 hook，
+   * 与全站其余表单保持同一套行为。
+   */
+  const apptForm = useFieldErrors<'customerName'>();
 
   // 聚合多项目行列表
   const [items, setItems] = useState<AppointmentItemDraft[]>([]);
@@ -387,7 +393,7 @@ export function CreateAppointmentModal({
     setCustomerName(defaultCustomerName);
     setPhone(defaultPhone);
     setNotes('');
-    setNameError(false);
+    apptForm.clear();
     setConflictError(null);
     setPastTimeConfirmModal(null);
 
@@ -710,7 +716,7 @@ export function CreateAppointmentModal({
   // 提交创建聚合预约
   const handleSubmit = async (override?: Override, retryKey?: string, customNotes?: string) => {
     if (!customerName.trim()) {
-      toast.danger(t('schedule.apptNameRequired'));
+      apptForm.fail('customerName', t('schedule.apptNameRequired'));
       return;
     }
     if (mode === 'bundle') {
@@ -828,12 +834,11 @@ export function CreateAppointmentModal({
   };
 
   const handleInitialSubmit = () => {
+    apptForm.clear();
     if (!customerName.trim()) {
-      setNameError(true);
-      toast.danger(t('schedule.apptNameRequired2'));
+      apptForm.fail('customerName', t('schedule.apptNameRequired2'));
       return;
     }
-    setNameError(false);
     if (mode === 'bundle') {
       if (!selectedBundleId) {
         toast.danger(t('bundle.pickerPlaceholder'));
@@ -910,7 +915,7 @@ export function CreateAppointmentModal({
                   ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/20'
                   : 'bg-teal-600 hover:bg-teal-700 shadow-teal-600/20',
               )}
-              disabled={create.isPending}
+              isPending={create.isPending}
               onClick={handleInitialSubmit}
             >
               {create.isPending
@@ -932,21 +937,16 @@ export function CreateAppointmentModal({
                   {t('customerName') || t('schedule.apptCustomerName')} *
                 </label>
                 <Input
+                  {...apptForm.bind('customerName')}
                   value={customerName}
                   onChange={(e) => {
                     markDirty();
                     setCustomerName(e.target.value);
-                    if (nameError && e.target.value.trim()) setNameError(false);
+                    apptForm.clearField('customerName');
                   }}
                   placeholder={t('schedule.apptNamePlaceholder')}
-                  className={cn(nameError && 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20 bg-rose-50/20')}
                   autoFocus
                 />
-                {nameError && (
-                  <p className="text-[11px] text-rose-600 font-medium mt-1">
-                    {t('schedule.apptNameRequired2')}
-                  </p>
-                )}
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -1631,12 +1631,22 @@ export function CreateAppointmentModal({
               <Button variant="secondary" onClick={() => setConflictError(null)}>
                 {t('cancel')}
               </Button>
+              {/*
+                强制排入会真的创建预约。此前按下即关弹窗、再异步提交，
+                中间既无转圈也无拦截，连点两次就是两条重复预约。
+                改为保持弹窗、按钮转圈，提交完成后再关。
+              */}
               <Button
                 className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
+                isPending={create.isPending}
                 onClick={() => {
                   const key = conflictError.key;
-                  setConflictError(null);
-                  handleSubmit({ reason: overrideReason }, key);
+                  /*
+                    不要在这里清 conflictError：提交成功走 onClose()，弹窗随
+                    整个创建流程一起关；再次冲突时 handleSubmit 会用新的幂等键
+                    重新写入 conflictError，提前清掉会让第二次冲突无从显示。
+                  */
+                  void handleSubmit({ reason: overrideReason }, key);
                 }}
               >
                 {t('forceSchedule')}

@@ -227,7 +227,7 @@ export function Calls() {
   };
 
   if (isInitialLoading) {
-    return <PageLoading title={t('crm.callLoading')} description={t('crm.callLoadingDesc')} />;
+    return <PageLoading layout="table" title={t('crm.callLoading')} description={t('crm.callLoadingDesc')} />;
   }
 
   if ((callsError || draftsError) && !callData && !draftData) {
@@ -950,6 +950,7 @@ export function Calls() {
                 {t('crm.callIgnoreCancel')}
               </Button>
               <Button
+                isPending={dismissMutation.isPending}
                 size="sm"
                 className="bg-red-600 hover:bg-red-700 text-white font-bold"
                 disabled={dismissMutation.isPending}

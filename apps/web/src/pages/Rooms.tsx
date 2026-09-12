@@ -38,8 +38,10 @@ import {
   MoreVertical,
   ArrowRight,
   ShieldAlert,
+  Loader2,
 } from 'lucide-react';
 import { toast, Spinner } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
 import { ActionMenu } from '@/components/ui/ActionMenu';
 import {
   useRoomsQuery,
@@ -161,6 +163,13 @@ function RoomsContent() {
       const k = r.typeKey || 'room';
       map.set(k, (map.get(k) ?? 0) + 1);
     }
+    /*
+     * 兜底标签取该类型任意一间房的 `type`（后端已按当前语言解析过 resource_types
+     * 的多语言名称），而不是 typeKey 本身 —— 门店自定义的类型键是 `pedi_chair`
+     * 这类数据库枚举名，直接摆到筛选栏上就是把内部标识泄露给前台。
+     */
+    const displayNameOf = (key: string) =>
+      rooms.find((r) => (r.typeKey || 'room') === key)?.type || key;
     return Array.from(map.entries()).map(([key, count]) => ({
       key,
       count,
@@ -173,7 +182,7 @@ function RoomsContent() {
               ? t('pedicureChairs') || '足疗沙发'
               : key === 'bed'
                 ? t('massageBeds') || '按摩理疗床'
-                : key,
+                : displayNameOf(key),
     }));
   }, [rooms, t]);
 
@@ -228,10 +237,14 @@ function RoomsContent() {
     setDeleteModalOpen(true);
   };
 
+  /** 房间/工位表单的字段级校验。失败时标红并把焦点移到出错的那一格。 */
+  const resourceForm = useFieldErrors<'name'>();
+
   // 保存房间/工位配置
   const handleSaveResource = async () => {
+    resourceForm.clear();
     if (!name.trim()) {
-      toast.danger(t('queue.roomNameRequired'));
+      resourceForm.fail('name', t('queue.roomNameRequired'));
       return;
     }
     try {
@@ -266,6 +279,19 @@ function RoomsContent() {
     }
   };
 
+  /*
+   * ── 快捷切态的进行中状态 ────────────────────────────────────────────────────
+   *
+   * 房态卡上的「转打扫 / 打扫完成 / 恢复空闲」是前台一天里按得最多的几个键，
+   * 而它们此前按下后到 toast 弹出之间没有任何表示。门店 iPad 的网络并不总是
+   * 很快，前台看不到反应就会再按一次 —— 于是同一间房连发两三条切态命令。
+   *
+   * 用 `busyRoomId` 按房间粒度记录，而不是一个全局标志：切 A 房时 B 房的按钮
+   * 不应该跟着灰掉。`busyRoomRef` 提供同步判定，挡住状态尚未落地时的第二次按下。
+   */
+  const [busyRoomId, setBusyRoomId] = useState<string | null>(null);
+  const busyRoomRef = useRef<string | null>(null);
+
   // 快捷切态
   const handleQuickStatus = async (room: RoomItem, newStatus: RoomStatus, note?: string) => {
     if (room.currentSession && (newStatus === 'cleaning' || newStatus === 'available')) {
@@ -279,6 +305,9 @@ function RoomsContent() {
       return;
     }
 
+    if (busyRoomRef.current) return;
+    busyRoomRef.current = room.id;
+    setBusyRoomId(room.id);
     try {
       if (newStatus === 'cleaning') {
         await beginCleaning.mutateAsync({ resourceId: room.id });
@@ -297,6 +326,9 @@ function RoomsContent() {
       toast.success(t('queue.roomStatusUpdated', { p0: room.name, p1: statusLabel }));
     } catch (err: any) {
       toast.danger(errorMessage(err));
+    } finally {
+      busyRoomRef.current = null;
+      setBusyRoomId(null);
     }
   };
 
@@ -396,7 +428,7 @@ function RoomsContent() {
   };
 
   if (isLoading && !data) {
-    return <PageLoading title={t('queue.roomLoading')} description={t('queue.roomLoadingDesc')} />;
+    return <PageLoading layout="cards" title={t('queue.roomLoading')} description={t('queue.roomLoadingDesc')} />;
   }
 
   if (error && !data) {
@@ -701,7 +733,13 @@ function RoomsContent() {
                           <Edit2 className="w-3 h-3" />
                         </button>
                       </div>
-                      <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium mt-0.5 whitespace-nowrap truncate">
+                      {/*
+                        容量与接单上限都是 shrink-0，整行再加 whitespace-nowrap
+                        的话，唯一能收缩的类型名就会被压到只剩一个字（平板字号下
+                        「足疗美甲位」显示为「足…」）。改为允许换行：放不下时整段
+                        落到下一行，类型名保持完整。
+                      */}
+                      <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px] text-slate-500 font-medium mt-0.5">
                         <span className="truncate">{room.type}</span>
                         <span className="shrink-0 text-slate-300">·</span>
                         <span className="shrink-0 font-mono">{t('queue.roomCapacity')} {room.occupiedCount ?? 0}/{room.capacity}{t('queue.roomPeopleUnit')}</span>
@@ -718,8 +756,9 @@ function RoomsContent() {
                       {/* 交互式快捷状态选择器 */}
                       <select
                         value={room.status}
+                        disabled={busyRoomId === room.id}
                         onChange={(e) => handleQuickStatus(room, e.target.value as RoomStatus)}
-                        className={`text-[11px] font-bold px-2 py-0.5 rounded-xl border cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500/20 transition-all ${
+                        className={`text-[11px] font-bold px-2 py-0.5 rounded-xl border cursor-pointer disabled:cursor-progress disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-teal-500/20 transition-all ${
                           isAvail
                             ? 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
                             : isInService
@@ -800,20 +839,26 @@ function RoomsContent() {
                         </Button>
                         <div className="flex items-center gap-1.5 pt-0.5">
                           <button
+                            disabled={busyRoomId === room.id}
                             type="button"
                             onClick={() => handleQuickStatus(room, 'cleaning')}
-                            className="flex-1 py-1 px-2 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                            className="flex-1 py-1 px-2 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors disabled:cursor-progress disabled:opacity-60"
                           >
-                            <Sparkles className="w-3 h-3 text-teal-600" />
+                            {busyRoomId === room.id
+                              ? <Loader2 className="w-3 h-3 animate-spin text-teal-600" />
+                              : <Sparkles className="w-3 h-3 text-teal-600" />}
 
                             {t('queue.roomToCleaning')}
                           </button>
                           <button
+                            disabled={busyRoomId === room.id}
                             type="button"
                             onClick={() => handleQuickStatus(room, 'maintenance')}
-                            className="flex-1 py-1 px-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                            className="flex-1 py-1 px-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors disabled:cursor-progress disabled:opacity-60"
                           >
-                            <Wrench className="w-3 h-3 text-rose-600" />
+                            {busyRoomId === room.id
+                              ? <Loader2 className="w-3 h-3 animate-spin text-rose-600" />
+                              : <Wrench className="w-3 h-3 text-rose-600" />}
 
                             {t('queue.roomToMaintenance')}
                           </button>
@@ -821,7 +866,8 @@ function RoomsContent() {
                       </div>
                     )}
 
-                    {isInService && ((room.waitingCleaningCount ?? 0) > 0 || (room.cleaningCount ?? 0) > 0) && <Button size="sm" disabled={beginCleaning.isPending || completeCleaning.isPending} onClick={async () => {
+                    {isInService && ((room.waitingCleaningCount ?? 0) > 0 || (room.cleaningCount ?? 0) > 0) && <Button
+                      isPending={beginCleaning.isPending} size="sm" disabled={beginCleaning.isPending || completeCleaning.isPending} onClick={async () => {
                       try {
                         if ((room.waitingCleaningCount ?? 0) > 0) await beginCleaning.mutateAsync({ resourceId: room.id });
                         else await completeCleaning.mutateAsync({ resourceId: room.id });
@@ -876,6 +922,7 @@ function RoomsContent() {
 
                         <div className="flex items-center gap-1.5">
                           <Button
+                            isPending={busyRoomId === room.id}
                             size="sm"
                             variant="secondary"
                             className="flex-1 text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border-amber-300 h-7 cursor-pointer"
@@ -888,6 +935,7 @@ function RoomsContent() {
                             <span>{t('queue.roomServiceDoneClean')}</span>
                           </Button>
                           <Button
+                            isPending={busyRoomId === room.id}
                             size="sm"
                             variant="secondary"
                             className="text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border-emerald-200 h-7 cursor-pointer px-2.5"
@@ -911,6 +959,7 @@ function RoomsContent() {
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Button
+                            isPending={busyRoomId === room.id}
                             size="sm"
                             className="flex-1 text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white h-7 cursor-pointer"
                             onClick={() => handleQuickStatus(room, 'cleaning')}
@@ -919,6 +968,7 @@ function RoomsContent() {
                             <span>{t('queue.roomToCleaning2')}</span>
                           </Button>
                           <Button
+                            isPending={busyRoomId === room.id}
                             size="sm"
                             variant="secondary"
                             className="flex-1 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border-emerald-200 h-7 cursor-pointer"
@@ -938,6 +988,7 @@ function RoomsContent() {
                           <span>{t('queue.roomCleaningInProgress')}</span>
                         </p>
                         <Button
+                          isPending={busyRoomId === room.id}
                           variant="secondary"
                           size="sm"
                           className="w-full text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white border-teal-700 shadow-xs h-8 cursor-pointer"
@@ -957,11 +1008,14 @@ function RoomsContent() {
                             {t('queue.roomSeatDirect')}
                           </button>
                           <button
+                            disabled={busyRoomId === room.id}
                             type="button"
                             onClick={() => handleQuickStatus(room, 'maintenance')}
-                            className="flex-1 py-1 px-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                            className="flex-1 py-1 px-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors disabled:cursor-progress disabled:opacity-60"
                           >
-                            <Wrench className="w-3 h-3 text-rose-600" />
+                            {busyRoomId === room.id
+                              ? <Loader2 className="w-3 h-3 animate-spin text-rose-600" />
+                              : <Wrench className="w-3 h-3 text-rose-600" />}
 
                             {t('queue.roomToMaintenance2')}
                           </button>
@@ -977,6 +1031,7 @@ function RoomsContent() {
                           <span>{t('queue.roomMaintenanceNote')}</span>
                         </p>
                         <Button
+                          isPending={busyRoomId === room.id}
                           variant="secondary"
                           size="sm"
                           className="w-full text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white border-rose-700 shadow-xs h-8 cursor-pointer"
@@ -987,9 +1042,10 @@ function RoomsContent() {
                         </Button>
                         <div className="flex items-center gap-1.5 pt-0.5">
                           <button
+                            disabled={busyRoomId === room.id}
                             type="button"
                             onClick={() => handleQuickStatus(room, 'cleaning')}
-                            className="flex-1 py-1 px-2 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                            className="flex-1 py-1 px-2 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors disabled:cursor-progress disabled:opacity-60"
                           >
                             <Sparkles className="w-3 h-3 text-teal-600" />
 
@@ -1189,8 +1245,9 @@ function RoomsContent() {
                         <td className="p-3.5">
                           <select
                             value={room.status}
+                            disabled={busyRoomId === room.id}
                             onChange={(e) => handleQuickStatus(room, e.target.value as RoomStatus)}
-                            className="text-xs font-bold px-2 py-1 rounded-xl border cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500/20 transition-all bg-white"
+                            className="text-xs font-bold px-2 py-1 rounded-xl border cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500/20 transition-all bg-white disabled:cursor-progress disabled:opacity-60"
                           >
                             <option value="available">{t('queue.roomListAvailable')}</option>
                             <option value="in_service">🟡 {t('roomOccupied')}</option>
@@ -1231,6 +1288,7 @@ function RoomsContent() {
                           <div className="flex items-center justify-end gap-1.5">
                             {room.status !== 'available' && (
                               <Button
+                                isPending={busyRoomId === room.id}
                                 size="sm"
                                 variant="ghost"
                                 className="h-7 text-xs text-emerald-700 hover:bg-emerald-50 font-bold"
@@ -1242,6 +1300,7 @@ function RoomsContent() {
                             )}
                             {room.status !== 'in_service' && (
                               <Button
+                                isPending={busyRoomId === room.id}
                                 size="sm"
                                 variant="ghost"
                                 className="h-7 text-xs text-amber-700 hover:bg-amber-50 font-bold"
@@ -1253,6 +1312,7 @@ function RoomsContent() {
                             )}
                             {room.status !== 'cleaning' && (
                               <Button
+                                isPending={busyRoomId === room.id}
                                 size="sm"
                                 variant="ghost"
                                 className="h-7 text-xs text-teal-700 hover:bg-teal-50 font-bold"
@@ -1333,6 +1393,7 @@ function RoomsContent() {
                 {t('cancel') || t('queue.roomCancel')}
               </Button>
               <Button
+                isPending={saveResourceMutation.isPending}
                 className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
                 onClick={handleSaveResource}
                 disabled={saveResourceMutation.isPending}
@@ -1349,8 +1410,9 @@ function RoomsContent() {
               {t('queue.roomNameLabel')}
             </label>
             <Input
+              {...resourceForm.bind('name')}
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => { setName(e.target.value); resourceForm.clearField('name'); }}
               placeholder={t('queue.roomNamePlaceholder')}
             />
           </div>
@@ -1421,6 +1483,7 @@ function RoomsContent() {
               {t('cancel') || t('queue.roomDeleteCancel')}
             </Button>
             <Button
+              isPending={deleteResourceMutation.isPending}
               className="bg-red-600 hover:bg-red-700 text-white font-bold"
               onClick={handleConfirmDelete}
               disabled={deleteResourceMutation.isPending}
@@ -1475,6 +1538,7 @@ function RoomsContent() {
               {t('cancel') || t('queue.roomSeatCancel')}
             </Button>
             <Button
+              isPending={seatPending}
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
               onClick={handleConfirmSeat}
               disabled={seatPending}
@@ -1573,6 +1637,7 @@ function RoomsContent() {
               {t('cancel') || t('queue.roomMaintCancel')}
             </Button>
             <Button
+              isPending={setStatusMutation.isPending}
               className="bg-rose-600 hover:bg-rose-700 text-white font-bold"
               onClick={handleConfirmMaintenance}
               disabled={setStatusMutation.isPending}
@@ -1646,7 +1711,8 @@ function RoomsContent() {
         <div className="space-y-2 mb-3">
           {(sessionDetailRoom?.currentSessions ?? []).map((item, index) => <div key={item.ticketItemId ?? index} className="border rounded-xl p-3 flex items-center gap-3">
             <div className="flex-1">{item.customerName} · {item.serviceName}<p className="text-slate-500 text-xs">{item.staffNames.join(', ')}</p></div>
-            <Button disabled={finishTicketItem.isPending || !item.ticketItemId} size="sm" onClick={async () => {
+            <Button
+              isPending={finishTicketItem.isPending} disabled={finishTicketItem.isPending || !item.ticketItemId} size="sm" onClick={async () => {
               try {
                 await finishTicketItem.mutateAsync({ ticketItemId: item.ticketItemId! });
                 const refreshed = await refetch();

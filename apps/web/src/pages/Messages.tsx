@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useErrorMessage } from '@/lib/errorMessage';
 import { useStoreTime } from '@/lib/time';
 import { toast } from "@heroui/react";
+import { useFieldErrors } from '@/lib/formFeedback';
 import { useLanguage } from "@/LanguageContext";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -138,9 +139,13 @@ export function Messages() {
     }
   };
 
+  /** 新建短信表单的字段级校验。 */
+  const smsForm = useFieldErrors<'phone' | 'body'>();
+
   const handleExecuteSendNewSms = async () => {
+    smsForm.clear();
     if (!newSmsToPhone.trim() || !newSmsBody.trim()) {
-      toast.danger(t('crm.msgFieldsRequired'));
+      smsForm.fail(newSmsToPhone.trim() ? 'body' : 'phone', t('crm.msgFieldsRequired'));
       return;
     }
     try {
@@ -174,7 +179,7 @@ export function Messages() {
   ];
 
   if (isLoading && !data) {
-    return <PageLoading title={t('crm.msgLoading')} description={t('crm.msgLoadingDesc')} />;
+    return <PageLoading layout="list" title={t('crm.msgLoading')} description={t('crm.msgLoadingDesc')} />;
   }
 
   if (isError && !data) {
@@ -740,7 +745,8 @@ export function Messages() {
               className="bg-teal-600 text-white font-bold"
               onClick={() => {
                 if (!newSmsToPhone.trim() || !newSmsBody.trim()) {
-                  toast.danger(t('crm.msgFieldsRequired2'));
+                  smsForm.clear();
+                  smsForm.fail(newSmsToPhone.trim() ? 'body' : 'phone', t('crm.msgFieldsRequired2'));
                   return;
                 }
                 setConfirmNewSmsOpen(true);
@@ -759,8 +765,9 @@ export function Messages() {
               {t('crm.msgRecipientPhone')}
             </label>
             <Input
+              {...smsForm.bind('phone')}
               value={newSmsToPhone}
-              onChange={(e) => setNewSmsToPhone(e.target.value)}
+              onChange={(e) => { setNewSmsToPhone(e.target.value); smsForm.clearField('phone'); }}
               placeholder="+12125551234"
             />
           </div>
@@ -772,12 +779,21 @@ export function Messages() {
               </span>
             </div>
             <textarea
+              ref={smsForm.bind('body').ref}
+              aria-invalid={smsForm.errors.body ? true : undefined}
               rows={4}
               value={newSmsBody}
-              onChange={(e) => setNewSmsBody(e.target.value)}
+              onChange={(e) => { setNewSmsBody(e.target.value); smsForm.clearField('body'); }}
               placeholder={t('crm.msgBodyPlaceholder')}
-              className="w-full p-3 text-sm rounded-xl border border-slate-200 min-h-[100px] focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+              className={`w-full p-3 text-sm rounded-xl border min-h-[100px] focus:outline-none focus:ring-2 ${
+                smsForm.errors.body
+                  ? 'border-red-400 focus:ring-red-500/20'
+                  : 'border-slate-200 focus:ring-teal-500/20'
+              }`}
             />
+            {smsForm.errors.body && (
+              <p role="alert" className="mt-1 text-xs font-medium text-red-600">{smsForm.errors.body}</p>
+            )}
           </div>
         </div>
       </Modal>

@@ -169,6 +169,22 @@ div[data-slot="modal-container"] {
     min-height: 44px;
   }
 
+  /*
+   * 勾选框与单选框被排除在上面那条 44px 规则之外 —— 把方框本身撑到 44px 会
+   * 破坏行内版式。但原生 16px 在触屏上几乎点不中（审查中 /schedule 的「按技师
+   * 分列」与 /notifications 的全选框实测均为 16×16）。这里抬到 24px：方框在
+   * 版式中的位置不变，命中率显著提升。
+   *
+   * ⚠️ 不要改用伪元素去铺一块 44px 的隐形命中区。checkbox 属替换元素，其
+   * ::before / ::after 的渲染在各浏览器间并不一致，且一旦生效就会盖住相邻控件。
+   * 补足到 44px 的正确做法是把方框包进一个带内边距的 <label>，由页面各自处理。
+   */
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-width: 1.5rem;
+    min-height: 1.5rem;
+  }
+
 
   /* Preserve intentionally large phone / code fields. */
   :is(input, select, textarea):not(.text-lg):not(.text-xl):not(.text-2xl):not(.text-3xl):not(.text-4xl) {

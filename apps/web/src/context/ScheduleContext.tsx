@@ -87,6 +87,13 @@ interface ScheduleContextValue {
 
   snapshot: DaySnapshot | undefined;
   isLoading: boolean;
+  /**
+   * 当前屏幕上的是**上一个日期**的数据，新日期仍在路上。
+   *
+   * 翻页时保留旧数据是为了不闪白屏，但界面必须据此明确标注并挡住操作 ——
+   * 否则前台会在别的一天的档期上落单。
+   */
+  isStaleDate: boolean;
   error: Error | null;
   refetch: () => void;
 
@@ -176,6 +183,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     setCurrentDate,
     snapshot,
     isLoading: query.isLoading,
+    isStaleDate: query.isPlaceholderData,
     error: query.error,
     refetch: () => { void query.refetch(); },
     services: snapshot?.services ?? [],
@@ -185,7 +193,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     timezone: snapshot?.timezone ?? timezone ?? '',
     openMin: snapshot?.openMin ?? 9 * 60,
     closeMin: snapshot?.closeMin ?? 21 * 60,
-  }), [currentDate, snapshot, query.isLoading, query.error, query.refetch, items, staff, timezone]);
+  }), [currentDate, snapshot, query.isLoading, query.isPlaceholderData, query.error, query.refetch, items, staff, timezone]);
 
   return <ScheduleContext.Provider value={value}>{children}</ScheduleContext.Provider>;
 }

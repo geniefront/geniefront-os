@@ -15,6 +15,9 @@ import {
 } from 'lucide-react';
 import { rotationRank } from '@/features/queue/rotationRank';
 import { useLanguage } from '@/LanguageContext';
+import { useFieldErrors } from '@/lib/formFeedback';
+import { parseMoney } from '@/lib/validation';
+import { useValidationMessage } from '@/lib/validationMessage';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { GuardedButton } from '@/components/ui/GuardedButton';
@@ -38,6 +41,10 @@ export function TechTodayPage() {
   const { t } = useLanguage();
   const errorMessage = useErrorMessage();
   const todayQuery = useTechTodayQuery();
+  /** 现金小费输入的字段级校验。 */
+  const tipForm = useFieldErrors<'tip'>();
+  const invalid = useValidationMessage();
+
   const punchMutation = useTechPunchMutation();
   const startMutation = useTechStartServiceMutation();
   const finishMutation = useTechFinishServiceMutation();
@@ -124,11 +131,16 @@ export function TechTodayPage() {
   const actionPending = punchMutation.isPending || startMutation.isPending || finishMutation.isPending || directTipMutation.isPending;
 
   const saveDirectTip = (ticketItemId: string) => {
-    const normalized = tipDollars.trim().replace(/^\$/, '');
-    if (!/^\d{1,4}(?:\.\d{0,2})?$/.test(normalized)) return;
-    const [whole = '0', fraction = ''] = normalized.split('.');
-    const amountCents = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
-    directTipMutation.mutate({ ticketItemId, amountCents }, {
+    /*
+     * ⚠️ 输入不合法时**必须说话**。此前这里是一句裸 `return` —— 技师打错一个
+     * 字符，按下保存后界面纹丝不动，既没有提示也没有任何变化，看起来就是按钮
+     * 坏了。金额判定统一走 `lib/validation`，失败落到输入框上。
+     */
+    tipForm.clear();
+    const parsed = parseMoney(tipDollars, { maxCents: 100_000 });
+    if (!parsed.ok) return tipForm.fail('tip', invalid.money(parsed.reason));
+
+    directTipMutation.mutate({ ticketItemId, amountCents: parsed.value }, {
       onSuccess: () => {
         setTipEditorItemId(null);
         setTipDollars('');
@@ -178,6 +190,7 @@ export function TechTodayPage() {
           <div className="flex items-center gap-2">
             {!onDuty ? (
               <GuardedButton
+                isPending={actionPending}
                 permission="timeclock.punch_self"
                 size="sm"
                 onClick={() => handlePunch('clock_in')}
@@ -190,6 +203,7 @@ export function TechTodayPage() {
             ) : (
               <>
                 <GuardedButton
+                  isPending={actionPending}
                   permission="timeclock.punch_self"
                   onClick={() => handlePunch(onBreak ? 'break_end' : 'break_start')}
                   isDisabled={actionPending}
@@ -203,6 +217,7 @@ export function TechTodayPage() {
                   <span>{onBreak ? t('endBreak') : t('takeBreak')}</span>
                 </GuardedButton>
                 <GuardedButton
+                  isPending={actionPending}
                   permission="timeclock.punch_self"
                   variant="ghost"
                   size="sm"
@@ -373,6 +388,7 @@ export function TechTodayPage() {
             {currentTask.state === 'waiting' ? (
               <div>
                 <GuardedButton
+                  isPending={actionPending}
                   permission="ticket.write"
                   className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold text-sm py-4 rounded-2xl shadow-sm active:scale-98"
                   onClick={handleStartService}
@@ -386,6 +402,7 @@ export function TechTodayPage() {
               <div className="space-y-2">
                 <div>
                   <GuardedButton
+                    isPending={actionPending}
                     permission="ticket.write"
                     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm py-4 rounded-2xl shadow-sm active:scale-98"
                     onClick={handleFinishService}
@@ -474,17 +491,21 @@ export function TechTodayPage() {
               </div>
               {tipEditorItemId === task.ticketItemId && (
                 <div className="mt-2 flex gap-2">
-                  <label className="flex flex-1 items-center rounded-xl border border-slate-300 bg-white px-3">
+                  <label className={`flex flex-1 items-center rounded-xl border bg-white px-3 ${
+                    tipForm.errors.tip ? 'border-red-400' : 'border-slate-300'
+                  }`}>
                     <span className="text-xs font-bold text-slate-500">$</span>
                     <input
+                      ref={tipForm.bind('tip').ref}
+                      aria-invalid={tipForm.errors.tip ? true : undefined}
                       inputMode="decimal"
                       value={tipDollars}
-                      onChange={(event) => setTipDollars(event.target.value)}
+                      onChange={(event) => { setTipDollars(event.target.value); tipForm.clearField('tip'); }}
                       aria-label={t('directCashTipAmount')}
                       className="min-w-0 flex-1 bg-transparent px-1 py-2 text-sm font-bold outline-none"
                     />
                   </label>
-                  <Button size="sm" onClick={() => saveDirectTip(task.ticketItemId)} isDisabled={directTipMutation.isPending}>
+                  <Button size="sm" onClick={() => saveDirectTip(task.ticketItemId)} isPending={directTipMutation.isPending}>
                     {t('save')}
                   </Button>
                   <Button size="sm" variant="secondary" onClick={() => setTipEditorItemId(null)}>

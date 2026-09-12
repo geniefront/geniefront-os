@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
 import { Lock, CheckCircle2, ArrowRight } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useLanguage } from '@/LanguageContext';
@@ -16,11 +17,15 @@ export function ResetPassword() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  /** 重设密码表单的字段级校验。 */
+  const resetForm = useFieldErrors<'password'>();
+
   async function handleResetSubmit(e: React.FormEvent) {
     e.preventDefault();
+    resetForm.clear();
 
     if (!password) {
-      toast.danger(t('credentialsRequired'));
+      resetForm.fail('password', t('credentialsRequired'));
       return;
     }
     if (password.length < 6) {
@@ -70,12 +75,13 @@ export function ResetPassword() {
           </label>
           <div className="relative">
             <Input
+              {...resetForm.bind('password')}
               id="reset-password"
               type="password"
               autoComplete="new-password"
               placeholder="••••••••"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => { setPassword(e.target.value); resetForm.clearField('password'); }}
               className="w-full h-10 bg-slate-50 focus:bg-white text-sm"
             />
             <Lock className="w-4 h-4 text-slate-400 absolute right-3 top-3 pointer-events-none" />

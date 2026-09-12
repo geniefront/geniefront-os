@@ -320,12 +320,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [isTechCapable, isManagementCapable],
   );
 
-  // 检测是否处于手机移动端 (PWA 独立全屏模式或手机小屏幕)
+  /*
+   * 是否手机端 —— 决定双角色用户默认进技师工作台还是前台工作台。
+   *
+   * ⚠️ 判定依据只能是屏幕尺寸，不能是「独立全屏模式」。门店 iPad 恰恰是以
+   * 「添加到主屏幕」的方式常驻使用的，`display-mode: standalone` 在 iPad 上必定
+   * 为真；把它当作手机信号，等于让每一台 iPad 上的店长兼技师都被强制丢进技师
+   * 工作台，前台工作台在该设备上再也打不开。
+   *
+   * 同时以较短边而非 `innerWidth` 为准：手机横屏的 innerWidth 可达 800 以上，
+   * 按宽度判定会在用户一转屏时把工作台整个换掉。较短边在手机上不超过 ~430px，
+   * 在 iPad 上不低于 744px，两类设备在任何方向下都稳定落在正确的一侧。
+   */
   const isMobileClient = useMemo(() => {
     if (typeof window === 'undefined') return false;
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as unknown as { standalone?: boolean }).standalone);
-    const isSmallScreen = window.innerWidth < 768;
-    return isStandalone || isSmallScreen;
+    return Math.min(window.innerWidth, window.innerHeight) < 600;
   }, []);
 
   const activePortal: PortalType = useMemo(() => {

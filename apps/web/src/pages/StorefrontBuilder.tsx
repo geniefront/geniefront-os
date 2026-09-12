@@ -159,7 +159,7 @@ export function StorefrontBuilder() {
   ];
 
   if (isInitialLoading) {
-    return <PageLoading title={t('settings.sfLoading')} description={t('settings.sfLoadingDesc')} />;
+    return <PageLoading layout="detail" title={t('settings.sfLoading')} description={t('settings.sfLoadingDesc')} />;
   }
 
   if (isBriefError && !briefData) {

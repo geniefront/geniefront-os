@@ -219,7 +219,7 @@ export function BusinessData() {
   }
 
   if (isInitialLoading) {
-    return <PageLoading title={t("finance.bdLoading")} description={t("finance.bdLoadingDesc")} />;
+    return <PageLoading layout="table" title={t("finance.bdLoading")} description={t("finance.bdLoadingDesc")} />;
   }
 
   if (revenueQ.isError && !revenueQ.data) {
@@ -930,6 +930,7 @@ export function BusinessData() {
                   </div>
                 </div>
                 <Button
+                  isPending={generateCopilot.isPending}
                   size="sm"
                   className="bg-amber-500 text-white hover:bg-amber-600"
                   disabled={generateCopilot.isPending}

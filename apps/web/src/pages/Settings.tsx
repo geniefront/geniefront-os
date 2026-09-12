@@ -59,6 +59,9 @@ import {
   Star,
 } from 'lucide-react';
 import { toast } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
+import { parseDurationMinutes, parseMoney } from '@/lib/validation';
+import { useValidationMessage } from '@/lib/validationMessage';
 import {
   useDeskSettingsQuery,
   useDeskBillingQuery,
@@ -652,11 +655,33 @@ export function Settings() {
     setServiceModalOpen(true);
   };
 
+  /**
+   * 项目与分类两个弹窗的字段级校验。
+   *
+   * 这两个表单都有十几个字段（价格、时长、分类、上架、可预约、技能要求…），
+   * 只弹一句「项目名称不能为空」根本定位不到是哪一格 —— 必须标红并聚焦。
+   */
+  const catalogForm = useFieldErrors<'serviceName' | 'categoryName' | 'servicePrice' | 'serviceDuration'>();
+  const invalid = useValidationMessage();
+
   const handleSaveServiceItem = async () => {
+    catalogForm.clear();
     if (!serviceNameZh.trim()) {
-      toast.danger(t('settings.stServiceNameRequired'));
+      catalogForm.fail('serviceName', t('settings.stServiceNameRequired'));
       return;
     }
+    /*
+     * ⚠️ `parseInt(x) || 30` 与 `dollarsToCents(x)` 都是「打错字就悄悄换个值」
+     * 的写法：时长填错静默变 30 分钟，价格填错静默变 $0.00，且项目会照常上架。
+     * 目录价格与时长直接决定门店收多少钱、排多久，必须先判定再提交。
+     */
+    const duration = parseDurationMinutes(serviceDuration, { min: 5, max: 600 });
+    if (!duration.ok) {
+      return catalogForm.fail('serviceDuration', invalid.duration(duration.reason, { min: 5, max: 600 }));
+    }
+    const price = parseMoney(servicePrice);
+    if (!price.ok) return catalogForm.fail('servicePrice', invalid.money(price.reason));
+
     try {
       await saveServiceMutation.mutateAsync({
         serviceId: editingService?.id,
@@ -665,8 +690,8 @@ export function Settings() {
           'zh-Hans': serviceNameZh.trim(),
           en: serviceNameEn.trim() || serviceNameZh.trim(),
         },
-        durationMin: parseInt(serviceDuration, 10) || 30,
-        basePriceCents: dollarsToCents(servicePrice),
+        durationMin: duration.value,
+        basePriceCents: price.value,
         taxable: serviceTaxable,
         onlineBookable: serviceOnlineBookable,
         isAddon: serviceIsAddon,
@@ -690,8 +715,9 @@ export function Settings() {
   };
 
   const handleSaveCategory = async () => {
+    catalogForm.clear();
     const primary = categoryNameZh.trim() || categoryNameEn.trim();
-    if (!primary) return toast.danger(t('settings.stCategoryNameRequired'));
+    if (!primary) return catalogForm.fail('categoryName', t('settings.stCategoryNameRequired'));
     try {
       await saveServiceCategoryMutation.mutateAsync({
         categoryId: editingCategory?.id,
@@ -820,12 +846,23 @@ export function Settings() {
     }
   };
 
+  /*
+   * 按行记录进行中的那一条，而不是用 `removeOriginMutation.isPending`：
+   * 后者是整个 mutation 的状态，会把列表里所有「移除」一起灰掉，看上去像是
+   * 全部都在删。
+   */
+  const [removingOriginId, setRemovingOriginId] = useState<string | null>(null);
+
   const handleRemoveOrigin = async (originId: string) => {
+    if (removingOriginId) return;
+    setRemovingOriginId(originId);
     try {
       await removeOriginMutation.mutateAsync({ originId });
       toast.success(t('settings.stDomainRemoved'));
     } catch (err: any) {
       toast.danger(errorMessage(err));
+    } finally {
+      setRemovingOriginId(null);
     }
   };
 
@@ -842,7 +879,7 @@ export function Settings() {
   }
 
   if (isLoading && !settings) {
-    return <PageLoading title={t('settings.stLoading')} description={t('settings.stLoadingDesc')} />;
+    return <PageLoading layout="detail" title={t('settings.stLoading')} description={t('settings.stLoadingDesc')} />;
   }
 
   if (error && !settings) {
@@ -2080,6 +2117,7 @@ export function Settings() {
               <div className="flex w-full justify-end gap-2">
                 <Button variant="secondary" onClick={() => setBulkOp(null)}>{t('settings.stServiceCancel')}</Button>
                 <Button
+                  isPending={bulkUpdateServicesMutation.isPending}
                   disabled={bulkUpdateServicesMutation.isPending
                     || ((bulkOp === 'skillsAdd' || bulkOp === 'skillsRemove') && bulkSkillIds.length === 0)
                     || (bulkOp === 'online' && bulkHasAddon)}
@@ -2659,6 +2697,7 @@ export function Settings() {
                       className="text-xs font-mono"
                     />
                     <Button
+                      isPending={addOriginMutation.isPending}
                       onClick={handleAddOrigin}
                       disabled={addOriginMutation.isPending}
                       className="shrink-0 bg-teal-600 text-white font-bold text-xs"
@@ -2679,6 +2718,7 @@ export function Settings() {
                           variant="ghost"
                           size="sm"
                           className="text-xs text-red-600 hover:bg-red-50"
+                          isPending={removingOriginId === orig.id}
                           onClick={() => handleRemoveOrigin(orig.id)}
                         >
                           
@@ -2738,6 +2778,7 @@ export function Settings() {
                   </div>
                   <div className="flex justify-end pt-2">
                     <Button
+                      isPending={saveWebhooksMutation.isPending}
                       onClick={handleSaveWebhooks}
                       disabled={saveWebhooksMutation.isPending}
                       className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs"
@@ -2783,6 +2824,7 @@ export function Settings() {
               {t('settings.stServiceCancel')}
             </Button>
             <Button
+              isPending={saveServiceMutation.isPending}
               onClick={handleSaveServiceItem}
               disabled={saveServiceMutation.isPending}
               className="bg-teal-600 text-white font-bold text-xs"
@@ -2799,8 +2841,9 @@ export function Settings() {
               {t('settings.stServiceNameLabel')} <span className="text-red-500">*</span>
             </label>
             <Input
+              {...catalogForm.bind('serviceName')}
               value={serviceNameZh}
-              onChange={(e) => setServiceNameZh(e.target.value)}
+              onChange={(e) => { setServiceNameZh(e.target.value); catalogForm.clearField('serviceName'); }}
               placeholder={t('settings.stServiceNamePlaceholder')}
               className="text-xs"
             />
@@ -2826,9 +2869,10 @@ export function Settings() {
               </label>
               <div className="relative">
                 <Input
+                  {...catalogForm.bind('serviceDuration')}
                   type="number"
                   value={serviceDuration}
-                  onChange={(e) => setServiceDuration(e.target.value)}
+                  onChange={(e) => { setServiceDuration(e.target.value); catalogForm.clearField('serviceDuration'); }}
                   className="pr-10 font-mono text-xs"
                 />
                 <span className="text-xs text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2">
@@ -2843,8 +2887,9 @@ export function Settings() {
               </label>
               <div className="relative">
                 <Input
+                  {...catalogForm.bind('servicePrice')}
                   value={servicePrice}
-                  onChange={(e) => setServicePrice(e.target.value)}
+                  onChange={(e) => { setServicePrice(e.target.value); catalogForm.clearField('servicePrice'); }}
                   className="pl-7 font-mono text-xs"
                 />
                 <DollarSign className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
@@ -2946,10 +2991,11 @@ export function Settings() {
         onOpenChange={setCategoryModalOpen}
         size="sm"
         title={editingCategory ? t('settings.stEditCategory') : t('settings.stAddCategory')}
-        footer={<div className="flex w-full justify-end gap-2"><Button variant="secondary" onClick={() => setCategoryModalOpen(false)}>{t('settings.stServiceCancel')}</Button><Button onClick={() => void handleSaveCategory()} disabled={saveServiceCategoryMutation.isPending}>{t('settings.stSaveCategory')}</Button></div>}
+        footer={<div className="flex w-full justify-end gap-2"><Button variant="secondary" onClick={() => setCategoryModalOpen(false)}>{t('settings.stServiceCancel')}</Button><Button
+      isPending={saveServiceCategoryMutation.isPending} onClick={() => void handleSaveCategory()} disabled={saveServiceCategoryMutation.isPending}>{t('settings.stSaveCategory')}</Button></div>}
       >
         <div className="space-y-4 text-xs">
-          <div><label className="mb-1 block font-bold text-slate-700">{t('settings.stCategoryNameZh')}</label><Input value={categoryNameZh} onChange={(event) => setCategoryNameZh(event.target.value)} placeholder={t('settings.stCategoryNameZhPlaceholder')} /></div>
+          <div><label className="mb-1 block font-bold text-slate-700">{t('settings.stCategoryNameZh')}</label><Input {...catalogForm.bind('categoryName')} value={categoryNameZh} onChange={(event) => { setCategoryNameZh(event.target.value); catalogForm.clearField('categoryName'); }} placeholder={t('settings.stCategoryNameZhPlaceholder')} /></div>
           <div><label className="mb-1 block font-bold text-slate-700">{t('settings.stCategoryNameEn')}</label><Input value={categoryNameEn} onChange={(event) => setCategoryNameEn(event.target.value)} placeholder={t('settings.stCategoryNameEnPlaceholder')} /></div>
           <div><label className="mb-1 block font-bold text-slate-700">{t('settings.stCategorySort')}</label><Input type="number" min="0" value={categorySort} onChange={(event) => setCategorySort(event.target.value)} /></div>
         </div>
@@ -2968,6 +3014,7 @@ export function Settings() {
               {t('settings.stStaffCancel')}
             </Button>
             <Button
+              isPending={saveStaffMutation.isPending}
               onClick={handleSaveStaffProfile}
               disabled={saveStaffMutation.isPending}
               className="bg-teal-600 text-white font-bold text-xs"

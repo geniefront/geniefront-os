@@ -1,5 +1,8 @@
 import { useState } from 'react';
 import { toast } from '@heroui/react';
+import { useFieldErrors } from '@/lib/formFeedback';
+import { parseEmail } from '@/lib/validation';
+import { useValidationMessage } from '@/lib/validationMessage';
 import { supabase } from '@/lib/supabase';
 import { requestPasswordReset, ApiError } from '@/lib/api';
 import { Card } from '@/components/ui/Card';
@@ -20,10 +23,24 @@ export function Login() {
    * 会话建立后应用外壳自行切换到选店流程或主界面。在此处再跳转一次会与该流程
    * 产生竞争，导致中间态闪烁。
    */
+  /** 登录表单的字段级校验。 */
+  const loginForm = useFieldErrors<'email' | 'password'>();
+  const invalid = useValidationMessage();
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    loginForm.clear();
+    /*
+     * 邮箱形状先判一道。漏打 @ 或结尾少了域名时，Supabase 返回的是笼统的
+     * 「邮箱或密码不正确」—— 用户会去反复试密码，而问题在上面那一格。
+     */
+    const parsedEmail = parseEmail(email);
+    if (!parsedEmail.ok && email.trim()) {
+      loginForm.fail('email', invalid.email(parsedEmail.reason));
+      return;
+    }
     if (!email.trim() || !password) {
-      toast.danger(t('credentialsRequired'));
+      loginForm.fail(email.trim() ? 'password' : 'email', t('credentialsRequired'));
       return;
     }
     setSubmitting(true);
@@ -60,8 +77,10 @@ export function Login() {
    */
   async function handleResetPassword(e: React.MouseEvent) {
     e.preventDefault();
-    if (!email.trim()) {
-      toast.danger(t('credentialsRequired'));
+    loginForm.clear();
+    const resetEmail = parseEmail(email);
+    if (!resetEmail.ok) {
+      loginForm.fail('email', email.trim() ? invalid.email(resetEmail.reason) : t('credentialsRequired'));
       return;
     }
     setSubmitting(true);
@@ -95,12 +114,13 @@ export function Login() {
             {t('emailAddress')}
           </label>
           <Input
+            {...loginForm.bind('email')}
             id="login-email"
             type="email"
             autoComplete="email"
             placeholder="name@example.com"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => { setEmail(e.target.value); loginForm.clearField('email'); }}
             className="w-full h-11 bg-slate-50 focus:bg-white transition-colors"
           />
         </div>
@@ -116,12 +136,13 @@ export function Login() {
             </button>
           </div>
           <Input
+            {...loginForm.bind('password')}
             id="login-password"
             type="password"
             autoComplete="current-password"
             placeholder="••••••••"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => { setPassword(e.target.value); loginForm.clearField('password'); }}
             className="w-full h-11 bg-slate-50 focus:bg-white transition-colors"
           />
         </div>

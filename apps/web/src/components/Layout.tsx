@@ -97,20 +97,55 @@ const GLOBAL_COMMANDS: Array<{
   { path: '/notifications', titleKey: 'notificationCenter', descKey: 'cmdDescNotificationCenter', keywords: 'tongzhi notifications alerts 消息 通知' },
 ];
 
+/** 侧栏常驻的下界：iPad 横屏（1024–1194px）必须落在常驻侧。 */
+const SIDEBAR_QUERY = "(min-width: 1024px)";
+/** 常驻但只给图标轨的宽度区间：平板横屏。 */
+const RAIL_QUERY = "(min-width: 1024px) and (max-width: 1279.98px)";
+
 export function Layout() {
   const navigate = useNavigate();
   const { setCurrentDate, timezone } = useSchedule();
-  const [desktopCollapsed, setCollapsed] = useState(false);
-  const [wideLayout, setWideLayout] = useState(() => window.matchMedia("(min-width: 1280px)").matches);
+  /*
+   * ── 导航外壳的两道断点 ──────────────────────────────────────────────────────
+   *
+   * 侧栏此前以 1280px 为界，而门店 iPad 横屏只有 1024–1194px，于是**所有 iPad
+   * 都落进了手机分支**：主导航、门店名与账号入口一并收进汉堡抽屉，前台每次换
+   * 页都要先开抽屉。前台终端属于常驻设备，导航必须常驻。
+   *
+   * 现按两道断点组织：
+   *   - `SIDEBAR_QUERY`（≥1024px）决定侧栏是否常驻。iPad 横屏由此获得常驻导航，
+   *     竖屏（820px）仍用抽屉 —— 竖屏宽度不足以同时容纳导航与看板列。
+   *   - `RAIL_QUERY`（1024–1279px）决定常驻时的默认形态。该区间只有平板宽度，
+   *     展开态侧栏会吃掉近四分之一横向空间，因此默认收成 64px 图标轨；用户手动
+   *     展开后 `sidebarPinnedByUser` 置位，后续旋转与窗口变化不再覆盖其选择。
+   */
+  const [desktopCollapsed, setDesktopCollapsed] = useState(() => window.matchMedia(RAIL_QUERY).matches);
+  const [sidebarPinnedByUser, setSidebarPinnedByUser] = useState(false);
+  const [wideLayout, setWideLayout] = useState(() => window.matchMedia(SIDEBAR_QUERY).matches);
   const collapsed = wideLayout && desktopCollapsed;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
+  /** 侧栏展开/收起由用户显式切换，记下这一点以免后续断点变化把它改回默认。 */
+  const setCollapsed = (next: boolean) => {
+    setSidebarPinnedByUser(true);
+    setDesktopCollapsed(next);
+  };
+
   useEffect(() => {
-    const query = window.matchMedia("(min-width: 1280px)");
-    const update = () => { setWideLayout(query.matches); setMobileNavOpen(false); };
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
+    const sidebarQuery = window.matchMedia(SIDEBAR_QUERY);
+    const railQuery = window.matchMedia(RAIL_QUERY);
+    const update = () => {
+      setWideLayout(sidebarQuery.matches);
+      setMobileNavOpen(false);
+      if (!sidebarPinnedByUser) setDesktopCollapsed(railQuery.matches);
+    };
+    sidebarQuery.addEventListener("change", update);
+    railQuery.addEventListener("change", update);
+    return () => {
+      sidebarQuery.removeEventListener("change", update);
+      railQuery.removeEventListener("change", update);
+    };
+  }, [sidebarPinnedByUser]);
   const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
   const [activeAppointmentId, setActiveAppointmentId] = useState<string | null>(null);
   const [activeAppointmentStatus, setActiveAppointmentStatus] = useState<'booked' | 'checked_in' | 'in_service' | 'done'>('booked');
@@ -345,15 +380,15 @@ export function Layout() {
 
   return (
     <div className="gf-app-shell flex h-dvh w-full overflow-hidden bg-slate-50 font-sans text-slate-900">
-      {mobileNavOpen && <button type="button" className="fixed inset-0 z-[89] bg-slate-950/40 xl:hidden" aria-label={t('close')} onClick={() => setMobileNavOpen(false)} />}
+      {mobileNavOpen && <button type="button" className="fixed inset-0 z-[89] bg-slate-950/40 lg:hidden" aria-label={t('close')} onClick={() => setMobileNavOpen(false)} />}
       {/* Sidebar */}
       <aside
         id="desk-navigation"
         inert={!wideLayout && !mobileNavOpen}
         className={cn(
-          "fixed inset-y-0 left-0 z-[90] flex w-72 max-w-[86vw] flex-col border-r border-slate-200 bg-white transition-transform duration-300 xl:relative xl:z-nav xl:max-w-none xl:translate-x-0",
+          "fixed inset-y-0 left-0 z-[90] flex w-72 max-w-[86vw] flex-col border-r border-slate-200 bg-white transition-transform duration-300 lg:relative lg:z-nav lg:max-w-none lg:translate-x-0",
           mobileNavOpen ? "translate-x-0" : "-translate-x-full",
-          collapsed ? "xl:w-16" : "xl:w-60"
+          collapsed ? "lg:w-16" : "lg:w-60"
         )}
       >
         <div className="h-14 flex items-center gap-2.5 px-3.5 border-b border-slate-100 shrink-0">
@@ -400,7 +435,7 @@ export function Layout() {
             size="icon"
             aria-label={t('collapseSidebar')}
             onClick={() => setCollapsed(!collapsed)}
-            className={cn("hidden h-7 w-7 shrink-0 xl:flex", collapsed && "xl:hidden")}
+            className={cn("hidden h-7 w-7 shrink-0 lg:flex", collapsed && "lg:hidden")}
           >
             <ChevronLeft className="w-4 h-4" />
           </Button>
@@ -533,9 +568,9 @@ export function Layout() {
       {/* Main Content Wrapper */}
       <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Header */}
-        <header className="relative z-nav flex h-14 shrink-0 items-center border-b border-slate-200 bg-white px-3 sm:px-4 xl:h-16 xl:px-6">
-          <div className="flex shrink-0 items-center gap-2 xl:gap-3">
-            <Button variant="ghost" size="icon" aria-label={t('openNavigation')} aria-expanded={mobileNavOpen} aria-controls="desk-navigation" onClick={() => setMobileNavOpen(!mobileNavOpen)} className="h-9 w-9 shrink-0 xl:hidden">
+        <header className="relative z-nav flex h-14 shrink-0 items-center border-b border-slate-200 bg-white px-3 sm:px-4 lg:h-16 lg:px-6">
+          <div className="flex shrink-0 items-center gap-2 lg:gap-3">
+            <Button variant="ghost" size="icon" aria-label={t('openNavigation')} aria-expanded={mobileNavOpen} aria-controls="desk-navigation" onClick={() => setMobileNavOpen(!mobileNavOpen)} className="h-9 w-9 shrink-0 lg:hidden">
               <Menu className="h-5 w-5" />
             </Button>
             {collapsed && (
@@ -543,10 +578,32 @@ export function Layout() {
                 <Menu className="w-5 h-5" />
               </Button>
             )}
+
+            {/*
+              门店身份条。展开态侧栏顶部已经写着门店名，此处只在侧栏收成图标轨
+              或退成抽屉时补位 —— 也就是 iPad 的全部形态。多店运营者据此确认
+              「当前操作的是哪一家店」，并在有权限时就地切店；缺了它，前台在
+              平板上无法从任何常驻位置读到门店身份。
+            */}
+            {(collapsed || !wideLayout) && (
+              <button
+                type="button"
+                disabled={!canSwitchLocation}
+                onClick={canSwitchLocation ? clearMembership : undefined}
+                title={canSwitchLocation ? t('switchLocation') : storeName}
+                className={cn(
+                  "flex min-w-0 max-w-[9rem] items-center gap-1 rounded-lg border border-transparent px-1.5 py-1 text-left transition-colors sm:max-w-[14rem]",
+                  canSwitchLocation ? "hover:border-slate-200 hover:bg-slate-50" : "cursor-default",
+                )}
+              >
+                <span className="truncate text-sm font-bold text-slate-900">{storeName}</span>
+                {canSwitchLocation && <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />}
+              </button>
+            )}
           </div>
           
           {/* Global Search Bar - Dead Center with Fuzzy Search Dropdown */}
-          <div ref={globalSearchRef} className="group relative mx-3 hidden max-w-xl flex-1 md:flex xl:mx-5">
+          <div ref={globalSearchRef} className="group relative mx-3 hidden max-w-xl flex-1 md:flex lg:mx-5">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-teal-600 transition-colors" />
             <input 
               ref={globalInputRef}
@@ -729,7 +786,7 @@ export function Layout() {
         {!isOnline && (
           <div
             role="status"
-            className="flex shrink-0 items-start gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-900 sm:px-4 xl:px-6"
+            className="flex shrink-0 items-start gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-900 sm:px-4 lg:px-6"
           >
             <WifiOff className="w-4 h-4 mt-0.5 shrink-0" />
             <p className="text-xs font-medium leading-relaxed">{t('offlineBanner')}</p>
@@ -745,7 +802,7 @@ export function Layout() {
         */}
         <main
           tabIndex={-1}
-          className="isolate min-h-0 flex-1 overflow-auto bg-[var(--gf-canvas)] p-3 focus:outline-none sm:p-4 xl:p-6"
+          className="isolate min-h-0 flex-1 overflow-auto bg-[var(--gf-canvas)] p-3 focus:outline-none sm:p-4 lg:p-6"
         >
           <AnimatePresence mode="wait">
             <motion.div

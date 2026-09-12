@@ -674,7 +674,7 @@ function TicketsContent() {
     amountRange !== 'all';
 
   if (isInitialLoading) {
-    return <PageLoading title={t('checkout.tkLoading')} description={t('checkout.tkLoadingDesc')} />;
+    return <PageLoading layout="list" title={t('checkout.tkLoading')} description={t('checkout.tkLoadingDesc')} />;
   }
 
   if ((error || ordersError) && !ordersData && !data) {
@@ -1561,6 +1561,7 @@ function TicketsContent() {
                 {t('cancel') || t('checkout.tkVoidCancel')}
               </Button>
               <Button
+                isPending={voidMutation.isPending}
                 className="bg-red-600 hover:bg-red-700 text-white font-bold"
                 disabled={voidMutation.isPending}
                 onClick={handleConfirmVoid}
@@ -1633,6 +1634,7 @@ function TicketsContent() {
                 {t('checkout.tkRefundCancel')}
               </Button>
               <Button
+                isPending={refundMutation.isPending}
                 className="bg-purple-600 hover:bg-purple-700 text-white font-bold gap-1 shadow-md shadow-purple-600/20"
                 disabled={refundMutation.isPending}
                 onClick={handleConfirmRefund}

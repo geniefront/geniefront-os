@@ -235,6 +235,21 @@ export function WalkInBundleModal({
           </label>
           {catalog.isLoading ? (
             <p className="text-xs text-slate-400">{t('bundle.pickerLoadingQuote')}</p>
+          ) : catalog.isError ? (
+            /*
+              套餐目录取不到时，此前显示的是「本店暂无组合套餐」。前台据此
+              改用普通开单，而门店其实是有套餐的 —— 只是这一次请求失败了。
+            */
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-800">
+              <p>{t('loadFailed')}</p>
+              <button
+                type="button"
+                onClick={() => void catalog.refetch()}
+                className="mt-1.5 font-bold underline underline-offset-2"
+              >
+                {t('retry')}
+              </button>
+            </div>
           ) : templates.length === 0 ? (
             <p className="text-xs text-slate-500 p-3 bg-slate-50 border border-slate-200 rounded-xl">
               {t('bundle.pickerNoTemplates')}
