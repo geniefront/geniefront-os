@@ -648,3 +648,54 @@ function todayDate(): string {
 /** 种子数据里两家店都在东部时间，营业日切换点凌晨四点（见 packages/db/src/seed.ts） */
 const STORE_TZ = 'America/New_York';
 const STORE_CUTOFF = '04:00:00';
+
+describe('#21 independent walk-in guests', () => {
+  it('keeps shared-phone guests, selected add-ons and signed forms on their own visits', async () => {
+    __resetRateLimit();
+    const services = await withTenant(tenant, tx => tx<{ id: string; is_addon: boolean }[]>`
+      select id, is_addon from services where location_id = ${NAIL_LOC} and active order by sort`);
+    const base = services.find(s => !s.is_addon)!;
+    const addon = services.find(s => s.is_addon);
+    const names = [`Party A ${randomUUID().slice(0, 8)}`, `Party B ${randomUUID().slice(0, 8)}`];
+    const ownTemplate = await run<{ templateId: string }>('catalog.saveFormTemplate', {
+      key: 'party_regression', title: { en: 'Party intake' },
+      questions: [{ id: 'pregnant', type: 'bool', required: true, label: { en: 'Pregnant?' }, sync: 'health_flag' }],
+      requiresSignature: true, validDays: 365, serviceIds: [],
+    });
+    const visits: Array<{ appointmentId: string; queueId: string }> = [];
+    for (const name of names) {
+      const response = await kiosk('POST', '/v1/kiosk/walk-in', {
+        name, phone: '+16175550192', serviceId: base.id,
+        addonIds: addon ? [addon.id] : [], partySize: 1, idempotencyKey: randomUUID(),
+      });
+      expect(response.statusCode).toBe(200);
+      visits.push(response.json());
+    }
+    expect(visits[0]!.appointmentId).not.toBe(visits[1]!.appointmentId);
+    const submitted: string[] = [];
+    for (let i = 0; i < visits.length; i++) {
+      const payload = { templateId: ownTemplate.templateId, appointmentId: visits[i]!.appointmentId, queueId: visits[i]!.queueId,
+        answers: { pregnant: i === 1, conditions: i === 1 ? ['surgery'] : [] },
+        signatureDataUrl: 'data:image/png;base64,iVBORw0KGgo=', signerName: names[i], locale: 'en', idempotencyKey: randomUUID() };
+      const response = await kiosk('POST', '/v1/kiosk/forms/submit', payload);
+      expect(response.statusCode).toBe(200);
+      const replay = await kiosk('POST', '/v1/kiosk/forms/submit', payload);
+      expect(replay.json().submissionId).toBe(response.json().submissionId);
+      submitted.push(response.json().submissionId);
+    }
+    const rows = await withTenant(tenant, tx => tx<{ id: string; customer_id: string; display_name: string; appointment_id: string }[]>`
+      select s.id, s.customer_id, c.display_name, s.appointment_id from form_submissions s
+      join customers c on c.id = s.customer_id where s.id in ${tx(submitted)}`);
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map(r => r.customer_id)).size).toBe(2);
+    for (let i = 0; i < visits.length; i++) {
+      expect(rows.find(r => r.id === submitted[i])).toMatchObject({ display_name: names[i], appointment_id: visits[i]!.appointmentId });
+      const [profile] = await withTenant(tenant, tx => tx<{ profile: { health_flag?: boolean } }[]>`
+        select profile from customer_preferences where customer_id = ${rows.find(r => r.id === submitted[i])!.customer_id}`);
+      expect(Boolean(profile?.profile.health_flag)).toBe(i === 1);
+      const items = await withTenant(tenant, tx => tx<{ service_id: string }[]>`
+        select service_id from appointment_items where appointment_id = ${visits[i]!.appointmentId} order by seq`);
+      expect(items.map(item => item.service_id)).toEqual(addon ? [base.id, addon.id] : [base.id]);
+    }
+  });
+});

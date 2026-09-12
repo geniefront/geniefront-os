@@ -23,11 +23,14 @@ interface LocationState {
   forms?: KioskFormTemplateDto[];
   guests?: GuestIntake[];
   customerName?: string;
+  visits?: { guest: GuestIntake; queueResult: QueueJoinResult; forms: KioskFormTemplateDto[] }[];
 }
 
 interface FormTask {
   guest: GuestIntake;
   form: KioskFormTemplateDto;
+  appointmentId?: string;
+  queueId?: string;
 }
 
 interface ClientInfo {
@@ -87,11 +90,17 @@ export const HealthFormPage: React.FC = () => {
     : undefined;
 
   const tasks = useMemo<FormTask[]>(() => {
+    if (state?.visits) return state.visits.flatMap(visit => visit.forms.map(form => ({
+      guest: visit.guest, form, appointmentId: visit.queueResult.appointmentId, queueId: visit.queueResult.queueId,
+    })));
+    // Legacy check-in navigation describes one visit only. Never attach several
+    // guests to that shared identity; multi-guest intake must provide visits.
+    if ((state?.guests?.length ?? 0) > 1) return [];
     const forms = state?.forms ?? [];
     const guests = state?.guests?.length
       ? state.guests
       : [{ id: 'guest-1', name: state?.customerName ?? '', phone: '', serviceId: null, addonIds: [] }];
-    return guests.flatMap((guest) => forms.map((form) => ({ guest, form })));
+    return guests.flatMap((guest) => forms.map((form) => ({ guest, form, appointmentId: state?.appointmentId, queueId: state?.queueId })));
   }, [state]);
 
   const [taskIndex, setTaskIndex] = useState(0);
@@ -128,7 +137,7 @@ export const HealthFormPage: React.FC = () => {
   }, [experience, visibleQuestions]);
 
   useEffect(() => {
-    if (!queueResult || tasks.length === 0 || (!state?.appointmentId && !state?.queueId)) {
+    if (!queueResult || tasks.length === 0 || tasks.some(task => !task.appointmentId && !task.queueId)) {
       navigate('/', { replace: true });
     }
   }, [navigate, queueResult, state?.appointmentId, state?.queueId, tasks.length]);
@@ -229,8 +238,8 @@ export const HealthFormPage: React.FC = () => {
     try {
       await api.submitForm({
         templateId: current.form.templateId,
-        ...(state?.appointmentId ? { appointmentId: state.appointmentId } : {}),
-        ...(state?.queueId ? { queueId: state.queueId } : {}),
+        ...(current.appointmentId ? { appointmentId: current.appointmentId } : {}),
+        ...(current.queueId ? { queueId: current.queueId } : {}),
         answers: {
           ...answers,
           clientInfo: {

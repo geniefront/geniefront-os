@@ -1,8 +1,9 @@
+import { normalizePhoneE164 } from '@gf/contracts';
 import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
 import { useDeviceAuth } from '../context/DeviceAuthContext';
-import { api } from '../api/client';
+import { newGuest, registerGuests } from '../lib/walkIn';
 import type { GuestIntake } from '../types';
 import { formatPhoneInput } from '../utils/phone';
 import {
@@ -27,16 +28,7 @@ export const WalkInPage: React.FC = () => {
   const services = storeInfo?.services ?? [];
 
   // 多位客人信息录入列表
-  const [guests, setGuests] = useState<GuestIntake[]>([
-    {
-      id: 'guest-1',
-      name: '',
-      phone: '',
-      email: '',
-      serviceId: services[0]?.id ?? null,
-      addonIds: [],
-    },
-  ]);
+  const [guests, setGuests] = useState<GuestIntake[]>(() => [newGuest(services[0]?.id ?? null)]);
 
   const [activeGuestIdx, setActiveGuestIdx] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -44,6 +36,8 @@ export const WalkInPage: React.FC = () => {
   const idempotencyKey = useRef(
     typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-walkin`,
   );
+
+  const [intakeLocked, setIntakeLocked] = useState(false);
 
   const handleUpdateGuest = (index: number, patch: Partial<GuestIntake>) => {
     setGuests((prev) => {
@@ -56,17 +50,9 @@ export const WalkInPage: React.FC = () => {
 
   const handleAddGuest = () => {
     if (guests.length >= 8) return;
-    const nextIdx = guests.length + 1;
     setGuests((prev) => [
       ...prev,
-      {
-        id: `guest-${nextIdx}`,
-        name: '',
-        phone: prev[0]?.phone || '', // 默认继承主联系人电话，方便同伴快捷录入
-        email: '',
-        serviceId: services[0]?.id ?? null,
-        addonIds: [],
-      },
+      newGuest(services[0]?.id ?? null, prev[0]?.phone || ''),
     ]);
     setActiveGuestIdx(guests.length);
   };
@@ -94,56 +80,26 @@ export const WalkInPage: React.FC = () => {
         setErrorMsg(t('walkin.nameRequired'));
         return;
       }
-      if (!g.phone.trim()) {
+      if (!normalizePhoneE164(g.phone)) {
         setActiveGuestIdx(i);
         setErrorMsg(t('checkin.phoneTooShort'));
         return;
       }
     }
 
+    setIntakeLocked(true);
     setIsSubmitting(true);
     setErrorMsg(null);
 
     try {
       const leadGuest = guests[0]!;
-      // 1. 发起 Walk-in 排队
-      const queueRes = await api.walkIn({
-        name: leadGuest.name.trim(),
-        phone: leadGuest.phone.trim(),
-        ...(leadGuest.email?.trim() ? { email: leadGuest.email.trim() } : {}),
-        serviceId: leadGuest.serviceId ?? undefined,
-        partySize: guests.length,
-        idempotencyKey: idempotencyKey.current,
-      });
-
-      // 2. 检查所选服务是否需要健康表
-      const formsRes = await api.getRequiredForms({
-        appointmentId: queueRes.appointmentId,
-      });
-
-      if (formsRes.forms.length === 0) {
-        navigate('/success', {
-          replace: true,
-          state: { queueResult: queueRes, customerName: leadGuest.name.trim() },
-        });
+      const visits = await registerGuests(guests, idempotencyKey.current);
+      const queueRes = visits[0]!.queueResult;
+      if (visits.every(visit => visit.forms.length === 0)) {
+        navigate('/success', { replace: true, state: { queueResult: queueRes, customerName: leadGuest.name.trim() } });
         return;
       }
-
-      // 逐位客人在 Kiosk 上完成后端持久化的健康表。
-      navigate('/health-form', {
-        state: {
-          appointmentId: queueRes.appointmentId,
-          queueId: queueRes.queueId,
-          queueResult: queueRes,
-          forms: formsRes.forms ?? [],
-          guests: guests.map((g) => ({
-            ...g,
-            name: g.name.trim(),
-            phone: g.phone.trim(),
-            email: g.email?.trim() || '',
-          })),
-        },
-      });
+      navigate('/health-form', { state: { queueResult: queueRes, visits } });
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to join queue');
       setIsSubmitting(false);
@@ -182,6 +138,7 @@ export const WalkInPage: React.FC = () => {
           </p>
         </div>
 
+        <fieldset disabled={intakeLocked} className="contents">
         {/* 多人切换标签栏 */}
         <div className="flex flex-wrap items-center gap-2.5 p-2 bg-white rounded-3xl border border-slate-200 shadow-xs">
           {guests.map((g, idx) => {
@@ -368,6 +325,7 @@ export const WalkInPage: React.FC = () => {
         )}
 
         {/* 提交排队取号与健康表生成按钮 */}
+        </fieldset>
         <div className="pt-2">
           <button
             type="submit"

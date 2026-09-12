@@ -165,7 +165,7 @@ export const api = {
       body: JSON.stringify({ appointmentId }),
     }),
 
-  walkIn: (params: { name: string; phone?: string; email?: string; serviceId?: string; partySize?: number; idempotencyKey: string }) =>
+  walkIn: (params: { name: string; phone?: string; email?: string; serviceId?: string; addonIds?: string[]; partySize?: number; idempotencyKey: string }) =>
     request<QueueJoinResult>('/v1/kiosk/walk-in', {
       method: 'POST',
       body: JSON.stringify(params),

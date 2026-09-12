@@ -96,6 +96,7 @@ export const JoinQueue = defineCommand({
     walkInEmail: z.string().email().max(200).optional(),
     requestedServiceId: uuid.nullable().optional(),
     requestedStaffId: uuid.nullable().optional(),
+    requestedAddonIds: z.array(uuid).max(20).default([]),
     partySize: z.number().int().min(1).max(20).default(1),
     /** 有预约的客人来签到，也进这条队列 —— 前台只看一个地方 */
     appointmentId: uuid.nullable().optional(),

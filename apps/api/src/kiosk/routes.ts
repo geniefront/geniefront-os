@@ -305,7 +305,7 @@ export function registerKioskRoutes(app: FastifyInstance): void {
   // ── walk-in：没有预约，自己排 ──────────────────────────────────────────
   app.post<{ Body: {
     name?: string; phone?: string; email?: string; serviceId?: string;
-    partySize?: number; idempotencyKey?: string;
+    partySize?: number; addonIds?: string[]; idempotencyKey?: string;
   } }>('/v1/kiosk/walk-in', async (req) => {
     const { ctx, deviceId } = await device(req);
     rateLimit(deviceId);
@@ -352,6 +352,7 @@ export function registerKioskRoutes(app: FastifyInstance): void {
       walkInPhone,
       walkInEmail,
       requestedServiceId: serviceId ?? null,
+      requestedAddonIds: req.body?.addonIds ?? [],
       partySize: Math.min(Math.max(req.body?.partySize ?? 1, 1), 20),
       source: 'kiosk',
     }, ctx, {

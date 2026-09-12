@@ -247,6 +247,15 @@ registerHandler(JoinQueue, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
     requestedService = service;
   }
 
+  const addons = [];
+  for (const addonId of new Set(input.requestedAddonIds ?? [])) {
+    const [addon] = await tx<{ id: string; duration_min: number; base_price_cents: number }[]>`
+      select id, duration_min, base_price_cents from services
+      where id = ${addonId} and location_id = ${ctx.locationId} and active = true and is_addon = true`;
+    if (!addon || !requestedService) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'invalid_addon' } });
+    addons.push(addon);
+  }
+
   const [row] = await tx<{ id: string; joined_at: string | Date }[]>`
     insert into walkin_queue
       (org_id, location_id, business_date, ticket_number, customer_id, walk_in_name,
@@ -263,7 +272,7 @@ registerHandler(JoinQueue, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   // queueId 只表达“排队中的状态”，后续详情、表单、开单、结账统一拿 appointmentId。
   let appointmentId = input.appointmentId ?? null;
   if (!appointmentId) {
-    const durationMin = requestedService?.duration_min ?? 40;
+    const durationMin = (requestedService?.duration_min ?? 40) + addons.reduce((sum, addon) => sum + addon.duration_min, 0);
     const joinedAt = ts(row!.joined_at);
     const [appointment] = await tx<{ id: string }[]>`
       insert into appointments (
@@ -279,19 +288,23 @@ registerHandler(JoinQueue, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
       ) returning id`;
     appointmentId = appointment!.id;
 
-    if (requestedService) {
+    let offsetMin = 0;
+    let seq = 0;
+    for (const item of [...(requestedService ? [requestedService] : []), ...addons]) {
       await tx`
         insert into appointment_items (
           org_id, location_id, appointment_id, service_id, membership_id,
           is_request, starts_at, ends_at, price_cents_snapshot, duration_min,
           seq, status
         ) values (
-          ${ctx.orgId}, ${ctx.locationId}, ${appointmentId}, ${requestedService.id},
+          ${ctx.orgId}, ${ctx.locationId}, ${appointmentId}, ${item.id},
           ${input.requestedStaffId ?? null}, ${Boolean(input.requestedStaffId)},
-          ${joinedAt}::timestamptz,
-          ${joinedAt}::timestamptz + make_interval(mins => ${requestedService.duration_min}),
-          ${requestedService.base_price_cents}, ${requestedService.duration_min}, 0, 'booked'
+          ${joinedAt}::timestamptz + make_interval(mins => ${offsetMin}),
+          ${joinedAt}::timestamptz + make_interval(mins => ${offsetMin + item.duration_min}),
+          ${item.base_price_cents}, ${item.duration_min}, ${seq}, 'booked'
         )`;
+      offsetMin += item.duration_min;
+      seq++;
     }
 
     await tx`update walkin_queue set appointment_id = ${appointmentId} where id = ${row!.id}`;
