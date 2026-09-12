@@ -1,9 +1,13 @@
 import { test, expect } from '../fixtures';
 import { evidence, loginDesk } from '../helpers';
+import { QA_NOW } from '../env';
 import { qaEmail, seedScenario } from '../seed';
 
 test.describe('daily operations lifecycle', () => {
   test.describe.configure({ timeout: 120_000 });
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(new Date(QA_NOW));
+  });
   test('the pre-seeded in-service visit can be completed', async ({ page }) => {
     await seedScenario('busy_shop');
     await loginDesk(page, qaEmail('busy_shop'), '/queue');
@@ -44,12 +48,12 @@ test.describe('daily operations lifecycle', () => {
     await page.getByRole('button', { name: /Finish and calculate the bill|完工核算账单/ }).first().click();
     await page.getByRole('button', { name: /Confirm completion.*awaiting payment|确认完工并转入待收银/ }).click();
     await page.getByRole('button', { name: /Settle and print the receipt|结算收银出票/ }).first().click();
-    await page.getByRole('button', { name: /No Tip/ }).click();
-    await page.getByRole('button', { name: /Gift Card/ }).click();
+    await page.getByRole('button', { name: /No tip/i }).click();
+    await page.getByRole('button', { name: /Gift card/i }).click();
     await page.getByPlaceholder('GF-GC-XXXX').fill(issuedCode!);
     await page.getByRole('button', { name: /Verify|核验/ }).click();
-    await expect(page.getByText(/Available Balance: \$100\.00|可用余额.*100\.00/)).toBeVisible();
-    await page.getByRole('button', { name: /Complete Payment|确认收银|完成支付/ }).click();
+    await expect(page.getByText(/Available balance: \$100\.00|可用余额.*100\.00/i)).toBeVisible();
+    await page.getByRole('button', { name: /Complete payment|确认收银|完成支付/i }).click();
     await expect(page.getByText(/Payment complete.*Emily Stone|Emily Stone has been settled|Emily Stone 结账成功/i).first()).toBeVisible();
     await evidence(page, 'operations-gift-card-checkout-complete');
   });
@@ -58,7 +62,7 @@ test.describe('daily operations lifecycle', () => {
     await seedScenario('day_close_ready');
     await loginDesk(page, qaEmail('day_close_ready'), '/day-close');
     await expect(page.getByText(/Drawer balances exactly|钱箱账实相符/i).first()).toBeVisible();
-    await page.getByRole('button', { name: /Finalize Day|确认封账/ }).click();
+    await page.getByRole('button', { name: /Close the day|确认封账/i }).click();
     await page.getByRole('dialog').getByRole('button', { name: /Close the day|确认封账/ }).click();
     await expect(page.getByText(/Closed and locked|已正式打烊封账/i).first()).toBeVisible();
     await page.reload();
