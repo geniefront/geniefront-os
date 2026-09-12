@@ -35,6 +35,8 @@ import {
 } from 'lucide-react';
 import { toast, Spinner } from '@heroui/react';
 import { useFieldErrors } from '@/lib/formFeedback';
+import { parseMoney, parsePercent } from '@/lib/validation';
+import { useValidationMessage } from '@/lib/validationMessage';
 import { Card, CardContent } from '@/components/ui/Card';
 import { fuzzySearch } from '@/lib/fuzzySearch';
 import { useErrorMessage } from '@/lib/errorMessage';
@@ -198,8 +200,16 @@ function EmployeePerformanceContent() {
   const [formStatus, setFormStatus] = useState<'active' | 'on_leave' | 'resigned'>('active');
   const [formHireDate, setFormHireDate] = useState(new Date().toISOString().slice(0, 10));
   const [formPlanKind, setFormPlanKind] = useState<PlanKind>('commission');
-  const [formRatePercent, setFormRatePercent] = useState<number>(45);
-  const [formHourlyRate, setFormHourlyRate] = useState<number>(18);
+  /*
+   * ⚠️ 提成比例与时薪存**字符串**，不存数字。
+   *
+   * 原先是数字态 + `parseFloat(e.target.value) || 0`：每一次按键都会把内容
+   * 「纠正」一遍 —— 把 45 全选删掉准备重打，那一瞬间就变成了 0，
+   * 而如果此时保存，这位技师的提成比例就是 0%，界面提示保存成功。
+   * 改成保留原样、提交时判定。
+   */
+  const [formRatePercent, setFormRatePercent] = useState<string>('45');
+  const [formHourlyRate, setFormHourlyRate] = useState<string>('18');
   const [formCommBase, setFormCommBase] = useState<CommissionBase>('net');
   const [formNote, setFormNote] = useState('');
 
@@ -275,8 +285,8 @@ function EmployeePerformanceContent() {
     setFormStatus('active');
     setFormHireDate(new Date().toISOString().slice(0, 10));
     setFormPlanKind('commission');
-    setFormRatePercent(45);
-    setFormHourlyRate(18);
+    setFormRatePercent('45');
+    setFormHourlyRate('18');
     setFormCommBase('net');
     setFormNote('');
     setIsFormModalOpen(true);
@@ -300,15 +310,16 @@ function EmployeePerformanceContent() {
     setFormStatus(staff.status);
     setFormHireDate(staff.hireDate);
     setFormPlanKind(staff.payroll.kind);
-    setFormRatePercent(staff.payroll.ratePercent);
-    setFormHourlyRate(staff.payroll.hourlyRateDollars);
+    setFormRatePercent(String(staff.payroll.ratePercent));
+    setFormHourlyRate(String(staff.payroll.hourlyRateDollars));
     setFormCommBase(staff.payroll.base);
     setFormNote(staff.note || '');
     setIsFormModalOpen(true);
   };
 
   /** 员工档案表单的字段级校验。 */
-  const staffForm = useFieldErrors<'name' | 'phone'>();
+  const staffForm = useFieldErrors<'name' | 'phone' | 'ratePercent' | 'hourlyRate'>();
+  const invalid = useValidationMessage();
 
   // 3. 提交表单保存 (带二次确认)
   const handleSubmitFormWithConfirm = () => {
@@ -319,6 +330,27 @@ function EmployeePerformanceContent() {
     }
     if (!formPhone.trim()) {
       staffForm.fail('phone', t('rotation.empPhoneRequired'));
+      return;
+    }
+
+    /*
+     * 薪酬两项按当前方案判定：提成方案下时薪是什么无所谓，反之亦然。
+     * 两个字段服务端都收，所以不适用的那个按 0 提交，而不是把用户
+     * 上一次填的残值带过去。
+     */
+    const isCommission = formPlanKind === 'commission';
+    const rate = isCommission
+      ? parsePercent(formRatePercent, { max: 100, maxDecimals: 2 })
+      : ({ ok: true, value: 0 } as const);
+    if (!rate.ok) {
+      staffForm.fail('ratePercent', invalid.percent(rate.reason, { max: 100 }));
+      return;
+    }
+    const hourly = isCommission
+      ? ({ ok: true, value: 0 } as const)
+      : parseMoney(formHourlyRate, { maxCents: 100_000 });
+    if (!hourly.ok) {
+      staffForm.fail('hourlyRate', invalid.money(hourly.reason));
       return;
     }
 
@@ -356,8 +388,8 @@ function EmployeePerformanceContent() {
             note: formNote.trim() || undefined,
             payroll: {
               kind: formPlanKind,
-              ratePercent: formRatePercent,
-              hourlyRateDollars: formHourlyRate,
+              ratePercent: rate.value / 100,
+              hourlyRateDollars: hourly.value / 100,
               base: formCommBase,
             },
           });
@@ -1118,8 +1150,9 @@ function EmployeePerformanceContent() {
                 </label>
                 <Input
                   type="number"
-                  value={String(formRatePercent)}
-                  onChange={(e) => setFormRatePercent(parseFloat(e.target.value) || 0)}
+                  value={formRatePercent}
+                  {...staffForm.bind('ratePercent')}
+                  onChange={(e) => setFormRatePercent(e.target.value)}
                 />
               </div>
 
@@ -1140,7 +1173,7 @@ function EmployeePerformanceContent() {
             </div>
           </div>
 
-          {formPlanKind !== 'commission' && <label className="block">{t('rotation.empHourlyRate')}<Input type="number" min={0} step="0.01" value={String(formHourlyRate)} onChange={(event) => setFormHourlyRate(Number(event.target.value))} /></label>}
+          {formPlanKind !== 'commission' && <label className="block">{t('rotation.empHourlyRate')}<Input type="number" min={0} step="0.01" value={formHourlyRate} onChange={(event) => setFormHourlyRate(event.target.value)} {...staffForm.bind('hourlyRate')} /></label>}
           {/* 备注 */}
           <div className="pt-2 border-t border-slate-100">
             <label className="block font-bold text-slate-700 uppercase mb-1">

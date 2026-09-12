@@ -68,6 +68,39 @@ export interface CommandDef<TInput extends z.ZodTypeAny, TOutput extends z.ZodTy
    * 审计、幂等、RLS、订阅闸门一条都不少（宪法第 1 条没有被绕开）。
    */
   system?: boolean;
+
+  /**
+   * ⭐ **字段级权限**（AUD-02）。
+   *
+   * `permission` 守的是「能不能调这条命令」。但有些能力并不是一条独立命令，
+   * 而是另一条命令入参里的**一个字段** —— 打折是 `ticket.close` 的
+   * `discountCents`，突破容量是 `appointment.create` 的 `override`。
+   * 这类能力此前完全没有服务端判定：界面把输入框藏起来了，
+   * 于是「藏起来」成了唯一的约束，而那不是约束。
+   *
+   * 判据：**如果这个字段自己就配得上一条权限，那它就必须在这里声明。**
+   * 权限清单里有 `ticket.discount`、`appointment.overbook` 两条，
+   * 却没有任何命令要求它们 —— 那不是「权限没用上」，是「权限没生效」：
+   * 店主在设置页取消勾选，以为限住了打折，实际什么也没发生。
+   *
+   * 判定在总线里统一进行（`apps/api/src/bus.ts`），排在入参校验之后
+   * —— 要先知道字段的值，才知道这项能力有没有真的被使用。
+   * 不放在 handler 里的理由：放在 handler 里就等于要求每个加字段的人
+   * 记得加判定，而这条 bug 本身就是没人记得的产物。
+   */
+  fieldPermissions?: readonly FieldPermission[];
+}
+
+/** 单条字段级权限声明。 */
+export interface FieldPermission {
+  /**
+   * 该能力是否真的被使用了。只看**值**，不看字段在不在 —— 传了
+   * `discountCents: 0` 不是打折，不该因此要求打折权限。
+   */
+  used: (input: any) => boolean;
+  need: Permission;
+  /** 被拒时回给调用方的字段名，用于给出「你不能改这一项」而非笼统的权限不足。 */
+  field: string;
 }
 
 export function defineCommand<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny>(

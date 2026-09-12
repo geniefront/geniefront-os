@@ -11,6 +11,7 @@ import type { CreateBundleSelectionInput } from '@/features/schedule/api';
 import { deskAppointmentCustomer } from '@/features/schedule/deskCustomer';
 import { useSaveCustomerProfile } from '@/features/customers/api';
 import { useCan } from '@/lib/permissions';
+import { GuardedButton } from '@/components/ui/GuardedButton';
 import { useBundleCatalogQuery, quoteBundle } from '@/features/bundles/api';
 import type { BundleQuoteResult, BundleTemplateView } from '@/features/bundles/types';
 import { wallMinutesToInstant, instantToWallDate, nowWallHhMm } from '@/lib/time';
@@ -1636,7 +1637,13 @@ export function CreateAppointmentModal({
                 中间既无转圈也无拦截，连点两次就是两条重复预约。
                 改为保持弹窗、按钮转圈，提交完成后再关。
               */}
-              <Button
+              {/*
+                放行软容量需要 `appointment.overbook` —— 服务端已按字段级权限
+                判定（AUD-02）。这里用 GuardedButton 而非普通 Button，是为了让
+                没有这条权限的人看到「你没有这项权限」，而不是按下去收一个 403。
+              */}
+              <GuardedButton
+                permission="appointment.overbook"
                 className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
                 isPending={create.isPending}
                 onClick={() => {
@@ -1650,7 +1657,7 @@ export function CreateAppointmentModal({
                 }}
               >
                 {t('forceSchedule')}
-              </Button>
+              </GuardedButton>
             </div>
           }
         >

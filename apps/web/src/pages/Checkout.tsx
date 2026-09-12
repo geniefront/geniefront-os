@@ -15,6 +15,7 @@ import {
   useOpenTickets, useCloseTicket, useVoidTicket, verifyGiftCard,
   dollarsToCents, centsToDollars,
 } from '@/features/checkout/api';
+import { parsePercent } from '@/lib/validation';
 import { allocateTips, splitItemRevenueAcrossStaff } from '@/features/queue/checkoutMath';
 import { PAYMENT_METHODS } from '@/features/checkout/types';
 import { paymentStageFor } from '@/features/checkout/types';
@@ -321,10 +322,23 @@ function CheckoutContent() {
   const baseSubtotalCents = selected?.subtotalCents ?? 0;
   const afterDiscountCents = Math.max(0, baseSubtotalCents - discountCents - packageCoveredCents);
 
-  // 税费按门店设置算。开关只反映「本店是否开征」，不能把已开征的税关掉。
+  /*
+   * 税费按门店设置算。开关只反映「本店是否开征」，不能把已开征的税关掉。
+   *
+   * ⚠️ 两种税制的含义不同，必须与服务端 `apps/api/src/tax.ts` 逐分一致：
+   *   外加税 —— 税加在净额之上，应收 = 净额 + 税
+   *   内含税 —— 标价已含税，税只是拆出来的那部分，应收 = 标价
+   * 此前本页一律按外加税算，内含税门店每一单都会被 PAYMENT_MISMATCH 挡下。
+   */
+  const taxInclusive = (data?.checkoutSettings?.taxCalculationMode ?? 'exclusive') === 'inclusive';
+  const taxRate = parseFloat(taxRatePercent || '0') / 100;
   const taxCents = paymentStage !== 'tip'
-    ? Math.round(afterDiscountCents * (parseFloat(taxRatePercent || '0') / 100))
+    ? taxInclusive
+      ? Math.round(afterDiscountCents - afterDiscountCents / (1 + taxRate))
+      : Math.round(afterDiscountCents * taxRate)
     : 0;
+  /** 服务部分的应收（不含小费与附加费）。内含税时税已在其中。 */
+  const serviceDueCents = taxInclusive ? afterDiscountCents : afterDiscountCents + taxCents;
 
   /*
    * 小费总额。
@@ -387,12 +401,20 @@ function CheckoutContent() {
 
   // 刷卡手续费计算
   const hasCardPayment = lines.some((l) => l.method === 'card');
+  /*
+   * ⚠️ 基数**不含小费**。
+   *
+   * 此前这里是 `afterDiscountCents + taxCents + totalTipCents` —— 把小费算进
+   * 刷卡手续费基数。多数州禁止对小费部分加收手续费，这是实打实的合规风险；
+   * 而排队页的同一段算法（`features/queue/checkoutMath.ts`）本来就是不含小费的，
+   * 于是同一家店在两个界面结账会收到不同的附加费。
+   */
   const cardSurchargeCents = enableCardSurcharge && hasCardPayment && paymentStage !== 'tip'
-    ? Math.round((afterDiscountCents + taxCents + totalTipCents) * (parseFloat(cardSurchargePercent || '0') / 100))
+    ? Math.round(serviceDueCents * (parseFloat(cardSurchargePercent || '0') / 100))
     : 0;
 
   // 应收总额（含税、加项、手续费、折扣后）
-  const totalDueCents = paymentStage === 'tip' ? 0 : afterDiscountCents + taxCents + cardSurchargeCents;
+  const totalDueCents = paymentStage === 'tip' ? 0 : serviceDueCents + cardSurchargeCents;
 
   const paidBaseCents = lines.reduce((sum, l) => sum + l.baseCents, 0);
   const paidTipCents = lines.reduce((sum, l) => sum + l.tipCents, 0);
@@ -405,7 +427,10 @@ function CheckoutContent() {
     setSelectedPackageId('');
     setTotalTipInput('0.00');
     setCustomStaffTips({});
-    const estTax = Math.round(ticket.subtotalCents * (parseFloat(taxRatePercent || '0') / 100));
+    /* 内含税门店的标价已含税，预填金额不能再加一层 */
+    const estTax = taxInclusive
+      ? 0
+      : Math.round(ticket.subtotalCents * (parseFloat(taxRatePercent || '0') / 100));
     const stage = paymentStageFor(ticket);
     setLines([
       {
@@ -509,6 +534,18 @@ function CheckoutContent() {
       }
     }
 
+    /*
+     * 税率与附加费率来自门店设置，但本页允许临时改。打错一个字符
+     * `parseFloat` 会给出一个看起来合理的错数（`8.2o` → 8.2），
+     * 这一单就按错的税率收了，事后只能靠对账发现。
+     */
+    const taxRateParsed = parsePercent(taxRatePercent, { allowEmpty: true, max: 100, maxDecimals: 3 });
+    const surchargeRateParsed = parsePercent(cardSurchargePercent, { allowEmpty: true, max: 100, maxDecimals: 3 });
+    if (!taxRateParsed.ok || !surchargeRateParsed.ok) {
+      toast.danger(t('queue.quCoRateInvalid'));
+      return;
+    }
+
     try {
       const payments = paymentStage === 'tip' && totalTipCents === 0
         ? []
@@ -519,10 +556,10 @@ function CheckoutContent() {
         paymentStage,
         discountCents,
         taxCents,
-        taxRateBp: Math.round(parseFloat(taxRatePercent || '0') * 100),
+        taxRateBp: taxRateParsed.value,
         taxCalculationMode: data?.checkoutSettings?.taxCalculationMode || 'exclusive',
         surchargeCents: cardSurchargeCents,
-        surchargeRateBp: Math.round(parseFloat(cardSurchargePercent || '0') * 100),
+        surchargeRateBp: surchargeRateParsed.value,
         tipTotalCents: totalTipCents,
         tipSplits: data?.checkoutSettings?.allowTipSplitOverride === false ? undefined : staffTipAllocations.map((a) => ({
           staffMembershipId: a.membershipId,

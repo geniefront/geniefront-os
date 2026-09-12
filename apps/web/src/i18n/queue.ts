@@ -549,6 +549,7 @@ export const queue = {
   'queue.quCoSurchargeTipNotice': { 'zh-Hans': '附加费仅按服务与税额计收，不含小费。', en: 'The surcharge applies to services and tax only, never to tips.', ko: '추가 수수료는 서비스와 세금에만 부과되며 팁에는 적용되지 않습니다.', es: 'El recargo se aplica solo a servicios e impuestos, nunca a las propinas.', vi: 'Phụ phí chỉ tính trên dịch vụ và thuế, không tính trên tiền tip.' },
   'queue.quCoSubtotalLine': { 'zh-Hans': '小计（基础项目与加项）', en: 'Subtotal (base & add-ons)', ko: '소계 (기본 + 추가)', es: 'Subtotal (base y extras)', vi: 'Tạm tính (cơ bản & dịch vụ thêm)' },
   'queue.quCoDiscountLine': { 'zh-Hans': '折扣与代金券', en: 'Discounts & vouchers', ko: '할인 및 상품권', es: 'Descuentos y vales', vi: 'Giảm giá & phiếu' },
+  'queue.quCoRateInvalid': { 'zh-Hans': '税率或附加费率填写有误，请填数字，例如 8.25', en: 'The tax or surcharge rate is not a valid number — enter digits, for example 8.25', ko: '세율 또는 추가 요금률이 올바르지 않습니다. 숫자로 입력하세요(예: 8.25)', es: 'La tasa de impuesto o recargo no es válida; introduce dígitos, por ejemplo 8.25', vi: 'Thuế suất hoặc phụ phí không hợp lệ — nhập chữ số, ví dụ 8.25' },
   'queue.quCoTaxLine': { 'zh-Hans': '销售税（{p0}%）', en: 'Sales tax ({p0}%)', ko: '판매세 ({p0}%)', es: 'Impuesto sobre ventas ({p0} %)', vi: 'Thuế bán hàng ({p0}%)' },
   'queue.quCoSurchargeLine': { 'zh-Hans': '刷卡手续费（{p0}%）', en: 'Card processing fee ({p0}%)', ko: '카드 결제 수수료 ({p0}%)', es: 'Comisión por tarjeta ({p0} %)', vi: 'Phí xử lý thẻ ({p0}%)' },
   'queue.quCoTotalDue': { 'zh-Hans': '应收合计', en: 'Total due', ko: '청구 합계', es: 'Total a cobrar', vi: 'Tổng phải thu' },

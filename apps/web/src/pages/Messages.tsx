@@ -37,6 +37,7 @@ import {
   Settings2,
 } from "lucide-react";
 import { useInboundSmsQuery, useSendDirectSms } from "@/features/comms/api";
+import { useCanWrite } from '@/lib/permissions';
 import { useDeskSettingsQuery } from "@/features/settings/api";
 import type { InboundSms } from "@/features/comms/types";
 import { useNavigate } from "react-router-dom";
@@ -116,6 +117,12 @@ export function Messages() {
   const [confirmSendReplyOpen, setConfirmSendReplyOpen] = useState(false);
   const [confirmNewSmsOpen, setConfirmNewSmsOpen] = useState(false);
 
+  /*
+   * 发短信此前只看 10DLC 是否放行，没看权限。两者是不同的原因，
+   * 不能合成一个 —— 「号码还没审批」和「你没有这项权限」要找的人不是同一个，
+   * 所以 canSend 单独取，只在 disabled 上合并。
+   */
+  const canSend = useCanWrite('comms.send');
   const isSendingLocked = tenDlcStatus !== "approved";
 
   const handleExecuteSendReply = async () => {
@@ -519,7 +526,7 @@ export function Messages() {
                       ? t('crm.msgLockedPlaceholder')
                       : t('crm.msgReplyPlaceholder')
                   }
-                  disabled={isSendingLocked}
+                  disabled={!canSend || isSendingLocked}
                   className={`w-full p-3 text-sm rounded-xl border min-h-[85px] focus:outline-none focus:ring-2 ${
                     isSendingLocked
                       ? "bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed"
@@ -550,7 +557,7 @@ export function Messages() {
                         setConfirmSendReplyOpen(true);
                       }
                     }}
-                    disabled={isSendingLocked || sendSmsMutation.isPending || !replyText.trim()}
+                    disabled={!canSend || isSendingLocked || sendSmsMutation.isPending || !replyText.trim()}
                   >
                     {isSendingLocked ? (
                       <>
@@ -751,7 +758,7 @@ export function Messages() {
                 }
                 setConfirmNewSmsOpen(true);
               }}
-              disabled={sendSmsMutation.isPending}
+              disabled={!canSend || sendSmsMutation.isPending}
             >
               {sendSmsMutation.isPending ? t('crm.msgSending2') : t('crm.msgSendNow')}
             </Button>

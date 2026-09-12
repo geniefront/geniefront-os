@@ -28,6 +28,8 @@ export interface TicketItemActionModalState {
   staffId: string;
   resourceId: string;
   reason: string;
+  /** 本次操作的幂等键前缀，弹窗打开时铸一次。见 Queue.tsx 的说明。 */
+  attemptKey: string;
 }
 
 export interface TicketItemActionModalProps {

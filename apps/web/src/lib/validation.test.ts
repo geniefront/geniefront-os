@@ -5,7 +5,7 @@
  * 理由正是全站此前普遍把非法输入静默换成一个默认值（0 元、30 分钟）。
  */
 import { describe, expect, it } from 'vitest';
-import { parseCount, parseDurationMinutes, parseEmail, parseMoney, parsePin } from './validation';
+import { parseCount, parseDurationMinutes, parseEmail, parseMoney, parsePercent, parsePin } from './validation';
 import { dollarsToCents } from '@/features/checkout/api';
 
 describe('parseMoney', () => {
@@ -103,5 +103,39 @@ describe('parseCount', () => {
     expect(parseCount('0')).toEqual({ ok: false, reason: 'range' });
     expect(parseCount('2.5')).toEqual({ ok: false, reason: 'format' });
     expect(parseCount('12', { max: 10 })).toEqual({ ok: false, reason: 'range' });
+  });
+});
+
+describe('parsePercent', () => {
+  it('按字符串转 basis point，不经浮点', () => {
+    // 8.875 * 100 在浮点下是 887.4999999999999，直接取整会少一个 bp
+    expect(parsePercent('8.875')).toEqual({ ok: true, value: 887 });
+    expect(parsePercent('0')).toEqual({ ok: true, value: 0 });
+    expect(parsePercent('8.25')).toEqual({ ok: true, value: 825 });
+    expect(parsePercent('100')).toEqual({ ok: true, value: 10_000 });
+  });
+
+  it('容忍百分号：那是书写习惯', () => {
+    expect(parsePercent('8.25%')).toEqual({ ok: true, value: 825 });
+  });
+
+  it('非法输入判为非法，而不是像 parseFloat(x) || 0 那样静默归零', () => {
+    // 这正是要拦住的既有行为：打错一个字符，从此每一单都不收税
+    expect(Number.parseFloat('8.25%abc') || 0).toBe(8.25); // parseFloat 还会截半段
+    expect(Number.parseFloat('abc') || 0).toBe(0);
+    expect(parsePercent('abc')).toEqual({ ok: false, reason: 'format' });
+    expect(parsePercent('8.25.1')).toEqual({ ok: false, reason: 'format' });
+    expect(parsePercent('-5')).toEqual({ ok: false, reason: 'format' });
+    expect(parsePercent('')).toEqual({ ok: false, reason: 'empty' });
+  });
+
+  it('遵守上限与小数位上限', () => {
+    expect(parsePercent('120')).toEqual({ ok: false, reason: 'range' });
+    expect(parsePercent('30', { max: 25 })).toEqual({ ok: false, reason: 'range' });
+    expect(parsePercent('8.1234')).toEqual({ ok: false, reason: 'format' });
+  });
+
+  it('允许留空时空串记为 0', () => {
+    expect(parsePercent('', { allowEmpty: true })).toEqual({ ok: true, value: 0 });
   });
 });

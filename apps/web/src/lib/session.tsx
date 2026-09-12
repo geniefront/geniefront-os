@@ -21,10 +21,10 @@ import {
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { useQueryClient } from '@tanstack/react-query';
-import { clearCache } from './offline';
+import { clearCache, watchNetwork } from './offline';
 import {
   fetchMembershipContext, fetchLocationsAndClaimable, setActiveMembershipId, setUnauthenticatedHandler,
-  setCommandGuard, claimLocation,
+  setCommandGuard, claimLocation, API_BASE,
   type LocationMembership, type MembershipContext, type ClaimableStore,
 } from './api';
 
@@ -177,16 +177,29 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [queryClient]);
 
   // ── 网络可用性 ───────────────────────────────────────────────────────────
+  /*
+   * ⚠️ 不能只听 `online` / `offline` 事件。
+   *
+   * `navigator.onLine` 只反映**网卡有没有链路** —— 门店最常见的故障是
+   * 「连着 WiFi 但路由器出不去」，那时它仍然是 true：界面照常把写按钮
+   * 点亮，每一次点击都以网络错误收场，而只读降级从头到尾没有生效。
+   *
+   * `lib/offline.ts` 的 `watchNetwork` 正是为此写的（对自家 /health 打心跳），
+   * 但此前**没有任何调用方** —— 写好了、注释写明了理由，然后没人用它。
+   *
+   * 恢复联网时顺带整体重取一次：门店 iPad 常年开着不切走，
+   * `refetchOnWindowFocus` 等不到那个时机，断网期间的旧数据会一直挂在屏上。
+   */
   useEffect(() => {
-    const online = () => setIsOnline(true);
-    const offline = () => setIsOnline(false);
-    window.addEventListener('online', online);
-    window.addEventListener('offline', offline);
-    return () => {
-      window.removeEventListener('online', online);
-      window.removeEventListener('offline', offline);
-    };
-  }, []);
+    let wasOffline = false;
+    return watchNetwork(API_BASE, (state) => {
+      const online = state === 'online';
+      /* 写闸门由下面那个 useLayoutEffect 跟着 isOnline 走，这里不重复设置 */
+      setIsOnline(online);
+      if (online && wasOffline) void queryClient.invalidateQueries();
+      wasOffline = !online;
+    });
+  }, [queryClient]);
 
   // ── 门店列表与待开通门店 ───────────────────────────────────────────────────
   const reloadLocations = useCallback(async () => {

@@ -40,7 +40,8 @@ import { centsToDollars } from '@/features/checkout/api';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { GuardedButton } from '@/components/ui/GuardedButton';
-import { useCan } from '@/lib/permissions';
+import { useCan, useCanWrite } from '@/lib/permissions';
+import { useDebounced } from '@/lib/useDebounced';
 import { Input } from '@/components/ui/Input';
 import { BirthdateField } from '@/components/ui/BirthdateField';
 import { parseBirthdate } from '@gf/contracts';
@@ -102,6 +103,9 @@ function CustomersContent() {
   const { timeZone } = useStoreTime();
   const storeToday = instantToWallDate(new Date().toISOString(), timeZone);
   const canViewContact = useCan('customer.view_contact');
+  /* 合并与发短信各有自己的权限，界面此前一条都没守 */
+  const canMerge = useCanWrite('customer.merge');
+  const canSendSms = useCanWrite('comms.send');
 
   // 从 URL 初始化默认选中 ID（如 /customers/cust_123）
   const initialId = useMemo(() => {
@@ -157,7 +161,24 @@ function CustomersContent() {
   const [blockReason, setBlockReason] = useState(() => t('crm.custBlockReasonDefault'));
 
   // 查询数据
-  const listParams = useMemo(() => ({ limit: 200 }), []);
+  /*
+   * ⚠️ 搜索词必须传给服务端。
+   *
+   * 此前这里固定 `{ limit: 200 }`，搜索完全在取回来的那 200 行里做模糊匹配 ——
+   * 于是**超过 200 位客人的店，第 201 位在搜索框里永远找不到**。前台输了名字
+   * 没结果，只会判定「系统里没有这个人」，然后建一个重复档案。
+   *
+   * 服务端本来就支持（`queries/customer.ts` 的 `q`），而且**优先按手机后四位
+   * 匹配** —— 那正是前台在电话里问的第一句。这条能力此前一直没接上。
+   *
+   * 客户端的模糊匹配保留：它兜的是拼写错误，服务端的 SQL 匹配兜不住。
+   * 两层叠加 —— 服务端负责把候选集缩到对的那 200 行，客户端负责在其中容错排序。
+   */
+  const debouncedQuery = useDebounced(query, 300);
+  const listParams = useMemo(
+    () => ({ limit: 200, ...(debouncedQuery.trim() ? { q: debouncedQuery.trim() } : {}) }),
+    [debouncedQuery],
+  );
   const list = useCustomerList(listParams);
   const rawRows: CustomerListRow[] = list.data?.rows ?? [];
 
@@ -1370,7 +1391,7 @@ function CustomersContent() {
               isPending={mergeMutation.isPending}
               className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
               onClick={handleSmartMerge}
-              disabled={!selectedSourceCustomer || mergeMutation.isPending}
+              disabled={!canMerge || !selectedSourceCustomer || mergeMutation.isPending}
             >
               {mergeMutation.isPending ? t('loading') : (t('mergeCustomer') || t('crm.custConfirmMerge'))}
             </Button>
@@ -1468,6 +1489,7 @@ function CustomersContent() {
             <Button
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold gap-1"
               isPending={sendSmsMutation.isPending}
+              isDisabled={!canSendSms}
               onClick={handleSendSms}
             >
               <Send className="w-3.5 h-3.5" />

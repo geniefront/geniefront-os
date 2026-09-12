@@ -15,6 +15,8 @@ import type {
   DurationReason,
   EmailReason,
   MoneyReason,
+  PercentOptions,
+  PercentReason,
   PinReason,
 } from './validation';
 
@@ -52,6 +54,12 @@ const COUNT_KEYS: Record<CountReason, TranslationKey> = {
   range: 'valid.countRange',
 };
 
+const PERCENT_KEYS: Record<PercentReason, TranslationKey> = {
+  empty: 'valid.percentEmpty',
+  format: 'valid.percentFormat',
+  range: 'valid.percentRange',
+};
+
 export interface ValidationMessages {
   money: (reason: MoneyReason) => string;
   /** 越界文案里要写清区间，因此需要传入与判定时相同的选项。 */
@@ -59,6 +67,7 @@ export interface ValidationMessages {
   email: (reason: EmailReason) => string;
   pin: (reason: PinReason) => string;
   count: (reason: CountReason, options?: CountOptions) => string;
+  percent: (reason: PercentReason, options?: PercentOptions) => string;
 }
 
 export function useValidationMessage(): ValidationMessages {
@@ -80,6 +89,13 @@ export function useValidationMessage(): ValidationMessages {
         reason === 'range'
           ? t(COUNT_KEYS.range, { p0: String(options.min ?? 1), p1: String(options.max ?? 9999) })
           : t(COUNT_KEYS[reason]),
+      [t],
+    ),
+    percent: useCallback(
+      (reason: PercentReason, options: PercentOptions = {}) =>
+        reason === 'range'
+          ? t(PERCENT_KEYS.range, { p0: String(options.max ?? 100) })
+          : t(PERCENT_KEYS[reason]),
       [t],
     ),
   };

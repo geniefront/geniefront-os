@@ -28,6 +28,12 @@ for(const [name,engine] of Object.entries({chromium,webkit})) {
   expect(await page.locator('.gf-print-sheet').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
   await page.screenshot({path:`${out}${name}-receipt.png`});
   if(name==='chromium') await page.pdf({path:`${out}receipt-80mm.pdf`,width:'80mm',height:'11in',printBackground:true,preferCSSPageSize:true});
+  // 58mm 热敏也要验：美甲店用的多是这一档，而它比 80mm 窄近三成，
+  // 长项目名与「小计/税/小费」那几行最先在这里溢出。
+  await page.getByLabel('Paper size').selectOption('thermal58');
+  expect(await page.locator('.gf-print-sheet').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+  if(name==='chromium') await page.pdf({path:`${out}receipt-58mm.pdf`,width:'58mm',height:'11in',printBackground:true,preferCSSPageSize:true});
+  await page.getByLabel('Paper size').selectOption('thermal');
   await page.getByLabel('Paper size').selectOption('letter');
   if(name==='chromium') await page.pdf({path:`${out}receipt-letter.pdf`,printBackground:true,preferCSSPageSize:true});
   await page.evaluate(()=>{window.print=()=>{window.__printCalls=(window.__printCalls||0)+1;}});
@@ -67,6 +73,6 @@ for(const [name,engine] of Object.entries({chromium,webkit})) {
   await page.emulateMedia({media:'screen'});
   await page.locator('#gf-print-root').getByRole('button',{name:'Close preview'}).click();
   expect(errors).toEqual([]);
-  console.log(`PASS ${name}: receipt, Letter/80mm, 120 rows, cancel/reprint and close`);
+  console.log(`PASS ${name}: receipt, Letter/80mm/58mm, 120 rows, cancel/reprint and close`);
  } finally {await browser.close();}
 }

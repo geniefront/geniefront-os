@@ -2,6 +2,9 @@ import { useState, useMemo, useEffect } from 'react';
 import { useLanguage } from '@/LanguageContext';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
+import { useCanWrite } from '@/lib/permissions';
+import { rotationEventLabel } from '@/lib/deskCopy';
+import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
@@ -125,6 +128,18 @@ function RotationContent() {
   const { data: rotation, isLoading, error, refetch } = useRotationQuery(
     selectedDate || undefined,
   );
+
+  /*
+   * 轮牌页此前没有任何权限判定 —— 每个按钮对每个前台账号都是活的。
+   * 店主单独撤销某人的 `rotation.override` 后（`lib/permissions.ts` 记录的
+   * 核心用例），那名员工照样看到全部操作，而每一次点击都 403。
+   *
+   * `rotation.assign`（派单）要的是 `appointment.write`，不是 override ——
+   * 两者分开取，不能合成一个「能不能操作轮牌」。
+   */
+  const canOverride = useCanWrite('rotation.override');
+  const canAssign = useCanWrite('appointment.write');
+  const canPolicy = useCanWrite('settings.manage');
 
   const skipMutation = useRotationSkip();
   const reorderMutation = useRotationReorder();
@@ -427,6 +442,7 @@ function RotationContent() {
     entry: RotationEntry,
     action: 'up' | 'down' | 'top' | 'bottom',
   ) => {
+    if (!canOverride) return;
     const currentIndex = localEntries.findIndex((e) => e.membershipId === entry.membershipId);
     if (currentIndex === -1) return;
 
@@ -504,6 +520,7 @@ function RotationContent() {
 
   // 3. 申请/结束小休
   const handleToggleBreakWithConfirm = (entry: RotationEntry) => {
+    if (!canOverride) return;
     const isCurrentlyOnBreak = entry.state === 'on_break';
     setConfirmModal({
       title: isCurrentlyOnBreak ? t('rotation.rotBreakEndConfirmTitle', { p0: entry.name }) : t('rotation.rotBreakStartConfirmTitle', { p0: entry.name }),
@@ -565,6 +582,7 @@ function RotationContent() {
 
   // 6. 保存轮牌策略
   const handleSavePolicy = async () => {
+    if (!canPolicy) return;
     try {
       await updatePolicyMutation.mutateAsync(policyForm);
       toast.success(t('rotation.rotPolicySaved'));
@@ -576,6 +594,7 @@ function RotationContent() {
 
   // 7. 快捷切换轮牌开启/关闭
   const handleQuickToggleEnabledWithConfirm = () => {
+    if (!canPolicy) return;
     if (!rotation?.policy) return;
     const nextState = !rotation.policy.enabled;
 
@@ -646,6 +665,7 @@ function RotationContent() {
               <Button
                 variant="secondary"
                 size="sm"
+                isDisabled={!canPolicy}
                 onClick={() => {
                   if (rotation?.policy) setPolicyForm({ ...rotation.policy });
                   setIsPolicyModalOpen(true);
@@ -664,6 +684,7 @@ function RotationContent() {
                     : 'bg-slate-800 hover:bg-slate-900 text-white'
                 } font-bold text-xs shadow-sm gap-1.5`}
                 size="sm"
+                isDisabled={!canPolicy}
                 onClick={handleQuickToggleEnabledWithConfirm}
               >
                 <Zap className="w-3.5 h-3.5" />
@@ -673,6 +694,8 @@ function RotationContent() {
           </div>
         }
       />
+
+      {!canOverride && <ReadOnlyNotice />}
 
       {/* 2. Top System Status & Date Navigation Toolbar */}
       <div
@@ -835,6 +858,7 @@ function RotationContent() {
 
                 <div className="flex items-center gap-2 w-full md:w-auto justify-end">
                   <Button
+                    isDisabled={!canOverride}
                     variant="secondary"
                     size="sm"
                     className="text-xs font-bold text-slate-700 hover:bg-slate-100 h-8"
@@ -849,6 +873,7 @@ function RotationContent() {
                   </Button>
 
                   <Button
+                    isDisabled={!canOverride}
                     variant="secondary"
                     size="sm"
                     className="text-xs font-bold text-blue-700 border-blue-200 hover:bg-blue-50 h-8"
@@ -859,6 +884,7 @@ function RotationContent() {
                   </Button>
 
                   <Button
+                    isDisabled={!canAssign}
                     size="sm"
                     className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-xs gap-1 px-3 h-8"
                     onClick={() => {
@@ -963,7 +989,7 @@ function RotationContent() {
                   return (
                     <div
                       key={entry.membershipId}
-                      draggable
+                      draggable={canOverride}
                       onDragStart={(e) => handleDragStart(e, index)}
                       onDragOver={(e) => handleDragOver(e, index)}
                       onDragLeave={handleDragLeave}
@@ -985,7 +1011,7 @@ function RotationContent() {
                         <div className="w-11 bg-slate-50/90 border-r border-slate-200/70 rounded-l-2xl flex flex-col items-center justify-between py-2 text-slate-400 shrink-0 select-none">
                           <button
                             onClick={() => handleQuickShiftWithGraphic(entry, 'up')}
-                            disabled={index === 0}
+                            disabled={!canOverride || index === 0}
                             className="p-1 hover:text-slate-900 disabled:opacity-20 transition-colors"
                             title={t('rotation.rotMoveUp')}
                           >
@@ -1001,7 +1027,7 @@ function RotationContent() {
 
                           <button
                             onClick={() => handleQuickShiftWithGraphic(entry, 'down')}
-                            disabled={index === filteredEntries.length - 1}
+                            disabled={!canOverride || index === filteredEntries.length - 1}
                             className="p-1 hover:text-slate-900 disabled:opacity-20 transition-colors"
                             title={t('rotation.rotMoveDown')}
                           >
@@ -1075,7 +1101,7 @@ function RotationContent() {
                           <div className="flex items-center gap-1.5 justify-end shrink-0 flex-wrap">
                             <button
                               onClick={() => handleQuickShiftWithGraphic(entry, 'top')}
-                              disabled={index === 0}
+                              disabled={!canOverride || index === 0}
                               className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 disabled:opacity-25"
                               title={t('rotation.rotMoveToTop')}
                             >
@@ -1083,7 +1109,7 @@ function RotationContent() {
                             </button>
                             <button
                               onClick={() => handleQuickShiftWithGraphic(entry, 'bottom')}
-                              disabled={index === filteredEntries.length - 1}
+                              disabled={!canOverride || index === filteredEntries.length - 1}
                               className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 disabled:opacity-25"
                               title={t('rotation.rotMoveToBottom')}
                             >
@@ -1093,6 +1119,7 @@ function RotationContent() {
                             {entry.state === 'not_arrived' && (
                               <Button
                                 size="sm"
+                                isDisabled={!canOverride}
                                 className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs"
                                 onClick={() => {
                                   setCheckInTarget(entry);
@@ -1162,6 +1189,7 @@ function RotationContent() {
                               items={[
                                 {
                                   id: 'check-in',
+                                  isDisabled: !canOverride,
                                   label: t('rotation.rotClockIn'),
                                   icon: <LogIn className="w-3.5 h-3.5 text-purple-600" />,
                                   onSelect: () => {
@@ -1171,6 +1199,7 @@ function RotationContent() {
                                 },
                                 {
                                   id: 'check-out',
+                                  isDisabled: !canOverride,
                                   label: t('rotation.rotClockOut'),
                                   icon: <LogOut className="w-3.5 h-3.5 text-slate-600" />,
                                   onSelect: () => {
@@ -1463,7 +1492,7 @@ function RotationContent() {
                         <div className="text-xs text-slate-700 space-y-1.5">
                           <p className="font-semibold text-slate-900 flex items-center gap-1.5">
                             <span>{t('rotation.rotSituationNote')}</span>
-                            <span className="text-slate-800">{evt.reason}</span>
+                            <span className="text-slate-800">{rotationEventLabel(evt.reason, t)}</span>
                           </p>
 
                           {evt.note && (
@@ -1957,6 +1986,7 @@ function RotationContent() {
             <Button
               isPending={updatePolicyMutation.isPending}
               className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
+              isDisabled={!canPolicy}
               onClick={handleSavePolicy}
               disabled={updatePolicyMutation.isPending}
             >
@@ -2061,7 +2091,7 @@ function RotationContent() {
                       {evt.at.slice(11, 19)}
                     </span>
                   </div>
-                  <p className="text-slate-700 font-medium mt-0.5">{evt.reason}</p>
+                  <p className="text-slate-700 font-medium mt-0.5">{rotationEventLabel(evt.reason, t)}</p>
                   {evt.note && <p className="text-[11px] text-slate-400 mt-0.5">{evt.note}</p>}
                 </div>
               ))

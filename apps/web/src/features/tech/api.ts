@@ -3,6 +3,7 @@ import { apiGet, runCommand } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import type { Language } from '@/i18n';
 import type { PunchKind, TechRoster, TechToday } from './types';
+import { useAttemptKey } from '@/lib/idempotency';
 
 function requireMembership(membershipId: string | null): string {
   if (!membershipId) throw new Error('NO_ACTIVE_MEMBERSHIP');
@@ -120,15 +121,18 @@ export function useTechFinishServiceMutation() {
 export function useTechDirectCashTipMutation() {
   const { membershipId } = useSession();
   const refresh = useRefreshTechToday();
+  const attempt = useAttemptKey();
+
   return useMutation({
     mutationFn: async (input: { ticketItemId: string; amountCents: number; note?: string }) => (
       await runCommand<{
         ticketItemId: string;
         amountCents: number;
         settlementStatus: 'no_tip' | 'received_direct';
-      }>('staff.recordDirectCashTip', input, requireMembership(membershipId), crypto.randomUUID())
+      /* 键随「这一次意图」走 —— 现生成的话，超时重按就是发两遍现金小费 */
+      }>('staff.recordDirectCashTip', input, requireMembership(membershipId), attempt.take())
     ).result,
-    onSuccess: refresh,
+    onSuccess: () => { attempt.settle(); refresh(); },
   });
 }
 

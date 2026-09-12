@@ -96,6 +96,14 @@ export interface CheckoutTotalsInput {
    * 前台取消勾选、看着一张不含税的摘要，客人卡上却被多扣了一笔。
    */
   taxRatePercent: string;
+  /**
+   * 外加税 / 内含税。**必须与服务端同一份门店设置一致。**
+   *
+   * 此前本函数根本没有这个字段，一律按外加税算。内含税门店因此出现
+   * 「界面报的总额」与「服务端算的应收」不相等，每一单都被
+   * `PAYMENT_MISMATCH` 挡下 —— 设置页里可选的功能，实际完全不能用。
+   */
+  taxCalculationMode?: 'exclusive' | 'inclusive';
   enableCardSurcharge: boolean;
   cardSurchargePercent: string;
   paymentMethod: 'card' | 'cash' | 'gift_card' | 'apple_pay';
@@ -224,7 +232,22 @@ export function computeCheckoutTotals(input: CheckoutTotalsInput): CheckoutTotal
   const isTipOnly = stage === 'tip';
   const discountCents = isTipOnly ? 0 : Math.max(0, toCents(input.discountDollars));
   const afterDiscountCents = isTipOnly ? 0 : Math.max(0, input.baseCents - discountCents);
-  const taxCents = isTipOnly ? 0 : Math.round(afterDiscountCents * toRate(input.taxRatePercent));
+  /*
+   * 两种税制下 taxCents 的含义不同：
+   *   外加税 —— 税加在净额之上，应收 = 净额 + 税
+   *   内含税 —— 标价已含税，税只是从标价里拆出来的那一部分，应收 = 标价
+   * 与服务端 `apps/api/src/tax.ts` 的 `locationTaxCents` / `checkoutDueCents`
+   * 必须逐分一致，否则结账会被 PAYMENT_MISMATCH 挡下。
+   */
+  const taxInclusive = input.taxCalculationMode === 'inclusive';
+  const taxRate = toRate(input.taxRatePercent);
+  const taxCents = isTipOnly
+    ? 0
+    : taxInclusive
+      ? Math.round(afterDiscountCents - afterDiscountCents / (1 + taxRate))
+      : Math.round(afterDiscountCents * taxRate);
+  /** 服务部分的应收（不含小费与附加费）。内含税时税已在其中。 */
+  const serviceDueCents = taxInclusive ? afterDiscountCents : afterDiscountCents + taxCents;
 
   const tipBaseCents = input.tipBaseCents ?? afterDiscountCents;
   const enteredTipCents = input.tipMode === 'total_split'
@@ -244,7 +267,7 @@ export function computeCheckoutTotals(input: CheckoutTotalsInput): CheckoutTotal
    */
   const cardAccepted = input.paymentMethod === 'card' || input.paymentMethod === 'apple_pay';
   const cardSurchargeCents = !isTipOnly && input.enableCardSurcharge && cardAccepted
-    ? Math.round((afterDiscountCents + taxCents) * toRate(input.cardSurchargePercent))
+    ? Math.round(serviceDueCents * toRate(input.cardSurchargePercent))
     : 0;
 
   // 小费为 0（服务款阶段必然如此）时不得再按人分配，否则分账之和会与上报总额不符。
@@ -263,7 +286,7 @@ export function computeCheckoutTotals(input: CheckoutTotalsInput): CheckoutTotal
     };
   });
 
-  const totalDueCents = afterDiscountCents + taxCents + cardSurchargeCents;
+  const totalDueCents = serviceDueCents + cardSurchargeCents;
 
   return {
     discountCents,

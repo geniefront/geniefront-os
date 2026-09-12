@@ -42,7 +42,8 @@ export function ImageUploader({
 
   // 处理文件上传
   const handleFile = async (file: File) => {
-    if (!file.type.startsWith('image/')) {
+    /* accept 属性只是文件选择器的提示，拖拽进来的不受它约束，必须再判一次 */
+    if (!file.type.startsWith('image/') || file.type === 'image/svg+xml') {
       toast.danger(t('settings.uploadInvalidType'));
       return;
     }
@@ -155,7 +156,7 @@ export function ImageUploader({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml"
+        accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
         onChange={handleFileChange}
         className="hidden"
       />

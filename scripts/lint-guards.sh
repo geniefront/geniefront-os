@@ -166,6 +166,65 @@ if command -v node >/dev/null 2>&1; then
     "$hits"
 fi
 
+# ── 11. 权限对账：界面画的门 vs 服务端判的门 ─────────────────────────────────
+# AUD-02：权限的粒度是「命令」，但有些能力藏在别的命令的入参字段里
+#（打折、超容量），那类权限曾经在全仓一处判定都没有 —— 店主取消勾选
+# 以为限住了，实际什么也没发生。脚本自带待决清单，新出现的缺口会当场报红。
+if command -v node >/dev/null 2>&1 && [[ -x node_modules/.bin/tsx ]]; then
+  hits=$(node_modules/.bin/tsx scripts/check-permission-matrix.mjs 2>&1 || true)
+  if ! grep -q '✓ 权限对账通过' <<< "$hits"; then
+    report \
+      "权限对账发现不一致" \
+      "亮着却注定 403 的按钮会被用户读成系统故障；永不生效的权限是给店主的假承诺" \
+      "按下面的分类处理：漏门禁补 useCan*/GuardedButton；死权限补判定或删掉。" \
+      "$hits"
+  fi
+fi
+
+# ── 12. 钱路径上不得用宽容解析器当校验 ───────────────────────────────────────
+# AUD-04：`dollarsToCents('abc')` 返回 0、`parseFloat(x) || 0` 归零、
+# `parseInt(x) || 365` 回落默认值 —— 三者都是「打错字就悄悄换个值」，
+# 而用户永远不会知道：界面提示保存成功，数字看起来也合理。
+if command -v node >/dev/null 2>&1; then
+  hits=$(node scripts/check-money-parsing.mjs 2>&1 || true)
+  if ! grep -q '✓ 钱路径解析检查通过' <<< "$hits"; then
+    report \
+      "钱路径上出现了静默纠正" \
+      "金额/比率/数量填错必须当场说「不」，不能替用户换一个看起来合理的值" \
+      "改用 apps/web/src/lib/validation.ts 的 parse* 判定，失败交给 useValidationMessage 出文案。" \
+      "$hits"
+  fi
+fi
+
+# ── 13. 幂等键必须随「意图」走，不随「调用」走 ───────────────────────────────
+# AUD-05：门店超时是常态，而超时不代表没写进去。键在调用处现生成的话，
+# 前台重按一次就是第二条命令 —— 现金小费发两遍、加项加两条。
+if command -v node >/dev/null 2>&1 && [[ -x node_modules/.bin/tsx ]]; then
+  hits=$(node_modules/.bin/tsx scripts/check-idempotency.mjs 2>&1 || true)
+  if ! grep -q '✓ 幂等键稳定性检查通过' <<< "$hits"; then
+    report \
+      "幂等键在提交时才生成" \
+      "超时重按必须复用同一个键，否则 idempotency: 'required' 形同虚设" \
+      "用 lib/idempotency.ts 的 useAttemptKey，或按业务身份拼稳定串（如 queue-pay-\${ticketId}-\${stage}）。" \
+      "$hits"
+  fi
+fi
+
+# ── 14. 文案 key 必须存在于字典 ─────────────────────────────────────────────
+# AUD-07：`t()` 的签名是 `TranslationKey | string`，那个 `| string` 是逃生口 ——
+# 拼错或取错命名空间没有任何编译期错误。开发环境渲染成 ⟦key⟧ 还看得见，
+# 生产环境**原样把 key 显示给用户**，而没人会去看前台的浏览器控制台。
+if command -v node >/dev/null 2>&1 && [[ -x node_modules/.bin/tsx ]]; then
+  hits=$(node_modules/.bin/tsx scripts/check-i18n-keys.mjs 2>&1 || true)
+  if ! grep -q '✓ 文案 key 检查通过' <<< "$hits"; then
+    report \
+      "代码里引用了字典中没有的文案 key" \
+      "生产环境下这些 key 会原样出现在前台屏幕上" \
+      "在 apps/web/src/i18n/ 下对应的域文件里补齐五种语言的词条。" \
+      "$hits"
+  fi
+fi
+
 echo
 if [[ $FAIL -eq 0 ]]; then
   echo "${G}✓ 全部通过${N}"

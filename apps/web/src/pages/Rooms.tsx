@@ -52,6 +52,7 @@ import {
   useDeleteResource,
 } from '@/features/rooms/api';
 import { useJoinQueue, queueKeys } from '@/features/queue/api';
+import { useCanWrite } from '@/lib/permissions';
 import { useOpenTicket, useStartTicketItem, useFinishTicketItem } from '@/features/tickets/api';
 import { useDaySnapshot } from '@/features/schedule/api';
 import { useSession } from '@/lib/session';
@@ -81,6 +82,8 @@ function RoomsContent() {
   const { today } = useBusinessDay();
   const { data: daySnap } = useDaySnapshot(today);
   const joinQueue = useJoinQueue();
+  /* 取号/入座要 queue.join —— 此前没守 */
+  const canJoinQueue = useCanWrite('queue.join');
   const openTicket = useOpenTicket();
   const startTicketItem = useStartTicketItem();
   const finishTicketItem = useFinishTicketItem();
@@ -369,6 +372,7 @@ function RoomsContent() {
       toast.danger(t('queue.roomSeatNeedGuest'));
       return;
     }
+    if (!canJoinQueue) { toast.danger(t('blockedForbidden')); return; }
     seatGuard.current = true;
     setSeatStarted(true);
     try {

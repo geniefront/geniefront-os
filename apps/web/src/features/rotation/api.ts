@@ -6,6 +6,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, runCommand } from '@/lib/api';
+import { useAttemptKey } from '@/lib/idempotency';
 import { useSession } from '@/lib/session';
 import type {
   RotationStanding,
@@ -154,9 +155,12 @@ export function useRotationAssign() {
   const queryClient = useQueryClient();
   const { membershipId } = useSession();
 
+  const attempt = useAttemptKey();
+
   return useMutation({
     mutationFn: async (input: RotationAssignInput) => {
-      const idempotencyKey = crypto.randomUUID();
+      /* 键随「这一次意图」走，不随「这一次调用」走 —— 见 lib/idempotency.ts */
+      const idempotencyKey = attempt.take();
       const res = await runCommand<{
         eventId: string;
         membershipId: string;
@@ -171,6 +175,8 @@ export function useRotationAssign() {
       return res.result;
     },
     onSuccess: () => {
+      attempt.settle();
+
       void queryClient.invalidateQueries({ queryKey: ['desk', 'rotation'] });
     },
   });

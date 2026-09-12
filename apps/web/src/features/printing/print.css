@@ -7,6 +7,9 @@
 .gf-print-help { max-width: 8.5in; margin: 0 auto 20px; font: 14px/1.5 system-ui; }
 .gf-print-sheet { width: 100%; max-width: 8.5in; margin: auto; padding: .5in; background: white; font: 11pt/1.45 Arial, sans-serif; overflow-wrap: anywhere; }
 #gf-print-root[data-paper="thermal"] .gf-print-sheet { max-width: 74mm; padding: 3mm; font-size: 10pt; }
+/* 58mm 纸的可打印宽度按与 80mm 相同的留边推算（80→74，58→52）。字号再收一档，
+   否则长项目名在这个宽度上换行过于频繁，一张小票会拉到两倍长。 */
+#gf-print-root[data-paper="thermal58"] .gf-print-sheet { max-width: 52mm; padding: 3mm; font-size: 9pt; }
 /* Remove viewport constraints copied from the source card, including ancestors
    that would otherwise clip multipage documents or print only visible rows. */
 .gf-print-sheet :is(div,section,article,header,footer,dl) { max-height: none !important; height: auto !important; overflow: visible !important; box-shadow: none !important; }

@@ -3,6 +3,8 @@ import { pickText } from '@gf/contracts';
 import { useState, useEffect, useMemo } from 'react';
 import { useLanguage } from '@/LanguageContext';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { useCanWrite } from '@/lib/permissions';
+import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { ConfirmDialog, Modal } from '@/components/ui/Modal';
 import {
   Printer,
@@ -45,6 +47,8 @@ import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { toast, Spinner } from '@heroui/react';
 import { useFieldErrors } from '@/lib/formFeedback';
+import { parseMoney } from '@/lib/validation';
+import { useValidationMessage } from '@/lib/validationMessage';
 import {
   useDayCloseQuery,
   useSaveCashCount,
@@ -105,6 +109,17 @@ export function DayClose() {
   const [activeTab, setActiveTab] = useState<'overview' | 'counter' | 'tips' | 'audit'>('overview');
 
   const { data: dayClose, isLoading, error, refetch } = useDayCloseQuery(selectedDate);
+
+  /*
+ * 日结页此前没有任何权限判定 —— 每个按钮对每个前台账号都是活的。
+ * 三条权限在这里是分开的，不能合并：
+ *   dayclose.manage   点钞、录现金进出、封账
+ *   tip.payout        发现金小费（有的店老板亲自发钱，前台只数抽屉）
+ *   payroll.configure 重开已封的账
+ */
+  const canManage = useCanWrite('dayclose.manage');
+  const canPayTips = useCanWrite('tip.payout');
+  const canReopen = useCanWrite('payroll.configure');
 
   const saveCountMutation = useSaveCashCount();
   const payTipsMutation = usePayCashTips();
@@ -183,12 +198,30 @@ export function DayClose() {
   }, [counts]);
 
   // 实际盘点总额 (Cents)
+  /*
+   * ⚠️ 手工盘点金额必须判定，不能交给 `dollarsToCents`。
+   *
+   * 那是结账用的宽容解析器，会把非数字字符剔掉再算：手指打滑把 807 打成
+   * `8o7`，它返回的是 **$8.70** —— 一个看起来完全合理的数。日结的全部意义
+   * 就是发现差额，而这里错一位会把差额本身算错，人再怎么复核也对不出来。
+   *
+   * 留空是合法的（还没数完），按 0 计；打错字不是。
+   */
+  const manualCount = useMemo(
+    () => parseMoney(manualCountedStr, { allowEmpty: true }),
+    [manualCountedStr],
+  );
+  const reserveFloat = useMemo(
+    () => parseMoney(reserveFloatDollars, { allowEmpty: true }),
+    [reserveFloatDollars],
+  );
+
   const finalCountedCents = useMemo(() => {
     if (useDenominationMode) {
       return denominationTotalCents;
     }
-    return dollarsToCents(manualCountedStr);
-  }, [useDenominationMode, denominationTotalCents, manualCountedStr]);
+    return manualCount.ok ? manualCount.value : 0;
+  }, [useDenominationMode, denominationTotalCents, manualCount]);
 
   const expectedCents = dayClose?.expectedCashCents ?? 0;
   const countedSaved = hasSavedCashCount(dayClose?.countedCashCents);
@@ -208,7 +241,7 @@ export function DayClose() {
   const needsReason = Math.abs(cashVarianceCents) >= thresholdCents;
 
   // 预留下日备用金后需解存入保险箱的Amount
-  const reserveFloatCents = dollarsToCents(reserveFloatDollars);
+  const reserveFloatCents = reserveFloat.ok ? reserveFloat.value : 0;
   const safeDropCents = Math.max(0, finalCountedCents - reserveFloatCents);
 
   // 快捷更新面额数量
@@ -222,11 +255,20 @@ export function DayClose() {
 
   // 保存实点Amount
   /** 日结差异说明的字段级校验。 */
-  const closeForm = useFieldErrors<'varianceReason'>();
+  const closeForm = useFieldErrors<'varianceReason' | 'manualCount' | 'reserveFloat' | 'movementAmount'>();
+  const invalid = useValidationMessage();
 
   const handleSaveCount = async () => {
+    if (!canManage) return;
     if (!dayClose) return;
     closeForm.clear();
+    /* 金额先判：差额说明写得再好，也补不了一个算错的差额 */
+    if (!useDenominationMode && !manualCount.ok) {
+      return closeForm.fail('manualCount', invalid.money(manualCount.reason));
+    }
+    if (!reserveFloat.ok) {
+      return closeForm.fail('reserveFloat', invalid.money(reserveFloat.reason));
+    }
     if (needsReason && !varianceReason.trim()) {
       closeForm.fail('varianceReason', t('varianceReasonRequired') || t('checkout.dcVarianceReasonRequired'));
       return;
@@ -248,6 +290,7 @@ export function DayClose() {
 
   // 结付全部Cash小费
   const handlePayAllTips = async () => {
+    if (!canPayTips) return;
     if (!dayClose) return;
     try {
       await payTipsMutation.mutateAsync({
@@ -262,12 +305,16 @@ export function DayClose() {
 
   // 录入一笔零用金收支
   const handleRecordMovement = async () => {
+    if (!canManage) return;
     if (!dayClose) return;
-    const cents = dollarsToCents(movementForm.amountDollars);
-    if (cents <= 0) {
-      toast.danger(t('checkout.dcInvalidAmount'));
-      return;
+    closeForm.clear();
+    /* 此前只判 `<= 0`，于是「打错字」和「填了 0」给的是同一句话 */
+    const amount = parseMoney(movementForm.amountDollars);
+    if (!amount.ok) return closeForm.fail('movementAmount', invalid.money(amount.reason));
+    if (amount.value <= 0) {
+      return closeForm.fail('movementAmount', t('checkout.dcInvalidAmount'));
     }
+    const cents = amount.value;
 
     try {
       await recordMovementMutation.mutateAsync({
@@ -285,6 +332,7 @@ export function DayClose() {
   };
 
   const requestFinalize = () => {
+    if (!canManage) return;
     if (!dayClose) return;
     if (!hasSavedCashCount(dayClose.countedCashCents)) {
       toast.danger(t('checkout.dcCountBeforeFinalize'));
@@ -296,6 +344,7 @@ export function DayClose() {
 
   // 封账
   const handleFinalize = async () => {
+    if (!canManage) return;
     if (!dayClose) return;
     if (!hasSavedCashCount(dayClose.countedCashCents)) {
       toast.danger(t('checkout.dcCountBeforeFinalize'));
@@ -324,6 +373,7 @@ export function DayClose() {
 
   // 反结账重开
   const handleReopen = async () => {
+    if (!canReopen) return;
     if (!dayClose || !reopenReasonText.trim()) return;
     try {
       await reopenMutation.mutateAsync({
@@ -369,6 +419,7 @@ export function DayClose() {
               {/* 记一笔零用金收支 */}
               {!isClosed && (
                 <Button
+                  isDisabled={!canManage}
                   variant="outline"
                   size="sm"
                   className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50 gap-1.5"
@@ -424,6 +475,7 @@ export function DayClose() {
               {/* 封账 / 反结账动作 */}
               {isClosed ? (
                 <Button
+                  isDisabled={!canReopen}
                   variant="secondary"
                   size="sm"
                   className="gap-1.5 text-amber-700 border-amber-300 bg-amber-50/50 hover:bg-amber-100"
@@ -434,6 +486,7 @@ export function DayClose() {
                 </Button>
               ) : (
                 <Button
+                isDisabled={!canManage}
                   size="sm"
                   className="gap-1.5 bg-teal-600 hover:bg-teal-700 text-white font-bold shadow-sm"
                   onClick={requestFinalize}
@@ -445,6 +498,9 @@ export function DayClose() {
             </div>
           }
         />
+
+        {/* 三条权限都没有 = 这一页只能看。单独置灰按钮不够，要先说清楚为什么 */}
+        {!canManage && !canPayTips && !canReopen && <ReadOnlyNotice />}
 
         {/* Date Selector & Status Header Bar */}
         <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1004,7 +1060,8 @@ export function DayClose() {
                           <Input
                             type="text"
                             disabled={isClosed}
-                            value={manualCountedStr}
+                            {...closeForm.bind('manualCount')}
+                    value={manualCountedStr}
                             onChange={(e) => setManualCountedStr(e.target.value)}
                             placeholder="0.00"
                             className="pl-8 text-lg font-bold font-mono"
@@ -1105,6 +1162,7 @@ export function DayClose() {
                   <Input
                     type="text"
                     disabled={isClosed}
+                    {...closeForm.bind('reserveFloat')}
                     value={reserveFloatDollars}
                     onChange={(e) => setReserveFloatDollars(e.target.value)}
                     className="text-xs font-mono font-bold"
@@ -1117,6 +1175,7 @@ export function DayClose() {
 
                 {!isClosed && (
                   <Button
+                    isDisabled={!canManage}
                     isPending={saveCountMutation.isPending}
                     className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold gap-2 mt-2"
                     onClick={handleSaveCount}
@@ -1149,6 +1208,7 @@ export function DayClose() {
                 </div>
                 {!isClosed && (
                   <Button
+                    isDisabled={!canPayTips}
                     isPending={payTipsMutation.isPending}
                     size="sm"
                     className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold gap-1.5"
@@ -1374,6 +1434,7 @@ export function DayClose() {
                 {t('cancel')}
               </Button>
               <Button
+                isDisabled={!canReopen}
                 isPending={reopenMutation.isPending}
                 onClick={handleReopen}
                 disabled={!reopenReasonText.trim() || reopenMutation.isPending}
@@ -1418,6 +1479,7 @@ export function DayClose() {
                 {t('checkout.dcPettyCancel')}
               </Button>
               <Button
+                isDisabled={!canManage}
                 isPending={recordMovementMutation.isPending}
                 onClick={handleRecordMovement}
                 disabled={recordMovementMutation.isPending}
@@ -1452,7 +1514,8 @@ export function DayClose() {
                 <Input
                   type="text"
                   placeholder="0.00"
-                  value={movementForm.amountDollars}
+                  {...closeForm.bind('movementAmount')}
+                    value={movementForm.amountDollars}
                   onChange={(e) => setMovementForm((prev) => ({ ...prev, amountDollars: e.target.value }))}
                   className="pl-8 text-xs font-bold font-mono"
                 />

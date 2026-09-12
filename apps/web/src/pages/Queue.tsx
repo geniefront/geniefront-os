@@ -48,6 +48,8 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QRCodeZoomModal } from '@/components/QRCodeZoomModal';
 import { useCanWrite } from '@/lib/permissions';
+import { parsePercent } from '@/lib/validation';
+import { GuardedButton } from '@/components/ui/GuardedButton';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { fuzzySearch } from '@/lib/fuzzySearch';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -260,6 +262,8 @@ function QueueContent() {
    */
   const canVoidTicket = useCanWrite('ticket.void');
   const canOpenTicket = useCanWrite('ticket.write');
+  /* 取号/入座要 queue.join —— 此前没守 */
+  const canJoinQueue = useCanWrite('queue.join');
   /**
    * walk-in 直接开单（组合套餐）弹窗（U10 / 计划 §7）。
    *
@@ -639,6 +643,7 @@ function QueueContent() {
     discountDollars: string;
     // 税费与信用卡手续费
     taxRatePercent: string;
+    taxCalculationMode: 'exclusive' | 'inclusive';
     enableCardSurcharge: boolean;
     cardSurchargePercent: string;
     // 小费与多技师分账
@@ -669,6 +674,7 @@ function QueueContent() {
     item: null,
     discountDollars: '0',
     taxRatePercent: '0',
+    taxCalculationMode: 'exclusive' as 'exclusive' | 'inclusive',
     enableCardSurcharge: false,
     cardSurchargePercent: '3.0',
     tipMode: 'total_split',
@@ -711,7 +717,13 @@ function QueueContent() {
     staffId: string;
     resourceId: string;
     reason: string;
-  }>({ isOpen: false, mode: 'add', item: null, ticketItemId: '', serviceId: '', staffId: '', resourceId: '', reason: '' });
+    /*
+     * 本次操作的幂等键前缀，弹窗打开时铸一次。理由同入座与签到弹窗：
+     * 超时不代表没写进去，前台重按一次时必须还是同一个键，
+     * 否则加项会加两条、换房会写两条占用。
+     */
+    attemptKey: string;
+  }>({ isOpen: false, mode: 'add', item: null, ticketItemId: '', serviceId: '', staffId: '', resourceId: '', reason: '', attemptKey: '' });
 
   const [voidModal, setVoidModal] = useState<{
     isOpen: boolean;
@@ -1392,11 +1404,12 @@ function QueueContent() {
       staffId: '',
       resourceId: '',
       reason: '',
+      attemptKey: crypto.randomUUID(),
     });
   };
 
   const handleConfirmItemAction = async () => {
-    const { mode, item, ticketItemId, serviceId, staffId, resourceId, reason } = itemActionModal;
+    const { mode, item, ticketItemId, serviceId, staffId, resourceId, reason, attemptKey } = itemActionModal;
     if (!item?.rawTicket) return;
     const close = () => setItemActionModal((prev) => ({ ...prev, isOpen: false, item: null }));
     /*
@@ -1418,7 +1431,7 @@ function QueueContent() {
           kind: 'addon',
           minutes: service.durationMin,
           ...(resourceId ? { resourceId } : {}),
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: `queue-additem-${item.rawTicket.ticketId}-${service.id}-${attemptKey}`,
         });
         close();
         toast.success(t('queue.quAddItemDone', { p0: service.name }));
@@ -1433,7 +1446,7 @@ function QueueContent() {
           membershipId: staffId,
           ...(entry?.membershipId ? { replacesMembershipId: entry.membershipId } : {}),
           reason: reason.trim(),
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: `queue-movestaff-${ticketItemId}-${staffId}-${attemptKey}`,
         });
         close();
         toast.success(t('queue.quMoveStaffDone', {
@@ -1450,7 +1463,7 @@ function QueueContent() {
           ticketItemId,
           resourceId,
           reason: reason.trim(),
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: `queue-moveroom-${ticketItemId}-${resourceId}-${attemptKey}`,
         });
         close();
         toast.success(t('queue.quMoveRoomDone', {
@@ -1565,6 +1578,7 @@ function QueueContent() {
       item,
       discountDollars: '0',
       taxRatePercent: checkoutSettings?.salesTaxRatePercent || '0',
+      taxCalculationMode: checkoutSettings?.taxCalculationMode ?? 'exclusive',
       enableCardSurcharge: false,
       cardSurchargePercent: '3.0',
       tipMode: 'total_split',
@@ -1647,6 +1661,11 @@ function QueueContent() {
     } = checkInModal;
     if (!item) return;
     if (checkInPending) return;
+    /*
+     * 没有 queue.join 时如实说明，而不是静默 return —— 弹窗里按了确认却
+     * 什么都不发生，会被读成系统故障。
+     */
+    if (!canJoinQueue) { setCheckInError(t('blockedForbidden')); return; }
     setCheckInError(null);
 
     const addOnService = services.find((s) => s.id === selectedAddOnId);
@@ -2116,6 +2135,7 @@ function QueueContent() {
       baseCents,
       discountDollars: checkoutModal.discountDollars,
       taxRatePercent: checkoutModal.taxRatePercent,
+      taxCalculationMode: checkoutSettings?.taxCalculationMode ?? 'exclusive',
       enableCardSurcharge: checkoutModal.enableCardSurcharge,
       cardSurchargePercent: checkoutModal.cardSurchargePercent,
       paymentMethod,
@@ -2197,15 +2217,27 @@ function QueueContent() {
       return;
     }
 
+    /*
+     * ⚠️ 结账弹窗里的税率与刷卡附加费是**可编辑的**，打错一个字符
+     * `parseFloat` 会给出一个看起来合理的错数（`8.2o` → 8.2），
+     * 而这一单就按错的税率收了，且事后只能靠对账发现。
+     */
+    const taxRate = parsePercent(checkoutModal.taxRatePercent, { allowEmpty: true, max: 100, maxDecimals: 3 });
+    const surchargeRate = parsePercent(checkoutModal.cardSurchargePercent, { allowEmpty: true, max: 100, maxDecimals: 3 });
+    if (!taxRate.ok || !surchargeRate.ok) {
+      toast.danger(t('queue.quCoRateInvalid'));
+      return;
+    }
+
     try {
       const receipt = await closeTicketMutation.mutateAsync({
         ticketId: item.ticketId,
         discountCents: totals.discountCents,
         taxCents: totals.taxCents,
-        taxRateBp: Math.round(parseFloat(checkoutModal.taxRatePercent || '0') * 100),
+        taxRateBp: taxRate.value,
         taxCalculationMode: checkoutSettings?.taxCalculationMode || 'exclusive',
         surchargeCents: totals.cardSurchargeCents,
-        surchargeRateBp: Math.round(parseFloat(checkoutModal.cardSurchargePercent || '0') * 100),
+        surchargeRateBp: surchargeRate.value,
         tipTotalCents: tipCents,
         ...(tipSplits.length > 0 ? { tipSplits } : {}),
         /*
@@ -2737,16 +2769,18 @@ function QueueContent() {
               <Button variant="secondary" isDisabled={startServicePending} onClick={() => { void declineOverbook(); }}>
                 {t('cancel')}
               </Button>
-              <Button
+              {/* 放行软容量需要 appointment.overbook（AUD-02，服务端字段级判定） */}
+              <GuardedButton
+                permission="appointment.overbook"
                 className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
-                disabled={startServicePending}
+                isDisabled={startServicePending}
                 onClick={() => {
                   setOverbookConfirm(null);
                   void handleConfirmStartService({ reason: overbookReason });
                 }}
               >
                 {t('queue.quOverbookForce')}
-              </Button>
+              </GuardedButton>
             </div>
           }
         >

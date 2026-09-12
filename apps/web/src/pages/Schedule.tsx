@@ -13,7 +13,7 @@
  * （`z-dropdown` / `z-drawer` / `z-modal` / `z-toast`），别在这里发明新的数字。
  */
 import { useOutletContext, useNavigate, useSearchParams } from 'react-router-dom';
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLanguage } from '@/LanguageContext';
 import {
   useSchedule, useScheduleMutations, useWeekItems, UNASSIGNED_STAFF_ID, serviceColor,
@@ -28,6 +28,7 @@ import { formatWallTime, instantToWallDate, instantToWallMinutes, useBusinessDay
 import { gridBounds } from '@/features/schedule/gridBounds';
 import { useDaysRange } from '@/features/schedule/api';
 import { useCanWrite } from '@/lib/permissions';
+import { useDialogChrome } from '@/lib/dialogChrome';
 import { fuzzySearch } from '@/lib/fuzzySearch';
 import { Loader2, Search } from 'lucide-react';
 import { toast, Spinner } from '@heroui/react';
@@ -300,6 +301,22 @@ function ScheduleContent() {
   const [keepStaffTurn, setKeepStaffTurn] = useState(true);
   const [overrideReason, setOverrideReason] = useState<Override['reason']>('desk_coordination');
   const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; title: string; message: React.ReactNode; confirmText: string; isDanger?: boolean; onConfirm: () => void }>({ isOpen: false, title: '', message: '', confirmText: '', onConfirm: () => {} });
+
+  /*
+   * 这三个浮层出于版式需要是手写的 `fixed inset-0`，不走 `components/ui/Modal`。
+   * 手写浮层在视觉上是弹窗，在键盘与读屏上什么都不是 —— 读屏用户不知道它打开了，
+   * Tab 会走进被遮住的页面，Esc 也关不掉（而这个应用里其他每个弹窗都能）。
+   * `useDialogChrome` 补齐 Esc、焦点收进与归还、Tab 循环；ARIA 属性写在容器上。
+   */
+  const closeConfirmModal = useCallback(
+    () => setConfirmModal((prev) => ({ ...prev, isOpen: false })), []);
+  const closeConflictModal = useCallback(
+    () => setConflictModal({ isOpen: false, pendingConflict: null }), []);
+  const closeCancelModal = useCallback(
+    () => setCancelModal({ isOpen: false, appointmentId: null, customerName: '' }), []);
+  const confirmDialogRef = useDialogChrome(confirmModal.isOpen, closeConfirmModal);
+  const conflictDialogRef = useDialogChrome(conflictModal.isOpen, closeConflictModal);
+  const cancelDialogRef = useDialogChrome(cancelModal.isOpen, closeCancelModal);
   
   // Drag State
   const [dragTarget, setDragTarget] = useState<{ staffId: string, top: number, height: number, isConflict?: boolean } | null>(null);
@@ -1200,12 +1217,12 @@ function ScheduleContent() {
       {confirmModal.isOpen && (
         <Portal>
         <div className="fixed inset-0 z-modal flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 transform animate-in zoom-in-95">
+          <div ref={confirmDialogRef} role="dialog" aria-modal="true" aria-labelledby="sched-confirm-title" tabIndex={-1}>
             <div className={`flex items-center gap-3 mb-4 ${confirmModal.isDanger ? 'text-red-600' : 'text-teal-600'}`}>
               <div className={`p-2 rounded-full ${confirmModal.isDanger ? 'bg-red-100' : 'bg-teal-100'}`}>
                 {confirmModal.isDanger ? <AlertTriangle className="w-6 h-6" /> : <HelpCircle className="w-6 h-6" />}
               </div>
-              <h3 className="text-lg font-bold text-slate-800">{confirmModal.title}</h3>
+              <h3 id="sched-confirm-title" className="text-lg font-bold text-slate-800">{confirmModal.title}</h3>
             </div>
             <div className="text-sm text-slate-600 mb-6 leading-relaxed">
               {confirmModal.message}
@@ -1232,10 +1249,10 @@ function ScheduleContent() {
       {conflictModal.isOpen && (
         <Portal>
         <div className="fixed inset-0 z-modal flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 transform animate-in zoom-in-95">
+          <div ref={conflictDialogRef} role="dialog" aria-modal="true" aria-labelledby="sched-conflict-title" tabIndex={-1}>
             <div className="flex items-center gap-3 mb-4 text-amber-600">
               <div className="p-2 bg-amber-100 rounded-full"><AlertTriangle className="w-6 h-6" /></div>
-              <h3 className="text-lg font-bold text-slate-800">{t('conflictTitle')}</h3>
+              <h3 id="sched-conflict-title" className="text-lg font-bold text-slate-800">{t('conflictTitle')}</h3>
             </div>
             <p className="text-sm text-slate-600 mb-4 leading-relaxed">{t('conflictBody')}</p>
 
@@ -1261,7 +1278,9 @@ function ScheduleContent() {
               >
                 {t('undo')}
               </Button>
-              <Button
+              {/* 放行软容量需要 appointment.overbook（AUD-02，服务端字段级判定） */}
+              <GuardedButton
+                permission="appointment.overbook"
                 className="flex-1 bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-md shadow-amber-200"
                 onClick={() => {
                   const pending = conflictModal.pendingConflict;
@@ -1271,7 +1290,7 @@ function ScheduleContent() {
                 }}
               >
                 {t('forceSchedule')}
-              </Button>
+              </GuardedButton>
             </div>
           </div>
         </div>
@@ -1282,8 +1301,8 @@ function ScheduleContent() {
       {cancelModal.isOpen && (
         <Portal>
         <div className="fixed inset-0 z-modal flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 transform animate-in zoom-in-95">
-            <h3 className="text-lg font-bold text-slate-800 mb-1">{t('cancelAppt')}</h3>
+          <div ref={cancelDialogRef} role="dialog" aria-modal="true" aria-labelledby="sched-cancel-title" tabIndex={-1}>
+            <h3 id="sched-cancel-title" className="text-lg font-bold text-slate-800 mb-1">{t('cancelAppt')}</h3>
             <p className="text-sm text-slate-500 mb-5">{cancelModal.customerName}</p>
 
             <label htmlFor="cancel-reason" className="block text-xs font-semibold text-slate-500 mb-1.5">

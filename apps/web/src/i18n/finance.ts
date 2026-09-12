@@ -386,4 +386,9 @@ export const finance = {
   'finance.poBatchFee': { 'zh-Hans': '通道手续费:', en: 'Processing fee:', ko: '채널 수수료:', es: 'Comisión del canal:', vi: 'Phí kênh:' },
   'finance.poBatchNet': { 'zh-Hans': '实到金额：', en: 'Amount credited:', ko: '실 입금액:', es: 'Importe abonado:', vi: 'Số tiền thực nhận:' },
   'finance.poBatchNote': { 'zh-Hans': '该批次由 Stripe 自动发起，包含了当日 38 笔顾客刷卡消费的清算集合，通常在 1-2 个工作日内记入您的支票账户。', en: 'This batch was initiated automatically by Stripe and covers the reconciled set of 38 card transactions from that day. Funds usually reach your chequing account within one to two business days.', ko: '이 배치는 Stripe가 자동으로 개시했으며 해당 일자 고객 카드 결제 38건의 대사 집합을 포함합니다. 보통 1~2 영업일 이내에 당좌 계좌에 입금됩니다.', es: 'Este lote lo inició Stripe automáticamente e incluye la conciliación de 38 pagos con tarjeta de ese día. Los fondos suelen llegar a tu cuenta corriente en uno o dos días hábiles.', vi: 'Đợt này do Stripe tự khởi tạo, bao gồm tập đối soát 38 giao dịch thẻ trong ngày. Tiền thường về tài khoản vãng lai trong 1–2 ngày làm việc.' },
+  /* 退款原因的机器码 → 人话。此前在提成结算页原样渲染成 `customer_dissatisfied`。 */
+  'finance.refundReasonCustomerDissatisfied': { 'zh-Hans': '客人不满意', en: 'Customer was unhappy', ko: '고객 불만', es: 'Cliente insatisfecho', vi: 'Khách không hài lòng' },
+  'finance.refundReasonWrongCharge': { 'zh-Hans': '收错金额', en: 'Charged the wrong amount', ko: '금액 오청구', es: 'Importe cobrado incorrecto', vi: 'Thu sai số tiền' },
+  'finance.refundReasonAccidentalDuplicate': { 'zh-Hans': '重复收款', en: 'Charged twice by mistake', ko: '중복 청구', es: 'Cobro duplicado por error', vi: 'Thu trùng do nhầm' },
+  'finance.refundReasonOther': { 'zh-Hans': '其他', en: 'Other', ko: '기타', es: 'Otro', vi: 'Khác' },
 } satisfies DomainDict;

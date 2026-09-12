@@ -26,7 +26,7 @@ import {
   type LoadedPlans, type TicketRevenueRow,
 } from '../money';
 import { loadCheckoutSettings } from '../queries/settings';
-import { locationTaxCents } from '../tax';
+import { checkoutDueCents, locationTaxCents } from '../tax';
 import {
   queueLeftReasonOnFullRefund,
   queueLeftReasonOnVoid,
@@ -850,8 +850,14 @@ async function closeOneTicket(args: {
     });
   const shouldBe = settlementStage === 'tip'
     ? totalTip
-    : ticket.subtotalCents - discountCents - packageApplication.coveredCents
-      + taxCents + totalTip + surchargeCents;
+    : checkoutDueCents({
+      afterDiscountCents: ticket.subtotalCents - discountCents - packageApplication.coveredCents,
+      taxCents,
+      tipCents: totalTip,
+      surchargeCents,
+      /* 内含税门店里税已在标价中，不能再加一遍 —— 见 checkoutDueCents 的注释 */
+      taxCalculationMode: checkout!.taxCalculationMode,
+    });
 
   // 收多了收少了当场拦下。
   if (paidTotal !== shouldBe) {
@@ -1604,7 +1610,14 @@ registerHandler(TicketCloseGroup, async ({ input, ctx, tx, audit, emit }: Handle
     taxCalculationMode: checkout.taxCalculationMode,
   }));
   const taxSum = taxes.reduce((sum, value) => sum + value, 0);
-  const expected = subtotalSum - input.discountCents + taxSum + input.surchargeCents + tipSum;
+  /* 组单同样分两种税制 —— 内含税时税已在各单标价中，不能再加一遍 */
+  const expected = checkoutDueCents({
+    afterDiscountCents: subtotalSum - input.discountCents,
+    taxCents: taxSum,
+    tipCents: tipSum,
+    surchargeCents: input.surchargeCents,
+    taxCalculationMode: checkout.taxCalculationMode,
+  });
   if (paidSum !== expected) {
     throw new AppError(ERROR_CODES.PAYMENT_MISMATCH, {
       details: {

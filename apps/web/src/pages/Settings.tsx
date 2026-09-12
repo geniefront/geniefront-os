@@ -60,7 +60,7 @@ import {
 } from 'lucide-react';
 import { toast } from '@heroui/react';
 import { useFieldErrors } from '@/lib/formFeedback';
-import { parseDurationMinutes, parseMoney } from '@/lib/validation';
+import { parseCount, parseDurationMinutes, parseMoney, parsePercent } from '@/lib/validation';
 import { useValidationMessage } from '@/lib/validationMessage';
 import {
   useDeskSettingsQuery,
@@ -585,13 +585,39 @@ export function Settings() {
   };
 
   const handleSaveCheckoutRules = async () => {
+    checkoutForm.clear();
+
+    /* 税率留空 = 不收税，是合法配置；打错字不是 */
+    const tax = parsePercent(taxRate, { allowEmpty: true, max: 100, maxDecimals: 3 });
+    if (!tax.ok) return checkoutForm.fail('taxRate', invalid.percent(tax.reason, { max: 100 }));
+
+    const cashFloat = parseMoney(cashDrawerFloat, { allowEmpty: true });
+    if (!cashFloat.ok) return checkoutForm.fail('cashFloat', invalid.money(cashFloat.reason));
+
+    /*
+     * 小费预设是一排按钮的面值。此前 `parseInt(t, 10) || 0` 会把打错的那一格
+     * 静默变成「0%」——前台结账时看到的是一个按了不加小费的按钮。
+     * 这里整排一起判，任何一格不合法就整体不提交。
+     */
+    const presets: number[] = [];
+    for (const preset of tipPresets) {
+      const parsed = parsePercent(preset, { max: 100, maxDecimals: 0 });
+      if (!parsed.ok) return checkoutForm.fail('taxRate', invalid.percent(parsed.reason, { max: 100 }));
+      presets.push(parsed.value / 100);
+    }
+
+    const assistantWeight = parsePercent(assistantTipWeightPercent, { allowEmpty: true, max: 100, maxDecimals: 0 });
+    if (!assistantWeight.ok) {
+      return checkoutForm.fail('taxRate', invalid.percent(assistantWeight.reason, { max: 100 }));
+    }
+
     try {
       await saveCheckoutMutation.mutateAsync({
-        salesTaxRatePercent: parseFloat(taxRate) || 0,
+        salesTaxRatePercent: tax.value / 100,
         taxCalculationMode: taxMode,
-        suggestedTipPercentages: tipPresets.map((t) => parseInt(t, 10) || 0),
+        suggestedTipPercentages: presets,
         allowCustomTip,
-        defaultCashFloatCents: dollarsToCents(cashDrawerFloat),
+        defaultCashFloatCents: cashFloat.value,
         receiptFooterMessage: receiptFooter.trim() || null,
         autoPrintReceipt,
         checkoutTiming,
@@ -599,7 +625,7 @@ export function Settings() {
         packageCommissionBasis,
         allowTipSplitOverride,
         tipDistributionBasis,
-        assistantTipWeightPercent: Math.min(100, Math.max(0, parseInt(assistantTipWeightPercent, 10) || 0)),
+        assistantTipWeightPercent: assistantWeight.value / 100,
         tipRemainderTo,
       });
       toast.success(t('settings.stCheckoutSaved'));
@@ -609,15 +635,37 @@ export function Settings() {
   };
 
   const handleSaveBookingRules = async () => {
+    bookingForm.clear();
+
+    /*
+     * 这四个数控制官网预约能约多远、多急、多晚能取消。此前 `parseInt(x) || 60`
+     * 会把打错的值静默换成默认值 —— 店主以为改成了「最多提前 7 天」，
+     * 实际存下去的是 60 天，而界面提示保存成功。
+     */
+    const maxAhead = parseCount(maxDaysAhead, { min: 1, max: 365 });
+    if (!maxAhead.ok) return bookingForm.fail('maxDaysAhead', invalid.count(maxAhead.reason, { min: 1, max: 365 }));
+
+    const minAhead = parseCount(minMinutesAhead, { min: 0, max: 10_080 });
+    if (!minAhead.ok) return bookingForm.fail('minMinutesAhead', invalid.count(minAhead.reason, { min: 0, max: 10_080 }));
+
+    const cutoff = parseCount(cancelCutoffHours, { min: 0, max: 168 });
+    if (!cutoff.ok) return bookingForm.fail('cancelCutoff', invalid.count(cutoff.reason, { min: 0, max: 168 }));
+
+    /* 押金只在「要求押金」时才判定：不要求押金时这一格的内容无关紧要 */
+    const deposit = parseMoney(depositAmount, { allowEmpty: !requireDeposit });
+    if (requireDeposit && (!deposit.ok || deposit.value <= 0)) {
+      return bookingForm.fail('deposit', deposit.ok ? invalid.money('empty') : invalid.money(deposit.reason));
+    }
+
     try {
       await saveOnlineBookingMutation.mutateAsync({
         enabled: onlineEnabled,
-        maxDaysAhead: parseInt(maxDaysAhead, 10) || 60,
-        minMinutesAhead: parseInt(minMinutesAhead, 10) || 120,
-        cancelCutoffHours: parseInt(cancelCutoffHours, 10) || 4,
+        maxDaysAhead: maxAhead.value,
+        minMinutesAhead: minAhead.value,
+        cancelCutoffHours: cutoff.value,
         slotIntervalMinutes: (parseInt(slotInterval, 10) as any) || 30,
         depositRequired: requireDeposit,
-        depositAmountCents: dollarsToCents(depositAmount),
+        depositAmountCents: deposit.ok ? deposit.value : 0,
         allowClientPickStaff: allowPickStaff,
       });
       toast.success(t('settings.stBookingSaved'));
@@ -662,6 +710,14 @@ export function Settings() {
    * 只弹一句「项目名称不能为空」根本定位不到是哪一格 —— 必须标红并聚焦。
    */
   const catalogForm = useFieldErrors<'serviceName' | 'categoryName' | 'servicePrice' | 'serviceDuration'>();
+  /*
+   * 结账规则与预约规则同样要判定，而且后果比目录项目更重：这两个表单存的是
+   * **门店级设置**，一次填错会影响此后每一张单。`parseFloat(taxRate) || 0`
+   * 的实际后果是「营业税从此变成 0%，界面还显示保存成功」——
+   * 这种错误要到报税时才暴露，届时已经影响了几个月。
+   */
+  const checkoutForm = useFieldErrors<'taxRate' | 'cashFloat'>();
+  const bookingForm = useFieldErrors<'deposit' | 'maxDaysAhead' | 'minMinutesAhead' | 'cancelCutoff'>();
   const invalid = useValidationMessage();
 
   const handleSaveServiceItem = async () => {
@@ -1542,6 +1598,7 @@ export function Settings() {
                       <Input
                         type="number"
                         step="0.001"
+                        {...checkoutForm.bind('taxRate')}
                         value={taxRate}
                         onChange={(e) => setTaxRate(e.target.value)}
                         placeholder="8.875"
@@ -1680,7 +1737,8 @@ export function Settings() {
                   <div className="relative max-w-xs">
                     <Input
                       type="number"
-                      value={cashDrawerFloat}
+                      {...checkoutForm.bind('cashFloat')}
+                        value={cashDrawerFloat}
                       onChange={(e) => setCashDrawerFloat(e.target.value)}
                       placeholder="200.00"
                       className="pl-8 font-mono text-xs"
@@ -1790,7 +1848,8 @@ export function Settings() {
                       <div className="relative">
                         <Input
                           type="number"
-                          value={maxDaysAhead}
+                          {...bookingForm.bind('maxDaysAhead')}
+                        value={maxDaysAhead}
                           onChange={(e) => setMaxDaysAhead(e.target.value)}
                           placeholder="60"
                           className="pr-12 font-mono text-xs"
@@ -1806,7 +1865,8 @@ export function Settings() {
                       <div className="relative">
                         <Input
                           type="number"
-                          value={minMinutesAhead}
+                          {...bookingForm.bind('minMinutesAhead')}
+                        value={minMinutesAhead}
                           onChange={(e) => setMinMinutesAhead(e.target.value)}
                           placeholder="120"
                           className="pr-14 font-mono text-xs"
@@ -1828,6 +1888,7 @@ export function Settings() {
                     <div className="relative flex-1">
                       <Input
                         type="number"
+                        {...bookingForm.bind('cancelCutoff')}
                         value={cancelCutoffHours}
                         onChange={(e) => setCancelCutoffHours(e.target.value)}
                         placeholder="4"
@@ -1888,7 +1949,8 @@ export function Settings() {
                         <div className="relative max-w-xs">
                           <Input
                             type="number"
-                            value={depositAmount}
+                            {...bookingForm.bind('deposit')}
+                        value={depositAmount}
                             onChange={(e) => setDepositAmount(e.target.value)}
                             placeholder="20.00"
                             className="pl-8 font-mono text-xs"

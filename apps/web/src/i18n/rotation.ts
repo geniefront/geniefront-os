@@ -376,4 +376,20 @@ export const rotation = {
   'rotation.rotLogModalTitle': { 'zh-Hans': '📜 技师轮牌与考勤全量日志', en: '📜 Full rotation and attendance log', ko: '📜 관리사 순번 및 출퇴근 전체 로그', es: '📜 Registro completo de rotación y asistencia', vi: '📜 Nhật ký đầy đủ luân phiên và chấm công' },
   'rotation.rotLogClose': { 'zh-Hans': '关闭', en: 'Close', ko: '닫기', es: 'Cerrar', vi: 'Đóng' },
   'rotation.rotNoLogs': { 'zh-Hans': '暂无日志记录', en: 'No log entries', ko: '로그 기록이 없습니다', es: 'No hay entradas en el registro', vi: 'Chưa có bản ghi nhật ký' },
+  /*
+   * 轮牌事件的机器码 → 人话。
+   *
+   * 这些值来自 `rotation_events.reason`，此前在轮牌历史抽屉里**原样渲染** ——
+   * 前台看到的是一行 `manual_override`。逐条显式列出，不得运行期拼接
+   * （拼出的 key 对字典瘦身脚本不可见，会被当作未引用词条删掉）。
+   */
+  'rotation.evtServed': { 'zh-Hans': '接客', en: 'Served a guest', ko: '접객', es: 'Atendió a un cliente', vi: 'Đã phục vụ khách' },
+  'rotation.evtRequestNotCounted': { 'zh-Hans': '点钟', en: 'Requested by name', ko: '지명', es: 'Cliente lo pidió', vi: 'Khách chỉ định' },
+  'rotation.evtManualOverride': { 'zh-Hans': '手动调序', en: 'Order changed by hand', ko: '수동 순서 변경', es: 'Orden cambiado a mano', vi: 'Đổi thứ tự thủ công' },
+  'rotation.evtSkippedNoSkill': { 'zh-Hans': '跳过（不会做该项目）', en: 'Skipped — cannot do that service', ko: '건너뜀(해당 시술 불가)', es: 'Omitido: no puede hacer ese servicio', vi: 'Bỏ qua — không làm được dịch vụ đó' },
+  'rotation.evtSkippedOff': { 'zh-Hans': '跳过（请假 / 下班）', en: 'Skipped — off duty', ko: '건너뜀(휴무·퇴근)', es: 'Omitido: fuera de turno', vi: 'Bỏ qua — nghỉ / hết ca' },
+  'rotation.evtBreak': { 'zh-Hans': '休息', en: 'On break', ko: '휴식', es: 'En descanso', vi: 'Đang nghỉ' },
+  'rotation.evtBack': { 'zh-Hans': '休息结束', en: 'Back from break', ko: '휴식 종료', es: 'Volvió del descanso', vi: 'Đã quay lại' },
+  'rotation.evtCheckIn': { 'zh-Hans': '上钟', en: 'Clocked in', ko: '출근', es: 'Fichó entrada', vi: 'Vào ca' },
+  'rotation.evtCheckOut': { 'zh-Hans': '下钟', en: 'Clocked out', ko: '퇴근', es: 'Fichó salida', vi: 'Hết ca' },
 } satisfies DomainDict;

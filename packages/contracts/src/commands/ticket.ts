@@ -186,6 +186,23 @@ export const paymentLine = z.object({
   { message: '客人给的钱不够付这一单' },
 );
 
+/**
+ * 打折的字段级权限（AUD-02）。
+ *
+ * `ticket.discount` 这条权限此前**没有任何命令要求它** —— 打折不是一条独立
+ * 命令，而是结账命令入参里的 `discountCents`，而结账只要 `ticket.write`。
+ * `ticket.write` 技师也有，于是技师可以把整单折成 0；界面把折扣框藏起来了，
+ * 但藏起来不是约束。店主在设置页取消勾选「打折」时，以为限住了，实际什么也没发生。
+ *
+ * 只在**真的打了折**时要求权限：`discountCents: 0` 是结账的正常默认值，
+ * 不该因为字段传了就把没有折扣权限的人挡在结账之外。
+ */
+const DISCOUNT_FIELD_PERMISSION = [{
+  field: 'discountCents',
+  need: 'ticket.discount',
+  used: (input: { discountCents?: number }) => (input.discountCents ?? 0) > 0,
+}] as const;
+
 export const TicketClose = defineCommand({
   name: 'ticket.close',
   input: z.object({
@@ -233,6 +250,7 @@ export const TicketClose = defineCommand({
     })),
   }),
   permission: 'ticket.write',
+  fieldPermissions: DISCOUNT_FIELD_PERMISSION,
   ai: {
     description: '结账。现金还是刷卡要到这一刻才知道，所以不能提前假设。',
     confirm: 'always',
@@ -250,6 +268,7 @@ export const TicketPay = defineCommand({
   }),
   output: TicketClose.output,
   permission: 'ticket.write',
+  fieldPermissions: DISCOUNT_FIELD_PERMISSION,
   ai: {
     description: '结账收银与多技师小费分账。',
     confirm: 'always',
@@ -356,6 +375,7 @@ export const TicketCloseGroup = defineCommand({
     })),
   }),
   permission: 'ticket.write',
+  fieldPermissions: DISCOUNT_FIELD_PERMISSION,
   ai: {
     description: '一个人付掉一组单。钱按各单金额摊回去，提成和小费照常各算各的。',
     confirm: 'always',

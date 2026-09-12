@@ -1,4 +1,4 @@
-import { openPrintPreview } from '@/features/printing/preview';
+import { openPrintPreview, type PrintPaper } from '@/features/printing/preview';
 /**
  * 入座服务单一页纸（打印页）。
  *
@@ -131,7 +131,7 @@ export function ServiceBriefPrint() {
   const { language: uiLanguage } = useLanguage();
   const { status, membershipId } = useSession();
   const [printLanguage, setPrintLanguage] = useState<Language>(uiLanguage);
-  const [format, setFormat] = useState<'letter' | 'thermal'>('letter');
+  const [format, setFormat] = useState<PrintPaper>('letter');
   /* 这一页不套后台布局，没有侧边栏可点；独立窗口下缺了返回控件就是死路。 */
   const goBack = useGoBack('/queue');
 
@@ -272,10 +272,12 @@ export function ServiceBriefPrint() {
           <select
             id="sbp-format"
             value={format}
-            onChange={(e) => setFormat(e.target.value as 'letter' | 'thermal')}
+            onChange={(e) => setFormat(e.target.value as PrintPaper)}
           >
             <option value="letter">US Letter (8.5 × 11 in)</option>
             <option value="thermal">{tp('print.formatThermal')}</option>
+            {/* 58mm 是美甲店最常见的那一档，小票机比 80mm 更普遍 */}
+            <option value="thermal58">{tp('print.formatThermal58')}</option>
           </select>
 
           <button type="button" className="sbp-chrome__print" disabled={query.isFetching} onClick={async () => { const result = await query.refetch(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); if (result.data && !result.error) openPrintPreview(document.querySelector('.sbp-sheet'), tp('print.briefTitle'), format); }}>

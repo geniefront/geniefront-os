@@ -304,3 +304,50 @@ describe('computeCheckoutTotals 的分阶段收款', () => {
     expect(combined).toEqual(legacy);
   });
 });
+
+/**
+ * 外加税 / 内含税。
+ *
+ * ⚠️ 这里的数字必须与服务端 `apps/api/src/tax.ts` 的 `locationTaxCents` /
+ * `checkoutDueCents` 逐分一致。两边算出不同的数，结账会被 `PAYMENT_MISMATCH`
+ * 当场挡下 —— 内含税门店此前就是这样，设置页里可选，实际一单也结不了。
+ */
+describe('computeCheckoutTotals 的两种税制', () => {
+  it('外加税：税加在净额之上', () => {
+    const totals = computeCheckoutTotals({
+      ...base, staffList: [], taxCalculationMode: 'exclusive',
+    });
+    // 10000 × 8.875% = 887.5 → 888（与服务端同为四舍五入）
+    expect(totals.taxCents).toBe(888);
+    expect(totals.totalDueCents).toBe(10_888);
+  });
+
+  it('内含税：税从标价里拆出来，总额仍是标价', () => {
+    const totals = computeCheckoutTotals({
+      ...base, baseCents: 10_888, staffList: [], taxCalculationMode: 'inclusive',
+    });
+    // 与服务端 tax.test.ts 的断言同一组数：10888 含 8.875% → 税 888
+    expect(totals.taxCents).toBe(888);
+    expect(totals.totalDueCents).toBe(10_888);
+  });
+
+  it('缺省按外加税，保持既有门店行为不变', () => {
+    const withMode = computeCheckoutTotals({
+      ...base, staffList: [], taxCalculationMode: 'exclusive',
+    });
+    const withoutMode = computeCheckoutTotals({ ...base, staffList: [] });
+    expect(withoutMode.totalDueCents).toBe(withMode.totalDueCents);
+  });
+
+  it('刷卡附加费按「服务应收」计，内含税下不把税再算一遍', () => {
+    const totals = computeCheckoutTotals({
+      ...base,
+      baseCents: 10_888,
+      staffList: [],
+      taxCalculationMode: 'inclusive',
+      enableCardSurcharge: true,
+    });
+    // 基数是 10888（已含税），不是 10888 + 888
+    expect(totals.cardSurchargeCents).toBe(Math.round(10_888 * 0.03));
+  });
+});

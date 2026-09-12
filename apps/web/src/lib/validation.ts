@@ -152,3 +152,52 @@ export function parseCount(
   if (value < min || value > max) return { ok: false, reason: 'range' };
   return { ok: true, value };
 }
+
+// ── 百分比 ────────────────────────────────────────────────────────────────────
+
+export type PercentReason = 'empty' | 'format' | 'range';
+
+export interface PercentOptions {
+  /** 允许留空，留空判为 0。用于「不填即不收」的税率、附加费率。 */
+  allowEmpty?: boolean;
+  /** 上限（百分数，非 basis point）。默认 100。 */
+  max?: number;
+  /** 允许的小数位数。税率常见到两位（如 8.875%），默认 3 位足够。 */
+  maxDecimals?: number;
+}
+
+/**
+ * 百分比字符串 → **basis point**（10000 = 100%）。
+ *
+ * 返回 bp 而不是浮点百分数，是为了和服务端口径一致：整个系统里比率一律按 bp
+ * 存整数（`packages/contracts/src/command.ts` 的 `basisPoints`），
+ * 避免 0.4 变成 0.4000000000000001。
+ *
+ * ⚠️ 这一条此前完全没有判定。`parseFloat(taxRate) || 0` 的后果是：店主把营业税
+ * 打错一个字符，**从此每一单都不收税**，而界面显示保存成功。这类错误要到报税时
+ * 才暴露，届时已经影响了几个月的每一张单。
+ */
+export function parsePercent(
+  input: string, options: PercentOptions = {},
+): ParseResult<number, PercentReason> {
+  const { allowEmpty = false, max = 100, maxDecimals = 3 } = options;
+  const trimmed = input.trim().replace(/[%\s]/g, '');
+
+  if (trimmed === '') return allowEmpty ? { ok: true, value: 0 } : { ok: false, reason: 'empty' };
+  if (!/^\d*(?:\.\d*)?$/.test(trimmed) || trimmed === '.') return { ok: false, reason: 'format' };
+
+  const [whole = '', frac = ''] = trimmed.split('.');
+  if (frac.length > maxDecimals) return { ok: false, reason: 'format' };
+
+  /*
+   * 按字符串补到四位小数再取整数，绕开浮点：8.875% 的 bp 是 887.5，
+   * 而 `8.875 * 100` 在浮点下是 887.4999999999999。
+   * bp 只到整数，因此第三位以后的小数会被截断 —— 与金额同向，宁少不多。
+   */
+  const padded = `${frac}0000`.slice(0, 4);
+  const bp = Number(whole || '0') * 10_000 + Number(padded);
+  const scaled = Math.trunc(bp / 100); // 四位小数 → bp（两位小数的百分数）
+
+  if (scaled > max * 100) return { ok: false, reason: 'range' };
+  return { ok: true, value: scaled };
+}

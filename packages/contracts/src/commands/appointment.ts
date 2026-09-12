@@ -79,6 +79,22 @@ const bundleSelectionInput = z.object({
   extraDiscountKind: z.enum(['manual', 'coupon']).default('manual'),
 });
 
+/**
+ * 突破软容量的字段级权限（AUD-02）。
+ *
+ * `appointment.overbook` 这条权限此前**在全仓没有任何一处判定** —— 超容量
+ * 不是一条独立命令，而是排期命令入参里的 `override`，而排期只要
+ * `appointment.write`。于是这条权限的勾选框在设置页里是个纯装饰。
+ *
+ * 只在真的带了 override 时要求：不带 override 撞上上限会照常报
+ * `STAFF_OVER_CAPACITY`，那条路不需要额外权限。
+ */
+const OVERBOOK_FIELD_PERMISSION = [{
+  field: 'override',
+  need: 'appointment.overbook',
+  used: (input: { override?: unknown }) => input.override != null,
+}] as const;
+
 export const AppointmentCreate = defineCommand({
   name: 'appointment.create',
   input: z.object({
@@ -164,6 +180,7 @@ export const AppointmentCreate = defineCommand({
     businessDate: z.string(), // 门店本地营业日 YYYY-MM-DD，按 business_day_cutoff 算
   }),
   permission: 'appointment.write',
+  fieldPermissions: OVERBOOK_FIELD_PERMISSION,
   ai: {
     description:
       '新建一个预约。必须先用只读工具查到真实空档再调用——不许自己推算时间。' +
@@ -189,6 +206,7 @@ export const AppointmentReschedule = defineCommand({
     overbooked: z.boolean(),
   }),
   permission: 'appointment.write',
+  fieldPermissions: OVERBOOK_FIELD_PERMISSION,
   ai: {
     description: '把一个已有预约改到新时间，可同时换技师或换房间。',
     confirm: 'always',
@@ -222,6 +240,7 @@ export const AppointmentAddItem = defineCommand({
     overbooked: z.boolean(),
   }),
   permission: 'appointment.write',
+  fieldPermissions: OVERBOOK_FIELD_PERMISSION,
   ai: {
     description: '在尚未开单的已有预约中追加一个服务项目；开单时会一并带入工单。',
     confirm: 'always',
@@ -345,6 +364,14 @@ export const appointmentBatchItemInput = z.object({
 });
 export type AppointmentBatchItemInput = z.infer<typeof appointmentBatchItemInput>;
 
+/** 批量建单的 override 藏在 `items[]` 里，顶层规则看不到它。 */
+const OVERBOOK_BATCH_FIELD_PERMISSION = [{
+  field: 'items[].override',
+  need: 'appointment.overbook',
+  used: (input: { items?: Array<{ override?: unknown }> }) =>
+    (input.items ?? []).some((item) => item.override != null),
+}] as const;
+
 export const AppointmentCreateBatch = defineCommand({
   name: 'appointment.createBatch',
   input: z.object({
@@ -364,6 +391,7 @@ export const AppointmentCreateBatch = defineCommand({
     ),
   }),
   permission: 'appointment.write',
+  fieldPermissions: OVERBOOK_BATCH_FIELD_PERMISSION,
   ai: {
     description: '独立多客批量创建预约。适用于多人分别预约不同时段或项目的场景。',
     confirm: 'always',

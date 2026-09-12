@@ -124,6 +124,20 @@ export async function dispatch<T = unknown>(
     });
   }
 
+  // ── 2b. 字段级权限（AUD-02）───────────────────────────────────────────────
+  // 有些能力不是独立命令，而是别的命令入参里的一个字段：打折是
+  // `ticket.close.discountCents`，突破容量是 `appointment.create.override`。
+  // 这类字段此前只被界面藏起来，而藏起来不是约束 —— 持有 ticket.write 的
+  // 技师可以直接把整单折成 0。判定必须排在入参校验之后：要先拿到值，
+  // 才能区分「传了 discountCents: 0」和「真的打了折」。
+  for (const rule of def.fieldPermissions ?? []) {
+    if (rule.used(parsed.data) && !ctx.permissions.has(rule.need)) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+        details: { command: commandName, need: rule.need, field: rule.field },
+      });
+    }
+  }
+
 
   // ── 3. 幂等 ──────────────────────────────────────────────────────────────
   const key = opts.idempotencyKey;

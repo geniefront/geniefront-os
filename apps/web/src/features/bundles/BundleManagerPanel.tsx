@@ -21,6 +21,8 @@ import { useLanguage } from '@/LanguageContext';
 import { useCan } from '@/lib/permissions';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { centsToDollars, dollarsToCents } from '@/features/checkout/api';
+import { parseMoney } from '@/lib/validation';
+import { useValidationMessage } from '@/lib/validationMessage';
 import {
   useBundleCatalogQuery,
   useSaveBundleTemplate,
@@ -60,7 +62,12 @@ export function BundleManagerPanel() {
 
   const listTotalCents = rows.reduce(
     (n, r) => n + (svcById.get(r.serviceId)?.priceCents ?? 0) * Math.max(1, r.qty), 0);
-  const priceCents = dollarsToCents(priceDollars || '0');
+  /*
+   * ⚠️ 套餐售价不能交给 `dollarsToCents` —— 它会把非数字字符剔掉再算，
+   * 把 `1o9` 算成 $1.90 卖出去，而这个数看起来毫无异常。
+   */
+  const priceParsed = parseMoney(priceDollars, { allowEmpty: true });
+  const priceCents = priceParsed.ok ? priceParsed.value : 0;
   const savingsCents = Math.max(0, listTotalCents - priceCents);
   const unitCount = rows.reduce((n, r) => n + Math.max(1, r.qty), 0);
 
@@ -94,13 +101,15 @@ export function BundleManagerPanel() {
   }
 
   /** 组合套餐表单的字段级校验。 */
-  const bundleForm = useFieldErrors<'name'>();
+  const bundleForm = useFieldErrors<'name' | 'price'>();
+  const invalid = useValidationMessage();
 
   async function handleSave() {
     bundleForm.clear();
     const primary = nameZh.trim() || nameEn.trim();
     if (!primary) { bundleForm.fail('name', t('bundle.errNameRequired')); return; }
     if (unitCount < 2) { toast.danger(t('bundle.errTwoUnits')); return; }
+    if (!priceParsed.ok) { bundleForm.fail('price', invalid.money(priceParsed.reason)); return; }
     if (priceCents > listTotalCents) { toast.danger(t('bundle.errPriceAboveList')); return; }
 
     const name: Record<string, string> = { ...extraNameI18n };
@@ -366,6 +375,7 @@ export function BundleManagerPanel() {
                 <span className="absolute left-3 top-2 text-slate-400 text-sm">$</span>
                 <input
                   data-testid="bundle-price"
+                  {...bundleForm.bind('price')}
                   value={priceDollars}
                   onChange={(e) => setPriceDollars(e.target.value)}
                   inputMode="decimal"

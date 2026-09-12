@@ -1,6 +1,15 @@
 import './print.css';
 
-export type PrintPaper = 'letter' | 'thermal';
+/**
+ * 纸张。
+ *
+ * `thermal` = 80mm，`thermal58` = 58mm。
+ *
+ * 58mm 这一档此前没有 —— 而美甲店用的多半就是它。在 80mm 上排得下的
+ * 长项目名与「小计 / 税 / 小费」那几行，到 58mm 上会先溢出，
+ * 表现为打出来的小票右边被切掉一截。
+ */
+export type PrintPaper = 'letter' | 'thermal' | 'thermal58';
 let closeActive: (() => void) | undefined;
 
 /** An isolated, in-memory preview. No popup, storage, navigation or payment retry. */
@@ -19,7 +28,11 @@ export function openPrintPreview(source: Element | null, title: string, paper: P
   heading.textContent = title;
   const select = document.createElement('select');
   select.setAttribute('aria-label', 'Paper size');
-  for (const [value, label] of [['letter', 'US Letter (8.5 × 11 in)'], ['thermal', 'Receipt (80 mm / 3⅛ in)']]) {
+  for (const [value, label] of [
+    ['letter', 'US Letter (8.5 × 11 in)'],
+    ['thermal', 'Receipt (80 mm / 3⅛ in)'],
+    ['thermal58', 'Receipt (58 mm / 2¼ in)'],
+  ]) {
     const option = document.createElement('option');
     option.value = value!; option.textContent = label!; select.append(option);
   }
@@ -45,7 +58,8 @@ export function openPrintPreview(source: Element | null, title: string, paper: P
     root.dataset.paper = select.value;
     // Thermal roll length is controlled by the printer driver. Keep pagination
     // available rather than clipping a long receipt to a fabricated roll length.
-    pageStyle.textContent = `@page { size: ${select.value === 'thermal' ? 'auto' : 'letter'}; margin: ${select.value === 'thermal' ? '3mm' : '0.5in'}; }`;
+    const isThermal = select.value === 'thermal' || select.value === 'thermal58';
+    pageStyle.textContent = `@page { size: ${isThermal ? 'auto' : 'letter'}; margin: ${isThermal ? '3mm' : '0.5in'}; }`;
   };
   select.onchange = setPaper; setPaper();
   const hidden = [...document.body.children].filter(el => el instanceof HTMLElement) as HTMLElement[];

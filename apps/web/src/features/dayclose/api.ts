@@ -6,6 +6,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, runCommand } from '@/lib/api';
+import { useAttemptKey } from '@/lib/idempotency';
 import { useSession } from '@/lib/session';
 import type {
   DayCloseSnapshot,
@@ -57,9 +58,12 @@ export function usePayCashTips() {
   const queryClient = useQueryClient();
   const { membershipId } = useSession();
 
+  const attempt = useAttemptKey();
+
   return useMutation({
     mutationFn: async (input: PayCashTipsInput) => {
-      const idempotencyKey = crypto.randomUUID();
+      /* 键随「这一次意图」走，不随「这一次调用」走 —— 见 lib/idempotency.ts */
+      const idempotencyKey = attempt.take();
       const res = await runCommand(
         'dayclose.payTips',
         input,
@@ -69,6 +73,8 @@ export function usePayCashTips() {
       return res.result;
     },
     onSuccess: (_, variables) => {
+      attempt.settle();
+
       void queryClient.invalidateQueries({
         queryKey: dayCloseKeys.detail(membershipId, variables.businessDate),
       });

@@ -3,6 +3,7 @@ import { toast, Spinner } from '@heroui/react';
 import { useFieldErrors } from '@/lib/formFeedback';
 import { parseMoney } from '@/lib/validation';
 import { useValidationMessage } from '@/lib/validationMessage';
+import { parseCount } from '@/lib/validation';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -302,6 +303,7 @@ function MarketingContent() {
   const mktForm = useFieldErrors<
     'pkgName' | 'pkgServices' | 'buyerName' | 'cpnCode' | 'cpnName'
     | 'pkgPrice' | 'cpnValue' | 'gcFaceValue' | 'gcSalePrice'
+    | 'pkgUnits' | 'pkgValidDays' | 'earnRate' | 'redeemRate' | 'minRedeem' | 'adjustDelta'
   >();
   const invalid = useValidationMessage();
 
@@ -324,14 +326,19 @@ function MarketingContent() {
      */
     const pkgPriceParsed = parseMoney(pkgPrice);
     if (!pkgPriceParsed.ok) return mktForm.fail('pkgPrice', invalid.money(pkgPriceParsed.reason));
+    /* 次数与有效期此前打错会静默变成 5 次 / 365 天 —— 客人买到的不是他看到的 */
+    const units = parseCount(pkgUnits, { min: 1, max: 999 });
+    if (!units.ok) return mktForm.fail('pkgUnits', invalid.count(units.reason, { min: 1, max: 999 }));
+    const validDays = parseCount(pkgValidDays, { min: 1, max: 3650 });
+    if (!validDays.ok) return mktForm.fail('pkgValidDays', invalid.count(validDays.reason, { min: 1, max: 3650 }));
 
     try {
       await savePackageMut.mutateAsync({
         name: pkgName.trim(),
         priceCents: pkgPriceParsed.value,
         serviceIds: pkgServiceIds,
-        sessions: parseInt(pkgUnits, 10) || 5,
-        validDays: parseInt(pkgValidDays, 10) || 365,
+        sessions: units.value,
+        validDays: validDays.value,
       });
       toast.success(t('crm.mktPackagePublished'));
       setPackageModalOpen(false);
@@ -475,11 +482,23 @@ function MarketingContent() {
 
   // 7. 保存积分规则
   const handleSaveLoyalty = async () => {
+    mktForm.clear();
+    /*
+     * 积分的赚取/兑换比率直接决定这套会员体系值多少钱。此前打错一个字符会
+     * 静默回落到默认值（100 / 500 / 100），店主以为改了，实际没改。
+     */
+    const earn = parseCount(earnRate, { min: 1, max: 100_000 });
+    if (!earn.ok) return mktForm.fail('earnRate', invalid.count(earn.reason, { min: 1, max: 100_000 }));
+    const redeem = parseCount(redeemRate, { min: 1, max: 100_000 });
+    if (!redeem.ok) return mktForm.fail('redeemRate', invalid.count(redeem.reason, { min: 1, max: 100_000 }));
+    const minPoints = parseCount(minRedeem, { min: 0, max: 1_000_000 });
+    if (!minPoints.ok) return mktForm.fail('minRedeem', invalid.count(minPoints.reason, { min: 0, max: 1_000_000 }));
+
     try {
       await saveLoyaltyMut.mutateAsync({
-        earnRateBp: parseInt(earnRate, 10) || 100,
-        redeemRateBp: parseInt(redeemRate, 10) || 500,
-        minRedeemPoints: parseInt(minRedeem, 10) || 100,
+        earnRateBp: earn.value,
+        redeemRateBp: redeem.value,
+        minRedeemPoints: minPoints.value,
       });
       toast.success(t('crm.mktPointsRulesSaved'));
       setLoyaltyModalOpen(false);
@@ -491,7 +510,15 @@ function MarketingContent() {
   // 8. 调整顾客积分
   const handleConfirmAdjustPoints = async () => {
     if (!adjustTargetCustomer) return;
-    const delta = parseInt(adjustDelta, 10) || 0;
+    mktForm.clear();
+    /* 调账允许负数（扣分），但不允许「打错字就当成 0」—— 那是一次没发生的调账 */
+    const parsedDelta = /^-?\d+$/.test(adjustDelta.trim())
+      ? { ok: true as const, value: Number(adjustDelta.trim()) }
+      : { ok: false as const };
+    if (!parsedDelta.ok || parsedDelta.value === 0) {
+      return mktForm.fail('adjustDelta', invalid.count('format'));
+    }
+    const delta = parsedDelta.value;
     try {
       await adjustLoyaltyMut.mutateAsync({
         customerId: adjustTargetCustomer.id,
@@ -1407,6 +1434,7 @@ function MarketingContent() {
               <Input
                 type="number"
                 min="1"
+                {...mktForm.bind('pkgUnits')}
                 value={pkgUnits}
                 onChange={(e) => setPkgUnits(e.target.value)}
               />
@@ -1419,6 +1447,7 @@ function MarketingContent() {
               </label>
               <Input
                 type="number"
+                {...mktForm.bind('pkgValidDays')}
                 value={pkgValidDays}
                 onChange={(e) => setPkgValidDays(e.target.value)}
               />
@@ -1723,7 +1752,8 @@ function MarketingContent() {
             </label>
             <Input
               type="number"
-              value={earnRate}
+              {...mktForm.bind('earnRate')}
+                value={earnRate}
               onChange={(e) => setEarnRate(e.target.value)}
             />
           </div>
@@ -1735,7 +1765,8 @@ function MarketingContent() {
             </label>
             <Input
               type="number"
-              value={redeemRate}
+              {...mktForm.bind('redeemRate')}
+                value={redeemRate}
               onChange={(e) => setRedeemRate(e.target.value)}
             />
           </div>
@@ -1747,7 +1778,8 @@ function MarketingContent() {
             </label>
             <Input
               type="number"
-              value={minRedeem}
+              {...mktForm.bind('minRedeem')}
+                value={minRedeem}
               onChange={(e) => setMinRedeem(e.target.value)}
             />
           </div>
@@ -1791,7 +1823,8 @@ function MarketingContent() {
             </label>
             <Input
               type="number"
-              value={adjustDelta}
+              {...mktForm.bind('adjustDelta')}
+                value={adjustDelta}
               onChange={(e) => setAdjustDelta(e.target.value)}
             />
           </div>

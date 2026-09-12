@@ -16,6 +16,20 @@ import { defineCommand, uuid, phoneE164, cents, overrideReason } from '../comman
  * 为什么按 ticket_item 而不是整张单：一张单可能有两个项目由两个人做
  * （洗头工先洗、技师再剪），各自的开始/完成时间是各自的工时。
  */
+/**
+ * 「开始服务」的超容量放行同样是字段级权限（AUD-02）。
+ *
+ * 技师并发的真正闸门在这里，而技师预设里没有 `appointment.overbook` ——
+ * 收紧后技师撞上上限无法自行放行。这不是行为变化：技师端从来就不发
+ * `override`（`features/tech/api.ts` 的 startItem 只传 ticketItemId），
+ * 撞上上限时给的是「找前台」。带 reason 重试的一直是前台，而前台有这条权限。
+ */
+const OVERBOOK_START_FIELD_PERMISSION = [{
+  field: 'override',
+  need: 'appointment.overbook',
+  used: (input: { override?: unknown }) => input.override != null,
+}] as const;
+
 export const TicketStartItem = defineCommand({
   name: 'ticket.startItem',
   input: z.object({
@@ -33,6 +47,7 @@ export const TicketStartItem = defineCommand({
   }),
   output: z.object({ ticketItemId: uuid, startedAt: z.string() }),
   permission: 'ticket.write',
+  fieldPermissions: OVERBOOK_START_FIELD_PERMISSION,
   ai: {
     description: '技师开始做某一项服务（或前台代点开始）。',
     confirm: 'always',
@@ -316,4 +331,5 @@ export const RevokeStaffSessions = defineCommand({
 export const STAFF_COMMANDS = [
   TicketStartItem, TicketFinishItem, TicketMoveItemStaff, TicketSaveServiceNote, TimeclockPunch, SetMyLocale,
   AddStaff, SetEmployment, IssueStaffClaimCode, RevokeStaffSessions,
+  StaffRecordDirectCashTip,
 ] as const;

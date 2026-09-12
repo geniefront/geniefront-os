@@ -12,6 +12,7 @@ import { useEarningsEstimatesQuery, useClawbacksQuery } from '@/features/payouts
 import { centsToDollars } from '@/features/checkout/api';
 import { exportToCSV } from '@/lib/exportUtils';
 import { useLanguage } from '@/LanguageContext';
+import { refundReasonLabel } from '@/lib/deskCopy';
 
 export function Payouts() {
   const { t } = useLanguage();
@@ -123,7 +124,7 @@ export function Payouts() {
           {adjustments.length === 0 ? <EmptyState icon={<RotateCcw />} title={t('finance.recordAdjustmentsEmpty')} description={t('finance.recordAdjustmentsEmptyDesc')} /> : (
             <div className="divide-y">{adjustments.map((item) => <div key={item.id} className="grid gap-2 px-5 py-3 text-sm md:grid-cols-4">
               <span className="font-semibold">{item.staffName}</span><span>{item.customerName}</span>
-              <span className="text-red-700">-${centsToDollars(item.clawbackCommissionCents)}</span><span className="text-slate-500">{item.reason}</span>
+              <span className="text-red-700">-${centsToDollars(item.clawbackCommissionCents)}</span><span className="text-slate-500">{refundReasonLabel(item.reason, t)}</span>
             </div>)}</div>
           )}
         </CardContent>

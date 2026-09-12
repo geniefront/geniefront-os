@@ -44,6 +44,7 @@ import { Modal, ConfirmDialog } from '@/components/ui/Modal';
 import { useDayCloseQuery } from '@/features/dayclose/api';
 import { useRotationQuery } from '@/features/rotation/api';
 import { useJoinQueue, useQueue } from '@/features/queue/api';
+import { useCanWrite } from '@/lib/permissions';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { checkInJoinInput, progressCountTitle } from '@/lib/deskCopy';
 import { useDaySnapshot } from '@/features/schedule/api';
@@ -69,6 +70,8 @@ export function DashboardContent() {
   const navigate = useNavigate();
   const errorMessage = useErrorMessage();
   const joinQueue = useJoinQueue();
+  /* 取号/入座要 queue.join —— 此前三个入口一条都没守 */
+  const canJoinQueue = useCanWrite('queue.join');
   const { context, membership } = useSession();
   const timezone = context?.timezone || 'America/New_York';
 
@@ -657,6 +660,7 @@ export function DashboardContent() {
                                     </Button>
                                   ) : (
                                     <Button
+                                      isDisabled={!canJoinQueue}
                                       size="sm"
                                       onClick={() => {
                                         setConfirmDialog({

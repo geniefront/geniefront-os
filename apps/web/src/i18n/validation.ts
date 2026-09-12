@@ -26,6 +26,10 @@ export const validation = {
   'valid.pinEmpty': { 'zh-Hans': '请设置快捷 PIN', en: 'Set a quick PIN', ko: '빠른 PIN을 설정하세요', es: 'Establece un PIN rápido', vi: 'Đặt mã PIN nhanh' },
   'valid.pinFormat': { 'zh-Hans': 'PIN 需为 4–6 位数字', en: 'The PIN must be 4–6 digits', ko: 'PIN은 4~6자리 숫자여야 합니다', es: 'El PIN debe tener entre 4 y 6 dígitos', vi: 'Mã PIN phải gồm 4–6 chữ số' },
 
+  'valid.percentEmpty': { 'zh-Hans': '请填写百分比', en: 'Enter a percentage', ko: '비율을 입력하세요', es: 'Introduce un porcentaje', vi: 'Nhập phần trăm' },
+  'valid.percentFormat': { 'zh-Hans': '百分比只能填数字，最多两位小数，例如 8.25', en: 'Percentages take digits only, up to two decimals — for example 8.25', ko: '비율은 숫자만, 소수점 두 자리까지 입력하세요(예: 8.25)', es: 'El porcentaje solo admite dígitos con hasta dos decimales, por ejemplo 8.25', vi: 'Phần trăm chỉ nhận chữ số, tối đa hai số lẻ — ví dụ 8.25' },
+  'valid.percentRange': { 'zh-Hans': '百分比需在 0–{p0} 之间', en: 'The percentage must be between 0 and {p0}', ko: '비율은 0~{p0} 사이여야 합니다', es: 'El porcentaje debe estar entre 0 y {p0}', vi: 'Phần trăm phải từ 0 đến {p0}' },
+
   'valid.countEmpty': { 'zh-Hans': '请填写数量', en: 'Enter a quantity', ko: '수량을 입력하세요', es: 'Introduce una cantidad', vi: 'Nhập số lượng' },
   'valid.countFormat': { 'zh-Hans': '数量请填正整数', en: 'Enter the quantity as a whole number', ko: '수량은 양의 정수로 입력하세요', es: 'Indica la cantidad como número entero', vi: 'Nhập số lượng là số nguyên dương' },
   'valid.countRange': { 'zh-Hans': '数量需在 {p0}–{p1} 之间', en: 'Quantity must be between {p0} and {p1}', ko: '수량은 {p0}~{p1} 사이여야 합니다', es: 'La cantidad debe estar entre {p0} y {p1}', vi: 'Số lượng phải từ {p0} đến {p1}' },

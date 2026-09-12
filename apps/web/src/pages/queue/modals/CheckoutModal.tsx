@@ -29,6 +29,8 @@ export interface CheckoutModalState {
   item: KanbanItem | null;
   discountDollars: string;
   taxRatePercent: string;
+  /** 门店税制。内含税时标价已含税，不再另加一层。 */
+  taxCalculationMode: 'exclusive' | 'inclusive';
   enableCardSurcharge: boolean;
   cardSurchargePercent: string;
   tipMode: 'total_split' | 'custom_per_staff';
@@ -88,6 +90,7 @@ export function CheckoutModal({
     baseCents,
     discountDollars: state.discountDollars,
     taxRatePercent: state.taxRatePercent,
+    taxCalculationMode: state.taxCalculationMode,
     enableCardSurcharge: state.enableCardSurcharge,
     cardSurchargePercent: state.cardSurchargePercent,
     paymentMethod: state.paymentMethod,
