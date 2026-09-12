@@ -63,7 +63,7 @@ export function usePayCashTips() {
   return useMutation({
     mutationFn: async (input: PayCashTipsInput) => {
       /* 键随「这一次意图」走，不随「这一次调用」走 —— 见 lib/idempotency.ts */
-      const idempotencyKey = attempt.take();
+      const idempotencyKey = attempt.take([membershipId, input]);
       const res = await runCommand(
         'dayclose.payTips',
         input,
@@ -73,7 +73,7 @@ export function usePayCashTips() {
       return res.result;
     },
     onSuccess: (_, variables) => {
-      attempt.settle();
+      attempt.settle([membershipId, variables]);
 
       void queryClient.invalidateQueries({
         queryKey: dayCloseKeys.detail(membershipId, variables.businessDate),
@@ -128,16 +128,19 @@ export function useRecordCashMovement() {
   const queryClient = useQueryClient();
   const { membershipId } = useSession();
 
+  const attempt = useAttemptKey();
   return useMutation({
     mutationFn: async (input: RecordCashMovementInput) => {
       const res = await runCommand(
         'dayclose.recordCash',
         input,
         membershipId!,
+        attempt.take([membershipId, input]),
       );
       return res.result;
     },
     onSuccess: (_, variables) => {
+      attempt.settle([membershipId, variables]);
       void queryClient.invalidateQueries({
         queryKey: dayCloseKeys.detail(membershipId, variables.businessDate),
       });

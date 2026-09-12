@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, runCommand } from '@/lib/api';
+import { useAttemptKey } from '@/lib/idempotency';
 import { useSession } from '@/lib/session';
 import type {
   PackagesQueryResponse,
@@ -79,12 +80,14 @@ export function useSavePackageTemplate() {
 export function useIssuePackage() {
   const { membershipId } = useSession();
   const queryClient = useQueryClient();
+  const attempt = useAttemptKey();
   return useMutation({
     mutationFn: async (input: IssuePackageInput) => {
-      const res = await runCommand<{ customerPackageId: string }>('package.issue', input, membershipId!);
+      const res = await runCommand<{ customerPackageId: string }>('package.issue', input, membershipId!, attempt.take([membershipId, input]));
       return res.result;
     },
-    onSuccess: () => {
+    onSuccess: (_, input) => {
+      attempt.settle([membershipId, input]);
       queryClient.invalidateQueries({ queryKey: ['desk', 'packages'] });
     },
   });
@@ -93,12 +96,14 @@ export function useIssuePackage() {
 export function useRedeemPackage() {
   const { membershipId } = useSession();
   const queryClient = useQueryClient();
+  const attempt = useAttemptKey();
   return useMutation({
     mutationFn: async (input: RedeemPackageInput) => {
-      const res = await runCommand<{ customerPackageId: string; remainingUnits: number }>('package.redeem', input, membershipId!);
+      const res = await runCommand<{ customerPackageId: string; remainingUnits: number }>('package.redeem', input, membershipId!, attempt.take([membershipId, input]));
       return res.result;
     },
-    onSuccess: () => {
+    onSuccess: (_, input) => {
+      attempt.settle([membershipId, input]);
       queryClient.invalidateQueries({ queryKey: ['desk', 'packages'] });
     },
   });
@@ -149,12 +154,14 @@ export function useSaveLoyaltyRules() {
 export function useAdjustLoyaltyPoints() {
   const { membershipId } = useSession();
   const queryClient = useQueryClient();
+  const attempt = useAttemptKey();
   return useMutation({
     mutationFn: async (input: AdjustLoyaltyPointsInput) => {
-      const res = await runCommand<{ customerId: string; newPoints: number }>('loyalty.adjustPoints', input, membershipId!);
+      const res = await runCommand<{ customerId: string; newPoints: number }>('loyalty.adjustPoints', input, membershipId!, attempt.take([membershipId, input]));
       return res.result;
     },
-    onSuccess: () => {
+    onSuccess: (_, input) => {
+      attempt.settle([membershipId, input]);
       queryClient.invalidateQueries({ queryKey: ['desk', 'loyalty'] });
     },
   });
@@ -163,16 +170,19 @@ export function useAdjustLoyaltyPoints() {
 export function useIssueGiftCard() {
   const { membershipId } = useSession();
   const queryClient = useQueryClient();
+  const attempt = useAttemptKey();
   return useMutation({
     mutationFn: async (input: IssueGiftCardInput) => {
       const res = await runCommand<{ giftCardId: string; code: string; faceValueCents: number; salePriceCents: number }>(
         'giftcard.issue',
         input,
         membershipId!,
+        attempt.take([membershipId, input]),
       );
       return res.result;
     },
-    onSuccess: () => {
+    onSuccess: (_, input) => {
+      attempt.settle([membershipId, input]);
       queryClient.invalidateQueries({ queryKey: ['desk', 'giftcards'] });
     },
   });
@@ -181,16 +191,19 @@ export function useIssueGiftCard() {
 export function useAdjustGiftCard() {
   const { membershipId } = useSession();
   const queryClient = useQueryClient();
+  const attempt = useAttemptKey();
   return useMutation({
     mutationFn: async (input: AdjustGiftCardInput) => {
       const res = await runCommand<{ giftCardId: string; balanceCents: number }>(
         'giftcard.adjust',
         input,
         membershipId!,
+        attempt.take([membershipId, input]),
       );
       return res.result;
     },
-    onSuccess: () => {
+    onSuccess: (_, input) => {
+      attempt.settle([membershipId, input]);
       queryClient.invalidateQueries({ queryKey: ['desk', 'giftcards'] });
     },
   });

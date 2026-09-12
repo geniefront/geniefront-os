@@ -124,15 +124,19 @@ export function useTechDirectCashTipMutation() {
   const attempt = useAttemptKey();
 
   return useMutation({
-    mutationFn: async (input: { ticketItemId: string; amountCents: number; note?: string }) => (
-      await runCommand<{
+    mutationFn: async (input: { ticketItemId: string; amountCents: number; note?: string }) => {
+      const response = await runCommand<{
         ticketItemId: string;
         amountCents: number;
         settlementStatus: 'no_tip' | 'received_direct';
       /* 键随「这一次意图」走 —— 现生成的话，超时重按就是发两遍现金小费 */
-      }>('staff.recordDirectCashTip', input, requireMembership(membershipId), attempt.take())
-    ).result,
-    onSuccess: () => { attempt.settle(); refresh(); },
+      }>('staff.recordDirectCashTip', input, requireMembership(membershipId), attempt.take([membershipId, input]));
+      if (response.result.ticketItemId !== input.ticketItemId || response.result.amountCents !== input.amountCents) {
+        throw new Error('DIRECT_TIP_RESPONSE_MISMATCH');
+      }
+      return response.result;
+    },
+    onSuccess: (_, input) => { attempt.settle([membershipId, input]); refresh(); },
   });
 }
 

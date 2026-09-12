@@ -479,6 +479,7 @@ export function TechTodayPage() {
                 {task.tip.editable && (
                   <button
                     type="button"
+                    disabled={directTipMutation.isPending}
                     onClick={() => {
                       setTipEditorItemId(task.ticketItemId);
                       setTipDollars((task.tip.directCashCents / 100).toFixed(2));
@@ -500,6 +501,7 @@ export function TechTodayPage() {
                       aria-invalid={tipForm.errors.tip ? true : undefined}
                       inputMode="decimal"
                       value={tipDollars}
+                      disabled={directTipMutation.isPending}
                       onChange={(event) => { setTipDollars(event.target.value); tipForm.clearField('tip'); }}
                       aria-label={t('directCashTipAmount')}
                       className="min-w-0 flex-1 bg-transparent px-1 py-2 text-sm font-bold outline-none"
@@ -508,7 +510,7 @@ export function TechTodayPage() {
                   <Button size="sm" onClick={() => saveDirectTip(task.ticketItemId)} isPending={directTipMutation.isPending}>
                     {t('save')}
                   </Button>
-                  <Button size="sm" variant="secondary" onClick={() => setTipEditorItemId(null)}>
+                  <Button size="sm" variant="secondary" disabled={directTipMutation.isPending} onClick={() => setTipEditorItemId(null)}>
                     {t('cancel')}
                   </Button>
                 </div>

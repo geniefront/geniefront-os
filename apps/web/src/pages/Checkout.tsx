@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast, Spinner } from '@heroui/react';
 import {
@@ -17,9 +17,10 @@ import {
 } from '@/features/checkout/api';
 import { parsePercent } from '@/lib/validation';
 import { allocateTips, splitItemRevenueAcrossStaff } from '@/features/queue/checkoutMath';
+import { emptyLine, chargedCents, toPaymentLine, cashChange, patchPayment, distributeTip, type DraftLine } from '@/features/checkout/paymentDraft';
 import { PAYMENT_METHODS } from '@/features/checkout/types';
 import { paymentStageFor } from '@/features/checkout/types';
-import type { OpenTicket, PaymentLine, PaymentMethod } from '@/features/checkout/types';
+import type { OpenTicket, PaymentMethod } from '@/features/checkout/types';
 import { BundleCheckoutSummary } from '@/features/bundles/BundleCheckoutSummary';
 import { useSchedule, UNASSIGNED_STAFF_ID } from '@/context/ScheduleContext';
 import { Card } from '@/components/ui/Card';
@@ -56,48 +57,6 @@ const MAX_PAYMENT_LINES = 5;
 const DEFAULT_CARD_SURCHARGE_RATE = 0.03;
 
 /**
- * 界面上的一笔收款。
- */
-interface DraftLine {
-  method: PaymentMethod;
-  baseCents: number;
-  tipCents: number;
-  tenderedCents?: number;
-  tenderedInput?: string;
-  changeCents: number;
-  keepChange: boolean;
-  giftCardId?: string;
-  giftCardCode?: string;
-  giftCardBalanceCents?: number;
-  giftCardRecipient?: string;
-  giftCardVerified?: boolean;
-  giftCardError?: string;
-}
-
-function emptyLine(method: PaymentMethod = 'card'): DraftLine {
-  return { method, baseCents: 0, tipCents: 0, changeCents: 0, keepChange: false };
-}
-
-/** 该笔的实收额 = 服务Amount + 小费，与刷卡机小票一致。 */
-function chargedCents(line: DraftLine): number {
-  return line.baseCents + line.tipCents;
-}
-
-/** 界面草稿 → 服务端入参。 */
-function toPaymentLine(line: DraftLine): PaymentLine {
-  return {
-    method: line.method,
-    amountCents: chargedCents(line),
-    tipCents: line.tipCents,
-    changeCents: line.changeCents,
-    keepChange: line.keepChange,
-    ...(line.tenderedCents !== undefined ? { tenderedCents: line.tenderedCents } : {}),
-    ...(line.giftCardId ? { giftCardId: line.giftCardId } : {}),
-    ...(line.giftCardCode ? { giftCardCode: line.giftCardCode } : {}),
-  };
-}
-
-/**
  * 收银结账台（高信息密度 · 完工单筛选 · 多技师小费拆分 · 职级提成 · 税费与手续费）。
  */
 function CheckoutContent() {
@@ -123,6 +82,8 @@ function CheckoutContent() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [discountInput, setDiscountInput] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([emptyLine()]);
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
   /** 一次结账意图内复用同一个幂等键，重试不会重复扣款。 */
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [selectedPackageId, setSelectedPackageId] = useState('');
@@ -136,9 +97,9 @@ function CheckoutContent() {
 
   // 多技师小费分配模式
   const [tipMode, setTipMode] = useState<'total_split' | 'custom_per_staff'>('total_split');
-  const [totalTipInput, setTotalTipInput] = useState('0.00');
+  const [totalTipInput, setTotalTipInputState] = useState('0.00');
   const [splitStrategy, setSplitStrategy] = useState<'proportional' | 'equal'>('proportional');
-  const [customStaffTips, setCustomStaffTips] = useState<Record<string, string>>({});
+  const [customStaffTips, setCustomStaffTipsState] = useState<Record<string, string>>({});
 
   // Gift Card正在验证中的索引
   const [verifyingIndex, setVerifyingIndex] = useState<number | null>(null);
@@ -340,24 +301,27 @@ function CheckoutContent() {
   /** 服务部分的应收（不含小费与附加费）。内含税时税已在其中。 */
   const serviceDueCents = taxInclusive ? afterDiscountCents : afterDiscountCents + taxCents;
 
-  /*
-   * 小费总额。
-   *
-   * ⚠️ 按人录入时只累计**本单实际在册的技师**，不是把 `customStaffTips` 里所有
-   * 键相加。那份 record 是按 membershipId 存的，换单时若有一个键没被清掉，
-   * 上报的 `tipTotalCents` 就会比各行分账之和多出那一笔 —— 服务端对二者不等
-   * 是硬拒（PAYMENT_MISMATCH），这一单当场收不了款。总额与分账必须同源。
-   */
-  const totalTipCents = useMemo(() => {
-    if (paymentStage === 'service') return 0;
-    if (tipMode === 'total_split') {
-      return Math.max(0, dollarsToCents(totalTipInput));
-    }
-    return staffAssignments.reduce(
-      (sum, st) => sum + Math.max(0, dollarsToCents(customStaffTips[st.membershipId] || '0')),
-      0,
-    );
-  }, [paymentStage, tipMode, totalTipInput, customStaffTips, staffAssignments]);
+  // 支付行是小费总额的事实来源。总额/按人录入会重分配支付行；
+  // 修改支付渠道小费则回到按总额分账，保证三处金额一致。
+  const totalTipCents = paymentStage === 'service' ? 0 : lines.reduce((sum, line) => sum + line.tipCents, 0);
+
+  function setTotalTipInput(value: string) {
+    setTotalTipInputState(value);
+    setLines(prev => distributeTip(prev, paymentStage === 'service' ? 0 : Math.max(0, dollarsToCents(value))));
+  }
+
+  function setCustomStaffTips(value: Record<string, string>) {
+    setCustomStaffTipsState(value);
+    const total = staffAssignments.reduce((sum, staff) => sum + Math.max(0, dollarsToCents(value[staff.membershipId] || '0')), 0);
+    setTotalTipInputState(centsToDollars(total));
+    setLines(prev => distributeTip(prev, paymentStage === 'service' ? 0 : total));
+  }
+
+  function acceptChannelTips(next: DraftLine[]) {
+    setLines(next);
+    setTipMode('total_split');
+    setTotalTipInputState(centsToDollars(next.reduce((sum, line) => sum + line.tipCents, 0)));
+  }
 
   // 各技师分配到的小费明细
   const staffTipAllocations = useMemo(() => {
@@ -445,22 +409,20 @@ function CheckoutContent() {
   }
 
   function patchLine(index: number, patch: Partial<DraftLine>) {
-    setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+    // Gift-card verification can return after another payment field was edited.
+    const current = linesRef.current;
+    const next = current.map((line, i) => i === index ? patchPayment(line, patch) : line);
+    linesRef.current = next;
+    if (next.some((line, i) => line.tipCents !== current[i].tipCents)) acceptChannelTips(next);
+    else setLines(next);
   }
 
   // 当总应收变动且仅有单笔支付行时，自动平账同步基准Amount
   useEffect(() => {
     if (lines.length === 1 && lines[0].baseCents !== totalDueCents) {
-      setLines((prev) => prev.map((l, i) => (i === 0 ? { ...l, baseCents: totalDueCents } : l)));
+      setLines((prev) => prev.map((l, i) => (i === 0 ? patchPayment(l, { baseCents: totalDueCents, keepChange: false }) : l)));
     }
   }, [totalDueCents, lines.length]);
-
-  // 同步总小费到第一笔收款行
-  useEffect(() => {
-    if (lines.length > 0) {
-      patchLine(0, { tipCents: totalTipCents });
-    }
-  }, [totalTipCents]);
 
   async function handleVerifyGiftCard(index: number, code: string) {
     if (!code.trim()) return;
@@ -920,7 +882,7 @@ function CheckoutContent() {
                 <div className="flex items-center gap-1 p-0.5 bg-slate-100 rounded-lg text-[11px] font-bold">
                   <button
                     type="button"
-                    onClick={() => setTipMode('total_split')}
+                    onClick={() => { setTotalTipInput(centsToDollars(totalTipCents)); setTipMode('total_split'); }}
                     className={cn(
                       'px-2 py-0.5 rounded-md transition-all',
                       tipMode === 'total_split' ? 'bg-white shadow-sm text-teal-800' : 'text-slate-500',
@@ -930,7 +892,7 @@ function CheckoutContent() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setTipMode('custom_per_staff')}
+                    onClick={() => { setCustomStaffTips(Object.fromEntries(staffTipAllocations.map(a => [a.membershipId, centsToDollars(a.allocatedTipCents)]))); setTipMode('custom_per_staff'); }}
                     className={cn(
                       'px-2 py-0.5 rounded-md transition-all',
                       tipMode === 'custom_per_staff' ? 'bg-white shadow-sm text-teal-800' : 'text-slate-500',
@@ -1005,7 +967,7 @@ function CheckoutContent() {
                           inputMode="decimal"
                           value={customStaffTips[st.membershipId] || ''}
                           onChange={(e) =>
-                            setCustomStaffTips((prev) => ({ ...prev, [st.membershipId]: e.target.value }))
+                            setCustomStaffTips({ ...customStaffTips, [st.membershipId]: e.target.value })
                           }
                           placeholder="0.00"
                           className="font-mono text-xs h-8"
@@ -1178,7 +1140,7 @@ function CheckoutContent() {
               {lines.map((line, index) => {
                 const Icon = METHOD_ICONS[line.method];
                 const rawChangeDue = line.tenderedCents !== undefined
-                  ? Math.max(0, line.tenderedCents - line.baseCents)
+                  ? cashChange(line)
                   : 0;
                 return (
                   <div key={index} className="rounded-2xl border border-slate-200 p-4 space-y-3 bg-white shadow-sm">
@@ -1203,7 +1165,7 @@ function CheckoutContent() {
                           size="icon"
                           aria-label={t('removePayment')}
                           className="text-slate-400 hover:text-red-500"
-                          onClick={() => setLines((prev) => prev.filter((_, i) => i !== index))}
+                          onClick={() => acceptChannelTips(lines.filter((_, i) => i !== index))}
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
@@ -1231,7 +1193,7 @@ function CheckoutContent() {
                         <Input
                           inputMode="decimal"
                           value={line.tipCents ? centsToDollars(line.tipCents) : ''}
-                          onChange={(e) => patchLine(index, { tipCents: dollarsToCents(e.target.value) })}
+                          onChange={(e) => patchLine(index, { tipCents: Math.max(0, dollarsToCents(e.target.value)), keepChange: false })}
                           placeholder="0.00"
                           className="font-mono text-xs font-bold text-teal-700"
                           disabled={paymentStage === 'service'}
@@ -1262,12 +1224,12 @@ function CheckoutContent() {
                             onChange={(e) => {
                               const rawVal = e.target.value;
                               const tenderedCents = dollarsToCents(rawVal);
-                              const rawChange = Math.max(0, tenderedCents - line.baseCents);
+                              const rawChange = Math.max(0, tenderedCents - chargedCents(line));
                               patchLine(index, {
                                 tenderedInput: rawVal,
                                 tenderedCents,
                                 changeCents: line.keepChange ? 0 : rawChange,
-                                ...(line.keepChange ? { tipCents: rawChange } : {}),
+
                               });
                             }}
                             onBlur={() => {
@@ -1297,7 +1259,7 @@ function CheckoutContent() {
                                   onChange={(e) => patchLine(index, {
                                     keepChange: e.target.checked,
                                     changeCents: e.target.checked ? 0 : rawChangeDue,
-                                    tipCents: e.target.checked ? rawChangeDue : 0,
+                                    tipCents: e.target.checked ? Math.max(0, (line.tenderedCents ?? 0) - line.baseCents) : 0,
                                   })}
                                   className="mt-0.5 w-4 h-4 rounded text-teal-600 focus:ring-teal-500/20"
                                 />
