@@ -31,26 +31,26 @@ async function authHeader(): Promise<Record<string, string>> {
   };
 }
 
-async function parse<T>(res: Response): Promise<T> {
+async function parse<T>(res: Response, notify = true): Promise<T> {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 401) onUnauthenticated?.();
+    if (notify && res.status === 401) onUnauthenticated?.();
     throw new ApiError(body.code ?? 'INTERNAL', body.details ?? {}, res.status);
   }
   return body as T;
 }
 
-export async function platformGet<T>(path: string): Promise<T> {
-  const headers = await authHeader();
+export async function platformGet<T>(path: string, accessToken?: string): Promise<T> {
+  const headers = accessToken ? { Authorization: `Bearer ${accessToken}` } : await authHeader();
   const res = await fetch(`${API_BASE}${path}`, { headers });
-  return parse<T>(res);
+  return parse<T>(res, !accessToken);
 }
 
-export async function platformSend<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function platformSend<T>(method: string, path: string, body?: unknown, idempotencyKey?: string): Promise<T> {
   const headers = await authHeader();
   const res = await fetch(`${API_BASE}${path}`, {
     method,
-    headers,
+    headers: { ...headers, ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return parse<T>(res);

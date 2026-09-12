@@ -29,12 +29,12 @@ const queryClient = new QueryClient({
 });
 
 function SessionGate() {
-  const { status, retry } = usePlatformSession();
+  const { status, session, operator, retry } = usePlatformSession();
 
   if (status === 'loading') {
     return <div className="min-h-screen grid place-items-center text-slate-500">Loading…</div>;
   }
-  if (status === 'unauthenticated') return <Login />;
+  if (status === 'unauthenticated' || (status === 'ready' && (!session || !operator))) return <Login />;
   if (status === 'denied') return <AccessDenied />;
   if (status === 'error') {
     return (

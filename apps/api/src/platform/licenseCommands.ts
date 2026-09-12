@@ -1,3 +1,4 @@
+import { oncePerPlatformIntent } from './idempotency';
 /**
  * 运营台的订阅码动作（sql/0120，计划批 2 / 批 6）
  *
@@ -175,6 +176,7 @@ export async function applyLicenseToStore(
   locationId: string,
   raw: unknown,
   ip?: string,
+  operationKey?: string,
 ): Promise<{ codeId: string; effect: LicenseEffect }> {
   const input = parse(PlatformApplyLicenseInput, raw);
   assertTermsComplete(input);
@@ -183,42 +185,47 @@ export async function applyLicenseToStore(
   const tenant = { orgId, locationId, membershipId: null, userId: operator.userId };
 
   return withTenant(tenant, async (tx) => {
-    const [issued] = await tx<{ id: string }[]>`
-      select gf_license_issue(
-        ${input.kind}, ${hashLicenseCode(code)}, ${licenseCodePrefix(code)},
-        ${input.paymentNote}, ${isoInDays(1)}::timestamptz,
-        ${input.plan ?? null}, ${input.durationDays ?? null},
-        ${input.unit ?? null}, ${input.amount ?? null}, ${input.amountCents ?? null},
-        ${orgId}, ${locationId}, 1) as id`;
-    if (!issued) throw new Error('gf_license_issue 没有返回行');
+    const execute = async () => {
+      const [issued] = await tx<{ id: string }[]>`
+        select gf_license_issue(
+          ${input.kind}, ${hashLicenseCode(code)}, ${licenseCodePrefix(code)},
+          ${input.paymentNote}, ${isoInDays(1)}::timestamptz,
+          ${input.plan ?? null}, ${input.durationDays ?? null},
+          ${input.unit ?? null}, ${input.amount ?? null}, ${input.amountCents ?? null},
+          ${orgId}, ${locationId}, 1) as id`;
+      if (!issued) throw new Error('gf_license_issue 没有返回行');
 
-    const claim = await claimLicense(tx, code);
-    const effect = await redeemClaimedLicense(tx, { orgId, locationId }, claim, {
-      reason: `license:${claim.codePrefix} ${input.paymentNote}`,
-    });
+      const claim = await claimLicense(tx, code);
+      const effect = await redeemClaimedLicense(tx, { orgId, locationId }, claim, {
+        reason: `license:${claim.codePrefix} ${input.paymentNote}`,
+      });
 
-    await writePlatformAudit(tx, operator, {
-      orgId,
-      locationId,
-      command: 'platform.applyLicense',
-      entityType: 'billing_account',
-      entityId: locationId,
-      before: effect.before,
-      after: {
-        ...effect.after,
-        kind: input.kind,
-        codeId: claim.codeId,
-        codePrefix: claim.codePrefix,
-        paymentNote: input.paymentNote,
-        amountCents: input.amountCents ?? null,
-        unit: effect.unit ?? null,
-        amount: effect.amount ?? null,
-        invoiceId: effect.invoiceId,
-      },
-      ...(ip === undefined ? {} : { ip }),
-    });
+      await writePlatformAudit(tx, operator, {
+        orgId,
+        locationId,
+        command: 'platform.applyLicense',
+        entityType: 'billing_account',
+        entityId: locationId,
+        before: effect.before,
+        after: {
+          ...effect.after,
+          kind: input.kind,
+          codeId: claim.codeId,
+          codePrefix: claim.codePrefix,
+          paymentNote: input.paymentNote,
+          amountCents: input.amountCents ?? null,
+          unit: effect.unit ?? null,
+          amount: effect.amount ?? null,
+          invoiceId: effect.invoiceId,
+        },
+        ...(ip === undefined ? {} : { ip }),
+      });
 
-    return { codeId: claim.codeId, effect };
+      return { codeId: claim.codeId, effect };
+    };
+    return operationKey
+      ? oncePerPlatformIntent(tx, locationId, operator.operatorId, 'platform.applyLicense', operationKey, input, execute)
+      : execute();
   });
 }
 
@@ -232,6 +239,7 @@ export async function updateStoreLicensePeriod(
   locationId: string,
   raw: unknown,
   ip?: string,
+  operationKey?: string,
 ): Promise<LicenseEffect> {
   const input = parse(PlatformUpdateLicensePeriodInput, raw);
   const terms: LicenseTerms = input.periodEnd !== undefined
@@ -240,20 +248,25 @@ export async function updateStoreLicensePeriod(
 
   const tenant = { orgId, locationId, membershipId: null, userId: operator.userId };
   return withTenant(tenant, async (tx) => {
-    const effect = await applyLicense(tx, { orgId, locationId }, terms, {
-      reason: input.note,
-    });
-    await writePlatformAudit(tx, operator, {
-      orgId,
-      locationId,
-      command: 'platform.updateLicensePeriod',
-      entityType: 'billing_account',
-      entityId: locationId,
-      before: effect.before,
-      after: { ...effect.after, note: input.note, change: terms.kind },
-      ...(ip === undefined ? {} : { ip }),
-    });
-    return effect;
+    const execute = async () => {
+      const effect = await applyLicense(tx, { orgId, locationId }, terms, {
+        reason: input.note,
+      });
+      await writePlatformAudit(tx, operator, {
+        orgId,
+        locationId,
+        command: 'platform.updateLicensePeriod',
+        entityType: 'billing_account',
+        entityId: locationId,
+        before: effect.before,
+        after: { ...effect.after, note: input.note, change: terms.kind },
+        ...(ip === undefined ? {} : { ip }),
+      });
+      return effect;
+    };
+    return operationKey
+      ? oncePerPlatformIntent(tx, locationId, operator.operatorId, 'platform.updateLicensePeriod', operationKey, input, execute)
+      : execute();
   });
 }
 

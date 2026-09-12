@@ -1,3 +1,4 @@
+import { platformOperationKey } from './idempotency';
 /**
  * /v1/platform — GenieFront operator console.
  *
@@ -425,7 +426,7 @@ export function registerPlatformRoutes(app: FastifyInstance): void {
       const op = await operatorFrom(req);
       const locationId = parseOrThrow(uuid, req.params.locationId);
       const orgId = await orgOfLocation(op.userId, locationId);
-      return applyLicenseToStore(op, orgId, locationId, req.body ?? {}, req.ip);
+      return applyLicenseToStore(op, orgId, locationId, req.body ?? {}, req.ip, platformOperationKey(req.headers['idempotency-key']));
     },
   );
 
@@ -451,7 +452,7 @@ export function registerPlatformRoutes(app: FastifyInstance): void {
       const op = await operatorFrom(req);
       const locationId = parseOrThrow(uuid, req.params.locationId);
       const orgId = await orgOfLocation(op.userId, locationId);
-      return updateStoreLicensePeriod(op, orgId, locationId, req.body ?? {}, req.ip);
+      return updateStoreLicensePeriod(op, orgId, locationId, req.body ?? {}, req.ip, platformOperationKey(req.headers['idempotency-key']));
     },
   );
 

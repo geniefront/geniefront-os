@@ -11,6 +11,7 @@
  *   · 签发限 super_admin —— support 能看不能发
  */
 
+import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { AppError, ERROR_CODES } from '@gf/contracts';
 import {
@@ -305,6 +306,7 @@ describe('订阅码 · 私下收款也留一行发票', () => {
     asOps();
     const r = await app.inject({
       method: 'POST', url: `/v1/platform/stores/${SPA_LOC}/license/apply`,
+      headers: { 'idempotency-key': randomUUID() },
       payload: {
         kind: 'subscription', plan: 'essential', durationDays: 30,
         amountCents: 9900, paymentNote: 'zelle $99',
@@ -585,6 +587,7 @@ describe('运营台 · 签发权限与改期', () => {
     asOps();
     const r = await app.inject({
       method: 'POST', url: `/v1/platform/stores/${SPA_LOC}/license/apply`,
+      headers: { 'idempotency-key': randomUUID() },
       payload: {
         kind: 'subscription', plan: 'growth', durationDays: 60,
         paymentNote: 'zelle 2026-09-09 $1200', amountCents: 120000,
@@ -609,12 +612,14 @@ describe('运营台 · 签发权限与改期', () => {
     asOps();
     await app.inject({
       method: 'POST', url: `/v1/platform/stores/${SPA_LOC}/license/apply`,
+      headers: { 'idempotency-key': randomUUID() },
       payload: {
         kind: 'subscription', plan: 'essential', durationDays: 10, paymentNote: 'base',
       },
     });
     const r = await app.inject({
       method: 'PATCH', url: `/v1/platform/stores/${SPA_LOC}/license`,
+      headers: { 'idempotency-key': randomUUID() },
       payload: { extendDays: 30, note: '客户补转了一笔' },
     });
     expect(r.statusCode).toBe(200);
@@ -631,6 +636,7 @@ describe('运营台 · 签发权限与改期', () => {
     asOps();
     const r = await app.inject({
       method: 'PATCH', url: `/v1/platform/stores/${SPA_LOC}/license`,
+      headers: { 'idempotency-key': randomUUID() },
       payload: { extendDays: 30 },
     });
     expect(r.statusCode).toBe(400);
@@ -640,6 +646,7 @@ describe('运营台 · 签发权限与改期', () => {
     asOps();
     const r = await app.inject({
       method: 'PATCH', url: `/v1/platform/stores/${SPA_LOC}/license`,
+      headers: { 'idempotency-key': randomUUID() },
       payload: { extendDays: 30, periodEnd: new Date().toISOString(), note: 'both' },
     });
     expect(r.statusCode).toBe(400);
@@ -649,6 +656,7 @@ describe('运营台 · 签发权限与改期', () => {
     asOps();
     await app.inject({
       method: 'POST', url: `/v1/platform/stores/${SPA_LOC}/license/apply`,
+      headers: { 'idempotency-key': randomUUID() },
       payload: {
         kind: 'subscription', plan: 'growth', durationDays: 90, paymentNote: 'to be revoked',
       },
@@ -743,5 +751,46 @@ describe('运营台 · 直接开店（不经 Stripe）', () => {
       },
     });
     expect(r.statusCode).toBe(403);
+  });
+});
+
+describe('#27 platform intent retries', () => {
+  beforeEach(async () => { asOps(); await resetAccount(); });
+  it('serializes concurrent quota grants, replays a lost response, and permits a new grant', async () => {
+    const key = randomUUID();
+    const request = {
+      method: 'POST' as const, url: `/v1/platform/stores/${SPA_LOC}/license/apply`,
+      headers: { 'idempotency-key': key },
+      payload: { kind: 'quota_pack', unit: 'credit', amount: 500, paymentNote: 'retry regression' },
+    };
+    const [a, b] = await Promise.all([app.inject(request), app.inject(request)]);
+    expect(a.statusCode).toBe(200); expect(b.statusCode).toBe(200);
+    expect(a.json()).toEqual(b.json());
+    const retry = await app.inject(request);
+    expect(retry.json()).toEqual(a.json());
+    const next = await app.inject({ ...request, headers: { 'idempotency-key': randomUUID() } });
+    expect(next.statusCode).toBe(200);
+    expect(next.json().codeId).not.toBe(a.json().codeId);
+    const mismatch = await app.inject({ ...request, payload: { ...request.payload, amount: 600 } });
+    expect(mismatch.statusCode).toBe(409);
+  });
+  it('applies subscription renewal and day extension once per operation', async () => {
+    const request = {
+      method: 'POST' as const, url: `/v1/platform/stores/${SPA_LOC}/license/apply`,
+      headers: { 'idempotency-key': randomUUID() },
+      payload: { kind: 'subscription', plan: 'essential', durationDays: 30, paymentNote: 'retry regression' },
+    };
+    expect((await app.inject(request)).statusCode).toBe(200);
+    const end = (await acct()).license_period_end;
+    expect((await app.inject(request)).statusCode).toBe(200);
+    expect((await acct()).license_period_end).toBe(end);
+    const extension = {
+      method: 'PATCH' as const, url: `/v1/platform/stores/${SPA_LOC}/license`,
+      headers: { 'idempotency-key': randomUUID() }, payload: { extendDays: 30, note: 'retry regression' },
+    };
+    const results = await Promise.all([app.inject(extension), app.inject(extension)]);
+    expect(results.map(r => r.statusCode)).toEqual([200, 200]);
+    expect(results[0]!.json()).toEqual(results[1]!.json());
+    expect(new Date((await acct()).license_period_end!).getTime() - new Date(end!).getTime()).toBe(30 * 86400000);
   });
 });

@@ -1,3 +1,4 @@
+import { useIdempotentSend } from '../lib/idempotency';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { platformGet, platformSend } from '@/lib/api';
@@ -207,6 +208,7 @@ function TabButton(
 
 /** 定向签发 + 立即生效。等价于把一张码交给店家再替他兑掉 */
 function GrantForm({ locationId, onDone }: { locationId: string; onDone: () => void }) {
+  const send = useIdempotentSend();
   const [kind, setKind] = useState<'subscription' | 'quota_pack'>('subscription');
   const [plan, setPlan] = useState<'essential' | 'growth'>('essential');
   const [durationDays, setDurationDays] = useState('30');
@@ -222,7 +224,7 @@ function GrantForm({ locationId, onDone }: { locationId: string; onDone: () => v
   const termsBad = kind === 'quota_pack' ? amountUnits === null : days === null;
 
   const run = useMutation({
-    mutationFn: () => platformSend('POST', `/v1/platform/stores/${locationId}/license/apply`, {
+    mutationFn: () => send('POST', `/v1/platform/stores/${locationId}/license/apply`, {
       kind,
       ...(kind === 'quota_pack'
         ? { unit, amount: amountUnits }
@@ -358,6 +360,7 @@ function SwitchForm({ locationId, onDone }: { locationId: string; onDone: () => 
 
 /** 改到期日。`note` 必填 —— 没有原因的改期和一次误操作长得一模一样 */
 function PeriodForm({ locationId, onDone }: { locationId: string; onDone: () => void }) {
+  const send = useIdempotentSend();
   const [mode, setMode] = useState<'extend' | 'set'>('extend');
   const [extendDays, setExtendDays] = useState('30');
   const [periodEnd, setPeriodEnd] = useState('');
@@ -366,7 +369,7 @@ function PeriodForm({ locationId, onDone }: { locationId: string; onDone: () => 
   const extend = intFromInput(extendDays, { min: -3650, max: 3650 });
 
   const run = useMutation({
-    mutationFn: () => platformSend('PATCH', `/v1/platform/stores/${locationId}/license`, {
+    mutationFn: () => send('PATCH', `/v1/platform/stores/${locationId}/license`, {
       ...(mode === 'extend'
         ? { extendDays: extend! }
         // 日期输入是本地日，按当天 23:59:59 结束 —— 「到 9 月 30 日」在
