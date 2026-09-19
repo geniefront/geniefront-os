@@ -62,7 +62,7 @@ export function minutesFor(durationSeconds: number): number {
 // ─────────────────────────────────────────────────────────────────── 套餐
 
 /** 套餐。和 Stripe 后台的产品名对齐（Essential $99 / Growth $199） */
-export const PLANS = ['essential', 'growth'] as const;
+export const PLANS = ['voice_booking', 'essential', 'growth'] as const;
 export type Plan = (typeof PLANS)[number];
 
 export const isPlan = (v: unknown): v is Plan =>
@@ -76,6 +76,7 @@ export const isPlan = (v: unknown): v is Plan =>
  * to Stripe as a custom amount — Checkout always uses `priceIdFor(plan)`.
  */
 export const PLAN_PRICES_CENTS: Record<Plan, number> = {
+  voice_booking: 9900,
   essential: 9900,
   growth: 19900,
 };
@@ -99,6 +100,7 @@ export interface PlanQuota {
  * 超过 2 通就直接推 Growth，别让老板自己撞上账单。
  */
 export const PLAN_QUOTAS: Record<Plan, PlanQuota> = {
+  voice_booking: { credits: 0, voiceMinutes: 200 },
   essential: { credits: 500, voiceMinutes: 60 },
   growth: { credits: 1200, voiceMinutes: 500 },
 };
@@ -135,7 +137,8 @@ export const TRIAL_QUOTA: PlanQuota = { credits: 150, voiceMinutes: 20 };
 /** 试用期天数。改这个数要同步改 Stripe Checkout 的 trial_period_days */
 export const TRIAL_DAYS = 7;
 
-export function includedFor(plan: string, unit: QuotaUnit, trialing = false): number {
+export function includedFor(plan: string, unit: QuotaUnit, trialing = false, manualVoiceMinutes: number | null = null): number {
+  if (unit === 'voice_minute' && manualVoiceMinutes !== null) return manualVoiceMinutes;
   const q = trialing ? TRIAL_QUOTA : planQuota(plan);
   return unit === 'credit' ? q.credits : q.voiceMinutes;
 }

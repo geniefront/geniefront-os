@@ -1,3 +1,4 @@
+import { useEntitlements } from '@/features/billing/useEntitlements';
 import { exportToCSV } from '@/lib/exportUtils';
 import { useEffect, useMemo, useState } from 'react';
 import { Spinner, toast } from '@heroui/react';
@@ -99,6 +100,7 @@ function Money({ cents, hiddenLabel }: { cents: number | null; hiddenLabel: stri
 }
 
 function CustomersContent() {
+  const voiceOnly = useEntitlements().data?.plan === 'voice_booking';
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
   const { timeZone } = useStoreTime();
@@ -799,6 +801,7 @@ function CustomersContent() {
                 </div>
 
                 {/* 3. Health Allergies & Service Preferences Block */}
+                {!voiceOnly && <>
                 <div className="p-3 bg-amber-50/50 border border-amber-200/80 rounded-2xl space-y-2 text-xs">
                   <div className="flex items-center justify-between">
                     <span className="font-black text-amber-950 flex items-center gap-1.5">
@@ -838,7 +841,9 @@ function CustomersContent() {
                   </div>
                 </div>
 
+                </>}
                 {/* 4. Activity & Assets Tabs */}
+                {!voiceOnly && <>
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 border-b border-slate-200 pb-2 text-xs font-bold">
                     <button
@@ -968,6 +973,7 @@ function CustomersContent() {
                     )}
                   </div>
                 </div>
+                </>}
               </div>
             ) : null}
           </Card>

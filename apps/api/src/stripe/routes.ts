@@ -1,3 +1,5 @@
+import { canSwitchPlan } from '@gf/contracts';
+import { voicePortalConfiguration } from './voicePortal';
 /**
  * Stripe 的入口：一条 webhook + 四条老板端编排路由
  *
@@ -336,6 +338,8 @@ export function registerStripeRoutes(
      * 改档、退订、换卡一律走客户门户（`/v1/billing/portal-session`）——
      * 那是 Stripe 托管的、能正确处理按比例计费与生效时间的那一条路。
      */
+    const [currentPlan] = await withTenant(ctx, tx => tx<{ plan: string }[]>`select plan from billing_accounts where location_id=${ctx.locationId}`);
+    if (currentPlan && !canSwitchPlan(currentPlan.plan, plan)) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'voice_booking_can_only_switch_to_growth' } });
     const existing = await billingAccountOf(ctx);
     if (existing?.sub && ['active', 'trialing', 'past_due'].includes(existing.status)) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
@@ -571,8 +575,8 @@ export function registerStripeRoutes(
     const ctx = await ownerCtx(req);
     const [acct] = await withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
-      (tx) => tx<{ stripe_customer_id: string | null }[]>`
-        select stripe_customer_id from billing_accounts
+      (tx) => tx<{ stripe_customer_id: string | null; plan: string }[]>`
+        select stripe_customer_id, plan from billing_accounts
         where location_id = ${ctx.locationId}`);
 
     if (!acct?.stripe_customer_id) {
@@ -590,6 +594,7 @@ export function registerStripeRoutes(
       const session = await stripeClient().billingPortal.sessions.create({
         customer: acct.stripe_customer_id,
         return_url: returnUrl,
+        ...(acct.plan === 'voice_booking' ? { configuration: await voicePortalConfiguration() } : {}),
       });
       return { url: session.url };
     } catch (e) {
@@ -1262,7 +1267,7 @@ export function registerStripeRoutes(
           ? formatWhen(new Date(sub.trial_end * 1000).toISOString(),
                        shop.timezone, shop.locale)
           : (zh ? '试用结束当天' : 'the last day of your trial'),
-        planLabel: shop.plan === 'growth' ? 'Growth' : 'Essential',
+        planLabel: shop.plan === 'voice_booking' ? 'AI Voice Booking' : shop.plan === 'growth' ? 'Growth' : 'Essential',
         monthlyText: zh ? `每月 $${monthlyUsd}` : `$${monthlyUsd}/month`,
         billingUrl: billingPortalUrl(),
         locale: shop.locale,
@@ -1294,11 +1299,11 @@ export function registerStripeRoutes(
    */
   function itemsByLocation(sub: Stripe.Subscription): Array<{
     locationId: string; subscriptionItemId: string;
-    plan: 'essential' | 'growth' | null; currentPeriodEnd: string | null;
+    plan: 'voice_booking' | 'essential' | 'growth' | null; currentPeriodEnd: string | null;
   }> {
     const out: Array<{
       locationId: string; subscriptionItemId: string;
-      plan: 'essential' | 'growth' | null; currentPeriodEnd: string | null;
+      plan: 'voice_booking' | 'essential' | 'growth' | null; currentPeriodEnd: string | null;
     }> = [];
     for (const item of sub.items?.data ?? []) {
       const locationId = item.metadata?.['gf_location_id'];

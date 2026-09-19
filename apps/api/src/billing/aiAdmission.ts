@@ -108,10 +108,12 @@ export async function assertAiAdmission(
       trial_ends_at: string | Date | null;
       credit_balance: number; voice_minute_balance: number;
       included_credits_used: number; included_minutes_used: number;
+      billing_source: string; manual_voice_minutes: number | null;
     }[]>`
-      select subscription_status, plan, trial_ends_at,
+      select case when billing_source = 'license' and license_period_end <= now()
+        then 'expired' else subscription_status end as subscription_status, plan, trial_ends_at,
              credit_balance, voice_minute_balance,
-             included_credits_used, included_minutes_used
+             included_credits_used, included_minutes_used, billing_source, manual_voice_minutes
       from billing_accounts where location_id = ${ctx.locationId}`);
 
   // 查不到账户行 = 还没接计费（种子店、开发库、计费上线前建的老店）。
@@ -142,7 +144,7 @@ export async function assertAiAdmission(
    * 一笔没人解释得清的负数。
    */
   const includedTotal = acct.subscription_status === 'none'
-    ? 0 : includedFor(acct.plan, unit, trialing);
+    ? 0 : includedFor(acct.plan, unit, trialing, acct.billing_source === 'license' ? acct.manual_voice_minutes : null);
   const includedRemaining = Math.max(0, includedTotal - used);
 
   if (includedRemaining <= 0 && balance <= 0) {

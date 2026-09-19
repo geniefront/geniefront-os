@@ -9,6 +9,7 @@
 
 import { startEmailService } from './email/service';
 import { buildServer } from './server';
+import { startVoiceProcessing } from './voice/worker';
 import { startCallReconciler } from './telnyx/schedule';
 import { startRetentionJob } from './ops/retention';
 import { startReminderJob } from './notify/reminder';
@@ -43,6 +44,7 @@ const app = buildServer();
 // ⚠️ 只在真正的入口起 —— 测试里 buildServer() 会被建很多次，
 // 每次都挂一个定时器的话，一跑测试就是几十个后台任务在抢同一批会话
 startCallReconciler(app);
+startVoiceProcessing(app);
 
 // 幂等表保留期清理（AUD-09）。同上：只在真正的入口挂定时器。
 startRetentionJob(app);

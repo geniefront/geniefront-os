@@ -488,11 +488,11 @@ describe('BillingPanel 订阅码付费', () => {
     billingState.data = { billing: licensed(), autoTopup: null };
   });
 
-  it('不给 Stripe 客户门户入口，也不说「未绑定支付方式」', () => {
+  it('人工开通允许绑卡，但不显示尚未开通的 Stripe 订阅门户', () => {
     renderPanel();
     expect(screen.queryByRole('button', { name: '管理订阅与支付' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '添加支付方式' })).not.toBeInTheDocument();
-    expect(screen.queryByText(/未绑定支付方式/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '添加支付方式' })).toBeInTheDocument();
+    expect(screen.getByText(/尚未绑定银行卡/)).toBeInTheDocument();
     expect(screen.getByText(/由 GenieFront 直接开通/)).toBeInTheDocument();
   });
 

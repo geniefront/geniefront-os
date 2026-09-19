@@ -393,10 +393,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return undefined;
     }
     let cancelled = false;
-    void fetchMembershipContext(id)
+    const refresh = () => void fetchMembershipContext(id)
       .then((next) => { if (!cancelled) setContext(next); })
       .catch(() => { if (!cancelled) setContext(null); });
-    return () => { cancelled = true; };
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    window.addEventListener('focus', refresh);
+    return () => { cancelled = true; window.clearInterval(timer); window.removeEventListener('focus', refresh); };
   }, [membership]);
 
   /*

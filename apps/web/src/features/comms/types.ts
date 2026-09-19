@@ -14,6 +14,9 @@ export interface CallView {
   toolsUsed: string[];
   booked: boolean;
   recordingUrl: string | null;
+  recordingId?: string | null;
+  billingStatus?: string;
+  billableSeconds?: number | null;
   transcript: CallLine[];
 }
 

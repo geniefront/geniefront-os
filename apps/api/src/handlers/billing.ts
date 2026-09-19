@@ -57,6 +57,7 @@ export interface AccountRow {
   voice_minute_balance: number;
   included_credits_used: number;
   included_minutes_used: number;
+  manual_voice_minutes: number | null;
   included_period_start: string | Date | null;
 
   auto_topup_credits_enabled: boolean;
@@ -127,7 +128,8 @@ export const isTrialing = (row: Pick<AccountRow, 'trial_ends_at'>, now = new Dat
  *   · 其余 → 套餐档
  */
 export const includedTotalOf = (row: AccountRow, unit: QuotaUnit): number =>
-  (row.subscription_status === 'none' ? 0 : includedFor(row.plan, unit, isTrialing(row)));
+  (row.subscription_status === 'none' ? 0 : includedFor(row.plan, unit, isTrialing(row),
+    row.billing_source === 'license' ? row.manual_voice_minutes ?? null : null));
 
 export const includedRemainingOf = (row: AccountRow, unit: QuotaUnit): number =>
   Math.max(0, includedTotalOf(row, unit) - includedUsedOf(row, unit));
@@ -449,6 +451,12 @@ registerHandler(SyncSubscription, async ({ input, ctx, tx, audit }: HandlerArgs<
   };
 
   const anchorPatch = patchFor(acct);
+  // Setup-mode Checkout only attaches a customer; it does not transfer billing authority.
+  if (acct.billing_source === 'license' && input.stripeCustomerId
+    && input.stripeSubscriptionId === undefined && input.subscriptionStatus === undefined
+    && input.plan === undefined && !input.items?.length) {
+    await tx`update billing_accounts set stripe_customer_id=${input.stripeCustomerId} where id=${acct.id}`;
+  }
   const anchorResult = await applySubscriptionToRow(tx, acct, anchorPatch, {
     isAnchor: true,
     namedInItems: itemByLocation.has(acct.location_id),

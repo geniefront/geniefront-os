@@ -6,22 +6,24 @@
 import type { BadgeVariant } from '@/components/ui/Badge';
 import type { TranslationKey } from '@/i18n';
 
-export const CANONICAL_PLANS = ['essential', 'growth'] as const;
+export const CANONICAL_PLANS = ['voice_booking', 'essential', 'growth'] as const;
 export type CanonicalPlan = (typeof CANONICAL_PLANS)[number];
 
 export const PORTAL_RETURN_PATH = '/settings?tab=billing';
 
 export function canonicalPlan(plan: string | null | undefined): CanonicalPlan | null {
-  return plan === 'essential' || plan === 'growth' ? plan : null;
+  return plan === 'voice_booking' || plan === 'essential' || plan === 'growth' ? plan : null;
 }
 
 export function planLabelKey(plan: string | null | undefined): TranslationKey {
+  if (plan === 'voice_booking') return 'settings.stPlanVoiceBooking';
   if (plan === 'essential') return 'settings.stPlanEssential';
   if (plan === 'growth') return 'settings.stPlanGrowth';
   return 'settings.stPlanUnknown';
 }
 
 export function planNavBadge(plan: string | null | undefined): string | undefined {
+  if (plan === 'voice_booking') return 'AI Voice Booking';
   if (plan === 'essential') return 'Essential';
   if (plan === 'growth') return 'Growth';
   return undefined;

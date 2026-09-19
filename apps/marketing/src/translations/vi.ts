@@ -368,10 +368,10 @@ export const vi: TranslationSchema = {
         features: [
           '200 Phút thoại AI nhận cuộc gọi đặt lịch mỗi tháng',
           'Không giới hạn tin nhắn SMS & email nhắc lịch hẹn',
-          'Không giới hạn lịch làm việc của nhân viên',
+          'Quản lý lịch hẹn và thông tin khách hàng',
           'Miễn phí thiết kế và ra mắt website chuyên nghiệp cho tiệm',
           'Cài đặt hệ thống đặt lịch thoại AI theo yêu cầu',
-          'Không tính thêm phí theo số lượng thợ (không giới hạn)',
+          'Ghi âm và bản chép lời cuộc gọi',
         ],
         excludedTitle: 'Phạm vi tinh gọn (Không bao gồm):',
         excludedFeatures: [
@@ -379,6 +379,7 @@ export const vi: TranslationSchema = {
           'Không gồm phiếu kiểm tra sức khỏe điện tử & iPad đón khách',
           'Không gồm điều phối tua thợ & AI trợ lý quầy',
           'Không gồm quản lý phòng và giường dịch vụ',
+          'Không gồm xếp ca nhân viên hoặc chiến dịch tiếp thị',
         ],
         cta: 'Bắt Đầu Dùng Thử 7 Ngày',
       },

@@ -115,7 +115,7 @@ registerHandler(SavePhoneLine, async ({ input, ctx, tx, audit }: HandlerArgs<
   if (isRoutable(input.purpose)) {
     const [taken] = await tx<{ location_id: string }[]>`
       select location_id from phone_lines
-      where e164 = ${input.e164} and purpose in ('ai_voice','sms')`;
+      where e164 = ${input.e164} and purpose in ('ai_voice','sms') and active`;
     if (taken && taken.location_id !== ctx.locationId) {
       throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, {
         details: { e164: input.e164, reason: 'number_bound_to_another_location' },
@@ -541,6 +541,13 @@ registerHandler(RecordCall, async ({ input, ctx, tx, audit }: HandlerArgs<
       tools_used       = coalesce(excluded.tools_used, phone_calls.tools_used),
       recording_url    = coalesce(excluded.recording_url, phone_calls.recording_url)
     returning id`;
+
+  if (input.deferBilling) {
+    await tx`update phone_calls set voice_billing_status='pending'
+      where id=${row!.id} and voice_billing_status='legacy'`;
+    audit({ entityType: 'phone_call', entityId: row!.id, after: { billingStatus: 'pending' } });
+    return { callId: row!.id, billedMinutes: 0, fromIncluded: 0, fromBalance: 0 };
+  }
 
   // ⚠️ `ai_call_min` 与 `ai_assist` 分开计（决策 8）。
   // 两者成本差 10–16 倍，合成一个「额度」必被套利：

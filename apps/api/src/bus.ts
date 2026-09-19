@@ -1,3 +1,4 @@
+import { planAllowsCommand } from '@gf/contracts';
 /**
  * 命令总线（01-ARCHITECTURE §3，宪法第 1 条）
  *
@@ -158,6 +159,19 @@ export async function dispatch<T = unknown>(
     async (tx) => {
       // ── 3.5 订阅闸门 ────────────────────────────────────────────────────
       await assertSubscriptionAllowsWrite(tx, ctx, commandName);
+      const [planAccount] = await tx<{ plan: string }[]>`select plan from billing_accounts where location_id=${ctx.locationId}`;
+      if (!planAllowsCommand(planAccount?.plan, commandName)) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { reason: 'plan_feature_unavailable', commandName } });
+      }
+      if (planAccount?.plan === 'voice_booking' && commandName === 'settings.saveSetupFeatures'
+        && (parsed.data as { healthFormsEnabled?: boolean }).healthFormsEnabled === true) {
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { reason: 'health_forms_not_in_plan' } });
+      }
+      if (planAccount?.plan === 'voice_booking' && ['staff.saveProfile', 'staff.add'].includes(commandName)) {
+        const staff = parsed.data as { payroll?: unknown; inRotation?: boolean };
+        if (staff.payroll) throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { reason: 'payroll_not_in_plan' } });
+        staff.inRotation = false;
+      }
 
       if (key) {
         // 同一门店同一幂等键先串行化。否则两个并发重试都可能先读到“未执行”，
@@ -233,7 +247,7 @@ export const registeredCommands = (): AnyCommandDef[] => [...handlers.values()].
  * 那是个把自己锁在门外的死结。`setup.` 同理：认领门店这一步
  * 发生在订阅刚建出来、webhook 还没回来的那几秒。
  */
-const WRITE_ALLOWED_WHILE_PAST_DUE = ['billing.', 'setup.', 'support.'] as const;
+const WRITE_ALLOWED_WHILE_PAST_DUE = ['billing.', 'setup.', 'support.', 'call.record', 'call.attachTranscript', 'call.queueRecording', 'call.claimRecording', 'call.completeRecording', 'call.failRecording'] as const;
 
 /**
  * 订阅欠费 → **冻结写入，读操作照常**（批 1，docs/03 Phase 2.9）。
@@ -260,7 +274,8 @@ async function assertSubscriptionAllowsWrite(
   if (WRITE_ALLOWED_WHILE_PAST_DUE.some((p) => commandName.startsWith(p))) return;
 
   const [acct] = await tx<{ status: string }[]>`
-    select subscription_status as status
+    select case when billing_source = 'license' and license_period_end <= now()
+      then 'expired' else subscription_status end as status
     from billing_accounts where location_id = ${ctx.locationId}`;
 
   // 没有账户行 = 还没接计费。放行（见上面第 3 条）

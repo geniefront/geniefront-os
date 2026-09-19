@@ -37,6 +37,9 @@ export interface CallView {
   /** ⭐ 它有没有真的订上单 —— 前台扫一眼列表就要能分辨 */
   booked: boolean;
   recordingUrl: string | null;
+  recordingId: string | null;
+  billingStatus: string;
+  billableSeconds: number | null;
   transcript: CallLine[];
 }
 
@@ -59,10 +62,11 @@ export async function loadCalls(
   const rows = await tx<{
     id: string; from_e164: string | null; started_at: string | Date | null;
     duration_seconds: number | null; outcome: string | null;
+    recording_id: string | null; voice_billing_status: string; billable_seconds: number | null;
     tools_used: string[] | null; recording_url: string | null; transcript: unknown;
   }[]>`
     select id, from_e164, started_at, duration_seconds, outcome,
-           tools_used, recording_url, transcript
+           tools_used, recording_url, transcript, recording_id, voice_billing_status, billable_seconds
     from phone_calls
     where location_id = ${ctx.locationId}
       and created_at > now() - make_interval(days => ${days})
@@ -80,6 +84,9 @@ export async function loadCalls(
       toolsUsed: tools,
       booked: tools.includes('book_appointment'),
       recordingUrl: r.recording_url,
+      recordingId: r.recording_id,
+      billingStatus: r.voice_billing_status,
+      billableSeconds: r.billable_seconds,
       transcript: Array.isArray(r.transcript) ? r.transcript as CallLine[] : [],
     };
   });

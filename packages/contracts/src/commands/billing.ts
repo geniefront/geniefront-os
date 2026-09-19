@@ -34,7 +34,7 @@ export const quotaUnit = z.enum(['credit', 'voice_minute']);
 export type QuotaUnitInput = z.infer<typeof quotaUnit>;
 
 /** 和 Stripe 后台的产品名对齐：Essential $99 / Growth $199 */
-export const billingPlan = z.enum(['essential', 'growth']);
+export const billingPlan = z.enum(['voice_booking', 'essential', 'growth']);
 /**
  * `none` = 从未接过计费（迁移 0085）。
  *

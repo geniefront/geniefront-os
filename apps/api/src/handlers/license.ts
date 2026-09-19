@@ -1,3 +1,4 @@
+import { canSwitchPlan } from '@gf/contracts';
 /**
  * 订阅码：Stripe 之外的第二条计费权威（sql/0120，计划 2026-09-09）
  *
@@ -272,6 +273,7 @@ export async function applyLicense(
      * 留下的旧值，接着它算等于白送一段时间。
      */
     periodEnd = new Date(extendBase().getTime() + terms.durationDays * 86_400_000);
+    if (!canSwitchPlan(acct.plan, terms.plan)) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'voice_booking_can_only_switch_to_growth' } });
     plan = terms.plan;
 
     /*
@@ -473,7 +475,7 @@ async function writeLicenseInvoice(
     // 额度包不过期，没有账期这回事 —— 写兑换当天，别编一段假的区间
     period = today;
   } else {
-    const planLabel = args.terms.plan === 'growth' ? 'Growth' : 'Essential';
+    const planLabel = args.terms.plan === 'voice_booking' ? 'AI Voice Booking' : args.terms.plan === 'growth' ? 'Growth' : 'Essential';
     description = zh
       ? `订阅码 ${args.codePrefix} · ${planLabel} ${args.terms.durationDays} 天`
       : `License ${args.codePrefix} · ${planLabel} ${args.terms.durationDays} days`;

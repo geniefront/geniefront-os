@@ -97,8 +97,9 @@ function NewStorePanel() {
   const [open, setOpen] = useState(false);
   const [shopName, setShopName] = useState('');
   const [ownerEmail, setOwnerEmail] = useState('');
-  const [plan, setPlan] = useState<'essential' | 'growth'>('essential');
+  const [plan, setPlan] = useState<'voice_booking' | 'essential' | 'growth'>('essential');
   const [durationDays, setDurationDays] = useState('30');
+  const [baseVoiceMinutes, setBaseVoiceMinutes] = useState('');
   const [timezone, setTimezone] = useState('America/New_York');
   const [businessType, setBusinessType] = useState('nail');
   const [locale, setLocale] = useState('en');
@@ -120,6 +121,7 @@ function NewStorePanel() {
       ownerEmail: ownerEmail.trim(),
       plan,
       durationDays: Number(durationDays),
+      ...(baseVoiceMinutes.trim() === '' ? {} : { baseVoiceMinutes: Number(baseVoiceMinutes) }),
       timezone,
       businessType,
       locale,
@@ -148,7 +150,8 @@ function NewStorePanel() {
   }
 
   const bad = shopName.trim() === '' || ownerEmail.trim() === ''
-    || paymentNote.trim() === '' || moneyBad || create.isPending;
+    || paymentNote.trim() === '' || moneyBad || create.isPending
+    || (baseVoiceMinutes.trim() !== '' && (!Number.isInteger(Number(baseVoiceMinutes)) || Number(baseVoiceMinutes) < 0 || Number(baseVoiceMinutes) > 1000000));
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4">
@@ -186,9 +189,13 @@ function NewStorePanel() {
         </Field>
         <Field label="Plan">
           <select className={inputCls} value={plan} onChange={(e) => setPlan(e.target.value as typeof plan)}>
-            <option value="essential">essential</option>
+            <option value="voice_booking">AI Voice Booking</option>
+              <option value="essential">essential</option>
             <option value="growth">growth</option>
           </select>
+        </Field>
+        <Field label="Base voice minutes" hint="Blank uses the plan default. Changing this does not reset usage.">
+          <input className={inputCls} type="number" min="0" max="1000000" value={baseVoiceMinutes} placeholder={plan === 'voice_booking' ? '200' : plan === 'growth' ? '500' : '60'} onChange={e => setBaseVoiceMinutes(e.target.value)} />
         </Field>
         <Field label="Days of service">
           <select className={inputCls} value={durationDays} onChange={(e) => setDurationDays(e.target.value)}>

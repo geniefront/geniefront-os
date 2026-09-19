@@ -1,4 +1,5 @@
 export * from './permissions.js';
+export * from './planAccess.js';
 export * from './errors.js';
 export * from './command.js';
 export * from './shopSlug.js';
@@ -6,6 +7,9 @@ export * from './commands/appointment.js';
 export * from './commands/rotation.js';
 export * from './commands/ticket.js';
 export * from './commands/setup.js';
+export * from './commands/bookingPolicy.js';
+export * from './commands/voiceBooking.js';
+export * from './commands/voiceProcessing.js';
 export * from './commands/payroll.js';
 export * from './commands/dayclose.js';
 export * from './commands/shift.js';

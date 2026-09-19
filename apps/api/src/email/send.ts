@@ -32,7 +32,7 @@
 import { elasticSendEmail, ElasticError } from './elastic';
 import { MARKETING_EVENTS } from '@gf/contracts';
 import { randomUUID } from 'node:crypto';
-import { isCaptureMode, mailpitEndpoint } from '../comms/mode';
+import { isCaptureMode, mailpitEndpoint, captureForRecipient } from '../comms/mode';
 import { sesSendEmail, SesError } from '@gf/aws';
 import { resendSendEmail, ResendError } from './resend';
 import { emailProvider, providerConfigured } from './provider';
@@ -175,7 +175,7 @@ export async function sendEmail(msg: OutgoingEmail): Promise<SendResult> {
   if (msg.unsubscribeUrl || (MARKETING_EVENTS as readonly string[]).includes(msg.kind ?? '')) {
     return { ok: false, permanent: true, error: 'marketing_coming_soon' };
   }
-  if (isCaptureMode() || process.env['NODE_ENV'] === 'test') return captureEmail(msg);
+  if (captureForRecipient(msg.to)) return captureEmail(msg);
 
   const from = fromAddressFor(msg);
   if (!emailConfigured() || !from) return { ok: false, error: 'not_configured' };

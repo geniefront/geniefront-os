@@ -20,9 +20,12 @@ import {
 
 const root = dirname(fileURLToPath(import.meta.url));
 
-describe('计费展示：只认 Essential / Growth', () => {
-  it('canonical plan 只有 essential 与 growth', () => {
-    expect(CANONICAL_PLANS).toEqual(['essential', 'growth']);
+describe('计费展示：三档正式套餐', () => {
+  it('canonical plan 保留独立的语音预约版', () => {
+    expect(CANONICAL_PLANS).toEqual(['voice_booking', 'essential', 'growth']);
+    expect(canonicalPlan('voice_booking')).toBe('voice_booking');
+    expect(planLabelKey('voice_booking')).toBe('settings.stPlanVoiceBooking');
+    expect(planNavBadge('voice_booking')).toBe('AI Voice Booking');
     expect(canonicalPlan('essential')).toBe('essential');
     expect(canonicalPlan('growth')).toBe('growth');
     expect(canonicalPlan('starter')).toBeNull();

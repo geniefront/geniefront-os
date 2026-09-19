@@ -42,7 +42,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  const openTrialModal = (industry = 'nail', plan: 'essential' | 'growth' = 'essential') => {
+  const openTrialModal = (industry = 'nail', plan: 'voice_booking' | 'essential' | 'growth' = 'essential') => {
     setSelectedIndustryForTrial(industry);
     setSelectedPlanForTrial(plan);
     setIsTrialModalOpen(true);

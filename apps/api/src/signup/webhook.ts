@@ -219,7 +219,7 @@ export async function sendActivationOnce(
   });
 
   if (res.ok) {
-    log.info({ ...t, email: ownerEmail }, 'signup: 激活信已发出');
+    log.info({ orgId: t.orgId, locationId: t.locationId, email: ownerEmail }, 'signup: 激活信已发出');
     return;
   }
 
@@ -233,6 +233,6 @@ export async function sendActivationOnce(
     update signup_intents set activation_email_sent_at = null
     where id = ${claimed.id}`).catch(() => {});
 
-  log.error({ ...t, email: ownerEmail, reason: res.reason },
+  log.error({ orgId: t.orgId, locationId: t.locationId, email: ownerEmail, reason: res.reason },
     'signup: 激活信发送失败 —— 门店已建好，可人工补发');
 }

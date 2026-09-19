@@ -52,6 +52,7 @@ export type LicensePanel = {
     stripeSubscriptionItemId: string | null;
     creditBalance: number;
     voiceMinuteBalance: number;
+    manualVoiceMinutes: number | null;
   } | null;
   history: Array<{
     redemptionId: string;
@@ -122,7 +123,7 @@ export function licenseTermsText(row: {
     const unit = row.unit === 'voice_minute' ? 'voice minutes' : 'credits';
     return `${row.amount ?? '?'} ${unit}`;
   }
-  const plan = row.plan === 'growth' ? 'Growth' : 'Essential';
+  const plan = row.plan === 'voice_booking' ? 'AI Voice Booking' : row.plan === 'growth' ? 'Growth' : 'Essential';
   return `${plan} · ${row.durationDays ?? '?'} days`;
 }
 

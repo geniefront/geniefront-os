@@ -1,3 +1,4 @@
+import { planAllowsPermission } from '@gf/contracts';
 /**
  * 从 membership 解析出命令上下文。
  *
@@ -9,7 +10,7 @@
 import {
   AppError, ERROR_CODES, isPermission, type CommandContext, type Locale, type Permission,
 } from '@gf/contracts';
-import { withUser, listMembershipsForUser, loadMembershipBase } from '@gf/db';
+import { withTenant, withUser, listMembershipsForUser, loadMembershipBase } from '@gf/db';
 
 export type { MembershipRow } from '@gf/db';
 
@@ -75,6 +76,10 @@ export async function buildContext(args: BuildContextArgs): Promise<CommandConte
   for (const o of granted.overrides) {
     if (!o.allow && isPermission(o.permission)) set.delete(o.permission);
   }
+
+  const [billing] = await withTenant({ orgId: base.orgId, locationId: base.locationId, membershipId },
+    tx => tx<{ plan: string }[]>`select plan from billing_accounts where location_id=${base.locationId}`);
+  for (const p of [...set]) if (!planAllowsPermission(billing?.plan, p)) set.delete(p);
 
   // AI 会话的权限只能更小
   if (args.restrictTo) {

@@ -368,10 +368,10 @@ export const en: TranslationSchema = {
         features: [
           '200 AI Voice Booking Minutes / month',
           'Unlimited SMS & Email Appointment Reminders',
-          'Unlimited Staff Calendars & Scheduling',
+          'Appointment management and customer details',
           'Free Managed Shop Showcase Website Creation',
           'Free AI Voice Booking Setup & Custom Scripting',
-          'Zero Per-Seat Fees (Unlimited staff accounts)',
+          'Call recordings and transcripts',
         ],
         excludedTitle: 'Streamlined Scope (Not Included):',
         excludedFeatures: [
@@ -379,6 +379,7 @@ export const en: TranslationSchema = {
           'No digital intake / health forms or iPad kiosk',
           'No front-desk AI Copilot operations & turn engine',
           'No room & equipment station management',
+          'No staff shift scheduling or marketing campaigns',
         ],
         cta: 'Start 7-Day Free Trial',
       },

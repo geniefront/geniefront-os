@@ -216,8 +216,8 @@ export function BillingPanel() {
                     ? t(notice.key, { p0: formatIsoDate(notice.date) ?? '' })
                     : t(notice.key)}
                 </p>
-                {/* license 店没有卡，也不需要有 —— 少说一句「未绑定支付方式」 */}
-                {licenseBilled ? null : (
+                {/* 绑卡状态与人工开通的有效期分别显示 */}
+                {(
                   <p className="text-xs text-teal-100/80">
                     {hasPaymentMethod
                       ? (billing.paymentMethodLabel
@@ -229,14 +229,16 @@ export function BillingPanel() {
               </div>
               <div className="flex flex-col items-stretch sm:items-end gap-2">
                 {licenseBilled ? (
-                  /*
-                   * ⚠️ 这里**一个 Stripe 按钮都不给**。这家店没有 Stripe 客户，
-                   * 「管理订阅」会打开一个 404，「添加支付方式」则是在问一个
-                   * 他从来没答应过的问题。
-                   */
-                  <p className="text-[11px] text-white/70 max-w-[18rem] sm:text-right">
-                    {t('settings.stLicenseHint')}
-                  </p>
+                  <>
+                    <p className="text-[11px] text-white/70 max-w-[18rem] sm:text-right">
+                      {t('settings.stLicenseHint')}
+                    </p>
+                    <Button isPending={paymentMethodMutation.isPending} variant="secondary" size="sm"
+                      disabled={paymentMethodMutation.isPending} onClick={() => void addPaymentMethod()}
+                      className="text-xs font-bold bg-white/10 hover:bg-white/20 text-white border-white/20">
+                      {t('settings.stAddPaymentMethod')}
+                    </Button>
+                  </>
                 ) : (
                   <>
                     <Button
@@ -314,7 +316,7 @@ export function BillingPanel() {
                   )}
                 </div>
 
-                <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2.5 shadow-2xs">
+                {billing.plan !== 'voice_booking' && <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2.5 shadow-2xs">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                       <Sparkles className="w-4 h-4 text-purple-600" />
@@ -347,7 +349,7 @@ export function BillingPanel() {
                       t={t}
                     />
                   )}
-                </div>
+                </div>}
               </div>
               <p className="text-[11px] text-slate-400">{t('settings.stAutoTopupHint')}</p>
             </div>

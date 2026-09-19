@@ -1,3 +1,4 @@
+import { apiGet } from '@/lib/api';
 import { useState, useMemo } from "react";
 import { useErrorMessage } from '@/lib/errorMessage';
 import { useStoreTime, instantToWallDate } from '@/lib/time';
@@ -112,12 +113,17 @@ export function Calls() {
     return `${m.toString().padStart(2, "0")}:${rem.toString().padStart(2, "0")}`;
   };
 
-  const handleTogglePlay = (call: CallView) => {
-    if (!call.recordingUrl) {
+  const handleTogglePlay = async (call: CallView) => {
+    if (!call.recordingUrl && !call.recordingId) {
       toast.danger(t('crm.callNoRecording'));
       return;
     }
-    const audioSrc = call.recordingUrl;
+    let audioSrc = call.recordingUrl;
+    if (call.recordingId) {
+      try { audioSrc = (await apiGet<{ url: string }>(`/v1/desk/calls/${call.callId}/recording`)).url; }
+      catch { toast.danger(t('crm.callNoRecording')); return; }
+    }
+    if (!audioSrc) return;
     const dur = call.durationSeconds || 98;
     setPlaybackTotalDuration(dur);
 
@@ -646,9 +652,14 @@ export function Calls() {
                       <TableCell className="text-xs text-slate-600 font-mono">
                         <span className="inline-flex items-center gap-1">
                           <Clock className="w-3 h-3 text-slate-400" />
-                          {Math.floor((call.durationSeconds || 60) / 60)}{t('crm.callMinuteUnit')}{" "}
-                          {(call.durationSeconds || 60) % 60}{t('crm.callSecondUnit')}
+                          {Math.floor((call.durationSeconds ?? 0) / 60)}{t('crm.callMinuteUnit')}{" "}
+                          {(call.durationSeconds ?? 0) % 60}{t('crm.callSecondUnit')}
                         </span>
+                        {call.billingStatus && call.billingStatus !== 'legacy' && <p className="text-[10px] text-slate-500 mt-1">
+                          {call.billingStatus === 'settled'
+                            ? t('crm.callBilledMinutes', { p0: Math.ceil((call.billableSeconds ?? 0) / 60) })
+                            : t(call.billingStatus === 'review' ? 'crm.callBillingReview' : 'crm.callBillingPending')}
+                        </p>}
                       </TableCell>
                       <TableCell>
                         {call.booked ? (

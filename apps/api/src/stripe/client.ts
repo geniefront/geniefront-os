@@ -73,7 +73,7 @@ export function priceIdFor(plan: Plan | 'voice_booking'): string {
     return id;
   }
   if (plan === 'voice_booking') {
-    const id = process.env['STRIPE_PRICE_VOICE_BOOKING'] || process.env['STRIPE_PRICE_ESSENTIAL'];
+    const id = process.env['STRIPE_PRICE_VOICE_BOOKING'];
     if (!id) {
       throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, {
         details: { service: 'stripe', reason: `${plan} 套餐的 STRIPE_PRICE_* 未配置` },
@@ -100,7 +100,8 @@ export function priceIdFor(plan: Plan | 'voice_booking'): string {
 export function planForPriceId(priceId: string | null | undefined): Plan | null {
   if (!priceId) return null;
   if (priceId === process.env['STRIPE_PRICE_GROWTH']) return 'growth';
-  if (priceId === process.env['STRIPE_PRICE_ESSENTIAL'] || priceId === process.env['STRIPE_PRICE_VOICE_BOOKING']) return 'essential';
+  if (priceId === process.env['STRIPE_PRICE_VOICE_BOOKING']) return 'voice_booking';
+  if (priceId === process.env['STRIPE_PRICE_ESSENTIAL']) return 'essential';
   return null;
 }
 

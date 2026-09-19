@@ -368,10 +368,10 @@ export const es: TranslationSchema = {
         features: [
           '200 Minutos mensuales de llamadas de reserva con IA',
           'Recordatorios ilimitados por SMS y correo electrónico',
-          'Calendarios y agenda de personal ilimitados',
+          'Gestión de citas e información de clientes',
           'Creación y publicación gratuita de la web de tu local',
           'Configuración inicial de reservas por voz con IA incluida',
-          'Cero costo adicional por terapeuta (personal ilimitado)',
+          'Grabaciones y transcripciones de llamadas',
         ],
         excludedTitle: 'Alcance simplificado (No incluye):',
         excludedFeatures: [
@@ -379,6 +379,7 @@ export const es: TranslationSchema = {
           'No incluye formularios digitales ni quiosco iPad',
           'No incluye motor de turnos ni Copiloto IA de recepción',
           'No incluye gestión de salas y cabinas',
+          'No incluye turnos del personal ni campañas de marketing',
         ],
         cta: 'Iniciar Prueba Gratis de 7 Días',
       },

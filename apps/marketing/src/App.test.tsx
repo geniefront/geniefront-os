@@ -47,7 +47,7 @@ describe('Marketing pricing and signup', () => {
     expect(screen.getByTestId('plan-voice-booking'))
       .toHaveTextContent('Unlimited SMS & Email Appointment Reminders');
     expect(screen.getByTestId('plan-voice-booking'))
-      .toHaveTextContent('Unlimited Staff Calendars & Scheduling');
+      .toHaveTextContent('Appointment management and customer details');
     expect(screen.getByTestId('plan-voice-booking'))
       .toHaveTextContent('Free Managed Shop Showcase Website Creation');
     expect(screen.getByTestId('plan-voice-booking'))

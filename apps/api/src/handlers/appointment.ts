@@ -25,7 +25,7 @@ import { renderConfirmSms } from '../sms/render';
 import { segmentsOf } from '../sms/segments';
 import { smsConfigured, smsFrom } from '../sms/send';
 import {
-  checkCapacity, businessDateOf, hasBlocking, checkBusinessHours, NO_OFF_HOURS,
+  checkCapacity, bookingLimits, readBookingPolicy, businessDateOf, hasBlocking, checkBusinessHours, NO_OFF_HOURS,
   type Interval, type WeeklyHours, type OffHoursWindow,
 } from '@gf/scheduling';
 import { ts, jsonb, parseTs } from '@gf/db';
@@ -209,7 +209,7 @@ async function countOnDutyBookable(
   return roster?.n ?? 0;
 }
 
-async function lockBookingCapacity(
+export async function lockBookingCapacity(
   tx: postgres.TransactionSql, locationId: string,
 ): Promise<void> {
   await tx`select pg_advisory_xact_lock(
@@ -449,13 +449,13 @@ export async function executeSingleAppointmentInTx(
       staff: staff
         ? {
             membershipId: staff.membership_id,
-            maxConcurrent: staff.max_concurrent,
+            maxConcurrent: bookingLimits(readBookingPolicy(loc.settings), onDutyBookableCount, item.isRequest, staff.max_concurrent).staffLimit,
             isBookable: staff.is_bookable,
             existing: existing.filter((e) => e.membershipId === staff.membership_id),
           }
         : null,
       location: {
-        maxConcurrentPerSlot: capacityCfg.max_concurrent_per_slot ?? null,
+        maxConcurrentPerSlot: bookingLimits(readBookingPolicy(loc.settings), onDutyBookableCount, item.isRequest).locationLimit,
         onDutyBookableCount,
         existing,
       },
@@ -1143,10 +1143,10 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
   }
 
   const itemRows = await tx<{
-    id: string; membership_id: string | null; starts_at: string; ends_at: string;
+    id: string; membership_id: string | null; starts_at: string; ends_at: string; is_request: boolean;
     bundle_instance_id: string | null;
   }[]>`
-    select id, membership_id, starts_at::text as starts_at, ends_at::text as ends_at,
+    select id, membership_id, starts_at::text as starts_at, ends_at::text as ends_at, is_request,
            bundle_instance_id
     from appointment_items
     where appointment_id = ${appt.id} and status <> 'cancelled'
@@ -1186,6 +1186,7 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
 
   const moved = targets.map((t) => ({
     id: t.id,
+    isRequest: t.is_request,
     membershipId: input.membershipId === undefined ? t.membership_id : input.membershipId,
     startsAt: new Date(parseTs(t.starts_at).getTime() + deltaMs),
     endsAt: new Date(parseTs(t.ends_at).getTime() + deltaMs),
@@ -1267,13 +1268,13 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
       staff: staff
         ? {
             membershipId: staff.membership_id,
-            maxConcurrent: staff.max_concurrent,
+            maxConcurrent: bookingLimits(readBookingPolicy(loc.settings), onDutyBookableCount, m.isRequest, staff.max_concurrent).staffLimit,
             isBookable: staff.is_bookable,
             existing: existing.filter((e) => e.membershipId === staff.membership_id),
           }
         : null,
       location: {
-        maxConcurrentPerSlot: capacityCfg.max_concurrent_per_slot ?? null,
+        maxConcurrentPerSlot: bookingLimits(readBookingPolicy(loc.settings), onDutyBookableCount, m.isRequest).locationLimit,
         onDutyBookableCount,
         existing,
       },
@@ -1470,12 +1471,12 @@ registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: Hand
     // 只是把语义写明：加项加在同一位客人身上，不产生新的占位
     proposed: { startsAt, endsAt, groupKey: appt.id },
     staff: staffRow ? {
-      membershipId: staffRow.membership_id, maxConcurrent: staffRow.max_concurrent,
+      membershipId: staffRow.membership_id, maxConcurrent: bookingLimits(readBookingPolicy(loc.settings), onDutyBookableCount, input.isRequest, staffRow.max_concurrent).staffLimit,
       isBookable: staffRow.is_bookable,
       existing: existing.filter((row) => row.membershipId === staffRow.membership_id),
     } : null,
     location: {
-      maxConcurrentPerSlot: capacity.max_concurrent_per_slot ?? null,
+      maxConcurrentPerSlot: bookingLimits(readBookingPolicy(loc.settings), onDutyBookableCount, input.isRequest).locationLimit,
       onDutyBookableCount, existing,
     },
   });

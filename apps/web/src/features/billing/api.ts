@@ -25,6 +25,7 @@ export function useBillingQuery() {
     queryKey: billingKeys.detail(membershipId),
     queryFn: () => apiGet<BillingResponse>("/v1/desk/billing"),
     enabled: status === "ready" && membershipId !== null,
+    staleTime: 0, refetchOnWindowFocus: 'always', refetchInterval: 30_000,
   });
 }
 

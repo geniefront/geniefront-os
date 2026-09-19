@@ -9,7 +9,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { isCaptureMode } from '../comms/mode';
+import { isCaptureMode, captureForRecipient } from '../comms/mode';
 
 const ENDPOINT = 'https://api.telnyx.com/v2/messages';
 
@@ -51,7 +51,7 @@ export async function sendSms(msg: { to: string; text: string }): Promise<SmsRes
    * 拦在这里而不是拦在 flush：这样入队、渲染、分段、计量那几步照常被测到，
    * 只有「真的打出去」这一下是假的。
    */
-  if (process.env['NODE_ENV'] === 'test' || isCaptureMode()) {
+  if (captureForRecipient(msg.to)) {
     // captured ≠ sent:这条**没有真的发出去**。混成 sent 的话,
     // staging 上「发信成功率」这个数字会变成一个假的 100%
     return { ok: true, captured: true, providerId: `capture:${randomUUID()}` };

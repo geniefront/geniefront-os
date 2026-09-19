@@ -116,6 +116,9 @@ export async function loadBilling(
   // 而不是一屏「0 / 0」的空表格 —— 那看起来像是坏了
   if (!acct) return null;
   const a = acct as unknown as AccountFields;
+  if (a.billing_source === 'license' && a.license_period_end && parseTs(a.license_period_end).getTime() <= Date.now()) {
+    a.subscription_status = 'expired';
+  }
 
   /**
    * 全部流水，按 seq 排。
@@ -169,7 +172,7 @@ export async function loadBilling(
      * 比显示 0 更糟。
      */
     const total = a.subscription_status === 'none'
-      ? 0 : includedFor(a.plan, unit, trialingNow);
+      ? 0 : includedFor(a.plan, unit, trialingNow, a.billing_source === 'license' ? a.manual_voice_minutes : null);
     const cached = isCredit ? a.credit_balance : a.voice_minute_balance;
     const ledger = replayBalance(entries, unit);
 
@@ -260,6 +263,7 @@ interface AccountFields {
   default_payment_method_id: string | null; payment_method_label: string | null;
   credit_balance: number; voice_minute_balance: number;
   included_credits_used: number; included_minutes_used: number;
+  manual_voice_minutes: number | null;
   auto_topup_credits_enabled: boolean; auto_topup_credits_threshold: number;
   auto_topup_credits_failures: number; auto_topup_credits_last_at: string | Date | null;
   auto_topup_minutes_enabled: boolean; auto_topup_minutes_threshold: number;

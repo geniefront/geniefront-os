@@ -117,6 +117,7 @@ export const billingAccounts = pgTable('billing_accounts', {
   includedCreditsUsed: integer('included_credits_used').notNull().default(0),
   /** 本期已用的套餐内语音分钟 */
   includedMinutesUsed: integer('included_minutes_used').notNull().default(0),
+  manualVoiceMinutes: integer('manual_voice_minutes'),
 
   // ── 自动续充：两种额度各一套，每次都是 $50 ────────────────────────────
   //

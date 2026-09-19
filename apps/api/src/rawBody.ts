@@ -38,8 +38,8 @@ export function rawBodyOf(req: { body: unknown }): string {
 }
 
 export function registerRawBodyParser(app: FastifyInstance): void {
-  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => {
-    done(null, Object.fromEntries(new URLSearchParams(body as string)));
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (req, body, done) => {
+    done(null, isRawBodyPath(req.url) ? { raw: body as string } : Object.fromEntries(new URLSearchParams(body as string)));
   });
   app.addContentTypeParser(
     'application/json',

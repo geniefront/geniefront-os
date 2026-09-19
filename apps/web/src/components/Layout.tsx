@@ -1,3 +1,5 @@
+import { planAllowsPath } from '@gf/contracts';
+import { useEntitlements } from '@/features/billing/useEntitlements';
 import { lazy, Suspense, useState, useRef, useEffect, useMemo } from 'react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
@@ -103,6 +105,8 @@ const SIDEBAR_QUERY = "(min-width: 1024px)";
 const RAIL_QUERY = "(min-width: 1024px) and (max-width: 1279.98px)";
 
 export function Layout() {
+  const entitlements = useEntitlements();
+  const plan = entitlements.data?.plan;
   const navigate = useNavigate();
   const { setCurrentDate, timezone } = useSchedule();
   /*
@@ -227,6 +231,10 @@ export function Layout() {
   const { today: businessToday } = useBusinessDay();
   const canManageSettings = can('settings.manage') || can('staff.manage');
 
+  useEffect(() => {
+    if (plan && !planAllowsPath(plan, location.pathname)) navigate('/schedule', { replace: true });
+  }, [plan, location.pathname, navigate]);
+
   const storeName = membership ? pickText(membership.locationName, language) : '—';
   /** 多店账号才提供切店入口；单店账号不暴露该概念。 */
   const canSwitchLocation = locations.length > 1;
@@ -236,7 +244,7 @@ export function Layout() {
   // 不能拿词典键本身去比对 —— 否则搜索框里打中文，命中的却是英文界面。
   const searchResults = useMemo(() => {
     const commands = GLOBAL_COMMANDS
-      .filter((item) => item.path !== '/settings' || canManageSettings)
+      .filter((item) => (item.path !== '/settings' || canManageSettings) && planAllowsPath(plan, item.path))
       .map((item) => ({ ...item, title: t(item.titleKey), desc: t(item.descKey) }));
     if (!globalQuery.trim()) return commands.slice(0, 6);
     return fuzzySearch(commands, globalQuery, {
@@ -247,7 +255,7 @@ export function Layout() {
       ],
       threshold: 0.45,
     });
-  }, [globalQuery, canManageSettings, t]);
+  }, [globalQuery, canManageSettings, plan, t]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -442,7 +450,7 @@ export function Layout() {
         </div>
 
         <div className="flex-1 overflow-y-auto py-3 custom-scrollbar">
-          {navGroups.map((group, idx) => (
+          {navGroups.map(group => ({ ...group, items: group.items.filter(item => planAllowsPath(plan, item.path)) })).filter(group => group.items.length > 0).map((group, idx) => (
             <div key={idx} className="mb-4">
               {!collapsed && (
                 <div className="mb-1 px-4 text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -814,7 +822,7 @@ export function Layout() {
               className="h-full"
             >
               {/* Inject drawer helpers into nested routes via Outlet Context */}
-              <Outlet
+              {entitlements.data && planAllowsPath(plan, location.pathname) && <Outlet
                 context={{
                   setRightDrawerOpen,
                   setActiveAppointmentId,
@@ -827,7 +835,7 @@ export function Layout() {
                   },
                   openCreateAppointment,
                 }}
-              />
+              />}
             </motion.div>
           </AnimatePresence>
         </main>
@@ -870,7 +878,7 @@ export function Layout() {
         )}
 
         {/* Global Right-Side AI Copilot Drawer */}
-        {isCopilotOpen && (
+        {plan !== 'voice_booking' && isCopilotOpen && (
           <div className="fixed inset-0 z-drawer flex justify-end overflow-hidden">
             <div
               className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm transition-opacity"

@@ -102,7 +102,7 @@ export const PlatformIssueLicenseInput = z.object({
   kind: z.enum(['subscription', 'quota_pack', 'store_open']),
 
   /** subscription / store_open 必填 */
-  plan: z.enum(['essential', 'growth']).optional(),
+  plan: z.enum(['voice_booking', 'essential', 'growth']).optional(),
   /** 这张码买多少天。⚠️ 兑换那一刻才开始算 */
   durationDays: z.number().int().min(1).max(3650).optional(),
 
@@ -134,7 +134,7 @@ export const PlatformRevokeLicenseInput = z.object({
  */
 export const PlatformApplyLicenseInput = z.object({
   kind: z.enum(['subscription', 'quota_pack']),
-  plan: z.enum(['essential', 'growth']).optional(),
+  plan: z.enum(['voice_booking', 'essential', 'growth']).optional(),
   durationDays: z.number().int().min(1).max(3650).optional(),
   unit: z.enum(['credit', 'voice_minute']).optional(),
   amount: z.number().int().positive().max(1_000_000).optional(),
@@ -173,9 +173,10 @@ export const PlatformRevokeStoreLicenseInput = z.object({
 export const PlatformCreateStoreInput = z.object({
   shopName: z.string().trim().min(1).max(80),
   ownerEmail: z.string().trim().email().max(254),
-  plan: z.enum(['essential', 'growth']),
+  plan: z.enum(['voice_booking', 'essential', 'growth']),
   /** 这次开店送多少天。到期后按 `expired` 冻结写入 */
   durationDays: z.number().int().min(1).max(3650),
+  baseVoiceMinutes: z.number().int().min(0).max(1000000).optional(),
   businessType: z.enum(['nail', 'massage', 'foot_spa', 'lash', 'scalp', 'hair', 'mixed'])
     .default('nail'),
   timezone: z.string().trim().min(1).max(64).default('America/New_York'),
@@ -191,3 +192,8 @@ export const PlatformCreateStoreInput = z.object({
    */
   sendActivation: z.boolean().default(true),
 });
+
+export const PlatformVoiceQuotaInput = z.object({
+  baseVoiceMinutes: z.number().int().min(0).max(1000000).nullable(),
+  note: z.string().trim().min(1).max(500),
+}).strict();

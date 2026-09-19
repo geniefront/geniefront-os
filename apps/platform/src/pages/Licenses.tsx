@@ -160,7 +160,7 @@ export function Licenses() {
  */
 function IssueForm({ onIssued }: { onIssued: () => void }) {
   const [kind, setKind] = useState<'subscription' | 'quota_pack' | 'store_open'>('subscription');
-  const [plan, setPlan] = useState<'essential' | 'growth'>('essential');
+  const [plan, setPlan] = useState<'voice_booking' | 'essential' | 'growth'>('essential');
   const [durationDays, setDurationDays] = useState('30');
   const [unit, setUnit] = useState<'credit' | 'voice_minute'>('credit');
   const [amount, setAmount] = useState('500');

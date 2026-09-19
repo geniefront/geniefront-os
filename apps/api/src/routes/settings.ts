@@ -16,6 +16,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { AppError, ERROR_CODES } from '@gf/contracts';
 import { withTenant } from '@gf/db';
+import { readBookingPolicy } from '@gf/scheduling';
 import { dispatch } from '../bus';
 import {
   loadDeskSettings, loadCheckoutSettings, load10DlcStatus, loadIntakeWaiver, loadWebhooks,
@@ -26,6 +27,14 @@ import type { CtxFromHeaders } from './utils';
 
 export function registerSettingsRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHeaders): void {
 
+  app.get('/v1/desk/entitlements', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    return withTenant(ctx, async tx => {
+      const [row] = await tx<{ plan: string }[]>`select plan from billing_accounts where location_id=${ctx.locationId}`;
+      return { plan: row?.plan ?? 'essential' };
+    });
+  });
+
   const handleSetupReadiness = async (req: FastifyRequest) => {
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('settings.manage')) {
@@ -35,6 +44,16 @@ export function registerSettingsRoutes(app: FastifyInstance, ctxFromHeaders: Ctx
   };
   app.get('/v1/desk/setup/readiness', handleSetupReadiness);
   app.get('/api/desk/setup/readiness', handleSetupReadiness);
+
+  app.get('/v1/desk/settings/booking-policy', async (req) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage')) throw new AppError(ERROR_CODES.PERMISSION_DENIED);
+    return withTenant(ctx, async (tx) => {
+      const [row] = await tx<{ settings: unknown }[]>`select settings from locations where id = ${ctx.locationId}`;
+      if (!row) throw new AppError(ERROR_CODES.NOT_FOUND);
+      return readBookingPolicy(row.settings);
+    });
+  });
 
   // ── 系统设置与门店配置 ───────────────────────────────────────────────────
   const handleDeskSettings = async (req: FastifyRequest) => {

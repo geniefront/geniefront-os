@@ -1,3 +1,4 @@
+import { useEntitlements } from '@/features/billing/useEntitlements';
 import { useState, useEffect, useRef } from 'react';
 import { useErrorMessage } from '@/lib/errorMessage';
 import { useSearchParams } from 'react-router-dom';
@@ -14,6 +15,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { PageLoading, PageError } from '@/components/ui/QueryState';
 import { ImageUploader } from '@/components/ui/ImageUploader';
 import { ReviewSourcesPanel } from '@/features/reviews/ReviewSourcesPanel';
+import { BookingCapacityCard } from '@/features/settings/BookingCapacityCard';
 import { HostedBookingChannelCard } from '@/features/settings/HostedBookingChannelCard';
 import { bookingPageOrigin } from '@/features/settings/hostedBookingUrl';
 import {
@@ -241,7 +243,11 @@ export function Settings() {
   const errorMessage = useErrorMessage();
   const { t, language } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
-  const currentTab = searchParams.get('tab') || 'store';
+  const entitlements = useEntitlements();
+  const voiceOnly = entitlements.data?.plan === 'voice_booking';
+  const voiceTabs = ['store', 'hours', 'booking', 'services', 'staff', 'billing'];
+  const requestedTab = searchParams.get('tab') || 'store';
+  const currentTab = voiceOnly && !voiceTabs.includes(requestedTab) ? 'store' : requestedTab;
   const canManageSettings = useCan('settings.manage') || useCan('staff.manage');
   const canManageBilling = useCan('billing.manage');
 
@@ -1039,7 +1045,7 @@ export function Settings() {
         {/* 左侧导航栏 */}
         <div className="w-full lg:w-64 shrink-0 space-y-4">
           <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-xs space-y-4 sticky top-4">
-            {NAV_GROUPS.map((group, idx) => (
+            {NAV_GROUPS.map(group => ({ ...group, items: group.items.filter(item => !voiceOnly || voiceTabs.includes(item.id)) })).filter(group => group.items.length > 0).map((group, idx) => (
               <div key={group.groupNameKey} className={idx > 0 ? 'pt-3 border-t border-slate-100' : ''}>
                 <div className="px-3 pb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
                   {t(group.groupNameKey)}
@@ -1783,7 +1789,8 @@ export function Settings() {
           {/* ============================================================ */}
           {currentTab === 'booking' && (
             <div className="space-y-6">
-              <HostedBookingChannelCard
+              <BookingCapacityCard />
+              {!voiceOnly && <HostedBookingChannelCard
                 origin={bookingPageOrigin()}
                 slug={storeSlug}
                 bookableCount={settings?.guest.onlineBookableCount ?? 0}
@@ -1799,7 +1806,7 @@ export function Settings() {
                     throw err;
                   }
                 }}
-              />
+              />}
               <SettingsCard
                 title={t('settings.stBookingTitle')}
                 description={t('settings.stBookingDesc')}
@@ -2304,7 +2311,7 @@ export function Settings() {
                         </div>
 
                         <div className="flex items-center gap-4 self-end sm:self-center">
-                          <label
+                          {!voiceOnly && <label
                             className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 select-none"
                             onClick={(e) => {
                               e.preventDefault();
@@ -2321,7 +2328,7 @@ export function Settings() {
                               className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 w-4 h-4 pointer-events-none"
                             />
                             <span>{t('settings.stJoinRotation')}</span>
-                          </label>
+                          </label>}
 
                           <Button
                             variant="ghost"

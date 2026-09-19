@@ -150,12 +150,28 @@ export const phoneCalls = pgTable('phone_calls', {
   toolsUsed: text('tools_used').array(),
   /** 录音 URL（Telnyx 侧开了才有）。⚠️ 加州 two-party consent，见 docs/09 §4.4 */
   recordingUrl: text('recording_url'),
+  recordingId: text('recording_id'),
+  voiceBillingStatus: text('voice_billing_status').notNull().default('legacy'),
+  billableSeconds: integer('billable_seconds'),
+  billingAnalysis: jsonb('billing_analysis'),
   summary: text('summary'),
   createdAt: createdAt(),
 }, (t) => [
   uniqueIndex('phone_calls_provider_key').on(t.providerCallId),
   index('phone_calls_loc_idx').on(t.locationId, t.createdAt),
 ]);
+
+/** Durable Telnyx recording → xAI transcription/classification work, isolated by tenant. */
+export const voiceProcessingJobs = pgTable('voice_processing_jobs', {
+  id: id(), orgId: orgCol(), locationId: locCol(),
+  providerCallId: text('provider_call_id').notNull(), recordingId: text('recording_id').notNull(),
+  payload: jsonb('payload').notNull(), status: text('status').notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0), leaseId: uuid('lease_id'),
+  lockedUntil: timestamp('locked_until', { withTimezone: true }),
+  retryAt: timestamp('retry_at', { withTimezone: true }).notNull().defaultNow(),
+  lastError: text('last_error'), createdAt: createdAt(),
+}, t => [uniqueIndex('voice_processing_jobs_location_id_provider_call_id_key').on(t.locationId, t.providerCallId),
+  index('voice_processing_due').on(t.status, t.retryAt)]);
 
 /**
  * 来电三要素的草案 —— 前台的「待复核」队列。
@@ -236,4 +252,3 @@ export const callDrafts = pgTable('call_drafts', {
 }, (t) => [
   index('call_drafts_queue_idx').on(t.locationId, t.status, t.createdAt),
 ]);
-

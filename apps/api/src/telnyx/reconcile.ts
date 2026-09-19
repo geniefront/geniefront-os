@@ -65,7 +65,7 @@ export async function reconcileCalls(args: {
     if (!c.toE164 || !/^\+[1-9]\d{7,14}$/.test(c.toE164)) { out.skipped++; continue; }
 
     const t = await tenantForPhoneNumber(c.toE164).catch(() => null);
-    if (!t) { out.skipped++; continue; }
+    if (!t || t.assistantId?.startsWith('agent_')) { out.skipped++; continue; }
 
     try {
       const transcript = await fetchTranscript(apiKey, c.id);

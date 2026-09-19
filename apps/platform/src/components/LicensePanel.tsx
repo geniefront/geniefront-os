@@ -59,7 +59,7 @@ export function LicensePanel({ locationId }: { locationId: string }) {
   const canWrite = operator?.role === 'super_admin';
   const qc = useQueryClient();
   const q = useLicensePanel(locationId);
-  const [tab, setTab] = useState<'grant' | 'switch' | 'period' | 'revoke' | null>(null);
+  const [tab, setTab] = useState<'grant' | 'switch' | 'period' | 'quota' | 'revoke' | null>(null);
 
   const invalidate = (): void => {
     void qc.invalidateQueries({ queryKey: licensePanelKey(locationId) });
@@ -134,6 +134,7 @@ export function LicensePanel({ locationId }: { locationId: string }) {
               )}
               {source === 'license' ? (
                 <>
+                  <TabButton active={tab === 'quota'} onClick={() => setTab(tab === 'quota' ? null : 'quota')}>Base voice minutes</TabButton>
                   <TabButton active={tab === 'period'} onClick={() => setTab(tab === 'period' ? null : 'period')}>
                     Change end date
                   </TabButton>
@@ -149,8 +150,9 @@ export function LicensePanel({ locationId }: { locationId: string }) {
             </p>
           )}
 
-          {tab === 'grant' ? <GrantForm locationId={locationId} onDone={invalidate} /> : null}
-          {tab === 'switch' ? <SwitchForm locationId={locationId} onDone={invalidate} /> : null}
+          {tab === 'grant' ? <GrantForm currentPlan={acct?.plan ?? 'essential'} locationId={locationId} onDone={invalidate} /> : null}
+          {tab === 'switch' ? <SwitchForm currentPlan={acct?.plan ?? 'essential'} locationId={locationId} onDone={invalidate} /> : null}
+          {tab === 'quota' ? <VoiceQuotaForm locationId={locationId} initial={acct.manualVoiceMinutes} onDone={invalidate} /> : null}
           {tab === 'period' ? <PeriodForm locationId={locationId} onDone={invalidate} /> : null}
           {tab === 'revoke' ? <RevokeForm locationId={locationId} onDone={invalidate} /> : null}
         </>
@@ -207,10 +209,10 @@ function TabButton(
 }
 
 /** 定向签发 + 立即生效。等价于把一张码交给店家再替他兑掉 */
-function GrantForm({ locationId, onDone }: { locationId: string; onDone: () => void }) {
+function GrantForm({ locationId, currentPlan, onDone }: { locationId: string; currentPlan: string; onDone: () => void }) {
   const send = useIdempotentSend();
   const [kind, setKind] = useState<'subscription' | 'quota_pack'>('subscription');
-  const [plan, setPlan] = useState<'essential' | 'growth'>('essential');
+  const [plan, setPlan] = useState<'voice_booking' | 'essential' | 'growth'>(currentPlan === 'voice_booking' ? 'voice_booking' : currentPlan === 'growth' ? 'growth' : 'essential');
   const [durationDays, setDurationDays] = useState('30');
   const [unit, setUnit] = useState<'credit' | 'voice_minute'>('credit');
   const [amount, setAmount] = useState('500');
@@ -266,7 +268,8 @@ function GrantForm({ locationId, onDone }: { locationId: string; onDone: () => v
         <>
           <Field label="Plan">
             <select className={inputCls} value={plan} onChange={(e) => setPlan(e.target.value as typeof plan)}>
-              <option value="essential">essential</option>
+              <option value="voice_booking">AI Voice Booking</option>
+              {currentPlan !== 'voice_booking' && <option value="essential">essential</option>}
               <option value="growth">growth</option>
             </select>
           </Field>
@@ -298,8 +301,8 @@ function GrantForm({ locationId, onDone }: { locationId: string; onDone: () => v
  * ⚠️ 文案里必须说清「会先在 Stripe 那边停掉这家店的收费」——
  * 运营点这个按钮时要知道它是一个**对外**的动作，不是本地改个状态。
  */
-function SwitchForm({ locationId, onDone }: { locationId: string; onDone: () => void }) {
-  const [plan, setPlan] = useState<'essential' | 'growth'>('essential');
+function SwitchForm({ locationId, currentPlan, onDone }: { locationId: string; currentPlan: string; onDone: () => void }) {
+  const [plan, setPlan] = useState<'voice_booking' | 'essential' | 'growth'>(currentPlan === 'voice_booking' ? 'voice_booking' : currentPlan === 'growth' ? 'growth' : 'essential');
   const [durationDays, setDurationDays] = useState('30');
   const [collected, setCollected] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
@@ -334,7 +337,8 @@ function SwitchForm({ locationId, onDone }: { locationId: string; onDone: () => 
     >
       <Field label="Plan">
         <select className={inputCls} value={plan} onChange={(e) => setPlan(e.target.value as typeof plan)}>
-          <option value="essential">essential</option>
+          <option value="voice_booking">AI Voice Booking</option>
+              {currentPlan !== 'voice_booking' && <option value="essential">essential</option>}
           <option value="growth">growth</option>
         </select>
       </Field>
@@ -468,3 +472,19 @@ function FormShell({
 }
 
 const inputCls = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm';
+
+
+function VoiceQuotaForm({ locationId, initial, onDone }: { locationId: string; initial: number | null; onDone: () => void }) {
+  const [minutes, setMinutes] = useState(initial == null ? '' : String(initial));
+  const [note, setNote] = useState('');
+  const value = minutes.trim() === '' ? null : intFromInput(minutes, { min: 0, max: 1000000 });
+  const run = useMutation({ mutationFn: () => platformSend('PATCH', `/v1/platform/stores/${locationId}/voice-quota`, {
+    baseVoiceMinutes: value, note: note.trim(),
+  }), onSuccess: onDone });
+  return <FormShell title="Base voice minutes" note="Blank restores the plan default. Used minutes and purchased balance are preserved. Applies to manual billing only."
+    disabled={!note.trim() || (minutes.trim() !== '' && value === null) || run.isPending} pending={run.isPending}
+    error={run.isError ? run.error : null} onSubmit={() => run.mutate()}>
+    <Field label="Included minutes"><input className={inputCls} type="number" min="0" max="1000000" value={minutes} onChange={e => setMinutes(e.target.value)} /></Field>
+    <Field label="Reason"><input className={inputCls} value={note} onChange={e => setNote(e.target.value)} /></Field>
+  </FormShell>;
+}

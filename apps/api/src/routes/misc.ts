@@ -1,3 +1,4 @@
+import { getRecordingMetadata } from '../voice/provider';
 /**
  * 电话转录、来电待复核、上行短信与 Yelp 外部搜索路由
  *
@@ -48,6 +49,20 @@ export function registerMiscRoutes(app: FastifyInstance, ctxFromHeaders: CtxFrom
     return withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
       (tx) => loadCallDrafts(tx, ctx, req.query.status ?? 'pending'));
+  });
+
+  app.get<{ Params: { id: string } }>('/v1/desk/calls/:id/recording', async (req, reply) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('appointment.read')) throw new AppError(ERROR_CODES.PERMISSION_DENIED);
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) throw new AppError(ERROR_CODES.NOT_FOUND);
+    const [call] = await withTenant(ctx, tx => tx<{ recording_id: string | null }[]>`
+      select recording_id from phone_calls where id=${req.params.id} and location_id=${ctx.locationId}`);
+    if (!call?.recording_id) throw new AppError(ERROR_CODES.NOT_FOUND);
+    const meta = await getRecordingMetadata(call.recording_id);
+    const url = meta.download_urls?.mp3 ?? meta.download_urls?.wav;
+    if (!url || new URL(url).protocol !== 'https:') throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE);
+    reply.header('Cache-Control', 'no-store');
+    return { url };
   });
 
   // ── 查询：来电记录（转录 / 录音 / 计量）───────────────────────────────────

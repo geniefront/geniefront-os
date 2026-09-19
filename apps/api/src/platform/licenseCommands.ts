@@ -22,12 +22,13 @@ import { oncePerPlatformIntent } from './idempotency';
 
 import { z } from 'zod';
 import {
-  AppError, ERROR_CODES,
+  AppError, ERROR_CODES, canSwitchPlan,
   PlatformIssueLicenseInput,
   PlatformRevokeLicenseInput,
   PlatformApplyLicenseInput,
   PlatformUpdateLicensePeriodInput,
   PlatformRevokeStoreLicenseInput,
+  PlatformVoiceQuotaInput,
 } from '@gf/contracts';
 import { withTenant, licenseIssue, licenseRevoke } from '@gf/db';
 import type { Plan, QuotaUnit } from '@gf/payroll';
@@ -270,6 +271,24 @@ export async function updateStoreLicensePeriod(
   });
 }
 
+export async function updateStoreVoiceQuota(operator: PlatformOperator, orgId: string, locationId: string, raw: unknown, ip?: string) {
+  if (operator.role !== 'super_admin') throw new AppError(ERROR_CODES.PERMISSION_DENIED);
+  const input = parse(PlatformVoiceQuotaInput, raw);
+  return withTenant({ orgId, locationId, membershipId: null, userId: operator.userId }, async tx => {
+    const [before] = await tx<{ id: string; billing_source: string; manual_voice_minutes: number | null; included_minutes_used: number }[]>`
+      select id,billing_source,manual_voice_minutes,included_minutes_used from billing_accounts where location_id=${locationId} for update`;
+    if (!before) throw new AppError(ERROR_CODES.NOT_FOUND);
+    if (before.billing_source !== 'license') throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'manual_billing_required' } });
+    await tx`update billing_accounts set manual_voice_minutes=${input.baseVoiceMinutes} where id=${before.id}`;
+    await writePlatformAudit(tx, operator, { orgId, locationId, command: 'platform.setVoiceBaseQuota',
+      entityType: 'billing_account', entityId: before.id,
+      before: { baseVoiceMinutes: before.manual_voice_minutes },
+      after: { baseVoiceMinutes: input.baseVoiceMinutes, usedMinutes: before.included_minutes_used, note: input.note },
+      ...(ip ? { ip } : {}) });
+    return { baseVoiceMinutes: input.baseVoiceMinutes, usedMinutes: before.included_minutes_used };
+  });
+}
+
 /**
  * 立刻收回一家店的订阅码额度：当场到期，冻结写入、读照常。
  *
@@ -349,13 +368,16 @@ export async function switchStoreToLicense(
 
   const tenant = { orgId, locationId, membershipId: null, userId: operator.userId };
   const [acct] = await withTenant(tenant, (tx) => tx<{
-    sub: string | null; item: string | null; source: string; status: string;
+    sub: string | null; item: string | null; source: string; status: string; plan: string;
   }[]>`
     select stripe_subscription_id as sub, stripe_subscription_item_id as item,
-           billing_source as source, subscription_status as status
+           billing_source as source, subscription_status as status, plan
     from billing_accounts where location_id = ${locationId}`);
   if (!acct) {
     throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'billing_account' } });
+  }
+  if (input.plan && !canSwitchPlan(acct.plan, input.plan)) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'voice_booking_can_only_switch_to_growth' } });
   }
 
   /*

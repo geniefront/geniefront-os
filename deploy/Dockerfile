@@ -22,6 +22,8 @@ COPY packages/payroll/package.json    packages/payroll/
 # ⚠️ ai / yelp 也要在这里 —— apps/api 依赖它们（拍照开店走 @gf/ai）。
 # 漏掉的表现不在 install 那一步，而在后面 esbuild 打包时：
 # "Could not resolve @anthropic-ai/sdk" —— 因为那个包压根没装进来。
+COPY packages/aws/package.json        packages/aws/
+COPY packages/brightdata/package.json packages/brightdata/
 COPY packages/ai/package.json         packages/ai/
 COPY packages/yelp/package.json       packages/yelp/
 COPY apps/api/package.json            apps/api/

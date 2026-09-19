@@ -89,8 +89,13 @@ describe('语音按分钟向上取整', () => {
 // ─────────────────────────────────────────────────────────────────── 套餐
 
 describe('套餐额度', () => {
-  it('canonical plans 只有 essential / growth，月费 $99 / $199', () => {
-    expect(PLANS).toEqual(['essential', 'growth']);
+  it('canonical plans 包含独立预约版及完整版', () => {
+    expect(PLANS).toEqual(['voice_booking', 'essential', 'growth']);
+    expect(PLAN_PRICES_CENTS.voice_booking).toBe(9900);
+    expect(PLAN_QUOTAS.voice_booking).toEqual({ credits: 0, voiceMinutes: 200 });
+    expect(includedFor('voice_booking', 'voice_minute', false, 75)).toBe(75);
+    expect(includedFor('voice_booking', 'voice_minute', false, 0)).toBe(0);
+    expect(includedFor('voice_booking', 'credit', false, 75)).toBe(0);
     expect(PLAN_PRICES_CENTS.essential).toBe(9900);
     expect(PLAN_PRICES_CENTS.growth).toBe(19900);
     expect('starter' in PLAN_PRICES_CENTS).toBe(false);

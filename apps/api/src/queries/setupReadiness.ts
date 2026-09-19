@@ -13,6 +13,7 @@ const STEP_BY_MISSING: Record<SetupMissingCode, SetupStepId> = {
 };
 
 interface ReadinessRow {
+  voice_booking: boolean;
   id: string;
   status: string;
   profile_confirmed: boolean;
@@ -32,6 +33,7 @@ export async function loadSetupReadiness(
 ): Promise<SetupReadiness> {
   const [row] = await tx<ReadinessRow[]>`
     select l.id, l.status,
+      exists (select 1 from billing_accounts b where b.location_id=l.id and b.plan='voice_booking') as voice_booking,
       (l.settings ? 'profile_confirmed_at') as profile_confirmed,
       exists (
         select 1 from jsonb_each(l.business_hours) h where h.value <> 'null'::jsonb
@@ -65,9 +67,9 @@ export async function loadSetupReadiness(
   const missingCodes = [
     !row.profile_confirmed && 'profile',
     !row.hours_configured && 'business_hours',
-    row.active_rooms < 1 && 'active_room',
+    !row.voice_booking && row.active_rooms < 1 && 'active_room',
     row.active_services < 1 && 'active_service',
-    row.bookable_staff < 1 && 'bookable_staff',
+    !row.voice_booking && row.bookable_staff < 1 && 'bookable_staff',
   ].filter((value): value is SetupMissingCode => Boolean(value));
   const launchMissing = row.status === 'setup' ? missingCodes : [];
 
@@ -77,18 +79,18 @@ export async function loadSetupReadiness(
     canLaunch: row.status !== 'setup' || launchMissing.length === 0,
     steps: [
       { id: 'store', complete: row.profile_confirmed && row.hours_configured },
-      { id: 'directory', complete: row.directory_entries > 0 },
-      { id: 'rooms', complete: row.active_rooms > 0 },
+      { id: 'directory', complete: row.voice_booking || row.directory_entries > 0 },
+      { id: 'rooms', complete: row.voice_booking || row.active_rooms > 0 },
       { id: 'catalog', complete: row.active_services > 0 },
-      { id: 'team', complete: row.bookable_staff > 0 },
+      { id: 'team', complete: row.voice_booking || row.bookable_staff > 0 },
       { id: 'features', complete: row.features_confirmed },
       { id: 'launch', complete: row.status === 'active' },
     ],
     missing: launchMissing.map((code) => ({ code, stepId: STEP_BY_MISSING[code] })),
     warnings: [
-      ...(row.directory_entries < 1
+      ...(!row.voice_booking && row.directory_entries < 1
         ? [{ code: 'directory_recommended' as const, stepId: 'directory' as const }] : []),
-      ...(row.status !== 'setup' && row.active_rooms < 1
+      ...(!row.voice_booking && row.status !== 'setup' && row.active_rooms < 1
         ? [{ code: 'active_room_repair' as const, stepId: 'rooms' as const }] : []),
       // 店主想要 AI 电话但落地号 / 工具 token 还没就绪：提示，不阻塞开店。
       ...(aiVoice.intent === true && !aiVoice.ready

@@ -193,6 +193,7 @@ export const RecordCall = defineCommand({
   /** 系统自有：只能由服务端编排在核验外部凭据之后调用（AUD-01）。 */
   system: true,
   input: z.object({
+    deferBilling: z.boolean().default(false),
     providerCallId: z.string().max(120),
     fromE164: z.string().max(24).optional(),
     toE164: z.string().max(24).optional(),

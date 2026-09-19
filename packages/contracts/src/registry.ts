@@ -11,6 +11,9 @@ import { APPOINTMENT_COMMANDS } from './commands/appointment.js';
 import { ROTATION_COMMANDS } from './commands/rotation.js';
 import { TICKET_COMMANDS } from './commands/ticket.js';
 import { SETUP_COMMANDS } from './commands/setup.js';
+import { SaveBookingPolicy } from './commands/bookingPolicy.js';
+import { SubmitVoiceBooking } from './commands/voiceBooking.js';
+import { VOICE_PROCESSING_COMMANDS } from './commands/voiceProcessing.js';
 import { PAYROLL_COMMANDS } from './commands/payroll.js';
 import { DAYCLOSE_COMMANDS } from './commands/dayclose.js';
 import { SHIFT_COMMANDS } from './commands/shift.js';
@@ -39,6 +42,9 @@ import { REVIEW_COMMANDS } from './commands/reviews.js';
 import { EMAIL_COMMANDS } from './commands/email.js';
 
 const ALL: readonly AnyCommandDef[] = [
+  SaveBookingPolicy,
+  SubmitVoiceBooking,
+  ...VOICE_PROCESSING_COMMANDS,
   ...EMAIL_COMMANDS, ...APPOINTMENT_COMMANDS, ...ROTATION_COMMANDS, ...TICKET_COMMANDS, ...SETUP_COMMANDS,
   ...PAYROLL_COMMANDS, ...DAYCLOSE_COMMANDS, ...SHIFT_COMMANDS, ...STAFF_COMMANDS,
   ...BLUEPRINT_COMMANDS, ...BUNDLE_COMMANDS, ...PHONE_COMMANDS,

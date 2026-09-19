@@ -168,3 +168,15 @@ describe('Stripe → 订阅码', () => {
     expect(calls).toEqual([]);
   });
 });
+
+it('rejects a forbidden special-plan change before touching Stripe', async () => {
+  await withTenant(tenant, tx => tx`update billing_accounts set plan='voice_booking' where location_id=${SPA_LOC}`);
+  try {
+    await expect(switchStoreToLicense(operator, SPA_ORG, SPA_LOC, { ...body, plan: 'essential' }))
+      .rejects.toMatchObject({ details: { reason: 'voice_booking_can_only_switch_to_growth' } });
+    expect(calls).toEqual([]);
+    expect((await acct()).billing_source).toBe('stripe');
+  } finally {
+    await withTenant(tenant, tx => tx`update billing_accounts set plan='growth' where location_id=${SPA_LOC}`);
+  }
+});

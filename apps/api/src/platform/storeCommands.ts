@@ -140,6 +140,9 @@ export async function createStoreByOperator(
       const effect = await redeemClaimedLicense(tx, ctx, claim, {
         reason: `store_open:${claim.codePrefix} ${input.paymentNote}`,
       });
+      if (input.baseVoiceMinutes !== undefined) {
+        await tx`update billing_accounts set manual_voice_minutes=${input.baseVoiceMinutes} where location_id=${tenant.locationId}`;
+      }
 
       await writePlatformAudit(tx, operator, {
         orgId: tenant.orgId,
@@ -152,6 +155,7 @@ export async function createStoreByOperator(
           ownerEmail: input.ownerEmail,
           plan: input.plan,
           durationDays: input.durationDays,
+          baseVoiceMinutes: input.baseVoiceMinutes ?? null,
           paymentNote: input.paymentNote,
           amountCents: input.amountCents ?? null,
           codeId: claim.codeId,

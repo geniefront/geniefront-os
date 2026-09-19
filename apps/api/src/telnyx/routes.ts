@@ -1,3 +1,4 @@
+import { getRecordingMetadata } from '../voice/provider';
 /**
  * Telnyx 的入口：三个 AI 工具 + 一个通话事件 webhook（09-TELNYX §4.2）
  *
@@ -112,6 +113,7 @@ interface Tenant {
   locale: string;
   /** 这条线的第二把钥匙（sql/0036）。null = 还没开这道门，照旧只验签名 */
   toolTokenDigest: string | null;
+  assistantId: string | null;
 }
 
 /**
@@ -219,6 +221,7 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
       timezone: t.timezone,
       locale: t.locale,
       toolTokenDigest: t.toolTokenDigest,
+      assistantId: t.assistantId,
     };
   }
 
@@ -1267,6 +1270,23 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
      * 反查租户一定失败。同意状态本来也是平台级的（docs/09 §5.1、sql/0034）：
      * 客人回 STOP 是对我们这个发送者说的，不是对某一家店。
      */
+    if (eventType === 'call.recording.saved') {
+      const recordingId = str(payload['recording_id']);
+      if (!recordingId) return { ok: true, ignored: 'missing_recording_id' };
+      const metadata = await getRecordingMetadata(recordingId);
+      const to = str(payload['to']) ?? metadata.to;
+      const t = await tenantForNumber(to);
+      if (!t.assistantId?.startsWith('agent_')) return { ok: true, ignored: 'not_xai_line' };
+      const callId = str(payload['call_session_id']) ?? metadata.call_session_id;
+      if (!callId) return { ok: true, ignored: 'missing_call_id' };
+      await dispatch('call.queueRecording', { providerCallId: callId, recordingId, to,
+        from: str(payload['from']) ?? metadata.from,
+        startedAt: metadata.recording_started_at,
+        durationSeconds: Math.max(0, Math.round(Number(metadata.duration_millis ?? 0) / 1000)),
+      }, systemContext(t), { systemOrigin: 'telnyx_recording', idempotencyKey: `recording-${recordingId}` });
+      return { ok: true, queued: true };
+    }
+
     if (eventType === 'message.received') {
       return handleInboundSms(payload, req.log);
     }
@@ -1303,6 +1323,7 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
         fromE164: str(payload['from']),
         toE164: str(payload['to']),
         startedAt, endedAt, durationSeconds,
+        deferBilling: t.assistantId?.startsWith('agent_') ?? false,
         outcome: str(payload['hangup_cause']) === 'normal_clearing' ? 'completed' : 'failed',
       },
       ctx,

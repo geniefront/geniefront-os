@@ -116,3 +116,12 @@ export function assertCommunicationSafety(env: Env = process.env): void {
     );
   }
 }
+
+/** Explicit staging test recipients may receive real messages; all other test data stays captured. */
+export function captureForRecipient(recipient: string, env: Env = process.env): boolean {
+  if (env.NODE_ENV === 'test') return true;
+  if (!isCaptureMode(env)) return false;
+  if (env.GF_ENV !== 'staging') return true;
+  const allowed = (env.COMMUNICATION_LIVE_TEST_RECIPIENTS ?? '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+  return !allowed.includes(recipient.trim().toLowerCase());
+}

@@ -9,7 +9,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  assertCommunicationSafety, deliveryMode, isCaptureMode, isProductionEnv, mailpitEndpoint,
+  captureForRecipient, assertCommunicationSafety, deliveryMode, isCaptureMode, isProductionEnv, mailpitEndpoint,
 } from './mode';
 
 describe('deliveryMode', () => {
@@ -88,5 +88,17 @@ describe('mailpitEndpoint', () => {
     expect(mailpitEndpoint({ ...capture, MAILPIT_URL: 'https://mail.example.com' })).toBeNull();
     expect(mailpitEndpoint({ MAILPIT_URL: 'http://127.0.0.1:55324' })).toBeNull();
     expect(mailpitEndpoint({ ...capture, MAILPIT_URL: '不是个 URL' })).toBeNull();
+  });
+});
+
+
+describe('explicit staging test delivery', () => {
+  const env = { GF_ENV: 'staging', COMMUNICATION_DELIVERY_MODE: 'capture', COMMUNICATION_LIVE_TEST_RECIPIENTS: 'test@example.com,+12025550123' };
+  it('allows only exact authorized recipients in staging', () => {
+    expect(captureForRecipient('test@example.com', env)).toBe(false);
+    expect(captureForRecipient('+12025550123', env)).toBe(false);
+    expect(captureForRecipient('other@example.com', env)).toBe(true);
+    expect(captureForRecipient('test@example.com', { ...env, GF_ENV: 'local' })).toBe(true);
+    expect(captureForRecipient('test@example.com', { ...env, NODE_ENV: 'test' })).toBe(true);
   });
 });

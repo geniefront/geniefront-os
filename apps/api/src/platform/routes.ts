@@ -47,7 +47,7 @@ import {
 } from './commands';
 import {
   issueLicense, revokeLicense, applyLicenseToStore,
-  updateStoreLicensePeriod, revokeStoreLicense, switchStoreToLicense,
+  updateStoreLicensePeriod, updateStoreVoiceQuota, revokeStoreLicense, switchStoreToLicense,
 } from './licenseCommands';
 import { createStoreByOperator } from './storeCommands';
 
@@ -447,6 +447,13 @@ export function registerPlatformRoutes(app: FastifyInstance): void {
   );
 
   /** 改有效期。`note` 必填（契约层挡） */
+  app.patch<{ Params: { locationId: string } }>('/v1/platform/stores/:locationId/voice-quota', async (req) => {
+    const op = await operatorFrom(req);
+    const locationId = parseOrThrow(uuid, req.params.locationId);
+    const orgId = await orgOfLocation(op.userId, locationId);
+    return updateStoreVoiceQuota(op, orgId, locationId, req.body ?? {}, req.ip);
+  });
+
   app.patch<{ Params: { locationId: string } }>(
     '/v1/platform/stores/:locationId/license', async (req) => {
       const op = await operatorFrom(req);

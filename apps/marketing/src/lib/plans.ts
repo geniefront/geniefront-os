@@ -22,7 +22,7 @@ export { PLANS, PLAN_PRICES_CENTS, PLAN_QUOTAS, TRIAL_DAYS };
 export const PLAN_COPY: Record<MarketingPlan, { name: string; summary: string }> = {
   voice_booking: {
     name: 'AI Voice Booking',
-    summary: 'Dedicated automated AI voice booking with 200 minutes, unlimited SMS and email reminders, unlimited staff calendars, and free website creation.',
+    summary: 'Dedicated automated AI voice booking with 200 minutes, unlimited SMS and email reminders, appointment management, customer details, recordings and transcripts, and free website creation.',
   },
   essential: {
     name: 'Essential',

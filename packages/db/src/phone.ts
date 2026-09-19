@@ -52,6 +52,7 @@ export interface PhoneLineTenant {
   timezone: string;
   locale: string;
   assistantId: string | null;
+  aiAnswer: boolean;
   /**
    * ⭐ 电话工具 token 的摘要（sql/0036）。非空 = 这条线的每次工具调用
    * 都必须带上匹配的 `shop_token`。**摘要**出得来，明文出不来。
@@ -63,14 +64,14 @@ export interface PhoneLineTenant {
 export async function tenantForPhoneNumber(e164: string): Promise<PhoneLineTenant | null> {
   const rows = await withPhoneLine(e164, (tx) => tx<{
     org_id: string; location_id: string; name: unknown; tz: string;
-    locale: string; assistant_id: string | null; tool_token_digest: string | null;
+    locale: string; assistant_id: string | null; tool_token_digest: string | null; ai_answer: boolean;
   }[]>`
     select p.org_id, p.location_id, l.name, l.timezone as tz,
-           o.default_locale as locale, p.assistant_id, p.tool_token_digest
+           o.default_locale as locale, p.assistant_id, p.tool_token_digest, p.ai_answer
     from phone_lines p
     join locations l on l.id = p.location_id
     join organizations o on o.id = p.org_id
-    where p.e164 = ${e164} and p.active = true`);
+    where p.e164 = ${e164} and p.active = true and p.purpose in ('ai_voice','sms')`);
 
   const r = rows[0];
   return r ? {
@@ -80,6 +81,7 @@ export async function tenantForPhoneNumber(e164: string): Promise<PhoneLineTenan
     timezone: r.tz,
     locale: r.locale,
     assistantId: r.assistant_id,
+    aiAnswer: r.ai_answer,
     toolTokenDigest: r.tool_token_digest,
   } : null;
 }

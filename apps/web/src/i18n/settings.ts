@@ -7,6 +7,19 @@
 import type { DomainDict } from './types';
 
 export const settings = {
+  "settings.stPlanVoiceBooking": {"zh-Hans": "AI 语音预约", "en": "AI Voice Booking", "ko": "AI 음성 예약", "es": "Reservas por voz IA", "vi": "Đặt lịch giọng nói AI"},
+  "settings.bookingCapacityTitle": {"zh-Hans": "预约容量与额外名额", "en": "Booking capacity and extra places", "ko": "예약 정원 및 추가 인원", "es": "Capacidad y plazas adicionales", "vi": "Sức chứa và chỗ bổ sung"},
+  "settings.bookingCapacityHint": {"zh-Hans": "额外名额默认关闭。基础容量 2 加 1 个额外名额，最多同时接 3 单。点钟单独控制。", "en": "Extra places are off by default. A base capacity of 2 plus 1 extra admits 3 concurrent bookings. Requested therapists have a separate setting.", "ko": "추가 인원은 기본적으로 꺼져 있습니다. 기본 2명과 추가 1명은 동시 3건입니다. 지정 예약은 별도 설정입니다.", "es": "Las plazas extra están desactivadas. Base 2 más 1 extra permite 3 reservas simultáneas. Las citas con profesional solicitado se configuran aparte.", "vi": "Chỗ bổ sung mặc định tắt. Sức chứa 2 cộng thêm 1 cho phép 3 lịch cùng lúc. Khách chỉ định nhân viên có cài đặt riêng."},
+  "settings.bookingMode": {"zh-Hans": "预约方式", "en": "Booking mode", "ko": "예약 방식", "es": "Modo de reserva", "vi": "Chế độ đặt lịch"},
+  "settings.bookingLocationMode": {"zh-Hans": "按门店容量，无需排班", "en": "Store capacity, no shifts required", "ko": "매장 정원, 근무표 불필요", "es": "Capacidad del local, sin turnos", "vi": "Theo cửa hàng, không cần ca"},
+  "settings.bookingStaffMode": {"zh-Hans": "按员工排班", "en": "Published staff shifts", "ko": "공개된 직원 근무표", "es": "Turnos publicados", "vi": "Ca nhân viên đã công bố"},
+  "settings.bookingBaseCapacity": {"zh-Hans": "基础同时接待人数", "en": "Base concurrent capacity", "ko": "기본 동시 정원", "es": "Capacidad simultánea base", "vi": "Sức chứa đồng thời cơ bản"},
+  "settings.bookingBuffer": {"zh-Hans": "普通预约额外名额", "en": "Extra places for general bookings", "ko": "일반 예약 추가 인원", "es": "Plazas extra para reservas generales", "vi": "Chỗ thêm cho lịch thông thường"},
+  "settings.bookingRequestBuffer": {"zh-Hans": "允许点钟额外预约", "en": "Allow extra bookings for requested therapists", "ko": "지정 직원 추가 예약 허용", "es": "Permitir citas extra con profesional solicitado", "vi": "Cho phép lịch thêm khi chỉ định nhân viên"},
+  "settings.bookingExtraCount": {"zh-Hans": "额外名额数", "en": "Number of extra places", "ko": "추가 인원 수", "es": "Número de plazas extra", "vi": "Số chỗ bổ sung"},
+  "settings.bookingPolicySave": {"zh-Hans": "保存预约规则", "en": "Save booking rules", "ko": "예약 규칙 저장", "es": "Guardar reglas", "vi": "Lưu quy tắc"},
+  "settings.bookingPolicySaved": {"zh-Hans": "预约规则已保存", "en": "Booking rules saved", "ko": "예약 규칙 저장됨", "es": "Reglas guardadas", "vi": "Đã lưu quy tắc"},
+  "settings.bookingPolicyFailed": {"zh-Hans": "无法保存，请检查输入后重试", "en": "Unable to save. Check your entries and retry.", "ko": "저장 실패. 입력을 확인하세요.", "es": "No se pudo guardar. Revisa los datos.", "vi": "Không thể lưu. Kiểm tra và thử lại."},
   // ── 设置页左侧导航：分组名与条目标签 ─────────────────────────────────────
   // ⚠️ 分组名以前多数写死英文、一个写死中文（"订阅与财务"），条目标签
   // 全部写死中文——不随界面语言走的表现是「大部分永远英文、一处永远中文、
@@ -705,7 +718,7 @@ export const settings = {
   'settings.stLicenseExpired': { 'zh-Hans': '已于 {p0} 到期，当前为只读：可查看与导出数据，但开不了新单', en: 'Expired on {p0} — read-only: you can still view and export data, but cannot open new tickets', ko: '{p0}에 만료됨 — 읽기 전용: 데이터 조회·내보내기는 가능하지만 새 주문은 만들 수 없습니다', es: 'Caducó el {p0}: solo lectura. Puedes ver y exportar datos, pero no abrir tickets nuevos', vi: 'Hết hạn ngày {p0} — chỉ đọc: vẫn xem và xuất dữ liệu được, nhưng không mở phiếu mới' },
   // 这家店的账不在 Stripe 上，所以界面上不能给他 Stripe 客户门户的入口 ——
   // 那个链接对他而言是个 404，而他要续期的对象是我们
-  'settings.stLicenseHint': { 'zh-Hans': '本门店的订阅由 GenieFront 直接开通（未绑定信用卡）。续期、升级或购买额度包请联系我们。', en: 'This location is activated directly by GenieFront (no card on file). Contact us to renew, change plan, or buy credit packs.', ko: '이 매장은 GenieFront가 직접 활성화했습니다(등록된 카드 없음). 갱신·요금제 변경·크레딧 구매는 저희에게 문의하세요.', es: 'Esta sucursal la activa GenieFront directamente (sin tarjeta). Contáctanos para renovar, cambiar de plan o comprar paquetes.', vi: 'Cửa hàng này do GenieFront kích hoạt trực tiếp (không lưu thẻ). Liên hệ chúng tôi để gia hạn, đổi gói hoặc mua thêm hạn mức.' },
+  'settings.stLicenseHint': { 'zh-Hans': '本门店由 GenieFront 直接开通。绑定付款方式不会提前扣费或自动续订；续期、升级或调整额度请联系我们。', en: 'Activated directly by GenieFront. Adding a payment method does not charge you or enable renewal. Contact us to renew, upgrade, or adjust quota.', ko: 'GenieFront가 직접 개통한 매장입니다. 결제 수단 등록만으로 청구 또는 자동 갱신되지 않습니다. 갱신·업그레이드·한도 변경은 문의하세요.', es: 'Activada directamente por GenieFront. Añadir un método de pago no cobra ni activa la renovación. Contáctanos para renovar, mejorar el plan o ajustar la cuota.', vi: 'GenieFront trực tiếp kích hoạt cửa hàng. Thêm phương thức thanh toán không tự thu phí hay gia hạn. Liên hệ để gia hạn, nâng gói hoặc đổi hạn mức.' },
   'settings.stRedeemTitle': { 'zh-Hans': '兑换订阅码', en: 'Redeem a code', ko: '코드 사용', es: 'Canjear un código', vi: 'Đổi mã' },
   'settings.stRedeemDesc': { 'zh-Hans': '收到我们发的订阅码或额度包码，在这里兑换即可立即生效。', en: 'If we sent you a subscription or credit-pack code, redeem it here and it takes effect immediately.', ko: '보내드린 구독 코드나 크레딧 코드를 여기에 입력하면 즉시 적용됩니다.', es: 'Si te enviamos un código de suscripción o de paquete, canjéalo aquí y se aplica al instante.', vi: 'Nếu chúng tôi đã gửi mã thuê bao hoặc mã hạn mức, hãy đổi tại đây và mã có hiệu lực ngay.' },
   'settings.stRedeemButton': { 'zh-Hans': '兑换', en: 'Redeem', ko: '사용하기', es: 'Canjear', vi: 'Đổi mã' },

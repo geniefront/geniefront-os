@@ -1,0 +1,87 @@
+import { randomUUID } from 'node:crypto';
+import { QueueVoiceRecording, ClaimVoiceJob, CompleteVoiceJob, FailVoiceJob } from '@gf/contracts';
+import { jsonb } from '@gf/db';
+import { billableVoiceSeconds } from '@gf/scheduling';
+import { registerHandler } from '../bus';
+import { chargeQuota } from '../billing/usage';
+import { smsFrom, smsConfigured } from '../sms/send';
+import { segmentsOf } from '../sms/segments';
+
+registerHandler(QueueVoiceRecording, async ({ input, tx, ctx, audit }) => {
+  await tx`insert into voice_processing_jobs(org_id,location_id,provider_call_id,recording_id,payload)
+    values(${ctx.orgId},${ctx.locationId},${input.providerCallId},${input.recordingId},${jsonb(input)}::jsonb)
+    on conflict(location_id,provider_call_id) do nothing`;
+  audit({ entityType: 'location', entityId: ctx.locationId, after: { recordingQueued: true, providerCallId: input.providerCallId } });
+  return { queued: true };
+});
+registerHandler(ClaimVoiceJob, async ({ tx, ctx, audit }) => {
+  const leaseId = randomUUID();
+  const [job] = await tx<{ id: string; provider_call_id: string; recording_id: string; payload: Record<string, unknown>; attempts: number }[]>`
+    update voice_processing_jobs set status='processing', lease_id=${leaseId}, locked_until=now()+interval '5 minutes', attempts=attempts+1
+    where id=(select id from voice_processing_jobs where location_id=${ctx.locationId}
+      and ((status='pending' and retry_at<=now()) or (status='processing' and locked_until<now()))
+      order by created_at for update skip locked limit 1)
+    returning id,provider_call_id,recording_id,payload,attempts`;
+  audit({ entityType: 'location', entityId: ctx.locationId, after: { recordingClaimed: job?.id ?? null } });
+  return { job: job ? { id: job.id, leaseId, providerCallId: job.provider_call_id,
+    recordingId: job.recording_id, payload: job.payload, attempts: job.attempts } : null };
+});
+registerHandler(FailVoiceJob, async ({ input, tx, ctx, audit }) => {
+  await tx`update voice_processing_jobs set status=case when attempts>=5 then 'review' else 'pending' end,
+    retry_at=now()+interval '2 minutes', locked_until=null,last_error=${input.reason}
+    where id=${input.jobId} and location_id=${ctx.locationId} and lease_id=${input.leaseId} and status='processing'`;
+  await tx`update phone_calls set voice_billing_status='review'
+    where location_id=${ctx.locationId} and voice_billing_status='pending' and provider_call_id in (
+      select provider_call_id from voice_processing_jobs where id=${input.jobId} and status='review')`;
+  audit({ entityType: 'location', entityId: ctx.locationId, after: { recordingJob: input.jobId, failure: input.reason } });
+  return { saved: true };
+});
+registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
+  const [job] = await tx<{ provider_call_id: string; recording_id: string; payload: Record<string, unknown> }[]>`
+    select provider_call_id,recording_id,payload from voice_processing_jobs
+    where id=${input.jobId} and location_id=${ctx.locationId} and lease_id=${input.leaseId} and status='processing' for update`;
+  if (!job) {
+    audit({ entityType: 'location', entityId: ctx.locationId, after: { recordingCompletionSkipped: input.jobId } });
+    return { completed: false };
+  }
+  const billableSeconds = billableVoiceSeconds(input.durationSeconds, input.analysis.segments);
+  const transcript = (input.transcript.match(/[\s\S]{1,4000}/g) ?? []).map(text => ({ role: 'system', text }));
+  const [call] = await tx<{ id: string; voice_billing_status: string }[]>`
+    insert into phone_calls(org_id,location_id,provider_call_id,from_e164,to_e164,started_at,duration_seconds,
+      outcome,transcript,recording_id,recording_url,summary,voice_billing_status)
+    values(${ctx.orgId},${ctx.locationId},${job.provider_call_id},${String(job.payload.from ?? '')},${String(job.payload.to ?? '')},
+      ${job.payload.startedAt ? String(job.payload.startedAt) : null}::timestamptz,${input.durationSeconds},'completed',
+      ${jsonb(transcript)}::jsonb,${job.recording_id},${input.recordingUrl},${input.analysis.summary},'pending')
+    on conflict(provider_call_id) do update set transcript=excluded.transcript, recording_id=excluded.recording_id,
+      recording_url=excluded.recording_url,summary=excluded.summary
+    returning id,voice_billing_status`;
+  if (call!.voice_billing_status === 'pending') {
+    const minutes = Math.ceil(billableSeconds / 60);
+    const [usage] = await tx<{ id: string }[]>`insert into usage_events(org_id,location_id,kind,qty,cost_cents,meta)
+      values(${ctx.orgId},${ctx.locationId},'ai_call_min',${minutes},0,
+        ${jsonb({ provider: 'telnyx_xai', providerCallId: job.provider_call_id, durationSeconds: input.durationSeconds,
+          billableSeconds, exemptSeconds: input.durationSeconds - billableSeconds, costPending: true, ruleVersion: 1 })}::jsonb) returning id`;
+    await chargeQuota(tx, ctx, { unit: 'voice_minute', amount: minutes, usageEventId: usage!.id, source: 'ai_call_min' });
+    await tx`update phone_calls set voice_billing_status='settled',billable_seconds=${billableSeconds},
+      billing_analysis=${jsonb({ ...input.analysis, ruleVersion: 1 })}::jsonb where id=${call!.id}`;
+  }
+  const [shop] = await tx<{ email: string | null; phone: string | null; name: unknown }[]>`
+    select email,phone,name from locations where id=${ctx.locationId}`;
+  const detail = `${process.env.APP_BASE_URL ?? ''}/calls`;
+  const text = `${input.analysis.summary}\n\n计费分钟：${Math.ceil(billableSeconds / 60)}\n录音及通话详情：${detail}\n\n通话转录：\n${input.transcript}`;
+  if (shop?.email) {
+    const html = text.replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]!));
+    await tx`insert into email_outbox(org_id,location_id,kind,to_email,subject,body_html,body_text,entity_type,entity_id)
+      values(${ctx.orgId},${ctx.locationId},'platform_notice',${shop.email},'AI 来电记录',${`<pre>${html}</pre>`},${text},'phone_call',${call!.id})
+      on conflict(entity_type,entity_id,kind) do nothing`;
+  }
+  if (shop?.phone && smsConfigured()) {
+    const body = `AI call processed. Review the call and booking details: ${detail}`;
+    await tx`insert into sms_outbox(org_id,location_id,kind,to_e164,from_e164,body,segments,entity_type,entity_id)
+      values(${ctx.orgId},${ctx.locationId},'direct_message',${shop.phone},${smsFrom()},${body},${segmentsOf(body)},'phone_call',${call!.id})
+      on conflict(entity_type,entity_id,kind) do nothing`;
+  }
+  await tx`update voice_processing_jobs set status='done',locked_until=null where id=${input.jobId}`;
+  audit({ entityType: 'phone_call', entityId: call!.id, after: { billableSeconds, ruleVersion: 1 } });
+  return { completed: true, billableSeconds };
+});

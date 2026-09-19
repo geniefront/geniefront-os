@@ -22,6 +22,8 @@ import './handlers/appointment';
 import './handlers/rotation';
 import './handlers/ticket';
 import './handlers/setup';
+import './handlers/bookingPolicy';
+import './handlers/voiceProcessing';
 import './handlers/payroll';
 import './handlers/dayclose';
 import './handlers/shift';
@@ -50,6 +52,8 @@ import './handlers/support';
 
 // ── 外部与子系统路由注册 ───────────────────────────────────────────────────
 import { registerTelnyxRoutes } from './telnyx/routes';
+import { registerVoiceRoutes } from './voice/routes';
+import { registerXaiTexmlRoutes } from './voice/texml';
 import { registerKioskRoutes } from './kiosk/routes';
 import { registerPublicRoutes } from './public/routes';
 import { registerFormLinkRoutes } from './public/formRoutes';
@@ -179,6 +183,8 @@ export function buildServer(): FastifyInstance {
     const path = req.url.split('?')[0] ?? '';
     if (PUBLIC.has(path)) return;
     if (path.startsWith('/v1/telnyx/')) return;
+    // Voice tools perform their own per-line Bearer verification.
+    if (path.startsWith('/v1/voice/')) return;
     if (path.startsWith('/v1/kiosk/')) return;
     if (path.startsWith('/public/')) return;
     if (path.startsWith('/v1/public/')) return;
@@ -329,6 +335,8 @@ export function buildServer(): FastifyInstance {
   registerSesWebhook(app);      // SNS X.509
   registerKioskRoutes(app);
   registerTelnyxRoutes(app);
+  registerVoiceRoutes(app);
+  registerXaiTexmlRoutes(app);
   registerPublicRoutes(app);
   registerFormLinkRoutes(app);
 
