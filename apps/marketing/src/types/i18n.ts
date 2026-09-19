@@ -192,6 +192,17 @@ export interface TranslationSchema {
     perLocationNotice: string;
     trialBadge: string;
     plans: {
+      voiceBooking: {
+        name: string;
+        price: string;
+        period: string;
+        desc: string;
+        badge?: string;
+        features: string[];
+        excludedTitle: string;
+        excludedFeatures: string[];
+        cta: string;
+      };
       essential: {
         name: string;
         price: string;

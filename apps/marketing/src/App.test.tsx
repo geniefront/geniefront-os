@@ -6,7 +6,7 @@ import { Home } from './pages/Home';
 import { Success } from './pages/Success';
 import { Privacy, Sms, Terms } from './pages/Legal';
 import { navigation } from './lib/checkout';
-import { PLAN_PRICES_CENTS, PLAN_QUOTAS } from './lib/plans';
+import { MARKETING_PLAN_PRICES_CENTS, MARKETING_PLAN_QUOTAS, PLAN_PRICES_CENTS, PLAN_QUOTAS } from './lib/plans';
 
 const fetchMock = vi.fn();
 
@@ -37,8 +37,28 @@ describe('Marketing sign-in', () => {
 });
 
 describe('Marketing pricing and signup', () => {
-  it('15. both canonical plans render', () => {
+  it('15. all three plans render including AI Voice Booking', () => {
     renderHome();
+    expect(screen.getByTestId('plan-voice-booking')).toHaveTextContent('AI Voice Booking');
+    expect(screen.getByTestId('plan-voice-booking'))
+      .toHaveTextContent(`$${MARKETING_PLAN_PRICES_CENTS.voice_booking / 100}`);
+    expect(screen.getByTestId('plan-voice-booking'))
+      .toHaveTextContent(String(MARKETING_PLAN_QUOTAS.voice_booking.voiceMinutes));
+    expect(screen.getByTestId('plan-voice-booking'))
+      .toHaveTextContent('Unlimited SMS & Email Appointment Reminders');
+    expect(screen.getByTestId('plan-voice-booking'))
+      .toHaveTextContent('Unlimited Staff Calendars & Scheduling');
+    expect(screen.getByTestId('plan-voice-booking'))
+      .toHaveTextContent('Free Managed Shop Showcase Website Creation');
+    expect(screen.getByTestId('plan-voice-booking'))
+      .toHaveTextContent('No booking-to-checkout / POS register flow');
+    expect(screen.getByTestId('plan-voice-booking'))
+      .toHaveTextContent('No digital intake / health forms or iPad kiosk');
+    expect(screen.getByTestId('plan-voice-booking'))
+      .toHaveTextContent('No front-desk AI Copilot operations & turn engine');
+    expect(screen.getByTestId('plan-voice-booking'))
+      .toHaveTextContent('No room & equipment station management');
+
     expect(screen.getByTestId('plan-essential')).toHaveTextContent('Essential');
     expect(screen.getByTestId('plan-growth')).toHaveTextContent('Growth');
     expect(screen.getByTestId('plan-essential'))
@@ -101,6 +121,29 @@ describe('Marketing pricing and signup', () => {
       plan: 'growth',
     });
     expect(navigation.assign).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_test_abc');
+  });
+
+  it('18b. voice booking trial CTA opens modal and submits checkout', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: 'https://checkout.stripe.com/c/pay/cs_test_voice' }),
+    });
+    renderHome();
+    await user.click(screen.getByTestId('cta-voice-booking'));
+    await user.type(screen.getByTestId('shop-name'), 'Golden Lotus Spa');
+    await user.type(screen.getByTestId('owner-email'), 'voice@maildrop.cc');
+    await user.click(screen.getByTestId('checkout-submit'));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      shopName: 'Golden Lotus Spa',
+      ownerEmail: 'voice@maildrop.cc',
+      plan: 'essential',
+    });
+    expect(navigation.assign).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_test_voice');
   });
 
   it('19. missing/invalid URL does not redirect', async () => {

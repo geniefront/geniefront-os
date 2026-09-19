@@ -1,16 +1,17 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { LanguageCode, TranslationSchema } from '../types/i18n';
+import type { MarketingPlan } from '../lib/plans';
 import { translations, detectBrowserLanguage } from '../translations';
 
 interface LanguageContextType {
   currentLang: LanguageCode;
   t: TranslationSchema;
   setLanguage: (lang: LanguageCode) => void;
-  openTrialModal: (prefillIndustry?: string, plan?: 'essential' | 'growth') => void;
+  openTrialModal: (prefillIndustry?: string, plan?: MarketingPlan) => void;
   closeTrialModal: () => void;
   isTrialModalOpen: boolean;
   selectedIndustryForTrial: string;
-  selectedPlanForTrial: 'essential' | 'growth';
+  selectedPlanForTrial: MarketingPlan;
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
@@ -19,7 +20,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [currentLang, setCurrentLangState] = useState<LanguageCode>(() => detectBrowserLanguage());
   const [isTrialModalOpen, setIsTrialModalOpen] = useState(false);
   const [selectedIndustryForTrial, setSelectedIndustryForTrial] = useState('nail');
-  const [selectedPlanForTrial, setSelectedPlanForTrial] = useState<'essential' | 'growth'>('essential');
+  const [selectedPlanForTrial, setSelectedPlanForTrial] = useState<MarketingPlan>('essential');
 
   useEffect(() => {
     const trans = translations[currentLang] || translations.en;

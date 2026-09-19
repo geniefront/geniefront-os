@@ -39,11 +39,76 @@ export const PricingSection: React.FC = () => {
           </div>
         </div>
 
-        {/* 2 Main SaaS Pricing Cards */}
+        {/* 3 Main SaaS Pricing Cards */}
         <div className="bg-slate-50/70 p-4 sm:p-8 rounded-3xl border border-slate-200 mb-12">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl mx-auto items-stretch">
-            {/* Plan 1: Essential ($99/mo) */}
-            <div data-testid="plan-essential" className="flex flex-col justify-between bg-white p-8 rounded-2xl border-t-4 border-t-slate-400 border border-slate-200 shadow-xs">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-7xl mx-auto items-stretch">
+            {/* Plan 1: AI Voice Booking ($99/mo) */}
+            <div data-testid="plan-voice-booking" className="flex flex-col justify-between bg-white p-6 sm:p-8 rounded-2xl border-t-4 border-t-[#096b61] border border-slate-200 shadow-xs relative">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[#096b61] font-bold text-xs uppercase tracking-wider">
+                    {plans.voiceBooking.name}
+                  </span>
+                  {plans.voiceBooking.badge && (
+                    <span className="px-2 py-0.5 rounded-full bg-[#edf8f3] border border-[#b9d6cc] text-[#096b61] text-[10px] font-bold uppercase tracking-wider">
+                      {plans.voiceBooking.badge}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-baseline gap-1 mb-3">
+                  <span className="text-4xl sm:text-5xl font-extrabold text-slate-900">{plans.voiceBooking.price}</span>
+                  <span className="text-sm font-semibold text-slate-500">{plans.voiceBooking.period}</span>
+                </div>
+
+                <p className="text-xs sm:text-sm text-slate-600 mb-6 leading-relaxed">
+                  {plans.voiceBooking.desc}
+                </p>
+
+                {/* Included Features */}
+                <div className="space-y-3 pt-4 border-t border-slate-100">
+                  <ul className="space-y-2.5 text-xs sm:text-sm text-slate-700">
+                    {plans.voiceBooking.features.map((feat, i) => (
+                      <li key={i} className="flex items-start gap-2.5">
+                        <Check className="w-4 h-4 text-[#096b61] shrink-0 mt-0.5" />
+                        <span className="font-medium">{feat}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Excluded Features / Clear Boundary */}
+                <div className="mt-5 pt-3.5 border-t border-dashed border-slate-200 bg-slate-50/80 -mx-3 sm:-mx-4 px-3 sm:px-4 py-3 rounded-xl">
+                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span>{plans.voiceBooking.excludedTitle}</span>
+                  </div>
+                  <ul className="space-y-1.5 text-[11px] sm:text-xs text-slate-500">
+                    {plans.voiceBooking.excludedFeatures.map((feat, i) => (
+                      <li key={i} className="flex items-start gap-2 text-slate-500">
+                        <span className="text-slate-400 font-bold shrink-0 mt-0.5 select-none">✕</span>
+                        <span>{feat}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-slate-100">
+                <button
+                  id="pricing-voice-booking-trial-btn"
+                  data-testid="cta-voice-booking"
+                  onClick={() => openTrialModal('nail', 'voice_booking')}
+                  className="w-full py-3 px-4 rounded-xl bg-[#096b61] hover:bg-[#064b46] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all active:scale-98"
+                >
+                  <span>{plans.voiceBooking.cta}</span>
+                  <ArrowRight className="w-4 h-4 text-white" />
+                </button>
+              </div>
+            </div>
+
+            {/* Plan 2: Essential ($99/mo) */}
+            <div data-testid="plan-essential" className="flex flex-col justify-between bg-white p-6 sm:p-8 rounded-2xl border-t-4 border-t-slate-400 border border-slate-200 shadow-xs">
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-slate-600 font-bold text-xs uppercase tracking-wider">
@@ -85,8 +150,8 @@ export const PricingSection: React.FC = () => {
               </div>
             </div>
 
-            {/* Plan 2: Growth ($199/mo) - Highlighted with Blue Brand Border */}
-            <div data-testid="plan-growth" className="flex flex-col justify-between bg-white p-8 rounded-2xl border-2 border-[#096b61] shadow-md relative">
+            {/* Plan 3: Growth ($199/mo) - Highlighted with Blue Brand Border */}
+            <div data-testid="plan-growth" className="flex flex-col justify-between bg-white p-6 sm:p-8 rounded-2xl border-2 border-[#096b61] shadow-md relative">
               {/* Badge */}
               <div className="absolute -top-3 right-6 px-3.5 py-1 rounded-full bg-[#096b61] text-white text-xs font-extrabold tracking-wider uppercase shadow-md flex items-center gap-1.5">
                 <Flame className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />

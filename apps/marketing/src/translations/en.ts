@@ -359,6 +359,29 @@ export const en: TranslationSchema = {
     perLocationNotice: '100% Flat Per-Location Pricing • No Per-Staff Fees • 7-Day Free Trial (Card Required, Cancel Anytime)',
     trialBadge: '7-Day Free Trial',
     plans: {
+      voiceBooking: {
+        name: 'AI Voice Booking',
+        price: '$99',
+        period: '/ location / month',
+        desc: 'Purpose-built for shops focused on automated phone booking and calendar reminders without extra front-desk clutter.',
+        badge: 'Voice Receptionist Tier',
+        features: [
+          '200 AI Voice Booking Minutes / month',
+          'Unlimited SMS & Email Appointment Reminders',
+          'Unlimited Staff Calendars & Scheduling',
+          'Free Managed Shop Showcase Website Creation',
+          'Free AI Voice Booking Setup & Custom Scripting',
+          'Zero Per-Seat Fees (Unlimited staff accounts)',
+        ],
+        excludedTitle: 'Streamlined Scope (Not Included):',
+        excludedFeatures: [
+          'No booking-to-checkout / POS register flow',
+          'No digital intake / health forms or iPad kiosk',
+          'No front-desk AI Copilot operations & turn engine',
+          'No room & equipment station management',
+        ],
+        cta: 'Start 7-Day Free Trial',
+      },
       essential: {
         name: 'Essential',
         price: '$99',

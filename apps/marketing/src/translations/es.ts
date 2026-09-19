@@ -359,6 +359,29 @@ export const es: TranslationSchema = {
     perLocationNotice: 'Precio Fijo por Local • Terapeutas Ilimitados • 7 Días de Prueba Gratis (Tarjeta requerida, cancela cuando quieras)',
     trialBadge: 'Prueba Gratis de 7 Días',
     plans: {
+      voiceBooking: {
+        name: 'Plan Reserva por Voz IA',
+        price: '$99',
+        period: '/ local / mes',
+        desc: 'Diseñado para salones que necesitan atención telefónica automática y recordatorios sin la complejidad del sistema completo.',
+        badge: 'Especial Recepción Telefónica',
+        features: [
+          '200 Minutos mensuales de llamadas de reserva con IA',
+          'Recordatorios ilimitados por SMS y correo electrónico',
+          'Calendarios y agenda de personal ilimitados',
+          'Creación y publicación gratuita de la web de tu local',
+          'Configuración inicial de reservas por voz con IA incluida',
+          'Cero costo adicional por terapeuta (personal ilimitado)',
+        ],
+        excludedTitle: 'Alcance simplificado (No incluye):',
+        excludedFeatures: [
+          'No incluye flujo de cobro / caja en recepción',
+          'No incluye formularios digitales ni quiosco iPad',
+          'No incluye motor de turnos ni Copiloto IA de recepción',
+          'No incluye gestión de salas y cabinas',
+        ],
+        cta: 'Iniciar Prueba Gratis de 7 Días',
+      },
       essential: {
         name: 'Plan Essential',
         price: '$99',

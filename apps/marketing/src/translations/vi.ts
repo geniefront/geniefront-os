@@ -359,6 +359,29 @@ export const vi: TranslationSchema = {
     perLocationNotice: 'Gói Cố Định Theo Tiệm • Không Giới Hạn Số Thợ • Dùng Thử 7 Ngày (Cần Thẻ, Hủy Bất Cứ Lúc Nào)',
     trialBadge: 'Dùng Thử 7 Ngày',
     plans: {
+      voiceBooking: {
+        name: 'Gói Đặt Lịch Thoại AI',
+        price: '$99',
+        period: '/ tiệm / tháng',
+        desc: 'Thiết kế riêng cho tiệm chỉ cần nhận cuộc gọi tự động và nhắc lịch hẹn, không rườm rà thao tác quầy.',
+        badge: 'Chuyên Nhận Cuộc Gọi',
+        features: [
+          '200 Phút thoại AI nhận cuộc gọi đặt lịch mỗi tháng',
+          'Không giới hạn tin nhắn SMS & email nhắc lịch hẹn',
+          'Không giới hạn lịch làm việc của nhân viên',
+          'Miễn phí thiết kế và ra mắt website chuyên nghiệp cho tiệm',
+          'Cài đặt hệ thống đặt lịch thoại AI theo yêu cầu',
+          'Không tính thêm phí theo số lượng thợ (không giới hạn)',
+        ],
+        excludedTitle: 'Phạm vi tinh gọn (Không bao gồm):',
+        excludedFeatures: [
+          'Không gồm luồng thanh toán / tính tiền tại quầy',
+          'Không gồm phiếu kiểm tra sức khỏe điện tử & iPad đón khách',
+          'Không gồm điều phối tua thợ & AI trợ lý quầy',
+          'Không gồm quản lý phòng và giường dịch vụ',
+        ],
+        cta: 'Bắt Đầu Dùng Thử 7 Ngày',
+      },
       essential: {
         name: 'Gói Essential',
         price: '$99',

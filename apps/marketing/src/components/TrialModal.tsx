@@ -8,7 +8,7 @@ import {
   requestSignupCheckout,
   validateSignupForm,
 } from '../lib/checkout';
-import { type Plan, TRIAL_DAYS } from '../lib/plans';
+import { type MarketingPlan, MARKETING_PLANS, TRIAL_DAYS } from '../lib/plans';
 import { uiText } from '../translations/ui';
 
 export function TrialModal() {
@@ -23,7 +23,7 @@ export function TrialModal() {
   const ui = uiText[currentLang];
   const [shopName, setShopName] = useState('');
   const [ownerEmail, setOwnerEmail] = useState('');
-  const [plan, setPlan] = useState<Plan>('essential');
+  const [plan, setPlan] = useState<MarketingPlan>('essential');
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -150,21 +150,28 @@ export function TrialModal() {
 
           <fieldset>
             <legend className="text-xs font-extrabold text-[#20383b]">{ui.plan}</legend>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              {(['essential', 'growth'] as Plan[]).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setPlan(option)}
-                  className={`rounded-xl border px-3 py-3 text-left text-xs font-bold transition ${
-                    plan === option
-                      ? 'border-[#096b61] bg-[#edf8f3] text-[#096b61]'
-                      : 'border-[#dfe5df] bg-white text-[#53676a] hover:border-[#9bb9af]'
-                  }`}
-                >
-                  {option === 'essential' ? t.pricing.plans.essential.name : t.pricing.plans.growth.name}
-                </button>
-              ))}
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {MARKETING_PLANS.map((option) => {
+                const label = option === 'voice_booking'
+                  ? t.pricing.plans.voiceBooking.name
+                  : option === 'essential'
+                    ? t.pricing.plans.essential.name
+                    : t.pricing.plans.growth.name;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setPlan(option)}
+                    className={`rounded-xl border px-3 py-2.5 text-left text-xs font-bold transition ${
+                      plan === option
+                        ? 'border-[#096b61] bg-[#edf8f3] text-[#096b61]'
+                        : 'border-[#dfe5df] bg-white text-[#53676a] hover:border-[#9bb9af]'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </div>
           </fieldset>
 

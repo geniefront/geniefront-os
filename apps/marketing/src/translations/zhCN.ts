@@ -359,6 +359,29 @@ export const zhCN: TranslationSchema = {
     perLocationNotice: '按店包月 • 不限技师人数 • 7 天免费试用（需绑定信用卡，随时可取消）',
     trialBadge: '7天免费试用',
     plans: {
+      voiceBooking: {
+        name: 'AI 语音预约套餐',
+        price: '$99',
+        period: '/ 门店 / 月',
+        desc: '专为专注电话自动预约与日历提醒的门店设计，免除复杂前台操作，极速开通。',
+        badge: '电话接单专享',
+        features: [
+          '每月 200 分钟 AI 电话接单预约时长',
+          '无限次 SMS 短信与邮件提醒通知',
+          '无限员工日历与日程预约管理',
+          '免费门店专属展示官网制作与上线',
+          '免费 AI 电话预约系统配置与话术定制',
+          '零人头加价，不限员工账号数量',
+        ],
+        excludedTitle: '轻量精简，明确不包含：',
+        excludedFeatures: [
+          '不包含预约到结账收银流程（适合已有 POS 门店）',
+          '不包含电子健康表与 iPad 自助登记',
+          '不包含前台单机 AI 调度操作与轮牌引擎',
+          '不包含房间与设备工位排期管理',
+        ],
+        cta: '开始 7 天免费试用',
+      },
       essential: {
         name: 'Essential 基础版',
         price: '$99',
