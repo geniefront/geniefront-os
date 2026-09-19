@@ -36,15 +36,13 @@ export async function requestSignupCheckout(input: {
   ownerEmail: string;
   plan: MarketingPlan | Plan;
 }): Promise<{ url?: string }> {
-  // voice_booking is $99/mo; maps to essential on Stripe until custom Price ID is deployed in backend
-  const apiPlan = input.plan === 'voice_booking' ? 'essential' : input.plan;
   const res = await fetch(`${__API_BASE__}/v1/public/signup-checkout`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       shopName: input.shopName.trim(),
       ownerEmail: input.ownerEmail.trim(),
-      plan: apiPlan,
+      plan: input.plan,
     }),
   });
   if (!res.ok) {

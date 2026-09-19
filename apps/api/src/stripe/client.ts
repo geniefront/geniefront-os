@@ -62,8 +62,26 @@ export { PLANS, isPlan } from '@gf/payroll';
  * 写死在代码里意味着调价要发一次版，而调价是运营动作不是工程动作。
  * 这里只存「哪个套餐对应 Stripe 上的哪个 price」。
  */
-export function priceIdFor(plan: Plan): string {
-  const id = process.env[plan === 'growth' ? 'STRIPE_PRICE_GROWTH' : 'STRIPE_PRICE_ESSENTIAL'];
+export function priceIdFor(plan: Plan | 'voice_booking'): string {
+  if (plan === 'growth') {
+    const id = process.env['STRIPE_PRICE_GROWTH'];
+    if (!id) {
+      throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, {
+        details: { service: 'stripe', reason: `${plan} 套餐的 STRIPE_PRICE_* 未配置` },
+      });
+    }
+    return id;
+  }
+  if (plan === 'voice_booking') {
+    const id = process.env['STRIPE_PRICE_VOICE_BOOKING'] || process.env['STRIPE_PRICE_ESSENTIAL'];
+    if (!id) {
+      throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, {
+        details: { service: 'stripe', reason: `${plan} 套餐的 STRIPE_PRICE_* 未配置` },
+      });
+    }
+    return id;
+  }
+  const id = process.env['STRIPE_PRICE_ESSENTIAL'];
   if (!id) {
     throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, {
       details: { service: 'stripe', reason: `${plan} 套餐的 STRIPE_PRICE_* 未配置` },
@@ -82,7 +100,7 @@ export function priceIdFor(plan: Plan): string {
 export function planForPriceId(priceId: string | null | undefined): Plan | null {
   if (!priceId) return null;
   if (priceId === process.env['STRIPE_PRICE_GROWTH']) return 'growth';
-  if (priceId === process.env['STRIPE_PRICE_ESSENTIAL']) return 'essential';
+  if (priceId === process.env['STRIPE_PRICE_ESSENTIAL'] || priceId === process.env['STRIPE_PRICE_VOICE_BOOKING']) return 'essential';
   return null;
 }
 

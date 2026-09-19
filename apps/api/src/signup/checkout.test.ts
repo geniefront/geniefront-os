@@ -22,6 +22,7 @@ const SEED_LOC = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 
 const ESSENTIAL_PRICE = 'price_test_essential_99';
 const GROWTH_PRICE = 'price_test_growth_199';
+const VOICE_BOOKING_PRICE = 'price_test_voice_booking_99';
 const STRIPE_URL = 'https://checkout.stripe.com/c/pay/cs_test_signup';
 
 let app: ReturnType<typeof buildServer>;
@@ -31,6 +32,7 @@ let stripeUrl: string | null = STRIPE_URL;
 
 const originalEssential = process.env['STRIPE_PRICE_ESSENTIAL'];
 const originalGrowth = process.env['STRIPE_PRICE_GROWTH'];
+const originalVoiceBooking = process.env['STRIPE_PRICE_VOICE_BOOKING'];
 const originalMarketing = process.env['MARKETING_BASE_URL'];
 const originalAppBase = process.env['APP_BASE_URL'];
 
@@ -45,6 +47,8 @@ afterAll(async () => {
   else process.env['STRIPE_PRICE_ESSENTIAL'] = originalEssential;
   if (originalGrowth === undefined) delete process.env['STRIPE_PRICE_GROWTH'];
   else process.env['STRIPE_PRICE_GROWTH'] = originalGrowth;
+  if (originalVoiceBooking === undefined) delete process.env['STRIPE_PRICE_VOICE_BOOKING'];
+  else process.env['STRIPE_PRICE_VOICE_BOOKING'] = originalVoiceBooking;
   if (originalMarketing === undefined) delete process.env['MARKETING_BASE_URL'];
   else process.env['MARKETING_BASE_URL'] = originalMarketing;
   if (originalAppBase === undefined) delete process.env['APP_BASE_URL'];
@@ -59,6 +63,7 @@ beforeEach(() => {
   stripeUrl = STRIPE_URL;
   process.env['STRIPE_PRICE_ESSENTIAL'] = ESSENTIAL_PRICE;
   process.env['STRIPE_PRICE_GROWTH'] = GROWTH_PRICE;
+  process.env['STRIPE_PRICE_VOICE_BOOKING'] = VOICE_BOOKING_PRICE;
   process.env['MARKETING_BASE_URL'] = 'https://www.geniefront.com';
   process.env['APP_BASE_URL'] = 'https://desk.geniefront.com';
   __resetRateLimit();
@@ -100,6 +105,13 @@ describe('POST /v1/public/signup-checkout', () => {
     const r = await post({ ...valid, plan: 'growth' });
     expect(r.statusCode).toBe(200);
     expect(created[0]?.line_items).toEqual([{ price: GROWTH_PRICE, quantity: 1 }]);
+  });
+
+  it('2b. voice_booking maps to server-side Voice Booking Stripe Price ID', async () => {
+    const r = await post({ ...valid, plan: 'voice_booking' });
+    expect(r.statusCode).toBe(200);
+    expect(created[0]?.line_items).toEqual([{ price: VOICE_BOOKING_PRICE, quantity: 1 }]);
+    expect(created[0]?.metadata?.['gf_plan']).toBe('voice_booking');
   });
 
   it('3. starter rejected', async () => {

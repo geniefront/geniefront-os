@@ -141,7 +141,7 @@ describe('Marketing pricing and signup', () => {
     expect(JSON.parse(String(init.body))).toEqual({
       shopName: 'Golden Lotus Spa',
       ownerEmail: 'voice@maildrop.cc',
-      plan: 'essential',
+      plan: 'voice_booking',
     });
     expect(navigation.assign).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_test_voice');
   });

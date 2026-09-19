@@ -175,6 +175,9 @@ if [[ "$TARGET" == "staging" || "$TARGET" == "production" ]]; then
     [[ "$TARGET" == "production" ]] && expected_livemode=true
     check_stripe_price "Essential" "$(get STRIPE_PRICE_ESSENTIAL)" 9900 "$expected_livemode"
     check_stripe_price "Growth" "$(get STRIPE_PRICE_GROWTH)" 19900 "$expected_livemode"
+    if [[ -n "$(get STRIPE_PRICE_VOICE_BOOKING)" ]]; then
+      check_stripe_price "VoiceBooking" "$(get STRIPE_PRICE_VOICE_BOOKING)" 9900 "$expected_livemode"
+    fi
   fi
 fi
 

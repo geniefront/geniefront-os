@@ -22,7 +22,7 @@ import {
 export const SignupCheckoutInput = z.object({
   shopName: z.string().trim().min(1).max(80),
   ownerEmail: z.string().trim().email().max(254),
-  plan: z.enum(['essential', 'growth']),
+  plan: z.enum(['essential', 'growth', 'voice_booking']),
 }).strict();
 
 export type SignupCheckoutInput = z.infer<typeof SignupCheckoutInput>;
@@ -123,8 +123,8 @@ export async function createSignupCheckout(
     });
   }
 
-  const plan: Plan = parsed.data.plan;
-  if (!isPlan(plan)) {
+  const plan = parsed.data.plan;
+  if (!isPlan(plan) && plan !== 'voice_booking') {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
       details: { reason: 'invalid_plan' },
     });
