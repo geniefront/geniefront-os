@@ -90,6 +90,25 @@ describe('Activate 首次开店与密码设置页面', () => {
     expect(mockSessionState.claimStore).not.toHaveBeenCalled();
   });
 
+  it('清空店主姓名后不会被邮箱前缀填回，并会提交空值', async () => {
+    renderComponent();
+
+    const nameInput = screen.getByLabelText(/店主姓名/);
+    fireEvent.change(nameInput, { target: { value: '' } });
+    await waitFor(() => expect(nameInput).toHaveValue(''));
+
+    fireEvent.change(screen.getByLabelText(/^密码/), { target: { value: 'secret123' } });
+    fireEvent.change(screen.getByLabelText(/确认密码/), { target: { value: 'secret123' } });
+    fireEvent.click(screen.getByRole('button', { name: /设置密码并进入开店向导/ }));
+
+    await waitFor(() => {
+      expect(mockUpdateUser).toHaveBeenCalledWith({
+        password: 'secret123',
+        data: { full_name: '' },
+      });
+    });
+  });
+
   it('提交成功后依次设置密码、认领门店并导向 /setup 向导', async () => {
     renderComponent();
 

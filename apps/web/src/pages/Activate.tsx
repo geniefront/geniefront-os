@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toast, Spinner } from '@heroui/react';
 import { useFieldErrors } from '@/lib/formFeedback';
@@ -22,6 +22,7 @@ export function Activate() {
   const [fullName, setFullName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const initializedFullNameUserId = useRef<string | null>(null);
 
   // 提取 URL Hash 或 Query 中的错误与状态
   useEffect(() => {
@@ -44,11 +45,23 @@ export function Activate() {
   const userEmail = session?.user?.email ?? email;
 
   useEffect(() => {
-    if (session?.user?.email && !fullName) {
-      const defaultName = session.user.email.split('@')[0] ?? '';
-      setFullName(defaultName);
+    const user = session?.user;
+    if (!user) {
+      initializedFullNameUserId.current = null;
+      return;
     }
-  }, [session, fullName]);
+    if (initializedFullNameUserId.current === user.id) return;
+
+    initializedFullNameUserId.current = user.id;
+    const metadata = user.user_metadata ?? {};
+    if (Object.prototype.hasOwnProperty.call(metadata, 'full_name')) {
+      setFullName(typeof metadata.full_name === 'string' ? metadata.full_name : '');
+      return;
+    }
+
+    // 只在首次加载该用户时提供便利默认值。用户清空后不能再被这个 effect 填回。
+    setFullName(user.email?.split('@')[0] ?? '');
+  }, [session]);
 
   /** 激活表单的字段级校验。 */
   const activateForm = useFieldErrors<'password'>();
@@ -80,7 +93,8 @@ export function Activate() {
         const { error: updateError } = await supabase.auth.updateUser({
           password,
           data: {
-            full_name: fullName.trim() || undefined,
+            // 空字符串是有意清空姓名；undefined 会让 Supabase 忽略这个字段。
+            full_name: fullName.trim(),
           },
         });
         if (updateError) throw updateError;
