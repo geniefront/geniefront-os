@@ -257,7 +257,7 @@ export function Calls() {
               </span>
               <span className="text-xs text-teal-200/80 font-mono">
                 
-                {t('crm.callDedicatedLine')}
+                {callData?.voiceNumber ? `${t('crm.callDedicatedLine')} ${formatPhoneDisplay(callData.voiceNumber)}` : ''}
               </span>
             </div>
             <p className="text-xs text-teal-100/80 mt-1">

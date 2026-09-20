@@ -58,7 +58,7 @@ export async function loadCalls(
   tx: postgres.TransactionSql,
   ctx: CommandContext,
   opts: { days?: number; limit?: number; callId?: string } = {},
-): Promise<{ calls: CallView[]; bookedCount: number; totalMinutes: number }> {
+): Promise<{ calls: CallView[]; bookedCount: number; totalMinutes: number; voiceNumber: string | null }> {
   const days = Math.min(90, Math.max(1, opts.days ?? 7));
   const limit = Math.min(200, Math.max(1, opts.limit ?? 50));
   const canSeeContact = ctx.permissions.has('customer.view_contact');
@@ -97,7 +97,9 @@ export async function loadCalls(
     };
   });
 
+  const [line] = await tx<{e164:string}[]>`select e164 from phone_lines where location_id=${ctx.locationId} and purpose='ai_voice' and active limit 1`;
   return {
+    voiceNumber: line?.e164 ?? null,
     calls,
     /** 这段时间有几通真的订上了单 —— 老板问「这东西值不值」问的就是它 */
     bookedCount: calls.filter((c) => c.booked).length,
