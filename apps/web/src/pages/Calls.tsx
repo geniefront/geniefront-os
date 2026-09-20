@@ -645,11 +645,7 @@ export function Calls() {
                           {Math.floor((call.durationSeconds ?? 0) / 60)}{t('crm.callMinuteUnit')}{" "}
                           {(call.durationSeconds ?? 0) % 60}{t('crm.callSecondUnit')}
                         </span>
-                        {call.billingStatus && call.billingStatus !== 'legacy' && <p className="text-[10px] text-slate-500 mt-1">
-                          {call.billingStatus === 'settled'
-                            ? t('crm.callBilledMinutes', { p0: Math.ceil((call.billableSeconds ?? 0) / 60) })
-                            : t(call.billingStatus === 'review' ? 'crm.callBillingReview' : 'crm.callBillingPending')}
-                        </p>}
+
                       </TableCell>
                       <TableCell>
                         {call.booked ? (
