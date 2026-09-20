@@ -1085,3 +1085,38 @@ textarea.field-control {padding:16px 18px!important;line-height:1.65;letter-spac
 .booking-modal-compact .guest-name-form { margin-top: 0; }
 .booking-modal-compact .guest-remove-action { margin-top: 12px; padding-top: 8px; }
 .booking-modal-compact .guest-remove-action button { margin-top: 0; }
+
+/* Bound dialogs to the visual viewport; keep only the body scrollable. */
+.booking-modal-container {
+  width: 100%;
+  max-width: 100%;
+  height: var(--visual-viewport-height, 100dvh);
+  align-items: center;
+  padding: 16px;
+}
+.booking-modal {
+  box-sizing: border-box;
+  width: min(520px, 100%);
+  max-width: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-height: 100%;
+  margin: auto;
+  border-radius: 24px;
+}
+.booking-modal .modal__header { flex: none; min-width: 0; }
+.booking-modal .modal__heading { overflow-wrap: anywhere; line-height: 1.3; }
+.booking-modal .modal__body { min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.booking-modal .modal__footer { flex: none; }
+.shop-details { min-width: 0; overflow-wrap: anywhere; }
+/* A definite image box avoids intrinsic grid sizing and Safari percentage-height gaps. */
+.service-image { position: relative; }
+.service-image > img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; max-width: none; object-fit: cover; }
+.service-image.shop-hero-media { height: auto; aspect-ratio: 2 / 1; flex: none; }
+.shop-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.shop-gallery img { display: block; min-width: 0; }
+@media (max-width: 760px) {
+  .booking-modal-container { padding: 12px; }
+  .booking-modal { padding: 22px; border-radius: 20px; }
+  .booking-modal .modal__heading { font-size: 20px; }
+}
