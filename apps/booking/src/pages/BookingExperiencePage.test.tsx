@@ -102,7 +102,9 @@ it("retains a storefront selection, assigns each guest, reviews before atomic su
   await user.click(await screen.findByRole('button',{name:'Add Massage'}));
   await user.click(screen.getByRole('button',{name:/Add to booking/}));
   await user.click(screen.getByRole('button',{name:'Increase Number of guests'}));
-  await user.click(screen.getByRole('button',{name:/Guest 2/}));
+  await user.click(screen.getByRole('button',{name:'Guest names'}));
+  await user.type(screen.getByLabelText('Guest 2'), 'Alex');
+  await user.click(screen.getByRole('button',{name:/Alex/}));
   await user.click(screen.getByRole('button',{name:'Add Massage'}));
   await user.click(screen.getByRole('button',{name:/Add to booking/}));
   await user.click(screen.getAllByRole('button',{name:/^Choose time/})[0]!);
@@ -119,14 +121,33 @@ it("retains a storefront selection, assigns each guest, reviews before atomic su
   await waitFor(() => expect(api.book).toHaveBeenCalledTimes(1));
   expect(api.book.mock.calls[0][0]).toMatchObject({
     partySize: 2,
+    notes: "Guest 2: Alex",
     customer:{smsOptIn:false,bookingSmsConsent:true},
     items: [
       { guestIndex: 0, quotedPriceCents: 5000 },
       { guestIndex: 1, quotedPriceCents: 5000 },
     ],
   });
+  expect(screen.getAllByText(/Alex/).length).toBeGreaterThan(0);
   expect(await screen.findByText("TS-1234")).toBeInTheDocument();
   expect(
     screen.queryByText(/sent the details to your phone/),
   ).not.toBeInTheDocument();
+});
+
+it("explains unavailable times and offers another date", async () => {
+  api.getPartyAvailability.mockResolvedValue({ date: "2026-10-01", timezone: "America/New_York", staff: [], plans: [] });
+  const user = userEvent.setup();
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <MemoryRouter initialEntries={["/test"]}><Routes><Route path="/:slug" element={<BookingExperiencePage />} /></Routes></MemoryRouter>
+  </QueryClientProvider>);
+  expect(await screen.findByRole("combobox", { name: "Language" })).toHaveValue("en");
+  await user.click(await screen.findByRole("button", { name: "Add Massage" }));
+  await user.click(screen.getByRole("button", { name: /Add to booking/ }));
+  await user.click(screen.getAllByRole("button", { name: /^Choose time/ })[0]!);
+  expect(await screen.findByRole("heading", { name: "No times available for this date" })).toBeInTheDocument();
+  expect(screen.getByText("Choose another date or change your specialist preferences.")).toBeInTheDocument();
+  const previous = api.getPartyAvailability.mock.calls.at(-1)![0];
+  await user.click(screen.getByRole("button", { name: /Check next day/ }));
+  await waitFor(() => expect(api.getPartyAvailability.mock.calls.at(-1)![0]).not.toBe(previous));
 });

@@ -71,6 +71,11 @@ export function BookingExperiencePage() {
     else savePartyDraft(slug, partySize, items);
   }, [slug, partySize, items, step]);
   const [guest, setGuest] = useState(0);
+  const [guestNames, setGuestNames] = useState<string[]>([]);
+  const [editingNames, setEditingNames] = useState(false);
+  const guestLabel = (index: number) => guestNames[index]?.trim() || `${t("Guest")} ${index + 1}`;
+  const guestNotes = guestNames.slice(0, partySize).map((name, index) =>
+    name?.trim() ? `Guest ${index + 1}: ${name.trim()}` : "").filter(Boolean).join("\n");
   const [customizing, setCustomizing] = useState<{
     group: ServiceGroup;
     index: number | null;
@@ -168,7 +173,8 @@ export function BookingExperiencePage() {
   };
   async function submit(input: BookInput) {
     try {
-      const result = await book(input, idem, shop?.publicKey);
+      const notes = [guestNotes, input.notes].filter(Boolean).join("\n\n");
+      const result = await book({ ...input, ...(notes ? { notes } : {}) }, idem, shop?.publicKey);
       setDone(result);
       reportBooked(result.confirmationCode);
       if (result.summary) {
@@ -269,6 +275,7 @@ export function BookingExperiencePage() {
   const changeGuestCount = (n: number) => {
     setPartySize(n);
     setGuest(Math.min(guest, n - 1));
+    setGuestNames((names) => names.slice(0, n));
     changeItems(items.filter((i) => i.guestIndex < n));
     if (step !== 1) goStep(1);
   };
@@ -295,7 +302,7 @@ export function BookingExperiencePage() {
             const startsGuest = position === 0 || sorted[position - 1]!.item.guestIndex !== item.guestIndex;
             return (
               <li key={`${index}:${item.serviceId}`}>
-                {startsGuest && partySize > 1 && <h3 className="bag-guest-heading">{t("Guest")} {item.guestIndex + 1}</h3>}
+                {startsGuest && partySize > 1 && <h3 className="bag-guest-heading">{guestLabel(item.guestIndex)}</h3>}
                 <div className="bag-item-title">
                   <strong>{svc?.name}</strong>
                   <span>
@@ -376,6 +383,7 @@ export function BookingExperiencePage() {
               catalog={catalog}
               shop={shop}
               staff={avail?.staff ?? []}
+              guestNames={guestNames}
               preferences={items}
             />
           )}
@@ -464,6 +472,10 @@ export function BookingExperiencePage() {
               )}
               {step === 1 && (
                 <>
+                  {!!(shop.publicProfile?.coverUrl || shop.publicProfile?.photoUrls?.length) && <button type="button" className="shop-photo-banner" onClick={() => setInfoOpen(true)} aria-label={t("View shop photos")}>
+                    {[...new Set([shop.publicProfile?.coverUrl, ...(shop.publicProfile?.photoUrls ?? [])].filter((url): url is string => !!url))].slice(0, 3).map((url) => <img key={url} src={url} alt={shop.name} />)}
+                    <span>{t("View shop photos")} ↗</span>
+                  </button>}
                   <div className="store-intro">
                     <div>
                       <h1>{t("Services")}</h1>
@@ -490,7 +502,7 @@ export function BookingExperiencePage() {
                           selected={guest === i}
                           onPress={() => setGuest(i)}
                         >
-                          {t("Guest")} {i + 1}
+                          {guestLabel(i)}
                           <span className="guest-count">
                             {items.filter((x) => x.guestIndex === i).length} {t("selected")}
                           </span>
@@ -519,6 +531,17 @@ export function BookingExperiencePage() {
                       </NumberStepper>
                     </div>
                   </div>
+                  {partySize > 1 && <div className="guest-name-editor">
+                    <Button variant="ghost" size="sm" aria-expanded={editingNames} onPress={() => setEditingNames(!editingNames)}>{t("Guest names")}</Button>
+                    {editingNames && <div className="guest-name-fields">{Array.from({ length: partySize }, (_, i) =>
+                      <label key={i}>{t("Guest")} {i + 1}<Input value={guestNames[i] ?? ""} maxLength={30}
+                        placeholder={t("Name")} onChange={(event) => {
+                          const value = event.target.value;
+                          setGuestNames((names) => Array.from({ length: partySize }, (_, n) => n === i ? value : names[n] ?? ""));
+                          setIdem(crypto.randomUUID());
+                        }} /></label>
+                    )}</div>}
+                  </div>}
                   <div className="catalog-toolbar">
                     <div
                       className="category-tabs"
@@ -647,7 +670,7 @@ export function BookingExperiencePage() {
                 <>
                   <div className="page-heading">
                     <h1>{t("Choose a time")}</h1>
-                    <p>{shop.timezone.replace(/_/g, " ")}</p>
+                    <p>{t("Times shown in")} {shop.timezone.replace(/_/g, " ")}</p>
                   </div>
                   {shop.onlineBooking.allowClientPickStaff !== false && (
                     <div className="staff-preferences" aria-busy={busy}>
@@ -657,11 +680,11 @@ export function BookingExperiencePage() {
                           {t("Loading…")}
                         </div>
                       )}
-                      {items.map((item, index) => (
+                      {items.map((item, index) => ({ item, index })).sort((a, b) => a.item.guestIndex - b.item.guestIndex).map(({ item, index }) => (
                         <div className="staff-preference" key={index}>
                           {items.length > 1 && (
                             <p className="section-label">
-                              {t("Guest")} {item.guestIndex + 1} ·{" "}
+                              {guestLabel(item.guestIndex)} ·{" "}
                               {selectedServices[index]?.name}
                             </p>
                           )}
@@ -732,8 +755,9 @@ export function BookingExperiencePage() {
                       {busy ? (
                         <Loading />
                       ) : !avail?.plans.length ? (
-                        <div className="empty-times">
-                          <p>{t("No available times")}</p>
+                        <div className="empty-times" role="status">
+                          <h2>{t("No times available for this date")}</h2>
+                          <p>{t("Choose another date or change your specialist preferences.")}</p>
                           <Button
                             variant="secondary"
                             onPress={() => setDate(addDays(date, 1))}
@@ -748,9 +772,9 @@ export function BookingExperiencePage() {
                               )
                             }
                           >
-                            {t("Next day")} →
+                            {t("Check next day")} →
                           </Button>
-                          <PhoneLink shop={shop} />
+                          {shop.phone && <p className="empty-times-contact">{t("Need help booking?")} <PhoneLink shop={shop} /></p>}
                         </div>
                       ) : (
                         <div className="time-grid">
@@ -792,11 +816,13 @@ export function BookingExperiencePage() {
                         catalog={catalog}
                         shop={shop}
                         staff={avail?.staff ?? []}
-                        preferences={items}
+                        guestNames={guestNames}
+              preferences={items}
                         onEdit={() => goStep(1)}
                         onTime={() => goStep(3)}
                       />
                     }
+                    notesMaxLength={Math.max(0, 500 - guestNotes.length - (guestNotes ? 2 : 0))}
                     initialContact={contact}
                     onContactChange={setContact}
                     shop={shop}
@@ -911,6 +937,7 @@ function PlanSummary({
   shop,
   staff,
   preferences,
+  guestNames = [],
   onEdit,
   onTime,
 }: {
@@ -919,6 +946,7 @@ function PlanSummary({
   shop: Shop;
   staff: PartyAvailability["staff"];
   preferences?: PartySelection[];
+  guestNames?: string[];
   onEdit?: () => void;
   onTime?: () => void;
 }) {
@@ -970,7 +998,7 @@ function PlanSummary({
             <li key={n}>
               <div className="bag-item-title">
                 <strong>
-                  {t("Guest")} {i.guestIndex + 1} ·{" "}
+                  {guestNames[i.guestIndex]?.trim() || `${t("Guest")} ${i.guestIndex + 1}`} ·{" "}
                   {catalog?.services.find((s) => s.id === i.serviceId)?.name}
                 </strong>
                 <span>{money(i.priceCents, shop.currency)}</span>

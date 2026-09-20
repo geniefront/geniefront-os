@@ -522,7 +522,7 @@ function ServiceStep({
         {service && catalog.addons.length > 0 && (
           <div className="mt-5">
             <h3 className="text-base font-bold"> {t("Enhance your service")} </h3>
-            <p className="mt-1 text-sm text-[var(--muted)]"> {t("Optional add-ons can be selected below.")} </p>
+            <p className="mt-1 text-sm text-[var(--muted)]"> {t("Personalize your visit with add-ons.")} </p>
             <ul className="mt-2 grid gap-2">
               {catalog.addons.map((a) => {
                 const on = addonIds.includes(a.id);
@@ -685,12 +685,13 @@ function slotPeriod(startsAt: string, timezone: string): 'morning' | 'afternoon'
 export interface BookingContact {name:string;phone:string;email:string;notes:string;smsOptIn:boolean;bookingSmsConsent?:boolean}
 
 export function ConfirmStep({
-  shop, service, addons, bundle, startsAt, staffId, openedAt, onSubmit, onBack, party, initialContact, onContactChange, onReviewChange, appointmentSummary,
+  shop, service, addons, bundle, startsAt, staffId, openedAt, onSubmit, onBack, party, initialContact, onContactChange, onReviewChange, appointmentSummary, notesMaxLength = 500,
 }: {
   shop: Shop;
   service: Service | null;
   addons: Service[];
   appointmentSummary?:ReactNode;
+  notesMaxLength?: number;
   initialContact?: BookingContact;
   onContactChange?: (value:BookingContact)=>void;
   onReviewChange?: (value:boolean)=>void;
@@ -745,7 +746,7 @@ export function ConfirmStep({
   }, [shop.turnstileSiteKey]);
 
   const e164 = toE164(phone);
-  const ready = name.trim().length > 0 && (!email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) && e164 !== null && (token !== null || !shop.turnstileSiteKey);
+  const ready = notes.length <= notesMaxLength && name.trim().length > 0 && (!email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) && e164 !== null && (token !== null || !shop.turnstileSiteKey);
 
   async function go() {
     if (!ready || inflight.current) return;
@@ -814,19 +815,20 @@ export function ConfirmStep({
               onChange={(e) => setPhone(e.target.value)} />
           </label>
           </div>
-          <label className="text-sm font-semibold"> {t("Email (optional)")} <Input className="field-control mt-2" value={email}
+          <label className="text-sm font-semibold"> {t("Email")} <Input className="field-control mt-2" value={email}
               type="email" autoComplete="email" maxLength={200} onChange={(e) => setEmail(e.target.value)} />
-            <span className="field-hint">{t('Enter email to receive details and manage your appointment.')}</span>
+            <span className="field-hint">{t('Get your confirmation and appointment details by email.')}</span>
           </label>
-          <label className="text-sm font-semibold"> {t("Notes (optional)")} <TextArea className="field-control mt-2 min-h-24 resize-y py-3" value={notes}
-              maxLength={500} placeholder={t("Accessibility needs, preferences, or anything we should know")}
+          <label className="text-sm font-semibold"> {t("Notes")} <TextArea className="field-control mt-2 min-h-24 resize-y py-3" value={notes}
+              maxLength={notesMaxLength} placeholder={t("Share any preferences or requests for your visit.")}
               onChange={(e) => setNotes(e.target.value)} />
           </label>
+          {notes.length > notesMaxLength && <Note warn>{t("Please shorten your notes to continue.")}</Note>}
           <div className="booking-sms-consent">
             <Checkbox aria-label={t("Receive appointment texts")} isSelected={bookingSmsConsent} onChange={setBookingSmsConsent}>
               <Checkbox.Content><Checkbox.Control><Checkbox.Indicator/></Checkbox.Control><span>{t("Send me booking confirmations, updates and reminders from")} {shop.name} {t("via GenieFront SMS.")}</span></Checkbox.Content>
             </Checkbox>
-            <p>{t("Optional. Message frequency varies. Msg & data rates may apply. Reply STOP to opt out or HELP for help.")}</p>
+            <p>{t("Message frequency varies. Msg & data rates may apply. Reply STOP to opt out or HELP for help.")}</p>
           </div>
           <p className="booking-legal">{t("By booking, you agree to")} <a href="https://geniefront.com/terms/" target="_blank" rel="noreferrer">{t("Terms")}</a> {t("and")} <a href="https://geniefront.com/privacy/" target="_blank" rel="noreferrer">{t("Privacy")}</a>. <a href="https://geniefront.com/sms/" target="_blank" rel="noreferrer">GenieFront SMS</a>.</p>
           <input className="hp" tabIndex={-1} autoComplete="off" aria-hidden="true"

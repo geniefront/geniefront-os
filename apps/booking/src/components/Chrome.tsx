@@ -1,7 +1,5 @@
 import { Button, Card as HeroCard, Spinner } from "@heroui/react";
 import { Stepper } from "@heroui-pro/react/stepper";
-import { useState } from "react";
-import { BookingDialog } from "./BookingUI";
 import { useLanguage } from "../lib/i18n";
 import { formatPhoneDisplay } from "@gf/contracts/phone";
 import type { ReactNode } from "react";
@@ -94,7 +92,6 @@ export function Progress({ step }: { step: BookStep }) {
 
 export function Topbar({ shop, step }: { shop: Shop; step: BookStep | null }) {
   const { locale, setLocale, t } = useLanguage();
-  const [languageOpen, setLanguageOpen] = useState(false);
   const languages = [
     ["en", "English"],
     ["zh-Hans", "中文"],
@@ -115,35 +112,10 @@ export function Topbar({ shop, step }: { shop: Shop; step: BookStep | null }) {
           <Progress step={step} />
         </div>
       )}
-      <Button
-        variant="ghost"
-        size="sm"
-        aria-label={t("Language")}
-        onPress={() => setLanguageOpen(true)}
-      >
-        {languages.find(([id]) => id === locale)?.[1]}{" "}
-        <span aria-hidden="true">⌄</span>
-      </Button>
-      <BookingDialog
-        open={languageOpen}
-        onClose={() => setLanguageOpen(false)}
-        title={t("Language")}
-      >
-        <div className="language-options">
-          {languages.map(([id, label]) => (
-            <Button
-              key={id}
-              variant={locale === id ? "primary" : "ghost"}
-              onPress={() => {
-                setLocale(id as typeof locale);
-                setLanguageOpen(false);
-              }}
-            >
-              {label}
-            </Button>
-          ))}
-        </div>
-      </BookingDialog>
+      <select className="language-select" aria-label={t("Language")} value={locale}
+        onChange={(event) => setLocale(event.target.value as typeof locale)}>
+        {languages.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+      </select>
     </header>
   );
 }
