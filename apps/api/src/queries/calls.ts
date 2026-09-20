@@ -21,6 +21,9 @@ import type { CommandContext } from '@gf/contracts';
 export interface CallLine {
   role: 'user' | 'assistant' | 'tool' | 'system';
   text: string;
+  startSeconds?: number;
+  endSeconds?: number;
+  speaker?: number;
   at?: string;
   tool?: string;
 }
@@ -40,6 +43,7 @@ export interface CallView {
   recordingId: string | null;
   billingStatus: string;
   billableSeconds: number | null;
+  summary?: string | null;
   transcript: CallLine[];
 }
 
@@ -53,7 +57,7 @@ const maskPhone = (e164: string | null, canSee: boolean): string | null => {
 export async function loadCalls(
   tx: postgres.TransactionSql,
   ctx: CommandContext,
-  opts: { days?: number; limit?: number } = {},
+  opts: { days?: number; limit?: number; callId?: string } = {},
 ): Promise<{ calls: CallView[]; bookedCount: number; totalMinutes: number }> {
   const days = Math.min(90, Math.max(1, opts.days ?? 7));
   const limit = Math.min(200, Math.max(1, opts.limit ?? 50));
@@ -63,13 +67,14 @@ export async function loadCalls(
     id: string; from_e164: string | null; started_at: string | Date | null;
     duration_seconds: number | null; outcome: string | null;
     recording_id: string | null; voice_billing_status: string; billable_seconds: number | null;
-    tools_used: string[] | null; recording_url: string | null; transcript: unknown;
+    tools_used: string[] | null; recording_url: string | null; transcript: unknown; summary: string | null;
   }[]>`
     select id, from_e164, started_at, duration_seconds, outcome,
-           tools_used, recording_url, transcript, recording_id, voice_billing_status, billable_seconds
+           tools_used, recording_url, summary, transcript, recording_id, voice_billing_status, billable_seconds
     from phone_calls
     where location_id = ${ctx.locationId}
-      and created_at > now() - make_interval(days => ${days})
+      and (${opts.callId ?? null}::uuid is null or id=${opts.callId ?? null}::uuid)
+      and (${opts.callId ?? null}::uuid is not null or created_at > now() - make_interval(days => ${days}))
     order by coalesce(started_at, created_at) desc
     limit ${limit}`;
 
@@ -87,6 +92,7 @@ export async function loadCalls(
       recordingId: r.recording_id,
       billingStatus: r.voice_billing_status,
       billableSeconds: r.billable_seconds,
+      summary: r.summary,
       transcript: Array.isArray(r.transcript) ? r.transcript as CallLine[] : [],
     };
   });

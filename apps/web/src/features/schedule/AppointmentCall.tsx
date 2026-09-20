@@ -1,3 +1,4 @@
+import { CallConversation, type ConversationLine } from '@/features/comms/CallConversation';
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "@/lib/session";
@@ -17,7 +18,7 @@ export function AppointmentCall({ appointmentId }: { appointmentId: string }) {
         call: {
           callId: string;
           summary: string | null;
-          transcript: Array<{ role: string; text: string }>;
+          transcript: ConversationLine[];
           hasRecording: boolean;
         } | null;
       }>(`/v1/desk/appointments/${appointmentId}/call`),
@@ -69,24 +70,7 @@ export function AppointmentCall({ appointmentId }: { appointmentId: string }) {
               ))}
             {error && <p role="alert">{t("bookingCallError")}</p>}
             <div className="max-h-96 space-y-3 overflow-auto">
-              {call.transcript
-                .filter((line) => line.role !== "tool")
-                .map((line, index) => (
-                  <p
-                    key={index}
-                    className="whitespace-pre-wrap rounded-lg bg-slate-50 p-3"
-                  >
-                    <strong>
-                      {line.role === "user"
-                        ? t("bookingCaller")
-                        : line.role === "assistant"
-                          ? t("bookingAssistant")
-                          : t("bookingTranscript")}
-                    </strong>
-                    <br />
-                    {line.text}
-                  </p>
-                ))}
+              <CallConversation lines={call.transcript} />
             </div>
           </>
         )}

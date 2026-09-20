@@ -24,3 +24,11 @@ Recording imports must have a provider start time at or after the active phone b
 Verified: production context returns Zhi Zi Massage and its eight bookable primary service variants; the old staging credential route returns 401; management requests missing system caller metadata return 403; provider phone/application reads confirm the production webhook and number association. No live PSTN call or real test booking was placed during cutover.
 
 See [caller-scoped management](voice-management-v2.md) for security and policy behavior. The earlier [V1 staging setup](voice-booking-v1.md) is historical.
+
+## Conversation display and call emails
+
+Recording processing now preserves speaker turns and second offsets. Dual-channel Telnyx recordings use caller channel 0 and dialed-agent channel 1. Malformed multichannel word timing triggers one diarized retry; classification maps actual speaker IDs to caller/receptionist, leaving uncertain identities unassigned. Text without speaker information is never labelled as a customer utterance.
+
+The calls API returns the stored summary. Both call and appointment details render the same conversation component. Call emails use the shared brand layout, verified caller/time/duration, a summary, a short dialogue preview, and an authenticated `/calls?call=<id>` link. The single-call API enforces tenant and appointment-read access even for older calls. Emails already delivered are not resent by transcript repairs.
+
+The existing Zhi Zi call `97f8d8db-0ff0-4345-b415-aed7d4b7d0dc` was repaired into eight reviewed turns without changing its original wording or billing. A private pre-change backup was retained. Tests cover speaker ordering/fallback, safe email rendering, tenant-scoped reads, preserved summaries/turns, and once-only billing.

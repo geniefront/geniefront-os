@@ -1,3 +1,4 @@
+import { renderVoiceCallEmail } from '../email/voiceCall';
 import { voiceNotificationTargets } from '@gf/contracts';
 import { randomUUID } from 'node:crypto';
 import { QueueVoiceRecording, ClaimVoiceJob, CompleteVoiceJob, FailVoiceJob } from '@gf/contracts';
@@ -54,7 +55,7 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
     return { completed: false };
   }
   const billableSeconds = billableVoiceSeconds(input.durationSeconds, input.analysis.segments);
-  const transcript = (input.transcript.match(/[\s\S]{1,4000}/g) ?? []).map(text => ({ role: 'system', text }));
+  const transcript = input.turns?.length ? input.turns : (input.transcript.match(/[\s\S]{1,4000}/g) ?? []).map(text => ({ role: 'system' as const, text }));
   const [call] = await tx<{ id: string; voice_billing_status: string }[]>`
     insert into phone_calls(org_id,location_id,provider_call_id,from_e164,to_e164,started_at,duration_seconds,
       outcome,transcript,recording_id,recording_url,summary,voice_billing_status)
@@ -87,19 +88,22 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
         and p.started_at+make_interval(secs=>coalesce(p.duration_seconds,0))>${start.toISOString()}::timestamptz)`;
   }
   const [linkedBooking]=await tx`select id from appointments where location_id=${ctx.locationId} and provider_call_id=${job.provider_call_id} limit 1`;
-  const [shop] = await tx<{ email: string | null; phone: string | null; name: unknown; settings: unknown }[]>`
-    select email,phone,name,settings from locations where id=${ctx.locationId}`;
+  const [shop] = await tx<{ email: string | null; phone: string | null; name: unknown; settings: unknown; timezone: string }[]>`
+    select email,phone,name,settings,timezone from locations where id=${ctx.locationId}`;
   const targets = voiceNotificationTargets(shop?.settings, { email: shop?.email ?? null, phone: shop?.phone ?? null });
-  const detail = `${process.env.APP_BASE_URL ?? ''}/calls`;
-  const text = `${input.analysis.summary}\n\n计费分钟：${Math.ceil(billableSeconds / 60)}\n录音及通话详情：${detail}\n\n通话转录：\n${input.transcript}`;
+  const detail = `${process.env.APP_BASE_URL ?? ''}/calls?call=${call!.id}`;
   if (targets.email && !linkedBooking) {
-    const html = text.replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]!));
+    const names = shop?.name as Record<string,string> | undefined;
+    const email = renderVoiceCallEmail({ shop: typeof shop?.name === 'string' ? shop.name : names?.en ?? names?.['zh-Hans'] ?? 'GenieFront',
+      from: String(job.payload.from ?? ''), startedAt: job.payload.startedAt ? String(job.payload.startedAt) : undefined,
+      timezone: shop?.timezone ?? 'America/New_York', durationSeconds: input.durationSeconds,
+      summary: input.analysis.summary, turns: transcript, detailUrl: detail });
     await tx`insert into email_outbox(org_id,location_id,kind,to_email,subject,body_html,body_text,entity_type,entity_id)
-      values(${ctx.orgId},${ctx.locationId},'platform_notice',${targets.email},'AI 来电记录',${`<pre>${html}</pre>`},${text},'phone_call',${call!.id})
+      values(${ctx.orgId},${ctx.locationId},'platform_notice',${targets.email},${email.subject},${email.html},${email.text},'phone_call',${call!.id})
       on conflict(entity_type,entity_id,kind) do nothing`;
   }
   if (targets.phone && smsConfigured() && !linkedBooking) {
-    const body = `GenieFront: Call completed. Details: ${detail.replace(/^https:\/\//,'')}. Reply STOP to opt out.`;
+    const body = `GenieFront: Call completed. Details: ${(process.env.APP_BASE_URL ?? '').replace(/^https:\/\//,'')}/calls. Reply STOP to opt out.`;
     await tx`insert into sms_outbox(org_id,location_id,kind,to_e164,from_e164,body,segments,entity_type,entity_id)
       values(${ctx.orgId},${ctx.locationId},'direct_message',${targets.phone},${smsFrom()},${body},${segmentsOf(body)},'phone_call',${call!.id})
       on conflict(entity_type,entity_id,kind) do nothing`;

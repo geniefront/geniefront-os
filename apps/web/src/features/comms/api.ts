@@ -3,6 +3,7 @@ import { apiGet, runCommand } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import type {
   CallsQueryResponse,
+  CallView,
   CallDraftsQueryResponse,
   InboundSmsQueryResponse,
   DraftDismissReason,
@@ -97,5 +98,13 @@ export function useSendDirectSms() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["desk", "sms-inbound"] });
     },
+  });
+}
+export function useCallQuery(callId: string | null) {
+  const { membershipId, status } = useSession();
+  return useQuery({
+    queryKey: ['desk','call',membershipId,callId],
+    queryFn: () => apiGet<{call:CallView}>(`/v1/desk/calls/${encodeURIComponent(callId!)}`),
+    enabled: status === 'ready' && membershipId !== null && Boolean(callId),
   });
 }

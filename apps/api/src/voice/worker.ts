@@ -1,3 +1,4 @@
+import {labelDiarizedTurns} from './transcript';
 import type { FastifyInstance } from 'fastify';
 import type { CommandContext } from '@gf/contracts';
 import { sql, withTenant, tenantForPhoneNumber } from '@gf/db';
@@ -38,12 +39,12 @@ export async function processVoiceRecordings(app: Pick<FastifyInstance, 'log'>) 
     const job = result.job; if (!job) continue;
     try {
       const recording = await getRecording(job.recordingId);
-      const transcript = await transcribeRecording(recording.bytes, recording.type);
+      const transcript = await transcribeRecording(recording.bytes, recording.type, recording.channels);
       const durationSeconds = recording.durationSeconds || Number(job.payload.durationSeconds) || Math.ceil(Number(transcript.duration));
       if (!Number.isFinite(durationSeconds) || durationSeconds < 0 || durationSeconds > 86400) throw new Error('Invalid recording duration');
       const analysis = await classifyRecording(transcript, durationSeconds);
       await dispatch('call.completeRecording', { jobId: job.id, leaseId: job.leaseId, durationSeconds,
-        transcript: transcript.text, analysis, recordingUrl: recording.url }, ctx, opts);
+        transcript: transcript.text, turns: labelDiarizedTurns(transcript.turns, analysis.speakers), analysis, recordingUrl: recording.url }, ctx, opts);
       await flushEmails(ctx, app.log); await flushSms(ctx, app.log);
     } catch (error) {
       const reason = error instanceof Error ? error.message.slice(0, 200) : 'Voice processing failed';

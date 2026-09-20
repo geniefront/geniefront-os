@@ -1,3 +1,4 @@
+import { loadCalls } from './queries/calls';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
 import { withTenant, closeDb, PLATFORM_OPS_USER_ID } from '@gf/db';
@@ -120,12 +121,21 @@ describe('xAI scoped booking tools', () => {
     const claimed = await dispatch<{ job: { id: string; leaseId: string } }>('call.claimRecording', {}, ctx, opts);
     const job = claimed.result.job; expect(job).toBeTruthy();
     const payload = { jobId: job.id, leaseId: job.leaseId, durationSeconds: 180,
-      transcript: 'Store service inquiry followed by unrelated conversation.', recordingUrl: 'https://recordings.telnyx.com/test.wav',
+      transcript: 'Store service inquiry followed by unrelated conversation.', turns: [{role:'assistant',text:'Hello',startSeconds:0,endSeconds:1},{role:'user',text:'What services?',startSeconds:2,endSeconds:4}], recordingUrl: 'https://recordings.telnyx.com/test.wav',
       analysis: { summary: '客户咨询服务，随后闲聊。', segments: [
         { start: 0, end: 60, category: 'business' }, { start: 60, end: 180, category: 'off_topic' },
       ] } };
     const first = await dispatch<{ completed: boolean; billableSeconds: number }>('call.completeRecording', payload, ctx, opts);
     expect(first.result.billableSeconds).toBe(60);
+    const loaded = await withTenant(tenant, tx => loadCalls(tx, ctx));
+    const stored = loaded.calls.find(c=>c.transcript[0]?.text==='Hello');
+    expect(stored?.summary).toBe(payload.analysis.summary);
+    expect(stored?.transcript).toEqual(payload.turns);
+    const exact = await withTenant(tenant, tx => loadCalls(tx, ctx, {callId:stored!.callId}));
+    expect(exact.calls).toHaveLength(1);
+    const other = {...ctx, locationId:'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb'};
+    expect((await withTenant(tenant,tx=>loadCalls(tx,other,{callId:stored!.callId}))).calls).toHaveLength(0);
+
     const second = await dispatch<{ completed: boolean }>('call.completeRecording', payload, ctx, opts);
     expect(second.result.completed).toBe(false);
     const [usage] = await withTenant(tenant, tx => tx<{ count: number; total: number }[]>`

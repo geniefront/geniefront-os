@@ -1,5 +1,6 @@
+import { CallConversation } from '@/features/comms/CallConversation';
 import { apiGet } from '@/lib/api';
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useErrorMessage } from '@/lib/errorMessage';
 import { useStoreTime, instantToWallDate } from '@/lib/time';
 import { useLanguage } from "@/LanguageContext";
@@ -25,7 +26,6 @@ import {
   AlertTriangle,
   Search,
   Bot,
-  User,
   Volume2,
   CalendarCheck,
   Calendar,
@@ -38,16 +38,18 @@ import {
 import { toast } from "@heroui/react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PageLoading, PageError } from "@/components/ui/QueryState";
-import { useCallsQuery, useCallDraftsQuery, useDismissCallDraft } from "@/features/comms/api";
+import { useCallsQuery, useCallQuery, useCallDraftsQuery, useDismissCallDraft } from "@/features/comms/api";
 import type { CallView, CallDraftView, DraftDismissReason } from "@/features/comms/types";
 import { callDeskMetrics } from "@/features/comms/callMetrics";
-import { useNavigate, useOutletContext } from "react-router-dom";
+import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 
 export function Calls() {
   const storeTime = useStoreTime();
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedCallId = searchParams.get('call');
   const { openCreateAppointment } = useOutletContext<{
     openCreateAppointment?: (options?: {
       defaultDate?: string;
@@ -61,16 +63,19 @@ export function Calls() {
 
   const { data: callData, isLoading: callsLoading, isError: callsError, error: callsErr, refetch: refetchCalls } = useCallsQuery(7);
   const { data: draftData, isLoading: draftsLoading, isError: draftsError, error: draftsErr, refetch: refetchDrafts } = useCallDraftsQuery("pending");
+  const linkedCall = useCallQuery(linkedCallId);
   const dismissMutation = useDismissCallDraft();
 
   const isInitialLoading = callsLoading && draftsLoading && !callData && !draftData;
 
   const [selectedCall, setSelectedCall] = useState<CallView | null>(null);
+  useEffect(() => { if (linkedCall.data?.call) setSelectedCall(linkedCall.data.call); }, [linkedCall.data]);
+  useEffect(() => { if (linkedCall.isError) toast.danger(t('bookingCallError')); }, [linkedCall.isError, t]);
   const [playingCallId, setPlayingCallId] = useState<string | null>(null);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [playbackCurrentTime, setPlaybackCurrentTime] = useState<number>(0);
-  const [playbackTotalDuration, setPlaybackTotalDuration] = useState<number>(98);
+  const [playbackTotalDuration, setPlaybackTotalDuration] = useState<number>(0);
   const [dismissingDraft, setDismissingDraft] = useState<CallDraftView | null>(null);
   const [dismissReason, setDismissReason] = useState<DraftDismissReason>("wrong_service");
 
@@ -113,7 +118,9 @@ export function Calls() {
     return `${m.toString().padStart(2, "0")}:${rem.toString().padStart(2, "0")}`;
   };
 
+  useEffect(() => () => { audioElement?.pause(); }, [audioElement]);
   const handleTogglePlay = async (call: CallView) => {
+    if (playingCallId === call.callId) { audioElement?.pause(); setPlayingCallId(null); return; }
     if (!call.recordingUrl && !call.recordingId) {
       toast.danger(t('crm.callNoRecording'));
       return;
@@ -124,7 +131,7 @@ export function Calls() {
       catch { toast.danger(t('crm.callNoRecording')); return; }
     }
     if (!audioSrc) return;
-    const dur = call.durationSeconds || 98;
+    const dur = call.durationSeconds || 0;
     setPlaybackTotalDuration(dur);
 
     if (playingCallId === call.callId) {
@@ -155,26 +162,24 @@ export function Calls() {
         setPlaybackCurrentTime(0);
       };
 
-      audio.onerror = () => {
-        setPlayingCallId(call.callId);
-      };
+      audio.onerror = () => { setPlayingCallId(null); toast.danger(t('crm.callNoRecording')); };
 
       audio
         .play()
         .then(() => {
           setPlayingCallId(call.callId);
           setAudioElement(audio);
-          toast.success(t('crm.callPlayingHd'));
+
         })
         .catch(() => {
-          setPlayingCallId(call.callId);
-          toast.success(t('crm.callPlayingSim'));
+          setPlayingCallId(null);
+          toast.danger(t('crm.callNoRecording'));
         });
     }
   };
 
   const handleSeek = (time: number) => {
-    const target = Math.max(0, Math.min(time, playbackTotalDuration || 98));
+    const target = Math.max(0, Math.min(time, playbackTotalDuration || 0));
     setPlaybackCurrentTime(target);
     if (audioElement) {
       audioElement.currentTime = target;
@@ -188,21 +193,6 @@ export function Calls() {
     }
   };
 
-  /**
-   * ⚠️ `CallView` 没有 `summary` 字段（见 features/comms/types.ts）——
-   * 后端目前不产出真正的 AI 通话总结。这里以前在缺失时会用转写文本
-   * 关键词匹配（"预约"/"价格"…）拼出一句看起来像模型判断的固定文案，
-   * 顶着「AI 意图分析与接待总结」的标题和 Sparkles 图标展示。
-   *
-   * 那不是分析结果，只是字符串包含检测：转写里出现"预约"两个字，
-   * 不代表任何工位真的被匹配、任何待办真的被登记 —— 而文案正是这么说的。
-   * 把猜测的结果包装成 AI 判断展示给老板，比"暂无总结"更容易造成误判。
-   * 空就是空，直到后端真的提供这个字段。
-   */
-  const getCallSummary = (call: CallView): string | null => {
-    const summary = (call as { summary?: string }).summary;
-    return summary && summary.length > 5 ? summary : null;
-  };
 
   const handleDirectApproveDraft = (d: CallDraftView) => {
     const cust = d.customer?.displayName || d.callerNameHeard || "";
@@ -705,6 +695,9 @@ export function Calls() {
           onOpenChange={(open) => {
             if (!open) {
               setSelectedCall(null);
+              audioElement?.pause();
+              setPlayingCallId(null);
+              if (linkedCallId) setSearchParams({}, { replace: true });
               if (playingCallId) {
                 audioElement?.pause();
                 setPlayingCallId(null);
@@ -764,6 +757,9 @@ export function Calls() {
                   size="sm"
                   onClick={() => {
                     setSelectedCall(null);
+              audioElement?.pause();
+              setPlayingCallId(null);
+              if (linkedCallId) setSearchParams({}, { replace: true });
                   }}
                 >
                   
@@ -777,6 +773,9 @@ export function Calls() {
                       defaultPhone: selectedCall.fromE164 ? formatPhoneDisplay(selectedCall.fromE164) : "",
                     });
                     setSelectedCall(null);
+              audioElement?.pause();
+              setPlayingCallId(null);
+              if (linkedCallId) setSearchParams({}, { replace: true });
                     toast.success(t('crm.callNumberCarried'));
                   }}
                 >
@@ -795,6 +794,7 @@ export function Calls() {
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
+                    aria-label={t('bookingCallRecording')}
                     onClick={() => handleTogglePlay(selectedCall)}
                     className="w-11 h-11 rounded-2xl bg-teal-500 text-teal-950 flex items-center justify-center hover:bg-teal-400 active:scale-95 transition-all shrink-0 shadow-md shadow-teal-500/20"
                   >
@@ -811,7 +811,7 @@ export function Calls() {
                     </p>
                     <p className="text-[11px] text-slate-400 font-mono">
                       
-                      {t('crm.callAudioSpec')}
+                      {selectedCall.startedAt ? storeTime.dateTime(selectedCall.startedAt) : ''}
                     </p>
                   </div>
                 </div>
@@ -837,43 +837,13 @@ export function Calls() {
 
               {/* 动态交互式波形图 (点击/拖拽可直接 Seek) */}
               <div className="space-y-1.5 pt-1">
-                <div
-                  className="flex items-end justify-between gap-1 h-9 px-1 cursor-pointer select-none group"
-                  onClick={(e) => {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const clickX = e.clientX - rect.left;
-                    const pct = Math.max(0, Math.min(1, clickX / rect.width));
-                    handleSeek(pct * (playbackTotalDuration || 98));
-                  }}
-                >
-                  {[
-                    30, 45, 65, 80, 40, 95, 70, 50, 85, 100, 75, 45, 90, 60,
-                    40, 85, 95, 65, 50, 70, 90, 80, 45, 60, 85, 70, 50, 35,
-                  ].map((height, i) => {
-                    const barProgress = (i / 28) * 100;
-                    const currentProgress =
-                      ((playbackCurrentTime || 0) / (playbackTotalDuration || 98)) * 100;
-                    const isActive = barProgress <= currentProgress;
-                    return (
-                      <div
-                        key={i}
-                        className={`flex-1 rounded-full transition-all duration-150 ${
-                          isActive
-                            ? "bg-teal-400 shadow-xs shadow-teal-400/50"
-                            : "bg-slate-700/80 group-hover:bg-slate-600"
-                        }`}
-                        style={{ height: `${height}%` }}
-                      />
-                    );
-                  })}
-                </div>
-
                 {/* 拖动进度条与时间显示 */}
                 <div className="flex items-center gap-3">
                   <input
+                    aria-label={t('bookingCallRecording')}
                     type="range"
                     min={0}
-                    max={playbackTotalDuration || 98}
+                    max={playbackTotalDuration || 0}
                     step={0.5}
                     value={playbackCurrentTime || 0}
                     onChange={(e) => handleSeek(parseFloat(e.target.value))}
@@ -882,7 +852,7 @@ export function Calls() {
                   <div className="font-mono text-[11px] text-slate-300 font-bold shrink-0">
                     <span className="text-teal-300">{formatAudioTime(playbackCurrentTime)}</span>
                     <span className="text-slate-500 mx-1">/</span>
-                    <span>{formatAudioTime(playbackTotalDuration || selectedCall.durationSeconds || 98)}</span>
+                    <span>{formatAudioTime(playbackTotalDuration || selectedCall.durationSeconds || 0)}</span>
                   </div>
                 </div>
               </div>
@@ -894,7 +864,7 @@ export function Calls() {
                 <Sparkles className="w-4 h-4 text-teal-600" />  {t('crm.callAiSummaryLabel')}
               </span>
               <p className="text-slate-700 leading-relaxed font-medium pl-5">
-                {getCallSummary(selectedCall) ?? (
+                {selectedCall.summary ?? (
                   <span className="italic text-slate-400">{t('crm.callNoAiSummary')}</span>
                 )}
               </p>
@@ -902,45 +872,7 @@ export function Calls() {
 
             {/* 对齐式逐字对话流 */}
             <div className="space-y-3 max-h-[380px] overflow-y-auto p-1 custom-scrollbar">
-              {selectedCall.transcript.length === 0 ? (
-                <p className="text-slate-400 text-center py-8 text-xs">{t('crm.callNoTranscript')}</p>
-              ) : (
-                selectedCall.transcript.map((line, idx) => {
-                  const isAssistant = line.role === "assistant";
-                  return (
-                    <div
-                      key={idx}
-                      className={`flex gap-2.5 ${isAssistant ? "justify-start" : "justify-end"}`}
-                    >
-                      {isAssistant && (
-                        <div className="w-7 h-7 rounded-full bg-teal-600 text-white flex items-center justify-center shrink-0 text-xs shadow-sm">
-                          <Bot className="w-4 h-4" />
-                        </div>
-                      )}
-                      <div
-                        className={`max-w-[80%] p-3 rounded-2xl text-xs space-y-1 ${
-                          isAssistant
-                            ? "bg-teal-50/80 border border-teal-100 text-slate-800 rounded-tl-none"
-                            : "bg-slate-100 text-slate-800 rounded-tr-none"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between text-[10px] text-slate-400 gap-4">
-                          <span className="font-bold">
-                            {isAssistant ? t('crm.callSpeakerAi') : t('crm.callSpeakerCustomer')}
-                          </span>
-                          {line.at && <span className="font-mono">{line.at}</span>}
-                        </div>
-                        <p className="leading-relaxed">{line.text}</p>
-                      </div>
-                      {!isAssistant && (
-                        <div className="w-7 h-7 rounded-full bg-slate-700 text-white flex items-center justify-center shrink-0 text-xs shadow-sm">
-                          <User className="w-4 h-4" />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
+              <CallConversation lines={selectedCall.transcript} />
             </div>
           </div>
         </Modal>

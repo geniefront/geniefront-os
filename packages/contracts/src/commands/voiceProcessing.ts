@@ -4,6 +4,7 @@ const system = { system: true, permission: 'call.draft' as const, reversible: fa
   idempotency: 'optional' as const, ai: { exposed: false, confirm: 'never' as const, description: 'Internal voice processing' } };
 export const VoiceAnalysis = z.object({
   summary: z.string().max(1000),
+  speakers: z.array(z.object({ id: z.number().int().nonnegative(), role: z.enum(['user','assistant','unknown']) }).strict()).max(20).optional(),
   segments: z.array(z.object({ start: z.number().nonnegative(), end: z.number().nonnegative(),
     category: z.enum(['business', 'spam', 'sales', 'silence', 'off_topic', 'system_failure']) }).strict()).max(200),
 }).strict();
@@ -19,7 +20,7 @@ export const ClaimVoiceJob = defineCommand({ ...system, name: 'call.claimRecordi
 });
 export const CompleteVoiceJob = defineCommand({ ...system, name: 'call.completeRecording',
   input: z.object({ jobId: uuid, leaseId: uuid, durationSeconds: z.number().int().min(0).max(86400),
-    transcript: z.string().max(100000), analysis: VoiceAnalysis, recordingUrl: z.string().url().max(2000) }),
+    transcript: z.string().max(100000), turns: z.array(z.object({ role: z.enum(['user','assistant','system']), text: z.string().max(4000), startSeconds: z.number().nonnegative().optional(), endSeconds: z.number().nonnegative().optional(), speaker: z.number().int().nonnegative().optional() }).strict()).max(10000).optional(), analysis: VoiceAnalysis, recordingUrl: z.string().url().max(2000) }),
   output: z.object({ completed: z.boolean(), billableSeconds: z.number().optional() }),
 });
 export const FailVoiceJob = defineCommand({ ...system, name: 'call.failRecording',

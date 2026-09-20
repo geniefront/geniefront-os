@@ -57,6 +57,16 @@ export function registerMiscRoutes(app: FastifyInstance, ctxFromHeaders: CtxFrom
       (tx) => loadCallDrafts(tx, ctx, req.query.status ?? 'pending'));
   });
 
+  app.get<{ Params: { id: string } }>('/v1/desk/calls/:id', async (req, reply) => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('appointment.read')) throw new AppError(ERROR_CODES.PERMISSION_DENIED);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.id)) throw new AppError(ERROR_CODES.NOT_FOUND);
+    const result = await withTenant(ctx, tx => loadCalls(tx, ctx, { callId: req.params.id }));
+    if (!result.calls[0]) throw new AppError(ERROR_CODES.NOT_FOUND);
+    reply.header('Cache-Control', 'no-store');
+    return { call: result.calls[0] };
+  });
+
   app.get<{ Params: { id: string } }>('/v1/desk/calls/:id/recording', async (req, reply) => {
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('appointment.read')) throw new AppError(ERROR_CODES.PERMISSION_DENIED);

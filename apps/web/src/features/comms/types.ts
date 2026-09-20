@@ -1,6 +1,9 @@
 export interface CallLine {
   role: "user" | "assistant" | "tool" | "system";
   text: string;
+  startSeconds?: number;
+  endSeconds?: number;
+  speaker?: number;
   at?: string;
   tool?: string;
 }
@@ -17,6 +20,7 @@ export interface CallView {
   recordingId?: string | null;
   billingStatus?: string;
   billableSeconds?: number | null;
+  summary?: string | null;
   transcript: CallLine[];
 }
 
