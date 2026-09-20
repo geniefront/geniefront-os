@@ -1,5 +1,7 @@
 # Voice Booking V1 setup and verification
 
+> Historical staging setup. This number and agent moved to [Zhi Zi Massage production](voice-production.md) on 2026-09-20.
+
 ## Staging configuration
 
 - Shop: Zhi Zi Voice Test / 栀子语音测试店
