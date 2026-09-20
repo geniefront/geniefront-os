@@ -103,6 +103,14 @@ describe('xAI scoped booking tools', () => {
     expect((await submit(slot.slotToken, 'Requested two')).statusCode).toBe(200);
     expect((await submit(slot.slotToken, 'Requested three')).statusCode).toBe(409);
   });
+  it('does not import recordings from before a phone number was bound to this shop', async () => {
+    const scoped = { ...ctx, permissions: new Set([...ctx.permissions, 'call.draft' as const]) };
+    for (const [providerCallId, startedAt] of [['old-binding-call', '2000-01-01T00:00:00Z'], ['undated-binding-call', undefined]] as const) {
+      const out = await dispatch<{queued:boolean}>('call.queueRecording', {providerCallId,recordingId:providerCallId,to:phone,startedAt,durationSeconds:30},scoped,{systemOrigin:'voice_test'});
+      expect(out.result.queued).toBe(false);
+      expect(await withTenant(tenant,tx=>tx`select id from voice_processing_jobs where provider_call_id=${providerCallId}`)).toHaveLength(0);
+    }
+  });
   it('settles recording classification once, without charging excluded time', async () => {
     const opts = { systemOrigin: 'voice_test' };
     ctx = { ...ctx, permissions: new Set([...ctx.permissions, 'call.draft', 'billing.manage']) };

@@ -9,6 +9,14 @@ import { smsFrom, smsConfigured } from '../sms/send';
 import { segmentsOf } from '../sms/segments';
 
 registerHandler(QueueVoiceRecording, async ({ input, tx, ctx, audit }) => {
+  // A reassigned number must never import or bill recordings from its previous shop.
+  const [line] = await tx<{ created_at: string }[]>`select created_at::text from phone_lines
+    where location_id=${ctx.locationId} and e164=${input.to} and purpose='ai_voice' and active limit 1`;
+  if (!line || !input.startedAt || Date.parse(input.startedAt) < Date.parse(line.created_at)) {
+    audit({ entityType: 'location', entityId: ctx.locationId,
+      after: { recordingQueued: false, providerCallId: input.providerCallId, reason: 'outside_phone_binding' } });
+    return { queued: false };
+  }
   await tx`insert into voice_processing_jobs(org_id,location_id,provider_call_id,recording_id,payload)
     values(${ctx.orgId},${ctx.locationId},${input.providerCallId},${input.recordingId},${jsonb(input)}::jsonb)
     on conflict(location_id,provider_call_id) do nothing`;
