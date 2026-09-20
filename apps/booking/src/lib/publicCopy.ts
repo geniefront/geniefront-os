@@ -1,6 +1,8 @@
 /* Public booking experience copy. Keys are the English source text. */
 export const PUBLIC_COPY: Record<string, Record<string, string>> = {
   "zh-Hans": {
+    "Remove guest": "移除此顾客",
+    "Removing this guest also removes their services.": "移除此顾客也会移除其已选服务。",
     "Save name": "保存姓名",
     "Guest names": "顾客姓名",
     "View shop photos": "查看店铺照片",
@@ -217,6 +219,8 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Not selected yet": "尚未选择",
   },
   en: {
+    "Remove guest": "Remove guest",
+    "Removing this guest also removes their services.": "Removing this guest also removes their services.",
     "Save name": "Save name",
     "Guest names": "Guest names",
     "View shop photos": "View shop photos",
@@ -445,6 +449,8 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Not selected yet": "Not selected yet",
   },
   es: {
+    "Remove guest": "Eliminar invitado",
+    "Removing this guest also removes their services.": "Al eliminar este invitado también se eliminan sus servicios.",
     "Save name": "Guardar nombre",
     "Guest names": "Nombres de los invitados",
     "View shop photos": "Ver fotos del local",
@@ -675,6 +681,8 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Not selected yet": "Sin seleccionar",
   },
   vi: {
+    "Remove guest": "Xóa khách",
+    "Removing this guest also removes their services.": "Xóa khách này cũng sẽ xóa các dịch vụ đã chọn của họ.",
     "Save name": "Lưu tên",
     "Guest names": "Tên khách",
     "View shop photos": "Xem ảnh cửa hàng",
@@ -901,6 +909,8 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Not selected yet": "Chưa chọn",
   },
   ko: {
+    "Remove guest": "고객 삭제",
+    "Removing this guest also removes their services.": "이 고객을 삭제하면 선택한 서비스도 삭제됩니다.",
     "Save name": "이름 저장",
     "Guest names": "고객 이름",
     "View shop photos": "매장 사진 보기",

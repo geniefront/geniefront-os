@@ -103,11 +103,11 @@ it("retains a storefront selection, assigns each guest, reviews before atomic su
   await user.click(screen.getByRole('button',{name:/Add to booking/}));
   await user.click(screen.getByRole('button',{name:'Increase Number of guests'}));
   await user.click(screen.getByRole('button',{name:'Edit Guest 2'}));
-  await user.type(screen.getByLabelText('Guest 2'), 'Alex');
+  await user.type(screen.getByRole('textbox', {name:'Guest 2'}), 'Alex');
   await user.click(screen.getByRole('button',{name:'Save name'}));
   await user.click(screen.getByRole('button',{name:'Edit Alex'}));
-  await user.clear(screen.getByLabelText('Guest 2'));
-  await user.type(screen.getByLabelText('Guest 2'), 'Discard{Escape}');
+  await user.clear(screen.getByRole('textbox', {name:'Guest 2'}));
+  await user.type(screen.getByRole('textbox', {name:'Guest 2'}), 'Discard{Escape}');
   expect(screen.queryByRole('textbox', {name:'Guest 2'})).not.toBeInTheDocument();
   await user.click(screen.getByRole('button',{name:/Alex 0 selected/}));
   await user.click(screen.getByRole('button',{name:'Add Massage'}));
@@ -155,4 +155,32 @@ it("explains unavailable times and offers another date", async () => {
   const previous = api.getPartyAvailability.mock.calls.at(-1)![0];
   await user.click(screen.getByRole("button", { name: /Check next day/ }));
   await waitFor(() => expect(api.getPartyAvailability.mock.calls.at(-1)![0]).not.toBe(previous));
+});
+
+it("removes the chosen middle guest and preserves the remaining names and services", async () => {
+  const user = userEvent.setup();
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <MemoryRouter initialEntries={["/test"]}><Routes><Route path="/:slug" element={<BookingExperiencePage />} /></Routes></MemoryRouter>
+  </QueryClientProvider>);
+  await user.click(await screen.findByRole("button", { name: "Increase Number of guests" }));
+  await user.click(screen.getByRole("button", { name: "Increase Number of guests" }));
+  for (const [index, name] of ["Amy", "Ben", "Sam"].entries()) {
+    await user.click(screen.getByRole("button", { name: `Edit Guest ${index + 1}` }));
+    await user.type(screen.getByRole("textbox", {name:`Guest ${index + 1}`}), name);
+    await user.click(screen.getByRole("button", { name: "Save name" }));
+    await user.click(screen.getByRole("button", { name: `${name} 0 selected` }));
+    await user.click(screen.getByRole("button", { name: "Add Massage" }));
+    await user.click(screen.getByRole("button", { name: /Add to booking/ }));
+  }
+  await user.click(screen.getByRole("button", { name: "Edit Ben" }));
+  await user.click(screen.getByRole("button", { name: "Remove guest" }));
+  expect(screen.queryByRole("button", { name: "Edit Ben" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Sam 1 selected" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Amy 1 selected" })).toBeInTheDocument();
+  await user.click(screen.getAllByRole("button", { name: /^Choose time/ })[0]!);
+  await waitFor(() => expect(api.getPartyAvailability).toHaveBeenCalled());
+  expect(api.getPartyAvailability.mock.calls.at(-1)![1]).toEqual([
+    expect.objectContaining({guestIndex:0, serviceId:"a"}),
+    expect.objectContaining({guestIndex:1, serviceId:"a"}),
+  ]);
 });
