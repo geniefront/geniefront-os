@@ -280,6 +280,11 @@ describe('通知模板', () => {
 // ════════════ 改期 / 取消真的通知到人（批 8 收尾，补批 3 的口子）══════════
 
 describe('⭐ 改期与取消会通知客人和技师', () => {
+  // Exercise guest-initiated changes; staff operations are covered separately below.
+  const run = async <T>(name: string, input: unknown, key = crypto.randomUUID()): Promise<T> =>
+    (await dispatch<T>(name, input, { ...ctx, userId: null, membershipId: null, actorKind: 'api' },
+      { idempotencyKey: key })).result;
+
   let serviceId = '';
   let customerId = '';
 
@@ -351,6 +356,50 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
   }[]>`
     select body, entity_type from sms_outbox
     where entity_id = ${id} and kind = 'appointment_changed'`);
+
+  it.each(['desk', 'web'])('前台添加、修改和取消 %s 预约不会生成短信或邮件', async (source) => {
+    const d = new Date(Date.now() + 5 * 86400_000);
+    d.setUTCHours(18, 0, 0, 0);
+    const made = await dispatch<{ appointmentId: string }>('appointment.create', {
+      customerId, items: [{ serviceId, addonIds: [], membershipId: null,
+        startsAt: d.toISOString(), details: {} }], partySize: 1, source,
+    }, ctx, { idempotencyKey: crypto.randomUUID() });
+    const id = made.result.appointmentId;
+    d.setUTCDate(d.getUTCDate() + 1);
+    await dispatch('appointment.reschedule', { appointmentId: id, startsAt: d.toISOString() },
+      ctx, { idempotencyKey: crypto.randomUUID() });
+    await dispatch('appointment.cancel', { appointmentId: id, reason: 'guest_changed_mind', keepStaffTurn: false },
+      ctx, { idempotencyKey: crypto.randomUUID() });
+    const messages = await withTenant(tenant, tx => tx`
+      select id from sms_outbox where entity_id = ${id}
+      union all select id from email_outbox where entity_id = ${id}`);
+    expect(messages).toHaveLength(0);
+  });
+
+  it('前台修改线上预约仍清理旧提醒，但不生成变更或取消通知', async () => {
+    const id = await makeAppt();
+    await withTenant(tenant, tx => tx`
+      insert into sms_outbox
+        (org_id, location_id, kind, to_e164, from_e164, body, segments, entity_type, entity_id)
+      values (${NAIL_ORG}, ${NAIL_LOC}, 'appointment_reminder', '+16175550199',
+        '+18005550199', 'Old reminder', 1, 'appointment', ${id})`);
+    const before = await withTenant(tenant, tx => tx`
+      select id from sms_outbox where entity_id = ${id}
+      union all select id from email_outbox where entity_id = ${id}`);
+    const d = new Date(Date.now() + 6 * 86400_000);
+    d.setUTCHours(18, 0, 0, 0);
+    await dispatch('appointment.reschedule', { appointmentId: id, startsAt: d.toISOString() },
+      ctx, { idempotencyKey: crypto.randomUUID() });
+    await dispatch('appointment.cancel', { appointmentId: id, reason: 'guest_changed_mind', keepStaffTurn: false },
+      ctx, { idempotencyKey: crypto.randomUUID() });
+    const after = await withTenant(tenant, tx => tx`
+      select id from sms_outbox where entity_id = ${id}
+      union all select id from email_outbox where entity_id = ${id}`);
+    expect(after.map(r => r.id).sort()).toEqual(before.map(r => r.id).sort());
+    const [reminder] = await withTenant(tenant, tx => tx`
+      select status from sms_outbox where entity_id = ${id} and kind = 'appointment_reminder'`);
+    expect(reminder!.status).toBe('suppressed');
+  });
 
   it('⭐ 改期之后客人收到一条，内容是渲染好的（不是花括号）', async () => {
     await enable('appointment_changed');

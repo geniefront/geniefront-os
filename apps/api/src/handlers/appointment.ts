@@ -631,23 +631,9 @@ export async function executeSingleAppointmentInTx(
     }
   }
 
-  /*
-   * ⚠️ **只有客人自己发起的预约才自动发确认信/短信。**
-   *
-   * `PUBLIC_SOURCES`（`web` 官网自助、`phone_ai` AI 语音来电）这两条路上，
-   * 客人是主动把手机号/邮箱交给我们、并且知道自己刚订了一单的 —— 一封确认
-   * 是他期待收到的。
-   *
-   * 其余来路（`desk` 前台代订、`walkin` 到店散客、`ai_copilot` 副驾录入）
-   * **一律不发**：那些号码多半是历史档案里的，客人从没勾过任何接收同意。
-   * 往这些号码上群发确认短信，轻则被投诉，重则整个发送域被运营商和
-   * 邮件服务商标记成垃圾源 —— 那会连带把上面两条**该发的**也一起送进垃圾箱，
-   * 代价远大于「前台代订的客人没收到确认信」。
-   *
-   * 要给这类客人补一条通知，走前台显式点击的那条路（有 notifyCustomer 开关），
-   * 不要在这里放开。
-   */
-  if (PUBLIC_SOURCES.has(input.source)) {
+  // Only guest-initiated bookings send confirmations to customers, shops, and staff.
+  // Staff operations stay silent even if the supplied source is a public source.
+  if (ctx.membershipId === null && PUBLIC_SOURCES.has(input.source)) {
     await enqueueConfirmEmail(tx, ctx, appt!.id, itemIds[0] ?? null, issuedManageToken);
     if(input.guest?.bookingSmsConsent!==false) await enqueueConfirmSms(tx, ctx, appt!.id, itemIds[0] ?? null, issuedManageToken);
     await notifyBookingRecipients(tx,ctx,{appointmentId:appt!.id,occurrence:"created",event:"created"});
@@ -1706,6 +1692,10 @@ async function notifyAppointmentChange(
       last_error = case when status = 'pending' then 'appointment_changed' else last_error end
     where entity_id = ${args.appointmentId} and kind = 'appointment_reminder'
       and entity_type in ('appointment', 'appointment_shop')`;
+  // Desk edits/cancellations are silent, including bookings originally made online.
+  // Still invalidate stale reminders above so they cannot send the old schedule.
+  if (ctx.membershipId !== null) return;
+
   const row = args.snapshot ?? await loadChangeNotifySnapshot(tx, args.appointmentId);
   if (!row) return;
 
@@ -1752,19 +1742,7 @@ async function notifyAppointmentChange(
    * 选模板时，只要店主配过一份中文模板，`locale = 'zh-Hans'` 的顾客收到的
    * 就是中文 —— 邮件与短信皆然。
    */
-  /*
-   * ⚠️ **顾客侧只通知「客人自己订的」那些单**（判据同建单：`PUBLIC_SOURCES`）。
-   *
-   * 前台代订、到店散客、副驾录入的单，客人从没勾过任何接收同意 —— 建单时
-   * 我们没发确认信，改期/取消时更不该突然冒出来一条短信。那些号码多半来自
-   * 历史档案，往上面发变更通知同样会招来投诉，把整个发送域拖进垃圾名单，
-   * 连带把官网自助和 AI 语音那两条**该发的**一起送进垃圾箱。
-   *
-   * 这类单要通知客人，走前台显式点击的那条路，由人决定发不发。
-   *
-   * ⚠️ **技师侧不受此限**（见下方那次 notifyEvent）：排班变了技师必须知道，
-   * 那是内部通知，和顾客的接收同意是两码事。
-   */
+  // Guest self-service and verified voice changes retain customer notifications.
   if (PUBLIC_SOURCES.has(row.source) || ctx.verifiedBookingCaller) {
     await notifyEvent(tx, ctx, {
       event: args.event,
