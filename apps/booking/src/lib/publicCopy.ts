@@ -1,6 +1,7 @@
 /* Public booking experience copy. Keys are the English source text. */
 export const PUBLIC_COPY: Record<string, Record<string, string>> = {
   "zh-Hans": {
+    "Save name": "保存姓名",
     "Guest names": "顾客姓名",
     "View shop photos": "查看店铺照片",
     "No times available for this date": "当天暂无可约时间",
@@ -216,6 +217,7 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Not selected yet": "尚未选择",
   },
   en: {
+    "Save name": "Save name",
     "Guest names": "Guest names",
     "View shop photos": "View shop photos",
     "No times available for this date": "No times available for this date",
@@ -443,6 +445,7 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Not selected yet": "Not selected yet",
   },
   es: {
+    "Save name": "Guardar nombre",
     "Guest names": "Nombres de los invitados",
     "View shop photos": "Ver fotos del local",
     "No times available for this date": "No hay horarios para esta fecha",
@@ -672,6 +675,7 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Not selected yet": "Sin seleccionar",
   },
   vi: {
+    "Save name": "Lưu tên",
     "Guest names": "Tên khách",
     "View shop photos": "Xem ảnh cửa hàng",
     "No times available for this date": "Không có giờ trống vào ngày này",
@@ -897,6 +901,7 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Not selected yet": "Chưa chọn",
   },
   ko: {
+    "Save name": "이름 저장",
     "Guest names": "고객 이름",
     "View shop photos": "매장 사진 보기",
     "No times available for this date": "선택한 날짜에 예약 가능한 시간이 없습니다",

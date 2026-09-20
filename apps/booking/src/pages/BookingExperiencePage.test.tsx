@@ -102,9 +102,14 @@ it("retains a storefront selection, assigns each guest, reviews before atomic su
   await user.click(await screen.findByRole('button',{name:'Add Massage'}));
   await user.click(screen.getByRole('button',{name:/Add to booking/}));
   await user.click(screen.getByRole('button',{name:'Increase Number of guests'}));
-  await user.click(screen.getByRole('button',{name:'Guest names'}));
+  await user.click(screen.getByRole('button',{name:'Edit Guest 2'}));
   await user.type(screen.getByLabelText('Guest 2'), 'Alex');
-  await user.click(screen.getByRole('button',{name:/Alex/}));
+  await user.click(screen.getByRole('button',{name:'Save name'}));
+  await user.click(screen.getByRole('button',{name:'Edit Alex'}));
+  await user.clear(screen.getByLabelText('Guest 2'));
+  await user.type(screen.getByLabelText('Guest 2'), 'Discard{Escape}');
+  expect(screen.queryByRole('textbox', {name:'Guest 2'})).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button',{name:/Alex 0 selected/}));
   await user.click(screen.getByRole('button',{name:'Add Massage'}));
   await user.click(screen.getByRole('button',{name:/Add to booking/}));
   await user.click(screen.getAllByRole('button',{name:/^Choose time/})[0]!);

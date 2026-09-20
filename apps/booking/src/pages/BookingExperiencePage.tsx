@@ -72,7 +72,8 @@ export function BookingExperiencePage() {
   }, [slug, partySize, items, step]);
   const [guest, setGuest] = useState(0);
   const [guestNames, setGuestNames] = useState<string[]>([]);
-  const [editingNames, setEditingNames] = useState(false);
+  const [editingGuest, setEditingGuest] = useState<number | null>(null);
+  const [draftGuestName, setDraftGuestName] = useState("");
   const guestLabel = (index: number) => guestNames[index]?.trim() || `${t("Guest")} ${index + 1}`;
   const guestNotes = guestNames.slice(0, partySize).map((name, index) =>
     name?.trim() ? `Guest ${index + 1}: ${name.trim()}` : "").filter(Boolean).join("\n");
@@ -275,6 +276,7 @@ export function BookingExperiencePage() {
   const changeGuestCount = (n: number) => {
     setPartySize(n);
     setGuest(Math.min(guest, n - 1));
+    setEditingGuest(null);
     setGuestNames((names) => names.slice(0, n));
     changeItems(items.filter((i) => i.guestIndex < n));
     if (step !== 1) goStep(1);
@@ -497,16 +499,35 @@ export function BookingExperiencePage() {
                   <div className="guest-toolbar">
                     <div className="guest-tabs">
                       {Array.from({ length: partySize }, (_, i) => (
-                        <Choice
-                          key={i}
-                          selected={guest === i}
-                          onPress={() => setGuest(i)}
-                        >
-                          {guestLabel(i)}
-                          <span className="guest-count">
-                            {items.filter((x) => x.guestIndex === i).length} {t("selected")}
-                          </span>
-                        </Choice>
+                        <div key={i} className={`guest-chip ${guest === i ? "is-selected" : ""}`}>
+                          {editingGuest === i ? (
+                            <form className="guest-inline-name" ref={(node) => node?.scrollIntoView?.({ block: "nearest", inline: "nearest" })} onSubmit={(event) => {
+                              event.preventDefault();
+                              setGuestNames((names) => Array.from({ length: partySize }, (_, n) => n === i ? draftGuestName.trim() : names[n] ?? ""));
+                              setIdem(crypto.randomUUID());
+                              setEditingGuest(null);
+                            }}>
+                              <input autoFocus aria-label={`${t("Guest")} ${i + 1}`} value={draftGuestName}
+                                placeholder={`${t("Guest")} ${i + 1}`} maxLength={30}
+                                onChange={(event) => setDraftGuestName(event.target.value)}
+                                onKeyDown={(event) => { if (event.key === "Escape") setEditingGuest(null); }} />
+                              <button type="submit" aria-label={t("Save name")} title={t("Save name")}>✓</button>
+                              <button type="button" aria-label={t("btn.cancel")} title={t("btn.cancel")} onClick={() => setEditingGuest(null)}>×</button>
+                            </form>
+                          ) : <>
+                            <Choice selected={guest === i} onPress={() => setGuest(i)}>
+                              <span className="guest-chip-name">{guestLabel(i)}</span>{" "}
+                              <span className="guest-count">{items.filter((x) => x.guestIndex === i).length} {t("selected")}</span>
+                            </Choice>
+                            {partySize > 1 && <button type="button" className="guest-rename" aria-label={`${t("Edit")} ${guestLabel(i)}`}
+                              title={`${t("Edit")} ${guestLabel(i)}`} onClick={() => {
+                                setDraftGuestName(guestNames[i] ?? "");
+                                setEditingGuest(i);
+                              }}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15v5Z" /></svg>
+                            </button>}
+                          </>}
+                        </div>
                       ))}
                     </div>
                     <div className="guest-counter">
@@ -531,17 +552,6 @@ export function BookingExperiencePage() {
                       </NumberStepper>
                     </div>
                   </div>
-                  {partySize > 1 && <div className="guest-name-editor">
-                    <Button variant="ghost" size="sm" aria-expanded={editingNames} onPress={() => setEditingNames(!editingNames)}>{t("Guest names")}</Button>
-                    {editingNames && <div className="guest-name-fields">{Array.from({ length: partySize }, (_, i) =>
-                      <label key={i}>{t("Guest")} {i + 1}<Input value={guestNames[i] ?? ""} maxLength={30}
-                        placeholder={t("Name")} onChange={(event) => {
-                          const value = event.target.value;
-                          setGuestNames((names) => Array.from({ length: partySize }, (_, n) => n === i ? value : names[n] ?? ""));
-                          setIdem(crypto.randomUUID());
-                        }} /></label>
-                    )}</div>}
-                  </div>}
                   <div className="catalog-toolbar">
                     <div
                       className="category-tabs"

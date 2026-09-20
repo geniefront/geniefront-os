@@ -1041,12 +1041,6 @@ textarea.field-control {padding:16px 18px!important;line-height:1.65;letter-spac
 
 .language-select { flex: 0 0 auto; height: 40px; max-width: 150px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: white; color: var(--ink); font-size: 13px; }
 .shop-wordmark { min-width: 0; }
-.guest-name-editor { margin: -12px 0 20px; }
-.guest-name-editor > button { padding-left: 0; color: var(--muted); font-size: 12px; }
-.guest-name-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 16px; margin-top: 8px; border: 1px solid var(--line); border-radius: 12px; background: white; }
-.guest-name-fields label { min-width: 0; font-size: 12px; color: var(--muted); }
-.guest-name-fields input { width: 100%; margin-top: 6px; }
-.guest-tabs .booking-choice { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
 .shop-photo-banner { position: relative; display: flex; width: 100%; gap: 6px; height: 160px; overflow: hidden; border-radius: 16px; margin-bottom: 24px; background: var(--booking-subtle); }
 .shop-photo-banner img { flex: 1 1 0; width: 0; min-width: 0; height: 100%; object-fit: cover; }
 .shop-photo-banner span { position: absolute; right: 12px; bottom: 12px; background: white; color: var(--ink); padding: 8px 12px; border-radius: 8px; font-size: 12px; box-shadow: 0 2px 8px #0002; }
@@ -1058,8 +1052,19 @@ textarea.field-control {padding:16px 18px!important;line-height:1.65;letter-spac
 .empty-times-contact a { display: block; margin-top: 4px; }
 @media (max-width: 760px) {
   .language-select { max-width: 108px; height: 36px; padding: 0 8px; font-size: 12px; }
-  .guest-name-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .shop-photo-banner { height: 130px; margin-bottom: 20px; }
   .shop-photo-banner img:nth-child(3) { display: none; }
   .empty-times { min-height: 220px; padding: 24px 16px; }
 }
+
+/* Name editing belongs to its guest, without shifting the service list. */
+.guest-chip { display: flex; align-items: stretch; flex: 0 0 auto; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: white; }
+.guest-chip.is-selected { background: var(--ink); border-color: var(--ink); color: white; }
+.guest-chip .booking-choice { border: 0; border-radius: 0; padding-right: 10px; background: transparent; color: inherit; }
+.guest-chip-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.guest-rename { display: grid; place-items: center; width: 40px; min-height: 44px; flex: none; color: inherit; background: transparent; border: 0; }
+.guest-rename:hover { background: #8882; }
+.guest-inline-name { display: flex; align-items: center; gap: 2px; padding: 3px 4px 3px 10px; background: white; color: var(--ink); }
+.guest-inline-name input { width: 132px; min-width: 0; height: 36px; padding: 0 4px; border: 0; border-radius: 4px; background: white; color: var(--ink); font-size: 13px; }
+.guest-inline-name button { width: 36px; height: 38px; border: 0; border-radius: 8px; background: var(--booking-subtle); color: var(--ink); font-size: 18px; }
+.guest-inline-name button[type="submit"] { background: var(--ink); color: white; }
