@@ -1,7 +1,7 @@
 import { formatPhoneDisplay } from "@gf/contracts/phone";
 import { hourPeriods } from "@gf/scheduling";
 import { ServiceImage } from "../components/ServiceImage";
-import { Button, Input, Avatar, Popover } from "@heroui/react";
+import { Button, Input, Avatar } from "@heroui/react";
 import { Stepper } from "@heroui-pro/react/stepper";
 import { NumberStepper } from "@heroui-pro/react/number-stepper";
 import { Sheet } from "@heroui-pro/react/sheet";
@@ -485,20 +485,14 @@ export function BookingExperiencePage() {
               )}
               {step === 1 && (
                 <>
-                  {!!(shop.publicProfile?.coverUrl || shop.publicProfile?.photoUrls?.length) && <button type="button" className="shop-photo-banner" onClick={() => setInfoOpen(true)} aria-label={t("View shop photos")}>
+                  {!!(shop.publicProfile?.coverUrl || shop.publicProfile?.photoUrls?.length) && <button type="button" className="shop-photo-banner" onClick={() => setInfoOpen(true)} aria-label={t("Shop details")}>
                     {[...new Set([shop.publicProfile?.coverUrl, ...(shop.publicProfile?.photoUrls ?? [])].filter((url): url is string => !!url))].slice(0, 3).map((url) => <img key={url} src={url} alt={shop.name} />)}
-                    <span>{t("View shop photos")} ↗</span>
+                    <span>{t("Shop details")} ↗</span>
                   </button>}
                   <div className="store-intro">
                     <div>
                       <h1>{t("Services")}</h1>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onPress={() => setInfoOpen(true)}
-                      >
-                        {t("Shop details")} <span aria-hidden="true">↗</span>
-                      </Button>
+
                     </div>
                   </div>
                   {!shop.onlineBooking.enabled && (
@@ -538,37 +532,10 @@ export function BookingExperiencePage() {
                             <span className="guest-chip-name">{guestLabel(i)}</span>{" "}
                             <span className="guest-count">{items.filter((x) => x.guestIndex === i).length} {t("selected")}</span>
                           </Choice>
-                          <Popover isOpen={editingGuest === i} onOpenChange={(open) => {
-                            setEditingGuest(open ? i : null);
-                            if (open) setDraftGuestName(guestNames[i] ?? "");
-                          }}>
-                            <Button isIconOnly variant="ghost" className="guest-rename" aria-label={`${t("Edit")} ${guestLabel(i)}`}>
+                            <Button isIconOnly variant="ghost" className="guest-rename" aria-label={`${t("Edit")} ${guestLabel(i)}`} onPress={() => { setDraftGuestName(guestNames[i] ?? ""); setEditingGuest(i); }}>
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15v5Z" /></svg>
                             </Button>
-                            <Popover.Content placement="bottom start" className="guest-popover">
-                              <Popover.Dialog>
-                                <Popover.Heading>{t("Guest")} {i + 1}</Popover.Heading>
-                                <form className="guest-name-form" onSubmit={(event) => {
-                                  event.preventDefault();
-                                  setGuestNames((names) => Array.from({ length: partySize }, (_, n) => n === i ? draftGuestName.trim() : names[n] ?? ""));
-                                  setIdem(crypto.randomUUID());
-                                  setEditingGuest(null);
-                                }}>
-                                  <label>{t("Name")}<Input autoFocus aria-label={`${t("Guest")} ${i + 1}`} value={draftGuestName}
-                                    placeholder={`${t("Guest")} ${i + 1}`} maxLength={30}
-                                    onChange={(event) => setDraftGuestName(event.target.value)} /></label>
-                                  <div className="guest-name-actions">
-                                    <Button variant="secondary" onPress={() => setEditingGuest(null)}>{t("btn.cancel")}</Button>
-                                    <Button type="submit" variant="primary">{t("Save name")}</Button>
-                                  </div>
-                                </form>
-                                {partySize > 1 && <div className="guest-remove-action">
-                                  <p>{t("Removing this guest also removes their services.")}</p>
-                                  <Button variant="ghost" onPress={() => removeGuest(i)}>{t("Remove guest")}</Button>
-                                </div>}
-                              </Popover.Dialog>
-                            </Popover.Content>
-                          </Popover>
+
                         </div>
                       ))}
                     </div>
@@ -953,6 +920,28 @@ export function BookingExperiencePage() {
           }}
         />
       )}
+      <BookingDialog compact open={editingGuest !== null} onClose={() => setEditingGuest(null)}
+        title={`${t("Guest")} ${(editingGuest ?? 0) + 1}`}>
+        {editingGuest !== null && <>
+          <form className="guest-name-form" onSubmit={(event) => {
+            event.preventDefault();
+            setGuestNames((names) => Array.from({ length: partySize }, (_, n) => n === editingGuest ? draftGuestName.trim() : names[n] ?? ""));
+            setIdem(crypto.randomUUID());
+            setEditingGuest(null);
+          }}>
+            <label>{t("Name")}<Input autoFocus aria-label={`${t("Guest")} ${editingGuest + 1}`} value={draftGuestName}
+              placeholder={`${t("Guest")} ${editingGuest + 1}`} maxLength={30}
+              onChange={(event) => setDraftGuestName(event.target.value)} /></label>
+            <div className="guest-name-actions">
+              <Button variant="secondary" onPress={() => setEditingGuest(null)}>{t("btn.cancel")}</Button>
+              <Button type="submit" variant="primary">{t("Save name")}</Button>
+            </div>
+          </form>
+          {partySize > 1 && <div className="guest-remove-action">
+            <Button variant="ghost" onPress={() => removeGuest(editingGuest)}>{t("Remove guest")}</Button>
+          </div>}
+        </>}
+      </BookingDialog>
       <BookingDialog
         open={infoOpen}
         onClose={() => setInfoOpen(false)}

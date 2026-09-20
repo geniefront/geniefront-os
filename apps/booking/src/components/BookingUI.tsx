@@ -56,12 +56,14 @@ export function BookingDialog({
   title,
   children,
   footer,
+  compact = false,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
   footer?: ReactNode;
+  compact?: boolean;
 }) {
   return (
     <Modal
@@ -71,8 +73,8 @@ export function BookingDialog({
       }}
     >
       <Modal.Backdrop className="booking-backdrop">
-        <Modal.Container className="booking-modal-container">
-          <Modal.Dialog className="booking-modal">
+        <Modal.Container className={`booking-modal-container ${compact ? "booking-modal-container-compact" : ""}`}>
+          <Modal.Dialog className={`booking-modal ${compact ? "booking-modal-compact" : ""}`}>
             <Modal.CloseTrigger />
             <Modal.Header>
               <Modal.Heading>{title}</Modal.Heading>

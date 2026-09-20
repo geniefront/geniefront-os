@@ -1066,7 +1066,6 @@ textarea.field-control {padding:16px 18px!important;line-height:1.65;letter-spac
 .guest-toolbar .guest-tabs { flex-wrap: wrap; overflow: visible; margin: 0; padding: 2px; gap: 8px; }
 .guest-toolbar .guest-counter { flex-direction: row; align-items: center; }
 .guest-rename { border-radius: 0; min-width: 40px; padding: 0; }
-.guest-popover { width: min(300px, calc(100vw - 32px)); }
 .guest-name-form { display: grid; gap: 16px; margin-top: 16px; }
 .guest-name-form label { display: grid; gap: 8px; font-size: 13px; }
 .guest-name-form input { width: 100%; }
@@ -1078,3 +1077,11 @@ textarea.field-control {padding:16px 18px!important;line-height:1.65;letter-spac
 @media (max-width: 760px) {
   .guest-toolbar .guest-tabs { flex-wrap: nowrap; overflow-x: auto; }
 }
+
+.booking-modal-container.booking-modal-container-compact { align-items: center; padding: 16px; }
+.booking-modal.booking-modal-compact { margin: auto; width: min(360px, 100%); border-radius: 20px; padding: 24px; }
+.booking-modal-compact .modal__header { margin-bottom: 16px; }
+.booking-modal-compact .modal__heading { font-size: 20px; }
+.booking-modal-compact .guest-name-form { margin-top: 0; }
+.booking-modal-compact .guest-remove-action { margin-top: 12px; padding-top: 8px; }
+.booking-modal-compact .guest-remove-action button { margin-top: 0; }
