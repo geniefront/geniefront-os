@@ -1,3 +1,4 @@
+import {registerVoiceManagementRoutes} from './manage';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { createHmac, timingSafeEqual, createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -44,6 +45,7 @@ export function registerVoiceRoutes(app: FastifyInstance) {
     await assertAiAdmission(ctx, 'voice_minute');
     return { ctx, secret: t.toolTokenDigest };
   }
+  registerVoiceManagementRoutes(app,authenticate);
   app.get('/v1/voice/:number/context', async (req, reply) => {
     const { ctx, secret } = await authenticate(req);
     const search = parse(searchSchema, req.query);

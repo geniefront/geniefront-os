@@ -1,3 +1,4 @@
+import { assertBookingCaller } from '../voice/bookingCaller';
 import { loadBookingStaff, enforceScheduledBooking } from '../queries/bookingStaff';
 /**
  * appointment.create —— Phase 0 的验收命令。
@@ -1074,6 +1075,7 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit, emit }: Handl
     where id = ${input.appointmentId} and location_id = ${ctx.locationId} for update`;
   if (!appt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
 
+  await assertBookingCaller(tx,ctx,appt.id);
   if (appt.status === 'cancelled') {
     throw new AppError(ERROR_CODES.ALREADY_CANCELLED, {
       details: { appointmentId: appt.id },
@@ -1196,6 +1198,7 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
     select id, status, party_size, starts_at::text as starts_at, self_reschedule_count from appointments
     where id = ${input.appointmentId} and location_id = ${ctx.locationId} for update`;
   if (!appt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
+  await assertBookingCaller(tx,ctx,appt.id);
   if (appt.status === 'cancelled') {
     throw new AppError(ERROR_CODES.ALREADY_CANCELLED, { details: { appointmentId: appt.id } });
   }
@@ -1762,7 +1765,7 @@ async function notifyAppointmentChange(
    * ⚠️ **技师侧不受此限**（见下方那次 notifyEvent）：排班变了技师必须知道，
    * 那是内部通知，和顾客的接收同意是两码事。
    */
-  if (PUBLIC_SOURCES.has(row.source)) {
+  if (PUBLIC_SOURCES.has(row.source) || ctx.verifiedBookingCaller) {
     await notifyEvent(tx, ctx, {
       event: args.event,
       transactionalBooking:true,

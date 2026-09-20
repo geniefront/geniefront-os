@@ -242,6 +242,12 @@ export interface CommandContext {
   userAgent?: string;
   /** 设备 actor 的持久化标识。只由服务端验过设备令牌后注入。 */
   deviceId?: string;
+  /** Server-only voice identity from authenticated provider system headers, never command input. */
+  verifiedBookingCaller?: {
+    phoneE164: string;
+    expectedStartsAt: string;
+    expectedRescheduleCount: number;
+  };
 }
 
 /**
