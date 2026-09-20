@@ -5,19 +5,25 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const require = createRequire(join(root, "apps/booking/package.json"));
+const app = process.argv[2] ?? "booking";
+if (!["booking", "web"].includes(app)) throw new Error("Unsupported HeroUI app.");
+const appManifest = join(root, "apps", app, "package.json");
+const require = createRequire(appManifest);
 const manifest = require.resolve("@heroui-pro/react/package.json");
 const destination = dirname(manifest);
 const wanted = JSON.parse(
-  readFileSync(join(root, "apps/booking/package.json"), "utf8"),
+  readFileSync(appManifest, "utf8"),
 ).dependencies["@heroui-pro/react"];
 if (JSON.parse(readFileSync(manifest, "utf8")).version !== wanted)
   throw new Error("HeroUI Pro version does not match the pinned dependency.");
 const ready = () =>
   existsSync(join(destination, "dist/components/sheet/sheet.js")) &&
-  existsSync(join(destination, "dist/components/stepper/stepper.js"));
+  existsSync(join(destination, "dist/components/stepper/stepper.js")) &&
+  (app !== "web" || ["segment", "empty-state"].every(name =>
+    existsSync(join(destination, `dist/components/${name}/${name}.js`))));
 if (!ready()) {
-  const installer = dirname(require.resolve("hpsetup/package.json"));
+  const installerRequire = createRequire(join(root, "apps/booking/package.json"));
+  const installer = dirname(installerRequire.resolve("hpsetup/package.json"));
   const { restoreFromCache } = await import(
     pathToFileURL(join(installer, "src/cache.js")).href
   );

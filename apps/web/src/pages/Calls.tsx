@@ -1,3 +1,4 @@
+import { useEntitlements } from '@/features/billing/useEntitlements';
 import { CallConversation } from '@/features/comms/CallConversation';
 import { apiGet } from '@/lib/api';
 import { useState, useMemo, useEffect } from "react";
@@ -44,6 +45,7 @@ import { callDeskMetrics } from "@/features/comms/callMetrics";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 
 export function Calls() {
+  const voiceOnly = useEntitlements().data?.plan === 'voice_booking';
   const storeTime = useStoreTime();
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
@@ -240,17 +242,17 @@ export function Calls() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 pb-20">
+    <div className="gf-service-page max-w-7xl mx-auto space-y-6 pb-20">
       {/* 顶部企业级电话专线状态栏 */}
-      <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-teal-900 via-teal-800 to-slate-900 text-white shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      {!voiceOnly && <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-teal-900 via-teal-800 to-slate-900 text-white shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 rounded-2xl bg-teal-500/20 border border-teal-400/30 flex items-center justify-center shrink-0">
             <Bot className="w-6 h-6 text-teal-300" />
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-base font-bold tracking-tight">{t('crm.callSwitchboardTitle')}</h2>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+              <h2 className="text-base font-semibold tracking-tight">{t('crm.callSwitchboardTitle')}</h2>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 
                 {t('crm.callAlwaysOn')}
@@ -271,7 +273,7 @@ export function Calls() {
           <Button
             size="sm"
             variant="secondary"
-            className="text-xs font-bold gap-1.5 bg-white/10 hover:bg-white/20 text-white border-white/20"
+            className="text-xs font-semibold gap-1.5 bg-white/10 hover:bg-white/20 text-white border-white/20"
             onClick={() => setSimulatorOpen(true)}
           >
             <Zap className="w-3.5 h-3.5 text-amber-300" />
@@ -279,7 +281,7 @@ export function Calls() {
           </Button>
           <Button
             size="sm"
-            className="text-xs font-bold gap-1.5 bg-teal-500 hover:bg-teal-400 text-teal-950 shadow-md"
+            className="text-xs font-semibold gap-1.5 bg-teal-500 hover:bg-teal-400 text-teal-950 shadow-md"
             onClick={() => navigate("/settings")}
           >
             <Settings2 className="w-3.5 h-3.5" />
@@ -287,19 +289,18 @@ export function Calls() {
             {t('crm.callScriptConfig')}
           </Button>
         </div>
-      </div>
+      </div>}
 
       <PageHeader
         title={
           <span className="flex items-center gap-2 text-xl">
-            <Sparkles className="w-5 h-5 text-teal-600" />
-            
-            {t('crm.callTitle')}
+            {t(voiceOnly ? 'calls' : 'crm.callTitle')}
           </span>
         }
-        description={t('crm.callDesc')}
+        description={voiceOnly ? undefined : t('crm.callDesc')}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {voiceOnly && <Button variant="secondary" size="sm" onClick={() => navigate("/settings?tab=phone")}><Settings2 className="size-4" />{t("voicePhoneTab")}</Button>}
             <Button
               variant="secondary"
               size="sm"
@@ -320,16 +321,16 @@ export function Calls() {
       />
 
       {/* 4 维核心运营统计指标 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {!voiceOnly && <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="border-slate-200 shadow-sm hover:border-teal-200 transition-colors">
           <CardHeader className="pb-1">
-            <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
+            <CardTitle className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center justify-between">
               <span>{t('crm.callVolume7d')}</span>
               <PhoneCall className="w-4 h-4 text-teal-600" />
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-black text-slate-800">
+            <div className="text-2xl font-semibold text-slate-800">
               {metrics.inboundCount} <span className="text-xs font-semibold text-slate-400">{t('crm.callUnit')}</span>
             </div>
             <p className="text-[11px] text-slate-500 font-medium mt-1 flex items-center gap-1">
@@ -341,13 +342,13 @@ export function Calls() {
 
         <Card className="border-slate-200 shadow-sm hover:border-teal-200 transition-colors">
           <CardHeader className="pb-1">
-            <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
+            <CardTitle className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center justify-between">
               <span>{t('crm.callAutoBooked')}</span>
               <CalendarCheck className="w-4 h-4 text-emerald-600" />
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-black text-emerald-600">
+            <div className="text-2xl font-semibold text-emerald-600">
               {metrics.bookedCount}{" "}
               <span className="text-xs font-semibold text-slate-400">{t('crm.callBookingUnit')}</span>
             </div>
@@ -360,13 +361,13 @@ export function Calls() {
 
         <Card className="border-slate-200 shadow-sm hover:border-amber-200 transition-colors">
           <CardHeader className="pb-1">
-            <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
+            <CardTitle className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center justify-between">
               <span>{t('crm.callDraftsPending')}</span>
               <AlertTriangle className="w-4 h-4 text-amber-500" />
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-black text-amber-600">
+            <div className="text-2xl font-semibold text-amber-600">
               {drafts.length} <span className="text-xs font-semibold text-slate-400">{t('crm.callDraftUnit')}</span>
             </div>
             <p className="text-[11px] text-amber-700 font-medium mt-1">
@@ -378,13 +379,13 @@ export function Calls() {
 
         <Card className="border-slate-200 shadow-sm hover:border-teal-200 transition-colors">
           <CardHeader className="pb-1">
-            <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
+            <CardTitle className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center justify-between">
               <span>{t('crm.callHoursSaved')}</span>
               <Headphones className="w-4 h-4 text-teal-600" />
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-black text-teal-700">
+            <div className="text-2xl font-semibold text-teal-700">
               {metrics.hoursSaved} <span className="text-xs font-semibold text-slate-400">{t('crm.callHoursUnit')}</span>
             </div>
             <p className="text-[11px] text-slate-500 mt-1">
@@ -393,18 +394,18 @@ export function Calls() {
             </p>
           </CardContent>
         </Card>
-      </div>
+      </div>}
 
       {/* 待复核来电预约意图看板 */}
       {drafts.length > 0 && (
         <Card className="border-amber-200 bg-amber-50/40 p-5 space-y-4 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-200/60 pb-3">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold text-xs">
+              <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center font-semibold text-xs">
                 {drafts.length}
               </div>
               <div>
-                <h3 className="font-bold text-amber-950 text-sm">
+                <h3 className="font-semibold text-amber-950 text-sm">
                   
                   {t('crm.callDraftsTitle')}
                 </h3>
@@ -428,16 +429,16 @@ export function Calls() {
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-xs text-slate-900">
+                    <span className="font-mono font-semibold text-xs text-slate-900">
                       {d.fromDisplay ? formatPhoneDisplay(d.fromDisplay) : d.fromE164 ? formatPhoneDisplay(d.fromE164) : t('crm.callUnknownCaller')}
                     </span>
                     {d.customer ? (
-                      <span className="text-[10px] font-bold bg-teal-50 text-teal-700 px-2 py-0.5 rounded-full border border-teal-200">
+                      <span className="text-[10px] font-semibold bg-teal-50 text-teal-700 px-2 py-0.5 rounded-full border border-teal-200">
                         
                         {t('crm.callCrmMatched')}
                       </span>
                     ) : (
-                      <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                      <span className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
                         
                         {t('crm.callPotentialNew')}
                       </span>
@@ -452,13 +453,13 @@ export function Calls() {
                 <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 text-xs space-y-1.5">
                   <div className="flex items-center justify-between">
                     <span className="text-slate-500">{t('crm.callIntentService')}</span>
-                    <span className="font-bold text-slate-800">
+                    <span className="font-semibold text-slate-800">
                       {d.service?.matchedName || d.service?.heard || t('crm.callUnspecified')}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-500">{t('crm.callIntentTime')}</span>
-                    <span className="font-bold text-teal-700">
+                    <span className="font-semibold text-teal-700">
                       {d.time?.slotStartsAt
                         ? storeTime.dateTime(d.time.slotStartsAt, {
 
@@ -479,7 +480,7 @@ export function Calls() {
                   </div>
                   {d.notes && (
                     <div className="pt-1 border-t border-slate-200/60 text-[11px] text-amber-900 bg-amber-50/60 p-1.5 rounded">
-                      <span className="font-bold">{t('crm.callIntentSummary')} </span>
+                      <span className="font-semibold">{t('crm.callIntentSummary')} </span>
                       {d.notes}
                     </div>
                   )}
@@ -501,7 +502,7 @@ export function Calls() {
                     </Button>
                     <Button
                       size="sm"
-                      className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold h-8 px-3 gap-1 shadow-sm"
+                      className="bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold h-8 px-3 gap-1 shadow-sm"
                       onClick={() => handleDirectApproveDraft(d)}
                     >
                       <Calendar className="w-3 h-3" />
@@ -518,25 +519,26 @@ export function Calls() {
 
       {/* 通话记录全量审计列表 */}
       <Card className="border-slate-200 shadow-sm p-4 sm:p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3">
           <div>
-            <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+            <h3 className="font-semibold text-slate-900 text-base flex items-center gap-2">
               <Phone className="w-4 h-4 text-teal-600" />
               
-              {t('crm.callLogTitle')}{filteredCalls.length})
+              {t('voiceCallHistory')} <span className="text-sm font-normal tabular-nums text-slate-400">{filteredCalls.length}</span>
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
               
-              {t('crm.callLogDesc')}
+              {voiceOnly ? callData?.voiceNumber && formatPhoneDisplay(callData.voiceNumber) : t('crm.callLogDesc')}
             </p>
           </div>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
             {/* 搜索框 */}
-            <div className="relative flex-1 sm:w-64">
+            <div className="relative min-w-[200px] flex-1 sm:w-64">
               <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
+                aria-label={t('crm.callSearchPlaceholder')}
                 placeholder={t('crm.callSearchPlaceholder')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -581,7 +583,7 @@ export function Calls() {
           <EmptyState
             icon={<PhoneCall className="w-10 h-10 text-slate-400" />}
             title={t('crm.callNoMatch')}
-            description={t('crm.callNoMatchDesc')}
+            description={voiceOnly ? undefined : t('crm.callNoMatchDesc')}
           />
         ) : (
           <div className="border border-slate-200/80 rounded-2xl overflow-hidden shadow-xs">
@@ -622,7 +624,7 @@ export function Calls() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-xs text-slate-900">
+                          <span className="font-mono font-semibold text-xs text-slate-900">
                             {call.fromE164 ? formatPhoneDisplay(call.fromE164) : t('crm.callAnonymous')}
                           </span>
                         </div>
@@ -708,7 +710,7 @@ export function Calls() {
                   <Bot className="w-4 h-4 text-teal-600" />
                 </div>
                 <div className="min-w-0 flex items-center gap-2 flex-wrap">
-                  <h3 className="text-sm sm:text-base font-bold text-slate-900 whitespace-nowrap">
+                  <h3 className="text-sm sm:text-base font-semibold text-slate-900 whitespace-nowrap">
                     
                     {t('crm.callDetailTitle')}
                   </h3>
@@ -763,7 +765,7 @@ export function Calls() {
                 </Button>
                 <Button
                   size="sm"
-                  className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs gap-1.5 shadow-sm"
+                  className="bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs gap-1.5 shadow-sm"
                   onClick={() => {
                     openCreateAppointment?.({
                       defaultPhone: selectedCall.fromE164 ? formatPhoneDisplay(selectedCall.fromE164) : "",
@@ -801,7 +803,7 @@ export function Calls() {
                     )}
                   </button>
                   <div>
-                    <p className="text-xs font-bold flex items-center gap-1.5 text-teal-300">
+                    <p className="text-xs font-semibold flex items-center gap-1.5 text-teal-300">
                       <Volume2 className="w-3.5 h-3.5" />
                       {playingCallId === selectedCall.callId ? t('crm.callPlayingNow') : t('crm.callClickToPlay')}
                     </p>
@@ -819,7 +821,7 @@ export function Calls() {
                       key={spd}
                       type="button"
                       onClick={() => handleSpeedChange(spd)}
-                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold font-mono transition-colors ${
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold font-mono transition-colors ${
                         playbackSpeed === spd
                           ? "bg-teal-500 text-slate-900 shadow-xs"
                           : "text-slate-300 hover:bg-slate-700"
@@ -845,7 +847,7 @@ export function Calls() {
                     onChange={(e) => handleSeek(parseFloat(e.target.value))}
                     className="flex-1 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-teal-400 focus:outline-none"
                   />
-                  <div className="font-mono text-[11px] text-slate-300 font-bold shrink-0">
+                  <div className="font-mono text-[11px] text-slate-300 font-semibold shrink-0">
                     <span className="text-teal-300">{formatAudioTime(playbackCurrentTime)}</span>
                     <span className="text-slate-500 mx-1">/</span>
                     <span>{formatAudioTime(playbackTotalDuration || selectedCall.durationSeconds || 0)}</span>
@@ -856,7 +858,7 @@ export function Calls() {
 
             {/* AI 意图分析与接待总结 */}
             <div className="p-3.5 rounded-xl bg-teal-50/70 border border-teal-200/70 text-xs space-y-1">
-              <span className="font-bold text-teal-900 flex items-center gap-1.5">
+              <span className="font-semibold text-teal-900 flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 text-teal-600" />  {t('crm.callAiSummaryLabel')}
               </span>
               <p className="text-slate-700 leading-relaxed font-medium pl-5">
@@ -891,7 +893,7 @@ export function Calls() {
               <Button
                 isPending={dismissMutation.isPending}
                 size="sm"
-                className="bg-red-600 hover:bg-red-700 text-white font-bold"
+                className="bg-red-600 hover:bg-red-700 text-white font-semibold"
                 disabled={dismissMutation.isPending}
                 onClick={handleConfirmDismiss}
               >
@@ -933,7 +935,7 @@ export function Calls() {
         footer={
           <div className="flex justify-end w-full">
             <Button
-              className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs px-5"
+              className="bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs px-5"
               onClick={() => setSimulatorOpen(false)}
             >
               
@@ -956,7 +958,7 @@ export function Calls() {
             <div className="pt-1 flex justify-center">
               <Button
                 size="sm"
-                className="bg-teal-500 hover:bg-teal-400 text-teal-950 font-bold text-xs gap-1.5 shadow-sm"
+                className="bg-teal-500 hover:bg-teal-400 text-teal-950 font-semibold text-xs gap-1.5 shadow-sm"
                 onClick={() => {
                   navigator.clipboard.writeText("+12125808888");
                   toast.success(t('crm.callLineCopied'));
@@ -970,7 +972,7 @@ export function Calls() {
           </div>
 
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 text-xs space-y-2 text-slate-600 leading-relaxed">
-            <div className="flex items-center gap-1.5 font-bold text-slate-800">
+            <div className="flex items-center gap-1.5 font-semibold text-slate-800">
               <Sparkles className="w-4 h-4 text-teal-600 shrink-0" />
               
               {t('crm.callTestGuide')}

@@ -74,18 +74,18 @@ export function Support() {
   };
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="gf-service-page mx-auto max-w-6xl space-y-6">
       <PageHeader
-        title={t('support.title')}
-        description={t('support.description')}
+        title={t('support')}
       />
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
       <Card className="border-slate-200 p-6 space-y-4">
-        <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
+        <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
           <LifeBuoy className="size-4 text-teal-600" />
-          {t('support.title')}
+          {t('support.submit')}
         </div>
         <label className="block space-y-1.5">
-          <span className="text-xs font-bold text-slate-700">{t('support.category')}</span>
+          <span className="text-xs font-medium text-slate-700">{t('support.category')}</span>
           <select
             className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-500"
             value={category}
@@ -97,7 +97,7 @@ export function Support() {
           </select>
         </label>
         <label className="block space-y-1.5">
-          <span className="text-xs font-bold text-slate-700">{t('support.subject')}</span>
+          <span className="text-xs font-medium text-slate-700">{t('support.subject')}</span>
           <Input
             aria-label={t('support.subject')}
             value={subject}
@@ -106,7 +106,7 @@ export function Support() {
           />
         </label>
         <label className="block space-y-1.5">
-          <span className="text-xs font-bold text-slate-700">{t('support.message')}</span>
+          <span className="text-xs font-medium text-slate-700">{t('support.message')}</span>
           <textarea
             aria-label={t('support.message')}
             className="min-h-32 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500"
@@ -119,11 +119,11 @@ export function Support() {
           {submittedId ? (
             <p className="text-xs font-medium text-emerald-700">{t('support.success')}</p>
           ) : (!subject.trim() || !description.trim()) ? (
-            <p className="text-xs font-medium text-rose-600">{t('support.requiredHint')}</p>
+            <p className="text-xs text-slate-500">{t('support.requiredHint')}</p>
           ) : <span />}
           <Button
             isPending={submitting}
-            className="bg-teal-600 text-white font-bold"
+            className="bg-teal-600 text-white font-medium"
             disabled={submitting || submit.isPending || !subject.trim() || !description.trim()}
             onClick={() => void handleSubmit()}
           >
@@ -140,7 +140,7 @@ export function Support() {
         既不在接口里，数据库那一侧也已经按「必须是运营」收窄了 RLS。
       */}
       <Card className="border-slate-200 p-6 space-y-3">
-        <div className="text-sm font-bold text-slate-800">{t('support.history')}</div>
+        <div className="text-sm font-medium text-slate-800">{t('support.history')}</div>
         {history.isLoading ? (
           <p className="text-xs text-slate-500">{t('support.historyLoading')}</p>
         ) : (history.data?.requests.length ?? 0) === 0 ? (
@@ -152,7 +152,7 @@ export function Support() {
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-sm font-semibold text-slate-800">{r.subject}</span>
                   <span
-                    className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-700"
+                    className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700"
                     data-testid="support-request-status"
                   >
                     {t(STATUS_KEYS[r.status])}
@@ -169,6 +169,7 @@ export function Support() {
           </ul>
         )}
       </Card>
+      </div>
     </div>
   );
 }

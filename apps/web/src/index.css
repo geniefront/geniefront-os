@@ -1,6 +1,8 @@
 /* 顺序不能改：Tailwind 基础层必须先于 HeroUI 组件样式。 */
 @import "tailwindcss";
 @import "@heroui/styles";
+@import "@heroui-pro/react/css/components/empty-state.css";
+@import "@heroui-pro/react/css/components/segment.css";
 
 /*
  * 品牌色。模板原来通篇写死 teal-600，与其在几十个页面里逐个替换，
@@ -265,4 +267,18 @@ div[data-slot="modal-container"] {
 #desk-navigation {
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* The smaller voice plan uses quiet surfaces and one shared content rhythm. */
+.gf-service-page {
+  --gf-shadow: 0 1px 2px rgb(15 23 42 / 0.025);
+  width: 100%;
+}
+.gf-service-page h1 { font-size: 1.5rem; line-height: 2rem; font-weight: 600; }
+.gf-service-page h1 > span { font-size: inherit; font-weight: inherit; }
+.gf-voice-shell { --gf-canvas: #fafbfc; }
+.gf-voice-shell #desk-navigation { background: #fdfefe; }
+.gf-voice-shell #desk-navigation a[aria-current="page"] { background: #edf6f4; color: #115e59; }
+@media (min-width: 1024px) {
+  .gf-voice-shell main > div > .gf-service-page { padding-top: 8px; }
 }

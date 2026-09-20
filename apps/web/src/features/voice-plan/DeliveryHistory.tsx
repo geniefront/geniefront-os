@@ -1,3 +1,9 @@
+import { Segment } from '@heroui-pro/react/segment';
+import { Mail, MessageSquare, ChevronDown, RefreshCw } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Card } from '@/components/ui/Card';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Badge } from '@/components/ui/Badge';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { formatPhoneDisplay } from '@gf/contracts';
@@ -27,14 +33,42 @@ export function DeliveryHistory() {
   if (!canRead) return <p className="p-6">{t('errorPERMISSION_DENIED')}</p>;
   const messages = (query.data?.messages ?? []).filter(m => (channel === 'all' || m.channel === channel)
     && `${m.recipient} ${m.subject} ${m.body}`.toLowerCase().includes(search.trim().toLowerCase()));
-  return <main className="mx-auto max-w-5xl space-y-5 p-5 sm:p-8">
-    <h1 className="text-2xl font-bold">{t('voiceDeliveryTitle')}</h1><p className="text-sm text-slate-500">{t('voiceDeliveryIntro')}</p>
-    <div className="flex flex-wrap gap-3"><select aria-label={t('voiceAllChannels')} className="rounded-xl border p-2" value={channel} onChange={e => setChannel(e.target.value)}>
-      <option value="all">{t('voiceAllChannels')}</option><option value="sms">{t('voiceSms')}</option><option value="email">{t('voiceEmail')}</option>
-    </select><Input className="max-w-sm" aria-label={t('search')} placeholder={t('search')} value={search} onChange={e => setSearch(e.target.value)} /><Button variant="secondary" onClick={() => void query.refetch()}>{t('refresh')}</Button></div>
-    {query.isError ? <p role="alert">{t('genericFailure')}</p> : query.isLoading ? <p>{t('setupReadinessLoading')}</p> : !messages.length ? <p>{t('voiceNoDeliveries')}</p> : messages.map(m => <details key={`${m.channel}:${m.id}`} className="rounded-xl border bg-white p-4">
-      <summary className="cursor-pointer space-y-1"><div className="flex flex-wrap justify-between gap-2"><strong>{m.channel === 'sms' ? formatPhoneDisplay(m.recipient) : m.recipient}</strong><span className="text-sm">{t(deliveryStatusKey(m))}</span></div><p className="text-sm text-slate-600">{t(m.channel === 'sms' ? 'voiceSms' : 'voiceEmail')} · {m.channel === 'email' ? m.subject : m.body.slice(0, 70)} · {time.dateTime(m.sent_at ?? m.created_at)}</p></summary>
-      <pre className="mt-4 whitespace-pre-wrap break-words border-t pt-4 font-sans text-sm">{m.body}</pre>
-    </details>)}
-  </main>;
+  return <div className="gf-service-page mx-auto max-w-6xl space-y-6 pb-12">
+    <PageHeader title={t('voiceDeliveryTitle')} actions={
+      <Button variant="secondary" size="sm" disabled={query.isFetching} onClick={() => void query.refetch()}>
+        <RefreshCw className={`size-4 ${query.isFetching ? 'animate-spin' : ''}`} />{t('refresh')}
+      </Button>
+    } />
+    <Card className="gap-0 overflow-hidden p-0">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 p-4">
+        <Segment aria-label={t('voiceAllChannels')} selectedKey={channel} onSelectionChange={key => setChannel(String(key))} size="sm">
+          <Segment.Item id="all">{t('voiceAllChannels')}</Segment.Item>
+          <Segment.Item id="sms">{t('voiceSms')}</Segment.Item>
+          <Segment.Item id="email">{t('voiceEmail')}</Segment.Item>
+        </Segment>
+        <Input className="w-full sm:max-w-xs" aria-label={t('search')} placeholder={t('search')} value={search} onChange={e => setSearch(e.target.value)} />
+      </div>
+      {query.isError ? <div role="alert" className="p-6 text-sm">{t('genericFailure')}</div>
+        : query.isLoading ? <p role="status" className="p-6 text-sm text-slate-500">{t('setupReadinessLoading')}</p>
+        : !messages.length ? <EmptyState icon={<Mail />} title={t('voiceNoDeliveries')} />
+        : <div className="divide-y divide-slate-100">{messages.map(m => {
+          const status = deliveryStatusKey(m);
+          return <details key={`${m.channel}:${m.id}`} className="group">
+            <summary className="flex cursor-pointer list-none items-center gap-3 p-4 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-teal-600 [&::-webkit-details-marker]:hidden sm:px-6">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-slate-200 text-slate-500">{m.channel === 'sms' ? <MessageSquare className="size-4" /> : <Mail className="size-4" />}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><span className="break-all text-sm font-medium text-slate-900">{m.channel === 'sms' ? formatPhoneDisplay(m.recipient) : m.recipient}</span>
+                  <Badge variant={status === 'voiceFailed' ? 'error' : status === 'voiceDelivered' ? 'success' : 'secondary'}>{t(status)}</Badge>
+                </div>
+                <p className="mt-1 truncate text-sm text-slate-500">{m.channel === 'email' ? m.subject : m.body}</p>
+                <p className="mt-1 text-xs text-slate-400">{t(m.channel === 'sms' ? 'voiceSms' : 'voiceEmail')} · {time.dateTime(m.sent_at ?? m.created_at)}</p>
+              </div>
+              <ChevronDown className="size-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="border-t border-slate-100 bg-slate-50/60 px-6 py-5 sm:pl-[76px]"><p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{m.body}</p></div>
+          </details>;
+        })}</div>}
+      <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">{t('voiceDeliveryIntro')}</p>
+    </Card>
+  </div>;
 }

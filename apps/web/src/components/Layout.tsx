@@ -387,7 +387,7 @@ export function Layout() {
   ].filter((group) => group.items.length > 0);
 
   return (
-    <div className="gf-app-shell flex h-dvh w-full overflow-hidden bg-slate-50 font-sans text-slate-900">
+    <div className={cn('gf-app-shell flex h-dvh w-full overflow-hidden bg-slate-50 font-sans text-slate-900', plan === 'voice_booking' && 'gf-voice-shell')}>
       {mobileNavOpen && <button type="button" className="fixed inset-0 z-[89] bg-slate-950/40 lg:hidden" aria-label={t('close')} onClick={() => setMobileNavOpen(false)} />}
       {/* Sidebar */}
       <aside
@@ -451,8 +451,8 @@ export function Layout() {
 
         <div className="flex-1 overflow-y-auto py-3 custom-scrollbar">
           {navGroups.map(group => ({ ...group, items: group.items.filter(item => planAllowsPath(plan, item.path) && (plan !== 'voice_booking' || item.path !== '/messages')) })).filter(group => group.items.length > 0).map((group, idx) => (
-            <div key={idx} className="mb-4">
-              {!collapsed && (
+            <div key={idx} className={plan === 'voice_booking' ? 'mb-1' : 'mb-4'}>
+              {!collapsed && plan !== 'voice_booking' && (
                 <div className="mb-1 px-4 text-xs font-semibold uppercase tracking-wider text-slate-400">
                   {group.group}
                 </div>
@@ -487,7 +487,7 @@ export function Layout() {
                           )}
                         />
                         {!collapsed && <span className="truncate">{item.name}</span>}
-                        {isActive && !collapsed && (
+                        {isActive && !collapsed && plan !== 'voice_booking' && (
                           <div className="absolute right-2 w-1.5 h-1.5 rounded-full bg-teal-600"></div>
                         )}
                       </Link>

@@ -96,7 +96,7 @@ function Money({ cents, hiddenLabel }: { cents: number | null; hiddenLabel: stri
   if (cents === null) {
     return <span className="text-slate-400 text-xs">{hiddenLabel}</span>;
   }
-  return <span className="tabular-nums font-bold">${centsToDollars(cents)}</span>;
+  return <span className="tabular-nums font-semibold">${centsToDollars(cents)}</span>;
 }
 
 function CustomersContent() {
@@ -416,11 +416,11 @@ function CustomersContent() {
   }
 
   return (
-    <div className="space-y-4 max-w-7xl mx-auto w-full pb-16">
+    <div className="gf-service-page space-y-6 max-w-7xl mx-auto w-full pb-16">
       {/* 1. Page Header */}
       <PageHeader
-        title={t('crm.custTitle')}
-        description={t('crm.custDesc')}
+        title={t(voiceOnly ? 'customers' : 'crm.custTitle')}
+        description={voiceOnly ? undefined : t('crm.custDesc')}
         actions={
           <div className="flex items-center gap-2">
             <GuardedButton
@@ -436,7 +436,7 @@ function CustomersContent() {
             </GuardedButton>
             <Button
               size="sm"
-              className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-xs gap-1.5"
+              className="bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-xs gap-1.5"
               onClick={handleOpenCreateModal}
             >
               <UserPlus className="w-3.5 h-3.5" />
@@ -452,7 +452,7 @@ function CustomersContent() {
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
             onClick={() => setFilterType('all')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-semibold transition-all ${
               filterType === 'all'
                 ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
                 : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
@@ -463,9 +463,10 @@ function CustomersContent() {
             <strong className="font-mono text-sm ml-0.5">{metrics.total}</strong>
           </button>
 
+          {!voiceOnly && <>
           <button
             onClick={() => setFilterType(filterType === 'vip' ? 'all' : 'vip')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-semibold transition-all ${
               filterType === 'vip'
                 ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
                 : 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
@@ -478,7 +479,7 @@ function CustomersContent() {
 
           <button
             onClick={() => setFilterType(filterType === 'active30' ? 'all' : 'active30')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-semibold transition-all ${
               filterType === 'active30'
                 ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
                 : 'bg-emerald-50 text-emerald-900 border-emerald-200 hover:bg-emerald-100'
@@ -491,7 +492,7 @@ function CustomersContent() {
 
           <button
             onClick={() => setFilterType(filterType === 'sleep30' ? 'all' : 'sleep30')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-semibold transition-all ${
               filterType === 'sleep30'
                 ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs'
                 : 'bg-indigo-50 text-indigo-900 border-indigo-200 hover:bg-indigo-100'
@@ -504,7 +505,7 @@ function CustomersContent() {
 
           <button
             onClick={() => setFilterType(filterType === 'sleep90' ? 'all' : 'sleep90')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-semibold transition-all ${
               filterType === 'sleep90'
                 ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
                 : 'bg-purple-50 text-purple-900 border-purple-200 hover:bg-purple-100'
@@ -514,16 +515,18 @@ function CustomersContent() {
             <span>{t('crm.custFilterWinback90')}</span>
             <strong className="font-mono text-sm ml-0.5">{metrics.sleep90}</strong>
           </button>
+          </>}
         </div>
 
         {/* Right: Search Input & View Switcher */}
-        <div className="flex items-center gap-2">
-          <div className="relative w-48 sm:w-56">
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <div className="relative min-w-0 flex-1 sm:w-56">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              aria-label={t('crm.custSearchPlaceholder')}
               placeholder={t('crm.custSearchPlaceholder')}
               className="w-full h-8 pl-8 pr-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-xs placeholder:text-slate-400 focus:outline-none focus:border-teal-500 focus:bg-white transition-all"
             />
@@ -552,23 +555,23 @@ function CustomersContent() {
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-3">
+      {(list.data?.total ?? 0) > 100 && <div className="flex items-center justify-end gap-3">
         <Button variant="secondary" disabled={page === 0 || list.isFetching} onClick={() => setPage(p => p - 1)}>{t('crm.previousPage')}</Button>
         <span className="tabular-nums">{page + 1} / {Math.max(1, Math.ceil((list.data?.total ?? 0) / 100))}</span>
         <Button variant="secondary" disabled={list.isFetching || (page + 1) * 100 >= (list.data?.total ?? 0)} onClick={() => setPage(p => p + 1)}>{t('crm.nextPage')}</Button>
-      </div>
+      </div>}
 
       {/* 3. Main Workspace: Split View vs Full Table View */}
       {viewMode === 'split' ? (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
           {/* Left Customer List (4 cols) */}
-          <Card className="lg:col-span-4 overflow-hidden rounded-2xl border-slate-200 shadow-xs flex flex-col h-[700px]">
+          <Card className="lg:col-span-4 overflow-hidden rounded-2xl border-slate-200 shadow-xs flex flex-col h-[360px] lg:h-[min(700px,calc(100dvh-240px))] lg:min-h-[400px]">
             <div className="p-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-700">
+              <span className="text-xs font-semibold text-slate-700">
                 
                 {t('crm.custDirectoryTitle')}{rows.length})
               </span>
-              <span className="text-[11px] text-slate-400">{t('crm.custDirectoryHint')}</span>
+              <span className="text-[11px] text-slate-400">{!voiceOnly && t('crm.custDirectoryHint')}</span>
             </div>
 
             <div className="flex-1 overflow-y-auto divide-y divide-slate-100 p-1.5 custom-scrollbar">
@@ -587,7 +590,7 @@ function CustomersContent() {
                       className={cn(
                         'p-2.5 rounded-xl cursor-pointer transition-all mb-1 border',
                         isSelected
-                          ? 'bg-teal-50/90 border-teal-500 shadow-xs text-teal-950 font-bold'
+                          ? 'bg-teal-50/90 border-teal-500 shadow-xs text-teal-950 font-semibold'
                           : 'bg-white border-transparent hover:bg-slate-50 hover:border-slate-200 text-slate-700',
                       )}
                     >
@@ -595,7 +598,7 @@ function CustomersContent() {
                         <div className="flex items-center gap-2 min-w-0">
                           <div
                             className={cn(
-                              'w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0',
+                              'w-7 h-7 rounded-lg flex items-center justify-center font-semibold text-xs shrink-0',
                               isSelected
                                 ? 'bg-teal-600 text-white'
                                 : 'bg-slate-100 text-slate-600',
@@ -604,11 +607,11 @@ function CustomersContent() {
                             {row.displayName.slice(0, 1).toUpperCase()}
                           </div>
                           <div className="truncate">
-                            <span className="text-xs font-black text-slate-900">
+                            <span className="text-xs font-semibold text-slate-900">
                               {row.displayName}
                             </span>
-                            {row.vipLevel > 0 && (
-                              <Badge className="ml-1.5 bg-amber-100 text-amber-900 border-amber-300 text-[10px] px-1 py-0 font-bold">
+                            {!voiceOnly && row.vipLevel > 0 && (
+                              <Badge className="ml-1.5 bg-amber-100 text-amber-900 border-amber-300 text-[10px] px-1 py-0 font-semibold">
                                 VIP {row.vipLevel}
                               </Badge>
                             )}
@@ -628,7 +631,7 @@ function CustomersContent() {
                             : t('crm.custDaysAgo', { p0: row.daysSinceLastVisit })}
                         </span>
                         {row.noShowCount > 0 && (
-                          <span className="text-red-600 font-bold bg-red-50 px-1.5 py-0.2 rounded text-[10px]">
+                          <span className="text-red-600 font-semibold bg-red-50 px-1.5 py-0.2 rounded text-[10px]">
                             
                             {t('crm.custNoShows')} {row.noShowCount}
                           </span>
@@ -642,7 +645,7 @@ function CustomersContent() {
           </Card>
 
           {/* Right Customer 360 Profile (8 cols) */}
-          <Card className="lg:col-span-8 overflow-hidden rounded-2xl border-slate-200 flex flex-col h-[700px] shadow-xs bg-white">
+          <Card className="lg:col-span-8 overflow-hidden rounded-2xl border-slate-200 flex flex-col min-h-[400px] lg:h-[min(700px,calc(100dvh-240px))] shadow-xs bg-white">
             {!selectedId ? (
               <div className="h-full grid place-items-center">
                 <EmptyState icon={<Users className="w-10 h-10 text-slate-300" />} title={t('crm.custPickFromList')} />
@@ -659,25 +662,25 @@ function CustomersContent() {
                 {/* 1. Header Profile Banner */}
                 <div className="p-4 rounded-2xl bg-gradient-to-r from-teal-500/10 via-emerald-500/5 to-white border border-teal-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-teal-600 to-emerald-500 text-white flex items-center justify-center font-black text-xl shadow-xs shrink-0">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-teal-600 to-emerald-500 text-white flex items-center justify-center font-semibold text-xl shadow-xs shrink-0">
                       {currentDetail.displayName.slice(0, 1).toUpperCase()}
                     </div>
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-lg font-black text-slate-900">
+                        <h3 className="text-lg font-semibold text-slate-900">
                           {currentDetail.displayName}
                         </h3>
-                        {currentDetail.vipLevel > 0 ? (
-                          <Badge className="bg-amber-100 text-amber-900 border-amber-300 font-black text-xs">
+                        {!voiceOnly && (currentDetail.vipLevel > 0 ? (
+                          <Badge className="bg-amber-100 text-amber-900 border-amber-300 font-semibold text-xs">
                             ⭐ VIP {currentDetail.vipLevel}
                           </Badge>
                         ) : (
                           <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs">
                             {t('standardMember')}
                           </Badge>
-                        )}
+                        ))}
                         {currentDetail.blockedAt && (
-                          <Badge className="bg-red-100 text-red-800 border-red-300 font-black text-xs">
+                          <Badge className="bg-red-100 text-red-800 border-red-300 font-semibold text-xs">
                             
                             {t('crm.custBlockedBadge')}
                           </Badge>
@@ -709,7 +712,7 @@ function CustomersContent() {
                   <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end flex-wrap">
                     {canSendSms && <Button
                       size="sm"
-                      className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs h-8 gap-1 shadow-xs"
+                      className="bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs h-8 gap-1 shadow-xs"
                       onClick={() => setSmsModalOpen(true)}
                     >
                       <Send className="w-3.5 h-3.5" />
@@ -719,7 +722,7 @@ function CustomersContent() {
                     {!voiceOnly && <Button
                       variant="secondary"
                       size="sm"
-                      className="text-xs font-bold h-8 gap-1"
+                      className="text-xs font-semibold h-8 gap-1"
                       onClick={handleOpenEditPref}
                     >
                       <Sliders className="w-3.5 h-3.5 text-slate-600" />
@@ -757,7 +760,7 @@ function CustomersContent() {
                   </div>
                 </div>
 
-                {voiceOnly && <section className="space-y-2 rounded-xl border p-4"><h3 className="font-bold">{t('voiceRecentAppointments')}</h3>
+                {voiceOnly && <section className="space-y-2 rounded-xl border p-4"><h3 className="font-semibold">{t('voiceRecentAppointments')}</h3>
                   {(currentDetail.recentAppointments ?? []).length === 0 ? <p className="text-sm text-slate-500">{t('voiceNoAppointments')}</p> : currentDetail.recentAppointments?.map(a => <div key={a.id} className="flex justify-between gap-2 text-sm"><span>{dateTime(a.startsAt)}</span><span>{t(a.status === 'cancelled' ? 'voiceApptCancelled' : a.status === 'done' ? 'voiceApptDone' : a.status === 'no_show' ? 'voiceApptNoShow' : 'voiceApptBooked')}</span></div>)}
                 </section>}
 
@@ -765,41 +768,41 @@ function CustomersContent() {
                 {!voiceOnly && <>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                   <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase block">
+                    <span className="text-[11px] font-semibold text-slate-500 uppercase block">
                       
                       {t('crm.custTotalVisits')}
                     </span>
-                    <p className="text-base font-black text-slate-900 mt-0.5">
+                    <p className="text-base font-semibold text-slate-900 mt-0.5">
                       {currentDetail.visits.total}  {t('crm.custVisitUnit2')}
                     </p>
                   </div>
 
                   <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase block">
+                    <span className="text-[11px] font-semibold text-slate-500 uppercase block">
                       
                       {t('crm.custFirstVisit')}
                     </span>
-                    <p className="text-base font-black text-slate-900 mt-0.5 font-mono">
+                    <p className="text-base font-semibold text-slate-900 mt-0.5 font-mono">
                       {currentDetail.visits.firstAt || t('crm.custNewPending2')}
                     </p>
                   </div>
 
                   <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase block">
+                    <span className="text-[11px] font-semibold text-slate-500 uppercase block">
                       
                       {t('crm.custLtv')}
                     </span>
-                    <p className="text-base font-black text-emerald-700 mt-0.5">
+                    <p className="text-base font-semibold text-emerald-700 mt-0.5">
                       <Money cents={currentDetail.visits.lifetimeSpendCents} hiddenLabel="***" />
                     </p>
                   </div>
 
                   <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase block">
+                    <span className="text-[11px] font-semibold text-slate-500 uppercase block">
                       
                       {t('crm.custAvgTicket')}
                     </span>
-                    <p className="text-base font-black text-teal-700 mt-0.5">
+                    <p className="text-base font-semibold text-teal-700 mt-0.5">
                       <Money cents={currentDetail.visits.avgSpendCents} hiddenLabel="***" />
                     </p>
                   </div>
@@ -810,13 +813,13 @@ function CustomersContent() {
                 {!voiceOnly && <>
                 <div className="p-3 bg-amber-50/50 border border-amber-200/80 rounded-2xl space-y-2 text-xs">
                   <div className="flex items-center justify-between">
-                    <span className="font-black text-amber-950 flex items-center gap-1.5">
+                    <span className="font-semibold text-amber-950 flex items-center gap-1.5">
                       <AlertTriangle className="w-4 h-4 text-amber-600" />
                       <span>{t('crm.custContraindications')}</span>
                     </span>
                     <button
                       onClick={handleOpenEditPref}
-                      className="text-amber-800 hover:underline font-bold text-[11px]"
+                      className="text-amber-800 hover:underline font-semibold text-[11px]"
                     >
                       
                       {t('crm.custEditContraindications')}
@@ -824,7 +827,7 @@ function CustomersContent() {
                   </div>
 
                   {hasAllergyContent(currentDetail.preferences.allergies) ? (
-                    <div className="p-2 bg-white rounded-xl border border-amber-200 text-red-700 font-bold">
+                    <div className="p-2 bg-white rounded-xl border border-amber-200 text-red-700 font-semibold">
                       {formatAllergies(currentDetail.preferences.allergies)}
                     </div>
                   ) : (
@@ -833,7 +836,7 @@ function CustomersContent() {
 
                   {/* Service Preferences Notes */}
                   <div className="pt-2 border-t border-amber-100">
-                    <span className="font-bold text-slate-700 block mb-1">
+                    <span className="font-semibold text-slate-700 block mb-1">
                       
                       {t('crm.custServiceNotes')}
                     </span>
@@ -851,7 +854,7 @@ function CustomersContent() {
                 {/* 4. Activity & Assets Tabs */}
                 {!voiceOnly && <>
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 border-b border-slate-200 pb-2 text-xs font-bold">
+                  <div className="flex items-center gap-2 border-b border-slate-200 pb-2 text-xs font-semibold">
                     <button
                       onClick={() => setActiveTab('orders')}
                       className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
@@ -905,7 +908,7 @@ function CustomersContent() {
                               className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between hover:border-slate-300 transition-all"
                             >
                               <div>
-                                <p className="font-bold text-slate-900">
+                                <p className="font-semibold text-slate-900">
                                   {tkt.serviceNames.join(' · ') || t('crm.custInStoreSpend')}
                                 </p>
                                 <p className="text-[11px] text-slate-400 mt-0.5 font-mono">
@@ -914,7 +917,7 @@ function CustomersContent() {
                                 </p>
                               </div>
                               <div className="text-right">
-                                <span className="font-black text-slate-900 text-sm">
+                                <span className="font-semibold text-slate-900 text-sm">
                                   <Money cents={tkt.totalCents} hiddenLabel="***" />
                                 </span>
                               </div>
@@ -939,9 +942,9 @@ function CustomersContent() {
                             >
                               <div className="flex items-center gap-2">
                                 <Gift className="w-4 h-4 text-teal-600" />
-                                <span className="font-mono font-bold text-slate-800">{gc.code}</span>
+                                <span className="font-mono font-semibold text-slate-800">{gc.code}</span>
                               </div>
-                              <span className="font-black text-teal-700 text-sm">
+                              <span className="font-semibold text-teal-700 text-sm">
                                 
                                 {t('crm.custGiftBalance')}{centsToDollars(gc.balanceCents)}
                               </span>
@@ -990,10 +993,10 @@ function CustomersContent() {
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[11px]">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px]">
                   <tr>
                     <th className="p-3.5 pl-5">{t('crm.custColName')}</th>
-                    <th className="p-3.5">{t('crm.custColVip')}</th>
+                    {!voiceOnly && <th className="p-3.5">{t('crm.custColVip')}</th>}
                     <th className="p-3.5">{t('crm.custColPhone')}</th>
                     <th className="p-3.5">{t('crm.custColVisits')}</th>
                     <th className="p-3.5">{t('crm.custColLastVisit')}</th>
@@ -1004,28 +1007,30 @@ function CustomersContent() {
                 <tbody className="divide-y divide-slate-100">
                   {rows.map((row) => (
                     <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="p-3.5 pl-5 font-bold text-slate-900">
+                      <td className="p-3.5 pl-5 font-semibold text-slate-900">
                         <button
                           onClick={() => {
                             handleSelectCustomer(row.id);
                             setViewMode('split');
                           }}
-                          className="hover:underline text-teal-700 font-bold"
+                          className="hover:underline text-teal-700 font-semibold"
                         >
                           {row.displayName}
                         </button>
                       </td>
+                      {!voiceOnly && <>
                       <td className="p-3.5">
                         {row.vipLevel > 0 ? (
-                          <Badge className="bg-amber-100 text-amber-900 border-amber-300 font-bold">
+                          <Badge className="bg-amber-100 text-amber-900 border-amber-300 font-semibold">
                             ⭐ VIP {row.vipLevel}
                           </Badge>
                         ) : (
                           <span className="text-slate-400 font-medium">{t('crm.custRegular')}</span>
                         )}
                       </td>
+                      </>}
                       <td className="p-3.5 font-mono text-slate-600">{row.phone ? formatPhoneDisplay(row.phone) : '—'}</td>
-                      <td className="p-3.5 font-bold text-slate-900">{row.visitCount}  {t('crm.custVisitUnit3')}</td>
+                      <td className="p-3.5 font-semibold text-slate-900">{row.visitCount}  {t('crm.custVisitUnit3')}</td>
                       <td className="p-3.5 text-slate-600">
                         {row.daysSinceLastVisit === null
                           ? t('crm.custNewTag')
@@ -1033,7 +1038,7 @@ function CustomersContent() {
                       </td>
                       <td className="p-3.5">
                         {row.noShowCount > 0 ? (
-                          <Badge className="bg-red-100 text-red-800 border-red-300 font-bold">
+                          <Badge className="bg-red-100 text-red-800 border-red-300 font-semibold">
                             {row.noShowCount}  {t('crm.custNoShowUnit')}
                           </Badge>
                         ) : (
@@ -1044,14 +1049,14 @@ function CustomersContent() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-7 text-xs text-teal-700 hover:bg-teal-50 font-bold"
+                          className="h-7 text-xs text-teal-700 hover:bg-teal-50 font-semibold"
                           onClick={() => {
                             handleSelectCustomer(row.id);
                             setViewMode('split');
                           }}
                         >
                           
-                          {t('crm.custView360')}
+                          {t(voiceOnly ? 'profile' : 'crm.custView360')}
                         </Button>
                       </td>
                     </tr>
@@ -1091,7 +1096,7 @@ function CustomersContent() {
             </Button>
             <Button
               isPending={saveProfileMutation.isPending}
-              className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
+              className="bg-teal-600 hover:bg-teal-700 text-white font-semibold"
               onClick={createModalOpen ? handleCreateCustomer : handleSaveProfile}
               disabled={saveProfileMutation.isPending}
             >
@@ -1103,7 +1108,7 @@ function CustomersContent() {
         <div className="space-y-4 py-1 text-xs">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block font-bold text-slate-700 uppercase mb-1">
+              <label className="block font-semibold text-slate-700 uppercase mb-1">
                 
                 {t('crm.custNameLabel')}
               </label>
@@ -1116,7 +1121,7 @@ function CustomersContent() {
             </div>
 
             <div>
-              <label className="block font-bold text-slate-700 uppercase mb-1">
+              <label className="block font-semibold text-slate-700 uppercase mb-1">
                 
                 {t('crm.custPhoneLabel')}
               </label>
@@ -1131,7 +1136,7 @@ function CustomersContent() {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block font-bold text-slate-700 uppercase mb-1">
+              <label className="block font-semibold text-slate-700 uppercase mb-1">
                 
                 {t('crm.custEmailLabel')}
               </label>
@@ -1143,7 +1148,7 @@ function CustomersContent() {
             </div>
 
             <div>
-              <label className="block font-bold text-slate-700 uppercase mb-1">
+              <label className="block font-semibold text-slate-700 uppercase mb-1">
                 
                 {t('crm.custVipLabel')}
               </label>
@@ -1162,7 +1167,7 @@ function CustomersContent() {
             </div>
 
             <div>
-              <label className="block font-bold text-slate-700 uppercase mb-1">
+              <label className="block font-semibold text-slate-700 uppercase mb-1">
                 
                 {t('crm.custGenderLabel')}
               </label>
@@ -1194,7 +1199,7 @@ function CustomersContent() {
             />
 
             <div>
-              <label className="block font-bold text-slate-700 uppercase mb-1">
+              <label className="block font-semibold text-slate-700 uppercase mb-1">
                 
                 {t('crm.custSourceLabel')}
               </label>
@@ -1214,7 +1219,7 @@ function CustomersContent() {
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 uppercase mb-1">
+            <label className="block font-semibold text-slate-700 uppercase mb-1">
               
               {t('crm.custTagsLabel')}
             </label>
@@ -1240,7 +1245,7 @@ function CustomersContent() {
             </Button>
             <Button
               isPending={savePreferencesMutation.isPending}
-              className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
+              className="bg-teal-600 hover:bg-teal-700 text-white font-semibold"
               onClick={handleSavePref}
               disabled={savePreferencesMutation.isPending}
             >
@@ -1252,7 +1257,7 @@ function CustomersContent() {
         <div className="space-y-4 py-1 text-xs">
           {/* 禁忌快速芯片 */}
           <div>
-            <label className="block font-bold text-red-700 uppercase mb-1.5">
+            <label className="block font-semibold text-red-700 uppercase mb-1.5">
               ⚠️ {t('allergiesTitle') || t('crm.custCommonContraindications')}：
             </label>
             <div className="flex flex-wrap gap-1.5 mb-2">
@@ -1283,7 +1288,7 @@ function CustomersContent() {
 
           {/* 偏好快速芯片 */}
           <div className="pt-2 border-t border-slate-100">
-            <label className="block font-bold text-teal-700 uppercase mb-1.5">
+            <label className="block font-semibold text-teal-700 uppercase mb-1.5">
               💆 {t('customerPreferences') || t('crm.custCommonPrefs')}：
             </label>
             <div className="flex flex-wrap gap-1.5 mb-2">
@@ -1329,7 +1334,7 @@ function CustomersContent() {
             </Button>
             <Button
               isPending={mergeMutation.isPending}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
               onClick={handleSmartMerge}
               disabled={!canMerge || !selectedSourceCustomer || mergeMutation.isPending}
             >
@@ -1340,7 +1345,7 @@ function CustomersContent() {
       >
         <div className="space-y-4 py-1 text-xs">
           <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900">
-            <p className="font-bold">
+            <p className="font-semibold">
               
               {t('crm.custMergeIntro')}{currentDetail?.displayName}】
             </p>
@@ -1351,7 +1356,7 @@ function CustomersContent() {
 
           {/* 搜索候选人 */}
           <div>
-            <label className="block font-bold text-slate-700 uppercase mb-1">
+            <label className="block font-semibold text-slate-700 uppercase mb-1">
               {t('search')}:
             </label>
             <div className="relative">
@@ -1376,7 +1381,7 @@ function CustomersContent() {
                     className={cn(
                       'p-2.5 flex items-center justify-between cursor-pointer transition-all',
                       selectedSourceCustomer?.id === cand.id
-                        ? 'bg-indigo-50 text-indigo-950 font-bold border-l-4 border-indigo-600'
+                        ? 'bg-indigo-50 text-indigo-950 font-semibold border-l-4 border-indigo-600'
                         : 'hover:bg-slate-50',
                     )}
                   >
@@ -1396,7 +1401,7 @@ function CustomersContent() {
           {/* 选中对比 */}
           {selectedSourceCustomer && (
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-              <span className="font-bold text-slate-700 block">{t('crm.custMergeCompare')}</span>
+              <span className="font-semibold text-slate-700 block">{t('crm.custMergeCompare')}</span>
               <div className="flex items-center justify-between text-[11px]">
                 <span>
                   
@@ -1427,7 +1432,7 @@ function CustomersContent() {
             </Button>
             {/* 短信按条计费且无法撤回，发送期间必须挡住第二次点击 */}
             <Button
-              className="bg-teal-600 hover:bg-teal-700 text-white font-bold gap-1"
+              className="bg-teal-600 hover:bg-teal-700 text-white font-semibold gap-1"
               isPending={sendSmsMutation.isPending}
               isDisabled={!canSendSms}
               onClick={handleSendSms}
@@ -1441,14 +1446,14 @@ function CustomersContent() {
         <div className="space-y-3.5 py-1 text-xs">
           <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-200">
             <span className="text-slate-500">{t('crm.custSmsRecipient')}</span>
-            <span className="font-bold text-slate-900">
+            <span className="font-semibold text-slate-900">
               {currentDetail?.displayName} ({currentDetail?.phone ? formatPhoneDisplay(currentDetail.phone) : t('crm.custSmsBoundNumber')})
             </span>
           </div>
 
           {/* 常用模板芯片 */}
           <div>
-            <span className="block font-bold text-slate-700 uppercase mb-1.5">
+            <span className="block font-semibold text-slate-700 uppercase mb-1.5">
               
               {t('crm.custSmsTemplates')}
             </span>
@@ -1467,7 +1472,7 @@ function CustomersContent() {
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 uppercase mb-1">
+            <label className="block font-semibold text-slate-700 uppercase mb-1">
               
               {t('crm.custSmsBody')}
             </label>
@@ -1502,8 +1507,8 @@ function CustomersContent() {
               isPending={setBlockedMutation.isPending}
               className={
                 currentDetail?.blockedAt
-                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white font-bold'
-                  : 'bg-red-600 hover:bg-red-700 text-white font-bold'
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white font-semibold'
+                  : 'bg-red-600 hover:bg-red-700 text-white font-semibold'
               }
               onClick={handleConfirmBlock}
               disabled={setBlockedMutation.isPending}
@@ -1517,7 +1522,7 @@ function CustomersContent() {
           {!currentDetail?.blockedAt ? (
             <>
               <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-900">
-                <p className="font-bold">{t('crm.custBlockAboutPrefix')}{currentDetail?.displayName}{t('crm.custBlockAboutSuffix')}</p>
+                <p className="font-semibold">{t('crm.custBlockAboutPrefix')}{currentDetail?.displayName}{t('crm.custBlockAboutSuffix')}</p>
                 <p className="text-[11px] mt-0.5 text-red-700">
                   
                   {t('crm.custBlockEffect')}
@@ -1525,7 +1530,7 @@ function CustomersContent() {
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 uppercase mb-1">
+                <label className="block font-semibold text-slate-700 uppercase mb-1">
                   
                   {t('crm.custBlockReasonLabel')}
                 </label>
@@ -1543,7 +1548,7 @@ function CustomersContent() {
             </>
           ) : (
             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900">
-              <p className="font-bold">{t('crm.custUnblockAboutPrefix')}{currentDetail?.displayName}{t('crm.custUnblockAboutSuffix')}</p>
+              <p className="font-semibold">{t('crm.custUnblockAboutPrefix')}{currentDetail?.displayName}{t('crm.custUnblockAboutSuffix')}</p>
               <p className="text-[11px] mt-0.5 text-emerald-700">
                 
                 {t('crm.custUnblockEffect')}

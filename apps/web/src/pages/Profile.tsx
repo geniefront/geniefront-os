@@ -1,3 +1,4 @@
+import { useEntitlements } from '@/features/billing/useEntitlements';
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
@@ -93,10 +94,12 @@ type ConfirmActionType =
   | 'switch_location';
 
 export function Profile() {
+  const voiceOnly = useEntitlements().data?.plan === 'voice_booking';
   const errorMessage = useErrorMessage();
   const { t, language, setLanguage } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') || 'general';
+  const requestedTab = searchParams.get('tab') || 'general';
+  const activeTab = voiceOnly && requestedTab === 'provider' ? 'general' : requestedTab;
 
   const { session, membership, locations, context, selectMembership, signOut } = useSession();
   const {
@@ -465,36 +468,16 @@ export function Profile() {
   ];
 
   return (
-    <div className="space-y-6 pb-12 max-w-6xl mx-auto">
+    <div className="gf-service-page space-y-6 pb-12 max-w-6xl mx-auto">
       {/* 顶部标题与操作栏 */}
       <PageHeader
-        title={
-          <div className="flex items-center gap-3">
-            <span>{t('profile')}</span>
-            <Badge variant="default" className="gap-1 font-mono">
-              <Sparkles className="w-3.5 h-3.5 text-teal-600" />
-              <span>{session?.user.email}</span>
-            </Badge>
-          </div>
-        }
-        description={t('settings.profPageDesc')}
+        title={t('profile')}
       />
 
       {/* 个人形象横幅卡片（修复文字被头像遮挡的 UI Bug） */}
       <Card className="border border-slate-200/90 shadow-sm rounded-2xl overflow-hidden bg-white">
-        {/* Banner 区域：状态标识置于右上角，装饰图案在右下角，左侧完全留空给头像下压 */}
-        <div className="h-32 bg-gradient-to-r from-teal-700 via-teal-800 to-slate-900 p-4 flex items-start justify-end relative overflow-hidden">
-          <div className="absolute right-0 bottom-0 opacity-15 pointer-events-none">
-            <Sparkles className="w-64 h-64 text-white transform translate-x-12 translate-y-12" />
-          </div>
-          <div className="px-3 py-1 rounded-full bg-black/25 backdrop-blur-md border border-white/15 text-white text-xs font-semibold flex items-center gap-2 relative z-10">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>{t('settings.profSignedIn')}</span>
-          </div>
-        </div>
-
         {/* 头像与信息栏：头像从底部干净下压，无任何文字遮挡冲突 */}
-        <div className="px-6 pb-6 pt-0 flex flex-col sm:flex-row items-start sm:items-end justify-between gap-4 -mt-12 relative z-10">
+        <div className="p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-end gap-4">
             {(() => {
               const activeEmoji =
@@ -507,7 +490,7 @@ export function Profile() {
                   <img
                     src={customAvatarUrl}
                     alt={fullName}
-                    className="w-24 h-24 rounded-2xl object-cover shadow-xl border-4 border-white shrink-0 bg-slate-100"
+                    className="w-16 h-16 rounded-2xl object-cover border border-slate-200 shrink-0 bg-slate-100"
                     onError={() => setAvatarMode('emoji')}
                   />
                 );
@@ -515,7 +498,7 @@ export function Profile() {
               if (avatarMode === 'emoji') {
                 return (
                   <div
-                    className={`w-24 h-24 rounded-2xl bg-gradient-to-br ${activeEmoji.bg} flex items-center justify-center text-4xl shadow-xl border-4 border-white shrink-0 select-none`}
+                    className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${activeEmoji.bg} flex items-center justify-center text-4xl border border-slate-200 shrink-0 select-none`}
                   >
                     {activeEmoji.icon}
                   </div>
@@ -523,7 +506,7 @@ export function Profile() {
               }
               return (
                 <div
-                  className={`w-24 h-24 rounded-2xl bg-gradient-to-br ${activeGrad.bg} ${activeGrad.text} flex items-center justify-center text-3xl font-black shadow-xl border-4 border-white shrink-0`}
+                  className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${activeGrad.bg} ${activeGrad.text} flex items-center justify-center text-3xl font-semibold border border-slate-200 shrink-0`}
                 >
                   {avatarInitial}
                 </div>
@@ -532,9 +515,9 @@ export function Profile() {
 
             <div className="space-y-1.5 mb-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-xl font-black text-slate-900">{fullName || t('settings.profUnnamed')}</h2>
-                {nickname && <span className="text-xs font-bold text-slate-500">({nickname})</span>}
-                <Badge variant="secondary" className="text-[10px] font-bold">
+                <h2 className="text-xl font-semibold text-slate-900">{fullName || t('settings.profUnnamed')}</h2>
+                {nickname && <span className="text-xs font-semibold text-slate-500">({nickname})</span>}
+                <Badge variant="secondary" className="text-[10px] font-semibold">
                   {roleNames}
                 </Badge>
               </div>
@@ -568,7 +551,7 @@ export function Profile() {
               variant="outline"
               size="sm"
               onClick={requestSignOut}
-              className="text-red-600 hover:bg-red-50 hover:border-red-200 gap-1.5 rounded-xl text-xs font-bold"
+              className="text-red-600 hover:bg-red-50 hover:border-red-200 gap-1.5 rounded-xl text-xs font-semibold"
             >
               <LogOut className="w-4 h-4" />
               <span>{t('signOut')}</span>
@@ -579,19 +562,19 @@ export function Profile() {
 
       {/* Tab 选项卡导航 */}
       <div className="flex items-center gap-2 overflow-x-auto border-b border-slate-200 pb-2 custom-scrollbar">
-        {tabs.map((tab) => {
+        {tabs.filter(tab => !voiceOnly || tab.id !== 'provider').map((tab) => {
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => handleTabChange(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
                 isActive
-                  ? 'bg-teal-600 text-white shadow-sm shadow-teal-600/20'
+                  ? 'bg-teal-50 text-teal-800'
                   : 'bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200'
               }`}
             >
-              <tab.icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+              <tab.icon className={`w-4 h-4 ${isActive ? 'text-teal-700' : 'text-slate-400'}`} />
               <span>{tab.label}</span>
             </button>
           );
@@ -612,16 +595,16 @@ export function Profile() {
             <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden">
               <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100 flex flex-row items-center justify-between">
                 <div>
-                  <CardTitle className="text-sm font-bold text-slate-900">{t('tabGeneral')}</CardTitle>
+                  <CardTitle className="text-sm font-semibold text-slate-900">{t('tabGeneral')}</CardTitle>
                   <CardDescription className="text-xs text-slate-500 mt-0.5">
                     
-                    {t('settings.profBasicDesc')}
+                    {!voiceOnly && t('settings.profBasicDesc')}
                   </CardDescription>
                 </div>
                 <Button
                   onClick={requestSaveGeneralProfile}
                   disabled={updateProfileMutation.isPending}
-                  className="bg-teal-600 hover:bg-teal-700 text-white rounded-xl gap-2 text-xs font-bold"
+                  className="bg-teal-600 hover:bg-teal-700 text-white rounded-xl gap-2 text-xs font-semibold"
                 >
                   <Save className="w-4 h-4" />
                   <span>{t('save')}</span>
@@ -629,10 +612,12 @@ export function Profile() {
               </CardHeader>
               <CardContent className="p-6 space-y-6">
                 {/* 丰富个性化头像选择器 */}
-                <div className="space-y-3 p-4 bg-slate-50 border border-slate-200/80 rounded-2xl">
+                <details className="rounded-xl border border-slate-200 p-4">
+                  <summary className="cursor-pointer text-sm font-medium text-slate-700">{t('settings.profAvatarTitle')}</summary>
+                  <div className="mt-4 space-y-3">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div>
-                      <label className="text-xs font-bold text-slate-900 block">{t('settings.profAvatarTitle')}</label>
+                      <label className="text-xs font-semibold text-slate-900 block">{t('settings.profAvatarTitle')}</label>
                       <span className="text-[11px] text-slate-500">
                         
                         {t('settings.profAvatarDesc')}
@@ -652,7 +637,7 @@ export function Profile() {
                             customImageUrl: customAvatarUrl,
                           });
                         }}
-                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                           avatarMode === 'emoji'
                             ? 'bg-teal-600 text-white shadow-2xs'
                             : 'text-slate-600 hover:bg-slate-50'
@@ -672,7 +657,7 @@ export function Profile() {
                             customImageUrl: customAvatarUrl,
                           });
                         }}
-                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                           avatarMode === 'gradient'
                             ? 'bg-teal-600 text-white shadow-2xs'
                             : 'text-slate-600 hover:bg-slate-50'
@@ -692,7 +677,7 @@ export function Profile() {
                             customImageUrl: customAvatarUrl,
                           });
                         }}
-                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                           avatarMode === 'custom'
                             ? 'bg-teal-600 text-white shadow-2xs'
                             : 'text-slate-600 hover:bg-slate-50'
@@ -731,7 +716,7 @@ export function Profile() {
                           >
                             {av.icon}
                           </div>
-                          <span className="text-[10px] font-bold text-slate-700 truncate w-full text-center">
+                          <span className="text-[10px] font-semibold text-slate-700 truncate w-full text-center">
                             {av.label}
                           </span>
                         </button>
@@ -762,11 +747,11 @@ export function Profile() {
                           }`}
                         >
                           <div
-                            className={`w-8 h-8 rounded-xl bg-gradient-to-br ${av.bg} flex items-center justify-center text-white text-xs font-black shadow-2xs shrink-0`}
+                            className={`w-8 h-8 rounded-xl bg-gradient-to-br ${av.bg} flex items-center justify-center text-white text-xs font-semibold shadow-2xs shrink-0`}
                           >
                             {avatarInitial}
                           </div>
-                          <span className="text-[11px] font-bold text-slate-700 truncate">
+                          <span className="text-[11px] font-semibold text-slate-700 truncate">
                             {av.label}
                           </span>
                         </button>
@@ -797,10 +782,11 @@ export function Profile() {
                     </div>
                   )}
                 </div>
+                </details>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                    <label className="text-xs font-semibold text-slate-800 flex items-center gap-1">
                       <span>{t('settings.profLegalName')}</span>
                       <span className="text-red-500">*</span>
                     </label>
@@ -814,7 +800,7 @@ export function Profile() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-800">{t('settings.profNickname')}</label>
+                    <label className="text-xs font-semibold text-slate-800">{t('settings.profNickname')}</label>
                     <Input
                       value={nickname}
                       onChange={(e) => setNickname(e.target.value)}
@@ -826,7 +812,7 @@ export function Profile() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-800">{t('settings.profLoginEmail')}</label>
+                    <label className="text-xs font-semibold text-slate-800">{t('settings.profLoginEmail')}</label>
                     <Input
                       value={session?.user.email || ''}
                       disabled
@@ -836,7 +822,7 @@ export function Profile() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-800">{t('settings.profPhone')}</label>
+                    <label className="text-xs font-semibold text-slate-800">{t('settings.profPhone')}</label>
                     <Input type="tel"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
@@ -850,7 +836,7 @@ export function Profile() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <label className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
                       <Globe className="w-4 h-4 text-teal-600" />
                       <span>{t('settings.profLanguage')}</span>
                     </label>
@@ -869,7 +855,7 @@ export function Profile() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <label className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
                       <Clock className="w-4 h-4 text-slate-400" />
                       <span>{t('settings.profTimezone')}</span>
                     </label>
@@ -883,7 +869,7 @@ export function Profile() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-800">{t('settings.profBio')}</label>
+                  <label className="text-xs font-semibold text-slate-800">{t('settings.profBio')}</label>
                   <textarea
                     value={bio}
                     onChange={(e) => setBio(e.target.value)}
@@ -904,7 +890,7 @@ export function Profile() {
                 <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                     <KeyRound className="w-4 h-4 text-teal-600" />
-                    <CardTitle className="text-sm font-bold text-slate-900">{t('changePassword')}</CardTitle>
+                    <CardTitle className="text-sm font-semibold text-slate-900">{t('changePassword')}</CardTitle>
                   </div>
                   <CardDescription className="text-xs text-slate-500 mt-0.5">
                     
@@ -914,7 +900,7 @@ export function Profile() {
                 <CardContent className="p-6">
                   <form onSubmit={requestChangePassword} className="space-y-4 max-w-xl">
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-800">{t('currentPassword')}</label>
+                      <label className="text-xs font-semibold text-slate-800">{t('currentPassword')}</label>
                       <div className="relative">
                         <Input
                           type={showPassword ? 'text' : 'password'}
@@ -935,7 +921,7 @@ export function Profile() {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-slate-800">{t('newPassword')}</label>
+                        <label className="text-xs font-semibold text-slate-800">{t('newPassword')}</label>
                         <Input
                           type={showPassword ? 'text' : 'password'}
                           value={newPassword}
@@ -946,7 +932,7 @@ export function Profile() {
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-slate-800">{t('confirmNewPassword')}</label>
+                        <label className="text-xs font-semibold text-slate-800">{t('confirmNewPassword')}</label>
                         <Input
                           type={showPassword ? 'text' : 'password'}
                           value={confirmPassword}
@@ -960,7 +946,7 @@ export function Profile() {
                     {/* 密码强度指示器 */}
                     {newPassword && (
                       <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 border border-slate-100">
-                        <div className="flex items-center justify-between text-[11px] font-bold">
+                        <div className="flex items-center justify-between text-[11px] font-semibold">
                           <span className="text-slate-500">{t('settings.profPasswordStrength')}</span>
                           <span className="text-slate-800">{passwordStrength.label}</span>
                         </div>
@@ -980,7 +966,7 @@ export function Profile() {
                     <Button
                       type="submit"
                       disabled={changePasswordMutation.isPending}
-                      className="bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold gap-2"
+                      className="bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold gap-2"
                     >
                       <Lock className="w-4 h-4" />
                       <span>{t('settings.profUpdatePassword')}</span>
@@ -995,7 +981,7 @@ export function Profile() {
                   <div>
                     <div className="flex items-center gap-2">
                       <Smartphone className="w-4 h-4 text-teal-600" />
-                      <CardTitle className="text-sm font-bold text-slate-900">{t('pinCodeTitle')}</CardTitle>
+                      <CardTitle className="text-sm font-semibold text-slate-900">{t('pinCodeTitle')}</CardTitle>
                     </div>
                     <CardDescription className="text-xs text-slate-500 mt-0.5">{t('pinCodeDesc')}</CardDescription>
                   </div>
@@ -1006,7 +992,7 @@ export function Profile() {
                       setPinCode('');
                       setPinModalOpen(true);
                     }}
-                    className="rounded-xl text-xs font-bold gap-1.5 border-slate-300"
+                    className="rounded-xl text-xs font-semibold gap-1.5 border-slate-300"
                   >
                     <Sliders className="w-4 h-4" />
                     <span>{t('settings.profSetPin')}</span>
@@ -1015,11 +1001,11 @@ export function Profile() {
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between p-4 rounded-xl bg-slate-50 border border-slate-100">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center font-bold text-lg">
+                      <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center font-semibold text-lg">
                         ••••
                       </div>
                       <div>
-                        <h4 className="text-xs font-bold text-slate-800">{t('settings.profPinActive')}</h4>
+                        <h4 className="text-xs font-semibold text-slate-800">{t('settings.profPinActive')}</h4>
                         <p className="text-[11px] text-slate-500 mt-0.5">
                           
                           {t('settings.profPinDesc')}
@@ -1036,7 +1022,7 @@ export function Profile() {
                 <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                     <Laptop className="w-4 h-4 text-teal-600" />
-                    <CardTitle className="text-sm font-bold text-slate-900">{t('activeSessions')}</CardTitle>
+                    <CardTitle className="text-sm font-semibold text-slate-900">{t('activeSessions')}</CardTitle>
                   </div>
                   <CardDescription className="text-xs text-slate-500 mt-0.5">
                     
@@ -1065,9 +1051,9 @@ export function Profile() {
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <strong className="text-xs font-bold text-slate-900">{sess.deviceLabel}</strong>
+                            <strong className="text-xs font-semibold text-slate-900">{sess.deviceLabel}</strong>
                             {sess.isCurrent && (
-                              <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold flex items-center gap-1">
+                              <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-semibold flex items-center gap-1">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                                 <span>{t('currentDevice')}</span>
                               </span>
@@ -1104,7 +1090,7 @@ export function Profile() {
                 <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                     <Building className="w-4 h-4 text-teal-600" />
-                    <CardTitle className="text-sm font-bold text-slate-900">{t('settings.profOrgTitle')}</CardTitle>
+                    <CardTitle className="text-sm font-semibold text-slate-900">{t('settings.profOrgTitle')}</CardTitle>
                   </div>
                   <CardDescription className="text-xs text-slate-500 mt-0.5">
                     
@@ -1114,16 +1100,16 @@ export function Profile() {
                 <CardContent className="p-6 space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('settings.profCurrentStore')}</span>
-                      <p className="text-sm font-bold text-slate-900 mt-1">{currentStoreName}</p>
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{t('settings.profCurrentStore')}</span>
+                      <p className="text-sm font-semibold text-slate-900 mt-1">{currentStoreName}</p>
                     </div>
                     <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('settings.profAssignedRole')}</span>
-                      <p className="text-sm font-bold text-teal-700 mt-1">{roleNames}</p>
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{t('settings.profAssignedRole')}</span>
+                      <p className="text-sm font-semibold text-teal-700 mt-1">{roleNames}</p>
                     </div>
                     <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('settings.profPermissionCount')}</span>
-                      <p className="text-sm font-bold text-slate-900 mt-1">
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{t('settings.profPermissionCount')}</span>
+                      <p className="text-sm font-semibold text-slate-900 mt-1">
                         {allPermissions.length}  {t('settings.profCapabilities')}
                       </p>
                     </div>
@@ -1132,7 +1118,7 @@ export function Profile() {
                   {/* 权限搜索与清单分解 */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between gap-4">
-                      <h4 className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                      <h4 className="text-xs font-semibold text-slate-800 flex items-center gap-2">
                         <ShieldCheck className="w-4 h-4 text-teal-600" />
                         <span>{t('settings.profEffectivePermissions')}{filteredPermissions.length})</span>
                       </h4>
@@ -1164,7 +1150,7 @@ export function Profile() {
                   {/* 多店列表切换（带两步确认） */}
                   {locations.length > 1 && (
                     <div className="space-y-3 pt-4 border-t border-slate-100">
-                      <h4 className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                      <h4 className="text-xs font-semibold text-slate-800 flex items-center gap-2">
                         <Store className="w-4 h-4 text-teal-600" />
                         <span>{t('settings.profMultiStore')}</span>
                       </h4>
@@ -1178,7 +1164,7 @@ export function Profile() {
                               className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-white hover:border-teal-500/50 transition-colors"
                             >
                               <div>
-                                <strong className="text-xs font-bold text-slate-900">
+                                <strong className="text-xs font-semibold text-slate-900">
                                   {locName}
                                 </strong>
                                 <p className="text-[11px] text-slate-500 mt-0.5">
@@ -1193,7 +1179,7 @@ export function Profile() {
                                   variant="outline"
                                   size="sm"
                                   onClick={() => requestSwitchLocation(loc.membershipId, locName)}
-                                  className="text-xs rounded-xl font-bold"
+                                  className="text-xs rounded-xl font-semibold"
                                 >
                                   
                                   {t('settings.profSwitchTo')}
@@ -1217,7 +1203,7 @@ export function Profile() {
                 <div>
                   <div className="flex items-center gap-2">
                     <Scissors className="w-4 h-4 text-teal-600" />
-                    <CardTitle className="text-sm font-bold text-slate-900">{t('tabProvider')}</CardTitle>
+                    <CardTitle className="text-sm font-semibold text-slate-900">{t('tabProvider')}</CardTitle>
                   </div>
                   <CardDescription className="text-xs text-slate-500 mt-0.5">
                     
@@ -1227,7 +1213,7 @@ export function Profile() {
                 <Button
                   onClick={requestSaveProviderSettings}
                   disabled={updateProfileMutation.isPending}
-                  className="bg-teal-600 hover:bg-teal-700 text-white rounded-xl gap-2 text-xs font-bold"
+                  className="bg-teal-600 hover:bg-teal-700 text-white rounded-xl gap-2 text-xs font-semibold"
                 >
                   <Save className="w-4 h-4" />
                   <span>{t('save')}</span>
@@ -1238,7 +1224,7 @@ export function Profile() {
                   <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <label className="text-xs font-bold text-slate-800">{t('settings.profBookable')}</label>
+                        <label className="text-xs font-semibold text-slate-800">{t('settings.profBookable')}</label>
                         <p className="text-[11px] text-slate-500 mt-0.5">{t('settings.profBookableDesc')}</p>
                       </div>
                       <input
@@ -1251,7 +1237,7 @@ export function Profile() {
                   </div>
 
                   <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
-                    <label className="text-xs font-bold text-slate-800">{t('settings.profMaxConcurrent')}</label>
+                    <label className="text-xs font-semibold text-slate-800">{t('settings.profMaxConcurrent')}</label>
                     <select
                       value={maxConcurrent}
                       onChange={(e) => setMaxConcurrent(e.target.value)}
@@ -1273,7 +1259,7 @@ export function Profile() {
                     : directory;
                   return (
                     <div className="space-y-3">
-                      <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <label className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
                         <Tag className="w-4 h-4 text-teal-600" />
                         <span>{t('settings.profSkillsHeld')}{skillIds.length})</span>
                       </label>
@@ -1332,7 +1318,7 @@ export function Profile() {
                 <div>
                   <div className="flex items-center gap-2">
                     <Bell className="w-4 h-4 text-teal-600" />
-                    <CardTitle className="text-sm font-bold text-slate-900">{t('tabNotificationPrefs')}</CardTitle>
+                    <CardTitle className="text-sm font-semibold text-slate-900">{t('tabNotificationPrefs')}</CardTitle>
                   </div>
                   <CardDescription className="text-xs text-slate-500 mt-0.5">
                     
@@ -1342,7 +1328,7 @@ export function Profile() {
                 <Button
                   onClick={requestSaveNotificationPrefs}
                   disabled={saveNotifPrefsMutation.isPending}
-                  className="bg-teal-600 hover:bg-teal-700 text-white rounded-xl gap-2 text-xs font-bold"
+                  className="bg-teal-600 hover:bg-teal-700 text-white rounded-xl gap-2 text-xs font-semibold"
                 >
                   <Save className="w-4 h-4" />
                   <span>{t('save')}</span>
@@ -1354,7 +1340,7 @@ export function Profile() {
                     {/* 应用内实时推送 */}
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider text-teal-800 flex items-center gap-2">
+                        <h4 className="text-xs font-semibold text-slate-900 uppercase tracking-wider text-teal-800 flex items-center gap-2">
                           <Bell className="w-4 h-4" />
                           <span>{t('settings.profInAppTitle')}</span>
                         </h4>
@@ -1373,7 +1359,7 @@ export function Profile() {
                               toast.danger(errorMessage(err));
                             }
                           }}
-                          className="text-xs font-bold text-teal-600 hover:text-teal-700 disabled:opacity-50"
+                          className="text-xs font-semibold text-teal-600 hover:text-teal-700 disabled:opacity-50"
                         >
                           
                           {t('settings.profEnableAll')}
@@ -1394,7 +1380,7 @@ export function Profile() {
                             className="flex items-start justify-between p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-colors"
                           >
                             <div className="space-y-0.5 pr-2">
-                              <label className="text-xs font-bold text-slate-800">{item.label}</label>
+                              <label className="text-xs font-semibold text-slate-800">{item.label}</label>
                               <p className="text-[11px] text-slate-500">{item.desc}</p>
                             </div>
                             <input
@@ -1415,7 +1401,7 @@ export function Profile() {
 
                     {/* 手机短信渠道 */}
                     <div className="space-y-3 pt-4 border-t border-slate-100">
-                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider text-teal-800 flex items-center gap-2">
+                      <h4 className="text-xs font-semibold text-slate-900 uppercase tracking-wider text-teal-800 flex items-center gap-2">
                         <Smartphone className="w-4 h-4" />
                         <span>{t('settings.profSmsTitle')}</span>
                       </h4>
@@ -1429,7 +1415,7 @@ export function Profile() {
                             className="flex items-start justify-between p-3.5 rounded-xl border border-slate-100 bg-slate-50/50"
                           >
                             <div className="space-y-0.5 pr-2">
-                              <label className="text-xs font-bold text-slate-800">{item.label}</label>
+                              <label className="text-xs font-semibold text-slate-800">{item.label}</label>
                               <p className="text-[11px] text-slate-500">{item.desc}</p>
                             </div>
                             <input
@@ -1450,7 +1436,7 @@ export function Profile() {
 
                     {/* 邮件报告 */}
                     <div className="space-y-3 pt-4 border-t border-slate-100">
-                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider text-teal-800 flex items-center gap-2">
+                      <h4 className="text-xs font-semibold text-slate-900 uppercase tracking-wider text-teal-800 flex items-center gap-2">
                         <Mail className="w-4 h-4" />
                         <span>{t('settings.profEmailTitle')}</span>
                       </h4>
@@ -1464,7 +1450,7 @@ export function Profile() {
                             className="flex items-start justify-between p-3.5 rounded-xl border border-slate-100 bg-slate-50/50"
                           >
                             <div className="space-y-0.5 pr-2">
-                              <label className="text-xs font-bold text-slate-800">{item.label}</label>
+                              <label className="text-xs font-semibold text-slate-800">{item.label}</label>
                               <p className="text-[11px] text-slate-500">{item.desc}</p>
                             </div>
                             <input
@@ -1522,7 +1508,7 @@ export function Profile() {
                     key={key}
                     type="button"
                     onClick={() => handlePinKeypadPress('clear')}
-                    className="h-12 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold transition-all active:scale-95"
+                    className="h-12 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold transition-all active:scale-95"
                   >
                     
                     {t('settings.profPinClear')}
@@ -1546,7 +1532,7 @@ export function Profile() {
                   key={key}
                   type="button"
                   onClick={() => handlePinKeypadPress(key)}
-                  className="h-12 rounded-2xl bg-white border border-slate-200 hover:bg-teal-50 hover:border-teal-500 text-slate-900 text-lg font-bold shadow-xs transition-all active:scale-95"
+                  className="h-12 rounded-2xl bg-white border border-slate-200 hover:bg-teal-50 hover:border-teal-500 text-slate-900 text-lg font-semibold shadow-xs transition-all active:scale-95"
                 >
                   {key}
                 </button>
@@ -1561,7 +1547,7 @@ export function Profile() {
             <Button
               onClick={requestSetPin}
               disabled={setPinMutation.isPending || pinCode.length < 4}
-              className="bg-teal-600 hover:bg-teal-700 text-white font-bold"
+              className="bg-teal-600 hover:bg-teal-700 text-white font-semibold"
             >
               
               {t('settings.profPinSavePrefix')}{pinCode.length}  {t('settings.profPinSaveSuffix')}

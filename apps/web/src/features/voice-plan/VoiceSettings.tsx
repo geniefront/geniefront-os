@@ -1,3 +1,5 @@
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Store, Scissors, Users, PhoneCall, CreditCard, ArrowUpRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { PublicBookingLink } from './PublicBookingLink';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -25,12 +27,13 @@ function SettingsBody() {
   const navigate = useNavigate(); const saves = useSetupSave();
   const manage = useCan('settings.manage'), catalog = useCan('catalog.manage'), staff = useCan('staff.manage'), billing = useCan('billing.manage');
   const tabs = [
-    { id: 'store', label: 'settings.navStore', enabled: manage },
-    { id: 'services', label: 'settings.navServices', enabled: catalog },
+    { id: 'store', label: 'voiceStoreTab', enabled: manage },
+    { id: 'services', label: 'voiceServicesTab', enabled: catalog },
     { id: 'staff', label: 'voiceTeamTab', enabled: staff },
     { id: 'phone', label: 'voicePhoneTab', enabled: manage },
-    { id: 'billing', label: 'settings.navBilling', enabled: billing },
+    { id: 'billing', label: 'voiceBillingTab', enabled: billing },
   ].filter(tab => tab.enabled);
+  const icons = { store: Store, services: Scissors, staff: Users, phone: PhoneCall, billing: CreditCard };
   const aliases: Record<string, string> = { hours:'store', booking:'staff', ai_phone:'phone', notifications:'phone', '10dlc':'phone' };
   const requested = params.get('tab') ?? 'phone';
   const current = tabs.find(tab => tab.id === (aliases[requested] ?? requested))?.id ?? tabs[0]?.id;
@@ -47,9 +50,16 @@ function SettingsBody() {
     document.addEventListener('click', onLink, true);
     return () => document.removeEventListener('click', onLink, true);
   }, [saves, navigate]);
-  return <main className="mx-auto max-w-5xl space-y-6 p-5 sm:p-8">
-    <header><h1 className="text-2xl font-bold text-slate-900">{t('voiceSettingsTitle')}</h1><p className="mt-2 text-sm text-slate-500">{t('voiceSettingsIntro')}</p></header>
-    <nav aria-label={t('voiceSettingsTitle')} className="flex flex-wrap gap-2">{tabs.map(tab => <Button key={tab.id} variant={current === tab.id ? undefined : 'secondary'} onClick={() => void switchTab(tab.id)}>{t(tab.label as TranslationKey)}</Button>)}</nav>
+  return <div className="gf-service-page mx-auto max-w-6xl space-y-6 pb-12">
+    <PageHeader title={t('settings')} description={t('voiceSettingsIntro')} />
+    <div className="grid items-start gap-6 lg:grid-cols-[200px_minmax(0,1fr)]">
+    <nav aria-label={t('voiceSettingsTitle')} className="flex flex-wrap gap-1 lg:flex-col lg:flex-nowrap">{tabs.map(tab => {
+      const Icon = icons[tab.id as keyof typeof icons];
+      return <Button key={tab.id} variant="ghost" aria-current={current === tab.id ? 'page' : undefined}
+        className={`shrink-0 justify-start gap-3 rounded-lg px-3 text-sm ${current === tab.id ? 'bg-teal-50 text-teal-800' : 'text-slate-500'}`}
+        onClick={() => void switchTab(tab.id)}><Icon className="size-4" />{t(tab.label as TranslationKey)}</Button>;
+    })}</nav>
+    <div className="min-w-0 space-y-4">
     {!current && <p>{t('errorPERMISSION_DENIED')}</p>}
     <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
       {current === 'store' && <><PublicBookingLink /><StoreStepForm onSaved={() => undefined} /></>}
@@ -58,8 +68,9 @@ function SettingsBody() {
       {current === 'phone' && <PhoneSettings />}
       {current === 'billing' && <BillingPanel />}
     </section>
-    {manage && <Button variant="ghost" onClick={async () => { if (await saves?.flush()) navigate('/communication-logs'); }}>{t('voiceDeliveryTitle')}</Button>}
-  </main>;
+    {manage && <Button variant="ghost" onClick={async () => { if (await saves?.flush()) navigate('/communication-logs'); }}>{t('voiceDeliveryTitle')}<ArrowUpRight className="size-3.5" /></Button>}
+    </div></div>
+  </div>;
 }
 function PhoneSettings() {
   const { t } = useLanguage(); const { membershipId } = useSession(); const qc = useQueryClient(); const message = useErrorMessage();
@@ -88,7 +99,7 @@ function PhoneSettings() {
   if (settings.isError || readiness.isError) return <p role="alert">{t('genericFailure')} <Button onClick={() => { void settings.refetch(); void readiness.refetch(); }}>{t('setupRetry')}</Button></p>;
   if (!data || !routing.value || !recipients.value || !ai) return <p>{t('setupReadinessLoading')}</p>;
   return <div className="space-y-7">
-    <section className="space-y-3 rounded-xl bg-teal-50 p-4"><h2 className="font-bold">{t('voiceLineStatus')} · {t(stateKeys[ai.state])}</h2>
+    <section className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-5"><h2 className="font-semibold">{t('voiceLineStatus')} · {t(stateKeys[ai.state])}</h2>
       {data.phone.aiVoiceE164 && <p className="font-mono">{formatPhoneDisplay(data.phone.aiVoiceE164)}</p>}
       <p className="text-sm text-slate-600">{t('voiceLineHint')}</p>
       <label className="flex items-center gap-3 font-semibold"><input type="checkbox" checked={ai.effectiveAiAnswer} disabled={switching || (!ai.ready && !ai.effectiveAiAnswer)} onChange={() => void toggle()} />{t('voiceAnswerEnabled')}</label>
@@ -98,7 +109,7 @@ function PhoneSettings() {
       <Field label={t('voiceTransferPhone')}><Input type="tel" value={routing.value.transferTargetE164} onChange={e => routing.set(old => ({...old,transferTargetE164:e.target.value}))} /></Field>
       <Field label={t('voiceForwarding')}><select className={selectClass} value={routing.value.forwardingMode} onChange={e => routing.set(old => ({...old,forwardingMode:e.target.value as 'all' | 'busy_no_answer'}))}><option value="busy_no_answer">{t('voiceForwardBusy')}</option><option value="all">{t('voiceForwardAll')}</option></select></Field>
     </div><p className="text-sm text-slate-500">{t('voiceForwardHint')}</p><SaveStatus {...routing} />
-    <section className="space-y-4 border-t pt-6"><h2 className="font-bold">{t('voiceSummaryRecipients')}</h2><p className="text-sm text-slate-500">{t('voiceRecipientsHint')}</p>
+    <section className="space-y-4 border-t pt-6"><h2 className="font-semibold">{t('voiceSummaryRecipients')}</h2><p className="text-sm text-slate-500">{t('voiceRecipientsHint')}</p>
       <div className="grid gap-4 sm:grid-cols-2"><Field label={t('voiceEmail')}><Input type="email" value={recipients.value.email} onChange={e => recipients.set(old => ({...old,email:e.target.value}))} /></Field><Field label={t('voiceSms')}><Input type="tel" value={recipients.value.phone} onChange={e => recipients.set(old => ({...old,phone:e.target.value}))} /></Field></div>
       <SaveStatus {...recipients} />
     </section>
@@ -113,7 +124,7 @@ function BookingRules() {
     await qc.invalidateQueries({queryKey:settingsKeys.desk(membershipId)});
   });
   if (!draft.value) return null;
-  return <section className="space-y-4 rounded-xl border p-4"><h2 className="font-bold">{t('voiceBookingWindow')}</h2><div className="grid gap-4 sm:grid-cols-2">
+  return <section className="space-y-4 rounded-xl border p-4"><h2 className="font-semibold">{t('voiceBookingWindow')}</h2><div className="grid gap-4 sm:grid-cols-2">
     <Field label={t('voiceBookingMaxDays')}><Input type="number" min="1" max="365" value={draft.value.maxDaysAhead} onChange={e => draft.set(old=>({...old,maxDaysAhead:Number(e.target.value)}))} /></Field>
     <Field label={t('voiceBookingMinMinutes')}><Input type="number" min="0" max="1440" value={draft.value.minMinutesAhead} onChange={e => draft.set(old=>({...old,minMinutesAhead:Number(e.target.value)}))} /></Field>
   </div><SaveStatus {...draft} /></section>;
