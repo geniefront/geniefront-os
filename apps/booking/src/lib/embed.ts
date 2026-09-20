@@ -31,6 +31,7 @@ export function reportHeight(): () => void {
   send();
   return () => {
     ro.disconnect();
+    window.removeEventListener('load',send);
     clearInterval(poll);
     timers.forEach(clearTimeout);
   };

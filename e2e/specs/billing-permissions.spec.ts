@@ -25,7 +25,7 @@ test.describe('billing states and role boundaries', () => {
     await evidence(page, 'qa-004-growth-billing-card-on-file');
   });
 
-  test('payment-method handoff, topup gating, and auto-topup persistence are deterministic', async ({ page }) => {
+  test('payment-method handoff, topup handoff, and auto-topup persistence are deterministic', async ({ page }) => {
     await seedScenario('essential_trial');
     await page.route('**/v1/billing/payment-method', async (route) => {
       expect(route.request().postDataJSON()).toMatchObject({
@@ -45,8 +45,18 @@ test.describe('billing states and role boundaries', () => {
     }));
     await loginDesk(page, qaEmail('essential_trial'), '/settings?tab=billing');
 
+    await page.route('**/v1/billing/topup', async (route) => {
+      expect(route.request().postDataJSON()).toMatchObject({
+        unit: 'credit', successUrl: '/settings?tab=billing', cancelUrl: '/settings?tab=billing',
+      });
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ url: 'https://checkout.stripe.com/c/pay/qa-topup', sessionId: 'qa-topup' }),
+      });
+    });
     await page.getByRole('button', { name: 'Buy $50 AI credits' }).click();
-    await expect(page.getByText('Add a payment method before buying quota.')).toBeVisible();
+    await expect(page).toHaveURL('https://checkout.stripe.com/c/pay/qa-topup');
+    await page.goBack();
 
     const autoTopupLabel = page.locator('label').filter({ hasText: /Auto-topup \$50 when balance is below 50/ });
     await autoTopupLabel.click();

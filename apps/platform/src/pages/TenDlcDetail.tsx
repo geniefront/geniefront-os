@@ -1,3 +1,4 @@
+import { formatPhoneDisplay } from '@gf/contracts';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -58,7 +59,7 @@ export function TenDlcDetail() {
         <dt className="text-slate-500">EIN</dt><dd>{d.ein ?? '—'}</dd>
         <dt className="text-slate-500">Structure</dt><dd>{d.businessStructure ?? '—'}</dd>
         <dt className="text-slate-500">Address</dt><dd>{d.registeredAddress ?? '—'}</dd>
-        <dt className="text-slate-500">Rep</dt><dd>{[d.repName, d.repTitle, d.repEmail, d.repPhone].filter(Boolean).join(' · ') || '—'}</dd>
+        <dt className="text-slate-500">Rep</dt><dd>{[d.repName, d.repTitle, d.repEmail, formatPhoneDisplay(d.repPhone)].filter(Boolean).join(' · ') || '—'}</dd>
         <dt className="text-slate-500">Opt-in</dt><dd>{d.optInMethod ?? '—'}</dd>
         <dt className="text-slate-500">Submitted</dt><dd>{d.submittedAt ?? '—'}</dd>
         <dt className="text-slate-500">Submitter</dt><dd>{d.submitterEmail ?? d.locationName}</dd>

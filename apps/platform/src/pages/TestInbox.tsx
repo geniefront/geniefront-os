@@ -1,3 +1,4 @@
+import { formatPhoneDisplay } from '@gf/contracts';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { platformGet, type OperatorSession } from '@/lib/api';
@@ -75,7 +76,7 @@ function MessageDetail({ channel, id }: { channel: 'email' | 'sms'; id: string }
         <div><span className="text-slate-500">Provider id</span><div className="font-mono text-xs">{d.providerId ?? '—'}</div></div>
         <div><span className="text-slate-500">Entity</span><div className="font-mono text-xs">{d.entityType} {d.entityId?.slice(0, 8)}</div></div>
         {d.channel === 'sms' ? (
-          <div><span className="text-slate-500">Segments</span><div>{d.segments} · from {d.fromE164}</div></div>
+          <div><span className="text-slate-500">Segments</span><div>{d.segments} · from {formatPhoneDisplay(d.fromE164)}</div></div>
         ) : null}
       </div>
 

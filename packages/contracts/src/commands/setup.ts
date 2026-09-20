@@ -1,3 +1,4 @@
+import { weeklyHoursSchema } from '../businessHours';
 /**
  * 开店配置：项目 / 员工 / 营业时间。
  *
@@ -7,6 +8,7 @@
  */
 
 import { z } from 'zod';
+import { publicBookingProfileSchema } from '../publicBookingProfile.js';
 import { defineCommand, uuid, cents, i18nText, phoneE164 } from '../command.js';
 
 export const SaveService = defineCommand({
@@ -14,6 +16,7 @@ export const SaveService = defineCommand({
   input: z.object({
     /** 不传就是新建 */
     serviceId: uuid.optional(),
+    presentation: z.object({imageUrl:z.string().url().max(2048).refine(v=>v.startsWith('https://')).or(z.literal('')),description:z.string().max(5000)}).optional(),
     /** 可选服务分类。null 表示未分类；必须属于当前门店。 */
     categoryId: uuid.nullable().optional(),
     name: i18nText,
@@ -197,10 +200,7 @@ export const SaveBusinessHours = defineCommand({
   name: 'location.saveHours',
   input: z.object({
     /** 七天，缺哪天就是那天不营业 */
-    hours: z.record(
-      z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']),
-      z.object({ open: hhmm, close: hhmm }).nullable(),
-    ),
+    hours: weeklyHoursSchema,
   }),
   output: z.object({ locationId: uuid }),
   permission: 'settings.manage',
@@ -622,7 +622,7 @@ export const Apply10Dlc = defineCommand({
     repName: z.string().min(1).max(128),
     repTitle: z.string().min(1).max(128),
     repEmail: z.string().email(),
-    repPhone: z.string().min(1).max(32),
+    repPhone: phoneE164,
     optInMethod: z.string().max(1000).optional(),
     sampleMessages: z.array(z.string()).default([]),
     sampleMessage1: z.string().optional(),
@@ -755,7 +755,18 @@ export const ReorderStaffDirectoryOptions = defineCommand({
   idempotency: 'optional',
 });
 
+export const SavePublicBookingProfile = defineCommand({
+  name: 'location.savePublicBookingProfile',
+  input: publicBookingProfileSchema,
+  output: z.object({locationId:uuid}),
+  permission: 'settings.manage',
+  ai: {description:'维护对外预约展示页、照片与项目展示资料。',confirm:'always'},
+  reversible: true,
+  idempotency: 'optional',
+});
+
 export const SETUP_COMMANDS = [
+  SavePublicBookingProfile,
   SaveStaffDirectoryOption, ReorderStaffDirectoryOptions, SaveService, BulkUpdateServices, SaveServiceCategory, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup, SaveSetupFeatures,
   SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,

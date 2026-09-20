@@ -705,11 +705,11 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
             <label className="block font-bold text-slate-700 uppercase mb-1">
               {t('crm.custPhoneLabel')}
             </label>
-            <Input
+            <Input type="tel"
               value={custFormPhone}
-              onChange={(e) => setCustFormPhone(formatPhoneInput(e.target.value))}
+              onChange={(e) => setCustFormPhone(e.target.value)}
               placeholder="(555) 000-0000"
-              maxLength={14}
+              maxLength={32}
             />
           </div>
         </div>

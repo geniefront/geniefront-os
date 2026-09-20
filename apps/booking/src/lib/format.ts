@@ -29,7 +29,7 @@ export const money = (cents: number, currency = 'USD'): string =>
   }).format(cents / 100);
 
 export const duration = (min: number): string =>
-  min >= 60 ? `${Math.floor(min / 60)}h${min % 60 ? ` ${min % 60}m` : ''}` : `${min} min`;
+  `${min} min`;
 
 export function todayIn(timezone: string): string {
   return new Intl.DateTimeFormat('en-CA', {
@@ -86,17 +86,4 @@ export function pageOffsetForDate(start: string, maxDaysAhead: number, date: str
   return Math.min(aligned, maxOffset);
 }
 
-export function toE164(raw: string): string | null {
-  const d = raw.replace(/\D/g, '');
-  if (d.length === 10) return `+1${d}`;
-  if (d.length === 11 && d.startsWith('1')) return `+${d}`;
-  if (raw.trim().startsWith('+') && d.length >= 8 && d.length <= 15) return `+${d}`;
-  return null;
-}
-
-export function prettyPhone(raw: string): string {
-  const d = raw.replace(/\D/g, '').slice(0, 10);
-  if (d.length <= 3) return d;
-  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
-  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
-}
+export { normalizePhoneE164 as toE164, formatPhoneInput as prettyPhone } from '@gf/contracts/phone';

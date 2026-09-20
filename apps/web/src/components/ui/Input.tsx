@@ -1,3 +1,4 @@
+import { PhoneInput } from '@gf/phone-input';
 import * as React from 'react';
 import { cn } from '@/lib/utils';
 
@@ -29,8 +30,9 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     const reactId = React.useId();
     const errorId = message ? `${id ?? reactId}-error` : undefined;
 
+    const Component = type === 'tel' ? PhoneInput : 'input';
     const field = (
-      <input
+      <Component
         ref={ref}
         type={type}
         id={id}

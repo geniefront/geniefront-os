@@ -52,7 +52,7 @@ export interface PublicShopRow {
   timezone: string;
   currency: string;
   businessDayCutoff: string;
-  businessHours: Record<string, { open: string; close: string } | null>;
+  businessHours: Record<string, { open: string; close: string; periods?: Array<{open:string;close:string}> } | null>;
   address: Record<string, unknown> | null;
   phone: string | null;
   locationStatus: string;

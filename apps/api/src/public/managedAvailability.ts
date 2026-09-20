@@ -1,3 +1,5 @@
+import {dayWindows} from '@gf/scheduling';
+import { loadBookingStaff, enforceScheduledBooking } from '../queries/bookingStaff';
 /**
  * Token-scoped reschedule availability.
  *
@@ -10,7 +12,7 @@
 import type postgres from 'postgres';
 import type { PublicShopRow } from '@gf/db';
 import {
-  businessDateOf, checkCapacity, overlappingOccupancy, wallMinuteToInstant, type Interval,
+  bookingLimits, readBookingPolicy, businessDateOf, checkCapacity, overlappingOccupancy, wallMinuteToInstant, type Interval,
 } from '@gf/scheduling';
 
 export interface ManagedAvailItem {
@@ -19,6 +21,7 @@ export interface ManagedAvailItem {
   ends_at: string;
   duration_min: number;
   resource_id: string | null;
+  details?: Record<string,unknown>;
 }
 
 export interface ManagedSlot {
@@ -57,7 +60,7 @@ export function guestRescheduleShapeReason(items: readonly ManagedAvailItem[]): 
     if (!Number.isFinite(Date.parse(item.starts_at)) || !Number.isFinite(Date.parse(item.ends_at))) {
       return 'shape_unsupported';
     }
-    if (item.resource_id) return 'shape_unsupported';
+    if (item.resource_id && (!item.membership_id || !Number.isInteger(item.details?.['publicGuestIndex']))) return 'shape_unsupported';
   }
   return null;
 }
@@ -73,7 +76,7 @@ interface OccupancyStaff {
 
 export async function loadManagedAvailability(
   tx: postgres.TransactionSql,
-  shop: PublicShopRow,
+  shop: Pick<PublicShopRow,'locationId'|'timezone'|'businessDayCutoff'|'onlineBooking'>,
   appointmentId: string,
   date: string,
 ): Promise<ManagedAvailability> {
@@ -85,7 +88,7 @@ export async function loadManagedAvailability(
 
   const items = await tx<ManagedAvailItem[]>`
     select membership_id, starts_at::text as starts_at, ends_at::text as ends_at,
-           duration_min, resource_id
+           duration_min, resource_id, details
       from appointment_items
      where appointment_id = ${appointmentId} and status <> 'cancelled'
      order by starts_at, seq`;
@@ -109,7 +112,7 @@ export async function loadManagedAvailability(
 
   const [loc] = await tx<{
     tz: string; cutoff: string;
-    hours: Record<string, { open: string; close: string } | null>;
+    hours: Record<string, { open: string; close: string; periods?: Array<{open:string;close:string}> } | null>;
     settings: Record<string, unknown>;
   }[]>`
     select timezone as tz, business_day_cutoff::text as cutoff,
@@ -125,20 +128,9 @@ export async function loadManagedAvailability(
   const rawClose = hhmmToMin(today.close);
   const closeMin = rawClose <= openMin ? rawClose + 24 * 60 : rawClose;
 
-  const staffRows = await tx<{
-    membership_id: string; name: unknown; start_min: number; end_min: number;
-    max_concurrent: number;
-  }[]>`
-    select s.membership_id, sp.display_name as name, s.start_min, s.end_min,
-           sp.max_concurrent_appointments as max_concurrent
-      from shifts s
-      join staff_profiles sp on sp.membership_id = s.membership_id
-      join memberships m on m.id = s.membership_id and m.status = 'active'
-     where s.location_id = ${shop.locationId}
-       and s.business_date = ${date}
-       and s.status = 'published'
-       and sp.is_bookable = true
-     order by sp.display_name->>'en'`;
+  const windows=await loadBookingStaff(tx,shop.locationId,date);
+  const profiles=await tx<{membership_id:string;display_name:unknown;max_concurrent_appointments:number}[]>`select membership_id,display_name,max_concurrent_appointments from staff_profiles where location_id=${shop.locationId}`;
+  const staffRows=windows.map(w=>({membership_id:w.id,start_min:w.startMin,end_min:w.endMin,name:profiles.find(p=>p.membership_id===w.id)?.display_name,max_concurrent:(loc.settings as any).capacity?.strict_staff?1:profiles.find(p=>p.membership_id===w.id)?.max_concurrent_appointments??1}));
   if (staffRows.length === 0) return empty(null, true, spanMin);
 
   const busyRows = await tx<{
@@ -178,7 +170,7 @@ export async function loadManagedAvailability(
     shiftStartMin: r.start_min,
     shiftEndMin: r.end_min,
     busy: busyBy.get(r.membership_id) ?? [],
-    maxConcurrent: r.max_concurrent ?? 1,
+    maxConcurrent: items.every(i=>Number.isInteger(i.details?.['publicGuestIndex'])) ? 1 : r.max_concurrent ?? 1,
   }));
   const staffById = new Map(staff.map((s) => [s.membershipId, s]));
 
@@ -201,14 +193,50 @@ export async function loadManagedAvailability(
   const from = Math.max(openMin, nowMin ?? openMin);
   const first = Math.ceil(from / step) * step;
 
+  const resourceIds=[...new Set(items.map(i=>i.resource_id).filter((id):id is string=>!!id))];
+  const resources=resourceIds.length?await tx<{id:string;capacity:number;max_staff:number|null}[]>`
+    select id,capacity,max_staff from resources where location_id=${shop.locationId} and id=any(${resourceIds}) and status='available'`:[];
+  if(resources.length!==resourceIds.length)return empty(null,true,spanMin);
+  const resourceBusy=resourceIds.length?await tx<{resource_id:string;membership_id:string|null;starts_at:string;ends_at:string;group_key:string}[]>`
+    select ai.resource_id,ai.membership_id,ai.starts_at::text,ai.ends_at::text,
+      case when a.party_size>1 then a.id::text||':'||coalesce(ai.details->>'publicGuestIndex',ai.id::text) else a.id::text end as group_key
+    from appointment_items ai join appointments a on a.id=ai.appointment_id
+    where ai.location_id=${shop.locationId} and ai.resource_id=any(${resourceIds}) and ai.appointment_id<>${appointmentId}
+      and ai.status in ('booked','in_service')
+      and ai.starts_at<${wallMinuteToInstant(date,loc.tz,2880).toISOString()}::timestamptz
+      and ai.ends_at>${wallMinuteToInstant(date,loc.tz,0).toISOString()}::timestamptz`:[];
+  const fitsResources=(anchor:Date)=>{
+    const proposed=items.map(i=>({resourceId:i.resource_id,staffId:i.membership_id,
+      start:anchor.getTime()+Date.parse(i.starts_at)-anchorMs,end:anchor.getTime()+Date.parse(i.ends_at)-anchorMs,
+      group:`current:${i.details?.['publicGuestIndex']??0}`}));
+    return proposed.every(i=>{
+      if(!i.resourceId)return true;
+      const resource=resources.find(r=>r.id===i.resourceId)!;
+      const existing=resourceBusy.filter(b=>b.resource_id===i.resourceId && Date.parse(b.starts_at)<i.end && i.start<Date.parse(b.ends_at));
+      const peers=proposed.filter(p=>p.resourceId===i.resourceId && p.start<i.end && i.start<p.end);
+      const groups=new Set([...existing.map(b=>b.group_key),...peers.map(p=>p.group)]);
+      const people=new Set([...existing.map(b=>b.membership_id),...peers.map(p=>p.staffId)].filter(Boolean));
+      return groups.size<=resource.capacity && (resource.max_staff===null || people.size<=resource.max_staff);
+    });
+  };
+
   const slots: ManagedSlot[] = [];
   const seen = new Set<number>();
 
   for (let startMin = first; startMin + spanMin <= closeMin; startMin += step) {
+    if(!dayWindows(date,loc.hours).some(w=>startMin>=w.openMin && startMin+spanMin<=w.closeMin))continue;
     const startsAt = wallMinuteToInstant(date, loc.tz, startMin);
-    if (startsAt.getTime() < earliest) continue;
-    if (!fitsShape(shape, startMin, date, loc.tz, staff, staffById, locationBusy, perSlot,
-                   shapeGroupKey)) {
+    if (startsAt.getTime() < earliest || !fitsResources(startsAt)) continue;
+    if ((loc.settings as any).capacity?.use_recurring_staff) {
+      let valid=true;
+      for(const item of shape) {
+        try { await enforceScheduledBooking(tx,shop.locationId,date,loc.settings,{membershipId:item.membershipId,startsAt:new Date(startsAt.getTime()+item.offsetMin*60000),endsAt:new Date(startsAt.getTime()+(item.offsetMin+item.durationMin)*60000)},busyRows.map(b=>({membershipId:b.membership_id,startsAt:new Date(b.starts_at),endsAt:new Date(b.ends_at),groupKey:b.group_key})),windows); }
+        catch {valid=false;break;}
+      }
+      if(!valid)continue;
+    }
+    if (!fitsShape(shape, startMin, date, loc.tz, staff, staffById, locationBusy, (loc.settings as any).capacity?.use_recurring_staff ? bookingLimits(readBookingPolicy(loc.settings),new Set(windows.filter(w=>w.startMin<=startMin&&w.endMin>=startMin+spanMin).map(w=>w.id)).size,false).locationLimit : perSlot,
+                   shapeGroupKey, (loc.settings as any).capacity?.use_recurring_staff===true)) {
       continue;
     }
     if (seen.has(startMin)) continue;
@@ -226,7 +254,7 @@ export async function loadManagedAvailability(
       const s = staffById.get(id)!;
       return { id: s.membershipId, displayName: s.name, avatarUrl: null };
     })
-    : staff.map((s) => ({ id: s.membershipId, displayName: s.name, avatarUrl: null }));
+    : [...staffById.values()].map((s) => ({ id: s.membershipId, displayName: s.name, avatarUrl: null }));
 
   return {
     date,
@@ -249,13 +277,13 @@ export type ManagedSlotCheck =
  */
 export async function checkManagedRescheduleSlot(
   tx: postgres.TransactionSql,
-  shop: PublicShopRow,
+  shop: Pick<PublicShopRow,'locationId'|'timezone'|'businessDayCutoff'|'onlineBooking'>,
   appointmentId: string,
   startsAt: Date,
 ): Promise<ManagedSlotCheck> {
   const items = await tx<ManagedAvailItem[]>`
     select membership_id, starts_at::text as starts_at, ends_at::text as ends_at,
-           duration_min, resource_id
+           duration_min, resource_id, details
       from appointment_items
      where appointment_id = ${appointmentId} and status <> 'cancelled'
      order by starts_at, seq`;
@@ -274,7 +302,7 @@ export async function checkManagedRescheduleSlot(
   return { ok: true };
 }
 
-function fitsShape(
+export function fitsShape(
   shape: Array<{ membershipId: string | null; offsetMin: number; durationMin: number }>,
   startMin: number,
   date: string,
@@ -291,6 +319,7 @@ function fitsShape(
    * 传 null = 这张单代表多位客人（party_size > 1），项目之间照常互相计入。
    */
   groupKey: string | null,
+  allowUnassigned=false,
 ): boolean {
   const extraBusy = new Map<string, Interval[]>();
   const extraLocation: Interval[] = [];
@@ -325,7 +354,7 @@ function fitsShape(
         },
         location: {
           maxConcurrentPerSlot: perSlot,
-          onDutyBookableCount: staff.length,
+          onDutyBookableCount: new Set(staff.filter(s=>s.shiftStartMin<=iStart && s.shiftEndMin>=iEnd).map(s=>s.membershipId)).size,
           existing: [...locationBusy, ...extraLocation],
         },
       });
@@ -339,7 +368,7 @@ function fitsShape(
         staff: null,
         location: {
           maxConcurrentPerSlot: perSlot,
-          onDutyBookableCount: staff.length,
+          onDutyBookableCount: new Set(staff.filter(s=>s.shiftStartMin<=iStart && s.shiftEndMin>=iEnd).map(s=>s.membershipId)).size,
           existing: [...locationBusy, ...extraLocation],
         },
       });
@@ -350,8 +379,9 @@ function fitsShape(
   };
 
   for (const item of named) {
-    const member = staffById.get(item.membershipId!)!;
-    if (!tryItem(item, member)) return false;
+    const itemStart=startMin+item.offsetMin;
+    const member = staff.find(s=>s.membershipId===item.membershipId && s.shiftStartMin<=itemStart && s.shiftEndMin>=itemStart+item.durationMin);
+    if (!member || !tryItem(item, member)) return false;
   }
   for (const item of unassigned) {
     const iStart = startMin + item.offsetMin;
@@ -367,8 +397,8 @@ function fitsShape(
       // 按客人数算，与 checkCapacity 同一口径
       return overlappingOccupancy(existing, proposed) < s.maxConcurrent;
     });
-    if (!free) return false;
-    if (!tryItem(item, free)) return false;
+    if (!free && !allowUnassigned) return false;
+    if (!tryItem(item, allowUnassigned ? null : free!)) return false;
   }
   return true;
 }

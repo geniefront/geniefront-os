@@ -110,3 +110,9 @@ export const SETUP_STEP_IDS = SETUP_STEPS.map((step) => step.id);
 export const LAUNCH_BLOCKING_STEP_IDS = SETUP_STEPS
   .filter((step) => step.blocksLaunch)
   .map((step) => step.id);
+
+/** Only show setup capabilities included in the subscription. */
+export function setupStepsForPlan(plan: string | undefined) {
+  return SETUP_STEPS.filter(step => plan !== 'voice_booking' || step.id !== 'rooms')
+    .map((step, index) => ({ ...step, number: index + 1 }));
+}

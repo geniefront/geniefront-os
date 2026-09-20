@@ -1,3 +1,4 @@
+import { useEntitlements } from '@/features/billing/useEntitlements';
 import React, { useState, useEffect, useMemo } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -217,6 +218,7 @@ export function CreateAppointmentModal({
   defaultPhone = '',
   defaultServiceId,
 }: CreateAppointmentModalProps) {
+  const voiceOnly = useEntitlements().data?.plan === 'voice_booking';
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
   const { services, staff, currentDate, timezone, openMin, closeMin, setCurrentDate } = useSchedule();
@@ -287,7 +289,7 @@ export function CreateAppointmentModal({
 
   // 只在弹窗打开且切到「套餐」标签后才拉目录；避免每次开弹窗都打一发请求。
   const bundleCatalog = useBundleCatalogQuery({
-    enabled: isOpen && canAppointmentWrite && mode === 'bundle',
+    enabled: !voiceOnly && isOpen && canAppointmentWrite && mode === 'bundle',
   });
   const bundleTemplates = useMemo<BundleTemplateView[]>(
     () => (bundleCatalog.data?.templates ?? []).filter((b) => b.active),
@@ -953,14 +955,14 @@ export function CreateAppointmentModal({
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   {t('phone') || t('schedule.apptPhoneOptional')}
                 </label>
-                <Input
+                <Input type="tel"
                   value={phone}
                   onChange={(e) => {
                     markDirty();
-                    setPhone(formatPhoneInput(e.target.value));
+                    setPhone(e.target.value);
                   }}
                   placeholder="(555) 000-0000"
-                  maxLength={14}
+                  maxLength={32}
                 />
               </div>
               <div>
@@ -981,6 +983,7 @@ export function CreateAppointmentModal({
           </div>
 
           {/* 单项 / 组合套餐 切换（U10）*/}
+          {!voiceOnly && <>
           <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl w-fit">
             {(['items', 'bundle'] as const).map((m) => (
               <button
@@ -998,6 +1001,7 @@ export function CreateAppointmentModal({
             ))}
           </div>
 
+          </>}
           {/* 多项目与多技师指派行编辑器 */}
           {mode === 'items' && (
           <div className="space-y-2.5">

@@ -92,6 +92,7 @@ export interface CustomerDetail {
 
   giftCards: CustomerGiftCard[];
   recentTickets: CustomerTicketRef[];
+  recentAppointments?: Array<{ id: string; startsAt: string; status: string }>;
   /**
    * 已提交的健康表索引。
    *

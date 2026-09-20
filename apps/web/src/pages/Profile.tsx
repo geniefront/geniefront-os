@@ -837,11 +837,11 @@ export function Profile() {
 
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-800">{t('settings.profPhone')}</label>
-                    <Input
+                    <Input type="tel"
                       value={phone}
-                      onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
+                      onChange={(e) => setPhone(e.target.value)}
                       placeholder="(555) 019-2834"
-                      maxLength={14}
+                      maxLength={32}
                       className="rounded-xl"
                     />
                     <p className="text-[11px] text-slate-400">{t('settings.profPhoneNote')}</p>

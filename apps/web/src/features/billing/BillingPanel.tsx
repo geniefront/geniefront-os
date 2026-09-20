@@ -132,23 +132,19 @@ export function BillingPanel() {
   };
 
   const buyPack = async (unit: QuotaUnit) => {
-    if (!hasPaymentMethod) {
-      toast.danger(t('settings.stTopupNeedsCard'));
-      return;
-    }
+    setPendingTopupUnit(unit);
     try {
       const res = await topupMutation.mutateAsync(unit);
-      if (!res.ok && res.pending) {
-        setPendingTopupUnit(unit);
+      const url = stripeHostedUrl(res);
+      if (!url) {
+        toast.danger(t('settings.stPortalUrlMissing'));
         return;
       }
-      if (res.ok) {
-        setPendingTopupUnit(null);
-        toast.success(t('settings.stTopupRecorded'));
-        void billingQuery.refetch();
-      }
+      window.location.assign(url);
     } catch (err: unknown) {
       toast.danger(errorMessage(err));
+    } finally {
+      setPendingTopupUnit(null);
     }
   };
 
@@ -277,11 +273,6 @@ export function BillingPanel() {
               <h4 className="font-bold text-xs uppercase tracking-wider text-slate-500">
                 {t('settings.stUsageQuotas')}
               </h4>
-              {pendingTopupUnit && (
-                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-                  {t('settings.stTopupPending')}
-                </p>
-              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2.5 shadow-2xs">
                   <div className="flex items-center justify-between">

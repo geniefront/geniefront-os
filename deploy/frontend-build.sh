@@ -19,6 +19,8 @@ esac
 
 export NODE_ENV=production
 
+node "${ROOT}/scripts/prepare-heroui.mjs"
+
 APPS=(web ipad marketing platform booking)
 for spec in "${APPS[@]}"; do
   echo "▸ NODE_ENV=${NODE_ENV} pnpm --filter @gf/${spec} exec vite build --mode ${MODE}"

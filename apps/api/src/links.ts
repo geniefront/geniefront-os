@@ -364,3 +364,8 @@ export function safeReturnUrls(
 export function safePortalReturnUrl(returnUrl?: string): string {
   return absoluteAppUrl(safeRelativePath(returnUrl, DEFAULT_PORTAL_RETURN_PATH));
 }
+
+/** Staff-only appointment detail; the desk enforces its authenticated tenant. */
+export function staffAppointmentUrl(appointmentId: string, locationId: string, env: Env = process.env): string {
+  return absoluteAppUrl(`/schedule?appointmentId=${encodeURIComponent(appointmentId)}&locationId=${encodeURIComponent(locationId)}`,env);
+}

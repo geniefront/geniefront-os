@@ -14,6 +14,8 @@ import { isCaptureMode, captureForRecipient } from '../comms/mode';
 const ENDPOINT = 'https://api.telnyx.com/v2/messages';
 
 export interface SmsResult {
+  /** Provider acceptance is unknown; manual reconciliation, never blind retry. */
+  ambiguous?: boolean;
   ok: boolean;
   providerId?: string;
   error?: string;
@@ -70,7 +72,7 @@ export async function sendSms(msg: { to: string; text: string }): Promise<SmsRes
       signal: AbortSignal.timeout(15_000),
     });
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : 'network' };
+    return { ok: false, ambiguous:true, error: e instanceof Error ? e.message : 'network' };
   }
 
   if (res.ok) {
@@ -89,6 +91,7 @@ export async function sendSms(msg: { to: string; text: string }): Promise<SmsRes
   return {
     ok: false,
     error: `${res.status} ${detail.slice(0, 200)}`,
+    ambiguous: res.status >= 500,
     permanent: res.status >= 400 && res.status < 500 && res.status !== 429,
   };
 }

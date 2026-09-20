@@ -12,6 +12,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: { '@': path.resolve(__dirname, './src') },
+      dedupe:['react','react-dom','react-aria-components'],
     },
     server: { port: 5176, strictPort: true, host: '0.0.0.0' },
     test: {

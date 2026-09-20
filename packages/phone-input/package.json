@@ -1,0 +1,1 @@
+{"name":"@gf/phone-input","version":"0.0.0","private":true,"type":"module","main":"./src/index.tsx","exports":{".":"./src/index.tsx"},"dependencies":{"@gf/contracts":"workspace:*"},"peerDependencies":{"react":"^19.0.0"},"devDependencies":{"@types/react":"^19.2.18"}}

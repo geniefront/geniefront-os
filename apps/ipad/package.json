@@ -15,7 +15,8 @@
     "lucide-react": "^0.546.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "react-router-dom": "^7.18.2"
+    "react-router-dom": "^7.18.2",
+    "@gf/phone-input": "workspace:*"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.14",

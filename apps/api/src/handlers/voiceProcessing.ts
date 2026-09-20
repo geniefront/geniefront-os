@@ -1,3 +1,4 @@
+import { voiceNotificationTargets } from '@gf/contracts';
 import { randomUUID } from 'node:crypto';
 import { QueueVoiceRecording, ClaimVoiceJob, CompleteVoiceJob, FailVoiceJob } from '@gf/contracts';
 import { jsonb } from '@gf/db';
@@ -65,20 +66,21 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
     await tx`update phone_calls set voice_billing_status='settled',billable_seconds=${billableSeconds},
       billing_analysis=${jsonb({ ...input.analysis, ruleVersion: 1 })}::jsonb where id=${call!.id}`;
   }
-  const [shop] = await tx<{ email: string | null; phone: string | null; name: unknown }[]>`
-    select email,phone,name from locations where id=${ctx.locationId}`;
+  const [shop] = await tx<{ email: string | null; phone: string | null; name: unknown; settings: unknown }[]>`
+    select email,phone,name,settings from locations where id=${ctx.locationId}`;
+  const targets = voiceNotificationTargets(shop?.settings, { email: shop?.email ?? null, phone: shop?.phone ?? null });
   const detail = `${process.env.APP_BASE_URL ?? ''}/calls`;
   const text = `${input.analysis.summary}\n\n计费分钟：${Math.ceil(billableSeconds / 60)}\n录音及通话详情：${detail}\n\n通话转录：\n${input.transcript}`;
-  if (shop?.email) {
+  if (targets.email) {
     const html = text.replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]!));
     await tx`insert into email_outbox(org_id,location_id,kind,to_email,subject,body_html,body_text,entity_type,entity_id)
-      values(${ctx.orgId},${ctx.locationId},'platform_notice',${shop.email},'AI 来电记录',${`<pre>${html}</pre>`},${text},'phone_call',${call!.id})
+      values(${ctx.orgId},${ctx.locationId},'platform_notice',${targets.email},'AI 来电记录',${`<pre>${html}</pre>`},${text},'phone_call',${call!.id})
       on conflict(entity_type,entity_id,kind) do nothing`;
   }
-  if (shop?.phone && smsConfigured()) {
+  if (targets.phone && smsConfigured()) {
     const body = `AI call processed. Review the call and booking details: ${detail}`;
     await tx`insert into sms_outbox(org_id,location_id,kind,to_e164,from_e164,body,segments,entity_type,entity_id)
-      values(${ctx.orgId},${ctx.locationId},'direct_message',${shop.phone},${smsFrom()},${body},${segmentsOf(body)},'phone_call',${call!.id})
+      values(${ctx.orgId},${ctx.locationId},'direct_message',${targets.phone},${smsFrom()},${body},${segmentsOf(body)},'phone_call',${call!.id})
       on conflict(entity_type,entity_id,kind) do nothing`;
   }
   await tx`update voice_processing_jobs set status='done',locked_until=null where id=${input.jobId}`;

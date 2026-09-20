@@ -61,6 +61,11 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Prepare HeroUI Pro
+        run: node scripts/prepare-heroui.mjs
+        env:
+          HEROUI_KEY: ${{ secrets.HEROUI_KEY }}
+
       # ── 宪法检查放最前面：它最快，而且挡的是最贵的错 ──────────────────────
       - name: 宪法检查（service_role / 裸 SET / 排他约束 / 浮点金额）
         run: pnpm lint:guards
@@ -89,6 +94,9 @@ jobs:
       # 或者 vite 的 define 少一个变量）。统一 Web 是当前唯一前端产物。
       - name: 构建统一 Web
         run: NODE_ENV=production pnpm --filter @gf/web build
+
+      - name: Build booking
+        run: pnpm --filter @gf/booking build
 
       - name: 构建镜像
         run: |

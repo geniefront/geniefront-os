@@ -123,7 +123,7 @@ describe('BookPage', () => {
     await user.click(screen.getByTestId('service-svc-1'));
     expect(screen.getByTestId('totals').textContent).toMatch(/45 min/);
     await user.click(screen.getByTestId('addon-add-1'));
-    expect(screen.getByTestId('totals').textContent).toMatch(/1h/);
+    expect(screen.getByTestId('totals').textContent).toMatch(/60 min/);
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     await waitFor(() => expect(getAvailability).toHaveBeenCalled());
     expect(getAvailability.mock.calls[0][0]).toMatchObject({
@@ -201,7 +201,7 @@ describe('BookPage', () => {
     renderBook();
     await throughToTime(user);
     await user.click(screen.getByTestId(`slot-${nySlot}`));
-    await screen.findByText('Confirm your details');
+    await screen.findByRole('heading',{name:'Contact'});
     await user.type(screen.getByLabelText('Name'), 'Amy Chen');
     await user.type(screen.getByLabelText('Mobile phone'), '6175550199');
     getAvailability.mockClear();
@@ -317,7 +317,7 @@ describe('BookPage', () => {
     await user.click(screen.getByRole('button', { name: 'Book appointment' }));
     await screen.findByTestId('confirmation-code');
 
-    expect(screen.getByText('Keep this page or your confirmation text.')).toBeInTheDocument();
+    expect(screen.getByText('Keep this page to manage your appointment.')).toBeInTheDocument();
     expect(screen.queryByText(/Questions\? Call/)).not.toBeInTheDocument();
   });
 
@@ -356,14 +356,14 @@ describe('BookPage', () => {
       items: unknown[]; bundleSelections?: Array<{ bundleId: string; startsAt: string }>;
     };
     expect(body.items).toEqual([]);
-    expect(body.bundleSelections).toEqual([{ bundleId: 'bnd-1', startsAt: nySlot }]);
+    expect(body.bundleSelections).toEqual([{ bundleId: 'bnd-1', startsAt: nySlot, expectedVersion: 1 }]);
   });
 });
 
 it.each(['success', 'failure'])('#25 keeps the latest date when the stale request ends in %s', async outcome => {
   const user = userEvent.setup();
   renderBook(); await throughToTime(user);
-  const days = screen.getAllByTestId(/^day-\d/).slice(1, 3);
+  const days = screen.getAllByTestId(/^day-\d/).filter(el=>(el.getAttribute('data-testid')??'').slice(4)>bookingToday(shop.timezone,shop.businessDayCutoff) && el.getAttribute('aria-disabled')!=='true').slice(0, 2);
   const dates = days.map(button => button.getAttribute('data-testid')!.slice(4));
   let resolveOld!: (value: Availability) => void;
   let rejectOld!: (reason: Error) => void;

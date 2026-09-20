@@ -111,7 +111,7 @@ describe('顾客侧 · 到店前填表邀请', () => {
     const r = renderFormInvite(invite);
     expect(r.text).toContain(invite.url);
     expect(r.text).toContain('Wed, Aug 26, 10:00 AM');
-    expect(r.text).toContain('+15125550100');
+    expect(r.text).toContain('+1 512 555 0100');
   });
 
   it('表单名转义', () => {

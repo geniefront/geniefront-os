@@ -1,3 +1,4 @@
+import { formatPhoneDisplay } from '@gf/contracts';
 import { useState, useEffect } from 'react';
 import {
   Sparkles,
@@ -317,7 +318,7 @@ export function TechTodayPage() {
                 {currentTask.customerPhone && (
                   <div className="text-xs text-slate-500 font-mono flex items-center gap-1 mt-0.5">
                     <Phone className="w-3 h-3 text-slate-400" />
-                    <span>{currentTask.customerPhone}</span>
+                    <span>{formatPhoneDisplay(currentTask.customerPhone)}</span>
                   </div>
                 )}
               </div>

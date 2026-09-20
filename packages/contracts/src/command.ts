@@ -1,3 +1,4 @@
+import { AsYouType, parsePhoneNumberFromString } from 'libphonenumber-js/min';
 /**
  * 命令总线的契约层（01-ARCHITECTURE §3）
  *
@@ -128,58 +129,42 @@ export const cents = z.number().int();
 /** 百分比一律 basis point：10000 = 100%，避免 0.4 变成 0.4000000000000001 */
 export const basisPoints = z.number().int().min(0).max(10000);
 
-const E164_RE = /^\+[1-9]\d{7,14}$/;
-
-/** 将各入口的常见号码写法统一成 E.164；无法可靠判断的短号返回 null。 */
+/** Normalize complete phones only. National numbers default to +1; other countries require +/00. */
 export function normalizePhoneE164(input: string): string | null {
-  const raw = input.trim();
-  if (!raw || /(?:ext(?:ension)?|x|#)\s*\d+\s*$/i.test(raw)) return null;
-
-  const explicitInternational = raw.startsWith('+') || raw.startsWith('00');
+  if (typeof input !== 'string') return null;
+  const raw = input.normalize('NFKC').trim();
+  if (!raw || !/^[+\d\s().-]+$/.test(raw) || (raw.match(/\+/g)?.length ?? 0) > 1 || (raw.includes('+') && !raw.startsWith('+'))) return null;
   const digits = raw.replace(/\D/g, '');
-  let candidate: string;
-  if (explicitInternational) {
-    candidate = `+${raw.startsWith('00') ? digits.slice(2) : digits}`;
-  } else if (digits.length === 10) {
-    candidate = `+1${digits}`;
-  } else if (digits.length === 11 && digits.startsWith('1')) {
-    candidate = `+${digits}`;
-  } else {
-    candidate = `+${digits}`;
-  }
-  return E164_RE.test(candidate) ? candidate : null;
+  const international = raw.startsWith('+') || raw.startsWith('00');
+  if (!international && !(digits.length === 10 || (digits.length === 11 && digits.startsWith('1')))) return null;
+  const candidate = raw.startsWith('00') ? `+${digits.slice(2)}` : raw;
+  const number = parsePhoneNumberFromString(candidate, 'US');
+  if (!number || number.ext || !number.isPossible()) return null;
+  if (number.countryCallingCode === '1' && !/^[2-9]\d{2}[2-9]\d{6}$/.test(number.nationalNumber)) return null;
+  return number.number;
 }
 
-/** Consistent phone-entry and display formatted as (999) 999-9999. */
+/** Preserve incomplete/invalid values for correction; never silently truncate a phone. */
 export function formatPhoneInput(input: string | null | undefined): string {
   if (!input) return '';
-  const raw = String(input).trim();
+  const raw = String(input).normalize('NFKC').trim();
+  if (!/^[+\d\s().-]+$/.test(raw)) return raw;
   const digits = raw.replace(/\D/g, '');
-  const explicitInternational = raw.startsWith('+') || raw.startsWith('00');
-  const internationalDigits = raw.startsWith('00') ? digits.slice(2) : digits;
-
-  // The shared UI format is North-American national notation. Do not apply it
-  // to another country's E.164 number: doing so silently changes +84… into a
-  // plausible-looking but unusable US number.
-  if (explicitInternational && !internationalDigits.startsWith('1')) {
-    return internationalDigits ? `+${internationalDigits.slice(0, 15)}` : '';
-  }
-
-  const national = internationalDigits.length > 10 && internationalDigits.startsWith('1')
-    ? internationalDigits.slice(1, 11)
-    : internationalDigits.slice(0, 10);
-
-  if (national.length === 0) return '';
-  if (national.length <= 3) return `(${national}`;
-  if (national.length <= 6) return `(${national.slice(0, 3)}) ${national.slice(3)}`;
-  return `(${national.slice(0, 3)}) ${national.slice(3, 6)}-${national.slice(6)}`;
+  if (!digits) return raw;
+  const international = raw.startsWith('+') || raw.startsWith('00');
+  const normalized = normalizePhoneE164(raw);
+  if (normalized) return parsePhoneNumberFromString(normalized)!.formatInternational();
+  // Keep overlong or malformed values visible so validation can reject them.
+  if (digits.length > (international ? 15 : 11) || (raw.match(/\+/g)?.length ?? 0) > 1) return raw;
+  const candidate = raw.startsWith('00') ? `+${digits.slice(2)}`
+    : raw.startsWith('+') ? raw : `+1${digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits}`;
+  return new AsYouType().input(candidate);
 }
 
-/** Consistent phone display helper formatted as (999) 999-9999. */
 export function formatPhoneDisplay(input: string | null | undefined): string {
   if (!input) return '';
-  const formatted = formatPhoneInput(input);
-  return formatted || String(input);
+  const normalized = normalizePhoneE164(input);
+  return normalized ? parsePhoneNumberFromString(normalized)!.formatInternational() : input;
 }
 
 /** 输入可带空格/括号/横线；命令 handler 收到的永远是规范 E.164。 */

@@ -1534,7 +1534,7 @@ function MarketingContent() {
             <label className="block font-bold text-slate-700 uppercase mb-1">
               {t('crm.mktBuyerPhoneLabel')}
             </label>
-            <Input
+            <Input type="tel"
               value={issueCustomerPhone}
               onChange={(e) => setIssueCustomerPhone(e.target.value)}
               placeholder={t('crm.mktBuyerPhonePlaceholder')}

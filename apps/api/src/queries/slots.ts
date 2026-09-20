@@ -1,3 +1,4 @@
+import {dayWindows} from '@gf/scheduling';
 /**
  * 「什么时候有空」—— 把库里的班表和已占用时段喂给排期引擎。
  *
@@ -66,7 +67,7 @@ export async function loadSlotContext(
   opts: SlotOptions = {},
 ): Promise<SlotContext> {
   const [loc] = await tx<{
-    tz: string; cutoff: string; hours: Record<string, { open: string; close: string } | null>;
+    tz: string; cutoff: string; hours: Record<string, { open: string; close: string; periods?: Array<{open:string;close:string}> } | null>;
     settings: Record<string, unknown>;
   }[]>`
     select timezone as tz, business_day_cutoff::text as cutoff,
@@ -180,7 +181,7 @@ export async function loadSlotContext(
     ? staffRows.filter((r) => r.gender === opts.genderPreference).map((r) => r.membership_id)
     : null;
 
-  const slots = findOpenSlots({
+  const slots = dayWindows(businessDate,loc.hours).flatMap(({openMin,closeMin})=>findOpenSlots({
     businessDate,
     timezone: loc.tz,
     openMin,
@@ -200,7 +201,7 @@ export async function loadSlotContext(
     ...(nowMin !== undefined ? { nowMin } : {}),
     ...(opts.windowStartMin !== undefined ? { windowStartMin: opts.windowStartMin } : {}),
     ...(opts.windowEndMin !== undefined ? { windowEndMin: opts.windowEndMin } : {}),
-  });
+  })).slice(0,opts.limit ?? 20);
 
   return { businessDate, timezone: loc.tz, slots };
 }

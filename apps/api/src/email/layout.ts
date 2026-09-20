@@ -122,8 +122,8 @@ export function wrapEmailHtml(inner: string, opts: EmailShellOpts = {}): string 
 }
 
 /** 路径 B 事务性邮件：转义 + 换行 + 品牌壳。没有退订页脚。 */
-export function renderTemplatedEmailHtml(body: string): string {
-  return wrapEmailHtml(`<div>${nl2brHtml(body)}</div>`);
+export function renderTemplatedEmailHtml(body: string, action?: {url:string;label:string}): string {
+  return wrapEmailHtml(`<div>${nl2brHtml(body)}</div>` + (action ? emailButton(action.url, action.label) : ''));
 }
 
 /**

@@ -1,3 +1,4 @@
+import { formatPhoneDisplay } from '@gf/contracts';
 import type { OrderRowDto } from '@/features/tickets/types';
 
 export interface ReceiptData {
@@ -16,7 +17,7 @@ export function ReceiptDocument({data}: {data: ReceiptData}) {
     <header className="text-center space-y-1">
       <h1 className="text-xl font-bold">{store.name}</h1>
       {store.address.map((part, index) => <p key={index}>{part}</p>)}
-      {store.phone && <p>{store.phone}</p>}
+      {store.phone && <p>{formatPhoneDisplay(store.phone)}</p>}
       <h2 className="font-bold">Customer receipt</h2>
     </header>
     <section>

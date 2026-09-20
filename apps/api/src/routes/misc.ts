@@ -1,3 +1,4 @@
+import { loadDeliveryLog } from '../queries/deliveryLog';
 import { getRecordingMetadata } from '../voice/provider';
 /**
  * 电话转录、来电待复核、上行短信与 Yelp 外部搜索路由
@@ -13,7 +14,6 @@ import { getRecordingMetadata } from '../voice/provider';
 import type { FastifyInstance } from 'fastify';
 import { AppError, ERROR_CODES } from '@gf/contracts';
 import { withTenant } from '@gf/db';
-import { searchBusinesses, getBusiness } from '@gf/yelp';
 import { searchGooglePlaces, getGooglePlace } from '../integrations/googlePlaces';
 import { loadCallDrafts } from '../queries/callDrafts';
 import { loadCalls } from '../queries/calls';
@@ -23,6 +23,12 @@ import { loadMySupportRequests } from '../queries/support';
 import type { CtxFromHeaders } from './utils';
 
 export function registerMiscRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHeaders): void {
+  app.get('/v1/desk/communications/deliveries', async req => {
+    const ctx = await ctxFromHeaders(req);
+    if (!ctx.permissions.has('settings.manage')) throw new AppError(ERROR_CODES.PERMISSION_DENIED);
+    return withTenant(ctx, async tx => ({ messages: await loadDeliveryLog(tx, ctx) }));
+  });
+
 
   app.get<{ Querystring: { term?: string; location?: string; id?: string } }>(
     '/v1/desk/google/search', async (req) => {
@@ -93,32 +99,6 @@ export function registerMiscRoutes(app: FastifyInstance, ctxFromHeaders: CtxFrom
     return withTenant(
       { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
       (tx) => loadInboundSms(tx, ctx, days));
-  });
-
-  // ── 查询：Yelp 搜店 ───────────────────────────────────────────────────────
-  app.get<{ Querystring: { term?: string; location?: string; id?: string } }>(
-    '/v1/desk/yelp/search', async (req) => {
-    const ctx = await ctxFromHeaders(req);
-    if (!ctx.permissions.has('settings.manage')) {
-      throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
-    }
-    const apiKey = process.env['YELP_API_KEY'];
-    if (!apiKey) {
-      throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'yelp' } });
-    }
-
-    if (req.query.id) {
-      return { business: await getBusiness(req.query.id, { apiKey }) };
-    }
-
-    const term = (req.query.term ?? '').trim();
-    const location = (req.query.location ?? '').trim();
-    if (term.length < 2 || location.length < 3) {
-      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-        details: { reason: '要店名和邮编（或城市）才能搜' },
-      });
-    }
-    return { businesses: await searchBusinesses({ term, location }, { apiKey }) };
   });
 
   /**

@@ -128,14 +128,14 @@ export async function loadManagedBookingDetail(
   if (!appt) return null;
 
   const items = await tx<{
-    service_id: string; name: unknown; addon_ids: string[];
+    service_id: string; name: unknown; addon_ids: string[]; details: Record<string, unknown>;
     starts_at: string; ends_at: string;
     duration_min: number; price_cents_snapshot: number;
     specialist: unknown;
     membership_id: string | null;
     resource_id: string | null;
   }[]>`
-    select s.id as service_id, s.name, ai.addon_ids,
+    select s.id as service_id, s.name, ai.addon_ids, ai.details,
            ai.starts_at::text as starts_at, ai.ends_at::text as ends_at,
            ai.duration_min, ai.price_cents_snapshot,
            sp.display_name as specialist,
@@ -177,6 +177,7 @@ export async function loadManagedBookingDetail(
     specialistName: items[0]?.specialist ? pickText(items[0].specialist, locale) : null,
     items: items.map((i) => ({
       serviceId: i.service_id,
+      guestIndex: Number(i.details?.["publicGuestIndex"] ?? 0),
       name: pickText(i.name, locale),
       addonIds: i.addon_ids ?? [],
       addonNames: (i.addon_ids ?? []).map((id) => addonName.get(id)).filter(Boolean),

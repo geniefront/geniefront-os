@@ -1,3 +1,4 @@
+import { normalizePhonePayload } from './phonePayload';
 /**
  * API 客户端。所有写操作走 /v1/commands/:name —— 页面里不许直接 POST 裸接口
  * （宪法第 1 条）。
@@ -132,6 +133,8 @@ export async function runCommand<T>(
   idempotencyKey: string = crypto.randomUUID(),
 ): Promise<CommandResult<T>> {
   if (!commandGuardOnline) throw new ApiError('OFFLINE', {}, false, 0);
+  try { input = normalizePhonePayload(input); }
+  catch (error) { throw new ApiError('VALIDATION_FAILED', { reason: 'bad_phone', field: error instanceof Error ? error.message : 'phone' }, false, 400); }
   const res = await fetch(`${API_BASE}/v1/commands/${name}`, {
     method: 'POST',
     headers: { ...(await authHeaders(membershipId)), 'Idempotency-Key': idempotencyKey },

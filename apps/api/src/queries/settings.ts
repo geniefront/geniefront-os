@@ -1,3 +1,5 @@
+import { readPublicBookingProfile } from '@gf/contracts';
+import { voiceNotificationTargets } from '@gf/contracts';
 /**
  * 门店全量与各模块配置查询层（Phase 1c / Settings Enhancement）
  */
@@ -21,7 +23,7 @@ export interface LocationSettingsDto {
   addressZip: string;
   timezone: string;
   businessDayCutoff: string;
-  businessHours: Record<string, { open: string; close: string } | null>;
+  businessHours: Record<string, { open: string; close: string; periods?: Array<{open:string;close:string}> } | null>;
   status: string;
   hasAddress: boolean;
   profileConfirmedAt: string | null;
@@ -404,7 +406,7 @@ export async function loadDeskSettings(
       addressZip,
       timezone: loc!.timezone,
       businessDayCutoff: loc!.cutoff.slice(0, 5),
-      businessHours: (loc!.business_hours ?? {}) as Record<string, { open: string; close: string } | null>,
+      businessHours: (loc!.business_hours ?? {}) as Record<string, { open: string; close: string; periods?: Array<{open:string;close:string}> } | null>,
       status: loc!.status,
       hasAddress: loc!.has_address,
       profileConfirmedAt: loc!.profile_confirmed_at,
@@ -412,8 +414,12 @@ export async function loadDeskSettings(
       appointmentEmailCopyToShop: loc!.appointment_email_copy_to_shop,
     },
     /** 发给店主的账单类邮件用哪种语言。顾客侧恒为英语，与此无关 */
+    voiceBookingRules: { maxDaysAhead: Number((loc!.settings as any)?.online_booking?.max_days_ahead ?? 60), minMinutesAhead: Number((loc!.settings as any)?.online_booking?.min_minutes_ahead ?? 30) },
+    voiceNotifications: voiceNotificationTargets(loc!.settings, { email: loc!.email, phone: loc!.phone }),
     emailLocale: org?.default_locale ?? 'en',
     checkout,
+    publicBookingResourceTypes: await tx<{id:string;name:unknown}[]>`select id,name from resource_types where location_id=${ctx.locationId}`,
+    publicBookingProfile: readPublicBookingProfile(loc!.settings as Record<string,unknown>),
     guest: {
       publicKey: web!.public_key,
       slug: web!.slug,
@@ -426,6 +432,7 @@ export async function loadDeskSettings(
       categoryId: s.category_id,
       name: s.name as Record<string, string>,
       displayName: pickText(s.name, ctx.locale),
+      presentation: readPublicBookingProfile(loc!.settings as Record<string,unknown>).services[s.id],
       durationMin: s.duration_min,
       basePriceCents: s.base_price_cents,
       taxable: s.taxable,

@@ -1,0 +1,62 @@
+{
+  "mode": "built-in image_gen",
+  "style": "Square premium editorial photography, ivory and warm grey, soft window light, no text/logos/watermarks.",
+  "entries": [
+    {
+      "name": "massage",
+      "subject": "A professional massage therapist's hands applying gentle pressure to an adult client's upper back, modest white towel draping, close crop no face.",
+      "savedPath": "apps/booking/public/media/defaults/massage-v1.jpg",
+      "prompt": "Create a square editorial photograph for a professional Swedish massage booking catalog. Close crop of a therapist's hands gently massaging an adult client's shoulder, client lying face down with a white towel covering the body. Neutral professional wellness context, no face, no nudity. Soft natural window light, warm ivory and pale stone palette, clean white linens, restrained premium spa photography. No text, logos, watermark or borders. One image.",
+      "sourceFile": "exec-7097df37-9c94-4a94-a4e1-48451ae597ac.png"
+    },
+    {
+      "name": "nails",
+      "subject": "An elegant manicure in progress, neatly groomed natural nude-pink nails and professional hands, clean implements on white linen.",
+      "savedPath": "apps/booking/public/media/defaults/nails-v1.jpg",
+      "prompt": "Use case: photorealistic-natural. Asset: premium booking catalog image, square composition. An elegant manicure in progress, neatly groomed natural nude-pink nails and professional hands, clean implements on white linen. Restrained editorial photography, natural soft window light, ivory, warm grey and muted beige palette, tactile real materials, uncluttered. Center subject safe for square and landscape cropping. No text, no logos, no watermark, no decorative borders. Generate one image only.",
+      "sourceFile": "exec-afddf693-dbbd-4911-8c28-ca960d8d906e.png"
+    },
+    {
+      "name": "foot",
+      "subject": "Professional foot massage, therapist hands supporting one adult foot on a folded white towel, modest spa scene.",
+      "savedPath": "apps/booking/public/media/defaults/foot-v1.jpg",
+      "prompt": "Use case: photorealistic-natural. Asset: premium booking catalog image, square composition. Professional foot massage, therapist hands supporting one adult foot on a folded white towel, modest spa scene. Restrained editorial photography, natural soft window light, ivory, warm grey and muted beige palette, tactile real materials, uncluttered. Center subject safe for square and landscape cropping. No text, no logos, no watermark, no decorative borders. Generate one image only.",
+      "sourceFile": "exec-eb3eacf6-7f2e-4b27-9508-c43e387c5341.png"
+    },
+    {
+      "name": "spa",
+      "subject": "Generic wellness still life: rolled white towels, a shallow ceramic bowl of water, one eucalyptus stem on pale travertine. Not a real business interior.",
+      "savedPath": "apps/booking/public/media/defaults/spa-v1.jpg",
+      "prompt": "Use case: photorealistic-natural. Asset: premium booking catalog image, square composition. Generic wellness still life: rolled white towels, a shallow ceramic bowl of water, one eucalyptus stem on pale travertine. Not a real business interior. Restrained editorial photography, natural soft window light, ivory, warm grey and muted beige palette, tactile real materials, uncluttered. Center subject safe for square and landscape cropping. No text, no logos, no watermark, no decorative borders. Generate one image only.",
+      "sourceFile": "exec-ebe469ce-6d33-4382-aba5-aa32ac32f9b4.png"
+    },
+    {
+      "name": "hot-stones",
+      "subject": "Smooth warm black basalt massage stones carefully arranged on white folded towels, subtle steam, pale stone countertop.",
+      "savedPath": "apps/booking/public/media/defaults/hot-stones-v1.jpg",
+      "prompt": "Use case: photorealistic-natural. Asset: premium booking catalog image, square composition. Smooth warm black basalt massage stones carefully arranged on white folded towels, subtle steam, pale stone countertop. Restrained editorial photography, natural soft window light, ivory, warm grey and muted beige palette, tactile real materials, uncluttered. Center subject safe for square and landscape cropping. No text, no logos, no watermark, no decorative borders. Generate one image only.",
+      "sourceFile": "exec-17c0b8fc-5d96-4a0a-bbbf-75a09c7156e1.png"
+    },
+    {
+      "name": "table-shower",
+      "subject": "Empty professional Vichy shower table beneath a horizontal row of chrome shower heads, white tile, water droplets, no people. Generic service illustration, no signage.",
+      "savedPath": "apps/booking/public/media/defaults/table-shower-v1.jpg",
+      "prompt": "Use case: photorealistic-natural. Asset: premium booking catalog image, square composition. Empty professional Vichy shower table beneath a horizontal row of chrome shower heads, white tile, water droplets, no people. Generic service illustration, no signage. Restrained editorial photography, natural soft window light, ivory, warm grey and muted beige palette, tactile real materials, uncluttered. Center subject safe for square and landscape cropping. No text, no logos, no watermark, no decorative borders. Generate one image only.",
+      "sourceFile": "exec-71480043-504a-467f-9cde-bec7aefda94f.png"
+    },
+    {
+      "name": "essential-oils",
+      "subject": "Unbranded amber glass essential oil bottles and a glass dropper on pale travertine beside a white towel and small botanical sprig.",
+      "savedPath": "apps/booking/public/media/defaults/essential-oils-v1.jpg",
+      "prompt": "Use case: photorealistic-natural. Asset: premium booking catalog image, square composition. Unbranded amber glass essential oil bottles and a glass dropper on pale travertine beside a white towel and small botanical sprig. Restrained editorial photography, natural soft window light, ivory, warm grey and muted beige palette, tactile real materials, uncluttered. Center subject safe for square and landscape cropping. No text, no logos, no watermark, no decorative borders. Generate one image only.",
+      "sourceFile": "exec-f58453a2-78da-4935-8734-089b4a1f043d.png"
+    },
+    {
+      "name": "couples",
+      "subject": "Two parallel massage tables with fresh white linen and folded towels, cropped detail in a neutral generic spa setting, no people, no implication of a specific business.",
+      "savedPath": "apps/booking/public/media/defaults/couples-v1.jpg",
+      "prompt": "Use case: photorealistic-natural. Asset: premium booking catalog image, square composition. Two parallel massage tables with fresh white linen and folded towels, cropped detail in a neutral generic spa setting, no people, no implication of a specific business. Restrained editorial photography, natural soft window light, ivory, warm grey and muted beige palette, tactile real materials, uncluttered. Center subject safe for square and landscape cropping. No text, no logos, no watermark, no decorative borders. Generate one image only.",
+      "sourceFile": "exec-38629114-10d0-424d-8622-1696f5f0c8c8.png"
+    }
+  ]
+}

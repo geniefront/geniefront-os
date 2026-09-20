@@ -1,3 +1,4 @@
+import { prettyPhone, toE164 } from './format';
 import { describe, expect, it } from 'vitest';
 import { addDays, bookableDateCount, datePage, DAY_PAGE, lastBookableDate, pageOffsetForDate } from './format';
 
@@ -20,4 +21,11 @@ describe('datePage', () => {
     const lastPage = datePage(start, 60, pageOffsetForDate(start, 60, lastBookableDate(start, 60)));
     expect(lastPage.at(-1)).toBe('2026-10-31');
   });
+});
+
+it('preserves international booking phone numbers and defaults local numbers to +1', () => {
+  expect(prettyPhone('+44 7911 123456')).toBe('+44 7911 123456');
+  expect(toE164('+44 7911 123456')).toBe('+447911123456');
+  expect(toE164('6676606667')).toBe('+16676606667');
+  expect(toE164('abc6676606667')).toBeNull();
 });

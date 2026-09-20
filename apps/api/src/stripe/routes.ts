@@ -36,7 +36,7 @@ import {
 } from '@gf/contracts';
 import { withTenant } from '@gf/db';
 import {
-  unitsPerTopup, TOPUP_PRICE_CENTS, isQuotaUnit, TRIAL_DAYS, TOPUP_COOLDOWN_MS,
+  unitsPerTopup, TOPUP_PRICE_CENTS, isQuotaUnit, TRIAL_DAYS,
   type QuotaUnit,
 } from '@gf/payroll';
 import { dispatch } from '../bus';
@@ -612,10 +612,9 @@ export function registerStripeRoutes(
   // ⚠️ **两种额度不能互换**（决策 8）。所以这里收的是 `unit` 而不是金额 ——
   // 界面上是两个按钮，不是一个金额输入框。
   //
-  // 用已绑的卡 off-session 扣：他人就在浏览器前面，但走 off_session 是有意的 ——
-  // 这条路和自动续充**用同一段扣款逻辑**，两条路差异越小，
-  //「手动能充自动充不上」这种问题就越少。
-  app.post<{ Body: { unit?: string } }>('/v1/billing/topup', async (req) => {
+  // 手动购买必须在 Stripe 托管页确认，只有支付成功 webhook 才能增加额度。
+  app.post<{ Body: { unit?: string; successUrl?: string; cancelUrl?: string } }>(
+    '/v1/billing/topup', async (req) => {
     const ctx = await ownerCtx(req);
     const unit = req.body?.unit;
     if (!isQuotaUnit(unit)) {
@@ -624,77 +623,43 @@ export function registerStripeRoutes(
       });
     }
     const units = unitsPerTopup(unit);
-
-    const [acct] = await withTenant(
-      { orgId: ctx.orgId, locationId: ctx.locationId, membershipId: ctx.membershipId },
-      (tx) => tx<{ stripe_customer_id: string | null; default_payment_method_id: string | null }[]>`
-        select stripe_customer_id, default_payment_method_id from billing_accounts
-        where location_id = ${ctx.locationId}`);
-
-    if (!acct?.stripe_customer_id || !acct.default_payment_method_id) {
-      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-        details: { reason: 'no_payment_method' },
-      });
-    }
-
-    // 扣款之前先确认这个 customer 真的是本店的（AUD-02）。
-    // 门户那条路泄漏的是别人的账单，这条路直接是**对别人的卡发起扣款**。
+    const { successUrl, cancelUrl } = safeReturnUrls(req.body);
+    const customerId = await ensureCustomer(ctx);
     await assertStripeCustomerBelongsTo(
-      acct.stripe_customer_id, { orgId: ctx.orgId, locationId: ctx.locationId }, req.log);
+      customerId, { orgId: ctx.orgId, locationId: ctx.locationId }, req.log);
 
-    let paymentIntentId: string;
-    /**
-     * 手动充值的幂等键：**按门店 + 额度 + 冷却窗口分桶**。
-     *
-     * ⚠️ 原来这里用的是 `Date.now()` 的毫秒值。两次点击几乎必然落在不同
-     * 毫秒上，于是「手抖点了两下」= **两笔 $50**。自动续充那条路有
-     * advisory lock 和冷却窗口挡着，手动这条什么都没有。
-     *
-     * 分桶用的是同一个 `TOPUP_COOLDOWN_MS`（十分钟）：窗口内重复点击命中
-     * Stripe 的幂等缓存，只扣一次；十分钟后他真想再充一次也充得上。
-     * Stripe 的幂等键 24 小时后自动失效，不会永久占位。
-     */
-    const topupIdempotencyKey =
-      `gf-manual-topup-${ctx.locationId}-${unit}-${Math.floor(Date.now() / TOPUP_COOLDOWN_MS)}`;
+    const metadata = {
+      gf_location_id: ctx.locationId, gf_org_id: ctx.orgId, gf_kind: 'topup',
+      gf_unit: unit, gf_units: String(units),
+    };
     try {
-      const pi = await stripeClient().paymentIntents.create({
-        amount: TOPUP_PRICE_CENTS,
-        currency: 'usd',
-        customer: acct.stripe_customer_id,
-        payment_method: acct.default_payment_method_id,
-        off_session: true,
-        confirm: true,
-        description: unit === 'credit'
-          ? `GenieFront ${units} AI 积分` : `GenieFront ${units} AI 语音分钟`,
-        metadata: {
-          gf_location_id: ctx.locationId, gf_org_id: ctx.orgId, gf_kind: 'topup',
-          // ⚠️ 单位和数量必须写进 metadata：webhook 那条路只拿得到这个对象
-          gf_unit: unit, gf_units: String(units),
-        },
-      }, { idempotencyKey: topupIdempotencyKey });
-      paymentIntentId = pi.id;
-      if (pi.status !== 'succeeded') {
-        // 还要 3DS 之类的后续动作。**不当成功** —— 记了账额度可能白送。
-        // 等 payment_intent.succeeded webhook 来入账
-        return { ok: false, pending: true, status: pi.status };
-      }
+      const session = await stripeClient().checkout.sessions.create({
+        mode: 'payment',
+        customer: customerId,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        line_items: [{
+          price_data: {
+            currency: 'usd',
+            unit_amount: TOPUP_PRICE_CENTS,
+            product_data: {
+              name: unit === 'credit'
+                ? `GenieFront ${units} AI 积分` : `GenieFront ${units} AI 语音分钟`,
+            },
+          },
+          quantity: 1,
+        }],
+        metadata,
+        // Checkout metadata 不会自动复制到 PaymentIntent；入账回调需要这份标记。
+        payment_intent_data: { metadata },
+      });
+      return { url: session.url, sessionId: session.id };
     } catch (e) {
-      req.log.warn({ err: e, locationId: ctx.locationId, unit }, 'manual topup declined');
+      req.log.warn({ err: e, locationId: ctx.locationId, unit }, 'manual topup checkout failed');
       throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, {
         details: { service: 'stripe', reason: declineReason(e) },
       });
     }
-
-    const out = await dispatch<{ balanceAfter: number; alreadyRecorded: boolean }>(
-      'billing.recordTopup',
-      {
-        unit, units, paidCents: TOPUP_PRICE_CENTS,
-        stripePaymentIntentId: paymentIntentId, trigger: 'manual',
-      },
-      ctx,
-      { idempotencyKey: `topup-${paymentIntentId}` , systemOrigin: 'stripe_payment_intent' });
-
-    return { ok: true, unit, units, balanceAfter: out.result.balanceAfter };
   });
 
   // ── webhook ──────────────────────────────────────────────────────────────

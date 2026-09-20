@@ -46,7 +46,7 @@ export async function loadSetupReadiness(
          and rt.key = any(${[...ACTIVE_ROOM_TYPE_KEYS]})
          and r.status = any(${[...ACTIVE_RESOURCE_STATUSES]})) as active_rooms,
       (select count(*)::int from services s
-       where s.location_id = l.id and s.active = true) as active_services,
+       where s.location_id = l.id and s.active = true and s.is_addon = false) as active_services,
       (select count(*)::int from staff_profiles sp
        join memberships m on m.id = sp.membership_id
          and m.location_id = sp.location_id and m.org_id = sp.org_id
@@ -69,7 +69,7 @@ export async function loadSetupReadiness(
     !row.hours_configured && 'business_hours',
     !row.voice_booking && row.active_rooms < 1 && 'active_room',
     row.active_services < 1 && 'active_service',
-    !row.voice_booking && row.bookable_staff < 1 && 'bookable_staff',
+    row.bookable_staff < 1 && 'bookable_staff',
   ].filter((value): value is SetupMissingCode => Boolean(value));
   const launchMissing = row.status === 'setup' ? missingCodes : [];
 
@@ -79,10 +79,10 @@ export async function loadSetupReadiness(
     canLaunch: row.status !== 'setup' || launchMissing.length === 0,
     steps: [
       { id: 'store', complete: row.profile_confirmed && row.hours_configured },
-      { id: 'directory', complete: row.voice_booking || row.directory_entries > 0 },
+      { id: 'directory', complete: row.directory_entries > 0 },
       { id: 'rooms', complete: row.voice_booking || row.active_rooms > 0 },
       { id: 'catalog', complete: row.active_services > 0 },
-      { id: 'team', complete: row.voice_booking || row.bookable_staff > 0 },
+      { id: 'team', complete: row.bookable_staff > 0 },
       { id: 'features', complete: row.features_confirmed },
       { id: 'launch', complete: row.status === 'active' },
     ],

@@ -36,7 +36,7 @@ import { wallClock } from './business-day';
 export const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
 export type WeekdayKey = (typeof WEEKDAY_KEYS)[number];
 
-export interface DayHours { open: string; close: string }
+export interface DayHours { open: string; close: string; periods?: Array<{open:string;close:string}> }
 export type WeeklyHours = Partial<Record<WeekdayKey, DayHours | null>>;
 
 /** 老板在后台设的那两个数字（`locations.settings.off_hours`） */
@@ -60,7 +60,7 @@ export interface DayWindow {
 }
 
 export interface BusinessHoursIssue {
-  code: 'CLOSED_DAY' | 'BEFORE_OPEN' | 'AFTER_CLOSE';
+  code: 'CLOSED_DAY' | 'BEFORE_OPEN' | 'AFTER_CLOSE' | 'BREAK';
   businessDate: string;
   /** 关门那天是 null */
   window: DayWindow | null;
@@ -118,19 +118,9 @@ export function dayWindow(
   hours: WeeklyHours | null | undefined,
   window: OffHoursWindow = NO_OFF_HOURS,
 ): DayWindow | null {
-  const today = hours?.[weekdayKeyOf(businessDate)];
-  if (!today) return null;
-
-  const openMin = hhmm(today.open);
-  const rawClose = hhmm(today.close);
-  const closeMin = rawClose <= openMin ? rawClose + 1440 : rawClose;
-
-  return {
-    openMin,
-    closeMin,
-    earliestMin: openMin - Math.max(0, window.beforeOpenMinutes),
-    latestMin: closeMin + Math.max(0, window.afterCloseMinutes),
-  };
+  const windows = dayWindows(businessDate, hours, window);
+  if (!windows.length) return null;
+  return {...windows[0]!, closeMin:windows.at(-1)!.closeMin, latestMin:windows.at(-1)!.latestMin};
 }
 
 /**
@@ -163,5 +153,22 @@ export function checkBusinessHours(args: {
   if (endMin > win.latestMin) {
     return { code: 'AFTER_CLOSE', businessDate, window: win, startMin, endMin };
   }
+  if (!dayWindows(businessDate, hours, args.window ?? NO_OFF_HOURS).some(w=>startMin>=w.earliestMin && endMin<=w.latestMin)) {
+    return {code:'BREAK',businessDate,window:win,startMin,endMin};
+  }
   return null;
+}
+
+/** Explicit periods are authoritative. Null means closed; legacy objects remain readable. */
+export function hourPeriods(day: DayHours | null | undefined): Array<{open:string;close:string}> {
+ return day ? day.periods ?? [{open:day.open,close:day.close}] : [];
+}
+/** Never offer times in gaps. Outer before/after grace does not extend lunch breaks. */
+export function dayWindows(date:string,hours:WeeklyHours|null|undefined,grace:OffHoursWindow=NO_OFF_HOURS):DayWindow[] {
+ const periods=hourPeriods(hours?.[weekdayKeyOf(date)]).map(p=>{
+ const openMin=hhmm(p.open),end=hhmm(p.close);
+ return {openMin,closeMin:end<=openMin?end+1440:end,earliestMin:openMin,latestMin:end<=openMin?end+1440:end};
+ }).sort((a,b)=>a.openMin-b.openMin).reduce<DayWindow[]>((out,w)=>{const last=out.at(-1);if(last && w.openMin<=last.closeMin){last.closeMin=Math.max(last.closeMin,w.closeMin);last.latestMin=last.closeMin;}else out.push(w);return out;},[]);
+ if(periods.length){periods[0]!.earliestMin-=Math.max(0,grace.beforeOpenMinutes);periods.at(-1)!.latestMin+=Math.max(0,grace.afterCloseMinutes);}
+ return periods;
 }

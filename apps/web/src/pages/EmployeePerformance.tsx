@@ -903,12 +903,12 @@ function EmployeePerformanceContent() {
 
                   {t('rotation.empPhoneLabel')}
                 </label>
-                <Input
+                <Input type="tel"
                   {...staffForm.bind('phone')}
                   value={formPhone}
-                  onChange={(e) => { setFormPhone(formatPhoneInput(e.target.value)); staffForm.clearField('phone'); }}
+                  onChange={(e) => { setFormPhone(e.target.value); staffForm.clearField('phone'); }}
                   placeholder="(555) 000-0000"
-                  maxLength={14}
+                  maxLength={32}
                 />
               </div>
 

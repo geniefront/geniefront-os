@@ -339,7 +339,7 @@ export function Layout() {
       ],
     },
     {
-      group: t('groupCrm') || '客户与运营',
+      group: plan === 'voice_booking' ? t('customers') : t('groupCrm') || '客户与运营',
       items: [
         { name: t('customers') || '客户档案 CRM', icon: Users, path: '/customers' },
         { name: t('marketing') || '营销中心', icon: Gift, path: '/marketing' },
@@ -362,7 +362,7 @@ export function Layout() {
       items: [
         { name: t('calls') || 'AI 语音助手', icon: PhoneCall, path: '/calls' },
         { name: t('messages') || '消息沟通', icon: MessageSquare, path: '/messages' },
-        { name: t('communicationLogs') || '沟通日志', icon: History, path: '/communication-logs' },
+        { name: plan === 'voice_booking' ? t('voiceDeliveryTitle') : t('communicationLogs') || '沟通日志', icon: History, path: '/communication-logs' },
       ],
     },
     {
@@ -450,7 +450,7 @@ export function Layout() {
         </div>
 
         <div className="flex-1 overflow-y-auto py-3 custom-scrollbar">
-          {navGroups.map(group => ({ ...group, items: group.items.filter(item => planAllowsPath(plan, item.path)) })).filter(group => group.items.length > 0).map((group, idx) => (
+          {navGroups.map(group => ({ ...group, items: group.items.filter(item => planAllowsPath(plan, item.path) && (plan !== 'voice_booking' || item.path !== '/messages')) })).filter(group => group.items.length > 0).map((group, idx) => (
             <div key={idx} className="mb-4">
               {!collapsed && (
                 <div className="mb-1 px-4 text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -891,7 +891,7 @@ export function Layout() {
         )}
 
         {/* Floating Copilot AI Button */}
-        <button 
+        {plan !== 'voice_booking' && <button
           onClick={() => setIsCopilotOpen(true)}
           aria-label={t('openCopilot')}
           className="absolute bottom-4 right-4 flex h-12 w-12 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-white shadow-xl shadow-slate-900/20 transition-all hover:scale-105 active:scale-95 z-fab group sm:bottom-6 sm:right-6 sm:h-14 sm:w-14 pointer-events-auto"
@@ -901,7 +901,7 @@ export function Layout() {
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-4 w-4 bg-teal-500 border-2 border-slate-900"></span>
           </span>
-        </button>
+        </button>}
 
         {/* 退出登录两步确认弹窗 */}
         <ConfirmDialog

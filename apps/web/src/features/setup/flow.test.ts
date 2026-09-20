@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SETUP_STEPS, SETUP_STEP_IDS, LAUNCH_BLOCKING_STEP_IDS } from './flow';
+import { setupStepsForPlan, SETUP_STEPS, SETUP_STEP_IDS, LAUNCH_BLOCKING_STEP_IDS } from './flow';
 import { CATALOG_IMPORT_SOURCES, STORE_IMPORT_SOURCES } from './importSources';
 import { setup as setupDict } from '@/i18n/setup';
 
@@ -36,8 +36,15 @@ describe('setup flow', () => {
     }
   });
 
-  it('store import is Yelp/website; catalog import is price-list photos', () => {
-    expect([...STORE_IMPORT_SOURCES]).toEqual(['yelp', 'website']);
+  it('store import is Google/website; catalog import is price-list photos', () => {
+    expect([...STORE_IMPORT_SOURCES]).toEqual(['google', 'website']);
     expect([...CATALOG_IMPORT_SOURCES]).toEqual(['menu']);
   });
+});
+
+it('voice booking setup includes staff and directory but excludes rooms', () => {
+  const steps = setupStepsForPlan('voice_booking');
+  expect(steps.map(s => s.id)).toEqual(['store', 'directory', 'catalog', 'team', 'features', 'launch']);
+  expect(steps.map(s => s.number)).toEqual([1, 2, 3, 4, 5, 6]);
+  expect(setupStepsForPlan('growth')).toHaveLength(7);
 });

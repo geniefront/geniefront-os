@@ -1,3 +1,4 @@
+import {flushSms} from './sms/flush';
 /**
  * 公开预约 API（docs/13）。
  *
@@ -9,7 +10,7 @@
  *   · 能不能拿别人的预约 id 取消掉（不能，要令牌）
  *   · 能不能从别人的网站上调（不能，域名白名单）
  *   · 手抖点两下确认会不会建出两条单（不会，幂等键）
- *   · 蜜罐命中时对方能不能看出来（不能，返回一个长得一样的假 201）
+ *   · 可疑提交是否会收到虚构确认（不会，明确失败）
  *   · 同一个手机号能不能把周六全占了（不能，未来未完成预约上限）
  *
  * ⚠️ Turnstile 用测试替身，不打网络。真实的 siteverify 只在
@@ -130,7 +131,7 @@ function bookingPayload(over: Record<string, unknown> = {}) {
   return {
     turnstileToken: `tk_${randomUUID()}`,
     locale: 'en',
-    customer: { name: 'Amy Chen', phone: lastPhone, smsOptIn: false },
+    customer: { name: 'Amy Chen', phone: lastPhone, smsOptIn: false, bookingSmsConsent:true },
     items: [{ serviceId, addonIds: [], staffId: null, startsAt: nextSlot() }],
     partySize: 1,
     website: '',
@@ -527,7 +528,7 @@ describe('建预约', () => {
     __resetRateLimit();
     const phone = `+1617222${String(Math.floor(Math.random() * 9000) + 1000)}`;
     const res = await post('/public/v1/bookings',
-      bookingPayload({ customer: { name: 'Sms Guest', phone, smsOptIn: false } }),
+      bookingPayload({ customer: { name: 'Sms Guest', phone, smsOptIn: false, bookingSmsConsent:true } }),
       { 'idempotency-key': randomUUID() });
     expect(res.statusCode).toBe(201);
 
@@ -700,7 +701,7 @@ describe('建预约', () => {
     expect(b.statusCode).toBe(200);
     expect(b.json().bookingId).toBe(a.json().bookingId);
     // ⭐ 重放不能返回一个验不过的新令牌
-    expect(b.json().manageToken).toBeNull();
+    expect(b.json().manageToken).toBe(a.json().manageToken);
     expect(b.json().replayed).toBe(true);
 
     const [n] = await withTenant(tenant, (tx) => tx<{ n: number }[]>`
@@ -715,30 +716,16 @@ describe('建预约', () => {
     expect(res.json().details.reason).toBe('missing_idempotency_key');
   });
 
-  it('⭐ 蜜罐命中 → 返回一个长得一模一样的 201，但库里没有这条单', async () => {
+  it.each([{website:'http://spam.example'},{formElapsedMs:900}])('可疑提交明确失败且不签发虚构管理链接 %j', async(over) => {
     __resetRateLimit();
-    const res = await post('/public/v1/bookings',
-      bookingPayload({ website: 'http://spam.example' }),
-      { 'idempotency-key': randomUUID() });
-    expect(res.statusCode).toBe(201);
-    const body = res.json();
-    // 形状必须和真的一样，否则等于给对方一个探针
-    expect(body.confirmationCode).toMatch(/^[A-Z]{2}-[A-Z2-9]{4}$/);
-    expect(body.manageToken).toMatch(/^mt_/);
-
-    const [n] = await withTenant(tenant, (tx) => tx<{ n: number }[]>`
-      select count(*)::int as n from appointments where id = ${body.bookingId}`);
-    expect(n!.n).toBe(0);
-  });
-
-  it('三秒内交卷的当机器人处理，同样假装成功', async () => {
-    __resetRateLimit();
-    const res = await post('/public/v1/bookings',
-      bookingPayload({ formElapsedMs: 900 }),
-      { 'idempotency-key': randomUUID() });
-    expect(res.statusCode).toBe(201);
-    const [n] = await withTenant(tenant, (tx) => tx<{ n: number }[]>`
-      select count(*)::int as n from appointments where id = ${res.json().bookingId}`);
+    const payload=bookingPayload(over);
+    const res=await post('/public/v1/bookings',payload,{'idempotency-key':randomUUID()});
+    expect(res.statusCode).toBe(400);
+    expect(res.json().details.reason).toBe('booking_not_accepted');
+    expect(res.json().manageToken).toBeUndefined();
+    expect(res.json().confirmationCode).toBeUndefined();
+    const [n]=await withTenant(tenant,tx=>tx<{n:number}[]>`select count(*)::int as n from appointments a
+      join customers c on c.id=a.customer_id where c.phone_e164=${payload.customer.phone}`);
     expect(n!.n).toBe(0);
   });
 
@@ -840,7 +827,7 @@ describe('建预约', () => {
       __resetRateLimit();
       const res = await post('/public/v1/bookings',
         bookingPayload({
-          customer: { name: 'Squatter', phone, smsOptIn: false },
+          customer: { name: 'Squatter', phone, smsOptIn: false, bookingSmsConsent:true },
           items: [{ serviceId, addonIds: [], staffId: null, startsAt: nextSlot() }],
         }),
         { 'idempotency-key': randomUUID() });
@@ -861,8 +848,8 @@ describe('建预约', () => {
         bookingPayload({
           customer: {
             name: `Flood ${i}`,
-            phone: `+1617111${String(1000 + i)}`,
-            smsOptIn: false,
+            phone: `+1617555${String(1000 + i)}`,
+            smsOptIn: false, bookingSmsConsent:true,
           },
         }),
         { 'idempotency-key': randomUUID() });
@@ -881,11 +868,11 @@ describe('建预约', () => {
     __resetRateLimit();
     const phone = `+1617888${String(Math.floor(Math.random() * 9000) + 1000)}`;
     const mom = await post('/public/v1/bookings',
-      bookingPayload({ customer: { name: '张丽华', phone, smsOptIn: false } }),
+      bookingPayload({ customer: { name: '张丽华', phone, smsOptIn: false, bookingSmsConsent:true } }),
       { 'idempotency-key': randomUUID() });
     const daughter = await post('/public/v1/bookings',
       bookingPayload({
-        customer: { name: '张小雨', phone, smsOptIn: false },
+        customer: { name: '张小雨', phone, smsOptIn: false, bookingSmsConsent:true },
         items: [{ serviceId, addonIds: [], staffId: null, startsAt: nextSlot() }],
       }),
       { 'idempotency-key': randomUUID() });
@@ -902,11 +889,11 @@ describe('建预约', () => {
     __resetRateLimit();
     const phone = `+1617777${String(Math.floor(Math.random() * 9000) + 1000)}`;
     const one = await post('/public/v1/bookings',
-      bookingPayload({ customer: { name: 'Repeat Guest', phone, smsOptIn: false } }),
+      bookingPayload({ customer: { name: 'Repeat Guest', phone, smsOptIn: false, bookingSmsConsent:true } }),
       { 'idempotency-key': randomUUID() });
     const two = await post('/public/v1/bookings',
       bookingPayload({
-        customer: { name: '  repeat guest ', phone, smsOptIn: false },
+        customer: { name: '  repeat guest ', phone, smsOptIn: false, bookingSmsConsent:true },
         items: [{ serviceId, addonIds: [], staffId: null, startsAt: nextSlot() }],
       }),
       { 'idempotency-key': randomUUID() });
@@ -1210,7 +1197,7 @@ describe('自助改期（批 2）', () => {
 });
 
 describe('这串公开 key 到底能干什么', () => {
-  it('⭐ 关掉在线预约之后，建单和拉项目都进不来（但取消还能用）', async () => {
+  it('⭐ 关掉在线预约后仍可浏览公开项目，但不能建单，取消仍可用', async () => {
     __resetRateLimit();
     const made = await post('/public/v1/bookings', bookingPayload(),
       { 'idempotency-key': randomUUID() });
@@ -1223,8 +1210,8 @@ describe('这串公开 key 到底能干什么', () => {
     });
     try {
       const svc = await get('/public/v1/services');
-      expect(svc.statusCode).toBe(403);
-      expect(svc.json().details.reason).toBe('online_booking_disabled');
+      expect(svc.statusCode).toBe(200);
+      expect(svc.json().services.length).toBeGreaterThan(0);
 
       const book = await post('/public/v1/bookings', bookingPayload(),
         { 'idempotency-key': randomUUID() });
@@ -1559,8 +1546,8 @@ describe('hosted manage token resolution', () => {
     const made = await post('/public/v1/bookings',
       bookingPayload({
         items: [
-          { serviceId, addonIds: [], staffId: null, startsAt: start },
-          { serviceId, addonIds: [], staffId: null, startsAt: start },
+          { guestIndex: 0, serviceId, addonIds: [], staffId: null, startsAt: start },
+          { guestIndex: 1, serviceId, addonIds: [], staffId: null, startsAt: start },
         ],
         partySize: 2,
       }),
@@ -1840,7 +1827,7 @@ describe('guest manage mutations for desk, phone_manual, and phone_ai', () => {
         guest: {
           confirmationCode: generateConfirmationCode('Lotus'),
           manageToken: token,
-          customer: { name: 'Phone AI Guest', phoneE164: phone, smsOptIn: false },
+          customer: { name: 'Phone AI Guest', phoneE164: phone, smsOptIn: false, bookingSmsConsent:true },
         },
       },
       ctx,
@@ -1952,10 +1939,8 @@ describe('hosted managed availability', () => {
 
   it('partially cancelled items do not occupy managed availability', async () => {
     __resetRateLimit();
-    const [sp] = await withTenant(tenant, (tx) => tx<{ n: number }[]>`
-      select max_concurrent_appointments::int as n from staff_profiles
-      where membership_id = ${staffId}`);
-    const cap = Math.max(1, sp?.n ?? 1);
+    // Public bookings promise an exclusive specialist, even if desk overbooking is enabled.
+    const cap = 1;
     const [svc] = await withTenant(tenant, (tx) => tx<{ duration_min: number }[]>`
       select duration_min from services where id = ${serviceId}`);
     // Isolated wall times on the last fixture day. nextSlot() is a 30-min
@@ -2093,13 +2078,16 @@ describe('guest reschedule slot enforcement', () => {
       select id, phone_e164 as phone from customers
       where org_id = ${NAIL_ORG} and phone_e164 is not null
       order by id limit 1`);
+    const free=await get(`/public/v1/availability?date=${addDays(bookDate,DAYS-2)}&serviceId=${serviceId}&staffId=${staffId}`);
+    const resourceSlot=free.json().slots.at(-1)?.startsAt;
+    expect(resourceSlot).toBeTruthy();
     const out = await dispatch<{ appointmentId: string }>(
       'appointment.create',
       {
         customerId: cust!.id,
         items: [{
           serviceId, addonIds: [], membershipId: staffId,
-          resourceId: resource!.id, startsAt: nextSlot(), details: {},
+          resourceId: resource!.id, startsAt: resourceSlot, details: {},
         }],
         partySize: 1,
         source: 'desk',
@@ -2320,4 +2308,114 @@ describe('组合套餐（U10 / P6 公开预约）', () => {
     }), { 'idempotency-key': randomUUID() });
     expect(res.statusCode).toBe(400);
   });
+});
+
+describe('每人多项目公开预约', () => {
+  it('整组同时开始，每人顺序执行；同一时刻并发提交只有一组占用同一人员', async () => {
+    const date = addDays(bookDate, 12);
+    const selection = [0, 0, 1, 1].map(guestIndex => ({ guestIndex, serviceId, addonIds: [], staffId: null }));
+    const available = await post('/public/v1/party-availability', {date,items:selection});
+    expect(available.statusCode, available.body).toBe(200);
+    const plan = available.json().plans[0];
+    expect(plan).toBeTruthy();
+    expect(plan.items[0].startsAt).toBe(plan.items[2].startsAt);
+    expect(plan.items[0].endsAt).toBe(plan.items[1].startsAt);
+    expect(plan.items[0].staffId).not.toBe(plan.items[2].staffId);
+    const body = bookingPayload({ partySize:2, items:plan.items.map((i: any)=>({
+      guestIndex:i.guestIndex,serviceId:i.serviceId,addonIds:i.addonIds,staffId:i.staffId,startsAt:i.startsAt,
+    })) });
+    const second = {...body,turnstileToken:`tk_${randomUUID()}`,customer:{...body.customer,phone:'+16175550198'}};
+    const results = await Promise.all([
+      post('/public/v1/bookings',body,{'idempotency-key':randomUUID()}),
+      post('/public/v1/bookings',second,{'idempotency-key':randomUUID()}),
+    ]);
+    expect(results.map(r=>r.statusCode).sort()).toEqual([201,409]);
+    const success = results.find(r=>r.statusCode===201)!.json();
+    const rows = await withTenant(tenant, tx=>tx`select details from appointment_items where appointment_id=${success.bookingId}`);
+    expect(rows.map(r=>r.details.publicGuestIndex).sort()).toEqual([0,0,1,1]);
+  });
+});
+
+describe('展示页资料权限', () => {
+  it('显式公开不可网约项目，但不泄露隐藏资料或允许绕过网约设置', async () => {
+    try {
+      await run('location.savePublicBookingProfile', {
+        description:'A test salon',arrivalInstructions:'Use the front entrance',
+        services:{[hiddenServiceId]:{visible:true,description:'Contact us for this service',imageUrl:'https://example.invalid/service.webp',sort:1}},
+      });
+      const catalog=await get('/public/v1/services');
+      expect(catalog.statusCode).toBe(200);
+      expect(catalog.json().services.find((s:any)=>s.id===hiddenServiceId)).toMatchObject({onlineBookable:false,description:'Contact us for this service'});
+      const shop=await get('/public/v1/shop');
+      expect(shop.json().publicProfile.description).toBe('A test salon');
+      expect(shop.json().publicProfile.services).toBeUndefined();
+      expect(shop.json().publicProfile.shopNotifications).toBeUndefined();
+      const slots=await post('/public/v1/party-availability',{date:bookDate,items:[{guestIndex:0,serviceId:hiddenServiceId,addonIds:[],staffId:null}]});
+      expect(slots.statusCode).toBe(400);
+      await expect(run('location.savePublicBookingProfile',{services:{[randomUUID()]:{visible:true}}})).rejects.toMatchObject({code:'NOT_FOUND'});
+    }finally{await run('location.savePublicBookingProfile',{});}
+  });
+});
+
+describe('多人资源与报价复验', () => {
+  it('单座资源不提供双人时段；扩为双座后整组预留；价格漂移拒绝整单', async () => {
+    const typeId=randomUUID(),resourceId=randomUUID();
+    await withTenant(tenant,async tx=>{
+      await tx`insert into resource_types(id,org_id,location_id,key,name) values(${typeId},${NAIL_ORG},${NAIL_LOC},${`qa-${typeId}`},'{"en":"QA Room"}'::jsonb)`;
+      await tx`insert into resources(id,org_id,location_id,resource_type_id,name,capacity,status) values(${resourceId},${NAIL_ORG},${NAIL_LOC},${typeId},'QA Room',1,'available')`;
+    });
+    try {
+      await run('location.savePublicBookingProfile',{services:{[serviceId]:{resourceTypeId:typeId}}});
+      const date=addDays(bookDate,13);
+      const items=[0,1].map(guestIndex=>({guestIndex,serviceId,addonIds:[],staffId:null}));
+      expect((await post('/public/v1/party-availability',{date,items})).json().plans).toHaveLength(0);
+      await withTenant(tenant,tx=>tx`update resources set capacity=2 where id=${resourceId}`);
+      const plans=(await post('/public/v1/party-availability',{date,items})).json().plans;
+      expect(plans.length).toBeGreaterThan(0);
+      const selected=plans[0];
+      const payload=bookingPayload({partySize:2,items:selected.items.map((i:any)=>({...i,quotedPriceCents:i.priceCents+1}))});
+      const stale=await post('/public/v1/bookings',payload,{'idempotency-key':randomUUID()});
+      expect(stale.statusCode).toBe(400);
+      expect(stale.json().details.reason).toBe('party_price_changed');
+      const good=await post('/public/v1/bookings',{...payload,turnstileToken:`tk_${randomUUID()}`,items:selected.items.map((i:any)=>({...i,quotedPriceCents:i.priceCents}))},{'idempotency-key':randomUUID()});
+      expect(good.statusCode,good.body).toBe(201);
+      const rows=await withTenant(tenant,tx=>tx`select resource_id from appointment_items where appointment_id=${good.json().bookingId}`);
+      expect(rows.map(r=>r.resource_id)).toEqual([resourceId,resourceId]);
+      const managed=await post('/public/v1/hosted/availability',{slug:'lotus-nails',manageToken:good.json().manageToken,date:addDays(bookDate,12)});
+      expect(managed.statusCode,managed.body).toBe(200);
+      expect(managed.json().canReschedule).toBe(true);
+      expect(managed.json().slots.length).toBeGreaterThan(0);
+      const change={manageToken:good.json().manageToken,last4:payload.customer.phone.slice(-4),startsAt:managed.json().slots[0].startsAt,requestId:randomUUID()};
+      const moved=await post(`/public/v1/bookings/${good.json().bookingId}/reschedule`,change);
+      expect(moved.statusCode,moved.body).toBe(200);
+      expect((await post(`/public/v1/bookings/${good.json().bookingId}/reschedule`,change)).statusCode).toBe(200);
+      const [count]=await withTenant(tenant,tx=>tx`select self_reschedule_count from appointments where id=${good.json().bookingId}`);
+      expect(count!.self_reschedule_count).toBe(1);
+
+    }finally{await run('location.savePublicBookingProfile',{});}
+  });
+});
+
+it('booking SMS choice is stored separately and declining does not block booking',async()=>{
+ for(const consent of [false,true]){
+  __resetRateLimit();const payload=bookingPayload();payload.customer.bookingSmsConsent=consent;
+  const res=await post('/public/v1/bookings',payload,{'idempotency-key':randomUUID()});expect(res.statusCode).toBe(201);
+  const [row]=await withTenant(tenant,tx=>tx`select ai.details,c.marketing_sms_opt_in from appointment_items ai join appointments a on a.id=ai.appointment_id join customers c on c.id=a.customer_id where a.id=${res.json().bookingId} limit 1`);
+  expect(row!.details.bookingSmsConsent).toBe(consent);expect(row!.marketing_sms_opt_in).toBe(false);
+  if(!consent){const messages=await withTenant(tenant,tx=>tx`select id from sms_outbox where entity_id=${res.json().bookingId} and entity_type='appointment'`);expect(messages).toHaveLength(0);
+   const reminderId=randomUUID();
+   await withTenant(tenant,tx=>tx`insert into sms_outbox(id,org_id,location_id,kind,to_e164,from_e164,body,segments,entity_type,entity_id,created_at) values(${reminderId},${NAIL_ORG},${NAIL_LOC},'appointment_reminder',${payload.customer.phone},'+18005550199','Test reminder',1,'appointment',${res.json().bookingId},now()-interval '1 day')`);
+   await flushSms(tenant);
+   const [reminder]=await withTenant(tenant,tx=>tx`select status,last_error from sms_outbox where id=${reminderId}`);
+   expect(reminder).toMatchObject({status:'suppressed',last_error:'booking_sms_not_consented'});
+  }
+ }
+});
+
+it('service presentation saves atomically and survives edits that omit it',async()=>{
+ const presentation={imageUrl:'https://book.geniefront.com/media/defaults/massage-v1.jpg',description:'A focused massage with adjustable pressure.'};
+ const created=await run<{serviceId:string}>('catalog.saveService',{name:{en:'Media test massage'},durationMin:30,basePriceCents:4500,presentation});
+ await run('catalog.saveService',{serviceId:created.serviceId,name:{en:'Media test massage'},durationMin:30,basePriceCents:4600});
+ const catalog=await get('/public/v1/services');expect(catalog.statusCode).toBe(200);
+ expect(catalog.json().services.find((s:any)=>s.id===created.serviceId)).toMatchObject({...presentation,priceCents:4600});
 });

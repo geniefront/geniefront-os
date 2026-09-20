@@ -64,3 +64,5 @@ describe('Settings permission alignment', () => {
     expect(billingQuery).toHaveBeenCalledWith({ enabled: false });
   });
 });
+
+vi.mock('@/features/billing/useEntitlements', () => ({ useEntitlements: () => ({ data: { plan: 'growth' } }) }));

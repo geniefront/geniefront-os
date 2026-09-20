@@ -1,3 +1,6 @@
+import { formatPhoneDisplay } from '@gf/contracts';
+import { useCan } from '@/lib/permissions';
+import { useSetupSave } from './autosave';
 import { useCallback, useEffect, useState, type ChangeEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from '@heroui/react';
@@ -27,8 +30,8 @@ const normName = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ')
 
 type Hours = Record<string, { open: string; close: string } | null>;
 interface BusinessResult {
-  yelpBusinessId?: string;
   googlePlaceId?: string;
+  businessType?: 'nail' | 'massage' | 'foot_spa' | 'lash' | 'scalp' | 'hair' | 'mixed' | null;
   name: string;
   phoneE164: string | null;
   address: { line1: string | null; line2: string | null; city: string | null; state: string | null; zip: string | null; country: string | null; display: string[] };
@@ -133,11 +136,13 @@ export function ImportWorkspace({
   const { language, t } = useLanguage();
   const errorMessage = useErrorMessage();
   const queryClient = useQueryClient();
-  const [source, setSource] = useState<'yelp' | 'website' | 'menu'>(mode === 'catalog' ? 'menu' : 'yelp');
+  const [source, setSource] = useState<'google' | 'website' | 'menu'>(mode === 'catalog' ? 'menu' : 'google');
   const [name, setName] = useState(initialName);
   const [place, setPlace] = useState(initialPlace);
   const [url, setUrl] = useState('');
   const [businesses, setBusinesses] = useState<BusinessResult[]>([]);
+  const saveContext = useSetupSave();
+  const canUseAi = useCan('ai.use');
   const [pendingBusiness, setPendingBusiness] = useState<BusinessResult | null>(null);
   const [businessFields, setBusinessFields] = useState<Set<string>>(new Set());
   const [blueprint, setBlueprint] = useState<BlueprintView | null>(null);
@@ -230,10 +235,10 @@ export function ImportWorkspace({
   const chooseBusiness = async (item: BusinessResult) => {
     setBusy(true);
     try {
-      const id = item.yelpBusinessId!;
-      const { business } = await apiGet<{ business: BusinessResult }>(`/v1/desk/yelp/search?id=${encodeURIComponent(id)}`);
+      const id = item.googlePlaceId!;
+      const { business } = await apiGet<{ business: BusinessResult }>(`/v1/desk/google/search?id=${encodeURIComponent(id)}`);
       setPendingBusiness(business);
-      setBusinessFields(new Set(['name', 'phone', 'address', 'businessHours', 'rating']));
+      setBusinessFields(new Set(['name', 'phone', 'address', 'businessHours', 'rating', 'businessType']));
     } catch (error) {
       toast.danger(errorMessage(error));
     } finally {
@@ -244,14 +249,15 @@ export function ImportWorkspace({
     if (!membershipId || !pendingBusiness) return;
     setBusy(true);
     try {
+      if (saveContext && !await saveContext.flush()) return;
       const business = pendingBusiness;
-      await runCommand('location.applyYelp', {
-        yelpBusinessId: business.yelpBusinessId,
+      await runCommand('location.applyGoogle', {
+        googlePlaceId: business.googlePlaceId,
+        ...(businessFields.has('businessType') && business.businessType ? { businessType: business.businessType } : {}),
         ...(businessFields.has('name') ? { name: business.name } : {}),
         ...(businessFields.has('phone') && business.phoneE164 ? { phone: business.phoneE164 } : {}),
         ...(businessFields.has('address') ? { address: business.address } : {}),
         ...(businessFields.has('businessHours') ? { businessHours: business.businessHours } : {}),
-        ...(businessFields.has('businessHours') && business.timezoneConfidence === 'high' ? { timezone: business.timezone } : {}),
         ...(businessFields.has('rating') ? { ratingBp: business.rating === null ? null : Math.round(business.rating * 10000), reviewCount: business.reviewCount } : {}),
       }, membershipId);
       await queryClient.invalidateQueries({ queryKey: settingsKeys.desk(membershipId) });
@@ -388,7 +394,8 @@ export function ImportWorkspace({
   if (pendingBusiness) {
     const fields = [
       { id: 'name', label: t('setupImportFieldName'), value: pendingBusiness.name },
-      { id: 'phone', label: t('setupImportFieldPhone'), value: pendingBusiness.phoneE164 || t('setupImportMissing') },
+      ...(pendingBusiness.businessType ? [{ id: 'businessType', label: t('setupFieldBusinessType'), value: t(({ nail: 'setupBizNail', massage: 'setupBizMassage', foot_spa: 'setupBizFootSpa', lash: 'setupBizLash', scalp: 'setupBizScalp', hair: 'setupBizHair', mixed: 'setupBizMixed' } as const)[pendingBusiness.businessType]) }] : []),
+      { id: 'phone', label: t('setupImportFieldPhone'), value: formatPhoneDisplay(pendingBusiness.phoneE164) || t('setupImportMissing') },
       { id: 'address', label: t('setupImportFieldAddress'), value: pendingBusiness.address.display.join(', ') || t('setupImportMissing') },
       { id: 'businessHours', label: t('setupImportFieldHours'), value: t('setupImportOpenDays', { count: Object.values(pendingBusiness.businessHours).filter(Boolean).length }) },
       { id: 'rating', label: t('setupImportFieldRating'), value: pendingBusiness.rating === null ? t('setupImportMissing') : `${pendingBusiness.rating} ★ · ${pendingBusiness.reviewCount ?? 0}` },
@@ -557,8 +564,8 @@ export function ImportWorkspace({
   }
 
   const storeTabs = [
-    { id: 'yelp' as const, label: t('setupImportYelp'), icon: Star },
-    { id: 'website' as const, label: t('setupImportWebsite'), icon: Globe2 },
+    { id: 'google' as const, label: t('setupImportGoogle'), icon: Star },
+    ...(canUseAi ? [{ id: 'website' as const, label: t('setupImportWebsite'), icon: Globe2 }] : []),
   ];
 
   return (
@@ -567,7 +574,7 @@ export function ImportWorkspace({
         <>
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-teal-700">{t('setupImportStoreTitle')}</p>
-            <p className="mt-2 text-sm leading-6 text-slate-600">{t('setupImportStoreCopy')}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{t(canUseAi ? 'setupImportStoreCopy' : 'setupImportGoogleCopy')}</p>
           </div>
           <div className="flex flex-wrap gap-2" role="tablist" aria-label={t('setupImportStoreTitle')}>
             {storeTabs.map((tab) => {
@@ -607,7 +614,7 @@ export function ImportWorkspace({
                 </Button>
               </div>
               {businesses.map((business) => (
-                <button key={business.googlePlaceId ?? business.yelpBusinessId} type="button" onClick={() => void chooseBusiness(business)} className="flex min-h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-4 text-left hover:border-teal-400">
+                <button key={business.googlePlaceId} type="button" onClick={() => void chooseBusiness(business)} className="flex min-h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-4 text-left hover:border-teal-400">
                   <div className="min-w-0">
                     <p className="font-semibold text-slate-900">{business.name}</p>
                     <p className="text-xs text-slate-500">{business.address.display.join(', ')} · {business.rating ?? '—'} ★</p>

@@ -103,7 +103,7 @@ function CustomersContent() {
   const voiceOnly = useEntitlements().data?.plan === 'voice_booking';
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
-  const { timeZone } = useStoreTime();
+  const { timeZone, dateTime } = useStoreTime();
   const storeToday = instantToWallDate(new Date().toISOString(), timeZone);
   const canViewContact = useCan('customer.view_contact');
   /* 合并与发短信各有自己的权限，界面此前一条都没守 */
@@ -707,16 +707,16 @@ function CustomersContent() {
 
                   {/* Actions Toolbar */}
                   <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end flex-wrap">
-                    <Button
+                    {canSendSms && <Button
                       size="sm"
                       className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs h-8 gap-1 shadow-xs"
                       onClick={() => setSmsModalOpen(true)}
                     >
                       <Send className="w-3.5 h-3.5" />
                       <span>{t('crm.custSendSms')}</span>
-                    </Button>
+                    </Button>}
 
-                    <Button
+                    {!voiceOnly && <Button
                       variant="secondary"
                       size="sm"
                       className="text-xs font-bold h-8 gap-1"
@@ -724,7 +724,7 @@ function CustomersContent() {
                     >
                       <Sliders className="w-3.5 h-3.5 text-slate-600" />
                       <span>{t('crm.custPrefsButton')}</span>
-                    </Button>
+                    </Button>}
 
                     <ActionMenu
                       label={t('crm.custMoreActions')}
@@ -757,7 +757,12 @@ function CustomersContent() {
                   </div>
                 </div>
 
+                {voiceOnly && <section className="space-y-2 rounded-xl border p-4"><h3 className="font-bold">{t('voiceRecentAppointments')}</h3>
+                  {(currentDetail.recentAppointments ?? []).length === 0 ? <p className="text-sm text-slate-500">{t('voiceNoAppointments')}</p> : currentDetail.recentAppointments?.map(a => <div key={a.id} className="flex justify-between gap-2 text-sm"><span>{dateTime(a.startsAt)}</span><span>{t(a.status === 'cancelled' ? 'voiceApptCancelled' : a.status === 'done' ? 'voiceApptDone' : a.status === 'no_show' ? 'voiceApptNoShow' : 'voiceApptBooked')}</span></div>)}
+                </section>}
+
                 {/* 2. Four Core Financial & Loyalty KPIs (High Density) */}
+                {!voiceOnly && <>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                   <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
                     <span className="text-[11px] font-bold text-slate-500 uppercase block">
@@ -800,6 +805,7 @@ function CustomersContent() {
                   </div>
                 </div>
 
+                </>}
                 {/* 3. Health Allergies & Service Preferences Block */}
                 {!voiceOnly && <>
                 <div className="p-3 bg-amber-50/50 border border-amber-200/80 rounded-2xl space-y-2 text-xs">
@@ -1114,11 +1120,11 @@ function CustomersContent() {
                 
                 {t('crm.custPhoneLabel')}
               </label>
-              <Input
+              <Input type="tel"
                 value={formPhone}
-                onChange={(e) => setFormPhone(formatPhoneInput(e.target.value))}
+                onChange={(e) => setFormPhone(e.target.value)}
                 placeholder="(555) 000-0000"
-                maxLength={14}
+                maxLength={32}
               />
             </div>
           </div>

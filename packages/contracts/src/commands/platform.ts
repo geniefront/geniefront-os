@@ -1,3 +1,4 @@
+import { phoneE164 } from '../command.js';
 /**
  * Platform operator mutation inputs.
  *
@@ -181,7 +182,7 @@ export const PlatformCreateStoreInput = z.object({
     .default('nail'),
   timezone: z.string().trim().min(1).max(64).default('America/New_York'),
   locale: z.enum(['en', 'zh-Hans', 'zh-Hant', 'ko', 'vi', 'es']).default('en'),
-  phone: z.string().trim().max(32).optional(),
+  phone: phoneE164.optional(),
   amountCents: z.number().int().min(0).max(100_000_000).optional(),
   paymentNote: z.string().trim().min(1, '收款说明不能为空').max(500),
   /**

@@ -1,3 +1,5 @@
+import { useBookingRealtime } from '@/features/schedule/useBookingRealtime';
+import { useSession } from '@/lib/session';
 /**
  * 日程表。
  *
@@ -124,6 +126,8 @@ function ScheduleContent() {
     }) => void;
   }>();
   const { t, language } = useLanguage();
+  const bookingLinkSession = useSession();
+  useBookingRealtime();
   const {
     services, staff, items, currentDate, setCurrentDate,
     isLoading, isStaleDate, error: dayError, refetch, timezone, openMin: storeOpenMin, closeMin: storeCloseMin,
@@ -133,11 +137,17 @@ function ScheduleContent() {
   useEffect(() => {
     const linkedAppointmentId = searchParams.get('appointmentId');
     if (!linkedAppointmentId || !openAppointment) return;
+    const linkedLocationId=searchParams.get('locationId');
+    if(linkedLocationId && bookingLinkSession.membership?.locationId!==linkedLocationId) {
+      const target=bookingLinkSession.locations.find(l=>l.locationId===linkedLocationId);
+      if(target) bookingLinkSession.selectMembership(target.membershipId);
+      return;
+    }
     openAppointment(linkedAppointmentId);
     const next = new URLSearchParams(searchParams);
     next.delete('appointmentId');
     setSearchParams(next, { replace: true });
-  }, [openAppointment, searchParams, setSearchParams]);
+  }, [openAppointment, searchParams, setSearchParams, bookingLinkSession]);
 
   /*
    * 写操作可用性。同时考虑权限与网络状态：

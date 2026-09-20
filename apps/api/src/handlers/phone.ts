@@ -1,3 +1,5 @@
+import { lockBookingCapacity } from './appointment';
+import { SaveStaffBookingSchedule, SaveVoiceCapacity, SaveVoiceNotifications, SaveVoiceBookingRules } from '@gf/contracts';
 /**
  * AI 电话接单的命令实现（09-TELNYX §4）
  *
@@ -690,4 +692,40 @@ registerHandler(SettingsSavePhoneAssistant, async ({ input, ctx, tx, audit }) =>
   });
 
   return { locationId: ctx.locationId, saved: true };
+});
+
+registerHandler(SaveVoiceNotifications, async ({ input, ctx, tx, audit }) => {
+  const [row] = await tx<{ settings: Record<string, unknown> }[]>`select settings from locations where id=${ctx.locationId} for update`;
+  if (!row) throw new AppError(ERROR_CODES.NOT_FOUND);
+  await tx`update locations set settings=jsonb_set(settings,'{voice_notifications}',${jsonb(input)}::jsonb),updated_at=now() where id=${ctx.locationId}`;
+  audit({ entityType:'location', entityId:ctx.locationId, before:row.settings.voice_notifications ?? null, after:input });
+  return { saved:true };
+});
+
+registerHandler(SaveVoiceBookingRules, async ({ input, ctx, tx, audit }) => {
+  const [row] = await tx<{ settings: Record<string, unknown> }[]>`select settings from locations where id=${ctx.locationId} for update`;
+  if (!row) throw new AppError(ERROR_CODES.NOT_FOUND);
+  const before = (row.settings.online_booking ?? {}) as Record<string, unknown>;
+  const after = { ...before, max_days_ahead:input.maxDaysAhead, min_minutes_ahead:input.minMinutesAhead };
+  await tx`update locations set settings=jsonb_set(settings,'{online_booking}',${jsonb(after)}::jsonb),updated_at=now() where id=${ctx.locationId}`;
+  audit({entityType:'location',entityId:ctx.locationId,before,after});
+  return {saved:true};
+});
+
+registerHandler(SaveStaffBookingSchedule, async ({input,ctx,tx,audit})=>{
+ await lockBookingCapacity(tx,ctx.locationId);
+ const [member]=await tx`select membership_id from staff_profiles where membership_id=${input.membershipId} and location_id=${ctx.locationId}`;
+ if(!member)throw new AppError(ERROR_CODES.NOT_FOUND);
+ const [row]=await tx<{settings:Record<string,any>}[]>`select settings from locations where id=${ctx.locationId} for update`;
+ const schedules={...row!.settings.staff_booking_schedules,[input.membershipId]:input.hours};
+ await tx`update locations set settings=jsonb_set(settings,'{staff_booking_schedules}',${jsonb(schedules)}::jsonb),updated_at=now() where id=${ctx.locationId}`;
+ audit({entityType:'staff',entityId:input.membershipId,before:row!.settings.staff_booking_schedules?.[input.membershipId]??null,after:input.hours});return {saved:true};
+});
+registerHandler(SaveVoiceCapacity,async ({input,ctx,tx,audit})=>{
+ await lockBookingCapacity(tx,ctx.locationId);
+ const [row]=await tx<{settings:Record<string,any>}[]>`select settings from locations where id=${ctx.locationId} for update`;
+ const before=row!.settings.capacity??{};
+ const after={...before,booking_mode:'staff',use_recurring_staff:true,strict_staff:true,max_concurrent_per_slot:input.baseCapacity,buffer_enabled:input.extraSlots>0,buffer_extra:Math.max(1,input.extraSlots),request_buffer_enabled:false};
+ await tx`update locations set settings=jsonb_set(settings,'{capacity}',${jsonb(after)}::jsonb),updated_at=now() where id=${ctx.locationId}`;
+ audit({entityType:'location',entityId:ctx.locationId,before,after});return {saved:true};
 });

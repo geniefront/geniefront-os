@@ -1,3 +1,5 @@
+import { PhoneInput } from '@gf/phone-input';
+import { normalizePhoneE164 } from '@gf/contracts';
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
@@ -18,18 +20,18 @@ export const CheckInLookupPage: React.FC = () => {
   const [checkingInId, setCheckingInId] = useState<string | null>(null);
 
   const handleKeyPress = (char: string) => {
-    const currentDigits = phone.replace(/\D/g, '');
-    if (currentDigits.length < 10) {
-      setPhone(formatPhoneInput(currentDigits + char));
+    const currentDigits = (phone || '+1').replace(/[^+\d]/g, '');
+    if (currentDigits.length < 16) {
+      setPhone(currentDigits + char);
       setErrorMsg(null);
       setHasSearched(false);
     }
   };
 
   const handleDelete = () => {
-    const currentDigits = phone.replace(/\D/g, '');
+    const currentDigits = (phone || '+1').replace(/[^+\d]/g, '');
     if (currentDigits.length > 0) {
-      setPhone(formatPhoneInput(currentDigits.slice(0, -1)));
+      setPhone(currentDigits.slice(0, -1));
       setErrorMsg(null);
       setHasSearched(false);
     }
@@ -43,8 +45,8 @@ export const CheckInLookupPage: React.FC = () => {
   };
 
   const handleSearch = async () => {
-    const digits = phone.replace(/\D/g, '');
-    if (digits.length < 7) {
+    const normalized = normalizePhoneE164(phone);
+    if (!normalized) {
       setErrorMsg(t('checkin.phoneTooShort'));
       return;
     }
@@ -52,7 +54,7 @@ export const CheckInLookupPage: React.FC = () => {
     setIsSearching(true);
     setErrorMsg(null);
     try {
-      const res = await api.lookupAppointments(digits);
+      const res = await api.lookupAppointments(normalized);
       setMatches(res.matches);
       setHasSearched(true);
     } catch (err: any) {
@@ -153,9 +155,7 @@ export const CheckInLookupPage: React.FC = () => {
         {/* 手机号显示区域 */}
         <div className="space-y-3">
           <div className="flex items-center justify-center">
-            <div className="w-full max-w-md h-18 rounded-2xl bg-white border-2 border-teal-500/70 flex items-center justify-center tracking-[0.2em] font-mono text-3xl font-extrabold text-teal-800 shadow-inner px-4">
-              {phone ? formatPhoneInput(phone) : <span className="text-slate-300 font-sans tracking-normal text-base font-normal">(•••) •••-••••</span>}
-            </div>
+            <PhoneInput aria-label={t('checkin.lookupTitle')} value={phone} onChange={e => setPhone(e.target.value)} className="w-full max-w-md h-18 rounded-2xl border-2 border-teal-500 px-4 text-center text-2xl" />
           </div>
 
           {errorMsg && (
@@ -178,7 +178,7 @@ export const CheckInLookupPage: React.FC = () => {
             <div className="max-w-sm mx-auto">
               <button
                 type="button"
-                disabled={phone.length < 7 || isSearching}
+                disabled={!normalizePhoneE164(phone) || isSearching}
                 onClick={handleSearch}
                 className="kiosk-touch-target w-full py-4 rounded-2xl bg-teal-600 hover:bg-teal-700 active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none text-white font-bold text-lg shadow-sm transition-all flex items-center justify-center gap-2"
               >

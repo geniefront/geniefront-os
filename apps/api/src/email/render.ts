@@ -1,3 +1,4 @@
+import { formatPhoneDisplay } from '@gf/contracts';
 /**
  * 邮件正文渲染。**纯函数** —— 不查库、不看时钟。
  *
@@ -37,6 +38,7 @@ const muted = (s: string) => `<p style="${EMAIL_MUTED}">${s}</p>`;
 // ═══════════════════════════════════════════════════ 顾客侧 · 预约确认
 
 export interface ConfirmData {
+  detailsText?: string;
   customerName: string;
   shopName: string;
   serviceName: string;
@@ -65,10 +67,10 @@ export function renderConfirm(d: ConfirmData): Rendered {
     ? [
         `Reschedule or cancel: ${d.manageUrl}`,
         '(Enter the last 4 digits of your phone number)',
-        d.shopPhone ? `Or call us at ${d.shopPhone}.` : 'Or call the salon.',
+        d.shopPhone ? `Or call us at ${formatPhoneDisplay(d.shopPhone)}.` : 'Or call the salon.',
       ].join('\n')
     : (d.shopPhone
-        ? `To reschedule or cancel, please call ${d.shopPhone}.`
+        ? `To reschedule or cancel, please call ${formatPhoneDisplay(d.shopPhone)}.`
         : 'To reschedule or cancel, please call the salon.');
 
   const text = [
@@ -80,6 +82,7 @@ export function renderConfirm(d: ConfirmData): Rendered {
     `  Time: ${d.whenText}`,
     ...(who ? [`  ${who}`] : []),
     ``,
+    ...(d.detailsText ? [d.detailsText, ``] : []),
     call,
     ``,
     `See you then,`,
@@ -95,13 +98,14 @@ export function renderConfirm(d: ConfirmData): Rendered {
   const action = d.manageUrl
     ? emailButton(d.manageUrl, 'Reschedule or cancel')
       + muted('(Enter the last 4 digits of your phone)')
-      + muted(d.shopPhone ? `Or call ${esc(d.shopPhone)}.` : 'Or call the salon.')
+      + muted(d.shopPhone ? `Or call ${esc(formatPhoneDisplay(d.shopPhone))}.` : 'Or call the salon.')
     : muted(esc(call));
 
   const html = wrapEmailHtml([
     emailHeading('Appointment confirmed', `You're booked at ${esc(d.shopName)}`),
     `<p style="margin:0 0 16px">Hi ${esc(d.customerName)},</p>`,
     emailDetailTable(rows),
+    d.detailsText ? `<p style="white-space:pre-line">${esc(d.detailsText)}</p>` : '',
     action,
     muted(`See you then,<br>${esc(d.shopName)}`),
   ].join('\n'), {
@@ -128,7 +132,7 @@ export interface FormInviteData {
 export function renderFormInvite(d: FormInviteData): Rendered {
   const list = d.formTitles.join(', ');
   const call = d.shopPhone
-    ? `Questions? Call ${d.shopPhone}, or we can help you at the front desk.`
+    ? `Questions? Call ${formatPhoneDisplay(d.shopPhone)}, or we can help you at the front desk.`
     : 'Questions? Call us, or we can help you at the front desk.';
 
   const text = [

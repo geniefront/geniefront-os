@@ -23,6 +23,16 @@ export async function flushEmails(tenant: TenantContext, log?: FastifyBaseLogger
         ) update email_outbox e set status='sending',claim_id=${claim},claimed_at=now(),attempts=attempts+1
           from candidate c where e.id=c.id returning e.*`);
       if (!r) break;
+      if(r.kind==='appointment_reminder') {
+        const [current]=await withTenant(tenant,tx=>tx`select id from email_outbox where id=${r.id}
+          and claim_id=${claim} and entity_type not like '%:superseded:%'`);
+        if(!current){
+          await withTenant(tenant,tx=>tx`update email_outbox set status='failed',last_error='appointment_changed',claim_id=null
+            where id=${r.id} and claim_id=${claim}`);
+          continue;
+        }
+      }
+
       let result: Awaited<ReturnType<typeof sendEmail>>;
       let from = fromAddressFor({ kind: r.kind });
       let replyTo: string | null = null;

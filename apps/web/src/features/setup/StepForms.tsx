@@ -1,3 +1,12 @@
+import {StoreMediaEditor} from './StoreMediaEditor';
+import {BookingImagePicker} from '@/components/ui/BookingImagePicker';
+import {HoursPeriodsEditor} from './HoursPeriodsEditor';
+import { useCan } from '@/lib/permissions';
+import { StaffEditor } from './StaffEditor';
+import { SetupBookingCapacity } from './BookingCapacity';
+import { CategoryManager, CategoryPicker, ServiceEditor } from './CatalogFields';
+import { SaveStatus, useSetupDraft } from './autosave';
+import { useEntitlements } from '@/features/billing/useEntitlements';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from '@heroui/react';
@@ -47,55 +56,27 @@ export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void
   const { data } = useDeskSettingsQuery();
   const saveProfile = useSaveLocationProfile();
   const saveHours = useSaveBusinessHours();
-  const [form, setForm] = useState({
-    name: '', businessType: 'mixed', phone: '', email: '', addressStreet: '', addressCity: '',
-    addressState: '', addressZip: '', timezone: 'America/New_York', businessDayCutoff: '04:00',
+  const location = data?.location;
+  const draft = useSetupDraft(location ? {
+    form: { name: location.name ?? '', businessType: location.businessType ?? 'mixed', phone: location.phone ?? '', email: location.email ?? '',
+      addressStreet: location.addressStreet ?? '', addressCity: location.addressCity ?? '', addressState: location.addressState ?? '', addressZip: location.addressZip ?? '',
+      timezone: location.timezone ?? 'America/New_York', businessDayCutoff: (location.businessDayCutoff ?? '04:00').slice(0, 5) },
+    hours: location.businessHours ?? {},
+  } : null, async ({ form, hours }) => {
+    if (!form.name.trim()) throw new Error(t('setupStep1MissingName'));
+    await saveProfile.mutateAsync({ ...form, name: form.name.trim(), businessType: form.businessType as any,
+      phone: form.phone.trim() || null, email: form.email.trim() || null });
+    await saveHours.mutateAsync({ hours });
   });
-  const [hours, setHours] = useState<Record<string, { open: string; close: string } | null>>({});
-
-  useEffect(() => {
-    if (!data) return;
-    const l = data.location;
-    setForm({
-      name: l.name ?? '', businessType: l.businessType ?? 'mixed', phone: l.phone ?? '', email: l.email ?? '',
-      addressStreet: l.addressStreet ?? '', addressCity: l.addressCity ?? '', addressState: l.addressState ?? '',
-      addressZip: l.addressZip ?? '', timezone: l.timezone ?? 'America/New_York', businessDayCutoff: l.businessDayCutoff ?? '04:00',
-    });
-    setHours(l.businessHours ?? {});
-  }, [data]);
-
-  const update = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
-  /** 门店资料表单的字段级校验。 */
   const storeForm = useFieldErrors<'name'>();
-
-  const save = async () => {
-    storeForm.clear();
-    if (!form.name.trim() || !form.timezone.trim()) {
-      storeForm.fail('name', t('setupStep1MissingName'));
-      return;
-    }
-    if (!Object.values(hours).some(Boolean)) {
-      toast.danger(t('setupStep1MissingHours'));
-      return;
-    }
-    try {
-      await saveProfile.mutateAsync({
-        name: form.name.trim(), businessType: form.businessType as any, phone: form.phone.trim() || undefined,
-        email: form.email.trim() || undefined, addressStreet: form.addressStreet.trim(), addressCity: form.addressCity.trim(),
-        addressState: form.addressState.trim(), addressZip: form.addressZip.trim(), timezone: form.timezone,
-        businessDayCutoff: form.businessDayCutoff,
-      });
-      await saveHours.mutateAsync({ hours });
-      toast.success(t('setupStep1Saved'));
-      onSaved();
-    } catch (error) {
-      toast.danger(t('setupSaveFailed', { p0: error instanceof Error ? error.message : 'UNKNOWN' }));
-    }
-  };
+  if (!draft.value) return <p>{t('setupReadinessLoading')}</p>;
+  const { form, hours } = draft.value;
+  const update = (key: keyof typeof form, value: string) => draft.set(old => ({ ...old, form: { ...old.form, [key]: value } }));
+  const setHours = (next: typeof hours | ((old: typeof hours) => typeof hours)) => draft.set(old => ({ ...old,
+    hours: typeof next === 'function' ? next(old.hours) : next }));
 
   return (
     <div className="space-y-6">
-      <StepHeading eyebrow={t('setupStepLabel', { number: stepNumber })} title={t('setupStepStoreTitle')} description={t('setupStepStoreDesc')} />
       <ImportWorkspace mode="store" initialName={form.name} initialPlace={form.addressZip || form.addressCity} />
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">{t('setupImportOrManual')}</p>
       <div className="grid gap-4 md:grid-cols-2">
@@ -107,7 +88,7 @@ export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void
             <option value="scalp">{t('setupBizScalp')}</option><option value="hair">{t('setupBizHair')}</option><option value="mixed">{t('setupBizMixed')}</option>
           </select>
         </Field>
-        <Field label={t('setupFieldPhone')}><Input className={fieldClass} value={form.phone} onChange={(e) => update('phone', e.target.value)} placeholder="+12125551234" /></Field>
+        <Field label={t('setupFieldPhone')}><Input type="tel" className={fieldClass} value={form.phone} onChange={(e) => update('phone', e.target.value)} placeholder="+12125551234" /></Field>
         <Field label={t('setupFieldEmail')}><Input className={fieldClass} type="email" value={form.email} onChange={(e) => update('email', e.target.value)} /></Field>
         <Field label={t('setupFieldStreet')}><Input className={fieldClass} value={form.addressStreet} onChange={(e) => update('addressStreet', e.target.value)} /></Field>
         <div className="grid grid-cols-[1fr_80px_100px] gap-2">
@@ -140,24 +121,30 @@ export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void
               <div key={key} className="grid grid-cols-[70px_70px_1fr] items-center gap-3 px-4 py-3 sm:grid-cols-[80px_90px_1fr]">
                 <span className="text-sm font-semibold text-slate-800">{t(labelKey)}</span>
                 <button type="button" onClick={() => setHours((h) => ({ ...h, [key]: value ? null : { open: '09:00', close: '20:00' } }))} className={cn('text-left text-xs font-semibold', value ? 'text-teal-700' : 'text-slate-400')}>{value ? t('setupDayOpen') : t('setupDayClosed')}</button>
-                {value ? <div className="flex items-center gap-2"><Input type="time" className="h-9 text-sm" value={value.open} onChange={(e) => setHours((h) => ({ ...h, [key]: { ...value, open: e.target.value } }))} /><span className="text-slate-400">—</span><Input type="time" className="h-9 text-sm" value={value.close} onChange={(e) => setHours((h) => ({ ...h, [key]: { ...value, close: e.target.value } }))} /></div> : <span className="text-sm text-slate-400">{t('setupDayNoBooking')}</span>}
+                {value ? <HoursPeriodsEditor label={t(labelKey)} value={value} onChange={next=>setHours(h=>({...h,[key]:next}))}/> : <span className="text-sm text-slate-400">{t('setupDayNoBooking')}</span>}
               </div>
             );
           })}
         </div>
       </div>
-      <SaveBar permission="settings.manage" saving={saveProfile.isPending || saveHours.isPending} onSave={save} />
+      <StoreMediaEditor />
+      <SaveStatus {...draft} />
     </div>
   );
 }
 
 export function CatalogStepForm({ onSaved, stepNumber = 4 }: { onSaved: () => void; stepNumber?: number }) {
   const { t } = useLanguage();
+  const canImportImages = useCan('ai.use');
   const { data } = useDeskSettingsQuery();
   const saveService = useSaveService();
   const [name, setName] = useState('');
+  const [presentation,setPresentation]=useState({imageUrl:'',description:''});
   const [price, setPrice] = useState('');
   const [duration, setDuration] = useState('60');
+  const [categoryId, setCategoryId] = useState('');
+  const [isAddon, setIsAddon] = useState(false);
+  const [onlineBookable, setOnlineBookable] = useState(true);
   const active = data?.services.filter((service) => service.active) ?? [];
   const existingNames = (data?.services ?? []).map((service) => service.displayName);
 
@@ -185,12 +172,14 @@ export function CatalogStepForm({ onSaved, stepNumber = 4 }: { onSaved: () => vo
     try {
       const displayName = name.trim();
       await saveService.mutateAsync({
+        presentation,
         name: { en: displayName, 'zh-Hans': displayName },
+        categoryId: categoryId || null, isAddon, onlineBookable: !isAddon && onlineBookable,
         basePriceCents: priceCents,
         durationMin: durationValue,
         active: true,
       });
-      setName(''); setPrice('');
+      setName(''); setPrice('');setPresentation({imageUrl:'',description:''});
       toast.success(t('setupStep2Saved'));
       onSaved();
     } catch (error) { toast.danger(t('setupAddFailed', { p0: error instanceof Error ? error.message : 'UNKNOWN' })); }
@@ -198,31 +187,40 @@ export function CatalogStepForm({ onSaved, stepNumber = 4 }: { onSaved: () => vo
 
   return (
     <div className="space-y-6">
-      <StepHeading eyebrow={t('setupStepLabel', { number: stepNumber })} title={t('setupStepCatalogTitle')} description={t('setupStepCatalogDesc')} />
       <CatalogPresetPicker
         businessType={data?.location.businessType ?? null}
         existingNames={existingNames}
         onAdded={onSaved}
       />
-      <ImportWorkspace mode="catalog" />
+      {canImportImages && <ImportWorkspace mode="catalog" />}
+      <CategoryManager categories={data?.serviceCategories ?? []} />
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">{t('setupImportOrManual')}</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <CategoryPicker value={categoryId} onChange={setCategoryId} categories={data?.serviceCategories ?? []} />
+        <Toggle checked={isAddon} onChange={setIsAddon} label={t('settings.stAddOnTag')} description={t('setupAddonHint')} />
+        {!isAddon && <Toggle checked={onlineBookable} onChange={setOnlineBookable} label={t('setupOnlineBookable')} description="" />}
+      </div>
       <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-5 md:grid-cols-[1.4fr_.7fr_.7fr_auto]">
         <Field label={t('setupFieldServiceName')}><Input {...serviceForm.bind('name')} className={fieldClass} value={name} onChange={(e) => { setName(e.target.value); serviceForm.clearField('name'); }} placeholder={t('setupFieldServiceNamePlaceholder')} /></Field>
+
         <Field label={t('setupFieldPriceUsd')}><Input {...serviceForm.bind('price')} className={fieldClass} type="number" min="0" step="0.01" value={price} onChange={(e) => { setPrice(e.target.value); serviceForm.clearField('price'); }} placeholder="65.00" /></Field>
         <Field label={t('setupFieldDurationMin')}><Input {...serviceForm.bind('duration')} className={fieldClass} type="number" min="5" step="5" value={duration} onChange={(e) => { setDuration(e.target.value); serviceForm.clearField('duration'); }} /></Field>
         <GuardedButton
       isPending={saveService.isPending} permission="catalog.manage" onClick={add} isDisabled={saveService.isPending} className="h-11 self-end gap-2"><Plus className="size-4" />{t('setupAddService')}</GuardedButton>
+        <details className="col-span-full"><summary className="cursor-pointer text-sm font-semibold">图片与简介 / Photo and description</summary><div className="mt-3 max-w-lg"><BookingImagePicker value={presentation.imageUrl} serviceName={name} onChange={imageUrl=>setPresentation(v=>({...v,imageUrl}))}/><textarea aria-label="Service description / 项目简介" placeholder="Service description / 项目简介" className="mt-3 w-full rounded-xl border p-3" maxLength={5000} value={presentation.description} onChange={e=>setPresentation(v=>({...v,description:e.target.value}))}/></div></details>
       </div>
       <div>
         <div className="mb-3 flex items-center justify-between"><h3 className="font-bold text-slate-900">{t('setupCurrentServices')}</h3><Badge variant={active.length ? 'success' : 'warning'}>{t('setupServicesEnabledCount', { p0: active.length })}</Badge></div>
-        {active.length ? <div className="grid gap-3 sm:grid-cols-2">{active.map((service) => <div key={service.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-4"><div><p className="font-semibold text-slate-900">{service.displayName}</p><p className="mt-1 text-xs text-slate-500">{service.durationMin} {t('setupMinutesUnit')} · ${(service.basePriceCents / 100).toFixed(2)}</p></div>{service.onlineBookable && <Badge>{t('setupOnlineBookable')}</Badge>}</div>)}</div> : <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50 p-6 text-center text-sm text-amber-900">{t('setupNoServicesHint')}</div>}
+        {(data?.services ?? []).map(service => <ServiceEditor key={service.id} service={service} categories={data?.serviceCategories ?? []} />)}
+        {!active.length && <p className="p-4 text-amber-800">{t('setupNoServicesHint')}</p>}
       </div>
     </div>
   );
 }
 
-export function TeamStepForm({ onSaved, stepNumber = 5 }: { onSaved: () => void; stepNumber?: number }) {
+export function TeamStepForm({ onSaved, stepNumber = 5, settingsMode = false }: { onSaved: () => void; stepNumber?: number; settingsMode?: boolean }) {
   const { t } = useLanguage();
+  const voiceOnly = useEntitlements().data?.plan === 'voice_booking';
   const { data } = useDeskSettingsQuery();
   const saveStaff = useSaveStaffProfile();
   const [name, setName] = useState('');
@@ -234,26 +232,24 @@ export function TeamStepForm({ onSaved, stepNumber = 5 }: { onSaved: () => void;
     staffForm.clear();
     if (!name.trim()) { staffForm.fail('name', t('setupStep3MissingName')); return; }
     try {
-      await saveStaff.mutateAsync({ name: name.trim(), isBookable: bookable, inRotation: rotation, maxConcurrentAppointments: 1 });
+      await saveStaff.mutateAsync({ name: name.trim(), isBookable: bookable, inRotation: !voiceOnly && rotation, maxConcurrentAppointments: 1 });
       setName(''); toast.success(t('setupStep3Saved')); onSaved();
     } catch (error) { toast.danger(t('setupAddFailed', { p0: error instanceof Error ? error.message : 'UNKNOWN' })); }
   };
   const staff = data?.staff ?? [];
   return (
     <div className="space-y-6">
-      <StepHeading eyebrow={t('setupStepLabel', { number: stepNumber })} title={t('setupStepTeamTitle')} description={t('setupStepTeamDesc')} />
       <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-5 md:grid-cols-2">
         <Field label={t('setupFieldStaffName')}><Input {...staffForm.bind('name')} className={fieldClass} value={name} onChange={(e) => { setName(e.target.value); staffForm.clearField('name'); }} placeholder="Amy" /></Field>
         <div className="flex items-end"><GuardedButton
         isPending={saveStaff.isPending} permission="staff.manage" onClick={add} isDisabled={saveStaff.isPending} className="h-11 w-full gap-2"><UserRoundPlus className="size-4" />{t('setupAddStaff')}</GuardedButton></div>
         <Toggle checked={bookable} onChange={setBookable} label={t('setupToggleBookableLabel')} description={t('setupToggleBookableDesc')} />
-        <Toggle checked={rotation} onChange={setRotation} label={t('setupToggleRotationLabel')} description={t('setupToggleRotationDesc')} />
+        {!voiceOnly && <Toggle checked={rotation} onChange={setRotation} label={t('setupToggleRotationLabel')} description={t('setupToggleRotationDesc')} />}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">{staff.map((member) => <div key={member.membershipId} className="flex items-center gap-3 rounded-xl border border-slate-200 p-4"><span className="grid size-10 place-items-center rounded-full bg-teal-50 font-bold text-teal-700">{member.name.slice(0, 1)}</span><div className="min-w-0 flex-1"><p className="truncate font-semibold text-slate-900">{member.name}</p><p className="text-xs text-slate-500">{member.isBookable ? t('setupStaffBookable') : t('setupStaffNotBookable')} · {member.inRotation ? t('setupStaffInRotation') : t('setupStaffNotInRotation')}</p></div>{member.hasAccount ? <Badge variant="success">{t('setupStaffAccountReady')}</Badge> : <Badge variant="secondary">{t('setupStaffAccountPending')}</Badge>}</div>)}</div>
+      <div className="grid gap-3 sm:grid-cols-2">{staff.map(member => <StaffEditor key={member.membershipId} staff={member} voiceOnly={voiceOnly} />)}</div>
+      {voiceOnly && <SetupBookingCapacity />}
       {!staff.some((member) => member.isBookable) && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{t('setupStaffMinBookableHint')}</div>}
-      <div className="rounded-xl border border-teal-100 bg-teal-50/60 p-4 text-sm leading-6 text-teal-900">
-        {t('setupStep3Footer')}
-      </div>
+      {!settingsMode && <div className="rounded-xl border border-teal-100 bg-teal-50/60 p-4 text-sm leading-6 text-teal-900">{t('setupStep3Footer')}</div>}
     </div>
   );
 }
@@ -280,8 +276,10 @@ export function LaunchStep({ onGoToStep, stepNumber = 7 }: {
   const { data: readiness, refetch, isFetching, isError, isLoading } = useSetupReadinessQuery();
   const finish = useFinishSetup();
 
+  const voiceOnly = useEntitlements().data?.plan === 'voice_booking';
   const checks = (readiness?.steps ?? [])
     .filter((step): step is { id: SetupStepId; complete: boolean } => step.id in LAUNCH_CHECK_LABEL)
+    .filter(step => !voiceOnly || step.id !== 'rooms')
     .map((step) => ({ stepId: step.id, label: t(LAUNCH_CHECK_LABEL[step.id]!), ok: step.complete }));
   const ready = Boolean(readiness?.canLaunch);
   const blockers = readiness?.missing ?? [];
@@ -293,7 +291,7 @@ export function LaunchStep({ onGoToStep, stepNumber = 7 }: {
       await finish.mutateAsync();
       toast.success(t('setupLaunched'));
       // 只有服务端把 locations.status 改为 active 后，才允许离开 setup。
-      navigate('/dashboard', { replace: true });
+      navigate(voiceOnly ? '/schedule' : '/dashboard', { replace: true });
     }
     catch (error) { toast.danger(t('setupLaunchFailed', { p0: error instanceof Error ? error.message : 'UNKNOWN' })); }
   };
@@ -312,7 +310,6 @@ export function LaunchStep({ onGoToStep, stepNumber = 7 }: {
 
   return (
     <div className="space-y-6">
-      <StepHeading eyebrow={t('setupStepLabel', { number: stepNumber })} title={t('setupStepLaunchTitle')} description={t('setupStepLaunchDesc')} />
       <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200">
         {checks.map((check) => (
           <div key={check.stepId} className="flex items-center justify-between gap-3 px-5 py-4">

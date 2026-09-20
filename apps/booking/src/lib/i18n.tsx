@@ -1,3 +1,4 @@
+import { PUBLIC_COPY } from './publicCopy';
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 export type Locale = 'en' | 'zh-Hans' | 'es' | 'vi' | 'ko';
@@ -203,8 +204,10 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       const p = new URLSearchParams(window.location.search);
       const urlLocale = p.get('locale');
       if (urlLocale && urlLocale in DICTIONARIES) return urlLocale as Locale;
-      const stored = localStorage.getItem('booking_locale');
-      if (stored && stored in DICTIONARIES) return stored as Locale;
+      try {
+        const stored = localStorage.getItem('booking_locale');
+        if (stored && stored in DICTIONARIES) return stored as Locale;
+      } catch { /* Storage may be blocked in an embedded/private browser. */ }
       if (navigator.language.startsWith('zh')) return 'zh-Hans';
       if (navigator.language.startsWith('es')) return 'es';
       if (navigator.language.startsWith('vi')) return 'vi';
@@ -214,7 +217,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    localStorage.setItem('booking_locale', locale);
+    try { localStorage.setItem('booking_locale', locale); } catch { /* Keep locale in memory. */ }
     document.documentElement.lang = locale;
   }, [locale]);
 
@@ -223,7 +226,8 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     setLocale,
     t: (key: string, fallback?: string) => {
       const dict = DICTIONARIES[locale] || DICTIONARIES['en']!;
-      return dict[key] ?? DICTIONARIES['en']![key] ?? fallback ?? key;
+      const englishKey=Object.entries(DICTIONARIES['en']!).find(([,value])=>value.toLowerCase()===(fallback??key).toLowerCase())?.[0];
+      return dict[key] ?? PUBLIC_COPY[locale]?.[key] ?? (fallback?PUBLIC_COPY[locale]?.[fallback]:undefined) ?? (englishKey?dict[englishKey]:undefined) ?? DICTIONARIES['en']![key] ?? fallback ?? key;
     },
   }), [locale]);
 

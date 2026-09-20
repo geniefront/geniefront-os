@@ -1,3 +1,5 @@
+import { SaveStatus, useSetupDraft } from './autosave';
+import { useEntitlements } from '@/features/billing/useEntitlements';
 import { useEffect, useState } from 'react';
 import { toast } from '@heroui/react';
 import { DoorOpen, Plus } from 'lucide-react';
@@ -9,7 +11,7 @@ import { cn } from '@/lib/utils';
 import { useLanguage } from '@/LanguageContext';
 import { useSetupReadinessQuery, useSaveSetupFeatures } from '@/features/settings/api';
 import { useStaffListQuery } from '@/features/staff/api';
-import { DirectorySettings } from '@/features/staff/DirectorySettings';
+import { DirectoryEditor } from './DirectoryEditor';
 import { useRoomsQuery, useSaveResource } from '@/features/rooms/api';
 import { Field, SaveBar, StepHeading, Toggle, fieldClass, selectClass } from '@/features/setup/primitives';
 import type { TranslationKey } from '@/i18n';
@@ -29,15 +31,9 @@ export function DirectoryStepForm({ stepNumber = 2 }: { stepNumber?: number }) {
 
   return (
     <div className="space-y-6">
-      <StepHeading
-        eyebrow={t('setupStepLabel', { number: stepNumber })}
-        title={t('setupStepDirectoryTitle')}
-        description={t('setupStepDirectoryDesc')}
-        badge={t('setupOptionalBadge')}
-      />
       <p className="text-sm leading-6 text-slate-600">{t('setupDirectoryHint')}</p>
       <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-5">
-        <DirectorySettings jobs={jobs} levels={levels} skills={skills} />
+        <DirectoryEditor jobs={jobs} levels={levels} skills={skills} />
         <p className="mt-3 text-sm text-slate-600">
           {t('setupDirectoryCounts', { jobs: jobs.length, levels: levels.length, skills: skills.length })}
         </p>
@@ -86,11 +82,6 @@ export function RoomsStepForm({ onSaved, stepNumber = 3 }: { onSaved: () => void
 
   return (
     <div className="space-y-6">
-      <StepHeading
-        eyebrow={t('setupStepLabel', { number: stepNumber })}
-        title={t('setupStepRoomsTitle')}
-        description={t('setupStepRoomsDesc')}
-      />
       <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-5 md:grid-cols-[1.3fr_.9fr_.5fr_auto]">
         <Field label={t('setupFieldRoomName')}>
           <Input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('setupRoomTypeRoom')} />
@@ -144,14 +135,14 @@ export function FeaturesStepForm({ onSaved, stepNumber = 6 }: { onSaved: () => v
   const { t } = useLanguage();
   const { data: readiness } = useSetupReadinessQuery();
   const saveFeatures = useSaveSetupFeatures();
-  const [healthForms, setHealthForms] = useState(false);
-  const [aiVoice, setAiVoice] = useState(false);
-
-  useEffect(() => {
-    if (!readiness) return;
-    setHealthForms(readiness.features.healthFormsEnabled ?? false);
-    setAiVoice(readiness.aiVoice.intent ?? false);
-  }, [readiness]);
+  const voiceOnly = useEntitlements().data?.plan === 'voice_booking';
+  const draft = useSetupDraft(readiness ? { healthForms: readiness.features.healthFormsEnabled ?? false, aiVoice: readiness.aiVoice.intent ?? false } : null, async value => {
+    await saveFeatures.mutateAsync({ healthFormsEnabled: voiceOnly ? false : value.healthForms, aiVoiceRequested: value.aiVoice, confirmSetup: true });
+  });
+  const healthForms = draft.value?.healthForms ?? false;
+  const aiVoice = draft.value?.aiVoice ?? false;
+  const setHealthForms = (healthForms: boolean) => draft.set(old => ({ ...old, healthForms }));
+  const setAiVoice = (aiVoice: boolean) => draft.set(old => ({ ...old, aiVoice }));
 
   const confirmedAt = readiness?.features.confirmedAt ?? null;
   const aiState = readiness?.aiVoice.state ?? 'unconfigured';
@@ -163,37 +154,17 @@ export function FeaturesStepForm({ onSaved, stepNumber = 6 }: { onSaved: () => v
     suspended: 'setupAiVoiceStateSuspended',
   } as const;
 
-  const save = async () => {
-    try {
-      await saveFeatures.mutateAsync({
-        healthFormsEnabled: healthForms,
-        aiVoiceRequested: aiVoice,
-        confirmSetup: true,
-      });
-      toast.success(t('setupFeaturesSaved'));
-      onSaved();
-    } catch (error) {
-      toast.danger(t('setupSaveFailed', { p0: error instanceof Error ? error.message : 'UNKNOWN' }));
-    }
-  };
-
   return (
     <div className="space-y-6">
-      <StepHeading
-        eyebrow={t('setupStepLabel', { number: stepNumber })}
-        title={t('setupStepFeaturesTitle')}
-        description={t('setupStepFeaturesDesc')}
-        badge={t('setupOptionalBadge')}
-      />
-      <p className="text-sm leading-6 text-slate-600">{t('setupFeaturesIntro')}</p>
+      {!voiceOnly && <p className="text-sm leading-6 text-slate-600">{t('setupFeaturesIntro')}</p>}
 
       <div className="space-y-3">
-        <Toggle
+        {!voiceOnly && <Toggle
           checked={healthForms}
           onChange={setHealthForms}
           label={t('setupFeatureHealthFormsLabel')}
           description={t('setupFeatureHealthFormsDesc')}
-        />
+        />}
         <div className="space-y-2">
           <Toggle
             checked={aiVoice}
@@ -211,12 +182,7 @@ export function FeaturesStepForm({ onSaved, stepNumber = 6 }: { onSaved: () => v
       {confirmedAt && (
         <p className="text-xs leading-5 text-slate-500">{t('setupFeaturesConfirmedNote')}</p>
       )}
-      <SaveBar
-        permission="settings.manage"
-        saving={saveFeatures.isPending}
-        onSave={save}
-        label={t('setupFeaturesConfirm')}
-      />
+      <SaveStatus {...draft} />
     </div>
   );
 }

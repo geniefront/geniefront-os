@@ -1,3 +1,4 @@
+import { loadManagedAvailability } from './public/managedAvailability';
 /**
  * 折扣明细 + 通知模板（批 7）。
  *
@@ -7,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { withTenant, closeDb } from '@gf/db';
+import { withTenant, closeDb, jsonb, withPublicSlug } from '@gf/db';
 import { renderTemplate, templateVariables } from '@gf/contracts';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
@@ -363,7 +364,7 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
     });
 
     const rows = await smsFor(id);
-    const toCustomer = rows.find((r) => r.entity_type === 'appointment');
+    const toCustomer = rows.find((r) => r.entity_type.startsWith('appointment:'));
     expect(toCustomer).toBeTruthy();
     expect(toCustomer!.body).toContain('通知测试客人');
     expect(toCustomer!.body).not.toContain('{{');
@@ -388,10 +389,88 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
     const rows = await smsFor(id);
     // 客人那条一定在；技师那条要看种子里那位有没有手机号，
     // 有的话 entity_type 必须是 appointment_staff
-    expect(rows.some((r) => r.entity_type === 'appointment')).toBe(true);
+    expect(rows.some((r) => r.entity_type.startsWith('appointment:'))).toBe(true);
     for (const r of rows) {
-      expect(['appointment', 'appointment_staff']).toContain(r.entity_type);
+      expect(r.entity_type).toMatch(/^appointment(?:_staff)?:/);
     }
+  });
+
+  it('连续改期及取消各自通知，命令重试不重复通知', async () => {
+    await enable('appointment_changed');
+    await enable('appointment_cancelled');
+    const id = await makeAppt();
+    await withTenant(tenant, (tx) => tx`
+      insert into sms_outbox
+        (org_id, location_id, kind, to_e164, from_e164, body, segments, entity_type, entity_id)
+      values (${NAIL_ORG}, ${NAIL_LOC}, 'appointment_reminder', '+16175550199',
+        '+18005550199', 'Old reminder', 1, 'appointment', ${id})`);
+    const key = crypto.randomUUID();
+    const d = new Date(Date.now() + 10 * 86400_000);
+    d.setUTCHours(18, 0, 0, 0);
+    const input = { appointmentId: id, startsAt: d.toISOString() };
+    await run('appointment.reschedule', input, key);
+    await run('appointment.reschedule', input, key);
+    d.setUTCDate(d.getUTCDate() + 1);
+    await run('appointment.reschedule', { ...input, startsAt: d.toISOString() });
+    await run('appointment.cancel', { appointmentId: id, reason: 'guest_changed_mind', keepStaffTurn: false });
+    const customerRows = (await smsFor(id)).filter((r) => r.entity_type.startsWith('appointment:'));
+    expect(customerRows).toHaveLength(3);
+    const [oldReminder] = await withTenant(tenant, (tx) => tx`
+      select status, entity_type from sms_outbox
+      where entity_id = ${id} and kind = 'appointment_reminder'`);
+    expect(oldReminder!.status).toBe('suppressed');
+    expect(oldReminder!.entity_type).toContain(':superseded:');
+    expect(new Set(customerRows.map((r) => r.entity_type)).size).toBe(3);
+  });
+
+  it('顾客没有 Email 时，独立门店邮件仍包含明细和后台入口', async () => {
+    const [old] = await withTenant(tenant,tx=>tx`select email,settings from locations where id=${NAIL_LOC}`);
+    try {
+      await withTenant(tenant,tx=>tx`update locations set email='booking-shop@example.invalid',
+        settings=jsonb_set(settings,'{public_booking_profile}','{"shopNotifications":{"email":true,"sms":false}}'::jsonb,true)
+        where id=${NAIL_LOC}`);
+      const id=await makeAppt();
+      const messages=await withTenant(tenant,tx=>tx`select to_email,body_text from email_outbox
+        where entity_id=${id} and entity_type='booking_shop:created'`);
+      expect(messages).toHaveLength(1);
+      expect(messages[0]!.to_email).toBe('booking-shop@example.invalid');
+      expect(messages[0]!.body_text).toContain('Guest 1:');
+      expect(messages[0]!.body_text).toContain('Total:');
+      expect(messages[0]!.body_text).toContain(`/schedule?appointmentId=${id}`);
+      expect(messages[0]!.body_text).not.toContain('#g/');
+    } finally {
+      await withTenant(tenant,tx=>tx`update locations set email=${old!.email},settings=${jsonb(old!.settings)}::jsonb where id=${NAIL_LOC}`);
+    }
+  });
+
+  it('多人预约变更会分别通知每位负责人员，不共用收件人去重键', async () => {
+    const people=await withTenant(tenant,tx=>tx<{membership_id:string}[]>`select sp.membership_id from staff_profiles sp join memberships m on m.id=sp.membership_id
+      where sp.location_id=${NAIL_LOC} and sp.is_bookable and m.status='active' order by sp.membership_id limit 2`);
+    expect(people).toHaveLength(2);
+    for(const [index,person] of people.entries())await withTenant(tenant,tx=>tx`update staff_profiles set contact_email=${`booking-staff-${index}@example.invalid`} where membership_id=${person.membership_id}`);
+    await run('notification.saveTemplate',{eventKey:'staff_changed',channel:'email',locale:'en',subject:'Schedule changed',body:'{{staff_name}}: {{customer_name}} at {{when}}'});
+    await run('notification.toggleRule',{eventKey:'staff_changed',enabled:true,channels:['email'],offsetMin:0});
+    const id=await makeAppt();
+    await withTenant(tenant,async tx=>{
+      await tx`update appointments set party_size=2 where id=${id}`;
+      await tx`update appointment_items set membership_id=${people[0]!.membership_id},details='{"publicGuestIndex":0}'::jsonb where appointment_id=${id}`;
+      await tx`insert into appointment_items(org_id,location_id,appointment_id,service_id,addon_ids,membership_id,starts_at,ends_at,duration_min,price_cents_snapshot,seq,details)
+        select org_id,location_id,appointment_id,service_id,addon_ids,${people[1]!.membership_id},starts_at,ends_at,duration_min,price_cents_snapshot,seq+1,'{"publicGuestIndex":1}'::jsonb
+        from appointment_items where appointment_id=${id} limit 1`;
+    });
+    const shop=(await withPublicSlug('lotus-nails'))!;
+    let target:string|undefined;
+    for(let day=1;day<=14&&!target;day++){
+      const date=new Date(Date.now()+day*86400000).toISOString().slice(0,10);
+      const available=await withTenant(tenant,tx=>loadManagedAvailability(tx,shop,id,date));
+      target=available.slots[0]?.startsAt;
+    }
+    expect(target).toBeTruthy();
+    await run('appointment.reschedule',{appointmentId:id,startsAt:target});
+    const messages=await withTenant(tenant,tx=>tx<{to_email:string;body_text:string}[]>`select to_email,body_text from email_outbox where entity_id=${id} and entity_type like 'appointment_staff:%'`);
+    expect(messages.map(m=>m.to_email).sort()).toEqual(['booking-staff-0@example.invalid','booking-staff-1@example.invalid']);
+    expect(messages.every(m=>m.body_text.includes('Guest 2:'))).toBe(true);
+    expect(messages.every(m=>m.body_text.includes(`/schedule?appointmentId=${id}`))).toBe(true);
   });
 
   it('⭐ 规则关着就不发 —— 装上新版本不该让所有店突然开始发短信', async () => {
@@ -433,7 +512,7 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
 
     const [row] = await withTenant(tenant, (tx) => tx<{ body: string }[]>`
       select body from sms_outbox
-      where entity_id = ${id} and entity_type = 'appointment'
+      where entity_id = ${id} and entity_type like 'appointment:%'
       order by created_at desc, id desc
       limit 1`);
     expect(row!.body).toContain('cancelled');

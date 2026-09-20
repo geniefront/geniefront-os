@@ -1,3 +1,4 @@
+import { loadBookingStaff, enforceScheduledBooking } from '../queries/bookingStaff';
 /**
  * appointment.create —— Phase 0 的验收命令。
  *
@@ -19,6 +20,8 @@ import { emailConfigured } from '../email/send';
 import { hostedManageBookingUrl } from '../links';
 import { generateConfirmationCode, generateManageToken, hashManageToken, wrapManageToken } from '../public/bookingToken';
 import { guestManageLink, manageUrlVar } from '../notify/manageUrl';
+import { notifyBookingRecipients } from '../notify/bookingRecipients';
+import { bookingSummary } from '../notify/bookingSummary';
 import { appointmentServiceLabel } from '../notify/appointmentServiceLabel';
 import { enqueueShopCopy } from '../email/shopCopy';
 import { renderConfirmSms } from '../sms/render';
@@ -28,7 +31,10 @@ import {
   checkCapacity, bookingLimits, readBookingPolicy, businessDateOf, hasBlocking, checkBusinessHours, NO_OFF_HOURS,
   type Interval, type WeeklyHours, type OffHoursWindow,
 } from '@gf/scheduling';
-import { ts, jsonb, parseTs } from '@gf/db';
+import { ts, jsonb, parseTs, readOnlineBooking } from '@gf/db';
+import { loadPartyAvailability } from '../public/partyAvailability';
+import { guestRescheduleBlockReason } from '../public/managedDetail';
+import { checkManagedRescheduleSlot } from '../public/managedAvailability';
 import { registerHandler, type HandlerArgs } from '../bus';
 import { quoteBundle } from '../queries/bundle';
 import { notifyEvent } from '../notify/dispatch';
@@ -191,6 +197,8 @@ function assertBusinessHours(args: {
 async function countOnDutyBookable(
   tx: postgres.TransactionSql, locationId: string, businessDate: string,
 ): Promise<number> {
+  const [location]=await tx<{settings:Record<string,any>}[]>`select settings from locations where id=${locationId}`;
+  if(location?.settings.capacity?.use_recurring_staff) return new Set((await loadBookingStaff(tx,locationId,businessDate)).map(w=>w.id)).size;
   const [shifted] = await tx<{ n: number }[]>`
     select count(distinct s.membership_id)::int as n
     from shifts s
@@ -238,6 +246,33 @@ export async function executeSingleAppointmentInTx(
            business_hours as hours
     from locations where id = ${ctx.locationId}`;
   if (!loc) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
+
+  if (input.source === 'web' && input.items.some(i => i.details['publicGuestIndex'] !== undefined)) {
+    if (input.bundleSelections.length || input.items.some(i => !Number.isInteger(i.details['publicGuestIndex']))) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, {details:{reason:'invalid_party'}});
+    }
+    const startsAt = input.items.reduce((a,i)=>Date.parse(i.startsAt)<Date.parse(a)?i.startsAt:a,input.items[0]!.startsAt);
+    const selections = input.items.map(i=>({guestIndex:Number(i.details['publicGuestIndex']),serviceId:i.serviceId,
+      addonIds:i.addonIds,staffId:i.isRequest?i.membershipId:null}));
+    if(new Set(selections.map(i=>i.guestIndex)).size!==input.partySize) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'invalid_party'}});
+    }
+    const available=await loadPartyAvailability(tx,{locationId:ctx.locationId,timezone:loc.timezone,
+      businessDayCutoff:loc.cutoff,businessHours:loc.hours,settings:loc.settings,onlineBooking:readOnlineBooking(loc.settings)},
+      {date:businessDateOf(new Date(startsAt),loc.timezone,loc.cutoff),startsAt,items:selections});
+    const plan=available.plans[0];
+    if(!plan) throw new AppError(ERROR_CODES.RESOURCE_CONFLICT,{details:{reason:'party_slot_taken'}});
+    input={...input,items:input.items.map((i,index)=>{
+      const planned=plan.items[index]!;
+      if(i.details['quotedPriceCents'] !== undefined && i.details['quotedPriceCents'] !== planned.priceCents) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'party_price_changed'}});
+      }
+      if(Date.parse(planned.startsAt)!==Date.parse(i.startsAt)) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'party_schedule_changed'}});
+      }
+      return {...i,resourceId:planned.resourceId??null,membershipId:planned.staffId,durationMin:planned.durationMin,priceCentsOverride:planned.priceCents};
+    })};
+  }
 
   const capacityCfg = (loc.settings['capacity'] ?? {}) as {
     max_concurrent_per_slot?: number | null;
@@ -385,6 +420,26 @@ export async function executeSingleAppointmentInTx(
     }
   }
 
+  if(input.source==='web' && input.bundleSelections.length){
+    const anchor=resolved[0]!.startsAt.toISOString();
+    const available=await loadPartyAvailability(tx,{locationId:ctx.locationId,timezone:loc.timezone,
+      businessDayCutoff:loc.cutoff,businessHours:loc.hours,settings:loc.settings,onlineBooking:readOnlineBooking(loc.settings)},
+      {date:businessDateOf(new Date(anchor),loc.timezone,loc.cutoff),startsAt:anchor,
+       items:resolved.map(i=>({guestIndex:0,serviceId:i.serviceId,addonIds:i.addonIds,staffId:i.membershipId})),
+       trustedUnits:resolved.map(i=>({durationMin:i.durationMin,priceCents:i.priceCents}))});
+    const plan=available.plans[0];
+    if(!plan)throw new AppError(ERROR_CODES.RESOURCE_CONFLICT,{details:{reason:'party_slot_taken'}});
+    for(const [index,item] of resolved.entries()){
+      const proposed=plan.items[index]!;
+      if(index>0 && item.bundleRef!==resolved[index-1]!.bundleRef && Date.parse(proposed.startsAt)!==item.startsAt.getTime()) {
+        throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'bundle_schedule_changed'}});
+      }
+      item.membershipId=proposed.staffId;item.resourceId=proposed.resourceId??null;
+      item.startsAt=new Date(proposed.startsAt);item.endsAt=new Date(proposed.endsAt);item.durationMin=proposed.durationMin;
+      item.details={...item.details,publicGuestIndex:0};
+    }
+  }
+
   const windowStart = new Date(Math.min(...resolved.map((r) => r.startsAt.getTime())));
   const windowEnd = new Date(Math.max(...resolved.map((r) => r.endsAt.getTime())));
   const businessDate = businessDateOf(windowStart, loc.timezone, loc.cutoff);
@@ -444,6 +499,7 @@ export async function executeSingleAppointmentInTx(
       startsAt: item.startsAt, endsAt: item.endsAt,
       groupKey: newApptKey ?? `pending-item:${idx}`,
     };
+    await enforceScheduledBooking(tx,ctx.locationId,businessDate,loc.settings,{...proposed,membershipId: item.membershipId},existing);
     const issues = checkCapacity({
       proposed,
       staff: staff
@@ -551,7 +607,7 @@ export async function executeSingleAppointmentInTx(
            ${item.priceCents}, ${item.durationMin}, ${idx},
            ${isOver}, ${isOver ? input.override!.reason : null},
            ${isOver ? (input.override!.note ?? null) : null},
-           ${jsonb(item.details)}::jsonb,
+           ${jsonb({...item.details,...(input.guest?.bookingSmsConsent!==undefined?{bookingSmsConsent:input.guest.bookingSmsConsent,bookingSmsConsentAt:new Date().toISOString(),bookingSmsPolicyVersion:'2026-09-20'}:{})})}::jsonb,
            ${bundleInstanceId}, ${item.bundleComponentId ?? null},
            ${item.bundleUnitIndex ?? null}, ${item.bundleListPriceCents ?? null})
         returning id`;
@@ -591,7 +647,8 @@ export async function executeSingleAppointmentInTx(
    */
   if (PUBLIC_SOURCES.has(input.source)) {
     await enqueueConfirmEmail(tx, ctx, appt!.id, itemIds[0] ?? null, issuedManageToken);
-    await enqueueConfirmSms(tx, ctx, appt!.id, itemIds[0] ?? null, issuedManageToken);
+    if(input.guest?.bookingSmsConsent!==false) await enqueueConfirmSms(tx, ctx, appt!.id, itemIds[0] ?? null, issuedManageToken);
+    await notifyBookingRecipients(tx,ctx,{appointmentId:appt!.id,occurrence:"created",event:"created"});
   }
 
   return {
@@ -604,7 +661,7 @@ export async function executeSingleAppointmentInTx(
   };
 }
 
-registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs<Input>): Promise<Output> => {
+registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit, emit }: HandlerArgs<Input>): Promise<Output> => {
   const result = await executeSingleAppointmentInTx(tx, ctx, input);
 
   audit({
@@ -622,6 +679,8 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
     },
   });
 
+  emit({type:'appointment.changed',entityId:result.appointmentId,businessDate:result.businessDate});
+
   return {
     appointmentId: result.appointmentId,
     itemIds: result.itemIds,
@@ -631,7 +690,7 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit }: HandlerArgs
   };
 });
 
-registerHandler(AppointmentCreateBatch, async ({ input, ctx, tx, audit }: HandlerArgs<typeof AppointmentCreateBatch.input._type>) => {
+registerHandler(AppointmentCreateBatch, async ({ input, ctx, tx, audit, emit }: HandlerArgs<typeof AppointmentCreateBatch.input._type>) => {
   const results: Array<{
     subKey: string;
     appointmentId: string;
@@ -687,6 +746,8 @@ registerHandler(AppointmentCreateBatch, async ({ input, ctx, tx, audit }: Handle
       source: input.source,
     },
   });
+
+  for(const result of results)emit({type:'appointment.changed',entityId:result.appointmentId,businessDate:result.businessDate});
 
   return {
     batchId: input.batchId,
@@ -841,6 +902,7 @@ async function enqueueConfirmEmail(
    * 后者是当前操作员的界面语言，与收件人无关。
    */
   const msg = renderConfirm({
+    detailsText: await bookingSummary(tx,ctx.locationId,appointmentId),
     customerName: pickText(row!.customer_name, 'en', 'there'),
     shopName: pickText(row!.shop_name, 'en', ''),
     serviceName: await appointmentServiceLabel(
@@ -1005,12 +1067,12 @@ function input_hasCustomerEmailSupport(): boolean {
  * 拒绝而不是猜，是因为猜错的方向是「凭空给技师记了一次没干过的活」
  * 或者「抹掉他真干过的一次」—— 两个都会被技师当场发现并投诉。
  */
-registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit }: HandlerArgs<
+registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof AppointmentCancel.input._type>): Promise<typeof AppointmentCancel.output._type> => {
   const [appt] = await tx<{
-    id: string; status: string; source: string; business_date: string;
+    id: string; status: string; source: string; business_date: string; starts_at:string;
   }[]>`
-    select id, status, source, business_date::text as business_date
+    select id, status, source, starts_at::text, business_date::text as business_date
     from appointments
     where id = ${input.appointmentId} and location_id = ${ctx.locationId} for update`;
   if (!appt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
@@ -1019,6 +1081,14 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit }: HandlerArgs
     throw new AppError(ERROR_CODES.ALREADY_CANCELLED, {
       details: { appointmentId: appt.id },
     });
+  }
+
+  if(ctx.actorKind==='api' && !ctx.userId && !ctx.membershipId) {
+    const [loc]=await tx<{settings:Record<string,unknown>}[]>`select settings from locations where id=${ctx.locationId}`;
+    const cfg=readOnlineBooking(loc?.settings??{});
+    if(appt.status!=='booked' || Date.parse(appt.starts_at)-Date.now()<cfg.cancelCutoffHours*3600000) {
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED,{details:{reason:appt.status!=='booked'?'not_mutable':'cancel_cutoff_passed'}});
+    }
   }
 
   const [ticket] = await tx<{ id: string; status: string }[]>`
@@ -1078,6 +1148,7 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit }: HandlerArgs
 
   // 没有开过单 = 轮牌上没有这条预约的痕迹，所以「保留」与否不改变任何状态。
   // 如实返回调用方问的那件事有没有发生，而不是回一个好看的 true
+  emit({type:'appointment.changed',entityId:appt.id,businessDate:appt.business_date});
   return { appointmentId: appt.id, turnKept: false };
 });
 
@@ -1106,7 +1177,7 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit }: HandlerArgs
  * 3. **已经开过单的不让改。** 有 ticket 说明人已经到店、技师已经开工，
  *    这时候「改期」是运营动作不是客人动作 —— 让前台去处理。
  */
-registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: HandlerArgs<
+registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof AppointmentReschedule.input._type>
 ): Promise<typeof AppointmentReschedule.output._type> => {
   await lockBookingCapacity(tx, ctx.locationId);
@@ -1124,12 +1195,31 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
     overbook?: 'warn' | 'block';
   };
 
-  const [appt] = await tx<{ id: string; status: string; party_size: number; starts_at: string }[]>`
-    select id, status, party_size, starts_at::text as starts_at from appointments
+  const [appt] = await tx<{ id: string; status: string; party_size: number; starts_at: string; self_reschedule_count: number }[]>`
+    select id, status, party_size, starts_at::text as starts_at, self_reschedule_count from appointments
     where id = ${input.appointmentId} and location_id = ${ctx.locationId} for update`;
   if (!appt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
   if (appt.status === 'cancelled') {
     throw new AppError(ERROR_CODES.ALREADY_CANCELLED, { details: { appointmentId: appt.id } });
+  }
+
+  if(!input.itemId && input.membershipId===undefined && input.resourceId===undefined
+      && Date.parse(input.startsAt)===Date.parse(appt.starts_at)) {
+    audit({entityType:'appointment',entityId:appt.id,after:{unchanged:true,startsAt:appt.starts_at}});
+    return {appointmentId:appt.id,overbooked:false};
+  }
+
+  const publicGuest=ctx.actorKind==='api' && !ctx.userId && !ctx.membershipId;
+  if(publicGuest) {
+    const cfg=readOnlineBooking(loc.settings);
+    const reason=guestRescheduleBlockReason({status:appt.status,startsAt:appt.starts_at,
+      cancelCutoffHours:cfg.cancelCutoffHours,rescheduleEnabled:cfg.rescheduleEnabled,
+      rescheduleCutoffHours:cfg.rescheduleCutoffHours,selfRescheduleMax:cfg.selfRescheduleMax,
+      selfRescheduleCount:appt.self_reschedule_count});
+    if(reason) throw new AppError(ERROR_CODES.PERMISSION_DENIED,{details:{reason}});
+    const check=await checkManagedRescheduleSlot(tx,{locationId:ctx.locationId,timezone:loc.timezone,
+      businessDayCutoff:loc.cutoff,onlineBooking:cfg},appt.id,new Date(input.startsAt));
+    if(!check.ok) throw new AppError(ERROR_CODES.RESOURCE_CONFLICT,{details:{reason:check.reason}});
   }
 
   // 开过单就不是「改期」了 —— 人已经在店里，让前台处理
@@ -1263,6 +1353,7 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
       startsAt: m.startsAt, endsAt: m.endsAt,
       groupKey: appt.party_size > 1 ? `moved-item:${m.id}` : appt.id,
     };
+    await enforceScheduledBooking(tx,ctx.locationId,businessDate,loc.settings,{...proposed,membershipId: m.membershipId},existing);
     const issues = checkCapacity({
       proposed,
       staff: staff
@@ -1335,7 +1426,8 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
     update appointments set
       starts_at = ${span!.s}::timestamptz,
       ends_at   = ${span!.e}::timestamptz,
-      business_date = ${businessDate}
+      business_date = ${businessDate},
+      self_reschedule_count = self_reschedule_count + ${publicGuest ? 1 : 0}
     where id = ${appt.id}`;
 
   /*
@@ -1354,6 +1446,7 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
     staffEvent: 'staff_changed',
     oldStartsAt: appt.starts_at,
     newStartsAt: newStart.toISOString(),
+    previousStaffIds: itemRows.map(i=>i.membership_id).filter((id):id is string=>!!id),
   });
 
   audit({
@@ -1368,6 +1461,7 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit }: Handler
     },
   });
 
+  emit({type:'appointment.changed',entityId:appt.id,businessDate});
   return { appointmentId: appt.id, overbooked };
 });
 
@@ -1466,6 +1560,7 @@ registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: Hand
   const onDutyBookableCount = await countOnDutyBookable(
     tx, ctx.locationId, businessDateOf(startsAt, loc.timezone, loc.cutoff),
   );
+  await enforceScheduledBooking(tx,ctx.locationId,businessDateOf(startsAt,loc.timezone,loc.cutoff),loc.settings,{startsAt,endsAt,membershipId:input.membershipId},existing);
   const issues = checkCapacity({
     // 本单自己的项目已被 `appointment_id <> appt.id` 排除，groupKey 在这里
     // 只是把语义写明：加项加在同一位客人身上，不产生新的占位
@@ -1544,12 +1639,13 @@ registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: Hand
 type ChangeNotifySnapshot = {
   email: string | null; phone: string | null; customer_name: unknown;
   shop_name: unknown; timezone: string; slug: string;
-  service_name: unknown; staff_name: unknown; staff_phone: string | null;
+  service_name: unknown; service_label?: string; staff_name: unknown; staff_phone: string | null;
   starts_at: string;
   manage_token_digest: string | null;
   manage_token_wrapped: Buffer | Uint8Array | null;
   /** 这条预约当初是从哪条路进系统的。决定改期/取消要不要通知顾客 */
   source: string;
+  location_id: string;
 };
 
 async function loadChangeNotifySnapshot(
@@ -1557,12 +1653,12 @@ async function loadChangeNotifySnapshot(
   appointmentId: string,
 ): Promise<ChangeNotifySnapshot | null> {
   const [row] = await tx<ChangeNotifySnapshot[]>`
-    select a.source,
+    select a.source, a.location_id,
            c.email, c.phone_e164 as phone, c.display_name as customer_name,
            l.name as shop_name, l.timezone, l.slug,
            s.name as service_name, sp.display_name as staff_name,
            u.phone as staff_phone,
-           ai.starts_at::text as starts_at,
+           a.starts_at::text as starts_at,
            a.manage_token_digest, a.manage_token_wrapped
     from appointments a
     join locations l on l.id = a.location_id
@@ -1575,7 +1671,7 @@ async function loadChangeNotifySnapshot(
     where a.id = ${appointmentId}
     order by ai.seq
     limit 1`;
-  return row ?? null;
+  return row ? {...row,service_label:await appointmentServiceLabel(tx,row.location_id,appointmentId,pickText(row.service_name,'en',''))} : null;
 }
 
 async function notifyAppointmentChange(
@@ -1588,8 +1684,28 @@ async function notifyAppointmentChange(
     oldStartsAt: string | null;
     newStartsAt: string | null;
     snapshot?: ChangeNotifySnapshot | null;
+    previousStaffIds?: string[];
   },
 ): Promise<void> {
+  // One occurrence per successful command transaction. Command-bus replay skips
+  // this handler, while a later real change gets a fresh notification identity.
+  // Keep entity_id pointing at the booking for communication-log lookup.
+  const occurrence = randomUUID();
+  // Retain the old reminder for audit, but release the current-occurrence
+  // dedupe key so a moved booking can receive a reminder for its new date.
+  // Pending messages are invalidated in the same transaction as the change.
+  await tx`update sms_outbox set
+      entity_type = entity_type || ':superseded:' || ${occurrence},
+      status = case when status = 'pending' then 'suppressed' else status end,
+      last_error = case when status = 'pending' then 'appointment_changed' else last_error end
+    where entity_id = ${args.appointmentId} and kind = 'appointment_reminder'
+      and entity_type in ('appointment', 'appointment_shop')`;
+  await tx`update email_outbox set
+      entity_type = entity_type || ':superseded:' || ${occurrence},
+      status = case when status = 'pending' then 'failed' else status end,
+      last_error = case when status = 'pending' then 'appointment_changed' else last_error end
+    where entity_id = ${args.appointmentId} and kind = 'appointment_reminder'
+      and entity_type in ('appointment', 'appointment_shop')`;
   const row = args.snapshot ?? await loadChangeNotifySnapshot(tx, args.appointmentId);
   if (!row) return;
 
@@ -1611,7 +1727,7 @@ async function notifyAppointmentChange(
    * 两者均与收件人无关，故一律锁定英语。
    */
   const when = formatWhenSms(
-    new Date(args.newStartsAt ?? row.starts_at).toISOString(), row.timezone);
+    new Date(row.starts_at).toISOString(), row.timezone);
   const manageUrl = guestManageLink({
     shopSlug: row.slug,
     wrapped: row.manage_token_wrapped,
@@ -1620,7 +1736,7 @@ async function notifyAppointmentChange(
   const vars = {
     customer_name: pickText(row.customer_name, 'en', ''),
     shop_name: pickText(row.shop_name, 'en', ''),
-    service_name: pickText(row.service_name, 'en', ''),
+    service_name: row.service_label ?? pickText(row.service_name, 'en', ''),
     staff_name: row.staff_name ? pickText(row.staff_name, 'en', '') : '',
     when,
     old_when: args.oldStartsAt
@@ -1652,7 +1768,8 @@ async function notifyAppointmentChange(
   if (PUBLIC_SOURCES.has(row.source)) {
     await notifyEvent(tx, ctx, {
       event: args.event,
-      entityType: 'appointment', entityId: args.appointmentId,
+      emailDetails: [args.oldStartsAt ? `Previous time: ${formatWhenSms(new Date(args.oldStartsAt).toISOString(),row.timezone)}. Booked prices retained.` : '',await bookingSummary(tx,ctx.locationId,args.appointmentId)].filter(Boolean).join('\n\n'),
+      entityType: `appointment:${occurrence}`, entityId: args.appointmentId,
       vars, toEmail: row.email, toPhone: row.phone,
       locale: 'en',
     });
@@ -1672,12 +1789,8 @@ async function notifyAppointmentChange(
    * 收到通知。技师侧仅走短信渠道，而短信恒为英语；待日后按渠道分别渲染
    * 变量之后，技师邮件可再改为跟随其本人的界面语言。
    */
-  await notifyEvent(tx, ctx, {
-    event: args.staffEvent,
-    entityType: 'appointment_staff', entityId: args.appointmentId,
-    vars, toEmail: null, toPhone: row.staff_phone,
-    locale: 'en',
-  });
+  await notifyBookingRecipients(tx,ctx,{appointmentId:args.appointmentId,occurrence,
+    event:args.event==='appointment_cancelled'?'cancelled':'changed',oldStartsAt:args.oldStartsAt,previousStaffIds:args.previousStaffIds??[]});
 }
 
 

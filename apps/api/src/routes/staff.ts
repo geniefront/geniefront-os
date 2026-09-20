@@ -19,6 +19,14 @@ export function registerStaffRoutes(app: FastifyInstance, ctxFromHeaders: CtxFro
     }
     return withTenant(ctx, (tx) => loadStaffDirectory(tx, ctx));
   };
+  app.get('/v1/desk/staff/booking-schedules', async req=>{
+    const ctx=await ctxFromHeaders(req);
+    if(!ctx.permissions.has('staff.manage'))throw new AppError(ERROR_CODES.PERMISSION_DENIED);
+    return withTenant(ctx,async tx=>{
+      const [loc]=await tx<{settings:Record<string,any>;business_hours:unknown}[]>`select settings,business_hours from locations where id=${ctx.locationId}`;
+      return {hours:loc!.business_hours,schedules:loc!.settings.staff_booking_schedules??{}};
+    });
+  });
   app.get('/v1/desk/staff/list', handleStaffList);
   app.get('/api/staff/list', handleStaffList);
 }

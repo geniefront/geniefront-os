@@ -30,9 +30,10 @@ test.describe('desk authentication and setup', () => {
 
     const next = () => page.getByRole('button', { name: /^(Next|下一步)$/ }).click();
 
-    // 第 1 步 · 门店资料 —— 保存并继续，进入「员工基础设置」（第 2 步）。
+    // 第 1 步 · 门店资料 —— 自动保存，下一步进入「员工基础设置」（第 2 步）。
     await page.getByRole('button', { name: '七天使用周一时间' }).click();
-    await page.getByRole('button', { name: '保存并继续' }).click();
+    await expect(page.getByRole('button', { name: '保存并继续' })).toHaveCount(0);
+    await next();
     await expect(page.getByRole('heading', { name: '员工基础设置' }).first()).toBeVisible();
     await evidence(page, 'qa-001-save-and-continue-advances');
 
@@ -48,23 +49,23 @@ test.describe('desk authentication and setup', () => {
     await expect(page.getByRole('heading', { name: '设置项目与价格' }).first()).toBeVisible();
 
     // 第 4 步 · 服务项目（门槛）—— 手工加一个项目。
-    await page.getByLabel('项目名称').fill('Browser QA Manicure');
-    await page.getByLabel('价格（美元）').fill('42.50');
-    await page.getByLabel('时长（分钟）').fill('45');
+    await page.getByLabel('项目名称', { exact: true }).first().fill('Browser QA Manicure');
+    await page.getByLabel('价格（美元）', { exact: true }).first().fill('42.50');
+    await page.getByLabel('时长（分钟）', { exact: true }).first().fill('45');
     await page.getByRole('button', { name: '添加项目' }).click();
-    await expect(page.getByText('Browser QA Manicure')).toBeVisible();
+    await expect(page.locator('input[value="Browser QA Manicure"]')).toBeVisible();
     await next();
-    await expect(page.getByRole('heading', { name: '添加员工与排班' }).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: '设置员工与接单能力' }).first()).toBeVisible();
 
     // 第 5 步 · 员工与排班（门槛）—— 加一个可接单员工。
-    await page.getByLabel('员工姓名').fill('Browser QA Tech');
+    await page.getByLabel('员工姓名', { exact: true }).first().fill('Browser QA Tech');
     await page.getByRole('button', { name: '添加员工' }).click();
-    await expect(page.getByText('Browser QA Tech')).toBeVisible();
+    await expect(page.locator('input[value="Browser QA Tech"]')).toBeVisible();
     await next();
     await expect(page.getByRole('heading', { name: '功能设置' }).first()).toBeVisible();
 
-    // 第 6 步 · 功能设置（可选，两开关默认关）—— 保存并确认，进入 launch。
-    await page.getByRole('button', { name: '保存并确认这一步' }).click();
+    // 第 6 步 · 功能设置（可选，两开关默认关）—— 下一步进入 launch。
+    await next();
     await expect(page.getByRole('heading', { name: '检查并正式开店' }).first()).toBeVisible();
 
     // 第 7 步 · 检查并开店 —— 门槛项全绿（检查项来自后端 readiness）。

@@ -238,7 +238,7 @@ describe('ManageBookingPage', () => {
     loadManagedBooking.mockRejectedValue(new ApiError('NOT_FOUND', 404, { entity: 'booking' }));
     renderManage();
     await screen.findByText(/not available/i);
-    expect(screen.getByText('+12125550100')).toBeInTheDocument();
+    expect(screen.getByText('+1 212 555 0100')).toBeInTheDocument();
     expect(screen.queryByText('mt_secret')).not.toBeInTheDocument();
   });
 });

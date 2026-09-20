@@ -1,4 +1,4 @@
-import { AppError, ERROR_CODES } from '@gf/contracts';
+import { AppError, ERROR_CODES, normalizePhoneE164 } from '@gf/contracts';
 
 type GoogleText = { text?: string };
 type GooglePeriodPoint = { day?: number; hour?: number; minute?: number };
@@ -20,11 +20,12 @@ export interface GooglePlaceRaw {
 
 export interface GooglePlaceView {
   googlePlaceId: string;
+  businessType: ReturnType<typeof inferBusinessType>;
   name: string;
   phoneE164: string | null;
   displayPhone: string | null;
   address: { line1: string | null; line2: string | null; city: string | null; state: string | null; zip: string | null; country: string | null; display: string[] };
-  businessHours: Record<string, { open: string; close: string } | null>;
+  businessHours: Record<string, { open: string; close: string; periods?: Array<{open:string;close:string}> } | null>;
   rating: number | null;
   reviewCount: number | null;
   isClosed: boolean;
@@ -37,23 +38,38 @@ const DAY = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
 const time = (p?: GooglePeriodPoint) => p && Number.isInteger(p.hour)
   ? `${String(p.hour).padStart(2, '0')}:${String(p.minute ?? 0).padStart(2, '0')}` : null;
 
+export function inferBusinessType(name: string, categories: string[]): 'nail' | 'massage' | 'foot_spa' | 'lash' | 'scalp' | 'hair' | null {
+  const text = `${name} ${categories.join(' ')}`.toLowerCase();
+  if (/foot.?spa|reflexology|足疗|足浴/.test(text)) return 'foot_spa';
+  if (/head.?spa|scalp|头疗/.test(text)) return 'scalp';
+  if (/lash|eyelash|美睫/.test(text)) return 'lash';
+  if (/nail|manicure|pedicure|美甲/.test(text)) return 'nail';
+  if (/massage|按摩/.test(text)) return 'massage';
+  if (/hair|barber|美发|理发/.test(text)) return 'hair';
+  return null;
+}
+
 export function mapGooglePlace(place: GooglePlaceRaw): GooglePlaceView {
   const component = (type: string, short = false) => {
     const found = place.addressComponents?.find((c) => c.types?.includes(type));
     return (short ? found?.shortText : found?.longText) ?? null;
   };
   const street = [component('street_number'), component('route')].filter(Boolean).join(' ') || null;
-  const hours: Record<string, { open: string; close: string } | null> = {};
+  const hours: Record<string, { open: string; close: string; periods?: Array<{open:string;close:string}> } | null> = {};
   for (const period of place.regularOpeningHours?.periods ?? []) {
     const key = period.open?.day === undefined ? undefined : DAY[period.open.day];
     const open = time(period.open); const close = time(period.close);
-    if (key && open && close) hours[key] = { open, close };
+    if (key && open && close) {
+      const old=hours[key];const periods=[...(old?.periods??[]),{open,close}].sort((a,b)=>a.open.localeCompare(b.open));
+      hours[key]={open:periods[0]!.open,close:periods.at(-1)!.close,periods};
+    }
   }
   return {
     googlePlaceId: place.id ?? '',
+    businessType: inferBusinessType(place.displayName?.text ?? '', place.types ?? []),
     name: place.displayName?.text ?? '',
     phoneE164: place.internationalPhoneNumber
-      ? `+${place.internationalPhoneNumber.replace(/\D/g, '')}`
+      ? normalizePhoneE164(place.internationalPhoneNumber)
       : null,
     displayPhone: place.nationalPhoneNumber ?? null,
     address: {
@@ -80,14 +96,14 @@ const FIELDS = [
 ].join(',');
 
 async function googleFetch(url: string, init: RequestInit, apiKey: string): Promise<any> {
-  const res = await fetch(url, { ...init, headers: { ...init.headers, 'X-Goog-Api-Key': apiKey } });
+  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(10000), headers: { ...init.headers, 'X-Goog-Api-Key': apiKey } });
   if (!res.ok) throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE, { details: { service: 'google_places', status: res.status } });
   return res.json();
 }
 
 export async function searchGooglePlaces(textQuery: string, apiKey: string): Promise<GooglePlaceView[]> {
   const body = await googleFetch('https://places.googleapis.com/v1/places:searchText', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-FieldMask': FIELDS },
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.addressComponents,places.businessStatus' },
     body: JSON.stringify({ textQuery, pageSize: 8 }),
   }, apiKey) as { places?: GooglePlaceRaw[] };
   return (body.places ?? []).map(mapGooglePlace).filter((p) => p.googlePlaceId && p.name);

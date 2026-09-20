@@ -4,7 +4,7 @@ import { formatPhoneInput, normalizePhoneE164, phoneE164 } from './command';
 describe('phone normalization', () => {
   it.each([
     ['5125550142', '+15125550142'],
-    ['(512) 555-0142', '+15125550142'],
+    ['+1 512 555 0142', '+15125550142'],
     ['1 512 555 0142', '+15125550142'],
     ['+84 912 345 678', '+84912345678'],
     ['0084 912 345 678', '+84912345678'],
@@ -13,20 +13,26 @@ describe('phone normalization', () => {
     expect(phoneE164.parse(input)).toBe(expected);
   });
 
-  it.each(['', '555-0142', '+0123456789', '(512) 555-0142 ext 9'])
+  it.each(['', '555-0142', '+0123456789', '(512) 555-0142 ext 9', 'abc5125550142', '+999123456789', '12345678', '+15125550142111', '+1+5125550142'])
     ('rejects ambiguous or invalid input %s', (input) => {
       expect(normalizePhoneE164(input)).toBeNull();
       expect(phoneE164.safeParse(input).success).toBe(false);
     });
 
-  it('formats phone entry and display consistently to (999) 999-9999', () => {
-    expect(formatPhoneInput('5125550142')).toBe('(512) 555-0142');
-    expect(formatPhoneInput('+1 512 555 0142')).toBe('(512) 555-0142');
-    expect(formatPhoneInput('15125550142')).toBe('(512) 555-0142');
-    expect(formatPhoneInput('(512) 555-0142')).toBe('(512) 555-0142');
-    expect(formatPhoneInput('+84 912 345 678')).toBe('+84912345678');
-    expect(formatPhoneInput('0084 912 345 678')).toBe('+84912345678');
-    expect(formatPhoneInput('512')).toBe('(512');
-    expect(formatPhoneInput('5125')).toBe('(512) 5');
+  it('formats entry with editable international calling code', () => {
+    expect(formatPhoneInput('5125550142')).toBe('+1 512 555 0142');
+    expect(formatPhoneInput('+1 512 555 0142')).toBe('+1 512 555 0142');
+    expect(formatPhoneInput('15125550142')).toBe('+1 512 555 0142');
+    expect(formatPhoneInput('+1 512 555 0142')).toBe('+1 512 555 0142');
+    expect(formatPhoneInput('+84 912 345 678')).toBe('+84 912 345 678');
+    expect(formatPhoneInput('0084 912 345 678')).toBe('+84 912 345 678');
+    expect(formatPhoneInput('512')).toBe('+1 512');
+    expect(formatPhoneInput('5125')).toBe('+1 512 5');
   });
+});
+
+it('never truncates an overlong phone into a valid-looking number', () => {
+  const tooLong = '+166766066671234567';
+  expect(formatPhoneInput(tooLong)).toBe(tooLong);
+  expect(normalizePhoneE164(tooLong)).toBeNull();
 });

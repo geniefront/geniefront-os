@@ -18,6 +18,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
+        '@gf/contracts/phone': path.resolve(__dirname, '../../packages/contracts/src/phoneFormat.ts'),
         '@gf/contracts': path.resolve(__dirname, '../../packages/contracts/src/index.ts'),
       },
     },

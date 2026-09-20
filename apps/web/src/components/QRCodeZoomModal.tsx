@@ -1,3 +1,4 @@
+import { formatPhoneDisplay } from '@gf/contracts';
 import { openPrintPreview } from '@/features/printing/preview';
 import React, { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
@@ -126,7 +127,7 @@ export function QRCodeZoomModal({
                 <span className="font-bold text-slate-900 text-sm">{customerName || t('customer')}</span>
                 {phone && (
                   <Badge variant="secondary" className="text-[10px] bg-white text-slate-700 border-sky-300 font-mono">
-                    {phone}
+                    {formatPhoneDisplay(phone)}
                   </Badge>
                 )}
               </div>

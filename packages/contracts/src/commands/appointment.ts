@@ -132,6 +132,8 @@ export const AppointmentCreate = defineCommand({
      * 而「电话预约传一个 web 载荷」会让每一个后来的读者停下来查一遍。
      */
     guest: z.object({
+      /** Separate appointment SMS choice; never grants marketing consent. */
+      bookingSmsConsent: z.boolean().optional(),
       /** 客人念得出来的短码，如 `LN-4K2P`。一家店内唯一 */
       confirmationCode: z.string().regex(/^[A-Z0-9]{2,4}-[A-Z0-9]{4,6}$/),
       /**

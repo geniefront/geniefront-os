@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 /**
  * 把这家店待发的短信发掉 —— 结构和 `email/flush.ts` 一模一样,
  * 多两件事:**退订拦截**和**按 segment 计量**。
@@ -52,22 +53,21 @@ export async function flushSms(
      * 扫描会重新取到它们。标成 failed 会让一条本该在早上发出去的短信
      * 永久消失。
      */
-    const rows = await withTenant(tenant, (tx) => tx<{
-      id: string; to_e164: string; body: string; segments: number;
-      attempts: number; kind: string;
-    }[]>`
-      select o.id, o.to_e164, o.body, o.segments, o.attempts, o.kind
-      from sms_outbox o
-      join locations l on l.id = o.location_id
-      where o.location_id = ${tenant.locationId}
-        and o.status = 'pending' and o.attempts < ${MAX_ATTEMPTS}
-        and (
-          o.quiet_hours = false
-          or extract(hour from (now() at time zone l.timezone))
-               between ${QUIET_START_HOUR} and ${QUIET_END_HOUR - 1}
-        )
-      order by o.created_at
-      limit ${BATCH}`);
+    const claim=randomUUID();
+    const rows = await withTenant(tenant, async tx => {
+      await tx`update sms_outbox set status='uncertain',last_error='delivery_claim_expired',claim_id=null
+        where location_id=${tenant.locationId} and status='sending' and claimed_at<now()-interval '5 minutes'`;
+      return tx<{
+        id:string;to_e164:string;body:string;segments:number;attempts:number;kind:string;
+      }[]>`with candidate as (
+        select o.id from sms_outbox o join locations l on l.id=o.location_id
+        where o.location_id=${tenant.locationId} and o.status='pending' and o.attempts<${MAX_ATTEMPTS}
+          and (o.quiet_hours=false or extract(hour from (now() at time zone l.timezone))
+            between ${QUIET_START_HOUR} and ${QUIET_END_HOUR-1})
+        order by o.created_at for update of o skip locked limit ${BATCH}
+      ) update sms_outbox o set status='sending',claim_id=${claim},claimed_at=now(),attempts=o.attempts+1
+        from candidate c where o.id=c.id returning o.*`;
+    });
     if (rows.length === 0) return;
 
     /**
@@ -85,12 +85,31 @@ export async function flushSms(
         // 混进 failed 会让「发信失败率」这个数字永远难看,而且掩盖真故障
         await withTenant(tenant, (tx) => tx`
           update sms_outbox
-          set status = 'suppressed', last_error = 'opted_out', attempts = attempts + 1
-          where id = ${r.id}`);
+          set status = 'suppressed', last_error = 'opted_out', claim_id=null
+          where id = ${r.id} and claim_id=${claim}`);
         log?.info({ outboxId: r.id }, 'sms suppressed: opted out');
         continue;
       }
 
+      // A public booking's SMS choice applies to its later updates/reminders too.
+      // Staff/shop messages use distinct entity types and are unaffected.
+      const [consentBlocked]=await withTenant(tenant,tx=>tx`select o.id from sms_outbox o
+        where o.id=${r.id} and (o.entity_type='appointment' or o.entity_type like 'appointment:%')
+          and exists(select 1 from appointment_items ai where ai.appointment_id=o.entity_id
+            and ai.location_id=${tenant.locationId} and ai.details->>'bookingSmsConsent'='false')`);
+      if(consentBlocked){
+        await withTenant(tenant,tx=>tx`update sms_outbox set status='suppressed',last_error='booking_sms_not_consented',claim_id=null where id=${r.id} and claim_id=${claim}`);
+        continue;
+      }
+      if(r.kind==='appointment_reminder') {
+        const [current]=await withTenant(tenant,tx=>tx`select id from sms_outbox where id=${r.id}
+          and claim_id=${claim} and entity_type not like '%:superseded:%'`);
+        if(!current) {
+          await withTenant(tenant,tx=>tx`update sms_outbox set status='suppressed',last_error='appointment_changed',claim_id=null
+            where id=${r.id} and claim_id=${claim}`);
+          continue;
+        }
+      }
       const res = await sendSms({ to: r.to_e164, text: r.body });
 
       await withTenant(tenant, async (tx) => {
@@ -101,8 +120,8 @@ export async function flushSms(
             update sms_outbox
             set status = ${res.captured ? 'captured' : 'sent'},
                 sent_at = now(), provider_id = ${res.providerId ?? null},
-                attempts = attempts + 1
-            where id = ${r.id}`;
+                claim_id = null
+            where id = ${r.id} and claim_id=${claim}`;
 
           /**
            * ⚠️ capture 不计量。没走运营商就没有这笔成本 ——
@@ -138,12 +157,12 @@ export async function flushSms(
           return;
         }
 
-        const dead = res.permanent || r.attempts + 1 >= MAX_ATTEMPTS;
+        const dead = res.permanent || r.attempts >= MAX_ATTEMPTS;
         await tx`
           update sms_outbox
-          set status = ${dead ? 'failed' : 'pending'},
-              attempts = attempts + 1, last_error = ${res.error ?? null}
-          where id = ${r.id}`;
+          set status = ${res.ambiguous ? 'uncertain' : dead ? 'failed' : 'pending'},
+              claim_id = null, last_error = ${res.error ?? null}
+          where id = ${r.id} and claim_id=${claim}`;
       });
 
       if (!res.ok) log?.warn({ outboxId: r.id, error: res.error }, 'sms send failed');

@@ -122,8 +122,8 @@ describe('动态词典加载与容错保护', () => {
   it('动态加载模式下词典加载完成时 ready 置为 true', async () => {
     (globalThis as typeof globalThis & { __GF_TEST_DYNAMIC_I18N__?: boolean }).__GF_TEST_DYNAMIC_I18N__ = true;
     function ReadyProbe() {
-      const { ready } = useLanguage();
-      return <span data-testid="ready">{ready ? 'READY' : 'LOADING'}</span>;
+      const { ready, t } = useLanguage();
+      return <span data-testid="ready">{ready ? `READY ${t('voiceSettingsTitle')}` : 'LOADING'}</span>;
     }
     render(
       <LanguageProvider>
@@ -136,7 +136,7 @@ describe('动态词典加载与容错保护', () => {
 
     // Eventually completes and sets ready to true
     await vi.waitFor(() => {
-      expect(screen.getByTestId('ready')).toHaveTextContent('READY');
+      expect(screen.getByTestId('ready')).toHaveTextContent('READY AI 电话预约设置');
     });
 
     delete (globalThis as typeof globalThis & { __GF_TEST_DYNAMIC_I18N__?: boolean }).__GF_TEST_DYNAMIC_I18N__;

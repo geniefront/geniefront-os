@@ -10,14 +10,15 @@ registerHandler(SubmitVoiceBooking, async ({ input, tx, ctx, audit }) => {
     date: input.date, serviceId: input.serviceId, partySize: input.partySize,
     ...(input.membershipId ? { membershipId: input.membershipId } : {}),
   });
-  if (!context.slots.some(s => Date.parse(s.startsAt) === Date.parse(input.startsAt))) {
+  const offer=context.slots.find(s => Date.parse(s.startsAt) === Date.parse(input.startsAt));
+  if (!offer) {
     throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, { details: { reason: 'slot_no_longer_available' } });
   }
   const code = generateConfirmationCode('GF');
   const payload = AppointmentCreate.input.parse({
     customerId: null, source: 'phone_ai', partySize: input.partySize, notes: input.notes,
-    items: Array.from({ length: input.partySize }, () => ({ serviceId: input.serviceId,
-      startsAt: input.startsAt, membershipId: input.membershipId, isRequest: Boolean(input.membershipId) })),
+    items: Array.from({ length: input.partySize }, (_,index) => ({ serviceId: input.serviceId,
+      startsAt: input.startsAt, membershipId: input.membershipId ?? offer.membershipIds?.[index] ?? offer.membershipId, isRequest: Boolean(input.membershipId) })),
     guest: { confirmationCode: code, manageToken: generateManageToken(), customer: {
       name: input.customerName, phoneE164: input.phoneE164, email: input.email, smsOptIn: false,
     } },

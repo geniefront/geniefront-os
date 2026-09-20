@@ -171,3 +171,5 @@ describe('Settings 10DLC copy and persist semantics', () => {
     expect(document.body.textContent).toMatch(/GenieFront/);
   });
 });
+
+vi.mock('@/features/billing/useEntitlements', () => ({ useEntitlements: () => ({ data: { plan: 'growth' } }) }));

@@ -41,3 +41,7 @@ deploy/certs/origin.id
 
 # push-assistant.mjs 推之前的备份（含 Telnyx 上的原配置）
 .assistant-backups/
+
+# Local booking QA captures include temporary guest links and test messages.
+artifacts/public-booking/
+artifacts/public-booking-mobile.png

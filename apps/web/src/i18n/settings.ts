@@ -940,4 +940,12 @@ export const settings = {
   'settings.stCategorySaved': { 'zh-Hans': '服务分类已保存', en: 'Service category saved', ko: '서비스 카테고리를 저장했습니다', es: 'Categoría guardada', vi: 'Đã lưu danh mục dịch vụ' },
   'settings.stCategoryNameRequired': { 'zh-Hans': '请填写分类名称', en: 'Enter a category name', ko: '카테고리 이름을 입력하세요', es: 'Introduce un nombre de categoría', vi: 'Nhập tên danh mục' },
   'settings.stSkillInactive': { 'zh-Hans': '（已停用）', en: ' (inactive)', ko: ' (비활성화됨)', es: ' (inactivo)', vi: ' (đã tắt)' },
+  'settings.mediaServicePhoto': { 'zh-Hans': '项目图片', en: 'Service photo', ko: '서비스 사진', es: 'Foto del servicio', vi: 'Ảnh dịch vụ' },
+  'settings.mediaChooseImage': { 'zh-Hans': '选择默认图片', en: 'Choose a library image', ko: '기본 이미지 선택', es: 'Elegir imagen de la biblioteca', vi: 'Chọn ảnh có sẵn' },
+  'settings.mediaImageCategory': { 'zh-Hans': '图片分类', en: 'Image category', ko: '이미지 분류', es: 'Categoría de imagen', vi: 'Danh mục ảnh' },
+  'settings.mediaAllImageCategories': { 'zh-Hans': '所有分类', en: 'All categories', ko: '모든 분류', es: 'Todas las categorías', vi: 'Tất cả danh mục' },
+  'settings.mediaAutomaticImage': { 'zh-Hans': '自动匹配', en: 'Automatic', ko: '자동 선택', es: 'Automático', vi: 'Tự động' },
+  'settings.mediaImageLibraryNote': { 'zh-Hans': 'AI 生成的服务示意图，也可上传自己的照片。', en: 'AI-generated service illustrations. You can also upload your own photos.', ko: 'AI로 생성한 서비스 예시 이미지입니다. 직접 촬영한 사진도 업로드할 수 있습니다.', es: 'Imágenes ilustrativas generadas por IA. También puedes subir tus propias fotos.', vi: 'Ảnh minh họa dịch vụ do AI tạo. Bạn cũng có thể tải ảnh của mình lên.' },
+  'settings.mediaPhotoDescription': { 'zh-Hans': '图片与简介', en: 'Photo and description', ko: '사진 및 설명', es: 'Foto y descripción', vi: 'Ảnh và mô tả' },
+  'settings.mediaServiceDescription': { 'zh-Hans': '项目简介', en: 'Service description', ko: '서비스 설명', es: 'Descripción del servicio', vi: 'Mô tả dịch vụ' },
 } satisfies DomainDict;

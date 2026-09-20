@@ -44,7 +44,8 @@ function readHours(
     const open = c['open'] ?? c['start'];
     const close = c['close'] ?? c['end'];
     if (typeof open !== 'string' || typeof close !== 'string') return null;
-    return { weekday: WEEKDAY_LABELS[idx]!, open, close };
+    const periods=Array.isArray(c['periods'])?c['periods'] as Array<{open:string;close:string}>:null;
+    return { weekday: WEEKDAY_LABELS[idx]!, open, close, ...(periods?{periods}:{}) };
   });
 }
 

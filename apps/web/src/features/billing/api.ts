@@ -149,18 +149,14 @@ export function useRedeemLicenseCode() {
 
 export function useCreateTopup() {
   const { membershipId } = useSession();
-  const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (unit: QuotaUnit) => {
       return apiPost<TopupResponse>(
         "/v1/billing/topup",
-        { unit },
+        { unit, successUrl: PORTAL_RETURN_PATH, cancelUrl: PORTAL_RETURN_PATH },
         { headers: { "X-Membership-Id": membershipId! } },
       );
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["desk", "billing"] });
     },
   });
 }

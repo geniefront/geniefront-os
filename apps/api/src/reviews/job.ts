@@ -26,7 +26,7 @@ import { listReviewSyncDue } from '@gf/db';
 import type { CommandContext, Locale, Permission } from '@gf/contracts';
 import { advanceReviewSync, type SyncOutcome } from './sync';
 import { analyzeNewReviews, generateReviewSummary } from './analyze';
-import { refreshGoogleStats, refreshYelpStats } from './stats';
+import { refreshGoogleStats } from './stats';
 import { reviewSyncSettings } from './config';
 
 /**
@@ -83,10 +83,8 @@ export async function runReviewSyncRound(args: {
        * Yelp Fusion 有每日配额 —— 跟着轮询刷会在一天里打出几百次
        * 完全一样的查询。分数一天变不了几次，跟着采集节奏走就够了。
        */
-      if (item.reason === 'start') {
-        const stats = item.platform === 'yelp'
-          ? await refreshYelpStats(ctx)
-          : await refreshGoogleStats(ctx);
+      if (item.reason === 'start' && item.platform === 'google') {
+        const stats = await refreshGoogleStats(ctx);
         if (stats.state === 'failed') {
           args.log?.warn(
             { locationId: item.locationId, platform: item.platform, error: stats.error },

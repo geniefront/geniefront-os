@@ -1,3 +1,7 @@
+import {BookingImagePicker} from '@/components/ui/BookingImagePicker';
+import {HoursPeriodsEditor,type DayHours} from '@/features/setup/HoursPeriodsEditor';
+import { PublicBookingProfileCard } from '@/features/settings/PublicBookingProfileCard';
+import { VoiceSettings } from '@/features/voice-plan/VoiceSettings';
 import { useEntitlements } from '@/features/billing/useEntitlements';
 import { useState, useEffect, useRef } from 'react';
 import { useErrorMessage } from '@/lib/errorMessage';
@@ -240,6 +244,11 @@ function SettingsCard({
 
 // ── 主设置组件 ─────────────────────────────────────────────────────────────
 export function Settings() {
+  const plan = useEntitlements(); const { t } = useLanguage();
+  if (!plan.data) return <div className="p-6">{t(plan.isError ? 'genericFailure' : 'setupReadinessLoading')} {plan.isError && <Button onClick={() => void plan.refetch()}>{t('setupRetry')}</Button>}</div>;
+  return plan.data.plan === 'voice_booking' ? <VoiceSettings /> : <FullSettings />;
+}
+function FullSettings() {
   const errorMessage = useErrorMessage();
   const { t, language } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -302,7 +311,7 @@ export function Settings() {
 
   // 2. 营业时间
   const [businessHours, setBusinessHours] = useState<
-    Record<string, { open: string; close: string } | null>
+    Record<string, DayHours | null>
   >({
     mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null,
   });
@@ -339,6 +348,7 @@ export function Settings() {
   const [serviceModalOpen, setServiceModalOpen] = useState(false);
   const [editingService, setEditingService] = useState<ServiceItem | null>(null);
   const [serviceNameZh, setServiceNameZh] = useState('');
+  const [servicePresentation,setServicePresentation]=useState({imageUrl:'',description:''});
   const [serviceNameEn, setServiceNameEn] = useState('');
   const [serviceCategoryId, setServiceCategoryId] = useState('');
   const [serviceDuration, setServiceDuration] = useState('45');
@@ -681,6 +691,7 @@ export function Settings() {
   };
 
   const handleOpenServiceModal = (svc?: ServiceItem) => {
+    setServicePresentation(svc?.presentation??{imageUrl:'',description:''});
     if (svc) {
       setEditingService(svc);
       setServiceNameZh(svc.displayName || (svc.name as any)?.zh || (svc.name as any)?.en || '');
@@ -746,6 +757,7 @@ export function Settings() {
 
     try {
       await saveServiceMutation.mutateAsync({
+        presentation:servicePresentation,
         serviceId: editingService?.id,
         categoryId: serviceCategoryId || null,
         name: {
@@ -1290,11 +1302,11 @@ export function Settings() {
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="relative">
-                      <Input
+                      <Input type="tel"
                         value={storePhone}
-                        onChange={(e) => setStorePhone(formatPhoneInput(e.target.value))}
+                        onChange={(e) => setStorePhone(e.target.value)}
                         placeholder="(212) 580-8888"
-                        maxLength={14}
+                        maxLength={32}
                         className="pl-8"
                       />
                       <Phone className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -1471,30 +1483,7 @@ export function Settings() {
                         <div className="flex items-center gap-3">
                           {isOpen ? (
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-xs text-slate-500 font-medium">{t('settings.stOpenPeriod')}</span>
-                              <Input
-                                type="time"
-                                className="w-28 h-8 text-xs font-mono"
-                                value={current?.open || '09:30'}
-                                onChange={(e) =>
-                                  setBusinessHours({
-                                    ...businessHours,
-                                    [key]: { open: e.target.value, close: current?.close || '19:30' },
-                                  })
-                                }
-                              />
-                              <span className="text-slate-400 font-bold">{t('settings.stTo')}</span>
-                              <Input
-                                type="time"
-                                className="w-28 h-8 text-xs font-mono"
-                                value={current?.close || '19:30'}
-                                onChange={(e) =>
-                                  setBusinessHours({
-                                    ...businessHours,
-                                    [key]: { open: current?.open || '09:30', close: e.target.value },
-                                  })
-                                }
-                              />
+                              <HoursPeriodsEditor label={t(labelKey)} value={current!} onChange={next=>setBusinessHours({...businessHours,[key]:next})}/>
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -1789,6 +1778,7 @@ export function Settings() {
           {/* ============================================================ */}
           {currentTab === 'booking' && (
             <div className="space-y-6">
+              {!voiceOnly && settings && <PublicBookingProfileCard key={settings.guest.slug} profile={settings.publicBookingProfile} resourceTypes={settings.publicBookingResourceTypes} services={settings.services} />}
               <BookingCapacityCard />
               {!voiceOnly && <HostedBookingChannelCard
                 origin={bookingPageOrigin()}
@@ -2434,11 +2424,11 @@ export function Settings() {
                   required
                 >
                   <div className="relative max-w-sm">
-                    <Input
+                    <Input type="tel"
                       value={forwardPhone}
-                      onChange={(e) => setForwardPhone(formatPhoneInput(e.target.value))}
+                      onChange={(e) => setForwardPhone(e.target.value)}
                       placeholder="(212) 555-0199"
-                      maxLength={14}
+                      maxLength={32}
                       className="pl-8 font-mono text-xs"
                     />
                     <Phone className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -2647,11 +2637,11 @@ export function Settings() {
                         placeholder="owner@lotusspanyc.com"
                         className="text-xs"
                       />
-                      <Input
+                      <Input type="tel"
                         value={repPhone}
-                        onChange={(e) => setRepPhone(formatPhoneInput(e.target.value))}
+                        onChange={(e) => setRepPhone(e.target.value)}
                         placeholder="(212) 580-8888"
-                        maxLength={14}
+                        maxLength={32}
                         className="text-xs"
                       />
                     </div>
@@ -2904,6 +2894,8 @@ export function Settings() {
         }
       >
         <div className="space-y-4 text-xs">
+          <details><summary className="cursor-pointer font-semibold">{t('settings.mediaPhotoDescription')}</summary><div className="mt-3 space-y-3"><BookingImagePicker value={servicePresentation.imageUrl} serviceName={serviceNameEn||serviceNameZh} onChange={imageUrl=>setServicePresentation(p=>({...p,imageUrl}))}/><textarea aria-label={t('settings.mediaServiceDescription')} className="w-full rounded-xl border p-3" maxLength={5000} value={servicePresentation.description} onChange={e=>setServicePresentation(p=>({...p,description:e.target.value}))}/></div></details>
+
           <div>
             <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
               

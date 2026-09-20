@@ -50,3 +50,11 @@ export * from './registry.js';
 export * from './commands/email.js';
 export * from './copilot.js';
 export * from './healthSummary.js';
+
+export * from './voiceNotifications.js';
+
+export * from './publicBookingProfile.js';
+
+export { weeklyHoursSchema, dayHoursSchema } from './businessHours';
+
+export * from './bookingMedia';

@@ -13,7 +13,7 @@ import { withTenant } from '@gf/db';
 import { loadReviewsSummary, loadReviewSources, loadReviewSyncRuns } from '../queries/reviews';
 import { syncReviewsNow } from '../reviews/sync';
 import { analyzeNewReviews, generateReviewSummary } from '../reviews/analyze';
-import { refreshGoogleStats, refreshYelpStats } from '../reviews/stats';
+import { refreshGoogleStats } from '../reviews/stats';
 import { manualSyncEnabled } from '../reviews/config';
 import { dispatch } from '../bus';
 import type { CtxFromHeaders } from './utils';
@@ -91,10 +91,10 @@ export function registerReviewsRoutes(app: FastifyInstance, ctxFromHeaders: CtxF
     }
     const platforms: Array<'google' | 'yelp'> = requested ? [requested] : ['google', 'yelp'];
 
-    // 权威评分先刷一遍：它免费且稳定，就算抓取被挡住，这一趟也不算白跑
+    // Google 评分先刷新；Yelp 评分随 Bright Data 快照写入。
     const stats = [];
     for (const platform of platforms) {
-      stats.push(platform === 'yelp' ? await refreshYelpStats(ctx) : await refreshGoogleStats(ctx));
+      if (platform === 'google') stats.push(await refreshGoogleStats(ctx));
     }
 
     const sync = [];

@@ -1,9 +1,13 @@
+import {Input,TextArea,Button,Checkbox} from '@heroui/react';
+import {DateChooser} from '../components/BookingUI';
+import { formatPhoneDisplay } from '@gf/contracts/phone';
+import { PhoneInput } from '@gf/phone-input';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   ApiError, book, getAvailability, getBundles, getHostedShop, getPublicKey, getServices, setPublicKey,
-  type Availability, type Bundle, type BookInput, type Catalog, type Service, type Shop,
+  type Availability, type Bundle, type BookInput, type Catalog, type Service, type Shop, type ManagedBooking,
 } from '../lib/api';
 import { isEmbedded, reportBooked, reportHeight } from '../lib/embed';
 import {
@@ -46,7 +50,7 @@ export function BookPage() {
   const [staffChoices, setStaffChoices] = useState<Availability['staff']>([]);
   const [banner, setBanner] = useState<string | null>(null);
   const [done, setDone] = useState<{
-    bookingId: string; confirmationCode: string | null; manageToken: string | null;
+    bookingId: string; confirmationCode: string | null; manageToken: string | null; summary?:ManagedBooking; status?:string;
   } | null>(null);
   const [idem, setIdem] = useState(() => crypto.randomUUID());
   const openedAt = useRef(Date.now());
@@ -78,12 +82,12 @@ export function BookPage() {
   const catalogQuery = useQuery({
     queryKey: ['hosted-services', slug, shopQuery.data?.publicKey, locale],
     enabled: Boolean(shopQuery.data?.onlineBooking.enabled && getPublicKey()),
-    queryFn: () => getServices(locale),
+    queryFn: () => getServices(locale,shopQuery.data?.publicKey),
   });
   const bundlesQuery = useQuery({
     queryKey: ['hosted-bundles', slug, shopQuery.data?.publicKey, locale],
     enabled: Boolean(shopQuery.data?.onlineBooking.enabled && getPublicKey()),
-    queryFn: () => getBundles(locale),
+    queryFn: () => getBundles(locale,shopQuery.data?.publicKey),
   });
 
   const shop = shopQuery.data ?? null;
@@ -178,11 +182,13 @@ export function BookPage() {
 
   async function submit(input: BookInput) {
     try {
-      const out = await book(input, idem);
+      const out = await book(input, idem,shopQuery.data?.publicKey);
       const payload = {
         bookingId: out.bookingId,
         confirmationCode: out.confirmationCode,
         manageToken: out.manageToken,
+        ...(out.summary?{summary:out.summary}:{}),
+        status:out.status,
       };
       setDone(payload);
       if (slug) saveLastBooking({ ...payload, shopSlug: slug });
@@ -208,8 +214,8 @@ export function BookPage() {
     return (
       <Shell>
         <Card>
-          <h1 className="text-xl font-bold">Shop not found</h1>
-          <p className="mt-3 text-[var(--muted)]">This booking link is missing or no longer valid.</p>
+          <h1 className="text-xl font-bold"> {t("Shop not found")} </h1>
+          <p className="mt-3 text-[var(--muted)]"> {t("This booking link is missing or no longer valid.")} </p>
         </Card>
       </Shell>
     );
@@ -218,8 +224,8 @@ export function BookPage() {
     return (
       <Shell>
         <Card>
-          <h1 className="text-xl font-bold">Booking is temporarily unavailable</h1>
-          <p className="mt-3 text-[var(--muted)]">Please try again in a moment, or call the shop if you have the number.</p>
+          <h1 className="text-xl font-bold"> {t("Booking is temporarily unavailable")} </h1>
+          <p className="mt-3 text-[var(--muted)]"> {t("Please try again in a moment, or call the shop if you have the number.")} </p>
         </Card>
       </Shell>
     );
@@ -230,15 +236,15 @@ export function BookPage() {
     return (
       <Shell>
         <Topbar shop={shop} step={null} />
-        <CallShop shop={shop}>Online booking is turned off</CallShop>
+        <CallShop shop={shop}> {t("Online booking is turned off")} </CallShop>
       </Shell>
     );
   }
-  if (catalog && catalog.services.length === 0) {
+  if (catalog && catalog.services.filter(s=>s.onlineBookable!==false).length === 0 && bundles.length===0) {
     return (
       <Shell>
         <Topbar shop={shop} step={null} />
-        <CallShop shop={shop}>No services are available to book online</CallShop>
+        <CallShop shop={shop}> {t("No services are available to book online")} </CallShop>
       </Shell>
     );
   }
@@ -249,6 +255,7 @@ export function BookPage() {
   const bundleForConfirm = bundle
     ? {
         id: bundle.id,
+        version: bundle.version,
         name: bundle.name,
         priceCents: bundle.priceCents,
         originalTotalCents: bundle.originalTotalCents,
@@ -323,7 +330,7 @@ export function BookPage() {
 
         {step === 'success' && done && slug && (
           <SuccessStep
-            shop={shop} slug={slug} done={done}
+            shop={shop} slug={slug} done={done} showSummary
             onAgain={() => {
               setDraft(emptyDraft());
               setDone(null); setBanner(null); setStep('services');
@@ -333,8 +340,7 @@ export function BookPage() {
         )}
 
           {shop.phone && step !== 'success' && (
-            <p className="mt-6 text-center text-sm text-[var(--muted)]">
-              Need help? Call <PhoneLink shop={shop} />
+            <p className="mt-6 text-center text-sm text-[var(--muted)]"> {t("Need help? Call")} <PhoneLink shop={shop} />
             </p>
           )}
           </main>
@@ -360,6 +366,7 @@ function Summary({
   bundle?: { name: string; priceCents: number; durationMin: number };
   draft: Draft; staffName: string | null;
 }) {
+  const {t}=useLanguage();
   const mins = bundle ? bundle.durationMin : (service?.durationMin ?? 0) + addons.reduce((n, a) => n + a.durationMin, 0);
   const cents = bundle ? bundle.priceCents : (service?.priceCents ?? 0) + addons.reduce((n, a) => n + a.priceCents, 0);
   const displayName = bundle ? bundle.name : (service?.name ?? '');
@@ -374,12 +381,12 @@ function Summary({
           <div>
             <h2 className="font-bold tracking-[-0.01em]">{shop.name}</h2>
             {address && <p className="mt-1 text-sm leading-5 text-[var(--muted)]">{address}</p>}
-            {shop.phone && <p className="mt-1 text-sm text-[var(--muted)]">{shop.phone}</p>}
+            {shop.phone && <p className="mt-1 text-sm text-[var(--muted)]">{formatPhoneDisplay(shop.phone)}</p>}
           </div>
         </div>
       </div>
       <div className="p-6">
-        <p className="step-kicker">Your appointment</p>
+        <p className="step-kicker"> {t("Your appointment")} </p>
         <div className="mt-4 flex items-start justify-between gap-4">
           <div>
             <p className="font-bold">{displayName}</p>
@@ -401,7 +408,7 @@ function Summary({
         </div>
       </div>
       <div className="flex items-center justify-between border-t border-[var(--line)] bg-[#fbfcfc] px-6 py-5">
-        <div><p className="text-sm text-[var(--muted)]">Total · {duration(mins)}</p><p className="text-xs text-[var(--muted-light)]">Taxes calculated at checkout</p></div>
+        <div><p className="text-sm text-[var(--muted)]"> {t("Total ·")} {duration(mins)}</p><p className="text-xs text-[var(--muted-light)]"> {t("Taxes calculated at checkout")} </p></div>
         <p className="text-xl font-extrabold">{money(cents, shop.currency)}</p>
       </div>
     </Card>
@@ -409,12 +416,13 @@ function Summary({
 }
 
 function SummaryRow({ icon, label, value, muted = false }: { icon: 'person' | 'calendar'; label: string; value: string; muted?: boolean }) {
+  const {t}=useLanguage();
   return (
     <div className="flex gap-3">
       <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--brand-soft)] text-[var(--brand)]" aria-hidden="true">
         {icon === 'person' ? '◉' : '□'}
       </span>
-      <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-light)]">{label}</p><p className={muted ? 'text-[var(--muted)]' : 'font-medium'}>{value}</p></div>
+      <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-light)]">{t(label)}</p><p className={muted ? 'text-[var(--muted)]' : 'font-medium'}>{t(value)}</p></div>
     </div>
   );
 }
@@ -432,8 +440,8 @@ function ServiceStep({
   const [categoryId, setCategoryId] = useState<string>('all');
   const service = catalog.services.find((s) => s.id === serviceId) ?? null;
   const visibleServices = categoryId === 'all'
-    ? catalog.services
-    : catalog.services.filter((item) => item.categoryId === categoryId);
+    ? catalog.services.filter(s=>s.onlineBookable!==false)
+    : catalog.services.filter((item) => item.onlineBookable!==false && item.categoryId === categoryId);
   const selectedAddons = catalog.addons.filter((a) => addonIds.includes(a.id));
   const mins = (service?.durationMin ?? 0) + selectedAddons.reduce((n, a) => n + a.durationMin, 0);
   const cents = (service?.priceCents ?? 0) + selectedAddons.reduce((n, a) => n + a.priceCents, 0);
@@ -441,9 +449,9 @@ function ServiceStep({
   return (
     <>
       <div className="mb-6">
-        <p className="step-kicker">Step 1 of 4</p>
+        <p className="step-kicker"> {t("Step 1 of 4")} </p>
         <h2 className="text-3xl font-extrabold tracking-[-0.035em]">{t('step.selectService', 'Choose a service')}</h2>
-        <p className="mt-2 text-[var(--muted)]">Select the service you would like to book.</p>
+        <p className="mt-2 text-[var(--muted)]"> {t("Select the service you would like to book.")} </p>
       </div>
       {bundles.length > 0 && (
         <Card className="mb-4">
@@ -512,8 +520,8 @@ function ServiceStep({
         </ul>
         {service && catalog.addons.length > 0 && (
           <div className="mt-5">
-            <h3 className="text-base font-bold">Enhance your service</h3>
-            <p className="mt-1 text-sm text-[var(--muted)]">Optional add-ons can be selected below.</p>
+            <h3 className="text-base font-bold"> {t("Enhance your service")} </h3>
+            <p className="mt-1 text-sm text-[var(--muted)]"> {t("Optional add-ons can be selected below.")} </p>
             <ul className="mt-2 grid gap-2">
               {catalog.addons.map((a) => {
                 const on = addonIds.includes(a.id);
@@ -562,7 +570,7 @@ function SpecialistStep({
   if (staff.length === 0) {
     return (
       <>
-        <CallShop shop={shop}>No specialists are available online</CallShop>
+        <CallShop shop={shop}> {t("No specialists are available online")} </CallShop>
         <Dock><Btn onClick={onBack}>{t('btn.back', 'Back')}</Btn></Dock>
       </>
     );
@@ -570,9 +578,9 @@ function SpecialistStep({
   return (
     <>
       <div className="mb-6">
-        <p className="step-kicker">Step 2 of 4</p>
+        <p className="step-kicker"> {t("Step 2 of 4")} </p>
         <h2 className="text-3xl font-extrabold tracking-[-0.035em]">{t('step.selectSpecialist', 'Choose a specialist')}</h2>
-        <p className="mt-2 text-[var(--muted)]">Choose who you would like to see, or let us match you with the first available specialist.</p>
+        <p className="mt-2 text-[var(--muted)]"> {t("Choose who you would like to see, or let us match you with the first available specialist.")} </p>
       </div>
       <Card>
         <ul className="grid gap-3 sm:grid-cols-2">
@@ -580,7 +588,7 @@ function SpecialistStep({
             <button type="button" data-testid="staff-any" onClick={() => onPick(null)}
               className="choice-card flex min-h-[88px] w-full items-center gap-4 rounded-2xl border border-[var(--line)] px-4 text-left">
               <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[var(--brand-soft)] text-lg font-bold text-[var(--brand)]">◎</span>
-              <span><span className="block font-bold">{t('step.anySpecialist', 'Any available specialist')}</span><span className="mt-1 block text-sm text-[var(--muted)]">Best for the earliest time</span></span>
+              <span><span className="block font-bold">{t('step.anySpecialist', 'Any available specialist')}</span><span className="mt-1 block text-sm text-[var(--muted)]"> {t("Best for the earliest time")} </span></span>
             </button>
           </li>
           {staff.map((s) => (
@@ -590,7 +598,7 @@ function SpecialistStep({
                 {s.avatarUrl
                   ? <img className="h-12 w-12 shrink-0 rounded-full object-cover" src={s.avatarUrl} alt="" />
                   : <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[#edf0f6] font-bold text-[#56647a]">{s.displayName.slice(0, 1).toUpperCase()}</span>}
-                <span><span className="block font-bold">{s.displayName}</span><span className="mt-1 block text-sm text-[var(--muted)]">Specialist</span></span>
+                <span><span className="block font-bold">{s.displayName}</span><span className="mt-1 block text-sm text-[var(--muted)]"> {t("Specialist")} </span></span>
               </button>
             </li>
           ))}
@@ -630,40 +638,17 @@ function TimeStep({
   return (
     <>
       <div className="mb-6">
-        <p className="step-kicker">Step 3 of 4</p>
+        <p className="step-kicker"> {t("Step 3 of 4")} </p>
         <h2 className="text-3xl font-extrabold tracking-[-0.035em]">{t('step.selectTime', 'Pick a time')}</h2>
-        <p className="mt-2 text-[var(--muted)]">Choose a date and available appointment time.</p>
+        <p className="mt-2 text-[var(--muted)]"> {t("Choose a date and available appointment time.")} </p>
       </div>
       <Card>
-        <div className="flex items-center justify-between gap-4">
-          <div><h3 className="text-lg font-bold">{monthLabel}</h3><p className="mt-1 text-sm text-[var(--muted)]">Times shown in {shop.timezone.replace(/_/g, ' ')}</p></div>
-          <div className="flex gap-2">
-            <button type="button" data-testid="earlier-days" aria-label={t('step.earlier', 'Earlier')}
-              disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - DAY_PAGE))}
-              className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--line)] text-xl hover:border-[var(--brand)]">‹</button>
-            <button type="button" data-testid="later-days" aria-label={t('step.later', 'Later')}
-              disabled={offset + DAY_PAGE >= bookableDateCount(horizon)} onClick={() => setOffset(offset + DAY_PAGE)}
-              className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--line)] text-xl hover:border-[var(--brand)]">›</button>
-          </div>
-        </div>
-        <div className="mt-5 flex gap-2 overflow-x-auto pb-2" data-testid="day-strip">
-          {days.map((d) => (
-            <button key={d} type="button" data-testid={`day-${d}`} onClick={() => onDate(d)}
-              className={`min-h-[76px] min-w-[68px] rounded-xl border px-3 text-sm transition ${
-                draft.date === d ? 'border-[var(--brand)] bg-[var(--brand)] text-white shadow-[0_8px_20px_rgba(20,125,120,.2)]' : 'border-[var(--line)] bg-white hover:border-[var(--brand)]'
-              }`}>
-              <span className={`block text-xs font-semibold uppercase ${draft.date === d ? 'text-white/75' : 'text-[var(--muted)]'}`}>
-                {new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' }).format(new Date(`${d}T12:00:00Z`))}
-              </span>
-              <span className="mt-1 block text-xl font-extrabold">{Number(d.slice(8))}</span>
-            </button>
-          ))}
-        </div>
+        <p className="mb-4 text-xs text-[var(--muted)]">{shop.timezone.replace(/_/g,' ')}</p><DateChooser date={draft.date??start} onDate={onDate} start={start} horizon={horizon}/>
         {busy ? <Loading /> : (
           <div className="mt-6 grid gap-6" data-testid="slots">
             {slotGroups.filter((group) => group.slots.length > 0).map((group) => (
               <section key={group.key}>
-                <div className="mb-3 flex items-center gap-3"><h4 className="text-sm font-bold">{group.label}</h4><span className="h-px flex-1 bg-[var(--line)]" /></div>
+                <div className="mb-3 flex items-center gap-3"><h4 className="text-sm font-bold">{t(group.label)}</h4><span className="h-px flex-1 bg-[var(--line)]" /></div>
                 <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                   {group.slots.map((s) => (
                     <li key={s.startsAt}>
@@ -679,7 +664,7 @@ function TimeStep({
           </div>
         )}
         {!busy && avail && avail.slots.length === 0 && (
-          <Note>No times on this day. Try the next available day, or call <PhoneLink shop={shop} />.</Note>
+          <Note> {t("No times on this day. Try the next available day, or call")} <PhoneLink shop={shop} />.</Note>
         )}
       </Card>
       <Dock><Btn onClick={onBack}>{t('btn.back', 'Back')}</Btn></Dock>
@@ -696,14 +681,20 @@ function slotPeriod(startsAt: string, timezone: string): 'morning' | 'afternoon'
   return 'evening';
 }
 
-function ConfirmStep({
-  shop, service, addons, bundle, startsAt, staffId, openedAt, onSubmit, onBack,
+export interface BookingContact {name:string;phone:string;email:string;notes:string;smsOptIn:boolean;bookingSmsConsent?:boolean}
+
+export function ConfirmStep({
+  shop, service, addons, bundle, startsAt, staffId, openedAt, onSubmit, onBack, party, initialContact, onContactChange, onReviewChange,
 }: {
   shop: Shop;
   service: Service | null;
   addons: Service[];
+  initialContact?: BookingContact;
+  onContactChange?: (value:BookingContact)=>void;
+  onReviewChange?: (value:boolean)=>void;
+  party?: { items: BookInput["items"]; partySize: number; priceCents: number; durationMin: number };
   /** 组合套餐（U10）。传了就走 bundleSelections，不传走单项 items。 */
-  bundle?: { id: string; name: string; priceCents: number; originalTotalCents: number; durationMin: number };
+  bundle?: { id: string; version?: number; name: string; priceCents: number; originalTotalCents: number; durationMin: number };
   startsAt: string;
   staffId: string | null;
   openedAt: number;
@@ -711,11 +702,13 @@ function ConfirmStep({
   onBack: () => void;
 }) {
   const { t, locale } = useLanguage();
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [notes, setNotes] = useState('');
-  const [smsOptIn, setSmsOptIn] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [name, setName] = useState(initialContact?.name ?? '');
+  const [phone, setPhone] = useState(initialContact?.phone ?? '');
+  const [email, setEmail] = useState(initialContact?.email ?? '');
+  const [notes, setNotes] = useState(initialContact?.notes ?? '');
+  const [smsOptIn] = useState(false);
+  const [bookingSmsConsent,setBookingSmsConsent]=useState(initialContact?.bookingSmsConsent ?? false);
   const [website, setWebsite] = useState('');
   const [token, setToken] = useState<string | null>(null);
   const [botErr, setBotErr] = useState(false);
@@ -725,6 +718,8 @@ function ConfirmStep({
   const widgetId = useRef<string | null>(null);
   const tsApi = useRef<TurnstileApi | null>(null);
   const inflight = useRef(false);
+  useEffect(()=>{onContactChange?.({name,phone,email,notes,smsOptIn,bookingSmsConsent});},[name,phone,email,notes,smsOptIn,bookingSmsConsent,onContactChange]);
+  useEffect(()=>{onReviewChange?.(reviewing);},[reviewing,onReviewChange]);
 
   useEffect(() => {
     const key = shop.turnstileSiteKey;
@@ -748,10 +743,11 @@ function ConfirmStep({
   }, [shop.turnstileSiteKey]);
 
   const e164 = toE164(phone);
-  const ready = name.trim().length > 0 && e164 !== null && (token !== null || !shop.turnstileSiteKey);
+  const ready = name.trim().length > 0 && (!email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) && e164 !== null && (token !== null || !shop.turnstileSiteKey);
 
   async function go() {
     if (!ready || inflight.current) return;
+    if (party && !reviewing) { setReviewing(true); return; }
     inflight.current = true;
     setBusy(true); setErr(null);
     try {
@@ -762,18 +758,20 @@ function ConfirmStep({
           name: name.trim(),
           phone: e164!,
           ...(email.trim() ? { email: email.trim() } : {}),
-          smsOptIn,
+          smsOptIn: false,
+          bookingSmsConsent,
         },
-        ...(bundle
-          ? { items: [], bundleSelections: [{ bundleId: bundle.id, startsAt }] }
+        ...(party ? { items: party.items } : bundle
+          ? { items: [], bundleSelections: [{ bundleId: bundle.id, startsAt, ...(bundle.version ? {expectedVersion:bundle.version} : {}) }] }
           : { items: [{ serviceId: service!.id, addonIds: addons.map((a) => a.id), staffId, startsAt }] }),
-        partySize: 1,
+        partySize: party?.partySize ?? 1,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         website,
         formElapsedMs: Date.now() - openedAt,
       });
     } catch (e) {
-      setErr(confirmError(e, shop));
+      setReviewing(false);
+      setErr(confirmError(e, shop, t));
       if (widgetId.current) { tsApi.current?.reset(widgetId.current); setToken(null); }
     } finally {
       inflight.current = false;
@@ -781,116 +779,111 @@ function ConfirmStep({
     }
   }
 
-  const mins = bundle
+  const mins = party ? party.durationMin : bundle
     ? bundle.durationMin
     : (service?.durationMin ?? 0) + addons.reduce((n, a) => n + a.durationMin, 0);
-  const cents = bundle
+  const cents = party ? party.priceCents : bundle
     ? bundle.priceCents
     : (service?.priceCents ?? 0) + addons.reduce((n, a) => n + a.priceCents, 0);
-  const displayName = bundle ? bundle.name : (service?.name ?? '');
+  const displayName = party ? `${t('Guests')}: ${party.partySize} · ${t('Services')}: ${party.items.length}` : bundle ? bundle.name : (service?.name ?? '');
 
   return (
     <>
       <div className="mb-6">
-        <p className="step-kicker">Step 4 of 4</p>
-        <h2 className="text-3xl font-extrabold tracking-[-0.035em]">{t('step.confirmDetails', 'Confirm your details')}</h2>
-        <p className="mt-2 text-[var(--muted)]">We’ll send your confirmation and appointment updates here.</p>
+
+        <h1 className="text-3xl font-semibold tracking-tight">{t(reviewing?'Review appointment':'Contact')}</h1>
+
       </div>
       <Card>
         <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl bg-[var(--brand-soft)] px-4 py-3 text-sm text-[var(--brand-dark)]">
-          <span className="font-bold">{dateOf(startsAt, shop.timezone)} at {timeOf(startsAt, shop.timezone)}</span>
+          <span className="font-bold">{dateOf(startsAt, shop.timezone,locale)} {t("at")} {timeOf(startsAt, shop.timezone,locale)}</span>
           <span aria-hidden="true">·</span><span>{displayName}</span><span aria-hidden="true">·</span><span>{duration(mins)}</span><span aria-hidden="true">·</span><span className="font-bold">{money(cents, shop.currency)}</span>
         </div>
-        <div className="mt-4 grid gap-3">
+        {reviewing && err && <Note warn>{err}</Note>}
+        {party && reviewing && <Note> {t("Confirm")} {name}, {formatPhoneDisplay(phone)}{email ? `, ${email}` : ''} {t(". Cancellation is available up to")} {shop.onlineBooking.cancelCutoffHours} {t("hours before your appointment. All guests will be booked together.")} </Note>}
+        <div className={`mt-4 grid gap-3 ${reviewing ? 'hidden' : ''}`}>
           <div className="grid gap-4 sm:grid-cols-2">
-          <label className="text-sm font-semibold">Name
-            <input className="field-control mt-2" value={name}
+          <label className="text-sm font-semibold"> {t("Name")} <Input className="field-control mt-2" value={name}
               autoComplete="name" maxLength={120} onChange={(e) => setName(e.target.value)} />
           </label>
-          <label className="text-sm font-semibold">Mobile phone
-            <input className="field-control mt-2" value={phone}
+          <label className="text-sm font-semibold"> {t("Mobile phone")} <PhoneInput className="field-control mt-2" value={phone}
               inputMode="tel" autoComplete="tel" placeholder="(617) 555-0199"
-              onChange={(e) => setPhone(prettyPhone(e.target.value))} />
+              onChange={(e) => setPhone(e.target.value)} />
           </label>
           </div>
-          <label className="text-sm font-semibold">Email (optional)
-            <input className="field-control mt-2" value={email}
+          <label className="text-sm font-semibold"> {t("Email (optional)")} <Input className="field-control mt-2" value={email}
               type="email" autoComplete="email" maxLength={200} onChange={(e) => setEmail(e.target.value)} />
           </label>
-          <label className="text-sm font-semibold">Notes (optional)
-            <textarea className="field-control mt-2 min-h-24 resize-y py-3" value={notes}
-              maxLength={500} placeholder="Accessibility needs, preferences, or anything we should know"
+          <label className="text-sm font-semibold"> {t("Notes (optional)")} <TextArea className="field-control mt-2 min-h-24 resize-y py-3" value={notes}
+              maxLength={500} placeholder={t("Accessibility needs, preferences, or anything we should know")}
               onChange={(e) => setNotes(e.target.value)} />
           </label>
-          <label className="mt-1 flex items-start gap-3 rounded-xl border border-[var(--line)] bg-[#fbfcfc] p-4 text-sm leading-5 text-[var(--muted)]">
-            <input type="checkbox" className="mt-0.5 h-5 w-5 accent-[var(--brand)]" checked={smsOptIn}
-              onChange={(e) => setSmsOptIn(e.target.checked)} />
-            <span>I agree to receive marketing texts from {shop.name}. Reply STOP to unsubscribe. Booking confirmation texts are still sent if you leave this unchecked.</span>
-          </label>
+          <div className="booking-sms-consent">
+            <Checkbox aria-label={t("Receive appointment texts")} isSelected={bookingSmsConsent} onChange={setBookingSmsConsent}>
+              <Checkbox.Content><Checkbox.Control><Checkbox.Indicator/></Checkbox.Control><span>{t("Send me booking confirmations, updates and reminders from")} {shop.name} {t("via GenieFront SMS.")}</span></Checkbox.Content>
+            </Checkbox>
+            <p>{t("Optional. Message frequency varies. Msg & data rates may apply. Reply STOP to opt out or HELP for help.")}</p>
+          </div>
+          <p className="booking-legal">{t("By booking, you agree to")} <a href="https://geniefront.com/terms/" target="_blank" rel="noreferrer">{t("Terms")}</a> {t("and")} <a href="https://geniefront.com/privacy/" target="_blank" rel="noreferrer">{t("Privacy")}</a>. <a href="https://geniefront.com/sms/" target="_blank" rel="noreferrer">GenieFront SMS</a>.</p>
           <input className="hp" tabIndex={-1} autoComplete="off" aria-hidden="true"
             name="website" value={website} onChange={(e) => setWebsite(e.target.value)} />
           {shop.turnstileSiteKey && <div ref={boxRef} data-testid="turnstile" className="min-h-[66px]" />}
-          {botErr && <Note warn>Security check failed. Refresh and try again.</Note>}
+          {botErr && <Note warn> {t("Security check failed. Refresh and try again.")} </Note>}
           {err && <Note warn>{err}</Note>}
         </div>
       </Card>
       <Dock>
-        <Btn onClick={onBack} disabled={busy}>{t('btn.back', 'Back')}</Btn>
+        <Btn onClick={() => reviewing ? setReviewing(false) : onBack()} disabled={busy}>{t('btn.back', 'Back')}</Btn>
         <Btn primary disabled={!ready || busy} onClick={() => void go()}>
-          {busy ? <span className="spin" /> : t('btn.book', 'Book appointment')}
+          {busy ? <span className="spin" /> : party && !reviewing ? t('Review appointment') : t('btn.book', 'Book appointment')}
         </Btn>
       </Dock>
     </>
   );
 }
 
-function confirmError(e: unknown, shop: Shop): string {
-  const tail = shop.phone ? `, or call ${shop.phone}` : '';
-  if (!(e instanceof ApiError)) return `Something went wrong. Please try again${tail}.`;
+function confirmError(e: unknown, _shop: Shop, t:(key:string)=>string): string {
+  if (!(e instanceof ApiError)) return t('Something went wrong. Please try again or contact the shop.');
   const reason = String(e.details['reason'] ?? '');
-  if (reason === 'bot_check_failed') return 'Security check failed. Please try again.';
-  if (e.isRateLimited) {
-    return `Too many attempts. Please wait and try again${shop.phone ? ', or call the shop' : ''}.`;
-  }
-  if (reason === 'too_soon') return `That time is too soon. Please call the shop${shop.phone ? ` at ${shop.phone}` : ''}.`;
-  if (reason === 'too_many_upcoming') return `You already have several upcoming appointments. Please call the shop${shop.phone ? ` at ${shop.phone}` : ''}.`;
-  if (e.status === 0) return `Network problem. Check your connection and try again${tail}.`;
-  return `We could not complete this booking. Please try again${tail}.`;
+  if (reason === 'bot_check_failed') return t('Security check failed. Please try again.');
+  if (e.isRateLimited) return t('Too many attempts. Please wait and try again or contact the shop.');
+  if (reason === 'too_soon') return t('That time is too soon. Please contact the shop.');
+  if (reason === 'too_many_upcoming') return t('You already have several upcoming appointments. Please contact the shop.');
+  if (e.status === 0) return t('Network problem. Check your connection and try again.');
+  return t('We could not complete this booking. Please try again or contact the shop.');
 }
 
-function SuccessStep({
-  shop, slug, done, onAgain,
+export function SuccessStep({
+  shop, slug, done, onAgain, showSummary=false,
 }: {
   shop: Shop;
   slug: string;
-  done: { bookingId: string; confirmationCode: string | null; manageToken: string | null };
+  done: { bookingId: string; confirmationCode: string | null; manageToken: string | null; summary?:ManagedBooking;status?:string };
   onAgain: () => void;
+  showSummary?:boolean;
 }) {
   const { t } = useLanguage();
   return (
     <Card className="mx-auto max-w-2xl text-center">
       <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[var(--brand-soft)] text-3xl font-bold text-[var(--brand)]">✓</div>
-      <p className="step-kicker mt-6">Appointment confirmed</p>
-      <h2 className="text-3xl font-extrabold tracking-[-0.035em]">{t('step.booked', 'You are booked')}</h2>
-      <p className="mx-auto mt-2 max-w-md text-[var(--muted)]">Your appointment has been reserved. We’ve sent the details to your phone.</p>
+      <p className="step-kicker mt-6"> {t("Appointment confirmed")} </p>
+      <h2 className="text-3xl font-extrabold tracking-[-0.035em]">{done.status && done.status!=='booked'?t(done.status):t('step.booked', 'You are booked')}</h2>
+
+      {showSummary&&done.summary&&<div className="mt-5 text-left"><p className="font-semibold">{dateOf(done.summary.startsAt,shop.timezone)}</p>{done.summary.items.map((item,index)=><p className="mt-2 text-sm" key={index}>{item.name} · {timeOf(item.startsAt,shop.timezone)}–{timeOf(item.endsAt,shop.timezone)} · {item.specialistName} · {money(item.priceCents,shop.currency)}</p>)}<p className="mt-3 font-bold">{t('Total')}: {money(done.summary.priceCents,shop.currency)}</p></div>}
       {done.confirmationCode && (
         <div className="mx-auto mt-6 max-w-sm rounded-2xl border border-dashed border-[var(--line-strong)] bg-[#fbfcfc] p-4" data-testid="confirmation-code">
-          <p className="text-xs font-bold uppercase tracking-[.12em] text-[var(--muted)]">Confirmation code</p>
+          <p className="text-xs font-bold uppercase tracking-[.12em] text-[var(--muted)]"> {t("Confirmation code")} </p>
           <p className="mt-1 text-2xl font-extrabold tracking-[.08em]">{done.confirmationCode}</p>
         </div>
       )}
       {done.manageToken && (
         <p className="mt-6">
-          <Link className="inline-flex min-h-11 items-center rounded-xl bg-[var(--brand)] px-5 font-semibold text-white hover:bg-[var(--brand-dark)]" to={hostedManagePath(slug, done.manageToken)}>
-            View, reschedule, or cancel
-          </Link>
+          <Link className="inline-flex min-h-11 items-center rounded-xl bg-[var(--brand)] px-5 font-semibold text-white hover:bg-[var(--brand-dark)]" to={hostedManagePath(slug, done.manageToken)} target={isEmbedded()?'_blank':undefined} rel="noreferrer"> {t("View, reschedule, or cancel")} </Link>
         </p>
       )}
-      <p className="mt-3 text-sm text-[var(--muted)]">
-        Keep this page or your confirmation text.
-        {shop.phone && <> Questions? Call <PhoneLink shop={shop} />.</>}
+      <p className="mt-3 text-sm text-[var(--muted)]"> {t("Keep this page to manage your appointment.")} {shop.phone && <> {t("Questions? Call")} <PhoneLink shop={shop} />.</>}
       </p>
-      <div className="mx-auto mt-5 max-w-sm"><Btn onClick={onAgain}>Book another</Btn></div>
+      <div className="mx-auto mt-5 max-w-sm"><Btn onClick={onAgain}> {t("Book another")} </Btn></div>
     </Card>
   );
 }

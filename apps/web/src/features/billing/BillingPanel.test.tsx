@@ -336,30 +336,43 @@ describe('BillingPanel 真实计费状态', () => {
     Object.defineProperty(window, 'location', { configurable: true, value: original });
   });
 
-  it('积分充值发送 canonical credit 单位', async () => {
-    billingState.data = {
-      billing: essentialTrial({ hasPaymentMethod: true, paymentMethodLabel: 'Visa ···· 4242' }),
-      autoTopup: null,
-    };
-    topupMutate.mockResolvedValue({ ok: true, unit: 'credit', units: 1000, balanceAfter: 1000 });
-    renderPanel();
-    await userEvent.click(screen.getByRole('button', { name: '购买 $50 AI 积分' }));
-    await waitFor(() => {
-      expect(topupMutate).toHaveBeenCalledWith('credit');
+  it.each([
+    ['credit', '购买 $50 AI 积分'],
+    ['voice_minute', '购买 $50 语音分钟'],
+  ] as const)('%s 充值无论是否绑卡都跳转 Stripe 确认，不提前报成功', async (unit, label) => {
+    const url = 'https://checkout.stripe.com/c/pay/cs_test_topup';
+    topupMutate.mockResolvedValue({ url, sessionId: 'cs_test_topup' });
+    const assign = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true, value: { ...original, assign },
     });
+    try {
+      for (const hasPaymentMethod of [false, true]) {
+        billingState.data = {
+          billing: essentialTrial({ hasPaymentMethod }), autoTopup: null,
+        };
+        const view = renderPanel();
+        await userEvent.click(screen.getByRole('button', { name: label }));
+        await waitFor(() => expect(assign).toHaveBeenCalledWith(url));
+        expect(topupMutate).toHaveBeenLastCalledWith(unit);
+        expect(toast.success).not.toHaveBeenCalled();
+        expect(billingState.refetch).not.toHaveBeenCalled();
+        view.unmount();
+        assign.mockClear();
+      }
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: original });
+    }
   });
 
-  it('语音充值发送 canonical voice_minute 单位', async () => {
-    billingState.data = {
-      billing: essentialTrial({ hasPaymentMethod: true, paymentMethodLabel: 'Visa ···· 4242' }),
-      autoTopup: null,
-    };
-    topupMutate.mockResolvedValue({ ok: true, unit: 'voice_minute', units: 200, balanceAfter: 200 });
+  it('充值缺少 Stripe URL 时显示错误，不报充值成功', async () => {
+    topupMutate.mockResolvedValue({ url: null, sessionId: 'cs_test_topup' });
     renderPanel();
-    await userEvent.click(screen.getByRole('button', { name: '购买 $50 语音分钟' }));
-    await waitFor(() => {
-      expect(topupMutate).toHaveBeenCalledWith('voice_minute');
-    });
+    await userEvent.click(screen.getByRole('button', { name: '购买 $50 AI 积分' }));
+    await waitFor(() => expect(toast.danger).toHaveBeenCalled());
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(billingState.refetch).not.toHaveBeenCalled();
   });
 
   it('充值失败不会把已购余额提前加上去', async () => {

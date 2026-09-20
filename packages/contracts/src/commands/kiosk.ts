@@ -7,7 +7,7 @@
  */
 
 import { z } from 'zod';
-import { defineCommand, uuid, i18nText, localeSchema } from '../command.js';
+import { defineCommand, phoneE164, uuid, i18nText, localeSchema } from '../command.js';
 
 // ─────────────────────────────────────────────────────────── 设备配对
 
@@ -92,7 +92,7 @@ export const JoinQueue = defineCommand({
     /** 匿名 walk-in：只留个名字，事后可合并（决策 21） */
     walkInName: z.string().max(120).optional(),
     /** Kiosk walk-in 主联系人；仅在门店开启自动建档时写入 CRM。 */
-    walkInPhone: z.string().regex(/^\+[1-9]\d{6,14}$/).optional(),
+    walkInPhone: phoneE164.optional(),
     walkInEmail: z.string().email().max(200).optional(),
     requestedServiceId: uuid.nullable().optional(),
     requestedStaffId: uuid.nullable().optional(),
@@ -229,7 +229,19 @@ export const SubmitForm = defineCommand({
     /** Kiosk walk-in 表单关联到刚取的队列号；由已验设备令牌的路由注入。 */
     queueId: uuid.nullable().optional(),
     /** 题目 id → 答案 */
-    answers: z.record(z.string(), z.unknown()),
+    answers: z.record(z.string(), z.unknown()).transform((answers, ctx) => {
+      const info = answers.clientInfo;
+      if (!info || typeof info !== 'object' || Array.isArray(info)) return answers;
+      const normalized = { ...info } as Record<string, unknown>;
+      for (const key of ['phone', 'emergencyPhone']) {
+        const value = normalized[key];
+        if (value === undefined || value === null || value === '') continue;
+        const parsed = phoneE164.safeParse(value);
+        if (!parsed.success) { ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['clientInfo', key], message: 'Invalid phone number' }); return z.NEVER; }
+        normalized[key] = parsed.data;
+      }
+      return { ...answers, clientInfo: normalized };
+    }),
     /** 签名图片的 data URL（PNG）。模板要求签字时必填 */
     signatureDataUrl: z.string().max(400_000).optional(),
     signerName: z.string().min(1).max(120),

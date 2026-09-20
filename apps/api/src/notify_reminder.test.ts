@@ -1,3 +1,9 @@
+import { buildContext } from './actor';
+import { dispatch } from './bus';
+import { runReminderSweep } from './notify/reminder';
+import { wallMinuteToInstant } from '@gf/scheduling';
+import './handlers/appointment';
+import './handlers/notify';
 /**
  * 次日预约提醒的取件口径（sql/0088 的 `gf_appointments_due_for_reminder`）。
  *
@@ -122,4 +128,36 @@ describe('次日提醒取件', () => {
       expect(r.location_id).toBeTruthy();
     }
   });
+});
+
+
+it('改期后重新生成新时间提醒，取消后不再生成提醒', async () => {
+  const [member]=await withTenant(tenant,tx=>tx<{id:string;user_id:string}[]>`
+    select m.id,m.user_id from memberships m join membership_roles mr on mr.membership_id=m.id
+    join roles r on r.id=mr.role_id where m.location_id=${NAIL_LOC} and r.key in ('owner','manager') and m.user_id is not null limit 1`);
+  const ctx=await buildContext({userId:member!.user_id,membershipId:member!.id});
+  await dispatch('notification.saveTemplate',{eventKey:'appointment_reminder',channel:'email',locale:'en',subject:'Reminder',body:'Reminder: {{when}} {{manage_url}}'},ctx);
+  await dispatch('notification.toggleRule',{eventKey:'appointment_reminder',enabled:true,channels:['email'],offsetMin:0},ctx);
+  const id=await makeAppointment(1,14);
+  const [appt]=await withTenant(tenant,async tx=>{
+    const [customer]=await tx<{id:string}[]>`insert into customers(org_id,primary_location_id,display_name,phone_e164,email)
+      values(${NAIL_ORG},${NAIL_LOC},'Reminder QA','+16175550189','reminder-qa@example.invalid') returning id`;
+    await tx`update appointments set customer_id=${customer!.id},source='web' where id=${id}`;
+    await tx`insert into appointment_items(org_id,location_id,appointment_id,service_id,starts_at,ends_at,duration_min,price_cents_snapshot,seq)
+      select ${NAIL_ORG},${NAIL_LOC},a.id,s.id,a.starts_at,a.ends_at,60,5000,0
+      from appointments a cross join (select id from services where location_id=${NAIL_LOC} and active and not is_addon limit 1) s where a.id=${id}`;
+    return tx<{day:string}[]>`select business_date::text as day from appointments where id=${id}`;
+  });
+  const app={log:{warn:()=>{},info:()=>{}}} as unknown as Parameters<typeof runReminderSweep>[0];
+  const reminders=()=>withTenant(tenant,tx=>tx<{body_text:string;entity_type:string}[]>`select body_text,entity_type from email_outbox where entity_id=${id} and kind='appointment_reminder' order by created_at`);
+  await runReminderSweep(app,{sendHour:0});
+  const before=await reminders();expect(before.filter(r=>r.entity_type==='appointment')).toHaveLength(1);
+  await dispatch('appointment.reschedule',{appointmentId:id,startsAt:wallMinuteToInstant(appt!.day,timezone,16*60).toISOString()},ctx);
+  await runReminderSweep(app,{sendHour:0});
+  const after=await reminders();expect(after.filter(r=>r.entity_type==='appointment')).toHaveLength(1);
+  expect(after.find(r=>r.entity_type==='appointment')!.body_text).not.toBe(before[0]!.body_text);
+  expect(after.some(r=>r.entity_type.includes(':superseded:'))).toBe(true);
+  await dispatch('appointment.cancel',{appointmentId:id,reason:'guest_changed_mind',keepStaffTurn:false},ctx);
+  await runReminderSweep(app,{sendHour:0});
+  expect((await reminders()).filter(r=>r.entity_type==='appointment')).toHaveLength(0);
 });

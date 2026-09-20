@@ -24,7 +24,7 @@
  */
 
 import {
-  createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes, timingSafeEqual,
+  createCipheriv, createDecipheriv, createHash, createHmac, hkdfSync, randomBytes, timingSafeEqual,
 } from 'node:crypto';
 
 /** 明文令牌：`mt_` + 32 字节随机。前缀是为了在日志里一眼认出来 */
@@ -208,4 +208,13 @@ export function generateConfirmationCode(shopName: string): string {
   let body = '';
   for (const b of bytes) body += ALPHABET[b % ALPHABET.length];
   return `${prefix}-${body}`;
+}
+
+/** Recover the same capability only for the same high-entropy request key and
+ * booking intent. The server secret prevents a known request ID becoming a
+ * derivable management credential. Anti-bot token/timing are deliberately absent. */
+export function replayableManageToken(locationId:string,key:string,intent:unknown,env:Env=process.env):string|null {
+  const secret=env['MANAGE_TOKEN_WRAP_KEY']??env['APP_JWT_SECRET'];
+  if(!secret || secret.length<32 || key.length<32)return null;
+  return `mt_${createHmac('sha256',secret).update(JSON.stringify(['public-booking-v1',locationId,key,intent])).digest('base64url')}`;
 }

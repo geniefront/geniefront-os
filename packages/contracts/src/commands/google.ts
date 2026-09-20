@@ -1,3 +1,4 @@
+import { dayHoursSchema } from '../businessHours';
 import { z } from 'zod';
 import { defineCommand, phoneE164, uuid } from '../command.js';
 
@@ -7,6 +8,7 @@ export const ApplyGoogleBusiness = defineCommand({
   name: 'location.applyGoogle',
   input: z.object({
     googlePlaceId: z.string().min(1).max(255),
+    businessType: z.enum(['nail', 'massage', 'foot_spa', 'lash', 'scalp', 'hair', 'mixed']).optional(),
     name: z.string().min(1).max(200).optional(),
     phone: phoneE164.optional(),
     address: z.object({
@@ -16,7 +18,7 @@ export const ApplyGoogleBusiness = defineCommand({
     }).optional(),
     businessHours: z.record(
       z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']),
-      z.object({ open: hhmm, close: hhmm }).nullable(),
+      dayHoursSchema.nullable(),
     ).optional(),
     ratingBp: z.number().int().min(0).max(50000).nullable().optional(),
     reviewCount: z.number().int().min(0).nullable().optional(),

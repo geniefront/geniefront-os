@@ -1,3 +1,4 @@
+import { formatPhoneDisplay } from '@gf/contracts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from '@heroui/react';
@@ -1090,7 +1091,7 @@ export function HealthForms() {
                       {t('healthForms.healthForms25')}
                     </Badge>
                   </h4>
-                  <p className="text-[11px] text-slate-500 font-mono">{selectedRecord.customerPhone}</p>
+                  <p className="text-[11px] text-slate-500 font-mono">{formatPhoneDisplay(selectedRecord.customerPhone)}</p>
                 </div>
               </div>
               <div className="text-right text-[11px] text-slate-500">

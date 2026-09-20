@@ -1,3 +1,5 @@
+import { SetupSaveProvider, useSetupSave } from '@/features/setup/autosave';
+import { useEntitlements } from '@/features/billing/useEntitlements';
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, Globe2, LogOut, Settings2, Store } from 'lucide-react';
 import { pickText } from '@gf/contracts';
@@ -8,7 +10,7 @@ import { useSession } from '@/lib/session';
 import { useLanguage } from '@/LanguageContext';
 import { UI_LANGUAGES, type Language } from '@/i18n/types';
 import { cn } from '@/lib/utils';
-import { SETUP_STEPS, type SetupStepId } from '@/features/setup/flow';
+import { setupStepsForPlan, type SetupStepId } from '@/features/setup/flow';
 import { CatalogStepForm, LaunchStep, StoreStepForm, TeamStepForm } from '@/features/setup/StepForms';
 import { DirectoryStepForm, FeaturesStepForm, RoomsStepForm } from '@/features/setup/steps';
 import { useSetupReadinessQuery } from '@/features/settings/api';
@@ -20,8 +22,13 @@ import { useSetupReadinessQuery } from '@/features/settings/api';
  * ⚠️ 完成度**只来自** `GET /v1/desk/setup/readiness`（S2/S5）。当前步骤是
  * 浏览位置，不代表进度；刷新 / 换设备时定位到第一个未完成步骤。
  */
-export function SetupWizard() {
+export function SetupWizard() { return <SetupSaveProvider><SetupWizardContent /></SetupSaveProvider>; }
+
+function SetupWizardContent() {
+  const saveContext = useSetupSave();
   const { membership, signOut } = useSession();
+  const entitlements = useEntitlements();
+  const setupSteps = useMemo(() => setupStepsForPlan(entitlements.data?.plan), [entitlements.data?.plan]);
   const { language, setLanguage, t } = useLanguage();
   const { data: readiness } = useSetupReadinessQuery();
 
@@ -36,28 +43,29 @@ export function SetupWizard() {
 
   // 首次拿到进度时，把浏览位置落到第一个未完成的步骤（跨设备一致）。
   useEffect(() => {
-    if (activeStepId || !readiness) return;
-    const firstIncomplete = SETUP_STEPS.find((step) => !completeById.get(step.id));
+    if (!entitlements.data || !readiness || setupSteps.some(step => step.id === activeStepId)) return;
+    const firstIncomplete = setupSteps.find((step) => !completeById.get(step.id));
     setActiveStepId(firstIncomplete?.id ?? 'launch');
-  }, [readiness, activeStepId, completeById]);
+  }, [readiness, activeStepId, completeById, setupSteps, entitlements.data]);
 
-  const activeIndex = Math.max(0, SETUP_STEPS.findIndex((step) => step.id === (activeStepId ?? 'store')));
-  const activeStep = SETUP_STEPS[activeIndex]!;
+  const activeIndex = Math.max(0, setupSteps.findIndex((step) => step.id === (activeStepId ?? 'store')));
+  const activeStep = setupSteps[activeIndex]!;
   const ActiveIcon = activeStep.icon;
   const storeName = membership ? pickText(membership.locationName, language) : t('setupNewStore');
 
-  const doneCount = SETUP_STEPS.filter((step) => completeById.get(step.id)).length;
-  const progress = Math.round((doneCount / SETUP_STEPS.length) * 100);
+  const doneCount = setupSteps.filter((step) => completeById.get(step.id)).length;
+  const progress = Math.round((doneCount / setupSteps.length) * 100);
 
-  const goTo = (index: number) => {
-    const next = SETUP_STEPS[index];
+  const goTo = async (index: number) => {
+    if (!await saveContext?.flush()) return;
+    const next = setupSteps[index];
     if (next) { setActiveStepId(next.id); setStepListOpen(false); }
   };
-  const goToStep = (id: SetupStepId) => setActiveStepId(id);
+  const goToStep = (id: SetupStepId) => { void goTo(setupSteps.findIndex(step => step.id === id)); };
 
   const renderStep = () => {
     switch (activeStep.id) {
-      case 'store': return <StoreStepForm stepNumber={activeStep.number} onSaved={() => goToStep('directory')} />;
+      case 'store': return <StoreStepForm stepNumber={activeStep.number} onSaved={() => goTo(activeIndex + 1)} />;
       case 'directory': return <DirectoryStepForm stepNumber={activeStep.number} />;
       case 'rooms': return <RoomsStepForm stepNumber={activeStep.number} onSaved={() => undefined} />;
       case 'catalog': return <CatalogStepForm stepNumber={activeStep.number} onSaved={() => undefined} />;
@@ -66,6 +74,8 @@ export function SetupWizard() {
       case 'launch': return <LaunchStep stepNumber={activeStep.number} onGoToStep={goToStep} />;
     }
   };
+
+  if (!entitlements.data) return <div className="p-8">{t('setupReadinessLoading')}</div>;
 
   return (
     <div className="min-h-screen bg-[#f3faf7] text-slate-900">
@@ -83,7 +93,7 @@ export function SetupWizard() {
                 {UI_LANGUAGES.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
               </select>
             </label>
-            <Button variant="ghost" size="sm" onClick={() => void signOut()} className="gap-2 text-slate-500"><LogOut className="size-4" /><span className="hidden sm:inline">{t('setupSignOut')}</span></Button>
+            <Button variant="ghost" size="sm" onClick={async () => { if (await saveContext?.flush()) await signOut(); }} className="gap-2 text-slate-500"><LogOut className="size-4" /><span className="hidden sm:inline">{t('setupSignOut')}</span></Button>
           </div>
         </div>
       </header>
@@ -92,12 +102,12 @@ export function SetupWizard() {
         <div className="mx-auto max-w-[1180px] px-5 py-4 md:px-8">
           <div className="flex items-center justify-between gap-4">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{t('setupProgress')}</p>
-            <p className="text-xs font-bold text-teal-700">{t('setupStepCount', { current: activeIndex + 1, total: SETUP_STEPS.length })}</p>
+            <p className="text-xs font-bold text-teal-700">{t('setupStepCount', { current: activeIndex + 1, total: setupSteps.length })}</p>
           </div>
 
           {/* 宽屏：完整步骤条 */}
           <div className="mt-3 hidden items-center sm:flex">
-            {SETUP_STEPS.map((step, index) => {
+            {setupSteps.map((step, index) => {
               const done = completeById.get(step.id) ?? false;
               const active = index === activeIndex;
               const Icon = step.icon;
@@ -107,7 +117,7 @@ export function SetupWizard() {
                     <span className={cn('grid size-8 shrink-0 place-items-center rounded-full border text-xs font-bold transition-colors', done ? 'border-teal-600 bg-teal-600 text-white' : active ? 'border-teal-500 bg-teal-50 text-teal-700 ring-4 ring-teal-100' : 'border-slate-300 bg-white text-slate-400')}>{done ? <Check className="size-4" /> : <Icon className="size-4" />}</span>
                     <span className={cn('hidden truncate text-xs font-bold lg:block', active ? 'text-teal-800' : done ? 'text-slate-700' : 'text-slate-400')}>{t(step.shortTitleKey)}</span>
                   </button>
-                  {index < SETUP_STEPS.length - 1 && <span className={cn('mx-2 h-px flex-1', done ? 'bg-teal-500' : 'bg-slate-200')} />}
+                  {index < setupSteps.length - 1 && <span className={cn('mx-2 h-px flex-1', done ? 'bg-teal-500' : 'bg-slate-200')} />}
                 </div>
               );
             })}
@@ -127,7 +137,7 @@ export function SetupWizard() {
             </button>
             {stepListOpen && (
               <ul className="mt-2 divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
-                {SETUP_STEPS.map((step, index) => {
+                {setupSteps.map((step, index) => {
                   const done = completeById.get(step.id) ?? false;
                   const active = index === activeIndex;
                   return (
@@ -176,7 +186,7 @@ export function SetupWizard() {
             <div className="p-6 md:p-8">{renderStep()}</div>
             <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-6 py-4 md:px-8">
               <Button variant="ghost" disabled={activeIndex === 0} onClick={() => goTo(activeIndex - 1)} className="gap-2"><ArrowLeft className="size-4" />{t('setupPrevious')}</Button>
-              {activeIndex < SETUP_STEPS.length - 1 && <Button onClick={() => goTo(activeIndex + 1)} className="gap-2">{t('setupNext')}<ArrowRight className="size-4" /></Button>}
+              {activeIndex < setupSteps.length - 1 && <Button onClick={() => goTo(activeIndex + 1)} className="gap-2">{t('setupNext')}<ArrowRight className="size-4" /></Button>}
             </div>
           </Card>
           <p className="mt-3 text-xs leading-5 text-slate-400">{t('setupBrowseHint')}</p>
@@ -194,7 +204,7 @@ export function SetupWizard() {
               <p className="mt-1 text-xs text-slate-500">{t('setupPreviewPrivate')}</p>
             </div>
             <div className="mt-4 space-y-2 text-sm">
-              {SETUP_STEPS.map((step, index) => {
+              {setupSteps.map((step, index) => {
                 const done = completeById.get(step.id) ?? false;
                 return (
                   <button key={step.id} type="button" onClick={() => goToStep(step.id)} className={cn('flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left', index === activeIndex ? 'bg-teal-50/70' : 'bg-slate-50')}>

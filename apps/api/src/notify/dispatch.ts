@@ -38,6 +38,8 @@ import { emailUnsubscribePostUrl, emailUnsubscribeUrl } from '../links';
 type Tx = postgres.TransactionSql;
 
 export interface NotifyArgs {
+  /** Full booking detail for email only; SMS stays concise. */
+  emailDetails?: string;
   event: NotificationEvent;
   /** 挂在哪个实体上。outbox 的幂等键是 (entity_type, entity_id, kind) */
   entityType: string;
@@ -178,7 +180,10 @@ export async function notifyEvent(
       limit 1`;
     if (!tpl) continue;
 
-    const body = renderTemplate(tpl.body, args.vars);
+    const rendered = renderTemplate(tpl.body, args.vars);
+    const manageUrl = usesPlatformBrand(args.event) ? args.vars['manage_url'] : null;
+    const body = manageUrl && !rendered.includes(manageUrl) ? `${rendered}\n${manageUrl}` : rendered;
+    const actionUrl=manageUrl || args.vars['confirm_url'];
     const subject = tpl.subject ? renderTemplate(tpl.subject, args.vars) : null;
 
     if (channel === 'email') {
@@ -189,8 +194,8 @@ export async function notifyEvent(
        * 而不是发一封没有退订入口的商业邮件。
        */
       let unsubscribeUrl: string | null = null;
-      let text = body;
-      let html = renderTemplatedEmailHtml(body);
+      let text = args.emailDetails ? `${body}\n\n${args.emailDetails}` : body;
+      let html = renderTemplatedEmailHtml(text,actionUrl?{url:actionUrl,label:manageUrl?'View / manage appointment':'Open appointment'}:undefined);
       if (marketing) {
         const token = args.customerId
           ? mintUnsubscribeToken({ customerId: args.customerId, orgId: ctx.orgId })

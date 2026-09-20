@@ -32,3 +32,22 @@ describe('booking capacity buffers', () => {
     expect(bookingLimits(p, 0, false).locationLimit).toBe(0);
   });
 });
+
+it('scheduled voice offers assign another free staff member before using a pending slot',async()=>{
+ const {findBookingOffers}=await import('./bookingOffers');
+ const startsAt=new Date('2026-09-24T10:00:00Z'),endsAt=new Date('2026-09-24T11:00:00Z');
+ const input={date:'2026-09-24',timezone:'UTC',openMin:600,closeMin:660,step:30,durationMin:60,earliest:new Date('2026-09-20'),partySize:1,assignStaff:true,preferredMembershipId:null,
+ policy:readBookingPolicy({capacity:{booking_mode:'staff',buffer_enabled:true,buffer_extra:1}}),staff:['a','b'].map(id=>({id,startMin:600,endMin:660,maxConcurrent:1})),existing:[{startsAt,endsAt,membershipId:'a' as string|null,groupKey:'a'}]};
+ expect(findBookingOffers(input)[0]?.membershipId).toBe('b');
+ input.existing.push({startsAt,endsAt,membershipId:'b',groupKey:'b'});
+ expect(findBookingOffers(input)[0]?.membershipId).toBeNull();
+ expect(findBookingOffers({...input,preferredMembershipId:'a'})).toEqual([]);
+ input.existing.push({startsAt,endsAt,membershipId:null,groupKey:'extra'});
+ expect(findBookingOffers(input)).toEqual([]);
+});
+it('assigns separate staff for voice groups and leaves only the extra guest unassigned',async()=>{
+ const {findBookingOffers}=await import('./bookingOffers');
+ const base={date:'2026-09-24',timezone:'UTC',openMin:600,closeMin:660,step:30,durationMin:60,earliest:new Date('2026-09-20'),partySize:3,assignStaff:true,preferredMembershipId:null,policy:readBookingPolicy({capacity:{booking_mode:'staff',buffer_enabled:true,buffer_extra:1}}),staff:['a','b'].map(id=>({id,startMin:600,endMin:660,maxConcurrent:1})),existing:[]};
+ expect(findBookingOffers(base)[0]?.membershipIds).toEqual(['a','b',null]);
+ expect(findBookingOffers({...base,partySize:4})).toEqual([]);
+});

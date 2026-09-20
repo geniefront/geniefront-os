@@ -108,6 +108,4 @@ export interface SaveTaxProfileInput {
   billingEmail: string;
 }
 
-export type TopupResponse =
-  | { ok: true; unit: QuotaUnit; units: number; balanceAfter: number }
-  | { ok: false; pending: true; status: string };
+export type TopupResponse = { url: string | null; sessionId: string };

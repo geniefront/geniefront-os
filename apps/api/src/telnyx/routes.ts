@@ -415,7 +415,7 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
 
     const [loc] = await withTenant(
       { orgId: t.orgId, locationId: t.locationId, membershipId: null },
-      (tx) => tx<{ hours: Record<string, { open: string; close: string } | null>; cutoff: string }[]>`
+      (tx) => tx<{ hours: Record<string, { open: string; close: string; periods?: Array<{open:string;close:string}> } | null>; cutoff: string }[]>`
         select business_hours as hours, business_day_cutoff::text as cutoff
         from locations where id = ${t.locationId}`);
 

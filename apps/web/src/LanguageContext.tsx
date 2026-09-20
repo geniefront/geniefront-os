@@ -88,7 +88,8 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       loadSafe(() => import('./i18n/reviews')),
       loadSafe(() => import('./i18n/permissions')),
       loadSafe(() => import('./i18n/bundles')),
-    ]).then(([schedule, queue, rotation, checkout, finance, crm, settings, healthForms, tech, setup, support, email, reviews, permissions, bundle]) => {
+      loadSafe(() => import('./i18n/voiceSettings')),
+    ]).then(([schedule, queue, rotation, checkout, finance, crm, settings, healthForms, tech, setup, support, email, reviews, permissions, bundle, voiceSettings]) => {
       if (cancelled) return;
       clearTimeout(safetyTimer);
       const merged: DomainDict = {
@@ -108,6 +109,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         ...reviews?.reviews,
         ...permissions?.permissions,
         ...bundle?.bundle,
+        ...voiceSettings?.voiceSettings,
       };
       setTranslations(flatten(merged));
       setReady(true);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapGooglePlace } from './googlePlaces';
+import { inferBusinessType, mapGooglePlace } from './googlePlaces';
 
 describe('Google Places onboarding mapper', () => {
   it('maps address, E.164 phone, reviews and weekly hours', () => {
@@ -26,4 +26,11 @@ describe('Google Places onboarding mapper', () => {
       rating: 4.7, reviewCount: 82, isClosed: false,
     });
   });
+});
+
+it('suggests specific industry from Google categories and shop name without guessing generic spas', () => {
+  expect(inferBusinessType('Zhi Zi Massage', ['spa'])).toBe('massage');
+  expect(inferBusinessType('Queen', ['nail_salon'])).toBe('nail');
+  expect(inferBusinessType('Foot Spa Massage', ['spa'])).toBe('foot_spa');
+  expect(inferBusinessType('Day Spa', ['spa'])).toBeNull();
 });

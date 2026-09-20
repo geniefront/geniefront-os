@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto';
 import {
-  SaveService, BulkUpdateServices, SaveServiceCategory, ArchiveService,
+  SaveService, BulkUpdateServices, SaveServiceCategory, ArchiveService, SavePublicBookingProfile,
   SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
   SaveSetupFeatures,
@@ -39,6 +39,15 @@ registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
       where id = ${input.categoryId} and location_id = ${ctx.locationId}`;
     if (!category) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'service_category' } });
   }
+  const syncPresentation=async(serviceId:string)=>{
+    if(!input.presentation)return;
+    const [row]=await tx`select settings from locations where id=${ctx.locationId} for update`;
+    if(!row)throw new AppError(ERROR_CODES.NOT_FOUND);
+    const profile=row.settings.public_booking_profile??{};
+    const services={...profile.services,[serviceId]:{...profile.services?.[serviceId],...input.presentation}};
+    await tx`update locations set settings=jsonb_set(settings,'{public_booking_profile}',${jsonb({...profile,services})}::jsonb,true) where id=${ctx.locationId}`;
+    audit({entityType:'service_presentation',entityId:serviceId,after:input.presentation});
+  };
   const syncRequiredSkills = async (serviceId: string) => {
     if (input.requiredSkillIds === undefined) return;
     const unique = [...new Set(input.requiredSkillIds)];
@@ -81,6 +90,7 @@ registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
       where id = ${input.serviceId}`;
 
     await syncRequiredSkills(input.serviceId);
+    await syncPresentation(input.serviceId);
 
     audit({ entityType: 'service', entityId: input.serviceId,
             after: { name: pickText(input.name, ctx.locale), durationMin: input.durationMin } });
@@ -104,6 +114,7 @@ registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
     returning id`;
 
   await syncRequiredSkills(row!.id);
+  await syncPresentation(row!.id);
 
   audit({ entityType: 'service', entityId: row!.id,
           after: { name: pickText(input.name, ctx.locale), created: true } });
@@ -1106,4 +1117,19 @@ registerHandler(SetEmailLocale, async ({ input, ctx, tx, audit }: HandlerArgs<
   });
 
   return { locale: input.locale };
+});
+
+registerHandler(SavePublicBookingProfile, async ({input,ctx,tx,audit}) => {
+  const types=[...new Set(Object.values(input.services).map(s=>s.resourceTypeId).filter((id):id is string=>!!id))];
+  if(types.length){const owned=await tx`select id from resource_types where location_id=${ctx.locationId} and id=any(${types})`;
+    if(owned.length!==types.length)throw new AppError(ERROR_CODES.NOT_FOUND,{details:{entity:'resource_type'}});}
+  const ids=Object.keys(input.services);
+  if(ids.length){
+    const owned=await tx`select id from services where location_id=${ctx.locationId} and id=any(${ids})`;
+    if(owned.length!==ids.length) throw new AppError(ERROR_CODES.NOT_FOUND,{details:{entity:'service'}});
+  }
+  await tx`update locations set settings=jsonb_set(settings,'{public_booking_profile}',${jsonb(input)}::jsonb,true),updated_at=now()
+    where id=${ctx.locationId}`;
+  audit({entityType:'location',entityId:ctx.locationId,after:{publicBookingProfile:input}});
+  return {locationId:ctx.locationId};
 });

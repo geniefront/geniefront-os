@@ -1,3 +1,4 @@
+import {weeklyHoursSchema} from '@gf/contracts';
 /**
  * AI 拍照开店的命令实现。
  *
@@ -458,17 +459,7 @@ registerHandler(ApplyBlueprint, async ({ input, ctx, tx, audit }: HandlerArgs<
     const addressState = textValue('addressState', 40);
     const addressZip = textValue('addressZip', 20);
     const hoursRaw = proposal['businessHours'];
-    const hours = hoursRaw && typeof hoursRaw === 'object'
-      ? Object.fromEntries(Object.entries(hoursRaw as Record<string, unknown>).filter(([day, value]) => {
-          if (!['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].includes(day)) return false;
-          if (value === null) return true;
-          if (!value || typeof value !== 'object') return false;
-          const row = value as Record<string, unknown>;
-          return typeof row['open'] === 'string' && typeof row['close'] === 'string'
-            && /^([01]\d|2[0-3]):[0-5]\d$/.test(row['open'])
-            && /^([01]\d|2[0-3]):[0-5]\d$/.test(row['close']);
-        }))
-      : {};
+    const hours = weeklyHoursSchema.parse(hoursRaw ?? {});
     const hasLocationValues = Boolean(name || phone || email || businessType || addressStreet
       || addressCity || addressState || addressZip || Object.keys(hours).length > 0);
     if (hasLocationValues) {

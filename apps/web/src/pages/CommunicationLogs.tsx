@@ -1,3 +1,6 @@
+import { DeliveryHistory } from '@/features/voice-plan/DeliveryHistory';
+import { useEntitlements } from '@/features/billing/useEntitlements';
+import { formatPhoneDisplay } from '@gf/contracts';
 import { useMemo, useState } from "react";
 import { useStoreTime } from '@/lib/time';
 import { useLanguage } from "@/LanguageContext";
@@ -50,6 +53,11 @@ export interface UnifiedCommLog {
 }
 
 export function CommunicationLogs() {
+  const plan = useEntitlements(); const { t } = useLanguage();
+  if (!plan.data) return <div className="p-6">{t(plan.isError ? 'genericFailure' : 'setupReadinessLoading')}</div>;
+  return plan.data.plan === 'voice_booking' ? <DeliveryHistory /> : <FullCommunicationLogs />;
+}
+function FullCommunicationLogs() {
   const storeTime = useStoreTime();
   const { t } = useLanguage();
   const [query, setQuery] = useState("");
@@ -78,7 +86,7 @@ export function CommunicationLogs() {
           time: c.startedAt || new Date().toISOString(),
           channel: "voice",
           direction: "inbound",
-          contact: c.fromE164 || t('crm.commUnknownCaller'),
+          contact: formatPhoneDisplay(c.fromE164) || t('crm.commUnknownCaller'),
           category: c.booked ? t('crm.commCategoryCallBooked') : isForwarded ? t('crm.commCategoryCallTransferred') : t('crm.commCategoryCallInquiry'),
           summary: c.outcome || (c.booked ? t('crm.commSummaryCallBooked') : t('crm.commSummaryGeneralInquiry')),
           status: c.booked ? "booked" : isForwarded ? "transferred" : "completed",
@@ -94,7 +102,7 @@ export function CommunicationLogs() {
           time: m.receivedAt,
           channel: "sms_inbound",
           direction: "inbound",
-          contact: m.fromE164,
+          contact: formatPhoneDisplay(m.fromE164),
           customerName: m.customers[0]?.name,
           category: m.intent === "opt_out" ? t('crm.commCategoryOptOut') : t('crm.commCategoryCustomerReply'),
           summary: m.body,

@@ -93,3 +93,5 @@ describe('Messages 10DLC pending banner', () => {
     expect(document.body.textContent).not.toMatch(/filing on your behalf|向运营商代办报备/i);
   });
 });
+
+vi.mock('@/features/billing/useEntitlements', () => ({ useEntitlements: () => ({ data: { plan: 'growth' } }) }));

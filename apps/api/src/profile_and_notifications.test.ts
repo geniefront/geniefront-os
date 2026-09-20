@@ -96,7 +96,7 @@ describe('个人资料与通知中心全量功能后端测试', () => {
         {
           fullName: 'Emily Watson',
           nickname: 'Lisa',
-          phone: '+1 (555) 019-2834',
+          phone: '+1 (617) 555-0199',
           bio: '前台运营及门店管理负责人 · 专注于极致客户体验与高效店务调度',
           locale: 'zh',
           timezone: 'America/New_York',
@@ -113,7 +113,7 @@ describe('个人资料与通知中心全量功能后端测试', () => {
       const profile = await withTenant(ownerTenant(), (tx) => loadUserProfile(tx, ownerCtx));
       expect(profile.fullName).toBe('Emily Watson');
       expect(profile.nickname).toBe('Lisa');
-      expect(profile.phone).toBe('+15550192834');
+      expect(profile.phone).toBe('+16175550199');
       expect(profile.staffInfo?.isBookable).toBe(true);
       expect(profile.staffInfo?.maxConcurrentAppointments).toBe(2);
       expect(new Set(profile.staffInfo?.skillIds)).toEqual(new Set([gel.id, pedicure.id]));

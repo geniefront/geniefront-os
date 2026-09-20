@@ -755,6 +755,7 @@ registerHandler(AddStaff, async ({ input, ctx, tx, audit }: HandlerArgs<
     throw e;
   }
 
+  await initializeBookingSchedule(tx,ctx.locationId,m!.id);
   if (input.inRotation && (input.isBookable ?? true)) {
     const [loc] = await tx<{ tz: string; cutoff: string }[]>`
       select timezone as tz, business_day_cutoff::text as cutoff
@@ -939,7 +940,8 @@ registerHandler(StaffSaveProfile, async ({ input, ctx, tx, audit, emit }: Handle
         ${input.isBookable ?? true}, ${input.maxConcurrentAppointments ?? 1}
       )`;
 
-    if (input.inRotation && (input.isBookable ?? true)) {
+    await initializeBookingSchedule(tx,ctx.locationId,m!.id);
+  if (input.inRotation && (input.isBookable ?? true)) {
       const [loc] = await tx<{ tz: string; cutoff: string }[]>`
         select timezone as tz, business_day_cutoff::text as cutoff
         from locations where id = ${ctx.locationId}`;
@@ -1026,6 +1028,7 @@ registerHandler(StaffSaveProfile, async ({ input, ctx, tx, audit, emit }: Handle
 
   emit({ type: 'staff.changed', entityId: membershipId, membershipId });
 
+  if(isNew)await initializeBookingSchedule(tx,ctx.locationId,membershipId);
   return { membershipId, created: isNew };
 });
 
@@ -1161,3 +1164,9 @@ registerHandler(ReorderStaffDirectoryOptions, async ({ input, ctx, tx, audit, em
   emit({ type: 'staff.changed', entityId: ctx.locationId });
   return { kind: input.kind, count: want.length };
 });
+
+async function initializeBookingSchedule(tx: any, locationId:string, id:string) {
+ const [row]=await tx`select settings,business_hours from locations where id=${locationId} for update`;
+ const schedules={...row.settings.staff_booking_schedules,[id]:row.business_hours};
+ await tx`update locations set settings=jsonb_set(settings,'{staff_booking_schedules}',${jsonb(schedules)}::jsonb) where id=${locationId}`;
+}

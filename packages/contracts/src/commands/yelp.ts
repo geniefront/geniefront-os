@@ -8,6 +8,7 @@
  * 老板从列表里点了一家、逐项看过之后，把选中的字段写进 `locations`。
  */
 
+import { dayHoursSchema } from '../businessHours';
 import { z } from 'zod';
 import { defineCommand, uuid, phoneE164 } from '../command.js';
 
@@ -42,7 +43,7 @@ export const ApplyYelpBusiness = defineCommand({
     timezone: z.string().min(3).max(64).optional(),
     businessHours: z.record(
       z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']),
-      z.object({ open: hhmm, close: hhmm }).nullable(),
+      dayHoursSchema.nullable(),
     ).optional(),
 
     /** 权威评分。存下来老板端的口碑趋势就不依赖抓取成不成功（05 §8.1） */

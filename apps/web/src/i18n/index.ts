@@ -1,3 +1,4 @@
+import { voiceSettings } from './voiceSettings';
 import { email } from './email';
 /**
  * 多语言文案表的合并入口。
@@ -35,6 +36,7 @@ export { UI_LANGUAGES, DEFAULT_LANGUAGE } from './types';
 export const LANGUAGES = UI_LANGUAGES;
 
 const dict = {
+  ...voiceSettings,
   ...common,
   ...email,
   ...schedule,

@@ -4,10 +4,12 @@ import { registerHandler, type HandlerArgs } from '../bus';
 
 registerHandler(ApplyGoogleBusiness, async ({ input, ctx, tx, audit }: HandlerArgs<typeof ApplyGoogleBusiness.input._type>) => {
   const applied: string[] = [];
+  if (input.businessType) applied.push('businessType');
   if (input.name) applied.push('name'); if (input.phone) applied.push('phone');
   if (input.address) applied.push('address'); if (input.businessHours) applied.push('businessHours');
   await tx`update locations set
     google_place_id = ${input.googlePlaceId},
+    business_type = coalesce(${input.businessType ?? null}, business_type),
     name = coalesce(${input.name ? jsonb({ en: input.name }) : null}::jsonb, name),
     phone = coalesce(${input.phone ?? null}, phone),
     address = coalesce(${input.address ? jsonb(input.address) : null}::jsonb, address),

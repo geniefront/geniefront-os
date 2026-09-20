@@ -5,3 +5,4 @@ allowBuilds:
   esbuild: true
   "@zowe/secrets-for-zowe-sdk": true
   "heroui-native-pro": true
+  "@heroui-pro/react": false

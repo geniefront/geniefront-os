@@ -1,3 +1,4 @@
+import { weeklyHoursSchema } from '../businessHours';
 /**
  * AI 电话接单的命令（09-TELNYX §4，决策 6）
  *
@@ -473,7 +474,7 @@ export const SettingsSavePhoneAssistant = defineCommand({
   name: 'settings.savePhoneAssistant',
   input: z.object({
     greetingPrompt: z.string().optional(),
-    forwardPhoneNumber: z.string().optional(),
+    forwardPhoneNumber: phoneE164.or(z.literal('')).optional(),
     autoBookEnabled: z.boolean().optional(),
     tone: z.string().optional(),
     voiceTone: z.string().optional(),
@@ -493,7 +494,29 @@ export const SettingsSavePhoneAssistant = defineCommand({
 });
 
 
-export const PHONE_COMMANDS = [
+export const SaveVoiceNotifications = defineCommand({
+  name: 'settings.saveVoiceNotifications',
+  input: z.object({ email: z.string().email().nullable(), phone: phoneE164.nullable() }),
+  output: z.object({ saved: z.boolean() }),
+  permission: 'settings.manage', reversible: true, idempotency: 'optional',
+  ai: { description: '设置店主接收通话摘要的邮箱和手机号。空值关闭该渠道。', confirm: 'always' },
+});
+
+export const SaveVoiceBookingRules = defineCommand({
+  name: 'settings.saveVoiceBookingRules',
+  input: z.object({ maxDaysAhead:z.number().int().min(1).max(365), minMinutesAhead:z.number().int().min(0).max(1440) }),
+  output:z.object({ saved:z.boolean() }), permission:'settings.manage', reversible:true, idempotency:'optional',
+  ai:{ description:'设置电话预约最远可约天数和最短提前时间。', confirm:'always' },
+});
+
+const weeklyHours = weeklyHoursSchema;
+export const SaveStaffBookingSchedule = defineCommand({
+ name:'staff.saveBookingSchedule',input:z.object({membershipId:uuid,hours:weeklyHours}),output:z.object({saved:z.boolean()}),permission:'staff.manage',reversible:true,idempotency:'optional',ai:{description:'设置员工每周预约排班。',confirm:'always'},
+});
+export const SaveVoiceCapacity = defineCommand({
+ name:'settings.saveVoiceCapacity',input:z.object({baseCapacity:z.number().int().min(1).max(100).nullable(),extraSlots:z.number().int().min(0).max(10)}),output:z.object({saved:z.boolean()}),permission:'settings.manage',reversible:true,idempotency:'optional',ai:{description:'设置按在岗技师计算的容量及待分配额外名额。',confirm:'always'},
+});
+export const PHONE_COMMANDS = [SaveStaffBookingSchedule, SaveVoiceCapacity,SaveVoiceBookingRules, SaveVoiceNotifications,
   DraftFromCall, ReviewCallDraft, RecordCall, AttachCallTranscript, SavePhoneLine,
   SavePhoneAssistantLine, RequestAiVoice, SaveAiChangePolicy, SettingsSavePhoneAssistant,
 ] as const;

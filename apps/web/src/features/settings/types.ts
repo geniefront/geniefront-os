@@ -1,3 +1,4 @@
+import type { PublicBookingProfile } from '@gf/contracts';
 /**
  * 系统设置类型定义。
  *
@@ -15,7 +16,7 @@ export interface LocationSettings {
   addressCity?: string;
   addressState?: string;
   addressZip?: string;
-  businessHours: Record<string, { open: string; close: string } | null>;
+  businessHours: Record<string, { open: string; close: string; periods?: Array<{open:string;close:string}> } | null>;
   businessDayCutoff: string;
   status: string;
   hasAddress: boolean;
@@ -28,6 +29,7 @@ export interface LocationSettings {
 }
 
 export interface ServiceItem {
+  presentation?:{imageUrl:string;description:string};
   id: string;
   categoryId: string | null;
   name: Record<string, string>;
@@ -181,6 +183,8 @@ export interface WebhookConfigItem {
 export type EmailLocale = 'en' | 'zh-Hans' | 'zh-Hant' | 'ko' | 'vi' | 'es';
 
 export interface DeskSettings {
+  publicBookingProfile?: PublicBookingProfile;
+  publicBookingResourceTypes?:Array<{id:string;name:Record<string,string>}>;
   location: LocationSettings;
   /** 账单类邮件的语言。事实源是 organizations.default_locale */
   emailLocale?: EmailLocale;
@@ -191,6 +195,8 @@ export interface DeskSettings {
   skills: Array<{ id: string; key: string; name: string; active: boolean }>;
   guest: GuestSettings;
   phone: PhoneSettings;
+  voiceBookingRules?: { maxDaysAhead: number; minMinutesAhead: number };
+  voiceNotifications?: { email: string | null; phone: string | null };
   phoneAssistant?: PhoneAssistantSettings;
   checkout?: CheckoutSettings;
   tenDlc?: TenDlcStatusInfo;
@@ -203,8 +209,8 @@ export interface SaveLocationProfileInput {
   slug?: string;
   timezone?: string;
   businessType?: 'nail' | 'massage' | 'foot_spa' | 'lash' | 'scalp' | 'hair' | 'mixed';
-  phone?: string;
-  email?: string;
+  phone?: string | null;
+  email?: string | null;
   addressStreet?: string;
   addressCity?: string;
   addressState?: string;
@@ -214,10 +220,11 @@ export interface SaveLocationProfileInput {
 }
 
 export interface SaveBusinessHoursInput {
-  hours: Record<string, { open: string; close: string } | null>;
+  hours: Record<string, { open: string; close: string; periods?: Array<{open:string;close:string}> } | null>;
 }
 
 export interface SaveServiceInput {
+  presentation?:{imageUrl:string;description:string};
   serviceId?: string;
   categoryId?: string | null;
   name: Record<string, string>;

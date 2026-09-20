@@ -136,3 +136,11 @@ describe('闸门', () => {
     })).toBeNull();
   });
 });
+
+// A booking must fit one complete opening period, including its end time.
+describe('split opening hours',()=>{
+ const hours={mon:{open:'09:00',close:'18:00',periods:[{open:'09:00',close:'12:00'},{open:'13:00',close:'18:00'}]}};
+ const check=(start:string,end:string)=>checkBusinessHours({businessDate:MON,timezone:NY,hours,startsAt:new Date(`${MON}T${start}:00-04:00`),endsAt:new Date(`${MON}T${end}:00-04:00`)});
+ it('allows appointments ending at lunch and starting after lunch',()=>{expect(check('11:00','12:00')).toBeNull();expect(check('13:00','14:00')).toBeNull();});
+ it('rejects appointments during or across lunch',()=>{expect(check('12:00','12:30')).not.toBeNull();expect(check('11:30','13:30')).not.toBeNull();});
+});

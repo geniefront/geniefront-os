@@ -1,3 +1,4 @@
+import {defaultBookingMedia,bookingMediaUrl} from '@gf/contracts';
 /**
  * 公开预约 API —— 门店官网上的「在线预约」（docs/13）。
  *
@@ -22,15 +23,13 @@
  * 把 Turnstile 放前面的话，每一个傻脚本都要花掉我们一次 Cloudflare 往返。
  */
 
-import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { AppError, ERROR_CODES, pickText, phoneE164 } from '@gf/contracts';
+import { AppError, ERROR_CODES, pickText, phoneE164, readPublicBookingProfile } from '@gf/contracts';
 import { withTenant, ts, parseTs, type PublicShopRow } from '@gf/db';
-import { businessDateOf, isBookableDate, wallMinuteToInstant } from '@gf/scheduling';
+import { businessDateOf, isBookableDate } from '@gf/scheduling';
 import { dispatch } from '../bus';
 import { quoteBundle } from '../queries/bundle';
-import { loadSlotContext } from '../queries/slots';
 import { flushEmails } from '../email/flush';
 import { flushSms } from '../sms/flush';
 import {
@@ -44,9 +43,10 @@ import { checkManagedRescheduleSlot, loadManagedAvailability } from './managedAv
 import { assertHuman } from './turnstile';
 import { checkRateLimits } from './rateLimit';
 import {
-  generateManageToken, hashManageToken, sameDigest, generateConfirmationCode,
+  generateManageToken, hashManageToken, sameDigest, generateConfirmationCode, replayableManageToken,
 } from './bookingToken';
 import '../handlers/appointment';
+import { loadPartyAvailability } from './partyAvailability';
 
 /**
  * 真人填这张表最快也要几秒：选日子、选时段、填名字、填手机号。
@@ -68,7 +68,9 @@ const originOf = (req: FastifyRequest): string | undefined =>
   typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
 
 function publicShopPayload(shop: PublicShopRow, locale: string) {
+  const {services: _services, shopNotifications: _notifications, ...publicProfile} = readPublicBookingProfile(shop.settings);
   return {
+    publicProfile:{...publicProfile,coverUrl:publicProfile.coverUrl || bookingMediaUrl('spa')},
     name: pickText(shop.name, locale),
     slug: shop.slug,
     timezone: shop.timezone,
@@ -87,6 +89,8 @@ function publicShopPayload(shop: PublicShopRow, locale: string) {
       rescheduleEnabled: shop.onlineBooking.rescheduleEnabled,
       rescheduleCutoffHours: shop.onlineBooking.rescheduleCutoffHours,
       selfRescheduleMax: shop.onlineBooking.selfRescheduleMax,
+      allowClientPickStaff: shop.onlineBooking.allowClientPickStaff,
+      cancellationPolicyNotice: shop.onlineBooking.cancellationPolicyNotice,
     },
     turnstileSiteKey: process.env['TURNSTILE_SITE_KEY'] ?? null,
   };
@@ -102,13 +106,16 @@ const bookingBody = z.object({
     phone: phoneE164,
     email: z.string().email().max(200).optional(),
     smsOptIn: z.boolean().default(false),
+    bookingSmsConsent: z.boolean().default(false),
   }),
   items: z.array(z.object({
+    guestIndex: z.number().int().min(0).max(9).optional(),
+    quotedPriceCents: z.number().int().nonnegative().optional(),
     serviceId: z.string().uuid(),
     addonIds: z.array(z.string().uuid()).max(6).default([]),
     staffId: z.string().uuid().nullable().default(null),
     startsAt: z.string().datetime({ offset: true }),
-  })).max(8).default([]),
+  })).max(20).default([]),
   /**
    * 组合套餐选择（U10 / 计划 §7）。官网只提供 bundleId + 起始时刻 +（可选）
    * 额外加项；技师指派、额外优惠、模板版本一律不接受客户端传入 —— 展开、
@@ -116,6 +123,7 @@ const bookingBody = z.object({
    */
   bundleSelections: z.array(z.object({
     bundleId: z.string().uuid(),
+    expectedVersion: z.number().int().positive().optional(),
     startsAt: z.string().datetime({ offset: true }),
     extraAddons: z.array(z.object({
       ref: z.string().min(1).max(64),
@@ -165,6 +173,7 @@ const cancelBody = z.object({
 const rescheduleBody = z.object({
   manageToken: z.string().min(8).max(200),
   last4: z.string().regex(/^\d{4}$/).optional(),
+  requestId: z.string().uuid().optional(),
   startsAt: z.string().datetime({ offset: true }),
   turnstileToken: z.string().min(1).max(4096).optional(),
 });
@@ -202,10 +211,12 @@ export function registerPublicRoutes(app: FastifyInstance): void {
   }>('/public/v1/hosted/shops/:slug', async (req) => {
     const shop = await resolveHostedShop(req.params.slug);
     assertOriginAllowed(originOf(req), shop);
-    return {
-      ...publicShopPayload(shop, localeOf(req.query.locale, shop)),
-      publicKey: shop.publicKey,
-    };
+    const locale=localeOf(req.query.locale,shop);
+    const team=await withTenant({orgId:shop.orgId,locationId:shop.locationId,membershipId:null},async tx=>{
+      const rows=await tx<{id:string;name:unknown;avatar_url:string|null;bio:unknown}[]>`select sp.membership_id as id,sp.display_name as name,sp.photo_url as avatar_url,sp.bio from staff_profiles sp join memberships m on m.id=sp.membership_id where sp.location_id=${shop.locationId} and sp.is_bookable and m.status='active' order by sp.display_name->>'en',sp.membership_id`;
+      return rows.map(p=>({id:p.id,displayName:pickText(p.name,locale),avatarUrl:p.avatar_url,bio:p.bio?pickText(p.bio,locale):null}));
+    });
+    return {...publicShopPayload(shop,locale),publicKey:shop.publicKey,team};
   });
 
   // Token bootstrap for /l/{slug}#g/{token}. Token is in the JSON body so
@@ -233,7 +244,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
         }
         return {
           publicKey: shop.publicKey,
-          shop: publicShopPayload(shop, locale),
+          shop: {...publicShopPayload(shop, locale),publicKey:shop.publicKey},
           booking,
         };
       });
@@ -268,9 +279,11 @@ export function registerPublicRoutes(app: FastifyInstance): void {
   // ⚠️ 只返回老板逐项勾过 `online_bookable` 的。没勾的（要面谈报价的美睫、
   // 只给熟客做的项目）**不在这里出现**，也不许被绕过 —— 见 §4 的校验。
   app.get<{ Querystring: { locale?: string } }>('/public/v1/services', async (req) => {
-    const shop = await resolveShop(req.headers, { requireOnlineBooking: true });
+    const shop = await resolveShop(req.headers);
     assertOriginAllowed(originOf(req), shop);
     const locale = localeOf(req.query.locale, shop);
+    const profile=readPublicBookingProfile(shop.settings);
+    const visibleIds=Object.entries(profile.services).filter(([,v])=>v.visible===true).map(([id])=>id);
 
     return withTenant(
       { orgId: shop.orgId, locationId: shop.locationId, membershipId: null },
@@ -281,19 +294,21 @@ export function registerPublicRoutes(app: FastifyInstance): void {
 
         const rows = await tx<{
           id: string; category_id: string | null; name: unknown; description: unknown;
-          duration_min: number; base_price_cents: number; is_addon: boolean;
+          duration_min: number; base_price_cents: number; is_addon: boolean; online_bookable: boolean; staff_count: number;
         }[]>`
-          select id, category_id, name, description, duration_min, base_price_cents, is_addon
+          select id, category_id, name, description, duration_min, base_price_cents, is_addon, online_bookable, staff_count
           from services
           where location_id = ${shop.locationId}
-            and active = true and online_bookable = true
+            and active = true and (online_bookable = true or id = any(${visibleIds}))
           order by sort, id`;
 
-        const shaped = rows.map((r) => ({
+        const shaped = rows.filter(r=>profile.services[r.id]?.visible!==false).sort((a,b)=>(profile.services[a.id]?.sort??0)-(profile.services[b.id]?.sort??0)).map((r) => ({
           id: r.id,
+          onlineBookable: r.online_bookable && r.staff_count === 1,
+          imageUrl: profile.services[r.id]?.imageUrl || defaultBookingMedia(pickText(r.name,'en')+' '+pickText(cats.find(c=>c.id===r.category_id)?.name,'en','')),
           categoryId: r.category_id,
           name: pickText(r.name, locale),
-          description: r.description ? pickText(r.description, locale, '') : null,
+          description: profile.services[r.id]?.description || (r.description ? pickText(r.description, locale, '') : null),
           durationMin: r.duration_min,
           priceCents: r.base_price_cents,
           isAddon: r.is_addon,
@@ -312,7 +327,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
          * 服务端也不再接受把加项当主项目提交 —— 见 `priceAndDuration`。
          */
         return {
-          categories: cats.map((c) => ({ id: c.id, name: pickText(c.name, locale) })),
+          categories: cats.filter(c=>shaped.some(s=>!s.isAddon&&s.categoryId===c.id)).map((c) => ({ id: c.id, name: pickText(c.name, locale) })),
           services: shaped.filter((x) => !x.isAddon),
           addons: shaped.filter((x) => x.isAddon),
         };
@@ -345,20 +360,21 @@ export function registerPublicRoutes(app: FastifyInstance): void {
         const components = await tx<{
           bundle_id: string; service_id: string; qty: number; seq: number;
           included_addon_ids: string[]; svc_name: unknown; base_price_cents: number;
-          duration_min: number; svc_active: boolean;
+          duration_min: number; svc_active: boolean; staff_count: number;
         }[]>`
           select c.bundle_id, c.service_id, c.qty, c.seq, c.included_addon_ids,
-                 s.name as svc_name, s.base_price_cents, s.duration_min, s.active as svc_active
+                 s.name as svc_name, s.base_price_cents, (s.duration_min+s.buffer_before_min+s.buffer_after_min) as duration_min, s.active as svc_active, s.staff_count
           from service_bundle_components c
           join services s on s.id = c.service_id
           where c.bundle_id = any(${bundles.map((b) => b.id)})
           order by c.seq, c.id`;
         const addonIds = [...new Set(components.flatMap((c) => c.included_addon_ids))];
-        const addonById = new Map(
-          addonIds.length === 0 ? [] : (await tx<{ id: string; base_price_cents: number }[]>`
-            select id, base_price_cents from services where id = any(${addonIds})`)
-            .map((a) => [a.id, a.base_price_cents] as const),
-        );
+        const addonRows=addonIds.length?await tx<{id:string;base_price_cents:number;duration_min:number;active:boolean}[]>`
+          select id,base_price_cents,(duration_min+buffer_before_min+buffer_after_min) as duration_min,active
+          from services where location_id=${shop.locationId} and id=any(${addonIds})`:[];
+        const addonById=new Map(addonRows.map(a=>[a.id,a.base_price_cents]));
+        const addonMinutes=new Map(addonRows.map(a=>[a.id,a.duration_min]));
+        const activeAddons=new Set(addonRows.filter(a=>a.active).map(a=>a.id));
 
         return {
           bundles: bundles.map((b) => {
@@ -383,9 +399,9 @@ export function registerPublicRoutes(app: FastifyInstance): void {
                 seq: c.seq,
                 listPriceCents: c.base_price_cents
                   + c.included_addon_ids.reduce((m, id) => m + (addonById.get(id) ?? 0), 0),
-                durationMin: c.duration_min,
+                durationMin: c.duration_min+c.included_addon_ids.reduce((n,id)=>n+(addonMinutes.get(id)??0),0),
               })),
-              bookable: comps.every((c) => c.svc_active),
+              bookable: comps.length>0 && comps.reduce((n,c)=>n+c.qty,0)<=20 && comps.every((c) => c.svc_active && c.staff_count===1 && c.included_addon_ids.every(id=>activeAddons.has(id))),
             };
           }),
         };
@@ -434,8 +450,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
 
   // ── 3. 空档 ───────────────────────────────────────────────────────────────
   //
-  // ⭐ 走的是 `loadSlotContext` —— 和 AI 电话、和前台「最近有空」**同一份答案**。
-  // 三边看到的必须一致，否则官网上报的时间前台会说没有（宪法第 2 条）。
+  // Public availability and creation share the complete item planner and capacity engine.
   app.get<{ Querystring: {
     date?: string; serviceId?: string; addonIds?: string; staffId?: string;
     bundleId?: string; excludeBookingId?: string;
@@ -476,62 +491,45 @@ export function registerPublicRoutes(app: FastifyInstance): void {
     return withTenant(
       { orgId: shop.orgId, locationId: shop.locationId, membershipId: null },
       async (tx) => {
-        let durationMin: number;
-        if (bundleId) {
-          const [bundle] = await tx<{ id: string }[]>`
-            select id from service_bundles
-            where id = ${bundleId} and location_id = ${shop.locationId}
-              and active = true and online_bookable = true`;
-          if (!bundle) {
-            throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-              details: { reason: 'bundle_not_online_bookable', bundleId },
-            });
-          }
-          const quote = await quoteBundle(tx, { locationId: shop.locationId }, {
-            bundleId, extraAddons: [], extraDiscountCents: 0, extraDiscountKind: 'manual',
-          });
-          durationMin = quote.units.reduce((n, u) => n + u.durationMin, 0);
-        } else {
-          ({ durationMin } = await priceAndDuration(tx, shop, serviceId, addonIds));
+        if(!bundleId){
+          await priceAndDuration(tx,shop,serviceId,addonIds);
+          const result=await loadPartyAvailability(tx,shop,{date,excludeAppointmentId:excludeBookingId,
+            items:[{guestIndex:0,serviceId,addonIds,staffId}]});
+          const eligible=new Set(result.items[0]!.eligibleStaffIds);
+          return {date,timezone:shop.timezone,durationMin:result.items[0]!.durationMin,
+            slots:result.plans.map(p=>({startsAt:p.startsAt,staff:staffId?{id:staffId,displayName:pickText(result.staff.find(s=>s.id===staffId)?.name,'en')}:null})),
+            staff:result.staff.filter(s=>eligible.has(s.id)).map(s=>({id:s.id,displayName:pickText(s.name,'en'),avatarUrl:s.avatar})),
+          };
         }
-
-        // 正午作锚点求那一天：cutoff 最晚也就凌晨几点，正午永远落在同一个营业日
-        const around = wallMinuteToInstant(date, shop.timezone, 12 * 60);
-        const ctxSlots = await loadSlotContext(
-          tx, shop.locationId, around, durationMin, staffId,
-          { limit: 400, excludeAppointmentId: excludeBookingId });
-
-        // 太急的单不让在线订（docs/13 §4.1）
-        const earliest = Date.now() + shop.onlineBooking.minMinutesAhead * 60_000;
-        const usable = ctxSlots.slots.filter((s) => s.startsAt.getTime() >= earliest);
-
-        /**
-         * 没指定技师时按时刻去重。
-         *
-         * `findOpenSlots` 有意在同一时刻给每个有空的技师各返回一条
-         * （前台要看得见「谁有空」）。原样给官网的话，客人会看到
-         * 十点整出现三遍 —— 他会以为网站坏了。
-         */
-        const slots = staffId
-          ? usable.map((s) => ({
-              startsAt: s.startsAt.toISOString(),
-              staff: { id: s.membershipId, displayName: s.staffName },
-            }))
-          : dedupeByStart(usable);
-
-        // ⚠️ 只给 displayName，不给手机号、不给全名（决策 16 防挖客）
-        const staff = [...new Map(
-          ctxSlots.slots.map((s) => [s.membershipId, s.staffName]),
-        )].map(([id, displayName]) => ({ id, displayName, avatarUrl: null }));
-
-        return {
-          date: ctxSlots.businessDate || date,
-          timezone: shop.timezone,
-          durationMin,
-          slots,
-          staff,
-        };
+        const [bundle] = await tx<{ id: string }[]>`
+          select id from service_bundles where id=${bundleId} and location_id=${shop.locationId}
+            and active=true and online_bookable=true`;
+        if(!bundle)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'bundle_not_online_bookable',bundleId}});
+        const quote=await quoteBundle(tx,{locationId:shop.locationId},{bundleId,extraAddons:[],extraDiscountCents:0,extraDiscountKind:'manual'});
+        const result=await loadPartyAvailability(tx,shop,{date,excludeAppointmentId:excludeBookingId,
+          items:quote.units.map(u=>({guestIndex:0,serviceId:u.serviceId,addonIds:u.includedAddonIds,staffId:null})),
+          trustedUnits:quote.units.map(u=>({durationMin:u.durationMin,priceCents:u.netCents}))});
+        return {date,timezone:shop.timezone,durationMin:result.items.reduce((n,i)=>n+i.durationMin,0),
+          slots:result.plans.map(p=>({startsAt:p.startsAt,staff:null})),staff:[]};
       });
+  });
+
+  app.post<{ Body: unknown }>('/public/v1/party-availability', async (req) => {
+    const shop = await resolveShop(req.headers, { requireOnlineBooking: true });
+    assertOriginAllowed(originOf(req), shop);
+    const limit=await checkRateLimits([{scope:'party_availability_ip',id:req.ip,limit:60,windowSec:60}],req.log);
+    if(!limit.ok)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'too_many_attempts'}});
+    const args = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      items: z.array(z.object({ guestIndex: z.number().int().min(0).max(9),
+        serviceId: z.string().uuid(), addonIds: z.array(z.string().uuid()).max(6).default([]),
+        staffId: z.string().uuid().nullable().default(null),
+      })).min(1).max(20),
+    }).safeParse(req.body);
+    if (!args.success) throw new AppError(ERROR_CODES.VALIDATION_FAILED);
+    return withTenant({orgId:shop.orgId,locationId:shop.locationId,membershipId:null}, async tx => {
+      const result = await loadPartyAvailability(tx,shop,args.data);
+      return {...result,staff:result.staff.map(s=>({id:s.id,displayName:pickText(s.name,'en'),avatarUrl:s.avatar,bio:s.bio?pickText(s.bio,'en'):null}))};
+    });
   });
 
   // ── 4. 建预约 ─────────────────────────────────────────────────────────────
@@ -546,6 +544,9 @@ export function registerPublicRoutes(app: FastifyInstance): void {
       });
     }
     const body = parsed.data;
+    if(body.partySize>1 && (body.bundleSelections.length>0 || body.items.some(i=>i.guestIndex===undefined))) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'invalid_party'}});
+    }
 
     const idem = (req.headers['idempotency-key'] as string | undefined)?.trim();
     if (!idem || idem.length < 8 || idem.length > 200) {
@@ -554,24 +555,14 @@ export function registerPublicRoutes(app: FastifyInstance): void {
       });
     }
 
-    /**
-     * ⭐ 蜜罐 / 填表耗时：**假装成功**。
-     *
-     * 直接报错等于告诉对方「你被识破了，而且是在这一步」——
-     * 下一版脚本就会绕开。返回一个长得完全正常的 201，
-     * 库里一个字都不写：对方以为成功了，不会再试别的路子。
-     *
-     * ⚠️ 代价要认：真人万一撞上（比如浏览器自动填充填了蜜罐字段），
-     * 他会拿到一个假的确认码而门店根本没这条单。所以蜜罐字段
-     * 必须带 `autocomplete="off"` + `tabindex="-1"`（docs/13 §5），
-     * 而不是随便藏一个 input。
-     */
+    // Reject suspicious submissions without fabricating a booking: a real
+    // autofill user must never receive a confirmation for a nonexistent visit.
     const looksAutomated =
       (body.website ?? '').trim().length > 0 ||
       (body.formElapsedMs !== undefined && body.formElapsedMs < MIN_FILL_MS);
     if (looksAutomated) {
       req.log.info({ locationId: shop.locationId, reason: 'honeypot' }, 'public booking dropped');
-      return reply.status(201).send(fakeBooking(shop, body.items[0]!.startsAt));
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'booking_not_accepted'}});
     }
 
     const verdict = await checkRateLimits([
@@ -592,6 +583,23 @@ export function registerPublicRoutes(app: FastifyInstance): void {
 
     const locale = localeOf(body.locale, shop);
     const ctx = publicContext(shop, locale, req.ip);
+    const recoveryToken=replayableManageToken(shop.locationId,idem,{
+      customer:body.customer,items:body.items,bundleSelections:body.bundleSelections,partySize:body.partySize,notes:body.notes??'',
+    });
+    const replay = await withTenant(
+      {orgId:shop.orgId,locationId:shop.locationId,membershipId:null},async tx=>{
+        const [cached]=await tx<{id:string;manage_token_digest:string}[]>`
+          select a.id,a.manage_token_digest from command_idempotency c
+          join appointments a on a.id=(c.result_json->>'appointmentId')::uuid
+          where c.location_id=${shop.locationId} and c.key=${idem} and c.command='appointment.create'`;
+        if(!cached)return null;
+        if(!recoveryToken || !sameDigest(hashManageToken(recoveryToken),cached.manage_token_digest)) {
+          throw new AppError(ERROR_CODES.IDEMPOTENCY_KEY_REUSED);
+        }
+        return loadManagedBookingDetail(tx,shop,cached.id,locale);
+      });
+    if(replay) return reply.status(200).send({...replay,manageToken:recoveryToken,replayed:true,summary:replay});
+
 
     // ── 业务校验：官网传的一律不信（docs/13 §6.4）─────────────────────────
     const checked = await withTenant(
@@ -645,6 +653,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
           }
           bundles.push({
             bundleId: sel.bundleId,
+            ...(sel.expectedVersion!==undefined?{expectedVersion:sel.expectedVersion}:{}),
             startsAt: new Date(sel.startsAt).toISOString(),
             extraAddons: sel.extraAddons,
           });
@@ -666,7 +675,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
             isRequest: item.staffId !== null,
             resourceId: null,
             startsAt: startsAt.toISOString(),
-            details: {},
+            details: { publicGuestIndex: item.guestIndex ?? 0, quotedPriceCents: item.quotedPriceCents },
             durationMin,
             // Trusted server total (base + add-ons). Never a client-supplied price.
             priceCentsOverride: priceCents,
@@ -676,7 +685,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
       });
 
     // ── 建单 ──────────────────────────────────────────────────────────────
-    const manageToken = generateManageToken();
+    const manageToken = recoveryToken ?? generateManageToken();
     const confirmationCode = generateConfirmationCode(pickText(shop.name, 'en', 'GF'));
 
     const out = await dispatch<{ appointmentId: string; businessDate: string }>(
@@ -691,6 +700,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
         // ⚠️ override 永不传。公开入口没有软约束放行 —— 放行的判断
         // 需要一个知道店里现在什么情况的人，而这头没有这个人
         guest: {
+          bookingSmsConsent: body.customer.bookingSmsConsent,
           confirmationCode,
           manageToken,
           customer: {
@@ -711,24 +721,19 @@ export function registerPublicRoutes(app: FastifyInstance): void {
     void flushEmails(notify, req.log);
     void flushSms(notify, req.log);
 
-    // 展示用的「起始时刻」：优先散项，其次套餐第一子项（时刻取客户端所选、
-    // 服务端已校窗）。durationMin 仅散项有意义，纯套餐单返回 null。
-    const first = checked.items[0]
-      ?? { startsAt: checked.bundles[0]!.startsAt, durationMin: null as number | null };
-    /**
-     * ⭐ 重放（同一个幂等键再来一次）时**不能**返回新生成的令牌 ——
-     * 库里存的是第一次那个的摘要，新的这个验不过。
-     * 那会给客人一个看起来正常、但一按取消就 404 的令牌。
-     */
-    const replayed = out.replayed;
-    return reply.status(replayed ? 200 : 201).send({
-      bookingId: out.result.appointmentId,
-      confirmationCode: replayed ? null : confirmationCode,
-      manageToken: replayed ? null : manageToken,
-      replayed,
-      startsAt: first.startsAt,
-      durationMin: first.durationMin,
-      status: 'booked',
+    // Success is an authoritative committed snapshot, not the first input item.
+    const summary=await withTenant(
+      {orgId:shop.orgId,locationId:shop.locationId,membershipId:null},async tx=>{
+        if(out.replayed){
+          const [stored]=await tx<{manage_token_digest:string}[]>`select manage_token_digest from appointments where id=${out.result.appointmentId}`;
+          if(!recoveryToken || !stored || !sameDigest(hashManageToken(recoveryToken),stored.manage_token_digest)) {
+            throw new AppError(ERROR_CODES.IDEMPOTENCY_KEY_REUSED);
+          }
+        }
+        return loadManagedBookingDetail(tx,shop,out.result.appointmentId,locale);
+      });
+    return reply.status(out.replayed ? 200 : 201).send({
+      ...summary, bookingId:out.result.appointmentId, manageToken, replayed:out.replayed,summary,
     });
   });
 
@@ -830,8 +835,10 @@ export function registerPublicRoutes(app: FastifyInstance): void {
          * 保留他的轮次等于凭空给他记了一次没干过的活（04 §7）。
          */
         keepStaffTurn: false,
-      }, publicContext(shop, shop.defaultLocale, req.ip));
+      }, publicContext(shop, shop.defaultLocale, req.ip), {idempotencyKey:`public-cancel:${hashManageToken(parsed.data.manageToken)}`});
 
+      const delivery={orgId:shop.orgId,locationId:shop.locationId,membershipId:null};
+      void flushEmails(delivery,req.log);void flushSms(delivery,req.log);
       return { bookingId: appt.id, status: 'cancelled' };
     });
 
@@ -887,6 +894,14 @@ export function registerPublicRoutes(app: FastifyInstance): void {
 
       await assertLast4(shop, appt, parsed.data.last4);
 
+      if(parsed.data.requestId){
+        const [replay]=await withTenant({orgId:shop.orgId,locationId:shop.locationId,membershipId:null},tx=>tx`
+          select key from command_idempotency where location_id=${shop.locationId}
+            and key=${`public-reschedule:${appt.id}:${parsed.data.requestId}`} and command='appointment.reschedule'`);
+        if(replay)return {bookingId:appt.id,status:appt.status,startsAt:appt.starts_at,
+          rescheduleCountLeft:cfg.selfRescheduleMax>0?Math.max(0,cfg.selfRescheduleMax-appt.self_reschedule_count):null};
+      }
+
       const rescheduleBlock = guestRescheduleBlockReason({
         status: appt.status,
         startsAt: appt.starts_at,
@@ -938,21 +953,21 @@ export function registerPublicRoutes(app: FastifyInstance): void {
       await dispatch('appointment.reschedule', {
         appointmentId: appt.id,
         startsAt: target.toISOString(),
-      }, publicContext(shop, shop.defaultLocale, req.ip));
+      }, publicContext(shop, shop.defaultLocale, req.ip), parsed.data.requestId ? {idempotencyKey:`public-reschedule:${appt.id}:${parsed.data.requestId}`} : {});
 
-      // 计数 +1。⚠️ 放在改期成功**之后** —— 撞了容量的失败尝试不该消耗次数
-      await withTenant(
-        { orgId: shop.orgId, locationId: shop.locationId, membershipId: null },
-        (tx) => tx`
-          update appointments set self_reschedule_count = self_reschedule_count + 1
-          where id = ${appt.id}`);
+      // The handler increments the count under the same row/capacity lock.
+      const [current]=await withTenant(
+        {orgId:shop.orgId,locationId:shop.locationId,membershipId:null},
+        tx=>tx<{self_reschedule_count:number}[]>`select self_reschedule_count from appointments where id=${appt.id}`);
 
+      const delivery={orgId:shop.orgId,locationId:shop.locationId,membershipId:null};
+      void flushEmails(delivery,req.log);void flushSms(delivery,req.log);
       return {
         bookingId: appt.id,
         status: 'booked',
         startsAt: target.toISOString(),
         rescheduleCountLeft: cfg.selfRescheduleMax > 0
-          ? Math.max(0, cfg.selfRescheduleMax - appt.self_reschedule_count - 1) : null,
+          ? Math.max(0, cfg.selfRescheduleMax - (current?.self_reschedule_count ?? appt.self_reschedule_count + 1)) : null,
       };
     });
 }
@@ -975,14 +990,18 @@ type Tx = Parameters<Parameters<typeof withTenant>[1]>[0];
 async function priceAndDuration(
   tx: Tx, shop: PublicShopRow, serviceId: string, addonIds: readonly string[],
 ): Promise<{ durationMin: number; priceCents: number }> {
+  if (readPublicBookingProfile(shop.settings).services[serviceId]?.visible === false) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, {details:{entity:'service'}});
+  }
   const ids = [serviceId, ...addonIds];
+  const publicAddonIds=Object.entries(readPublicBookingProfile(shop.settings).services).filter(([,v])=>v.visible===true).map(([id])=>id);
   const rows = await tx<{
     id: string; duration_min: number; base_price_cents: number; is_addon: boolean;
   }[]>`
     select id, duration_min, base_price_cents, is_addon from services
     where id = any(${ids as string[]})
       and location_id = ${shop.locationId}
-      and active = true and online_bookable = true`;
+      and active = true and (online_bookable = true or (is_addon and id=any(${publicAddonIds})))`;
 
   const byId = new Map(rows.map((r) => [r.id, r]));
   for (const id of ids) {
@@ -1177,41 +1196,6 @@ async function assertLast4(
       shopPhone: shop.phone,
     },
   });
-}
-
-/**
- * 蜜罐命中时返回的假单。
- *
- * ⚠️ 形状必须和真的**一模一样**，否则等于给对方一个探针：
- * 一个固定的全零 uuid、一个 `durationMin: 0`，脚本试两次就认出来了，
- * 下一版就会绕开蜜罐。所以 id 是真随机的，确认码和令牌走同一套生成器。
- *
- * 唯一还留着的破绽是 `durationMin` —— 真的那条取自库里，这里取不到
- * （整条路刻意不碰数据库，不然蜜罐反而成了一个免费的查询入口）。
- * 60 是最常见的时长，对不上也只是「和我选的项目不一样」这种程度的信息。
- */
-function fakeBooking(shop: PublicShopRow, startsAt: string) {
-  return {
-    bookingId: randomUUID(),
-    confirmationCode: generateConfirmationCode(pickText(shop.name, 'en', 'GF')),
-    manageToken: generateManageToken(),
-    replayed: false,
-    startsAt,
-    durationMin: 60,
-    status: 'booked',
-  };
-}
-
-function dedupeByStart(slots: readonly { startsAt: Date }[]) {
-  const seen = new Set<number>();
-  const out: Array<{ startsAt: string; staff: null }> = [];
-  for (const s of slots) {
-    const t = s.startsAt.getTime();
-    if (seen.has(t)) continue;
-    seen.add(t);
-    out.push({ startsAt: s.startsAt.toISOString(), staff: null });
-  }
-  return out;
 }
 
 export { PUBLIC_KEY_HEADER };

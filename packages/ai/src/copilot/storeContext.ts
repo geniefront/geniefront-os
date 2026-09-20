@@ -85,7 +85,7 @@ export interface StoreProfile {
     address?: string | null | undefined;
     phone?: string | null | undefined;
     /** 周一到周日的营业时段，index 0 = 周日。null 表示当天不营业 */
-    hours: Array<{ weekday: string; open: string; close: string } | null>;
+    hours: Array<{ weekday: string; open: string; close: string; periods?:Array<{open:string;close:string}> } | null>;
     taxPercent?: string | null | undefined;
   };
   services: StoreProfileService[];
@@ -110,7 +110,7 @@ export function formatStoreProfile(p: StoreProfile): string {
   if (loc.taxPercent) lines.push(`TAX: ${loc.taxPercent}%`);
 
   const hourBits = loc.hours
-    .map((h) => (h ? `${h.weekday} ${h.open}-${h.close}` : null))
+    .map((h) => (h ? `${h.weekday} ${(h.periods??[{open:h.open,close:h.close}]).map(p=>`${p.open}-${p.close}`).join(", ")}` : null))
     .filter((x): x is string => Boolean(x));
   const closedBits = loc.hours
     .map((h, i) => (h ? null : (WEEKDAY_LABELS[i] as string | undefined)))

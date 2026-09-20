@@ -29,6 +29,7 @@
 import type { FastifyInstance } from 'fastify';
 import { sql, withTenant } from '@gf/db';
 import type { CommandContext } from '@gf/contracts';
+import { bookingSummary } from './bookingSummary';
 import { notifyEvent } from './dispatch';
 import { guestManageLink, manageUrlVar } from './manageUrl';
 import { appointmentServiceLabel } from './appointmentServiceLabel';
@@ -112,6 +113,18 @@ async function enqueueOneReminder(
   tenant: { orgId: string; locationId: string },
   appointmentId: string,
 ): Promise<number> {
+  // The scan is only a hint. Serialize with mutations and recheck the date
+  // after acquiring the row lock so a cancelled/moved booking cannot enqueue
+  // a stale reminder between the sweep and rendering.
+  const [current] = await tx`select a.id from appointments a
+    join locations l on l.id = a.location_id
+    where a.id = ${appointmentId} and a.location_id = ${tenant.locationId}
+      and a.status = 'booked'
+      and (a.starts_at at time zone l.timezone)::date
+          = ((now() at time zone l.timezone)::date + 1)
+    for update of a`;
+  if (!current) return 0;
+
   const [row] = await tx<{
     email: string | null; phone: string | null; customer_name: unknown;
     shop_name: unknown; timezone: string; slug: string; service_name: unknown;
@@ -122,7 +135,7 @@ async function enqueueOneReminder(
     select c.email, c.phone_e164 as phone, c.display_name as customer_name,
            l.name as shop_name, l.timezone, l.slug,
            s.name as service_name, sp.display_name as staff_name,
-           ai.starts_at::text as starts_at,
+           a.starts_at::text as starts_at,
            a.manage_token_digest, a.manage_token_wrapped
     from appointments a
     join locations l on l.id = a.location_id
@@ -173,6 +186,7 @@ async function enqueueOneReminder(
 
   return notifyEvent(tx, ctx, {
     event: 'appointment_reminder',
+    emailDetails: await bookingSummary(tx,tenant.locationId,appointmentId),
     entityType: 'appointment',
     entityId: appointmentId,
     vars,

@@ -233,8 +233,8 @@ export function buildServer(): FastifyInstance {
    * 从来不影响 HTTP 路由。判据因此挪到 `def.system` 上。
    *
    * 挡在入口而不是只挡在总线里，是因为合法编排必须继续走得通：
-   * `/v1/billing/topup` 是在 Stripe 真的扣款成功之后、拿着老板的 ctx
-   * 去记那一笔的。能不能执行由**谁在调**决定，不是由**谁登录了**决定。
+   * Stripe 支付成功 webhook 通过内部编排记录充值。
+   * 能不能执行由**谁在调**决定，不是由**谁登录了**决定。
    */
   const systemOnlyCommands = new Set(
     registeredCommands().filter((c) => c.system === true).map((c) => c.name),

@@ -1,3 +1,6 @@
+import { DeliveryHistory } from '@/features/voice-plan/DeliveryHistory';
+import { useEntitlements } from '@/features/billing/useEntitlements';
+import { formatPhoneDisplay } from '@gf/contracts';
 import { useMemo, useState, useEffect } from "react";
 import { useErrorMessage } from '@/lib/errorMessage';
 import { useStoreTime } from '@/lib/time';
@@ -43,6 +46,11 @@ import type { InboundSms } from "@/features/comms/types";
 import { useNavigate } from "react-router-dom";
 
 export function Messages() {
+  const plan = useEntitlements(); const { t } = useLanguage();
+  if (!plan.data) return <div className="p-6">{t(plan.isError ? 'genericFailure' : 'setupReadinessLoading')}</div>;
+  return plan.data.plan === 'voice_booking' ? <DeliveryHistory /> : <FullMessages />;
+}
+function FullMessages() {
   const storeTime = useStoreTime();
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
@@ -380,7 +388,7 @@ export function Messages() {
                           {msg.customers[0]?.name ? msg.customers[0].name.charAt(0) : t('crm.msgGuestShort')}
                         </div>
                         <span className="font-bold text-slate-900 truncate">
-                          {msg.customers[0]?.name || msg.fromE164}
+                          {msg.customers[0]?.name || formatPhoneDisplay(msg.fromE164)}
                         </span>
                       </div>
                       <span className="text-[10px] text-slate-400 font-mono shrink-0">
@@ -426,7 +434,7 @@ export function Messages() {
                     <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
                       <span>{selectedSms.customers[0]?.name || t('crm.msgCustomer')}</span>
                       <span className="text-xs text-slate-400 font-mono font-normal">
-                        {selectedSms.fromE164}
+                        {formatPhoneDisplay(selectedSms.fromE164)}
                       </span>
                     </h3>
                     <p className="text-[11px] text-slate-500 flex items-center gap-1">
@@ -771,7 +779,7 @@ export function Messages() {
               
               {t('crm.msgRecipientPhone')}
             </label>
-            <Input
+            <Input type="tel"
               {...smsForm.bind('phone')}
               value={newSmsToPhone}
               onChange={(e) => { setNewSmsToPhone(e.target.value); smsForm.clearField('phone'); }}
@@ -815,8 +823,8 @@ export function Messages() {
             <div className="space-y-2 text-xs text-slate-600 mt-2">
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
                 <div className="flex items-center justify-between font-bold text-slate-800">
-                  <span>{t('crm.msgRecipientLabel')} {selectedSms.customers[0]?.name || selectedSms.fromE164}</span>
-                  <span className="font-mono text-teal-700">{selectedSms.fromE164}</span>
+                  <span>{t('crm.msgRecipientLabel')} {selectedSms.customers[0]?.name || formatPhoneDisplay(selectedSms.fromE164)}</span>
+                  <span className="font-mono text-teal-700">{formatPhoneDisplay(selectedSms.fromE164)}</span>
                 </div>
                 <p className="text-slate-700 bg-white p-2.5 rounded-lg border border-slate-100 italic leading-relaxed">
                   "{replyText}"
@@ -847,7 +855,7 @@ export function Messages() {
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
               <p>
                 <span className="font-bold text-slate-800">{t('crm.msgRecipientNumber')} </span>
-                <span className="font-mono font-bold text-teal-700">{newSmsToPhone}</span>
+                <span className="font-mono font-bold text-teal-700">{formatPhoneDisplay(newSmsToPhone)}</span>
               </p>
               <p className="text-slate-700 bg-white p-2.5 rounded-lg border border-slate-100 italic leading-relaxed">
                 "{newSmsBody}"

@@ -1,3 +1,4 @@
+import { normalizePhoneE164 } from '@gf/contracts';
 /**
  * Stripe webhook 的开户分支（docs/12 §3 A，契约见 docs/11 §3）。
  *
@@ -83,7 +84,7 @@ function readMetadata(session: Stripe.Checkout.Session): SignupMetadata {
     timezone: m['gf_timezone'] ?? '',
     locale,
     plan: m['gf_plan'] ?? '',
-    phone: m['gf_phone'] || null,
+    phone: normalizePhoneE164(m['gf_phone'] ?? ''),
   };
 }
 

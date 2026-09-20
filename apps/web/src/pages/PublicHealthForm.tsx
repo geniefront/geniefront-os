@@ -1,3 +1,4 @@
+import { formatPhoneDisplay } from '@gf/contracts';
 import { useState, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { toast } from '@heroui/react';
@@ -341,7 +342,7 @@ export function PublicHealthForm() {
           <ShieldAlert className="mx-auto mb-4 h-10 w-10 text-rose-500" />
           <h1 className="text-lg font-black text-slate-900">{copy('unavailableTitle')}</h1>
           <p className="mt-2 text-sm text-slate-500">{copy('unavailableBody')}</p>
-          {publicForms.data?.shopPhone && <p className="mt-4 font-mono text-sm text-teal-700">{publicForms.data.shopPhone}</p>}
+          {publicForms.data?.shopPhone && <p className="mt-4 font-mono text-sm text-teal-700">{formatPhoneDisplay(publicForms.data.shopPhone)}</p>}
         </div>
       </div>
     );
@@ -439,12 +440,12 @@ export function PublicHealthForm() {
                   <label className="block font-bold text-slate-700 mb-1">
                     {copy('phoneNumber')} <span className="text-red-500">*</span>
                   </label>
-                  <Input
+                  <Input type="tel"
                     required
                     value={clientInfo.phone}
-                    onChange={(e) => setClientInfo({ ...clientInfo, phone: formatPhoneInput(e.target.value) })}
+                    onChange={(e) => setClientInfo({ ...clientInfo, phone: e.target.value })}
                     placeholder="(555) 123-4567"
-                    maxLength={14}
+                    maxLength={32}
                     className="text-xs font-mono"
                   />
                 </div>
@@ -474,11 +475,11 @@ export function PublicHealthForm() {
                   <label className="block font-bold text-slate-700 mb-1">
                     {copy('emergencyPhone')}
                   </label>
-                  <Input
+                  <Input type="tel"
                     value={clientInfo.emergencyPhone}
-                    onChange={(e) => setClientInfo({ ...clientInfo, emergencyPhone: formatPhoneInput(e.target.value) })}
+                    onChange={(e) => setClientInfo({ ...clientInfo, emergencyPhone: e.target.value })}
                     placeholder="(555) 987-6543"
-                    maxLength={14}
+                    maxLength={32}
                     className="text-xs font-mono"
                   />
                 </div>

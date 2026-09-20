@@ -74,6 +74,8 @@ export interface CustomerDetail {
   /** Append-only ledger sum; hidden from roles that cannot see customer contact/financial details. */
   storeCreditBalanceCents: number | null;
 
+  recentAppointments: Array<{ id: string; startsAt: string; status: string }>;
+
   recentTickets: Array<{
     id: string; businessDate: string; status: string;
     totalCents: number | null; serviceNames: string[];
@@ -184,6 +186,10 @@ export async function loadCustomerDetail(
     where fs.customer_id = ${customerId} and fs.location_id = ${ctx.locationId}
     order by fs.created_at desc limit 20`;
 
+  const appointments = ctx.permissions.has('appointment.read') ? await tx<{ id: string; starts_at: Date | string; status: string }[]>`
+    select id,starts_at,status from appointments where location_id=${ctx.locationId} and customer_id=${customerId}
+    order by starts_at desc limit 20` : [];
+
   const lastVisit = v?.last_at ? new Date(`${v.last_at}T12:00:00Z`).getTime() : null;
 
   return {
@@ -236,6 +242,8 @@ export async function loadCustomerDetail(
     })),
 
     storeCreditBalanceCents: canSeeContact ? (storeCredit?.balance ?? 0) : null,
+
+    recentAppointments: appointments.map(a => ({ id:a.id, startsAt:parseTs(a.starts_at).toISOString(), status:a.status })),
 
     recentTickets: tkRows.map((t) => ({
       id: t.id, businessDate: t.business_date, status: t.status,
