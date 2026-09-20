@@ -1,6 +1,7 @@
 /* Public booking experience copy. Keys are the English source text. */
 export const PUBLIC_COPY: Record<string, Record<string, string>> = {
   "zh-Hans": {
+    selected: "已选",
     "Specialist to be assigned": "待分配技师",
     Guests: "人数",
     Services: "项目",
@@ -202,6 +203,7 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Not selected yet": "尚未选择",
   },
   en: {
+    selected: "selected",
     Guests: "Guests",
     Services: "Services",
     Specialists: "Specialists",
@@ -415,6 +417,7 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Not selected yet": "Not selected yet",
   },
   es: {
+    selected: "seleccionados",
     "Specialist to be assigned": "Especialista por asignar",
     Guests: "Invitados",
     Services: "Servicios",
@@ -630,6 +633,7 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Not selected yet": "Sin seleccionar",
   },
   vi: {
+    selected: "đã chọn",
     "Specialist to be assigned": "Chờ phân công nhân viên",
     Guests: "Khách",
     Services: "Dịch vụ",
@@ -841,6 +845,7 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Not selected yet": "Chưa chọn",
   },
   ko: {
+    selected: "선택됨",
     "Specialist to be assigned": "직원 배정 대기",
     Guests: "고객",
     Services: "서비스",

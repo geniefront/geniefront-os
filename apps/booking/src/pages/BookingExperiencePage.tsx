@@ -287,41 +287,29 @@ export function BookingExperiencePage() {
         <p className="empty-bag">{t("Select a service")}</p>
       ) : (
         <ul className="bag-items">
-          {items.map((item, index) => {
+          {items.map((item, index) => ({ item, index }))
+            .sort((a, b) => a.item.guestIndex - b.item.guestIndex)
+            .map(({ item, index }, position, sorted) => {
             const svc = selectedServices[index];
+            const addons = catalog?.addons.filter((a) => item.addonIds.includes(a.id)) ?? [];
+            const startsGuest = position === 0 || sorted[position - 1]!.item.guestIndex !== item.guestIndex;
             return (
               <li key={`${index}:${item.serviceId}`}>
+                {startsGuest && partySize > 1 && <h3 className="bag-guest-heading">{t("Guest")} {item.guestIndex + 1}</h3>}
                 <div className="bag-item-title">
                   <strong>{svc?.name}</strong>
                   <span>
-                    {money(
-                      (svc?.priceCents ?? 0) +
-                        (catalog?.addons
-                          .filter((a) => item.addonIds.includes(a.id))
-                          .reduce((n, a) => n + a.priceCents, 0) ?? 0),
-                      shop.currency,
-                    )}
+                    {money(svc?.priceCents ?? 0, shop.currency)}
                   </span>
                 </div>
-                <p>
-                  {partySize > 1
-                    ? `${t("Guest")} ${item.guestIndex + 1} · `
-                    : ""}
-                  {duration(
-                    (svc?.durationMin ?? 0) +
-                      (catalog?.addons
-                        .filter((a) => item.addonIds.includes(a.id))
-                        .reduce((n, a) => n + a.durationMin, 0) ?? 0),
-                  )}
-                </p>
-                {item.addonIds.length > 0 && (
-                  <p>
-                    {catalog?.addons
-                      .filter((a) => item.addonIds.includes(a.id))
-                      .map((a) => a.name)
-                      .join(" · ")}
-                  </p>
-                )}
+                <p>{duration(svc?.durationMin ?? 0)}</p>
+                {addons.map((addon) => (
+                  <div className="bag-addon" key={addon.id}>
+                    <span>+ {addon.name}<small>+ {duration(addon.durationMin)}</small></span>
+                    <span>{money(addon.priceCents, shop.currency)}</span>
+                  </div>
+                ))}
+                {addons.length > 0 && <p className="bag-item-duration">{t("Total service time:")} {duration((svc?.durationMin ?? 0) + addons.reduce((n, a) => n + a.durationMin, 0))}</p>}
                 <div className="bag-item-actions">
                   <Button
                     variant="ghost"
@@ -487,6 +475,28 @@ export function BookingExperiencePage() {
                         {t("Shop details")} <span aria-hidden="true">↗</span>
                       </Button>
                     </div>
+                  </div>
+                  {!shop.onlineBooking.enabled && (
+                    <Note>
+                      {t("Online booking is unavailable. Contact")}{" "}
+                      <PhoneLink shop={shop} />
+                    </Note>
+                  )}
+                  <div className="guest-toolbar">
+                    <div className="guest-tabs">
+                      {Array.from({ length: partySize }, (_, i) => (
+                        <Choice
+                          key={i}
+                          selected={guest === i}
+                          onPress={() => setGuest(i)}
+                        >
+                          {t("Guest")} {i + 1}
+                          <span className="guest-count">
+                            {items.filter((x) => x.guestIndex === i).length} {t("selected")}
+                          </span>
+                        </Choice>
+                      ))}
+                    </div>
                     <div className="guest-counter">
                       <span>{t("Guests")}</span>
                       <NumberStepper
@@ -509,28 +519,6 @@ export function BookingExperiencePage() {
                       </NumberStepper>
                     </div>
                   </div>
-                  {!shop.onlineBooking.enabled && (
-                    <Note>
-                      {t("Online booking is unavailable. Contact")}{" "}
-                      <PhoneLink shop={shop} />
-                    </Note>
-                  )}
-                  {partySize > 1 && (
-                    <div className="guest-tabs">
-                      {Array.from({ length: partySize }, (_, i) => (
-                        <Choice
-                          key={i}
-                          selected={guest === i}
-                          onPress={() => setGuest(i)}
-                        >
-                          {t("Guest")} {i + 1}
-                          <span className="guest-count">
-                            {items.filter((x) => x.guestIndex === i).length}
-                          </span>
-                        </Choice>
-                      ))}
-                    </div>
-                  )}
                   <div className="catalog-toolbar">
                     <div
                       className="category-tabs"
@@ -538,7 +526,8 @@ export function BookingExperiencePage() {
                       aria-label={t("Service category")}
                     >
                       <Button
-                        variant={category === "" ? "primary" : "ghost"}
+                        variant="ghost"
+                        aria-pressed={category === ""}
                         onPress={() => setCategory("")}
                       >
                         {t("All services")}
@@ -546,7 +535,8 @@ export function BookingExperiencePage() {
                       {catalog?.categories.map((c) => (
                         <Button
                           key={c.id}
-                          variant={category === c.id ? "primary" : "ghost"}
+                          variant="ghost"
+                          aria-pressed={category === c.id}
                           onPress={() => setCategory(c.id)}
                         >
                           {c.name}
