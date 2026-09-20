@@ -138,7 +138,7 @@ export async function loadManagedBookingDetail(
     select s.id as service_id, s.name, ai.addon_ids, ai.details,
            ai.starts_at::text as starts_at, ai.ends_at::text as ends_at,
            ai.duration_min, ai.price_cents_snapshot,
-           sp.display_name as specialist,
+           case when ai.is_request then sp.display_name else null end as specialist,
            ai.membership_id, ai.resource_id
       from appointment_items ai
       join services s on s.id = ai.service_id

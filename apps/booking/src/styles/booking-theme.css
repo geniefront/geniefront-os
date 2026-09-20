@@ -991,3 +991,19 @@ textarea.field-control {padding:16px 18px!important;line-height:1.65;letter-spac
 .booking-sms-consent>p {font-size:12px;line-height:1.6;color:var(--booking-muted);margin:8px 0 0 34px;}
 
 .addon-name .addon-description{font-size:12px;line-height:1.5;max-width:30ch;white-space:normal;font-weight:400;margin-top:6px;}
+
+.booking-actions {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:stretch;}
+.booking-actions>.booking-btn,.manage-layout .booking-btn {width:100%;min-width:0;min-height:48px;align-self:stretch;}
+.manage-layout form .booking-btn{justify-self:stretch;}
+.success-action {width:100%;max-width:360px;margin-left:auto;margin-right:auto;}
+.success-action>a,.success-action>.booking-btn{width:100%;min-height:48px;justify-content:center;border-radius:var(--booking-radius-control);font-size:14px;}
+.summary-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px;}
+.summary-heading h2{font-size:15px;font-weight:600;}.summary-heading button{font-size:12px;flex-shrink:0;padding:0;min-width:0;height:32px;}
+.appointment-summary{margin-bottom:20px;}.appointment-summary .summary-date{font-size:20px;}.appointment-summary .bag-total{margin:18px 0;}.summary-address,.field-hint{font-size:12px;color:var(--muted);line-height:1.6;}
+.field-hint{display:block;font-weight:400;margin-top:8px;}.review-contact{padding-top:20px;border-top:1px solid var(--line);font-size:14px;line-height:1.8;}
+@media(max-width:480px){.summary-heading{gap:10px;}.appointment-summary .summary-date{font-size:18px;}.booking-actions{grid-template-columns:1fr;}}
+
+.booking-card>.appointment-summary{border:0;padding:0;box-shadow:none;border-radius:0;}
+
+.booking-rebook{display:flex;align-items:center;justify-content:center;width:100%;min-height:48px;border-radius:var(--booking-radius-control);background:var(--mint);color:var(--brand-dark);font-size:14px;font-weight:600;}
+.booking-actions>:only-child{grid-column:1/-1;}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState,useEffect } from 'react';
 import { toast } from '@heroui/react';
 import { useFieldErrors } from '@/lib/formFeedback';
 import { parseEmail } from '@/lib/validation';
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { useLanguage } from '@/LanguageContext';
 
 export function Login() {
+  useEffect(()=>{if(/^\/b\/[a-f0-9]{16}$/.test(window.location.pathname))sessionStorage.setItem('gf:booking-return',window.location.pathname);},[]);
   const { t } = useLanguage();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

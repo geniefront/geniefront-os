@@ -121,6 +121,26 @@ export function registerScheduleRoutes(app: FastifyInstance, ctxFromHeaders: Ctx
   });
 
   // ── 预约详情（带客户健康表与单据明细）────────────────────────────────────────
+  app.get<{Params:{code:string}}>('/v1/desk/booking-links/:code',async(req,reply)=>{
+    const ctx=await ctxFromHeaders(req);
+    if(!ctx.permissions.has('appointment.read'))throw new AppError(ERROR_CODES.PERMISSION_DENIED);
+    if(!/^[a-f0-9]{16}$/.test(req.params.code))throw new AppError(ERROR_CODES.NOT_FOUND);
+    const [row]=await withTenant(ctx,tx=>tx`select id as "appointmentId",location_id as "locationId" from appointments where staff_link_code=${req.params.code} and location_id=${ctx.locationId}`);
+    if(!row)throw new AppError(ERROR_CODES.NOT_FOUND);
+    reply.header('Cache-Control','private, no-store');return row;
+  });
+  app.get<{Params:{id:string}}>('/v1/desk/appointments/:id/call',async(req,reply)=>{
+    const ctx=await ctxFromHeaders(req);
+    if(!ctx.permissions.has('appointment.read'))throw new AppError(ERROR_CODES.PERMISSION_DENIED);
+    if(!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(req.params.id))throw new AppError(ERROR_CODES.NOT_FOUND);
+    return withTenant(ctx,async tx=>{
+      const [appointment]=await tx`select provider_call_id from appointments where id=${req.params.id} and location_id=${ctx.locationId}`;
+      if(!appointment)throw new AppError(ERROR_CODES.NOT_FOUND);
+      const [call]=await tx`select id as "callId",started_at as "startedAt",duration_seconds as "durationSeconds",summary,coalesce(transcript,'[]'::jsonb) as transcript,(recording_id is not null or recording_url is not null) as "hasRecording" from phone_calls where location_id=${ctx.locationId} and provider_call_id=${appointment.provider_call_id} limit 1`;
+      reply.header('Cache-Control','private, no-store');return {call:call??null};
+    });
+  });
+
   app.get<{ Params: { id: string } }>('/v1/desk/appointments/:id', async (req) => {
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('appointment.read')) {

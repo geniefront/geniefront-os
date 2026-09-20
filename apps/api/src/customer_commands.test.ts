@@ -15,7 +15,7 @@ const tenant = { orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: null };
 
 let ownerCtx: Awaited<ReturnType<typeof buildContext>>;
 const createdCustomerIds: string[] = [];
-const randomPhone = () => `+1617${Math.floor(1000000 + Math.random() * 9000000)}`;
+const randomPhone = () => `+1617555${Math.floor(1000 + Math.random() * 9000)}`;
 
 const testPhone1 = randomPhone();
 const testPhone2 = randomPhone();

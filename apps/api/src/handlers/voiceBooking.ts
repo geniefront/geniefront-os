@@ -16,7 +16,7 @@ registerHandler(SubmitVoiceBooking, async ({ input, tx, ctx, audit }) => {
   }
   const code = generateConfirmationCode('GF');
   const payload = AppointmentCreate.input.parse({
-    customerId: null, source: 'phone_ai', partySize: input.partySize, notes: input.notes,
+    customerId: null, providerCallId:input.providerCallId, source: 'phone_ai', partySize: input.partySize, notes: input.notes,
     items: Array.from({ length: input.partySize }, (_,index) => ({ serviceId: input.serviceId,
       startsAt: input.startsAt, membershipId: input.membershipId ?? offer.membershipIds?.[index] ?? offer.membershipId, isRequest: Boolean(input.membershipId) })),
     guest: { confirmationCode: code, manageToken: generateManageToken(), customer: {

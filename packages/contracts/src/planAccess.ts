@@ -1,5 +1,5 @@
 /** Shared capability rules. Subscription price does not determine features. */
-const VOICE_PATHS = ['/schedule', '/customers', '/calls', '/messages', '/communication-logs',
+const VOICE_PATHS = ['/b', '/schedule', '/customers', '/calls', '/messages', '/communication-logs',
   '/settings', '/profile', '/support', '/notifications'];
 export function planAllowsPath(plan: string | null | undefined, path: string): boolean {
   return plan !== 'voice_booking' || VOICE_PATHS.some(p => path === p || path.startsWith(`${p}/`));
@@ -16,7 +16,7 @@ export function planAllowsCommand(plan: string | null | undefined, command: stri
   if (['settings.saveCheckout', 'location.saveCheckoutSettings', 'location.saveIntakeWaiver'].includes(command)) return false;
   return ['appointment.', 'voice.', 'customer.', 'billing.', 'call.', 'profile.', 'support.', 'catalog.',
     'notification.'].some(p => command.startsWith(p))
-    || ['location.savePhoneLine', 'location.saveProfile', 'location.saveHours', 'location.saveOnlineBooking', 'location.saveOffHours', 'location.finishSetup', 'location.applyGoogle', 'location.saveBookingPolicy', 'location.requestAiVoice', 'location.savePhoneAssistantLine', 'setup.claimLocation', 'settings.saveSetupFeatures', 'settings.savePhoneAssistant', 'settings.saveVoiceNotifications', 'settings.saveVoiceBookingRules', 'staff.saveBookingSchedule', 'settings.saveVoiceCapacity', 'org.setEmailLocale', 'staff.saveProfile', 'staff.add', 'staff.setEmployment', 'staff.setLocale', 'staff.saveDirectoryOption', 'staff.reorderDirectoryOptions'].includes(command);
+    || ['location.savePhoneLine', 'location.savePublicBookingProfile', 'location.saveProfile', 'location.saveHours', 'location.saveOnlineBooking', 'location.saveOffHours', 'location.finishSetup', 'location.applyGoogle', 'location.saveBookingPolicy', 'location.requestAiVoice', 'location.savePhoneAssistantLine', 'setup.claimLocation', 'settings.saveSetupFeatures', 'settings.savePhoneAssistant', 'settings.saveVoiceNotifications', 'settings.saveVoiceBookingRules', 'staff.saveBookingSchedule', 'settings.saveVoiceCapacity', 'org.setEmailLocale', 'staff.saveProfile', 'staff.add', 'staff.setEmployment', 'staff.setLocale', 'staff.saveDirectoryOption', 'staff.reorderDirectoryOptions'].includes(command);
 }
 export function canSwitchPlan(from: string, to: string): boolean {
   return from !== 'voice_booking' || to === 'voice_booking' || to === 'growth';

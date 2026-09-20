@@ -7,6 +7,7 @@ export async function bookingSummary(
   tx: postgres.TransactionSql,
   locationId: string,
   appointmentId: string,
+  options:{includePrices?:boolean}={},
 ): Promise<string> {
   const [loc] = await tx<
     {
@@ -32,7 +33,7 @@ export async function bookingSummary(
       addon_ids: string[];
     }[]
   >`
-    select s.name,sp.display_name as staff,ai.starts_at::text,ai.ends_at::text,
+    select s.name,case when ai.is_request then sp.display_name else null end as staff,ai.starts_at::text,ai.ends_at::text,
       ai.price_cents_snapshot as price,ai.details,ai.addon_ids
     from appointment_items ai join services s on s.id=ai.service_id
     left join staff_profiles sp on sp.membership_id=ai.membership_id
@@ -68,13 +69,11 @@ export async function bookingSummary(
           pickText(addons.find((a) => a.id === id)?.name, "en", "Add-on"),
         ),
         `${formatWhen(r.starts_at, loc.timezone, "en-US")} – ${new Intl.DateTimeFormat("en-US", { timeZone: loc.timezone, hour: "numeric", minute: "2-digit" }).format(new Date(r.ends_at))}`,
-        r.staff
-          ? pickText(r.staff, "en", "Specialist")
-          : "Specialist assigned by shop",
-        money(r.price),
+        ...(r.staff?[pickText(r.staff, "en", "Specialist")]:[]),
+        ...(options.includePrices===false?[]:[money(r.price)]),
       ].join(" · "),
     ),
-    `Total: ${money(rows.reduce((n, r) => n + r.price, 0))}`,
+    ...(options.includePrices===false?[]:[`Total: ${money(rows.reduce((n, r) => n + r.price, 0))}`]),
     `Timezone: ${loc.timezone}`,
     ...(address ? [`Address: ${address}`] : []),
     `Cancel at least ${booking["cancel_cutoff_hours"] ?? 4} hours before the appointment.`,

@@ -369,3 +369,9 @@ export function safePortalReturnUrl(returnUrl?: string): string {
 export function staffAppointmentUrl(appointmentId: string, locationId: string, env: Env = process.env): string {
   return absoluteAppUrl(`/schedule?appointmentId=${encodeURIComponent(appointmentId)}&locationId=${encodeURIComponent(locationId)}`,env);
 }
+
+/** Short staff-only identifier. The destination still requires a logged-in tenant membership. */
+export function staffBookingShortUrl(code:string,env:Env=process.env):string {
+ if(!/^[a-f0-9]{16}$/.test(code))throw new Error('Invalid staff booking code');
+ return absoluteAppUrl(`/b/${code}`,env);
+}

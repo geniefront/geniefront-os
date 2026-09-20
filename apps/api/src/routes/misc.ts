@@ -61,11 +61,11 @@ export function registerMiscRoutes(app: FastifyInstance, ctxFromHeaders: CtxFrom
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('appointment.read')) throw new AppError(ERROR_CODES.PERMISSION_DENIED);
     if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) throw new AppError(ERROR_CODES.NOT_FOUND);
-    const [call] = await withTenant(ctx, tx => tx<{ recording_id: string | null }[]>`
-      select recording_id from phone_calls where id=${req.params.id} and location_id=${ctx.locationId}`);
-    if (!call?.recording_id) throw new AppError(ERROR_CODES.NOT_FOUND);
-    const meta = await getRecordingMetadata(call.recording_id);
-    const url = meta.download_urls?.mp3 ?? meta.download_urls?.wav;
+    const [call] = await withTenant(ctx, tx => tx<{ recording_id: string | null;recording_url:string|null }[]>`
+      select recording_id,recording_url from phone_calls where id=${req.params.id} and location_id=${ctx.locationId}`);
+    if (!call) throw new AppError(ERROR_CODES.NOT_FOUND);
+    const meta = call.recording_id?await getRecordingMetadata(call.recording_id):null;
+    const url = meta?.download_urls?.mp3 ?? meta?.download_urls?.wav ?? call.recording_url;
     if (!url || new URL(url).protocol !== 'https:') throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE);
     reply.header('Cache-Control', 'no-store');
     return { url };

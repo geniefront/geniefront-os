@@ -1,3 +1,4 @@
+import type {ReactNode} from 'react';
 import {Input,TextArea,Button,Checkbox} from '@heroui/react';
 import {DateChooser} from '../components/BookingUI';
 import { formatPhoneDisplay } from '@gf/contracts/phone';
@@ -684,11 +685,12 @@ function slotPeriod(startsAt: string, timezone: string): 'morning' | 'afternoon'
 export interface BookingContact {name:string;phone:string;email:string;notes:string;smsOptIn:boolean;bookingSmsConsent?:boolean}
 
 export function ConfirmStep({
-  shop, service, addons, bundle, startsAt, staffId, openedAt, onSubmit, onBack, party, initialContact, onContactChange, onReviewChange,
+  shop, service, addons, bundle, startsAt, staffId, openedAt, onSubmit, onBack, party, initialContact, onContactChange, onReviewChange, appointmentSummary,
 }: {
   shop: Shop;
   service: Service | null;
   addons: Service[];
+  appointmentSummary?:ReactNode;
   initialContact?: BookingContact;
   onContactChange?: (value:BookingContact)=>void;
   onReviewChange?: (value:boolean)=>void;
@@ -795,12 +797,13 @@ export function ConfirmStep({
 
       </div>
       <Card>
-        <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl bg-[var(--brand-soft)] px-4 py-3 text-sm text-[var(--brand-dark)]">
+        {appointmentSummary}
+        <div className={`${appointmentSummary?'hidden ':''}mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl bg-[var(--brand-soft)] px-4 py-3 text-sm text-[var(--brand-dark)]`}>
           <span className="font-bold">{dateOf(startsAt, shop.timezone,locale)} {t("at")} {timeOf(startsAt, shop.timezone,locale)}</span>
           <span aria-hidden="true">·</span><span>{displayName}</span><span aria-hidden="true">·</span><span>{duration(mins)}</span><span aria-hidden="true">·</span><span className="font-bold">{money(cents, shop.currency)}</span>
         </div>
         {reviewing && err && <Note warn>{err}</Note>}
-        {party && reviewing && <Note> {t("Confirm")} {name}, {formatPhoneDisplay(phone)}{email ? `, ${email}` : ''} {t(". Cancellation is available up to")} {shop.onlineBooking.cancelCutoffHours} {t("hours before your appointment. All guests will be booked together.")} </Note>}
+        {reviewing && <div className="review-contact"><div className="summary-heading"><h2>{t('Contact')}</h2><Button variant="ghost" onPress={()=>setReviewing(false)}>{t('Edit contact')}</Button></div><p>{name}</p><p>{formatPhoneDisplay(phone)}</p>{email&&<p>{email}</p>}{notes&&<p className="whitespace-pre-wrap">{notes}</p>}</div>}
         <div className={`mt-4 grid gap-3 ${reviewing ? 'hidden' : ''}`}>
           <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-sm font-semibold"> {t("Name")} <Input className="field-control mt-2" value={name}
@@ -813,6 +816,7 @@ export function ConfirmStep({
           </div>
           <label className="text-sm font-semibold"> {t("Email (optional)")} <Input className="field-control mt-2" value={email}
               type="email" autoComplete="email" maxLength={200} onChange={(e) => setEmail(e.target.value)} />
+            <span className="field-hint">{t('Enter email to receive details and manage your appointment.')}</span>
           </label>
           <label className="text-sm font-semibold"> {t("Notes (optional)")} <TextArea className="field-control mt-2 min-h-24 resize-y py-3" value={notes}
               maxLength={500} placeholder={t("Accessibility needs, preferences, or anything we should know")}
@@ -877,13 +881,13 @@ export function SuccessStep({
         </div>
       )}
       {done.manageToken && (
-        <p className="mt-6">
-          <Link className="inline-flex min-h-11 items-center rounded-xl bg-[var(--brand)] px-5 font-semibold text-white hover:bg-[var(--brand-dark)]" to={hostedManagePath(slug, done.manageToken)} target={isEmbedded()?'_blank':undefined} rel="noreferrer"> {t("View, reschedule, or cancel")} </Link>
+        <p className="success-action mt-6">
+          <Link className="inline-flex min-h-11 items-center rounded-xl bg-[var(--brand)] px-5 font-semibold text-white hover:bg-[var(--brand-dark)]" to={hostedManagePath(slug, done.manageToken)} target={isEmbedded()?'_blank':undefined} rel="noreferrer"> {t("Edit appointment")} </Link>
         </p>
       )}
       <p className="mt-3 text-sm text-[var(--muted)]"> {t("Keep this page to manage your appointment.")} {shop.phone && <> {t("Questions? Call")} <PhoneLink shop={shop} />.</>}
       </p>
-      <div className="mx-auto mt-5 max-w-sm"><Btn onClick={onAgain}> {t("Book another")} </Btn></div>
+      <div className="success-action mx-auto mt-3"><Btn onClick={onAgain}> {t("Book another")} </Btn></div>
     </Card>
   );
 }

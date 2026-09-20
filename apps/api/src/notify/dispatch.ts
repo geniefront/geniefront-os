@@ -1,3 +1,4 @@
+import {customerBookingSms} from '../sms/booking';
 /**
  * 按事件发通知（批 8 收尾）。
  *
@@ -40,6 +41,7 @@ type Tx = postgres.TransactionSql;
 export interface NotifyArgs {
   /** Full booking detail for email only; SMS stays concise. */
   emailDetails?: string;
+  transactionalBooking?:boolean;
   event: NotificationEvent;
   /** 挂在哪个实体上。outbox 的幂等键是 (entity_type, entity_id, kind) */
   entityType: string;
@@ -90,7 +92,8 @@ export async function notifyEvent(
    * 反过来（默认全开）意味着部署本版本的那一刻，所有存量门店会突然开始
    * 给顾客发短信 —— 短信要花钱，也会被投诉。店主须在通知设置页明确打开。
    */
-  if (!rule?.enabled || rule.channels.length === 0) return 0;
+  const requiredBooking=args.transactionalBooking===true && ['appointment_changed','appointment_cancelled'].includes(args.event);
+  if (!requiredBooking && (!rule?.enabled || rule.channels.length === 0)) return 0;
 
   const marketing = isMarketing(args.event);
   // Phase 1: no marketing, including SMS and callers outside the scheduler.
@@ -153,7 +156,7 @@ export async function notifyEvent(
   const locale = args.locale ?? 'en';
   let queued = 0;
 
-  for (const channel of rule.channels) {
+  for (const channel of (requiredBooking?['email','sms']:rule!.channels)) {
     const to = channel === 'email' ? args.toEmail : args.toPhone;
     if (!to) continue;
     if (marketing && channel === 'email' && !allowMarketingEmail) continue;
@@ -169,7 +172,7 @@ export async function notifyEvent(
      * ⚠️ 回退到 en 而不是「任选一个存在的」—— 后者会让一家只配了越南语
      * 模板的门店给所有顾客发越南语。
      */
-    const [tpl] = await tx<{
+    const [storedTemplate] = await tx<{
       id: string; version: number; subject: string | null; body: string;
     }[]>`
       select id, version, subject, body from notification_templates
@@ -178,10 +181,11 @@ export async function notifyEvent(
         and locale in (${locale}, 'en')
       order by (locale = ${locale}) desc, version desc
       limit 1`;
+    const tpl=storedTemplate ?? (requiredBooking?{id:null,version:null,subject:args.event==='appointment_cancelled'?'Appointment canceled':'Appointment updated',body:args.event==='appointment_cancelled'?'Your appointment at {{shop_name}} on {{when}} has been canceled.':'Your appointment at {{shop_name}} is now on {{when}}.'}:null);
     if (!tpl) continue;
 
     const rendered = renderTemplate(tpl.body, args.vars);
-    const manageUrl = usesPlatformBrand(args.event) ? args.vars['manage_url'] : null;
+    const manageUrl = channel==='email' && usesPlatformBrand(args.event) ? args.vars['manage_url'] : null;
     const body = manageUrl && !rendered.includes(manageUrl) ? `${rendered}\n${manageUrl}` : rendered;
     const actionUrl=manageUrl || args.vars['confirm_url'];
     const subject = tpl.subject ? renderTemplate(tpl.subject, args.vars) : null;
@@ -241,7 +245,8 @@ export async function notifyEvent(
        * ⭐ 合规署名与退订说明在此处补齐，不依赖模板内容。
        * 模板里写的话，店主可以在编辑框里把它删掉。
        */
-      const smsBody = withComplianceFooter(body);
+      const bookingEvent=({appointment_confirm:'confirmed',appointment_changed:'changed',appointment_cancelled:'cancelled',appointment_reminder:'reminder'} as const)[args.event as 'appointment_confirm'];
+      const smsBody = bookingEvent ? customerBookingSms({event:bookingEvent,shop:args.vars['shop_name']??'Your store',when:args.vars['when']??'',service:args.vars['service_name']??'',preferredStaff:args.vars['staff_name']??'',hasEmail:!!args.toEmail}) : withComplianceFooter(body);
 
       /*
        * 🔴 **非 GSM-7 的短信一律不发。**

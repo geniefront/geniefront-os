@@ -52,6 +52,7 @@ export interface AppointmentTicketFactsDto {
 }
 
 export interface AppointmentDetailDto {
+  isVoiceBooking?:boolean;
   appointmentId: string;
   status: string;
   customer: {
@@ -121,12 +122,12 @@ export async function loadAppointmentDetail(
   appointmentId: string,
 ): Promise<AppointmentDetailDto> {
   let [apt] = await tx<{
-    id: string; customer_id: string | null; status: string;
+    id: string; customer_id: string | null; status: string;source:string;
     notes: string | null; walk_in_name: string | null;
     created_at: string; customer_name: string | null;
     customer_phone: string | null;
   }[]>`
-    select a.id, a.customer_id, a.status, a.notes, a.walk_in_name,
+    select a.id, a.customer_id, a.status, a.source, a.notes, a.walk_in_name,
            a.created_at::text as created_at,
            c.display_name as customer_name,
            c.phone_e164 as customer_phone
@@ -310,6 +311,7 @@ export async function loadAppointmentDetail(
 
   return {
     appointmentId: apt.id,
+    isVoiceBooking:apt.source==='phone_ai',
     status: apt.status,
     customer: {
       id: apt.customer_id,

@@ -146,18 +146,18 @@ describe('文案', () => {
   it('slug 回退进得了正文，而且照样是一段', () => {
     const body = renderConfirmSms({ ...base, shopName: { 'zh-Hans': '莲花美甲' }, shopSlug: 'lotus-nails' });
     expect(body.startsWith('GenieFront: ')).toBe(true);
-    expect(body).toContain('at Lotus Nails');
+    expect(body).toContain('Lotus Nails');
     expect(measure(body).segments).toBe(1);
   });
 
-  it('a manage URL is GSM-7, may use more than one segment, and never says Reply CANCEL', () => {
+  it('customer SMS omits management URLs and stays within one segment', () => {
     const url = 'https://book.geniefront.com/l/golden-lotus-nails#g/mt_abcdefghijklmnopqrstuvwx';
     const body = renderConfirmSms({ ...base, manageUrl: url });
     const m = measure(body);
     expect(m.encoding).toBe('GSM-7');
-    expect(m.segments).toBeGreaterThanOrEqual(2);
+    expect(m.segments).toBe(1);
     expect(m.segments).toBe(segmentsOf(body));
-    expect(body).toContain(url);
+    expect(body).not.toContain(url);
     expect(body.toUpperCase()).not.toContain('REPLY CANCEL');
     expect(body).toContain('Reply STOP to opt out');
     expect(body.startsWith('GenieFront: ')).toBe(true);
@@ -169,7 +169,7 @@ describe('文案', () => {
     const body = renderConfirmSms(base);
     expect(body.toUpperCase()).not.toContain('REPLY CANCEL');
     expect(body.toUpperCase()).not.toContain('TEXT CANCEL');
-    expect(body).toContain('call');          // 改期一律引导打电话
+    expect(body.toLowerCase()).toContain('call store');          // 改期一律引导打电话
   });
 
   it('⭐ 署名是 GenieFront，不是店名 —— 但店名要在正文里', () => {
@@ -181,20 +181,21 @@ describe('文案', () => {
      */
     const body = renderConfirmSms(base);
     expect(body.startsWith('GenieFront: ')).toBe(true);
-    expect(body).toContain('at Lotus Nails');       // 客人照样知道是哪家店
+    expect(body).toContain('Lotus Nails');       // 客人照样知道是哪家店
     expect(body).toContain('Reply STOP to opt out');
   });
 
   it('店名一个字都拼不出来时，宁可不写「at …」', () => {
     // 「booked at Salon」看起来像模板没渲染出来，比不写更糟
     const body = renderConfirmSms({ ...base, shopName: {}, shopSlug: null });
-    expect(body.startsWith('GenieFront: Booked ')).toBe(true);
+    expect(body.startsWith('GenieFront: Your store. Confirmed ')).toBe(true);
     expect(body).not.toContain(' at ');
   });
 
-  it('电话进正文，且是能直接念的格式', () => {
+  it('短信只显示 Call store，其他电话显示仍保留格式', () => {
     const body = renderConfirmSms(base);
-    expect(body).toContain('(617) 555-0142');
+    expect(body).not.toContain('(617) 555-0142');
+    expect(body).toContain('Call store');
     expect(prettyPhone('+16175550142')).toBe('(617) 555-0142');
     expect(prettyPhone(null)).toBeNull();
   });
@@ -211,7 +212,7 @@ describe('文案', () => {
   it('没电话也要能发出去', () => {
     const body = renderConfirmSms({ ...base, shopPhone: null });
     expect(measure(body).segments).toBe(1);
-    expect(body).toContain('Call the salon');
+    expect(body).toContain('Call store');
   });
 
   it('⭐ 店名和项目名再长也压进一段 —— 砍项目名，不砍店名和电话', () => {
@@ -222,12 +223,13 @@ describe('文案', () => {
     });
     expect(measure(body).segments).toBe(1);
     // 砍的是项目名
-    expect(body).toContain('...');
+    expect(body).not.toContain('Deluxe Spa Pedicure with Callus Treatment');
     // 这两样一个字都不能少：认不出谁发的、或者打不了电话，这条短信就白发了
     expect(body.startsWith('GenieFront: ')).toBe(true);
     // 店名可以退让（身份锚点是 GenieFront 那个署名），但要留得住辨识度
-    expect(body).toContain('at Golden Lotus');
-    expect(body).toContain('(617) 555-0142');
+    expect(body).toContain('Golden Lotus');
+    expect(body).not.toContain('(617) 555-0142');
+    expect(body).toContain('Call store');
     expect(body).toContain('Reply STOP to opt out');
   });
 

@@ -1,5 +1,6 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet, useOutletContext, useLocation } from 'react-router-dom';
+import {StaffBookingLink} from './pages/StaffBookingLink';
+import { lazy, Suspense,useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useOutletContext, useLocation,useNavigate } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Toast, Spinner } from '@heroui/react';
 import './lib/toast';
@@ -104,6 +105,8 @@ function SessionGate() {
   const { status, activePortal, isPureTech, isTechCapable, membership } = useSession();
   const { ready: translationsReady } = useLanguage();
   const location = useLocation();
+  const navigate=useNavigate();
+  useEffect(()=>{const target=sessionStorage.getItem('gf:booking-return');if(status==='ready'&&target&&/^\/b\/[a-f0-9]{16}$/.test(target)){sessionStorage.removeItem('gf:booking-return');if(location.pathname!==target)navigate(target,{replace:true});}},[status,location.pathname,navigate]);
 
   /*
    * 营销邮件退订是公开页，不能进登录门禁。挂在 SessionGate 最前面，
@@ -235,6 +238,10 @@ function SessionGate() {
    * 后端权限仍是安全边界；这里避免他们通过 /settings 等深链接看到
    * 老板侧边栏后才收到 PERMISSION_DENIED。
    */
+  if (/^\/b\/[a-f0-9]{16}$/.test(location.pathname)) {
+    return <Routes><Route path="/b/:code" element={<StaffBookingLink />} /></Routes>;
+  }
+
   if (isTechWorkspaceOnly({ activePortal, isPureTech, isTechCapable })) {
     return (
       <Routes>
@@ -378,6 +385,7 @@ function SessionGate() {
           <Route path="subscription" element={<Navigate to="/settings?tab=billing" replace />} />
 
           {/* Group 2: Front-Desk Operations */}
+          <Route path="b/:code" element={<StaffBookingLink/>}/>
           <Route path="schedule" element={<Schedule />} />
           <Route path="queue" element={<Queue />} />
           <Route path="rotation" element={<Rotation />} />

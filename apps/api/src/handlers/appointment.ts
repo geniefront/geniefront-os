@@ -587,6 +587,7 @@ export async function executeSingleAppointmentInTx(
     bundleInstanceIds.push(inst!.id);
   }
 
+  if(input.providerCallId && input.source==='phone_ai')await tx`update appointments set provider_call_id=${input.providerCallId} where id=${appt!.id} and location_id=${ctx.locationId}`;
   const itemIds: string[] = [];
   const overbookedItemIds: string[] = [];
 
@@ -855,7 +856,7 @@ async function enqueueConfirmEmail(
     starts_at: string; shop_name: unknown; timezone: string; slug: string;
   }[]>`
     select c.email, c.display_name as customer_name, c.phone_e164 as phone,
-           s.name as service_name, sp.display_name as staff_name,
+           s.name as service_name, case when ai.is_request then sp.display_name else null end as staff_name,
            ai.starts_at::text as starts_at,
            l.name as shop_name, l.timezone, l.slug
     from appointment_items ai
@@ -964,24 +965,22 @@ async function enqueueConfirmSms(
   if (!smsConfigured() || !firstItemId) return;
 
   const [row] = await tx<{
-    phone: string | null; service_name: unknown;
+    phone: string | null; email:string|null; preferred_staff:unknown; service_name: unknown;
     starts_at: string; shop_name: unknown; shop_slug: string; timezone: string;
   }[]>`
-    select c.phone_e164 as phone, s.name as service_name,
+    select c.phone_e164 as phone,c.email,case when ai.is_request then sp.display_name else null end as preferred_staff, s.name as service_name,
            ai.starts_at::text as starts_at, l.name as shop_name, l.slug as shop_slug, l.timezone
     from appointment_items ai
     join appointments a on a.id = ai.appointment_id
     join locations l on l.id = a.location_id
     left join customers c on c.id = a.customer_id
     left join services s on s.id = ai.service_id
+    left join staff_profiles sp on sp.membership_id=ai.membership_id
     where ai.id = ${firstItemId} and a.location_id = ${ctx.locationId}`;
 
   const to = row?.phone?.trim();
   if (!to) return;   // 没留手机号 —— 常态，不是错误
 
-  const [line] = await tx<{ e164: string }[]>`
-    select e164 from phone_lines
-    where location_id = ${ctx.locationId} and purpose = 'main' and active limit 1`;
 
   /**
    * ⚠️ 项目名和店名都强制走**英文**，不跟 ctx.locale 走。
@@ -990,17 +989,15 @@ async function enqueueConfirmSms(
    * 成本翻倍而客人看到的完全一样（`sms/segments.ts`）。
    * 店主 2026-08-22 定：短信只做英文。
    */
-  const manageUrl = manageToken
-    ? hostedManageBookingUrl({ shopSlug: row!.shop_slug, manageToken })
-    : null;
   const body = renderConfirmSms({
     shopName: row!.shop_name,
     shopSlug: row!.shop_slug,
     serviceName: await appointmentServiceLabel(
       tx, ctx.locationId, appointmentId, pickText(row!.service_name, 'en', 'your appointment')),
     whenText: formatWhenSms(new Date(row!.starts_at).toISOString(), row!.timezone),
-    shopPhone: line?.e164 ?? null,
-    manageUrl,
+    shopPhone: null,
+    hasEmail:!!row!.email,
+    preferredStaff:row!.preferred_staff?pickText(row!.preferred_staff,'en',''):undefined,
   });
 
   await tx`
@@ -1656,7 +1653,7 @@ async function loadChangeNotifySnapshot(
     select a.source, a.location_id,
            c.email, c.phone_e164 as phone, c.display_name as customer_name,
            l.name as shop_name, l.timezone, l.slug,
-           s.name as service_name, sp.display_name as staff_name,
+           s.name as service_name, case when ai.is_request then sp.display_name else null end as staff_name,
            u.phone as staff_phone,
            a.starts_at::text as starts_at,
            a.manage_token_digest, a.manage_token_wrapped
@@ -1768,6 +1765,7 @@ async function notifyAppointmentChange(
   if (PUBLIC_SOURCES.has(row.source)) {
     await notifyEvent(tx, ctx, {
       event: args.event,
+      transactionalBooking:true,
       emailDetails: [args.oldStartsAt ? `Previous time: ${formatWhenSms(new Date(args.oldStartsAt).toISOString(),row.timezone)}. Booked prices retained.` : '',await bookingSummary(tx,ctx.locationId,args.appointmentId)].filter(Boolean).join('\n\n'),
       entityType: `appointment:${occurrence}`, entityId: args.appointmentId,
       vars, toEmail: row.email, toPhone: row.phone,

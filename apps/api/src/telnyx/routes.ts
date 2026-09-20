@@ -31,6 +31,7 @@ import { rawBodyOf } from '../rawBody';
 import { maybeAutoTopup, billingSystemContext } from '../billing/autoTopup';
 import { classify } from '../sms/keywords';
 import { flushSms } from '../sms/flush';
+import { flushEmails } from '../email/flush';
 import { generateConfirmationCode, generateManageToken } from '../public/bookingToken';
 import '../handlers/phone';
 import '../handlers/billing';
@@ -1181,12 +1182,14 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
           partySize,
           notes: str(body['health_notes']) ?? str(body['notes']) ?? undefined,
           source: 'phone_ai',
+          providerCallId:callId ?? undefined,
           // ⚠️ override 永不传 —— 软约束放行需要一个知道店里现在什么情况的人
           guest: {
             confirmationCode,
             manageToken,
             customer: {
               name: callerName!,
+              email:str(body['email'])??undefined,
               phoneE164: fromE164!,
               // 预约确认短信是事务性的，不需要这个开关；这里管的是营销短信（TCPA）
               smsOptIn: false,
@@ -1200,6 +1203,7 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
       // 确认短信在事务提交之后才发。不 await —— 一条短信发不出去
       // 永远不该拖慢或推翻一次成功的建单（宪法第 14 条）
       void flushSms({ orgId: t.orgId, locationId: t.locationId, membershipId: null }, req.log);
+      void flushEmails({ orgId: t.orgId, locationId: t.locationId, membershipId: null }, req.log);
 
       /*
        * ⭐ 念出去的确认码从**库里读**，不用上面刚生成的那个。

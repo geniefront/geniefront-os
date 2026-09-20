@@ -1,4 +1,13 @@
 export const voiceSettings = {
+ bookingLinkUnavailable:{'zh-Hans':'预约不可用，请确认已登录对应门店账号。',en:'Appointment unavailable. Sign in to the correct shop account.',ko:'예약을 찾을 수 없습니다. 해당 매장 계정으로 로그인하세요.',vi:'Không tìm thấy lịch hẹn. Hãy đăng nhập đúng tài khoản cửa hàng.',es:'Cita no disponible. Inicia sesión en la cuenta del local correcto.'},
+ bookingCallDetails:{'zh-Hans':'语音预约通话',en:'Booking call',ko:'예약 통화',vi:'Cuộc gọi đặt lịch',es:'Llamada de reserva'},
+ bookingCallProcessing:{'zh-Hans':'通话详情暂未可用，录音处理完成后会显示在这里。',en:'Call details will appear here when processing is complete.',ko:'처리가 완료되면 통화 내역이 표시됩니다.',vi:'Chi tiết cuộc gọi sẽ xuất hiện sau khi xử lý xong.',es:'Los detalles aparecerán cuando termine el procesamiento.'},
+ bookingCallRecording:{'zh-Hans':'播放录音',en:'Play recording',ko:'녹음 재생',vi:'Phát bản ghi âm',es:'Reproducir grabación'},
+ bookingCallError:{'zh-Hans':'暂时无法加载通话，请重试。',en:'Could not load the call. Please try again.',ko:'통화를 불러오지 못했습니다. 다시 시도하세요.',vi:'Không tải được cuộc gọi. Vui lòng thử lại.',es:'No se pudo cargar la llamada. Inténtalo de nuevo.'},
+ bookingCaller:{'zh-Hans':'客户',en:'Customer',ko:'고객',vi:'Khách hàng',es:'Cliente'},
+ bookingAssistant:{'zh-Hans':'预约助手',en:'Booking assistant',ko:'예약 도우미',vi:'Trợ lý đặt lịch',es:'Asistente de reservas'},
+ bookingTranscript:{'zh-Hans':'通话转录',en:'Transcript',ko:'통화 기록',vi:'Bản ghi cuộc gọi',es:'Transcripción'},
+
   voiceStaffSchedule: {"zh-Hans": "每周排班", "en": "Weekly schedule", "ko": "주간 근무", "vi": "Lịch hàng tuần", "es": "Horario semanal"},
   voiceStaffScheduleHint: {"zh-Hans": "默认与营业时间一致，可设置休息日；已设置的单日排班优先。", "en": "Defaults to shop hours. Uncheck days off. Date-specific shifts take priority.", "ko": "기본 영업시간을 사용하며 날짜별 근무가 우선합니다.", "vi": "Mặc định theo giờ mở cửa. Lịch từng ngày được ưu tiên.", "es": "Por defecto usa el horario del local. Los turnos por fecha tienen prioridad."},
   voiceShiftStart: {"zh-Hans": "上班", "en": "Start", "ko": "시작", "vi": "Bắt đầu", "es": "Inicio"},

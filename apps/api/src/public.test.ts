@@ -678,9 +678,10 @@ describe('建预约', () => {
       const [sms] = await withTenant(tenant, (tx) => tx<{ body: string; segments: number }[]>`
         select body, segments from sms_outbox
         where entity_id = ${made.json().bookingId} and kind = 'appointment_confirm'`);
-      expect(sms?.body ?? '').toContain(`/l/lotus-nails#g/${token}`);
+      expect(sms?.body ?? '').not.toContain(token);
+      expect(sms!.body).toContain('call store');
       expect(sms!.body.toUpperCase()).not.toContain('REPLY CANCEL');
-      expect(sms!.segments).toBeGreaterThanOrEqual(2);
+      expect(sms!.segments).toBe(1);
       expect(sms!.segments).toBe(segmentsOf(sms!.body));
     } finally {
       if (prev === undefined) delete process.env['BOOKING_MANAGE_PAGE_ENABLED'];
@@ -1599,7 +1600,7 @@ describe('hosted manage token resolution', () => {
         select body from sms_outbox
         where entity_id = ${id} and kind = 'appointment_confirm'`);
       expect(confirmMail!.text).toContain(url);
-      expect(confirmSms!.body).toContain(url);
+      expect(confirmSms!.body).not.toContain(url);
 
       const moved = await post(`/public/v1/bookings/${id}/reschedule`, {
         manageToken: token, last4: last4(), startsAt: nextSlot(),
@@ -1611,7 +1612,9 @@ describe('hosted manage token resolution', () => {
       const [changedSms] = await withTenant(tenant, (tx) => tx<{ body: string }[]>`
         select body from sms_outbox
         where entity_id = ${id} and kind = 'appointment_changed'`);
-      expect(`${changedMail?.text ?? ''}\n${changedSms?.body ?? ''}`).toContain(url);
+      expect(changedMail!.text).toContain(url);
+      expect(changedSms!.body).not.toContain(url);
+      expect(segmentsOf(changedSms!.body)).toBe(1);
 
       const other = bookingPayload();
       Object.assign(other.customer as { email?: string }, { email: 'cancel-token@maildrop.cc' });
@@ -1631,7 +1634,9 @@ describe('hosted manage token resolution', () => {
       const [cancelSms] = await withTenant(tenant, (tx) => tx<{ body: string }[]>`
         select body from sms_outbox
         where entity_id = ${id2} and kind = 'appointment_changed'`);
-      expect(`${cancelMail?.text ?? ''}\n${cancelSms?.body ?? ''}`).toContain(url2);
+      expect(cancelMail!.text).toContain(url2);
+      expect(cancelSms!.body).not.toContain(url2);
+      expect(segmentsOf(cancelSms!.body)).toBe(1);
 
       const [wrap] = await withTenant(tenant, (tx) => tx<{
         digest: string; wrapped: Buffer | Uint8Array | null;

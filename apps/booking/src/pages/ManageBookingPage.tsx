@@ -211,8 +211,8 @@ function ManageBody({
                   </strong>
                   <p>
                     {timeOf(item.startsAt, booking.timezone, locale)}–
-                    {timeOf(item.endsAt, booking.timezone, locale)} ·{" "}
-                    {item.specialistName ?? t("Specialist to be assigned")}
+                    {timeOf(item.endsAt, booking.timezone, locale)}
+                    {item.specialistName && ` · ${item.specialistName}`}
                   </p>
                   {item.addonNames.length > 0 && (
                     <p>{item.addonNames.join(" · ")}</p>
@@ -270,7 +270,7 @@ function ManageBody({
             />
           )}
           {mutable && verified && (
-            <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="booking-actions">
               {booking.actions.canReschedule && (
                 <Btn primary onClick={() => setView("reschedule")}>
                   {t("btn.reschedule", "Reschedule")}
@@ -285,7 +285,7 @@ function ManageBody({
           )}
           {booking.actions.canRebook && (
             <Link
-              className="min-h-12 rounded-2xl bg-[var(--mint)] px-4 py-3 text-center font-semibold text-[var(--brand-dark)]"
+              className="booking-rebook"
               to={`/${slug}`}
             >
               {t("btn.bookAgain", "Book again")}
@@ -459,7 +459,7 @@ function CancelPanel({
         )}{" "}
       </p>
       {err && <Note warn>{err}</Note>}
-      <div className="mt-4 flex gap-3">
+      <div className="booking-actions mt-4">
         <Btn onClick={onBack} disabled={busy}>
           {" "}
           {t("Keep appointment")}{" "}
@@ -624,7 +624,7 @@ function ReschedulePanel({
         </Note>
       )}
       {err && <Note warn>{err}</Note>}
-      <div className="mt-4 flex gap-3">
+      <div className="booking-actions mt-4">
         <Btn onClick={onBack} disabled={busy}>
           {" "}
           {t("Back")}{" "}

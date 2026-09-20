@@ -366,7 +366,7 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
     const rows = await smsFor(id);
     const toCustomer = rows.find((r) => r.entity_type.startsWith('appointment:'));
     expect(toCustomer).toBeTruthy();
-    expect(toCustomer!.body).toContain('通知测试客人');
+    expect(toCustomer!.body).toContain('Rescheduled to');
     expect(toCustomer!.body).not.toContain('{{');
   });
 
@@ -435,8 +435,8 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
       expect(messages).toHaveLength(1);
       expect(messages[0]!.to_email).toBe('booking-shop@example.invalid');
       expect(messages[0]!.body_text).toContain('Guest 1:');
-      expect(messages[0]!.body_text).toContain('Total:');
-      expect(messages[0]!.body_text).toContain(`/schedule?appointmentId=${id}`);
+      expect(messages[0]!.body_text).not.toContain('Total:');
+      expect(messages[0]!.body_text).toMatch(/\/b\/[a-f0-9]{16}/);
       expect(messages[0]!.body_text).not.toContain('#g/');
     } finally {
       await withTenant(tenant,tx=>tx`update locations set email=${old!.email},settings=${jsonb(old!.settings)}::jsonb where id=${NAIL_LOC}`);
@@ -470,10 +470,10 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
     const messages=await withTenant(tenant,tx=>tx<{to_email:string;body_text:string}[]>`select to_email,body_text from email_outbox where entity_id=${id} and entity_type like 'appointment_staff:%'`);
     expect(messages.map(m=>m.to_email).sort()).toEqual(['booking-staff-0@example.invalid','booking-staff-1@example.invalid']);
     expect(messages.every(m=>m.body_text.includes('Guest 2:'))).toBe(true);
-    expect(messages.every(m=>m.body_text.includes(`/schedule?appointmentId=${id}`))).toBe(true);
+    expect(messages.every(m=>/\/b\/[a-f0-9]{16}/.test(m.body_text))).toBe(true);
   });
 
-  it('⭐ 规则关着就不发 —— 装上新版本不该让所有店突然开始发短信', async () => {
+  it('公开预约的改期回执独立于可选通知规则', async () => {
     await disable('appointment_changed');
     await disable('staff_changed');
     const id = await makeAppt();
@@ -485,7 +485,7 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
       startsAt: d.toISOString(),
     });
 
-    expect(await smsFor(id)).toHaveLength(0);
+    expect(await smsFor(id)).toHaveLength(1);
   });
 
   it('⭐ 模板没配也不会让改期失败 —— 通知永不成为阻断点', async () => {
@@ -515,7 +515,7 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
       where entity_id = ${id} and entity_type like 'appointment:%'
       order by created_at desc, id desc
       limit 1`);
-    expect(row!.body).toContain('cancelled');
+    expect(row!.body).toContain('Canceled');
   });
 
   afterAll(async () => {

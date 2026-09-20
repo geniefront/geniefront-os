@@ -46,8 +46,8 @@ const policy = (bufferEnabled: boolean, requestBufferEnabled = false) => dispatc
 async function offers(day = date, requested = false) {
   return app.inject({ method: 'GET', url: `${path}/context?date=${day}&serviceId=${serviceId}${requested ? `&membershipId=${memberId}` : ''}`, headers: headers() });
 }
-const submit = (slotToken: string, name: string) => app.inject({ method: 'POST', url: `${path}/bookings`, headers: headers(),
-  payload: { slotToken, customerName: name, phoneE164: '+12025550123' } });
+const submit = (slotToken: string, name: string, providerCallId?: string) => app.inject({ method: 'POST', url: `${path}/bookings`, headers: headers(),
+  payload: { slotToken, customerName: name, phoneE164: '+12025550123',providerCallId } });
 
 describe('xAI scoped booking tools', () => {
   it('rejects missing credentials and a credential for another phone', async () => {
@@ -87,9 +87,11 @@ describe('xAI scoped booking tools', () => {
   });
   it('replays without duplicating appointments and rejects tampered offers', async () => {
     const res = await offers(addDays(date, 1)); const slot = res.json().slots[0];
-    const first = await submit(slot.slotToken, 'Replay'); const second = await submit(slot.slotToken, 'Replay');
+    const first = await submit(slot.slotToken, 'Replay','voice-replay-test'); const second = await submit(slot.slotToken, 'Replay','voice-replay-test');
     expect(first.statusCode).toBe(200); expect(second.json().appointmentId).toBe(first.json().appointmentId);
     expect(second.json().replayed).toBe(true);
+    const [saved]=await withTenant(tenant,tx=>tx`select provider_call_id from appointments where id=${first.json().appointmentId}`);
+    expect(saved!.provider_call_id).toBe('voice-replay-test');
     expect((await submit(`x${slot.slotToken}`, 'Tampered')).statusCode).toBe(400);
   });
   it('requested therapist overlaps require their independent buffer switch', async () => {

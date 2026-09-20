@@ -15,7 +15,7 @@ import '../handlers/voiceBooking';
 const searchSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   serviceId: z.string().uuid().optional(), membershipId: z.string().uuid().optional(),
   partySize: z.coerce.number().int().min(1).max(10).default(1) }).strict();
-const submitSchema = z.object({ slotToken: z.string().min(20).max(3000), customerName: z.string().trim().min(1).max(120),
+const submitSchema = z.object({ providerCallId:z.string().min(1).max(200).optional(), slotToken: z.string().min(20).max(3000), customerName: z.string().trim().min(1).max(120),
   phoneE164: VoiceBookingInput.shape.phoneE164, email: z.string().email().optional(), notes: z.string().max(1000).optional() }).strict();
 const signedSchema = z.object({ serviceId: z.string().uuid(), date: z.string(), startsAt: z.string(),
   membershipId: z.string().uuid().nullable(), partySize: z.number().int().min(1).max(10), expiresAt: z.number(), locationId: z.string().uuid() }).strict();

@@ -48,6 +48,7 @@ export interface AppointmentTicketFacts {
 }
 
 export interface AppointmentDetail {
+  isVoiceBooking?:boolean;
   appointmentId: string;
   status: string;
   customer: {

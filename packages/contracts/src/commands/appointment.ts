@@ -131,6 +131,7 @@ export const AppointmentCreate = defineCommand({
      * 原名 `web`，2026-08-22 改名为 `guest` —— AI 电话建单走的是同一块，
      * 而「电话预约传一个 web 载荷」会让每一个后来的读者停下来查一遍。
      */
+    providerCallId: z.string().min(1).max(200).optional(),
     guest: z.object({
       /** Separate appointment SMS choice; never grants marketing consent. */
       bookingSmsConsent: z.boolean().optional(),

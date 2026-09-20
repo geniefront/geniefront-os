@@ -24,6 +24,7 @@
  */
 
 import type postgres from 'postgres';
+import { readPublicBookingProfile } from '@gf/contracts';
 
 type Tx = postgres.TransactionSql;
 
@@ -44,10 +45,12 @@ export interface ShopCopyArgs {
 
 /** 返回是否真的入队了一封抄送。 */
 export async function enqueueShopCopy(tx: Tx, args: ShopCopyArgs): Promise<boolean> {
-  const [loc] = await tx<{ email: string | null; copy: boolean }[]>`
-    select email, appointment_email_copy_to_shop as copy
+  const [loc] = await tx<{ email: string | null; copy: boolean; settings: Record<string,unknown> }[]>`
+    select email, settings, appointment_email_copy_to_shop as copy
     from locations where id = ${args.locationId}`;
 
+  // Dedicated shop notices replace legacy customer copies.
+  if (loc && readPublicBookingProfile(loc.settings).shopNotifications.email) return false;
   const to = loc?.email?.trim();
   if (!loc?.copy || !to) return false;
   if (to.toLowerCase() === args.customerEmail.trim().toLowerCase()) return false;

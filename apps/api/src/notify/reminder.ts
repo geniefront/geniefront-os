@@ -134,7 +134,7 @@ async function enqueueOneReminder(
   }[]>`
     select c.email, c.phone_e164 as phone, c.display_name as customer_name,
            l.name as shop_name, l.timezone, l.slug,
-           s.name as service_name, sp.display_name as staff_name,
+           s.name as service_name, case when ai.is_request then sp.display_name else null end as staff_name,
            a.starts_at::text as starts_at,
            a.manage_token_digest, a.manage_token_wrapped
     from appointments a

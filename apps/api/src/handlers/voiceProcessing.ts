@@ -66,19 +66,32 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
     await tx`update phone_calls set voice_billing_status='settled',billable_seconds=${billableSeconds},
       billing_analysis=${jsonb({ ...input.analysis, ruleVersion: 1 })}::jsonb where id=${call!.id}`;
   }
+  // Exact provider IDs are preferred. Older voice clients can be linked only when
+  // caller + recording window identifies a call unambiguously inside this tenant.
+  if(job.payload.startedAt && job.payload.from){
+    const start=new Date(String(job.payload.startedAt)),end=new Date(start.getTime()+input.durationSeconds*1000+30000);
+    await tx`update appointments a set provider_call_id=${job.provider_call_id}
+      from customers c where a.customer_id=c.id and a.location_id=${ctx.locationId} and a.source='phone_ai'
+      and a.provider_call_id is null and c.phone_e164=${String(job.payload.from)}
+      and a.created_at>=${start.toISOString()}::timestamptz and a.created_at<=${end.toISOString()}::timestamptz
+      and not exists(select 1 from phone_calls p where p.location_id=${ctx.locationId} and p.id<>${call!.id}
+        and p.from_e164=${String(job.payload.from)} and p.started_at<${end.toISOString()}::timestamptz
+        and p.started_at+make_interval(secs=>coalesce(p.duration_seconds,0))>${start.toISOString()}::timestamptz)`;
+  }
+  const [linkedBooking]=await tx`select id from appointments where location_id=${ctx.locationId} and provider_call_id=${job.provider_call_id} limit 1`;
   const [shop] = await tx<{ email: string | null; phone: string | null; name: unknown; settings: unknown }[]>`
     select email,phone,name,settings from locations where id=${ctx.locationId}`;
   const targets = voiceNotificationTargets(shop?.settings, { email: shop?.email ?? null, phone: shop?.phone ?? null });
   const detail = `${process.env.APP_BASE_URL ?? ''}/calls`;
   const text = `${input.analysis.summary}\n\n计费分钟：${Math.ceil(billableSeconds / 60)}\n录音及通话详情：${detail}\n\n通话转录：\n${input.transcript}`;
-  if (targets.email) {
+  if (targets.email && !linkedBooking) {
     const html = text.replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]!));
     await tx`insert into email_outbox(org_id,location_id,kind,to_email,subject,body_html,body_text,entity_type,entity_id)
       values(${ctx.orgId},${ctx.locationId},'platform_notice',${targets.email},'AI 来电记录',${`<pre>${html}</pre>`},${text},'phone_call',${call!.id})
       on conflict(entity_type,entity_id,kind) do nothing`;
   }
-  if (targets.phone && smsConfigured()) {
-    const body = `AI call processed. Review the call and booking details: ${detail}`;
+  if (targets.phone && smsConfigured() && !linkedBooking) {
+    const body = `GenieFront: Call completed. Details: ${detail.replace(/^https:\/\//,'')}. Reply STOP to opt out.`;
     await tx`insert into sms_outbox(org_id,location_id,kind,to_e164,from_e164,body,segments,entity_type,entity_id)
       values(${ctx.orgId},${ctx.locationId},'direct_message',${targets.phone},${smsFrom()},${body},${segmentsOf(body)},'phone_call',${call!.id})
       on conflict(entity_type,entity_id,kind) do nothing`;

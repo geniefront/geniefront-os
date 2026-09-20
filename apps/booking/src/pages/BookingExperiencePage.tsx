@@ -1,3 +1,4 @@
+import { formatPhoneDisplay } from "@gf/contracts/phone";
 import { hourPeriods } from "@gf/scheduling";
 import { ServiceImage } from "../components/ServiceImage";
 import { Button, Input, Avatar } from "@heroui/react";
@@ -387,7 +388,19 @@ export function BookingExperiencePage() {
               catalog={catalog}
               shop={shop}
               staff={avail?.staff ?? []}
+              preferences={items}
             />
+          )}
+          {contact && (
+            <Card>
+              <h2 className="section-label">{t("Contact")}</h2>
+              <p>{contact.name}</p>
+              <p>{formatPhoneDisplay(contact.phone)}</p>
+              {contact.email && <p>{contact.email}</p>}
+              {contact.notes && (
+                <p className="whitespace-pre-wrap">{contact.notes}</p>
+              )}
+            </Card>
           )}
           <SuccessStep
             shop={shop}
@@ -783,6 +796,17 @@ export function BookingExperiencePage() {
                     <span>{t("Edit")}</span>
                   </Button>
                   <ConfirmStep
+                    appointmentSummary={
+                      <PlanSummary
+                        plan={picked}
+                        catalog={catalog}
+                        shop={shop}
+                        staff={avail?.staff ?? []}
+                        preferences={items}
+                        onEdit={() => goStep(1)}
+                        onTime={() => goStep(3)}
+                      />
+                    }
                     initialContact={contact}
                     onContactChange={setContact}
                     shop={shop}
@@ -896,37 +920,97 @@ function PlanSummary({
   catalog,
   shop,
   staff,
+  preferences,
+  onEdit,
+  onTime,
 }: {
   plan: PartyAvailability["plans"][number];
   catalog: Catalog | undefined;
   shop: Shop;
   staff: PartyAvailability["staff"];
+  preferences?: PartySelection[];
+  onEdit?: () => void;
+  onTime?: () => void;
 }) {
   const { t, locale } = useLanguage();
+  const total = plan.items.reduce((n, i) => n + i.priceCents, 0);
+  const address =
+    typeof shop.address === "string"
+      ? shop.address
+      : [
+          shop.address?.line1,
+          shop.address?.line2,
+          shop.address?.city,
+          [shop.address?.state, shop.address?.zip].filter(Boolean).join(" "),
+        ]
+          .filter(Boolean)
+          .join(", ");
   return (
-    <Card>
-      <p className="section-label">{t("Your appointment")}</p>
-      <h2 className="summary-date">
-        {dateOf(plan.startsAt, shop.timezone, locale)}
-      </h2>
-      <p>{timeOf(plan.startsAt, shop.timezone, locale)}</p>
+    <Card className="appointment-summary">
+      <div className="summary-heading">
+        <h2>{t("Your appointment")}</h2>
+        {onEdit && (
+          <Button variant="ghost" onPress={onEdit}>
+            {t("Edit services")}
+          </Button>
+        )}
+      </div>
+      <div className="summary-heading">
+        <div>
+          <p className="summary-date">
+            {dateOf(plan.startsAt, shop.timezone, locale)}
+          </p>
+          <p>
+            {timeOf(plan.startsAt, shop.timezone, locale)} ·{" "}
+            {shop.timezone.replace(/_/g, " ")}
+          </p>
+        </div>
+        {onTime && (
+          <Button variant="ghost" onPress={onTime}>
+            {t("Edit time")}
+          </Button>
+        )}
+      </div>
       <ul className="bag-items">
-        {plan.items.map((i, n) => (
-          <li key={n}>
-            <strong>
-              {catalog?.services.find((s) => s.id === i.serviceId)?.name}
-            </strong>
-            <p>
-              {staff.find((s) => s.id === i.staffId)?.displayName ??
-                t("Specialist to be assigned")}{" "}
-              · {duration(i.durationMin)}
-            </p>
-          </li>
-        ))}
+        {plan.items.map((i, n) => {
+          const preferred = preferences?.find(
+            (p) => p.guestIndex === i.guestIndex && p.serviceId === i.serviceId,
+          )?.staffId;
+          return (
+            <li key={n}>
+              <div className="bag-item-title">
+                <strong>
+                  {t("Guest")} {i.guestIndex + 1} ·{" "}
+                  {catalog?.services.find((s) => s.id === i.serviceId)?.name}
+                </strong>
+                <span>{money(i.priceCents, shop.currency)}</span>
+              </div>
+              <p>
+                {duration(i.durationMin)}
+                {preferred &&
+                  ` · ${staff.find((s) => s.id === preferred)?.displayName ?? ""}`}
+              </p>
+              {i.addonIds.length > 0 && (
+                <p>
+                  {i.addonIds
+                    .map((id) => catalog?.addons.find((a) => a.id === id)?.name)
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              )}
+            </li>
+          );
+        })}
       </ul>
+      <div className="bag-total">
+        <span>{t("Total")}</span>
+        <strong>{money(total, shop.currency)}</strong>
+      </div>
+      {address && <p className="summary-address">{address}</p>}
     </Card>
   );
 }
+
 function ShopOverview({
   shop,
   staff,
@@ -938,7 +1022,15 @@ function ShopOverview({
   const address =
     typeof shop.address === "string"
       ? shop.address
-      : [shop.address?.line1, shop.address?.line2, shop.address?.city, [shop.address?.state,shop.address?.zip].filter(Boolean).join(" "),shop.address?.country].filter(Boolean).join(", ");
+      : [
+          shop.address?.line1,
+          shop.address?.line2,
+          shop.address?.city,
+          [shop.address?.state, shop.address?.zip].filter(Boolean).join(" "),
+          shop.address?.country,
+        ]
+          .filter(Boolean)
+          .join(", ");
   return (
     <div className="shop-details">
       <ServiceImage
@@ -985,18 +1077,21 @@ function ShopOverview({
       <section>
         <h3 className="section-label">{t("Opening hours")}</h3>
         <dl>
-          {["mon","tue","wed","thu","fri","sat","sun"].map(day => {const h=shop.businessHours?.[day];return (
-            <div key={day}>
-              <dt>{t(day)}</dt>
-              <dd>
-                {h
-                  ? hourPeriods(h)
-                      .map((p) => `${p.open}–${p.close}`)
-                      .join(" · ")
-                  : t("Closed")}
-              </dd>
-            </div>
-          );})}
+          {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((day) => {
+            const h = shop.businessHours?.[day];
+            return (
+              <div key={day}>
+                <dt>{t(day)}</dt>
+                <dd>
+                  {h
+                    ? hourPeriods(h)
+                        .map((p) => `${p.open}–${p.close}`)
+                        .join(" · ")
+                    : t("Closed")}
+                </dd>
+              </div>
+            );
+          })}
         </dl>
       </section>
       <p>

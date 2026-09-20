@@ -298,7 +298,7 @@ describe('BookPage', () => {
     expect(stored).toContain('mt_abc');
     expect(stored).not.toContain('Amy Chen');
     expect(stored).not.toContain('6175550199');
-    const manage = screen.getByRole('link', { name: /view, reschedule, or cancel/i });
+    const manage = screen.getByRole('link', { name: /edit appointment/i });
     expect(manage.getAttribute('href')).toBe('/l/lotus-nails#g/mt_abc');
   });
 

@@ -1056,6 +1056,12 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
 };
 
 const bookingRefreshCopy: Record<string, [string,string,string,string]> = {
+ 'Edit appointment':['修改预约','Editar cita','Sửa lịch hẹn','예약 수정'],
+ 'Edit services':['修改项目','Editar servicios','Sửa dịch vụ','서비스 수정'],
+ 'Edit time':['修改时间','Cambiar hora','Đổi giờ','시간 변경'],
+ 'Edit contact':['修改联系方式','Editar contacto','Sửa liên hệ','연락처 수정'],
+ 'Enter email to receive details and manage your appointment.':['填写邮箱，接收预约详情并在线修改或取消。','Introduce tu correo para recibir los detalles y gestionar tu cita.','Nhập email để nhận thông tin và quản lý lịch hẹn.','이메일을 입력하면 예약 내역을 받고 변경하거나 취소할 수 있습니다.'],
+
  'Receive appointment texts':['接收预约短信','Recibir SMS de la cita','Nhận tin nhắn lịch hẹn','예약 문자 수신'],
  'Send me booking confirmations, updates and reminders from':['接收以下门店的预约确认、变更及提醒短信：','Recibir confirmaciones, cambios y recordatorios de','Nhận xác nhận, cập nhật và nhắc lịch từ','다음 매장의 예약 확인, 변경 및 알림을 받습니다:'],
  'via GenieFront SMS.':['通过 GenieFront SMS 发送。','a través de GenieFront SMS.','qua GenieFront SMS.','GenieFront SMS를 통해 발송됩니다.'],

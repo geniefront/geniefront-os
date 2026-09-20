@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { defineCommand, phoneE164, uuid } from '../command.js';
 
 export const VoiceBookingInput = z.object({
+  providerCallId:z.string().min(1).max(200).optional(),
   serviceId: uuid, date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   startsAt: z.string().datetime({ offset: true }), membershipId: uuid.nullable().default(null),
   partySize: z.number().int().min(1).max(10).default(1),
