@@ -11,7 +11,7 @@ export const UpdateUserProfile = defineCommand({
   input: z.object({
     fullName: z.string().trim().min(1).max(100).optional(),
     nickname: z.string().trim().max(60).optional(),
-    phone: phoneE164.optional(),
+    phone: phoneE164.nullable().optional(),
     avatarUrl: z.string().url().or(z.literal('')).optional(),
     bio: z.string().max(500).optional(),
     locale: z.string().max(10).optional(),

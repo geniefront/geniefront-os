@@ -30,7 +30,7 @@ export interface UserProfileData {
 export interface UpdateUserProfileInput {
   fullName?: string;
   nickname?: string;
-  phone?: string;
+  phone?: string | null;
   avatarUrl?: string;
   locale?: Language;
   bio?: string;

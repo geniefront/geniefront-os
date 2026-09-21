@@ -49,7 +49,7 @@ registerHandler(UpdateUserProfile, async ({ input, ctx, tx, audit }: HandlerArgs
     update users set
       full_name = coalesce(${input.fullName ?? null}, full_name),
       nickname = coalesce(${input.nickname ?? null}, nickname),
-      phone = coalesce(${input.phone ?? null}, phone),
+      phone = case when ${input.phone !== undefined} then ${input.phone ?? null} else phone end,
       avatar_url = coalesce(${input.avatarUrl ?? null}, avatar_url),
       locale = coalesce(${input.locale ?? null}, locale),
       timezone = coalesce(${input.timezone ?? null}, timezone),

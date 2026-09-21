@@ -353,7 +353,7 @@ export function Profile() {
           await updateProfileMutation.mutateAsync({
             fullName: fullName.trim(),
             nickname: nickname.trim(),
-            phone: phone.trim(),
+            phone: phone.trim() || null,
             bio: bio.trim(),
             locale: language,
           });

@@ -82,6 +82,30 @@ afterAll(async () => {
 
 describe('个人资料与通知中心全量功能后端测试', () => {
 
+  it('voice_booking profile saves, preserves omitted phone and clears explicitly across transactions', async () => {
+    const [billing] = await withTenant(ownerTenant(), tx => tx<{ plan: string }[]>`
+      select plan from billing_accounts where location_id = ${NAIL_LOC}`);
+    try {
+      await withTenant(ownerTenant(), tx => tx`update billing_accounts set plan = 'voice_booking' where location_id = ${NAIL_LOC}`);
+      const ctx = await buildContext({ userId: ownerUserId, membershipId: ownerMembershipId });
+      await dispatch('user.updateProfile', { phone: '+16175550199' }, ctx);
+      await dispatch('user.updateProfile', { fullName: 'Voice profile test' }, ctx);
+      expect((await withTenant(ownerTenant(), tx => loadUserProfile(tx, ctx))).phone).toBe('+16175550199');
+      await dispatch('user.updateProfile', { phone: null }, ctx);
+      const fresh = await buildContext({ userId: ownerUserId, membershipId: ownerMembershipId });
+      const profile = await withTenant(ownerTenant(), tx => loadUserProfile(tx, fresh));
+      expect(profile.phone).toBe('');
+      const [stored] = await withTenant(ownerTenant(), tx => tx<{ phone: string | null }[]>`select phone from users where id = ${ownerUserId}`);
+      expect(stored?.phone).toBeNull();
+      expect(profile.fullName).toBe('Voice profile test');
+    } finally {
+      if (billing) await withTenant(ownerTenant(), async tx => {
+        await tx`update billing_accounts set plan = 'growth' where location_id = ${NAIL_LOC}`;
+        await tx`update billing_accounts set plan = ${billing.plan} where location_id = ${NAIL_LOC}`;
+      });
+    }
+  });
+
   // ───────────────────────────────────────────────────────── 1. 个人资料与账号管理
   describe('1. 个人资料与账号管理 (Profile & Identity)', () => {
     it('user.updateProfile 更新个人姓名、昵称、手机号、技能与接单设置', async () => {
