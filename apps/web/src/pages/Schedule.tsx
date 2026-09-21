@@ -272,7 +272,7 @@ function ScheduleContent() {
 
   const handlePrev = () => {
     const d = parseLocal(currentDate);
-    if (view === 'month') d.setMonth(d.getMonth() - 1);
+    if (view === 'month') { d.setDate(1); d.setMonth(d.getMonth() - 1); }
     else if (view === 'week') d.setDate(d.getDate() - 7);
     else d.setDate(d.getDate() - 1);
     const y = d.getFullYear();
@@ -283,7 +283,7 @@ function ScheduleContent() {
 
   const handleNext = () => {
     const d = parseLocal(currentDate);
-    if (view === 'month') d.setMonth(d.getMonth() + 1);
+    if (view === 'month') { d.setDate(1); d.setMonth(d.getMonth() + 1); }
     else if (view === 'week') d.setDate(d.getDate() + 7);
     else d.setDate(d.getDate() + 1);
     const y = d.getFullYear();
