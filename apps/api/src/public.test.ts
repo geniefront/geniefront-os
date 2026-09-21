@@ -2424,3 +2424,41 @@ it('service presentation saves atomically and survives edits that omit it',async
  const catalog=await get('/public/v1/services');expect(catalog.statusCode).toBe(200);
  expect(catalog.json().services.find((s:any)=>s.id===created.serviceId)).toMatchObject({...presentation,priceCents:4600});
 });
+
+
+it('books Couples once for two guests with two specialists and preserves the group when rescheduling',async()=>{
+ __resetRateLimit();
+ const couple=(await run<{serviceId:string}>('catalog.saveService',{name:{en:'Couples Massage 60 min'},durationMin:60,basePriceCents:12000,staffCount:2,onlineBookable:true})).serviceId;
+ const catalog=await get('/public/v1/services');
+ expect(catalog.json().services.find((s:any)=>s.id===couple)).toMatchObject({onlineBookable:true,staffCount:2,guestCount:2});
+ const selection={guestIndex:0,guestIndices:[0,1],serviceId:couple,addonIds:[],staffId:null};
+ const availability=await post('/public/v1/party-availability',{date:addDays(bookDate,10),items:[selection]});
+ expect(availability.statusCode,availability.body).toBe(200);
+ expect(availability.json().plans.length).toBeGreaterThan(0);
+ const plan=availability.json().plans[0];
+ expect(plan.items).toHaveLength(1);
+ expect(plan.items[0].priceCents).toBe(12000);
+ const payload=bookingPayload({partySize:2,items:plan.items.map((i:any)=>({...i,quotedPriceCents:12000}))});
+ const second={...payload,turnstileToken:`tk_${randomUUID()}`,customer:{...payload.customer,phone:'+16175550197'}};
+ const results=await Promise.all([post('/public/v1/bookings',payload,{'idempotency-key':randomUUID()}),post('/public/v1/bookings',second,{'idempotency-key':randomUUID()})]);
+ expect(results.map(r=>r.statusCode).sort(),results.map(r=>r.body).join('\n')).toEqual([201,409]);
+ const success=results.find(r=>r.statusCode===201)!.json();
+ const rows=await withTenant(tenant,tx=>tx`select membership_id,starts_at,ends_at,price_cents_snapshot,details from appointment_items where appointment_id=${success.bookingId}`);
+ expect(rows).toHaveLength(2);
+ expect(new Set(rows.map(r=>r.membership_id)).size).toBe(2);
+ expect(new Set(rows.map(r=>String(r.starts_at))).size).toBe(1);
+ expect(rows.reduce((total,r)=>total+r.price_cents_snapshot,0)).toBe(12000);
+ expect(rows.map(r=>r.details.publicGuestIndex).sort()).toEqual([0,1]);
+ expect(new Set(rows.map(r=>r.details.serviceExecutionGroup)).size).toBe(1);
+ expect(success.summary.items).toHaveLength(1);
+ expect(success.summary.items[0]).toMatchObject({priceCents:12000,guestIndices:[0,1]});
+ const managed=await post('/public/v1/hosted/availability',{slug:'lotus-nails',manageToken:success.manageToken,date:addDays(bookDate,11)});
+ expect(managed.statusCode,managed.body).toBe(200);
+ expect(managed.json().canReschedule).toBe(true);
+ expect(managed.json().slots.length).toBeGreaterThan(0);
+ const winner=results[0]!.statusCode===201?payload:second;
+ const moved=await post(`/public/v1/bookings/${success.bookingId}/reschedule`,{manageToken:success.manageToken,last4:winner.customer.phone.slice(-4),startsAt:managed.json().slots[0].startsAt,requestId:randomUUID()});
+ expect(moved.statusCode,moved.body).toBe(200);
+ const invalid=await post('/public/v1/party-availability',{date:addDays(bookDate,10),items:[{...selection,guestIndices:[0]}]});
+ expect(invalid.statusCode).toBe(400);
+});

@@ -22,6 +22,7 @@ export const publicBookingProfileSchema = z.object({
       z.string().uuid(),
       z.object({
         visible: z.boolean().optional(),
+        guestCount: z.number().int().min(1).max(10).optional(),
         resourceTypeId: z.string().uuid().nullable().default(null),
         imageUrl: image.or(z.literal("")).default(""),
         description: z.string().max(5000).default(""),

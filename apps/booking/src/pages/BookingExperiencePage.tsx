@@ -1,3 +1,4 @@
+import { selectionGuests, chooseServiceGuests, removePartyGuest } from '../lib/partyGuests';
 import { formatPhoneDisplay } from "@gf/contracts/phone";
 import { hourPeriods } from "@gf/scheduling";
 import { ServiceImage } from "../components/ServiceImage";
@@ -184,6 +185,7 @@ export function BookingExperiencePage() {
           startsAt: summary.startsAt,
           items: summary.items.map((i) => ({
             guestIndex: i.guestIndex ?? 0,
+            ...(i.guestIndices ? { guestIndices: i.guestIndices } : {}),
             serviceId: i.serviceId,
             addonIds: i.addonIds,
             staffId: i.specialistName,
@@ -260,7 +262,7 @@ export function BookingExperiencePage() {
   const complete =
     selectedServices.every((s) => s && s.onlineBookable !== false) &&
     Array.from({ length: partySize }, (_, i) =>
-      items.some((x) => x.guestIndex === i),
+      items.some((x) => selectionGuests(x).includes(i)),
     ).every(Boolean);
   const groups = groupServices(catalog?.services ?? []);
   const current = step === 1 ? 0 : step === 3 ? 1 : 2;
@@ -278,7 +280,7 @@ export function BookingExperiencePage() {
     setGuest(Math.min(guest, n - 1));
     setEditingGuest(null);
     setGuestNames((names) => names.slice(0, n));
-    changeItems(items.filter((i) => i.guestIndex < n));
+    changeItems(items.filter((i) => selectionGuests(i).every(g => g < n)));
     if (step !== 1) goStep(1);
   };
   const removeGuest = (removed: number) => {
@@ -287,9 +289,7 @@ export function BookingExperiencePage() {
     setGuestNames(Array.from({ length: partySize }, (_, index) => guestNames[index] ?? "").filter((_, index) => index !== removed));
     setGuest(guest > removed ? guest - 1 : guest === removed ? Math.min(removed, partySize - 2) : guest);
     setEditingGuest(null);
-    changeItems(items.filter((item) => item.guestIndex !== removed).map((item) => ({
-      ...item, guestIndex: item.guestIndex > removed ? item.guestIndex - 1 : item.guestIndex,
-    })));
+    changeItems(removePartyGuest(items, removed));
     if (step !== 1) goStep(1);
   };
   const canContinue =
@@ -312,10 +312,10 @@ export function BookingExperiencePage() {
             .map(({ item, index }, position, sorted) => {
             const svc = selectedServices[index];
             const addons = catalog?.addons.filter((a) => item.addonIds.includes(a.id)) ?? [];
-            const startsGuest = position === 0 || sorted[position - 1]!.item.guestIndex !== item.guestIndex;
+            const startsGuest = position === 0 || selectionGuests(sorted[position - 1]!.item).join(",") !== selectionGuests(item).join(",");
             return (
               <li key={`${index}:${item.serviceId}`}>
-                {startsGuest && partySize > 1 && <h3 className="bag-guest-heading">{guestLabel(item.guestIndex)}</h3>}
+                {startsGuest && partySize > 1 && <h3 className="bag-guest-heading">{selectionGuests(item).map(g => guestLabel(g)).join(" + ")}</h3>}
                 <div className="bag-item-title">
                   <strong>{svc?.name}</strong>
                   <span>
@@ -530,7 +530,7 @@ export function BookingExperiencePage() {
                         <div key={i} className={`guest-chip ${guest === i ? "is-selected" : ""}`}>
                           <Choice selected={guest === i} onPress={() => setGuest(i)}>
                             <span className="guest-chip-name">{guestLabel(i)}</span>{" "}
-                            <span className="guest-count">{items.filter((x) => x.guestIndex === i).length} {t("selected")}</span>
+                            <span className="guest-count">{items.filter((x) => selectionGuests(x).includes(i)).length} {t("selected")}</span>
                           </Choice>
                             <Button isIconOnly variant="ghost" className="guest-rename" aria-label={`${t("Edit")} ${guestLabel(i)}`} onPress={() => { setDraftGuestName(guestNames[i] ?? ""); setEditingGuest(i); }}>
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15v5Z" /></svg>
@@ -637,7 +637,7 @@ export function BookingExperiencePage() {
                                   !shop.onlineBooking.enabled ||
                                   items.length >= 20 ||
                                   group.services.every(
-                                    (s) => s.onlineBookable === false,
+                                    (s) => s.onlineBookable === false || (s.guestCount ?? 1) > (shop.publicProfile?.maxPartySize ?? 10),
                                   )
                                 }
                                 onPress={() =>
@@ -683,7 +683,7 @@ export function BookingExperiencePage() {
                         <div className="staff-preference" key={index}>
                           {items.length > 1 && (
                             <p className="section-label">
-                              {guestLabel(item.guestIndex)} ·{" "}
+                              {selectionGuests(item).map(g => guestLabel(g)).join(" + ")} ·{" "}
                               {selectedServices[index]?.name}
                             </p>
                           )}
@@ -838,6 +838,7 @@ export function BookingExperiencePage() {
                       durationMin: mins,
                       items: picked.items.map((i, index) => ({
                         guestIndex: i.guestIndex,
+                        ...(i.guestIndices ? { guestIndices: i.guestIndices } : {}),
                         quotedPriceCents: i.priceCents,
                         serviceId: i.serviceId,
                         addonIds: i.addonIds,
@@ -904,8 +905,13 @@ export function BookingExperiencePage() {
           onClose={() => setCustomizing(null)}
           onSave={(serviceId, addonIds) => {
             const index = customizing.index;
+            const requiredGuests = catalog?.services.find(s => s.id === serviceId)?.guestCount ?? 1;
+            const coverage = chooseServiceGuests(index === null ? guest : items[index]!.guestIndex, requiredGuests, partySize, shop.publicProfile?.maxPartySize ?? 10, items, index);
+            if (!coverage) return;
+            setPartySize(coverage.partySize);
             const value = {
-              guestIndex: index === null ? guest : items[index]!.guestIndex,
+              guestIndex: coverage.guests[0]!,
+              ...(requiredGuests > 1 ? { guestIndices: coverage.guests } : {}),
               serviceId,
               addonIds,
               staffId: index === null ? null : items[index]!.staffId,
@@ -1019,7 +1025,7 @@ function PlanSummary({
             <li key={n}>
               <div className="bag-item-title">
                 <strong>
-                  {guestNames[i.guestIndex]?.trim() || `${t("Guest")} ${i.guestIndex + 1}`} ·{" "}
+                  {selectionGuests(i).map(g => guestNames[g]?.trim() || `${t("Guest")} ${g + 1}`).join(" + ")} ·{" "}
                   {catalog?.services.find((s) => s.id === i.serviceId)?.name}
                 </strong>
                 <span>{money(i.priceCents, shop.currency)}</span>

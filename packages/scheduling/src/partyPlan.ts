@@ -3,6 +3,9 @@ import { checkCapacity, type Interval } from "./capacity";
 export interface PartyItem {
   resourceTypeId?: string | null;
   guestIndex: number;
+  guestIndices?: number[] | undefined;
+  staffCount?: number;
+  additionalStaffIds?: string[];
   serviceId: string;
   addonIds: string[];
   durationMin: number;
@@ -44,12 +47,21 @@ export function planPartyAt(args: {
   if (!args.items.length || args.items.length > 20 || args.locationLimit < 1)
     return null;
   const ends = new Map<number, number>();
-  const shape = args.items.map((item, position) => {
-    const start = ends.get(item.guestIndex) ?? args.startsAt.getTime();
-    const end = start + item.durationMin * 60000;
-    ends.set(item.guestIndex, end);
-    return { item, position, startsAt: new Date(start), endsAt: new Date(end) };
+  const shape = args.items.flatMap((original, position) => {
+    const guests = original.guestIndices ?? [original.guestIndex];
+    const staffCount = original.staffCount ?? 1;
+    if (!guests.length || !Number.isInteger(staffCount) || staffCount < 1 || staffCount > 5) return [];
+    const start = Math.max(...guests.map(g => ends.get(g) ?? args.startsAt.getTime()));
+    const end = start + original.durationMin * 60000;
+    guests.forEach(g => ends.set(g, end));
+    return Array.from({ length: staffCount }, (_, member) => ({
+      item: { ...original, staffId: member === 0 ? original.staffId : null },
+      position, member, startsAt: new Date(start), endsAt: new Date(end),
+    }));
   });
+  if (new Set(shape.map(s => s.position)).size !== args.items.length) return null;
+  const groupKey = (p: { position: number; member: number; guestIndex: number }) =>
+    (args.items[p.position]!.staffCount ?? 1) > 1 ? `party:${p.position}:staff:${p.member}` : `party:${p.guestIndex}`;
   if (
     shape.some(
       (s) =>
@@ -67,22 +79,22 @@ export function planPartyAt(args: {
       Number(!!b.item.resourceTypeId) - Number(!!a.item.resourceTypeId) ||
       a.startsAt.getTime() - b.startsAt.getTime(),
   );
-  const planned: Array<PlannedPartyItem & { position: number }> = [];
+  const planned: Array<PlannedPartyItem & { position: number; member: number }> = [];
   let attempts = 0;
   const visit = (index: number): boolean => {
     if (index === shape.length) return true;
     if (++attempts > 10000) return false;
-    const { item, position, startsAt, endsAt } = shape[index]!;
+    const { item, position, member, startsAt, endsAt } = shape[index]!;
     const existing = [
       ...args.existing,
       ...planned.map((p) => ({
         startsAt: new Date(p.startsAt),
         endsAt: new Date(p.endsAt),
         membershipId: p.staffId,
-        groupKey: `party:${p.guestIndex}`,
+        groupKey: groupKey(p),
       })),
     ];
-    const proposed = { startsAt, endsAt, groupKey: `party:${item.guestIndex}` };
+    const proposed = { startsAt, endsAt, groupKey: groupKey({ ...item, position, member }) };
     for (const staff of args.staff) {
       if (item.staffId && staff.id !== item.staffId) continue;
       if (
@@ -111,7 +123,9 @@ export function planPartyAt(args: {
       const resources = item.resourceTypeId
         ? (args.resources ?? []).filter((r) => r.typeId === item.resourceTypeId)
         : [null];
+      const sibling = planned.find(p => p.position === position);
       for (const resource of resources) {
+        if (sibling && (sibling.resourceId ?? null) !== (resource?.id ?? null)) continue;
         if (resource) {
           const busy = [
             ...resource.busy,
@@ -121,7 +135,7 @@ export function planPartyAt(args: {
                 startsAt: new Date(p.startsAt),
                 endsAt: new Date(p.endsAt),
                 membershipId: p.staffId,
-                groupKey: `party:${p.guestIndex}`,
+                groupKey: groupKey(p),
               })),
           ].filter((b) => b.startsAt < endsAt && startsAt < b.endsAt);
           const groups = new Set(busy.map((b, i) => b.groupKey ?? `busy:${i}`));
@@ -138,6 +152,7 @@ export function planPartyAt(args: {
         planned.push({
           ...item,
           position,
+          member,
           resourceId: resource?.id ?? null,
           staffId: staff.id,
           startsAt: startsAt.toISOString(),
@@ -148,21 +163,24 @@ export function planPartyAt(args: {
       }
     }
     // Extra capacity is an unassigned booking, never a second promise for a busy specialist.
-    if(args.allowUnassigned && !item.staffId && !item.resourceTypeId && args.staff.some(s=>item.eligibleStaffIds.includes(s.id) && s.startsAt<=startsAt && s.endsAt>=endsAt)) {
+    if((item.staffCount ?? 1) === 1 && args.allowUnassigned && !item.staffId && !item.resourceTypeId && args.staff.some(s=>item.eligibleStaffIds.includes(s.id) && s.startsAt<=startsAt && s.endsAt>=endsAt)) {
       const onDuty=new Set(args.staff.filter(s=>s.startsAt<=startsAt && s.endsAt>=endsAt).map(s=>s.id)).size;
       const extra=args.unassignedLimit ?? Math.max(0,args.locationLimit-onDuty);
       const unassigned=existing.filter(e=>!e.membershipId);
       if(extra>0 && checkCapacity({proposed,staff:null,location:{maxConcurrentPerSlot:args.locationLimit,onDutyBookableCount:onDuty,existing}}).length===0 && checkCapacity({proposed,staff:null,location:{maxConcurrentPerSlot:extra,onDutyBookableCount:onDuty,existing:unassigned}}).length===0) {
-        planned.push({...item,position,staffId:null,resourceId:null,startsAt:startsAt.toISOString(),endsAt:endsAt.toISOString()});
+        planned.push({...item,position,member,staffId:null,resourceId:null,startsAt:startsAt.toISOString(),endsAt:endsAt.toISOString()});
         if(visit(index+1))return true;
         planned.pop();
       }
     }
     return false;
   };
-  return visit(0)
-    ? planned
-        .sort((a, b) => a.position - b.position)
-        .map(({ position: _position, ...item }) => item)
-    : null;
+  if (!visit(0)) return null;
+  return args.items.map((item, position) => {
+    const units = planned.filter(p => p.position === position).sort((a, b) => a.member - b.member);
+    const first = units[0]!;
+    return { ...item, staffId: first.staffId, resourceId: first.resourceId ?? null,
+      ...(units.length > 1 ? { additionalStaffIds: units.slice(1).map(p => p.staffId!) } : {}),
+      startsAt: first.startsAt, endsAt: first.endsAt };
+  });
 }

@@ -206,9 +206,9 @@ export async function loadManagedAvailability(
       and ai.starts_at<${wallMinuteToInstant(date,loc.tz,2880).toISOString()}::timestamptz
       and ai.ends_at>${wallMinuteToInstant(date,loc.tz,0).toISOString()}::timestamptz`:[];
   const fitsResources=(anchor:Date)=>{
-    const proposed=items.map(i=>({resourceId:i.resource_id,staffId:i.membership_id,
+    const proposed=items.map((i,index)=>({resourceId:i.resource_id,staffId:i.membership_id,
       start:anchor.getTime()+Date.parse(i.starts_at)-anchorMs,end:anchor.getTime()+Date.parse(i.ends_at)-anchorMs,
-      group:`current:${i.details?.['publicGuestIndex']??0}`}));
+      group:`current:${i.details?.['serviceExecutionGroup'] ? `unit:${index}` : i.details?.['publicGuestIndex']??0}`}));
     return proposed.every(i=>{
       if(!i.resourceId)return true;
       const resource=resources.find(r=>r.id===i.resourceId)!;

@@ -1,3 +1,4 @@
+import { serviceGuestCount } from '@gf/contracts';
 import {defaultBookingMedia,bookingMediaUrl} from '@gf/contracts';
 /**
  * 公开预约 API —— 门店官网上的「在线预约」（docs/13）。
@@ -110,6 +111,7 @@ const bookingBody = z.object({
   }),
   items: z.array(z.object({
     guestIndex: z.number().int().min(0).max(9).optional(),
+    guestIndices: z.array(z.number().int().min(0).max(9)).min(1).max(10).optional(),
     quotedPriceCents: z.number().int().nonnegative().optional(),
     serviceId: z.string().uuid(),
     addonIds: z.array(z.string().uuid()).max(6).default([]),
@@ -304,7 +306,9 @@ export function registerPublicRoutes(app: FastifyInstance): void {
 
         const shaped = rows.filter(r=>profile.services[r.id]?.visible!==false).sort((a,b)=>(profile.services[a.id]?.sort??0)-(profile.services[b.id]?.sort??0)).map((r) => ({
           id: r.id,
-          onlineBookable: r.online_bookable && r.staff_count === 1,
+          onlineBookable: r.online_bookable,
+          staffCount: r.staff_count,
+          guestCount: serviceGuestCount(r.name, r.staff_count, profile.services[r.id]?.guestCount),
           imageUrl: profile.services[r.id]?.imageUrl || defaultBookingMedia(pickText(r.name,'en')+' '+pickText(cats.find(c=>c.id===r.category_id)?.name,'en','')),
           categoryId: r.category_id,
           name: pickText(r.name, locale),
@@ -521,6 +525,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
     if(!limit.ok)throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'too_many_attempts'}});
     const args = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       items: z.array(z.object({ guestIndex: z.number().int().min(0).max(9),
+        guestIndices: z.array(z.number().int().min(0).max(9)).min(1).max(10).optional(),
         serviceId: z.string().uuid(), addonIds: z.array(z.string().uuid()).max(6).default([]),
         staffId: z.string().uuid().nullable().default(null),
       })).min(1).max(20),
@@ -675,7 +680,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
             isRequest: item.staffId !== null,
             resourceId: null,
             startsAt: startsAt.toISOString(),
-            details: { publicGuestIndex: item.guestIndex ?? 0, quotedPriceCents: item.quotedPriceCents },
+            details: { publicGuestIndex: item.guestIndex ?? 0, ...(item.guestIndices ? { publicGuestIndices: item.guestIndices } : {}), quotedPriceCents: item.quotedPriceCents },
             durationMin,
             // Trusted server total (base + add-ons). Never a client-supplied price.
             priceCentsOverride: priceCents,

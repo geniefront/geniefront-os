@@ -1,7 +1,7 @@
 import {dayWindows} from '@gf/scheduling';
 import { loadBookingStaff } from '../queries/bookingStaff';
 import type postgres from "postgres";
-import { AppError, ERROR_CODES, readPublicBookingProfile } from "@gf/contracts";
+import { AppError, ERROR_CODES, readPublicBookingProfile, serviceGuestCount, selectionGuests } from "@gf/contracts";
 import {
   businessDateOf,
   isBookableDate,
@@ -15,6 +15,7 @@ import type { PublicShopRow } from "@gf/db";
 
 export interface PartySelection {
   guestIndex: number;
+  guestIndices?: number[] | undefined;
   serviceId: string;
   addonIds: string[];
   staffId: string | null;
@@ -48,7 +49,7 @@ export async function loadPartyAvailability(
   );
   if (!isBookableDate(args.date, today, shop.onlineBooking.maxDaysAhead))
     bad("date_out_of_window");
-  const guests = [...new Set(args.items.map((i) => i.guestIndex))].sort(
+  const guests = [...new Set(args.items.flatMap(i => [...selectionGuests(i)]))].sort(
     (a, b) => a - b,
   );
   if (
@@ -73,6 +74,7 @@ export async function loadPartyAvailability(
   const services = await tx<
     {
       id: string;
+      name: unknown;
       duration_min: number;
       base_price_cents: number;
       is_addon: boolean;
@@ -81,7 +83,7 @@ export async function loadPartyAvailability(
       staff_count: number;
     }[]
   >`
-    select id, duration_min, base_price_cents, is_addon, buffer_before_min, buffer_after_min, staff_count
+    select id, name, duration_min, base_price_cents, is_addon, buffer_before_min, buffer_after_min, staff_count
     from services where location_id = ${shop.locationId} and id = any(${ids}) and active and (${!!args.trustedUnits} or online_bookable or (is_addon and id=any(${publicAddonIds})))`;
   if (services.length !== ids.length) bad("service_not_online_bookable");
   const staff = await loadBookingStaff(tx,shop.locationId,args.date);
@@ -112,10 +114,15 @@ export async function loadPartyAvailability(
     const svc = services.find((s) => s.id === i.serviceId)!;
     if (
       svc.is_addon ||
-      svc.staff_count !== 1 ||
+      (svc.staff_count < 1 || svc.staff_count > 5) ||
       (!args.trustedUnits && new Set(i.addonIds).size !== i.addonIds.length)
     )
       bad("unsupported_service_shape");
+    const covered = selectionGuests(i);
+    const requiredGuests = serviceGuestCount(svc.name, svc.staff_count, profile.services[svc.id]?.guestCount);
+    if (requiredGuests > svc.staff_count) bad('unsupported_service_shape');
+    if (covered.length !== requiredGuests || new Set(covered).size !== covered.length || !covered.includes(i.guestIndex)
+      || covered.some(g => !Number.isInteger(g) || g < 0 || g >= profile.maxPartySize)) bad('invalid_service_guests');
     const addons = i.addonIds.map((id) => services.find((s) => s.id === id)!);
     if (addons.some((a) => !a.is_addon || a.staff_count !== 1))
       bad("invalid_addon");
@@ -124,6 +131,7 @@ export async function loadPartyAvailability(
     );
     return {
       ...i,
+      staffCount: svc.staff_count,
       resourceTypeId: profile.services[i.serviceId]?.resourceTypeId ?? null,
       durationMin:
         (args.trustedUnits?.[index]?.durationMin ??

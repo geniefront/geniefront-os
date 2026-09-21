@@ -204,8 +204,8 @@ function ManageBody({
               <li key={i}>
                 <div>
                   <strong>
-                    {booking.items.some((it) => (it.guestIndex ?? 0) > 0)
-                      ? `${t("Guest")} ${(item.guestIndex ?? 0) + 1} · `
+                    {booking.items.some((it) => (it.guestIndex ?? 0) > 0 || (it.guestIndices?.length ?? 1) > 1)
+                      ? (item.guestIndices ?? [item.guestIndex ?? 0]).map(g => `${t("Guest")} ${g + 1}`).join(" + ") + " · "
                       : ""}
                     {item.name}
                   </strong>

@@ -1,6 +1,7 @@
 /* Public booking experience copy. Keys are the English source text. */
 export const PUBLIC_COPY: Record<string, Record<string, string>> = {
   "zh-Hans": {
+    "Price includes all guests": "价格包含所有同行客人",
     "Remove guest": "移除此顾客",
     "Removing this guest also removes their services.": "移除此顾客也会移除其已选服务。",
     "Save name": "保存姓名",
@@ -237,6 +238,7 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Please shorten your notes to continue.": "Please shorten your notes to continue.",
     selected: "selected",
     Guests: "Guests",
+    "Price includes all guests": "Price includes all guests",
     Services: "Services",
     Specialists: "Specialists",
     Time: "Time",
@@ -449,6 +451,7 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Not selected yet": "Not selected yet",
   },
   es: {
+    "Price includes all guests": "Precio para todos los invitados",
     "Remove guest": "Eliminar invitado",
     "Removing this guest also removes their services.": "Al eliminar este invitado también se eliminan sus servicios.",
     "Save name": "Guardar nombre",
@@ -681,6 +684,7 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Not selected yet": "Sin seleccionar",
   },
   vi: {
+    "Price includes all guests": "Giá bao gồm tất cả khách",
     "Remove guest": "Xóa khách",
     "Removing this guest also removes their services.": "Xóa khách này cũng sẽ xóa các dịch vụ đã chọn của họ.",
     "Save name": "Lưu tên",
@@ -909,6 +913,7 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Not selected yet": "Chưa chọn",
   },
   ko: {
+    "Price includes all guests": "모든 고객 포함 가격",
     "Remove guest": "고객 삭제",
     "Removing this guest also removes their services.": "이 고객을 삭제하면 선택한 서비스도 삭제됩니다.",
     "Save name": "이름 저장",

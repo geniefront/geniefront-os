@@ -60,3 +60,4 @@ export { weeklyHoursSchema, dayHoursSchema } from './businessHours';
 export * from './bookingMedia';
 export * from './appointmentCapabilities';
 export * from './voiceConfiguration.js';
+export * from './serviceParty.js';

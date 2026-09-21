@@ -1,3 +1,4 @@
+import { selectionGuests } from '@gf/contracts';
 import { assertBookingCaller } from '../voice/bookingCaller';
 import { loadBookingStaff, enforceScheduledBooking } from '../queries/bookingStaff';
 /**
@@ -261,8 +262,8 @@ export async function executeSingleAppointmentInTx(
     }
     const startsAt = input.items.reduce((a,i)=>Date.parse(i.startsAt)<Date.parse(a)?i.startsAt:a,input.items[0]!.startsAt);
     const selections = input.items.map(i=>({guestIndex:Number(i.details['publicGuestIndex']),serviceId:i.serviceId,
-      addonIds:i.addonIds,staffId:i.isRequest?i.membershipId:null}));
-    if(new Set(selections.map(i=>i.guestIndex)).size!==input.partySize) {
+      addonIds:i.addonIds,staffId:i.isRequest?i.membershipId:null, ...(Array.isArray(i.details['publicGuestIndices']) ? { guestIndices: i.details['publicGuestIndices'] as number[] } : {})}));
+    if(new Set(selections.flatMap(i=>[...selectionGuests(i)])).size!==input.partySize) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'invalid_party'}});
     }
     const available=await loadPartyAvailability(tx,{locationId:ctx.locationId,timezone:loc.timezone,
@@ -278,7 +279,7 @@ export async function executeSingleAppointmentInTx(
       if(Date.parse(planned.startsAt)!==Date.parse(i.startsAt)) {
         throw new AppError(ERROR_CODES.VALIDATION_FAILED,{details:{reason:'party_schedule_changed'}});
       }
-      return {...i,resourceId:planned.resourceId??null,membershipId:planned.staffId,durationMin:planned.durationMin,priceCentsOverride:planned.priceCents};
+      return {...i,resourceId:planned.resourceId??null,membershipId:planned.staffId,additionalMembershipIds:planned.additionalStaffIds ?? [],durationMin:planned.durationMin,priceCentsOverride:planned.priceCents};
     })};
   }
 
@@ -356,13 +357,13 @@ export async function executeSingleAppointmentInTx(
       serviceId: item.serviceId,
       addonIds: memberIndex === 0 ? item.addonIds : [],
       membershipId,
-      isRequest: item.isRequest,
-      resourceId: memberIndex === 0 ? item.resourceId : null,
+      isRequest: input.source === 'web' && memberIndex > 0 ? false : item.isRequest,
+      resourceId: memberIndex === 0 || input.source === 'web' ? item.resourceId : null,
       startsAt,
       endsAt: new Date(startsAt.getTime() + durationMin * 60_000),
       durationMin,
       priceCents: Math.floor(totalPrice / members.length) + (memberIndex < totalPrice % members.length ? 1 : 0),
-      details: { ...safeDetails, ...(groupKey ? { serviceExecutionGroup: groupKey, requiredStaffCount: members.length } : {}) },
+      details: { ...safeDetails, ...(Array.isArray(item.details['publicGuestIndices']) ? { publicGuestIndex: item.details['publicGuestIndices'][Math.min(memberIndex, item.details['publicGuestIndices'].length - 1)] } : {}), ...(groupKey ? { serviceExecutionGroup: groupKey, requiredStaffCount: members.length } : {}) },
     }));
   });
 

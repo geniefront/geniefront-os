@@ -165,6 +165,27 @@ export async function loadManagedBookingDetail(
     shapeReason: guestRescheduleShapeReason(items),
   });
 
+  // A multi-specialist execution is one purchased service, with one total price.
+  const displayGroups = new Map<string, Array<(typeof items)[number]>>();
+  items.forEach((item, index) => {
+    const key = typeof item.details?.serviceExecutionGroup === 'string' ? item.details.serviceExecutionGroup : `item:${index}`;
+    displayGroups.set(key, [...(displayGroups.get(key) ?? []), item]);
+  });
+  const displayItems = [...displayGroups.values()].map(group => {
+    const first = group[0]!;
+    const guests = first.details?.publicGuestIndices;
+    const addonIds = [...new Set(group.flatMap(item => item.addon_ids ?? []))];
+    return {
+      serviceId: first.service_id,
+      guestIndex: Array.isArray(guests) ? Math.min(...guests) : Number(first.details?.publicGuestIndex ?? 0),
+      ...(Array.isArray(guests) ? { guestIndices: guests } : {}),
+      name: pickText(first.name, locale), addonIds,
+      addonNames: addonIds.map(id => addonName.get(id)).filter(Boolean),
+      startsAt: first.starts_at, endsAt: first.ends_at, durationMin: first.duration_min,
+      priceCents: group.reduce((total, item) => total + item.price_cents_snapshot, 0),
+      specialistName: group.map(item => item.specialist ? pickText(item.specialist, locale) : '').filter(Boolean).join(' + ') || null,
+    };
+  });
   return {
     bookingId: appt.id,
     confirmationCode: appt.confirmation_code,
@@ -175,18 +196,7 @@ export async function loadManagedBookingDetail(
     durationMin,
     priceCents,
     specialistName: items[0]?.specialist ? pickText(items[0].specialist, locale) : null,
-    items: items.map((i) => ({
-      serviceId: i.service_id,
-      guestIndex: Number(i.details?.["publicGuestIndex"] ?? 0),
-      name: pickText(i.name, locale),
-      addonIds: i.addon_ids ?? [],
-      addonNames: (i.addon_ids ?? []).map((id) => addonName.get(id)).filter(Boolean),
-      startsAt: i.starts_at,
-      endsAt: i.ends_at,
-      durationMin: i.duration_min,
-      priceCents: i.price_cents_snapshot,
-      specialistName: i.specialist ? pickText(i.specialist, locale) : null,
-    })),
+    items: displayItems,
     policy: {
       cancelCutoffHours: cfg.cancelCutoffHours,
       rescheduleEnabled: cfg.rescheduleEnabled,

@@ -184,3 +184,19 @@ it("removes the chosen middle guest and preserves the remaining names and servic
     expect.objectContaining({guestIndex:1, serviceId:"a"}),
   ]);
 });
+
+it('books Couples Massage once for two guests instead of requiring a second paid selection', async () => {
+  api.getServices.mockResolvedValue({ categories:[],addons:[],services:[{id:'couples',name:'Couples Massage',durationMin:60,priceCents:12000,isAddon:false,onlineBookable:true,staffCount:2,guestCount:2}] });
+  const user=userEvent.setup();
+  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter initialEntries={['/test']}><Routes><Route path='/:slug' element={<BookingExperiencePage/>}/></Routes></MemoryRouter></QueryClientProvider>);
+  await user.click(await screen.findByRole('button',{name:'Add Couples Massage'}));
+  expect(screen.getByText(/Price includes all guests/)).toBeVisible();
+  await user.click(screen.getByRole('button',{name:/Add to booking/}));
+  expect(screen.getByRole('button',{name:'Guest 1 1 selected'})).toBeVisible();
+  expect(screen.getByRole('button',{name:'Guest 2 1 selected'})).toBeVisible();
+  const draft=JSON.parse(sessionStorage.getItem('gf:party:test')!);
+  expect(draft.partySize).toBe(2);expect(draft.items).toHaveLength(1);expect(draft.items[0].guestIndices).toEqual([0,1]);
+  await user.click(screen.getAllByRole('button',{name:/^Choose time/})[0]!);
+  await waitFor(()=>expect(api.getPartyAvailability).toHaveBeenCalled());
+  expect(api.getPartyAvailability.mock.calls.at(-1)![1]).toEqual([expect.objectContaining({serviceId:'couples',guestIndices:[0,1]})]);
+});

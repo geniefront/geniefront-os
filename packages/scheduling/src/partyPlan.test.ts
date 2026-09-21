@@ -121,3 +121,30 @@ it('uses the other free specialist, then only one unassigned extra slot',()=>{
  expect(planPartyAt({...input,items:[{...item(0),staffId:'a'}]})).toBeNull();
  expect(planPartyAt({...input,existing:[...busy,{startsAt:at(10),endsAt:at(11),membershipId:null,groupKey:'extra'}]})).toBeNull();
 });
+
+describe('shared multi-specialist services', () => {
+  const couple = { ...item(0), guestIndices: [0,1], staffCount: 2, priceCents: 12000 };
+  it('returns one priced service with two distinct simultaneous specialists', () => {
+    const plan = planPartyAt({ ...base, items: [couple] });
+    expect(plan).toHaveLength(1);
+    expect(plan![0]).toMatchObject({ priceCents: 12000, guestIndices: [0,1], startsAt: at(10).toISOString(), endsAt: at(11).toISOString() });
+    expect(new Set([plan![0]!.staffId, ...plan![0]!.additionalStaffIds!]).size).toBe(2);
+  });
+  it('never substitutes overbooking or an unassigned place for the second specialist', () => {
+    expect(planPartyAt({ ...base, items: [couple], staff: base.staff.slice(0,1), allowUnassigned: true, unassignedLimit: 3, locationLimit: 4 })).toBeNull();
+    expect(planPartyAt({ ...base, items: [couple], locationLimit: 1 })).toBeNull();
+    expect(planPartyAt({ ...base, items: [{ ...couple, eligibleStaffIds: ['a'] }] })).toBeNull();
+    expect(planPartyAt({ ...base, items: [couple], existing: [{ membershipId: 'b', startsAt: at(10), endsAt: at(11) }] })).toBeNull();
+  });
+  it('starts both guests subsequent services after their shared service', () => {
+    const plan = planPartyAt({ ...base, items: [couple, item(0), item(1)] });
+    expect(plan?.map(p=>p.startsAt)).toEqual([at(10),at(11),at(11)].map(d=>d.toISOString()));
+  });
+  it('holds one shared room with sufficient capacity and specialist space', () => {
+    const resource = {id:'room',typeId:'couples',capacity:2,maxStaff:2,busy:[]};
+    const args = {...base, items:[{...couple,resourceTypeId:'couples'}]};
+    expect(planPartyAt({...args,resources:[resource]})?.[0]?.resourceId).toBe('room');
+    expect(planPartyAt({...args,resources:[{...resource,capacity:1}]})).toBeNull();
+    expect(planPartyAt({...args,resources:[{...resource,maxStaff:1}]})).toBeNull();
+  });
+});

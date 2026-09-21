@@ -94,6 +94,8 @@ export interface Shop {
 
 export interface Service {
   onlineBookable?: boolean;
+  staffCount?: number;
+  guestCount?: number;
   imageUrl?: string | null;
   id: string;
   categoryId: string | null;
@@ -149,7 +151,7 @@ export interface BookInput {
   turnstileToken: string;
   locale?: string;
   customer: { name: string; phone: string; email?: string; smsOptIn: boolean; bookingSmsConsent?:boolean };
-  items: Array<{ guestIndex?: number; quotedPriceCents?: number; serviceId: string; addonIds: string[]; staffId: string | null; startsAt: string }>;
+  items: Array<{ guestIndex?: number; guestIndices?: number[]; quotedPriceCents?: number; serviceId: string; addonIds: string[]; staffId: string | null; startsAt: string }>;
   /** 组合套餐选择（U10）。与 items 二选一，服务端展开定价。 */
   bundleSelections?: Array<{ bundleId: string; startsAt: string; expectedVersion?: number }>;
   partySize: number;
@@ -206,7 +208,7 @@ export interface ManagedBooking {
   priceCents: number;
   specialistName: string | null;
   items: Array<{
-    guestIndex?: number;
+    guestIndex?: number; guestIndices?: number[];
     serviceId: string;
     name: string;
     addonIds: string[];
@@ -258,7 +260,7 @@ export const rescheduleManagedBooking = (
     'POST', `/public/v1/bookings/${bookingId}/reschedule`, args,undefined,publicKey,
   );
 
-export interface PartySelection { guestIndex: number; serviceId: string; addonIds: string[]; staffId: string | null }
+export interface PartySelection { guestIndex: number; guestIndices?: number[]; serviceId: string; addonIds: string[]; staffId: string | null }
 export interface PartyPlanItem extends PartySelection { startsAt: string; endsAt: string; durationMin: number; priceCents: number }
 export interface PartyAvailability {
   items?: Array<{eligibleStaffIds:string[]}>;

@@ -22,6 +22,7 @@ export function loadPartyDraft(
           Number.isInteger(i.guestIndex) &&
           i.guestIndex >= 0 &&
           i.guestIndex < value.partySize &&
+          (i.guestIndices === undefined || (Array.isArray(i.guestIndices) && i.guestIndices.length > 0 && i.guestIndices.length <= 10 && new Set(i.guestIndices).size === i.guestIndices.length && i.guestIndices.includes(i.guestIndex) && i.guestIndices.every(g => Number.isInteger(g) && g >= 0 && g < value.partySize))) &&
           typeof i.serviceId === "string" &&
           Array.isArray(i.addonIds) &&
           i.addonIds.length <= 6 &&
@@ -34,6 +35,7 @@ export function loadPartyDraft(
       partySize: value.partySize,
       items: value.items.map((i: PartySelection) => ({
         guestIndex: i.guestIndex,
+        ...(i.guestIndices ? { guestIndices: i.guestIndices } : {}),
         serviceId: i.serviceId,
         addonIds: i.addonIds,
         staffId: i.staffId,
@@ -55,6 +57,7 @@ export function savePartyDraft(
         partySize,
         items: items.map((i) => ({
           guestIndex: i.guestIndex,
+          ...(i.guestIndices ? { guestIndices: i.guestIndices } : {}),
           serviceId: i.serviceId,
           addonIds: i.addonIds,
           staffId: i.staffId,

@@ -49,6 +49,7 @@ export function ServiceCustomizer({
           service.imageUrl || group.services.find((s) => s.imageUrl)?.imageUrl
         }
       />
+      {(service.guestCount ?? 1) > 1 && <p className="section-label">{service.guestCount} {t("Guests")} · {t("Price includes all guests")}</p>}
       <p className="section-label">{t("Duration")}</p>
       <div className="duration-options">
         {group.services.map((s) => (
