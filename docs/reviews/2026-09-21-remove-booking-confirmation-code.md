@@ -2,7 +2,7 @@
 
 Removed customer-facing confirmation codes from booking success/management pages, the staff message view, public and voice responses, appointment creation (including Copilot batches), schemas, session persistence, and embed conversion events. Telephone success messages now refer to appointment details. Voice response schemas strip retired fields from pre-existing idempotency results. Management tokens, appointment IDs, and staff short links remain in use.
 
-The forward migration `20260921184523_remove_booking_confirmation_code.sql` is mirrored in `packages/db/sql` and `supabase/migrations`. It drops the confirmation-code index and column. Historical migrations remain unchanged. Deploy application code without column reads/writes before applying the drop migration. No production deployment or production migration was performed.
+The forward migration `20260921184523_remove_booking_confirmation_code.sql` is mirrored in `packages/db/sql` and `supabase/migrations`. It drops the confirmation-code index and column. Historical migrations remain unchanged. Deploy application code without column reads/writes before applying the drop migration. Initial implementation verification used only the local isolated database; production rollout is recorded below.
 
 ## Verification
 
@@ -17,3 +17,12 @@ Integration command:
 ```sh
 BOOKING_PAGE_ORIGIN=https://book.geniefront.com node --env-file=.env.local scripts/test-voice-local.mjs test src/public.test.ts src/phone.test.ts src/voice.test.ts src/voiceV2.test.ts src/copilot/acceptance.test.ts src/sms.test.ts
 ```
+
+## Production rollout — 2026-09-21
+
+- Pushed application commit `f6f64e6` to `origin/main`.
+- Deployed `geniefront/api:f6f64e6-20260921185357` and production frontend assets to both `gf-a` and `gf-b`; both API containers report healthy.
+- Applied the single pending production migration only after both servers were running the new application. Migration and RLS coverage checks passed.
+- Production SQL verification confirmed the retired column/index are absent and management-token/staff-link columns remain.
+- Cloudflare cache purge succeeded. Public booking assets match the local release and contain no confirmation-code fields/components. Booking page, manage page, hosted shop API, booking health and API health all returned HTTP 200.
+- Verification was read-only; no customer appointment was created or changed.
