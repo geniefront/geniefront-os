@@ -7,6 +7,7 @@
 import type { DomainDict } from './types';
 
 export const crm = {
+  'crm.custExportAll': { 'zh-Hans': '导出全部筛选结果', en: 'Export all matching customers', ko: '검색 결과 전체 내보내기', es: 'Exportar todos los resultados', vi: 'Xuất tất cả kết quả lọc' },
   'crm.custAppointmentCount': { 'zh-Hans': '预约次数', en: 'Appointments', ko: '예약 수', es: 'Reservas', vi: 'Số lịch hẹn' },
   'crm.previousPage': { 'zh-Hans': '上一页', en: 'Previous', ko: '이전', es: 'Anterior', vi: 'Trước' },
   'crm.nextPage': { 'zh-Hans': '下一页', en: 'Next', ko: '다음', es: 'Siguiente', vi: 'Tiếp' },

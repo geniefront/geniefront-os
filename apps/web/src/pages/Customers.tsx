@@ -1,3 +1,4 @@
+import { apiGet } from '@/lib/api';
 import { useEntitlements } from '@/features/billing/useEntitlements';
 import { exportToCSV } from '@/lib/exportUtils';
 import { useEffect, useMemo, useState } from 'react';
@@ -183,8 +184,7 @@ function CustomersContent() {
   // 如果没有选中的顾客或当前选中的顾客在当前筛选结果中不存在，自动选中当前筛选列表的第一位
   useEffect(() => {
     if (rows.length > 0 && viewMode === 'split') {
-      const isCurrentInRows = rows.some((r) => r.id === selectedId);
-      if (!selectedId || !isCurrentInRows) {
+      if (!selectedId) {
         handleSelectCustomer(rows[0]!.id);
       }
     }
@@ -397,8 +397,19 @@ function CustomersContent() {
   };
 
   // 导出 CSV
-  const handleExportCsv = () => {
-    if (rows.length === 0) {
+  const [exporting, setExporting] = useState(false);
+  const handleExportCsv = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+    const exportRows: CustomerListRow[] = [];
+    for (let offset = 0; ; offset += 200) {
+      const params = new URLSearchParams({ limit: '200', offset: String(offset), filterType, q: debouncedQuery.trim() });
+      const data = await apiGet<{ rows: CustomerListRow[]; total: number }>(`/v1/desk/customers?${params}`);
+      exportRows.push(...data.rows);
+      if (exportRows.length >= data.total || data.rows.length === 0) break;
+    }
+    if (exportRows.length === 0) {
       toast.danger(t('crm.custNoExportData'));
       return;
     }
@@ -406,13 +417,15 @@ function CustomersContent() {
       t('crm.custExportName'), t('crm.custExportVipLevel'), t('crm.custExportPhone'),
       t(voiceOnly ? 'crm.custAppointmentCount' : 'crm.custExportVisitCount'), t(voiceOnly ? 'voiceRecentAppointments' : 'crm.custExportDaysSinceVisit'), t('crm.custExportNoShowCount'),
     ];
-    exportToCSV(`GenieFront_${t('crm.custExportFileSlug')}_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows.map(r => {
+    exportToCSV(`GenieFront_${t('crm.custExportFileSlug')}_${new Date().toISOString().slice(0, 10)}.csv`, headers, exportRows.map(r => {
       const phone = canViewContact ? (r.phone || '')
         : (r.phone ? r.phone.replace(/(\+?1)?(\d{3})\d{3}(\d{4})/, '$2-***-$3') : '');
       return [r.displayName, r.vipLevel, phone, voiceOnly ? r.appointmentCount ?? '' : r.visitCount,
         voiceOnly ? r.lastAppointmentAt ?? '' : r.daysSinceLastVisit ?? t('crm.custExportNeverVisited'), r.noShowCount];
     }));
-    toast.success(t('crm.custExported'));
+    toast.success(`${t('crm.custExported')} (${exportRows.length})`);
+    } catch (error) { toast.danger(errorMessage(error)); }
+    finally { setExporting(false); }
   };
 
   if (list.isLoading && rawRows.length === 0) {
@@ -436,11 +449,12 @@ function CustomersContent() {
               fallback="disable"
               variant="secondary"
               size="sm"
-              onClick={handleExportCsv}
+              onClick={() => void handleExportCsv()}
+              disabled={exporting}
               className="gap-1.5 text-xs font-semibold"
             >
               <Download className="w-3.5 h-3.5 text-slate-600" />
-              <span>{t('crm.custExportCsv')}</span>
+              <span>{t('crm.custExportAll')} ({list.data?.total ?? '—'})</span>
             </GuardedButton>
             <Button
               size="sm"
@@ -771,7 +785,7 @@ function CustomersContent() {
                 </div>
 
                 {voiceOnly && <section className="space-y-2 rounded-xl border p-4"><h3 className="font-semibold">{t('voiceRecentAppointments')}</h3>
-                  {(currentDetail.recentAppointments ?? []).length === 0 ? <p className="text-sm text-slate-500">{t('voiceNoAppointments')}</p> : currentDetail.recentAppointments?.map(a => <div key={a.id} className="flex justify-between gap-2 text-sm"><span>{dateTime(a.startsAt)}</span><span>{t(a.status === 'cancelled' ? 'voiceApptCancelled' : a.status === 'done' ? 'voiceApptDone' : a.status === 'no_show' ? 'voiceApptNoShow' : 'voiceApptBooked')}</span></div>)}
+                  {(currentDetail.recentAppointments ?? []).length === 0 ? <p className="text-sm text-slate-500">{t('voiceNoAppointments')}</p> : currentDetail.recentAppointments?.map(a => <a href={`/schedule?appointmentId=${encodeURIComponent(a.id)}`} key={a.id} className="flex justify-between gap-2 text-sm text-teal-700 hover:underline"><span>{dateTime(a.startsAt)}</span><span>{t(a.status === 'cancelled' ? 'voiceApptCancelled' : a.status === 'done' ? 'voiceApptDone' : a.status === 'no_show' ? 'voiceApptNoShow' : 'voiceApptBooked')}</span></a>)}
                 </section>}
 
                 {/* 2. Four Core Financial & Loyalty KPIs (High Density) */}
