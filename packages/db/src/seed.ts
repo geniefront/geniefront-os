@@ -239,7 +239,7 @@ async function main() {
       'email_sender_settings', 'email_domain_requests', 'email_accounts', 'email_validation_cache',
       'form_access_log', 'form_submissions', 'form_share_links', 'form_templates',
       'walkin_queue',
-      'voice_availability_snapshots', 'voice_context_references', 'voice_processing_jobs', 'call_drafts', 'phone_calls', 'phone_lines', 'sms_inbound', 'sms_consent', 'sms_outbox', 'email_outbox',
+      'voice_appointment_activity', 'voice_availability_snapshots', 'voice_context_references', 'voice_processing_jobs', 'call_drafts', 'phone_calls', 'phone_lines', 'sms_inbound', 'sms_consent', 'sms_outbox', 'email_outbox',
       'license_redemptions', 'license_codes',
       'credit_ledger', 'usage_events', 'stripe_events', 'billing_invoices', 'billing_accounts', 'location_subscriptions',
       'pairing_sessions', 'discount_reasons', 'notification_rules', 'notification_templates',

@@ -1,3 +1,4 @@
+import {VoiceActivityLabels} from '@/features/comms/VoiceActivityLabels';
 import { useEntitlements } from '@/features/billing/useEntitlements';
 import { CallConversation } from '@/features/comms/CallConversation';
 import { apiGet } from '@/lib/api';
@@ -77,6 +78,7 @@ export function Calls() {
   const isInitialLoading = callsLoading && draftsLoading && !callData && !draftData;
 
   const [selectedCall, setSelectedCall] = useState<CallView | null>(null);
+  useEffect(() => { setSelectedCall(current => current ? callData?.calls.find(c=>c.callId===current.callId) ?? current : null); }, [callData]);
   useEffect(() => { if (linkedCall.data?.call) setSelectedCall(linkedCall.data.call); }, [linkedCall.data]);
   useEffect(() => { if (linkedCall.isError) toast.danger(t('bookingCallError')); }, [linkedCall.isError, t]);
   const [playingCallId, setPlayingCallId] = useState<string | null>(null);
@@ -674,9 +676,11 @@ export function Calls() {
                           {Math.floor((call.durationSeconds ?? 0) / 60)}{t('crm.callMinuteUnit')}{" "}
                           {(call.durationSeconds ?? 0) % 60}{t('crm.callSecondUnit')}
                         </span>
+                        <p className="mt-1 text-[11px] text-slate-400">{call.billingStatus==='settled'?`${t('voiceBilledMinutes')}: ${Math.ceil((call.billableSeconds??0)/60)}`:call.billingStatus==='pending'||call.billingStatus==='review'?t('voiceBillingPending'):''}</p>
 
                       </TableCell>
                       <TableCell>
+                        <VoiceActivityLabels actions={call.appointmentActions??[]}/>
                         {call.booked ? (
                           <Badge variant="success" className="text-[11px]">
                             {t('crm.callResultBooked')}
@@ -746,6 +750,7 @@ export function Calls() {
                   </span>
                 </div>
               </div>
+              <VoiceActivityLabels actions={selectedCall.appointmentActions??[]}/>
               {selectedCall.booked ? (
                 <Badge variant="success" className="text-xs shrink-0 whitespace-nowrap">
                   
@@ -841,6 +846,7 @@ export function Calls() {
                   </div>
                 </div>
 
+                {(selectedCall.appointmentIds??[]).length>0&&<div className="space-x-2 text-xs">{t('voiceRelatedAppointments')}: {selectedCall.appointmentIds?.map((id,i)=><a key={id} className="underline" href={`/schedule?appointmentId=${encodeURIComponent(id)}`}>{i+1}</a>)}</div>}
                 {/* 倍速切换 */}
                 <div className="flex items-center gap-1 bg-slate-800/90 border border-slate-700/60 p-1 rounded-xl">
                   {[1, 1.25, 1.5, 2].map((spd) => (
@@ -897,6 +903,7 @@ export function Calls() {
 
             {/* 对齐式逐字对话流 */}
             <div className="space-y-3 max-h-[380px] overflow-y-auto p-1 custom-scrollbar">
+              {!selectedCall.transcript.length&&<p className="text-sm text-slate-500">{t(selectedCall.billingStatus==='review'?'voiceTranscriptReview':'bookingCallProcessing')}</p>}
               <CallConversation lines={selectedCall.transcript} />
             </div>
           </div>

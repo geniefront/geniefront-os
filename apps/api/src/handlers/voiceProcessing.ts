@@ -1,3 +1,4 @@
+import {linkVoiceActivities} from './voiceActivity';
 import { shopCallSms } from '../sms/booking';
 import { ownerLocaleOf } from '../email/locale';
 import { notificationCopy } from '../notify/copy';
@@ -25,6 +26,14 @@ registerHandler(QueueVoiceRecording, async ({ input, tx, ctx, audit }) => {
   await tx`insert into voice_processing_jobs(org_id,location_id,provider_call_id,recording_id,payload)
     values(${ctx.orgId},${ctx.locationId},${input.providerCallId},${input.recordingId},${jsonb(input)}::jsonb)
     on conflict(location_id,provider_call_id) do nothing`;
+  await tx`insert into phone_calls(org_id,location_id,provider_call_id,from_e164,to_e164,started_at,duration_seconds,outcome,recording_id,voice_billing_status)
+    values(${ctx.orgId},${ctx.locationId},${input.providerCallId},${input.from ?? null},${input.to},${input.startedAt}::timestamptz,${input.durationSeconds},'completed',${input.recordingId},'pending')
+    on conflict(provider_call_id) do update set recording_id=coalesce(phone_calls.recording_id,excluded.recording_id),
+      voice_billing_status=case when phone_calls.voice_billing_status='legacy' then 'pending' else phone_calls.voice_billing_status end,
+      duration_seconds=excluded.duration_seconds,started_at=coalesce(phone_calls.started_at,excluded.started_at),
+      from_e164=coalesce(nullif(excluded.from_e164,''),phone_calls.from_e164)
+    where phone_calls.location_id=excluded.location_id`;
+  await linkVoiceActivities(tx,ctx);
   audit({ entityType: 'location', entityId: ctx.locationId, after: { recordingQueued: true, providerCallId: input.providerCallId } });
   return { queued: true };
 });
@@ -67,9 +76,10 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
       ${job.payload.startedAt ? String(job.payload.startedAt) : null}::timestamptz,${input.durationSeconds},'completed',
       ${jsonb(transcript)}::jsonb,${job.recording_id},${input.recordingUrl},${input.analysis.summary},'pending')
     on conflict(provider_call_id) do update set transcript=excluded.transcript, recording_id=excluded.recording_id,
-      recording_url=excluded.recording_url,summary=excluded.summary
+      recording_url=excluded.recording_url,summary=excluded.summary,duration_seconds=excluded.duration_seconds
     returning id,voice_billing_status`;
-  if (call!.voice_billing_status === 'pending') {
+  await linkVoiceActivities(tx,ctx);
+  if (call!.voice_billing_status === 'pending' || call!.voice_billing_status === 'review') {
     const minutes = Math.ceil(billableSeconds / 60);
     const [usage] = await tx<{ id: string }[]>`insert into usage_events(org_id,location_id,kind,qty,cost_cents,meta)
       values(${ctx.orgId},${ctx.locationId},'ai_call_min',${minutes},0,
@@ -97,7 +107,7 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
   const locale = ownerLocaleOf(shop?.default_locale);
   const targets = voiceNotificationTargets(shop?.settings, { email: shop?.email ?? null, phone: shop?.phone ?? null });
   const detail = `${process.env.APP_BASE_URL ?? ''}/calls?call=${call!.id}`;
-  if (targets.email && !linkedBooking) {
+  if (targets.email && !linkedBooking && job.payload.suppressNotification !== true) {
     const email = renderVoiceCallEmail({ locale, shop: pickText(shop?.name, locale, notificationCopy(locale).shop),
       from: String(job.payload.from ?? ''), startedAt: job.payload.startedAt ? String(job.payload.startedAt) : undefined,
       timezone: shop?.timezone ?? 'America/New_York', durationSeconds: input.durationSeconds,
@@ -106,7 +116,7 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
       values(${ctx.orgId},${ctx.locationId},'platform_notice',${targets.email},${email.subject},${email.html},${email.text},'phone_call',${call!.id})
       on conflict(entity_type,entity_id,kind) do nothing`;
   }
-  if (targets.phone && smsConfigured() && !linkedBooking) {
+  if (targets.phone && smsConfigured() && !linkedBooking && job.payload.suppressNotification !== true) {
     const body = shopCallSms(locale, String(job.payload.from ?? ''));
     await tx`insert into sms_outbox(org_id,location_id,kind,to_e164,from_e164,body,segments,entity_type,entity_id)
       values(${ctx.orgId},${ctx.locationId},'direct_message',${targets.phone},${smsFrom()},${body},${segmentsOf(body)},'phone_call',${call!.id})

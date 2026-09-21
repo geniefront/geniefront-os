@@ -268,6 +268,8 @@ it("cancels once and sends the normal customer and shop SMS/email without AI wor
     ).json().replayed,
   ).toBe(true);
   expect((await state(b.id)).status).toBe("cancelled");
+  const activity=await withTenant(tenant,tx=>tx`select action,outcome from voice_appointment_activity where appointment_id=${b.id} and action='cancel'`);
+  expect(activity).toEqual([{action:'cancel',outcome:'completed'}]);
   const n = await noticeCounts(b.id);
   expect(n.sms.length - before.sms.length).toBe(2);
   expect(n.email.length - before.email.length).toBe(2);
@@ -472,4 +474,17 @@ it("checks the verified phone again inside the mutation transaction", async () =
     ),
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect((await state(b.id)).status).toBe("booked");
+});
+
+it('links lookup and cancellation of a web booking to its recorded call without replacing the booking origin',async()=>{
+ const b=await make();
+ await withTenant(tenant,tx=>tx`update appointments set source='web',provider_call_id=null where id=${b.id}`);
+ await list();
+ expect((await post('cancel',{appointmentToken:b.token,confirmed:true})).statusCode).toBe(200);
+ const scoped={...ctx,permissions:new Set([...ctx.permissions,'call.draft' as const])};
+ await dispatch('call.queueRecording',{providerCallId:'management-recording',recordingId:'management-audio',to:'+15125550199',from:caller,startedAt:callStartedAt,durationSeconds:600},scoped,{systemOrigin:'voice_test'});
+ const activities=await withTenant(tenant,tx=>tx`select v.action,v.outcome,p.provider_call_id from voice_appointment_activity v join phone_calls p on p.id=v.call_id where v.appointment_id=${b.id} order by v.action`);
+ expect(activities).toEqual([{action:'cancel',outcome:'completed',provider_call_id:'management-recording'},{action:'lookup',outcome:'requested',provider_call_id:'management-recording'}]);
+ const [origin]=await withTenant(tenant,tx=>tx`select source,provider_call_id from appointments where id=${b.id}`);
+ expect(origin).toEqual({source:'web',provider_call_id:null});
 });

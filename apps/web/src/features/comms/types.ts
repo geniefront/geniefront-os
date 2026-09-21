@@ -17,6 +17,7 @@ export interface CallView {
   toolsUsed: string[];
   booked: boolean;
   appointmentIds?: string[];
+  appointmentActions?: Array<{appointmentId:string;action:string;outcome:string}>;
   recordingUrl: string | null;
   recordingId?: string | null;
   billingStatus?: string;

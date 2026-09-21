@@ -100,3 +100,36 @@ it("requires appointment read permission even with a known short code", async ()
     ctx = saved;
   }
 });
+it('returns multiple linked calls for a web booking and redacts conversation without contact permission',async()=>{
+ await withTenant(tenant,async tx=>{
+   await tx`update appointments set source='web' where id=${id}`;
+   const [p]=await tx`insert into phone_calls(org_id,location_id,provider_call_id,started_at,duration_seconds,recording_id,transcript,voice_billing_status)
+    values(${tenant.orgId},${tenant.locationId},'later-change',now(),90,'saved-before-transcription','[]','pending') returning id`;
+   await tx`insert into voice_appointment_activity(org_id,location_id,appointment_id,caller,call_started_at,action,outcome,call_id)
+    values(${tenant.orgId},${tenant.locationId},${id},'+12025550123',now(),'reschedule','completed',${p!.id})`;
+ });
+ const result=(await app.inject({url:`/v1/desk/appointments/${id}/call`})).json();
+ expect(result.calls).toHaveLength(2);
+ expect(result.calls[0].actions).toEqual([{action:'reschedule',outcome:'completed'}]);
+ expect(result.calls[0].hasRecording).toBe(true);
+ const saved=ctx;
+ ctx={...ctx,permissions:new Set(['appointment.read'])};
+ try{
+  const restricted=(await app.inject({url:`/v1/desk/appointments/${id}/call`})).json();
+  expect(restricted.calls.every((c:any)=>!c.hasRecording&&!c.summary&&c.transcript.length===0)).toBe(true);
+ }finally{ctx=saved}
+ const foreign={...tenant,orgId:'22222222-2222-4222-8222-222222222222',locationId:'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb'};
+ expect(await withTenant(foreign,tx=>tx`select id from voice_appointment_activity where appointment_id=${id}`)).toHaveLength(0);
+});
+it('does not guess a call association when two recordings overlap for the same caller',async()=>{
+ const {linkVoiceActivities}=await import('./handlers/voiceActivity');
+ await withTenant(tenant,async tx=>{
+  for(const key of ['ambiguous-a','ambiguous-b']) await tx`insert into phone_calls(org_id,location_id,provider_call_id,from_e164,started_at,duration_seconds)
+   values(${tenant.orgId},${tenant.locationId},${key},'+12025550999',now()-interval '5 seconds',60)`;
+  await tx`insert into voice_appointment_activity(org_id,location_id,appointment_id,caller,call_started_at,action,outcome)
+   values(${tenant.orgId},${tenant.locationId},${id},'+12025550999',now(),'lookup','requested')`;
+  await linkVoiceActivities(tx,ctx);
+  const [row]=await tx`select call_id from voice_appointment_activity where caller='+12025550999'`;
+  expect(row?.call_id).toBeNull();
+ });
+});

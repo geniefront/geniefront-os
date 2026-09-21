@@ -1,6 +1,18 @@
 import { catalog } from './catalog';
 import { voiceRouting } from './voiceRouting';
 export const voiceSettings = {
+bookingCallEmpty:{"zh-Hans": "暂无关联通话。", "en": "No linked calls yet.", "ko": "연결된 통화가 없습니다.", "vi": "Chưa có cuộc gọi liên quan.", "es": "No hay llamadas vinculadas."},
+voiceActionCreated:{"zh-Hans": "创建预约", "en": "Booking created", "ko": "예약 생성", "vi": "Đã tạo lịch hẹn", "es": "Reserva creada"},
+voiceActionLookup:{"zh-Hans": "查询预约", "en": "Appointment inquiry", "ko": "예약 조회", "vi": "Tra cứu lịch hẹn", "es": "Consulta de reserva"},
+voiceActionCancelled:{"zh-Hans": "已取消预约", "en": "Appointment cancelled", "ko": "예약 취소됨", "vi": "Đã hủy lịch hẹn", "es": "Reserva cancelada"},
+voiceActionCancelRequested:{"zh-Hans": "取消请求", "en": "Cancellation request", "ko": "취소 요청", "vi": "Yêu cầu hủy", "es": "Solicitud de cancelación"},
+voiceActionRescheduled:{"zh-Hans": "已改期", "en": "Rescheduled", "ko": "일정 변경됨", "vi": "Đã đổi lịch", "es": "Reserva reprogramada"},
+voiceActionRescheduleRequested:{"zh-Hans": "改期查询／请求", "en": "Reschedule inquiry / request", "ko": "일정 변경 문의 / 요청", "vi": "Tra cứu / yêu cầu đổi lịch", "es": "Consulta / solicitud de cambio"},
+voiceTranscriptReview:{"zh-Hans": "录音已保存，文字记录暂未处理完成。", "en": "Recording saved; transcript processing is not complete.", "ko": "녹음이 저장되었습니다. 텍스트 처리 중입니다.", "vi": "Đã lưu bản ghi; văn bản chưa xử lý xong.", "es": "Grabación guardada; transcripción pendiente."},
+voiceRelatedAppointments:{"zh-Hans": "相关预约", "en": "Related appointments", "ko": "관련 예약", "vi": "Lịch hẹn liên quan", "es": "Reservas relacionadas"},
+voiceBillingPending:{"zh-Hans": "分钟数待核算", "en": "Minutes pending", "ko": "이용 시간 계산 중", "vi": "Đang tính số phút", "es": "Minutos pendientes"},
+voiceBilledMinutes:{"zh-Hans": "计费分钟", "en": "Billable minutes", "ko": "청구 시간(분)", "vi": "Số phút tính phí", "es": "Minutos facturables"},
+
   ...catalog,
   ...voiceRouting,
   voiceStoreDescription: {"zh-Hans": "维护门店资料、营业时间和预约展示。", "en": "Manage shop details, opening hours and booking presentation.", "ko": "매장 정보, 영업시간 및 예약 화면을 관리하세요.", "es": "Administra los datos, horarios y presentación del local.", "vi": "Quản lý thông tin, giờ mở cửa và trang đặt lịch."},
@@ -20,7 +32,7 @@ export const voiceSettings = {
   voiceServicesTab: { 'zh-Hans': '服务项目', en: 'Services', ko: '서비스', vi: 'Dịch vụ', es: 'Servicios' },
   voiceBillingTab: { 'zh-Hans': '套餐与账单', en: 'Plan & billing', ko: '요금제 및 결제', vi: 'Gói và thanh toán', es: 'Plan y facturación' },
  bookingLinkUnavailable:{'zh-Hans':'预约不可用，请确认已登录对应门店账号。',en:'Appointment unavailable. Sign in to the correct shop account.',ko:'예약을 찾을 수 없습니다. 해당 매장 계정으로 로그인하세요.',vi:'Không tìm thấy lịch hẹn. Hãy đăng nhập đúng tài khoản cửa hàng.',es:'Cita no disponible. Inicia sesión en la cuenta del local correcto.'},
- bookingCallDetails:{'zh-Hans':'语音预约通话',en:'Booking call',ko:'예약 통화',vi:'Cuộc gọi đặt lịch',es:'Llamada de reserva'},
+ bookingCallDetails:{'zh-Hans':'相关通话记录',en:'Related calls',ko:'예약 통화',vi:'Cuộc gọi đặt lịch',es:'Llamada de reserva'},
  bookingCallProcessing:{'zh-Hans':'通话详情暂未可用，录音处理完成后会显示在这里。',en:'Call details will appear here when processing is complete.',ko:'처리가 완료되면 통화 내역이 표시됩니다.',vi:'Chi tiết cuộc gọi sẽ xuất hiện sau khi xử lý xong.',es:'Los detalles aparecerán cuando termine el procesamiento.'},
  bookingCallRecording:{'zh-Hans':'播放录音',en:'Play recording',ko:'녹음 재생',vi:'Phát bản ghi âm',es:'Reproducir grabación'},
  bookingCallError:{'zh-Hans':'暂时无法加载通话，请重试。',en:'Could not load the call. Please try again.',ko:'통화를 불러오지 못했습니다. 다시 시도하세요.',vi:'Không tải được cuộc gọi. Vui lòng thử lại.',es:'No se pudo cargar la llamada. Inténtalo de nuevo.'},

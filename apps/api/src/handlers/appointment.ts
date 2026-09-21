@@ -1,3 +1,4 @@
+import {recordVoiceActivity} from './voiceActivity';
 import { selectionGuests } from '@gf/contracts';
 import { assertBookingCaller } from '../voice/bookingCaller';
 import { loadBookingStaff, enforceScheduledBooking } from '../queries/bookingStaff';
@@ -1176,6 +1177,7 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit, emit }: Handl
   // 没有开过单 = 轮牌上没有这条预约的痕迹，所以「保留」与否不改变任何状态。
   // 如实返回调用方问的那件事有没有发生，而不是回一个好看的 true
   emit({type:'appointment.changed',entityId:appt.id,businessDate:appt.business_date});
+  await recordVoiceActivity(tx,ctx,appt.id,'cancel','completed');
   return { appointmentId: appt.id, turnKept: false };
 });
 
@@ -1237,6 +1239,7 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
   if(!input.itemId && input.membershipId===undefined && input.resourceId===undefined
       && Date.parse(input.startsAt)===Date.parse(appt.starts_at)) {
     audit({entityType:'appointment',entityId:appt.id,after:{unchanged:true,startsAt:appt.starts_at}});
+    await recordVoiceActivity(tx,ctx,appt.id,'reschedule','completed');
     return {appointmentId:appt.id,overbooked:false};
   }
 
@@ -1506,6 +1509,7 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
   });
 
   emit({type:'appointment.changed',entityId:appt.id,businessDate});
+  await recordVoiceActivity(tx,ctx,appt.id,'reschedule','completed');
   return { appointmentId: appt.id, overbooked };
 });
 

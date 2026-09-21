@@ -136,8 +136,20 @@ export function registerScheduleRoutes(app: FastifyInstance, ctxFromHeaders: Ctx
     return withTenant(ctx,async tx=>{
       const [appointment]=await tx`select provider_call_id from appointments where id=${req.params.id} and location_id=${ctx.locationId}`;
       if(!appointment)throw new AppError(ERROR_CODES.NOT_FOUND);
-      const [call]=await tx`select id as "callId",started_at as "startedAt",duration_seconds as "durationSeconds",summary,coalesce(transcript,'[]'::jsonb) as transcript,(recording_id is not null or recording_url is not null) as "hasRecording" from phone_calls where location_id=${ctx.locationId} and provider_call_id=${appointment.provider_call_id} limit 1`;
-      reply.header('Cache-Control','private, no-store');return {call:call??null};
+      const canSee=ctx.permissions.has('customer.view_contact');
+      const calls=await tx`select p.id as "callId",p.started_at as "startedAt",p.duration_seconds as "durationSeconds",
+        case when ${canSee} then p.summary else null end as summary,
+        case when ${canSee} then coalesce(p.transcript,'[]'::jsonb) else '[]'::jsonb end as transcript,
+        (${canSee} and (p.recording_id is not null or p.recording_url is not null)) as "hasRecording",
+        p.voice_billing_status as "billingStatus",p.billable_seconds as "billableSeconds",
+        (p.provider_call_id=${appointment.provider_call_id} or exists(select 1 from call_drafts d where d.call_id=p.id and d.appointment_id=${req.params.id} and d.status='confirmed')) as "createdBooking",
+        coalesce((select jsonb_agg(jsonb_build_object('action',v.action,'outcome',v.outcome) order by v.occurred_at) from voice_appointment_activity v
+         where v.location_id=${ctx.locationId} and v.appointment_id=${req.params.id} and v.call_id=p.id),'[]'::jsonb) as actions
+        from phone_calls p where p.location_id=${ctx.locationId} and (p.provider_call_id=${appointment.provider_call_id}
+          or exists(select 1 from voice_appointment_activity v where v.location_id=${ctx.locationId} and v.appointment_id=${req.params.id} and v.call_id=p.id)
+          or exists(select 1 from call_drafts d where d.call_id=p.id and d.appointment_id=${req.params.id} and d.status='confirmed'))
+        order by p.started_at desc nulls last,p.created_at desc`;
+      reply.header('Cache-Control','private, no-store');return {calls,call:calls[0]??null};
     });
   });
 

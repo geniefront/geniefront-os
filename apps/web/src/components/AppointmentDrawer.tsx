@@ -459,7 +459,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
     </section>
     <div className="flex shrink-0 border-b border-slate-200 bg-white" role="tablist">{tabs.filter(([id]) => !voiceOnly || id === 'service').map(([id, label, Icon]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={cn('flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 py-3 text-xs font-bold transition', tab === id ? 'border-teal-500 bg-teal-50/50 text-teal-800' : 'border-transparent text-slate-500 hover:bg-slate-50')}><Icon size={14}/>{label}</button>)}</div>
     <main className="flex-1 overflow-y-auto bg-slate-50/70 p-4">
-      {tab === 'service' && <div className="space-y-4">{appointment.isVoiceBooking&&<AppointmentCall appointmentId={appointment.appointmentId}/>}
+      {tab === 'service' && <div className="space-y-4">{<AppointmentCall appointmentId={appointment.appointmentId}/>}
         {!voiceOnly && !terminalStatus && (
           <section className="space-y-2.5 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
             <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">

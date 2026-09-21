@@ -121,8 +121,19 @@ describe('xAI scoped booking tools', () => {
     const opts = { systemOrigin: 'voice_test' };
     ctx = { ...ctx, permissions: new Set([...ctx.permissions, 'call.draft', 'billing.manage']) };
     const providerCallId = 'voice-test-classification';
+    await withTenant(tenant,tx=>tx`insert into phone_calls(org_id,location_id,provider_call_id) values(${tenant.orgId},${locationId},${providerCallId})`);
     await dispatch('call.queueRecording', { providerCallId, recordingId: 'recording-test',
       to: phone, from: '+12025550123', startedAt: new Date().toISOString(), durationSeconds: 180 }, ctx, opts);
+    const queued = await withTenant(tenant, tx => loadCalls(tx,ctx));
+    const pending = queued.calls.find(c=>c.recordingId==='recording-test');
+    expect(pending?.billingStatus).toBe('pending');
+    expect(pending?.transcript).toEqual([]);
+    await withTenant(tenant,async tx=>{
+      const appointments=await tx`select id from appointments where location_id=${locationId} limit 2`;
+      expect(appointments).toHaveLength(2);
+      for(const a of appointments) await tx`insert into voice_appointment_activity(org_id,location_id,appointment_id,caller,call_started_at,action,outcome,call_id)
+       values(${tenant.orgId},${locationId},${a.id},'+12025550123',now(),'lookup','requested',${pending!.callId})`;
+    });
     const claimed = await dispatch<{ job: { id: string; leaseId: string } }>('call.claimRecording', {}, ctx, opts);
     const job = claimed.result.job; expect(job).toBeTruthy();
     const payload = { jobId: job.id, leaseId: job.leaseId, durationSeconds: 180,
@@ -135,6 +146,8 @@ describe('xAI scoped booking tools', () => {
     const loaded = await withTenant(tenant, tx => loadCalls(tx, ctx));
     const stored = loaded.calls.find(c=>c.transcript[0]?.text==='Hello');
     expect(stored?.summary).toBe(payload.analysis.summary);
+    expect(stored?.appointmentIds).toHaveLength(2);
+    expect(stored?.booked).toBe(false);
     expect(stored?.transcript).toEqual(payload.turns);
     const exact = await withTenant(tenant, tx => loadCalls(tx, ctx, {callId:stored!.callId}));
     expect(exact.calls).toHaveLength(1);
@@ -146,6 +159,29 @@ describe('xAI scoped booking tools', () => {
     const [usage] = await withTenant(tenant, tx => tx<{ count: number; total: number }[]>`
       select count(*)::int as count,sum(qty)::int as total from usage_events where meta->>'providerCallId'=${providerCallId}`);
     expect(usage).toEqual({ count: 1, total: 1 });
+    await dispatch('call.queueRecording',{providerCallId,recordingId:'recording-test',to:phone,from:'+12025550123',startedAt:new Date().toISOString(),durationSeconds:180},ctx,opts);
+    const [settled]=await withTenant(tenant,tx=>tx`select voice_billing_status from phone_calls where provider_call_id=${providerCallId}`);
+    expect(settled?.voice_billing_status).toBe('settled');
+  });
+
+  it('keeps failed recordings visible and settles a recovered business call once without delayed notifications',async()=>{
+    const opts={systemOrigin:'voice_test'};
+    await dispatch('call.queueRecording',{providerCallId:'failed-transcription',recordingId:'recording-failed',to:phone,from:'+12025550188',startedAt:new Date().toISOString(),durationSeconds:62},ctx,opts);
+    const claimed=await dispatch<{job:{id:string;leaseId:string}}>('call.claimRecording',{},ctx,opts);
+    await withTenant(tenant,tx=>tx`update voice_processing_jobs set attempts=5 where id=${claimed.result.job.id}`);
+    await dispatch('call.failRecording',{jobId:claimed.result.job.id,leaseId:claimed.result.job.leaseId,reason:'provider_failed'},ctx,opts);
+    const data=await withTenant(tenant,tx=>loadCalls(tx,ctx));
+    expect(data.calls.find(c=>c.recordingId==='recording-failed')?.billingStatus).toBe('review');
+    const usage=await withTenant(tenant,tx=>tx`select id from usage_events where meta->>'providerCallId'='failed-transcription'`);
+    expect(usage).toHaveLength(0);
+    await withTenant(tenant,tx=>tx`update voice_processing_jobs set status='processing',payload=payload||'{"suppressNotification":true}'::jsonb where id=${claimed.result.job.id}`);
+    const recovery={jobId:claimed.result.job.id,leaseId:claimed.result.job.leaseId,durationSeconds:62,transcript:'Please change my appointment. No slots available.',recordingUrl:'https://recordings.telnyx.com/recovered.wav',analysis:{summary:'Reschedule inquiry; no availability.',segments:[{start:0,end:62,category:'business'}]}};
+    expect((await dispatch<{billableSeconds:number}>('call.completeRecording',recovery,ctx,opts)).result.billableSeconds).toBe(62);
+    expect((await dispatch<{completed:boolean}>('call.completeRecording',recovery,ctx,opts)).result.completed).toBe(false);
+    const recovered=await withTenant(tenant,tx=>tx`select qty from usage_events where meta->>'providerCallId'='failed-transcription'`);
+    expect(recovered).toEqual([{qty:2}]);
+    const notifications=await withTenant(tenant,tx=>tx`select id from email_outbox where entity_type='phone_call' and entity_id=(select id from phone_calls where provider_call_id='failed-transcription')`);
+    expect(notifications).toHaveLength(0);
   });
 
   it('blocks disabled voice tools before creating any booking', async () => {

@@ -40,6 +40,7 @@ export interface CallView {
   /** ⭐ 它有没有真的订上单 —— 前台扫一眼列表就要能分辨 */
   booked: boolean;
   appointmentIds: string[];
+  appointmentActions: Array<{appointmentId:string;action:string;outcome:string}>;
   recordingUrl: string | null;
   recordingId: string | null;
   billingStatus: string;
@@ -65,7 +66,7 @@ export async function loadCalls(
   const canSeeContact = ctx.permissions.has('customer.view_contact');
 
   const rows = await tx<{
-    total: number; appointment_ids: string[]; id: string; from_e164: string | null; started_at: string | Date | null;
+    total: number; appointment_ids: string[]; appointment_actions: CallView["appointmentActions"]; id: string; from_e164: string | null; started_at: string | Date | null;
     duration_seconds: number | null; outcome: string | null;
     recording_id: string | null; voice_billing_status: string; billable_seconds: number | null;
     tools_used: string[] | null; recording_url: string | null; transcript: unknown; summary: string | null;
@@ -75,6 +76,8 @@ export async function loadCalls(
              and (a.provider_call_id=phone_calls.provider_call_id or exists (
                select 1 from call_drafts d where d.call_id=phone_calls.id and d.appointment_id=a.id and d.status='confirmed'
              ))) as appointment_ids,
+           coalesce((select jsonb_agg(jsonb_build_object('appointmentId',v.appointment_id,'action',v.action,'outcome',v.outcome) order by v.occurred_at)
+            from voice_appointment_activity v where v.location_id=phone_calls.location_id and v.call_id=phone_calls.id),'[]'::jsonb) as appointment_actions,
            tools_used, recording_url, summary, transcript, recording_id, voice_billing_status, billable_seconds
     from phone_calls
     where location_id = ${ctx.locationId}
@@ -95,7 +98,8 @@ export async function loadCalls(
       outcome: r.outcome,
       toolsUsed: tools,
       booked: r.appointment_ids.length > 0,
-      appointmentIds: r.appointment_ids,
+      appointmentIds: [...new Set([...r.appointment_ids,...r.appointment_actions.map(a=>a.appointmentId)])],
+      appointmentActions: r.appointment_actions,
       recordingUrl: canSeeContact ? r.recording_url : null,
       recordingId: canSeeContact ? r.recording_id : null,
       billingStatus: r.voice_billing_status,

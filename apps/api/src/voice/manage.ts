@@ -1,3 +1,4 @@
+import '../handlers/voiceActivity';
 import { saveReference, readReference, referenceScope } from "./references";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { createHmac, timingSafeEqual, createHash } from "node:crypto";
@@ -195,12 +196,15 @@ export function registerVoiceManagementRoutes(
     userId: null,
     membershipId: null,
     permissions: new Set(["appointment.write", "appointment.cancel"]),
+    voiceCall: {caller:a.caller,startedAt:a.callStartedAt},
     verifiedBookingCaller: {
       phoneE164: a.caller,
       expectedStartsAt: s.startsAt,
       expectedRescheduleCount: s.count,
     },
   });
+  const recordActivity = (a: Awaited<ReturnType<typeof auth>>, appointmentId: string, action: 'lookup'|'reschedule'|'cancel') =>
+    dispatch('call.recordAppointmentActivity',{appointmentId,action},{...a.ctx,voiceCall:{caller:a.caller,startedAt:a.callStartedAt}}, {systemOrigin:'voice_tool'});
   const flush = (ctx: CommandContext) => {
     void flushSms(ctx, app.log).catch(() =>
       app.log.warn("Voice SMS flush will retry"),
@@ -243,7 +247,8 @@ export function registerVoiceManagementRoutes(
     const a = authorized
       ? { ...authorized, ...callerFromSystemHeaders(req) }
       : await auth(req);
-    return withTenant(a.ctx, async (tx) => {
+    const activityIds: string[] = [];
+    const result = await withTenant(a.ctx, async (tx) => {
       const [shop] = await tx<
         Shop[]
       >`select settings,timezone,business_day_cutoff::text as cutoff from locations where id=${a.ctx.locationId}`;
@@ -255,6 +260,7 @@ export function registerVoiceManagementRoutes(
      and a.source in ('web','phone_ai','phone_manual','desk') and a.status='booked' and a.starts_at>now() order by a.starts_at limit 20`;
       const appointments = [];
       for (const row of rows) {
+        activityIds.push(row.id);
         const items =
           await tx`select s.name,ai.duration_min,ai.details,ai.addon_ids,
        coalesce((select jsonb_agg(ad.name) from services ad where ad.id=any(ai.addon_ids)), '[]'::jsonb) as addons,case when ai.is_request then sp.display_name else null end as staff_name
@@ -311,6 +317,8 @@ export function registerVoiceManagementRoutes(
         ],
       };
     });
+    if(!authorized) for(const id of activityIds) await recordActivity(a,id,'lookup');
+    return result;
   };
   const lookup = async (req: FastifyRequest, reply: FastifyReply) => {
     parse(z.object({}).strict(), req.query);
@@ -328,6 +336,7 @@ export function registerVoiceManagementRoutes(
         s = await decode(body.appointmentToken, a.secret, a.ctx);
       if (s.action !== "select") throw new AppError(ERROR_CODES.NOT_FOUND);
       const { row, shop, cfg } = await own(a, s);
+      await recordActivity(a,row.id,'reschedule');
       assertFresh(row, s);
       const blocked = guestRescheduleBlockReason(policy(row, cfg));
       if (blocked)
@@ -384,6 +393,7 @@ export function registerVoiceManagementRoutes(
         s = await decode(body.appointmentToken, a.secret, a.ctx);
       if (s.action !== "select") throw new AppError(ERROR_CODES.NOT_FOUND);
       const { row, cfg } = await own(a, s);
+      await recordActivity(a,row.id,'cancel');
       reply.header("Cache-Control", "no-store");
       if (row.status === "cancelled")
         return { ok: true, status: "cancelled", replayed: true };
@@ -422,6 +432,7 @@ export function registerVoiceManagementRoutes(
       if (s.action !== "reschedule" || !s.target)
         throw new AppError(ERROR_CODES.NOT_FOUND);
       const { row } = await own(a, s);
+      await recordActivity(a,row.id,'reschedule');
       reply.header("Cache-Control", "no-store");
       const ctx = mutationContext(a, s);
       // The shared handler enforces policy, phone ownership, version and capacity under locks.

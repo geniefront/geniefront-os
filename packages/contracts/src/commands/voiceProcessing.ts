@@ -27,4 +27,8 @@ export const FailVoiceJob = defineCommand({ ...system, name: 'call.failRecording
   input: z.object({ jobId: uuid, leaseId: uuid, reason: z.string().max(200) }),
   output: z.object({ saved: z.boolean() }),
 });
-export const VOICE_PROCESSING_COMMANDS = [QueueVoiceRecording, ClaimVoiceJob, CompleteVoiceJob, FailVoiceJob] as const;
+export const RecordVoiceAppointmentActivity = defineCommand({ ...system, name: 'call.recordAppointmentActivity',
+ input: z.object({ appointmentId: uuid, action: z.enum(['lookup','reschedule','cancel']) }).strict(),
+ output: z.object({ saved: z.boolean() }),
+});
+export const VOICE_PROCESSING_COMMANDS = [RecordVoiceAppointmentActivity, QueueVoiceRecording, ClaimVoiceJob, CompleteVoiceJob, FailVoiceJob] as const;
