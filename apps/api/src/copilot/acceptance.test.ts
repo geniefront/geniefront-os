@@ -432,8 +432,7 @@ describe('Copilot Phase 6 Acceptance Scenarios (29 §14)', () => {
     const compiled = await compileTaskPlan(ctx, task.id, 1, planInput, timeAnchor);
     const resolvedGuest = (compiled.compiledSteps[0]!.resolvedInput as any).guest;
     expect(resolvedGuest).toBeTruthy();
-    expect(resolvedGuest.confirmationCode).toMatch(/^[A-Z0-9]{2,4}-[A-Z0-9]{4,6}$/);
-    expect(resolvedGuest.confirmationCode).not.toBe('FAKE_CODE');
+    expect(resolvedGuest).not.toHaveProperty('confirmationCode');
     expect(resolvedGuest.manageToken).toMatch(/^mt_[A-Za-z0-9_-]{20,}$/);
     expect(resolvedGuest.manageToken).not.toBe('fake_token');
   });

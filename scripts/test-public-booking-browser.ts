@@ -56,7 +56,7 @@ for (const [mode, width, height, offset] of [
   await page
     .getByRole("button", { name: "Book appointment", exact: true })
     .click();
-  await expect(page.getByTestId("confirmation-code")).toBeVisible({
+  await expect(page.locator('a[href*="#g/"]')).toBeVisible({
     timeout: 15000,
   });
   await page.screenshot({

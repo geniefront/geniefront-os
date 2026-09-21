@@ -170,9 +170,17 @@ it("books different services and an addon for two guests, preserving requested v
   expect(offer).toBeTruthy();
   const booked = await book(offer, "Mixed party");
   expect(booked.statusCode, booked.body).toBe(200);
+  expect(booked.json()).not.toHaveProperty('confirmationCode');
+  // A retry may replay a response cached before confirmation codes were retired.
+  await withTenant(tenant, (tx) => tx`
+    update command_idempotency
+       set result_json = result_json || '{"confirmationCode":"GF-OLD2"}'::jsonb
+     where location_id = ${locationId} and command = 'voice.submitBooking'
+       and result_json->>'appointmentId' = ${booked.json().appointmentId}`);
   const replay = await book(offer, "Mixed party");
   expect(replay.json().appointmentId).toBe(booked.json().appointmentId);
   expect(replay.json().replayed).toBe(true);
+  expect(replay.json()).not.toHaveProperty('confirmationCode');
   const rows = await withTenant(
     tenant,
     (tx) =>

@@ -13,7 +13,6 @@ import {
 } from "./appointment";
 import { loadVoiceContext } from "../voice/context";
 import {
-  generateConfirmationCode,
   generateManageToken,
 } from "../public/bookingToken";
 
@@ -53,7 +52,6 @@ registerHandler(SubmitVoiceBooking, async ({ input, tx, ctx, audit }) => {
       throw new AppError(ERROR_CODES.RESOURCE_CONFLICT, {
         details: { reason: "price_changed_query_again" },
       });
-    const code = generateConfirmationCode("GF");
     const payload = AppointmentCreate.input.parse({
       customerId: null,
       providerCallId: input.providerCallId,
@@ -75,7 +73,6 @@ registerHandler(SubmitVoiceBooking, async ({ input, tx, ctx, audit }) => {
         },
       })),
       guest: {
-        confirmationCode: code,
         manageToken: generateManageToken(),
         customer: {
           name: input.customerName,
@@ -98,7 +95,6 @@ registerHandler(SubmitVoiceBooking, async ({ input, tx, ctx, audit }) => {
     });
     return {
       appointmentId: out.appointmentId,
-      confirmationCode: code,
       businessDate: out.businessDate,
     };
   }
@@ -116,7 +112,6 @@ registerHandler(SubmitVoiceBooking, async ({ input, tx, ctx, audit }) => {
       details: { reason: "slot_no_longer_available" },
     });
   }
-  const code = generateConfirmationCode("GF");
   const payload = AppointmentCreate.input.parse({
     customerId: null,
     providerCallId: input.providerCallId,
@@ -133,7 +128,6 @@ registerHandler(SubmitVoiceBooking, async ({ input, tx, ctx, audit }) => {
       isRequest: Boolean(input.membershipId),
     })),
     guest: {
-      confirmationCode: code,
       manageToken: generateManageToken(),
       customer: {
         name: input.customerName,
@@ -156,7 +150,6 @@ registerHandler(SubmitVoiceBooking, async ({ input, tx, ctx, audit }) => {
   });
   return {
     appointmentId: out.appointmentId,
-    confirmationCode: code,
     businessDate: out.businessDate,
   };
 });

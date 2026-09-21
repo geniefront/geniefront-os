@@ -138,8 +138,6 @@ export const AppointmentCreate = defineCommand({
     guest: z.object({
       /** Separate appointment SMS choice; never grants marketing consent. */
       bookingSmsConsent: z.boolean().optional(),
-      /** 客人念得出来的短码，如 `LN-4K2P`。一家店内唯一 */
-      confirmationCode: z.string().regex(/^[A-Z0-9]{2,4}-[A-Z0-9]{4,6}$/),
       /**
        * 自助取消令牌的**明文**。库里只落 SHA-256 摘要（handler 负责哈希）。
        *
@@ -352,7 +350,6 @@ export const appointmentBatchItemInput = z.object({
       phoneE164: phoneE164.optional(),
       email: z.string().email().max(200).optional(),
       smsOptIn: z.boolean().default(false),
-      confirmationCode: z.string().regex(/^[A-Z0-9]{2,4}-[A-Z0-9]{4,6}$/).optional(),
       manageToken: z.string().regex(/^mt_[A-Za-z0-9_-]{20,}$/).optional(),
       customer: z
         .object({

@@ -1,7 +1,6 @@
 /** Same-tab success data. Never persist last-four or customer PII. */
 export interface LastBooking {
   bookingId: string;
-  confirmationCode: string | null;
   manageToken: string | null;
   shopSlug: string;
 }
@@ -9,7 +8,7 @@ export interface LastBooking {
 const KEY = 'gf:last-booking';
 
 export function saveLastBooking(row: LastBooking): void {
-  try { sessionStorage.setItem(KEY, JSON.stringify(row)); } catch { /* private mode */ }
+  try { sessionStorage.setItem(KEY, JSON.stringify({ bookingId: row.bookingId, manageToken: row.manageToken, shopSlug: row.shopSlug })); } catch { /* private mode */ }
 }
 
 export function loadLastBooking(): LastBooking | null {
@@ -18,7 +17,7 @@ export function loadLastBooking(): LastBooking | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as LastBooking;
     if (!parsed.bookingId || !parsed.shopSlug) return null;
-    return parsed;
+    return { bookingId: parsed.bookingId, manageToken: parsed.manageToken, shopSlug: parsed.shopSlug };
   } catch {
     return null;
   }

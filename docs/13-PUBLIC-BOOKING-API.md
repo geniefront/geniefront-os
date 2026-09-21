@@ -99,7 +99,7 @@ https://book.geniefront.com/l/{shop-slug}#g/{opaque-manage-token}
                                        ├ 发确认邮件/短信
                                        └ 前台看板 2 秒内出现这一单
 「预约成功」页
-  （显示确认码 + 管理链接）
+  （显示预约详情 + 管理链接）
 ```
 
 > 💡 **在动手写这些之前先看 §10。** 上面那张图是「你自己做 UI」的分工；
@@ -377,7 +377,6 @@ Content-Type: application/json
 ```jsonc
 {
   "bookingId": "b3d2…",
-  "confirmationCode": "LN-4K2P",       // 给客人念的短码，前台也能搜
   "manageToken": "mt_9f3c…",           // ⭐ 取消要它，见 §4.5
   "replayed": false,
   "startsAt": "2026-09-03T10:30:00-04:00",
@@ -389,7 +388,7 @@ Content-Type: application/json
 #### 🔴 重放同一个 `Idempotency-Key` 返回 `200`，而且**令牌是 `null`**
 
 ```jsonc
-{ "bookingId": "b3d2…", "confirmationCode": null, "manageToken": null,
+{ "bookingId": "b3d2…", "manageToken": null,
   "replayed": true, "startsAt": "…", "durationMin": 75, "status": "booked" }
 ```
 
@@ -577,7 +576,7 @@ document.querySelector('#booking').addEventListener('submit', async (e) => {
   const b = await res.json();
   // ⭐ 令牌只给这一次。要做「我的预约」就现在存下来
   if (b.manageToken) sessionStorage.setItem(`gf:${b.bookingId}`, b.manageToken);
-  location.href = `/booked?c=${b.confirmationCode}`;
+  location.href = `/booked?id=${encodeURIComponent(b.bookingId)}`;
 });
 </script>
 ```
@@ -644,10 +643,9 @@ document.querySelector('#booking').addEventListener('submit', async (e) => {
 ### 6.3 蜜罐 + 最短填写时间（零成本，挡掉大半）
 
 - **蜜罐**：表单里放一个视觉隐藏的 `website` 字段。真人看不见所以永远是空的，
-  傻脚本会把每个 input 都填上。非空 → **假装成功**（返回 201 和一个假确认码），
-  但什么都不写库。假装成功是有意的：直接报错等于告诉对方蜜罐在哪
+  傻脚本会把每个 input 都填上。非空 → 返回 `VALIDATION_FAILED`，不创建预约。
 - **最短时间**：官网把 `formElapsedMs` 一起交上来，**< 3 秒**当机器人处理
-  （同样假装成功）。真人选日期、选时段、填名字、填手机号不可能三秒内做完
+  （同样返回 `VALIDATION_FAILED`）。真人选日期、选时段、填名字、填手机号不可能三秒内做完
 
 ⚠️ **`formElapsedMs` 是客户端自报的，伪造起来毫不费力。**
 它挡的是照着表单字段无脑 POST 的那一类，不是任何认真的人 ——
@@ -758,7 +756,7 @@ POST /public/v1/bookings       { …, verifyToken }
 5. 老板在开店配置里可以把某个项目取消勾选 `online_bookable`，
    官网下次拉 `/services` 就没有了 —— **不需要改官网代码**
 
-⚠️ **确认信可能延迟几秒到几分钟。** 所以「预约成功」页要**当场显示确认码**，
+⚠️ **确认信可能延迟几秒到几分钟。** 所以「预约成功」页要**当场显示预约成功状态、时间和管理链接**，
 不要写「请查收邮件确认」—— 客人会盯着收件箱刷新然后怀疑自己没订上。
 
 ---
@@ -771,7 +769,7 @@ POST /public/v1/bookings       { …, verifyToken }
    - 把「在线预约」打开（打不开的话是一个项目都没勾「可在线预约」，那一页会直说）
    - 复制那串 `pk_…` 给你
    - 把你的官网域名**和预览域名**都填进白名单
-2. 你按 §5 把表单跑通：拉项目 → 拉空档 → 提交 → 拿到确认码
+2. 你按 §5 把表单跑通：拉项目 → 拉空档 → 提交 → 拿到预约 ID 和管理链接
    → 前台看板上出现那一单，标着「网站」
 3. 把 session 里那个 `bookingId` 发给我们，我们对一下审计流水
 
@@ -867,7 +865,7 @@ POST /public/v1/bookings       { …, verifyToken }
         f.style.height = e.data.height + 'px';
       }
       if (e.data.type === 'gf-booking:booked') {
-        // 可选：埋个转化统计。e.data.confirmationCode 是客人拿到的确认码
+        // 可选：埋个转化统计。事件只包含 type，不携带预约标识或管理令牌
       }
     });
   })();

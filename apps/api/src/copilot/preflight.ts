@@ -18,7 +18,7 @@ import {
   type CopilotStepStatus,
 } from '@gf/contracts';
 import { withTenant } from '@gf/db';
-import { generateConfirmationCode, generateManageToken } from '../public/bookingToken.js';
+import { generateManageToken } from '../public/bookingToken.js';
 import type { TimeAnchor } from '@gf/ai';
 
 export interface CompiledStep {
@@ -164,7 +164,7 @@ export async function compileTaskPlan(
       const rawGuest = resolvedInput['guest'] as Record<string, unknown> | undefined;
       const rawCustomer = resolvedInput['customer'] as Record<string, unknown> | undefined;
 
-      // 若有随单新客信息，服务端自动补齐确认码与 manageToken
+      // 若有随单新客信息，服务端自动补齐 manageToken
       if (rawGuest || rawCustomer) {
         const guestInfo = (rawGuest || rawCustomer)!;
         const name = String(guestInfo['name'] || resolvedInput['walkInName'] || 'Guest');
@@ -172,11 +172,6 @@ export async function compileTaskPlan(
 
         if (phoneE164) {
           resolvedInput['guest'] = {
-            confirmationCode:
-              typeof guestInfo['confirmationCode'] === 'string' &&
-              /^[A-Z0-9]{2,4}-[A-Z0-9]{4,6}$/.test(guestInfo['confirmationCode'])
-                ? guestInfo['confirmationCode']
-                : generateConfirmationCode('GF'),
             manageToken:
               typeof guestInfo['manageToken'] === 'string' &&
               /^mt_[A-Za-z0-9_-]{20,}$/.test(guestInfo['manageToken'])
@@ -313,11 +308,6 @@ export async function compileTaskPlan(
             const phoneE164 = String(rawGuest['phoneE164'] || rawGuest['phone'] || '');
             if (phoneE164) {
               item['guest'] = {
-                confirmationCode:
-                  typeof rawGuest['confirmationCode'] === 'string' &&
-                  /^[A-Z0-9]{2,4}-[A-Z0-9]{4,6}$/.test(rawGuest['confirmationCode'])
-                    ? rawGuest['confirmationCode']
-                    : generateConfirmationCode('GF'),
                 manageToken:
                   typeof rawGuest['manageToken'] === 'string' &&
                   /^mt_[A-Za-z0-9_-]{20,}$/.test(rawGuest['manageToken'])

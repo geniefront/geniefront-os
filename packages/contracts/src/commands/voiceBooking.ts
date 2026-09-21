@@ -42,7 +42,6 @@ export const SubmitVoiceBooking = defineCommand({
   input: VoiceBookingInput,
   output: z.object({
     appointmentId: uuid,
-    confirmationCode: z.string(),
     businessDate: z.string(),
   }),
   permission: "appointment.write",

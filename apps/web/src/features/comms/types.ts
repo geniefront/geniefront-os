@@ -64,7 +64,7 @@ export interface InboundSms {
   intent: string;
   receivedAt: string;
   customers: Array<{ id: string; name: string }>;
-  upcoming: Array<{ appointmentId: string; startsAt: string; confirmationCode: string | null }>;
+  upcoming: Array<{ appointmentId: string; startsAt: string }>;
 }
 
 export interface InboundSmsQueryResponse {

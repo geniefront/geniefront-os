@@ -117,11 +117,11 @@ export async function loadManagedBookingDetail(
   locale: string,
 ): Promise<Record<string, unknown> | null> {
   const [appt] = await tx<{
-    id: string; status: string; confirmation_code: string | null;
+    id: string; status: string;
     self_reschedule_count: number;
     starts_at: string; ends_at: string;
   }[]>`
-    select id, status, confirmation_code, self_reschedule_count,
+    select id, status, self_reschedule_count,
            starts_at::text as starts_at, ends_at::text as ends_at
       from appointments
      where id = ${appointmentId} and location_id = ${shop.locationId}`;
@@ -188,7 +188,6 @@ export async function loadManagedBookingDetail(
   });
   return {
     bookingId: appt.id,
-    confirmationCode: appt.confirmation_code,
     status: appt.status,
     startsAt,
     endsAt,

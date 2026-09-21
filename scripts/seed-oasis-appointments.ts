@@ -312,7 +312,6 @@ async function main() {
       }
 
       const apptId = randomUUID();
-      const code = `OA${(Math.floor(1000 + Math.random() * 9000))}`;
       const addonUuids = (slot.addons ?? []).map(a => ADDONS[a]);
 
       let priceCents = srv.cents;
@@ -326,11 +325,11 @@ async function main() {
         INSERT INTO appointments (
           id, org_id, location_id, customer_id, walk_in_name,
           business_date, starts_at, ends_at, status, source,
-          party_size, notes, created_by, confirmation_code
+          party_size, notes, created_by
         ) VALUES (
           ${apptId}, ${ORG_ID}, ${LOC_ID}, ${custId}, ${walkIn},
           ${bDate}, ${startDate.toISOString()}, ${endIso}, ${apptStatus}, ${slot.source ?? 'desk'},
-          1, ${slot.notes ?? null}, ${CREATED_BY}, ${code}
+          1, ${slot.notes ?? null}, ${CREATED_BY}
         )
       `;
       totalApptsCreated++;

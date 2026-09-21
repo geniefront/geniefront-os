@@ -139,7 +139,6 @@ export interface Availability {
 export interface Booked {
   summary?: ManagedBooking;
   bookingId: string;
-  confirmationCode: string | null;
   manageToken: string | null;
   replayed: boolean;
   startsAt: string;
@@ -199,7 +198,6 @@ export interface GuestActions {
 
 export interface ManagedBooking {
   bookingId: string;
-  confirmationCode: string | null;
   status: string;
   startsAt: string;
   endsAt: string;

@@ -187,9 +187,6 @@ function ManageBody({
         <Card>
           <div className="managed-card-top">
             <StatusBadge status={booking.status} />
-            {booking.confirmationCode && (
-              <span>{booking.confirmationCode}</span>
-            )}
           </div>
           <h2 className="managed-when" data-testid="when">
             {dateOf(booking.startsAt, booking.timezone, locale)}

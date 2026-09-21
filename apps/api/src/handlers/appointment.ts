@@ -20,7 +20,7 @@ import {
 import { renderConfirm, formatWhen } from '../email/render';
 import { emailConfigured } from '../email/send';
 import { hostedManageBookingUrl } from '../links';
-import { generateConfirmationCode, generateManageToken, hashManageToken, wrapManageToken } from '../public/bookingToken';
+import { generateManageToken, hashManageToken, wrapManageToken } from '../public/bookingToken';
 import { guestManageLink, manageUrlVar } from '../notify/manageUrl';
 import { notifyBookingRecipients } from '../notify/bookingRecipients';
 import { bookingSummary } from '../notify/bookingSummary';
@@ -597,13 +597,12 @@ export async function executeSingleAppointmentInTx(
     insert into appointments
       (org_id, location_id, customer_id, walk_in_name, business_date,
        starts_at, ends_at, source, party_size, notes, created_by, idempotency_key,
-       confirmation_code, manage_token_digest, manage_token_wrapped,
+       manage_token_digest, manage_token_wrapped,
        is_backfill, backfill_reason, backfill_notes)
     values
       (${ctx.orgId}, ${ctx.locationId}, ${customerId}, ${input.walkInName ?? null},
        ${businessDate}, ${ts(windowStart)}::timestamptz, ${ts(windowEnd)}::timestamptz, ${input.source},
        ${input.partySize}, ${input.notes ?? null}, ${ctx.membershipId}, null,
-       ${input.guest?.confirmationCode ?? null},
        ${manageDigest}, ${manageWrapped},
        ${input.isBackfill ?? false}, ${input.backfillReason ?? null}, ${input.backfillNotes ?? null})
     returning id`;
@@ -705,7 +704,6 @@ registerHandler(AppointmentCreate, async ({ input, ctx, tx, audit, emit }: Handl
       bundleCount: result.bundleInstanceIds.length,
       offHours: result.offHoursOverride,
       overrideReason: input.override?.reason ?? null,
-      confirmationCode: input.guest?.confirmationCode ?? null,
     },
   });
 
@@ -735,7 +733,6 @@ registerHandler(AppointmentCreateBatch, async ({ input, ctx, tx, audit, emit }: 
       const custName = g.customer?.name ?? g.name ?? 'Guest';
       const custPhone = g.customer?.phoneE164 ?? g.phoneE164 ?? '';
       guestObj = {
-        confirmationCode: g.confirmationCode ?? generateConfirmationCode('GF'),
         manageToken: g.manageToken ?? generateManageToken(),
         customer: {
           name: custName,

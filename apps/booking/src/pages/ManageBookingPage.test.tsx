@@ -50,7 +50,6 @@ function boot(over: Partial<ManageBootstrap['booking']> = {}): ManageBootstrap {
     shop,
     booking: {
       bookingId: 'b1',
-      confirmationCode: 'LN-4K2P',
       status: 'booked',
       startsAt: '2026-09-18T18:00:00.000Z',
       endsAt: '2026-09-18T18:45:00.000Z',

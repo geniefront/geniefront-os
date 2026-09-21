@@ -33,7 +33,7 @@ import { maybeAutoTopup, billingSystemContext } from '../billing/autoTopup';
 import { classify } from '../sms/keywords';
 import { flushSms } from '../sms/flush';
 import { flushEmails } from '../email/flush';
-import { generateConfirmationCode, generateManageToken } from '../public/bookingToken';
+import { generateManageToken } from '../public/bookingToken';
 import '../handlers/phone';
 import '../handlers/billing';
 
@@ -1142,8 +1142,6 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
     // 不去重的话客人会收到两条确认短信，而店里多了一个不存在的预约
     const callId = str(body['call_session_id']) ?? str(body['call_control_id']);
 
-    // 确认码前缀取店名首字母；这里拿不到店名，用固定前缀（码本身仍是店内唯一）
-    const confirmationCode = generateConfirmationCode('GF');
     const manageToken = generateManageToken();
 
     /*
@@ -1186,7 +1184,6 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
           providerCallId:callId ?? undefined,
           // ⚠️ override 永不传 —— 软约束放行需要一个知道店里现在什么情况的人
           guest: {
-            confirmationCode,
             manageToken,
             customer: {
               name: callerName!,
@@ -1206,38 +1203,17 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
       void flushSms({ orgId: t.orgId, locationId: t.locationId, membershipId: null }, req.log);
       void flushEmails({ orgId: t.orgId, locationId: t.locationId, membershipId: null }, req.log);
 
-      /*
-       * ⭐ 念出去的确认码从**库里读**，不用上面刚生成的那个。
-       *
-       * 幂等重放（通话重连、webhook 重投）走的是总线缓存的结果：
-       * 预约还是第一次那条，而这一次调用生成的是一个全新的码。
-       * 直接念它的话，客人手上的短信写着 GF-HCJR，AI 在电话里
-       * 念的是 GF-ZRY5 —— 到店报哪个都对不上。
-       */
-      const [saved] = await withTenant(
-        { orgId: t.orgId, locationId: t.locationId, membershipId: null },
-        (tx) => tx<{ code: string | null }[]>`
-          select confirmation_code as code from appointments
-          where id = ${out.result.appointmentId}`);
-      const code = saved?.code ?? confirmationCode;
-
       return {
         ok: true,
         shop: shopOf(t),
         appointmentId: out.result.appointmentId,
         businessDate: out.result.businessDate,
-        confirmationCode: code,
         durationMin: totalMin,
         services: matched.map((m) => ({ name: m.name, isAddon: m.isAddon })),
-        // AI 要照念的话。措辞在服务端定死，否则模型会把确认码念漏
-        // ⚠️ 两件事写死在这句话里：
-        //   · 确认码逐字念（`G F - 4 K 2 P`）—— 连读的话客人记不下来
-        //   · **时间用门店当地时间复述一遍** —— 这是整通电话里最后一次
-        //     纠正「模型把 UTC 念成本地时间」的机会，而它必须和短信一致
+        // Repeat the appointment time in the store timezone.
         say: `You're all set for ${matched[0]?.name ?? 'your appointment'} on `
           + `${spokenTime(new Date(startsAt!), t.timezone).spokenAt}. `
-          + `Your confirmation code is ${code.split('').join(' ')}. `
-          + "We'll text it to this number. See you then!",
+          + "We'll text your appointment details to this number. See you then!",
       };
     } catch (e) {
       /*

@@ -83,7 +83,6 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Your appointment": "您的预约",
     "Online rescheduling and cancellation apply to the entire booking, including every guest. To change services, specialists, guest count or contact information, contact the shop.":
       "在线改期和取消适用于整单及所有顾客。修改项目、服务人员、人数或联系方式，请联系店铺。",
-    Code: "预约编号",
     "hours ahead.": "小时。",
     "Last four digits of the phone number on this booking": "预约手机号后四位",
     Continue: "继续",
@@ -121,7 +120,6 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Appointment confirmed": "预约已确认",
     "Your appointment has been reserved. Save your confirmation and management link below.":
       "预约已保留，请保存下方的确认编号和管理链接。",
-    "Confirmation code": "预约确认码",
     "View, reschedule, or cancel": "查看、改期或取消",
     "Keep this page to manage your appointment.":
       "请保留此页面，以便管理预约。",
@@ -304,7 +302,6 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Your appointment": "Your appointment",
     "Online rescheduling and cancellation apply to the entire booking, including every guest. To change services, specialists, guest count or contact information, contact the shop.":
       "Online rescheduling and cancellation apply to the entire booking, including every guest. To change services, specialists, guest count or contact information, contact the shop.",
-    Code: "Code",
     "hours ahead.": "hours ahead.",
     "Last four digits of the phone number on this booking":
       "Last four digits of the phone number on this booking",
@@ -344,7 +341,6 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Appointment confirmed": "Appointment confirmed",
     "Your appointment has been reserved. Save your confirmation and management link below.":
       "Your appointment has been reserved. Save your confirmation and management link below.",
-    "Confirmation code": "Confirmation code",
     "View, reschedule, or cancel": "View, reschedule, or cancel",
     "Keep this page to manage your appointment.":
       "Keep this page to manage your appointment.",
@@ -535,7 +531,6 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Your appointment": "Tu cita",
     "Online rescheduling and cancellation apply to the entire booking, including every guest. To change services, specialists, guest count or contact information, contact the shop.":
       "Reprogramar o cancelar en línea afecta a toda la reserva y a todos los invitados. Para cambiar servicios, especialistas, invitados o datos, contacta con el establecimiento.",
-    Code: "Código",
     "hours ahead.": "horas antes.",
     "Last four digits of the phone number on this booking":
       "Últimos cuatro dígitos del teléfono de la reserva",
@@ -575,7 +570,6 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Appointment confirmed": "Reserva confirmada",
     "Your appointment has been reserved. Save your confirmation and management link below.":
       "Tu reserva está confirmada. Guarda el código y el enlace de gestión.",
-    "Confirmation code": "Código de confirmación",
     "View, reschedule, or cancel": "Ver, reprogramar o cancelar",
     "Keep this page to manage your appointment.":
       "Guarda esta página para gestionar tu reserva.",
@@ -769,7 +763,6 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Your appointment": "Lịch hẹn của bạn",
     "Online rescheduling and cancellation apply to the entire booking, including every guest. To change services, specialists, guest count or contact information, contact the shop.":
       "Đổi hoặc hủy trực tuyến áp dụng cho toàn bộ lịch hẹn và mọi khách. Để đổi dịch vụ, chuyên viên, số khách hoặc thông tin liên hệ, hãy gọi cửa hàng.",
-    Code: "Mã",
     "hours ahead.": "giờ.",
     "Last four digits of the phone number on this booking":
       "Bốn số cuối điện thoại đặt lịch",
@@ -809,7 +802,6 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Appointment confirmed": "Đã xác nhận lịch hẹn",
     "Your appointment has been reserved. Save your confirmation and management link below.":
       "Lịch hẹn đã được giữ. Hãy lưu mã xác nhận và liên kết quản lý bên dưới.",
-    "Confirmation code": "Mã xác nhận",
     "View, reschedule, or cancel": "Xem, đổi hoặc hủy lịch",
     "Keep this page to manage your appointment.":
       "Giữ trang này để quản lý lịch hẹn.",
@@ -997,7 +989,6 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Your appointment": "내 예약",
     "Online rescheduling and cancellation apply to the entire booking, including every guest. To change services, specialists, guest count or contact information, contact the shop.":
       "온라인 일정 변경과 취소는 모든 고객을 포함한 예약 전체에 적용됩니다. 서비스, 담당자, 인원 또는 연락처 변경은 매장에 문의해 주세요.",
-    Code: "예약 번호",
     "hours ahead.": "시간 전까지 가능합니다.",
     "Last four digits of the phone number on this booking":
       "예약 전화번호 마지막 네 자리",
@@ -1037,7 +1028,6 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
     "Appointment confirmed": "예약 확인 완료",
     "Your appointment has been reserved. Save your confirmation and management link below.":
       "예약이 완료되었습니다. 아래 확인 번호와 예약 관리 링크를 저장해 주세요.",
-    "Confirmation code": "예약 확인 번호",
     "View, reschedule, or cancel": "조회, 일정 변경 또는 취소",
     "Keep this page to manage your appointment.":
       "예약 관리를 위해 이 페이지를 저장해 주세요.",

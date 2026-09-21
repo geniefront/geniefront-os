@@ -38,11 +38,11 @@ export function reportHeight(): () => void {
 }
 
 /** Conversion ping for a parent website. Must never include PII or the manage token. */
-export function bookedMessage(confirmationCode: string | null): { type: string; confirmationCode: string | null } {
-  return { type: 'gf-booking:booked', confirmationCode };
+export function bookedMessage(): { type: string } {
+  return { type: 'gf-booking:booked' };
 }
 
-export function reportBooked(confirmationCode: string | null): void {
+export function reportBooked(): void {
   if (!isEmbedded()) return;
-  window.parent.postMessage(bookedMessage(confirmationCode), '*');
+  window.parent.postMessage(bookedMessage(), '*');
 }

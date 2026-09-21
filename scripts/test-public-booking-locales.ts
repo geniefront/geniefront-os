@@ -71,7 +71,7 @@ for (const [index, locale] of ["zh-Hans", "es", "vi", "ko"].entries()) {
   });
   await page.waitForTimeout(3100);
   await page.getByRole("button").last().click();
-  await expect(page.getByTestId("confirmation-code")).toBeVisible();
+  await expect(page.locator('a[href*="#g/"]')).toBeVisible();
   await page.screenshot({
     path: `artifacts/public-booking/${locale}-success.png`,
     fullPage: true,

@@ -143,7 +143,7 @@ const PHONE_AI_PERMISSIONS = [
 | 字段 | 作用 |
 |---|---|
 | `guidance` | 把「AI 该怎么办」写进**返回值**，不藏在 system prompt 里。返回里的指令比提示词里的可靠得多，且能随数据变化（例：同号多客户时才出现「请问清是哪一位」） |
-| `say` | 需要 AI **原样念出**的句子由服务端给定。不这么做模型会把「已记下，前台稍后回电」说成「已经帮您约好了」。⭐ **一律写英文**（2026-08-23 店主实测后定的）：`say` 和 `guidance` 里出现中文，英文客人那头就只能听模型现编。别的语言由模型照实翻，**确认码、日期、时间、人名原样保留**（instructions 里写死了）|
+| `say` | 需要 AI **原样念出**的句子由服务端给定。不这么做模型会把「已记下，前台稍后回电」说成「已经帮您约好了」。⭐ **一律写英文**（2026-08-23 店主实测后定的）：`say` 和 `guidance` 里出现中文，英文客人那头就只能听模型现编。别的语言由模型照实翻，**日期、时间、人名原样保留**（instructions 里写死了）|
 
 ### 钱一律整数分
 
@@ -471,11 +471,10 @@ POST /v1/telnyx/tools/book_appointment
   "ok": true,
   "appointmentId": "...",
   "businessDate": "2026-08-21",
-  "confirmationCode": "GF-4K2P",
   "durationMin": 60,
   "services": [ { "name": "Gel Manicure", "isAddon": false },
                 { "name": "Gel Removal", "isAddon": true } ],
-  "say": "You're all set. Your confirmation code is G F - 4 K 2 P. We'll text it to this number. See you then!"
+  "say": "You're all set for Gel Manicure on August 21 at 10 AM. We'll text your appointment details to this number. See you then!"
 }
 ```
 
@@ -517,9 +516,7 @@ POST /v1/telnyx/tools/book_appointment
 幂等键是 `telnyx-book-{call_session_id}`。通话重连、webhook 重投都会重放 ——
 不去重的话客人会收到**两条确认短信**，而店里多了一个不存在的预约。
 
-⚠️ **念出去的确认码从库里读回来**，不用这一次调用生成的那个：
-重放走的是总线缓存的结果（预约还是第一次那条），而这一次又生成了一个新码。
-直接念它的话，客人手机上的短信写着 `GF-4K2P`，AI 在电话里念的是 `GF-ZRY5`。
+重放返回同一预约 ID，成功话术复述门店当地的预约时间。预约码已取消，电话和短信均使用预约详情。
 
 ## 7. `request_callback` — 兜底，留给前台回电
 

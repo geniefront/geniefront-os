@@ -211,7 +211,7 @@ function FullMessages() {
             <div>
               <span className="font-bold">{t('crm.msgCompliantTitle')}</span>
               <span className="text-emerald-700 ml-2">
-                
+
                 {t('crm.msgCompliantDesc')}
               </span>
             </div>
@@ -228,7 +228,7 @@ function FullMessages() {
                 <Badge variant="warning" className="text-[10px]">{t('crm.msgUnderReview')}</Badge>
               </p>
               <p className="text-amber-800 leading-relaxed">
-                
+
                 {t('crm.msgPendingDesc')}
               </p>
             </div>
@@ -238,7 +238,7 @@ function FullMessages() {
             className="bg-amber-600 hover:bg-amber-700 text-white font-bold shrink-0 text-xs"
             onClick={() => navigate("/settings")}
           >
-            
+
             {t('crm.msgView10dlc')}
           </Button>
         </div>
@@ -248,11 +248,11 @@ function FullMessages() {
             <Lock className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
             <div className="space-y-0.5">
               <p className="font-bold text-sm text-red-900">
-                
+
                 {t('crm.msgNotSubmittedTitle')}
               </p>
               <p className="text-red-800 leading-relaxed">
-                
+
                 {t('crm.msgNotSubmittedDesc')}
               </p>
             </div>
@@ -262,7 +262,7 @@ function FullMessages() {
             className="bg-red-600 hover:bg-red-700 text-white font-bold shrink-0 text-xs"
             onClick={() => navigate("/settings")}
           >
-            
+
             {t('crm.msgSubmit10dlc')}
           </Button>
         </div>
@@ -274,7 +274,7 @@ function FullMessages() {
           <div className="flex items-center gap-2.5">
             <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
             <span className="font-bold">
-              
+
               {t('crm.msgOptOutWarnPrefix')} {data.needsAttention}  {t('crm.msgOptOutWarnSuffix')}
             </span>
           </div>
@@ -403,7 +403,7 @@ function FullMessages() {
                     <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
                       {isOptOut && (
                         <Badge variant="error" className="text-[9px] px-1.5 py-0">
-                          
+
                           {t('crm.msgOptedOutTag')}
                         </Badge>
                       )}
@@ -439,7 +439,7 @@ function FullMessages() {
                     </h3>
                     <p className="text-[11px] text-slate-500 flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      
+
                       {t('crm.msgCarrierStatus')}
                     </p>
                   </div>
@@ -452,7 +452,7 @@ function FullMessages() {
                   onClick={() => navigate("/schedule")}
                 >
                   <Calendar className="w-3.5 h-3.5 text-teal-600" />
-                  
+
                   {t('crm.msgScheduleBoard')}
                 </Button>
               </div>
@@ -462,7 +462,7 @@ function FullMessages() {
                 {/* 系统 24 小时前自动发送的预约提醒 */}
                 <div className="flex justify-center">
                   <div className="bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 text-[11px] text-slate-600 max-w-sm text-center">
-                    
+
                     {t('crm.msgAutoReminder')}
                   </div>
                 </div>
@@ -481,11 +481,11 @@ function FullMessages() {
                   <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-900 text-xs space-y-1">
                     <p className="font-bold flex items-center gap-1.5">
                       <AlertCircle className="w-4 h-4 text-red-600" />
-                      
+
                       {t('crm.msgOptedOutNotice')}
                     </p>
                     <p className="text-[11px] text-red-700">
-                      
+
                       {t('crm.msgOptedOutNoticeDesc')}
                     </p>
                   </div>
@@ -497,7 +497,7 @@ function FullMessages() {
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-bold text-slate-700 flex items-center gap-1">
                     <Sparkles className="w-3.5 h-3.5 text-teal-600" />
-                    
+
                     {t('crm.msgQuickReplies')}
                   </span>
                   <span className="text-[10px] text-slate-400">{t('crm.msgQuickRepliesHint')}</span>
@@ -596,7 +596,7 @@ function FullMessages() {
             <>
               <div className="border-b border-slate-100 pb-3">
                 <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider mb-2 text-slate-400">
-                  
+
                   {t('crm.msgProfileTitle')}
                 </h4>
                 <div className="flex items-center gap-3">
@@ -608,7 +608,7 @@ function FullMessages() {
                       {selectedSms.customers[0]?.name || t('crm.msgUnregisteredWalkIn')}
                     </h3>
                     <Badge className="bg-amber-50 text-amber-900 border-amber-200 text-[10px] mt-0.5">
-                      
+
                       {t('crm.msgGoldMember')}
                     </Badge>
                   </div>
@@ -633,7 +633,7 @@ function FullMessages() {
                       <div className="flex items-center justify-between font-bold text-teal-900">
                         <span>{t('crm.msgSampleService')}</span>
                         <Badge variant="success" className="text-[9px]">
-                          
+
                           {t('crm.msgConfirmedTag')}
                         </Badge>
                       </div>
@@ -641,18 +641,14 @@ function FullMessages() {
                         📅 {storeTime.dateTime(u.startsAt, { month: "numeric", day: "numeric", year: undefined })}
                       </p>
                       <p className="text-slate-500 text-[11px]">
-                        
+
                         {t('crm.msgTherapistRoom')}
-                      </p>
-                      <p className="text-[10px] text-slate-400 font-mono">
-                        
-                        {t('crm.msgConfirmationCode')} {u.confirmationCode || "--"}
                       </p>
                     </div>
                   ))
                 ) : (
                   <p className="text-xs text-slate-400 italic p-3 bg-slate-50 rounded-xl text-center">
-                    
+
                     {t('crm.msgNoUpcoming')}
                   </p>
                 )}
@@ -662,13 +658,13 @@ function FullMessages() {
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs space-y-1.5">
                 <span className="font-bold text-slate-700">{t('crm.msgHealthPrefs')}</span>
                 <p className="text-slate-600 leading-relaxed text-[11px]">
-                  
+
                   {t('crm.msgPrefPressure')}
                   <br />
-                  
+
                   {t('crm.msgPrefFocus')}
                   <br />
-                  
+
                   {t('crm.msgPrefAllergy')}
                 </p>
               </div>
@@ -706,7 +702,7 @@ function FullMessages() {
         footer={
           <div className="flex justify-end gap-2 w-full">
             <Button variant="secondary" size="sm" onClick={() => setTenDlcModalOpen(false)}>
-              
+
               {t('crm.msgLater')}
             </Button>
             <Button
@@ -717,7 +713,7 @@ function FullMessages() {
                 navigate("/settings");
               }}
             >
-              
+
               {t('crm.msgGoToSettings')}
               <ChevronRight className="w-3.5 h-3.5" />
             </Button>
@@ -728,7 +724,7 @@ function FullMessages() {
           <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-1">
             <p className="font-bold">{t('crm.msgWhyBlockedTitle')}</p>
             <p className="leading-relaxed text-[11px]">
-              
+
               {t('crm.msgWhyBlockedBody')}
             </p>
           </div>
@@ -776,7 +772,7 @@ function FullMessages() {
         <div className="space-y-4 py-2 text-xs">
           <div>
             <label className="block font-semibold text-slate-600 mb-1">
-              
+
               {t('crm.msgRecipientPhone')}
             </label>
             <Input type="tel"
@@ -835,7 +831,7 @@ function FullMessages() {
                 </div>
               </div>
               <p className="text-[11px] text-slate-400">
-                
+
                 {t('crm.msgDeliveryNote')}
               </p>
             </div>

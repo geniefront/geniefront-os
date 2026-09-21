@@ -44,7 +44,7 @@ import { checkManagedRescheduleSlot, loadManagedAvailability } from './managedAv
 import { assertHuman } from './turnstile';
 import { checkRateLimits } from './rateLimit';
 import {
-  generateManageToken, hashManageToken, sameDigest, generateConfirmationCode, replayableManageToken,
+  generateManageToken, hashManageToken, sameDigest, replayableManageToken,
 } from './bookingToken';
 import '../handlers/appointment';
 import { loadPartyAvailability } from './partyAvailability';
@@ -691,7 +691,6 @@ export function registerPublicRoutes(app: FastifyInstance): void {
 
     // ── 建单 ──────────────────────────────────────────────────────────────
     const manageToken = recoveryToken ?? generateManageToken();
-    const confirmationCode = generateConfirmationCode(pickText(shop.name, 'en', 'GF'));
 
     const out = await dispatch<{ appointmentId: string; businessDate: string }>(
       'appointment.create',
@@ -706,7 +705,6 @@ export function registerPublicRoutes(app: FastifyInstance): void {
         // 需要一个知道店里现在什么情况的人，而这头没有这个人
         guest: {
           bookingSmsConsent: body.customer.bookingSmsConsent,
-          confirmationCode,
           manageToken,
           customer: {
             name: body.customer.name,
@@ -761,7 +759,6 @@ export function registerPublicRoutes(app: FastifyInstance): void {
 
           return {
             bookingId: appt.id,
-            confirmationCode: appt.confirmation_code,
             status: appt.status,
             startsAt: appt.starts_at,
             timezone: shop.timezone,
@@ -1094,7 +1091,6 @@ interface OwnBooking {
   id: string;
   status: string;
   starts_at: string;
-  confirmation_code: string | null;
   /** 客人留的手机号，用来校验后四位。没留手机号的单是 null */
   phone: string | null;
   self_reschedule_count: number;
@@ -1107,7 +1103,7 @@ async function loadOwnBooking(
   if (!/^[0-9a-f-]{36}$/i.test(id) || !token) throw notFound;
 
   const [row] = await tx<(OwnBooking & { manage_token_digest: string | null })[]>`
-    select a.id, a.status, a.starts_at::text as starts_at, a.confirmation_code,
+    select a.id, a.status, a.starts_at::text as starts_at,
            a.manage_token_digest, a.self_reschedule_count,
            c.phone_e164 as phone
     from appointments a

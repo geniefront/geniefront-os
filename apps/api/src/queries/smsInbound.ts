@@ -39,7 +39,7 @@ export interface InboundSms {
   /** 本店客户里号码对得上的那些。同号多客户是常态，所以是数组（宪法第 16 条） */
   customers: Array<{ id: string; name: string }>;
   /** ⭐ 这个号名下还有没有没到的预约 —— 「发了 CANCEL 但预约还在」就是靠它认出来的 */
-  upcoming: Array<{ appointmentId: string; startsAt: string; confirmationCode: string | null }>;
+  upcoming: Array<{ appointmentId: string; startsAt: string }>;
 }
 
 export async function loadInboundSms(
@@ -65,9 +65,9 @@ export async function loadInboundSms(
     where org_id = ${ctx.orgId} and phone_e164 = any(${froms})`;
 
   const appts = await tx<{
-    id: string; starts_at: string; confirmation_code: string | null; phone_e164: string;
+    id: string; starts_at: string; phone_e164: string;
   }[]>`
-    select a.id, a.starts_at::text as starts_at, a.confirmation_code, c.phone_e164
+    select a.id, a.starts_at::text as starts_at, c.phone_e164
     from appointments a
     join customers c on c.id = a.customer_id
     where a.location_id = ${ctx.locationId}
@@ -86,7 +86,7 @@ export async function loadInboundSms(
       .map((c) => ({ id: c.id, name: c.display_name })),
     upcoming: appts.filter((a) => a.phone_e164 === r.from_e164)
       .map((a) => ({
-        appointmentId: a.id, startsAt: a.starts_at, confirmationCode: a.confirmation_code,
+        appointmentId: a.id, startsAt: a.starts_at,
       })),
   }));
 

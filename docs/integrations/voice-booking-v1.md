@@ -43,7 +43,7 @@ With a service selected, response includes valid `slots`, each with `startsAt`, 
 }
 ```
 
-Only report a confirmed booking after `ok: true` and the returned appointment ID/confirmation code. Retrying the same guest, service and time replays the existing result. A conflict or expired slot requires another availability query. Existing-appointment lookup/change/cancellation now uses the caller-scoped tool described in [Voice management V2](voice-management-v2.md).
+Only report a confirmed booking after `ok: true` and the returned appointment ID. Retrying the same guest, service and time replays the existing result. A conflict or expired slot requires another availability query. Existing-appointment lookup/change/cancellation now uses the caller-scoped tool described in [Voice management V2](voice-management-v2.md).
 
 ## Phone and recordings
 

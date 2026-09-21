@@ -482,7 +482,7 @@ describe('tool：接通那一下（start_call）', () => {
      * 2026-08-23 第一通真实电话之后店主提的：接口里不要中文。
      * `say` 是要 AI **照念**的句子，`guidance` 是给模型的指令 ——
      * 两样都用英文，多语言由模型按客人说的语言翻（instructions 里写了，
-     * 确认码/日期/时间原样保留）。
+     * 日期/时间原样保留）。
      */
     const body = await start();
     const chinese = /[\u4e00-\u9fff]/;
@@ -782,7 +782,7 @@ describe('tool：真建预约', () => {
     expect(body.say).toMatch(/goes on top of another service/);
   });
 
-  it('⭐ 幂等重放：同一个 call id 不多建单，念的确认码也不变', async () => {
+  it('⭐ 幂等重放：同一个 call id 不多建单，确认话术不含预约码', async () => {
     const callId = `book-${randomUUID()}`;
     const main = catalog.find((c) => !c.is_addon)!;
     const payload = {
@@ -795,13 +795,11 @@ describe('tool：真建预约', () => {
 
     expect(a.ok).toBe(true);
     expect(b.appointmentId).toBe(a.appointmentId);
-    /*
-     * 确认码也必须一样。重放时路由会**再生成一个**新码，
-     * 直接念它的话：客人手机上的短信写着 GF-HCJR，
-     * AI 在电话里念的是 GF-ZRY5 —— 到店报哪个都对不上。
-     */
-    expect(b.confirmationCode).toBe(a.confirmationCode);
-    expect(b.say).toContain(a.confirmationCode.split('').join(' '));
+    expect(a).not.toHaveProperty('confirmationCode');
+    expect(b).not.toHaveProperty('confirmationCode');
+    expect(b.say).toBe(a.say);
+    expect(b.say).not.toMatch(/confirmation code/i);
+    expect(b.say).toContain('appointment details');
   });
 
   it('⭐ 两位客人 → 建出两条并排的 item，各占一位技师', async () => {

@@ -212,7 +212,6 @@ export const crm = {
   'crm.msgSampleService': { 'zh-Hans': '60min 深层精油按摩', en: '60 min deep oil massage', ko: '60분 딥 오일 마사지', es: 'Masaje profundo con aceite de 60 min', vi: 'Massage tinh dầu chuyên sâu 60 phút' },
   'crm.msgConfirmedTag': { 'zh-Hans': '已确认', en: 'Confirmed', ko: '확정', es: 'Confirmada', vi: 'Đã xác nhận' },
   'crm.msgTherapistRoom': { 'zh-Hans': '技师: Lisa Wang · 独立包厢 #201', en: 'Therapist: Lisa Wang · private room #201', ko: '담당: Lisa Wang · 독립 룸 #201', es: 'Terapeuta: Lisa Wang · sala privada n.º 201', vi: 'KTV: Lisa Wang · phòng riêng #201' },
-  'crm.msgConfirmationCode': { 'zh-Hans': '确认码:', en: 'Confirmation code:', ko: '확인 코드:', es: 'Código de confirmación:', vi: 'Mã xác nhận:' },
   'crm.msgNoUpcoming': { 'zh-Hans': '当前暂无待到店预约', en: 'No upcoming appointments', ko: '예정된 방문 예약이 없습니다', es: 'No hay citas próximas', vi: 'Hiện chưa có lịch hẹn' },
   'crm.msgHealthPrefs': { 'zh-Hans': '健康禁忌与偏好:', en: 'Contraindications and preferences:', ko: '건강 금기 및 선호:', es: 'Contraindicaciones y preferencias:', vi: 'Chống chỉ định và sở thích:' },
   'crm.msgPrefPressure': { 'zh-Hans': '• 力度偏好: 重力度 (Firm)', en: '• Preferred pressure: firm', ko: '• 선호 강도: 딥 (Firm)', es: '• Presión preferida: intensa (Firm)', vi: '• Mức lực ưa thích: mạnh (Firm)' },

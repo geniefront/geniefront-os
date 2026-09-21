@@ -76,7 +76,6 @@ beforeEach(() => {
   }));
   api.book.mockResolvedValue({
     bookingId: "booking",
-    confirmationCode: "TS-1234",
     manageToken: "token",
     status: "booked",
     startsAt: "2026-10-01T14:00:00.000Z",
@@ -134,7 +133,8 @@ it("retains a storefront selection, assigns each guest, reviews before atomic su
     ],
   });
   expect(screen.getAllByText(/Alex/).length).toBeGreaterThan(0);
-  expect(await screen.findByText("TS-1234")).toBeInTheDocument();
+  expect(await screen.findByRole("link", { name: /Edit appointment/i })).toBeInTheDocument();
+  expect(screen.queryByTestId("confirmation-code")).not.toBeInTheDocument();
   expect(
     screen.queryByText(/sent the details to your phone/),
   ).not.toBeInTheDocument();

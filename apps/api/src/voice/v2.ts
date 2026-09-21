@@ -9,6 +9,7 @@ import {
   AppError,
   ERROR_CODES,
   VoiceBookingInput,
+  SubmitVoiceBooking,
   selectionGuests,
   type CommandContext,
 } from "@gf/contracts";
@@ -201,7 +202,7 @@ export function registerVoiceV2Routes(
     reply.header("Cache-Control", "no-store");
     return {
       ok: true,
-      ...(out.result as object),
+      ...SubmitVoiceBooking.output.parse(out.result),
       replayed: out.replayed,
       startsAt,
       timezone: g.timezone,

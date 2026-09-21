@@ -51,7 +51,7 @@ export function BookPage() {
   const [staffChoices, setStaffChoices] = useState<Availability['staff']>([]);
   const [banner, setBanner] = useState<string | null>(null);
   const [done, setDone] = useState<{
-    bookingId: string; confirmationCode: string | null; manageToken: string | null; summary?:ManagedBooking; status?:string;
+    bookingId: string; manageToken: string | null; summary?:ManagedBooking; status?:string;
   } | null>(null);
   const [idem, setIdem] = useState(() => crypto.randomUUID());
   const openedAt = useRef(Date.now());
@@ -186,14 +186,13 @@ export function BookPage() {
       const out = await book(input, idem,shopQuery.data?.publicKey);
       const payload = {
         bookingId: out.bookingId,
-        confirmationCode: out.confirmationCode,
         manageToken: out.manageToken,
         ...(out.summary?{summary:out.summary}:{}),
         status:out.status,
       };
       setDone(payload);
       if (slug) saveLastBooking({ ...payload, shopSlug: slug });
-      reportBooked(out.confirmationCode);
+      reportBooked();
       setIdem(crypto.randomUUID());
       setStep('success');
       try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { /* jsdom */ }
@@ -864,7 +863,7 @@ export function SuccessStep({
 }: {
   shop: Shop;
   slug: string;
-  done: { bookingId: string; confirmationCode: string | null; manageToken: string | null; summary?:ManagedBooking;status?:string };
+  done: { bookingId: string; manageToken: string | null; summary?:ManagedBooking;status?:string };
   onAgain: () => void;
   showSummary?:boolean;
 }) {
@@ -876,12 +875,6 @@ export function SuccessStep({
       <h2 className="text-3xl font-extrabold tracking-[-0.035em]">{done.status && done.status!=='booked'?t(done.status):t('step.booked', 'You are booked')}</h2>
 
       {showSummary&&done.summary&&<div className="mt-5 text-left"><p className="font-semibold">{dateOf(done.summary.startsAt,shop.timezone)}</p>{done.summary.items.map((item,index)=><p className="mt-2 text-sm" key={index}>{item.name} · {timeOf(item.startsAt,shop.timezone)}–{timeOf(item.endsAt,shop.timezone)} · {item.specialistName} · {money(item.priceCents,shop.currency)}</p>)}<p className="mt-3 font-bold">{t('Total')}: {money(done.summary.priceCents,shop.currency)}</p></div>}
-      {done.confirmationCode && (
-        <div className="mx-auto mt-6 max-w-sm rounded-2xl border border-dashed border-[var(--line-strong)] bg-[#fbfcfc] p-4" data-testid="confirmation-code">
-          <p className="text-xs font-bold uppercase tracking-[.12em] text-[var(--muted)]"> {t("Confirmation code")} </p>
-          <p className="mt-1 text-2xl font-extrabold tracking-[.08em]">{done.confirmationCode}</p>
-        </div>
-      )}
       {done.manageToken && (
         <p className="success-action mt-6">
           <Link className="inline-flex min-h-11 items-center rounded-xl bg-[var(--brand)] px-5 font-semibold text-white hover:bg-[var(--brand-dark)]" to={hostedManagePath(slug, done.manageToken)} target={isEmbedded()?'_blank':undefined} rel="noreferrer"> {t("Edit appointment")} </Link>

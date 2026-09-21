@@ -3,7 +3,7 @@ import {registerVoiceV2Routes} from './v2';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { createHmac, timingSafeEqual, createHash } from 'node:crypto';
 import { z } from 'zod';
-import { AppError, ERROR_CODES, VoiceBookingInput, type CommandContext } from '@gf/contracts';
+import { AppError, ERROR_CODES, VoiceBookingInput, SubmitVoiceBooking, type CommandContext } from '@gf/contracts';
 import { tenantForPhoneNumber, withTenant } from '@gf/db';
 import { hashToolToken, sameDigest } from '../telnyx/toolToken';
 import { loadVoiceContext } from './context';
@@ -84,6 +84,6 @@ export function registerVoiceRoutes(app: FastifyInstance) {
     void flushSms(ctx, app.log).catch(() => app.log.warn('Voice SMS flush will retry'));
     void flushEmails(ctx, app.log).catch(() => app.log.warn('Voice email flush will retry'));
     reply.header('Cache-Control', 'no-store');
-    return { ok: true, ...result.result as object, replayed: result.replayed };
+    return { ok: true, ...SubmitVoiceBooking.output.parse(result.result), replayed: result.replayed };
   });
 }

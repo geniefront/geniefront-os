@@ -28,7 +28,7 @@ import { __setTurnstileVerifierForTests } from './public/turnstile';
 import { __resetRateLimit } from './public/rateLimit';
 import { normalizeOrigin, originAllowed, isHostedBookingOrigin } from './public/origin';
 import {
-  generateConfirmationCode, generateManageToken, hashManageToken, unwrapManageToken,
+  generateManageToken, hashManageToken, unwrapManageToken,
 } from './public/bookingToken';
 import { segmentsOf } from './sms/segments';
 import { hostedManageBookingUrl } from './links';
@@ -350,14 +350,6 @@ describe('域名规范化', () => {
     expect(isHostedBookingOrigin(undefined)).toBe(false);
   });
 
-  it('确认码里没有会念错的 I O 0 1', () => {
-    for (let i = 0; i < 200; i++) {
-      const code = generateConfirmationCode('Lotus Nails');
-      expect(code).toMatch(/^LO-[A-Z2-9]{4}$/);
-      expect(code.slice(3)).not.toMatch(/[IO01]/);
-    }
-  });
-
   it('管理令牌只以摘要形式存在', () => {
     const t = generateManageToken();
     expect(t).toMatch(/^mt_[A-Za-z0-9_-]{20,}$/);
@@ -508,16 +500,15 @@ describe('建预约', () => {
     });
     expect(res.statusCode).toBe(201);
     const body = res.json();
-    expect(body.confirmationCode).toMatch(/^[A-Z]{2}-[A-Z2-9]{4}$/);
+    expect(body).not.toHaveProperty('confirmationCode');
     expect(body.manageToken).toMatch(/^mt_/);
 
     const [row] = await withTenant(tenant, (tx) => tx<{
-      source: string; code: string | null; digest: string | null; customer_id: string | null;
+      source: string; digest: string | null; customer_id: string | null;
     }[]>`
-      select source, confirmation_code as code, manage_token_digest as digest, customer_id
+      select source, manage_token_digest as digest, customer_id
       from appointments where id = ${body.bookingId}`);
     expect(row!.source).toBe('web');
-    expect(row!.code).toBe(body.confirmationCode);
     expect(row!.customer_id).not.toBeNull();
     // ⭐ 库里只有摘要，明文一个字都没有
     expect(row!.digest).toBe(hashManageToken(body.manageToken));
@@ -1830,7 +1821,6 @@ describe('guest manage mutations for desk, phone_manual, and phone_ai', () => {
         partySize: 1,
         source: 'phone_ai',
         guest: {
-          confirmationCode: generateConfirmationCode('Lotus'),
           manageToken: token,
           customer: { name: 'Phone AI Guest', phoneE164: phone, smsOptIn: false, bookingSmsConsent:true },
         },

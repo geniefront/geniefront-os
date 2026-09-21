@@ -218,16 +218,14 @@ export const appointments = pgTable('appointments', {
   cancelNote: text('cancel_note'),
   idempotencyKey: text('idempotency_key'),
   /**
-   * 公开预约（官网）专用的两列，其它来源一律为空（sql/0033、docs/13）。
+   * 预约自助管理凭证（sql/0033、docs/13）。
    *
-   * `confirmationCode`   客人念得出来的短码，前台也能按它搜。明文存
    * `manageTokenDigest`  ⭐ 自助取消的**唯一凭证**，只存 SHA-256 摘要。
    *                      明文只在建单响应和确认信里出现过一次 ——
    *                      和设备令牌、技师会话令牌同一个套路。
    *                      预约 id 会出现在 URL、浏览器历史、转发的邮件里，
    *                      只靠 id 就能取消等于谁都能取消别人的预约。
    */
-  confirmationCode: text('confirmation_code'),
   manageTokenDigest: text('manage_token_digest'),
   /**
    * AES-256-GCM wrap of the raw manage token (sql/0099).

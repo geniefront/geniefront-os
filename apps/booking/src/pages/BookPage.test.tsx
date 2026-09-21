@@ -220,7 +220,7 @@ describe('BookPage', () => {
       keys.push(idem);
       await gate;
       return {
-        bookingId: 'b1', confirmationCode: 'LN-4K2P', manageToken: 'mt_abc',
+        bookingId: 'b1', manageToken: 'mt_abc',
         replayed: false, startsAt: nySlot, durationMin: 45, status: 'booked',
       };
     });
@@ -233,7 +233,7 @@ describe('BookPage', () => {
     await user.click(submit);
     await user.click(submit);
     release();
-    await screen.findByTestId('confirmation-code');
+    await screen.findByRole('link', { name: /Edit appointment/i });
     expect(keys).toHaveLength(1);
   });
 
@@ -283,7 +283,7 @@ describe('BookPage', () => {
   it('stores only minimum same-session data on success', async () => {
     const user = userEvent.setup();
     book.mockResolvedValue({
-      bookingId: 'b1', confirmationCode: 'LN-4K2P', manageToken: 'mt_abc',
+      bookingId: 'b1', manageToken: 'mt_abc',
       replayed: false, startsAt: nySlot, durationMin: 45, status: 'booked',
     });
     renderBook();
@@ -292,9 +292,10 @@ describe('BookPage', () => {
     await user.type(screen.getByLabelText('Name'), 'Amy Chen');
     await user.type(screen.getByLabelText('Mobile phone'), '6175550199');
     await user.click(screen.getByRole('button', { name: 'Book appointment' }));
-    await screen.findByTestId('confirmation-code');
+    await screen.findByRole('link', { name: /Edit appointment/i });
     const stored = sessionStorage.getItem('gf:last-booking') ?? '';
-    expect(stored).toContain('LN-4K2P');
+    expect(JSON.parse(stored)).not.toHaveProperty('confirmationCode');
+    expect(screen.queryByTestId('confirmation-code')).not.toBeInTheDocument();
     expect(stored).toContain('mt_abc');
     expect(stored).not.toContain('Amy Chen');
     expect(stored).not.toContain('6175550199');
@@ -306,7 +307,7 @@ describe('BookPage', () => {
     const user = userEvent.setup();
     getHostedShop.mockResolvedValue({ ...shop, phone: null });
     book.mockResolvedValue({
-      bookingId: 'b1', confirmationCode: 'LN-4K2P', manageToken: 'mt_abc',
+      bookingId: 'b1', manageToken: 'mt_abc',
       replayed: false, startsAt: nySlot, durationMin: 45, status: 'booked',
     });
     renderBook();
@@ -315,7 +316,7 @@ describe('BookPage', () => {
     await user.type(screen.getByLabelText('Name'), 'Amy Chen');
     await user.type(screen.getByLabelText('Mobile phone'), '6175550199');
     await user.click(screen.getByRole('button', { name: 'Book appointment' }));
-    await screen.findByTestId('confirmation-code');
+    await screen.findByRole('link', { name: /Edit appointment/i });
 
     expect(screen.getByText('Keep this page to manage your appointment.')).toBeInTheDocument();
     expect(screen.queryByText(/Questions\? Call/)).not.toBeInTheDocument();
@@ -333,7 +334,7 @@ describe('BookPage', () => {
       bookable: true,
     }] });
     book.mockResolvedValue({
-      bookingId: 'b1', confirmationCode: 'LN-9Z9Z', manageToken: 'mt_x',
+      bookingId: 'b1', manageToken: 'mt_x',
       replayed: false, startsAt: nySlot, durationMin: 105, status: 'booked',
     });
     renderBook();
@@ -350,7 +351,7 @@ describe('BookPage', () => {
     await user.type(screen.getByLabelText('Name'), 'Amy Chen');
     await user.type(screen.getByLabelText('Mobile phone'), '6175550199');
     await user.click(screen.getByRole('button', { name: 'Book appointment' }));
-    await screen.findByTestId('confirmation-code');
+    await screen.findByRole('link', { name: /Edit appointment/i });
 
     const body = book.mock.calls[0][0] as {
       items: unknown[]; bundleSelections?: Array<{ bundleId: string; startsAt: string }>;

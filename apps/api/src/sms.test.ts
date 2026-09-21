@@ -328,11 +328,11 @@ describe('入站短信列表（docs/09 §5.3）', () => {
         values (${NAIL_ORG}, ${NAIL_LOC}, 'Cancel Tester', ${phone}, 'web') returning id`;
       const [a] = await tx<{ id: string }[]>`
         insert into appointments (org_id, location_id, customer_id, business_date,
-                                  starts_at, ends_at, source, confirmation_code)
+                                  starts_at, ends_at, source)
         values (${NAIL_ORG}, ${NAIL_LOC}, ${c!.id}, ${startsAt.toISOString().slice(0, 10)},
                 ${startsAt.toISOString()}::timestamptz,
                 ${new Date(startsAt.getTime() + 3600_000).toISOString()}::timestamptz,
-                'web', ${'LO-' + randomUUID().slice(0, 4).toUpperCase()}) returning id`;
+                'web') returning id`;
       await tx`insert into appointment_items
         (org_id, location_id, appointment_id, service_id, starts_at, ends_at,
          price_cents_snapshot, duration_min)

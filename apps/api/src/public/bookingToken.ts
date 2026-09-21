@@ -1,9 +1,6 @@
 /**
- * 确认码与自助取消令牌（docs/13 §4.4–4.5）。
+ * 预约自助管理令牌（docs/13 §4.4–4.5）。
  *
- * ## 两样东西，两个用途，两种存法
- *
- * `confirmationCode`   给客人念、给前台搜。**明文存**，它不授权任何事
  * `manageToken`        自助取消的唯一凭证。**只存 SHA-256 摘要** ——
  *                      和设备令牌（0016）、技师会话令牌（0031）同一个套路
  *
@@ -191,23 +188,6 @@ export function unwrapManageToken(
     }
   }
   return null;
-}
-
-/**
- * 确认码：`店名两个字母 - 四位`。
- *
- * 字母表刻意去掉了 **I O 0 1** —— 客人是在电话里念这个码给前台听的，
- * 「零还是欧」这种来回一次就把这个码的价值抵消掉了。
- */
-const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-
-export function generateConfirmationCode(shopName: string): string {
-  const letters = shopName.toUpperCase().replace(/[^A-Z]/g, '');
-  const prefix = (letters.slice(0, 2) || 'GF').padEnd(2, 'X');
-  const bytes = randomBytes(4);
-  let body = '';
-  for (const b of bytes) body += ALPHABET[b % ALPHABET.length];
-  return `${prefix}-${body}`;
 }
 
 /** Recover the same capability only for the same high-entropy request key and

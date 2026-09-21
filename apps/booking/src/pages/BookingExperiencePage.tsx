@@ -178,7 +178,7 @@ export function BookingExperiencePage() {
       const notes = [guestNotes, input.notes].filter(Boolean).join("\n\n");
       const result = await book({ ...input, ...(notes ? { notes } : {}) }, idem, shop?.publicKey);
       setDone(result);
-      reportBooked(result.confirmationCode);
+      reportBooked();
       if (result.summary) {
         const summary = result.summary;
         setPicked({
