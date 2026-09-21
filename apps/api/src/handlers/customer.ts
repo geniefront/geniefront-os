@@ -28,16 +28,16 @@ registerHandler(customerSaveProfile, async ({ input, ctx, tx, audit }) => {
     const [updated] = await tx<{ id: string }[]>`
       update customers set
         display_name = ${input.name},
-        first_name = ${input.firstName ?? null},
-        last_name = ${input.lastName ?? null},
-        phone_e164 = ${input.phoneE164 ?? null},
-        email = ${input.email || null},
-        vip_level = ${input.vipLevel},
-        birthday = ${input.birthday ?? null},
-        tags = ${input.tags}::text[],
-        gender = ${input.gender ?? null},
-        notes = ${input.notes ?? null},
-        source = ${input.source}
+        first_name = case when ${input.firstName !== undefined} then ${input.firstName ?? null} else first_name end,
+        last_name = case when ${input.lastName !== undefined} then ${input.lastName ?? null} else last_name end,
+        phone_e164 = case when ${input.phoneE164 !== undefined} then ${input.phoneE164 ?? null} else phone_e164 end,
+        email = case when ${input.email !== undefined} then ${input.email || null} else email end,
+        vip_level = case when ${input.vipLevel !== undefined} then ${input.vipLevel ?? 0} else vip_level end,
+        birthday = case when ${input.birthday !== undefined} then ${input.birthday ?? null}::date else birthday end,
+        tags = case when ${input.tags !== undefined} then ${input.tags ?? []}::text[] else tags end,
+        gender = case when ${input.gender !== undefined} then ${input.gender ?? null} else gender end,
+        notes = case when ${input.notes !== undefined} then ${input.notes ?? null} else notes end,
+        source = case when ${input.source !== undefined} then ${input.source ?? 'desk'} else source end
       where id = ${input.customerId}
       returning id`;
 
@@ -64,8 +64,8 @@ registerHandler(customerSaveProfile, async ({ input, ctx, tx, audit }) => {
     ) values (
       ${ctx.orgId}, ${ctx.locationId}, ${input.name}, ${input.firstName ?? null},
       ${input.lastName ?? null}, ${input.phoneE164 ?? null}, ${input.email || null},
-      ${input.vipLevel}, ${input.birthday ?? null}, ${input.tags}::text[],
-      ${input.gender ?? null}, ${input.notes ?? null}, ${input.source}
+      ${input.vipLevel ?? 0}, ${input.birthday ?? null}, ${input.tags ?? []}::text[],
+      ${input.gender ?? null}, ${input.notes ?? null}, ${input.source ?? 'desk'}
     )
     returning id`;
 

@@ -277,6 +277,8 @@ function CustomersContent() {
           .filter(Boolean),
         birthday: formBirthday.trim() || undefined,
         gender: formGender,
+        source: formSource,
+        notes: formNotes.trim() || null,
       });
       toast.success(t('crm.custCreated', { p0: formName.trim() }));
       setCreateModalOpen(false);
@@ -301,15 +303,17 @@ function CustomersContent() {
       await saveProfileMutation.mutateAsync({
         customerId: selectedId,
         name: formName.trim(),
-        phoneE164: formPhone.trim() || undefined,
-        email: formEmail.trim() || undefined,
+        phoneE164: formPhone.trim() || null,
+        email: formEmail.trim() || null,
         vipLevel: parseInt(formVip, 10) || 0,
         tags: formTags
           .split(/[,，]/)
           .map((t) => t.trim())
           .filter(Boolean),
-        birthday: formBirthday.trim() || undefined,
+        birthday: formBirthday.trim() || null,
         gender: formGender,
+        source: formSource,
+        notes: formNotes.trim() || null,
       });
       toast.success(t('crm.custSaved', { p0: formName.trim() }));
       setEditProfileOpen(false);

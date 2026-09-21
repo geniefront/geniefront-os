@@ -16,16 +16,16 @@ import { defineCommand, uuid, phoneE164 } from '../command.js';
 export const customerSaveProfileInput = z.object({
   customerId: uuid.optional(),
   name: z.string().trim().min(1, '客户姓名不能为空').max(100),
-  firstName: z.string().trim().max(50).optional(),
-  lastName: z.string().trim().max(50).optional(),
-  phoneE164: phoneE164.optional(),
-  email: z.string().email('邮箱格式不正确').optional().or(z.literal('')),
-  vipLevel: z.number().int().min(0).max(5).default(0),
-  birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '生日格式必须为 YYYY-MM-DD').optional(),
-  tags: z.array(z.string().trim().max(30)).default([]),
-  gender: z.enum(['female', 'male', 'other', 'unspecified']).optional(),
-  notes: z.string().max(2000).optional(),
-  source: z.string().max(50).default('desk'),
+  firstName: z.string().trim().max(50).nullable().optional(),
+  lastName: z.string().trim().max(50).nullable().optional(),
+  phoneE164: phoneE164.nullable().optional(),
+  email: z.string().email('邮箱格式不正确').nullable().optional().or(z.literal('')),
+  vipLevel: z.number().int().min(0).max(5).optional(),
+  birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '生日格式必须为 YYYY-MM-DD').nullable().optional(),
+  tags: z.array(z.string().trim().max(30)).optional(),
+  gender: z.enum(['female', 'male', 'other', 'unspecified']).nullable().optional(),
+  notes: z.string().max(2000).nullable().optional(),
+  source: z.string().max(50).nullable().optional(),
 });
 export type CustomerSaveProfileInput = z.infer<typeof customerSaveProfileInput>;
 

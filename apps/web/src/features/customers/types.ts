@@ -107,13 +107,13 @@ export interface CustomerDetail {
 export interface SaveCustomerProfileInput {
   customerId?: string;
   name: string;
-  phoneE164?: string;
-  email?: string;
+  phoneE164?: string | null;
+  email?: string | null;
   vipLevel?: number;
-  birthday?: string;
+  birthday?: string | null;
   tags?: string[];
   gender?: 'female' | 'male' | 'other' | 'unspecified';
-  notes?: string;
+  notes?: string | null;
   source?: string;
 }
 

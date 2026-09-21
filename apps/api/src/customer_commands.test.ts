@@ -95,6 +95,24 @@ describe('customer.saveProfile', () => {
   });
 });
 
+describe('customer profile PATCH', () => {
+  it('preserves omitted fields and clears only explicitly supplied nulls', async () => {
+    const created = await dispatch<{ customerId: string }>('customer.saveProfile', {
+      name: 'Patch guest', firstName: 'Patch', lastName: 'Guest', notes: 'Preserve me', source: 'referral',
+      phoneE164: '+16175550127', email: 'patch@example.com', vipLevel: 2, tags: ['regular'], birthday: '1990-01-02',
+    }, ownerCtx);
+    const customerId = created.result.customerId;
+    createdCustomerIds.push(customerId);
+    await dispatch('customer.saveProfile', { customerId, name: 'Renamed' }, ownerCtx);
+    const detail = await withTenant(tenant, tx => loadCustomerDetail(tx, ownerCtx, customerId));
+    expect(detail).toMatchObject({ displayName: 'Renamed', firstName: 'Patch', lastName: 'Guest', notes: 'Preserve me',
+      source: 'referral', phone: '+16175550127', email: 'patch@example.com', vipLevel: 2, tags: ['regular'], birthday: '1990-01-02' });
+    await dispatch('customer.saveProfile', { customerId, name: 'Renamed', notes: null, phoneE164: null, birthday: null }, ownerCtx);
+    const cleared = await withTenant(tenant, tx => loadCustomerDetail(tx, ownerCtx, customerId));
+    expect(cleared).toMatchObject({ notes: null, phone: null, birthday: null, firstName: 'Patch', source: 'referral' });
+  });
+});
+
 describe('customer.savePreferences', () => {
   it('保存客户偏好与健康禁忌', async () => {
     const custId = createdCustomerIds[0]!;
