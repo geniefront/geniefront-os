@@ -1,3 +1,4 @@
+import { SaveLocationProfile } from '@gf/contracts';
 import { useSession } from '@/lib/session';
 import { PageError } from '@/components/ui/QueryState';
 import {StoreMediaEditor} from './StoreMediaEditor';
@@ -54,7 +55,9 @@ const DAY_KEYS: ReadonlyArray<readonly [string, TranslationKey]> = [
 ];
 
 export function StoreStepForm({ onSaved, stepNumber = 1, settingsMode = false }: { onSaved: () => void; stepNumber?: number; settingsMode?: boolean }) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const [editingEmail, setEditingEmail] = useState(false);
+  const emailMessage = language.startsWith('zh') ? '请输入完整有效的联系邮箱，或留空。' : 'Enter a complete, valid contact email or leave it empty.';
   const { membershipId } = useSession();
   const settingsQuery = useDeskSettingsQuery();
   const { data } = settingsQuery;
@@ -67,10 +70,11 @@ export function StoreStepForm({ onSaved, stepNumber = 1, settingsMode = false }:
       timezone: location.timezone ?? 'America/New_York', businessDayCutoff: (location.businessDayCutoff ?? '04:00').slice(0, 5) },
     hours: location.businessHours ?? {},
   } : null, async ({ form, hours }) => {
+    if (form.email.trim() && !SaveLocationProfile.input.shape.email.safeParse(form.email.trim()).success) throw new Error(emailMessage);
     if (!form.name.trim()) throw new Error(t('setupStep1MissingName'));
     await saveProfile.mutateAsync({ ...form, hours, name: form.name.trim(), businessType: form.businessType as any,
       phone: form.phone.trim() || null, email: form.email.trim() || null });
-  }, `setup-store:${membershipId}`);
+  }, `setup-store:${membershipId}`, { autoSavePaused: editingEmail });
   const storeForm = useFieldErrors<'name'>();
   if (settingsQuery.isError) return <PageError title={t('genericFailure')} error={settingsQuery.error} onRetry={() => settingsQuery.refetch()} />;
   if (!draft.value) return <p>{t('setupReadinessLoading')}</p>;
@@ -94,7 +98,7 @@ export function StoreStepForm({ onSaved, stepNumber = 1, settingsMode = false }:
           </select>
         </Field>
         <Field label={t('setupFieldPhone')}><Input type="tel" className={fieldClass} value={form.phone} onChange={(e) => update('phone', e.target.value)} placeholder="+12125551234" /></Field>
-        <Field label={t('setupFieldEmail')}><Input className={fieldClass} type="email" value={form.email} onChange={(e) => update('email', e.target.value)} /></Field>
+        <Field label={t('setupFieldEmail')}><Input className={fieldClass} type="email" onFocus={() => setEditingEmail(true)} onBlur={() => setEditingEmail(false)} error={draft.state === 'error' && form.email.trim() && !SaveLocationProfile.input.shape.email.safeParse(form.email.trim()).success ? emailMessage : undefined} value={form.email} onChange={(e) => update('email', e.target.value)} /></Field>
         <Field label={t('setupFieldStreet')}><Input className={fieldClass} value={form.addressStreet} onChange={(e) => update('addressStreet', e.target.value)} /></Field>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-[minmax(0,1fr)_80px_100px]">
           <Field label={t('setupFieldCity')}><Input className={fieldClass} value={form.addressCity} onChange={(e) => update('addressCity', e.target.value)} /></Field>

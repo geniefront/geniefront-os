@@ -20,7 +20,7 @@
  */
 
 import {
-  SetAutoTopup, SyncSubscription, SavePaymentMethod,
+  ConfirmOwnershipPayment, SetAutoTopup, SyncSubscription, SavePaymentMethod,
   RecordTopup, ClaimAutoTopup, RecordTopupFailure,
   BillingChangePlan, BillingBuyAddon, BillingSaveTaxProfile,
   RecordInvoice, RecordTopupReversal,
@@ -913,3 +913,13 @@ registerHandler(RecordTopupReversal, async ({ input, ctx, tx, audit }: HandlerAr
 });
 
 export { unitsPerTopup, TOPUP_PRICE_CENTS };
+
+registerHandler(ConfirmOwnershipPayment, async ({ ctx, tx, audit }) => {
+  const [row] = await tx<{ settings: Record<string, unknown> }[]>`select settings from locations where id=${ctx.locationId} for update`;
+  if (!row) throw new AppError(ERROR_CODES.NOT_FOUND);
+  const before = row.settings.ownership_payment_review as { newOwnerUserId?: string } | undefined;
+  if (before && before.newOwnerUserId !== ctx.userId) throw new AppError(ERROR_CODES.PERMISSION_DENIED);
+  await tx`update locations set settings=jsonb_set(settings,'{ownership_payment_review,required}','false'::jsonb,false) where id=${ctx.locationId}`;
+  audit({ entityType: 'location', entityId: ctx.locationId, before: { ownershipPaymentReview: before }, after: { ownershipPaymentReview: false } });
+  return { confirmed: true };
+});

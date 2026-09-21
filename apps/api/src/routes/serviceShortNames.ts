@@ -3,10 +3,11 @@ import type { FastifyInstance } from 'fastify';
 import { AppError, ERROR_CODES, serviceShortNamesSchema, missingServiceShortNames, SERVICE_SHORT_NAME_LOCALES, type ServiceShortNames } from '@gf/contracts';
 import { withTenant } from '@gf/db';
 import { generateServiceShortNames, SHORT_NAME_MODEL, SHORT_NAME_RATES, costMillicents, billableTokens } from '@gf/ai';
-import { dispatch } from '../bus';
-import { assertAiAdmission } from '../billing/aiAdmission';
-import { maybeAutoTopup } from '../billing/autoTopup';
+import { dispatch, assertSubscriptionAllowsWrite } from '../bus';
+
+
 import type { CtxFromHeaders } from './utils';
+const generations = new Map<string, { at: number; count: number }>();
 const request=z.union([
   z.object({serviceIds:z.array(z.string().uuid()).min(1).max(25)}).strict(),
   z.object({name:z.record(z.enum(SERVICE_SHORT_NAME_LOCALES),z.string().max(200)).refine(n=>Object.values(n).some(v=>v.trim())),shortNames:serviceShortNamesSchema.default({})}).strict(),
@@ -14,7 +15,7 @@ const request=z.union([
 export function registerServiceShortNameRoutes(app:FastifyInstance,ctxFromHeaders:CtxFromHeaders) {
   app.post('/v1/desk/services/short-names/generate',{bodyLimit:50000},async req=>{
     const ctx=await ctxFromHeaders(req);
-    if(!ctx.permissions.has('catalog.manage')||!ctx.permissions.has('ai.use'))throw new AppError(ERROR_CODES.PERMISSION_DENIED);
+    if(!ctx.permissions.has('catalog.manage'))throw new AppError(ERROR_CODES.PERMISSION_DENIED);
     const parsed=request.safeParse(req.body);
     if(!parsed.success)throw new AppError(ERROR_CODES.VALIDATION_FAILED);
     const input=parsed.data;
@@ -25,11 +26,16 @@ export function registerServiceShortNameRoutes(app:FastifyInstance,ctxFromHeader
     const sources='name' in input ? [{seq:0,name:input.name,shortNames:input.shortNames}] : targets.map((r,seq)=>({seq,name:r.name,shortNames:r.short_names}));
     if(!sources.length)return {updated:0,skipped:0};
     if('name' in input && !missingServiceShortNames(input.shortNames).length)return {shortNames:input.shortNames};
+    await withTenant(ctx, tx => assertSubscriptionAllowsWrite(tx, ctx, 'catalog.saveService'));
     if(!process.env.OPENAI_API_KEY)throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE,{details:{service:'openai'}});
-    await assertAiAdmission(ctx);
+    // Short names are catalog setup, including the voice-only plan (no copilot credits).
+    const now = Date.now();
+    for (const [key, value] of generations) if (now - value.at >= 60000) generations.delete(key);
+    const rate = generations.get(ctx.locationId) ?? { at: now, count: 0 };
+    if (++rate.count > 30) throw new AppError(ERROR_CODES.AI_RATE_LIMITED);
+    generations.set(ctx.locationId, rate);
     const generated=await generateServiceShortNames(sources,{apiKey:process.env.OPENAI_API_KEY});
-    await dispatch('ai.recordAssist',{feature:'service_short_names',model:SHORT_NAME_MODEL,tokens:billableTokens(generated.usage),costMillicents:costMillicents(generated.usage,SHORT_NAME_RATES),rounds:1,hadProposal:!generated.error},ctx,{systemOrigin:'service_short_names'});
-    void maybeAutoTopup(ctx,'credit',req.log);
+    req.log.info({ feature: 'service_short_names', locationId: ctx.locationId, model: SHORT_NAME_MODEL, tokens: billableTokens(generated.usage), costMillicents: costMillicents(generated.usage, SHORT_NAME_RATES) }, 'Catalog short-name generation');
     if(generated.error)throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE,{details:{reason:generated.error}});
     if('name' in input)return {shortNames:generated.items[0]!.shortNames};
     const saved=await dispatch<{updated:number;skipped:number}>('catalog.fillServiceShortNames',{items:generated.items.map(r=>({serviceId:targets[r.seq]!.id,expectedUpdatedAt:targets[r.seq]!.updated_at,shortNames:r.shortNames}))},ctx);

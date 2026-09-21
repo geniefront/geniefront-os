@@ -1,0 +1,62 @@
+import { beforeAll, afterAll, expect, it, vi } from 'vitest';
+import { withTenant, withUser, closeDb, PLATFORM_OPS_USER_ID, PLATFORM_SUPPORT_USER_ID } from '@gf/db';
+import { requirePlatformOperator } from './auth';
+import { transferStoreOwner } from './ownerTransfer';
+import { buildContext } from '../actor';
+import { dispatch } from '../bus';
+import '../handlers/billing';
+const stripe = vi.hoisted(() => ({ update: vi.fn(), retrieve: vi.fn() }));
+vi.mock('../stripe/client', () => ({ stripeClient: () => ({ customers: stripe }) }));
+const locationId = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+const orgId = '22222222-2222-4222-8222-222222222222';
+const ownerUser = '196f0ab4-cd94-45cc-8109-2c414e966828';
+const tenant = { orgId, locationId, membershipId: null };
+let ownerMembershipId: string;
+let operator: Awaited<ReturnType<typeof requirePlatformOperator>>;
+beforeAll(async () => {
+  operator = await requirePlatformOperator(PLATFORM_OPS_USER_ID);
+  const [owner] = await withTenant(tenant, tx => tx<{ id: string }[]>`select m.id from memberships m join membership_roles mr on mr.membership_id=m.id join roles r on r.id=mr.role_id where m.user_id=${ownerUser} and r.key='owner' and m.status='active'`);
+  ownerMembershipId = owner!.id;
+  await withTenant(tenant, tx => tx`update organizations set owner_user_id=${ownerUser} where id=${orgId}`);
+  await withTenant(tenant, tx => tx`update billing_accounts set stripe_customer_id='cus_owner_transfer_test' where location_id=${locationId}`);
+  stripe.retrieve.mockResolvedValue({ id: 'cus_owner_transfer_test', metadata: { gf_org_id: orgId, gf_location_id: locationId } });
+});
+afterAll(closeDb);
+const input = () => ({ previousMembershipId: ownerMembershipId, newOwnerEmail: 'amy@maildrop.cc', reason: 'Approved store ownership transfer', acknowledgePaymentMethod: true });
+it('rejects support operators and unverified recipients before touching Stripe', async () => {
+  const support = await requirePlatformOperator(PLATFORM_SUPPORT_USER_ID);
+  await expect(transferStoreOwner(support, locationId, input(), crypto.randomUUID())).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+  await expect(transferStoreOwner(operator, locationId, { ...input(), newOwnerEmail: 'unknown@example.com' }, crypto.randomUUID())).rejects.toMatchObject({ details: { reason: 'new_owner_must_verify_email' } });
+  expect(stripe.update).not.toHaveBeenCalled();
+});
+it('preserves ownership on Stripe failure, retries safely and revokes old access only on completion', async () => {
+  const key = crypto.randomUUID();
+  stripe.update.mockRejectedValueOnce(new Error('Stripe unavailable')).mockResolvedValue({});
+  await expect(transferStoreOwner(operator, locationId, input(), key)).rejects.toThrow('Stripe unavailable');
+  const [before] = await withTenant(tenant, tx => tx`select status from memberships where id=${ownerMembershipId}`);
+  expect(before?.status).toBe('active');
+  const resumedKey = crypto.randomUUID(); // A browser reload loses the in-memory request key.
+  const result = await transferStoreOwner(operator, locationId, input(), resumedKey);
+  expect(result.transferred).toBe(true);
+  expect(stripe.update).toHaveBeenLastCalledWith('cus_owner_transfer_test', { email: 'amy@maildrop.cc' }, { idempotencyKey: `owner-transfer:${result.transferId}` });
+  const [old] = await withTenant(tenant, tx => tx`select status from memberships where id=${ownerMembershipId}`);
+  expect(old?.status).toBe('left');
+  await expect(buildContext({ userId: ownerUser, membershipId: ownerMembershipId })).rejects.toBeTruthy();
+  const [newOwner] = await withTenant(tenant, tx => tx`select m.id,m.user_id from memberships m join membership_roles mr on mr.membership_id=m.id join roles r on r.id=mr.role_id join users u on u.id=m.user_id where m.location_id=${locationId} and m.status='active' and r.key='owner' and u.email='amy@maildrop.cc'`);
+  expect(newOwner).toBeTruthy();
+  const [org] = await withTenant(tenant, tx => tx`select owner_user_id from organizations where id=${orgId}`);
+  expect(org?.owner_user_id).toBe(newOwner!.user_id);
+  const context = await buildContext({ userId: newOwner!.user_id, membershipId: newOwner!.id });
+  expect(context.permissions.has('settings.manage')).toBe(true);
+  await dispatch('billing.confirmOwnershipPayment', { confirmed: true }, context);
+  const [review] = await withTenant(tenant, tx => tx`select settings->'ownership_payment_review'->>'required' as required from locations where id=${locationId}`);
+  expect(review?.required).toBe('false');
+  await transferStoreOwner(operator, locationId, input(), resumedKey);
+  await transferStoreOwner(operator, locationId, input(), key);
+  expect(stripe.update).toHaveBeenCalledTimes(2);
+  const [audit] = await withTenant(tenant, tx => tx`select count(*)::int as n from audit_log where command='platform.transferOwner' and location_id=${locationId} and after->>'transferId'=${result.transferId}`);
+  expect(audit?.n).toBe(1);
+});
+it('does not expose privileged transfer functions to customer identities', async () => {
+  await expect(withUser(ownerUser, tx => tx`select gf_private.prepare_owner_transfer(${locationId}::uuid,${ownerMembershipId}::uuid,'amy@maildrop.cc','not authorized','forbidden')`)).rejects.toMatchObject({ code: '42501' });
+});

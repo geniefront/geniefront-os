@@ -378,6 +378,7 @@ describe('Ops voice configuration shared with the customer desk', () => {
   });
   it('saves all six fields, reflects them in desk settings, preserves other settings and audits once on retries', async () => {
     asUser(PLATFORM_OPS_USER_ID);
+    const [auditBefore] = await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, tx => tx<{ n: number }[]>`select count(*)::int as n from audit_log where command='platform.saveVoiceConfiguration' and location_id=${SPA_LOC} and actor_kind='platform'`);
     const original = await app.inject({ method: 'GET', url });
     expect(original.statusCode).toBe(200);
     const otherBefore = (await app.inject({ method: 'GET', url: `/v1/platform/stores/${NAIL_LOC}/voice-configuration` })).json();
@@ -401,7 +402,7 @@ describe('Ops voice configuration shared with the customer desk', () => {
     }
     expect(after!.phone).toBe(before!.phone); expect(after!.email).toBe(before!.email);
     const [audit] = await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, tx => tx<{ n: number }[]>`select count(*)::int as n from audit_log where command='platform.saveVoiceConfiguration' and location_id=${SPA_LOC} and actor_kind='platform'`);
-    expect(audit!.n).toBe(1);
+    expect(audit!.n).toBe(auditBefore!.n + 1);
     expect((await app.inject({ method: 'GET', url: `/v1/platform/stores/${NAIL_LOC}/voice-configuration` })).json()).toEqual(otherBefore);
     const stale = await app.inject({ method: 'PUT', url, payload: { ...payload, phoneAssistant: { ...config.phoneAssistant, greetingPrompt: 'Stale edit' } }, headers: { 'idempotency-key': crypto.randomUUID() } });
     expect(stale.json().details.reason).toBe('stale_voice_configuration');
@@ -419,4 +420,13 @@ describe('Ops voice configuration shared with the customer desk', () => {
     const desk = await withTenant(ctx, tx => loadDeskSettings(tx, ctx));
     expect(desk.voiceNotifications).toEqual({ email: null, phone: null });
   });
+});
+
+it('allows the browser preflight for saving Ops voice configuration', async () => {
+  const response = await app.inject({ method: 'OPTIONS', url: `/v1/platform/stores/${SPA_LOC}/voice-configuration`, headers: {
+    origin: 'https://ops.geniefront.com', 'access-control-request-method': 'PUT',
+    'access-control-request-headers': 'authorization,content-type,idempotency-key',
+  } });
+  expect(response.statusCode).toBe(204);
+  expect(String(response.headers['access-control-allow-methods']).split(',').map(s => s.trim())).toContain('PUT');
 });

@@ -1,3 +1,4 @@
+import { missingServiceShortNames, type ServiceShortNames } from '@gf/contracts';
 /**
  * 系统设置数据层。
  *
@@ -164,6 +165,13 @@ export function useSaveService() {
 
   return useMutation({
     mutationFn: async (input: SaveServiceInput) => {
+      if (!input.serviceId && missingServiceShortNames(input.shortNames ?? {}).length) {
+        const generated = await apiPost<{ shortNames: ServiceShortNames }>(
+          '/v1/desk/services/short-names/generate', { name: input.name, shortNames: input.shortNames ?? {} },
+          { membershipId: membershipId! },
+        );
+        input = { ...input, shortNames: generated.shortNames };
+      }
       const res = await runCommand(
         'catalog.saveService',
         input,

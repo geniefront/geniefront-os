@@ -129,7 +129,7 @@ export function buildServer(): FastifyInstance {
       'Authorization', 'Content-Type', 'X-Membership-Id', 'Idempotency-Key',
       'X-Device-Token', 'X-Staff-Token', 'X-GF-Public-Key', 'X-GF-Form-Token',
     ],
-    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     maxAge: 86400,
   };
 

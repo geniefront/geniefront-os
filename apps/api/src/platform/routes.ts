@@ -1,3 +1,4 @@
+import { transferStoreOwner } from './ownerTransfer';
 import { loadPlatformVoiceConfiguration, savePlatformVoiceConfiguration } from './voiceConfiguration';
 import { withTenant } from '@gf/db';
 import { platformOperationKey } from './idempotency';
@@ -384,6 +385,12 @@ export function registerPlatformRoutes(app: FastifyInstance): void {
     if (!orgId) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
     return orgId;
   };
+
+  app.post<{ Params: { locationId: string } }>('/v1/platform/stores/:locationId/transfer-owner', async req => {
+    const op = await operatorFrom(req);
+    const locationId = parseOrThrow(uuid, req.params.locationId);
+    return transferStoreOwner(op, locationId, req.body, platformOperationKey(req.headers['idempotency-key']));
+  });
 
   app.get<{ Params: { locationId: string } }>('/v1/platform/stores/:locationId/voice-configuration', async req => {
     const op = await operatorFrom(req);

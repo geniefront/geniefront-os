@@ -2,7 +2,7 @@ import { ServiceCatalog } from '@/features/settings/ServiceCatalog';
 import { VoiceRoutingSettings } from './VoiceRoutingSettings';
 import { PageError } from '@/components/ui/QueryState';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { Store, Scissors, Users, PhoneCall, CreditCard, ArrowUpRight } from 'lucide-react';
+import { Store, Scissors, Users, PhoneCall, CreditCard } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { PublicBookingLink } from './PublicBookingLink';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -79,7 +79,6 @@ function SettingsBody() {
       {current === 'phone' && <VoiceRoutingSettings />}
       {current === 'billing' && <BillingPanel />}
     </section>
-    {manage && <Button variant="ghost" onClick={async () => { if (await saves?.flush()) navigate('/communication-logs'); }}>{t('voiceDeliveryTitle')}<ArrowUpRight className="size-3.5" /></Button>}
     </div></div>
   </div>;
 }

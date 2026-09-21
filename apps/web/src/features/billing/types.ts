@@ -39,6 +39,7 @@ export interface BillingView {
    * 把「管理订阅」按钮给他会打开一个 404，而他要续期是找我们，不是找 Stripe。
    */
   billingSource: string;
+  ownershipPaymentReview?: boolean;
   /** license 模式下的到期时刻（与 currentPeriodEnd 镜像同一个值） */
   licensePeriodEnd: string | null;
   trialEndsAt: string | null;

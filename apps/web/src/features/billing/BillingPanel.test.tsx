@@ -75,6 +75,7 @@ const autoTopupState = {
 };
 
 vi.mock('./api', () => ({
+  useConfirmOwnershipPayment: () => ({ isPending: false, mutateAsync: vi.fn() }),
   useBillingQuery: () => billingState,
   useInvoicesQuery: () => invoicesState,
   useCreateBillingPortalSession: () => portalState,
@@ -595,4 +596,14 @@ describe('BillingPanel 订阅码付费', () => {
     renderPanel();
     expect(screen.getByRole('button', { name: '管理订阅与支付' })).toBeInTheDocument();
   });
+});
+
+it('separates trial minutes from redeemed minutes and never labels the trial as monthly', () => {
+  billingState.data.billing = essentialTrial({ plan: 'voice_booking', quotas: [quota('voice_minute', 6, 20, { balance: 200 })] });
+  renderPanel();
+  expect(screen.getByText(/试用额度/)).toBeVisible();
+  expect(screen.getByText('额外额度')).toBeVisible();
+  expect(screen.getByText('剩余 14 分钟')).toBeVisible();
+  expect(screen.getByText('剩余 200 分钟')).toBeVisible();
+  expect(screen.queryByText(/次月 1 日自动重置/)).not.toBeInTheDocument();
 });

@@ -266,7 +266,7 @@ const WRITE_ALLOWED_WHILE_PAST_DUE = ['billing.', 'setup.', 'support.', 'call.re
  * ⚠️ 放在事务里、在幂等检查**之前** —— 顺序反了的话，欠费期间的重试
  * 会命中幂等缓存并返回一个「成功」，而那次写入其实从来没发生过。
  */
-async function assertSubscriptionAllowsWrite(
+export async function assertSubscriptionAllowsWrite(
   tx: postgres.TransactionSql,
   ctx: CommandContext,
   commandName: string,

@@ -11,13 +11,15 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const uploadSpy = vi.fn();
+let uploadError: unknown = null;
 vi.mock('./supabase', () => ({
   supabase: {
+    auth: { getUser: () => Promise.resolve({ data: { user: { id: "user-a" } }, error: null }) },
     storage: {
       from: () => ({
         upload: (...args: unknown[]) => {
           uploadSpy(...args);
-          return Promise.resolve({ data: { path: 'store_logos/x.webp' }, error: null });
+          return Promise.resolve({ data: uploadError ? null : { path: 'user-a/x.webp' }, error: uploadError });
         },
         getPublicUrl: () => ({ data: { publicUrl: 'https://example.invalid/x.webp' } }),
       }),
@@ -29,6 +31,7 @@ const { processLocalImage, uploadImageToStorage } = await import('./imageUpload'
 
 beforeEach(() => {
   uploadSpy.mockClear();
+  uploadError = null;
 
   /*
    * jsdom 不解码图片：`new Image()` 的 onload / onerror 都不会触发，
@@ -89,4 +92,15 @@ describe('uploadImageToStorage', () => {
       expect(String(call[0])).toMatch(/\.webp$/);
     }
   });
+});
+
+it('rejects storage failures instead of returning an embedded image', async () => {
+  uploadError = { message: 'Bucket not found' };
+  await expect(uploadImageToStorage(new File(['pixels'], 'photo.png', { type: 'image/png' }), 'store_logos')).rejects.toThrow('IMAGE_UPLOAD_FAILED');
+});
+it('uses an owned, immutable path and returns a public HTTPS URL', async () => {
+  const result = await uploadImageToStorage(new File(['pixels'], 'photo.png', { type: 'image/png' }), 'store_logos');
+  expect(result).toBe('https://example.invalid/x.webp');
+  expect(uploadSpy.mock.calls[0]?.[0]).toMatch(/^user-a\/[^/]+\.webp$/);
+  expect(uploadSpy.mock.calls[0]?.[2]).toMatchObject({ upsert: false });
 });

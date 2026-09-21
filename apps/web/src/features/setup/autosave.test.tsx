@@ -2,6 +2,7 @@ import { MemoryRouter, useNavigate, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+vi.mock('@/lib/errorMessage', () => ({ useErrorMessage: () => (e: Error) => e.message }));
 import { SetupSaveProvider, useSetupDraft, useSetupSave } from './autosave';
 
 describe('setup autosave', () => {
@@ -69,4 +70,19 @@ it('recovers an interrupted draft and refuses to overwrite a changed server valu
   act(() => conflict.result.current.discard());
   expect(conflict.result.current.value?.name).toBe('new server value');
   expect(sessionStorage.getItem('test:interrupted')).toBeNull();
+});
+
+it('does not autosave a field while it is being edited; resumes on blur', async () => {
+  vi.useFakeTimers();
+  try {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const { result, rerender } = renderHook(({ editing }) => useSetupDraft({ email: '' }, save, undefined, { autoSavePaused: editing }), { initialProps: { editing: true } });
+    act(() => result.current.set({ email: 'unfinished' }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    expect(save).not.toHaveBeenCalled();
+    act(() => result.current.set({ email: 'owner@example.com' }));
+    rerender({ editing: false });
+    await act(async () => { await vi.advanceTimersByTimeAsync(701); });
+    expect(save).toHaveBeenCalledWith({ email: 'owner@example.com' });
+  } finally { vi.useRealTimers(); }
 });

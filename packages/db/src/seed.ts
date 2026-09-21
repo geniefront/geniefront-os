@@ -201,6 +201,8 @@ async function main() {
 
     const orgs = [NAIL_ORG, SPA_ORG];
     const locs = [NAIL_LOC, SPA_LOC];
+    const [transfers] = await tx`select to_regclass('gf_private.owner_transfers') as present`;
+    if (transfers?.present) await tx`delete from gf_private.owner_transfers where location_id = any(${locs})`;
     const LOCATION_SCOPED = new Set([
       'stripe_events', 'user_last_location', 'pairing_sessions',
       'location_webhooks', 'location_10dlc_registrations', 'location_intake_templates',

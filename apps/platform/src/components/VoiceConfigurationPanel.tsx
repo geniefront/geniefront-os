@@ -67,7 +67,7 @@ function VoiceConfigurationEditor({ locationId, initial }: { locationId: string;
     } catch (err) {
       const conflict = err instanceof ApiError && err.details.reason === 'stale_voice_configuration';
       setStale(conflict);
-      setError(conflict ? '配置已被其他人修改。请重新加载并核对后保存，当前输入已保留。' : '保存失败，输入已保留，请重试。');
+      setError(conflict ? '配置已被其他人修改。请重新加载并核对后保存，当前输入已保留。' : err instanceof ApiError && err.code === 'PERMISSION_DENIED' ? '当前账号没有修改权限，请联系管理员。输入已保留。' : err instanceof TypeError ? '网络连接失败，未确认保存成功。输入已保留，请稍后重试。' : '保存失败，输入已保留，请重试。');
     } finally { lock.current = false; }
   }
   async function reload() {

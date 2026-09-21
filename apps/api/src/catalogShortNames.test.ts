@@ -5,7 +5,7 @@ import {buildContext} from './actor';
 import './handlers/setup';
 const tenant={orgId:'11111111-1111-4111-8111-111111111111',locationId:'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa',membershipId:null};
 let ctx:Awaited<ReturnType<typeof buildContext>>;
-beforeAll(async()=>{const [m]=await withTenant(tenant,tx=>tx`select id,user_id from memberships where location_id=${tenant.locationId} and user_id is not null order by created_at limit 1`);ctx=await buildContext({userId:m!.user_id,membershipId:m!.id});});
+beforeAll(async()=>{const [m]=await withTenant(tenant,tx=>tx`select m.id,m.user_id from memberships m join membership_roles mr on mr.membership_id=m.id join roles r on r.id=mr.role_id where m.location_id=${tenant.locationId} and m.user_id is not null and m.status='active' and r.key in ('owner','manager') order by m.created_at limit 1`);ctx=await buildContext({userId:m!.user_id,membershipId:m!.id});});
 afterAll(closeDb);
 it('persists names, preserves omitted values, fills missing languages, and skips stale AI results',async()=>{
  const input={name:{en:'Deep Tissue'},durationMin:60,basePriceCents:7500};

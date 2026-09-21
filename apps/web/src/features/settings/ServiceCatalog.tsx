@@ -93,7 +93,7 @@ export function ServiceCatalog() {
     <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h3 className="font-semibold text-slate-900">{t('setupCurrentServices')} <span className="ml-2 text-sm font-normal text-slate-500">{active.length}</span></h3><p className="mt-1 text-sm text-slate-500">{t('catalogDefaults')}</p></div>
-        <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={!canManage||!canImport||busy||!!editor||!active.some(s=>missingServiceShortNames(s.shortNames??{}).length)} isPending={generating} onClick={()=>void fillShortNames()}>{shortCopy.bulk}</Button>{offline.length > 0 && <Button variant="secondary" disabled={!canManage || busy} onClick={() => setEnablingAll(true)}>{t('catalogEnableAll')}</Button>}<Button disabled={!canManage || busy} onClick={() => setEditor('new')}><Plus className="size-4" />{t('setupAddService')}</Button></div>
+        <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={!canManage||busy||!!editor||!active.some(s=>missingServiceShortNames(s.shortNames??{}).length)} isPending={generating} onClick={()=>void fillShortNames()}>{shortCopy.bulk}</Button>{offline.length > 0 && <Button variant="secondary" disabled={!canManage || busy} onClick={() => setEnablingAll(true)}>{t('catalogEnableAll')}</Button>}<Button disabled={!canManage || busy} onClick={() => setEditor('new')}><Plus className="size-4" />{t('setupAddService')}</Button></div>
       </div>
       <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
         <div className="relative"><Search className="absolute left-3 top-3 size-4 text-slate-400" /><Input className="pl-9" aria-label={t('settings.stServiceSearch')} placeholder={t('settings.stServiceSearch')} value={search} onChange={e => setSearch(e.target.value)} /></div>
@@ -128,7 +128,7 @@ function ServiceForm({ service, categories, onClose }: { service: ServiceItem | 
   const errorMessage = useErrorMessage();
   const save = useSaveService();
   const generate=useGenerateServiceShortNames();
-  const canGenerate=useCan("ai.use");
+  const canGenerate=useCan("catalog.manage");
   const [initial] = useState(() => ({ name: service?.displayName ?? '', shortNames: (service?.shortNames ?? {}) as ServiceShortNames, price: service ? (service.basePriceCents / 100).toFixed(2) : '', duration: String(service?.durationMin ?? 60), categoryId: service?.categoryId ?? '', isAddon: service?.isAddon ?? false, onlineBookable: service?.onlineBookable ?? true, staffCount: String(service?.staffCount ?? 1), presentation: service?.presentation ?? { imageUrl: '', description: '' } }));
   const [form, setForm] = useState(initial);
   const [error, setError] = useState('');

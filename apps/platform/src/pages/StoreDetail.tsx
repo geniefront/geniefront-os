@@ -1,3 +1,4 @@
+import { OwnerTransferPanel } from '@/components/OwnerTransferPanel';
 import { VoiceConfigurationPanel } from '@/components/VoiceConfigurationPanel';
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
@@ -174,6 +175,7 @@ export function StoreDetail() {
         ) : <p className="text-sm text-slate-500">No billing account row.</p>}
       </section>
 
+      <OwnerTransferPanel locationId={locationId!} owners={d.people.filter(p => p.status === 'active' && p.roles.includes('owner'))} />
       <VoiceConfigurationPanel locationId={locationId!} />
 
       <LicensePanel locationId={locationId!} />

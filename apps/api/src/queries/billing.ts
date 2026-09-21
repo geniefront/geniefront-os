@@ -67,6 +67,7 @@ export interface BillingView {
    * 把「管理订阅」按钮给他会跳到一个 404。他要续期是找我们，不是找 Stripe。
    */
   billingSource: string;
+  ownershipPaymentReview: boolean;
   /** license 模式下的到期时刻（与 currentPeriodEnd 镜像同一个值） */
   licensePeriodEnd: string | null;
 
@@ -204,7 +205,9 @@ export async function loadBilling(
     };
   };
 
+  const [ownership] = await tx<{ required: boolean }[]>`select coalesce((settings->'ownership_payment_review'->>'required')::boolean,false) as required from locations where id=${ctx.locationId}`;
   return {
+    ownershipPaymentReview: ownership?.required ?? false,
     plan: a.plan,
     subscriptionStatus: a.subscription_status,
     billingSource: a.billing_source,

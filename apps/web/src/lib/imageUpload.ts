@@ -64,7 +64,7 @@ export async function processLocalImage(
 
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          return resolve(e.target?.result as string);
+          return reject(new Error('IMAGE_PROCESSING_FAILED'));
         }
 
         // 平滑缩放算法
@@ -77,8 +77,8 @@ export async function processLocalImage(
           const dataUrl = canvas.toDataURL(format, quality);
           resolve(dataUrl);
         } catch {
-          // 降级为原始 base64
-          resolve(e.target?.result as string);
+          // Do not upload unprocessed bytes if re-encoding fails.
+          reject(new Error('IMAGE_PROCESSING_FAILED'));
         }
       };
 
@@ -104,59 +104,24 @@ function dataUrlToBlob(dataUrl: string): Blob {
   return new Blob([bytes], { type: mime });
 }
 
-/**
- * 上传到 Supabase Storage（未配置或失败时回退为本地压缩后的 Data URL）。
- *
- * ⚠️ **上传的是压缩后的字节，不是用户选的那个原文件。**
- *
- * 此前这里算出了 `optimizedDataUrl` 却把**原始 `file`** 传了上去 ——
- * 压缩、缩到 512px、转 webp 全都白做了，只在云存储不可用时才用得上。
- * 三个后果都是真的：
- *
- *   · 15MB 的原图整份进了公开 bucket，512px 上限从未生效
- *   · 手机拍的照片带着 EXIF 一起公开，**其中包含拍摄地点的 GPS 坐标**
- *   · SVG 原样存进去。它经 `<img>` 渲染时脚本不会执行，但直接访问那个
- *     存储 URL 时会 —— 而那是一个可以被拿去做钓鱼页的可信域名
- *
- * 走 canvas 重编码这一步本身就是清洗：出来的是一张纯位图，
- * 原文件里夹带的任何东西都不会留下。
- */
+/** Upload only re-encoded pixels. Failed uploads never become persisted data URLs. */
 export async function uploadImageToStorage(
   file: File,
   bucket: 'avatars' | 'store_logos' = 'avatars',
   options: ImageProcessOptions = {},
 ): Promise<string> {
-  // 1. 先进行本地优化压缩
   const optimizedDataUrl = await processLocalImage(file, options);
-
-  try {
-    // 2. 如果配置了 Supabase Storage 且非占位 URL，尝试上传
-    if (supabase && typeof window !== 'undefined') {
-      const blob = dataUrlToBlob(optimizedDataUrl);
-      /*
-       * 扩展名按**压缩结果的实际类型**取，不取 `file.name` 的后缀 ——
-       * 文件名是用户给的，拿它拼存储路径等于让调用方决定这个对象以什么
-       * Content-Type 被回吐出来。
-       */
-      const fileExt = blob.type.split('/')[1]?.replace('+xml', '') || 'webp';
-      const fileName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${fileExt}`;
-      const filePath = `${bucket}/${fileName}`;
-
-      const { data, error } = await supabase.storage
-        .from(bucket)
-        .upload(filePath, blob, { cacheControl: '3600', upsert: true, contentType: blob.type });
-
-      if (!error && data?.path) {
-        const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(data.path);
-        if (publicUrlData?.publicUrl) {
-          return publicUrlData.publicUrl;
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('[ImageUpload] Supabase Storage upload skipped/failed, fallback to optimized data url:', err);
-  }
-
-  // 3. 安全回退：返回压缩后的 DataURL，无需依赖云存储即可秒级即时展示与持久化
-  return optimizedDataUrl;
+  const { data: auth, error: authError } = await supabase.auth.getUser();
+  if (authError || !auth.user) throw new Error('IMAGE_UPLOAD_FAILED');
+  const blob = dataUrlToBlob(optimizedDataUrl);
+  const fileExt = blob.type.split('/')[1];
+  const filePath = `${auth.user.id}/${crypto.randomUUID()}.${fileExt}`;
+  const { data, error } = await supabase.storage.from(bucket).upload(filePath, blob, {
+    cacheControl: '3600', upsert: false, contentType: blob.type,
+  });
+  if (error || !data?.path) throw new Error('IMAGE_UPLOAD_FAILED');
+  const { data: result } = supabase.storage.from(bucket).getPublicUrl(data.path);
+  const url = result?.publicUrl;
+  if (!url || !url.startsWith('https://') || url.length > 2048) throw new Error('IMAGE_UPLOAD_FAILED');
+  return url;
 }

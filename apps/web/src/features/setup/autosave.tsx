@@ -1,3 +1,4 @@
+import { useErrorMessage } from '@/lib/errorMessage';
 import { UNSAFE_NavigationContext } from 'react-router-dom';
 import { toast } from '@heroui/react';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
@@ -46,7 +47,9 @@ export function SetupSaveProvider({ children }: { children: ReactNode }) {
 export const useSetupSave = () => useContext(Context);
 
 /** Serialize writes, preserve edits during refetch, and flush before changing steps. */
-export function useSetupDraft<T>(server: T | null, save: (value: T) => Promise<unknown>, storageKey?: string) {
+export function useSetupDraft<T>(server: T | null, save: (value: T) => Promise<unknown>, storageKey?: string, options?: { autoSavePaused?: boolean }) {
+  const errorMessage = useErrorMessage();
+  const formatError = useRef(errorMessage); formatError.current = errorMessage;
   const [value, setValue] = useState<T | null>(server);
   const current = useRef(server);
   const persisted = useRef(JSON.stringify(server));
@@ -96,7 +99,7 @@ export function useSetupDraft<T>(server: T | null, save: (value: T) => Promise<u
             else sessionStorage.setItem(storageKey, JSON.stringify({ value: current.current, base: persisted.current }));
           } catch {} }
         }
-        catch (e) { setError(e instanceof Error ? e.message : String(e)); setState('error'); return false; }
+        catch (e) { setError(e instanceof Error && !('code' in e) ? e.message : formatError.current(e)); setState('error'); return false; }
       }
       setState('saved'); return true;
     };
@@ -105,10 +108,10 @@ export function useSetupDraft<T>(server: T | null, save: (value: T) => Promise<u
   }, [storageKey]);
   useEffect(() => context?.register(flush), [context?.register, flush]);
   useEffect(() => {
-    if (state !== 'pending') return;
+    if (state !== 'pending' || options?.autoSavePaused) return;
     const timer = window.setTimeout(() => { void flush(); }, 700);
     return () => window.clearTimeout(timer);
-  }, [value, state, flush]);
+  }, [value, state, flush, options?.autoSavePaused]);
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
       if (JSON.stringify(current.current) !== persisted.current) { e.preventDefault(); e.returnValue = ''; }

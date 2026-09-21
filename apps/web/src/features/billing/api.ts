@@ -160,3 +160,12 @@ export function useCreateTopup() {
     },
   });
 }
+
+export function useConfirmOwnershipPayment() {
+  const { membershipId } = useSession();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => runCommand('billing.confirmOwnershipPayment', { confirmed: true }, membershipId!),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['desk', 'billing'] }); },
+  });
+}

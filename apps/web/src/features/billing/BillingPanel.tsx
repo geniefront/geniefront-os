@@ -1,3 +1,5 @@
+import { useConfirmOwnershipPayment } from './api';
+import { quotaCopy } from './quotaCopy';
 import { useState } from 'react';
 import { useLanguage } from '@/LanguageContext';
 import { Badge } from '@/components/ui/Badge';
@@ -57,8 +59,10 @@ function usagePercent(quota: QuotaView | undefined): number {
 }
 
 export function BillingPanel() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const quotaText = quotaCopy[language];
   const errorMessage = useErrorMessage();
+  const confirmPayment = useConfirmOwnershipPayment();
   const billingQuery = useBillingQuery();
   const invoicesQuery = useInvoicesQuery();
   const portalMutation = useCreateBillingPortalSession();
@@ -269,6 +273,7 @@ export function BillingPanel() {
               </div>
             </div>
 
+            {billing.ownershipPaymentReview && <p role="status" className="mb-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">{quotaText.paymentReview}<Button className="mt-2" disabled={confirmPayment.isPending} onClick={async () => { try { await confirmPayment.mutateAsync(); } catch (err) { toast.danger(errorMessage(err)); } }}>{language === 'zh-Hans' ? '我已核对付款方式' : 'I have reviewed the payment method'}</Button></p>}
             <div className="space-y-3 mb-6">
               <h4 className="font-bold text-xs uppercase tracking-wider text-slate-500">
                 {t('settings.stUsageQuotas')}
@@ -278,7 +283,7 @@ export function BillingPanel() {
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                       <PhoneCall className="w-4 h-4 text-teal-600" />
-                      {t('settings.stVoiceMinutes')}
+                      {trialing ? quotaText.trial : quotaText.monthly} · {t('settings.stVoiceMinutes')}
                     </span>
                     <span className="text-xs font-mono font-bold text-teal-700">
                       {voiceQuota ? `${voiceQuota.included.used} / ${voiceQuota.included.total}` : '—'}
@@ -287,7 +292,14 @@ export function BillingPanel() {
                   <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
                     <div className="h-full bg-teal-600 rounded-full" style={{ width: `${voiceUsagePercent}%` }} />
                   </div>
-                  <p className="text-[11px] text-slate-400">{t('settings.stVoiceMinutesDesc')}</p>
+                  <p className="text-xs text-slate-500">{quotaText.used}</p>
+                  <p className="text-2xl font-semibold text-teal-800">{quotaText.remaining} {voiceQuota?.included.remaining ?? 0} {quotaText.minutes}</p>
+                  <p className="text-xs text-slate-500">{trialing ? quotaText.trialHint : quotaText.period}{trialing ? trialEnds : periodEnd}</p>
+                </div>
+                <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2.5 shadow-2xs">
+                  <h5 className="text-sm font-bold">{quotaText.extra}</h5>
+                  <p className="text-2xl font-semibold text-teal-800">{quotaText.remaining} {voiceQuota?.balance ?? 0} {quotaText.minutes}</p>
+                  <p className="text-xs text-slate-500">{quotaText.extraHint}</p>
                   {voiceQuota && (
                     <QuotaActions
                       quota={voiceQuota}

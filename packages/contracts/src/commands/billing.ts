@@ -533,7 +533,18 @@ export const BillingSaveTaxProfile = defineCommand({
   idempotency: 'optional',
 });
 
+export const ConfirmOwnershipPayment = defineCommand({
+  name: 'billing.confirmOwnershipPayment',
+  input: z.object({ confirmed: z.literal(true) }),
+  output: z.object({ confirmed: z.boolean() }),
+  permission: 'billing.manage',
+  ai: { exposed: false, description: 'Acknowledge review of retained payment method after ownership transfer.', confirm: 'always' },
+  reversible: false,
+  idempotency: 'optional',
+});
+
 export const BILLING_COMMANDS = [
+  ConfirmOwnershipPayment,
   SetAutoTopup,
   SyncSubscription,
   SavePaymentMethod,

@@ -64,7 +64,7 @@ export function ImageUploader({
       onChange(resultUrl);
       toast.success(t('settings.uploadSucceeded'));
     } catch (err: any) {
-      toast.danger(errorMessage(err));
+      toast.danger(err instanceof Error && ['IMAGE_UPLOAD_FAILED', 'IMAGE_PROCESSING_FAILED'].includes(err.message) ? t('settings.uploadFailed') : errorMessage(err));
     } finally {
       setIsProcessing(false);
     }

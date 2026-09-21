@@ -13,7 +13,9 @@ export function StoreMediaEditor(){
  const zh=language.startsWith('zh');const profile=data?publicBookingProfileSchema.parse(data.publicBookingProfile??{}):null;
  const draft=useSetupDraft(profile?{description:profile.description,coverUrl:profile.coverUrl,photoUrls:profile.photoUrls}:null,async media=>{
   const current=await apiGet<DeskSettings>('/v1/desk/settings');
-  await runCommand('location.savePublicBookingProfile',publicBookingProfileSchema.parse({...current.publicBookingProfile,...media}),membershipId!);
+  const parsed=publicBookingProfileSchema.safeParse({...current.publicBookingProfile,...media});
+  if(!parsed.success)throw new Error(zh?'图片地址必须是有效的 HTTPS 链接，请重新上传图片。':'Use valid HTTPS image links. Please upload the image again.');
+  await runCommand('location.savePublicBookingProfile',parsed.data,membershipId!);
   await qc.invalidateQueries({queryKey:['desk','settings']});
  });
  if(!draft.value)return null;const v=draft.value;
