@@ -171,3 +171,25 @@ describe('catalog.bulkUpdateServices (U04 / §7.2)', () => {
     expect(new Date(after[0]!.updated_at).getTime()).toBeGreaterThan(new Date(before[0]!.updated_at).getTime());
   });
 });
+
+describe('catalog archive and restore', () => {
+  it('archives without deleting the record and advances its version; restore keeps booking eligibility', async () => {
+    const made = await dispatch<{ serviceId: string }>('catalog.saveService', { name: { en: 'Archive and restore' }, durationMin: 60, basePriceCents: 7500 }, ctx);
+    const id = made.result.serviceId;
+    const [before] = await withTenant(tenant, tx => tx<{ updated: string }[]>`select updated_at::text as updated from services where id=${id}`);
+    await dispatch('catalog.archiveService', { serviceId: id }, ctx);
+    expect(await svc(id)).toMatchObject({ active: false, online_bookable: true });
+    const [after] = await withTenant(tenant, tx => tx<{ updated: string }[]>`select updated_at::text as updated from services where id=${id}`);
+    expect(after!.updated).not.toBe(before!.updated);
+    await expect(dispatch('catalog.bulkUpdateServices', { serviceIds: [id], expectedVersions: { [id]: before!.updated }, set: { onlineBookable: true } }, ctx)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await dispatch('catalog.saveService', { serviceId: id, name: { en: 'Archive and restore' }, durationMin: 60, basePriceCents: 7500, active: true }, ctx);
+    expect(await svc(id)).toMatchObject({ active: true, online_bookable: true });
+  });
+  it('does not archive another shop service', async () => {
+    const other = { orgId: '22222222-2222-4222-8222-222222222222', locationId: 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb', membershipId: null };
+    const [service] = await withTenant(other, tx => tx<{ id: string }[]>`select id from services where active limit 1`);
+    await expect(dispatch('catalog.archiveService', { serviceId: service!.id }, ctx)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    const [unchanged] = await withTenant(other, tx => tx<{ active: boolean }[]>`select active from services where id=${service!.id}`);
+    expect(unchanged!.active).toBe(true);
+  });
+});

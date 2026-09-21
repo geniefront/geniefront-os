@@ -149,7 +149,7 @@ registerHandler(ArchiveService, async ({ input, ctx, tx, audit }: HandlerArgs<
   typeof ArchiveService.input._type>) => {
   // 下架而不是删除：历史 ticket_items 里存的是名字快照，但 service_id 外键还在
   const rows = await tx<{ id: string }[]>`
-    update services set active = false
+    update services set active = false, updated_at = now()
     where id = ${input.serviceId} and location_id = ${ctx.locationId}
     returning id`;
   if (rows.length === 0) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'service' } });

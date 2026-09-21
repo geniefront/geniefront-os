@@ -1,3 +1,4 @@
+import { ServiceCatalog } from '@/features/settings/ServiceCatalog';
 import { VoiceRoutingSettings } from './VoiceRoutingSettings';
 import { PageError } from '@/components/ui/QueryState';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -14,7 +15,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { BillingPanel } from '@/features/billing/BillingPanel';
 import { useDeskSettingsQuery, settingsKeys } from '@/features/settings/api';
-import { StoreStepForm, CatalogStepForm, TeamStepForm } from '@/features/setup/StepForms';
+import { StoreStepForm, TeamStepForm } from '@/features/setup/StepForms';
 import { DirectoryStepForm } from '@/features/setup/steps';
 import { SetupSaveProvider, useSetupSave, SaveStatus, useSetupDraft } from '@/features/setup/autosave';
 import { Field } from '@/features/setup/primitives';
@@ -60,7 +61,7 @@ function SettingsBody() {
     return () => document.removeEventListener('click', onLink, true);
   }, [saves, navigate]);
   return <div className="gf-service-page mx-auto max-w-7xl space-y-6 pb-12">
-    <PageHeader title={t('settings')} description={t(current === 'phone' ? 'voiceRouteManaged' : 'voiceSettingsIntro')} />
+    <PageHeader title={t('settings')} description={t(current === 'phone' ? 'voiceRouteManaged' : current === 'services' ? 'catalogPageHint' : 'voiceSettingsIntro')} />
     <div className="grid items-start gap-6 xl:grid-cols-[192px_minmax(0,1fr)]">
     <nav ref={navRef} aria-label={t('voiceSettingsTitle')} className="flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 xl:sticky xl:top-0 xl:flex-col">{tabs.map(tab => {
       const Icon = icons[tab.id as keyof typeof icons];
@@ -73,7 +74,7 @@ function SettingsBody() {
     {!current && <p>{t('errorPERMISSION_DENIED')}</p>}
     <section aria-label={selectedTab ? t(selectedTab.label as TranslationKey) : undefined} className="min-w-0 space-y-6">
       {current === 'store' && <><StoreStepForm settingsMode onSaved={() => undefined} /><PublicBookingLink /></>}
-      {current === 'services' && <CatalogStepForm settingsMode onSaved={() => undefined} />}
+      {current === 'services' && <ServiceCatalog />}
       {current === 'staff' && <div className="space-y-6"><TeamStepForm settingsMode onSaved={() => undefined} />{manage && <BookingRules />}<details className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6"><summary className="cursor-pointer font-semibold">{t('voiceStaffAdvanced')}</summary><div className="mt-4"><DirectoryStepForm /></div></details></div>}
       {current === 'phone' && <VoiceRoutingSettings />}
       {current === 'billing' && <BillingPanel />}

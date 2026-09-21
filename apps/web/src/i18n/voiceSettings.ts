@@ -1,5 +1,7 @@
+import { catalog } from './catalog';
 import { voiceRouting } from './voiceRouting';
 export const voiceSettings = {
+  ...catalog,
   ...voiceRouting,
   voiceStoreDescription: {"zh-Hans": "维护门店资料、营业时间和预约展示。", "en": "Manage shop details, opening hours and booking presentation.", "ko": "매장 정보, 영업시간 및 예약 화면을 관리하세요.", "es": "Administra los datos, horarios y presentación del local.", "vi": "Quản lý thông tin, giờ mở cửa và trang đặt lịch."},
   voiceServicesDescription: {"zh-Hans": "管理服务价格、时长、分类及在线可预约项目。", "en": "Manage prices, durations, categories and online availability.", "ko": "가격, 시간, 카테고리 및 온라인 예약을 관리하세요.", "es": "Administra precios, duraciones, categorías y disponibilidad.", "vi": "Quản lý giá, thời lượng, danh mục và khả năng đặt trực tuyến."},
