@@ -488,6 +488,7 @@ export const SettingsSavePhoneAssistant = defineCommand({
   ai: {
     description: '配置 AI 电话接听开场白、转接手机号与自动建单行为。',
     confirm: 'always',
+    exposed: false,
   },
   reversible: true,
   idempotency: 'optional',
@@ -499,7 +500,7 @@ export const SaveVoiceNotifications = defineCommand({
   input: z.object({ email: z.string().email().nullable(), phone: phoneE164.nullable() }),
   output: z.object({ saved: z.boolean() }),
   permission: 'settings.manage', reversible: true, idempotency: 'optional',
-  ai: { description: '设置店主接收通话摘要的邮箱和手机号。空值关闭该渠道。', confirm: 'always' },
+  ai: { description: '设置店主接收通话摘要的邮箱和手机号。空值关闭该渠道。', confirm: 'always', exposed: false },
 });
 
 export const SaveVoiceBookingRules = defineCommand({

@@ -1,5 +1,5 @@
 import { readPublicBookingProfile } from '@gf/contracts';
-import { voiceNotificationTargets } from '@gf/contracts';
+import { readVoiceConfiguration } from '@gf/contracts';
 /**
  * 门店全量与各模块配置查询层（Phase 1c / Settings Enhancement）
  */
@@ -415,7 +415,7 @@ export async function loadDeskSettings(
     },
     /** 发给店主的账单类邮件用哪种语言。顾客侧恒为英语，与此无关 */
     voiceBookingRules: { maxDaysAhead: Number((loc!.settings as any)?.online_booking?.max_days_ahead ?? 60), minMinutesAhead: Number((loc!.settings as any)?.online_booking?.min_minutes_ahead ?? 30) },
-    voiceNotifications: voiceNotificationTargets(loc!.settings, { email: loc!.email, phone: loc!.phone }),
+    voiceNotifications: readVoiceConfiguration(loc!.settings, { email: loc!.email, phone: loc!.phone }).voiceNotifications,
     emailLocale: org?.default_locale ?? 'en',
     checkout,
     publicBookingResourceTypes: await tx<{id:string;name:unknown}[]>`select id,name from resource_types where location_id=${ctx.locationId}`,
@@ -478,13 +478,10 @@ export async function loadDeskSettings(
       aiVoiceE164: lineOf('ai_voice'),
       forwardingMode: lines.find((l) => l.purpose === 'main')?.forwarding_mode ?? null,
     },
-    phoneAssistant: ((loc!.settings as any)?.phone_assistant ?? (loc!.settings as any)?.phoneAssistant) ?? {
-      greetingPrompt: '您好，感谢致电本店，请问有什么可以帮您？',
-      forwardPhoneNumber: lineOf('transfer_target') ?? '',
-      autoBookEnabled: true,
-      tone: 'warm',
-      voiceTone: 'warm',
-      afterHoursVoicemail: true,
+    phoneAssistant: {
+      ...readVoiceConfiguration(loc!.settings, { email: loc!.email, phone: loc!.phone }).phoneAssistant,
+      forwardPhoneNumber: lineOf('transfer_target')
+        ?? ((loc!.settings as any)?.phone_assistant ?? (loc!.settings as any)?.phoneAssistant)?.forwardPhoneNumber ?? '',
     },
     tenDlc,
     intakeWaiver,

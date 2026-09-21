@@ -1,3 +1,4 @@
+import { loadPlatformVoiceConfiguration, savePlatformVoiceConfiguration } from './voiceConfiguration';
 import { withTenant } from '@gf/db';
 import { platformOperationKey } from './idempotency';
 /**
@@ -383,6 +384,19 @@ export function registerPlatformRoutes(app: FastifyInstance): void {
     if (!orgId) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
     return orgId;
   };
+
+  app.get<{ Params: { locationId: string } }>('/v1/platform/stores/:locationId/voice-configuration', async req => {
+    const op = await operatorFrom(req);
+    const locationId = parseOrThrow(uuid, req.params.locationId);
+    const orgId = await orgOfLocation(op.userId, locationId);
+    return loadPlatformVoiceConfiguration(op, orgId, locationId);
+  });
+  app.put<{ Params: { locationId: string } }>('/v1/platform/stores/:locationId/voice-configuration', async req => {
+    const op = await operatorFrom(req);
+    const locationId = parseOrThrow(uuid, req.params.locationId);
+    const orgId = await orgOfLocation(op.userId, locationId);
+    return savePlatformVoiceConfiguration(op, orgId, locationId, req.body, platformOperationKey(req.headers['idempotency-key']), req.ip);
+  });
 
   app.get('/v1/platform/licenses', async (req) => {
     const op = await operatorFrom(req);

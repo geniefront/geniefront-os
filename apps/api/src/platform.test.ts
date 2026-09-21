@@ -360,3 +360,63 @@ describe('identity mode is not a platform backdoor', () => {
     expect(rows[0]!.n).toBe(0);
   });
 });
+
+describe('Ops voice configuration shared with the customer desk', () => {
+  const url = `/v1/platform/stores/${SPA_LOC}/voice-configuration`;
+  const config = {
+    phoneAssistant: { greetingPrompt: 'Thank you for calling Zhi Zi Massage.', voiceTone: 'professional', autoBookEnabled: false, afterHoursVoicemail: false },
+    voiceNotifications: { email: 'zhizitest@geniefront.com', phone: '+16676606667' },
+  };
+  it('denies customer owners and revoked operators on the Ops read/write endpoints', async () => {
+    for (const userId of [OWNER_USER, PLATFORM_EXOPS_USER_ID]) {
+      asUser(userId);
+      expect((await app.inject({ method: 'GET', url })).statusCode).toBe(403);
+      expect((await app.inject({ method: 'PUT', url, payload: config, headers: { 'idempotency-key': crypto.randomUUID() } })).statusCode).toBe(403);
+    }
+    asAnon();
+    expect((await app.inject({ method: 'GET', url })).statusCode).toBe(401);
+  });
+  it('saves all six fields, reflects them in desk settings, preserves other settings and audits once on retries', async () => {
+    asUser(PLATFORM_OPS_USER_ID);
+    const original = await app.inject({ method: 'GET', url });
+    expect(original.statusCode).toBe(200);
+    const otherBefore = (await app.inject({ method: 'GET', url: `/v1/platform/stores/${NAIL_LOC}/voice-configuration` })).json();
+    const [before] = await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, tx => tx<{ settings: Record<string, unknown>; phone: string; email: string }[]>`select settings, phone, email from locations where id=${SPA_LOC}`);
+    const key = crypto.randomUUID();
+    const payload = { ...config, expectedRevision: original.json().revision };
+    const saved = await app.inject({ method: 'PUT', url, payload, headers: { 'idempotency-key': key } });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject(config);
+    const repeat = await app.inject({ method: 'PUT', url, payload, headers: { 'idempotency-key': key } });
+    expect(repeat.statusCode).toBe(200);
+    expect(repeat.json()).toEqual(saved.json());
+    const ctx = await buildContext({ userId: OWNER_USER, membershipId: ownerMembershipId });
+    const { loadDeskSettings } = await import('./queries/settings');
+    const desk = await withTenant(ctx, tx => loadDeskSettings(tx, ctx));
+    expect(desk.phoneAssistant).toMatchObject(config.phoneAssistant);
+    expect(desk.voiceNotifications).toEqual(config.voiceNotifications);
+    const [after] = await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, tx => tx<{ settings: Record<string, unknown>; phone: string; email: string }[]>`select settings, phone, email from locations where id=${SPA_LOC}`);
+    for (const [name, value] of Object.entries(before!.settings)) {
+      if (!['phone_assistant', 'phoneAssistant', 'voice_notifications'].includes(name)) expect(after!.settings[name]).toEqual(value);
+    }
+    expect(after!.phone).toBe(before!.phone); expect(after!.email).toBe(before!.email);
+    const [audit] = await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null }, tx => tx<{ n: number }[]>`select count(*)::int as n from audit_log where command='platform.saveVoiceConfiguration' and location_id=${SPA_LOC} and actor_kind='platform'`);
+    expect(audit!.n).toBe(1);
+    expect((await app.inject({ method: 'GET', url: `/v1/platform/stores/${NAIL_LOC}/voice-configuration` })).json()).toEqual(otherBefore);
+    const stale = await app.inject({ method: 'PUT', url, payload: { ...payload, phoneAssistant: { ...config.phoneAssistant, greetingPrompt: 'Stale edit' } }, headers: { 'idempotency-key': crypto.randomUUID() } });
+    expect(stale.json().details.reason).toBe('stale_voice_configuration');
+    expect((await app.inject({ method: 'GET', url })).json()).toEqual(saved.json());
+  });
+  it('validates addresses and permits explicit null to disable channels without falling back to shop contacts', async () => {
+    asUser(PLATFORM_OPS_USER_ID);
+    const base = (await app.inject({ method: 'GET', url })).json();
+    const invalid = await app.inject({ method: 'PUT', url, payload: { ...config, expectedRevision: base.revision, voiceNotifications: { email: 'invalid', phone: 'bad' } }, headers: { 'idempotency-key': crypto.randomUUID() } });
+    expect(invalid.json().code).toBe('VALIDATION_FAILED');
+    const result = await app.inject({ method: 'PUT', url, payload: { ...config, expectedRevision: base.revision, voiceNotifications: { email: null, phone: null } }, headers: { 'idempotency-key': crypto.randomUUID() } });
+    expect(result.statusCode).toBe(200);
+    const ctx = await buildContext({ userId: OWNER_USER, membershipId: ownerMembershipId });
+    const { loadDeskSettings } = await import('./queries/settings');
+    const desk = await withTenant(ctx, tx => loadDeskSettings(tx, ctx));
+    expect(desk.voiceNotifications).toEqual({ email: null, phone: null });
+  });
+});

@@ -654,52 +654,13 @@ registerHandler(SaveAiChangePolicy, async ({ input, ctx, tx, audit }: HandlerArg
 });
 
 // ───────────────────────────────────────────── AI 电话助理配置（开场白/转接号）
-registerHandler(SettingsSavePhoneAssistant, async ({ input, ctx, tx, audit }) => {
-  const [cur] = await tx<{ settings: Record<string, unknown> }[]>`
-    select settings from locations where id = ${ctx.locationId}`;
-  if (!cur) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
-
-  const currentSettings = cur.settings ?? {};
-  const before = (currentSettings['phone_assistant'] ?? currentSettings['phoneAssistant'] ?? {}) as Record<string, unknown>;
-
-  const toneVal = input.voiceTone ?? input.tone ?? before['voiceTone'] ?? before['tone'] ?? 'warm';
-  const next = {
-    ...before,
-    greetingPrompt: input.greetingPrompt ?? before['greetingPrompt'] ?? '',
-    forwardPhoneNumber: input.forwardPhoneNumber ?? before['forwardPhoneNumber'] ?? '',
-    autoBookEnabled: input.autoBookEnabled !== undefined ? input.autoBookEnabled : (before['autoBookEnabled'] ?? true),
-    tone: toneVal,
-    voiceTone: toneVal,
-    afterHoursVoicemail: input.afterHoursVoicemail !== undefined ? input.afterHoursVoicemail : (before['afterHoursVoicemail'] ?? true),
-  };
-
-  const updatedSettings = {
-    ...currentSettings,
-    phone_assistant: next,
-    phoneAssistant: next,
-  };
-
-  await tx`
-    update locations
-    set settings = ${jsonb(updatedSettings)}::jsonb, updated_at = now()
-    where id = ${ctx.locationId}`;
-
-  audit({
-    entityType: 'location_settings',
-    entityId: ctx.locationId,
-    before: { phoneAssistant: before },
-    after: { phoneAssistant: next },
-  });
-
-  return { locationId: ctx.locationId, saved: true };
+// Legacy customer endpoints remain registered so old clients get an explicit denial.
+// Ops writes these fields through its authenticated, audited platform endpoint.
+registerHandler(SettingsSavePhoneAssistant, async () => {
+  throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { reason: 'ops_managed_voice_settings' } });
 });
-
-registerHandler(SaveVoiceNotifications, async ({ input, ctx, tx, audit }) => {
-  const [row] = await tx<{ settings: Record<string, unknown> }[]>`select settings from locations where id=${ctx.locationId} for update`;
-  if (!row) throw new AppError(ERROR_CODES.NOT_FOUND);
-  await tx`update locations set settings=jsonb_set(settings,'{voice_notifications}',${jsonb(input)}::jsonb),updated_at=now() where id=${ctx.locationId}`;
-  audit({ entityType:'location', entityId:ctx.locationId, before:row.settings.voice_notifications ?? null, after:input });
-  return { saved:true };
+registerHandler(SaveVoiceNotifications, async () => {
+  throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { reason: 'ops_managed_voice_settings' } });
 });
 
 registerHandler(SaveVoiceBookingRules, async ({ input, ctx, tx, audit }) => {

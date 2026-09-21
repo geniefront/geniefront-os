@@ -1,3 +1,4 @@
+import { VoiceConfigurationPanel } from '@/components/VoiceConfigurationPanel';
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -172,6 +173,8 @@ export function StoreDetail() {
           </>
         ) : <p className="text-sm text-slate-500">No billing account row.</p>}
       </section>
+
+      <VoiceConfigurationPanel locationId={locationId!} />
 
       <LicensePanel locationId={locationId!} />
 

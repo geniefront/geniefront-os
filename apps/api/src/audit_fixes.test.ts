@@ -188,29 +188,17 @@ describe('审计后端修复专项测试', () => {
     });
   });
 
-  describe('6. AI 电话接听高级配置命令 (settings.savePhoneAssistant)', () => {
-    it('保存开场白与转接号到 locations.settings', async () => {
-      const res = await dispatch<{ locationId: string; saved: boolean }>(
-        'settings.savePhoneAssistant',
-        {
-          greetingPrompt: '感谢致电 Lotus Nails & Spa，请问有什么可以帮您？',
-          forwardPhoneNumber: '+12125559999',
-          autoBookEnabled: true,
-          tone: 'warm',
-        },
-        ownerCtx,
-      );
-
-      expect(res.result.saved).toBe(true);
-      expect(res.result.locationId).toBe(NAIL_LOC);
-
-      const [loc] = await withTenant(tenant, (tx) => tx<{ settings: Record<string, unknown> }[]>`
-        select settings from locations where id = ${NAIL_LOC}`);
-      const pa = loc!.settings['phone_assistant'] as Record<string, unknown>;
-      expect(pa.greetingPrompt).toBe('感谢致电 Lotus Nails & Spa，请问有什么可以帮您？');
-      expect(pa.forwardPhoneNumber).toBe('+12125559999');
-      expect(pa.autoBookEnabled).toBe(true);
-      expect(pa.tone).toBe('warm');
+  describe('6. AI 电话配置由 Ops 维护', () => {
+    it('拒绝店主通过旧命令直接修改应答配置和通知收件人', async () => {
+      const [before] = await withTenant(tenant, tx => tx<{ settings: Record<string, unknown> }[]>`select settings from locations where id=${NAIL_LOC}`);
+      for (const [command, input] of [
+        ['settings.savePhoneAssistant', { greetingPrompt: 'Customer override', autoBookEnabled: true }],
+        ['settings.saveVoiceNotifications', { email: 'override@example.com', phone: '+16676606667' }],
+      ] as const) {
+        await expect(dispatch(command, input, ownerCtx)).rejects.toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'ops_managed_voice_settings' } });
+      }
+      const [after] = await withTenant(tenant, tx => tx<{ settings: Record<string, unknown> }[]>`select settings from locations where id=${NAIL_LOC}`);
+      expect(after!.settings).toEqual(before!.settings);
     });
   });
 });

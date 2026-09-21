@@ -112,10 +112,10 @@ export interface PhoneSettings {
 export interface PhoneAssistantSettings {
   greetingPrompt?: string;
   forwardPhoneNumber?: string;
-  autoBookEnabled?: boolean;
+  autoBookEnabled?: boolean | null;
   tone?: string;
-  voiceTone?: string;
-  afterHoursVoicemail?: boolean;
+  voiceTone?: string | null;
+  afterHoursVoicemail?: boolean | null;
 }
 
 export interface CheckoutSettings {

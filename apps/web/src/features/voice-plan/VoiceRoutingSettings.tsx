@@ -146,8 +146,8 @@ function VoiceRoutingSettingsBody() {
       <dl className="grid gap-4 sm:grid-cols-2 text-sm">
         <div className="sm:col-span-2"><dt className="text-slate-500">{t('voiceRouteGreeting')}</dt><dd className="mt-1 whitespace-pre-wrap break-words text-slate-800">{data.phoneAssistant?.greetingPrompt || t('voiceRouteMissing')}</dd></div>
         <div><dt className="text-slate-500">{t('voiceRouteTone')}</dt><dd className="mt-1 text-slate-800">{({ warm:t('settings.stVoiceWarm'), professional:t('settings.stVoiceProfessional'), concise:t('settings.stVoiceEfficient') } as Record<string,string>)[data.phoneAssistant?.voiceTone || data.phoneAssistant?.tone || ''] || t('voiceRouteMissing')}</dd></div>
-        <div><dt className="text-slate-500">{t('voiceRouteBooking')}</dt><dd className="mt-1 text-slate-800">{t(data.phoneAssistant?.autoBookEnabled === undefined ? 'voiceRouteMissing' : data.phoneAssistant.autoBookEnabled ? 'voiceRouteEnabled' : 'voiceRouteDisabled')}</dd></div>
-        <div><dt className="text-slate-500">{t('voiceRouteVoicemail')}</dt><dd className="mt-1 text-slate-800">{t(data.phoneAssistant?.afterHoursVoicemail === undefined ? 'voiceRouteMissing' : data.phoneAssistant.afterHoursVoicemail ? 'voiceRouteEnabled' : 'voiceRouteDisabled')}</dd></div>
+        <div><dt className="text-slate-500">{t('voiceRouteBooking')}</dt><dd className="mt-1 text-slate-800">{t(data.phoneAssistant?.autoBookEnabled == null ? 'voiceRouteMissing' : data.phoneAssistant.autoBookEnabled ? 'voiceRouteEnabled' : 'voiceRouteDisabled')}</dd></div>
+        <div><dt className="text-slate-500">{t('voiceRouteVoicemail')}</dt><dd className="mt-1 text-slate-800">{t(data.phoneAssistant?.afterHoursVoicemail == null ? 'voiceRouteMissing' : data.phoneAssistant.afterHoursVoicemail ? 'voiceRouteEnabled' : 'voiceRouteDisabled')}</dd></div>
       </dl>
     </section>
     <section className={`${surface} space-y-4`}>
