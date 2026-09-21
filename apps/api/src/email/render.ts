@@ -1,3 +1,4 @@
+import { localizedTrial, localizedPayment, localizedCancellation, localizedLicense } from './billingLocalized';
 import { formatPhoneDisplay } from '@gf/contracts';
 /**
  * 邮件正文渲染。**纯函数** —— 不查库、不看时钟。
@@ -197,6 +198,8 @@ export interface TrialEndingData {
 }
 
 export function renderTrialEnding(d: TrialEndingData): Rendered {
+  const localized = localizedTrial(d);
+  if (localized) return localized;
   if (isZhLocale(d.locale)) {
     const text = [
       `${d.shopName}：免费试用还有 3 天`,
@@ -267,6 +270,8 @@ export interface PaymentFailedData {
  * 邮件存在被转发与截图的可能，而「前往更新支付方式」这一动作已足够。
  */
 export function renderPaymentFailed(d: PaymentFailedData): Rendered {
+  const localized = localizedPayment(d);
+  if (localized) return localized;
   if (isZhLocale(d.locale)) {
     const retry = d.nextAttemptText
       ? `系统将于 ${d.nextAttemptText} 自动重试一次。`
@@ -335,6 +340,8 @@ export interface SubscriptionCanceledData {
  * 易被误判为操作未生效而重复提交。本通知是唯一明确说明服务终止时刻的渠道。
  */
 export function renderSubscriptionCanceled(d: SubscriptionCanceledData): Rendered {
+  const localized = localizedCancellation(d);
+  if (localized) return localized;
   if (isZhLocale(d.locale)) {
     const ends = d.endsAtText ?? '当前计费周期结束时';
     const when = d.atPeriodEnd
@@ -412,6 +419,8 @@ export interface LicenseExpiringData {
  * 只会制造一次没必要的争执。
  */
 export function renderLicenseExpiring(d: LicenseExpiringData): Rendered {
+  const localized = localizedLicense(d);
+  if (localized) return localized;
   if (isZhLocale(d.locale)) {
     const head = d.daysLeft > 0
       ? `${d.shopName}：服务将于 ${d.endsAtText} 到期`

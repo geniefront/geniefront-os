@@ -1,3 +1,4 @@
+import { monthlyPrice, trialLastDay } from '../email/billingLocalized';
 import { canSwitchPlan } from '@gf/contracts';
 import { voicePortalConfiguration } from './voicePortal';
 /**
@@ -1224,16 +1225,15 @@ export function registerStripeRoutes(
        * 此前 `formatWhen` 缺省 `zh-CN`、`monthlyText` 硬写「每月 $99」，
        * 两者在英文分支中原样出现，构成一封中英混排的账单邮件。
        */
-      const zh = isZhLocale(shop.locale);
       const monthlyUsd = shop.plan === 'growth' ? 199 : 99;
       const msg = renderTrialEnding({
         shopName: shop.shopName,
         chargeDateText: sub.trial_end
           ? formatWhen(new Date(sub.trial_end * 1000).toISOString(),
                        shop.timezone, shop.locale)
-          : (zh ? '试用结束当天' : 'the last day of your trial'),
+          : trialLastDay(shop.locale),
         planLabel: shop.plan === 'voice_booking' ? 'AI Voice Booking' : shop.plan === 'growth' ? 'Growth' : 'Essential',
-        monthlyText: zh ? `每月 $${monthlyUsd}` : `$${monthlyUsd}/month`,
+        monthlyText: monthlyPrice(shop.locale, monthlyUsd),
         billingUrl: billingPortalUrl(),
         locale: shop.locale,
       });

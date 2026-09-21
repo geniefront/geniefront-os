@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { compactWhen, customerBookingSms, shopBookingSms } from "./booking";
+import { compactWhen, customerBookingSms, shopBookingSms, shopCompactWhen, shopCallSms } from "./booking";
 import { measure } from "./segments";
 import { withComplianceFooter } from "./render";
-import { staffBookingShortUrl } from "../links";
+import { OWNER_LOCALES } from '../email/locale';
 
 describe("compact booking notifications", () => {
   it("formats in the shop timezone", () =>
@@ -31,27 +31,31 @@ describe("compact booking notifications", () => {
         expect(withComplianceFooter(body)).toBe(body);
       });
   }
-  for (const event of ["created", "changed", "cancelled"] as const) {
-    for (const domain of ["desk.geniefront.com", "staging-desk.geniefront.com"])
-      it(`${event} owner on ${domain}: intact link, no price, one part`, () => {
-        const link = staffBookingShortUrl("0123456789abcdef", {
-          APP_BASE_URL: `https://${domain}`,
-        });
-        const body = shopBookingSms({
-          event,
-          customer: "Élodie ^[] ".repeat(10),
-          when: "Sep 24 11:30am",
-          oldWhen: "Sep 23 12:30pm",
-          guests: 12,
-          preferredStaff: "Sophie".repeat(10),
-          link,
-        });
-        expect(measure(body)).toMatchObject({ encoding: "GSM-7", segments: 1 });
-        expect(body).toContain(`${domain}/b/0123456789abcdef`);
-        expect(body).not.toContain("$");
-        expect(withComplianceFooter(body)).toBe(body);
-      });
+  for (const locale of OWNER_LOCALES) for (const event of ['created','changed','cancelled','assigned','pending'] as const) {
+    it(`${locale} ${event}: owner identity, all services and phone, no links or opt-out suffix`,()=>{
+      const body=shopBookingSms({locale,event,customer:'Amy',phone:'+16175550123',when:shopCompactWhen('2026-09-22T18:30:00Z','America/New_York',locale),guests:2,services:'1:深层60分+热石; 2:足疗30分'});
+      expect(body).toMatch(/^GF: /);expect(body).toContain('Amy 6175550123');
+      expect(body).toContain('1:深层60分+热石; 2:足疗30分');
+      expect(body).not.toMatch(/STOP|https?:|geniefront\.com/);
+    });
   }
+  it('keeps a short Chinese notice in one segment and preserves long notices intact',()=>{
+    const base={locale:'zh-Hans' as const,event:'created' as const,customer:'Amy',phone:'+16175550123',when:'9/22 14:30',guests:1,services:'深层60分+热石',preferredStaff:'Lisa'};
+    expect(measure(shopBookingSms(base)).segments).toBe(1);
+    const services=Array.from({length:10},(_,i)=>`${i+1}:深层60分+热石`).join('; ');
+    const body=shopBookingSms({...base,services,phone:'+442079460123'});
+    expect(body).toContain(services);expect(body).toContain('+442079460123');expect(measure(body).segments).toBeGreaterThan(1);
+  });
+  it('renders original and new service lists without an invented old appointment time',()=>{
+    const body=shopBookingSms({event:'services_changed',locale:'zh-Hans',customer:'Amy',when:'9/22 14:30',oldServices:'足疗30分',services:'深层60分+热石'});
+    expect(body).toContain('项目变更');expect(body).toContain('原: 足疗30分');expect(body).toContain('现: 深层60分+热石');
+    expect(body).not.toContain('undefined');
+  });
+  it('localizes call notices and retains the caller number',()=>{
+    expect(shopCallSms('zh-Hant','+16175550123')).toContain('來電');
+    expect(shopCallSms('en','+16175550123')).toContain('6175550123');
+    expect(shopCallSms('en','+16175550123')).not.toMatch(/STOP|https?:/);
+  });
   it("keeps requested staff when it fits; normal and voice bookings use the same text", () => {
     expect(
       customerBookingSms({

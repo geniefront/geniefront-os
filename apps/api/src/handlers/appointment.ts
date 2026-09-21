@@ -646,7 +646,7 @@ export async function executeSingleAppointmentInTx(
            ${item.priceCents}, ${item.durationMin}, ${idx},
            ${isOver}, ${isOver ? input.override!.reason : null},
            ${isOver ? (input.override!.note ?? null) : null},
-           ${jsonb({...item.details,...(input.guest?.bookingSmsConsent!==undefined?{bookingSmsConsent:input.guest.bookingSmsConsent,bookingSmsConsentAt:new Date().toISOString(),bookingSmsPolicyVersion:'2026-09-20'}:{})})}::jsonb,
+           ${jsonb({...item.details,smsBaseDurationMin:Math.max(0,item.durationMin-item.addonIds.reduce((n,id)=>n+(svcById.get(id)?.duration_min??0),0)),...(input.guest?.bookingSmsConsent!==undefined?{bookingSmsConsent:input.guest.bookingSmsConsent,bookingSmsConsentAt:new Date().toISOString(),bookingSmsPolicyVersion:'2026-09-20'}:{})})}::jsonb,
            ${bundleInstanceId}, ${item.bundleComponentId ?? null},
            ${item.bundleUnitIndex ?? null}, ${item.bundleListPriceCents ?? null})
         returning id`;

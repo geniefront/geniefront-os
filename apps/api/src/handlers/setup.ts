@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto';
 import {
-  SaveService, BulkUpdateServices, SaveServiceCategory, ArchiveService, SavePublicBookingProfile,
+  SaveService, FillServiceShortNames, BulkUpdateServices, SaveServiceCategory, ArchiveService, SavePublicBookingProfile,
   SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup,
   SaveSetupFeatures,
@@ -80,6 +80,7 @@ registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
     await tx`update services set
         category_id = ${input.categoryId === undefined ? tx`category_id` : input.categoryId},
         name = ${jsonb(input.name)}::jsonb,
+        short_names = ${input.shortNames === undefined ? tx`short_names` : tx`${jsonb(input.shortNames)}::jsonb`},
         duration_min = ${input.durationMin},
         base_price_cents = ${input.basePriceCents},
         taxable = ${input.taxable === undefined ? tx`taxable` : input.taxable},
@@ -106,9 +107,9 @@ registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
 
   const [row] = await tx<{ id: string }[]>`
     insert into services
-      (org_id, location_id, category_id, name, duration_min, base_price_cents,
+      (org_id, location_id, category_id, name, short_names, duration_min, base_price_cents,
        taxable, online_bookable, is_addon, staff_count, active)
-    values (${ctx.orgId}, ${ctx.locationId}, ${input.categoryId ?? null}, ${jsonb(input.name)}::jsonb,
+    values (${ctx.orgId}, ${ctx.locationId}, ${input.categoryId ?? null}, ${jsonb(input.name)}::jsonb, ${jsonb(input.shortNames ?? {})}::jsonb,
             ${input.durationMin}, ${input.basePriceCents},
             ${input.taxable ?? false}, ${onlineBookable}, ${isAddon}, ${input.staffCount ?? 1}, ${input.active ?? true})
     returning id`;
@@ -119,6 +120,24 @@ registerHandler(SaveService, async ({ input, ctx, tx, audit }: HandlerArgs<
   audit({ entityType: 'service', entityId: row!.id,
           after: { name: pickText(input.name, ctx.locale), created: true } });
   return { serviceId: row!.id, created: true };
+});
+
+registerHandler(FillServiceShortNames, async ({input,ctx,tx,audit}) => {
+  let updated=0, skipped=0;
+  for (const item of [...input.items].sort((a,b)=>a.serviceId.localeCompare(b.serviceId))) {
+    const [row] = await tx<{short_names:Record<string,string>;updated_at:string}[]>`
+      select short_names,updated_at::text from services where id=${item.serviceId} and location_id=${ctx.locationId} for update`;
+    if (!row) throw new AppError(ERROR_CODES.NOT_FOUND,{details:{entity:'service'}});
+    if (row.updated_at !== item.expectedUpdatedAt) { skipped++; continue; }
+    const names={...row.short_names};
+    for(const [locale,value] of Object.entries(item.shortNames)) if(!names[locale]?.trim() && value) names[locale]=value;
+    if(JSON.stringify(names)===JSON.stringify(row.short_names))continue;
+    await tx`update services set short_names=${jsonb(names)}::jsonb,updated_at=now() where id=${item.serviceId} and location_id=${ctx.locationId}`;
+    audit({entityType:'service',entityId:item.serviceId,before:{shortNames:row.short_names},after:{shortNames:names}});
+    updated++;
+  }
+  if(!updated)audit({entityType:'location',entityId:ctx.locationId,after:{shortNamesUpdated:updated,shortNamesSkipped:skipped}});
+  return {updated,skipped};
 });
 
 registerHandler(SaveServiceCategory, async ({ input, ctx, tx, audit }: HandlerArgs<

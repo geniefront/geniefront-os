@@ -90,6 +90,7 @@ export const services = pgTable('services', {
   locationId: locCol(),
   categoryId: uuid('category_id').references(() => serviceCategories.id),
   name: jsonb('name').notNull(),
+  shortNames: jsonb('short_names').notNull().default({}),
   description: jsonb('description'),
   durationMin: integer('duration_min').notNull(),
   bufferBeforeMin: integer('buffer_before_min').notNull().default(0),

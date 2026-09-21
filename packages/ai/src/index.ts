@@ -26,3 +26,5 @@ export * from './runtime/luna';
 
 
 export * from './healthSummary';
+
+export * from "./serviceShortNames";

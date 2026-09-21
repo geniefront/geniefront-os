@@ -1,3 +1,4 @@
+import { ownerLocaleOf } from '../email/locale';
 import {labelDiarizedTurns} from './transcript';
 import type { FastifyInstance } from 'fastify';
 import type { CommandContext } from '@gf/contracts';
@@ -42,7 +43,9 @@ export async function processVoiceRecordings(app: Pick<FastifyInstance, 'log'>) 
       const transcript = await transcribeRecording(recording.bytes, recording.type, recording.channels);
       const durationSeconds = recording.durationSeconds || Number(job.payload.durationSeconds) || Math.ceil(Number(transcript.duration));
       if (!Number.isFinite(durationSeconds) || durationSeconds < 0 || durationSeconds > 86400) throw new Error('Invalid recording duration');
-      const analysis = await classifyRecording(transcript, durationSeconds);
+      const [org] = await withTenant(ctx, tx => tx<{default_locale:string|null}[]>`
+        select default_locale from organizations where id=${ctx.orgId}`);
+      const analysis = await classifyRecording(transcript, durationSeconds, ownerLocaleOf(org?.default_locale));
       await dispatch('call.completeRecording', { jobId: job.id, leaseId: job.leaseId, durationSeconds,
         transcript: transcript.text, turns: labelDiarizedTurns(transcript.turns, analysis.speakers), analysis, recordingUrl: recording.url }, ctx, opts);
       await flushEmails(ctx, app.log); await flushSms(ctx, app.log);

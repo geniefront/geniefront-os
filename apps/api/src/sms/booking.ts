@@ -1,3 +1,5 @@
+import { notificationCopy } from '../notify/copy';
+import { intlLocale, type OwnerLocale } from '../email/locale';
 import { measure } from "./segments";
 const ascii = (value: string) =>
   value
@@ -47,29 +49,30 @@ export function customerBookingSms(args: {
     shop = shop.slice(0, -1).trimEnd();
   return build();
 }
-export function shopBookingSms(args: {
-  event: "created" | "changed" | "cancelled";
-  customer: string;
-  when: string;
-  oldWhen?: string | undefined;
-  guests: number;
-  preferredStaff?: string | undefined;
-  link: string;
-}): string {
-  let name = short(args.customer, 20) || "Guest",
-    staff = short(args.preferredStaff ?? "", 16);
-  const state = { created: "NEW", changed: "CHANGED", cancelled: "CANCELED" }[
-    args.event
-  ];
-  // HTTPS is restored by mobile link detection; keep the full link target intact.
-  const link = args.link.replace(/^https:\/\//, "");
-  let old = args.oldWhen ? cleanWhen(args.oldWhen) : "";
-  const build = () =>
-    `GenieFront: ${state} ${name}. ${old ? `${old} -> ` : ""}${cleanWhen(args.when)}. ${args.guests} guest${args.guests === 1 ? "" : "s"}.${staff ? ` With ${staff}.` : ""} ${link} Reply STOP to opt out.`;
-  while (measure(build()).units > 160 && staff.length)
-    staff = staff.slice(0, -1).trimEnd();
-  while (measure(build()).units > 160 && name.length > 5)
-    name = name.slice(0, -1).trimEnd();
-  if (measure(build()).units > 160) old = "";
-  return build();
+export function shopCompactWhen(iso:string,tz:string,locale:OwnerLocale):string {
+  const d=new Date(iso);
+  return new Intl.DateTimeFormat(intlLocale(locale),{timeZone:tz,month:'numeric',day:'numeric'}).format(d)
+    + ' ' + new Intl.DateTimeFormat(intlLocale(locale),{timeZone:tz,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(d);
+}
+/** Preserve the entire phone and every service; Unicode and multi-part messages are intentional. */
+export function shopBookingSms(args:{
+  event:'created'|'changed'|'cancelled'|'assigned'|'pending'|'services_changed';
+  locale?:OwnerLocale;customer:string;phone?:string|null|undefined;when:string;oldWhen?:string|undefined;
+  guests?:number;services?:string;oldServices?:string;preferredStaff?:string|undefined;
+}):string {
+  const locale=args.locale??'en',c=notificationCopy(locale),sep=locale==='en'?' | ':'｜';
+  const clean=(s:string)=>s.replace(/[\r\n\t]+/g,' ').trim();
+  const phone=clean(args.phone??'').replace(/^\+1(?=\d{10}$)/,'');
+  const who=[clean(args.customer||c.guest),phone].filter(Boolean).join(' ');
+  const title=args.event==='services_changed'?c.servicesChanged:c[args.event];
+  const head=`GF: ${title}${sep}${who}`+(args.guests===undefined?'':sep+(locale.startsWith('zh')?`${args.guests}人`:`${c.guests}: ${args.guests}`));
+  const time=args.oldWhen&&args.oldWhen!==args.when?`${args.oldWhen}${locale==='en'?' -> ':'→'}${args.when}`:args.when;
+  return [head,time,
+    ...(args.oldServices?[`${c.previous}: ${args.oldServices}`,`${c.current}: ${args.services??''}`]:args.services?[args.services]:[]),
+    ...(args.preferredStaff?[`${c.requested}: ${clean(args.preferredStaff)}`]:[]),
+  ].join('\n');
+}
+export function shopCallSms(locale:OwnerLocale,phone:string):string {
+  const c=notificationCopy(locale);
+  return `GF: ${c.callDone}\n${c.caller}: ${phone.replace(/^\+1(?=\d{10}$)/,'') || c.unknown}`;
 }

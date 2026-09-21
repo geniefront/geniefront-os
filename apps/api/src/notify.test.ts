@@ -299,6 +299,8 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
   const CUST_PHONE = `+1617555${RUN.slice(-4)}`;
 
   beforeAll(async () => {
+    // Existing English expectations explicitly use an English shop setting.
+    await withTenant(tenant,tx=>tx`update organizations set default_locale='en' where id=${NAIL_ORG}`);
     const [svc] = await withTenant(tenant, (tx) => tx<{ id: string }[]>`
       select id from services where location_id = ${NAIL_LOC} and active = true
         and is_addon = false limit 1`);
@@ -470,6 +472,36 @@ describe('⭐ 改期与取消会通知客人和技师', () => {
     expect(oldReminder!.status).toBe('suppressed');
     expect(oldReminder!.entity_type).toContain(':superseded:');
     expect(new Set(customerRows.map((r) => r.entity_type)).size).toBe(3);
+  });
+
+  it('Chinese shop notices use GF, phone and service short names while customer notices remain English',async()=>{
+    const [org]=await withTenant(tenant,tx=>tx`select default_locale from organizations where id=${NAIL_ORG}`);
+    const [loc]=await withTenant(tenant,tx=>tx`select email,phone,settings from locations where id=${NAIL_LOC}`);
+    const [svc]=await withTenant(tenant,tx=>tx`select short_names from services where id=${serviceId}`);
+    try {
+      await withTenant(tenant,async tx=>{
+        await tx`update organizations set default_locale='zh-Hans' where id=${NAIL_ORG}`;
+        await tx`update services set short_names='{"zh-Hans":"深层","en":"Deep"}'::jsonb where id=${serviceId}`;
+        await tx`update locations set email='shop@example.invalid',phone='+16175550123',settings=jsonb_set(settings-'voice_notifications','{public_booking_profile}','{"shopNotifications":{"email":true,"sms":true}}'::jsonb,true) where id=${NAIL_LOC}`;
+      });
+      const id=await makeAppt();
+      const messages=await withTenant(tenant,tx=>tx`select body,status,segments from sms_outbox where entity_id=${id} and entity_type='booking_shop:created'`);
+      expect(messages).toHaveLength(1);
+      expect(messages[0]!.body).toMatch(/^GF: 新预约/);
+      expect(messages[0]!.body).toContain(CUST_PHONE.slice(2));
+      expect(messages[0]!.body).toContain('深层');expect(messages[0]!.body).not.toMatch(/STOP|geniefront\.com/);
+      expect(messages[0]!.status).toBe('pending');
+      const email=await withTenant(tenant,tx=>tx`select subject,body_text,body_html from email_outbox where entity_id=${id} and entity_type='booking_shop:created'`);
+      expect(email[0]!.subject).toContain('新预约');expect(email[0]!.body_html).toContain('由 GenieFront 代门店发送');expect(email[0]!.body_text).not.toContain('Guest 1');
+      const customer=await withTenant(tenant,tx=>tx`select body from sms_outbox where entity_id=${id} and entity_type='appointment' and kind='appointment_confirm'`);
+      expect(customer[0]!.body).toContain('GenieFront:');expect(customer[0]!.body).toContain('Confirmed');expect(customer[0]!.body).toContain('Reply STOP');
+    } finally {
+      await withTenant(tenant,async tx=>{
+        await tx`update organizations set default_locale=${org!.default_locale} where id=${NAIL_ORG}`;
+        await tx`update locations set email=${loc!.email},phone=${loc!.phone},settings=${jsonb(loc!.settings)}::jsonb where id=${NAIL_LOC}`;
+        await tx`update services set short_names=${jsonb(svc!.short_names)}::jsonb where id=${serviceId}`;
+      });
+    }
   });
 
   it('顾客没有 Email 时，独立门店邮件仍包含明细和后台入口', async () => {

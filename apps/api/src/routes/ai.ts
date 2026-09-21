@@ -1,3 +1,4 @@
+import { registerServiceShortNameRoutes } from './serviceShortNames';
 /**
  * AI 拍照开店、蓝图提取与建站草案路由
  *
@@ -35,6 +36,7 @@ const MAX_IMAGES_PER_EXTRACT = 6;
 const MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 export function registerAiRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHeaders): void {
+  registerServiceShortNameRoutes(app,ctxFromHeaders);
 
   app.post<{ Body: { url?: string; locale?: string } }>('/v1/onboarding/website/extract', { bodyLimit: 50_000 }, async (req) => {
     const ctx = await ctxFromHeaders(req);

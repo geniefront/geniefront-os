@@ -306,12 +306,12 @@ export async function loadDeskSettings(
     from locations where id = ${ctx.locationId}`;
 
   const services = await tx<{
-    id: string; name: unknown; duration_min: number; base_price_cents: number;
+    id: string; name: unknown; short_names: Record<string,string>; duration_min: number; base_price_cents: number;
     category_id: string | null;
     taxable: boolean; online_bookable: boolean; is_addon: boolean; active: boolean;
     staff_count: number; required_skill_ids: string[]; updated_at: string;
   }[]>`
-    select s.id, s.name, s.category_id, s.duration_min, s.base_price_cents, s.taxable, s.online_bookable,
+    select s.id, s.name, s.short_names, s.category_id, s.duration_min, s.base_price_cents, s.taxable, s.online_bookable,
            s.is_addon, s.active, s.staff_count, s.updated_at::text as updated_at,
            coalesce((select array_agg(ssr.skill_id order by ssr.skill_id)
              from service_skill_requirements ssr where ssr.service_id = s.id), '{}') as required_skill_ids
@@ -431,6 +431,7 @@ export async function loadDeskSettings(
       id: s.id,
       categoryId: s.category_id,
       name: s.name as Record<string, string>,
+      shortNames: s.short_names,
       displayName: pickText(s.name, ctx.locale),
       presentation: readPublicBookingProfile(loc!.settings as Record<string,unknown>).services[s.id],
       durationMin: s.duration_min,

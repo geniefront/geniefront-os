@@ -1,3 +1,5 @@
+import { notificationCopy } from './copy';
+import { intlLocale, type OwnerLocale } from '../email/locale';
 import type postgres from "postgres";
 import { pickText } from "@gf/contracts";
 import { formatWhen } from "../email/render";
@@ -7,8 +9,9 @@ export async function bookingSummary(
   tx: postgres.TransactionSql,
   locationId: string,
   appointmentId: string,
-  options:{includePrices?:boolean}={},
+  options:{includePrices?:boolean; locale?:OwnerLocale}={},
 ): Promise<string> {
+  const locale = options.locale ?? 'en', c = notificationCopy(locale);
   const [loc] = await tx<
     {
       currency: string;
@@ -45,7 +48,7 @@ export async function bookingSummary(
       >`select id,name from services where location_id=${locationId} and id=any(${addonIds})`
     : [];
   const money = (c: number) =>
-    new Intl.NumberFormat("en-US", {
+    new Intl.NumberFormat(intlLocale(locale), {
       style: "currency",
       currency: loc.currency,
     }).format(c / 100);
@@ -59,24 +62,27 @@ export async function bookingSummary(
     string,
     unknown
   >;
-  const cancellationReasons:Record<string,string>={guest_changed_mind:'Cancelled at the customer’s request.',duplicate_booking:'A duplicate booking was cancelled.',input_error:'The booking details needed correction.',no_show:'The appointment was marked as a no-show.',walk_out:'The guest left before service.',other:'The shop cancelled this appointment. Please contact the shop for details.'};
+  const cancellationReasons: Record<string,string> = {
+    guest_changed_mind:c.guest_changed_mind, duplicate_booking:c.duplicate_booking, input_error:c.input_error,
+    no_show:c.no_show, walk_out:c.walk_out, other:c.other,
+  };
   return [
     ...(loc.status==='cancelled'?[cancellationReasons[loc.cancel_reason??'other']??cancellationReasons.other!]:[]),
     ...rows.map((r) =>
       [
-        `Guest ${Number(r.details?.["publicGuestIndex"] ?? 0) + 1}: ${pickText(r.name, "en", "Service")}`,
+        `${c.guest} ${Number(r.details?.["publicGuestIndex"] ?? 0) + 1}: ${pickText(r.name, locale, c.service)}`,
         ...(r.addon_ids ?? []).map((id) =>
-          pickText(addons.find((a) => a.id === id)?.name, "en", "Add-on"),
+          pickText(addons.find((a) => a.id === id)?.name, locale, c.addon),
         ),
-        `${formatWhen(r.starts_at, loc.timezone, "en-US")} – ${new Intl.DateTimeFormat("en-US", { timeZone: loc.timezone, hour: "numeric", minute: "2-digit" }).format(new Date(r.ends_at))}`,
-        ...(r.staff?[pickText(r.staff, "en", "Specialist")]:[]),
+        `${formatWhen(r.starts_at, loc.timezone, intlLocale(locale))} – ${new Intl.DateTimeFormat(intlLocale(locale), { timeZone: loc.timezone, hour: "numeric", minute: "2-digit" }).format(new Date(r.ends_at))}`,
+        ...(r.staff?[pickText(r.staff, locale, c.specialist)]:[]),
         ...(options.includePrices===false?[]:[money(r.price)]),
       ].join(" · "),
     ),
-    ...(options.includePrices===false?[]:[`Total: ${money(rows.reduce((n, r) => n + r.price, 0))}`]),
-    `Timezone: ${loc.timezone}`,
-    ...(address ? [`Address: ${address}`] : []),
-    `Cancel at least ${booking["cancel_cutoff_hours"] ?? 4} hours before the appointment.`,
+    ...(options.includePrices===false?[]:[`${c.total}: ${money(rows.reduce((n, r) => n + r.price, 0))}`]),
+    `${c.timezone}: ${loc.timezone}`,
+    ...(address ? [`${c.address}: ${address}`] : []),
+    c.cutoff.replace("{hours}", String(booking["cancel_cutoff_hours"] ?? 4)),
     ...(booking["cancellation_policy_notice"]
       ? [String(booking["cancellation_policy_notice"])]
       : []),

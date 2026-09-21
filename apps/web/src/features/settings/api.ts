@@ -6,7 +6,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SetupReadiness } from '@gf/contracts';
-import { apiGet, runCommand } from '@/lib/api';
+import { apiGet, apiPost, runCommand } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import type { BillingResponse } from '@/features/billing/types';
 import type {
@@ -462,5 +462,15 @@ export function useSaveWebhooks() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: settingsKeys.desk(membershipId) });
     },
+  });
+}
+
+export function useGenerateServiceShortNames() {
+  const {membershipId}=useSession();
+  const queryClient=useQueryClient();
+  return useMutation({
+    mutationFn:(input:{serviceIds:string[]}|{name:Record<string,string>;shortNames:import('@gf/contracts').ServiceShortNames})=>
+      apiPost<{shortNames?:import('@gf/contracts').ServiceShortNames;updated?:number;skipped?:number}>('/v1/desk/services/short-names/generate',input,{membershipId:membershipId!}),
+    onSuccess:()=>{void queryClient.invalidateQueries({queryKey:settingsKeys.desk(membershipId)});},
   });
 }

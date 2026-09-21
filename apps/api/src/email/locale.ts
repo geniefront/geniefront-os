@@ -1,5 +1,5 @@
 /**
- * 店主侧邮件的语言。
+ * 店家及员工通知的语言（邮件与短信）。
  *
  * ## 事实源
  *
@@ -8,7 +8,7 @@
  *   1. **开户时**由 Stripe Checkout 会话的 `locale` 决定 ——
  *      即店主完成付款时那张托管页实际渲染所用的语言
  *      （`signup/checkout.ts` 与 `signup/webhook.ts`）；
- *   2. **后台设置**中的「邮件语言」（命令 `org.setEmailLocale`）。
+ *   2. **后台设置**中的「店家通知语言」（命令 `org.setEmailLocale`）。
  *
  * ⚠️ 与 `users.locale` 是两件事：后者是**界面语言，按人存**（同一家店的
  * 前台与技师各自不同）。计费邮件的收件人是店主本人，但语言必须按组织取 ——
@@ -41,8 +41,7 @@ export function ownerLocaleOf(v: unknown): OwnerLocale {
 /**
  * 是否走中文分支。
  *
- * 目前仅英语与中文两套文案；`ko` / `vi` / `es` 暂无译文，落入英语分支。
- * 新增译文时改这一处的分派即可，各模板无需改动结构。
+ * 仅用于需要区分中文格式的场景；译文由各通知文案表按完整 locale 选择。
  */
 export function isZhLocale(locale: string): boolean {
   return locale.startsWith('zh');

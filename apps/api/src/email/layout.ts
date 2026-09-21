@@ -1,3 +1,5 @@
+import { notificationCopy } from '../notify/copy';
+import type { OwnerLocale } from './locale';
 /**
  * 邮件 HTML 共用骨架。
  *
@@ -34,6 +36,7 @@ export const EMAIL_BTN =
 export type EmailShellOpts = {
   variant?: 'customer' | 'owner' | 'marketing';
   zh?: boolean;
+  locale?: OwnerLocale;
   unsubscribeUrl?: string | null;
   preheader?: string;
 };
@@ -81,7 +84,8 @@ function footerHtml(opts: EmailShellOpts): string {
         ? `不想再收到这类邮件？<a href="${escapeHtml(opts.unsubscribeUrl)}" style="color:${EMAIL_BRAND.muted};text-decoration:underline">退订</a>。`
         : `Don't want these emails? <a href="${escapeHtml(opts.unsubscribeUrl)}" style="color:${EMAIL_BRAND.muted};text-decoration:underline">Unsubscribe</a>.`)
     : '';
-  const about = opts.variant === 'owner'
+  const c = notificationCopy(opts.locale);
+  const about = opts.locale ? (opts.variant === 'owner' ? c.billingFooter : c.footer) : opts.variant === 'owner'
     ? (zh ? 'GenieFront 账单通知。' : 'GenieFront billing notice.')
     : (zh ? '由 GenieFront 代门店发送。' : 'Sent by GenieFront for your salon.');
   return `<p style="margin:0;font-size:12px;line-height:1.6;color:${EMAIL_BRAND.muted}">`
@@ -122,8 +126,8 @@ export function wrapEmailHtml(inner: string, opts: EmailShellOpts = {}): string 
 }
 
 /** 路径 B 事务性邮件：转义 + 换行 + 品牌壳。没有退订页脚。 */
-export function renderTemplatedEmailHtml(body: string, action?: {url:string;label:string}): string {
-  return wrapEmailHtml(`<div>${nl2brHtml(body)}</div>` + (action ? emailButton(action.url, action.label) : ''));
+export function renderTemplatedEmailHtml(body: string, action?: {url:string;label:string}, opts: EmailShellOpts = {}): string {
+  return wrapEmailHtml(`<div>${nl2brHtml(body)}</div>` + (action ? emailButton(action.url, action.label) : ''), opts);
 }
 
 /**

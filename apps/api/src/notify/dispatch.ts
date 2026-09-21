@@ -1,4 +1,6 @@
-import {customerBookingSms} from '../sms/booking';
+import { ownerLocaleOf } from '../email/locale';
+import { notificationCopy } from './copy';
+import {customerBookingSms, shopBookingSms} from '../sms/booking';
 /**
  * 按事件发通知（批 8 收尾）。
  *
@@ -153,7 +155,12 @@ export async function notifyEvent(
    * ⚠️ 顾客侧固定 `'en'`。调用方漏传时同样落到 `'en'` 而不是 `ctx.locale` ——
    * 后者是当前操作员的界面语言，与收件人无关。
    */
-  const locale = args.locale ?? 'en';
+  const staffEvent = args.event.startsWith('staff_');
+  const [org] = staffEvent ? await tx<{default_locale:string|null}[]>`
+    select default_locale from organizations where id=${ctx.orgId}` : [];
+  const locale = staffEvent ? ownerLocaleOf(org?.default_locale) : 'en';
+  const c = notificationCopy(locale);
+  const staffState = ({staff_assigned:'assigned',staff_changed:'changed',staff_cancelled:'cancelled',staff_pending_confirm:'pending'} as const)[args.event as 'staff_assigned'];
   let queued = 0;
 
   for (const channel of (requiredBooking?['email','sms']:rule!.channels)) {
@@ -173,15 +180,17 @@ export async function notifyEvent(
      * 模板的门店给所有顾客发越南语。
      */
     const [storedTemplate] = await tx<{
-      id: string; version: number; subject: string | null; body: string;
+      id: string; version: number; subject: string | null; body: string; locale: string;
     }[]>`
-      select id, version, subject, body from notification_templates
+      select id, version, subject, body, locale from notification_templates
       where location_id = ${ctx.locationId} and event_key = ${args.event}
         and channel = ${channel} and active = true
         and locale in (${locale}, 'en')
       order by (locale = ${locale}) desc, version desc
       limit 1`;
-    const tpl=storedTemplate ?? (requiredBooking?{id:null,version:null,subject:args.event==='appointment_cancelled'?'Appointment canceled':'Appointment updated',body:args.event==='appointment_cancelled'?'Your appointment at {{shop_name}} on {{when}} has been canceled.':'Your appointment at {{shop_name}} is now on {{when}}.'}:null);
+    const staffFallback = staffState ? { id:null, version:null, subject:c[staffState],
+      body:`${c[staffState]} · {{customer_name}} · {{when}}` } : null;
+    const tpl=(staffEvent && (!storedTemplate || storedTemplate.locale !== locale) ? staffFallback : storedTemplate) ?? (requiredBooking?{id:null,version:null,subject:args.event==='appointment_cancelled'?'Appointment canceled':'Appointment updated',body:args.event==='appointment_cancelled'?'Your appointment at {{shop_name}} on {{when}} has been canceled.':'Your appointment at {{shop_name}} is now on {{when}}.'}:null);
     if (!tpl) continue;
 
     const rendered = renderTemplate(tpl.body, args.vars);
@@ -199,7 +208,7 @@ export async function notifyEvent(
        */
       let unsubscribeUrl: string | null = null;
       let text = args.emailDetails ? `${body}\n\n${args.emailDetails}` : body;
-      let html = renderTemplatedEmailHtml(text,actionUrl?{url:actionUrl,label:manageUrl?'View / manage appointment':'Open appointment'}:undefined);
+      let html = renderTemplatedEmailHtml(text,actionUrl?{url:actionUrl,label:manageUrl?'View / manage appointment':c.open}:undefined, { locale });
       if (marketing) {
         const token = args.customerId
           ? mintUnsubscribeToken({ customerId: args.customerId, orgId: ctx.orgId })
@@ -246,7 +255,13 @@ export async function notifyEvent(
        * 模板里写的话，店主可以在编辑框里把它删掉。
        */
       const bookingEvent=({appointment_confirm:'confirmed',appointment_changed:'changed',appointment_cancelled:'cancelled',appointment_reminder:'reminder'} as const)[args.event as 'appointment_confirm'];
-      const smsBody = bookingEvent ? customerBookingSms({event:bookingEvent,shop:args.vars['shop_name']??'Your store',when:args.vars['when']??'',service:args.vars['service_name']??'',preferredStaff:args.vars['staff_name']??'',hasEmail:!!args.toEmail}) : withComplianceFooter(body);
+      const smsBody = staffState ? shopBookingSms({
+        event:staffState, locale, customer:args.vars['customer_name'] ?? c.guest,
+        when:args.vars['sms_when'] ?? args.vars['when'] ?? '',
+        oldWhen:args.vars['sms_old_when'] ?? args.vars['old_when'] ?? undefined,
+        phone:args.vars['customer_phone'],
+        services:args.vars['sms_services'] ?? args.vars['service_name'] ?? '',
+      }) : bookingEvent ? customerBookingSms({event:bookingEvent,shop:args.vars['shop_name']??'Your store',when:args.vars['when']??'',service:args.vars['service_name']??'',preferredStaff:args.vars['staff_name']??'',hasEmail:!!args.toEmail}) : withComplianceFooter(body);
 
       /*
        * 🔴 **非 GSM-7 的短信一律不发。**
@@ -260,7 +275,7 @@ export async function notifyEvent(
        * 运营台上看得见，否则「顾客没收到通知」将无从追查。
        */
       const encoding = measure(smsBody).encoding;
-      if (encoding !== 'GSM-7') {
+      if (!staffEvent && encoding !== 'GSM-7') {
         await tx`
           insert into sms_outbox
             (org_id, location_id, kind, to_e164, from_e164, body, segments,

@@ -1,3 +1,5 @@
+import { pickText } from '@gf/contracts';
+import { notificationCopy } from '../notify/copy';
 /**
  * 一封计费通知信的收件人与门店信息。
  *
@@ -8,7 +10,7 @@
  */
 
 import type postgres from 'postgres';
-import { ownerLocaleOf, isZhLocale, type OwnerLocale } from './locale';
+import { ownerLocaleOf, type OwnerLocale } from './locale';
 
 /**
  * 一封计费通知信的收件人与门店信息。
@@ -57,21 +59,10 @@ export async function ownerShopOf(
     select id, plan from billing_accounts where location_id = ${locationId}`;
   if (!acct) return null;
 
-  const nameObj = (loc?.name ?? {}) as Record<string, string>;
   const locale = ownerLocaleOf(loc?.default_locale);
-  /*
-   * ⚠️ 店名按**收件人的语言**取，英语优先。
-   *
-   * 此前的取值顺序是 `zh-Hans` 优先且兜底为中文的「你的门店」——
-   * 于是一封英文账单邮件的标题与正文里出现中文店名。
-   */
-  const preferred = isZhLocale(locale)
-    ? (nameObj['zh-Hans'] ?? nameObj['zh-Hant'] ?? nameObj['en'])
-    : (nameObj['en'] ?? nameObj['zh-Hans']);
   return {
     email: owner.email,
-    shopName: preferred ?? Object.values(nameObj)[0]
-      ?? (isZhLocale(locale) ? '你的门店' : 'your shop'),
+    shopName: pickText(loc?.name, locale, notificationCopy(locale).shop),
     timezone: loc?.timezone ?? 'UTC',
     locale,
     accountId: acct.id,

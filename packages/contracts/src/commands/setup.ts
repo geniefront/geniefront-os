@@ -1,3 +1,4 @@
+import { serviceShortNamesSchema } from '../serviceShortNames';
 import { weeklyHoursSchema } from '../businessHours';
 /**
  * 开店配置：项目 / 员工 / 营业时间。
@@ -20,6 +21,7 @@ export const SaveService = defineCommand({
     /** 可选服务分类。null 表示未分类；必须属于当前门店。 */
     categoryId: uuid.nullable().optional(),
     name: i18nText,
+    shortNames: serviceShortNamesSchema.optional(),
     durationMin: z.number().int().min(5).max(600),
     basePriceCents: cents.nonnegative(),
     /**
@@ -50,6 +52,16 @@ export const SaveService = defineCommand({
   },
   reversible: true,
   idempotency: 'optional',
+});
+
+
+/** AI fills only missing cells, and skips services edited since generation began. */
+export const FillServiceShortNames = defineCommand({
+  name: 'catalog.fillServiceShortNames',
+  input: z.object({ items: z.array(z.object({serviceId:uuid, expectedUpdatedAt:z.string(), shortNames:serviceShortNamesSchema})).min(1).max(25) }),
+  output: z.object({updated:z.number().int(), skipped:z.number().int()}),
+  permission:'catalog.manage', reversible:true, idempotency:'optional',
+  ai:{description:'补齐服务项目缺失的六种语言短信简称，已有简称不覆盖。',confirm:'always'},
 });
 
 /** 店主自定义服务分类显示名称与顺序（Massage / Facial / Spa 等）。 */
@@ -768,7 +780,7 @@ export const SavePublicBookingProfile = defineCommand({
 
 export const SETUP_COMMANDS = [
   SavePublicBookingProfile,
-  SaveStaffDirectoryOption, ReorderStaffDirectoryOptions, SaveService, BulkUpdateServices, SaveServiceCategory, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
+  SaveStaffDirectoryOption, ReorderStaffDirectoryOptions, FillServiceShortNames, SaveService, BulkUpdateServices, SaveServiceCategory, ArchiveService, SaveStaffProfile, SetRotationParticipation, SaveBusinessHours,
   ClaimLocation, SaveLocationProfile, FinishSetup, SaveSetupFeatures,
   SaveOnlineBooking, SaveOffHours, AddWebOrigin, RemoveWebOrigin, CreateLocation,
   SaveCheckoutSettings, Apply10Dlc, SaveIntakeWaiver, SaveWebhooks, SetEmailLocale,

@@ -29,6 +29,7 @@ export interface LocationSettings {
 }
 
 export interface ServiceItem {
+  shortNames?: import("@gf/contracts").ServiceShortNames;
   presentation?:{imageUrl:string;description:string};
   id: string;
   categoryId: string | null;
@@ -225,6 +226,7 @@ export interface SaveBusinessHoursInput {
 }
 
 export interface SaveServiceInput {
+  shortNames?: import("@gf/contracts").ServiceShortNames;
   presentation?:{imageUrl:string;description:string};
   serviceId?: string;
   categoryId?: string | null;

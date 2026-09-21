@@ -1,3 +1,7 @@
+import { shopCallSms } from '../sms/booking';
+import { ownerLocaleOf } from '../email/locale';
+import { notificationCopy } from '../notify/copy';
+import { pickText } from '@gf/contracts';
 import { renderVoiceCallEmail } from '../email/voiceCall';
 import { voiceNotificationTargets } from '@gf/contracts';
 import { randomUUID } from 'node:crypto';
@@ -88,13 +92,13 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
         and p.started_at+make_interval(secs=>coalesce(p.duration_seconds,0))>${start.toISOString()}::timestamptz)`;
   }
   const [linkedBooking]=await tx`select id from appointments where location_id=${ctx.locationId} and provider_call_id=${job.provider_call_id} limit 1`;
-  const [shop] = await tx<{ email: string | null; phone: string | null; name: unknown; settings: unknown; timezone: string }[]>`
-    select email,phone,name,settings,timezone from locations where id=${ctx.locationId}`;
+  const [shop] = await tx<{ default_locale: string | null; email: string | null; phone: string | null; name: unknown; settings: unknown; timezone: string }[]>`
+    select o.default_locale,l.email,l.phone,l.name,l.settings,l.timezone from locations l join organizations o on o.id=l.org_id where l.id=${ctx.locationId}`;
+  const locale = ownerLocaleOf(shop?.default_locale);
   const targets = voiceNotificationTargets(shop?.settings, { email: shop?.email ?? null, phone: shop?.phone ?? null });
   const detail = `${process.env.APP_BASE_URL ?? ''}/calls?call=${call!.id}`;
   if (targets.email && !linkedBooking) {
-    const names = shop?.name as Record<string,string> | undefined;
-    const email = renderVoiceCallEmail({ shop: typeof shop?.name === 'string' ? shop.name : names?.en ?? names?.['zh-Hans'] ?? 'GenieFront',
+    const email = renderVoiceCallEmail({ locale, shop: pickText(shop?.name, locale, notificationCopy(locale).shop),
       from: String(job.payload.from ?? ''), startedAt: job.payload.startedAt ? String(job.payload.startedAt) : undefined,
       timezone: shop?.timezone ?? 'America/New_York', durationSeconds: input.durationSeconds,
       summary: input.analysis.summary, turns: transcript, detailUrl: detail });
@@ -103,7 +107,7 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
       on conflict(entity_type,entity_id,kind) do nothing`;
   }
   if (targets.phone && smsConfigured() && !linkedBooking) {
-    const body = `GenieFront: Call completed. Details: ${(process.env.APP_BASE_URL ?? '').replace(/^https:\/\//,'')}/calls. Reply STOP to opt out.`;
+    const body = shopCallSms(locale, String(job.payload.from ?? ''));
     await tx`insert into sms_outbox(org_id,location_id,kind,to_e164,from_e164,body,segments,entity_type,entity_id)
       values(${ctx.orgId},${ctx.locationId},'direct_message',${targets.phone},${smsFrom()},${body},${segmentsOf(body)},'phone_call',${call!.id})
       on conflict(entity_type,entity_id,kind) do nothing`;
