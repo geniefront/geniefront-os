@@ -976,7 +976,7 @@ export function Profile() {
               </Card>
 
               {/* POS 快速锁屏 PIN 码 */}
-              <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden">
+              {!voiceOnly && <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden">
                 <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100 flex flex-row items-center justify-between">
                   <div>
                     <div className="flex items-center gap-2">
@@ -1015,7 +1015,7 @@ export function Profile() {
                     <Badge variant="success">{t('settings.profPinEnabled')}</Badge>
                   </div>
                 </CardContent>
-              </Card>
+              </Card>}
 
               {/* 活跃登录设备列表 */}
               <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden">

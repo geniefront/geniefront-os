@@ -30,3 +30,8 @@ it('makes voice communications read-only without blocking booking, provisioning 
   }
   for (const command of ['appointment.create', 'appointment.cancel', 'call.completeRecording', 'location.savePhoneLine', 'location.saveBookingPolicy', 'location.saveHours', 'settings.saveVoiceNotifications', 'org.setEmailLocale', 'notification.markRead']) expect(planAllowsCommand('voice_booking', command), command).toBe(true);
 });
+
+it('allows personal account commands independently of POS capabilities', () => {
+  for (const command of ['user.updateProfile', 'user.saveNotificationPreferences', 'user.revokeSession']) expect(planAllowsCommand('voice_booking', command)).toBe(true);
+  expect(planAllowsCommand('voice_booking', 'staff.setPin')).toBe(false);
+});
