@@ -41,7 +41,6 @@ export interface UpdateUserProfileInput {
 }
 
 export interface ChangePasswordInput {
-  oldPassword?: string;
   newPassword: string;
 }
 

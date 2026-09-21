@@ -191,13 +191,15 @@ export function Layout() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
 
+  const { membership, locations, session, isOnline, clearMembership, signOut, isTechCapable, switchPortal, can } = useSession();
   // 响应式头像与门店品牌标识
-  const [userAvatar, setUserAvatar] = useState(getSavedUserAvatar());
+  const [userAvatar, setUserAvatar] = useState(getSavedUserAvatar(session?.user.id));
   const [storeAvatar, setStoreAvatar] = useState(getSavedStoreAvatar());
+  useEffect(() => { setUserAvatar(getSavedUserAvatar(session?.user.id)); }, [session?.user.id]);
 
   useEffect(() => {
     const handleUserAvatarUpdate = (e: any) => {
-      setUserAvatar(e.detail || getSavedUserAvatar());
+      setUserAvatar(e.detail || getSavedUserAvatar(session?.user.id));
     };
     const handleStoreAvatarUpdate = (e: any) => {
       setStoreAvatar(e.detail || getSavedStoreAvatar());
@@ -208,7 +210,7 @@ export function Layout() {
       window.removeEventListener('gf-avatar-updated', handleUserAvatarUpdate);
       window.removeEventListener('gf-store-avatar-updated', handleStoreAvatarUpdate);
     };
-  }, []);
+  }, [session?.user.id]);
 
   useEffect(() => {
     const handleOpenCopilot = () => setIsCopilotOpen(true);
@@ -231,7 +233,6 @@ export function Layout() {
   
   const location = useLocation();
   const { t, language, setLanguage } = useLanguage();
-  const { membership, locations, session, isOnline, clearMembership, signOut, isTechCapable, switchPortal, can } = useSession();
   const { today: businessToday } = useBusinessDay();
   const canManageSettings = can('settings.manage') || can('staff.manage');
 

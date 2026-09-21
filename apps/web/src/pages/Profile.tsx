@@ -77,7 +77,7 @@ import {
   PRESET_USER_AVATARS,
   PRESET_AVATAR_GRADIENTS,
   getSavedUserAvatar,
-  saveUserAvatar,
+  saveUserAvatar as persistUserAvatar,
   type UserAvatarPreset,
 } from '@/lib/avatarPresets';
 
@@ -130,19 +130,20 @@ export function Profile() {
   const [selectedGradientId, setSelectedGradientId] = useState('grad-1');
   const [customAvatarUrl, setCustomAvatarUrl] = useState('');
 
+  const saveUserAvatar = (avatar: unknown) => persistUserAvatar(avatar, session?.user.id);
+
   // 初始化加载已存储头像
   useEffect(() => {
-    const saved = getSavedUserAvatar();
+    const saved = getSavedUserAvatar(session?.user.id);
     if (saved) {
       if (saved.mode) setAvatarMode(saved.mode);
       if (saved.presetId) setSelectedUserAvatarId(saved.presetId);
       if (saved.gradientId) setSelectedGradientId(saved.gradientId);
       if (saved.customImageUrl) setCustomAvatarUrl(saved.customImageUrl);
     }
-  }, []);
+  }, [session?.user.id]);
 
   // Security Form State
-  const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -361,11 +362,9 @@ export function Profile() {
           break;
         case 'change_password':
           await changePasswordMutation.mutateAsync({
-            oldPassword,
             newPassword,
           });
           toast.success(t('passwordChangedSuccess'));
-          setOldPassword('');
           setNewPassword('');
           setConfirmPassword('');
           break;
@@ -898,26 +897,6 @@ export function Profile() {
                 </CardHeader>
                 <CardContent className="p-6">
                   <form onSubmit={requestChangePassword} className="space-y-4 max-w-xl">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-800">{t('currentPassword')}</label>
-                      <div className="relative">
-                        <Input
-                          type={showPassword ? 'text' : 'password'}
-                          value={oldPassword}
-                          onChange={(e) => setOldPassword(e.target.value)}
-                          placeholder="••••••••"
-                          className="rounded-xl pr-10"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                        >
-                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                    </div>
-
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
                         <label className="text-xs font-semibold text-slate-800">{t('newPassword')}</label>

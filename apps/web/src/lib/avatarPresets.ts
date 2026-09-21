@@ -81,9 +81,9 @@ export const PRESET_STORE_THEMES = [
 export const USER_AVATAR_STORAGE_KEY = 'gf_user_avatar_prefs';
 export const STORE_AVATAR_STORAGE_KEY = 'gf_store_avatar_prefs';
 
-export function getSavedUserAvatar() {
+export function getSavedUserAvatar(userId?: string) {
   try {
-    const raw = localStorage.getItem(USER_AVATAR_STORAGE_KEY);
+    const raw = userId ? localStorage.getItem(`${USER_AVATAR_STORAGE_KEY}:${userId}`) : null;
     if (raw) return JSON.parse(raw);
   } catch {}
   return {
@@ -95,9 +95,10 @@ export function getSavedUserAvatar() {
   };
 }
 
-export function saveUserAvatar(avatar: any) {
+export function saveUserAvatar(avatar: any, userId?: string) {
   try {
-    localStorage.setItem(USER_AVATAR_STORAGE_KEY, JSON.stringify(avatar));
+    if (!userId) return;
+    localStorage.setItem(`${USER_AVATAR_STORAGE_KEY}:${userId}`, JSON.stringify(avatar));
     window.dispatchEvent(new CustomEvent('gf-avatar-updated', { detail: avatar }));
   } catch {}
 }
