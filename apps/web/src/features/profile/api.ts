@@ -132,14 +132,14 @@ export function useRevokeSession() {
   });
 }
 
-export function usePersonalNotificationPreferencesQuery() {
+export function usePersonalNotificationPreferencesQuery(enabled = true) {
   const { status } = useSession();
 
   return useQuery({
     queryKey: profileKeys.preferences(),
     queryFn: () =>
       apiGet<PersonalNotificationPreferences>('/v1/me/notification-preferences'),
-    enabled: status === 'ready',
+    enabled: enabled && status === 'ready',
   });
 }
 

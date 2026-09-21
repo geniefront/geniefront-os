@@ -240,48 +240,8 @@ describe('个人资料与通知中心全量功能后端测试', () => {
       expect(unchanged?.is_active).toBe(true);
     });
 
-    it('user.saveNotificationPreferences 保存个人多渠道通知偏好 & GET 查询', async () => {
-      const payload = {
-        inApp: {
-          appointmentNew: true,
-          appointmentChanged: true,
-          appointmentCancelled: true,
-          paymentFailed: true,
-          customerFeedback: false,
-          payoutSettled: true,
-          systemSecurity: true,
-        },
-        sms: {
-          appointmentNew: true,
-          appointmentChanged: false,
-          emergencyAlerts: true,
-        },
-        email: {
-          dailyDigest: false,
-          financialReports: true,
-          securityAlerts: true,
-        },
-      };
-
-      const res = await dispatch<{ userId: string; saved: boolean }>(
-        'user.saveNotificationPreferences',
-        payload,
-        ownerCtx,
-      );
-
-      expect(res.result.saved).toBe(true);
-
-      const getRes = await app.inject({
-        method: 'GET',
-        url: '/v1/me/notification-preferences',
-        headers: { [STAFF_TOKEN_HEADER]: staffToken },
-      });
-
-      expect(getRes.statusCode).toBe(200);
-      const data = getRes.json();
-      expect(data.inApp.customerFeedback).toBe(false);
-      expect(data.email.dailyDigest).toBe(false);
-      expect(data.sms.emergencyAlerts).toBe(true);
+    it('rejects notification switches without a delivery consumer', async () => {
+      await expect(dispatch('user.saveNotificationPreferences', { email: { dailyDigest: true } }, ownerCtx)).rejects.toMatchObject({ details: { reason: 'personal_notification_preferences_unavailable' } });
     });
   });
 

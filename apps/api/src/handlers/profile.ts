@@ -202,38 +202,7 @@ registerHandler(RevokeUserSession, async () => {
 });
 
 // ───────────────────────────────────────────── 4. 保存个人多渠道通知偏好
-registerHandler(SaveNotificationPreferences, async ({ input, ctx, tx, audit }: HandlerArgs<
-  typeof SaveNotificationPreferences.input._type>) => {
-  const userId = await resolveUserId(tx, ctx);
-  if (!userId) {
-    throw new AppError(ERROR_CODES.UNAUTHENTICATED, { details: { reason: 'User identity required' } });
-  }
-
-  const inAppJson = input.inApp ? jsonb(input.inApp) : jsonb({});
-  const smsJson = input.sms ? jsonb(input.sms) : jsonb({});
-  const emailJson = input.email ? jsonb(input.email) : jsonb({});
-
-  await tx`
-    insert into user_notification_preferences (
-      user_id, location_id, in_app, sms, email, updated_at
-    ) values (
-      ${userId}, ${ctx.locationId ?? null},
-      coalesce(${input.inApp ? inAppJson : null}::jsonb, '{"appointmentNew": true, "appointmentChanged": true, "appointmentCancelled": true, "paymentFailed": true, "customerFeedback": true, "payoutSettled": true, "systemSecurity": true}'::jsonb),
-      coalesce(${input.sms ? smsJson : null}::jsonb, '{"appointmentNew": true, "appointmentChanged": false, "emergencyAlerts": true}'::jsonb),
-      coalesce(${input.email ? emailJson : null}::jsonb, '{"dailyDigest": true, "financialReports": true, "securityAlerts": true}'::jsonb),
-      now()
-    )
-    on conflict (user_id) do update set
-      in_app = case when ${input.inApp !== undefined} then ${inAppJson}::jsonb else user_notification_preferences.in_app end,
-      sms = case when ${input.sms !== undefined} then ${smsJson}::jsonb else user_notification_preferences.sms end,
-      email = case when ${input.email !== undefined} then ${emailJson}::jsonb else user_notification_preferences.email end,
-      updated_at = now()`;
-
-  audit({
-    entityType: 'user_notification_preferences',
-    entityId: userId,
-    after: input,
-  });
-
-  return { userId, saved: true };
+registerHandler(SaveNotificationPreferences, async () => {
+  // No delivery consumer implements these legacy personal switches.
+  throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'personal_notification_preferences_unavailable' } });
 });

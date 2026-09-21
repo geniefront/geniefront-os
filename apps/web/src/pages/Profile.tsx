@@ -99,7 +99,7 @@ export function Profile() {
   const { t, language, setLanguage } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab') || 'general';
-  const activeTab = voiceOnly && requestedTab === 'provider' ? 'general' : requestedTab;
+  const activeTab = requestedTab === 'notifications' || (voiceOnly && requestedTab === 'provider') ? 'general' : requestedTab;
 
   const { session, membership, locations, context, selectMembership, signOut } = useSession();
   const {
@@ -110,7 +110,7 @@ export function Profile() {
     refetch: refetchProfile,
   } = useUserProfileQuery();
   const { data: sessions, isLoading: isSessionsLoading } = useActiveSessionsQuery(false);
-  const { data: notifPrefs } = usePersonalNotificationPreferencesQuery();
+  const { data: notifPrefs } = usePersonalNotificationPreferencesQuery(false);
 
   const updateProfileMutation = useUpdateUserProfile();
   const changePasswordMutation = useChangePassword();
@@ -464,7 +464,6 @@ export function Profile() {
     { id: 'security', label: t('tabSecurity'), icon: Shield },
     { id: 'store_roles', label: t('tabStoreRoles'), icon: Building },
     { id: 'provider', label: t('tabProvider'), icon: Scissors },
-    { id: 'notifications', label: t('tabNotificationPrefs'), icon: Bell },
   ];
 
   return (
@@ -1250,168 +1249,7 @@ export function Profile() {
             </Card>
           )}
 
-          {/* ── TAB 5: 个人通知偏好 (Notification Preferences) ────────────────── */}
-          {activeTab === 'notifications' && (
-            <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden">
-              <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100 flex flex-row items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Bell className="w-4 h-4 text-teal-600" />
-                    <CardTitle className="text-sm font-semibold text-slate-900">{t('tabNotificationPrefs')}</CardTitle>
-                  </div>
-                  <CardDescription className="text-xs text-slate-500 mt-0.5">
-                    
-                    {t('settings.profNotifDesc')}
-                  </CardDescription>
-                </div>
-                <Button
-                  onClick={requestSaveNotificationPrefs}
-                  disabled={saveNotifPrefsMutation.isPending}
-                  className="bg-teal-600 hover:bg-teal-700 text-white rounded-xl gap-2 text-xs font-semibold"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>{t('save')}</span>
-                </Button>
-              </CardHeader>
-              <CardContent className="p-6 space-y-6">
-                {localNotifPrefs && (
-                  <div className="space-y-6">
-                    {/* 应用内实时推送 */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-xs font-semibold text-slate-900 uppercase tracking-wider text-teal-800 flex items-center gap-2">
-                          <Bell className="w-4 h-4" />
-                          <span>{t('settings.profInAppTitle')}</span>
-                        </h4>
-                        <button
-                          type="button"
-                          disabled={saveNotifPrefsMutation.isPending}
-                          onClick={async () => {
-                            try {
-                              const next = await persistRecommendedInAppPrefs(
-                                localNotifPrefs,
-                                (prefs) => saveNotifPrefsMutation.mutateAsync(prefs),
-                              );
-                              setLocalNotifPrefs(next);
-                              toast.success(t('settings.profRecommendedApplied'));
-                            } catch (err: any) {
-                              toast.danger(errorMessage(err));
-                            }
-                          }}
-                          className="text-xs font-semibold text-teal-600 hover:text-teal-700 disabled:opacity-50"
-                        >
-                          
-                          {t('settings.profEnableAll')}
-                        </button>
-                      </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {[
-                          { key: 'appointmentNew', label: t('settings.profNotifNewBooking'), desc: t('settings.profNotifNewBookingDesc') },
-                          { key: 'appointmentChanged', label: t('settings.profNotifChanged'), desc: t('settings.profNotifChangedDesc') },
-                          { key: 'paymentFailed', label: t('settings.profNotifPaymentFailed'), desc: t('settings.profNotifPaymentFailedDesc') },
-                          { key: 'customerFeedback', label: t('settings.profNotifReview'), desc: t('settings.profNotifReviewDesc') },
-                          { key: 'payoutSettled', label: t('settings.profNotifPayout'), desc: t('settings.profNotifPayoutDesc') },
-                          { key: 'systemSecurity', label: t('settings.profNotifSecurity'), desc: t('settings.profNotifSecurityDesc') },
-                        ].map((item) => (
-                          <div
-                            key={item.key}
-                            className="flex items-start justify-between p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-colors"
-                          >
-                            <div className="space-y-0.5 pr-2">
-                              <label className="text-xs font-semibold text-slate-800">{item.label}</label>
-                              <p className="text-[11px] text-slate-500">{item.desc}</p>
-                            </div>
-                            <input
-                              type="checkbox"
-                              checked={(localNotifPrefs.inApp as any)[item.key]}
-                              onChange={(e) =>
-                                setLocalNotifPrefs({
-                                  ...localNotifPrefs,
-                                  inApp: { ...localNotifPrefs.inApp, [item.key]: e.target.checked },
-                                })
-                              }
-                              className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 mt-0.5 cursor-pointer"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* 手机短信渠道 */}
-                    <div className="space-y-3 pt-4 border-t border-slate-100">
-                      <h4 className="text-xs font-semibold text-slate-900 uppercase tracking-wider text-teal-800 flex items-center gap-2">
-                        <Smartphone className="w-4 h-4" />
-                        <span>{t('settings.profSmsTitle')}</span>
-                      </h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {[
-                          { key: 'appointmentNew', label: t('settings.profSmsUrgent'), desc: t('settings.profSmsUrgentDesc') },
-                          { key: 'emergencyAlerts', label: t('settings.profSmsOps'), desc: t('settings.profSmsOpsDesc') },
-                        ].map((item) => (
-                          <div
-                            key={item.key}
-                            className="flex items-start justify-between p-3.5 rounded-xl border border-slate-100 bg-slate-50/50"
-                          >
-                            <div className="space-y-0.5 pr-2">
-                              <label className="text-xs font-semibold text-slate-800">{item.label}</label>
-                              <p className="text-[11px] text-slate-500">{item.desc}</p>
-                            </div>
-                            <input
-                              type="checkbox"
-                              checked={(localNotifPrefs.sms as any)[item.key]}
-                              onChange={(e) =>
-                                setLocalNotifPrefs({
-                                  ...localNotifPrefs,
-                                  sms: { ...localNotifPrefs.sms, [item.key]: e.target.checked },
-                                })
-                              }
-                              className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 mt-0.5 cursor-pointer"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* 邮件报告 */}
-                    <div className="space-y-3 pt-4 border-t border-slate-100">
-                      <h4 className="text-xs font-semibold text-slate-900 uppercase tracking-wider text-teal-800 flex items-center gap-2">
-                        <Mail className="w-4 h-4" />
-                        <span>{t('settings.profEmailTitle')}</span>
-                      </h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {[
-                          { key: 'dailyDigest', label: t('settings.profEmailDaily'), desc: t('settings.profEmailDailyDesc') },
-                          { key: 'securityAlerts', label: t('settings.profEmailSecurity'), desc: t('settings.profEmailSecurityDesc') },
-                        ].map((item) => (
-                          <div
-                            key={item.key}
-                            className="flex items-start justify-between p-3.5 rounded-xl border border-slate-100 bg-slate-50/50"
-                          >
-                            <div className="space-y-0.5 pr-2">
-                              <label className="text-xs font-semibold text-slate-800">{item.label}</label>
-                              <p className="text-[11px] text-slate-500">{item.desc}</p>
-                            </div>
-                            <input
-                              type="checkbox"
-                              checked={(localNotifPrefs.email as any)[item.key]}
-                              onChange={(e) =>
-                                setLocalNotifPrefs({
-                                  ...localNotifPrefs,
-                                  email: { ...localNotifPrefs.email, [item.key]: e.target.checked },
-                                })
-                              }
-                              className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 mt-0.5 cursor-pointer"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
         </motion.div>
       </AnimatePresence>
 
