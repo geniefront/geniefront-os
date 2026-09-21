@@ -55,3 +55,5 @@ The 18:09:23 and 18:09:56 UTC inbound callbacks returned valid TeXML (HTTP 200 i
 
 
 Follow-up: Telnyx's TLS retry at 18:17:39 UTC still targeted port 5060. Its source was `192.76.120.10`, already inside the saved xAI allowlist; the xAI API corroborated both existing CIDRs. A certificate-verified TLS probe timed out on 5060 but succeeded with TLS 1.3 on `sip.voice.x.ai:5061`. Runtime and saved production/staging configuration now use `XAI_SIP_HOST=sip.voice.x.ai:5061`; no allowlist expansion was made. Deployment environment validation rejects the known-invalid TLS/5060 combination. Live PSTN confirmation is still required; a successful TLS handshake alone does not establish call completion.
+
+Recovery confirmed: after both production nodes switched to `sip.voice.x.ai:5061`, the owner redialed the production number and confirmed that the AI answered. The allowlist stayed unchanged throughout this recovery. The environment guard was also tested with an otherwise-valid production configuration pointing to 5060 and rejected it.
