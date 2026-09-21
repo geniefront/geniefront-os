@@ -443,7 +443,7 @@ function CustomersContent() {
         title={t(voiceOnly ? 'customers' : 'crm.custTitle')}
         description={voiceOnly ? undefined : t('crm.custDesc')}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <GuardedButton
               permission="customer.view_contact"
               fallback="disable"
@@ -1139,7 +1139,7 @@ function CustomersContent() {
                 {t('crm.custNameLabel')}
               </label>
               <Input aria-label={t('crm.custNameLabel')}
-                {...customerForm.bind('name')} aria-label={t('crm.custNameLabel')}
+                {...customerForm.bind('name')}
                 value={formName}
                 onChange={(e) => { setFormName(e.target.value); customerForm.clearField('name'); }}
                 placeholder={t('crm.custNamePlaceholder')}

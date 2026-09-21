@@ -305,8 +305,8 @@ export function CreateAppointmentModal({
     enabled: !voiceOnly && isOpen && canAppointmentWrite && mode === 'bundle',
   });
   const bundleTemplates = useMemo<BundleTemplateView[]>(
-    () => (bundleCatalog.data?.templates ?? []).filter((b) => b.active),
-    [bundleCatalog.data],
+    () => (bundleCatalog.data?.templates ?? []).filter((b) => b.active && b.fulfillable && b.components.every(component => services.some(service => service.id === component.serviceId && service.staffCount === 1))),
+    [bundleCatalog.data, services],
   );
   const selectedBundle = useMemo(
     () => bundleTemplates.find((b) => b.id === selectedBundleId) ?? null,
