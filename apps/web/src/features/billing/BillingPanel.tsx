@@ -162,10 +162,10 @@ export function BillingPanel() {
   };
 
   return (
-    <Card className="border border-slate-200/90 shadow-sm rounded-2xl overflow-hidden bg-white">
+    <Card className="border border-slate-200/90 shadow-sm rounded-2xl overflow-hidden bg-white p-0">
       <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             <CardTitle className="text-sm font-bold text-slate-900">{t('settings.stBillingTitle')}</CardTitle>
             {billing && (
               <Badge variant={badgeVariant} className="text-xs font-bold gap-1">
@@ -362,8 +362,8 @@ export function BillingPanel() {
                   <EmptyState title={t('settings.stNoInvoices')} className="py-8" />
                 </div>
               ) : (
-                <div className="border border-slate-200 rounded-2xl overflow-hidden text-xs">
-                  <div className="bg-slate-50 p-3 font-bold text-slate-600 grid grid-cols-4 border-b border-slate-200">
+                <div className="border border-slate-200 rounded-2xl overflow-x-auto text-xs">
+                  <div className="min-w-[560px] bg-slate-50 p-3 font-bold text-slate-600 grid grid-cols-4 gap-3 border-b border-slate-200">
                     <span>{t('settings.stInvoiceNo')}</span>
                     <span>{t('settings.stBillingPeriod')}</span>
                     <span>{t('settings.stInvoiceAmount')}</span>
@@ -374,9 +374,9 @@ export function BillingPanel() {
                     return (
                       <div
                         key={inv.id}
-                        className="p-3 grid grid-cols-4 items-center border-b last:border-b-0 border-slate-100 hover:bg-slate-50/50"
+                        className="min-w-[560px] p-3 grid grid-cols-4 gap-3 items-center border-b last:border-b-0 border-slate-100 hover:bg-slate-50/50"
                       >
-                        <span className="font-mono font-bold text-slate-800">
+                        <span className="break-words font-mono font-bold text-slate-800">
                           {inv.invoiceNumber}
                           <span className="block font-sans font-medium text-[10px] text-slate-400 mt-0.5">
                             {t(invoiceStatusKey(inv.status))}

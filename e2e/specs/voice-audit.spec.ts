@@ -28,13 +28,13 @@ test('voice audit pages and autosave survive browser back navigation', async ({ 
     await expect(page.getByRole('heading', { name: /Something went wrong|Unable to load/ })).toHaveCount(0);
   }
   await page.goto('/profile');
-  await page.getByRole('textbox', { name: 'Legal name', exact: true }).fill('Voice QA Profile');
+  await page.getByRole('textbox', { name: 'Name / nickname', exact: true }).fill('Voice QA Profile');
   await page.getByRole('textbox', { name: /Mobile|Phone/, exact: false }).fill('');
   await page.getByRole('button', { name: 'Save', exact: true }).first().click();
   await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText('Your profile has been saved')).toBeVisible();
   await page.reload();
-  await expect(page.getByRole('textbox', { name: 'Legal name', exact: true })).toHaveValue('Voice QA Profile');
+  await expect(page.getByRole('textbox', { name: 'Name / nickname', exact: true })).toHaveValue('Voice QA Profile');
   await page.goto('/profile?tab=security');
   await expect(page.getByText('Active sessions', { exact: true })).toHaveCount(0);
   await expect(page.getByText('PIN code', { exact: true })).toHaveCount(0);

@@ -1,4 +1,14 @@
+import { voiceRouting } from './voiceRouting';
 export const voiceSettings = {
+  ...voiceRouting,
+  voiceStoreDescription: {"zh-Hans": "维护门店资料、营业时间和预约展示。", "en": "Manage shop details, opening hours and booking presentation.", "ko": "매장 정보, 영업시간 및 예약 화면을 관리하세요.", "es": "Administra los datos, horarios y presentación del local.", "vi": "Quản lý thông tin, giờ mở cửa và trang đặt lịch."},
+  voiceServicesDescription: {"zh-Hans": "管理服务价格、时长、分类及在线可预约项目。", "en": "Manage prices, durations, categories and online availability.", "ko": "가격, 시간, 카테고리 및 온라인 예약을 관리하세요.", "es": "Administra precios, duraciones, categorías y disponibilidad.", "vi": "Quản lý giá, thời lượng, danh mục và khả năng đặt trực tuyến."},
+  voiceTeamDescription: {"zh-Hans": "管理员工、排班与预约容量，设置可预约时间范围。", "en": "Manage staff, schedules, capacity and booking windows.", "ko": "직원, 근무, 수용 인원 및 예약 범위를 관리하세요.", "es": "Administra personal, turnos, capacidad y plazos de reserva.", "vi": "Quản lý nhân viên, ca làm, sức chứa và thời gian đặt lịch."},
+  voicePhoneDescription: {"zh-Hans": "查看 AI 线路与通知配置，需要修改时提交工单。", "en": "Review AI routing and notifications; request changes through a support ticket.", "ko": "AI 회선과 알림 설정을 확인하고 변경은 지원 요청으로 신청하세요.", "es": "Consulta las rutas y avisos de IA; solicita cambios mediante soporte.", "vi": "Xem kết nối và thông báo AI; gửi yêu cầu hỗ trợ để thay đổi."},
+  voiceBillingDescription: {"zh-Hans": "查看当前套餐、用量、付款方式与历史账单。", "en": "Review your plan, usage, payment methods and invoices.", "ko": "요금제, 사용량, 결제 수단 및 청구서를 확인하세요.", "es": "Consulta tu plan, consumo, métodos de pago y facturas.", "vi": "Xem gói, mức sử dụng, phương thức thanh toán và hóa đơn."},
+  voiceRoutingTitle: {"zh-Hans": "电话与转接", "en": "Phone & routing", "ko": "전화 및 연결", "es": "Teléfono y desvíos", "vi": "Điện thoại và chuyển cuộc gọi"},
+  voiceImportTools: {"zh-Hans": "导入与快捷添加", "en": "Import & quick add", "ko": "가져오기 및 빠른 추가", "es": "Importar y añadir", "vi": "Nhập và thêm nhanh"},
+
   voiceUncertain: { 'zh-Hans': '发送结果未知', en: 'Delivery unknown', ko: '전송 결과 알 수 없음', es: 'Resultado desconocido', vi: 'Chưa rõ kết quả gửi' },
   voiceSending: { 'zh-Hans': '正在发送', en: 'Sending', ko: '전송 중', es: 'Enviando', vi: 'Đang gửi' },
   voiceDeliveryAttempts: { 'zh-Hans': '发送尝试次数', en: 'Send attempts', ko: '전송 시도 횟수', es: 'Intentos', vi: 'Số lần gửi' },

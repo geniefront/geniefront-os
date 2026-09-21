@@ -26,7 +26,7 @@ export function HoursPeriodsEditor({
         <div key={i} className="flex flex-wrap items-center gap-2">
           <Input
             type="time"
-            className="w-28"
+            className="w-32"
             aria-label={`${label} ${i + 1} ${zh ? "开始" : "Start"}`}
             value={p.open}
             onChange={(e) =>
@@ -40,7 +40,7 @@ export function HoursPeriodsEditor({
           <span>—</span>
           <Input
             type="time"
-            className="w-28"
+            className="w-32"
             aria-label={`${label} ${i + 1} ${zh ? "结束" : "End"}`}
             value={p.close}
             onChange={(e) =>

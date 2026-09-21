@@ -232,6 +232,8 @@ export function Layout() {
   const notifMenuRef = useRef<HTMLDivElement>(null);
   
   const location = useLocation();
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => { mainRef.current?.scrollTo({ top: 0, left: 0 }); }, [location.pathname]);
   const { t, language, setLanguage } = useLanguage();
   const { today: businessToday } = useBusinessDay();
   const canManageSettings = can('settings.manage') || can('staff.manage');
@@ -814,6 +816,7 @@ export function Layout() {
           就会直接盖到顶栏和侧栏上面。开了 isolate，页面内的数字只在 main 内部比大小。
         */}
         <main
+          ref={mainRef}
           tabIndex={-1}
           className="isolate min-h-0 flex-1 overflow-auto bg-[var(--gf-canvas)] p-3 focus:outline-none sm:p-4 lg:p-6"
         >

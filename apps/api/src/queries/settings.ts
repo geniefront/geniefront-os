@@ -480,7 +480,7 @@ export async function loadDeskSettings(
     },
     phoneAssistant: ((loc!.settings as any)?.phone_assistant ?? (loc!.settings as any)?.phoneAssistant) ?? {
       greetingPrompt: '您好，感谢致电本店，请问有什么可以帮您？',
-      forwardPhoneNumber: lineOf('transfer_target') ?? '+12125808888',
+      forwardPhoneNumber: lineOf('transfer_target') ?? '',
       autoBookEnabled: true,
       tone: 'warm',
       voiceTone: 'warm',

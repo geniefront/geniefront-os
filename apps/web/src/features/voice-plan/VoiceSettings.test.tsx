@@ -17,7 +17,8 @@ import { VoiceSettings } from './VoiceSettings';
 it('legacy 10DLC deep links open useful phone settings; an unprovisioned line does not block other settings', async () => {
  render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/settings?tab=10dlc']}><VoiceSettings /></MemoryRouter></QueryClientProvider>);
  expect(screen.getByText('voiceSummaryRecipients')).toBeVisible();
- expect(screen.getByRole('checkbox',{name:'voiceAnswerEnabled'})).toBeDisabled();
+ expect(screen.queryByRole('checkbox',{name:'voiceAnswerEnabled'})).not.toBeInTheDocument();
+ expect(screen.getAllByText('voiceRouteManaged').length).toBeGreaterThan(0);
  expect(screen.queryByText(/10DLC|DNS|营销|收银/)).not.toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:'voiceTeamTab'}));
  await waitFor(()=>expect(screen.getByText('Staff and capacity form')).toBeVisible());

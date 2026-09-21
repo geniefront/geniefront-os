@@ -18,7 +18,7 @@ export function StaffEditor({ staff, voiceOnly }: { staff: StaffItem; voiceOnly:
   if (directory.isError) return <PageError title={t('genericFailure')} error={directory.error} onRetry={() => directory.refetch()} />;
   if (!draft.value) return <p>{t(directory.isPending ? 'setupReadinessLoading' : 'noData')}</p>;
   const v = draft.value;
-  return <div className="space-y-3 rounded-xl border p-4">
+  return <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
     <Field label={t('setupFieldStaffName')}><Input value={v.name} onChange={e => draft.set(old => ({ ...old, name: e.target.value }))} /></Field>
     <Field label={t('setupFieldPhone')}><Input type="tel" value={v.phone} onChange={e => draft.set(old => ({ ...old, phone: e.target.value }))} /></Field>
     {!voiceOnly && <Field label={t('setupStaffCapacity')}><Input type="number" min="1" max="5" value={v.maxConcurrentAppointments} onChange={e => draft.set(old => ({ ...old, maxConcurrentAppointments: Number(e.target.value) }))} /></Field>}

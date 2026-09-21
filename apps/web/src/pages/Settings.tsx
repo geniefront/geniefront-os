@@ -1,3 +1,4 @@
+import { VoiceRoutingSettings } from '@/features/voice-plan/VoiceRoutingSettings';
 import {BookingImagePicker} from '@/components/ui/BookingImagePicker';
 import {HoursPeriodsEditor,type DayHours} from '@/features/setup/HoursPeriodsEditor';
 import { PublicBookingProfileCard } from '@/features/settings/PublicBookingProfileCard';
@@ -82,7 +83,6 @@ import {
   useSaveOnlineBooking,
   useAddWebOrigin,
   useRemoveWebOrigin,
-  useSavePhoneAssistant,
   useSaveCheckoutSettings,
   useApply10Dlc,
   useSaveWebhooks,
@@ -196,18 +196,18 @@ interface SettingsRowProps {
 function SettingsRow({ label, description, required, children, alignTop }: SettingsRowProps) {
   return (
     <div
-      className={`grid grid-cols-1 md:grid-cols-12 gap-3 py-4 border-b border-slate-100 last:border-b-0 ${
+      className={`grid grid-cols-1 xl:grid-cols-12 gap-3 py-4 border-b border-slate-100 last:border-b-0 ${
         alignTop ? 'items-start' : 'items-center'
       }`}
     >
-      <div className="md:col-span-5 space-y-1 pr-2">
+      <div className="xl:col-span-4 min-w-0 space-y-1 pr-2">
         <label className="text-xs font-bold text-slate-800 flex items-center gap-1">
           <span>{label}</span>
           {required && <span className="text-red-500">*</span>}
         </label>
         {description && <p className="text-[11px] text-slate-500 leading-relaxed">{description}</p>}
       </div>
-      <div className="md:col-span-7 min-w-0">{children}</div>
+      <div className="xl:col-span-8 min-w-0">{children}</div>
     </div>
   );
 }
@@ -276,7 +276,6 @@ function FullSettings() {
   const saveOnlineBookingMutation = useSaveOnlineBooking();
   const addOriginMutation = useAddWebOrigin();
   const removeOriginMutation = useRemoveWebOrigin();
-  const savePhoneAssistantMutation = useSavePhoneAssistant();
   const saveCheckoutMutation = useSaveCheckoutSettings();
   const apply10DlcMutation = useApply10Dlc();
   const saveWebhooksMutation = useSaveWebhooks();
@@ -384,14 +383,6 @@ function FullSettings() {
   const [staffMaxConcurrent, setStaffMaxConcurrent] = useState('1');
   const [staffCommissionRate, setStaffCommissionRate] = useState('50');
 
-  // 7. AI 电话助手
-  const [greetingPrompt, setGreetingPrompt] = useState('');
-  const [forwardPhone, setForwardPhone] = useState('');
-  const [autoBookEnabled, setAutoBookEnabled] = useState(false);
-  const [voiceTone, setVoiceTone] = useState<'warm' | 'professional' | 'concise'>('warm');
-  const [afterHoursVoicemail, setAfterHoursVoicemail] = useState(false);
-  const greetingTextareaRef = useRef<HTMLTextAreaElement>(null);
-
   // 8. 10DLC 资质代办
   const [tenDlcStatus, setTenDlcStatus] = useState<'not_submitted' | 'pending_review' | 'approved' | 'rejected'>('not_submitted');
   const [legalName, setLegalName] = useState('');
@@ -422,7 +413,6 @@ function FullSettings() {
   const [confirmSaveCheckoutOpen, setConfirmSaveCheckoutOpen] = useState(false);
   const [confirmSaveBookingOpen, setConfirmSaveBookingOpen] = useState(false);
   const [confirmTenDlcOpen, setConfirmTenDlcOpen] = useState(false);
-  const [confirmSavePhoneOpen, setConfirmSavePhoneOpen] = useState(false);
 
   // Walk-in Guest轮牌状态切换二次确认弹窗
   const [confirmRotationTarget, setConfirmRotationTarget] = useState<{
@@ -486,13 +476,7 @@ function FullSettings() {
           setAllowPickStaff(settings.guest.onlineBooking.allowClientPickStaff);
         }
       }
-      if (settings.phoneAssistant) {
-        setGreetingPrompt(settings.phoneAssistant.greetingPrompt ?? '');
-        setForwardPhone(formatPhoneDisplay(settings.phoneAssistant.forwardPhoneNumber) ?? '');
-        if (settings.phoneAssistant.autoBookEnabled !== undefined) setAutoBookEnabled(settings.phoneAssistant.autoBookEnabled);
-        if (settings.phoneAssistant.voiceTone) setVoiceTone(settings.phoneAssistant.voiceTone as any);
-        if (settings.phoneAssistant.afterHoursVoicemail !== undefined) setAfterHoursVoicemail(settings.phoneAssistant.afterHoursVoicemail);
-      }
+
       if (settings.tenDlc) {
         if (settings.tenDlc.status) setTenDlcStatus(settings.tenDlc.status);
         setLegalName(settings.tenDlc.legalBusinessName ?? '');
@@ -520,21 +504,6 @@ function FullSettings() {
   }, [settings]);
 
   // 快捷插入变量至文本域
-  const handleInsertVariable = (variableText: string) => {
-    if (!greetingTextareaRef.current) return;
-    const textarea = greetingTextareaRef.current;
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const text = greetingPrompt;
-    const before = text.substring(0, start);
-    const after = text.substring(end, text.length);
-    setGreetingPrompt(before + variableText + after);
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + variableText.length, start + variableText.length);
-    }, 0);
-  };
-
   // 营业时间快捷操作
   const copyMonToWeekdays = () => {
     const mon = businessHours.mon || { open: '09:30', close: '19:30' };
@@ -842,21 +811,6 @@ function FullSettings() {
     }
   };
 
-  const handleSavePhoneAssistant = async () => {
-    try {
-      await savePhoneAssistantMutation.mutateAsync({
-        greetingPrompt: greetingPrompt.trim() || undefined,
-        forwardPhoneNumber: forwardPhone.trim() || undefined,
-        autoBookEnabled,
-        voiceTone,
-        afterHoursVoicemail,
-      });
-      toast.success(t('settings.stAiPhoneSaved'));
-    } catch (err: any) {
-      toast.danger(errorMessage(err));
-    }
-  };
-
   const handleSaveTenDlc = async () => {
     try {
       const res = await apply10DlcMutation.mutateAsync({
@@ -1039,7 +993,7 @@ function FullSettings() {
   });
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto w-full pb-24">
+    <div className="space-y-6 max-w-7xl mx-auto w-full pb-24">
       {/* 顶部 PageHeader */}
       <PageHeader
         title={t('settings.stTitle')}
@@ -1055,7 +1009,7 @@ function FullSettings() {
       {/* 主布局：左侧分类导航 + 右侧设置面板 */}
       <div className="flex flex-col lg:flex-row gap-6 w-full items-start">
         {/* 左侧导航栏 */}
-        <div className="w-full lg:w-64 shrink-0 space-y-4">
+        <div className="w-full lg:w-52 shrink-0 space-y-4 lg:sticky lg:top-0">
           <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-xs space-y-4 sticky top-4">
             {NAV_GROUPS.map(group => ({ ...group, items: group.items.filter(item => !voiceOnly || voiceTabs.includes(item.id)) })).filter(group => group.items.length > 0).map((group, idx) => (
               <div key={group.groupNameKey} className={idx > 0 ? 'pt-3 border-t border-slate-100' : ''}>
@@ -1107,7 +1061,7 @@ function FullSettings() {
         </div>
 
         {/* 右侧主配置面板 */}
-        <div className="flex-1 min-w-0 space-y-6">
+        <div className="w-full flex-1 min-w-0 space-y-6">
           {/* ============================================================ */}
           {/* TAB 1: 门店品牌档案 (store) */}
           {/* ============================================================ */}
@@ -2341,143 +2295,7 @@ function FullSettings() {
           {/* ============================================================ */}
           {/* TAB 7: AI 电话助手 (ai_phone) */}
           {/* ============================================================ */}
-          {currentTab === 'ai_phone' && (
-            <div className="space-y-6">
-              <SettingsCard
-                title={t('settings.stAiTitle')}
-                description={t('settings.stAiDesc')}
-                actions={
-                  <Button
-                    onClick={() => setConfirmSavePhoneOpen(true)}
-                    disabled={savePhoneAssistantMutation.isPending}
-                    className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs"
-                  >
-                    {savePhoneAssistantMutation.isPending ? t('settings.stAiSaving') : t('settings.stSaveAi')}
-                  </Button>
-                }
-              >
-                {/* 线路绑定状态 */}
-                <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 mb-4 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-                  <div>
-                    <span className="text-slate-500 block mb-1 font-medium">{t('settings.stPublicMainNumber')}</span>
-                    <span className="font-mono font-bold text-slate-900 text-sm">
-                      {formatPhoneDisplay(settings?.phone.storefrontE164 || storePhone) || '—'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 block mb-1 font-medium">{t('settings.stAiDidNumber')}</span>
-                    <span className="font-mono font-bold text-teal-700 text-sm">
-                      {formatPhoneDisplay(settings?.phone.aiVoiceE164) || t('settings.stDidReady')}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 block mb-1 font-medium">{t('settings.stAgentTransferNumber')}</span>
-                    <span className="font-mono font-bold text-slate-900 text-sm">
-                      {formatPhoneDisplay(forwardPhone || settings?.phone.transferTargetE164) || '—'}
-                    </span>
-                  </div>
-                </div>
-
-                <SettingsRow
-                  label={t('settings.stGreetingPrompt')}
-                  description={t('settings.stGreetingPromptDesc')}
-                  alignTop
-                >
-                  <div className="space-y-2">
-                    <textarea
-                      ref={greetingTextareaRef}
-                      rows={4}
-                      value={greetingPrompt}
-                      onChange={(e) => setGreetingPrompt(e.target.value)}
-                      className="w-full p-3 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 leading-relaxed font-sans"
-                    />
-                    <div className="flex items-center gap-1.5 flex-wrap text-xs">
-                      <span className="text-slate-400 text-[11px]">{t('settings.stInsertVariables')}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleInsertVariable(t('settings.stVarStoreName'))}
-                        className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[11px] font-mono text-slate-700"
-                      >
-                        + {t('settings.stVarStoreName2')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleInsertVariable(t('settings.stVarHoursToday'))}
-                        className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[11px] font-mono text-slate-700"
-                      >
-                        + {t('settings.stVarHoursToday2')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleInsertVariable(t('settings.stVarFeaturedService'))}
-                        className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-[11px] font-mono text-slate-700"
-                      >
-                        + {t('settings.stVarFeaturedService2')}
-                      </button>
-                    </div>
-                  </div>
-                </SettingsRow>
-
-                <SettingsRow
-                  label={t('settings.stFallbackPhone')}
-                  description={t('settings.stFallbackPhoneDesc')}
-                  required
-                >
-                  <div className="relative max-w-sm">
-                    <Input type="tel"
-                      value={forwardPhone}
-                      onChange={(e) => setForwardPhone(e.target.value)}
-                      placeholder="(212) 555-0199"
-                      maxLength={32}
-                      className="pl-8 font-mono text-xs"
-                    />
-                    <Phone className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                  </div>
-                </SettingsRow>
-
-                <SettingsRow
-                  label={t('settings.stVoiceStyle')}
-                  description={t('settings.stVoiceStyleDesc')}
-                >
-                  <div className="flex items-center gap-3">
-                    {[
-                      { val: 'warm', label: t('settings.stVoiceWarm') },
-                      { val: 'professional', label: t('settings.stVoiceProfessional') },
-                      { val: 'concise', label: t('settings.stVoiceEfficient') },
-                    ].map((tone) => (
-                      <button
-                        key={tone.val}
-                        type="button"
-                        onClick={() => setVoiceTone(tone.val as any)}
-                        className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
-                          voiceTone === tone.val
-                            ? 'bg-teal-50 border-teal-300 text-teal-900 shadow-2xs'
-                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        {tone.label}
-                      </button>
-                    ))}
-                  </div>
-                </SettingsRow>
-
-                <SettingsRow
-                  label={t('settings.stAutoBook')}
-                  description={t('settings.stAutoBookDesc')}
-                >
-                  <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={autoBookEnabled}
-                      onChange={(e) => setAutoBookEnabled(e.target.checked)}
-                      className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 w-4 h-4"
-                    />
-                    <span>{t('settings.stAutoBookLockDesc')}</span>
-                  </label>
-                </SettingsRow>
-              </SettingsCard>
-            </div>
-          )}
+          {currentTab === 'ai_phone' && <VoiceRoutingSettings />}
 
           {/* ============================================================ */}
           {/* TAB 8: 10DLC 短信资质代办 (10dlc) */}
@@ -3204,19 +3022,6 @@ function FullSettings() {
         onConfirm={async () => {
           await handleSaveTenDlc();
           setConfirmTenDlcOpen(false);
-        }}
-      />
-
-      {/* 9. 保存 AI 电话设置确认 */}
-      <ConfirmDialog
-        isOpen={confirmSavePhoneOpen}
-        onOpenChange={setConfirmSavePhoneOpen}
-        title={t('settings.stSaveAiConfirmTitle')}
-        description={t('settings.stSaveAiConfirmBody')}
-        confirmLabel={t('settings.stSaveAiConfirmAction')}
-        onConfirm={async () => {
-          await handleSavePhoneAssistant();
-          setConfirmSavePhoneOpen(false);
         }}
       />
 

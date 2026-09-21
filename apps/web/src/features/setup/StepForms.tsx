@@ -53,7 +53,7 @@ const DAY_KEYS: ReadonlyArray<readonly [string, TranslationKey]> = [
   ['fri', 'fri'], ['sat', 'sat'], ['sun', 'sun'],
 ];
 
-export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void; stepNumber?: number }) {
+export function StoreStepForm({ onSaved, stepNumber = 1, settingsMode = false }: { onSaved: () => void; stepNumber?: number; settingsMode?: boolean }) {
   const { t } = useLanguage();
   const { membershipId } = useSession();
   const settingsQuery = useDeskSettingsQuery();
@@ -81,8 +81,9 @@ export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void
 
   return (
     <div className="space-y-6">
-      <ImportWorkspace mode="store" initialName={form.name} initialPlace={form.addressZip || form.addressCity} />
-      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">{t('setupImportOrManual')}</p>
+      {!settingsMode && <><ImportWorkspace mode="store" initialName={form.name} initialPlace={form.addressZip || form.addressCity} /><p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">{t('setupImportOrManual')}</p></>}
+      <section className={settingsMode ? 'rounded-2xl border border-slate-200 bg-white p-4 sm:p-6' : ''}>
+      {settingsMode && <h3 className="mb-5 font-semibold text-slate-900">{t('settings.stStoreInfoTitle')}</h3>}
       <div className="grid gap-4 md:grid-cols-2">
         <Field label={t('setupFieldStoreName')}><Input {...storeForm.bind('name')} className={fieldClass} value={form.name} onChange={(e) => { update('name', e.target.value); storeForm.clearField('name'); }} /></Field>
         <Field label={t('setupFieldBusinessType')}>
@@ -95,7 +96,7 @@ export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void
         <Field label={t('setupFieldPhone')}><Input type="tel" className={fieldClass} value={form.phone} onChange={(e) => update('phone', e.target.value)} placeholder="+12125551234" /></Field>
         <Field label={t('setupFieldEmail')}><Input className={fieldClass} type="email" value={form.email} onChange={(e) => update('email', e.target.value)} /></Field>
         <Field label={t('setupFieldStreet')}><Input className={fieldClass} value={form.addressStreet} onChange={(e) => update('addressStreet', e.target.value)} /></Field>
-        <div className="grid grid-cols-[1fr_80px_100px] gap-2">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-[minmax(0,1fr)_80px_100px]">
           <Field label={t('setupFieldCity')}><Input className={fieldClass} value={form.addressCity} onChange={(e) => update('addressCity', e.target.value)} /></Field>
           <Field label={t('setupFieldState')}><Input className={fieldClass} value={form.addressState} onChange={(e) => update('addressState', e.target.value.toUpperCase())} /></Field>
           <Field label={t('setupFieldZip')}><Input className={fieldClass} value={form.addressZip} onChange={(e) => update('addressZip', e.target.value)} /></Field>
@@ -110,8 +111,10 @@ export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void
         </Field>
         <Field label={t('setupFieldCutoff')} hint={t('setupCutoffHint')}><Input className={fieldClass} type="time" value={form.businessDayCutoff} onChange={(e) => update('businessDayCutoff', e.target.value)} /></Field>
       </div>
-      <div>
-        <div className="mb-3 flex items-center justify-between gap-3">
+      <SaveStatus {...draft} />
+      </section>
+      <section className={settingsMode ? 'rounded-2xl border border-slate-200 bg-white p-4 sm:p-6' : ''}>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h3 className="font-bold text-slate-900">{t('setupWeeklyHoursTitle')}</h3>
           <Button variant="ghost" size="sm" onClick={() => {
             const monday = hours.mon ?? { open: '09:00', close: '20:00' };
@@ -122,7 +125,7 @@ export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void
           {DAY_KEYS.map(([key, labelKey]) => {
             const value = hours[key] ?? null;
             return (
-              <div key={key} className="grid grid-cols-[70px_70px_1fr] items-center gap-3 px-4 py-3 sm:grid-cols-[80px_90px_1fr]">
+              <div key={key} className="grid grid-cols-2 items-center gap-3 px-3 py-3 sm:grid-cols-[64px_72px_minmax(0,1fr)] [&>div]:col-span-2 sm:[&>div]:col-span-1">
                 <span className="text-sm font-semibold text-slate-800">{t(labelKey)}</span>
                 <button type="button" onClick={() => setHours((h) => ({ ...h, [key]: value ? null : { open: '09:00', close: '20:00' } }))} className={cn('text-left text-xs font-semibold', value ? 'text-teal-700' : 'text-slate-400')}>{value ? t('setupDayOpen') : t('setupDayClosed')}</button>
                 {value ? <HoursPeriodsEditor label={t(labelKey)} value={value} onChange={next=>setHours(h=>({...h,[key]:next}))}/> : <span className="text-sm text-slate-400">{t('setupDayNoBooking')}</span>}
@@ -130,14 +133,15 @@ export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void
             );
           })}
         </div>
-      </div>
+        <SaveStatus {...draft} />
+      </section>
       <StoreMediaEditor />
-      <SaveStatus {...draft} />
+      {settingsMode && <details className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6"><summary className="cursor-pointer font-semibold">{t('voiceImportTools')}</summary><div className="mt-4"><ImportWorkspace mode="store" initialName={form.name} initialPlace={form.addressZip || form.addressCity} /></div></details>}
     </div>
   );
 }
 
-export function CatalogStepForm({ onSaved, stepNumber = 4 }: { onSaved: () => void; stepNumber?: number }) {
+export function CatalogStepForm({ onSaved, stepNumber = 4, settingsMode = false }: { onSaved: () => void; stepNumber?: number; settingsMode?: boolean }) {
   const { t } = useLanguage();
   const canImportImages = useCan('ai.use');
   const settingsQuery = useDeskSettingsQuery();
@@ -196,20 +200,28 @@ export function CatalogStepForm({ onSaved, stepNumber = 4 }: { onSaved: () => vo
   if (!data) return <p>{t('setupReadinessLoading')}</p>;
   return (
     <div className="space-y-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+        <div className="mb-3 flex flex-wrap gap-2 items-center justify-between"><h3 className="font-bold text-slate-900">{t('setupCurrentServices')}</h3><Badge variant={active.length ? 'success' : 'warning'}>{t('setupServicesEnabledCount', { p0: active.length })}</Badge></div>
+        {(data?.services ?? []).map(service => <ServiceEditor key={service.id} service={service} categories={data?.serviceCategories ?? []} />)}
+        {!active.length && <p className="p-4 text-amber-800">{t('setupNoServicesHint')}</p>}
+      </div>
+      <details open={settingsMode ? undefined : true} className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6"><summary className="cursor-pointer font-semibold">{t('voiceImportTools')}</summary><div className="mt-4 space-y-4">
       <CatalogPresetPicker
         businessType={data?.location.businessType ?? null}
         existingNames={existingNames}
         onAdded={onSaved}
       />
       {canImportImages && <ImportWorkspace mode="catalog" />}
+      </div></details>
+      <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
       <CategoryManager categories={data?.serviceCategories ?? []} />
-      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">{t('setupImportOrManual')}</p>
+      <h3 className="font-semibold text-slate-900">{t('setupAddService')}</h3>
       <div className="grid gap-3 sm:grid-cols-3">
         <CategoryPicker value={categoryId} onChange={setCategoryId} categories={data?.serviceCategories ?? []} />
         <Toggle checked={isAddon} onChange={setIsAddon} label={t('settings.stAddOnTag')} description={t('setupAddonHint')} />
         {!isAddon && <Toggle checked={onlineBookable} onChange={setOnlineBookable} label={t('setupOnlineBookable')} description="" />}
       </div>
-      <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-5 md:grid-cols-[1.4fr_.7fr_.7fr_auto]">
+      <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-5 sm:grid-cols-2 2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,.7fr)_minmax(0,.7fr)_auto]">
         <Field label={t('setupFieldServiceName')}><Input {...serviceForm.bind('name')} className={fieldClass} value={name} onChange={(e) => { setName(e.target.value); serviceForm.clearField('name'); }} placeholder={t('setupFieldServiceNamePlaceholder')} /></Field>
 
         <Field label={t('setupFieldPriceUsd')}><Input {...serviceForm.bind('price')} className={fieldClass} type="number" min="0" step="0.01" value={price} onChange={(e) => { setPrice(e.target.value); serviceForm.clearField('price'); }} placeholder="65.00" /></Field>
@@ -218,11 +230,8 @@ export function CatalogStepForm({ onSaved, stepNumber = 4 }: { onSaved: () => vo
       isPending={saveService.isPending} permission="catalog.manage" onClick={add} isDisabled={saveService.isPending} className="h-11 self-end gap-2"><Plus className="size-4" />{t('setupAddService')}</GuardedButton>
         <details className="col-span-full"><summary className="cursor-pointer text-sm font-semibold">图片与简介 / Photo and description</summary><div className="mt-3 max-w-lg"><BookingImagePicker value={presentation.imageUrl} serviceName={name} onChange={imageUrl=>setPresentation(v=>({...v,imageUrl}))}/><textarea aria-label="Service description / 项目简介" placeholder="Service description / 项目简介" className="mt-3 w-full rounded-xl border p-3" maxLength={5000} value={presentation.description} onChange={e=>setPresentation(v=>({...v,description:e.target.value}))}/></div></details>
       </div>
-      <div>
-        <div className="mb-3 flex items-center justify-between"><h3 className="font-bold text-slate-900">{t('setupCurrentServices')}</h3><Badge variant={active.length ? 'success' : 'warning'}>{t('setupServicesEnabledCount', { p0: active.length })}</Badge></div>
-        {(data?.services ?? []).map(service => <ServiceEditor key={service.id} service={service} categories={data?.serviceCategories ?? []} />)}
-        {!active.length && <p className="p-4 text-amber-800">{t('setupNoServicesHint')}</p>}
-      </div>
+      </section>
+
     </div>
   );
 }
@@ -252,14 +261,14 @@ export function TeamStepForm({ onSaved, stepNumber = 5, settingsMode = false }: 
   const staff = data?.staff ?? [];
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-5 md:grid-cols-2">
+      <div className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 md:grid-cols-2">
         <Field label={t('setupFieldStaffName')}><Input {...staffForm.bind('name')} className={fieldClass} value={name} onChange={(e) => { setName(e.target.value); staffForm.clearField('name'); }} placeholder="Amy" /></Field>
         <div className="flex items-end"><GuardedButton
         isPending={saveStaff.isPending} permission="staff.manage" onClick={add} isDisabled={saveStaff.isPending} className="h-11 w-full gap-2"><UserRoundPlus className="size-4" />{t('setupAddStaff')}</GuardedButton></div>
         <Toggle checked={bookable} onChange={setBookable} label={t('setupToggleBookableLabel')} description={t('setupToggleBookableDesc')} />
         {!voiceOnly && <Toggle checked={rotation} onChange={setRotation} label={t('setupToggleRotationLabel')} description={t('setupToggleRotationDesc')} />}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">{staff.map(member => <StaffEditor key={member.membershipId} staff={member} voiceOnly={voiceOnly} />)}</div>
+      <div className="grid gap-3 2xl:grid-cols-2">{staff.map(member => <StaffEditor key={member.membershipId} staff={member} voiceOnly={voiceOnly} />)}</div>
       {voiceOnly && <SetupBookingCapacity />}
       {!staff.some((member) => member.isBookable) && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{t('setupStaffMinBookableHint')}</div>}
       {!settingsMode && <div className="rounded-xl border border-teal-100 bg-teal-50/60 p-4 text-sm leading-6 text-teal-900">{t('setupStep3Footer')}</div>}

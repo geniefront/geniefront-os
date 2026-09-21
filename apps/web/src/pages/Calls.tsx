@@ -535,9 +535,9 @@ export function Calls() {
 
       {/* 通话记录全量审计列表 */}
       <Card className="border-slate-200 shadow-sm p-4 sm:p-5 space-y-4">
-        <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3">
+        <div className="flex flex-col gap-4">
           <div>
-            <h3 className="font-semibold text-slate-900 text-base flex items-center gap-2">
+            <h3 className="font-semibold text-slate-900 text-base flex items-center gap-2 whitespace-nowrap">
               <Phone className="w-4 h-4 text-teal-600" />
               
               {t('voiceCallHistory')} <span className="text-sm font-normal tabular-nums text-slate-400">{filteredCalls.length}</span>
@@ -548,50 +548,53 @@ export function Calls() {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
+          <div className="grid w-full min-w-0 gap-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
               <span>{t('crm.callRangeLabel')}</span>
-              <input aria-label={t('crm.callFromDate')} type="date" value={callFrom} max={callTo || undefined} onChange={e => { setCallFrom(e.target.value); setCallPage(0); }} />
-              <input aria-label={t('crm.callToDate')} type="date" value={callTo} min={callFrom || undefined} onChange={e => { setCallTo(e.target.value); setCallPage(0); }} />
-              <span>{callFrom || t('crm.callDefaultRange')} · {callPage * 50 + (calls.length ? 1 : 0)}–{callPage * 50 + calls.length} / {callData?.total ?? '—'}</span>
-              <Button size="sm" variant="secondary" disabled={callPage === 0 || callsLoading} onClick={() => setCallPage(p => p - 1)}>←</Button>
-              <Button size="sm" variant="secondary" disabled={callsLoading || (callPage + 1) * 50 >= (callData?.total ?? 0)} onClick={() => setCallPage(p => p + 1)}>→</Button>
+              <input aria-label={t('crm.callFromDate')} className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" type="date" value={callFrom} max={callTo || undefined} onChange={e => { setCallFrom(e.target.value); setCallPage(0); }} />
+              <input aria-label={t('crm.callToDate')} className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" type="date" value={callTo} min={callFrom || undefined} onChange={e => { setCallTo(e.target.value); setCallPage(0); }} />
+              <span className="basis-full py-1 sm:basis-auto sm:ml-auto">{callFrom || t('crm.callDefaultRange')} · {callPage * 50 + (calls.length ? 1 : 0)}–{callPage * 50 + calls.length} / {callData?.total ?? '—'}</span>
+              <Button aria-label={t('crm.previousPage')} size="sm" variant="secondary" disabled={callPage === 0 || callsLoading} onClick={() => setCallPage(p => p - 1)}>←</Button>
+              <Button aria-label={t('crm.nextPage')} size="sm" variant="secondary" disabled={callsLoading || (callPage + 1) * 50 >= (callData?.total ?? 0)} onClick={() => setCallPage(p => p + 1)}>→</Button>
             </div>
-            {/* 搜索框 */}
-            <div className="relative min-w-[200px] flex-1 sm:w-64">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                aria-label={t('crm.callSearchPlaceholder')}
-                placeholder={t('crm.callSearchPlaceholder')}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 shadow-xs"
-              />
-            </div>
+            <div className="flex flex-col gap-3 sm:flex-row-reverse sm:items-center sm:justify-between">
+              {/* 搜索框 */}
+              <div className="relative min-w-0 w-full sm:max-w-md">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  aria-label={t('crm.callSearchPlaceholder')}
+                  placeholder={t('crm.callSearchPlaceholder')}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 shadow-xs"
+                />
+              </div>
 
-            {/* 状态过滤 */}
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 shrink-0">
-              {(
-                [
-                  { key: "all", label: t('crm.callFilterAll') },
-                  { key: "booked", label: t('crm.callFilterBooked') },
-                  { key: "inquiry", label: t('crm.callFilterEnquiry') },
-                  { key: "forwarded", label: t('crm.callFilterTransferred') },
-                ] as const
-              ).map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setOutcomeFilter(tab.key)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                    outcomeFilter === tab.key
-                      ? "bg-white text-teal-800 shadow-xs"
-                      : "text-slate-500 hover:text-slate-800"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+              {/* 状态过滤 */}
+              <div className="flex w-fit max-w-full items-center overflow-x-auto bg-slate-100 p-1 rounded-xl border border-slate-200">
+                {(
+                  [
+                    { key: "all", label: t('crm.callFilterAll') },
+                    { key: "booked", label: t('crm.callFilterBooked') },
+                    { key: "inquiry", label: t('crm.callFilterEnquiry') },
+                    { key: "forwarded", label: t('crm.callFilterTransferred') },
+                  ] as const
+                ).map((tab) => (
+                  <button
+                    key={tab.key}
+                    aria-pressed={outcomeFilter === tab.key}
+                    onClick={() => setOutcomeFilter(tab.key)}
+                    className={`whitespace-nowrap px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                      outcomeFilter === tab.key
+                        ? "bg-white text-teal-800 shadow-xs"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -611,10 +614,10 @@ export function Calls() {
           />
         ) : (
           <div className="border border-slate-200/80 rounded-2xl overflow-hidden shadow-xs">
-            <Table>
+            <Table className="min-w-[760px] [&_th]:whitespace-nowrap">
               <TableHeader>
                 <TableRow className="bg-slate-50/70">
-                  <TableHead className="w-12 text-center">{t('crm.callColStatus')}</TableHead>
+                  <TableHead className="w-20 text-center">{t('crm.callColStatus')}</TableHead>
                   <TableHead>{t('crm.callColNumber')}</TableHead>
                   <TableHead>{t('crm.callColTime')}</TableHead>
                   <TableHead>{t('crm.callColDuration')}</TableHead>

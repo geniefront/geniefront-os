@@ -99,7 +99,7 @@ export function Profile() {
   const { t, language, setLanguage } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab') || 'general';
-  const activeTab = requestedTab === 'notifications' || (voiceOnly && requestedTab === 'provider') ? 'general' : requestedTab;
+  const activeTab = ['general', 'security', 'store_roles', ...(!voiceOnly ? ['provider'] : [])].includes(requestedTab) ? requestedTab : 'general';
 
   const { session, membership, locations, context, selectMembership, signOut } = useSession();
   const {
@@ -120,7 +120,6 @@ export function Profile() {
 
   // General Form State
   const [fullName, setFullName] = useState('');
-  const [nickname, setNickname] = useState('');
   const [phone, setPhone] = useState('');
   const [bio, setBio] = useState('');
   
@@ -183,8 +182,7 @@ export function Profile() {
   // Sync loaded profile into form
   useEffect(() => {
     if (profile) {
-      setFullName(profile.fullName || '');
-      setNickname(profile.nickname || '');
+      setFullName(profile.nickname?.trim() || profile.fullName || '');
       setPhone(formatPhoneDisplay(profile.phone) || '');
       setBio(profile.bio || '');
       if (profile.staffInfo) {
@@ -245,7 +243,7 @@ export function Profile() {
       isOpen: true,
       type: 'save_general',
       title: t('settings.profSaveGeneralConfirmTitle'),
-      description: t('settings.profSaveGeneralConfirmDesc', { p0: fullName.trim(), p1: nickname.trim() || t('settings.profNoneValue') }),
+      description: t('settings.profSaveGeneralConfirmDesc', { p0: fullName.trim() }),
       tone: 'default',
       confirmLabel: t('settings.profSaveGeneralConfirmButton'),
     });
@@ -353,7 +351,7 @@ export function Profile() {
         case 'save_general':
           await updateProfileMutation.mutateAsync({
             fullName: fullName.trim(),
-            nickname: nickname.trim(),
+            nickname: fullName.trim(),
             phone: phone.trim() || null,
             bio: bio.trim(),
             locale: language,
@@ -476,7 +474,7 @@ export function Profile() {
       <Card className="border border-slate-200/90 shadow-sm rounded-2xl overflow-hidden bg-white">
         {/* 头像与信息栏：头像从底部干净下压，无任何文字遮挡冲突 */}
         <div className="p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-end gap-4">
+          <div className="flex min-w-0 items-center gap-4">
             {(() => {
               const activeEmoji =
                 PRESET_USER_AVATARS.find((a) => a.id === selectedUserAvatarId) || PRESET_USER_AVATARS[0];
@@ -513,8 +511,7 @@ export function Profile() {
 
             <div className="space-y-1.5 mb-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-xl font-semibold text-slate-900">{fullName || t('settings.profUnnamed')}</h2>
-                {nickname && <span className="text-xs font-semibold text-slate-500">({nickname})</span>}
+                <h2 className="break-words text-xl font-semibold text-slate-900">{fullName || t('settings.profUnnamed')}</h2>
                 <Badge variant="secondary" className="text-[10px] font-semibold">
                   {roleNames}
                 </Badge>
@@ -565,6 +562,7 @@ export function Profile() {
           return (
             <button
               key={tab.id}
+              aria-current={isActive ? 'page' : undefined}
               onClick={() => handleTabChange(tab.id)}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
                 isActive
@@ -590,8 +588,8 @@ export function Profile() {
         >
           {/* ── TAB 1: 基本资料 (General Profile) ──────────────────────────────── */}
           {activeTab === 'general' && (
-            <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden">
-              <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100 flex flex-row items-center justify-between">
+            <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden p-0">
+              <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100 flex flex-row flex-wrap items-center justify-between gap-3">
                 <div>
                   <CardTitle className="text-sm font-semibold text-slate-900">{t('tabGeneral')}</CardTitle>
                   <CardDescription className="text-xs text-slate-500 mt-0.5">
@@ -796,16 +794,6 @@ export function Profile() {
                       className="rounded-xl"
                     />
                   </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-800">{t('settings.profNickname')}</label>
-                    <Input aria-label={t('settings.profNickname')}
-                      value={nickname}
-                      onChange={(e) => setNickname(e.target.value)}
-                      placeholder={t('settings.profNicknamePlaceholder')}
-                      className="rounded-xl"
-                    />
-                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -884,7 +872,7 @@ export function Profile() {
           {activeTab === 'security' && (
             <div className="space-y-6">
               {/* 修改密码 */}
-              <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden">
+              <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden p-0">
                 <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                     <KeyRound className="w-4 h-4 text-teal-600" />
@@ -954,8 +942,8 @@ export function Profile() {
               </Card>
 
               {/* POS 快速锁屏 PIN 码 */}
-              {!voiceOnly && <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden">
-                <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100 flex flex-row items-center justify-between">
+              {!voiceOnly && <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden p-0">
+                <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100 flex flex-row flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <Smartphone className="w-4 h-4 text-teal-600" />
@@ -1003,7 +991,7 @@ export function Profile() {
           {activeTab === 'store_roles' && (
             <div className="space-y-6">
               {/* 当前门店卡片 */}
-              <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden">
+              <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden p-0">
                 <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                     <Building className="w-4 h-4 text-teal-600" />
@@ -1115,8 +1103,8 @@ export function Profile() {
 
           {/* ── TAB 4: 技师接单偏好 (Provider Settings) ────────────────────────── */}
           {activeTab === 'provider' && (
-            <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden">
-              <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100 flex flex-row items-center justify-between">
+            <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden p-0">
+              <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100 flex flex-row flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2">
                     <Scissors className="w-4 h-4 text-teal-600" />

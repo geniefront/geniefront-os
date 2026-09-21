@@ -19,7 +19,7 @@ export const selectClass =
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <label className="space-y-1.5">
+    <label className="block min-w-0 space-y-1.5">
       <span className="text-sm font-semibold text-slate-800">{label}</span>
       {children}
       {hint && <span className="block text-xs leading-5 text-slate-500">{hint}</span>}
