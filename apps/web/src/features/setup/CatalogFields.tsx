@@ -37,7 +37,7 @@ function CategoryName({ category }: { category: ServiceCategoryItem }) {
   const draft = useSetupDraft(category.displayName, async name => {
     if (!name.trim()) throw new Error(t('settings.stCategoryNameRequired'));
     await save.mutateAsync({ categoryId: category.id, name: { ...category.name, [language]: name.trim() }, sort: category.sort });
-  });
+  }, `setup-category:${category.id}`);
   return <div><Input aria-label={t('settings.stServiceCategoryLabel')} value={draft.value ?? ''} onChange={e => draft.set(e.target.value)} /><SaveStatus {...draft} /></div>;
 }
 export function ServiceEditor({ service, categories }: { service: ServiceItem; categories: ServiceCategoryItem[] }) {
@@ -49,7 +49,7 @@ export function ServiceEditor({ service, categories }: { service: ServiceItem; c
     if (!value.name.trim() || !price.ok || !duration.ok) throw new Error(t('setupStep2MissingFields'));
     await save.mutateAsync({ presentation:value.presentation, serviceId: service.id, name: { ...service.name, [language]: value.name.trim() }, basePriceCents: price.value, durationMin: duration.value,
       categoryId: value.categoryId || null, isAddon: value.isAddon, onlineBookable: value.isAddon ? false : value.onlineBookable, active: value.active, staffCount: value.staffCount });
-  });
+  }, `setup-service:${service.id}`);
   if (!draft.value) return null;
   const v = draft.value;
   const change = (patch: Partial<typeof v>) => draft.set(old => ({ ...old, ...patch }));

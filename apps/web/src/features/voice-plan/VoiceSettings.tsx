@@ -1,3 +1,4 @@
+import { PageError } from '@/components/ui/QueryState';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Store, Scissors, Users, PhoneCall, CreditCard, ArrowUpRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -83,11 +84,11 @@ function PhoneSettings() {
   } : null, async value => {
     await runCommand('location.requestAiVoice', value, membershipId!);
     await qc.invalidateQueries({queryKey:settingsKeys.desk(membershipId)});
-  });
+  }, `setup-phone-routing:${membershipId}`);
   const recipients = useSetupDraft(data ? { email: data.voiceNotifications?.email ?? '', phone: data.voiceNotifications?.phone ?? '' } : null, async value => {
     await runCommand('settings.saveVoiceNotifications', { email:value.email.trim() || null, phone:value.phone.trim() || null }, membershipId!);
     await qc.invalidateQueries({queryKey:settingsKeys.desk(membershipId)});
-  });
+  }, `setup-notification-recipients:${membershipId}`);
   const ai = readiness.data?.aiVoice;
   const stateKeys = { unconfigured:'setupAiVoiceStateUnconfigured', requested:'setupAiVoiceStateRequested', ready_off:'setupAiVoiceStateReadyOff', on:'setupAiVoiceStateOn', suspended:'setupAiVoiceStateSuspended' } as const;
   const toggle = async () => {
@@ -118,12 +119,14 @@ function PhoneSettings() {
 
 function BookingRules() {
   const { t } = useLanguage(); const { membershipId } = useSession(); const qc = useQueryClient();
-  const { data } = useDeskSettingsQuery();
+  const query = useDeskSettingsQuery();
+  const { data } = query;
   const draft = useSetupDraft(data?.voiceBookingRules ?? null, async value => {
     await runCommand('settings.saveVoiceBookingRules',value,membershipId!);
     await qc.invalidateQueries({queryKey:settingsKeys.desk(membershipId)});
-  });
-  if (!draft.value) return null;
+  }, `setup-booking-rules:${membershipId}`);
+  if (query.isError) return <PageError error={query.error} onRetry={() => query.refetch()} />;
+  if (!draft.value) return <p>{t('setupReadinessLoading')}</p>;
   return <section className="space-y-4 rounded-xl border p-4"><h2 className="font-semibold">{t('voiceBookingWindow')}</h2><div className="grid gap-4 sm:grid-cols-2">
     <Field label={t('voiceBookingMaxDays')}><Input type="number" min="1" max="365" value={draft.value.maxDaysAhead} onChange={e => draft.set(old=>({...old,maxDaysAhead:Number(e.target.value)}))} /></Field>
     <Field label={t('voiceBookingMinMinutes')}><Input type="number" min="0" max="1440" value={draft.value.minMinutesAhead} onChange={e => draft.set(old=>({...old,minMinutesAhead:Number(e.target.value)}))} /></Field>

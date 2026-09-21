@@ -1,3 +1,4 @@
+import { useSession } from '@/lib/session';
 import { PageError } from '@/components/ui/QueryState';
 import {StoreMediaEditor} from './StoreMediaEditor';
 import {BookingImagePicker} from '@/components/ui/BookingImagePicker';
@@ -54,6 +55,7 @@ const DAY_KEYS: ReadonlyArray<readonly [string, TranslationKey]> = [
 
 export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void; stepNumber?: number }) {
   const { t } = useLanguage();
+  const { membershipId } = useSession();
   const settingsQuery = useDeskSettingsQuery();
   const { data } = settingsQuery;
   const saveProfile = useSaveLocationProfile();
@@ -68,7 +70,7 @@ export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void
     if (!form.name.trim()) throw new Error(t('setupStep1MissingName'));
     await saveProfile.mutateAsync({ ...form, hours, name: form.name.trim(), businessType: form.businessType as any,
       phone: form.phone.trim() || null, email: form.email.trim() || null });
-  });
+  }, `setup-store:${membershipId}`);
   const storeForm = useFieldErrors<'name'>();
   if (settingsQuery.isError) return <PageError title={t('genericFailure')} error={settingsQuery.error} onRetry={() => settingsQuery.refetch()} />;
   if (!draft.value) return <p>{t('setupReadinessLoading')}</p>;

@@ -14,7 +14,7 @@ export function StaffEditor({ staff, voiceOnly }: { staff: StaffItem; voiceOnly:
   const draft = useSetupDraft(detail ? { name: detail.name, isBookable: detail.isBookable, maxConcurrentAppointments: detail.maxConcurrentAppointments, inRotation: staff.inRotation, jobTitleId: detail.jobTitleId, levelId: detail.levelId, skillIds: detail.skillIds, phone: detail.phone ?? '' } : null, async v => {
     if (!v.name.trim()) throw new Error(t('setupStep3MissingName'));
     await save.mutateAsync({ ...v, membershipId: staff.membershipId, name: v.name.trim(), phone: v.phone.trim() || null, inRotation: !voiceOnly && v.inRotation });
-  });
+  }, `setup-staff:${staff.membershipId}`);
   if (directory.isError) return <PageError title={t('genericFailure')} error={directory.error} onRetry={() => directory.refetch()} />;
   if (!draft.value) return <p>{t(directory.isPending ? 'setupReadinessLoading' : 'noData')}</p>;
   const v = draft.value;

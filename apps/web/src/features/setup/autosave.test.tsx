@@ -53,3 +53,20 @@ it('flushes edits before programmatic navigation and blocks failed saves', async
   await waitFor(() => expect(result.current.location.pathname).toBe('/next'));
   expect(save).toHaveBeenCalledTimes(2);
 });
+it('recovers an interrupted draft and refuses to overwrite a changed server value', async () => {
+  sessionStorage.clear();
+  const save = vi.fn().mockResolvedValue(undefined);
+  const first = renderHook(() => useSetupDraft({ name: 'original' }, save, 'test:interrupted'));
+  act(() => first.result.current.set({ name: 'unsaved' }));
+  first.unmount();
+  const recovered = renderHook(() => useSetupDraft({ name: 'original' }, save, 'test:interrupted'));
+  expect(recovered.result.current.value?.name).toBe('unsaved');
+  recovered.unmount();
+  const conflict = renderHook(() => useSetupDraft({ name: 'new server value' }, save, 'test:interrupted'));
+  expect(conflict.result.current.state).toBe('error');
+  await act(async () => { expect(await conflict.result.current.flush()).toBe(false); });
+  expect(save).not.toHaveBeenCalled();
+  act(() => conflict.result.current.discard());
+  expect(conflict.result.current.value?.name).toBe('new server value');
+  expect(sessionStorage.getItem('test:interrupted')).toBeNull();
+});

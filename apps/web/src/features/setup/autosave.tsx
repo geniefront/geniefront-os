@@ -46,7 +46,7 @@ export function SetupSaveProvider({ children }: { children: ReactNode }) {
 export const useSetupSave = () => useContext(Context);
 
 /** Serialize writes, preserve edits during refetch, and flush before changing steps. */
-export function useSetupDraft<T>(server: T | null, save: (value: T) => Promise<unknown>) {
+export function useSetupDraft<T>(server: T | null, save: (value: T) => Promise<unknown>, storageKey?: string) {
   const [value, setValue] = useState<T | null>(server);
   const current = useRef(server);
   const persisted = useRef(JSON.stringify(server));
@@ -54,8 +54,23 @@ export function useSetupDraft<T>(server: T | null, save: (value: T) => Promise<u
   const saveRef = useRef(save); saveRef.current = save;
   const [state, setState] = useState<'saved' | 'pending' | 'saving' | 'error'>('saved');
   const [error, setError] = useState('');
+  const conflict = useRef(false);
+  const restored = useRef<string | null>(null);
   const context = useSetupSave();
   const serverKey = JSON.stringify(server);
+  useEffect(() => {
+    if (!storageKey || server === null || restored.current === storageKey) return;
+    restored.current = storageKey;
+    try {
+      const raw = sessionStorage.getItem(storageKey);
+      if (!raw) return;
+      const cached = JSON.parse(raw) as { value: T; base: string };
+      current.current = cached.value; persisted.current = cached.base; setValue(cached.value);
+      conflict.current = cached.base !== serverKey;
+      setState(conflict.current ? 'error' : 'pending');
+      if (conflict.current) setError('This setting changed elsewhere. Discard the saved draft and reload the current value.');
+    } catch { /* An unavailable cache must not prevent editing. */ }
+  }, [storageKey, serverKey]);
   useEffect(() => {
     if (server === null || running.current || JSON.stringify(current.current) !== persisted.current) return;
     current.current = server; persisted.current = serverKey; setValue(server);
@@ -63,22 +78,31 @@ export function useSetupDraft<T>(server: T | null, save: (value: T) => Promise<u
   const set = useCallback((next: T | ((old: T) => T)) => {
     if (current.current === null) return;
     current.current = typeof next === 'function' ? (next as (old: T) => T)(current.current) : next;
-    setValue(current.current); setState('pending'); setError('');
-  }, []);
+    setValue(current.current); setState(conflict.current ? 'error' : 'pending');
+    if (!conflict.current) setError('');
+    if (storageKey) { try { sessionStorage.setItem(storageKey, JSON.stringify({ value: current.current, base: persisted.current })); } catch {} }
+  }, [storageKey]);
   const flush = useCallback(async (): Promise<boolean> => {
+    if (conflict.current) return false;
     if (running.current) return running.current;
     const work = async () => {
       while (current.current !== null && JSON.stringify(current.current) !== persisted.current) {
         const snapshot = current.current;
         setState('saving');
-        try { await saveRef.current(snapshot); persisted.current = JSON.stringify(snapshot); }
+        try {
+          await saveRef.current(snapshot); persisted.current = JSON.stringify(snapshot);
+          if (storageKey) { try {
+            if (JSON.stringify(current.current) === persisted.current) sessionStorage.removeItem(storageKey);
+            else sessionStorage.setItem(storageKey, JSON.stringify({ value: current.current, base: persisted.current }));
+          } catch {} }
+        }
         catch (e) { setError(e instanceof Error ? e.message : String(e)); setState('error'); return false; }
       }
       setState('saved'); return true;
     };
     running.current = work();
     try { return await running.current; } finally { running.current = null; }
-  }, []);
+  }, [storageKey]);
   useEffect(() => context?.register(flush), [context?.register, flush]);
   useEffect(() => {
     if (state !== 'pending') return;
@@ -92,12 +116,17 @@ export function useSetupDraft<T>(server: T | null, save: (value: T) => Promise<u
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, []);
-  return { value, set, flush, state, error };
+  const discard = () => {
+    conflict.current = false; current.current = server; persisted.current = serverKey;
+    setValue(server); setState('saved'); setError('');
+    if (storageKey) sessionStorage.removeItem(storageKey);
+  };
+  return { value, set, flush, state, error, discard };
 }
-export function SaveStatus({ state, error, flush }: { state: string; error: string; flush: Save }) {
+export function SaveStatus({ state, error, flush, discard }: { state: string; error: string; flush: Save; discard?: () => void }) {
   const { t } = useLanguage();
   return <div role={state === 'error' ? 'alert' : 'status'} className={`text-sm ${state === 'error' ? 'text-red-700' : 'text-slate-500'}`}>
-    {state === 'error' ? <>{t('setupAutoSaveError')} <button type="button" className="underline" onClick={() => void flush()}>{t('setupRetry')}</button><span className="block text-xs">{error}</span></> : t(state === 'saved' ? 'setupAutoSaved' : 'setupAutoSaving')}
+    {state === 'error' ? <>{t('setupAutoSaveError')} <button type="button" className="underline" onClick={() => void flush()}>{t('setupRetry')}</button>{discard && <button type="button" className="ml-3 underline" onClick={discard}>{t('setupDiscardDraft')}</button>}<span className="block text-xs">{error}</span></> : t(state === 'saved' ? 'setupAutoSaved' : 'setupAutoSaving')}
   </div>;
 }
 

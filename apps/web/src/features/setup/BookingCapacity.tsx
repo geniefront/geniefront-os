@@ -1,3 +1,4 @@
+import { PageError } from '@/components/ui/QueryState';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BookingPolicy } from '@gf/scheduling';
 import { apiGet, runCommand } from '@/lib/api';
@@ -14,7 +15,8 @@ export function SetupBookingCapacity() {
   const draft = useSetupDraft(query.data ?? null, async policy => {
     await runCommand('settings.saveVoiceCapacity', {baseCapacity:policy.baseCapacity,extraSlots:policy.bufferEnabled?policy.bufferExtra:0}, membershipId!);
     await qc.invalidateQueries({ queryKey: ['booking-policy', membershipId] });
-  });
+  }, `setup-capacity:${membershipId}`);
+  if (query.isError) return <PageError error={query.error} onRetry={() => query.refetch()} />;
   if (!draft.value) return <p>{t(query.isError ? 'setupReadinessError' : 'setupReadinessLoading')}</p>;
   const p = draft.value;
   return <section className="space-y-3 rounded-xl border p-5">

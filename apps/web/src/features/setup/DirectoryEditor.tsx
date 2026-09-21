@@ -34,7 +34,7 @@ function Option({ kind, option, label }: { kind: Kind; option: DirectoryOption; 
   const draft = useSetupDraft({ name: option.name, active: option.active }, async v => {
     if (!v.name.trim()) throw new Error(t('setupStep3MissingName'));
     await save.mutateAsync({ kind, id: option.id, name: v.name.trim(), active: v.active, sort: option.sort });
-  });
+  }, `setup-directory:${kind}:${option.id}`);
   if (!draft.value) return null;
   return <div className="space-y-2"><div className="grid gap-2 sm:grid-cols-2"><Input aria-label={label} value={draft.value.name} onChange={e => draft.set(old => ({ ...old, name: e.target.value }))} /><Toggle checked={draft.value.active} onChange={active => draft.set(old => ({ ...old, active }))} label={t('setupOptionEnabled')} /></div><SaveStatus {...draft} /></div>;
 }

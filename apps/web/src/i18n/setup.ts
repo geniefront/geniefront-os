@@ -13,6 +13,7 @@
  * `i18n.test.ts` 在运行时做，且做得更准（能报出具体缺哪一种语言）。
  */
 export const setup = {
+  setupDiscardDraft: { 'zh-Hans': '放弃草稿并读取最新值', en: 'Discard draft and use current values', ko: '초안 삭제 후 최신 값 사용', es: 'Descartar borrador y usar valores actuales', vi: 'Bỏ bản nháp và dùng giá trị hiện tại' },
   setupNewRecordUnsaved: { 'zh-Hans': '新增内容尚未提交，请先点击添加或清空新建表单。已有记录的编辑会自动保存。', en: 'Submit with Add or clear the new record before leaving. Edits to existing records save automatically.', ko: '추가 버튼으로 저장하거나 새 양식을 비우세요. 기존 항목은 자동 저장됩니다.', es: 'Pulsa Añadir o borra el formulario nuevo antes de salir. Los cambios existentes se guardan automáticamente.', vi: 'Nhấn Thêm hoặc xóa biểu mẫu mới trước khi rời đi. Chỉnh sửa bản ghi hiện có tự lưu.' },
   setupDirectoryJobs: { 'zh-Hans': '岗位', en: 'Job titles', ko: '직책', vi: 'Chức danh', es: 'Puestos' },
   setupDirectoryLevels: { 'zh-Hans': '职级', en: 'Levels', ko: '등급', vi: 'Cấp bậc', es: 'Niveles' },
