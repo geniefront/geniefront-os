@@ -7,6 +7,7 @@
 import type { DomainDict } from './types';
 
 export const settings = {
+  'settings.profPinNotSet': { 'zh-Hans': '未设置', en: 'Not set', ko: '설정 안 됨', es: 'Sin configurar', vi: 'Chưa thiết lập' },
   "settings.stPlanVoiceBooking": {"zh-Hans": "AI 语音预约", "en": "AI Voice Booking", "ko": "AI 음성 예약", "es": "Reservas por voz IA", "vi": "Đặt lịch giọng nói AI"},
   "settings.bookingCapacityTitle": {"zh-Hans": "预约容量与额外名额", "en": "Booking capacity and extra places", "ko": "예약 정원 및 추가 인원", "es": "Capacidad y plazas adicionales", "vi": "Sức chứa và chỗ bổ sung"},
   "settings.bookingCapacityHint": {"zh-Hans": "额外名额默认关闭。基础容量 2 加 1 个额外名额，最多同时接 3 单。点钟单独控制。", "en": "Extra places are off by default. A base capacity of 2 plus 1 extra admits 3 concurrent bookings. Requested therapists have a separate setting.", "ko": "추가 인원은 기본적으로 꺼져 있습니다. 기본 2명과 추가 1명은 동시 3건입니다. 지정 예약은 별도 설정입니다.", "es": "Las plazas extra están desactivadas. Base 2 más 1 extra permite 3 reservas simultáneas. Las citas con profesional solicitado se configuran aparte.", "vi": "Chỗ bổ sung mặc định tắt. Sức chứa 2 cộng thêm 1 cho phép 3 lịch cùng lúc. Khách chỉ định nhân viên có cài đặt riêng."},

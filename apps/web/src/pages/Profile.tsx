@@ -1005,14 +1005,14 @@ export function Profile() {
                         ••••
                       </div>
                       <div>
-                        <h4 className="text-xs font-semibold text-slate-800">{t('settings.profPinActive')}</h4>
+                        <h4 className="text-xs font-semibold text-slate-800">{t(profile?.staffInfo?.hasPin ? 'settings.profPinActive' : 'settings.profSetPin')}</h4>
                         <p className="text-[11px] text-slate-500 mt-0.5">
                           
                           {t('settings.profPinDesc')}
                         </p>
                       </div>
                     </div>
-                    <Badge variant="success">{t('settings.profPinEnabled')}</Badge>
+                    <Badge variant={profile?.staffInfo?.hasPin ? 'success' : 'outline'}>{t(profile?.staffInfo?.hasPin ? 'settings.profPinEnabled' : 'settings.profPinNotSet')}</Badge>
                   </div>
                 </CardContent>
               </Card>}
