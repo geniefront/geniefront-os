@@ -23,7 +23,7 @@ export function AuthLayout({ children }: { children?: ReactNode }) {
       <div className="absolute left-5 top-5 sm:left-8 sm:top-8">
         <img src="/brand/geniefront-logo.svg" alt="GenieFront" className="h-9 w-auto sm:h-10" />
       </div>
-      <div className="absolute right-5 top-5 sm:right-8 sm:top-8" ref={menuRef}>
+      <div className="absolute right-5 top-5 z-20 sm:right-8 sm:top-8" ref={menuRef}>
         <button
           type="button"
           aria-label={t('language')}
