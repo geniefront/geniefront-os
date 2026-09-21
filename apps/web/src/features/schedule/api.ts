@@ -139,6 +139,7 @@ export interface CreateBundleSelectionInput {
 
 export interface CreateAppointmentInput {
   customerId: string | null;
+  newCustomer?: { name: string; phoneE164: string };
   /** 匿名到店客：不建客户档案，仅留姓名，事后可合并。 */
   walkInName?: string;
   items: CreateAppointmentItemInput[];
@@ -185,6 +186,7 @@ export function useCreateAppointment(date: string) {
         'appointment.create',
         {
           customerId: input.customerId,
+          newCustomer: input.newCustomer,
           ...(input.walkInName ? { walkInName: input.walkInName } : {}),
           items: input.items.map((it) => ({
             serviceId: it.serviceId,

@@ -540,3 +540,26 @@ describe('确认信/短信只发给客人自己订的单', () => {
   });
 
 });
+
+
+describe('desk customer and booking atomicity', () => {
+  it('creates once on replay, reuses an explicitly selected customer, and rolls back failure', async () => {
+    const ctx = await ctxFor(amy);
+    const key = randomUUID();
+    const input = { customerId: null, newCustomer: { name: 'Atomic desk guest', phoneE164: '+16175550129' },
+      items: [{ serviceId: gelService, startsAt: '2027-04-15T16:00:00Z' }] };
+    const first = await create(ctx, input, key);
+    const replay = await create(ctx, input, key);
+    expect(replay.result.appointmentId).toBe(first.result.appointmentId);
+    const tenant = { orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: amy };
+    const customers = await withTenant(tenant, tx => tx<{ id: string }[]>`select id from customers where display_name = 'Atomic desk guest'`);
+    expect(customers).toHaveLength(1);
+    await create(ctx, { customerId: customers[0]!.id, items: [{ serviceId: gelService, startsAt: '2027-04-16T16:00:00Z' }] });
+    await expect(create(ctx, { ...input, newCustomer: { ...input.newCustomer, name: 'Failed atomic guest' },
+      items: [{ serviceId: randomUUID(), startsAt: '2027-04-15T16:00:00Z' }] })).rejects.toBeDefined();
+    const failed = await withTenant(tenant, tx => tx<{ id: string }[]>`select id from customers where display_name = 'Failed atomic guest'`);
+    expect(failed).toHaveLength(0);
+    const counts = await withTenant(tenant, tx => tx<{ n: number }[]>`select count(*)::int as n from customers where display_name = 'Atomic desk guest'`);
+    expect(counts[0]!.n).toBe(1);
+  });
+});

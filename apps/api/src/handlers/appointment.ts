@@ -540,10 +540,25 @@ export async function executeSingleAppointmentInTx(
     overbookedIdx.add(idx);
   }
 
+  let deskCustomerId = input.customerId;
+  if (input.newCustomer) {
+    if (deskCustomerId || input.guest?.customer) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'ambiguous_customer' } });
+    if (!ctx.permissions.has('customer.write')) throw new AppError(ERROR_CODES.PERMISSION_DENIED);
+    const [created] = await tx<{ id: string }[]>`
+      insert into customers (org_id, primary_location_id, display_name, phone_e164, source)
+      values (${ctx.orgId}, ${ctx.locationId}, ${input.newCustomer.name}, ${input.newCustomer.phoneE164}, 'desk')
+      returning id`;
+    deskCustomerId = created!.id;
+  } else if (deskCustomerId) {
+    const [customer] = await tx<{ id: string }[]>`select id from customers
+      where id = ${deskCustomerId} and org_id = ${ctx.orgId} and merged_into_id is null and blocked_at is null`;
+    if (!customer) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'customer' } });
+  }
+
   // ── 官网来的单：先把「填表的那个人」落成客户 ────────────────────────────
   const customerId = input.guest?.customer
     ? await resolveGuestCustomer(tx, ctx, input.guest.customer)
-    : input.customerId;
+    : deskCustomerId;
 
   let issuedManageToken = input.guest?.manageToken ?? null;
   if (!issuedManageToken && customerId

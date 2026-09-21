@@ -7,6 +7,8 @@
 import type { DomainDict } from './types';
 
 export const schedule = {
+  'schedule.apptChooseCustomer': { 'zh-Hans': '请选择已有客户，或确认新建客户档案', en: 'Select an existing customer or confirm a new profile', ko: '기존 고객을 선택하거나 새 고객 생성을 확인하세요', es: 'Selecciona un cliente o confirma un perfil nuevo', vi: 'Chọn khách hiện có hoặc xác nhận tạo hồ sơ mới' },
+  'schedule.apptNewCustomerConfirm': { 'zh-Hans': '为此人新建客户档案（共用电话的家人可单独建档）', en: 'Create a new profile for this person (family members may share a phone)', ko: '이 고객의 새 프로필 만들기 (가족은 전화번호 공유 가능)', es: 'Crear un perfil nuevo (familiares pueden compartir teléfono)', vi: 'Tạo hồ sơ mới (người thân có thể dùng chung số điện thoại)' },
   'schedule.loadingTitle': { 'zh-Hans': '正在加载工位日程与排期看板...', en: 'Loading schedule board…', ko: '일정 보드를 불러오는 중…', es: 'Cargando el tablero de horarios…', vi: 'Đang tải bảng lịch trình…' },
   'schedule.loadingDesc': { 'zh-Hans': '正在拉取技师在班状态、预约色块与房间占用', en: 'Fetching staff availability, appointment blocks and room occupancy', ko: '직원 근무 상태, 예약 블록, 룸 점유 현황을 가져오는 중', es: 'Obteniendo disponibilidad del personal, citas y ocupación de salas', vi: 'Đang lấy trạng thái nhân viên, khối lịch hẹn và tình trạng phòng' },
   'schedule.loadErrorTitle': { 'zh-Hans': '日程看板加载遇到异常', en: 'Failed to load the schedule board', ko: '일정 보드를 불러오지 못했습니다', es: 'No se pudo cargar el tablero de horarios', vi: 'Không tải được bảng lịch trình' },

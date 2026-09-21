@@ -1,10 +1,4 @@
-/**
- * 前台建预约时的客户身份。
- *
- * `appointment.create` 的 guest.customer 需要 confirmationCode + manageToken，
- * 那是公开预约页的路径。前台录了姓名和电话必须先 `customer.saveProfile`
- * 再带 customerId 建单，否则客人进不了 CRM，电话还会被拼进 walkInName。
- */
+/** Resolve desk identity; customer creation is atomic with appointment.create. */
 import { normalizePhoneE164 } from '@gf/contracts';
 
 export type DeskAppointmentCustomer =
@@ -17,6 +11,7 @@ export function deskAppointmentCustomer(input: {
 }): DeskAppointmentCustomer {
   const name = input.name.trim();
   const phoneE164 = normalizePhoneE164(input.phone.trim());
+  if (input.phone.trim() && !phoneE164) throw new Error('Invalid phone number');
   if (phoneE164) {
     return { mode: 'profile', name, phoneE164 };
   }

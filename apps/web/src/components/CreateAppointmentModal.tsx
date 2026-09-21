@@ -10,7 +10,7 @@ import { useSchedule, useScheduleMutations, UNASSIGNED_STAFF_ID } from '@/contex
 import { isOverridableConflict, OVERRIDE_REASONS, type Override } from '@/features/schedule/api';
 import type { CreateBundleSelectionInput } from '@/features/schedule/api';
 import { deskAppointmentCustomer } from '@/features/schedule/deskCustomer';
-import { useSaveCustomerProfile } from '@/features/customers/api';
+import { useCustomerList } from '@/features/customers/api';
 import { useCan } from '@/lib/permissions';
 import { GuardedButton } from '@/components/ui/GuardedButton';
 import { useBundleCatalogQuery, quoteBundle } from '@/features/bundles/api';
@@ -223,10 +223,12 @@ export function CreateAppointmentModal({
   const { t } = useLanguage();
   const { services, staff, currentDate, timezone, openMin, closeMin, setCurrentDate } = useSchedule();
   const { create } = useScheduleMutations();
-  const saveProfile = useSaveCustomerProfile();
 
   const [customerName, setCustomerName] = useState(defaultCustomerName);
   const [phone, setPhone] = useState(defaultPhone);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [newCustomerConfirmed, setNewCustomerConfirmed] = useState(false);
+  const customerMatches = useCustomerList({ q: phone.trim() || customerName.trim(), limit: 20 }, isOpen && Boolean(phone.trim() || customerName.trim()));
   const [date, setDate] = useState(defaultDate || currentDate);
   const [notes, setNotes] = useState('');
   /*
@@ -394,6 +396,8 @@ export function CreateAppointmentModal({
     if (seededRef.current && dirtyRef.current) return;
 
     setCustomerName(defaultCustomerName);
+    setSelectedCustomerId(null);
+    setNewCustomerConfirmed(false);
     setPhone(defaultPhone);
     setNotes('');
     apptForm.clear();
@@ -758,15 +762,13 @@ export function CreateAppointmentModal({
 
     try {
       const identity = deskAppointmentCustomer({ name: customerName, phone });
-      let customerId: string | null = null;
+      const customerId = selectedCustomerId;
+      let newCustomer: { name: string; phoneE164: string } | undefined;
       let walkInName: string | undefined;
-      if (identity.mode === 'profile') {
-        const saved = await saveProfile.mutateAsync({
-          name: identity.name,
-          phoneE164: identity.phoneE164,
-        });
-        customerId = saved.customerId;
-      } else {
+      if (!customerId && identity.mode === 'profile') {
+        if (!newCustomerConfirmed) { toast.danger(t('schedule.apptChooseCustomer')); return; }
+        newCustomer = { name: identity.name, phoneE164: identity.phoneE164 };
+      } else if (!customerId && identity.mode === 'walkin') {
         walkInName = identity.walkInName;
       }
 
@@ -785,6 +787,7 @@ export function CreateAppointmentModal({
         });
         await create.mutateAsync({
           customerId,
+          newCustomer,
           walkInName,
           items: [],
           bundleSelections,
@@ -800,6 +803,7 @@ export function CreateAppointmentModal({
 
       await create.mutateAsync({
         customerId,
+        newCustomer,
         walkInName,
         items: payloadItems,
         notes: finalNotes,
@@ -933,6 +937,17 @@ export function CreateAppointmentModal({
         <div className="space-y-4 py-1 text-sm max-h-[72vh] overflow-y-auto custom-scrollbar px-1">
           {/* 顾客基本信息 */}
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5">
+            <div className="space-y-2">
+              {customerMatches.isError && <Button variant="secondary" onClick={() => customerMatches.refetch()}>{t('retry')}</Button>}
+              {(customerMatches.data?.rows ?? []).map(customer => <Button key={customer.id} variant={selectedCustomerId === customer.id ? 'default' : 'secondary'} onClick={() => {
+                markDirty(); setSelectedCustomerId(customer.id); setNewCustomerConfirmed(false);
+                setCustomerName(customer.displayName); setPhone(customer.phone ?? '');
+              }}>{customer.displayName} · {formatPhoneDisplay(customer.phone)}</Button>)}
+              {phone.trim() && !selectedCustomerId && <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={newCustomerConfirmed} onChange={event => { markDirty(); setNewCustomerConfirmed(event.target.checked); }} />
+                {t('schedule.apptNewCustomerConfirm')}
+              </label>}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
@@ -945,6 +960,8 @@ export function CreateAppointmentModal({
                   onChange={(e) => {
                     markDirty();
                     setCustomerName(e.target.value);
+                    setSelectedCustomerId(null);
+                    setNewCustomerConfirmed(false);
                     apptForm.clearField('customerName');
                   }}
                   placeholder={t('schedule.apptNamePlaceholder')}
@@ -960,6 +977,8 @@ export function CreateAppointmentModal({
                   onChange={(e) => {
                     markDirty();
                     setPhone(e.target.value);
+                    setSelectedCustomerId(null);
+                    setNewCustomerConfirmed(false);
                   }}
                   placeholder="(555) 000-0000"
                   maxLength={32}
