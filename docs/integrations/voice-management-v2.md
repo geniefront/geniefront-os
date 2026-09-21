@@ -47,3 +47,7 @@ The agent must first run lookup, ask which booking if multiple exist, and read b
 ## Verification
 
 Integration tests cover required system identity, same-phone lookup, other-number/call rejection, token tampering, explicit confirmation, cutoff/count limits, stale ownership/state, capacity races, notification deduplication, no-email cases and web/manual source parity. The existing public and voice booking suites run against an isolated database with communication delivery mocked/captured.
+
+### Compact-reference endpoint
+
+`/appointments-v2/{action}` has the same authenticated actions and System headers, but returns opaque 16-character references stored in the shared tenant-scoped expiring cache. The initial `/context-v2` response also includes this caller's appointment selections, so an extra lookup is unnecessary unless missing/stale. Service detail includes addon names and guest indices. Legacy `/appointments/{action}` retains signed tokens for compatibility. Short references never replace caller/call ownership checks.

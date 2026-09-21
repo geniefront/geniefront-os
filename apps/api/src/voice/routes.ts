@@ -1,4 +1,5 @@
 import {registerVoiceManagementRoutes} from './manage';
+import {registerVoiceV2Routes} from './v2';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { createHmac, timingSafeEqual, createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -19,7 +20,7 @@ const searchSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).op
 const submitSchema = z.object({ providerCallId:z.string().min(1).max(200).optional(), slotToken: z.string().min(20).max(3000), customerName: z.string().trim().min(1).max(120),
   phoneE164: VoiceBookingInput.shape.phoneE164, email: z.string().email().optional(), notes: z.string().max(1000).optional() }).strict();
 const signedSchema = z.object({ serviceId: z.string().uuid(), date: z.string(), startsAt: z.string(),
-  membershipId: z.string().uuid().nullable(), partySize: z.number().int().min(1).max(10), expiresAt: z.number(), locationId: z.string().uuid() }).strict();
+  membershipId: z.string().uuid().nullable(), membershipIds: z.array(z.string().uuid().nullable()).optional(), requestedMembershipId: z.string().uuid().optional(), partySize: z.number().int().min(1).max(10), expiresAt: z.number(), locationId: z.string().uuid() }).strict();
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const p = schema.safeParse(value);
   if (!p.success) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { issues: p.error.issues } });
@@ -45,7 +46,8 @@ export function registerVoiceRoutes(app: FastifyInstance) {
     await assertAiAdmission(ctx, 'voice_minute');
     return { ctx, secret: t.toolTokenDigest };
   }
-  registerVoiceManagementRoutes(app,authenticate);
+  const lookupAppointments = registerVoiceManagementRoutes(app,authenticate);
+  registerVoiceV2Routes(app, authenticate, lookupAppointments);
   app.get('/v1/voice/:number/context', async (req, reply) => {
     const { ctx, secret } = await authenticate(req);
     const search = parse(searchSchema, req.query);
@@ -53,7 +55,7 @@ export function registerVoiceRoutes(app: FastifyInstance) {
     reply.header('Cache-Control', 'no-store');
     return { ...context, slots: context.slots.map(s => {
       const data = Buffer.from(JSON.stringify({ ...s, serviceId: search.serviceId, date: context.date,
-        partySize: search.partySize, locationId: ctx.locationId, expiresAt: Date.now() + 15 * 60_000 })).toString('base64url');
+        requestedMembershipId: search.membershipId, partySize: search.partySize, locationId: ctx.locationId, expiresAt: Date.now() + 15 * 60_000 })).toString('base64url');
       return { ...s, slotToken: `${data}.${sign(data, secret)}` };
     }) };
   });
@@ -71,7 +73,8 @@ export function registerVoiceRoutes(app: FastifyInstance) {
     if (slot.locationId !== ctx.locationId || slot.expiresAt < Date.now()) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'slot_expired_query_again' } });
     }
-    const { locationId: _, expiresAt: __, ...selection } = slot;
+    const { locationId: _, expiresAt: __, membershipIds: _assigned, requestedMembershipId, ...selected } = slot;
+    const selection = { ...selected, membershipId: requestedMembershipId ?? (slot.membershipIds ? null : slot.membershipId) };
     const { slotToken: ___, ...customer } = body;
     // A refreshed offer for the same customer/time still replays the same booking.
     const id = createHash('sha256').update(JSON.stringify([ctx.locationId, slot.serviceId, slot.startsAt,

@@ -1,3 +1,4 @@
+import { saveReference, readReference, referenceScope } from "./references";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { createHmac, timingSafeEqual, createHash } from "node:crypto";
 import { z } from "zod";
@@ -41,7 +42,7 @@ const tokenSchema = z
   })
   .strict();
 type Token = z.infer<typeof tokenSchema>;
-const token = z.string().min(20).max(3000);
+const token = z.string().min(16).max(3000);
 const selectBody = z
   .object({
     appointmentToken: token,
@@ -67,7 +68,20 @@ const encode = (data: Token, secret: string) => {
   const raw = Buffer.from(JSON.stringify(data)).toString("base64url");
   return `${raw}.${mac(raw, secret)}`;
 };
-function decode(raw: string, secret: string): Token {
+async function decode(
+  raw: string,
+  secret: string,
+  ctx: CommandContext,
+): Promise<Token> {
+  if (/^[A-Za-z0-9_-]{16}$/.test(raw)) {
+    const stored = await withTenant(ctx, (tx) =>
+      readReference(tx, ctx, raw, "management", referenceScope(secret)),
+    );
+    const parsed = tokenSchema.safeParse(stored);
+    if (!parsed.success || parsed.data.expiresAt < Date.now())
+      throw new AppError(ERROR_CODES.PERMISSION_DENIED);
+    return parsed.data;
+  }
   const [data, sig, extra] = raw.split(".");
   const expected = data ? mac(data, secret) : "";
   if (
@@ -137,6 +151,16 @@ export function registerVoiceManagementRoutes(
   app: FastifyInstance,
   authenticate: Auth,
 ) {
+  const routeApp = {
+    get: (url: string, handler: any) => {
+      app.get(url, handler);
+      app.get(url.replace("/appointments", "/appointments-v2"), handler);
+    },
+    post: (url: string, handler: any) => {
+      app.post(url, handler);
+      app.post(url.replace("/appointments", "/appointments-v2"), handler);
+    },
+  };
   async function auth(req: FastifyRequest) {
     const base = await authenticate(req);
     return { ...base, ...callerFromSystemHeaders(req) };
@@ -212,11 +236,8 @@ export function registerVoiceManagementRoutes(
         details: { reason: "booking_changed_query_again" },
       });
   };
-  const lookup = async (req: FastifyRequest, reply: FastifyReply) => {
+  const lookupData = async (req: FastifyRequest) => {
     const a = await auth(req);
-    parse(z.object({}).strict(), req.query);
-    if (req.method === "POST") parse(z.object({}).strict(), req.body ?? {});
-    reply.header("Cache-Control", "no-store");
     return withTenant(a.ctx, async (tx) => {
       const [shop] = await tx<
         Shop[]
@@ -230,29 +251,42 @@ export function registerVoiceManagementRoutes(
       const appointments = [];
       for (const row of rows) {
         const items =
-          await tx`select s.name,ai.duration_min,ai.details,case when ai.is_request then sp.display_name else null end as staff_name
+          await tx`select s.name,ai.duration_min,ai.details,ai.addon_ids,
+       coalesce((select jsonb_agg(ad.name) from services ad where ad.id=any(ai.addon_ids)), '[]'::jsonb) as addons,case when ai.is_request then sp.display_name else null end as staff_name
      from appointment_items ai left join services s on s.id=ai.service_id left join staff_profiles sp on sp.membership_id=ai.membership_id
      where ai.appointment_id=${row.id} and ai.location_id=${a.ctx.locationId} and ai.status<>'cancelled' order by ai.seq`;
         appointments.push({
-          appointmentToken: encode(
-            {
-              appointmentId: row.id,
-              locationId: a.ctx.locationId,
-              caller: a.caller,
-              callStartedAt: a.callStartedAt,
-              startsAt: row.starts_at,
-              count: row.self_reschedule_count,
-              expiresAt: Date.now() + 15 * 60000,
-              action: "select",
-            },
-            a.secret,
-          ),
+          appointmentToken: await (
+            req.url.includes("-v2")
+              ? (value: Token) =>
+                  saveReference(
+                    tx,
+                    a.ctx,
+                    "management",
+                    referenceScope(a.secret),
+                    value,
+                  )
+              : (value: Token) => encode(value, a.secret)
+          )({
+            appointmentId: row.id,
+            locationId: a.ctx.locationId,
+            caller: a.caller,
+            callStartedAt: a.callStartedAt,
+            startsAt: row.starts_at,
+            count: row.self_reschedule_count,
+            expiresAt: Date.now() + 15 * 60000,
+            action: "select",
+          }),
           startsAt: row.starts_at,
           endsAt: row.ends_at,
           guests: row.party_size,
           services: items.map((i) => ({
             name: pickText(i.name, "en", "Service"),
             minutes: i.duration_min,
+            guestIndex: i.details?.publicGuestIndex ?? 0,
+            addons: (i.addons as unknown[]).map((name) =>
+              pickText(name as any, "en", "Addon"),
+            ),
             ...(i.staff_name
               ? { requestedSpecialist: pickText(i.staff_name, "en", "") }
               : {}),
@@ -264,19 +298,29 @@ export function registerVoiceManagementRoutes(
         ok: true,
         timezone: shop!.timezone,
         appointments,
-        guidance:
-          "Only appointments on the verified calling number are listed. Ask which appointment, then read back the date, time and services. Get explicit confirmation before canceling or moving the entire booking. If none match, offer staff help; never ask for another number to look up.",
+        supportedActions: [
+          "lookup",
+          "availability",
+          "cancel_entire_appointment",
+          "reschedule_entire_appointment",
+        ],
       };
     });
   };
-  app.get("/v1/voice/:number/appointments", lookup);
-  app.post("/v1/voice/:number/appointments/lookup", lookup);
-  app.post(
+  const lookup = async (req: FastifyRequest, reply: FastifyReply) => {
+    parse(z.object({}).strict(), req.query);
+    if (req.method === "POST") parse(z.object({}).strict(), req.body ?? {});
+    reply.header("Cache-Control", "no-store");
+    return lookupData(req);
+  };
+  routeApp.get("/v1/voice/:number/appointments", lookup);
+  routeApp.post("/v1/voice/:number/appointments/lookup", lookup);
+  routeApp.post(
     "/v1/voice/:number/appointments/availability",
-    async (req, reply) => {
+    async (req: FastifyRequest, reply: FastifyReply) => {
       const a = await auth(req),
         body = parse(selectBody, req.body),
-        s = decode(body.appointmentToken, a.secret);
+        s = await decode(body.appointmentToken, a.secret, a.ctx);
       if (s.action !== "select") throw new AppError(ERROR_CODES.NOT_FOUND);
       const { row, shop, cfg } = await own(a, s);
       assertFresh(row, s);
@@ -305,73 +349,92 @@ export function registerVoiceManagementRoutes(
         timezone: avail.timezone,
         durationMin: avail.durationMin,
         reason: avail.reason,
-        slots: avail.slots.map((slot) => ({
-          startsAt: slot.startsAt,
-          changeToken: encode(
-            { ...s, action: "reschedule", target: slot.startsAt },
-            a.secret,
+        slots: await withTenant(a.ctx, (tx) =>
+          Promise.all(
+            avail.slots.map(async (slot) => ({
+              startsAt: slot.startsAt,
+              changeToken: await (
+                req.url.includes("-v2")
+                  ? (value: Token) =>
+                      saveReference(
+                        tx,
+                        a.ctx,
+                        "management",
+                        referenceScope(a.secret),
+                        value,
+                      )
+                  : (value: Token) => encode(value, a.secret)
+              )({ ...s, action: "reschedule", target: slot.startsAt }),
+            })),
           ),
-        })),
+        ),
       };
     },
   );
-  app.post("/v1/voice/:number/appointments/cancel", async (req, reply) => {
-    const a = await auth(req),
-      body = parse(cancelBody, req.body),
-      s = decode(body.appointmentToken, a.secret);
-    if (s.action !== "select") throw new AppError(ERROR_CODES.NOT_FOUND);
-    const { row, cfg } = await own(a, s);
-    reply.header("Cache-Control", "no-store");
-    if (row.status === "cancelled")
-      return { ok: true, status: "cancelled", replayed: true };
-    assertFresh(row, s);
-    const blocked = guestCancelBlockReason(policy(row, cfg));
-    if (blocked)
-      throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
-        details: { reason: blocked },
-      });
-    const ctx = mutationContext(a, s);
-    const out = await dispatch(
-      "appointment.cancel",
-      {
-        appointmentId: row.id,
-        reason: "guest_changed_mind",
-        keepStaffTurn: false,
-      },
-      ctx,
-      { idempotencyKey: requestKey(a, s, "cancel") },
-    );
-    flush(ctx);
-    return {
-      ok: true,
-      status: "cancelled",
-      replayed: out.replayed,
-      notifications: "queued",
-    };
-  });
-  app.post("/v1/voice/:number/appointments/reschedule", async (req, reply) => {
-    const a = await auth(req),
-      body = parse(rescheduleBody, req.body),
-      s = decode(body.changeToken, a.secret);
-    if (s.action !== "reschedule" || !s.target)
-      throw new AppError(ERROR_CODES.NOT_FOUND);
-    const { row } = await own(a, s);
-    reply.header("Cache-Control", "no-store");
-    const ctx = mutationContext(a, s);
-    // The shared handler enforces policy, phone ownership, version and capacity under locks.
-    const out = await dispatch(
-      "appointment.reschedule",
-      { appointmentId: row.id, startsAt: s.target },
-      ctx,
-      { idempotencyKey: requestKey(a, s, "reschedule") },
-    );
-    flush(ctx);
-    return {
-      ok: true,
-      status: "booked",
-      startsAt: s.target,
-      replayed: out.replayed,
-      notifications: "queued",
-    };
-  });
+  routeApp.post(
+    "/v1/voice/:number/appointments/cancel",
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const a = await auth(req),
+        body = parse(cancelBody, req.body),
+        s = await decode(body.appointmentToken, a.secret, a.ctx);
+      if (s.action !== "select") throw new AppError(ERROR_CODES.NOT_FOUND);
+      const { row, cfg } = await own(a, s);
+      reply.header("Cache-Control", "no-store");
+      if (row.status === "cancelled")
+        return { ok: true, status: "cancelled", replayed: true };
+      assertFresh(row, s);
+      const blocked = guestCancelBlockReason(policy(row, cfg));
+      if (blocked)
+        throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
+          details: { reason: blocked },
+        });
+      const ctx = mutationContext(a, s);
+      const out = await dispatch(
+        "appointment.cancel",
+        {
+          appointmentId: row.id,
+          reason: "guest_changed_mind",
+          keepStaffTurn: false,
+        },
+        ctx,
+        { idempotencyKey: requestKey(a, s, "cancel") },
+      );
+      flush(ctx);
+      return {
+        ok: true,
+        status: "cancelled",
+        replayed: out.replayed,
+        notifications: "queued",
+      };
+    },
+  );
+  routeApp.post(
+    "/v1/voice/:number/appointments/reschedule",
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const a = await auth(req),
+        body = parse(rescheduleBody, req.body),
+        s = await decode(body.changeToken, a.secret, a.ctx);
+      if (s.action !== "reschedule" || !s.target)
+        throw new AppError(ERROR_CODES.NOT_FOUND);
+      const { row } = await own(a, s);
+      reply.header("Cache-Control", "no-store");
+      const ctx = mutationContext(a, s);
+      // The shared handler enforces policy, phone ownership, version and capacity under locks.
+      const out = await dispatch(
+        "appointment.reschedule",
+        { appointmentId: row.id, startsAt: s.target },
+        ctx,
+        { idempotencyKey: requestKey(a, s, "reschedule") },
+      );
+      flush(ctx);
+      return {
+        ok: true,
+        status: "booked",
+        startsAt: s.target,
+        replayed: out.replayed,
+        notifications: "queued",
+      };
+    },
+  );
+  return lookupData;
 }

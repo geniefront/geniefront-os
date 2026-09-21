@@ -140,13 +140,14 @@ done
 #   platform/     运营侧写入，走 writePlatformAudit
 #   signup/ stripe/ auth/ queries/pairing.ts kiosk/routes.ts
 #                 系统路径：没有登录用户，写的是自己的会话/事件表
+#   voice/references.ts 仅保存有 TTL 的工具引用缓存，不修改预约等业务实体
 #   test/ tidy.ts qa/  测试与开发工具
 WRITE_RE='(insert[[:space:]]+into|delete[[:space:]]+from|update[[:space:]]+[a-z_]+[[:space:]]+set)'
 hits=$(grep -rnE $SRC -i "$WRITE_RE" apps/api/src 2>/dev/null \
   | grep -v '\.test\.ts:' \
   | grep -vE '^apps/api/src/(handlers|platform|signup|stripe|auth|email|notify|sms|telnyx|forms|onboarding|test|qa|ops|integrations|copilot)/' \
   | grep -vE '^apps/api/src/(bus|audit|money|tidy|businessSummary)\.ts:' \
-  | grep -vE '^apps/api/src/(queries/pairing|queries/forms|kiosk/routes|billing/usage|public/routes|public/formRoutes)\.ts:' \
+  | grep -vE '^apps/api/src/(queries/pairing|queries/forms|kiosk/routes|billing/usage|public/routes|public/formRoutes|voice/references)\.ts:' \
   | grep -vE ':[0-9]+:[[:space:]]*(//|\*|--)' \
   || true)
 [[ -n "$hits" ]] && report \

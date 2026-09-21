@@ -275,9 +275,8 @@ it("cancels once and sends the normal customer and shop SMS/email without AI wor
   expect(guest.body).toContain("Canceled");
   expect(guest.body).not.toMatch(/AI|https?:/);
   expect(guest.body.length).toBeLessThanOrEqual(160);
-  expect(n.sms.find((s) => s.to_e164 === "+16175550199")!.body).toMatch(
-    /\/b\/[a-f0-9]{16}/,
-  );
+  // Shop SMS is concise and link-free; authenticated management links live in email.
+  expect(n.sms.find((s) => s.to_e164 === "+16175550199")!.body).not.toMatch(/https?:|\/b\//);
 });
 it("moves all items atomically and replays without extra counts or notifications", async () => {
   const b = await make();

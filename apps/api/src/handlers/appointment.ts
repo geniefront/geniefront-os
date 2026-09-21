@@ -256,7 +256,7 @@ export async function executeSingleAppointmentInTx(
     from locations where id = ${ctx.locationId}`;
   if (!loc) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'location' } });
 
-  if (input.source === 'web' && input.items.some(i => i.details['publicGuestIndex'] !== undefined)) {
+  if (['web','phone_ai'].includes(input.source) && input.items.some(i => i.details['publicGuestIndex'] !== undefined)) {
     if (input.bundleSelections.length || input.items.some(i => !Number.isInteger(i.details['publicGuestIndex']))) {
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {details:{reason:'invalid_party'}});
     }
@@ -358,8 +358,8 @@ export async function executeSingleAppointmentInTx(
       serviceId: item.serviceId,
       addonIds: memberIndex === 0 ? item.addonIds : [],
       membershipId,
-      isRequest: input.source === 'web' && memberIndex > 0 ? false : item.isRequest,
-      resourceId: memberIndex === 0 || input.source === 'web' ? item.resourceId : null,
+      isRequest: ['web','phone_ai'].includes(input.source) && memberIndex > 0 ? false : item.isRequest,
+      resourceId: memberIndex === 0 || ['web','phone_ai'].includes(input.source) ? item.resourceId : null,
       startsAt,
       endsAt: new Date(startsAt.getTime() + durationMin * 60_000),
       durationMin,
