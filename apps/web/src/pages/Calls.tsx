@@ -63,7 +63,11 @@ export function Calls() {
     }) => void;
   }>();
 
-  const { data: callData, isLoading: callsLoading, isError: callsError, error: callsErr, refetch: refetchCalls } = useCallsQuery(7);
+  const [callPage, setCallPage] = useState(0);
+  const [callFrom, setCallFrom] = useState('');
+  const [callTo, setCallTo] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const { data: callData, isLoading: callsLoading, isError: callsError, error: callsErr, refetch: refetchCalls } = useCallsQuery(7, callPage * 50, callFrom, callTo);
   const { data: draftData, isLoading: draftsLoading, isError: draftsError, error: draftsErr, refetch: refetchDrafts } = useCallDraftsQuery("pending");
   const linkedCall = useCallQuery(linkedCallId);
   const dismissMutation = useDismissCallDraft();
@@ -304,13 +308,18 @@ export function Calls() {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => {
-                refetchCalls();
-                refetchDrafts();
-                toast.success(t('crm.callRefreshed'));
+              onClick={async () => {
+                setRefreshing(true);
+                try {
+                  const results = await Promise.all([refetchCalls(), refetchDrafts()]);
+                  const failed = results.find(result => result.isError);
+                  if (failed) throw failed.error;
+                  toast.success(t('crm.callRefreshed'));
+                } catch (error) { toast.danger(errorMessage(error)); }
+                finally { setRefreshing(false); }
               }}
               className="gap-2 text-xs"
-              disabled={callsLoading || draftsLoading}
+              disabled={refreshing || callsLoading || draftsLoading}
             >
               <RefreshCw className={"w-3.5 h-3.5 " + (callsLoading || draftsLoading ? "animate-spin" : "")} />
               
@@ -533,6 +542,14 @@ export function Calls() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span>{t('crm.callRangeLabel')}</span>
+              <input aria-label={t('crm.callFromDate')} type="date" value={callFrom} max={callTo || undefined} onChange={e => { setCallFrom(e.target.value); setCallPage(0); }} />
+              <input aria-label={t('crm.callToDate')} type="date" value={callTo} min={callFrom || undefined} onChange={e => { setCallTo(e.target.value); setCallPage(0); }} />
+              <span>{callFrom || t('crm.callDefaultRange')} · {callPage * 50 + (calls.length ? 1 : 0)}–{callPage * 50 + calls.length} / {callData?.total ?? '—'}</span>
+              <Button size="sm" variant="secondary" disabled={callPage === 0 || callsLoading} onClick={() => setCallPage(p => p - 1)}>←</Button>
+              <Button size="sm" variant="secondary" disabled={callsLoading || (callPage + 1) * 50 >= (callData?.total ?? 0)} onClick={() => setCallPage(p => p + 1)}>→</Button>
+            </div>
             {/* 搜索框 */}
             <div className="relative min-w-[200px] flex-1 sm:w-64">
               <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -652,15 +669,15 @@ export function Calls() {
                       <TableCell>
                         {call.booked ? (
                           <Badge variant="success" className="text-[11px]">
-                            {call.outcome || t('crm.callResultBooked')}
+                            {t('crm.callResultBooked')}
                           </Badge>
                         ) : call.toolsUsed.includes("telephony.forwardToHuman") ? (
                           <Badge variant="warning" className="text-[11px]">
-                            {call.outcome || t('crm.callResultTransferred')}
+                            {t('crm.callResultTransferred')}
                           </Badge>
                         ) : (
                           <Badge variant="outline" className="text-[11px] text-slate-600">
-                            {call.outcome || t('crm.callResultAnswered')}
+                            {t('crm.callResultAnswered')}
                           </Badge>
                         )}
                       </TableCell>

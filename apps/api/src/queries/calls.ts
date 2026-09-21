@@ -58,19 +58,19 @@ const maskPhone = (e164: string | null, canSee: boolean): string | null => {
 export async function loadCalls(
   tx: postgres.TransactionSql,
   ctx: CommandContext,
-  opts: { days?: number; limit?: number; callId?: string } = {},
-): Promise<{ calls: CallView[]; bookedCount: number; totalMinutes: number; voiceNumber: string | null }> {
+  opts: { days?: number; limit?: number; callId?: string; offset?: number; fromDate?: string | undefined; toDate?: string | undefined } = {},
+): Promise<{ total: number; calls: CallView[]; bookedCount: number; totalMinutes: number; voiceNumber: string | null }> {
   const days = Math.min(90, Math.max(1, opts.days ?? 7));
   const limit = Math.min(200, Math.max(1, opts.limit ?? 50));
   const canSeeContact = ctx.permissions.has('customer.view_contact');
 
   const rows = await tx<{
-    appointment_ids: string[]; id: string; from_e164: string | null; started_at: string | Date | null;
+    total: number; appointment_ids: string[]; id: string; from_e164: string | null; started_at: string | Date | null;
     duration_seconds: number | null; outcome: string | null;
     recording_id: string | null; voice_billing_status: string; billable_seconds: number | null;
     tools_used: string[] | null; recording_url: string | null; transcript: unknown; summary: string | null;
   }[]>`
-    select id, from_e164, started_at, duration_seconds, outcome,
+    select count(*) over()::int as total, id, from_e164, started_at, duration_seconds, outcome,
            array(select a.id::text from appointments a where a.location_id=phone_calls.location_id
              and (a.provider_call_id=phone_calls.provider_call_id or exists (
                select 1 from call_drafts d where d.call_id=phone_calls.id and d.appointment_id=a.id and d.status='confirmed'
@@ -79,9 +79,11 @@ export async function loadCalls(
     from phone_calls
     where location_id = ${ctx.locationId}
       and (${opts.callId ?? null}::uuid is null or id=${opts.callId ?? null}::uuid)
-      and (${opts.callId ?? null}::uuid is not null or created_at > now() - make_interval(days => ${days}))
-    order by coalesce(started_at, created_at) desc
-    limit ${limit}`;
+      and (${opts.callId ?? null}::uuid is not null or ${opts.fromDate ?? null}::date is not null or created_at > now() - make_interval(days => ${days}))
+      and (${opts.fromDate ?? null}::date is null or created_at >= (${opts.fromDate ?? null}::date::timestamp at time zone (select timezone from locations where id=${ctx.locationId})))
+      and (${opts.toDate ?? null}::date is null or created_at < ((${opts.toDate ?? null}::date + 1)::timestamp at time zone (select timezone from locations where id=${ctx.locationId})))
+    order by coalesce(started_at, created_at) desc, id
+    limit ${limit} offset ${Math.max(0, Math.floor(opts.offset ?? 0))}`;
 
   const calls = rows.map((r) => {
     const tools = r.tools_used ?? [];
@@ -105,6 +107,7 @@ export async function loadCalls(
 
   const [line] = await tx<{e164:string}[]>`select e164 from phone_lines where location_id=${ctx.locationId} and purpose='ai_voice' and active limit 1`;
   return {
+    total: rows[0]?.total ?? 0,
     voiceNumber: line?.e164 ?? null,
     calls,
     /** 这段时间有几通真的订上了单 —— 老板问「这东西值不值」问的就是它 */

@@ -82,7 +82,7 @@ export function registerMiscRoutes(app: FastifyInstance, ctxFromHeaders: CtxFrom
   });
 
   // ── 查询：来电记录（转录 / 录音 / 计量）───────────────────────────────────
-  app.get<{ Querystring: { days?: string; limit?: string } }>('/v1/desk/calls', async (req) => {
+  app.get<{ Querystring: { days?: string; limit?: string; offset?: string; fromDate?: string; toDate?: string } }>('/v1/desk/calls', async (req) => {
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('appointment.read')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'appointment.read' } });
@@ -92,6 +92,9 @@ export function registerMiscRoutes(app: FastifyInstance, ctxFromHeaders: CtxFrom
       async (tx) => ({
         ...(await loadCalls(tx, ctx, {
           days: Number(req.query.days ?? '7') || 7,
+          offset: Number(req.query.offset) || 0,
+          fromDate: /^\d{4}-\d{2}-\d{2}$/.test(req.query.fromDate ?? '') ? req.query.fromDate : undefined,
+          toDate: /^\d{4}-\d{2}-\d{2}$/.test(req.query.toDate ?? '') ? req.query.toDate : undefined,
           limit: Number(req.query.limit ?? '50') || 50,
         })),
         // 向导「功能设置」步骤与本页共用同一份就绪推导。

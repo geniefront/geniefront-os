@@ -18,11 +18,11 @@ export const commsKeys = {
     ["desk", "sms-inbound", membershipId, days ?? 14] as const,
 };
 
-export function useCallsQuery(days = 7) {
+export function useCallsQuery(days = 7, offset = 0, fromDate = '', toDate = '') {
   const { membershipId, status } = useSession();
   return useQuery({
-    queryKey: commsKeys.calls(membershipId, days),
-    queryFn: () => apiGet<CallsQueryResponse>("/v1/desk/calls?days=" + days),
+    queryKey: [...commsKeys.calls(membershipId, days), offset, fromDate, toDate],
+    queryFn: () => apiGet<CallsQueryResponse>(`/v1/desk/calls?${new URLSearchParams({ days: String(days), offset: String(offset), limit: '50', ...(fromDate ? { fromDate } : {}), ...(toDate ? { toDate } : {}) })}`),
     enabled: status === "ready" && membershipId !== null,
     refetchInterval: 20_000,
   });

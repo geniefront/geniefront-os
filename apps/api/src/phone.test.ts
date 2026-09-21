@@ -620,6 +620,13 @@ describe('通话记录：计量 / 转录 / 转接（sql/0037）', () => {
     const linked = await withTenant(tenant, tx => loadCalls(tx, ctx, { callId: mine!.callId }));
     expect(linked.calls[0]?.booked).toBe(true);
     expect(linked.calls[0]?.appointmentIds).toContain(appointment!.id);
+    const page = await withTenant(tenant, tx => loadCalls(tx, ctx, { days: 1, limit: 1 }));
+    const next = await withTenant(tenant, tx => loadCalls(tx, ctx, { days: 1, limit: 1, offset: 1 }));
+    expect(page.total).toBeGreaterThan(1);
+    expect(next.total).toBe(page.total);
+    expect(next.calls[0]?.callId).not.toBe(page.calls[0]?.callId);
+    expect((await withTenant(tenant, tx => loadCalls(tx, ctx, { fromDate: '2000-01-01', toDate: '2000-01-02' }))).calls).toEqual([]);
+
 
 
     // 店长有 view_contact，看得到完整号码；没有的身份看到的是尾号

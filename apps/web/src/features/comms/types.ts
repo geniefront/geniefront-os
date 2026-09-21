@@ -26,6 +26,7 @@ export interface CallView {
 }
 
 export interface CallsQueryResponse {
+  total?: number;
   voiceNumber?: string | null;
   calls: CallView[];
   bookedCount: number;

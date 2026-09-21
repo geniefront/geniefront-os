@@ -7,6 +7,10 @@
 import type { DomainDict } from './types';
 
 export const crm = {
+  'crm.callRangeLabel': { 'zh-Hans': '日期范围', en: 'Date range', ko: '날짜 범위', es: 'Fechas', vi: 'Khoảng ngày' },
+  'crm.callFromDate': { 'zh-Hans': '起始日期', en: 'From date', ko: '시작일', es: 'Desde', vi: 'Từ ngày' },
+  'crm.callToDate': { 'zh-Hans': '结束日期', en: 'To date', ko: '종료일', es: 'Hasta', vi: 'Đến ngày' },
+  'crm.callDefaultRange': { 'zh-Hans': '最近7天；统计与搜索针对当前页', en: 'Last 7 days; metrics and search apply to this page', ko: '최근 7일; 통계와 검색은 현재 페이지 기준', es: 'Últimos 7 días; estadísticas y búsqueda de esta página', vi: '7 ngày qua; thống kê và tìm kiếm trong trang này' },
   'crm.custExportAll': { 'zh-Hans': '导出全部筛选结果', en: 'Export all matching customers', ko: '검색 결과 전체 내보내기', es: 'Exportar todos los resultados', vi: 'Xuất tất cả kết quả lọc' },
   'crm.custAppointmentCount': { 'zh-Hans': '预约次数', en: 'Appointments', ko: '예약 수', es: 'Reservas', vi: 'Số lịch hẹn' },
   'crm.previousPage': { 'zh-Hans': '上一页', en: 'Previous', ko: '이전', es: 'Anterior', vi: 'Trước' },
