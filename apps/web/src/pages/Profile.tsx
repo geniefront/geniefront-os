@@ -109,7 +109,7 @@ export function Profile() {
     error: profileError,
     refetch: refetchProfile,
   } = useUserProfileQuery();
-  const { data: sessions, isLoading: isSessionsLoading } = useActiveSessionsQuery();
+  const { data: sessions, isLoading: isSessionsLoading } = useActiveSessionsQuery(false);
   const { data: notifPrefs } = usePersonalNotificationPreferencesQuery();
 
   const updateProfileMutation = useUpdateUserProfile();
@@ -1017,68 +1017,7 @@ export function Profile() {
                 </CardContent>
               </Card>}
 
-              {/* 活跃登录设备列表 */}
-              <Card className="border border-slate-200 shadow-sm rounded-2xl bg-white overflow-hidden">
-                <CardHeader className="bg-slate-50/50 px-6 py-4 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <Laptop className="w-4 h-4 text-teal-600" />
-                    <CardTitle className="text-sm font-semibold text-slate-900">{t('activeSessions')}</CardTitle>
-                  </div>
-                  <CardDescription className="text-xs text-slate-500 mt-0.5">
-                    
-                    {t('settings.profSessionsDesc')}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-6 space-y-3">
-                  {(sessions || []).map((sess) => (
-                    <div
-                      key={sess.id}
-                      className="flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-slate-200 bg-slate-50/50 transition-colors"
-                    >
-                      <div className="flex items-center gap-3.5">
-                        <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                            sess.isCurrent ? 'bg-teal-100 text-teal-700' : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          {sess.deviceLabel.includes('iPad') ? (
-                            <Tablet className="w-5 h-5" />
-                          ) : sess.deviceLabel.includes('iPhone') || sess.deviceLabel.includes('Android') ? (
-                            <Smartphone className="w-5 h-5" />
-                          ) : (
-                            <Laptop className="w-5 h-5" />
-                          )}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <strong className="text-xs font-semibold text-slate-900">{sess.deviceLabel}</strong>
-                            {sess.isCurrent && (
-                              <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-semibold flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                                <span>{t('currentDevice')}</span>
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-slate-500 mt-0.5">
-                            {sess.browser} · IP: {sess.ipAddress} · {sess.lastActiveAt}
-                          </p>
-                        </div>
-                      </div>
 
-                      {!sess.isCurrent && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => requestRevokeSession(sess.id, sess.deviceLabel)}
-                          className="text-red-600 hover:bg-red-50 hover:text-red-700 text-xs font-semibold"
-                        >
-                          {t('revokeSession')}
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
             </div>
           )}
 

@@ -97,7 +97,7 @@ export function useSetPin() {
   });
 }
 
-export function useActiveSessionsQuery() {
+export function useActiveSessionsQuery(enabled = true) {
   const { status } = useSession();
 
   return useQuery({
@@ -109,7 +109,7 @@ export function useActiveSessionsQuery() {
       if (Array.isArray(remote)) return remote;
       return remote?.sessions ?? [];
     },
-    enabled: status === 'ready',
+    enabled: enabled && status === 'ready',
   });
 }
 

@@ -232,22 +232,12 @@ describe('个人资料与通知中心全量功能后端测试', () => {
       expect(data.sessions.some((s: any) => s.deviceLabel.includes('iPad'))).toBe(true);
     });
 
-    it('user.revokeSession 踢下线指定设备会话', async () => {
-      const [sess] = await withTenant(ownerTenant(), (tx) => tx<{ id: string }[]>`
-        select id from user_device_sessions where user_id = ${ownerUserId} and is_active = true limit 1`);
-
-      const res = await dispatch<{ sessionId: string; revoked: boolean }>(
-        'user.revokeSession',
-        { sessionId: sess!.id },
-        ownerCtx,
-      );
-
-      expect(res.result.sessionId).toBe(sess!.id);
-      expect(res.result.revoked).toBe(true);
-
-      const [revoked] = await withTenant(ownerTenant(), (tx) => tx<{ is_active: boolean }[]>`
-        select is_active from user_device_sessions where id = ${sess!.id}`);
-      expect(revoked?.is_active).toBe(false);
+    it('user.revokeSession rejects unsupported logout without pretending to revoke Auth', async () => {
+      const [sess] = await withTenant(ownerTenant(), tx => tx<{ id: string }[]>`
+        select id from user_device_sessions where user_id=${ownerUserId} and is_active=true limit 1`);
+      await expect(dispatch('user.revokeSession', { sessionId: sess!.id }, ownerCtx)).rejects.toMatchObject({ details: { reason: 'session_revocation_unavailable' } });
+      const [unchanged] = await withTenant(ownerTenant(), tx => tx<{ is_active: boolean }[]>`select is_active from user_device_sessions where id=${sess!.id}`);
+      expect(unchanged?.is_active).toBe(true);
     });
 
     it('user.saveNotificationPreferences 保存个人多渠道通知偏好 & GET 查询', async () => {

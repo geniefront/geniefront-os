@@ -196,32 +196,9 @@ registerHandler(SetStaffPin, async ({ input, ctx, tx, audit }: HandlerArgs<
 });
 
 // ───────────────────────────────────────────── 3. 踢下线指定设备会话
-registerHandler(RevokeUserSession, async ({ input, ctx, tx, audit }: HandlerArgs<
-  typeof RevokeUserSession.input._type>) => {
-  const userId = await resolveUserId(tx, ctx);
-  if (!userId) {
-    throw new AppError(ERROR_CODES.UNAUTHENTICATED, { details: { reason: 'User identity required' } });
-  }
-
-  const [row] = await tx<{ id: string }[]>`
-    update user_device_sessions set
-      is_active = false,
-      revoked_at = now()
-    where id = ${input.sessionId} and user_id = ${userId}
-    returning id`;
-
-  if (!row) {
-    // 幂等：若已不存在或已下线，仍返回成功
-    return { sessionId: input.sessionId, revoked: true };
-  }
-
-  audit({
-    entityType: 'user_device_session',
-    entityId: input.sessionId,
-    after: { isActive: false, revokedAt: new Date().toISOString() },
-  });
-
-  return { sessionId: input.sessionId, revoked: true };
+registerHandler(RevokeUserSession, async () => {
+  // Legacy device rows are not Auth sessions. Never claim a successful sign-out.
+  throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'session_revocation_unavailable' } });
 });
 
 // ───────────────────────────────────────────── 4. 保存个人多渠道通知偏好
