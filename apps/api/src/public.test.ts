@@ -19,7 +19,7 @@ import {flushSms} from './sms/flush';
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { withTenant, closeDb } from '@gf/db';
+import { withTenant, closeDb, jsonb } from '@gf/db';
 import { businessDateOf, lastBookableDate, wallMinuteToInstant } from '@gf/scheduling';
 import { buildContext } from './actor';
 import { dispatch } from './bus';
@@ -2461,4 +2461,27 @@ it('books Couples once for two guests with two specialists and preserves the gro
  expect(moved.statusCode,moved.body).toBe(200);
  const invalid=await post('/public/v1/party-availability',{date:addDays(bookDate,10),items:[{...selection,guestIndices:[0]}]});
  expect(invalid.statusCode).toBe(400);
+});
+
+it('keeps the same base duration for both guests in a Couples booking with a shared add-on',async()=>{
+ __resetRateLimit();
+ const couple=(await run<{serviceId:string}>('catalog.saveService',{name:{en:'Couples Massage 60 min'},durationMin:60,basePriceCents:12000,staffCount:2,onlineBookable:true})).serviceId;
+ const addon=(await run<{serviceId:string}>('catalog.saveService',{name:{en:'Hot Stones'},durationMin:10,basePriceCents:1000,isAddon:true})).serviceId;
+ const [loc]=await withTenant(tenant,tx=>tx`select settings from locations where id=${NAIL_LOC}`);
+ try {
+  const profile=loc!.settings.public_booking_profile??{};
+  await withTenant(tenant,tx=>tx`update locations set settings=jsonb_set(settings,'{public_booking_profile}',${jsonb({...profile,services:{...profile.services,[addon]:{visible:true}}})}::jsonb,true) where id=${NAIL_LOC}`);
+  const selection={guestIndex:0,guestIndices:[0,1],serviceId:couple,addonIds:[addon],staffId:null};
+  const availability=await post('/public/v1/party-availability',{date:addDays(bookDate,12),items:[selection]});
+  expect(availability.statusCode,availability.body).toBe(200);
+  const plan=availability.json().plans[0];expect(plan).toBeTruthy();
+  const payload=bookingPayload({partySize:2,items:plan.items.map((i:any)=>({...i,quotedPriceCents:13000}))});
+  const result=await post('/public/v1/bookings',payload,{'idempotency-key':randomUUID()});
+  expect(result.statusCode,result.body).toBe(201);
+  const rows=await withTenant(tenant,tx=>tx`select duration_min,details,addon_ids from appointment_items where appointment_id=${result.json().bookingId}`);
+  expect(rows).toHaveLength(2);
+  expect(rows.map(r=>r.duration_min)).toEqual([70,70]);
+  expect(rows.map(r=>r.details.smsBaseDurationMin)).toEqual([60,60]);
+  expect(rows.flatMap(r=>r.addon_ids)).toEqual([addon]);
+ } finally {await withTenant(tenant,tx=>tx`update locations set settings=${jsonb(loc!.settings)}::jsonb where id=${NAIL_LOC}`);}
 });

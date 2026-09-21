@@ -76,3 +76,9 @@ describe("compact booking notifications", () => {
     expect(measure(body)).toMatchObject({ encoding: "GSM-7", segments: 1 });
   });
 });
+
+it('keeps the reported couples notice within one segment after abbreviating and grouping services',()=>{
+ const body=shopBookingSms({event:'created',locale:'zh-Hans',customer:'Naiyou',phone:'+15409980030',guests:2,when:'9/21 16:00',services:'1、2:双人60分+热石'});
+ expect(body).toBe('GF: 新预约｜Naiyou 5409980030｜2人\n9/21 16:00\n1、2:双人60分+热石');
+ expect(measure(body)).toMatchObject({encoding:'UCS-2',segments:1});
+});

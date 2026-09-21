@@ -318,6 +318,7 @@ export async function executeSingleAppointmentInTx(
     startsAt: Date;
     endsAt: Date;
     durationMin: number;
+    smsBaseDurationMin?: number;
     priceCents: number;
     details: Record<string, unknown>;
     /** 组合套餐来源（U10）。普通项目全部 undefined。 */
@@ -362,6 +363,7 @@ export async function executeSingleAppointmentInTx(
       startsAt,
       endsAt: new Date(startsAt.getTime() + durationMin * 60_000),
       durationMin,
+      smsBaseDurationMin: Math.max(0, durationMin - addonMinutes),
       priceCents: Math.floor(totalPrice / members.length) + (memberIndex < totalPrice % members.length ? 1 : 0),
       details: { ...safeDetails, ...(Array.isArray(item.details['publicGuestIndices']) ? { publicGuestIndex: item.details['publicGuestIndices'][Math.min(memberIndex, item.details['publicGuestIndices'].length - 1)] } : {}), ...(groupKey ? { serviceExecutionGroup: groupKey, requiredStaffCount: members.length } : {}) },
     }));
@@ -646,7 +648,7 @@ export async function executeSingleAppointmentInTx(
            ${item.priceCents}, ${item.durationMin}, ${idx},
            ${isOver}, ${isOver ? input.override!.reason : null},
            ${isOver ? (input.override!.note ?? null) : null},
-           ${jsonb({...item.details,smsBaseDurationMin:Math.max(0,item.durationMin-item.addonIds.reduce((n,id)=>n+(svcById.get(id)?.duration_min??0),0)),...(input.guest?.bookingSmsConsent!==undefined?{bookingSmsConsent:input.guest.bookingSmsConsent,bookingSmsConsentAt:new Date().toISOString(),bookingSmsPolicyVersion:'2026-09-20'}:{})})}::jsonb,
+           ${jsonb({...item.details,smsBaseDurationMin:item.smsBaseDurationMin??Math.max(0,item.durationMin-item.addonIds.reduce((n,id)=>n+(svcById.get(id)?.duration_min??0),0)),...(input.guest?.bookingSmsConsent!==undefined?{bookingSmsConsent:input.guest.bookingSmsConsent,bookingSmsConsentAt:new Date().toISOString(),bookingSmsPolicyVersion:'2026-09-20'}:{})})}::jsonb,
            ${bundleInstanceId}, ${item.bundleComponentId ?? null},
            ${item.bundleUnitIndex ?? null}, ${item.bundleListPriceCents ?? null})
         returning id`;
