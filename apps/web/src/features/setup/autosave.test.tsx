@@ -1,4 +1,6 @@
-import { act, renderHook } from '@testing-library/react';
+import { MemoryRouter, useNavigate, useLocation } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { SetupSaveProvider, useSetupDraft, useSetupSave } from './autosave';
 
@@ -37,4 +39,17 @@ describe('setup autosave', () => {
     rerender({ server: { name: 'imported' } });
     expect(result.current.value?.name).toBe('imported');
   });
+});
+
+it('flushes edits before programmatic navigation and blocks failed saves', async () => {
+  const save = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined);
+  const wrapper = ({ children }: { children: ReactNode }) => <MemoryRouter><SetupSaveProvider>{children}</SetupSaveProvider></MemoryRouter>;
+  const { result } = renderHook(() => ({ draft: useSetupDraft({ name: 'original' }, save), navigate: useNavigate(), location: useLocation() }), { wrapper });
+  act(() => result.current.draft.set({ name: 'changed' }));
+  act(() => result.current.navigate('/next'));
+  await waitFor(() => expect(result.current.draft.state).toBe('error'));
+  expect(result.current.location.pathname).toBe('/');
+  act(() => result.current.navigate('/next'));
+  await waitFor(() => expect(result.current.location.pathname).toBe('/next'));
+  expect(save).toHaveBeenCalledTimes(2);
 });

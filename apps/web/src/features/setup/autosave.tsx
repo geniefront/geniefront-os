@@ -1,3 +1,5 @@
+import { UNSAFE_NavigationContext } from 'react-router-dom';
+import { toast } from '@heroui/react';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLanguage } from '@/LanguageContext';
 
@@ -5,11 +7,40 @@ type Save = () => Promise<boolean>;
 const Context = createContext<{ register: (save: Save) => () => void; flush: Save } | null>(null);
 export function SetupSaveProvider({ children }: { children: ReactNode }) {
   const saves = useRef(new Set<Save>());
+  const navigation = useContext(UNSAFE_NavigationContext);
   const register = useCallback((save: Save) => { saves.current.add(save); return () => { saves.current.delete(save); }; }, []);
   const flush = useCallback(async () => {
     for (const save of saves.current) if (!await save()) return false;
     return true;
   }, []);
+  useEffect(() => {
+    if (!navigation?.navigator) return;
+    const navigator = navigation.navigator;
+    const push = navigator.push.bind(navigator), replace = navigator.replace.bind(navigator);
+    let pending = false;
+    const run = async (action: () => void) => {
+      if (pending) return;
+      pending = true;
+      try { if (await flush()) action(); } finally { pending = false; }
+    };
+    navigator.push = (...args) => { void run(() => { push(...args); currentIndex = window.history.state?.idx ?? currentIndex; }); };
+    navigator.replace = (...args) => { void run(() => { replace(...args); currentIndex = window.history.state?.idx ?? currentIndex; }); };
+    let currentIndex = window.history.state?.idx ?? 0;
+    let restore: (() => void) | null = null;
+    let allowNext = false;
+    const onPop = (event: PopStateEvent) => {
+      if (allowNext) { allowNext = false; currentIndex = event.state?.idx ?? currentIndex; return; }
+      event.stopImmediatePropagation();
+      if (restore) { const resumed = restore; restore = null; resumed(); return; }
+      const nextIndex = event.state?.idx;
+      if (typeof nextIndex !== 'number' || nextIndex === currentIndex) return;
+      const delta = nextIndex - currentIndex;
+      restore = () => { void run(() => { allowNext = true; window.history.go(delta); }); };
+      window.history.go(-delta);
+    };
+    window.addEventListener('popstate', onPop, true);
+    return () => { navigator.push = push; navigator.replace = replace; window.removeEventListener('popstate', onPop, true); };
+  }, [navigation?.navigator, flush]);
   return <Context.Provider value={{ register, flush }}>{children}</Context.Provider>;
 }
 export const useSetupSave = () => useContext(Context);
@@ -68,4 +99,21 @@ export function SaveStatus({ state, error, flush }: { state: string; error: stri
   return <div role={state === 'error' ? 'alert' : 'status'} className={`text-sm ${state === 'error' ? 'text-red-700' : 'text-slate-500'}`}>
     {state === 'error' ? <>{t('setupAutoSaveError')} <button type="button" className="underline" onClick={() => void flush()}>{t('setupRetry')}</button><span className="block text-xs">{error}</span></> : t(state === 'saved' ? 'setupAutoSaved' : 'setupAutoSaving')}
   </div>;
+}
+
+/** New records use an explicit Add button; do not silently discard unfinished input. */
+export function useSetupNewRecordGuard(dirty: boolean) {
+  const context = useSetupSave();
+  const { t } = useLanguage();
+  const latest = useRef(dirty); latest.current = dirty;
+  const message = useRef(t('setupNewRecordUnsaved')); message.current = t('setupNewRecordUnsaved');
+  useEffect(() => context?.register(async () => {
+    if (!latest.current) return true;
+    toast.danger(message.current); return false;
+  }), [context?.register]);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => { if (latest.current) { event.preventDefault(); event.returnValue = ''; } };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, []);
 }

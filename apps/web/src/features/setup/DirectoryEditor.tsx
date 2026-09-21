@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { useSaveDirectoryOption } from '@/features/staff/api';
 import type { DirectoryOption } from '@/features/staff/types';
-import { SaveStatus, useSetupDraft } from './autosave';
+import { SaveStatus, useSetupDraft, useSetupNewRecordGuard } from './autosave';
 import { Toggle } from './primitives';
 type Kind = 'job' | 'level' | 'skill';
 export function DirectoryEditor({ jobs, levels, skills }: { jobs: DirectoryOption[]; levels: DirectoryOption[]; skills: DirectoryOption[] }) {
@@ -16,6 +16,7 @@ export function DirectoryEditor({ jobs, levels, skills }: { jobs: DirectoryOptio
 function Group({ kind, options, label }: { kind: Kind; options: DirectoryOption[]; label: string }) {
   const { t } = useLanguage();
   const [name, setName] = useState('');
+  useSetupNewRecordGuard(Boolean(name.trim()));
   const save = useSaveDirectoryOption();
   const add = async () => {
     if (!name.trim()) return;

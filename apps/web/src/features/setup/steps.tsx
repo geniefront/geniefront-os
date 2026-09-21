@@ -1,4 +1,4 @@
-import { SaveStatus, useSetupDraft } from './autosave';
+import { SaveStatus, useSetupDraft, useSetupNewRecordGuard } from './autosave';
 import { useEntitlements } from '@/features/billing/useEntitlements';
 import { useEffect, useState } from 'react';
 import { toast } from '@heroui/react';
@@ -61,6 +61,7 @@ export function RoomsStepForm({ onSaved, stepNumber = 3 }: { onSaved: () => void
   const { data } = useRoomsQuery();
   const saveResource = useSaveResource();
   const [name, setName] = useState('');
+  useSetupNewRecordGuard(Boolean(name.trim()));
   const [type, setType] = useState('room');
   const [capacity, setCapacity] = useState('1');
 

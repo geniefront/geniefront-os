@@ -8,7 +8,7 @@ import { useSaveService, useSaveServiceCategory } from '@/features/settings/api'
 import type { ServiceItem, ServiceCategoryItem } from '@/features/settings/types';
 import { parseMoney, parseDurationMinutes } from '@/lib/validation';
 import { Field, selectClass, Toggle } from './primitives';
-import { SaveStatus, useSetupDraft } from './autosave';
+import { SaveStatus, useSetupDraft, useSetupNewRecordGuard } from './autosave';
 
 export function CategoryPicker({ value, onChange, categories }: { value: string; onChange: (id: string) => void; categories: ServiceCategoryItem[] }) {
   const { t } = useLanguage();
@@ -19,6 +19,7 @@ export function CategoryPicker({ value, onChange, categories }: { value: string;
 export function CategoryManager({ categories }: { categories: ServiceCategoryItem[] }) {
   const { t, language } = useLanguage();
   const [name, setName] = useState('');
+  useSetupNewRecordGuard(Boolean(name.trim()));
   const save = useSaveServiceCategory();
   const add = async () => {
     if (!name.trim()) return;

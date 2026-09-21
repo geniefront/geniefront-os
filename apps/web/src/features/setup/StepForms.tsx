@@ -5,7 +5,7 @@ import { useCan } from '@/lib/permissions';
 import { StaffEditor } from './StaffEditor';
 import { SetupBookingCapacity } from './BookingCapacity';
 import { CategoryManager, CategoryPicker, ServiceEditor } from './CatalogFields';
-import { SaveStatus, useSetupDraft } from './autosave';
+import { SaveStatus, useSetupDraft, useSetupNewRecordGuard } from './autosave';
 import { useEntitlements } from '@/features/billing/useEntitlements';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -145,6 +145,7 @@ export function CatalogStepForm({ onSaved, stepNumber = 4 }: { onSaved: () => vo
   const [categoryId, setCategoryId] = useState('');
   const [isAddon, setIsAddon] = useState(false);
   const [onlineBookable, setOnlineBookable] = useState(true);
+  useSetupNewRecordGuard(Boolean(name.trim() || price || presentation.imageUrl || presentation.description || categoryId || duration !== '60' || isAddon || !onlineBookable));
   const active = data?.services.filter((service) => service.active) ?? [];
   const existingNames = (data?.services ?? []).map((service) => service.displayName);
 
@@ -179,7 +180,8 @@ export function CatalogStepForm({ onSaved, stepNumber = 4 }: { onSaved: () => vo
         durationMin: durationValue,
         active: true,
       });
-      setName(''); setPrice('');setPresentation({imageUrl:'',description:''});
+      setName(''); setPrice(''); setPresentation({imageUrl:'',description:''});
+      setDuration('60'); setCategoryId(''); setIsAddon(false); setOnlineBookable(true);
       toast.success(t('setupStep2Saved'));
       onSaved();
     } catch (error) { toast.danger(t('setupAddFailed', { p0: error instanceof Error ? error.message : 'UNKNOWN' })); }
@@ -224,6 +226,7 @@ export function TeamStepForm({ onSaved, stepNumber = 5, settingsMode = false }: 
   const { data } = useDeskSettingsQuery();
   const saveStaff = useSaveStaffProfile();
   const [name, setName] = useState('');
+  useSetupNewRecordGuard(Boolean(name.trim()));
   const [bookable, setBookable] = useState(true);
   const [rotation, setRotation] = useState(true);
   /** 员工录入表单的字段级校验。 */
