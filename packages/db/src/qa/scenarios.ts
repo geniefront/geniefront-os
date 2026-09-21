@@ -146,6 +146,7 @@ export const SCENARIO_SPECS: Record<QaScenarioId, () => QaTenantSpec | null> = {
     orgName: 'QA Essential Trial',
     nameEn: 'Essential Trial Nails', nameZh: '试用店', slug: 'qa-essential-trial', status: 'active',
   }),
+  voice_active: () => ({ ...shop('voice_active', { orgName: 'QA Voice Active', nameEn: 'Voice Nails', nameZh: '语音测试店', slug: 'qa-voice-active', status: 'active' }), plan: 'voice_booking' }),
   growth_active: () => shop('growth_active', {
     orgName: 'QA Growth Active',
     nameEn: 'Growth Nails', nameZh: '增长店', slug: 'qa-growth-active', status: 'active',
@@ -310,6 +311,7 @@ export async function populateScenario(
     empty_shop: { plan: 'essential', status: 'trialing' },
     essential_trial: { plan: 'essential', status: 'trialing' },
     growth_active: { plan: 'growth', status: 'active' },
+    voice_active: { plan: 'voice_booking', status: 'active' },
     past_due: { plan: 'growth', status: 'past_due' },
     multi_location_owner: { plan: 'growth', status: 'active' },
     owner: { plan: 'growth', status: 'active' },
@@ -338,7 +340,7 @@ export async function populateScenario(
     await seedCatalog(tx, main, scenario, []);
   }
 
-  if (scenario === 'essential_trial' || scenario === 'growth_active' || scenario === 'past_due'
+  if (scenario === 'voice_active' || scenario === 'essential_trial' || scenario === 'growth_active' || scenario === 'past_due'
     || scenario === 'owner' || scenario === 'manager_or_front_desk' || scenario === 'tech_only') {
     await seedCatalog(tx, main, scenario, CUSTOMERS_A);
   }

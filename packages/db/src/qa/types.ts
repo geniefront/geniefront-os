@@ -5,6 +5,7 @@ export const QA_SCENARIO_IDS = [
   'empty_shop',
   'essential_trial',
   'growth_active',
+  'voice_active',
   'past_due',
   'multi_location_owner',
   'owner',
@@ -28,7 +29,7 @@ export const isQaScenarioId = (v: unknown): v is QaScenarioId =>
 export const QA_PASSWORD = 'GenieQa!2026';
 export const QA_SEED_MARKER = 'v2';
 
-export type CanonicalPlan = 'essential' | 'growth';
+export type CanonicalPlan = 'essential' | 'growth' | 'voice_booking';
 export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled';
 export type LocationStatus = 'setup' | 'trial' | 'active' | 'past_due' | 'suspended' | 'closed';
 export type RoleKey = 'owner' | 'manager' | 'front_desk' | 'senior_tech' | 'tech';
