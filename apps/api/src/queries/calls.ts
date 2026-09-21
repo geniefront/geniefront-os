@@ -35,10 +35,11 @@ export interface CallView {
   startedAt: string | null;
   durationSeconds: number | null;
   outcome: string | null;
-  /** 这通电话调过哪些工具。`book_appointment` 在里面 = 真订上了 */
+  /** Tools attempted during the call; not evidence of a committed booking. */
   toolsUsed: string[];
   /** ⭐ 它有没有真的订上单 —— 前台扫一眼列表就要能分辨 */
   booked: boolean;
+  appointmentIds: string[];
   recordingUrl: string | null;
   recordingId: string | null;
   billingStatus: string;
@@ -64,12 +65,16 @@ export async function loadCalls(
   const canSeeContact = ctx.permissions.has('customer.view_contact');
 
   const rows = await tx<{
-    id: string; from_e164: string | null; started_at: string | Date | null;
+    appointment_ids: string[]; id: string; from_e164: string | null; started_at: string | Date | null;
     duration_seconds: number | null; outcome: string | null;
     recording_id: string | null; voice_billing_status: string; billable_seconds: number | null;
     tools_used: string[] | null; recording_url: string | null; transcript: unknown; summary: string | null;
   }[]>`
     select id, from_e164, started_at, duration_seconds, outcome,
+           array(select a.id::text from appointments a where a.location_id=phone_calls.location_id
+             and (a.provider_call_id=phone_calls.provider_call_id or exists (
+               select 1 from call_drafts d where d.call_id=phone_calls.id and d.appointment_id=a.id and d.status='confirmed'
+             ))) as appointment_ids,
            tools_used, recording_url, summary, transcript, recording_id, voice_billing_status, billable_seconds
     from phone_calls
     where location_id = ${ctx.locationId}
@@ -87,7 +92,8 @@ export async function loadCalls(
       durationSeconds: r.duration_seconds,
       outcome: r.outcome,
       toolsUsed: tools,
-      booked: tools.includes('book_appointment'),
+      booked: r.appointment_ids.length > 0,
+      appointmentIds: r.appointment_ids,
       recordingUrl: r.recording_url,
       recordingId: r.recording_id,
       billingStatus: r.voice_billing_status,

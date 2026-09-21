@@ -612,8 +612,15 @@ describe('通话记录：计量 / 转录 / 转接（sql/0037）', () => {
     const seen = await withTenant(tenant, (tx) => loadCalls(tx, ctx, { days: 1 }));
     const mine = seen.calls.find((c) => c.transcript.some((l) => l.text.includes('all set')));
     expect(mine).toBeTruthy();
-    expect(mine!.booked).toBe(true);          // 列表上一眼看得出「真订上了」
+    expect(mine!.booked).toBe(false); // A tool attempt without a committed appointment is not success.
     expect(seen.totalMinutes).toBeGreaterThan(0);
+    const [appointment] = await withTenant(tenant, tx => tx<{ id: string }[]>`
+      insert into appointments (org_id, location_id, starts_at, ends_at, business_date, source, status, provider_call_id)
+      values (${NAIL_ORG}, ${NAIL_LOC}, now(), now() + interval '1 hour', current_date, 'phone_ai', 'booked', ${id}) returning id`);
+    const linked = await withTenant(tenant, tx => loadCalls(tx, ctx, { callId: mine!.callId }));
+    expect(linked.calls[0]?.booked).toBe(true);
+    expect(linked.calls[0]?.appointmentIds).toContain(appointment!.id);
+
 
     // 店长有 view_contact，看得到完整号码；没有的身份看到的是尾号
     const masked = await withTenant(tenant, (tx) => loadCalls(tx, {
