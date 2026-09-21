@@ -11,13 +11,17 @@ import { flushSms } from '../sms/flush';
 
 registerHandler(customerSaveProfile, async ({ input, ctx, tx, audit }) => {
   if (input.customerId) {
-    const [existing] = await tx<{ id: string; org_id: string }[]>`
-      select id, org_id from customers
-      where id = ${input.customerId} and org_id = ${ctx.orgId}`;
+    const [existing] = await tx<{ id: string; org_id: string; version: string }[]>`
+      select id, org_id, xmin::text as version from customers
+      where id = ${input.customerId} and org_id = ${ctx.orgId} for update`;
     if (!existing) {
       throw new AppError(ERROR_CODES.NOT_FOUND, {
         details: { entity: 'customer', id: input.customerId },
       });
+    }
+
+    if (input.expectedVersion && input.expectedVersion !== existing.version) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'customer_changed_reload' } });
     }
 
     const [before] = await tx<Record<string, unknown>[]>`

@@ -15,6 +15,7 @@ import { defineCommand, uuid, phoneE164 } from '../command.js';
 
 export const customerSaveProfileInput = z.object({
   customerId: uuid.optional(),
+  expectedVersion: z.string().optional(),
   name: z.string().trim().min(1, '客户姓名不能为空').max(100),
   firstName: z.string().trim().max(50).nullable().optional(),
   lastName: z.string().trim().max(50).nullable().optional(),

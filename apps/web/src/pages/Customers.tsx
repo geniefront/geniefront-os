@@ -175,6 +175,7 @@ function CustomersContent() {
 
   // 丝滑选择顾客 (使用 replaceState 同步 URL，零组件卸载重载)
   const handleSelectCustomer = (id: string) => {
+    setEditProfileOpen(false); setEditPrefOpen(false); setMergeModalOpen(false); setSmsModalOpen(false); setBlockModalOpen(false);
     setSelectedId(id);
     window.history.replaceState(null, '', `/customers/${id}`);
   };
@@ -191,7 +192,8 @@ function CustomersContent() {
 
   // 客户详情查询
   const detail = useCustomerDetail(selectedId);
-  const currentDetail = detail.data;
+  const currentDetail = !detail.isError && detail.data?.id === selectedId ? detail.data : undefined;
+  const [editTarget, setEditTarget] = useState<{ id: string; version?: string } | null>(null);
 
   // 智能合并弹窗搜索候选列表 (容错模糊搜索)
   const mergeCandidates = useMemo(() => {
@@ -220,6 +222,7 @@ function CustomersContent() {
   // 打开编辑基本信息弹窗
   const handleOpenEditProfile = () => {
     if (!currentDetail) return;
+    setEditTarget({ id: currentDetail.id, version: currentDetail.version });
     setFormName(currentDetail.displayName);
     setFormPhone(formatPhoneDisplay(currentDetail.phone) || '');
     setFormEmail(currentDetail.email || '');
@@ -293,7 +296,7 @@ function CustomersContent() {
   // 保存基本信息编辑
   const handleSaveProfile = async () => {
     customerForm.clear();
-    if (!selectedId || !formName.trim()) {
+    if (!currentDetail || !editTarget || editTarget.id !== selectedId || !formName.trim()) {
       customerForm.fail('name', t('crm.custNameRequired2'));
       return;
     }
@@ -301,7 +304,8 @@ function CustomersContent() {
     if (be) { toast.danger(be); return; }
     try {
       await saveProfileMutation.mutateAsync({
-        customerId: selectedId,
+        customerId: editTarget.id,
+        expectedVersion: editTarget.version,
         name: formName.trim(),
         phoneE164: formPhone.trim() || null,
         email: formEmail.trim() || null,
@@ -324,7 +328,7 @@ function CustomersContent() {
 
   // 保存偏好与禁忌
   const handleSavePref = async () => {
-    if (!selectedId) return;
+    if (!selectedId || !currentDetail) return;
     try {
       await savePreferencesMutation.mutateAsync({
         customerId: selectedId,
@@ -340,7 +344,7 @@ function CustomersContent() {
 
   // 智能合并重复档案
   const handleSmartMerge = async () => {
-    if (!selectedId || !selectedSourceCustomer) return;
+    if (!selectedId || !currentDetail || !selectedSourceCustomer) return;
     try {
       await mergeMutation.mutateAsync({
         sourceCustomerId: selectedSourceCustomer.id,
@@ -358,7 +362,7 @@ function CustomersContent() {
 
   // Send SMS
   const handleSendSms = async () => {
-    if (!selectedId || !smsContent.trim()) return;
+    if (!selectedId || !currentDetail || !smsContent.trim()) return;
     try {
       await sendSmsMutation.mutateAsync({
         customerId: selectedId,
@@ -373,7 +377,7 @@ function CustomersContent() {
 
   // 黑名单确认
   const handleConfirmBlock = async () => {
-    if (!selectedId) return;
+    if (!selectedId || !currentDetail) return;
     const isCurrentlyBlocked = Boolean(currentDetail?.blockedAt);
     try {
       await setBlockedMutation.mutateAsync({
@@ -654,6 +658,8 @@ function CustomersContent() {
               <div className="h-full grid place-items-center">
                 <EmptyState icon={<Users className="w-10 h-10 text-slate-300" />} title={t('crm.custPickFromList')} />
               </div>
+            ) : detail.isError ? (
+              <div role="alert" className="p-6"><p>{errorMessage(detail.error)}</p><Button onClick={() => detail.refetch()}>{t('retry')}</Button></div>
             ) : detail.isLoading && !currentDetail ? (
               <div className="h-full grid place-items-center">
                 <div className="flex flex-col items-center gap-2">

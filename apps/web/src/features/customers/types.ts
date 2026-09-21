@@ -49,6 +49,7 @@ export interface CustomerFormRef {
 
 export interface CustomerDetail {
   id: string;
+  version?: string;
   displayName: string;
   firstName: string | null;
   lastName: string | null;
@@ -106,6 +107,7 @@ export interface CustomerDetail {
 
 export interface SaveCustomerProfileInput {
   customerId?: string;
+  expectedVersion?: string;
   name: string;
   phoneE164?: string | null;
   email?: string | null;

@@ -23,6 +23,7 @@ import { maskPhone } from './staff';
 
 export interface CustomerDetail {
   id: string;
+  version: string;
   displayName: string;
   firstName: string | null;
   lastName: string | null;
@@ -97,7 +98,7 @@ export async function loadCustomerDetail(
   const canSeeMoney = ctx.permissions.has('report.view');
 
   const [c] = await tx<{
-    id: string; display_name: string | null; first_name: string | null;
+    version: string; id: string; display_name: string | null; first_name: string | null;
     last_name: string | null; phone_e164: string | null; email: string | null;
     locale: string | null; gender: string | null; birthday: string | null;
     vip_level: number; tags: string[] | null; notes: string | null;
@@ -106,7 +107,7 @@ export async function loadCustomerDetail(
     blocked_at: Date | string | null; blocked_reason: string | null;
     source: string | null; merged_into_id: string | null;
   }[]>`
-    select id, display_name, first_name, last_name, phone_e164, email, locale,
+    select xmin::text as version, id, display_name, first_name, last_name, phone_e164, email, locale,
            gender, birthday::text as birthday, vip_level, tags, notes,
            marketing_sms_opt_in, marketing_email_opt_in,
            no_show_count, late_cancel_count, blocked_at, blocked_reason,
@@ -194,6 +195,7 @@ export async function loadCustomerDetail(
 
   return {
     id: c.id,
+    version: c.version,
     displayName: c.display_name ?? '',
     firstName: c.first_name,
     lastName: c.last_name,

@@ -110,6 +110,8 @@ describe('customer profile PATCH', () => {
     await dispatch('customer.saveProfile', { customerId, name: 'Renamed', notes: null, phoneE164: null, birthday: null }, ownerCtx);
     const cleared = await withTenant(tenant, tx => loadCustomerDetail(tx, ownerCtx, customerId));
     expect(cleared).toMatchObject({ notes: null, phone: null, birthday: null, firstName: 'Patch', source: 'referral' });
+    await expect(dispatch('customer.saveProfile', { customerId, name: 'Stale overwrite', expectedVersion: detail!.version }, ownerCtx)).rejects.toMatchObject({ details: { reason: 'customer_changed_reload' } });
+    expect((await withTenant(tenant, tx => loadCustomerDetail(tx, ownerCtx, customerId)))?.displayName).toBe('Renamed');
   });
 });
 

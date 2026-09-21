@@ -78,7 +78,6 @@ export function useCustomerDetail(id: string | null) {
     queryKey: customerKeys.detail(membershipId, id ?? ''),
     queryFn: () => apiGet<CustomerDetail>(`/v1/desk/customers/${id!}`),
     enabled: status === 'ready' && membershipId !== null && Boolean(id),
-    placeholderData: (previous) => previous,
     staleTime: 30_000,
   });
 }
