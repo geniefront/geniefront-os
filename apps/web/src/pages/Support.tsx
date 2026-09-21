@@ -9,6 +9,7 @@ import { useLanguage } from '@/LanguageContext';
 import { useErrorMessage } from '@/lib/errorMessage';
 import {
   useMySupportRequests,
+  useReplySupportRequest,
   useSubmitSupportRequest,
   type SupportCategory,
   type SupportStatus,
@@ -39,6 +40,22 @@ export function Support() {
   const errorMessage = useErrorMessage();
   const submit = useSubmitSupportRequest();
   const history = useMySupportRequests();
+  const reply = useReplySupportRequest();
+  const [replyText, setReplyText] = useState<Record<string,string>>({});
+  const replyAttempt = useRef<{ payload: string; key: string } | null>(null);
+  const replyLock = useRef(false);
+  const respond = async (requestId: string, status?: 'open' | 'resolved') => {
+    if (replyLock.current) return;
+    const body = status ? undefined : replyText[requestId]?.trim();
+    const payload = JSON.stringify({ requestId, body, status });
+    if (replyAttempt.current?.payload !== payload) replyAttempt.current = { payload, key: crypto.randomUUID() };
+    replyLock.current = true;
+    try {
+      await reply.mutateAsync({ requestId, body, status, idempotencyKey: replyAttempt.current.key });
+      replyAttempt.current = null; setReplyText(old => ({ ...old, [requestId]: '' })); await history.refetch();
+    } catch (error) { toast.danger(errorMessage(error)); }
+    finally { replyLock.current = false; }
+  };
   const [category, setCategory] = useState<SupportCategory>('general');
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
@@ -158,7 +175,13 @@ export function Support() {
                     {t(STATUS_KEYS[r.status])}
                   </span>
                 </div>
-                <p className="line-clamp-2 text-xs text-slate-500">{r.description}</p>
+                <details className="text-sm"><summary className="cursor-pointer text-teal-700">{t('support.viewConversation')}</summary>
+                  <p className="whitespace-pre-wrap py-3 text-slate-600">{r.description}</p>
+                  {(r.messages ?? []).map(message => <div key={message.id} className="mb-2 rounded border p-3"><p className="text-xs text-slate-500">{t(message.authorKind === 'operator' ? 'support.operator' : 'support.you')} · {new Date(message.createdAt).toLocaleString()}</p><p className="whitespace-pre-wrap">{message.body}</p></div>)}
+                  <textarea aria-label={t('support.reply')} maxLength={8000} className="w-full rounded border p-2" value={replyText[r.id] ?? ''} onChange={e => setReplyText(old => ({ ...old, [r.id]: e.target.value }))} />
+                  <div className="flex gap-2"><Button disabled={!replyText[r.id]?.trim() || reply.isPending} onClick={() => void respond(r.id)}>{t('support.reply')}</Button>
+                  <Button variant="secondary" disabled={reply.isPending} onClick={() => void respond(r.id, r.status === 'resolved' || r.status === 'closed' ? 'open' : 'resolved')}>{t(r.status === 'resolved' || r.status === 'closed' ? 'support.reopen' : 'support.resolve')}</Button></div>
+                </details>
                 {r.lastOperatorUpdateAt && (
                   <p className="text-xs text-teal-700">
                     {t('support.updatedAt')} · {new Date(r.lastOperatorUpdateAt).toLocaleString()}

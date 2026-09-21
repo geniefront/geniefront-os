@@ -1,3 +1,4 @@
+import { withTenant } from '@gf/db';
 import { platformOperationKey } from './idempotency';
 /**
  * /v1/platform — GenieFront operator console.
@@ -204,7 +205,10 @@ export function registerPlatformRoutes(app: FastifyInstance): void {
     const id = parseOrThrow(uuid, req.params.id);
     const detail = await read(() => platformSupportRequestDetail(op.userId, id));
     if (!detail) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'support_request' } });
-    return detail;
+    const request = detail as { orgId: string; locationId: string };
+    const messages = await withTenant({ orgId: request.orgId, locationId: request.locationId, membershipId: null, userId: op.userId }, tx => tx`
+      select id,body,author_kind as "authorKind",created_at::text as "createdAt" from support_request_messages where request_id=${id} order by created_at,id`);
+    return { ...(detail as object), messages };
   });
 
   app.patch<{ Params: { id: string } }>('/v1/platform/support-requests/:id', async (req) => {

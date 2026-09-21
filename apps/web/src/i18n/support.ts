@@ -1,6 +1,12 @@
 import type { DomainDict } from './types';
 
 export const support = {
+  'support.viewConversation': { 'zh-Hans': '查看详情与对话', en: 'View details and conversation', ko: '상세 및 대화 보기', es: 'Ver detalles y conversación', vi: 'Xem chi tiết và hội thoại' },
+  'support.operator': { 'zh-Hans': '客服', en: 'Support', ko: '지원팀', es: 'Soporte', vi: 'Hỗ trợ' },
+  'support.you': { 'zh-Hans': '门店', en: 'Store', ko: '매장', es: 'Tienda', vi: 'Cửa hàng' },
+  'support.reply': { 'zh-Hans': '回复 / 补充资料', en: 'Reply / add information', ko: '답변 / 정보 추가', es: 'Responder / añadir información', vi: 'Trả lời / bổ sung' },
+  'support.resolve': { 'zh-Hans': '标记已解决', en: 'Mark resolved', ko: '해결됨으로 표시', es: 'Marcar resuelto', vi: 'Đánh dấu đã giải quyết' },
+  'support.reopen': { 'zh-Hans': '重新打开', en: 'Reopen', ko: '다시 열기', es: 'Reabrir', vi: 'Mở lại' },
   'support.title': { 'zh-Hans': '联系 GenieFront 支持', en: 'Contact GenieFront support', ko: 'GenieFront 지원 문의', es: 'Contactar con soporte de GenieFront', vi: 'Liên hệ hỗ trợ GenieFront' },
   'support.description': { 'zh-Hans': '提交一条支持请求。平台运营会在后台处理，不会改动门店账单或营业数据。', en: 'Submit a support request. Platform operators handle it internally. This does not change billing or store data.', ko: '지원 요청을 제출하세요. 플랫폼 운영자가 내부에서 처리하며 결제나 매장 데이터는 바뀌지 않습니다.', es: 'Envía una solicitud de soporte. El equipo de plataforma la gestiona internamente. No cambia la facturación ni los datos del local.', vi: 'Gửi yêu cầu hỗ trợ. Đội vận hành nền tảng sẽ xử lý nội bộ. Việc này không đổi thanh toán hay dữ liệu cửa hàng.' },
   'support.category': { 'zh-Hans': '分类', en: 'Category', ko: '분류', es: 'Categoría', vi: 'Danh mục' },

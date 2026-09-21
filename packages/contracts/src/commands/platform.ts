@@ -62,6 +62,7 @@ export const PlatformUpdateSupportRequestInput = z.object({
 });
 
 export const PlatformAddSupportNoteInput = z.object({
+  publicReply: z.boolean().default(false),
   requestId: z.string().uuid(),
   body: z.string().trim().min(1).max(8000),
 });

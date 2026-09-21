@@ -171,6 +171,14 @@ export async function addSupportNote(
         select id from support_requests where id = ${input.requestId}`;
       if (!exists) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'support_request' } });
 
+      if (input.publicReply) {
+        const [message] = await tx<{ id: string; created_at: string | Date }[]>`insert into support_request_messages
+          (org_id,location_id,request_id,author_kind,author_user_id,body)
+          values (${orgId},${locationId},${input.requestId},'operator',${operator.userId},${input.body}) returning id,created_at`;
+        await tx`update support_requests set status='waiting',last_operator_update_at=now(),updated_at=now() where id=${input.requestId}`;
+        await writePlatformAudit(tx,operator,{orgId,locationId,command:'platform.replySupportRequest',entityType:'support_request',entityId:input.requestId,after:{messageId:message!.id}});
+        return { noteId: message!.id, createdAt: parseTs(message!.created_at).toISOString() };
+      }
       const [note] = await tx<{ id: string; created_at: string | Date }[]>`
         insert into support_request_notes
           (org_id, location_id, request_id, author_operator_id, body)

@@ -14,6 +14,7 @@ type Detail = {
   status: string;
   priority: string;
   createdAt: string;
+  messages?: Array<{ id: string; body: string; authorKind: string; createdAt: string }>;
   notes: Array<{ id: string; body: string; createdAt: string }>;
 };
 
@@ -21,6 +22,7 @@ export function SupportDetail() {
   const { id } = useParams();
   const qc = useQueryClient();
   const [note, setNote] = useState('');
+  const [reply, setReply] = useState('');
   const q = useQuery({
     queryKey: ['platform', 'support', id],
     queryFn: () => platformGet<Detail>(`/v1/platform/support-requests/${id}`),
@@ -38,6 +40,10 @@ export function SupportDetail() {
     },
   });
 
+  const sendReply = useMutation({
+    mutationFn: () => platformSend('POST', `/v1/platform/support-requests/${id}/notes`, { body: reply, publicReply: true }),
+    onSuccess: () => { setReply(''); void qc.invalidateQueries({ queryKey: ['platform', 'support', id] }); },
+  });
   if (!q.data) return <p>{q.isLoading ? 'Loading…' : 'Not found.'}</p>;
   const d = q.data;
 
@@ -60,6 +66,12 @@ export function SupportDetail() {
         </select>
         <span className="text-sm text-slate-500">Priority: {d.priority}</span>
       </div>
+      <section className="space-y-2"><h2 className="font-medium">Public conversation</h2>
+        {(d.messages ?? []).map(message => <div key={message.id} className="rounded border p-3"><p className="text-xs text-slate-500">{message.authorKind} · {message.createdAt}</p><p className="whitespace-pre-wrap">{message.body}</p></div>)}
+        <textarea aria-label="Public reply" value={reply} onChange={e => setReply(e.target.value)} className="w-full rounded border p-2" />
+        <button disabled={!reply.trim() || sendReply.isPending} onClick={() => sendReply.mutate()} className="rounded bg-teal-700 px-3 py-2 text-white">Send public reply</button>
+        {sendReply.isError && <p role="alert">{sendReply.error.message}</p>}
+      </section>
       <section className="space-y-2">
         <h2 className="font-medium">Internal notes</h2>
         {(d.notes ?? []).map((n) => (

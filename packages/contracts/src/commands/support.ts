@@ -32,4 +32,12 @@ export const SubmitSupportRequest = defineCommand({
   idempotency: 'optional',
 });
 
-export const SUPPORT_COMMANDS = [SubmitSupportRequest] as const;
+export const ReplySupportRequest = defineCommand({
+  name: 'support.replyRequest',
+  input: z.object({ requestId: z.string().uuid(), body: z.string().trim().min(1).max(8000).optional(), status: z.enum(['open','resolved']).optional() }).refine(v => Boolean(v.body || v.status)),
+  output: z.object({ requestId: z.string().uuid() }),
+  permission: 'settings.manage',
+  reversible: false, idempotency: 'required',
+  ai: { description: 'Reply to, resolve or reopen a support request.', confirm: 'always', exposed: false },
+});
+export const SUPPORT_COMMANDS = [SubmitSupportRequest, ReplySupportRequest] as const;

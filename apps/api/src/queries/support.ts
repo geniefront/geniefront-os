@@ -23,6 +23,7 @@ import type { CommandContext } from '@gf/contracts';
 
 export interface SupportRequestSummary {
   id: string;
+  messages: Array<{ id: string; body: string; authorKind: string; createdAt: string }>;
   category: string;
   subject: string;
   description: string;
@@ -53,9 +54,13 @@ export async function loadMySupportRequests(
     order by created_at desc
     limit ${Math.min(Math.max(limit, 1), 100)}`;
 
+  const messages = rows.length ? await tx<{ id: string; request_id: string; body: string; author_kind: string; created_at: string }[]>`
+    select id,request_id,body,author_kind,created_at::text from support_request_messages
+    where location_id=${ctx.locationId} and request_id=any(${rows.map(r=>r.id)}) order by created_at,id` : [];
   return {
     requests: rows.map((r) => ({
       id: r.id,
+      messages: messages.filter(m=>m.request_id===r.id).map(m=>({id:m.id,body:m.body,authorKind:m.author_kind,createdAt:m.created_at})),
       category: r.category,
       subject: r.subject,
       description: r.description,

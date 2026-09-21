@@ -39,6 +39,7 @@ export function useSubmitSupportRequest() {
 export type SupportStatus = 'open' | 'in_progress' | 'waiting' | 'resolved' | 'closed';
 
 export interface SupportRequestSummary {
+  messages?: Array<{ id: string; body: string; authorKind: string; createdAt: string }>;
   id: string;
   category: SupportCategory;
   subject: string;
@@ -71,4 +72,12 @@ export function useMySupportRequests() {
       '/v1/desk/support/requests', membershipId!,
     ),
   });
+}
+
+export function useReplySupportRequest() {
+  const { membershipId } = useSession();
+  return useMutation({ mutationFn: async (input: { requestId: string; body?: string; status?: 'open' | 'resolved'; idempotencyKey: string }) => {
+    const { idempotencyKey, ...body } = input;
+    return runCommand('support.replyRequest', body, membershipId!, idempotencyKey);
+  } });
 }

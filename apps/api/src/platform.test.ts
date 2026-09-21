@@ -1,3 +1,4 @@
+import { loadMySupportRequests } from './queries/support';
 /**
  * Platform operator console: authorization, cross-tenant reads, audit,
  * and the billing mutation freeze. Customer tenant isolation stays intact.
@@ -284,6 +285,25 @@ describe('platform mutations are audited', () => {
     });
     expect(r.statusCode).toBe(200);
     expect(r.json().status).toBe('in_progress');
+    const requestId = created.result.requestId;
+    const internal = await app.inject({ method: 'POST', url: `/v1/platform/support-requests/${requestId}/notes`, payload: { body: 'INTERNAL_ONLY' } });
+    expect(internal.statusCode).toBe(200);
+    const publicReply = await app.inject({ method: 'POST', url: `/v1/platform/support-requests/${requestId}/notes`, payload: { body: 'Please provide details', publicReply: true } });
+    expect(publicReply.statusCode).toBe(200);
+    const history = await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: ownerMembershipId }, tx => loadMySupportRequests(tx, ctx));
+    const request = history.requests.find(item => item.id === requestId)!;
+    expect(request.status).toBe('waiting');
+    expect(request.messages).toHaveLength(1);
+    expect(request.messages[0]?.body).toBe('Please provide details');
+    expect(JSON.stringify(request)).not.toContain('INTERNAL_ONLY');
+    const key = crypto.randomUUID();
+    await dispatch('support.replyRequest', { requestId, body: 'Here are the details' }, ctx, { idempotencyKey: key });
+    await dispatch('support.replyRequest', { requestId, body: 'Here are the details' }, ctx, { idempotencyKey: key });
+    await dispatch('support.replyRequest', { requestId, status: 'resolved' }, ctx, { idempotencyKey: crypto.randomUUID() });
+    await dispatch('support.replyRequest', { requestId, status: 'open' }, ctx, { idempotencyKey: crypto.randomUUID() });
+    const answered = await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: ownerMembershipId }, tx => loadMySupportRequests(tx, ctx));
+    expect(answered.requests.find(item => item.id === requestId)).toMatchObject({ status: 'open', messages: [{ body: 'Please provide details' }, { body: 'Here are the details' }] });
+
 
     const audit = await withTenant(
       { orgId: SPA_ORG, locationId: SPA_LOC, membershipId: null },
