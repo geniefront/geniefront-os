@@ -236,8 +236,13 @@ export function registerVoiceManagementRoutes(
         details: { reason: "booking_changed_query_again" },
       });
   };
-  const lookupData = async (req: FastifyRequest) => {
-    const a = await auth(req);
+  const lookupData = async (
+    req: FastifyRequest,
+    authorized?: Awaited<ReturnType<Auth>>,
+  ) => {
+    const a = authorized
+      ? { ...authorized, ...callerFromSystemHeaders(req) }
+      : await auth(req);
     return withTenant(a.ctx, async (tx) => {
       const [shop] = await tx<
         Shop[]

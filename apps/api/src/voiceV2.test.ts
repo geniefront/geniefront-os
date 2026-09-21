@@ -363,3 +363,210 @@ it("isolates stored references from another tenant and expires them", async () =
   expect(result.statusCode).toBe(400);
   expect(result.json().details.reason).toBe("selection_expired_query_again");
 });
+
+it("publishes store-only snapshots and invalidates catalog changes once per transaction", async () => {
+  const { refreshVoiceSnapshot } = await import("./voice/contextCache");
+  const { hashToolToken } = await import("./telnyx/toolToken");
+  const { readInitialSnapshot } = await import("./voice/references");
+  const ctx = {
+    ...tenant,
+    userId: null,
+    actorKind: "api" as const,
+    locale: "en" as const,
+    timezone: "America/New_York",
+    permissions: new Set(["appointment.write" as const, "call.draft" as const]),
+  };
+  expect(await refreshVoiceSnapshot(ctx, hashToolToken(token), true)).toBe(
+    true,
+  );
+  const before = await withTenant(ctx, (tx) => readInitialSnapshot(tx, ctx));
+  expect(before!.clean).toBe(true);
+  expect((before!.payload as any).callerAppointments).toBeUndefined();
+  await withTenant(ctx, async (tx) => {
+    await tx`update services set base_price_cents=base_price_cents+1 where id=${services[0]!}`;
+    await tx`update services set base_price_cents=base_price_cents-1 where id=${services[0]!}`;
+  });
+  const dirty = await withTenant(ctx, (tx) => readInitialSnapshot(tx, ctx));
+  expect(BigInt(dirty!.revision) - BigInt(before!.revision)).toBe(1n);
+  expect(dirty!.clean).toBe(false);
+  const cached = await get();
+  expect(cached.statusCode).toBe(200);
+  expect(cached.json().coverage.stale).toBe(true);
+  expect(cached.json().coverage.generatedAt).toBe(
+    (before!.payload as any).coverage.generatedAt,
+  );
+  expect(await refreshVoiceSnapshot(ctx, hashToolToken(token), true)).toBe(
+    true,
+  );
+  expect((await get()).json().coverage.stale).toBe(false);
+});
+it("coordinates refresh across workers and rejects an expired lease owner", async () => {
+  const { claimInitialSnapshot, publishInitialSnapshot, readInitialSnapshot } =
+    await import("./voice/references");
+  const ctx = {
+    ...tenant,
+    userId: null,
+    actorKind: "api" as const,
+    locale: "en" as const,
+    timezone: "America/New_York",
+    permissions: new Set(["appointment.write" as const, "call.draft" as const]),
+  };
+  const row = await withTenant(ctx, (tx) => readInitialSnapshot(tx, ctx));
+  const claims = await Promise.all([
+    withTenant(ctx, (tx) => claimInitialSnapshot(tx, ctx, row!.scope, true)),
+    withTenant(ctx, (tx) => claimInitialSnapshot(tx, ctx, row!.scope, true)),
+  ]);
+  expect(claims.filter(Boolean)).toHaveLength(1);
+  const lease = claims.find(Boolean)!;
+  await withTenant(
+    ctx,
+    (tx) =>
+      tx`update voice_availability_snapshots set lease_until=now()-interval '1 second' where location_id=${locationId}`,
+  );
+  const replacement = await withTenant(ctx, (tx) =>
+    claimInitialSnapshot(tx, ctx, row!.scope, true),
+  );
+  expect(replacement).toBeTruthy();
+  expect(
+    await withTenant(ctx, (tx) =>
+      publishInitialSnapshot(tx, ctx, row!.scope, lease, row!.payload),
+    ),
+  ).toBe(false);
+  expect(
+    await withTenant(ctx, (tx) =>
+      publishInitialSnapshot(tx, ctx, row!.scope, replacement!, row!.payload),
+    ),
+  ).toBe(true);
+});
+it("does not lose a booking or schedule invalidation that arrives while a refresh is running", async () => {
+  const { claimInitialSnapshot, publishInitialSnapshot, readInitialSnapshot } =
+    await import("./voice/references");
+  const ctx = {
+    ...tenant,
+    userId: null,
+    actorKind: "api" as const,
+    locale: "en" as const,
+    timezone: "America/New_York",
+    permissions: new Set(["appointment.write" as const, "call.draft" as const]),
+  };
+  const before = await withTenant(ctx, (tx) => readInitialSnapshot(tx, ctx));
+  const lease = await withTenant(ctx, (tx) =>
+    claimInitialSnapshot(tx, ctx, before!.scope, true),
+  );
+  await withTenant(
+    ctx,
+    (tx) =>
+      tx`update staff_profiles set is_bookable=is_bookable where membership_id=${staff[0]!}`,
+  );
+  expect(
+    await withTenant(ctx, (tx) =>
+      publishInitialSnapshot(tx, ctx, before!.scope, lease!, before!.payload),
+    ),
+  ).toBe(true);
+  const after = await withTenant(ctx, (tx) => readInitialSnapshot(tx, ctx));
+  expect(after!.clean).toBe(false);
+  expect(Date.parse(after!.refreshAfter) - Date.now()).toBeLessThan(2100);
+});
+it("retains the last complete snapshot after refresh failure and marks it stale", async () => {
+  const { claimInitialSnapshot, failInitialSnapshot, readInitialSnapshot } =
+    await import("./voice/references");
+  const ctx = {
+    ...tenant,
+    userId: null,
+    actorKind: "api" as const,
+    locale: "en" as const,
+    timezone: "America/New_York",
+    permissions: new Set(["appointment.write" as const, "call.draft" as const]),
+  };
+  const row = await withTenant(ctx, (tx) => readInitialSnapshot(tx, ctx));
+  const lease = await withTenant(ctx, (tx) =>
+    claimInitialSnapshot(tx, ctx, row!.scope, true),
+  );
+  await withTenant(ctx, (tx) => failInitialSnapshot(tx, ctx, lease!.leaseId));
+  const after = await withTenant(ctx, (tx) => readInitialSnapshot(tx, ctx));
+  expect(after!.payload).toEqual(row!.payload);
+  expect(Date.parse(after!.retryAfter)).toBeGreaterThan(Date.now());
+  expect((await get()).json().coverage.stale).toBe(true);
+  await withTenant(
+    ctx,
+    (tx) =>
+      tx`update voice_availability_snapshots set retry_after=now() where location_id=${locationId}`,
+  );
+});
+it("rejects old-date, over-age and different-credential snapshots and isolates other tenants", async () => {
+  const { usableSnapshot } = await import("./voice/contextCache");
+  const { readInitialSnapshot } = await import("./voice/references");
+  const row = await withTenant(tenant, (tx) =>
+    readInitialSnapshot(tx, tenant as any),
+  );
+  expect(usableSnapshot(row, row!.scope)).toBe(true);
+  expect(usableSnapshot(row, "wrong-scope")).toBe(false);
+  expect(
+    usableSnapshot(
+      { ...row!, generatedAt: new Date(Date.now() - 301000).toISOString() },
+      row!.scope,
+    ),
+  ).toBe(false);
+  const wrongDate = structuredClone(row!);
+  (wrongDate.payload as any).coverage.from = "2000-01-01";
+  expect(usableSnapshot(wrongDate, row!.scope)).toBe(false);
+  const other = await withTenant(
+    { ...tenant, locationId: "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb" },
+    (tx) =>
+      tx`select location_id from voice_availability_snapshots where location_id=${locationId}`,
+  );
+  expect(other).toHaveLength(0);
+});
+it("bulk snapshot availability matches fresh single-selection planning", async () => {
+  const { voiceCatalog } = await import("./voice/catalog");
+  const { loadPartyAvailability } = await import("./public/partyAvailability");
+  const { loadPartyAvailabilityData } = await import(
+    "./public/partyAvailabilityData"
+  );
+  await withTenant(tenant, async (tx) => {
+    const cat = await voiceCatalog(tx, locationId);
+    const day = addDays(date, 10);
+    const data = await loadPartyAvailabilityData(tx, cat.shop, [day]);
+    for (const items of [
+      [
+        {
+          guestIndex: 0,
+          serviceId: services[0]!,
+          addonIds: [addon],
+          staffId: staff[0]!,
+        },
+      ],
+      [
+        { guestIndex: 0, serviceId: services[0]!, addonIds: [], staffId: null },
+        { guestIndex: 1, serviceId: services[1]!, addonIds: [], staffId: null },
+      ],
+    ]) {
+      const direct = await loadPartyAvailability(tx, cat.shop, {
+        date: day,
+        items,
+      });
+      const batched = await loadPartyAvailability(
+        tx,
+        cat.shop,
+        { date: day, items },
+        data,
+      );
+      expect(batched.plans.map((p) => p.startsAt)).toEqual(
+        direct.plans.map((p) => p.startsAt),
+      );
+      expect(
+        batched.items.map((i) => [
+          i.durationMin,
+          i.priceCents,
+          i.eligibleStaffIds,
+        ]),
+      ).toEqual(
+        direct.items.map((i) => [
+          i.durationMin,
+          i.priceCents,
+          i.eligibleStaffIds,
+        ]),
+      );
+    }
+  });
+});

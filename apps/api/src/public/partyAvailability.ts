@@ -1,3 +1,4 @@
+import type {PartyAvailabilityData} from "./partyAvailabilityData";
 import {dayWindows} from '@gf/scheduling';
 import { loadBookingStaff } from '../queries/bookingStaff';
 import type postgres from "postgres";
@@ -38,7 +39,9 @@ export async function loadPartyAvailability(
     excludeAppointmentId?: string | null;
     trustedUnits?: Array<{ durationMin: number; priceCents: number }>;
   },
+  preloaded?: PartyAvailabilityData,
 ) {
+  if(preloaded && (preloaded.locationId!==shop.locationId || !preloaded.staffByDate[args.date] || args.excludeAppointmentId || args.trustedUnits)) throw new Error('Invalid availability snapshot scope');
   const bad = (reason: string): never => {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason } });
   };
@@ -71,7 +74,7 @@ export async function loadPartyAvailability(
   const publicAddonIds = Object.entries(profile.services)
     .filter(([, v]) => v.visible === true)
     .map(([id]) => id);
-  const services = await tx<
+  const services = preloaded ? preloaded.services.filter(s=>ids.includes(s.id)) : await tx<
     {
       id: string;
       name: unknown;
@@ -86,8 +89,8 @@ export async function loadPartyAvailability(
     select id, name, duration_min, base_price_cents, is_addon, buffer_before_min, buffer_after_min, staff_count
     from services where location_id = ${shop.locationId} and id = any(${ids}) and active and (${!!args.trustedUnits} or online_bookable or (is_addon and id=any(${publicAddonIds})))`;
   if (services.length !== ids.length) bad("service_not_online_bookable");
-  const staff = await loadBookingStaff(tx,shop.locationId,args.date);
-  const directory = await tx<
+  const staff = preloaded ? preloaded.staffByDate[args.date]! : await loadBookingStaff(tx,shop.locationId,args.date);
+  const directory = preloaded ? preloaded.directory : await tx<
     { id: string; name: unknown; avatar: string | null; bio: unknown }[]
   >`
     select sp.membership_id as id,sp.display_name as name,sp.photo_url as avatar,sp.bio
@@ -99,12 +102,12 @@ export async function loadPartyAvailability(
     args.items.some((i) => i.staffId)
   )
     bad("staff_selection_disabled");
-  const requirements = await tx<
+  const requirements = preloaded ? preloaded.requirements.filter(r=>ids.includes(r.service_id)) : await tx<
     { service_id: string; skill_id: string; minimum_proficiency: number }[]
   >`
     select service_id, skill_id, minimum_proficiency from service_skill_requirements
     where location_id=${shop.locationId} and service_id=any(${ids})`;
-  const skills = directory.length
+  const skills = preloaded ? preloaded.skills : directory.length
     ? await tx<
         { membership_id: string; skill_id: string; proficiency: number }[]
       >`
@@ -161,7 +164,7 @@ export async function loadPartyAvailability(
       ],
     };
   });
-  const existing = await tx<
+  const existing = preloaded ? preloaded.existing : await tx<
     {
       starts_at: string;
       ends_at: string;
@@ -181,7 +184,7 @@ export async function loadPartyAvailability(
       items.map((i) => i.resourceTypeId).filter((id): id is string => !!id),
     ),
   ];
-  const resources = resourceTypes.length
+  const resources = preloaded ? preloaded.resources.filter(r=>resourceTypes.includes(r.resource_type_id)) : resourceTypes.length
     ? await tx<
         {
           id: string;
@@ -193,7 +196,7 @@ export async function loadPartyAvailability(
     select id,resource_type_id,capacity,max_staff from resources
     where location_id=${shop.locationId} and resource_type_id=any(${resourceTypes}) and status='available' order by id`
     : [];
-  const resourceBusy = resources.length
+  const resourceBusy = preloaded ? preloaded.existing.filter(r=>r.resource_id && resources.some(s=>s.id===r.resource_id)) : resources.length
     ? await tx<
         {
           resource_id: string;

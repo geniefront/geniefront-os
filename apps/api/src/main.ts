@@ -1,3 +1,4 @@
+import {startVoiceSnapshots} from './voice/snapshotWorker';
 /**
  * 生产入口。
  *
@@ -45,6 +46,7 @@ const app = buildServer();
 // 每次都挂一个定时器的话，一跑测试就是几十个后台任务在抢同一批会话
 startCallReconciler(app);
 startVoiceProcessing(app);
+startVoiceSnapshots(app);
 
 // 幂等表保留期清理（AUD-09）。同上：只在真正的入口挂定时器。
 startRetentionJob(app);
