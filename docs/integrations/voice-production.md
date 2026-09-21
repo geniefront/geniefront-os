@@ -48,3 +48,7 @@ Canonical instructions: [production prompt](xai-voice-production-prompt.md). Exi
 Conversation rollout settings: Iris at 1.0×, silence follow-up after 10 seconds (two reminders before idle hangup), concise greeting “Zhi Zi Massage, how can I help?”. These replace the original 1.1× / five-second settings above.
 
 The signed Telnyx inbound handler starts store/slot prewarming without delaying call routing. Store-only snapshots are shared for up to 30 seconds across API nodes; concurrent reads on one node share the same in-flight work. Caller appointments are fetched separately using the actual call's system identity and are never included in this shared cache. Targeted availability searches and booking writes always bypass the initial snapshot cache.
+
+### SIP transport incident (2026-09-21)
+
+The 18:09:23 and 18:09:56 UTC inbound callbacks returned valid TeXML (HTTP 200 in about 60 ms). Telnyx answered the caller, then the xAI SIP leg timed out before answer with SIP 408 after approximately three seconds. The returned SIP URI omitted `;transport=tls`, whereas the agent console explicitly supplies that transport. The successful 14:35 UTC call also used the old URI, so the logs alone do not establish why the path started failing. Dial generation now explicitly requests TLS, matching the console. API/WebSocket health alone is not evidence that PSTN/SIP calls work; verify a live inbound call after this change.

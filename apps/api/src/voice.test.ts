@@ -67,6 +67,7 @@ describe('xAI scoped booking tools', () => {
     const headers = { 'content-type': 'application/x-www-form-urlencoded', 'telnyx-timestamp': timestamp, 'telnyx-signature-ed25519': signature };
     const r = await app.inject({method:'POST',url:'/v1/telnyx/xai/inbound',headers,payload:body});
     expect(r.statusCode).toBe(200); expect(r.body).toContain('timeLimit="600"');
+    expect(r.body).toContain('sip:+15125550199@voice.example.com:5060;transport=tls</Sip>');
     expect((await app.inject({method:'POST',url:'/v1/telnyx/xai/inbound',headers,payload:body+'&tampered=1'})).statusCode).toBe(401);
   });
   it('returns store information without leaking customer records', async () => {

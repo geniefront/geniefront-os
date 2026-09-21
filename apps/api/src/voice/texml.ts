@@ -19,7 +19,7 @@ export function xaiDialXml(phone: string, sipHost: string, callbackBase: string)
   const callback = new URL('/v1/telnyx/xai/recording', callbackBase);
   if (callback.protocol !== 'https:') throw new Error('HTTPS callback required');
   callback.searchParams.set('number', phone);
-  return response(`<Dial timeLimit="600" timeout="20" record="record-from-answer-dual" recordingStatusCallback="${escapeXml(callback.href)}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed"><Sip>sip:${phone}@${escapeXml(sipHost)}</Sip></Dial><Hangup/>`);
+  return response(`<Dial timeLimit="600" timeout="20" record="record-from-answer-dual" recordingStatusCallback="${escapeXml(callback.href)}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed"><Sip>sip:${phone}@${escapeXml(sipHost)};transport=tls</Sip></Dial><Hangup/>`);
 }
 
 export function registerXaiTexmlRoutes(app: FastifyInstance) {
