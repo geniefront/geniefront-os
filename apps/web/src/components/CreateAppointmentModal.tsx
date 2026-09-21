@@ -700,6 +700,7 @@ export function CreateAppointmentModal({
       if (item.membershipId && item.membershipId !== UNASSIGNED_STAFF_ID) {
         staffSet.add(item.membershipId);
       }
+      for (const member of item.additionalMembershipIds ?? []) if (member) staffSet.add(member);
     }
 
     const totalSpan = maxEndMins > minStartMins ? maxEndMins - minStartMins : 0;
@@ -787,7 +788,7 @@ export function CreateAppointmentModal({
     submittingRef.current = true;
     setSubmitting(true);
     try {
-      const identity = deskAppointmentCustomer({ name: customerName, phone });
+      const identity = selectedCustomerId ? { mode: 'walkin' as const, walkInName: customerName.trim() } : deskAppointmentCustomer({ name: customerName, phone });
       const customerId = selectedCustomerId;
       let newCustomer: { name: string; phoneE164: string } | undefined;
       let walkInName: string | undefined;
