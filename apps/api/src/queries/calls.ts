@@ -96,12 +96,12 @@ export async function loadCalls(
       toolsUsed: tools,
       booked: r.appointment_ids.length > 0,
       appointmentIds: r.appointment_ids,
-      recordingUrl: r.recording_url,
-      recordingId: r.recording_id,
+      recordingUrl: canSeeContact ? r.recording_url : null,
+      recordingId: canSeeContact ? r.recording_id : null,
       billingStatus: r.voice_billing_status,
       billableSeconds: r.billable_seconds,
-      summary: r.summary,
-      transcript: Array.isArray(r.transcript) ? r.transcript as CallLine[] : [],
+      summary: canSeeContact ? r.summary : null,
+      transcript: canSeeContact && Array.isArray(r.transcript) ? r.transcript as CallLine[] : [],
     };
   });
 

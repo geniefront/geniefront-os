@@ -635,6 +635,9 @@ describe('通话记录：计量 / 转录 / 转接（sql/0037）', () => {
     }, { days: 1 }));
     const m = masked.calls.find((c) => c.callId === mine!.callId);
     expect(m!.fromE164).toBe('••••1234');
+    expect(m!.transcript).toEqual([]);
+    expect(m!.summary).toBeNull();
+    expect(m!.recordingUrl).toBeNull();
   });
 
   it('⭐ 没配人工客服号时，start_call 明说不能转接', async () => {

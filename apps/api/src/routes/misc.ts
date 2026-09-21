@@ -69,7 +69,7 @@ export function registerMiscRoutes(app: FastifyInstance, ctxFromHeaders: CtxFrom
 
   app.get<{ Params: { id: string } }>('/v1/desk/calls/:id/recording', async (req, reply) => {
     const ctx = await ctxFromHeaders(req);
-    if (!ctx.permissions.has('appointment.read')) throw new AppError(ERROR_CODES.PERMISSION_DENIED);
+    if (!ctx.permissions.has('appointment.read') || !ctx.permissions.has('customer.view_contact')) throw new AppError(ERROR_CODES.PERMISSION_DENIED);
     if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) throw new AppError(ERROR_CODES.NOT_FOUND);
     const [call] = await withTenant(ctx, tx => tx<{ recording_id: string | null;recording_url:string|null }[]>`
       select recording_id,recording_url from phone_calls where id=${req.params.id} and location_id=${ctx.locationId}`);

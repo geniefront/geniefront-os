@@ -237,7 +237,7 @@ export async function loadCustomerDetail(
         ? Math.floor((Date.now() - lastVisit) / 86400_000) : null,
     },
 
-    giftCards: gcRows.map((g) => ({
+    giftCards: (canSeeMoney && canSeeContact ? gcRows : []).map((g) => ({
       id: g.id, code: g.code, balanceCents: g.balance_cents,
       faceValueCents: g.face_value_cents, status: g.status,
       expiresAt: g.expires_at ? parseTs(g.expires_at).toISOString() : null,
