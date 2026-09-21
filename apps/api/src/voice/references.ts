@@ -34,3 +34,29 @@ export async function readReference(
     });
   return row.payload;
 }
+
+/** Store-only initial context, reused for at most 30 seconds. The colon-prefixed key
+ * cannot be accepted as a booking reference by the public tool schema. */
+export async function readInitialSnapshot(
+  tx: postgres.TransactionSql,
+  ctx: CommandContext,
+  id: string,
+  scope: string,
+): Promise<unknown | undefined> {
+  const [row] = await tx<
+    { payload: unknown }[]
+  >`select payload from voice_context_references where id=${id}
+    and location_id=${ctx.locationId} and kind='offers' and scope=${scope} and expires_at>now()`;
+  return row?.payload;
+}
+export async function saveInitialSnapshot(
+  tx: postgres.TransactionSql,
+  ctx: CommandContext,
+  id: string,
+  scope: string,
+  payload: unknown,
+) {
+  await tx`delete from voice_context_references where id=${id} and location_id=${ctx.locationId} and expires_at<now()`;
+  await tx`insert into voice_context_references(id,org_id,location_id,kind,scope,payload,expires_at)
+    values(${id},${ctx.orgId},${ctx.locationId},'offers',${scope},${JSON.stringify(payload)}::jsonb,now()+interval '30 seconds') on conflict(id) do nothing`;
+}

@@ -1,3 +1,4 @@
+import {initialVoiceContext} from './v2';
 import type { FastifyInstance } from 'fastify';
 import { AppError, ERROR_CODES, type CommandContext } from '@gf/contracts';
 import { tenantForPhoneNumber, withTenant } from '@gf/db';
@@ -51,6 +52,10 @@ export function registerXaiTexmlRoutes(app: FastifyInstance) {
     const sipHost = process.env.XAI_SIP_HOST;
     const base = process.env.XAI_TEXML_BASE_URL;
     if (!sipHost || !base) throw new AppError(ERROR_CODES.UPSTREAM_UNAVAILABLE);
+    if(tenant.toolTokenDigest) {
+      const ctx:CommandContext={...tenant,membershipId:null,userId:'00000000-0000-4000-8000-000000000000',actorKind:'api',locale:'en',permissions:new Set(['appointment.write','call.draft'])};
+      void initialVoiceContext(ctx,tenant.toolTokenDigest).catch(()=>app.log.warn('Voice context prewarm failed; tool will retry'));
+    }
     return reply.type('application/xml').send(xaiDialXml(phone, sipHost, base));
   });
   app.post('/v1/telnyx/xai/recording', async (req, reply) => {

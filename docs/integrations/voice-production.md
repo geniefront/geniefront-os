@@ -46,3 +46,5 @@ The managed-agent console currently exposes no pre-call context injection hook. 
 Canonical instructions: [production prompt](xai-voice-production-prompt.md). Existing appointment management supports whole-booking reschedule/cancel with addons preserved. Partial cancellation and changing existing services or staff route to human assistance; do not cancel/recreate a booking as a workaround.
 
 Conversation rollout settings: Iris at 1.0×, silence follow-up after 10 seconds (two reminders before idle hangup), concise greeting “Zhi Zi Massage, how can I help?”. These replace the original 1.1× / five-second settings above.
+
+The signed Telnyx inbound handler starts store/slot prewarming without delaying call routing. Store-only snapshots are shared for up to 30 seconds across API nodes; concurrent reads on one node share the same in-flight work. Caller appointments are fetched separately using the actual call's system identity and are never included in this shared cache. Targeted availability searches and booking writes always bypass the initial snapshot cache.

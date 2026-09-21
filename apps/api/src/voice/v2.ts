@@ -1,3 +1,4 @@
+import { readInitialSnapshot, saveInitialSnapshot } from "./references";
 import { snapshotReader } from "./snapshot";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { createHash } from "node:crypto";
@@ -69,6 +70,202 @@ const parse = <S extends z.ZodTypeAny>(
     });
   return p.data;
 };
+export async function loadVoiceOffers(
+  ctx: CommandContext,
+  secret: string,
+  q: Pick<z.output<typeof search>, "date"> = {},
+  selections?: VoiceItems,
+) {
+  return withTenant(ctx, async (tx) => {
+    const cat = await voiceCatalog(tx, ctx.locationId);
+    const reads = snapshotReader(tx);
+    const groups: Group[] = [];
+    const dates = selections
+      ? [q.date ?? cat.context.shop.today]
+      : Array.from({ length: 7 }, (_, i) => addDays(cat.context.shop.today, i));
+    const choices = selections
+      ? [selections]
+      : cat.services
+          .filter((s) => !s.isAddon)
+          .map((s) => [
+            {
+              guestIndex: 0,
+              ...(s.guestCount > 1
+                ? {
+                    guestIndices: Array.from(
+                      { length: s.guestCount },
+                      (_, i) => i,
+                    ),
+                  }
+                : {}),
+              serviceId: s.serviceId,
+              addonIds: [],
+              staffId: null,
+            },
+          ]);
+    const unavailable: Array<{
+      date: string;
+      serviceKey?: string;
+      reason: string;
+    }> = [];
+    // A transaction shares one connection; concurrent reads pipeline without a new connection per service.
+    const candidates = await Promise.all(
+      dates.flatMap((date) =>
+        choices.map(async (items) => {
+          if (
+            cat.holidays?.some(
+              (h) =>
+                h === date ||
+                (h &&
+                  typeof h === "object" &&
+                  (h as any).date === date &&
+                  (h as any).closed === true),
+            )
+          )
+            return {
+              date,
+              items,
+              reason: "store_closed",
+              times: [],
+              startsAtByTime: {},
+              quotedTotalCents: 0,
+              timezone: cat.shop.timezone,
+            };
+          if (
+            date >
+            addDays(cat.context.shop.today, cat.shop.onlineBooking.maxDaysAhead)
+          )
+            return {
+              date,
+              items,
+              reason: "date_out_of_window",
+              times: [],
+              startsAtByTime: {},
+              quotedTotalCents: 0,
+              timezone: cat.shop.timezone,
+            };
+          const available = await loadPartyAvailability(reads, cat.shop, {
+            date,
+            items,
+          });
+          const format = new Intl.DateTimeFormat("en-GB", {
+            timeZone: cat.shop.timezone,
+            hour: "2-digit",
+            minute: "2-digit",
+            hourCycle: "h23",
+          });
+          const startsAtByTime: Record<string, string> = {};
+          for (const p of available.plans) {
+            const time = format.format(new Date(p.startsAt));
+            if (!startsAtByTime[time]) startsAtByTime[time] = p.startsAt;
+          }
+          const times = Object.keys(startsAtByTime);
+          return {
+            date,
+            items,
+            times,
+            startsAtByTime,
+            quotedTotalCents: available.items.reduce(
+              (n, i) => n + i.priceCents,
+              0,
+            ),
+            timezone: cat.shop.timezone,
+            reason: times.length ? null : "no_availability",
+          };
+        }),
+      ),
+    );
+    for (const g of candidates) {
+      if (g.reason)
+        unavailable.push({
+          date: g.date,
+          ...(selections
+            ? {}
+            : {
+                serviceKey: cat.services.find(
+                  (s) => s.serviceId === g.items[0]!.serviceId,
+                )!.serviceKey,
+              }),
+          reason: g.reason,
+        });
+      else groups.push(g);
+    }
+    const id = await saveReference(
+      tx,
+      ctx,
+      "offers",
+      referenceScope(secret),
+      groups,
+    );
+    const step = cat.shop.onlineBooking.slotIntervalMinutes ?? 30;
+    const offers = groups.map((g, index) => ({
+      slotToken: `${id}.${index}`,
+      date: g.date,
+      ...(selections
+        ? {}
+        : {
+            serviceKey: cat.services.find(
+              (s) => s.serviceId === g.items[0]!.serviceId,
+            )!.serviceKey,
+          }),
+      times: compactTimes(g.times, step),
+      ...(selections ? { priceCents: g.quotedTotalCents } : {}),
+    }));
+    return {
+      ok: true,
+      ...(selections
+        ? { timezone: cat.shop.timezone, selection: selections }
+        : { ...cat.context }),
+      coverage: {
+        from: dates[0],
+        through: dates[dates.length - 1],
+        kind: selections
+          ? "exact_selection"
+          : "base_services_no_addons_no_staff_preference",
+        complete: true,
+        generatedAt: new Date().toISOString(),
+        expiresInSeconds: 900,
+        timeFormat:
+          "HH:mm local; start-end/step means inclusive returned times every step minutes",
+      },
+      offers,
+      unavailable,
+    };
+  });
+}
+const initializing = new Map<
+  string,
+  Promise<Awaited<ReturnType<typeof loadVoiceOffers>>>
+>();
+/** Prewarm at signed inbound admission, then share only store facts/offers (never caller records). */
+export async function initialVoiceContext(ctx: CommandContext, secret: string) {
+  const scope = referenceScope(secret);
+  const key = `initial:${ctx.locationId}:${scope}`;
+  const cached = await withTenant(ctx, (tx) =>
+    readInitialSnapshot(tx, ctx, key, scope),
+  );
+  if (cached)
+    return structuredClone(cached) as Awaited<
+      ReturnType<typeof loadVoiceOffers>
+    >;
+  let pending = initializing.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const data = await loadVoiceOffers(ctx, secret);
+      await withTenant(ctx, (tx) =>
+        saveInitialSnapshot(tx, ctx, key, scope, data),
+      );
+      return data;
+    })();
+    initializing.set(key, pending);
+  }
+  try {
+    return structuredClone(await pending);
+  } finally {
+    if (initializing.get(key) === pending) initializing.delete(key);
+  }
+}
+
 export function registerVoiceV2Routes(
   app: FastifyInstance,
   authenticate: Auth,
@@ -100,167 +297,9 @@ export function registerVoiceV2Routes(
         details: { reason: "service_selection_required" },
       });
     reply.header("Cache-Control", "no-store");
-    const result = await withTenant(ctx, async (tx) => {
-      const cat = await voiceCatalog(tx, ctx.locationId);
-      const reads = snapshotReader(tx);
-      const groups: Group[] = [];
-      const dates = selections
-        ? [q.date ?? cat.context.shop.today]
-        : Array.from({ length: 7 }, (_, i) =>
-            addDays(cat.context.shop.today, i),
-          );
-      const choices = selections
-        ? [selections]
-        : cat.services
-            .filter((s) => !s.isAddon)
-            .map((s) => [
-              {
-                guestIndex: 0,
-                ...(s.guestCount > 1
-                  ? {
-                      guestIndices: Array.from(
-                        { length: s.guestCount },
-                        (_, i) => i,
-                      ),
-                    }
-                  : {}),
-                serviceId: s.serviceId,
-                addonIds: [],
-                staffId: null,
-              },
-            ]);
-      const unavailable: Array<{
-        date: string;
-        serviceKey?: string;
-        reason: string;
-      }> = [];
-      // A transaction shares one connection; concurrent reads pipeline without a new connection per service.
-      const candidates = await Promise.all(
-        dates.flatMap((date) =>
-          choices.map(async (items) => {
-            if (
-              cat.holidays?.some(
-                (h) =>
-                  h === date ||
-                  (h &&
-                    typeof h === "object" &&
-                    (h as any).date === date &&
-                    (h as any).closed === true),
-              )
-            )
-              return {
-                date,
-                items,
-                reason: "store_closed",
-                times: [],
-                startsAtByTime: {},
-                quotedTotalCents: 0,
-                timezone: cat.shop.timezone,
-              };
-            if (
-              date >
-              addDays(
-                cat.context.shop.today,
-                cat.shop.onlineBooking.maxDaysAhead,
-              )
-            )
-              return {
-                date,
-                items,
-                reason: "date_out_of_window",
-                times: [],
-                startsAtByTime: {},
-                quotedTotalCents: 0,
-                timezone: cat.shop.timezone,
-              };
-            const available = await loadPartyAvailability(reads, cat.shop, {
-              date,
-              items,
-            });
-            const format = new Intl.DateTimeFormat("en-GB", {
-              timeZone: cat.shop.timezone,
-              hour: "2-digit",
-              minute: "2-digit",
-              hourCycle: "h23",
-            });
-            const startsAtByTime: Record<string, string> = {};
-            for (const p of available.plans) {
-              const time = format.format(new Date(p.startsAt));
-              if (!startsAtByTime[time]) startsAtByTime[time] = p.startsAt;
-            }
-            const times = Object.keys(startsAtByTime);
-            return {
-              date,
-              items,
-              times,
-              startsAtByTime,
-              quotedTotalCents: available.items.reduce(
-                (n, i) => n + i.priceCents,
-                0,
-              ),
-              timezone: cat.shop.timezone,
-              reason: times.length ? null : "no_availability",
-            };
-          }),
-        ),
-      );
-      for (const g of candidates) {
-        if (g.reason)
-          unavailable.push({
-            date: g.date,
-            ...(selections
-              ? {}
-              : {
-                  serviceKey: cat.services.find(
-                    (s) => s.serviceId === g.items[0]!.serviceId,
-                  )!.serviceKey,
-                }),
-            reason: g.reason,
-          });
-        else groups.push(g);
-      }
-      const id = await saveReference(
-        tx,
-        ctx,
-        "offers",
-        referenceScope(secret),
-        groups,
-      );
-      const step = cat.shop.onlineBooking.slotIntervalMinutes ?? 30;
-      const offers = groups.map((g, index) => ({
-        slotToken: `${id}.${index}`,
-        date: g.date,
-        ...(selections
-          ? {}
-          : {
-              serviceKey: cat.services.find(
-                (s) => s.serviceId === g.items[0]!.serviceId,
-              )!.serviceKey,
-            }),
-        times: compactTimes(g.times, step),
-        ...(selections ? { priceCents: g.quotedTotalCents } : {}),
-      }));
-      return {
-        ok: true,
-        ...(selections
-          ? { timezone: cat.shop.timezone, selection: selections }
-          : { ...cat.context }),
-        coverage: {
-          from: dates[0],
-          through: dates[dates.length - 1],
-          kind: selections
-            ? "exact_selection"
-            : "base_services_no_addons_no_staff_preference",
-          complete: true,
-          generatedAt: new Date().toISOString(),
-          expiresInSeconds: 900,
-          timeFormat:
-            "HH:mm local; start-end/step means inclusive returned times every step minutes",
-        },
-        offers,
-        unavailable,
-      };
-    });
+    const result = selections
+      ? await loadVoiceOffers(ctx, secret, q, selections)
+      : await initialVoiceContext(ctx, secret);
     let callerAppointments: unknown = undefined;
     if (!selections) {
       try {
