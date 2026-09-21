@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 import {
   AppointmentCreate, AppointmentCreateBatch, AppointmentAddItem, AppointmentCancel, AppointmentReschedule,
   AppointmentSaveServiceBrief, AppointmentAssignCustomer,
-  AppError, ERROR_CODES, pickText, type CommandContext,
+  AppError, ERROR_CODES, pickText, appointmentAllowsSchedulingChanges, type CommandContext,
 } from '@gf/contracts';
 import { renderConfirm, formatWhen } from '../email/render';
 import { emailConfigured } from '../email/send';
@@ -1077,6 +1077,9 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit, emit }: Handl
   if (!appt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
 
   await assertBookingCaller(tx,ctx,appt.id);
+  if (appt.status !== 'cancelled' && !appointmentAllowsSchedulingChanges(appt.status)) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'appointment_not_editable', status: appt.status } });
+  }
   if (appt.status === 'cancelled') {
     throw new AppError(ERROR_CODES.ALREADY_CANCELLED, {
       details: { appointmentId: appt.id },
@@ -1200,6 +1203,9 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
     where id = ${input.appointmentId} and location_id = ${ctx.locationId} for update`;
   if (!appt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
   await assertBookingCaller(tx,ctx,appt.id);
+  if (appt.status !== 'cancelled' && !appointmentAllowsSchedulingChanges(appt.status)) {
+    throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'appointment_not_editable', status: appt.status } });
+  }
   if (appt.status === 'cancelled') {
     throw new AppError(ERROR_CODES.ALREADY_CANCELLED, { details: { appointmentId: appt.id } });
   }
@@ -1482,7 +1488,7 @@ registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: Hand
     select id, status from appointments
     where id = ${input.appointmentId} and location_id = ${ctx.locationId}`;
   if (!appt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
-  if (appt.status === 'cancelled' || appt.status === 'completed') {
+  if (!appointmentAllowsSchedulingChanges(appt.status)) {
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
       details: { reason: 'appointment_not_editable', status: appt.status },
     });

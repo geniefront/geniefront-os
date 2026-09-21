@@ -58,3 +58,4 @@ export * from './publicBookingProfile.js';
 export { weeklyHoursSchema, dayHoursSchema } from './businessHours';
 
 export * from './bookingMedia';
+export * from './appointmentCapabilities';
