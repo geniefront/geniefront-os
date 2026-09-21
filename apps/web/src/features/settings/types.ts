@@ -205,6 +205,7 @@ export interface DeskSettings {
 }
 
 export interface SaveLocationProfileInput {
+  hours?: SaveBusinessHoursInput['hours'];
   name?: string;
   slug?: string;
   timezone?: string;

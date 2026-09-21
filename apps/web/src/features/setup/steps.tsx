@@ -1,3 +1,4 @@
+import { PageError } from '@/components/ui/QueryState';
 import { SaveStatus, useSetupDraft, useSetupNewRecordGuard } from './autosave';
 import { useEntitlements } from '@/features/billing/useEntitlements';
 import { useEffect, useState } from 'react';
@@ -24,7 +25,10 @@ import type { TranslationKey } from '@/i18n';
  */
 export function DirectoryStepForm({ stepNumber = 2 }: { stepNumber?: number }) {
   const { t } = useLanguage();
-  const { data } = useStaffListQuery();
+  const query = useStaffListQuery();
+  const { data } = query;
+  if (query.isError) return <PageError title={t('genericFailure')} error={query.error} onRetry={() => query.refetch()} />;
+  if (!data) return <p>{t('setupReadinessLoading')}</p>;
   const jobs = data?.jobs ?? [];
   const levels = data?.levels ?? [];
   const skills = data?.skills ?? [];

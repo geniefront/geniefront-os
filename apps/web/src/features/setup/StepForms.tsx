@@ -1,3 +1,4 @@
+import { PageError } from '@/components/ui/QueryState';
 import {StoreMediaEditor} from './StoreMediaEditor';
 import {BookingImagePicker} from '@/components/ui/BookingImagePicker';
 import {HoursPeriodsEditor} from './HoursPeriodsEditor';
@@ -53,7 +54,8 @@ const DAY_KEYS: ReadonlyArray<readonly [string, TranslationKey]> = [
 
 export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void; stepNumber?: number }) {
   const { t } = useLanguage();
-  const { data } = useDeskSettingsQuery();
+  const settingsQuery = useDeskSettingsQuery();
+  const { data } = settingsQuery;
   const saveProfile = useSaveLocationProfile();
   const saveHours = useSaveBusinessHours();
   const location = data?.location;
@@ -64,11 +66,11 @@ export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void
     hours: location.businessHours ?? {},
   } : null, async ({ form, hours }) => {
     if (!form.name.trim()) throw new Error(t('setupStep1MissingName'));
-    await saveProfile.mutateAsync({ ...form, name: form.name.trim(), businessType: form.businessType as any,
+    await saveProfile.mutateAsync({ ...form, hours, name: form.name.trim(), businessType: form.businessType as any,
       phone: form.phone.trim() || null, email: form.email.trim() || null });
-    await saveHours.mutateAsync({ hours });
   });
   const storeForm = useFieldErrors<'name'>();
+  if (settingsQuery.isError) return <PageError title={t('genericFailure')} error={settingsQuery.error} onRetry={() => settingsQuery.refetch()} />;
   if (!draft.value) return <p>{t('setupReadinessLoading')}</p>;
   const { form, hours } = draft.value;
   const update = (key: keyof typeof form, value: string) => draft.set(old => ({ ...old, form: { ...old.form, [key]: value } }));
@@ -136,7 +138,8 @@ export function StoreStepForm({ onSaved, stepNumber = 1 }: { onSaved: () => void
 export function CatalogStepForm({ onSaved, stepNumber = 4 }: { onSaved: () => void; stepNumber?: number }) {
   const { t } = useLanguage();
   const canImportImages = useCan('ai.use');
-  const { data } = useDeskSettingsQuery();
+  const settingsQuery = useDeskSettingsQuery();
+  const { data } = settingsQuery;
   const saveService = useSaveService();
   const [name, setName] = useState('');
   const [presentation,setPresentation]=useState({imageUrl:'',description:''});
@@ -187,6 +190,8 @@ export function CatalogStepForm({ onSaved, stepNumber = 4 }: { onSaved: () => vo
     } catch (error) { toast.danger(t('setupAddFailed', { p0: error instanceof Error ? error.message : 'UNKNOWN' })); }
   };
 
+  if (settingsQuery.isError) return <PageError title={t('genericFailure')} error={settingsQuery.error} onRetry={() => settingsQuery.refetch()} />;
+  if (!data) return <p>{t('setupReadinessLoading')}</p>;
   return (
     <div className="space-y-6">
       <CatalogPresetPicker
@@ -223,7 +228,8 @@ export function CatalogStepForm({ onSaved, stepNumber = 4 }: { onSaved: () => vo
 export function TeamStepForm({ onSaved, stepNumber = 5, settingsMode = false }: { onSaved: () => void; stepNumber?: number; settingsMode?: boolean }) {
   const { t } = useLanguage();
   const voiceOnly = useEntitlements().data?.plan === 'voice_booking';
-  const { data } = useDeskSettingsQuery();
+  const settingsQuery = useDeskSettingsQuery();
+  const { data } = settingsQuery;
   const saveStaff = useSaveStaffProfile();
   const [name, setName] = useState('');
   useSetupNewRecordGuard(Boolean(name.trim()));
@@ -239,6 +245,8 @@ export function TeamStepForm({ onSaved, stepNumber = 5, settingsMode = false }: 
       setName(''); toast.success(t('setupStep3Saved')); onSaved();
     } catch (error) { toast.danger(t('setupAddFailed', { p0: error instanceof Error ? error.message : 'UNKNOWN' })); }
   };
+  if (settingsQuery.isError) return <PageError title={t('genericFailure')} error={settingsQuery.error} onRetry={() => settingsQuery.refetch()} />;
+  if (!data) return <p>{t('setupReadinessLoading')}</p>;
   const staff = data?.staff ?? [];
   return (
     <div className="space-y-6">

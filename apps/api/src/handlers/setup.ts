@@ -450,6 +450,7 @@ registerHandler(SaveLocationProfile, async ({ input, ctx, tx, audit }: HandlerAr
   try {
     await tx`update locations set
         name = coalesce(${nameJson}::jsonb, name),
+        business_hours = case when ${input.hours !== undefined} then ${input.hours ? jsonb(input.hours) : null}::jsonb else business_hours end,
         slug = coalesce(${slug}, slug),
         timezone = coalesce(${input.timezone ?? null}, timezone),
         business_type = coalesce(${input.businessType ?? null}, business_type),

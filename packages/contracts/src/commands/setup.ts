@@ -265,6 +265,7 @@ export const ClaimLocation = defineCommand({
 export const SaveLocationProfile = defineCommand({
   name: 'location.saveProfile',
   input: z.object({
+    hours: weeklyHoursSchema.optional(),
     name: i18nText.or(z.string()).optional(),
     /**
      * 托管预约页短码。存库前会规范化（小写、字母数字和单个连字符）。

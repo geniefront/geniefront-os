@@ -419,6 +419,13 @@ describe('C · 向导完成', () => {
       'location.saveProfile',
       { timezone: 'America/Los_Angeles', businessType: 'foot_spa' }, ctx);
     expect(ok.result.locationId).toBe(tenant.locationId);
+    const hours = { mon: { open: '10:00', close: '18:00' } };
+    await dispatch('location.saveProfile', { name: 'Atomic store', hours }, ctx);
+    const [saved] = await withTenant(tenant, tx => tx<{ name: { en: string }; business_hours: unknown }[]>`select name,business_hours from locations where id=${tenant.locationId}`);
+    expect(saved).toMatchObject({ name: { en: 'Atomic store' }, business_hours: hours });
+    await expect(dispatch('location.saveProfile', { name: 'Must roll back', hours: { mon: null }, timezone: 'Mars/Olympus' }, ctx)).rejects.toBeInstanceOf(AppError);
+    const [after] = await withTenant(tenant, tx => tx`select name,business_hours from locations where id=${tenant.locationId}`);
+    expect(after).toEqual(saved);
   });
 });
 

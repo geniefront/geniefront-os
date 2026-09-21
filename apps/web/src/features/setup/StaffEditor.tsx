@@ -1,3 +1,4 @@
+import { PageError } from '@/components/ui/QueryState';
 import { StaffBookingSchedule } from './StaffBookingSchedule';
 import { useLanguage } from '@/LanguageContext';
 import { Input } from '@/components/ui/Input';
@@ -14,7 +15,8 @@ export function StaffEditor({ staff, voiceOnly }: { staff: StaffItem; voiceOnly:
     if (!v.name.trim()) throw new Error(t('setupStep3MissingName'));
     await save.mutateAsync({ ...v, membershipId: staff.membershipId, name: v.name.trim(), phone: v.phone.trim() || null, inRotation: !voiceOnly && v.inRotation });
   });
-  if (!draft.value) return null;
+  if (directory.isError) return <PageError title={t('genericFailure')} error={directory.error} onRetry={() => directory.refetch()} />;
+  if (!draft.value) return <p>{t(directory.isPending ? 'setupReadinessLoading' : 'noData')}</p>;
   const v = draft.value;
   return <div className="space-y-3 rounded-xl border p-4">
     <Field label={t('setupFieldStaffName')}><Input value={v.name} onChange={e => draft.set(old => ({ ...old, name: e.target.value }))} /></Field>
