@@ -1,3 +1,4 @@
+import { useLocation, useNavigate } from 'react-router-dom';
 import { apiGet } from '@/lib/api';
 import { useEntitlements } from '@/features/billing/useEntitlements';
 import { exportToCSV } from '@/lib/exportUtils';
@@ -111,11 +112,9 @@ function CustomersContent() {
   const canMerge = useCanWrite('customer.merge');
   const canSendSms = useCanWrite('comms.send');
 
-  // 从 URL 初始化默认选中 ID（如 /customers/cust_123）
-  const initialId = useMemo(() => {
-    const match = window.location.pathname.match(/\/customers\/([^/]+)/);
-    return match ? match[1] : null;
-  }, []);
+  const route = useLocation();
+  const navigate = useNavigate();
+  const initialId = route.pathname.match(/\/customers\/([^/]+)/)?.[1] ?? null;
 
   // 视图与筛选状态
   const [viewMode, setViewMode] = useState<ViewMode>('split');
@@ -178,8 +177,13 @@ function CustomersContent() {
   const handleSelectCustomer = (id: string) => {
     setEditProfileOpen(false); setEditPrefOpen(false); setMergeModalOpen(false); setSmsModalOpen(false); setBlockModalOpen(false);
     setSelectedId(id);
-    window.history.replaceState(window.history.state, '', `/customers/${id}`);
+    navigate(`/customers/${id}`, { replace: true });
   };
+
+  useEffect(() => {
+    setSelectedId(initialId);
+    setEditProfileOpen(false); setEditPrefOpen(false); setMergeModalOpen(false); setSmsModalOpen(false); setBlockModalOpen(false);
+  }, [initialId]);
 
   // 如果没有选中的顾客或当前选中的顾客在当前筛选结果中不存在，自动选中当前筛选列表的第一位
   useEffect(() => {
