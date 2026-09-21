@@ -1,3 +1,4 @@
+import { snapshotReader } from "./snapshot";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -101,6 +102,7 @@ export function registerVoiceV2Routes(
     reply.header("Cache-Control", "no-store");
     const result = await withTenant(ctx, async (tx) => {
       const cat = await voiceCatalog(tx, ctx.locationId);
+      const reads = snapshotReader(tx);
       const groups: Group[] = [];
       const dates = selections
         ? [q.date ?? cat.context.shop.today]
@@ -129,7 +131,7 @@ export function registerVoiceV2Routes(
             ]);
       const unavailable: Array<{
         date: string;
-        serviceId?: string;
+        serviceKey?: string;
         reason: string;
       }> = [];
       // A transaction shares one connection; concurrent reads pipeline without a new connection per service.
@@ -171,7 +173,7 @@ export function registerVoiceV2Routes(
                 quotedTotalCents: 0,
                 timezone: cat.shop.timezone,
               };
-            const available = await loadPartyAvailability(tx, cat.shop, {
+            const available = await loadPartyAvailability(reads, cat.shop, {
               date,
               items,
             });
@@ -206,7 +208,13 @@ export function registerVoiceV2Routes(
         if (g.reason)
           unavailable.push({
             date: g.date,
-            ...(selections ? {} : { serviceId: g.items[0]!.serviceId }),
+            ...(selections
+              ? {}
+              : {
+                  serviceKey: cat.services.find(
+                    (s) => s.serviceId === g.items[0]!.serviceId,
+                  )!.serviceKey,
+                }),
             reason: g.reason,
           });
         else groups.push(g);
@@ -222,9 +230,15 @@ export function registerVoiceV2Routes(
       const offers = groups.map((g, index) => ({
         slotToken: `${id}.${index}`,
         date: g.date,
-        ...(selections ? {} : { serviceId: g.items[0]!.serviceId }),
+        ...(selections
+          ? {}
+          : {
+              serviceKey: cat.services.find(
+                (s) => s.serviceId === g.items[0]!.serviceId,
+              )!.serviceKey,
+            }),
         times: compactTimes(g.times, step),
-        priceCents: g.quotedTotalCents,
+        ...(selections ? { priceCents: g.quotedTotalCents } : {}),
       }));
       return {
         ok: true,

@@ -29,7 +29,8 @@ export async function voiceCatalog(
         (s.online_bookable ||
           (s.is_addon && profile.services[s.id]?.visible === true)),
     )
-    .map((s) => ({
+    .map((s, index) => ({
+      serviceKey: `s${index + 1}`,
       serviceId: s.id as string,
       name: pickText(s.name, "en"),
       durationMin: s.duration_min as number,
