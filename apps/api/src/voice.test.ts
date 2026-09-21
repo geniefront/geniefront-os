@@ -184,6 +184,16 @@ describe('xAI scoped booking tools', () => {
     expect(notifications).toHaveLength(0);
   });
 
+  it('does not charge an unanswered opening greeting even if the classifier calls it business',async()=>{
+    const opts={systemOrigin:'voice_test'},providerCallId='greeting-only';
+    await dispatch('call.queueRecording',{providerCallId,recordingId:'greeting-audio',to:phone,startedAt:new Date().toISOString(),durationSeconds:5},ctx,opts);
+    const claimed=await dispatch<{job:{id:string;leaseId:string}}>('call.claimRecording',{},ctx,opts);
+    const out=await dispatch<{billableSeconds:number}>('call.completeRecording',{jobId:claimed.result.job.id,leaseId:claimed.result.job.leaseId,durationSeconds:5,transcript:'ZZ Massage, how can I help?',turns:[{role:'assistant',text:'ZZ Massage, how can I help?'}],recordingUrl:'https://recordings.telnyx.com/greeting.wav',analysis:{summary:'Greeting only.',segments:[{start:0,end:5,category:'business'}]}},ctx,opts);
+    expect(out.result.billableSeconds).toBe(0);
+    const [usage]=await withTenant(tenant,tx=>tx`select qty from usage_events where meta->>'providerCallId'=${providerCallId}`);
+    expect(usage?.qty).toBe(0);
+  });
+
   it('blocks disabled voice tools before creating any booking', async () => {
     await dispatch('location.savePhoneLine', { e164: phone, purpose: 'ai_voice', aiAnswer: false }, ctx, { systemOrigin: 'test_voice' });
     expect((await offers()).statusCode).toBe(403);

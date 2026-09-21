@@ -44,3 +44,10 @@ export function labelDiarizedTurns(turns: VoiceTurn[], speakers: Array<{id:numbe
     return role === 'unknown' ? turn : {...turn,role};
   });
 }
+/** A short, unanswered opening is not an appointment inquiry.
+ * Require positively labelled assistant speech only; unknown/customer speech never qualifies. */
+export function isUnansweredGreeting(durationSeconds:number, turns:readonly {role:string;text:string}[] | undefined):boolean {
+ if(durationSeconds>15 || !turns?.length || turns.some(t=>t.role!=='assistant')) return false;
+ const text=turns.map(t=>t.text).join(' ').trim();
+ return /^(?:(?:hi|hello|welcome)[,.!]?\s+)?(?:[\p{L}\p{N} '\-]{1,60}(?:massage|salon|spa)[,.!]?\s+)?how (?:can|may) i (?:help|assist)(?: you)?[?.!\s]*$/iu.test(text);
+}

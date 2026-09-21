@@ -1,3 +1,4 @@
+import {isUnansweredGreeting} from '../voice/transcript';
 import {linkVoiceActivities} from './voiceActivity';
 import { shopCallSms } from '../sms/booking';
 import { ownerLocaleOf } from '../email/locale';
@@ -67,7 +68,9 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
     audit({ entityType: 'location', entityId: ctx.locationId, after: { recordingCompletionSkipped: input.jobId } });
     return { completed: false };
   }
-  const billableSeconds = billableVoiceSeconds(input.durationSeconds, input.analysis.segments);
+  const validatedSeconds = billableVoiceSeconds(input.durationSeconds, input.analysis.segments);
+  const unansweredGreeting = isUnansweredGreeting(input.durationSeconds,input.turns);
+  const billableSeconds = unansweredGreeting ? 0 : validatedSeconds;
   const transcript = input.turns?.length ? input.turns : (input.transcript.match(/[\s\S]{1,4000}/g) ?? []).map(text => ({ role: 'system' as const, text }));
   const [call] = await tx<{ id: string; voice_billing_status: string }[]>`
     insert into phone_calls(org_id,location_id,provider_call_id,from_e164,to_e164,started_at,duration_seconds,
@@ -84,10 +87,10 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
     const [usage] = await tx<{ id: string }[]>`insert into usage_events(org_id,location_id,kind,qty,cost_cents,meta)
       values(${ctx.orgId},${ctx.locationId},'ai_call_min',${minutes},0,
         ${jsonb({ provider: 'telnyx_xai', providerCallId: job.provider_call_id, durationSeconds: input.durationSeconds,
-          billableSeconds, exemptSeconds: input.durationSeconds - billableSeconds, costPending: true, ruleVersion: 1 })}::jsonb) returning id`;
+          billableSeconds, exemptSeconds: input.durationSeconds - billableSeconds, costPending: true, ruleVersion: 2 })}::jsonb) returning id`;
     await chargeQuota(tx, ctx, { unit: 'voice_minute', amount: minutes, usageEventId: usage!.id, source: 'ai_call_min' });
     await tx`update phone_calls set voice_billing_status='settled',billable_seconds=${billableSeconds},
-      billing_analysis=${jsonb({ ...input.analysis, ruleVersion: 1 })}::jsonb where id=${call!.id}`;
+      billing_analysis=${jsonb({ ...input.analysis, unansweredGreeting, ruleVersion: 2 })}::jsonb where id=${call!.id}`;
   }
   // Exact provider IDs are preferred. Older voice clients can be linked only when
   // caller + recording window identifies a call unambiguously inside this tenant.
@@ -123,6 +126,6 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
       on conflict(entity_type,entity_id,kind) do nothing`;
   }
   await tx`update voice_processing_jobs set status='done',locked_until=null where id=${input.jobId}`;
-  audit({ entityType: 'phone_call', entityId: call!.id, after: { billableSeconds, ruleVersion: 1 } });
+  audit({ entityType: 'phone_call', entityId: call!.id, after: { billableSeconds, ruleVersion: 2 } });
   return { completed: true, billableSeconds };
 });
