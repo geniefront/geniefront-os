@@ -1,3 +1,4 @@
+import { useCan } from '@/lib/permissions';
 import { useRef, useState } from 'react';
 import { toast } from '@heroui/react';
 import { LifeBuoy } from 'lucide-react';
@@ -39,7 +40,9 @@ export function Support() {
   const { t } = useLanguage();
   const errorMessage = useErrorMessage();
   const submit = useSubmitSupportRequest();
-  const history = useMySupportRequests();
+  const canManage = useCan('settings.manage');
+  const [page, setPage] = useState(0);
+  const history = useMySupportRequests(page * 50, canManage);
   const reply = useReplySupportRequest();
   const [replyText, setReplyText] = useState<Record<string,string>>({});
   const replyAttempt = useRef<{ payload: string; key: string } | null>(null);
@@ -62,12 +65,15 @@ export function Support() {
   const [submittedId, setSubmittedId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const inFlightRef = useRef(false);
+  const attempt = useRef<{ payload: string; key: string } | null>(null);
 
   const handleSubmit = async () => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     setSubmitting(true);
-    const idempotencyKey = crypto.randomUUID();
+    const payload = JSON.stringify({ category, subject: subject.trim(), description: description.trim() });
+    if (attempt.current?.payload !== payload) attempt.current = { payload, key: crypto.randomUUID() };
+    const idempotencyKey = attempt.current.key;
     try {
       const result = await submit.mutateAsync({
         category,
@@ -75,6 +81,8 @@ export function Support() {
         description: description.trim(),
         idempotencyKey,
       });
+      attempt.current = null;
+      setPage(0);
       setSubmittedId(result.requestId);
       setSubject('');
       setDescription('');
@@ -90,6 +98,7 @@ export function Support() {
     }
   };
 
+  if (!canManage) return <p role="alert" className="p-6">{t('errorPERMISSION_DENIED')}</p>;
   return (
     <div className="gf-service-page mx-auto max-w-6xl space-y-6">
       <PageHeader
@@ -105,6 +114,7 @@ export function Support() {
           <span className="text-xs font-medium text-slate-700">{t('support.category')}</span>
           <select
             className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-500"
+            disabled={submitting}
             value={category}
             onChange={(event) => setCategory(event.target.value as SupportCategory)}
           >
@@ -117,6 +127,7 @@ export function Support() {
           <span className="text-xs font-medium text-slate-700">{t('support.subject')}</span>
           <Input
             aria-label={t('support.subject')}
+            disabled={submitting}
             value={subject}
             onChange={(event) => setSubject(event.target.value)}
             maxLength={200}
@@ -127,6 +138,7 @@ export function Support() {
           <textarea
             aria-label={t('support.message')}
             className="min-h-32 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500"
+            disabled={submitting}
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             maxLength={8000}
@@ -158,7 +170,7 @@ export function Support() {
       */}
       <Card className="border-slate-200 p-6 space-y-3">
         <div className="text-sm font-medium text-slate-800">{t('support.history')}</div>
-        {history.isLoading ? (
+        {history.isError ? <div role="alert"><p>{errorMessage(history.error)}</p><Button variant="secondary" onClick={() => history.refetch()}>{t('retry')}</Button></div> : history.isLoading ? (
           <p className="text-xs text-slate-500">{t('support.historyLoading')}</p>
         ) : (history.data?.requests.length ?? 0) === 0 ? (
           <p className="text-xs text-slate-500">{t('support.historyEmpty')}</p>
@@ -191,6 +203,7 @@ export function Support() {
             ))}
           </ul>
         )}
+        <div className="flex items-center justify-between gap-2 text-sm"><Button variant="secondary" disabled={!page || history.isFetching} onClick={() => setPage(p => p - 1)}>←</Button><span>{page * 50 + (history.data?.requests.length ? 1 : 0)}–{page * 50 + (history.data?.requests.length ?? 0)} / {history.data?.total ?? '—'}</span><Button variant="secondary" disabled={history.isFetching || (page + 1) * 50 >= (history.data?.total ?? 0)} onClick={() => setPage(p => p + 1)}>→</Button></div>
       </Card>
       </div>
     </div>

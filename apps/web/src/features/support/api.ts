@@ -63,13 +63,13 @@ export interface SupportRequestSummary {
  * 修 QA-006 时只补了提交表单，工单于是成了一个单向投递口：
  * 平台把状态改成 `waiting`（等客户回话）之后，客户那边什么都看不到。
  */
-export function useMySupportRequests() {
+export function useMySupportRequests(offset = 0, enabled = true) {
   const { membershipId } = useSession();
   return useQuery({
-    queryKey: ['support', 'requests', membershipId],
-    enabled: Boolean(membershipId),
-    queryFn: () => apiGet<{ requests: SupportRequestSummary[] }>(
-      '/v1/desk/support/requests', membershipId!,
+    queryKey: ['support', 'requests', membershipId, offset],
+    enabled: enabled && Boolean(membershipId),
+    queryFn: () => apiGet<{ total?: number; requests: SupportRequestSummary[] }>(
+      `/v1/desk/support/requests?offset=${offset}`, membershipId!,
     ),
   });
 }

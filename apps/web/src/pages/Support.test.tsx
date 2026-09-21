@@ -38,6 +38,7 @@ vi.mock('@/lib/session', () => ({
 }));
 
 vi.mock('@/features/support/api', () => ({
+  useReplySupportRequest: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSubmitSupportRequest: () => ({ mutateAsync, isPending: false }),
   useMySupportRequests: () => ({
     data: historyData.current,
@@ -144,4 +145,16 @@ describe('Support submission surface', () => {
     });
     expect(toast.success).not.toHaveBeenCalled();
   });
+  it('keeps the same submission key after a lost response', async () => {
+    mutateAsync.mockRejectedValueOnce(new Error('timeout')).mockResolvedValueOnce({ requestId: '11111111-1111-4111-8111-111111111111' });
+    renderPage();
+    await userEvent.type(screen.getByRole('textbox', { name: '主题' }), 'Retry');
+    await userEvent.type(screen.getByRole('textbox', { name: '说明' }), 'Lost response');
+    await userEvent.click(screen.getByRole('button', { name: '提交请求' }));
+    await waitFor(() => expect(toast.danger).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole('button', { name: '提交请求' }));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2));
+    expect(mutateAsync.mock.calls[1]![0].idempotencyKey).toBe(mutateAsync.mock.calls[0]![0].idempotencyKey);
+  });
+
 });

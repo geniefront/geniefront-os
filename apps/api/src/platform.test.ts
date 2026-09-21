@@ -303,6 +303,13 @@ describe('platform mutations are audited', () => {
     await dispatch('support.replyRequest', { requestId, status: 'open' }, ctx, { idempotencyKey: crypto.randomUUID() });
     const answered = await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: ownerMembershipId }, tx => loadMySupportRequests(tx, ctx));
     expect(answered.requests.find(item => item.id === requestId)).toMatchObject({ status: 'open', messages: [{ body: 'Please provide details' }, { body: 'Here are the details' }] });
+    await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: ownerMembershipId }, tx => tx`
+      insert into support_requests(org_id,location_id,category,subject,description,status,priority)
+      select ${SPA_ORG},${SPA_LOC},'general','Page '||n,'Pagination test','open','normal' from generate_series(1,51) n`);
+    const nextPage = await withTenant({ orgId: SPA_ORG, locationId: SPA_LOC, membershipId: ownerMembershipId }, tx => loadMySupportRequests(tx, ctx, 50, 50));
+    expect(nextPage.total).toBeGreaterThan(50);
+    expect(nextPage.requests.length).toBeGreaterThan(0);
+
 
 
     const audit = await withTenant(

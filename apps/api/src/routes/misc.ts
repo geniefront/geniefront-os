@@ -124,12 +124,12 @@ export function registerMiscRoutes(app: FastifyInstance, ctxFromHeaders: CtxFrom
    * 权限用 `settings.manage`：提工单的是老板/店长，工单里往往有账务和
    * 合同上的话，不该让全店员工都看见。
    */
-  app.get('/v1/desk/support/requests', async (req) => {
+  app.get<{ Querystring: { offset?: string } }>('/v1/desk/support/requests', async (req) => {
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('settings.manage')) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED, { details: { need: 'settings.manage' } });
     }
-    return withTenant(ctx, (tx) => loadMySupportRequests(tx, ctx));
+    return withTenant(ctx, (tx) => loadMySupportRequests(tx, ctx, 50, Number(req.query.offset) || 0));
   });
 
 }

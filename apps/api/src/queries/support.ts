@@ -39,25 +39,27 @@ export async function loadMySupportRequests(
   tx: postgres.TransactionSql,
   ctx: CommandContext,
   limit = 50,
-): Promise<{ requests: SupportRequestSummary[] }> {
+  offset = 0,
+): Promise<{ total: number; requests: SupportRequestSummary[] }> {
   const rows = await tx<{
-    id: string; category: string; subject: string; description: string;
+    total: number; id: string; category: string; subject: string; description: string;
     status: string; priority: string;
     created_at: string; last_operator_update_at: string | null; resolved_at: string | null;
   }[]>`
-    select id, category, subject, description, status, priority,
+    select count(*) over()::int as total, id, category, subject, description, status, priority,
            created_at::text as created_at,
            last_operator_update_at::text as last_operator_update_at,
            resolved_at::text as resolved_at
     from support_requests
     where location_id = ${ctx.locationId}
-    order by created_at desc
-    limit ${Math.min(Math.max(limit, 1), 100)}`;
+    order by created_at desc,id desc
+    limit ${Math.min(Math.max(limit, 1), 100)} offset ${Math.max(0,Math.floor(offset))}`;
 
   const messages = rows.length ? await tx<{ id: string; request_id: string; body: string; author_kind: string; created_at: string }[]>`
     select id,request_id,body,author_kind,created_at::text from support_request_messages
     where location_id=${ctx.locationId} and request_id=any(${rows.map(r=>r.id)}) order by created_at,id` : [];
   return {
+    total: rows[0]?.total ?? 0,
     requests: rows.map((r) => ({
       id: r.id,
       messages: messages.filter(m=>m.request_id===r.id).map(m=>({id:m.id,body:m.body,authorKind:m.author_kind,createdAt:m.created_at})),
