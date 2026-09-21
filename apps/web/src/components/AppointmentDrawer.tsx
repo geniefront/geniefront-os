@@ -489,7 +489,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
         )}
         {!voiceOnly && <section className="grid grid-cols-3 gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
           <Metric label={t('schedule.adVisitFrequency')} value={`${customerQ.data?.visits.total ?? '—'} ${t('schedule.adVisitUnit')}`} />
-          <Metric label={t('schedule.adLastVisit')} value={customerQ.data?.visits.lastAt ? storeTime.dateTime(customerQ.data.visits.lastAt) : t('schedule.adFirstVisitToday')} compact />
+          <Metric label={t('schedule.adLastVisit')} value={customerQ.data?.visits.lastAt ? storeTime.dateTime(customerQ.data.visits.lastAt) : t('noData')} compact />
           <Metric label={t('schedule.adAvgSpend')} value={customerQ.data?.visits.avgSpendCents == null ? '—' : `$${centsToDollars(customerQ.data.visits.avgSpendCents)}`} accent />
         </section>}
 

@@ -7,6 +7,7 @@
 import type { DomainDict } from './types';
 
 export const crm = {
+  'crm.custAppointmentCount': { 'zh-Hans': '预约次数', en: 'Appointments', ko: '예약 수', es: 'Reservas', vi: 'Số lịch hẹn' },
   'crm.previousPage': { 'zh-Hans': '上一页', en: 'Previous', ko: '이전', es: 'Anterior', vi: 'Trước' },
   'crm.nextPage': { 'zh-Hans': '下一页', en: 'Next', ko: '다음', es: 'Siguiente', vi: 'Tiếp' },
   'crm.clearedRead': { 'zh-Hans': '已清空所有已读通知', en: 'Read notifications cleared', ko: '읽은 알림을 모두 지웠습니다', es: 'Notificaciones leídas eliminadas', vi: 'Đã xóa các thông báo đã đọc' },

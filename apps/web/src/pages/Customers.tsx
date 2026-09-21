@@ -404,13 +404,13 @@ function CustomersContent() {
     }
     const headers = [
       t('crm.custExportName'), t('crm.custExportVipLevel'), t('crm.custExportPhone'),
-      t('crm.custExportVisitCount'), t('crm.custExportDaysSinceVisit'), t('crm.custExportNoShowCount'),
+      t(voiceOnly ? 'crm.custAppointmentCount' : 'crm.custExportVisitCount'), t(voiceOnly ? 'voiceRecentAppointments' : 'crm.custExportDaysSinceVisit'), t('crm.custExportNoShowCount'),
     ];
     exportToCSV(`GenieFront_${t('crm.custExportFileSlug')}_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows.map(r => {
       const phone = canViewContact ? (r.phone || '')
         : (r.phone ? r.phone.replace(/(\+?1)?(\d{3})\d{3}(\d{4})/, '$2-***-$3') : '');
-      return [r.displayName, r.vipLevel, phone, r.visitCount,
-        r.daysSinceLastVisit ?? t('crm.custExportNeverVisited'), r.noShowCount];
+      return [r.displayName, r.vipLevel, phone, voiceOnly ? r.appointmentCount ?? '' : r.visitCount,
+        voiceOnly ? r.lastAppointmentAt ?? '' : r.daysSinceLastVisit ?? t('crm.custExportNeverVisited'), r.noShowCount];
     }));
     toast.success(t('crm.custExported'));
   };
@@ -632,9 +632,9 @@ function CustomersContent() {
                       </div>
 
                       <div className="flex items-center justify-between gap-2 mt-1.5 text-[11px] text-slate-500">
-                        <span>{t('crm.custVisits')} {row.visitCount}  {t('crm.custVisitUnit')}</span>
+                        <span>{voiceOnly ? `${t('crm.custAppointmentCount')}: ${row.appointmentCount ?? '—'}` : `${t('crm.custVisits')} ${row.visitCount} ${t('crm.custVisitUnit')}`}</span>
                         <span>
-                          {row.daysSinceLastVisit === null
+                          {voiceOnly ? (row.lastAppointmentAt ? dateTime(row.lastAppointmentAt) : t('noData')) : row.daysSinceLastVisit === null
                             ? t('crm.custNewPending')
                             : t('crm.custDaysAgo', { p0: row.daysSinceLastVisit })}
                         </span>
@@ -1008,8 +1008,8 @@ function CustomersContent() {
                     <th className="p-3.5 pl-5">{t('crm.custColName')}</th>
                     {!voiceOnly && <th className="p-3.5">{t('crm.custColVip')}</th>}
                     <th className="p-3.5">{t('crm.custColPhone')}</th>
-                    <th className="p-3.5">{t('crm.custColVisits')}</th>
-                    <th className="p-3.5">{t('crm.custColLastVisit')}</th>
+                    <th className="p-3.5">{t(voiceOnly ? 'crm.custAppointmentCount' : 'crm.custColVisits')}</th>
+                    <th className="p-3.5">{t(voiceOnly ? 'voiceRecentAppointments' : 'crm.custColLastVisit')}</th>
                     <th className="p-3.5">{t('crm.custColNoShows')}</th>
                     <th className="p-3.5 pr-5 text-right">{t('crm.custColActions')}</th>
                   </tr>
@@ -1040,9 +1040,9 @@ function CustomersContent() {
                       </td>
                       </>}
                       <td className="p-3.5 font-mono text-slate-600">{row.phone ? formatPhoneDisplay(row.phone) : '—'}</td>
-                      <td className="p-3.5 font-semibold text-slate-900">{row.visitCount}  {t('crm.custVisitUnit3')}</td>
+                      <td className="p-3.5 font-semibold text-slate-900">{voiceOnly ? row.appointmentCount ?? '—' : `${row.visitCount} ${t('crm.custVisitUnit3')}`}</td>
                       <td className="p-3.5 text-slate-600">
-                        {row.daysSinceLastVisit === null
+                        {voiceOnly ? (row.lastAppointmentAt ? dateTime(row.lastAppointmentAt) : t('noData')) : row.daysSinceLastVisit === null
                           ? t('crm.custNewTag')
                           : t('crm.custDaysAgo2', { p0: row.daysSinceLastVisit })}
                       </td>
@@ -1401,7 +1401,7 @@ function CustomersContent() {
                         {cand.phone ? formatPhoneDisplay(cand.phone) : t('crm.custNoPhoneShort')}
                       </span>
                     </div>
-                    <span className="text-[11px] text-slate-400">{t('crm.custVisits2')} {cand.visitCount}  {t('crm.custVisitUnit4')}</span>
+                    <span className="text-[11px] text-slate-400">{voiceOnly ? `${t('crm.custAppointmentCount')}: ${cand.appointmentCount ?? '—'}` : `${t('crm.custVisits2')} ${cand.visitCount} ${t('crm.custVisitUnit4')}`}</span>
                   </div>
                 ))
               )}

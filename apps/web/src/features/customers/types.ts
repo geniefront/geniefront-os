@@ -13,6 +13,8 @@
 
 export interface CustomerListRow {
   id: string;
+  appointmentCount?: number;
+  lastAppointmentAt?: string | null;
   displayName: string;
   phone: string | null;
   vipLevel: number;

@@ -262,6 +262,8 @@ export async function loadCustomerDetail(
 
 export interface CustomerListRow {
   id: string;
+  appointmentCount: number;
+  lastAppointmentAt: string | null;
   displayName: string;
   phone: string | null;
   vipLevel: number;
@@ -302,16 +304,18 @@ export async function loadCustomerList(
   type SearchRow = {
     id: string; display_name: string | null; phone_e164: string | null;
     vip_level: number; no_show_count: number; blocked_at: string | null;
-    n: number; last_at: string | null; total: number;
+    n: number; last_at: string | null; total: number; appointment_count: number; last_appointment_at: string | null;
   };
   const selection = tx`
     with v as (
       select customer_id, count(*)::int as n, max(business_date)::text as last_at
       from tickets
-      where location_id = ${ctx.locationId} and status in ('closed','refunded')
+      where location_id = ${ctx.locationId} and status = 'closed'
       group by customer_id
     )
     select c.id, c.display_name, c.phone_e164, c.vip_level, c.no_show_count, c.blocked_at::text as blocked_at,
+           (select count(*)::int from appointments a where a.customer_id=c.id and a.location_id=${ctx.locationId}) as appointment_count,
+           (select max(starts_at)::text from appointments a where a.customer_id=c.id and a.location_id=${ctx.locationId}) as last_appointment_at,
            coalesce(v.n, 0) as n, v.last_at,
            count(*) over ()::int as total
     from customers c
@@ -346,6 +350,8 @@ export async function loadCustomerList(
       return {
         id: r.id,
         displayName: r.display_name ?? '',
+        appointmentCount: r.appointment_count,
+        lastAppointmentAt: r.last_appointment_at,
         phone: canSeeContact ? r.phone_e164 : maskPhone(r.phone_e164),
         vipLevel: r.vip_level,
         visitCount: r.n,
@@ -367,7 +373,7 @@ export async function loadCustomerMetrics(tx: postgres.TransactionSql, ctx: Comm
   const [row] = await tx<CustomerMetrics[]>`
     with visits as (
       select customer_id, max(business_date) as last_at from tickets
-      where location_id = ${ctx.locationId} and status in ('closed','refunded') group by customer_id
+      where location_id = ${ctx.locationId} and status = 'closed' group by customer_id
     ), day as (
       select ${today}::date as today
     )
