@@ -1139,7 +1139,7 @@ function CustomersContent() {
                 {t('crm.custNameLabel')}
               </label>
               <Input aria-label={t('crm.custNameLabel')}
-                {...customerForm.bind('name')}
+                {...customerForm.bind('name')} aria-label={t('crm.custNameLabel')}
                 value={formName}
                 onChange={(e) => { setFormName(e.target.value); customerForm.clearField('name'); }}
                 placeholder={t('crm.custNamePlaceholder')}

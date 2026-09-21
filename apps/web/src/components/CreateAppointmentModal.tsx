@@ -987,7 +987,7 @@ export function CreateAppointmentModal({
                   {t('customerName') || t('schedule.apptCustomerName')} *
                 </label>
                 <Input
-                  {...apptForm.bind('customerName')}
+                  {...apptForm.bind('customerName')} aria-label={t('customerName')}
                   value={customerName}
                   onChange={(e) => {
                     markDirty();

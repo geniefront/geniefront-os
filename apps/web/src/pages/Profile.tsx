@@ -789,7 +789,7 @@ export function Profile() {
                       <span className="text-red-500">*</span>
                     </label>
                     <Input
-                      {...profileForm.bind('fullName')}
+                      {...profileForm.bind('fullName')} aria-label={t('settings.profLegalName')}
                       value={fullName}
                       onChange={(e) => { setFullName(e.target.value); profileForm.clearField('fullName'); }}
                       placeholder={t('settings.profNamePlaceholder')}

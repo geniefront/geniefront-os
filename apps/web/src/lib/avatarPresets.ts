@@ -87,7 +87,7 @@ export function getSavedUserAvatar(userId?: string) {
     if (raw) return JSON.parse(raw);
   } catch {}
   return {
-    mode: 'preset', // 'preset' | 'gradient' | 'custom'
+    mode: 'emoji', // 'emoji' | 'gradient' | 'custom'
     presetId: 'usr-2',
     icon: '💆🏻‍♀️',
     gradientId: 'grad-1',
