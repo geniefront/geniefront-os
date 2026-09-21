@@ -253,8 +253,12 @@ export function CreateAppointmentModal({
    */
   const seededRef = React.useRef(false);
   const dirtyRef = React.useRef(false);
+  const submittingRef = React.useRef(false);
+  const [submitting, setSubmitting] = useState(false);
+  const attemptRef = React.useRef<string | null>(null);
   const markDirty = () => {
     dirtyRef.current = true;
+    if (!submittingRef.current) attemptRef.current = null;
   };
 
   // 过去时间强提醒模态状态
@@ -395,6 +399,7 @@ export function CreateAppointmentModal({
     // 已播种且用户动过草稿：后台 refetch（services/staff 换引用）与切日期都不再重置
     if (seededRef.current && dirtyRef.current) return;
 
+    attemptRef.current = null;
     setCustomerName(defaultCustomerName);
     setSelectedCustomerId(null);
     setNewCustomerConfirmed(false);
@@ -722,6 +727,7 @@ export function CreateAppointmentModal({
 
   // 提交创建聚合预约
   const handleSubmit = async (override?: Override, retryKey?: string, customNotes?: string) => {
+    if (submittingRef.current) return;
     if (!customerName.trim()) {
       apptForm.fail('customerName', t('schedule.apptNameRequired'));
       return;
@@ -746,7 +752,9 @@ export function CreateAppointmentModal({
       }
     }
 
-    const idempotencyKey = retryKey || crypto.randomUUID();
+    const idempotencyKey = retryKey || attemptRef.current || crypto.randomUUID();
+    attemptRef.current = idempotencyKey;
+    dirtyRef.current = true;
     const finalNotes = (customNotes !== undefined ? customNotes : notes).trim() || undefined;
 
     const payloadItems = items.map((it) => {
@@ -760,6 +768,8 @@ export function CreateAppointmentModal({
       };
     });
 
+    submittingRef.current = true;
+    setSubmitting(true);
     try {
       const identity = deskAppointmentCustomer({ name: customerName, phone });
       const customerId = selectedCustomerId;
@@ -837,6 +847,9 @@ export function CreateAppointmentModal({
         else if (reason === 'bundle_not_found') toast.danger(t('bundle.errNotFound'));
         else toast.danger(errorMessage(err));
       }
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
     }
   };
 
@@ -904,15 +917,16 @@ export function CreateAppointmentModal({
     <>
       <Modal
         isOpen={isOpen}
+        isDismissDisabled={submitting}
         onOpenChange={(open) => {
-          if (!open) onClose();
+          if (!open && !submittingRef.current) onClose();
         }}
         title={t('newAppointment')}
         description={t('schedule.apptModalDesc')}
         size="lg"
         footer={
           <div className="flex items-center justify-end gap-2.5 w-full">
-            <Button variant="secondary" onClick={onClose} className="px-4">
+            <Button variant="secondary" disabled={submitting} onClick={onClose} className="px-4">
               {t('cancel') || t('schedule.apptCancel')}
             </Button>
             <Button
@@ -922,10 +936,10 @@ export function CreateAppointmentModal({
                   ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/20'
                   : 'bg-teal-600 hover:bg-teal-700 shadow-teal-600/20',
               )}
-              isPending={create.isPending}
+              isPending={submitting}
               onClick={handleInitialSubmit}
             >
-              {create.isPending
+              {submitting
                 ? t('schedule.apptCreating')
                 : isPastOver30Min
                 ? t('schedule.apptBackfillWarn', { p0: formatPastDuration(pastMinutes, t) })
@@ -934,10 +948,10 @@ export function CreateAppointmentModal({
           </div>
         }
       >
-        <div className="space-y-4 py-1 text-sm max-h-[72vh] overflow-y-auto custom-scrollbar px-1">
+        <fieldset disabled={submitting} className="space-y-4 py-1 text-sm max-h-[72vh] overflow-y-auto custom-scrollbar px-1">
           {/* 顾客基本信息 */}
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5">
-            <div className="space-y-2">
+            <fieldset disabled={submitting} className="space-y-2">
               {customerMatches.isError && <Button variant="secondary" onClick={() => customerMatches.refetch()}>{t('retry')}</Button>}
               {(customerMatches.data?.rows ?? []).map(customer => <Button key={customer.id} variant={selectedCustomerId === customer.id ? 'default' : 'secondary'} onClick={() => {
                 markDirty(); setSelectedCustomerId(customer.id); setNewCustomerConfirmed(false);
@@ -947,7 +961,7 @@ export function CreateAppointmentModal({
                 <input type="checkbox" checked={newCustomerConfirmed} onChange={event => { markDirty(); setNewCustomerConfirmed(event.target.checked); }} />
                 {t('schedule.apptNewCustomerConfirm')}
               </label>}
-            </div>
+            </fieldset>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
@@ -1529,7 +1543,7 @@ export function CreateAppointmentModal({
               placeholder={t('schedule.apptNotesPlaceholder')}
             />
           </div>
-        </div>
+        </fieldset>
       </Modal>
 
       {/* 过去时间强提醒确认模态框 */}
@@ -1668,7 +1682,7 @@ export function CreateAppointmentModal({
               <GuardedButton
                 permission="appointment.overbook"
                 className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
-                isPending={create.isPending}
+                isPending={submitting}
                 onClick={() => {
                   const key = conflictError.key;
                   /*
