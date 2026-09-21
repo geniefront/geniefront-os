@@ -217,7 +217,9 @@ function ScheduleContent() {
    * 时间轴范围由营业时间与当日实际单据共同决定，不使用固定常量。
    * 详见 gridBounds 的说明：写死范围会静默裁掉范围外的单据。
    */
-  const weekItemsByDate = useWeekItems(view === 'week' ? weekDays : []);
+  const weekQuery = useWeekItems(view === 'week' ? weekDays : []);
+  const weekItemsByDate = weekQuery.itemsByDate;
+  const incompleteWeekDays = weekQuery.days.filter(day => day.isLoading || day.error);
 
   const viewItems = React.useMemo(
     () => (view === 'week' ? [...weekItemsByDate.values()].flat() : items),
@@ -730,7 +732,16 @@ function ScheduleContent() {
       </div>
 
             <div className="flex-1 overflow-auto bg-slate-50/50 relative" ref={scrollContainerRef}>
-        {view === 'month' ? (
+        {view === 'week' && incompleteWeekDays.length > 0 ? (
+          <div className="p-6 space-y-3">{incompleteWeekDays.map(day => <div key={day.date} role={day.error ? 'alert' : 'status'}>
+            <p>{day.date} · {t(day.error ? 'schedule.loadErrorTitle' : 'schedule.loadingTitle')}</p>
+            {day.error && <Button onClick={() => day.retry()}>{t('retry')}</Button>}
+          </div>)}</div>
+        ) : view === 'month' && monthSummary.isError ? (
+          <PageError title={t('schedule.loadErrorTitle')} error={monthSummary.error} onRetry={() => monthSummary.refetch()} />
+        ) : view === 'month' && (monthSummary.isPending || monthSummary.isPlaceholderData) ? (
+          <PageLoading layout="calendar" title={t('schedule.loadingTitle')} />
+        ) : view === 'month' ? (
           <div className="min-w-[800px] h-full p-6 grid grid-cols-7 gap-4 auto-rows-[minmax(120px,_1fr)]">
             {WEEKDAY_KEYS.map(d => (
               <div key={d} className="font-bold text-center text-slate-400 text-sm pb-1">{t(d)}</div>
@@ -778,7 +789,7 @@ function ScheduleContent() {
                     </div>
                   </div>
 
-                  {itemCount > 0 ? (
+                  {!summary ? <p>{t('schedule.loadingTitle')}</p> : itemCount > 0 ? (
                     <div className="flex-1 flex flex-col gap-1.5 mt-1 px-1">
                       <div className="text-lg font-bold text-slate-800 tabular-nums leading-none">
                         {summary?.appointments ?? itemCount}

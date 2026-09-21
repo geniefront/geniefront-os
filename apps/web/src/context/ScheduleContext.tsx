@@ -255,10 +255,10 @@ function toBusinessDayMinutes(iso: string, snapshot: DaySnapshot): number {
  * 返回按营业日索引的 item 集合。调用方只在处于周视图时传入日期数组，
  * 其余视图传空数组以避免无谓请求。
  */
-export function useWeekItems(dates: string[]): Map<string, ScheduleItem[]> {
+export function useWeekItems(dates: string[]) {
   const results = useDayRange(dates);
   const { t } = useLanguage();
-  return useMemo(() => {
+  const itemsByDate = useMemo(() => {
     const byDate = new Map<string, ScheduleItem[]>();
     const fallbacks = { service: t('service'), customer: t('customer') };
     for (const r of results) {
@@ -269,6 +269,10 @@ export function useWeekItems(dates: string[]): Map<string, ScheduleItem[]> {
     }
     return byDate;
   }, [results, t]);
+  return { itemsByDate, days: results.map((result, index) => ({
+    date: dates[index]!, isLoading: result.isPending || result.isPlaceholderData,
+    error: result.error, retry: result.refetch,
+  })) };
 }
 
 export function useSchedule(): ScheduleContextValue {
