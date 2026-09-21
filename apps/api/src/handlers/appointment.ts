@@ -482,7 +482,7 @@ export async function executeSingleAppointmentInTx(
     group_key: string; membership_id: string | null; starts_at: string; ends_at: string;
   }[]>`
     select case when a.party_size > 1 or ai.details ? 'serviceExecutionGroup' then ai.id::text else ai.appointment_id::text end as group_key,
-           ai.membership_id, ai.starts_at, ai.ends_at
+           coalesce(ai.membership_id,ai.reserved_membership_id) as membership_id, ai.starts_at, ai.ends_at
     from appointment_items ai
     join appointments a on a.id = ai.appointment_id
     where ai.location_id = ${ctx.locationId}
@@ -631,19 +631,22 @@ export async function executeSingleAppointmentInTx(
   const itemIds: string[] = [];
   const overbookedItemIds: string[] = [];
 
+  const autoAssign = readBookingPolicy(loc.settings).autoAssign === true;
+  const deferAutomaticAssignment = ctx.membershipId === null && PUBLIC_SOURCES.has(input.source) && !autoAssign;
   for (const [idx, item] of resolved.entries()) {
+    const pendingAssignment = deferAutomaticAssignment && !item.isRequest;
     const isOver = overbookedIdx.has(idx);
     const bundleInstanceId = item.bundleRef !== undefined ? bundleInstanceIds[item.bundleRef]! : null;
     try {
       const [row] = await tx<{ id: string }[]>`
         insert into appointment_items
-          (org_id, location_id, appointment_id, service_id, addon_ids, membership_id,
+          (org_id, location_id, appointment_id, service_id, addon_ids, membership_id, reserved_membership_id,
            is_request, resource_id, starts_at, ends_at, price_cents_snapshot,
            duration_min, seq, overbooked, overbook_reason, overbook_note, details,
            bundle_instance_id, bundle_component_id, bundle_unit_index, bundle_list_price_cents)
         values
           (${ctx.orgId}, ${ctx.locationId}, ${appt!.id}, ${item.serviceId},
-           ${item.addonIds}, ${item.membershipId}, ${item.isRequest}, ${item.resourceId},
+           ${item.addonIds}, ${pendingAssignment ? null : item.membershipId}, ${pendingAssignment ? item.membershipId : null}, ${item.isRequest}, ${item.resourceId},
            ${ts(item.startsAt)}::timestamptz, ${ts(item.endsAt)}::timestamptz,
            ${item.priceCents}, ${item.durationMin}, ${idx},
            ${isOver}, ${isOver ? input.override!.reason : null},
@@ -1264,10 +1267,10 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
   }
 
   const itemRows = await tx<{
-    id: string; membership_id: string | null; starts_at: string; ends_at: string; is_request: boolean;
+    id: string; membership_id: string | null; reserved_membership_id: string | null; starts_at: string; ends_at: string; is_request: boolean;
     bundle_instance_id: string | null; execution_group: string | null;
   }[]>`
-    select id, membership_id, starts_at::text as starts_at, ends_at::text as ends_at, is_request,
+    select id, membership_id, reserved_membership_id, starts_at::text as starts_at, ends_at::text as ends_at, is_request,
            bundle_instance_id, details->>'serviceExecutionGroup' as execution_group
     from appointment_items
     where appointment_id = ${appt.id} and status <> 'cancelled'
@@ -1281,8 +1284,13 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
     : itemRows;
   const grouped = targets.find(item=>item.execution_group);
   if (grouped) {
-    if (input.membershipId !== undefined || input.resourceId !== undefined) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'group_staff_reassignment_requires_all_members' } });
-    if (input.itemId) targets = itemRows.filter(item=>item.execution_group === grouped.execution_group);
+    const assigningPending = !!input.itemId && !!input.membershipId && grouped.membership_id === null
+      && input.resourceId === undefined && Date.parse(input.startsAt) === Date.parse(grouped.starts_at);
+    if (assigningPending && itemRows.some(item=>item.id!==grouped.id && item.execution_group===grouped.execution_group && (item.membership_id??item.reserved_membership_id)===input.membershipId)) {
+      throw new AppError(ERROR_CODES.STAFF_OVER_CAPACITY, {details:{reason:'group_requires_distinct_staff'}});
+    }
+    if (!assigningPending && (input.membershipId !== undefined || input.resourceId !== undefined)) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'group_staff_reassignment_requires_all_members' } });
+    if (input.itemId && !assigningPending) targets = itemRows.filter(item=>item.execution_group === grouped.execution_group);
   }
   if (targets.length === 0) {
     throw new AppError(ERROR_CODES.NOT_FOUND, { details: { itemId: input.itemId } });
@@ -1314,7 +1322,8 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
     id: t.id,
     isRequest: t.is_request,
     executionGroup: t.execution_group,
-    membershipId: input.membershipId === undefined ? t.membership_id : input.membershipId,
+    membershipId: input.membershipId === undefined ? (t.membership_id ?? t.reserved_membership_id) : input.membershipId,
+    pendingAssignment: input.membershipId === undefined && t.membership_id === null && t.reserved_membership_id !== null,
     startsAt: new Date(parseTs(t.starts_at).getTime() + deltaMs),
     endsAt: new Date(parseTs(t.ends_at).getTime() + deltaMs),
   }));
@@ -1350,12 +1359,12 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
     group_key: string; membership_id: string | null; starts_at: string; ends_at: string;
   }[]>`
     select case when a.party_size > 1 or ai.details ? 'serviceExecutionGroup' then ai.id::text else ai.appointment_id::text end as group_key,
-           ai.membership_id, ai.starts_at, ai.ends_at
+           coalesce(ai.membership_id,ai.reserved_membership_id) as membership_id, ai.starts_at, ai.ends_at
     from appointment_items ai
     join appointments a on a.id = ai.appointment_id
     where ai.location_id = ${ctx.locationId}
       and ai.status in ('booked','in_service')
-      and ai.appointment_id <> ${appt.id}
+      and not (ai.id = any(${targets.map(item=>item.id)}::uuid[]))
       and ai.starts_at < ${ts(windowEnd)}::timestamptz
       and ai.ends_at   > ${ts(windowStart)}::timestamptz`;
   const existing: Array<Interval & { membershipId: string | null }> = existingRows.map((e) => ({
@@ -1439,7 +1448,8 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
         update appointment_items set
           starts_at = ${ts(m.startsAt)}::timestamptz,
           ends_at   = ${ts(m.endsAt)}::timestamptz,
-          membership_id = ${m.membershipId},
+          membership_id = ${m.pendingAssignment ? null : m.membershipId},
+          reserved_membership_id = ${m.pendingAssignment ? m.membershipId : null},
           resource_id = ${input.resourceId === undefined ? tx`resource_id` : input.resourceId}
         where id = ${m.id}`;
     } catch (e) {
@@ -1580,7 +1590,7 @@ registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: Hand
     group_key: string; membership_id: string | null; starts_at: string; ends_at: string;
   }[]>`
     select case when a.party_size > 1 or ai.details ? 'serviceExecutionGroup' then ai.id::text else ai.appointment_id::text end as group_key,
-           ai.membership_id, ai.starts_at::text as starts_at, ai.ends_at::text as ends_at
+           coalesce(ai.membership_id,ai.reserved_membership_id) as membership_id, ai.starts_at::text as starts_at, ai.ends_at::text as ends_at
     from appointment_items ai
     join appointments a on a.id = ai.appointment_id
     where ai.location_id = ${ctx.locationId} and ai.appointment_id <> ${appt.id}

@@ -25,6 +25,12 @@ function PolicyForm({ initial, membershipId }: { initial: BookingPolicy; members
   return <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
     <h3 className="font-semibold text-slate-800">{t('settings.bookingCapacityTitle')}</h3>
     <p className="text-sm text-slate-500">{t('settings.bookingCapacityHint')}</p>
+    <label className="flex items-start gap-3 rounded-xl border border-slate-200 p-4">
+      <input type="checkbox" className="mt-1" checked={policy.autoAssign === true} disabled={save.isPending}
+        onChange={e=>setPolicy({...policy,autoAssign:e.target.checked})} />
+      <span><span className="block text-sm font-medium">{t('settings.bookingAutoAssign')}</span>
+        <span className="mt-1 block text-sm text-slate-500">{t('settings.bookingAutoAssignHint')}</span></span>
+    </label>
     <div className="grid gap-4 sm:grid-cols-2">
       <label className="grid gap-2 text-sm">{t('settings.bookingMode')}
         <select className={inputClass} value={policy.mode} onChange={e => setPolicy({ ...policy, mode: e.target.value as BookingPolicy['mode'] })}>

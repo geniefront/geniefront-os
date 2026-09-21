@@ -125,7 +125,7 @@ export async function loadSlotContext(
     starts_at: string | Date; ends_at: string | Date;
   }[]>`
     select case when a.party_size > 1 or ai.details ? 'serviceExecutionGroup' then ai.id::text else ai.appointment_id::text end as group_key,
-           ai.membership_id, ai.starts_at, ai.ends_at
+           coalesce(ai.membership_id,ai.reserved_membership_id) as membership_id, ai.starts_at, ai.ends_at
     from appointment_items ai
     join appointments a on a.id = ai.appointment_id
     where a.location_id = ${locationId}

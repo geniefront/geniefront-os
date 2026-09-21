@@ -2428,6 +2428,9 @@ it('service presentation saves atomically and survives edits that omit it',async
 
 it('books Couples once for two guests with two specialists and preserves the group when rescheduling',async()=>{
  __resetRateLimit();
+ const [original]=await withTenant(tenant,tx=>tx`select settings from locations where id=${NAIL_LOC}`);
+ await run('location.saveBookingPolicy',{mode:'location',baseCapacity:2,autoAssign:false});
+ try {
  const couple=(await run<{serviceId:string}>('catalog.saveService',{name:{en:'Couples Massage 60 min'},durationMin:60,basePriceCents:12000,staffCount:2,onlineBookable:true})).serviceId;
  const catalog=await get('/public/v1/services');
  expect(catalog.json().services.find((s:any)=>s.id===couple)).toMatchObject({onlineBookable:true,staffCount:2,guestCount:2});
@@ -2438,14 +2441,15 @@ it('books Couples once for two guests with two specialists and preserves the gro
  const plan=availability.json().plans[0];
  expect(plan.items).toHaveLength(1);
  expect(plan.items[0].priceCents).toBe(12000);
- const payload=bookingPayload({partySize:2,items:plan.items.map((i:any)=>({...i,quotedPriceCents:12000}))});
+ const payload=bookingPayload({partySize:2,items:plan.items.map((i:any)=>({...i,staffId:null,quotedPriceCents:12000}))});
  const second={...payload,turnstileToken:`tk_${randomUUID()}`,customer:{...payload.customer,phone:'+16175550197'}};
  const results=await Promise.all([post('/public/v1/bookings',payload,{'idempotency-key':randomUUID()}),post('/public/v1/bookings',second,{'idempotency-key':randomUUID()})]);
  expect(results.map(r=>r.statusCode).sort(),results.map(r=>r.body).join('\n')).toEqual([201,409]);
  const success=results.find(r=>r.statusCode===201)!.json();
- const rows=await withTenant(tenant,tx=>tx`select membership_id,starts_at,ends_at,price_cents_snapshot,details from appointment_items where appointment_id=${success.bookingId}`);
+ const rows=await withTenant(tenant,tx=>tx`select id,membership_id,reserved_membership_id,starts_at,ends_at,price_cents_snapshot,details from appointment_items where appointment_id=${success.bookingId}`);
  expect(rows).toHaveLength(2);
- expect(new Set(rows.map(r=>r.membership_id)).size).toBe(2);
+ expect(rows.every(r=>r.membership_id===null)).toBe(true);
+ expect(new Set(rows.map(r=>r.reserved_membership_id)).size).toBe(2);
  expect(new Set(rows.map(r=>String(r.starts_at))).size).toBe(1);
  expect(rows.reduce((total,r)=>total+r.price_cents_snapshot,0)).toBe(12000);
  expect(rows.map(r=>r.details.publicGuestIndex).sort()).toEqual([0,1]);
@@ -2459,8 +2463,17 @@ it('books Couples once for two guests with two specialists and preserves the gro
  const winner=results[0]!.statusCode===201?payload:second;
  const moved=await post(`/public/v1/bookings/${success.bookingId}/reschedule`,{manageToken:success.manageToken,last4:winner.customer.phone.slice(-4),startsAt:managed.json().slots[0].startsAt,requestId:randomUUID()});
  expect(moved.statusCode,moved.body).toBe(200);
+ const pending=await withTenant(tenant,tx=>tx`select id,membership_id,reserved_membership_id,starts_at from appointment_items where appointment_id=${success.bookingId} order by seq`);
+ expect(pending.every(r=>r.membership_id===null&&r.reserved_membership_id)).toBe(true);
+ await expect(run('appointment.reschedule',{appointmentId:success.bookingId,itemId:pending[0]!.id,startsAt:new Date(pending[0]!.starts_at).toISOString(),membershipId:pending[1]!.reserved_membership_id})).rejects.toThrow();
+ for(const item of pending) {
+  await run('appointment.reschedule',{appointmentId:success.bookingId,itemId:item.id,startsAt:new Date(item.starts_at).toISOString(),membershipId:item.reserved_membership_id});
+ }
+ const assigned=await withTenant(tenant,tx=>tx`select membership_id,reserved_membership_id from appointment_items where appointment_id=${success.bookingId}`);
+ expect(assigned.every(r=>r.membership_id&&r.reserved_membership_id===null)).toBe(true);
  const invalid=await post('/public/v1/party-availability',{date:addDays(bookDate,10),items:[{...selection,guestIndices:[0]}]});
  expect(invalid.statusCode).toBe(400);
+ } finally {await withTenant(tenant,tx=>tx`update locations set settings=${jsonb(original!.settings)}::jsonb where id=${NAIL_LOC}`);}
 });
 
 it('keeps the same base duration for both guests in a Couples booking with a shared add-on',async()=>{
@@ -2475,7 +2488,7 @@ it('keeps the same base duration for both guests in a Couples booking with a sha
   const availability=await post('/public/v1/party-availability',{date:addDays(bookDate,12),items:[selection]});
   expect(availability.statusCode,availability.body).toBe(200);
   const plan=availability.json().plans[0];expect(plan).toBeTruthy();
-  const payload=bookingPayload({partySize:2,items:plan.items.map((i:any)=>({...i,quotedPriceCents:13000}))});
+  const payload=bookingPayload({partySize:2,items:plan.items.map((i:any)=>({...i,staffId:null,quotedPriceCents:13000}))});
   const result=await post('/public/v1/bookings',payload,{'idempotency-key':randomUUID()});
   expect(result.statusCode,result.body).toBe(201);
   const rows=await withTenant(tenant,tx=>tx`select duration_min,details,addon_ids from appointment_items where appointment_id=${result.json().bookingId}`);
@@ -2484,4 +2497,30 @@ it('keeps the same base duration for both guests in a Couples booking with a sha
   expect(rows.map(r=>r.details.smsBaseDurationMin)).toEqual([60,60]);
   expect(rows.flatMap(r=>r.addon_ids)).toEqual([addon]);
  } finally {await withTenant(tenant,tx=>tx`update locations set settings=${jsonb(loc!.settings)}::jsonb where id=${NAIL_LOC}`);}
+});
+
+
+it('defaults to pending assignment, preserves a requested specialist, and supports opting in',async()=>{
+ __resetRateLimit();
+ const [loc]=await withTenant(tenant,tx=>tx`select settings from locations where id=${NAIL_LOC}`);
+ try {
+  for(const autoAssign of [false,true]) {
+   await run('location.saveBookingPolicy',{mode:'staff',baseCapacity:2,autoAssign});
+   // Older clients editing another capacity field must preserve the choice.
+   await run('location.saveBookingPolicy',{mode:'staff',baseCapacity:2});
+   const [saved]=await withTenant(tenant,tx=>tx`select settings from locations where id=${NAIL_LOC}`);
+   expect(saved!.settings.capacity.auto_assign).toBe(autoAssign);
+   for(const requested of [false,true]) {
+    nextSlot();nextSlot();const payload=bookingPayload();Object.assign(payload.items[0]!,{staffId:requested?staffId:null});
+    const res=await post('/public/v1/bookings',payload,{'idempotency-key':randomUUID()});
+    expect(res.statusCode,res.body).toBe(201);
+    const [item]=await withTenant(tenant,tx=>tx`select id,membership_id,reserved_membership_id,is_request,starts_at from appointment_items where appointment_id=${res.json().bookingId}`);
+    expect(item!.is_request).toBe(requested);
+    if(requested) expect(item!.membership_id).toBe(staffId);
+    else if(autoAssign) expect(item!.membership_id).toBeTruthy();
+    else {expect(item!.membership_id).toBeNull();expect(item!.reserved_membership_id).toBeTruthy();}
+    if(requested||autoAssign) expect(item!.reserved_membership_id).toBeNull();
+   }
+  }
+ }finally{await withTenant(tenant,tx=>tx`update locations set settings=${jsonb(loc!.settings)}::jsonb where id=${NAIL_LOC}`);}
 });

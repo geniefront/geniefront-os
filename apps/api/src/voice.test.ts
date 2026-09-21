@@ -93,12 +93,16 @@ describe('xAI scoped booking tools', () => {
     expect(second.json().replayed).toBe(true);
     const [saved]=await withTenant(tenant,tx=>tx`select provider_call_id from appointments where id=${first.json().appointmentId}`);
     expect(saved!.provider_call_id).toBe('voice-replay-test');
+    const items=await withTenant(tenant,tx=>tx`select membership_id from appointment_items where appointment_id=${first.json().appointmentId}`);
+    expect(items.every(item=>item.membership_id===null)).toBe(true);
     expect((await submit(`x${slot.slotToken}`, 'Tampered')).statusCode).toBe(400);
   });
   it('requested therapist overlaps require their independent buffer switch', async () => {
     await policy(true, false);
     const first = await offers(addDays(date, 2), true); const slot = first.json().slots[0];
-    expect((await submit(slot.slotToken, 'Requested one')).statusCode).toBe(200);
+    const booked=await submit(slot.slotToken, 'Requested one');expect(booked.statusCode).toBe(200);
+    const [item]=await withTenant(tenant,tx=>tx`select membership_id,reserved_membership_id from appointment_items where appointment_id=${booked.json().appointmentId}`);
+    expect(item).toMatchObject({membership_id:memberId,reserved_membership_id:null});
     expect((await submit(slot.slotToken, 'Requested two')).statusCode).toBe(409);
     await policy(false, true);
     expect((await submit(slot.slotToken, 'Requested two')).statusCode).toBe(200);

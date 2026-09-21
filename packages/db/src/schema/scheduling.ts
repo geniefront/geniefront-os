@@ -262,6 +262,8 @@ export const appointmentItems = pgTable('appointment_items', {
   serviceId: uuid('service_id').notNull().references(() => services.id),
   addonIds: uuid('addon_ids').array().notNull().default(sql`'{}'::uuid[]`),
   membershipId: uuid('membership_id').references(() => memberships.id),
+  /** Capacity-only hold. Never an assigned worker or notification recipient. */
+  reservedMembershipId: uuid('reserved_membership_id').references(() => memberships.id),
   isRequest: boolean('is_request').notNull().default(false), // 点钟单
   resourceId: uuid('resource_id').references(() => resources.id),
   startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),

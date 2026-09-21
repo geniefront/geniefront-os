@@ -12,6 +12,7 @@ registerHandler(SaveBookingPolicy, async ({ input, ctx, tx, audit }) => {
   const before = (row.settings.capacity ?? {}) as Record<string, unknown>;
   const after = {
     ...before, ...(account?.plan==='voice_booking'?{use_recurring_staff:true,strict_staff:true}:{}), booking_mode: input.mode, max_concurrent_per_slot: input.baseCapacity,
+    auto_assign: input.autoAssign ?? (before.auto_assign === true),
     buffer_enabled: input.bufferEnabled, buffer_extra: input.bufferExtra,
     request_buffer_enabled: input.requestBufferEnabled, request_buffer_extra: input.requestBufferExtra,
   };

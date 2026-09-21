@@ -53,7 +53,7 @@ export async function loadVoiceContext(tx: postgres.TransactionSql, locationId: 
   const windows = await loadBookingStaff(tx,locationId,date);
   const staff = windows.map(w=>({...w,maxConcurrent:loc.settings.capacity && (loc.settings.capacity as any).strict_staff ? 1 : staffRows.find(s=>s.membership_id===w.id)?.max_concurrent_appointments??1}));
   const busy = await tx<{ membership_id: string | null; starts_at: string; ends_at: string; group_key: string }[]>`
-    select ai.membership_id, ai.starts_at::text, ai.ends_at::text,
+    select coalesce(ai.membership_id,ai.reserved_membership_id) as membership_id, ai.starts_at::text, ai.ends_at::text,
       case when a.party_size > 1 or ai.details ? 'serviceExecutionGroup' then ai.id::text else a.id::text end as group_key
     from appointment_items ai join appointments a on a.id = ai.appointment_id
     where a.location_id = ${locationId} and a.status <> 'cancelled' and ai.status in ('booked', 'in_service')

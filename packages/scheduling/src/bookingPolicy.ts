@@ -1,6 +1,8 @@
 /** Explicit extra concurrent bookings, not a time gap or an unlimited override. */
 export interface BookingPolicy {
   mode: 'staff' | 'location';
+  /** Actual assignment after public booking; capacity planning remains enabled. */
+  autoAssign?: boolean;
   baseCapacity: number | null;
   bufferEnabled: boolean;
   bufferExtra: number;
@@ -16,6 +18,7 @@ const integer = (v: unknown, min: number, max: number, fallback: number) =>
 export function readBookingPolicy(settings: unknown): BookingPolicy {
   const raw = object(object(settings).capacity);
   return {
+    autoAssign: raw.auto_assign === true,
     mode: raw.booking_mode === 'location' ? 'location' : 'staff',
     baseCapacity: raw.max_concurrent_per_slot == null ? null
       : integer(raw.max_concurrent_per_slot, 1, 100, 1),

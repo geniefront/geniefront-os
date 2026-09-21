@@ -3,6 +3,7 @@ import { defineCommand, uuid } from '../command.js';
 
 export const BookingPolicyInput = z.object({
   mode: z.enum(['staff', 'location']),
+  autoAssign: z.boolean().optional(),
   baseCapacity: z.number().int().min(1).max(100),
   bufferEnabled: z.boolean().default(false),
   bufferExtra: z.number().int().min(1).max(10).default(1),

@@ -7,8 +7,12 @@
 import type { DomainDict } from './types';
 
 export const settings = {
+  'settings.bookingManualAssign': {'zh-Hans':'待派工项目',en:'Awaiting staff assignment',ko:'직원 배정 대기',vi:'Chờ phân công nhân viên',es:'Pendiente de asignación'},
+  'settings.bookingAssign': {'zh-Hans':'派工',en:'Assign',ko:'배정',vi:'Phân công',es:'Asignar'},
   'settings.profPinNotSet': { 'zh-Hans': '未设置', en: 'Not set', ko: '설정 안 됨', es: 'Sin configurar', vi: 'Chưa thiết lập' },
   "settings.stPlanVoiceBooking": {"zh-Hans": "AI 语音预约", "en": "AI Voice Booking", "ko": "AI 음성 예약", "es": "Reservas por voz IA", "vi": "Đặt lịch giọng nói AI"},
+  'settings.bookingAutoAssign': { 'zh-Hans':'预约成功后自动派工',en:'Automatically assign staff after booking',ko:'예약 후 직원 자동 배정',vi:'Tự động phân công sau khi đặt lịch',es:'Asignar personal automáticamente al reservar' },
+  'settings.bookingAutoAssignHint': { 'zh-Hans':'默认关闭。未指定技师的预约等待手动派工；客人明确指定的技师仍会保留。',en:'Off by default. Bookings without a requested specialist wait for manual assignment. Customer-requested specialists are kept.',ko:'기본값은 꺼짐입니다. 지정 담당자가 없는 예약은 수동 배정을 기다립니다. 고객이 지정한 담당자는 유지됩니다.',vi:'Mặc định tắt. Lịch hẹn không chỉ định nhân viên sẽ chờ phân công thủ công. Giữ nguyên nhân viên khách đã chọn.',es:'Desactivado por defecto. Las citas sin especialista solicitado esperan asignación manual. Se conserva el especialista elegido por el cliente.' },
   "settings.bookingCapacityTitle": {"zh-Hans": "预约容量与额外名额", "en": "Booking capacity and extra places", "ko": "예약 정원 및 추가 인원", "es": "Capacidad y plazas adicionales", "vi": "Sức chứa và chỗ bổ sung"},
   "settings.bookingCapacityHint": {"zh-Hans": "额外名额默认关闭。基础容量 2 加 1 个额外名额，最多同时接 3 单。点钟单独控制。", "en": "Extra places are off by default. A base capacity of 2 plus 1 extra admits 3 concurrent bookings. Requested therapists have a separate setting.", "ko": "추가 인원은 기본적으로 꺼져 있습니다. 기본 2명과 추가 1명은 동시 3건입니다. 지정 예약은 별도 설정입니다.", "es": "Las plazas extra están desactivadas. Base 2 más 1 extra permite 3 reservas simultáneas. Las citas con profesional solicitado se configuran aparte.", "vi": "Chỗ bổ sung mặc định tắt. Sức chứa 2 cộng thêm 1 cho phép 3 lịch cùng lúc. Khách chỉ định nhân viên có cài đặt riêng."},
   "settings.bookingMode": {"zh-Hans": "预约方式", "en": "Booking mode", "ko": "예약 방식", "es": "Modo de reserva", "vi": "Chế độ đặt lịch"},

@@ -51,3 +51,8 @@ it('assigns separate staff for voice groups and leaves only the extra guest unas
  expect(findBookingOffers(base)[0]?.membershipIds).toEqual(['a','b',null]);
  expect(findBookingOffers({...base,partySize:4})).toEqual([]);
 });
+
+it('automatic assignment is strictly opt-in',()=>{
+ for(const settings of [null,{}, {capacity:{}},{capacity:{auto_assign:false}},{capacity:{auto_assign:'true'}}]) expect(readBookingPolicy(settings).autoAssign).toBe(false);
+ expect(readBookingPolicy({capacity:{auto_assign:true}}).autoAssign).toBe(true);
+});

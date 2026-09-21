@@ -87,7 +87,7 @@ export async function loadManagedAvailability(
   });
 
   const items = await tx<ManagedAvailItem[]>`
-    select membership_id, starts_at::text as starts_at, ends_at::text as ends_at,
+    select coalesce(membership_id,reserved_membership_id) as membership_id, starts_at::text as starts_at, ends_at::text as ends_at,
            duration_min, resource_id, details
       from appointment_items
      where appointment_id = ${appointmentId} and status <> 'cancelled'
@@ -138,7 +138,7 @@ export async function loadManagedAvailability(
     starts_at: string | Date; ends_at: string | Date;
   }[]>`
     select case when a.party_size > 1 or ai.details ? 'serviceExecutionGroup' then ai.id::text else ai.appointment_id::text end as group_key,
-           ai.membership_id, ai.starts_at, ai.ends_at
+           coalesce(ai.membership_id,ai.reserved_membership_id) as membership_id, ai.starts_at, ai.ends_at
       from appointment_items ai
       join appointments a on a.id = ai.appointment_id
      where a.location_id = ${shop.locationId}
@@ -198,7 +198,7 @@ export async function loadManagedAvailability(
     select id,capacity,max_staff from resources where location_id=${shop.locationId} and id=any(${resourceIds}) and status='available'`:[];
   if(resources.length!==resourceIds.length)return empty(null,true,spanMin);
   const resourceBusy=resourceIds.length?await tx<{resource_id:string;membership_id:string|null;starts_at:string;ends_at:string;group_key:string}[]>`
-    select ai.resource_id,ai.membership_id,ai.starts_at::text,ai.ends_at::text,
+    select ai.resource_id,coalesce(ai.membership_id,ai.reserved_membership_id) as membership_id,ai.starts_at::text,ai.ends_at::text,
       case when ai.details ? 'serviceExecutionGroup' then ai.id::text when a.party_size>1 then a.id::text||':'||coalesce(ai.details->>'publicGuestIndex',ai.id::text) else a.id::text end as group_key
     from appointment_items ai join appointments a on a.id=ai.appointment_id
     where ai.location_id=${shop.locationId} and ai.resource_id=any(${resourceIds}) and ai.appointment_id<>${appointmentId}
@@ -282,7 +282,7 @@ export async function checkManagedRescheduleSlot(
   startsAt: Date,
 ): Promise<ManagedSlotCheck> {
   const items = await tx<ManagedAvailItem[]>`
-    select membership_id, starts_at::text as starts_at, ends_at::text as ends_at,
+    select coalesce(membership_id,reserved_membership_id) as membership_id, starts_at::text as starts_at, ends_at::text as ends_at,
            duration_min, resource_id, details
       from appointment_items
      where appointment_id = ${appointmentId} and status <> 'cancelled'
