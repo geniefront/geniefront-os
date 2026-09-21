@@ -53,6 +53,8 @@ export interface CreateAppointmentModalProps {
 }
 
 export interface AppointmentItemDraft {
+  additionalMembershipIds?: string[];
+  addonIds?: string[];
   id: string;
   serviceId: string;
   membershipId: string;
@@ -225,7 +227,8 @@ export function CreateAppointmentModal({
   const voiceOnly = useEntitlements().data?.plan === 'voice_booking';
   const errorMessage = useErrorMessage();
   const { t } = useLanguage();
-  const { services, staff, currentDate, timezone, openMin, closeMin, setCurrentDate } = useSchedule();
+  const { services: allServices, staff, currentDate, timezone, openMin, closeMin, setCurrentDate } = useSchedule();
+  const services = useMemo(() => allServices.filter(service => !service.isAddon), [allServices]);
   const { create } = useScheduleMutations();
 
   const [customerName, setCustomerName] = useState(defaultCustomerName);
@@ -562,6 +565,7 @@ export function CreateAppointmentModal({
         return {
           ...item,
           ...patch,
+          ...(patch.serviceId && patch.serviceId !== item.serviceId ? { additionalMembershipIds: [], addonIds: [] } : {}),
           membershipId: nextMembershipId,
           isRequest: nextIsRequest,
           durationMin: nextDuration,
@@ -756,6 +760,12 @@ export function CreateAppointmentModal({
       }
     }
 
+    if (mode !== 'bundle' && items.some(item => {
+      const count = services.find(service => service.id === item.serviceId)?.staffCount ?? 1;
+      const members = [item.membershipId, ...(item.additionalMembershipIds ?? [])];
+      return members.length !== count || (count > 1 && (members.includes(UNASSIGNED_STAFF_ID) || members.some(id => !id) || new Set(members).size !== count));
+    })) { toast.danger(t('schedule.apptCompleteStaff')); return; }
+
     const idempotencyKey = retryKey || attemptRef.current || crypto.randomUUID();
     attemptRef.current = idempotencyKey;
     dirtyRef.current = true;
@@ -765,6 +775,8 @@ export function CreateAppointmentModal({
       const startsAt = wallMinutesToInstant(date || currentDate, timeToMins(it.startTime), timezone);
       return {
         serviceId: it.serviceId,
+        additionalMembershipIds: it.additionalMembershipIds ?? [],
+        addonIds: it.addonIds ?? [],
         membershipId: it.membershipId === UNASSIGNED_STAFF_ID ? null : it.membershipId,
         startsAt,
         durationMin: it.durationMin,
@@ -1214,8 +1226,25 @@ export function CreateAppointmentModal({
                               </option>
                             ))}
                         </select>
+                        {Array.from({ length: Math.max(0, (services.find(service=>service.id===item.serviceId)?.staffCount ?? 1) - 1) }, (_,index) => <select
+                          key={index} aria-label={`${t('staff')} ${index + 2}`} value={item.additionalMembershipIds?.[index] ?? ''}
+                          className="mt-2 h-9 w-full rounded border px-2 text-xs" onChange={event => {
+                            const members = [...(item.additionalMembershipIds ?? [])]; members[index] = event.target.value;
+                            handleUpdateItem(item.id, { additionalMembershipIds: members });
+                          }}><option value="">{t('staff')}</option>{availableStaff.filter(member=>member.isBookable && member.membershipId !== UNASSIGNED_STAFF_ID && member.membershipId !== item.membershipId).map(member=><option key={member.membershipId} value={member.membershipId}>{member.name}</option>)}</select>)}
                       </div>
 
+                      <details className="text-xs"><summary className="cursor-pointer">{t('schedule.adAddOn')}</summary>
+                        {allServices.filter(service=>service.isAddon && service.staffCount===1).map(addon=><label key={addon.id} className="flex items-center gap-2 py-1">
+                          <input type="checkbox" checked={item.addonIds?.includes(addon.id) ?? false} onChange={event=>{
+                            const ids = event.target.checked ? [...(item.addonIds ?? []),addon.id] : (item.addonIds ?? []).filter(id=>id!==addon.id);
+                            const primary = services.find(service=>service.id===item.serviceId)!;
+                            const addons = allServices.filter(service=>ids.includes(service.id));
+                            const duration = primary.durationMin + addons.reduce((n,service)=>n+service.durationMin,0);
+                            handleUpdateItem(item.id,{addonIds:ids,durationMin:duration,durationText:String(duration),priceCents:primary.priceCents+addons.reduce((n,service)=>n+service.priceCents,0)});
+                          }} />{addon.name}
+                        </label>)}
+                      </details>
                       {/* 开始时刻 (Col 1) */}
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 mb-1">

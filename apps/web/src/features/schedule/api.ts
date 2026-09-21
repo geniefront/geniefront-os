@@ -106,6 +106,8 @@ export function useDayRange(dates: string[]) {
 }
 
 export interface CreateAppointmentItemInput {
+  additionalMembershipIds?: string[];
+  addonIds?: string[];
   serviceId: string;
   /** null = 未指派，进入待分配池。 */
   membershipId: string | null;
@@ -193,6 +195,8 @@ export function useCreateAppointment(date: string) {
           items: input.items.map((it) => ({
             serviceId: it.serviceId,
             membershipId: it.membershipId,
+            additionalMembershipIds: it.additionalMembershipIds,
+            addonIds: it.addonIds,
             startsAt: it.startsAt,
             isRequest: it.isRequest ?? false,
             resourceId: it.resourceId ?? null,

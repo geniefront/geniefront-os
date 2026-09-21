@@ -37,6 +37,7 @@ const appointmentItemInput = z.object({
   addonIds: z.array(uuid).default([]),
   /** null = 未指定技师，由前台后续派单或轮牌决定 */
   membershipId: uuid.nullable().default(null),
+  additionalMembershipIds: z.array(uuid).max(4).default([]),
   /** 点钟单。多数店规定指名单不消耗轮次（可配） */
   isRequest: z.boolean().default(false),
   resourceId: uuid.nullable().default(null),

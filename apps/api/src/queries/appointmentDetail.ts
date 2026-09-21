@@ -8,6 +8,7 @@ import { maskPhone } from './staff';
 
 export interface AppointmentItemDetailDto {
   itemId: string;
+  executionGroup?: string | null;
   serviceId: string;
   serviceName: string;
   staffId: string | null;
@@ -247,14 +248,14 @@ export async function loadAppointmentDetail(
     membership_id: string | null; staff_display_name: unknown;
     user_full_name: string | null; resource_id: string | null;
     resource_name: string | null; status: string;
-    bundle_instance_id: string | null;
+    bundle_instance_id: string | null; execution_group: string | null;
   }[]>`
     select ai.id as item_id, ai.service_id, s.name as service_name,
            ai.price_cents_snapshot as price_cents, ai.duration_min, ai.starts_at::text as starts_at,
            ai.membership_id, sp.display_name as staff_display_name,
            u.full_name as user_full_name,
            ai.resource_id, r.name as resource_name, ai.status,
-           ai.bundle_instance_id
+           ai.bundle_instance_id, ai.details->>'serviceExecutionGroup' as execution_group
     from appointment_items ai
     join services s on s.id = ai.service_id
     left join memberships m on m.id = ai.membership_id
@@ -271,6 +272,7 @@ export async function loadAppointmentDetail(
 
     return {
       itemId: r.item_id,
+      executionGroup: r.execution_group,
       serviceId: r.service_id,
       serviceName: pickText(r.service_name, ctx.locale, '项目服务'),
       staffId: r.membership_id,

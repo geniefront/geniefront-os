@@ -27,6 +27,7 @@ export interface DayService {
   priceCents: number;
   /** 该项目同时需要的技师人数。 */
   staffCount: number;
+  isAddon?: boolean;
   /** 为空表示没有技能硬门槛。 */
   requiredSkills: Array<{ id: string; key: string; name: string }>;
 }

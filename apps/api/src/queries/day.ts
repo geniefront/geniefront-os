@@ -59,6 +59,7 @@ export interface DayService {
   durationMin: number;
   priceCents: number;
   staffCount: number;
+  isAddon: boolean;
   requiredSkills: Array<{ id: string; key: string; name: string }>;
 }
 
@@ -103,10 +104,10 @@ export async function loadDay(
 
   const serviceRows = await tx<{
     id: string; name: unknown; duration_min: number; base_price_cents: number;
-    category_id: string | null; category_name: unknown; staff_count: number; required_skills: unknown;
+    category_id: string | null; category_name: unknown; is_addon: boolean; staff_count: number; required_skills: unknown;
   }[]>`
     select s.id, s.name, s.category_id, sc.name as category_name,
-           s.duration_min, s.base_price_cents, s.staff_count,
+           s.duration_min, s.base_price_cents, s.staff_count, s.is_addon,
            coalesce((select jsonb_agg(jsonb_build_object('id', sk.id, 'key', sk.key, 'name', sk.name) order by sk.key)
              from service_skill_requirements ssr join skills sk on sk.id = ssr.skill_id
              where ssr.service_id = s.id), '[]'::jsonb) as required_skills
@@ -184,6 +185,7 @@ export async function loadDay(
       durationMin: s.duration_min,
       priceCents: s.base_price_cents,
       staffCount: s.staff_count,
+      isAddon: s.is_addon,
       requiredSkills: Array.isArray(s.required_skills) ? s.required_skills.map((skill) => {
         const value = skill as { id: string; key: string; name: unknown };
         return { id: value.id, key: value.key, name: pickText(value.name, ctx.locale, value.key) };

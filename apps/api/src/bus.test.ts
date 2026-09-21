@@ -571,3 +571,39 @@ describe('desk customer and booking atomicity', () => {
     expect(counts[0]!.n).toBe(1);
   });
 });
+
+describe('multi-staff service execution', () => {
+  it('reserves two distinct workers, charges once, moves together and rejects incomplete combinations', async () => {
+    const ctx = await ctxFor(amy);
+    const tenant = { orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: amy };
+    const [original] = await withTenant(tenant, tx => tx<{ staff_count: number; base_price_cents: number }[]>`select staff_count,base_price_cents from services where id=${gelService}`);
+    try {
+      await withTenant(tenant, tx => tx`update services set staff_count=2 where id=${gelService}`);
+      const single = { customerId: lisa, items: [{ serviceId: gelService, membershipId: amy, startsAt: '2027-05-10T16:00:00Z' }] };
+      await expect(create(ctx, single)).rejects.toMatchObject({ details: { reason: 'service_staff_count_mismatch' } });
+      await expect(create(ctx, { ...single, items: [{ ...single.items[0], additionalMembershipIds: [amy] }] })).rejects.toMatchObject({ details: { reason: 'service_staff_count_mismatch' } });
+      const result = await create(ctx, { ...single, items: [{ ...single.items[0], additionalMembershipIds: [linh] }] });
+      const items = await withTenant(tenant, tx => tx<{ id: string; membership_id: string; price_cents_snapshot: number; starts_at: string }[]>`
+        select id,membership_id,price_cents_snapshot,starts_at::text from appointment_items where appointment_id=${result.result.appointmentId}`);
+      expect(items).toHaveLength(2);
+      expect(new Set(items.map(item=>item.membership_id))).toEqual(new Set([amy,linh]));
+      expect(items.reduce((sum,item)=>sum+item.price_cents_snapshot,0)).toBe(original!.base_price_cents);
+      await dispatch('appointment.reschedule', { appointmentId: result.result.appointmentId, itemId: items[0]!.id, startsAt: '2027-05-11T16:00:00Z' }, ctx, { idempotencyKey: randomUUID() });
+      const moved = await withTenant(tenant, tx => tx<{ starts_at: string }[]>`select starts_at::text from appointment_items where appointment_id=${result.result.appointmentId}`);
+      expect(new Set(moved.map(item=>Date.parse(item.starts_at)))).toEqual(new Set([Date.parse('2027-05-11T16:00:00Z')]));
+      const limits = await withTenant(tenant, tx=>tx<{membership_id:string;max_concurrent_appointments:number}[]>`select membership_id,max_concurrent_appointments from staff_profiles where membership_id=any(${[amy,linh]})`);
+      try {
+        await withTenant(tenant,tx=>tx`update staff_profiles set max_concurrent_appointments=1 where membership_id=any(${[amy,linh]})`);
+        const raceInput = { ...single, items: [{ ...single.items[0], startsAt:'2027-05-13T16:00:00Z', additionalMembershipIds:[linh] }] };
+        const race = await Promise.allSettled([create(ctx,raceInput),create(ctx,raceInput)]);
+        expect(race.filter(result=>result.status==='fulfilled')).toHaveLength(1);
+      } finally {
+        for (const limit of limits) await withTenant(tenant,tx=>tx`update staff_profiles set max_concurrent_appointments=${limit.max_concurrent_appointments} where membership_id=${limit.membership_id}`);
+      }
+
+      await expect(create(ctx, { customerId: lisa, items: [{ serviceId: gelRemoval, startsAt: '2027-05-12T16:00:00Z' }] })).rejects.toMatchObject({ details: { reason: 'addon_requires_primary_service' } });
+    } finally {
+      await withTenant(tenant, tx => tx`update services set staff_count=${original!.staff_count} where id=${gelService}`);
+    }
+  });
+});

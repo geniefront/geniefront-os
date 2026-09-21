@@ -7,6 +7,7 @@
 import type { DomainDict } from './types';
 
 export const schedule = {
+  'schedule.apptCompleteStaff': { 'zh-Hans': '请为项目选择足够数量且不重复的技师。', en: 'Choose the required number of distinct staff for this service.', ko: '서비스에 필요한 서로 다른 직원을 선택하세요.', es: 'Selecciona el número requerido de empleados distintos.', vi: 'Chọn đủ số nhân viên khác nhau cho dịch vụ.' },
   'schedule.apptChooseCustomer': { 'zh-Hans': '请选择已有客户，或确认新建客户档案', en: 'Select an existing customer or confirm a new profile', ko: '기존 고객을 선택하거나 새 고객 생성을 확인하세요', es: 'Selecciona un cliente o confirma un perfil nuevo', vi: 'Chọn khách hiện có hoặc xác nhận tạo hồ sơ mới' },
   'schedule.apptNewCustomerConfirm': { 'zh-Hans': '为此人新建客户档案（共用电话的家人可单独建档）', en: 'Create a new profile for this person (family members may share a phone)', ko: '이 고객의 새 프로필 만들기 (가족은 전화번호 공유 가능)', es: 'Crear un perfil nuevo (familiares pueden compartir teléfono)', vi: 'Tạo hồ sơ mới (người thân có thể dùng chung số điện thoại)' },
   'schedule.loadingTitle': { 'zh-Hans': '正在加载工位日程与排期看板...', en: 'Loading schedule board…', ko: '일정 보드를 불러오는 중…', es: 'Cargando el tablero de horarios…', vi: 'Đang tải bảng lịch trình…' },

@@ -162,7 +162,7 @@ export async function loadPartyAvailability(
     }[]
   >`
     select ai.starts_at::text, ai.ends_at::text, ai.membership_id,
-      case when a.party_size>1 then a.id::text||':'||coalesce(ai.details->>'publicGuestIndex',ai.id::text) else a.id::text end as group_key
+      case when ai.details ? 'serviceExecutionGroup' then ai.id::text when a.party_size>1 then a.id::text||':'||coalesce(ai.details->>'publicGuestIndex',ai.id::text) else a.id::text end as group_key
     from appointment_items ai join appointments a on a.id=ai.appointment_id
     where ai.location_id=${shop.locationId} and ai.status in ('booked','in_service')
       ${args.excludeAppointmentId ? tx`and ai.appointment_id<>${args.excludeAppointmentId}` : tx``}
@@ -196,7 +196,7 @@ export async function loadPartyAvailability(
         }[]
       >`
     select ai.resource_id,ai.membership_id,ai.starts_at::text,ai.ends_at::text,
-      case when a.party_size>1 then a.id::text||':'||coalesce(ai.details->>'publicGuestIndex',ai.id::text) else a.id::text end as group_key
+      case when ai.details ? 'serviceExecutionGroup' then ai.id::text when a.party_size>1 then a.id::text||':'||coalesce(ai.details->>'publicGuestIndex',ai.id::text) else a.id::text end as group_key
     from appointment_items ai join appointments a on a.id=ai.appointment_id
     where ai.location_id=${shop.locationId} and ai.resource_id=any(${resources.map((r) => r.id)}) and ai.status in ('booked','in_service')
       ${args.excludeAppointmentId ? tx`and ai.appointment_id<>${args.excludeAppointmentId}` : tx``}

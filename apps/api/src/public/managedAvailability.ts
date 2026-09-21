@@ -137,7 +137,7 @@ export async function loadManagedAvailability(
     group_key: string; membership_id: string | null;
     starts_at: string | Date; ends_at: string | Date;
   }[]>`
-    select case when a.party_size > 1 then ai.id::text else ai.appointment_id::text end as group_key,
+    select case when a.party_size > 1 or ai.details ? 'serviceExecutionGroup' then ai.id::text else ai.appointment_id::text end as group_key,
            ai.membership_id, ai.starts_at, ai.ends_at
       from appointment_items ai
       join appointments a on a.id = ai.appointment_id
@@ -199,7 +199,7 @@ export async function loadManagedAvailability(
   if(resources.length!==resourceIds.length)return empty(null,true,spanMin);
   const resourceBusy=resourceIds.length?await tx<{resource_id:string;membership_id:string|null;starts_at:string;ends_at:string;group_key:string}[]>`
     select ai.resource_id,ai.membership_id,ai.starts_at::text,ai.ends_at::text,
-      case when a.party_size>1 then a.id::text||':'||coalesce(ai.details->>'publicGuestIndex',ai.id::text) else a.id::text end as group_key
+      case when ai.details ? 'serviceExecutionGroup' then ai.id::text when a.party_size>1 then a.id::text||':'||coalesce(ai.details->>'publicGuestIndex',ai.id::text) else a.id::text end as group_key
     from appointment_items ai join appointments a on a.id=ai.appointment_id
     where ai.location_id=${shop.locationId} and ai.resource_id=any(${resourceIds}) and ai.appointment_id<>${appointmentId}
       and ai.status in ('booked','in_service')

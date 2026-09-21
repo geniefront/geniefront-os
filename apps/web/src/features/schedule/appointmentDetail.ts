@@ -5,6 +5,7 @@ import { useSession } from '@/lib/session';
 
 export interface AppointmentItemDetail {
   itemId: string;
+  executionGroup?: string | null;
   serviceId: string;
   serviceName: string;
   staffId: string | null;

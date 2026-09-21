@@ -303,9 +303,9 @@ export async function executeSingleAppointmentInTx(
   //（截图导入时「60min + 拔罐」往往已经写成了总时长 75），没给才按
   // 主项目 + 各加项的标准时长累加。价格没有这个歧义，一律累加。
   const serviceIds = [...new Set(input.items.flatMap((i) => [i.serviceId, ...i.addonIds]))];
-  const services = await tx<{ id: string; duration_min: number; base_price_cents: number }[]>`
-    select id, duration_min, base_price_cents from services
-    where id = any(${serviceIds}) and active = true`;
+  const services = await tx<{ id: string; duration_min: number; base_price_cents: number; is_addon: boolean; staff_count: number }[]>`
+    select id, duration_min, base_price_cents, is_addon, staff_count from services
+    where id = any(${serviceIds}) and location_id=${ctx.locationId} and active = true`;
   const svcById = new Map(services.map((s) => [s.id, s]));
 
   interface ResolvedItem {
@@ -326,14 +326,21 @@ export async function executeSingleAppointmentInTx(
     bundleListPriceCents?: number;
   }
 
-  const resolved: ResolvedItem[] = input.items.map((item) => {
+  const resolved: ResolvedItem[] = input.items.flatMap((item) => {
     const svc = svcById.get(item.serviceId);
     if (!svc) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { serviceId: item.serviceId } });
+    if (svc.is_addon) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'addon_requires_primary_service' } });
+    const members = [item.membershipId, ...item.additionalMembershipIds];
+    if (members.length !== svc.staff_count || (svc.staff_count > 1 && (members.some(id=>!id) || new Set(members).size !== members.length))) {
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'service_staff_count_mismatch', required: svc.staff_count } });
+    }
+
 
     const addons = item.addonIds.map((id) => {
       const a = svcById.get(id);
       // 加项查不到就直接拒，不静默丢掉：存一个悬空的 addon_id 比报错糟糕得多
       if (!a) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { addonId: id } });
+      if (!a.is_addon || a.staff_count !== 1) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'invalid_service_addon' } });
       return a;
     });
 
@@ -342,18 +349,21 @@ export async function executeSingleAppointmentInTx(
 
     const startsAt = new Date(item.startsAt);
     const durationMin = item.durationMin ?? (svc.duration_min + addonMinutes);
-    return {
+    const { serviceExecutionGroup: ignoredGroup, requiredStaffCount: ignoredCount, ...safeDetails } = item.details;
+    const groupKey = members.length > 1 ? randomUUID() : undefined;
+    const totalPrice = item.priceCentsOverride ?? (svc.base_price_cents + addonCents);
+    return members.map((membershipId, memberIndex) => ({
       serviceId: item.serviceId,
-      addonIds: item.addonIds,
-      membershipId: item.membershipId,
+      addonIds: memberIndex === 0 ? item.addonIds : [],
+      membershipId,
       isRequest: item.isRequest,
-      resourceId: item.resourceId,
+      resourceId: memberIndex === 0 ? item.resourceId : null,
       startsAt,
       endsAt: new Date(startsAt.getTime() + durationMin * 60_000),
       durationMin,
-      priceCents: item.priceCentsOverride ?? (svc.base_price_cents + addonCents),
-      details: item.details,
-    };
+      priceCents: Math.floor(totalPrice / members.length) + (memberIndex < totalPrice % members.length ? 1 : 0),
+      details: { ...safeDetails, ...(groupKey ? { serviceExecutionGroup: groupKey, requiredStaffCount: members.length } : {}) },
+    }));
   });
 
   // ── 组合套餐展开（U10 / 计划 §4.3）────────────────────────────────────────
@@ -380,6 +390,8 @@ export async function executeSingleAppointmentInTx(
       extraDiscountCents: sel.extraDiscountCents,
       extraDiscountKind: sel.extraDiscountKind,
     });
+    const incompleteServices = await tx<{ id: string }[]>`select id from services where id=any(${q.units.map(unit=>unit.serviceId)}) and staff_count<>1`;
+    if (incompleteServices.length) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'bundle_requires_multiple_staff_assignments' } });
     bundlePlans.push({
       ref: b,
       version: q.version,
@@ -466,7 +478,7 @@ export async function executeSingleAppointmentInTx(
   const existingRows = await tx<{
     group_key: string; membership_id: string | null; starts_at: string; ends_at: string;
   }[]>`
-    select case when a.party_size > 1 then ai.id::text else ai.appointment_id::text end as group_key,
+    select case when a.party_size > 1 or ai.details ? 'serviceExecutionGroup' then ai.id::text else ai.appointment_id::text end as group_key,
            ai.membership_id, ai.starts_at, ai.ends_at
     from appointment_items ai
     join appointments a on a.id = ai.appointment_id
@@ -494,7 +506,7 @@ export async function executeSingleAppointmentInTx(
 
   const onDutyBookableCount = await countOnDutyBookable(tx, ctx.locationId, businessDate);
 
-  const newApptKey = input.partySize > 1 ? null : `pending:${randomUUID()}`;
+  const newApptKey = input.partySize > 1 || resolved.some(item => item.details.serviceExecutionGroup) ? null : `pending:${randomUUID()}`;
   const overbookedIdx = new Set<number>();
 
   for (const [idx, item] of resolved.entries()) {
@@ -1250,10 +1262,10 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
 
   const itemRows = await tx<{
     id: string; membership_id: string | null; starts_at: string; ends_at: string; is_request: boolean;
-    bundle_instance_id: string | null;
+    bundle_instance_id: string | null; execution_group: string | null;
   }[]>`
     select id, membership_id, starts_at::text as starts_at, ends_at::text as ends_at, is_request,
-           bundle_instance_id
+           bundle_instance_id, details->>'serviceExecutionGroup' as execution_group
     from appointment_items
     where appointment_id = ${appt.id} and status <> 'cancelled'
     order by starts_at`;
@@ -1264,6 +1276,11 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
   let targets = input.itemId
     ? itemRows.filter((r) => r.id === input.itemId)
     : itemRows;
+  const grouped = targets.find(item=>item.execution_group);
+  if (grouped) {
+    if (input.membershipId !== undefined || input.resourceId !== undefined) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'group_staff_reassignment_requires_all_members' } });
+    if (input.itemId) targets = itemRows.filter(item=>item.execution_group === grouped.execution_group);
+  }
   if (targets.length === 0) {
     throw new AppError(ERROR_CODES.NOT_FOUND, { details: { itemId: input.itemId } });
   }
@@ -1293,6 +1310,7 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
   const moved = targets.map((t) => ({
     id: t.id,
     isRequest: t.is_request,
+    executionGroup: t.execution_group,
     membershipId: input.membershipId === undefined ? t.membership_id : input.membershipId,
     startsAt: new Date(parseTs(t.starts_at).getTime() + deltaMs),
     endsAt: new Date(parseTs(t.ends_at).getTime() + deltaMs),
@@ -1328,7 +1346,7 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
   const existingRows = await tx<{
     group_key: string; membership_id: string | null; starts_at: string; ends_at: string;
   }[]>`
-    select case when a.party_size > 1 then ai.id::text else ai.appointment_id::text end as group_key,
+    select case when a.party_size > 1 or ai.details ? 'serviceExecutionGroup' then ai.id::text else ai.appointment_id::text end as group_key,
            ai.membership_id, ai.starts_at, ai.ends_at
     from appointment_items ai
     join appointments a on a.id = ai.appointment_id
@@ -1367,7 +1385,7 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
     // 对别的技师和门店层则照常计入（`existing` 已排除本单的旧时段）
     const proposed: Interval = {
       startsAt: m.startsAt, endsAt: m.endsAt,
-      groupKey: appt.party_size > 1 ? `moved-item:${m.id}` : appt.id,
+      groupKey: appt.party_size > 1 || m.executionGroup ? `moved-item:${m.id}` : appt.id,
     };
     await enforceScheduledBooking(tx,ctx.locationId,businessDate,loc.settings,{...proposed,membershipId: m.membershipId},existing);
     const issues = checkCapacity({
@@ -1511,10 +1529,12 @@ registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: Hand
     });
   }
 
-  const [service] = await tx<{ id: string; duration_min: number; base_price_cents: number }[]>`
-    select id, duration_min, base_price_cents from services
+  const [service] = await tx<{ id: string; duration_min: number; base_price_cents: number; is_addon: boolean; staff_count: number }[]>`
+    select id, duration_min, base_price_cents, is_addon, staff_count from services
     where id = ${input.serviceId} and location_id = ${ctx.locationId} and active = true`;
   if (!service) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { serviceId: input.serviceId } });
+  if (service.is_addon || service.staff_count !== 1) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'service_requires_primary_or_multiple_assignments' } });
+
 
   const [loc] = await tx<{ timezone: string; cutoff: string; settings: Record<string, unknown>; hours: WeeklyHours }[]>`
     select timezone, business_day_cutoff::text as cutoff, settings, business_hours as hours
@@ -1556,7 +1576,7 @@ registerHandler(AppointmentAddItem, async ({ input, ctx, tx, audit, emit }: Hand
   const otherRows = await tx<{
     group_key: string; membership_id: string | null; starts_at: string; ends_at: string;
   }[]>`
-    select case when a.party_size > 1 then ai.id::text else ai.appointment_id::text end as group_key,
+    select case when a.party_size > 1 or ai.details ? 'serviceExecutionGroup' then ai.id::text else ai.appointment_id::text end as group_key,
            ai.membership_id, ai.starts_at::text as starts_at, ai.ends_at::text as ends_at
     from appointment_items ai
     join appointments a on a.id = ai.appointment_id
