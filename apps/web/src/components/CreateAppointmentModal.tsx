@@ -48,6 +48,8 @@ export interface CreateAppointmentModalProps {
   defaultCustomerName?: string;
   defaultPhone?: string;
   defaultServiceId?: string;
+  callDraftId?: string;
+  defaultCustomerId?: string;
 }
 
 export interface AppointmentItemDraft {
@@ -217,6 +219,8 @@ export function CreateAppointmentModal({
   defaultCustomerName = '',
   defaultPhone = '',
   defaultServiceId,
+  callDraftId,
+  defaultCustomerId,
 }: CreateAppointmentModalProps) {
   const voiceOnly = useEntitlements().data?.plan === 'voice_booking';
   const errorMessage = useErrorMessage();
@@ -401,7 +405,7 @@ export function CreateAppointmentModal({
 
     attemptRef.current = null;
     setCustomerName(defaultCustomerName);
-    setSelectedCustomerId(null);
+    setSelectedCustomerId(defaultCustomerId ?? null);
     setNewCustomerConfirmed(false);
     setPhone(defaultPhone);
     setNotes('');
@@ -797,6 +801,7 @@ export function CreateAppointmentModal({
         });
         await create.mutateAsync({
           customerId,
+          callDraftId,
           newCustomer,
           walkInName,
           items: [],
@@ -813,6 +818,7 @@ export function CreateAppointmentModal({
 
       await create.mutateAsync({
         customerId,
+        callDraftId,
         newCustomer,
         walkInName,
         items: payloadItems,

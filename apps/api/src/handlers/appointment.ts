@@ -238,6 +238,13 @@ export async function executeSingleAppointmentInTx(
   offHoursOverride: boolean;
 }> {
   await lockBookingCapacity(tx, ctx.locationId);
+  if (input.callDraftId) {
+    const [draft] = await tx<{ status: string }[]>`select status from call_drafts
+      where id=${input.callDraftId} and location_id=${ctx.locationId} for update`;
+    if (!draft) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'call_draft' } });
+    if (draft.status !== 'pending') throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'draft_already_reviewed' } });
+  }
+
 
   // ── 门店配置 ──────────────────────────────────────────────────────────────
   const [loc] = await tx<{
@@ -603,6 +610,8 @@ export async function executeSingleAppointmentInTx(
     bundleInstanceIds.push(inst!.id);
   }
 
+  if (input.callDraftId) await tx`update call_drafts set status='confirmed', appointment_id=${appt!.id},
+    reviewed_by=${ctx.membershipId}, reviewed_at=now() where id=${input.callDraftId} and location_id=${ctx.locationId}`;
   if(input.providerCallId && input.source==='phone_ai')await tx`update appointments set provider_call_id=${input.providerCallId} where id=${appt!.id} and location_id=${ctx.locationId}`;
   const itemIds: string[] = [];
   const overbookedItemIds: string[] = [];

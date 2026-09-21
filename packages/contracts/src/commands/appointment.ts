@@ -99,6 +99,7 @@ export const AppointmentCreate = defineCommand({
   name: 'appointment.create',
   input: z.object({
     customerId: uuid.nullable(),
+    callDraftId: uuid.optional(),
     newCustomer: z.object({ name: z.string().trim().min(1).max(100), phoneE164 }).optional(),
     /** 匿名 walk-in：不给 customerId，只留个名字，事后可合并 */
     walkInName: z.string().max(120).optional(),

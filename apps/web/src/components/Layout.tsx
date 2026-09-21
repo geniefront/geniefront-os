@@ -166,6 +166,8 @@ export function Layout() {
     defaultCustomerName?: string;
     defaultPhone?: string;
     defaultServiceId?: string;
+    callDraftId?: string;
+    defaultCustomerId?: string;
   }>({ isOpen: false });
 
   const openCreateAppointment = (options?: {
@@ -175,6 +177,8 @@ export function Layout() {
     defaultCustomerName?: string;
     defaultPhone?: string;
     defaultServiceId?: string;
+    callDraftId?: string;
+    defaultCustomerId?: string;
   }) => {
     setCreateModalOptions({
       isOpen: true,
@@ -851,6 +855,8 @@ export function Layout() {
             defaultCustomerName={createModalOptions.defaultCustomerName}
             defaultPhone={createModalOptions.defaultPhone}
             defaultServiceId={createModalOptions.defaultServiceId}
+            callDraftId={createModalOptions.callDraftId}
+            defaultCustomerId={createModalOptions.defaultCustomerId}
           />
         </Suspense>}
 

@@ -3,7 +3,7 @@ import { CallConversation } from '@/features/comms/CallConversation';
 import { apiGet } from '@/lib/api';
 import { useState, useMemo, useEffect } from "react";
 import { useErrorMessage } from '@/lib/errorMessage';
-import { useStoreTime, instantToWallDate } from '@/lib/time';
+import { useStoreTime, instantToWallDate, instantToWallMinutes } from '@/lib/time';
 import { useLanguage } from "@/LanguageContext";
 import { formatPhoneDisplay } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -60,6 +60,8 @@ export function Calls() {
       defaultCustomerName?: string;
       defaultPhone?: string;
       defaultServiceId?: string;
+      callDraftId?: string;
+      defaultCustomerId?: string;
     }) => void;
   }>();
 
@@ -204,6 +206,11 @@ export function Calls() {
     const cust = d.customer?.displayName || d.callerNameHeard || "";
     const phone = d.fromE164 || d.fromDisplay || "";
     openCreateAppointment?.({
+      callDraftId: d.draftId,
+      defaultCustomerId: d.customer?.id ?? undefined,
+      defaultServiceId: d.service.matchedId ?? undefined,
+      defaultStaffId: d.staff.matchedId ?? undefined,
+      defaultTime: d.time.slotStartsAt ? (() => { const minutes = instantToWallMinutes(d.time.slotStartsAt!, storeTime.timeZone); return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`; })() : undefined,
       defaultCustomerName: cust,
       defaultPhone: phone,
       // 门店墙上日期，不是 UTC 日期：洛杉矶晚 8 点的槽位 toISOString() 会落到次日

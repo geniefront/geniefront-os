@@ -138,6 +138,7 @@ export interface CreateBundleSelectionInput {
 }
 
 export interface CreateAppointmentInput {
+  callDraftId?: string;
   customerId: string | null;
   newCustomer?: { name: string; phoneE164: string };
   /** 匿名到店客：不建客户档案，仅留姓名，事后可合并。 */
@@ -186,6 +187,7 @@ export function useCreateAppointment(date: string) {
         'appointment.create',
         {
           customerId: input.customerId,
+          callDraftId: input.callDraftId,
           newCustomer: input.newCustomer,
           ...(input.walkInName ? { walkInName: input.walkInName } : {}),
           items: input.items.map((it) => ({
@@ -233,6 +235,7 @@ export function useCreateAppointment(date: string) {
       void queryClient.invalidateQueries({ queryKey: ['desk', 'day', membershipId] });
       void queryClient.invalidateQueries({ queryKey: ['desk', 'days', membershipId] });
       void queryClient.invalidateQueries({ queryKey: ['desk', 'customers'] });
+      void queryClient.invalidateQueries({ queryKey: ['desk', 'call-drafts'] });
     },
   });
 }

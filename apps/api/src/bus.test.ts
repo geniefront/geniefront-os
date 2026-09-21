@@ -548,9 +548,17 @@ describe('desk customer and booking atomicity', () => {
     const key = randomUUID();
     const input = { customerId: null, newCustomer: { name: 'Atomic desk guest', phoneE164: '+16175550129' },
       items: [{ serviceId: gelService, startsAt: '2027-04-15T16:00:00Z' }] };
+    const [draft] = await withTenant({ orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: amy }, tx => tx<{ id: string }[]>`
+      insert into call_drafts (org_id, location_id, status, confidence_bp) values (${NAIL_ORG}, ${NAIL_LOC}, 'pending', 9000) returning id`);
+    Object.assign(input, { callDraftId: draft!.id });
     const first = await create(ctx, input, key);
     const replay = await create(ctx, input, key);
     expect(replay.result.appointmentId).toBe(first.result.appointmentId);
+    const [reviewed] = await withTenant({ orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: amy }, tx => tx<{ status: string; appointment_id: string }[]>`
+      select status, appointment_id from call_drafts where id=${draft!.id}`);
+    expect(reviewed).toMatchObject({ status: 'confirmed', appointment_id: first.result.appointmentId });
+    await expect(create(ctx, input)).rejects.toMatchObject({ details: { reason: 'draft_already_reviewed' } });
+
     const tenant = { orgId: NAIL_ORG, locationId: NAIL_LOC, membershipId: amy };
     const customers = await withTenant(tenant, tx => tx<{ id: string }[]>`select id from customers where display_name = 'Atomic desk guest'`);
     expect(customers).toHaveLength(1);
