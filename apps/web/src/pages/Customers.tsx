@@ -178,7 +178,7 @@ function CustomersContent() {
   const handleSelectCustomer = (id: string) => {
     setEditProfileOpen(false); setEditPrefOpen(false); setMergeModalOpen(false); setSmsModalOpen(false); setBlockModalOpen(false);
     setSelectedId(id);
-    window.history.replaceState(null, '', `/customers/${id}`);
+    window.history.replaceState(window.history.state, '', `/customers/${id}`);
   };
 
   // 如果没有选中的顾客或当前选中的顾客在当前筛选结果中不存在，自动选中当前筛选列表的第一位
