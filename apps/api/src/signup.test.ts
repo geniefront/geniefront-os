@@ -102,6 +102,7 @@ async function unclaim(): Promise<void> {
      */
     await tx`update locations set
                status = 'setup', timezone = 'America/Chicago', business_type = 'nail',
+               name = '{"en":"Selftest Nails","zh-Hans":"Selftest Nails"}'::jsonb,
                business_hours = '{}'::jsonb,
                settings = jsonb_set(
                  settings - 'profile_confirmed_at',

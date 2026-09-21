@@ -325,13 +325,13 @@ describe('具名链接与前端路由一致', () => {
    * 承载它的页面还没上线。此时放链接等于给顾客一个失效的按钮，而模板在
    * 没有链接时会引导他打电话，那条路是通的。
    */
-  it('🔴 页面未上线时不返回链接，且 apps/web 确实没有这条路由', () => {
+  it('disabled legacy management links stay null independently of employee short links', () => {
     setEnv({ GF_ENV: 'production' });
     expect(manageBookingUrl({
       appointmentId: 'a1', manageToken: 'mt_x', publicKey: 'pk_1234',
     })).toBeNull();
-    // 这一条在页面上线时会失败，提醒把 BOOKING_MANAGE_PAGE_ENABLED 打开
-    expect(appTsx).not.toContain('path="/b/:');
+    // /b/:code is an authenticated employee link, not the legacy guest management page.
+    expect(appTsx).toContain('path="/b/:code" element={<StaffBookingLink />}');
   });
 
   it('邮件 logo 走营销站 PNG，文件真实存在', () => {
