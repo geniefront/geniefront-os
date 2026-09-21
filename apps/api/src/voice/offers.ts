@@ -1,8 +1,8 @@
-import type { CommandContext } from "@gf/contracts";
+import { AppError, ERROR_CODES, type CommandContext } from "@gf/contracts";
 import { withTenant } from "@gf/db";
 import { addDays } from "@gf/scheduling";
 import { voiceCatalog } from "./catalog";
-import { compactTimes, type VoiceItems } from "./selection";
+import { compactTimes, simpleVoiceItems, assertSharedVoiceSelection, type VoiceItems } from "./selection";
 import { saveReference, referenceScope } from "./references";
 import { loadPartyAvailability } from "../public/partyAvailability";
 import { loadPartyAvailabilityData } from "../public/partyAvailabilityData";
@@ -17,11 +17,17 @@ type Group = {
 export async function loadVoiceOffers(
   ctx: CommandContext,
   secret: string,
-  q: { date?: string | undefined } = {},
+  q: { date?: string | undefined; serviceId?: string | undefined; partySize?: number | undefined; membershipId?: string | undefined } = {},
   selections?: VoiceItems,
 ) {
   return withTenant(ctx, async (tx) => {
     const cat = await voiceCatalog(tx, ctx.locationId);
+    if (q.serviceId && !selections) {
+      const service = cat.services.find(s => s.serviceId === q.serviceId);
+      if (!service) throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: { reason: 'invalid_service', guidance: 'Use a serviceId from the returned catalog.' } });
+      selections = simpleVoiceItems(service, q.partySize, q.membershipId);
+    }
+    if (selections) assertSharedVoiceSelection(selections, cat.services);
 
     const groups: Group[] = [];
     const dates = selections
@@ -158,7 +164,7 @@ export async function loadVoiceOffers(
             )!.serviceKey,
           }),
       times: compactTimes(g.times, step),
-      ...(selections ? { priceCents: g.quotedTotalCents } : {}),
+      priceCents: g.quotedTotalCents,
     }));
     return {
       ok: true,

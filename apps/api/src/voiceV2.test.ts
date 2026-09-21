@@ -125,6 +125,8 @@ const book = (offer: any, name: string, time = firstTime(offer)) =>
     headers: headers(),
     payload: {
       slotToken: offer.slotToken,
+      priceConfirmed: true,
+      confirmedTotalCents: offer.priceCents,
       time,
       customerName: name,
       phoneE164: caller,
@@ -577,4 +579,58 @@ it("bulk snapshot availability matches fresh single-selection planning", async (
       );
     }
   });
+});
+
+it('requires actual price agreement and an exact full total before any booking write', async () => {
+  const offer=(await search([{guestIndex:0,serviceId:services[0]}],addDays(date,20))).offers[0];
+  const payload={slotToken:offer.slotToken,time:firstTime(offer),customerName:'Price gate',phoneE164:caller};
+  for (const confirmation of [{}, {priceConfirmed:false,confirmedTotalCents:offer.priceCents}, {priceConfirmed:true}, {priceConfirmed:true,confirmedTotalCents:offer.priceCents+1}]) {
+    const result=await app.inject({method:'POST',url:`${path}/bookings-v2`,headers:headers(),payload:{...payload,...confirmation}});
+    expect(result.statusCode,result.body).toBe(400);
+    expect(['price_confirmation_required','confirmed_price_mismatch']).toContain(result.json().details.reason);
+  }
+  const rows=await withTenant(tenant,tx=>tx`select a.id from appointments a join customers c on c.id=a.customer_id where a.location_id=${locationId} and c.display_name='Price gate'`);
+  expect(rows).toHaveLength(0);
+  const confirmed=await book(offer,'Price gate');
+  expect(confirmed.statusCode,confirmed.body).toBe(200);
+  expect(confirmed.json().priceCents).toBe(offer.priceCents);
+});
+
+it('books one couples session for $120 and rejects duplicate groups including pre-existing tokens',async()=>{
+  const [m]=await withTenant(tenant,tx=>tx`select id,user_id from memberships where location_id=${locationId} and status='active' order by created_at limit 1`);
+  const ctx=await buildContext({userId:m!.user_id,membershipId:m!.id});
+  const made=await dispatch<{serviceId:string}>('catalog.saveService',{name:{en:'Couples Massage 60 min'},durationMin:60,basePriceCents:12000,staffCount:2,onlineBookable:true},ctx);
+  const serviceId=made.result.serviceId;
+  const day=addDays(date,21);
+  const selected=await search([{serviceId,guestIndices:[0,1]}],day);
+  expect(selected.selection).toHaveLength(1);
+  expect(selected.selection[0].guestIndex).toBe(0);
+  const offer=selected.offers[0];
+  expect(offer.priceCents).toBe(12000);
+  const simple=await get(new URLSearchParams({date:day,serviceId,partySize:'2'}).toString());
+  expect(simple.statusCode,simple.body).toBe(200);
+  expect(simple.json().selection).toHaveLength(1);
+  expect(simple.json().offers[0].priceCents).toBe(12000);
+  const duplicate=[{serviceId,guestIndex:0,guestIndices:[0,1]},{serviceId,guestIndex:1,guestIndices:[0,1]}];
+  const invalid=await get(new URLSearchParams({date:day,itemsJson:JSON.stringify(duplicate)}).toString());
+  expect(invalid.statusCode).toBe(400);
+  expect(invalid.json().details.reason).toBe('duplicate_shared_service');
+  const malformed=await get(new URLSearchParams({date:day,itemsJson:JSON.stringify([{serviceId}])}).toString());
+  expect(malformed.json().details.issues[0].path).toBe('0.guestIndex');
+  expect(malformed.json().details.guidance).toBeTruthy();
+  // A reference already minted by the old API must not bypass the write-time guard.
+  const { saveReference, referenceScope }=await import('./voice/references');
+  const { hashToolToken }=await import('./telnyx/toolToken');
+  const time=firstTime(offer);
+  const { wallMinuteToInstant }=await import('@gf/scheduling');
+  const startsAt=wallMinuteToInstant(day,'America/New_York',Number(time.slice(0,2))*60+Number(time.slice(3,5))).toISOString();
+  const legacyId=await withTenant(ctx,tx=>saveReference(tx,ctx,'offers',referenceScope(hashToolToken(token)),[{date:day,items:duplicate.map(i=>({...i,addonIds:[],staffId:null})),times:[time],startsAtByTime:{[time]:startsAt},quotedTotalCents:24000,timezone:'America/New_York'}]));
+  const legacy=await book({...offer,slotToken:`${legacyId}.0`,priceCents:24000},'Duplicate must fail');
+  expect(legacy.statusCode,legacy.body).toBe(400);
+  expect(legacy.json().details.reason).toBe('duplicate_shared_service');
+  const booked=await book(offer,'One couples session');
+  expect(booked.statusCode,booked.body).toBe(200);
+  const [row]=await withTenant(tenant,tx=>tx`select a.party_size,extract(epoch from (a.ends_at-a.starts_at))/60 as minutes,sum(i.price_cents_snapshot)::int as total,count(*)::int as staff_items from appointments a join appointment_items i on i.appointment_id=a.id where a.id=${booked.json().appointmentId} group by a.id`);
+  expect(row).toMatchObject({party_size:2,total:12000,staff_items:2});
+  expect(Number(row!.minutes)).toBe(60);
 });

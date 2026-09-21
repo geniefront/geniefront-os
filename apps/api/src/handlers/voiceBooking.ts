@@ -1,3 +1,4 @@
+import { assertSharedVoiceSelection } from "../voice/selection";
 import { voiceCatalog } from "../voice/catalog";
 import { loadPartyAvailability } from "../public/partyAvailability";
 import {
@@ -20,6 +21,7 @@ registerHandler(SubmitVoiceBooking, async ({ input, tx, ctx, audit }) => {
   await lockBookingCapacity(tx, ctx.locationId);
   if (input.items) {
     const catalog = await voiceCatalog(tx, ctx.locationId);
+    assertSharedVoiceSelection(input.items, catalog.services);
     if (
       catalog.holidays?.some(
         (h) =>

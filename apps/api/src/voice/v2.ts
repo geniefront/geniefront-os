@@ -38,7 +38,7 @@ const search = z
     date: day.optional(),
     serviceId: z.string().uuid().optional(),
     membershipId: z.string().uuid().optional(),
-    partySize: z.coerce.number().int().min(1).max(10).default(1),
+    partySize: z.coerce.number().int().min(1).max(10).optional(),
     itemsJson: z.string().max(12000).optional(),
   })
   .strict();
@@ -50,6 +50,8 @@ const submit = z
     phoneE164: VoiceBookingInput.shape.phoneE164,
     email: z.string().email().optional(),
     notes: z.string().max(1000).optional(),
+    priceConfirmed: z.boolean().optional(),
+    confirmedTotalCents: z.number().int().nonnegative().optional(),
   })
   .strict();
 const groupSchema = z.object({
@@ -68,7 +70,11 @@ const parse = <S extends z.ZodTypeAny>(
   const p = schema.safeParse(value);
   if (!p.success)
     throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
-      details: { reason: "invalid_booking_arguments" },
+      details: {
+        reason: "invalid_booking_arguments",
+        issues: p.error.issues.map(issue => ({ path: issue.path.join('.'), message: issue.message })),
+        guidance: "Correct the listed fields once. For a shared service use one item with guestIndex:0 and guestIndices:[0,1]. If it still fails, offer staff assistance; do not cycle through parameter guesses.",
+      },
     });
   return p.data;
 };
@@ -94,19 +100,18 @@ export function registerVoiceV2Routes(
         });
       }
       selections = parse(voiceItems, raw);
-    } else if (q.serviceId)
-      selections = Array.from({ length: q.partySize }, (_, guestIndex) => ({
-        guestIndex,
-        serviceId: q.serviceId!,
-        addonIds: [],
-        staffId: q.membershipId ?? null,
-      }));
-    if ((q.date || q.membershipId || q.partySize !== 1) && !selections)
+    }
+    if (selections && (q.serviceId || q.membershipId || q.partySize !== undefined))
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: {
+        reason: "conflicting_selection_fields", guidance: "Use date and itemsJson, or simple serviceId/partySize fields, not both.",
+      } });
+    if ((q.date || q.membershipId || q.partySize !== undefined) && !selections && !q.serviceId)
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { reason: "service_selection_required" },
       });
     reply.header("Cache-Control", "no-store");
-    const callerLookup = !selections
+    const targeted = Boolean(selections || q.serviceId);
+    const callerLookup = !targeted
       ? (async () => {
           try {
             callerFromSystemHeaders(req);
@@ -123,7 +128,7 @@ export function registerVoiceV2Routes(
         })()
       : Promise.resolve(undefined);
     const [result, callerAppointments] = await Promise.all([
-      selections
+      targeted
         ? loadVoiceOffers(ctx, secret, q, selections)
         : initialVoiceContext(ctx, secret),
       callerLookup,
@@ -149,6 +154,11 @@ export function registerVoiceV2Routes(
   app.post("/v1/voice/:number/bookings-v2", async (req, reply) => {
     const { ctx, secret } = await authenticate(req);
     const b = parse(submit, req.body);
+    if (b.priceConfirmed !== true || b.confirmedTotalCents === undefined)
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: {
+        reason: "price_confirmation_required",
+        guidance: "Tell the caller the selected service, duration, local time and full party total. Wait for their agreement, then send priceConfirmed:true and confirmedTotalCents equal to the offer priceCents. A name or phone answer is not price agreement.",
+      } });
     const [id, index] = b.slotToken.split(".");
     const raw = await withTenant(ctx, (tx) =>
       readReference(tx, ctx, id!, "offers", referenceScope(secret)),
@@ -159,6 +169,11 @@ export function registerVoiceV2Routes(
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { reason: "time_not_offered" },
       });
+    if (b.confirmedTotalCents !== g.quotedTotalCents)
+      throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: {
+        reason: "confirmed_price_mismatch", priceCents: g.quotedTotalCents,
+        guidance: "The confirmed total does not match this offer. State the returned full total and obtain the caller's agreement before booking.",
+      } });
     const startsAt = g.startsAtByTime[b.time];
     if (!startsAt) throw new AppError(ERROR_CODES.VALIDATION_FAILED);
     const input = {
