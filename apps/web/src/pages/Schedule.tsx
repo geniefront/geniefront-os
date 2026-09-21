@@ -763,13 +763,16 @@ function ScheduleContent() {
               const hoursUnset = Boolean(summary?.isOpen && summary.openMin === null);
 
               return (
-                <div
+                <button
+                  type="button"
+                  aria-label={dateStr}
+                  disabled={!summary}
                   key={dateStr}
                   onClick={() => {
                     setCurrentDate(dateStr);
                     setView('overview');
                   }}
-                  className={`rounded-2xl border p-3 shadow-sm flex flex-col gap-2 transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer group ${
+                  className={`text-left rounded-2xl border p-3 shadow-sm flex flex-col gap-2 transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer group ${
                     isClosed ? 'bg-slate-50 border-slate-200' : 'bg-white border-slate-200'
                   }`}
                 >
@@ -820,7 +823,7 @@ function ScheduleContent() {
                       </span>
                     </div>
                   )}
-                </div>
+                </button>
               );
             })}
           </div>

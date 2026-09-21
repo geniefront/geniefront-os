@@ -606,11 +606,13 @@ function CustomersContent() {
                 rows.map((row) => {
                   const isSelected = row.id === selectedId;
                   return (
-                    <div
+                    <button
+                      type="button"
+                      aria-pressed={isSelected}
                       key={row.id}
                       onClick={() => handleSelectCustomer(row.id)}
                       className={cn(
-                        'p-2.5 rounded-xl cursor-pointer transition-all mb-1 border',
+                        'w-full text-left p-2.5 rounded-xl cursor-pointer transition-all mb-1 border',
                         isSelected
                           ? 'bg-teal-50/90 border-teal-500 shadow-xs text-teal-950 font-semibold'
                           : 'bg-white border-transparent hover:bg-slate-50 hover:border-slate-200 text-slate-700',
@@ -659,7 +661,7 @@ function CustomersContent() {
                           </span>
                         )}
                       </div>
-                    </div>
+                    </button>
                   );
                 })
               )}
@@ -1136,7 +1138,7 @@ function CustomersContent() {
                 
                 {t('crm.custNameLabel')}
               </label>
-              <Input
+              <Input aria-label={t('crm.custNameLabel')}
                 {...customerForm.bind('name')}
                 value={formName}
                 onChange={(e) => { setFormName(e.target.value); customerForm.clearField('name'); }}
@@ -1149,7 +1151,7 @@ function CustomersContent() {
                 
                 {t('crm.custPhoneLabel')}
               </label>
-              <Input type="tel"
+              <Input aria-label={t('crm.custPhoneLabel')} type="tel"
                 value={formPhone}
                 onChange={(e) => setFormPhone(e.target.value)}
                 placeholder="(555) 000-0000"
@@ -1164,7 +1166,7 @@ function CustomersContent() {
                 
                 {t('crm.custEmailLabel')}
               </label>
-              <Input
+              <Input aria-label={t('crm.custEmailLabel')}
                 value={formEmail}
                 onChange={(e) => setFormEmail(e.target.value)}
                 placeholder="lisa@example.com"
@@ -1176,7 +1178,7 @@ function CustomersContent() {
                 
                 {t('crm.custVipLabel')}
               </label>
-              <select
+              <select aria-label={t('crm.custVipLabel')}
                 value={formVip}
                 onChange={(e) => setFormVip(e.target.value)}
                 className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700 focus:outline-none focus:border-teal-500"
@@ -1195,7 +1197,7 @@ function CustomersContent() {
                 
                 {t('crm.custGenderLabel')}
               </label>
-              <select
+              <select aria-label={t('crm.custGenderLabel')}
                 value={formGender}
                 onChange={(e) => setFormGender(e.target.value as any)}
                 className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700 focus:outline-none focus:border-teal-500"
@@ -1227,7 +1229,7 @@ function CustomersContent() {
                 
                 {t('crm.custSourceLabel')}
               </label>
-              <select
+              <select aria-label={t('crm.custSourceLabel')}
                 value={formSource}
                 onChange={(e) => setFormSource(e.target.value)}
                 className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700 focus:outline-none focus:border-teal-500"
@@ -1247,7 +1249,7 @@ function CustomersContent() {
               
               {t('crm.custTagsLabel')}
             </label>
-            <Input
+            <Input aria-label={t('crm.custTagsLabel')}
               value={formTags}
               onChange={(e) => setFormTags(e.target.value)}
               placeholder={t('crm.custTagsPlaceholder')}
@@ -1500,7 +1502,7 @@ function CustomersContent() {
               
               {t('crm.custSmsBody')}
             </label>
-            <textarea
+            <textarea aria-label={t('crm.custSmsBody')}
               rows={4}
               value={smsContent}
               onChange={(e) => setSmsContent(e.target.value)}
@@ -1558,7 +1560,7 @@ function CustomersContent() {
                   
                   {t('crm.custBlockReasonLabel')}
                 </label>
-                <select
+                <select aria-label={t('crm.custBlockReasonLabel')}
                   value={blockReason}
                   onChange={(e) => setBlockReason(e.target.value)}
                   className="w-full h-9 px-2.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700 focus:outline-none focus:border-red-500"

@@ -53,7 +53,8 @@ export function ServiceEditor({ service, categories }: { service: ServiceItem; c
   if (!draft.value) return null;
   const v = draft.value;
   const change = (patch: Partial<typeof v>) => draft.set(old => ({ ...old, ...patch }));
-  return <div className="space-y-3 rounded-xl border p-4">
+  return <details className="space-y-3 rounded-xl border p-4">
+    <summary className="cursor-pointer font-semibold focus-visible:outline-2 focus-visible:outline-teal-600">{v.name} · ${v.price} · {v.duration} min</summary>
     <div className="grid gap-3 sm:grid-cols-3">
       <Field label={t('setupFieldServiceName')}><Input value={v.name} onChange={e => change({ name: e.target.value })} /></Field>
       <Field label={t('setupFieldPriceUsd')}><Input type="number" min="0" step="0.01" value={v.price} onChange={e => change({ price: e.target.value })} /></Field>
@@ -69,5 +70,5 @@ export function ServiceEditor({ service, categories }: { service: ServiceItem; c
     <details><summary className="cursor-pointer text-sm font-semibold">{language.startsWith('zh')?'图片与简介':'Photo and description'}</summary><div className="mt-3 max-w-lg space-y-3"><BookingImagePicker value={v.presentation.imageUrl} serviceName={v.name} onChange={imageUrl=>change({presentation:{...v.presentation,imageUrl}})}/>
     <Field label={language.startsWith('zh')?'项目简介':'Service description'}><textarea className="w-full rounded-xl border p-3" maxLength={5000} value={v.presentation.description} onChange={e=>change({presentation:{...v.presentation,description:e.target.value}})}/></Field>
     </div></details><SaveStatus {...draft} />
-  </div>;
+  </details>;
 }

@@ -799,7 +799,7 @@ export function Profile() {
 
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-slate-800">{t('settings.profNickname')}</label>
-                    <Input
+                    <Input aria-label={t('settings.profNickname')}
                       value={nickname}
                       onChange={(e) => setNickname(e.target.value)}
                       placeholder={t('settings.profNicknamePlaceholder')}
@@ -811,7 +811,7 @@ export function Profile() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-slate-800">{t('settings.profLoginEmail')}</label>
-                    <Input
+                    <Input aria-label={t('settings.profLoginEmail')}
                       value={session?.user.email || ''}
                       disabled
                       className="bg-slate-50 text-slate-500 rounded-xl cursor-not-allowed"
@@ -821,7 +821,7 @@ export function Profile() {
 
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-slate-800">{t('settings.profPhone')}</label>
-                    <Input type="tel"
+                    <Input aria-label={t('settings.profPhone')} type="tel"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       placeholder="(555) 019-2834"
@@ -868,7 +868,7 @@ export function Profile() {
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-slate-800">{t('settings.profBio')}</label>
-                  <textarea
+                  <textarea aria-label={t('settings.profBio')}
                     value={bio}
                     onChange={(e) => setBio(e.target.value)}
                     rows={3}
@@ -900,7 +900,7 @@ export function Profile() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
                         <label className="text-xs font-semibold text-slate-800">{t('newPassword')}</label>
-                        <Input
+                        <Input aria-label={t('newPassword')}
                           type={showPassword ? 'text' : 'password'}
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
@@ -911,7 +911,7 @@ export function Profile() {
 
                       <div className="space-y-1.5">
                         <label className="text-xs font-semibold text-slate-800">{t('confirmNewPassword')}</label>
-                        <Input
+                        <Input aria-label={t('confirmNewPassword')}
                           type={showPassword ? 'text' : 'password'}
                           value={confirmPassword}
                           onChange={(e) => setConfirmPassword(e.target.value)}
@@ -1155,7 +1155,7 @@ export function Profile() {
 
                   <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
                     <label className="text-xs font-semibold text-slate-800">{t('settings.profMaxConcurrent')}</label>
-                    <select
+                    <select aria-label={t('settings.profMaxConcurrent')}
                       value={maxConcurrent}
                       onChange={(e) => setMaxConcurrent(e.target.value)}
                       className="w-full h-9 px-3 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 outline-none"

@@ -1132,7 +1132,7 @@ export function CreateAppointmentModal({
                         <label className="block text-[10px] font-bold text-slate-500 mb-1">
                           {t('schedule.apptCategory')}
                         </label>
-                        <select
+                        <select aria-label={t('schedule.apptCategory')}
                           value={item.serviceId}
                           onChange={(e) => handleUpdateItem(item.id, { serviceId: e.target.value })}
                           className="w-full h-9 px-2.5 py-1 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/20 bg-white font-medium truncate"
@@ -1221,7 +1221,7 @@ export function CreateAppointmentModal({
                         <label className="block text-[10px] font-bold text-slate-500 mb-1">
                           {t('schedule.apptStartTime')}
                         </label>
-                        <Input
+                        <Input aria-label={t('schedule.apptStartTime')}
                           type="time"
                           value={item.startTime}
                           onChange={(e) => handleUpdateItem(item.id, { startTime: e.target.value })}
@@ -1329,7 +1329,7 @@ export function CreateAppointmentModal({
                   <label className="block text-[10px] font-bold text-slate-500 mb-1">
                     {t('bundle.pickerStartTime')}
                   </label>
-                  <Input
+                  <Input aria-label={t('bundle.pickerStartTime')}
                     type="time"
                     value={bundleStartTime}
                     onChange={(e) => { markDirty(); setBundleStartTime(e.target.value); }}
@@ -1643,7 +1643,7 @@ export function CreateAppointmentModal({
 
             <div>
               <label className="block text-xs font-bold text-slate-800 mb-1">{t('schedule.apptBackfillNotes')}</label>
-              <Input
+              <Input aria-label={t('schedule.apptBackfillNotes')}
                 value={pastTimeConfirmModal.notes}
                 onChange={(e) =>
                   setPastTimeConfirmModal((prev) => (prev ? { ...prev, notes: e.target.value } : null))
@@ -1712,7 +1712,7 @@ export function CreateAppointmentModal({
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
                 {t('overrideReasonLabel')}
               </label>
-              <select
+              <select aria-label={t('overrideReasonLabel')}
                 value={overrideReason}
                 onChange={(e) => setOverrideReason(e.target.value as Override['reason'])}
                 className="w-full px-3 py-2 text-sm rounded-xl border border-slate-200 bg-white"
