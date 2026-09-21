@@ -52,3 +52,6 @@ The signed Telnyx inbound handler starts store/slot prewarming without delaying 
 ### SIP transport incident (2026-09-21)
 
 The 18:09:23 and 18:09:56 UTC inbound callbacks returned valid TeXML (HTTP 200 in about 60 ms). Telnyx answered the caller, then the xAI SIP leg timed out before answer with SIP 408 after approximately three seconds. The returned SIP URI omitted `;transport=tls`, whereas the agent console explicitly supplies that transport. The successful 14:35 UTC call also used the old URI, so the logs alone do not establish why the path started failing. Dial generation now explicitly requests TLS, matching the console. API/WebSocket health alone is not evidence that PSTN/SIP calls work; verify a live inbound call after this change.
+
+
+Follow-up: Telnyx's TLS retry at 18:17:39 UTC still targeted port 5060. Its source was `192.76.120.10`, already inside the saved xAI allowlist; the xAI API corroborated both existing CIDRs. A certificate-verified TLS probe timed out on 5060 but succeeded with TLS 1.3 on `sip.voice.x.ai:5061`. Runtime and saved production/staging configuration now use `XAI_SIP_HOST=sip.voice.x.ai:5061`; no allowlist expansion was made. Deployment environment validation rejects the known-invalid TLS/5060 combination. Live PSTN confirmation is still required; a successful TLS handshake alone does not establish call completion.

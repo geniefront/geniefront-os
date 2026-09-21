@@ -70,6 +70,11 @@ for key in MANAGE_TOKEN_WRAP_KEY MANAGE_TOKEN_WRAP_KEY_PREVIOUS APP_JWT_SECRET_P
   fi
 done
 
+# The voice Dial URI requests TLS. Port 5060 is the legacy SIP/UDP listener.
+# The provider console can still display that legacy port; do not deploy it with TLS.
+voice_sip_host="$(get XAI_SIP_HOST)"
+[[ "$voice_sip_host" != *:5060 ]] || bad "XAI_SIP_HOST 不能使用 TLS 不响应的 5060 端口；使用 sip.voice.x.ai:5061"
+
 stripe_secret=$(get STRIPE_SECRET_KEY)
 stripe_public=$(get STRIPE_PUBLISHABLE_KEY)
 supabase_url=$(get SUPABASE_URL)
