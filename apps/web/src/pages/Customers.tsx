@@ -273,7 +273,7 @@ function CustomersContent() {
         name: formName.trim(),
         phoneE164: formPhone.trim() || undefined,
         email: formEmail.trim() || undefined,
-        vipLevel: parseInt(formVip, 10) || 0,
+        ...(voiceOnly ? {} : { vipLevel: parseInt(formVip, 10) || 0 }),
         tags: formTags
           .split(/[,，]/)
           .map((t) => t.trim())
@@ -309,7 +309,7 @@ function CustomersContent() {
         name: formName.trim(),
         phoneE164: formPhone.trim() || null,
         email: formEmail.trim() || null,
-        vipLevel: parseInt(formVip, 10) || 0,
+        ...(voiceOnly ? {} : { vipLevel: parseInt(formVip, 10) || 0 }),
         tags: formTags
           .split(/[,，]/)
           .map((t) => t.trim())
@@ -1157,7 +1157,7 @@ function CustomersContent() {
               />
             </div>
 
-            <div>
+            {!voiceOnly && <div>
               <label className="block font-semibold text-slate-700 uppercase mb-1">
                 
                 {t('crm.custVipLabel')}
@@ -1174,7 +1174,7 @@ function CustomersContent() {
                 <option value="4">{t('crm.custVip4')}</option>
                 <option value="5">{t('crm.custVip5')}</option>
               </select>
-            </div>
+            </div>}
 
             <div>
               <label className="block font-semibold text-slate-700 uppercase mb-1">

@@ -1,3 +1,4 @@
+import { useEntitlements } from '@/features/billing/useEntitlements';
 import { useBookingRealtime } from '@/features/schedule/useBookingRealtime';
 import { useSession } from '@/lib/session';
 /**
@@ -111,6 +112,7 @@ const PIXELS_PER_MIN = 2;
 
 
 function ScheduleContent() {
+  const voiceOnly = useEntitlements().data?.plan === 'voice_booking';
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { openAppointment, openCreateAppointment } = useOutletContext<{
@@ -676,7 +678,7 @@ function ScheduleContent() {
                   */}
                   <option value="all">{t('staffFilterAll')}</option>
                   <option value="bookable">{t('staffFilterBookable')}</option>
-                  <option value="rotation">{t('staffFilterRotation')}</option>
+                  {!voiceOnly && <option value="rotation">{t('staffFilterRotation')}</option>}
                 </select>
               )}
             </div>

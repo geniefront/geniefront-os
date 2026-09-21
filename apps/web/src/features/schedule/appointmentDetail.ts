@@ -155,12 +155,12 @@ export interface AppointmentHealthForm {
   locale: string;
 }
 
-export function useAppointmentFormsQuery(appointmentId: string | null) {
+export function useAppointmentFormsQuery(appointmentId: string | null, enabled = true) {
   const { membershipId, status } = useSession();
   return useQuery({
     queryKey: ['desk', 'appointment-forms', appointmentId, membershipId],
     queryFn: () => apiGet<{ forms: AppointmentHealthForm[] }>(`/v1/desk/appointments/${appointmentId}/forms`),
-    enabled: status === 'ready' && Boolean(appointmentId),
+    enabled: enabled && status === 'ready' && Boolean(appointmentId),
     // 只在等顾客提交时轮询；已有完成记录后立即停止，避免前台持续重复请求。
     refetchInterval: (query) => (
       appointmentId && !query.state.data?.forms.some((form) => form.isLatest)

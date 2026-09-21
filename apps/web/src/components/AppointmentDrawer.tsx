@@ -1,3 +1,4 @@
+import { useEntitlements } from '@/features/billing/useEntitlements';
 import { appointmentAllowsSchedulingChanges } from '@gf/contracts';
 import {AppointmentCall} from '@/features/schedule/AppointmentCall';
 import { HealthSummary } from '@/features/forms/HealthSummary';
@@ -61,17 +62,18 @@ function display(value: unknown): string {
 
 export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'booked' }: AppointmentDrawerProps) {
   const { t, language } = useLanguage();
+  const voiceOnly = useEntitlements().data?.plan === 'voice_booking';
   const errorMessage = useErrorMessage();
   const storeTime = useStoreTime();
   const navigate = useNavigate();
   const openInternalRoute = useOpenInternalRoute();
   const { currentDate, services, staff, resources, timezone, refetch: refetchSchedule } = useSchedule();
   const appointmentQ = useAppointmentDetailQuery(appointmentId ?? null);
-  const appointmentFormsQ = useAppointmentFormsQuery(appointmentId ?? null);
+  const appointmentFormsQ = useAppointmentFormsQuery(appointmentId ?? null, !voiceOnly);
   const appointment = appointmentQ.data;
   const canChangeSchedule = appointmentAllowsSchedulingChanges(appointment?.status);
   const customerQ = useCustomerDetail(appointment?.customer.id ?? null);
-  const ticketsQ = useTicketsList();
+  const ticketsQ = useTicketsList(undefined, !voiceOnly);
   const activeTicket = useMemo(
     () => ticketsQ.data?.tickets.find((ticket) => ticket.appointmentId === appointmentId),
     [appointmentId, ticketsQ.data?.tickets],
@@ -157,7 +159,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
   }, [activeTicket?.items, noteItemId]);
 
   const refresh = async () => {
-    await Promise.all([appointmentQ.refetch(), appointmentFormsQ.refetch(), ticketsQ.refetch()]);
+    await Promise.all([appointmentQ.refetch(), ...(!voiceOnly ? [appointmentFormsQ.refetch(), ticketsQ.refetch()] : [])]);
     refetchSchedule();
   };
 
@@ -263,7 +265,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
         ...(rescheduleItemId ? { itemId: rescheduleItemId } : {}),
         startsAt: wallMinutesToInstant(date, hours * 60 + minutes, timezone),
         membershipId: staffId === UNASSIGNED_STAFF_ID ? null : staffId,
-        resourceId: roomId || null,
+        ...(voiceOnly ? {} : { resourceId: roomId || null }),
       });
       setRescheduleOpen(false);
       setRescheduleItemId(null);
@@ -454,10 +456,10 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
         </div>
       )}
     </section>
-    <div className="flex shrink-0 border-b border-slate-200 bg-white" role="tablist">{tabs.map(([id, label, Icon]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={cn('flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 py-3 text-xs font-bold transition', tab === id ? 'border-teal-500 bg-teal-50/50 text-teal-800' : 'border-transparent text-slate-500 hover:bg-slate-50')}><Icon size={14}/>{label}</button>)}</div>
+    <div className="flex shrink-0 border-b border-slate-200 bg-white" role="tablist">{tabs.filter(([id]) => !voiceOnly || id === 'service').map(([id, label, Icon]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={cn('flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 py-3 text-xs font-bold transition', tab === id ? 'border-teal-500 bg-teal-50/50 text-teal-800' : 'border-transparent text-slate-500 hover:bg-slate-50')}><Icon size={14}/>{label}</button>)}</div>
     <main className="flex-1 overflow-y-auto bg-slate-50/70 p-4">
       {tab === 'service' && <div className="space-y-4">{appointment.isVoiceBooking&&<AppointmentCall appointmentId={appointment.appointmentId}/>}
-        {!terminalStatus && (
+        {!voiceOnly && !terminalStatus && (
           <section className="space-y-2.5 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
             <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
               <span className="rounded-lg bg-slate-100 px-2 py-1 text-slate-500">{t('schedule.adFulfillmentLabel')}</span>
@@ -485,16 +487,16 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
             </div>
           </section>
         )}
-        <section className="grid grid-cols-3 gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        {!voiceOnly && <section className="grid grid-cols-3 gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
           <Metric label={t('schedule.adVisitFrequency')} value={`${customerQ.data?.visits.total ?? '—'} ${t('schedule.adVisitUnit')}`} />
           <Metric label={t('schedule.adLastVisit')} value={customerQ.data?.visits.lastAt ? storeTime.dateTime(customerQ.data.visits.lastAt) : t('schedule.adFirstVisitToday')} compact />
           <Metric label={t('schedule.adAvgSpend')} value={customerQ.data?.visits.avgSpendCents == null ? '—' : `$${centsToDollars(customerQ.data.visits.avgSpendCents)}`} accent />
-        </section>
+        </section>}
 
         <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
           <div className="flex items-center justify-between gap-2"><SectionTitle icon={<Scissors size={15}/>} label={t('schedule.adBookedServices')} /><div className="flex gap-1.5"><GuardedButton isDisabled={!canChangeSchedule} permission="appointment.write" size="sm" variant="secondary" className="h-7 gap-1 bg-teal-50 px-2.5 text-[11px] font-bold text-teal-800" onPress={() => openReschedule(null)}><CalendarClock size={13}/>{t('schedule.adReschedule')}</GuardedButton><GuardedButton disabled={!canChangeSchedule} permission={activeTicket ? 'ticket.write' : 'appointment.write'} size="sm" variant="secondary" className="h-7 gap-1 bg-violet-50 px-2.5 text-[11px] font-bold text-violet-800" onPress={() => { setServiceId(''); setAddStaffId(activeTicket ? activeTicketFallbackStaffId : appointment.items[0]?.staffId ?? ''); setAddAttemptKey(crypto.randomUUID()); setAddOpen(true); }}><Plus size={13}/>{t('schedule.adAddOn')}</GuardedButton></div></div>
-          <div className="divide-y divide-slate-100">{serviceItems.map((item) => <article key={item.itemId} className="space-y-2 py-3 first:pt-1 last:pb-1"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><h4 className="font-bold text-slate-900">{item.serviceName}</h4><Badge variant="secondary" className="px-1.5 py-0 font-mono text-[10px]">{item.durationMin}m</Badge></div><div className="flex items-center gap-2 shrink-0"><span className="font-mono font-black text-teal-700">${centsToDollars(item.priceCents)}</span>{!activeTicket && <GuardedButton isDisabled={!canChangeSchedule} permission="appointment.write" size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[11px] font-bold text-slate-500 hover:text-teal-700" onPress={() => openReschedule(appointment.items.find((entry) => entry.itemId === item.itemId) ?? null)}><Edit3 size={12}/>{t('schedule.adEditItem')}</GuardedButton>}</div></div><div className="grid grid-cols-2 gap-2 text-[11px] font-medium text-slate-600"><span className="flex items-center gap-1"><User size={13} className="text-slate-400"/>{item.staffName ?? t('schedule.adUnassignedStaff')}</span><span className="flex items-center gap-1"><BedDouble size={13} className="text-slate-400"/>{item.resourceName ?? t('schedule.adNoRoom')}</span><span className="col-span-2 flex items-center gap-1"><CalendarClock size={13} className="text-slate-400"/>{item.startsAt ? storeTime.dateTime(item.startsAt) : t('queue.quElapsedNotStarted')}</span></div></article>)}</div>
-          {!activeTicket && <p className="rounded-xl border border-teal-100 bg-teal-50/60 p-2.5 text-[11px] font-medium text-teal-800">{t('schedule.adAppointmentAddItemHint')}</p>}
+          <div className="divide-y divide-slate-100">{serviceItems.map((item) => <article key={item.itemId} className="space-y-2 py-3 first:pt-1 last:pb-1"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><h4 className="font-bold text-slate-900">{item.serviceName}</h4><Badge variant="secondary" className="px-1.5 py-0 font-mono text-[10px]">{item.durationMin}m</Badge></div><div className="flex items-center gap-2 shrink-0"><span className="font-mono font-black text-teal-700">${centsToDollars(item.priceCents)}</span>{!activeTicket && <GuardedButton isDisabled={!canChangeSchedule} permission="appointment.write" size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[11px] font-bold text-slate-500 hover:text-teal-700" onPress={() => openReschedule(appointment.items.find((entry) => entry.itemId === item.itemId) ?? null)}><Edit3 size={12}/>{t('schedule.adEditItem')}</GuardedButton>}</div></div><div className="grid grid-cols-2 gap-2 text-[11px] font-medium text-slate-600"><span className="flex items-center gap-1"><User size={13} className="text-slate-400"/>{item.staffName ?? t('schedule.adUnassignedStaff')}</span>{!voiceOnly && <span className="flex items-center gap-1"><BedDouble size={13} className="text-slate-400"/>{item.resourceName ?? t('schedule.adNoRoom')}</span>}<span className="col-span-2 flex items-center gap-1"><CalendarClock size={13} className="text-slate-400"/>{item.startsAt ? storeTime.dateTime(item.startsAt) : t('queue.quElapsedNotStarted')}</span></div></article>)}</div>
+          {!voiceOnly && !activeTicket && <p className="rounded-xl border border-teal-100 bg-teal-50/60 p-2.5 text-[11px] font-medium text-teal-800">{t('schedule.adAppointmentAddItemHint')}</p>}
         </section>
 
         {(appointment.bundles ?? []).filter((b) => b.status === 'active').length > 0 && (
@@ -543,10 +545,10 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
           {briefEditing ? <><textarea value={serviceBrief} onChange={(event) => setServiceBrief(event.target.value)} maxLength={2000} rows={4} autoFocus className="w-full resize-none rounded-xl border border-amber-300 bg-white p-3 text-sm outline-none focus:ring-2 focus:ring-amber-200" placeholder={t('schedule.adServiceBriefPlaceholder')} /><div className="flex justify-end gap-2"><Button size="sm" variant="ghost" onPress={() => { setServiceBrief(appointment.notes ?? ''); setBriefEditing(false); }}>{t('cancel')}</Button><GuardedButton isDisabled={!canChangeSchedule} permission="appointment.write" size="sm" onPress={() => void runSaveBrief()} isPending={saveBriefM.isPending}>{t('schedule.adSaveBrief')}</GuardedButton></div></> : <p className="rounded-xl border border-amber-200/80 bg-white/90 p-3 text-sm font-medium leading-relaxed text-slate-700">{appointment.notes || t('schedule.adNoServiceBrief')}</p>}
         </section>
 
-        <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
+        {!voiceOnly && <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
           <SectionTitle icon={<Gift size={15}/>} label={t('schedule.adAvailableBenefits')} />
           <div className="grid grid-cols-2 gap-2"><div className="rounded-xl border border-sky-200 bg-sky-50 p-2.5"><span className="block text-[10px] font-bold text-sky-900">{t('schedule.adGiftCardBalance')}</span><strong className="mt-1 block font-mono text-sm text-slate-900">{customerQ.data?.giftCards[0] ? `$${centsToDollars(customerQ.data.giftCards[0].balanceCents)}` : '—'}</strong><span className="block truncate text-[9px] text-sky-700">{customerQ.data?.giftCards[0]?.code ?? t('schedule.adNoGiftCard')}</span></div><div className="rounded-xl border border-emerald-200 bg-emerald-50 p-2.5"><span className="block text-[10px] font-bold text-emerald-900">{t('schedule.adVisitFrequency')}</span><strong className="mt-1 block font-mono text-sm text-slate-900">{customerQ.data?.visits.total ?? '—'} {t('schedule.adVisitUnit')}</strong><span className="block truncate text-[9px] text-emerald-700">{customerQ.data?.tags.join(' · ') || t('schedule.adMemberProfile')}</span></div></div>
-        </section>
+        </section>}
 
         <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm"><SectionTitle icon={<CreditCard size={15}/>} label={t('schedule.adCostSummary')} /><div className="flex items-end justify-between border-t border-slate-100 pt-3"><span className="text-sm font-bold text-slate-800">{t('schedule.adTotalDue')}</span><span className="font-mono text-2xl font-black text-teal-700">${centsToDollars(totalCents)}</span></div></section>
 
@@ -829,7 +831,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
     </Modal>
 
     <Modal isOpen={cancelOpen} onOpenChange={setCancelOpen} title={t('schedule.adCancelConfirmTitle')} size="sm" footer={<Actions cancel={() => setCancelOpen(false)} submit={<GuardedButton isDisabled={!canChangeSchedule} permission="appointment.cancel" variant="danger" onPress={() => void runCancel()} isPending={cancelM.isPending}>{t('schedule.adConfirmCancelAppt')}</GuardedButton>} />}><div className="space-y-4"><select value={cancelReason} onChange={(event) => setCancelReason(event.target.value as CancelReason)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">{CANCEL_REASONS.map((reason) => <option key={reason} value={reason}>{t(`schedule.adCancel.${reason}`)}</option>)}</select><label className="flex gap-2 text-sm"><input type="checkbox" checked={keepStaffTurn} onChange={(event) => setKeepStaffTurn(event.target.checked)} />{t('schedule.adKeepStaffTurn')}</label></div></Modal>
-    <Modal isOpen={rescheduleOpen && canChangeSchedule} onOpenChange={(open) => { setRescheduleOpen(open); if (!open) setRescheduleItemId(null); }} title={rescheduleItemId ? t('schedule.adEditOneItem', { p0: appointment?.items.find((it) => it.itemId === rescheduleItemId)?.serviceName ?? '' }) : t('schedule.adReschedule')} size="sm" footer={<Actions cancel={() => { setRescheduleOpen(false); setRescheduleItemId(null); }} submit={<GuardedButton isDisabled={!canChangeSchedule} permission="appointment.write" onPress={() => void runReschedule()} isPending={rescheduleM.isPending}>{t('schedule.adConfirmUpdate')}</GuardedButton>} />}><div className="space-y-3">{!rescheduleItemId && (appointment?.items.length ?? 0) > 1 && <p className="rounded-xl border border-teal-100 bg-teal-50/60 p-2.5 text-[11px] font-medium text-teal-800">{t('schedule.adRescheduleWholeHint')}</p>}<div className="grid gap-3 sm:grid-cols-2"><input aria-label={t('schedule.adDate')} type="date" value={date} onChange={(event) => setDate(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5" /><input aria-label={t('schedule.adTime')} type="time" value={time} onChange={(event) => setTime(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5" /><StaffSelect value={staffId} onChange={setStaffId} includeUnassigned /><select aria-label={t('schedule.adRoomType')} value={roomId} onChange={(event) => setRoomId(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5"><option value="">{t('schedule.adNoRoom')}</option>{resources.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></div></div></Modal>
+    <Modal isOpen={rescheduleOpen && canChangeSchedule} onOpenChange={(open) => { setRescheduleOpen(open); if (!open) setRescheduleItemId(null); }} title={rescheduleItemId ? t('schedule.adEditOneItem', { p0: appointment?.items.find((it) => it.itemId === rescheduleItemId)?.serviceName ?? '' }) : t('schedule.adReschedule')} size="sm" footer={<Actions cancel={() => { setRescheduleOpen(false); setRescheduleItemId(null); }} submit={<GuardedButton isDisabled={!canChangeSchedule} permission="appointment.write" onPress={() => void runReschedule()} isPending={rescheduleM.isPending}>{t('schedule.adConfirmUpdate')}</GuardedButton>} />}><div className="space-y-3">{!rescheduleItemId && (appointment?.items.length ?? 0) > 1 && <p className="rounded-xl border border-teal-100 bg-teal-50/60 p-2.5 text-[11px] font-medium text-teal-800">{t('schedule.adRescheduleWholeHint')}</p>}<div className="grid gap-3 sm:grid-cols-2"><input aria-label={t('schedule.adDate')} type="date" value={date} onChange={(event) => setDate(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5" /><input aria-label={t('schedule.adTime')} type="time" value={time} onChange={(event) => setTime(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5" /><StaffSelect value={staffId} onChange={setStaffId} includeUnassigned />{!voiceOnly && <select aria-label={t('schedule.adRoomType')} value={roomId} onChange={(event) => setRoomId(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2.5"><option value="">{t('schedule.adNoRoom')}</option>{resources.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select>}</div></div></Modal>
     <Modal isOpen={addOpen && canChangeSchedule} onOpenChange={setAddOpen} title={t('schedule.adAddOn')} size="sm" footer={<Actions cancel={() => setAddOpen(false)} submit={<GuardedButton disabled={!canChangeSchedule} permission={activeTicket ? 'ticket.write' : 'appointment.write'} onPress={() => void runAddItem()} isPending={addItemM.isPending || addAppointmentItemM.isPending} isDisabled={!serviceId || (Boolean(activeTicket) && !effectiveAddStaffId)}>{t('schedule.adAddOn')}</GuardedButton>} />}><div className="space-y-3"><select aria-label={t('schedule.adServiceItem')} value={serviceId} onChange={(event) => setServiceId(event.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5"><option value="">{t('schedule.adChooseService')}</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name} · ${(service.priceCents / 100).toFixed(2)}</option>)}</select><StaffSelect value={addStaffId} onChange={setAddStaffId} includeUnassigned={!activeTicket} />{activeTicket ? <p className="rounded-xl bg-violet-50 p-2.5 text-[11px] font-medium text-violet-900">{t('schedule.adAddOnTicketHint')}</p> : <p className="rounded-xl bg-teal-50 p-2.5 text-[11px] font-medium text-teal-900">{t('schedule.adAppointmentAddModalHint')}</p>}</div></Modal>
   </>);
 

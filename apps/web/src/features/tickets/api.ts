@@ -18,13 +18,13 @@ export const ticketKeys = {
     ['desk', 'orders', membershipId, params] as const,
 };
 
-export function useTicketsList(status?: string) {
+export function useTicketsList(status?: string, enabled = true) {
   const { membershipId, status: sessionStatus } = useSession();
   const url = status ? `/v1/desk/tickets?status=${status}` : '/v1/desk/tickets';
   return useQuery({
     queryKey: ['desk', 'tickets', membershipId, status],
     queryFn: () => apiGet<TicketsQueryResponse>(url),
-    enabled: sessionStatus === 'ready' && membershipId !== null,
+    enabled: enabled && sessionStatus === 'ready' && membershipId !== null,
     refetchInterval: 15_000,
   });
 }
