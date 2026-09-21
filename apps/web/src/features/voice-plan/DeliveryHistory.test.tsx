@@ -1,6 +1,8 @@
 import { expect, it } from 'vitest';
 import { deliveryStatusKey } from './DeliveryHistory';
 it('does not present provider acceptance or test capture as delivered', () => {
+ expect(deliveryStatusKey({status:'uncertain',delivery_state:null})).toBe('voiceUncertain');
+ expect(deliveryStatusKey({status:'sending',delivery_state:null})).toBe('voiceSending');
  expect(deliveryStatusKey({status:'sent',delivery_state:null})).toBe('voiceSent');
  expect(deliveryStatusKey({status:'sent',delivery_state:'delivered'})).toBe('voiceDelivered');
  expect(deliveryStatusKey({status:'captured',delivery_state:null})).toBe('voiceCaptured');

@@ -1,3 +1,4 @@
+import { recordSmsDelivery } from '../sms/delivery';
 import { getRecordingMetadata } from '../voice/provider';
 /**
  * Telnyx 的入口：三个 AI 工具 + 一个通话事件 webhook（09-TELNYX §4.2）
@@ -1289,6 +1290,11 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
         durationSeconds: Math.max(0, Math.round(Number(metadata.duration_millis ?? 0) / 1000)),
       }, systemContext(t), { systemOrigin: 'telnyx_recording', idempotencyKey: `recording-${recordingId}` });
       return { ok: true, queued: true };
+    }
+
+    if (eventType === 'message.finalized' || eventType === 'message.sent') {
+      await recordSmsDelivery(payload, data['occurred_at']);
+      return { ok: true };
     }
 
     if (eventType === 'message.received') {

@@ -375,3 +375,7 @@ export function staffBookingShortUrl(code:string,env:Env=process.env):string {
  if(!/^[a-f0-9]{16}$/.test(code))throw new Error('Invalid staff booking code');
  return absoluteAppUrl(`/b/${code}`,env);
 }
+
+export function smsDeliveryWebhookUrl(env: Env = process.env): string {
+  return `${apiBaseUrl(env)}/v1/telnyx/webhook`;
+}

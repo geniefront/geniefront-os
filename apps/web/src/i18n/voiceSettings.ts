@@ -1,4 +1,8 @@
 export const voiceSettings = {
+  voiceUncertain: { 'zh-Hans': '发送结果未知', en: 'Delivery unknown', ko: '전송 결과 알 수 없음', es: 'Resultado desconocido', vi: 'Chưa rõ kết quả gửi' },
+  voiceSending: { 'zh-Hans': '正在发送', en: 'Sending', ko: '전송 중', es: 'Enviando', vi: 'Đang gửi' },
+  voiceDeliveryAttempts: { 'zh-Hans': '发送尝试次数', en: 'Send attempts', ko: '전송 시도 횟수', es: 'Intentos', vi: 'Số lần gửi' },
+  voiceDeliveryRelated: { 'zh-Hans': '查看关联记录', en: 'View related record', ko: '관련 기록 보기', es: 'Ver registro relacionado', vi: 'Xem bản ghi liên quan' },
   voiceCallHistory: { 'zh-Hans': '通话记录', en: 'Call history', ko: '통화 내역', vi: 'Lịch sử cuộc gọi', es: 'Historial de llamadas' },
   voiceStoreTab: { 'zh-Hans': '门店', en: 'Store', ko: '매장', vi: 'Cửa hàng', es: 'Local' },
   voiceServicesTab: { 'zh-Hans': '服务项目', en: 'Services', ko: '서비스', vi: 'Dịch vụ', es: 'Servicios' },
@@ -42,7 +46,7 @@ export const voiceSettings = {
   voiceTeamTab: { 'zh-Hans': "员工与容量", 'en': "Staff & capacity", 'ko': "직원 및 수용 인원", 'vi': "Nhân viên và sức chứa", 'es': "Personal y capacidad" },
   voicePhoneTab: { 'zh-Hans': "电话与通知", 'en': "Calls & notifications", 'ko': "전화 및 알림", 'vi': "Cuộc gọi và thông báo", 'es': "Llamadas y avisos" },
   voiceDeliveryTitle: { 'zh-Hans': "发送记录", 'en': "Delivery history", 'ko': "발송 기록", 'vi': "Lịch sử gửi", 'es': "Historial de envíos" },
-  voiceDeliveryIntro: { 'zh-Hans': "最近 90 天 · 最多 200 条记录", 'en': "Last 90 days · Up to 200 records", 'ko': "자동 예약 알림과 통화 요약을 확인하세요. 최근 90일, 최대 200건입니다.", 'vi': "Xem thông báo đặt lịch và tóm tắt cuộc gọi tự động. 90 ngày gần nhất, tối đa 200 bản ghi.", 'es': "Consulta avisos automáticos y resúmenes de llamadas. Últimos 90 días, hasta 200 registros." },
+  voiceDeliveryIntro: { 'zh-Hans': '按筛选条件查询全部历史，每页 100 条；已提交不代表已送达。', en: 'All matching history, 100 per page. Submitted does not mean delivered.', ko: '전체 기록, 페이지당 100건. 제출은 전달 완료가 아닙니다.', es: 'Todo el historial, 100 por página. Enviado no significa entregado.', vi: 'Toàn bộ lịch sử, 100 mỗi trang. Đã gửi không có nghĩa đã nhận.' },
   voiceLineStatus: { 'zh-Hans': "接听状态", 'en': "Call handling status", 'ko': "통화 상태", 'vi': "Trạng thái tiếp nhận", 'es': "Estado de llamadas" },
   voiceLineHint: { 'zh-Hans': "线路由平台开通。", 'en': "The platform provisions the line.", 'ko': "회선은 플랫폼에서 개통합니다. 알림 실패나 개통 대기는 설정과 예약을 막지 않습니다.", 'vi': "Nền tảng kích hoạt đường dây. Chờ kích hoạt hoặc lỗi thông báo không chặn cấu hình và đặt lịch.", 'es': "La plataforma activa la línea. La activación pendiente o fallos de avisos no bloquean ajustes ni reservas." },
   voiceAnswerEnabled: { 'zh-Hans': "启用 AI 接听", 'en': "Enable AI answering", 'ko': "AI 응답 활성화", 'vi': "Bật AI trả lời", 'es': "Activar respuesta de IA" },

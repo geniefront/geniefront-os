@@ -23,10 +23,10 @@ import { loadMySupportRequests } from '../queries/support';
 import type { CtxFromHeaders } from './utils';
 
 export function registerMiscRoutes(app: FastifyInstance, ctxFromHeaders: CtxFromHeaders): void {
-  app.get('/v1/desk/communications/deliveries', async req => {
+  app.get<{ Querystring: { offset?: string; q?: string; channel?: string } }>('/v1/desk/communications/deliveries', async req => {
     const ctx = await ctxFromHeaders(req);
     if (!ctx.permissions.has('settings.manage')) throw new AppError(ERROR_CODES.PERMISSION_DENIED);
-    return withTenant(ctx, async tx => ({ messages: await loadDeliveryLog(tx, ctx) }));
+    return withTenant(ctx, async tx => ({ messages: await loadDeliveryLog(tx, ctx, { offset: Number(req.query.offset) || 0, q: req.query.q ?? '', channel: req.query.channel ?? 'all' }) }));
   });
 
 

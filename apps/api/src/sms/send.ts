@@ -1,3 +1,4 @@
+import { smsDeliveryWebhookUrl } from '../links';
 /**
  * 发短信 —— Telnyx,纯 HTTP,不引 SDK(和 email/send.ts 同一个样子)。
  *
@@ -68,7 +69,7 @@ export async function sendSms(msg: { to: string; text: string }): Promise<SmsRes
     res = await fetch(ENDPOINT, {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to: msg.to, text: msg.text }),
+      body: JSON.stringify({ from, to: msg.to, text: msg.text, webhook_url: smsDeliveryWebhookUrl() }),
       signal: AbortSignal.timeout(15_000),
     });
   } catch (e) {
