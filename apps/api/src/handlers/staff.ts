@@ -1,3 +1,4 @@
+import { assertCanDeactivateStaff } from '../staffProtection';
 /**
  * 员工端命令实现（Phase 1c）。
  *
@@ -788,6 +789,8 @@ registerHandler(SetEmployment, async ({ input, ctx, tx, audit }: HandlerArgs<
   if (input.status === 'on_leave') dbStatus = 'suspended';
   if (input.status === 'resigned') dbStatus = 'left';
 
+  if (dbStatus !== 'active') await assertCanDeactivateStaff(tx,ctx,input.membershipId);
+
   await tx`update memberships set status = ${dbStatus}
            where id = ${input.membershipId}`;
 
@@ -812,6 +815,7 @@ registerHandler(SetEmployment, async ({ input, ctx, tx, audit }: HandlerArgs<
 
 registerHandler(StaffSaveProfile, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof StaffSaveProfile.input._type>) => {
+  if (input.membershipId && input.status && input.status !== 'active') await assertCanDeactivateStaff(tx,ctx,input.membershipId);
   let dbStatus = input.status ?? 'active';
   if (input.status === 'on_leave') dbStatus = 'suspended';
   if (input.status === 'resigned') dbStatus = 'left';

@@ -23,3 +23,9 @@ it('legacy 10DLC deep links open useful phone settings; an unprovisioned line do
  fireEvent.click(screen.getByRole('button',{name:'voiceTeamTab'}));
  await waitFor(()=>expect(screen.getByText('Staff and capacity form')).toBeVisible());
 });
+
+it('opens store settings by default instead of phone settings',()=>{
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/settings']}><VoiceSettings /></MemoryRouter></QueryClientProvider>);
+ expect(screen.getByText('Store form')).toBeVisible();
+ expect(screen.getByRole('button',{name:'voiceStoreTab'})).toHaveAttribute('aria-current','page');
+});

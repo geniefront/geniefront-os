@@ -1,5 +1,6 @@
+import { saveStaffTimeOff } from '../staffTimeOff';
 import { lockBookingCapacity } from './appointment';
-import { SaveStaffBookingSchedule, SaveVoiceCapacity, SaveVoiceNotifications, SaveVoiceBookingRules } from '@gf/contracts';
+import { SaveStaffTimeOff, SaveStaffBookingSchedule, SaveVoiceCapacity, SaveVoiceNotifications, SaveVoiceBookingRules } from '@gf/contracts';
 /**
  * AI 电话接单的命令实现（09-TELNYX §4）
  *
@@ -690,3 +691,5 @@ registerHandler(SaveVoiceCapacity,async ({input,ctx,tx,audit})=>{
  await tx`update locations set settings=jsonb_set(settings,'{capacity}',${jsonb(after)}::jsonb),updated_at=now() where id=${ctx.locationId}`;
  audit({entityType:'location',entityId:ctx.locationId,before,after});return {saved:true};
 });
+
+registerHandler(SaveStaffTimeOff, saveStaffTimeOff);

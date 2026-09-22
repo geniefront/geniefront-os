@@ -440,7 +440,9 @@ function SessionGate() {
   );
 }
 
+const StaffSettingsPreview = import.meta.env.DEV ? lazy(()=>import('./dev/StaffSettingsPreview')) : null;
 export default function App() {
+  if(StaffSettingsPreview && window.location.pathname === '/__preview/staff-settings') return <Suspense fallback={null}><StaffSettingsPreview/></Suspense>;
   return (
     <QueryClientProvider client={queryClient}>
       <LanguageProvider>

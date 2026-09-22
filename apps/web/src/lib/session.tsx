@@ -81,7 +81,7 @@ interface SessionContextValue {
   signOut: () => Promise<void>;
 }
 
-const SessionContext = createContext<SessionContextValue | undefined>(undefined);
+export const SessionContext = createContext<SessionContextValue | undefined>(undefined);
 
 function readStoredPortal(): PortalType | null {
   try {

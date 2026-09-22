@@ -514,10 +514,20 @@ const weeklyHours = weeklyHoursSchema;
 export const SaveStaffBookingSchedule = defineCommand({
  name:'staff.saveBookingSchedule',input:z.object({membershipId:uuid,hours:weeklyHours}),output:z.object({saved:z.boolean()}),permission:'staff.manage',reversible:true,idempotency:'optional',ai:{description:'设置员工每周预约排班。',confirm:'always'},
 });
+const leaveDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
+ const date = new Date(`${value}T12:00:00Z`);
+ return Number.isFinite(date.getTime()) && date.toISOString().slice(0,10) === value;
+}, 'Invalid date');
+export const SaveStaffTimeOff = defineCommand({
+ name:'staff.saveTimeOff',
+ input:z.object({membershipId:uuid,id:uuid,remove:z.boolean().default(false),startDate:leaveDate,endDate:leaveDate,note:z.string().max(200).default('')}).refine(v=>v.startDate<=v.endDate && Date.parse(v.endDate)-Date.parse(v.startDate)<=365*86400000,'Invalid date range'),
+ output:z.object({saved:z.boolean()}),permission:'staff.manage',reversible:true,idempotency:'required',
+ ai:{description:'设置或取消员工的整日休假日期。',confirm:'always',exposed:false},
+});
 export const SaveVoiceCapacity = defineCommand({
  name:'settings.saveVoiceCapacity',input:z.object({baseCapacity:z.number().int().min(1).max(100).nullable(),extraSlots:z.number().int().min(0).max(10)}),output:z.object({saved:z.boolean()}),permission:'settings.manage',reversible:true,idempotency:'optional',ai:{description:'设置按在岗技师计算的容量及待分配额外名额。',confirm:'always'},
 });
-export const PHONE_COMMANDS = [SaveStaffBookingSchedule, SaveVoiceCapacity,SaveVoiceBookingRules, SaveVoiceNotifications,
+export const PHONE_COMMANDS = [SaveStaffTimeOff, SaveStaffBookingSchedule, SaveVoiceCapacity,SaveVoiceBookingRules, SaveVoiceNotifications,
   DraftFromCall, ReviewCallDraft, RecordCall, AttachCallTranscript, SavePhoneLine,
   SavePhoneAssistantLine, RequestAiVoice, SaveAiChangePolicy, SettingsSavePhoneAssistant,
 ] as const;

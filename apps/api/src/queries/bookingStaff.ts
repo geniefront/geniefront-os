@@ -6,10 +6,20 @@ export function recurringWindows(settings: Record<string, any>, hours: WeeklyHou
   const recurring = settings.capacity?.use_recurring_staff === true || settings.capacity?.booking_mode === 'location';
   return ids.flatMap(id => {
     const explicit = shifts.filter(s=>s.membership_id===id);
-    if(explicit.length) return explicit.filter(s=>s.status==='published').map(s=>({id,startMin:s.start_min,endMin:s.end_min}));
-    if(!recurring) return [];
-    const schedule=settings.staff_booking_schedules?.[id] ?? hours;
-    return dayWindows(date,schedule).map(w=>({id,startMin:w.openMin,endMin:w.closeMin}));
+    const schedule = settings.staff_booking_schedules?.[id] ?? hours;
+    let windows = explicit.length
+      ? explicit.filter(s=>s.status==='published').map(s=>({id,startMin:s.start_min,endMin:s.end_min}))
+      : recurring ? dayWindows(date,schedule).map(w=>({id,startMin:w.openMin,endMin:w.closeMin})) : [];
+    // Subtract local calendar days, including the tail of an overnight shift.
+    for (const leave of settings.staff_time_off?.[id] ?? []) {
+      const startMin = (Date.parse(leave.startDate)-Date.parse(date))/60000;
+      const endMin = (Date.parse(leave.endDate)-Date.parse(date))/60000+1440;
+      windows = windows.flatMap(w=>{
+        if(w.endMin<=startMin||w.startMin>=endMin)return [w];
+        return [...(w.startMin<startMin?[{...w,endMin:startMin}]:[]),...(w.endMin>endMin?[{...w,startMin:endMin}]:[])];
+      });
+    }
+    return windows;
   });
 }
 export async function loadBookingStaff(tx: postgres.TransactionSql, locationId:string, date:string) {

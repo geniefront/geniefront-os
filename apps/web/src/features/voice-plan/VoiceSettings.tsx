@@ -35,7 +35,7 @@ function SettingsBody() {
   ].filter(tab => tab.enabled);
   const icons = { store: Store, services: Scissors, staff: Users, phone: PhoneCall, billing: CreditCard };
   const aliases: Record<string, string> = { hours:'store', booking:'staff', ai_phone:'phone', notifications:'phone', '10dlc':'phone' };
-  const requested = params.get('tab') ?? 'phone';
+  const requested = params.get('tab') ?? 'store';
   const panelRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const current = tabs.find(tab => tab.id === (aliases[requested] ?? requested))?.id ?? tabs[0]?.id;

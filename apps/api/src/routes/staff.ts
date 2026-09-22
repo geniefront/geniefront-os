@@ -24,7 +24,7 @@ export function registerStaffRoutes(app: FastifyInstance, ctxFromHeaders: CtxFro
     if(!ctx.permissions.has('staff.manage'))throw new AppError(ERROR_CODES.PERMISSION_DENIED);
     return withTenant(ctx,async tx=>{
       const [loc]=await tx<{settings:Record<string,any>;business_hours:unknown}[]>`select settings,business_hours from locations where id=${ctx.locationId}`;
-      return {hours:loc!.business_hours,schedules:loc!.settings.staff_booking_schedules??{}};
+      return {hours:loc!.business_hours,schedules:loc!.settings.staff_booking_schedules??{},timeOff:loc!.settings.staff_time_off??{}};
     });
   });
   app.get('/v1/desk/staff/list', handleStaffList);

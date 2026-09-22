@@ -1,3 +1,4 @@
+import { StaffSettings } from '@/features/staff/StaffSettings';
 import { SaveLocationProfile } from '@gf/contracts';
 import { useSession } from '@/lib/session';
 import { PageError } from '@/components/ui/QueryState';
@@ -263,6 +264,7 @@ export function TeamStepForm({ onSaved, stepNumber = 5, settingsMode = false }: 
   if (settingsQuery.isError) return <PageError title={t('genericFailure')} error={settingsQuery.error} onRetry={() => settingsQuery.refetch()} />;
   if (!data) return <p>{t('setupReadinessLoading')}</p>;
   const staff = data?.staff ?? [];
+  if(settingsMode)return <><StaffSettings staff={staff} voiceOnly={voiceOnly}/>{voiceOnly && <SetupBookingCapacity/>}</>;
   return (
     <div className="space-y-6">
       <div className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 md:grid-cols-2">
