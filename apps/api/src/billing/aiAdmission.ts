@@ -144,7 +144,7 @@ export async function assertAiAdmission(
    * 一笔没人解释得清的负数。
    */
   const includedTotal = acct.subscription_status === 'none'
-    ? 0 : includedFor(acct.plan, unit, trialing, acct.billing_source === 'license' ? acct.manual_voice_minutes : null);
+    ? 0 : includedFor(acct.plan, unit, trialing, acct.manual_voice_minutes, acct.billing_source);
   const includedRemaining = Math.max(0, includedTotal - used);
 
   if (includedRemaining <= 0 && balance <= 0) {

@@ -129,7 +129,7 @@ export const isTrialing = (row: Pick<AccountRow, 'trial_ends_at'>, now = new Dat
  */
 export const includedTotalOf = (row: AccountRow, unit: QuotaUnit): number =>
   (row.subscription_status === 'none' ? 0 : includedFor(row.plan, unit, isTrialing(row),
-    row.billing_source === 'license' ? row.manual_voice_minutes ?? null : null));
+    row.manual_voice_minutes ?? null, row.billing_source));
 
 export const includedRemainingOf = (row: AccountRow, unit: QuotaUnit): number =>
   Math.max(0, includedTotalOf(row, unit) - includedUsedOf(row, unit));

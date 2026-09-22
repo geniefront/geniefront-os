@@ -173,7 +173,7 @@ export async function loadBilling(
      * 比显示 0 更糟。
      */
     const total = a.subscription_status === 'none'
-      ? 0 : includedFor(a.plan, unit, trialingNow, a.billing_source === 'license' ? a.manual_voice_minutes : null);
+      ? 0 : includedFor(a.plan, unit, trialingNow, a.manual_voice_minutes, a.billing_source);
     const cached = isCredit ? a.credit_balance : a.voice_minute_balance;
     const ledger = replayBalance(entries, unit);
 

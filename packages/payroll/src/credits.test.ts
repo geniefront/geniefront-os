@@ -316,3 +316,17 @@ describe('账本', () => {
     expect(findLedgerBreak(rows, 'voice_minute')).toBeNull();
   });
 });
+
+
+describe('store-specific Stripe trial voice quota', () => {
+  it('uses the override during trial and restores the plan quota afterward', () => {
+    expect(includedFor('voice_booking', 'voice_minute', true, 200, 'stripe')).toBe(200);
+    expect(includedFor('voice_booking', 'voice_minute', false, 350, 'stripe')).toBe(planQuota('voice_booking').voiceMinutes);
+  });
+  it('preserves standard trial credits, default minutes, and manual billing overrides', () => {
+    expect(includedFor('voice_booking', 'credit', true, 200, 'stripe')).toBe(150);
+    expect(includedFor('voice_booking', 'voice_minute', true, null, 'stripe')).toBe(20);
+    expect(includedFor('voice_booking', 'voice_minute', false, 200, 'license')).toBe(200);
+    expect(includedFor('voice_booking', 'voice_minute', true, 200, 'none')).toBe(20);
+  });
+});

@@ -137,8 +137,10 @@ export const TRIAL_QUOTA: PlanQuota = { credits: 150, voiceMinutes: 20 };
 /** 试用期天数。改这个数要同步改 Stripe Checkout 的 trial_period_days */
 export const TRIAL_DAYS = 7;
 
-export function includedFor(plan: string, unit: QuotaUnit, trialing = false, manualVoiceMinutes: number | null = null): number {
-  if (unit === 'voice_minute' && manualVoiceMinutes !== null) return manualVoiceMinutes;
+export function includedFor(plan: string, unit: QuotaUnit, trialing = false, manualVoiceMinutes: number | null = null, billingSource = 'license'): number {
+  // Stripe overrides apply only while trialing; paid subscriptions keep their plan quota.
+  const useOverride = billingSource === 'license' || (billingSource === 'stripe' && trialing);
+  if (unit === 'voice_minute' && manualVoiceMinutes !== null && useOverride) return manualVoiceMinutes;
   const q = trialing ? TRIAL_QUOTA : planQuota(plan);
   return unit === 'credit' ? q.credits : q.voiceMinutes;
 }
