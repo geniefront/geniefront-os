@@ -1,4 +1,4 @@
-import { saveStaffTimeOff } from '../staffTimeOff';
+import { saveStaffTimeOff } from './staffTimeOff';
 import { lockBookingCapacity } from './appointment';
 import { SaveStaffTimeOff, SaveStaffBookingSchedule, SaveVoiceCapacity, SaveVoiceNotifications, SaveVoiceBookingRules } from '@gf/contracts';
 /**

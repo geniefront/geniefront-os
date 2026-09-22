@@ -2,7 +2,7 @@ import {expect,it,vi} from 'vitest';
 vi.mock('./handlers/appointment',()=>({lockBookingCapacity:vi.fn()}));
 vi.mock('@gf/db',()=>({jsonb:JSON.stringify}));
 import {SaveStaffTimeOff} from '@gf/contracts';
-import {saveStaffTimeOff} from './staffTimeOff';
+import {saveStaffTimeOff} from './handlers/staffTimeOff';
 const id='11111111-1111-4111-8111-111111111111';
 const input={membershipId:id,id,startDate:'2026-10-01',endDate:'2026-10-05',note:'Vacation',remove:false};
 const ctx={locationId:'shop'};

@@ -1,7 +1,7 @@
 import { SaveStaffTimeOff, AppError, ERROR_CODES } from '@gf/contracts';
 import { jsonb } from '@gf/db';
-import type { HandlerArgs } from './bus';
-import { lockBookingCapacity } from './handlers/appointment';
+import type { HandlerArgs } from '../bus';
+import { lockBookingCapacity } from './appointment';
 
 export async function saveStaffTimeOff({input,ctx,tx,audit}: HandlerArgs<typeof SaveStaffTimeOff.input._type>) {
  await lockBookingCapacity(tx,ctx.locationId);

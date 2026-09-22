@@ -1,3 +1,4 @@
+import { useAttemptKey } from '@/lib/idempotency';
 import { useQuery } from '@tanstack/react-query';
 import { apiGet } from '@/lib/api';
 import type { TimeOff } from './StaffTimeOff';
@@ -23,7 +24,7 @@ export function StaffSettings({staff,voiceOnly}:{staff:StaffItem[];voiceOnly:boo
  const leaveFor=(id:string)=>(schedule.data?.timeOff?.[id]??[]).filter(l=>l.endDate>=today).sort((a,b)=>a.startDate.localeCompare(b.startDate));
  const [search,setSearch]=useState(''),[selected,setSelected]=useState<StaffItem|null>(null),[tab,setTab]=useState<'profile'|'leave'>('profile');
  const [adding,setAdding]=useState(false),[name,setName]=useState(''),[bookable,setBookable]=useState(true),[deleting,setDeleting]=useState<StaffItem|null>(null),[err,setErr]=useState('');
- const save=useSaveStaffProfile(),remove=useSetEmploymentStatus();
+ const save=useSaveStaffProfile(),remove=useSetEmploymentStatus(),addAttempt=useAttemptKey();
  const filtered=staff.filter(s=>(s.name+' '+(s.phoneE164??'')).toLowerCase().includes(search.toLowerCase()));
  const protectedMember=(s:StaffItem)=>s.membershipId===membershipId||s.roleKeys.includes('owner');
  const close=async()=>{if(await saves?.flush()){setSelected(null);setErr('');}};
@@ -46,7 +47,7 @@ export function StaffSettings({staff,voiceOnly}:{staff:StaffItem[];voiceOnly:boo
    <div className="mb-5 flex gap-2 border-b border-slate-100 pb-3"><Button variant={tab==='profile'?'default':'ghost'} onClick={async()=>{if(await saves?.flush())setTab('profile');}}>{c.profile}</Button><Button variant={tab==='leave'?'default':'ghost'} onClick={async()=>{if(await saves?.flush())setTab('leave');}}>{c.leaveTitle}</Button></div>
    {selected&&(tab==='profile'?<StaffEditor staff={selected} voiceOnly={voiceOnly}/>:<StaffTimeOff id={selected.membershipId}/>)}
   </Modal>
-  <Modal isOpen={adding} isDismissDisabled={save.isPending} onOpenChange={open=>{if(!open&&!save.isPending){setAdding(false);setName('');}}} title={t('setupAddStaff')} size="md" footer={<Button disabled={save.isPending||!name.trim()} onClick={async()=>{try{await save.mutateAsync({name:name.trim(),isBookable:bookable,maxConcurrentAppointments:1});setAdding(false);setName('');setErr('');}catch(e){setErr(errorText(e));}}}>{save.isPending?c.saving:c.add}</Button>}>
+  <Modal isOpen={adding} isDismissDisabled={save.isPending} onOpenChange={open=>{if(!open&&!save.isPending){setAdding(false);setName('');}}} title={t('setupAddStaff')} size="md" footer={<Button disabled={save.isPending||!name.trim()} onClick={async()=>{try{await save.mutateAsync({name:name.trim(),isBookable:bookable,maxConcurrentAppointments:1,idempotencyKey:addAttempt.take({name:name.trim(),bookable})});addAttempt.settle({name:name.trim(),bookable});setAdding(false);setName('');setErr('');}catch(e){setErr(errorText(e));}}}>{save.isPending?c.saving:c.add}</Button>}>
    <div className="space-y-4"><Field label={t('setupFieldStaffName')}><Input autoFocus value={name} onChange={e=>setName(e.target.value)}/></Field><Toggle checked={bookable} onChange={setBookable} label={t('setupToggleBookableLabel')} description={t('setupToggleBookableDesc')}/>{err&&<p role="alert" className="text-sm text-red-600">{err}</p>}</div>
   </Modal>
   <Modal isOpen={!!deleting} isDismissDisabled={remove.isPending} onOpenChange={open=>{if(!open&&!remove.isPending)setDeleting(null);}} title={`${c.deleteStaff} · ${deleting?.name??''}`} size="md" footer={<><Button variant="secondary" onClick={()=>setDeleting(null)} disabled={remove.isPending}>{c.keep}</Button><Button className="bg-red-600 text-white" disabled={remove.isPending} onClick={async()=>{if(!deleting)return;try{await remove.mutateAsync({membershipId:deleting.membershipId,status:'resigned'});setDeleting(null);}catch(e){setErr(errorText(e));}}}>{remove.isPending?c.saving:c.confirmDelete}</Button></>}>
