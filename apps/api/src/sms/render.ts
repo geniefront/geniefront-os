@@ -107,7 +107,7 @@ export interface ConfirmSms {
 /** Transactional receipt shared by web and voice bookings. Customer management
  * links stay in email; SMS uses one segment and directs the customer to call store. */
 export function renderConfirmSms(d: ConfirmSms): string {
-  return customerBookingSms({event:'confirmed',shop:smsShopName(d.shopName,d.shopSlug??null,'Your store'),service:d.serviceName,when:d.whenText,hasEmail:d.hasEmail,preferredStaff:d.preferredStaff});
+  return customerBookingSms({event:'confirmed',shopPhone:d.shopPhone,shop:smsShopName(d.shopName,d.shopSlug??null,'Your store'),service:d.serviceName,when:d.whenText,hasEmail:d.hasEmail,preferredStaff:d.preferredStaff});
 }
 
 /**

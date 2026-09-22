@@ -169,7 +169,7 @@ describe('文案', () => {
     const body = renderConfirmSms(base);
     expect(body.toUpperCase()).not.toContain('REPLY CANCEL');
     expect(body.toUpperCase()).not.toContain('TEXT CANCEL');
-    expect(body.toLowerCase()).toContain('call store');          // 改期一律引导打电话
+    expect(body.toLowerCase()).toContain('call 617-555-0142');          // 改期一律引导打电话
   });
 
   it('⭐ 署名是 GenieFront，不是店名 —— 但店名要在正文里', () => {
@@ -192,10 +192,9 @@ describe('文案', () => {
     expect(body).not.toContain(' at ');
   });
 
-  it('短信只显示 Call store，其他电话显示仍保留格式', () => {
+  it('短信显示紧凑商家电话，其他电话显示仍保留格式', () => {
     const body = renderConfirmSms(base);
-    expect(body).not.toContain('(617) 555-0142');
-    expect(body).toContain('Call store');
+    expect(body).toContain('Call 617-555-0142');
     expect(prettyPhone('+16175550142')).toBe('(617) 555-0142');
     expect(prettyPhone(null)).toBeNull();
   });
@@ -228,8 +227,7 @@ describe('文案', () => {
     expect(body.startsWith('GenieFront: ')).toBe(true);
     // 店名可以退让（身份锚点是 GenieFront 那个署名），但要留得住辨识度
     expect(body).toContain('Golden Lotus');
-    expect(body).not.toContain('(617) 555-0142');
-    expect(body).toContain('Call store');
+    expect(body).toContain('Call 617-555-0142');
     expect(body).toContain('Reply STOP to opt out');
   });
 

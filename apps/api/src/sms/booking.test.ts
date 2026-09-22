@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { compactWhen, customerBookingSms, shopBookingSms, shopCompactWhen, shopCallSms } from "./booking";
 import { measure } from "./segments";
-import { withComplianceFooter } from "./render";
+import { renderConfirmSms, withComplianceFooter } from "./render";
 import { OWNER_LOCALES } from '../email/locale';
 
 describe("compact booking notifications", () => {
@@ -81,4 +81,23 @@ it('keeps the reported couples notice within one segment after abbreviating and 
  const body=shopBookingSms({event:'created',locale:'zh-Hans',customer:'Naiyou',phone:'+15409980030',guests:2,when:'9/21 16:00',services:'1、2:双人60分+热石'});
  expect(body).toBe('GF: 新预约｜Naiyou 5409980030｜2人\n9/21 16:00\n1、2:双人60分+热石');
  expect(measure(body)).toMatchObject({encoding:'UCS-2',segments:1});
+});
+
+for (const event of ['confirmed', 'changed', 'cancelled', 'reminder'] as const) {
+  for (const hasEmail of [true, false]) {
+    it(`${event}: includes the business phone in one segment, email=${hasEmail}`, () => {
+      const body = customerBookingSms({event, hasEmail, shop:'Zhi Zi Massage', shopPhone:'+17574388097', when:'Sep 22 5:30pm', service:'Deep Tissue Massage 60 min', preferredStaff:'Sophie'});
+      expect(body).toContain('757-438-8097');
+      expect(body).toContain('Reply STOP to opt out.');
+      expect(measure(body)).toMatchObject({encoding:'GSM-7', segments:1});
+    });
+  }
+}
+it('passes the phone through the confirmation renderer', () => {
+  expect(renderConfirmSms({shopName:'Zhi Zi Massage', shopPhone:'+17574388097', serviceName:'Deep Tissue Massage 60 min', whenText:'Sep 22 5:30pm'})).toBe('GenieFront: Zhi Zi Massage. Confirmed Sep 22 5:30pm. Deep Tissue Massage 60 min. Call 757-438-8097. Reply STOP to opt out.');
+});
+it('preserves full international numbers and counts GSM extension characters', () => {
+  const body = customerBookingSms({event:'changed', shop:'[]'.repeat(40), shopPhone:'+442079460123', when:'Sep 22 5:30pm', service:'[]'.repeat(40), preferredStaff:'[]'.repeat(20), hasEmail:true});
+  expect(body).toContain('+442079460123');
+  expect(measure(body).segments).toBe(1);
 });

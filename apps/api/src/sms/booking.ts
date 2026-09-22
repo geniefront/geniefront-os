@@ -22,6 +22,7 @@ const cleanWhen = (text: string) =>
 export function customerBookingSms(args: {
   event: "confirmed" | "changed" | "cancelled" | "reminder";
   shop: string;
+  shopPhone?: string | null | undefined;
   when: string;
   service?: string;
   preferredStaff?: string | undefined;
@@ -36,9 +37,14 @@ export function customerBookingSms(args: {
     cancelled: "Canceled",
     reminder: "Reminder",
   }[args.event];
-  const tail = args.hasEmail
-    ? "Manage via email or call store."
-    : "Questions? Call store.";
+  const digits = (args.shopPhone ?? "").replace(/\D/g, "");
+  const ten = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+  const phone = ten.length === 10
+    ? `${ten.slice(0, 3)}-${ten.slice(3, 6)}-${ten.slice(6)}`
+    : digits ? `${args.shopPhone?.trim().startsWith("+") ? "+" : ""}${digits}` : "";
+  const tail = phone
+    ? `${args.hasEmail ? "Manage via email or call" : "Call"} ${phone}.`
+    : args.hasEmail ? "Manage via email or call store." : "Questions? Call store.";
   const build = () =>
     `GenieFront: ${shop}. ${state} ${cleanWhen(args.when)}.${service ? ` ${service}.` : ""}${staff ? ` With ${staff}.` : ""} ${tail} Reply STOP to opt out.`;
   while (measure(build()).units > 160 && service.length)

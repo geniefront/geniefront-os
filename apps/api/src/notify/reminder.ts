@@ -149,8 +149,8 @@ async function enqueueOneReminder(
   if (!row) return 0;
 
   const [line] = await tx<{ e164: string }[]>`
-    select e164 from phone_lines
-    where location_id = ${tenant.locationId} and purpose = 'main' and active limit 1`;
+    select coalesce(nullif(trim(l.phone), ''), (select e164 from phone_lines where location_id=l.id and purpose='main' and active limit 1)) as e164
+    from locations l where l.id = ${tenant.locationId}`;
 
   const serviceLabel = await appointmentServiceLabel(
     tx, tenant.locationId, appointmentId, pickText(row.service_name, 'en', ''));

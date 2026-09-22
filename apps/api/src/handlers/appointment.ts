@@ -993,10 +993,11 @@ async function enqueueConfirmSms(
 
   const [row] = await tx<{
     phone: string | null; email:string|null; preferred_staff:unknown; service_name: unknown;
-    starts_at: string; shop_name: unknown; shop_slug: string; timezone: string;
+    starts_at: string; shop_name: unknown; shop_slug: string; timezone: string; shop_phone: string | null;
   }[]>`
     select c.phone_e164 as phone,c.email,case when ai.is_request then sp.display_name else null end as preferred_staff, s.name as service_name,
-           ai.starts_at::text as starts_at, l.name as shop_name, l.slug as shop_slug, l.timezone
+           ai.starts_at::text as starts_at, l.name as shop_name, l.slug as shop_slug, l.timezone,
+           coalesce(nullif(trim(l.phone), ''), (select e164 from phone_lines where location_id=l.id and purpose='main' and active limit 1)) as shop_phone
     from appointment_items ai
     join appointments a on a.id = ai.appointment_id
     join locations l on l.id = a.location_id
@@ -1022,7 +1023,7 @@ async function enqueueConfirmSms(
     serviceName: await appointmentServiceLabel(
       tx, ctx.locationId, appointmentId, pickText(row!.service_name, 'en', 'your appointment')),
     whenText: formatWhenSms(new Date(row!.starts_at).toISOString(), row!.timezone),
-    shopPhone: null,
+    shopPhone: row!.shop_phone,
     hasEmail:!!row!.email,
     preferredStaff:row!.preferred_staff?pickText(row!.preferred_staff,'en',''):undefined,
   });
@@ -1764,8 +1765,8 @@ async function notifyAppointmentChange(
   if (!row) return;
 
   const [line] = await tx<{ e164: string }[]>`
-    select e164 from phone_lines
-    where location_id = ${ctx.locationId} and purpose = 'main' and active limit 1`;
+    select coalesce(nullif(trim(l.phone), ''), (select e164 from phone_lines where location_id=l.id and purpose='main' and active limit 1)) as e164
+    from locations l where l.id = ${ctx.locationId}`;
 
   /*
    * ⚠️ 模板变量**全部按英语取值**，且时间用短信格式化函数。

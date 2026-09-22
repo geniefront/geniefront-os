@@ -261,7 +261,7 @@ export async function notifyEvent(
         oldWhen:args.vars['sms_old_when'] ?? args.vars['old_when'] ?? undefined,
         phone:args.vars['customer_phone'],
         services:args.vars['sms_services'] ?? args.vars['service_name'] ?? '',
-      }) : bookingEvent ? customerBookingSms({event:bookingEvent,shop:args.vars['shop_name']??'Your store',when:args.vars['when']??'',service:args.vars['service_name']??'',preferredStaff:args.vars['staff_name']??'',hasEmail:!!args.toEmail}) : withComplianceFooter(body);
+      }) : bookingEvent ? customerBookingSms({event:bookingEvent,shopPhone:args.vars['shop_phone'],shop:args.vars['shop_name']??'Your store',when:args.vars['when']??'',service:args.vars['service_name']??'',preferredStaff:args.vars['staff_name']??'',hasEmail:!!args.toEmail}) : withComplianceFooter(body);
 
       /*
        * 🔴 **非 GSM-7 的短信一律不发。**
