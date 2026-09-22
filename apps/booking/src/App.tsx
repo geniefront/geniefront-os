@@ -1,9 +1,12 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Route, Routes, useParams } from 'react-router-dom';
 import { Card, Shell } from './components/Chrome';
 import { BookingExperiencePage } from './pages/BookingExperiencePage';
 import { BookPage } from './pages/BookPage';
 import { ManageBookingPage } from './pages/ManageBookingPage';
 import { LanguageProvider, useLanguage } from './lib/i18n';
+
+const AppointmentPreview = import.meta.env.DEV ? lazy(() => import('./dev/AppointmentPreview')) : null;
 
 function MissingShop() {
   const { t } = useLanguage();
@@ -22,6 +25,7 @@ export function App() {
     <LanguageProvider>
       <BrowserRouter>
         <Routes>
+          {AppointmentPreview && <Route path="/__preview/appointment" element={<Suspense fallback={null}><AppointmentPreview /></Suspense>} />}
           <Route path="/l/:slug/g/:token" element={<ManageBookingPage />} />
           <Route path="/l/:slug" element={<ManageBookingPage />} />
           <Route path="/:slug/bundles" element={<BookPage />} />

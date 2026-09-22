@@ -390,6 +390,20 @@ export function BookingExperiencePage() {
       <Topbar shop={shop} step={null} />
       {step === 6 && done ? (
         <div className="success-layout">
+          <SuccessStep
+            shop={shop}
+            slug={slug}
+            done={done}
+            onAgain={() => {
+              setDone(null);
+              setPicked(null);
+              setContact(undefined);
+              changeItems([]);
+              setStep(1);
+              started.current = Date.now();
+            }}
+            calendarUrl={picked ? calendarHref({bookingId: done.bookingId, startsAt: picked.startsAt, endsAt: new Date(Math.max(...picked.items.map(i => Date.parse(i.endsAt)))).toISOString()}, shop) : undefined}
+          >
           {picked && (
             <PlanSummary
               plan={picked}
@@ -411,37 +425,7 @@ export function BookingExperiencePage() {
               )}
             </Card>
           )}
-          <SuccessStep
-            shop={shop}
-            slug={slug}
-            done={done}
-            onAgain={() => {
-              setDone(null);
-              setPicked(null);
-              setContact(undefined);
-              changeItems([]);
-              setStep(1);
-              started.current = Date.now();
-            }}
-          />
-          {picked && (
-            <a
-              className="calendar-download"
-              download="appointment.ics"
-              href={calendarHref(
-                {
-                  bookingId: done.bookingId,
-                  startsAt: picked.startsAt,
-                  endsAt: new Date(
-                    Math.max(...picked.items.map((i) => Date.parse(i.endsAt))),
-                  ).toISOString(),
-                },
-                shop,
-              )}
-            >
-              {t("Add to calendar")} ↗
-            </a>
-          )}
+          </SuccessStep>
         </div>
       ) : (
         <>
@@ -958,7 +942,7 @@ export function BookingExperiencePage() {
     </Shell>
   );
 }
-function PlanSummary({
+export function PlanSummary({
   plan,
   catalog,
   shop,

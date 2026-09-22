@@ -1136,6 +1136,15 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
 };
 
 const bookingRefreshCopy: Record<string, [string,string,string,string]> = {
+ "We look forward to seeing you.":["期待你的到来。", "Esperamos verte pronto.", "Hẹn gặp bạn.", "방문을 기다리겠습니다."],
+ "View your booking or make a change below.":["查看预约详情，或在下方修改预约。", "Consulta tu reserva o haz un cambio abajo.", "Xem lịch hẹn hoặc thay đổi bên dưới.", "예약을 확인하거나 아래에서 변경하세요."],
+ "Want to change your appointment?":["需要修改预约？", "¿Quieres cambiar tu cita?", "Bạn muốn đổi lịch hẹn?", "예약을 변경하시겠어요?"],
+ "Enter the last 4 digits of the phone number you used to book. We will check them when you save a change or cancel.":["请输入预约时填写的手机号后 4 位。保存修改或取消预约时，我们会核对这 4 位数字。", "Introduce los últimos 4 dígitos del teléfono que usaste al reservar. Los comprobaremos al guardar un cambio o cancelar.", "Nhập 4 số cuối của số điện thoại bạn dùng để đặt lịch. Chúng tôi sẽ kiểm tra khi bạn lưu thay đổi hoặc hủy.", "예약할 때 입력한 전화번호의 마지막 4자리를 입력하세요. 변경 저장 또는 취소 시 확인합니다."],
+ "Last 4 digits of your booking phone number":["预约手机号后 4 位", "Últimos 4 dígitos del teléfono de la reserva", "4 số cuối của số điện thoại đặt lịch", "예약 전화번호 마지막 4자리"],
+ "Example: if you booked with (212) 555-1234, enter 1234. This is not a text message code.":["例如：预约手机号为 (212) 555-1234，请输入 1234。这不是短信验证码。", "Ejemplo: si reservaste con (212) 555-1234, introduce 1234. No es un código por SMS.", "Ví dụ: nếu đặt bằng (212) 555-1234, nhập 1234. Đây không phải mã SMS.", "예: (212) 555-1234로 예약했다면 1234를 입력하세요. 문자 인증번호가 아닙니다."],
+ "Continue to edit":["继续修改预约", "Continuar para editar", "Tiếp tục chỉnh sửa", "예약 수정 계속"],
+ "Choose what you would like to change.":["请选择需要进行的操作。", "Elige qué quieres cambiar.", "Chọn điều bạn muốn thay đổi.", "변경할 내용을 선택하세요."],
+ "To change services or contact details, call the shop.":["如需修改项目或联系方式，请致电门店。", "Para cambiar servicios o datos de contacto, llama al local.", "Để đổi dịch vụ hoặc thông tin liên hệ, hãy gọi cửa hàng.", "서비스나 연락처를 변경하려면 매장에 전화해 주세요."],
  'Edit appointment':['修改预约','Editar cita','Sửa lịch hẹn','예약 수정'],
  'Edit services':['修改项目','Editar servicios','Sửa dịch vụ','서비스 수정'],
  'Edit time':['修改时间','Cambiar hora','Đổi giờ','시간 변경'],

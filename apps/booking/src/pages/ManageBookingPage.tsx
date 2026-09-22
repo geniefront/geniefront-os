@@ -150,7 +150,7 @@ function GenericMissing({ shop }: { shop: Shop | null }) {
   );
 }
 
-function ManageBody({
+export function ManageBody({
   shop,
   booking,
   token,
@@ -179,12 +179,15 @@ function ManageBody({
 
   return (
     <>
-      <header className="mb-5">
-        <h1 className="mt-1 text-2xl font-bold"> {t("Your appointment")} </h1>
+      <header className="appointment-hero manage-hero">
+        <p className="appointment-eyebrow">{shop.name}</p>
+        <h1>{t("Your appointment")}</h1>
+        <p>{t("View your booking or make a change below.")}</p>
       </header>
+      <div className="manage-columns">
 
       {view !== "reschedule" && (
-        <Card>
+        <Card className="managed-summary">
           <div className="managed-card-top">
             <StatusBadge status={booking.status} />
           </div>
@@ -254,7 +257,7 @@ function ManageBody({
       )}
 
       {view === "detail" && (
-        <div className="mt-5 grid gap-3">
+        <div className="manage-controls">
           {mutable && !verified && (
             <Last4Form
               last4={last4}
@@ -267,6 +270,9 @@ function ManageBody({
             />
           )}
           {mutable && verified && (
+            <Card className="manage-action-card">
+              <h2>{t("Edit appointment")}</h2>
+              <p className="appointment-help">{t("Choose what you would like to change.")}</p>
             <div className="booking-actions">
               {booking.actions.canReschedule && (
                 <Btn primary onClick={() => setView("reschedule")}>
@@ -279,7 +285,9 @@ function ManageBody({
                 </Btn>
               )}
             </div>
+            </Card>
           )}
+          <p className="manage-contact-help">{t("To change services or contact details, call the shop.")} {shop.phone && <PhoneLink shop={shop} />}</p>
           {booking.actions.canRebook && (
             <Link
               className="booking-rebook"
@@ -313,6 +321,7 @@ function ManageBody({
         />
       )}
 
+      </div>
       {view === "cancel" && (
         <BookingDialog
           open
@@ -372,18 +381,22 @@ function Last4Form({
   const { t, locale } = useLanguage();
   return (
     <form
-      className="grid gap-3"
+      className="phone-verification booking-card"
       onSubmit={(e) => {
         e.preventDefault();
         if (/^\d{4}$/.test(last4)) onSubmit();
       }}
     >
-      <label className="text-sm font-semibold">
-        {" "}
-        {t("Last four digits of the phone number on this booking")}{" "}
+      <div className="verification-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></svg></div>
+      <h2>{t("Want to change your appointment?")}</h2>
+      <p id="phone-check-help">{t("Enter the last 4 digits of the phone number you used to book. We will check them when you save a change or cancel.")}</p>
+      <label className="phone-check-label">
+        {t("Last 4 digits of your booking phone number")}
         <Input
           data-testid="last4"
-          className="mt-1 min-h-12 w-full rounded-2xl border border-[var(--line)] px-3 tracking-[0.4em]"
+          className="phone-check-input"
+          aria-describedby="phone-check-help phone-check-example"
+          placeholder="••••"
           inputMode="numeric"
           maxLength={4}
           autoComplete="off"
@@ -393,10 +406,11 @@ function Last4Form({
           }
         />
       </label>
-      {err && <Note warn>{err}</Note>}
+      <p id="phone-check-example" className="phone-check-example">{t("Example: if you booked with (212) 555-1234, enter 1234. This is not a text message code.")}</p>
+      {err && <div role="alert"><Note warn>{err}</Note></div>}
       <Btn primary type="submit" disabled={!/^\d{4}$/.test(last4)}>
         {" "}
-        {t("Continue")}{" "}
+        {t("Continue to edit")}{" "}
       </Btn>
     </form>
   );
@@ -574,7 +588,8 @@ function ReschedulePanel({
   const days = datePage(start, horizon, offset);
 
   return (
-    <Card className="mt-5">
+    <Card className="reschedule-card">
+      <div className="reschedule-current"><span>{t("Your appointment")}</span><strong>{dateOf(booking.startsAt, booking.timezone, locale)} · {timeOf(booking.startsAt, booking.timezone, locale)}</strong></div>
       <h2 className="text-xl font-bold"> {t("Pick a new time")} </h2>
       <p className="mt-2 text-xs text-[var(--muted)]">
         {booking.timezone.replace(/_/g, " ")}
@@ -609,6 +624,7 @@ function ReschedulePanel({
           ))}
         </ul>
       )}
+      {!loading && !err && avail && avail.slots.length === 0 && <Note>{t("No times available for this date")}</Note>}
       {picked && (
         <Note>
           {" "}

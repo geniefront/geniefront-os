@@ -125,7 +125,7 @@ describe('ManageBookingPage', () => {
     await screen.findByText('Gel Manicure');
     expect(screen.queryByRole('button', { name: 'Reschedule' })).not.toBeInTheDocument();
     await user.type(screen.getByTestId('last4'), '4821');
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Continue to edit' }));
     expect(screen.getByRole('button', { name: 'Reschedule' })).toBeInTheDocument();
     expect(localStorage.getItem('last4')).toBeNull();
     expect(sessionStorage.getItem('last4')).toBeNull();
@@ -140,7 +140,7 @@ describe('ManageBookingPage', () => {
     renderManage();
     await screen.findByTestId('last4');
     await user.type(screen.getByTestId('last4'), '0000');
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Continue to edit' }));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     await user.click(screen.getByRole('button', { name: 'Confirm cancellation' }));
     await screen.findByText(/did not match/i);
@@ -164,7 +164,7 @@ describe('ManageBookingPage', () => {
     renderManage();
     await screen.findByTestId('last4');
     await user.type(screen.getByTestId('last4'), '4821');
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Continue to edit' }));
     await user.click(screen.getByRole('button', { name: 'Reschedule' }));
     expect(screen.getByTestId('later-days')).toBeInTheDocument();
   });
@@ -180,7 +180,7 @@ describe('ManageBookingPage', () => {
     renderManage();
     await screen.findByTestId('last4');
     await user.type(screen.getByTestId('last4'), '4821');
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Continue to edit' }));
     await user.click(screen.getByRole('button', { name: 'Reschedule' }));
     await screen.findByTestId(`reslot-${slot}`);
     expect(getManagedAvailability.mock.calls[0][0]).toMatchObject({
@@ -206,7 +206,7 @@ describe('ManageBookingPage', () => {
     renderManage();
     await screen.findByTestId('last4');
     await user.type(screen.getByTestId('last4'), '4821');
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Continue to edit' }));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     await user.click(screen.getByRole('button', { name: 'Confirm cancellation' }));
     await screen.findByTestId('status');

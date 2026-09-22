@@ -1120,3 +1120,62 @@ textarea.field-control {padding:16px 18px!important;line-height:1.65;letter-spac
   .booking-modal { padding: 22px; border-radius: 20px; }
   .booking-modal .modal__heading { font-size: 20px; }
 }
+
+/* Confirmation and guest appointment management. */
+.appointment-hero {text-align:center;margin:0 auto 32px;max-width:580px;}
+.appointment-hero h1 {font-size:36px;font-weight:650;letter-spacing:-1.2px;line-height:1.18;margin:10px 0 12px;}
+.appointment-hero>p:last-child {font-size:15px;color:var(--muted);line-height:1.6;}
+.appointment-eyebrow {font-size:11px;font-weight:650;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);}
+.confirmation-check {display:grid;place-items:center;width:56px;height:56px;margin:0 auto 20px;background:#eaf5ed;color:#39724e;border:1px solid #d5e7db;border-radius:50%;font-size:28px;}
+.confirmation-page {max-width:680px;margin:auto;}
+.confirmation-details {display:grid;gap:14px;}
+.confirmation-details .booking-card {margin:0;padding:28px 30px;}
+.confirmation-details .section-label {margin-bottom:12px;}
+.confirmation-details .appointment-summary .summary-heading:first-child {display:none;}
+.confirmation-details .summary-date {font-size:25px;}
+.confirmation-details .bag-total {margin-bottom:0;}
+.confirmation-actions {display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:22px;}
+.appointment-primary-link,.appointment-secondary-link {display:flex;align-items:center;justify-content:space-between;gap:16px;padding:15px 20px;border-radius:12px;font-size:14px;font-weight:600;min-height:50px;}
+.appointment-primary-link {background:var(--brand);color:white;}
+.appointment-secondary-link {background:white;border:1px solid var(--line);}
+.appointment-primary-link:hover {opacity:.85;}
+.appointment-secondary-link:hover {background:#f1f1f2;}
+.appointment-help {font-size:13px;color:var(--muted);line-height:1.7;margin-top:14px;}
+.confirmation-page>.appointment-help {text-align:center;}
+.appointment-footer-actions {display:flex;justify-content:space-between;gap:16px;margin-top:26px;padding-top:22px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);flex-wrap:wrap;}
+.appointment-footer-actions button {text-decoration:underline;text-underline-offset:4px;cursor:pointer;color:var(--fg);}
+.manage-layout {max-width:1040px;margin:44px auto;}
+.manage-hero {margin-bottom:32px;}
+.manage-columns {display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);align-items:start;gap:24px;}
+.manage-columns:has(>.booking-card:only-child) {grid-template-columns:1fr;max-width:720px;margin:auto;}
+.managed-summary {padding:28px 30px;}
+.managed-summary .managed-when {font-size:26px;margin-top:24px;line-height:1.35;}
+.managed-summary .bag-total {margin:0 0 22px;}
+.managed-summary .subtle-link {display:inline-block;margin-top:0;font-size:13px;}
+.managed-summary details {border-top:1px solid var(--line);padding-top:18px;margin-top:22px;line-height:1.7;}
+.manage-controls {display:grid;gap:16px;}
+.phone-verification {background:white;border:1px solid var(--line);border-radius:20px;padding:28px;display:grid;gap:16px;}
+.verification-icon {width:38px;height:38px;border-radius:10px;background:#f3f3f4;display:grid;place-items:center;font-size:25px;}
+.phone-verification h2,.manage-action-card h2 {font-size:21px;font-weight:600;line-height:1.3;letter-spacing:-.4px;}
+.phone-verification>p {font-size:13px;line-height:1.7;color:var(--muted);}
+.phone-check-label {font-size:12px;font-weight:600;line-height:1.5;}
+.phone-check-input {display:block!important;width:100%!important;height:56px!important;border:1px solid #d5d5da!important;border-radius:10px!important;margin-top:9px!important;padding:12px 18px!important;background:#fafafa!important;font-size:23px!important;letter-spacing:12px!important;box-shadow:none!important;}
+.phone-check-input:focus {outline:2px solid var(--brand);outline-offset:3px;}
+.phone-verification .phone-check-example {font-size:12px;background:#f7f7f8;border-radius:10px;padding:12px 14px;margin:0;}
+.manage-contact-help {font-size:12px;line-height:1.8;color:var(--muted);padding:0 8px;text-align:center;}
+.manage-contact-help a {white-space:nowrap;}
+.manage-controls .booking-rebook {background:transparent;border:1px solid var(--line);font-size:13px;}
+.manage-action-card .booking-actions {display:grid;grid-template-columns:1fr;margin-top:20px;}
+@media(max-width:760px) {
+ .success-layout,.manage-layout {margin:28px auto;}
+ .appointment-hero h1 {font-size:29px;}
+ .appointment-hero {margin-bottom:24px;}
+ .manage-columns {grid-template-columns:1fr;gap:18px;}
+ .confirmation-details .booking-card,.managed-summary,.phone-verification {padding:22px;}
+ .confirmation-actions {grid-template-columns:1fr;}
+ .appointment-footer-actions {justify-content:center;text-align:center;}
+ .managed-summary .managed-when {font-size:24px;}
+}
+.reschedule-card {padding:28px;}
+.reschedule-current {display:grid;gap:7px;background:#f7f7f8;border-radius:12px;padding:16px 18px;margin-bottom:26px;font-size:14px;}
+.reschedule-current span {font-size:11px;color:var(--muted);}

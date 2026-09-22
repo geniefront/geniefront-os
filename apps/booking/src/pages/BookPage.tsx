@@ -859,30 +859,35 @@ function confirmError(e: unknown, _shop: Shop, t:(key:string)=>string): string {
 }
 
 export function SuccessStep({
-  shop, slug, done, onAgain, showSummary=false,
+  shop, slug, done, onAgain, showSummary=false, children, calendarUrl,
 }: {
   shop: Shop;
   slug: string;
   done: { bookingId: string; manageToken: string | null; summary?:ManagedBooking;status?:string };
   onAgain: () => void;
   showSummary?:boolean;
+  children?:ReactNode;
+  calendarUrl?:string;
 }) {
   const { t } = useLanguage();
   return (
-    <Card className="mx-auto max-w-2xl text-center">
-      <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[var(--brand-soft)] text-3xl font-bold text-[var(--brand)]">✓</div>
-      <p className="step-kicker mt-6"> {t("Appointment confirmed")} </p>
-      <h2 className="text-3xl font-extrabold tracking-[-0.035em]">{done.status && done.status!=='booked'?t(done.status):t('step.booked', 'You are booked')}</h2>
-
-      {showSummary&&done.summary&&<div className="mt-5 text-left"><p className="font-semibold">{dateOf(done.summary.startsAt,shop.timezone)}</p>{done.summary.items.map((item,index)=><p className="mt-2 text-sm" key={index}>{item.name} · {timeOf(item.startsAt,shop.timezone)}–{timeOf(item.endsAt,shop.timezone)} · {item.specialistName} · {money(item.priceCents,shop.currency)}</p>)}<p className="mt-3 font-bold">{t('Total')}: {money(done.summary.priceCents,shop.currency)}</p></div>}
-      {done.manageToken && (
-        <p className="success-action mt-6">
-          <Link className="inline-flex min-h-11 items-center rounded-xl bg-[var(--brand)] px-5 font-semibold text-white hover:bg-[var(--brand-dark)]" to={hostedManagePath(slug, done.manageToken)} target={isEmbedded()?'_blank':undefined} rel="noreferrer"> {t("Edit appointment")} </Link>
-        </p>
-      )}
-      <p className="mt-3 text-sm text-[var(--muted)]"> {t("Keep this page to manage your appointment.")} {shop.phone && <> {t("Questions? Call")} <PhoneLink shop={shop} />.</>}
-      </p>
-      <div className="success-action mx-auto mt-3"><Btn onClick={onAgain}> {t("Book another")} </Btn></div>
-    </Card>
+    <section className="confirmation-page">
+      <header className="appointment-hero">
+        <span className="confirmation-check" aria-hidden="true">✓</span>
+        <p className="appointment-eyebrow">{t("Appointment confirmed")}</p>
+        <h1>{done.status && done.status !== 'booked' ? t(done.status) : t('step.booked', 'You are booked')}</h1>
+        <p>{t("We look forward to seeing you.")}</p>
+      </header>
+      <div className="confirmation-details">
+        {children}
+        {showSummary && done.summary && <Card><h2 className="summary-date">{dateOf(done.summary.startsAt,shop.timezone)}</h2><p>{timeOf(done.summary.startsAt,shop.timezone)}</p>{done.summary.items.map((item,index)=><p className="mt-3" key={index}>{item.name} · {money(item.priceCents,shop.currency)}</p>)}<div className="bag-total"><span>{t('Total')}</span><strong>{money(done.summary.priceCents,shop.currency)}</strong></div></Card>}
+      </div>
+      <div className="confirmation-actions">
+        {done.manageToken && <Link className="appointment-primary-link" to={hostedManagePath(slug, done.manageToken)} target={isEmbedded()?'_blank':undefined} rel="noreferrer">{t("Edit appointment")} <span aria-hidden="true">→</span></Link>}
+        {calendarUrl && <a className="appointment-secondary-link" href={calendarUrl} download="appointment.ics">{t("Add to calendar")} <span aria-hidden="true">↗</span></a>}
+      </div>
+      <p className="appointment-help">{t("Keep this page to manage your appointment.")}</p>
+      <div className="appointment-footer-actions"><button type="button" onClick={onAgain}>{t("Book another")}</button>{shop.phone && <span>{t("Questions? Call")} <PhoneLink shop={shop} /></span>}</div>
+    </section>
   );
 }
