@@ -8,6 +8,8 @@ The AI `<Dial>` now supplies `referUrl` and `referMethod="POST"`. Telnyx uses th
 
 Provider contract: [Telnyx Dial referUrl](https://developers.telnyx.com/docs/voice/programmable-voice/texml-verbs/dial). Signed callback regression coverage does not replace a live PSTN transfer check after deployment.
 
+Follow-up: runtime `43606d0-20260923005825` is deployed on both production nodes. The 21:00 EDT retry (`23a700be-b6ea-11f1-85f8-567f492037f4`) shows `park_received_refer=true` in Telnyx's Dial command, but no transfer callback was delivered. SIP flow confirms xAI sent `Refer-To: tel:+17574388097`; Telnyx replied `202 Accepted` then sent BYE, without a staff dial leg. The callback addition alone did not resolve this live failure. The saved xAI `Store staff` destination was changed to `sip:+17574388097@sip.telnyx.com`, matching the SIP URI shape in [Telnyx external transfers](https://developers.telnyx.com/docs/voice/sip-trunking/features/external-transfers). Reopening the tool confirms the saved value; this is a provider configuration change, with live transfer verification still pending.
+
 Cut over on 2026-09-20 at the user's request. The production shop is `va-zhi-zi-massage` (location `1c708a61-b467-4062-af96-2cd6392e20e5`).
 
 - Inbound voice number: **+1 757 731 7358**.
