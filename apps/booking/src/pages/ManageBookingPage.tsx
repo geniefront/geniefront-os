@@ -242,8 +242,9 @@ export function ManageBody({
                 "Online rescheduling and cancellation apply to the entire booking, including every guest. To change services, specialists, guest count or contact information, contact the shop.",
               )}
             </p>
+            <p className="mt-3">{t("Within 15 minutes of booking, before your appointment starts, advance-notice limits do not apply to cancellation or rescheduling.")}</p>
             <p className="mt-3">
-              {t("Cancel at least")} {booking.policy.cancelCutoffHours}{" "}
+              {t("After that:")} {t("Cancel at least")} {booking.policy.cancelCutoffHours}{" "}
               {t("hours ahead.")}{" "}
               {booking.policy.rescheduleEnabled
                 ? `${t("Reschedule at least")} ${booking.policy.rescheduleCutoffHours} ${t("hours ahead.")}`
@@ -464,7 +465,7 @@ function CancelPanel({
       <h2 className="text-xl font-bold"> {t("Cancel this appointment?")} </h2>
       <p className="mt-2 text-sm text-[var(--muted)]">
         {" "}
-        {t("Cancellations must be at least")} {booking.policy.cancelCutoffHours}{" "}
+        {t("Within 15 minutes of booking, before your appointment starts, advance-notice limits do not apply to cancellation or rescheduling.")} {t("After that:")} {t("Cancellations must be at least")} {booking.policy.cancelCutoffHours}{" "}
         {t(
           "hours before the start time. This cancels every service for every guest in this booking. This cannot be undone online.",
         )}{" "}

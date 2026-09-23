@@ -110,6 +110,7 @@ interface Booking {
   id: string;
   status: string;
   starts_at: string;
+  created_at: string;
   ends_at: string;
   self_reschedule_count: number;
   party_size: number;
@@ -123,6 +124,7 @@ function policy(row: Booking, cfg: OnlineBookingConfig) {
   return {
     status: row.status,
     startsAt: row.starts_at,
+    createdAt: row.created_at,
     selfRescheduleCount: row.self_reschedule_count,
     ...cfg,
   };
@@ -178,7 +180,7 @@ export function registerVoiceManagementRoutes(
     return withTenant(a.ctx, async (tx) => {
       const [row] = await tx<
         Booking[]
-      >`select a.id,a.status,a.starts_at::text,a.ends_at::text,a.self_reschedule_count,a.party_size
+      >`select a.id,a.status,a.created_at::text,a.starts_at::text,a.ends_at::text,a.self_reschedule_count,a.party_size
     from appointments a join customers c on c.id=a.customer_id
     where a.id=${selection.appointmentId} and a.location_id=${a.ctx.locationId} and c.phone_e164=${a.caller}
       and a.source in ('web','phone_ai','phone_manual','desk')`;
@@ -257,7 +259,7 @@ export function registerVoiceManagementRoutes(
       const cfg = readOnlineBooking(shop!.settings);
       const rows = await tx<
         Booking[]
-      >`select a.id,a.status,a.starts_at::text,a.ends_at::text,a.self_reschedule_count,a.party_size
+      >`select a.id,a.status,a.created_at::text,a.starts_at::text,a.ends_at::text,a.self_reschedule_count,a.party_size
     from appointments a join customers c on c.id=a.customer_id where a.location_id=${a.ctx.locationId} and c.phone_e164=${a.caller}
      and a.source in ('web','phone_ai','phone_manual','desk') and a.status='booked' and a.starts_at>now() order by a.starts_at limit 20`;
       const appointments = [];

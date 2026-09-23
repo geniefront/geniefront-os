@@ -99,3 +99,23 @@ describe('bookingWindow', () => {
     expect(window.startsAt).not.toBe(new Date().toISOString());
   });
 });
+
+describe('15-minute booking correction window', () => {
+  const recent = { ...booked, now: new Date('2099-06-15T17:00:00Z'), createdAt: '2099-06-15T16:45:00Z' };
+  it('allows both actions exactly at 15 minutes even inside the four-hour cutoff', () => {
+    expect(guestActions(recent)).toMatchObject({ canCancel: true, canReschedule: true, reason: null });
+  });
+  it('expires immediately after 15 minutes and rejects missing, invalid or future creation times', () => {
+    for (const createdAt of ['2099-06-15T16:44:59.999Z', 'invalid', '2099-06-15T17:00:01Z', '']) {
+      expect(guestCancelBlockReason({ ...recent, createdAt })).toBe('cancel_cutoff_passed');
+      expect(guestRescheduleBlockReason({ ...recent, createdAt })).toBe('reschedule_cutoff_passed');
+    }
+  });
+  it('does not override appointment state, past start, capacity policy or reschedule limits', () => {
+    expect(guestActions({ ...recent, status: 'completed' })).toMatchObject({ canCancel: false, canReschedule: false });
+    expect(guestActions({ ...recent, startsAt: recent.now.toISOString() })).toMatchObject({ canCancel: false, canReschedule: false });
+    expect(guestRescheduleBlockReason({ ...recent, selfRescheduleCount: 2 })).toBe('reschedule_limit_reached');
+    expect(guestRescheduleBlockReason({ ...recent, rescheduleEnabled: false })).toBe('reschedule_disabled');
+    expect(guestRescheduleBlockReason({ ...recent, shapeReason: 'shape_unsupported' })).toBe('shape_unsupported');
+  });
+});

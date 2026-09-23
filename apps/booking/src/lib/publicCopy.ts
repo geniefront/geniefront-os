@@ -1136,6 +1136,9 @@ export const PUBLIC_COPY: Record<string, Record<string, string>> = {
 };
 
 const bookingRefreshCopy: Record<string, [string,string,string,string]> = {
+  'After that:':['超过15分钟后：','Después:','Sau đó:','이후:'],
+  'Within 15 minutes of booking, before your appointment starts, advance-notice limits do not apply to cancellation or rescheduling.':['预约创建后15分钟内，且预约尚未开始，取消或改期不受提前时限限制。', 'Durante los primeros 15 minutos tras reservar y antes de la cita, puedes cancelar o cambiar sin los plazos de aviso.', 'Trong 15 phút sau khi đặt và trước giờ hẹn, hủy hoặc đổi lịch không bị giới hạn thời gian báo trước.', '예약 후 15분 이내이며 시작 전에는 사전 통보 제한 없이 취소하거나 변경할 수 있습니다.'],
+
  "We look forward to seeing you.":["期待你的到来。", "Esperamos verte pronto.", "Hẹn gặp bạn.", "방문을 기다리겠습니다."],
  "View your booking or make a change below.":["查看预约详情，或在下方修改预约。", "Consulta tu reserva o haz un cambio abajo.", "Xem lịch hẹn hoặc thay đổi bên dưới.", "예약을 확인하거나 아래에서 변경하세요."],
  "Want to change your appointment?":["需要修改预约？", "¿Quieres cambiar tu cita?", "Bạn muốn đổi lịch hẹn?", "예약을 변경하시겠어요?"],

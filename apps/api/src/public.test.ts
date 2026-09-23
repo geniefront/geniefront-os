@@ -670,7 +670,7 @@ describe('建预约', () => {
         select body, segments from sms_outbox
         where entity_id = ${made.json().bookingId} and kind = 'appointment_confirm'`);
       expect(sms?.body ?? '').not.toContain(token);
-      expect(sms!.body).toContain('call store');
+      expect(sms!.body).toContain('call 212-555-0100');
       expect(sms!.body.toUpperCase()).not.toContain('REPLY CANCEL');
       expect(sms!.segments).toBe(1);
       expect(sms!.segments).toBe(segmentsOf(sms!.body));
@@ -1046,6 +1046,31 @@ describe('手机后四位是第二道闸', () => {
 });
 
 describe('自助改期（批 2）', () => {
+  it('allows immediate correction inside four hours through both detail and mutation routes', async () => {
+    for (const action of ['cancel', 'reschedule'] as const) {
+      __resetRateLimit();
+      const made = await post('/public/v1/bookings', bookingPayload(), { 'idempotency-key': randomUUID() });
+      expect(made.statusCode).toBe(201);
+      const { bookingId, manageToken } = made.json();
+      const l4 = last4();
+      await withTenant(tenant, async tx => {
+        await tx`update appointment_items ai set starts_at=ai.starts_at+(now()+interval '1 hour'-a.starts_at),
+          ends_at=ai.ends_at+(now()+interval '1 hour'-a.starts_at)
+          from appointments a where a.id=${bookingId} and ai.appointment_id=a.id`;
+        await tx`update appointments set ends_at=ends_at+(now()+interval '1 hour'-starts_at),
+          starts_at=now()+interval '1 hour',created_at=now()-interval '10 minutes' where id=${bookingId}`;
+      });
+      const res = await post(`/public/v1/bookings/${bookingId}/${action}`, {
+        manageToken, last4: l4, ...(action === 'reschedule' ? { startsAt: nextSlot() } : {}),
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      const [row] = await withTenant(tenant, tx => tx`select status,self_reschedule_count,
+        created_at < now()-interval '9 minutes' as original_creation from appointments where id=${bookingId}`);
+      expect(row!.original_creation).toBe(true);
+      expect(action === 'cancel' ? row!.status : row!.self_reschedule_count).toBe(action === 'cancel' ? 'cancelled' : 1);
+    }
+  });
+
   it('⭐ 原子改期：改成功之后原单还是那一条，只是时间变了', async () => {
     __resetRateLimit();
     const made = await post('/public/v1/bookings', bookingPayload(),

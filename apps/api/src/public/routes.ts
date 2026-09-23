@@ -810,6 +810,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
       const cancelBlock = guestCancelBlockReason({
         status: appt.status,
         startsAt: appt.starts_at,
+        createdAt: appt.created_at,
         cancelCutoffHours: cfg.cancelCutoffHours,
         rescheduleEnabled: cfg.rescheduleEnabled,
         rescheduleCutoffHours: cfg.rescheduleCutoffHours,
@@ -907,6 +908,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
       const rescheduleBlock = guestRescheduleBlockReason({
         status: appt.status,
         startsAt: appt.starts_at,
+        createdAt: appt.created_at,
         cancelCutoffHours: cfg.cancelCutoffHours,
         rescheduleEnabled: cfg.rescheduleEnabled,
         rescheduleCutoffHours: cfg.rescheduleCutoffHours,
@@ -1091,6 +1093,7 @@ interface OwnBooking {
   id: string;
   status: string;
   starts_at: string;
+  created_at: string;
   /** 客人留的手机号，用来校验后四位。没留手机号的单是 null */
   phone: string | null;
   self_reschedule_count: number;
@@ -1103,7 +1106,7 @@ async function loadOwnBooking(
   if (!/^[0-9a-f-]{36}$/i.test(id) || !token) throw notFound;
 
   const [row] = await tx<(OwnBooking & { manage_token_digest: string | null })[]>`
-    select a.id, a.status, a.starts_at::text as starts_at,
+    select a.id, a.status, a.starts_at::text as starts_at, a.created_at::text,
            a.manage_token_digest, a.self_reschedule_count,
            c.phone_e164 as phone
     from appointments a

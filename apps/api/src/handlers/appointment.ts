@@ -36,7 +36,7 @@ import {
 } from '@gf/scheduling';
 import { ts, jsonb, parseTs, readOnlineBooking } from '@gf/db';
 import { loadPartyAvailability } from '../public/partyAvailability';
-import { guestRescheduleBlockReason } from '../public/managedDetail';
+import { guestRescheduleBlockReason, withinBookingCorrectionWindow } from '../public/managedDetail';
 import { checkManagedRescheduleSlot } from '../public/managedAvailability';
 import { registerHandler, type HandlerArgs } from '../bus';
 import { quoteBundle } from '../queries/bundle';
@@ -1095,9 +1095,9 @@ function input_hasCustomerEmailSupport(): boolean {
 registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit, emit }: HandlerArgs<
   typeof AppointmentCancel.input._type>): Promise<typeof AppointmentCancel.output._type> => {
   const [appt] = await tx<{
-    id: string; status: string; source: string; business_date: string; starts_at:string;
+    id: string; status: string; source: string; business_date: string; starts_at:string; created_at:string;
   }[]>`
-    select id, status, source, starts_at::text, business_date::text as business_date
+    select id, status, source, starts_at::text, created_at::text, business_date::text as business_date
     from appointments
     where id = ${input.appointmentId} and location_id = ${ctx.locationId} for update`;
   if (!appt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
@@ -1115,7 +1115,7 @@ registerHandler(AppointmentCancel, async ({ input, ctx, tx, audit, emit }: Handl
   if(ctx.actorKind==='api' && !ctx.userId && !ctx.membershipId) {
     const [loc]=await tx<{settings:Record<string,unknown>}[]>`select settings from locations where id=${ctx.locationId}`;
     const cfg=readOnlineBooking(loc?.settings??{});
-    if(appt.status!=='booked' || Date.parse(appt.starts_at)-Date.now()<cfg.cancelCutoffHours*3600000) {
+    if(appt.status!=='booked' || (Date.parse(appt.starts_at)-Date.now()<cfg.cancelCutoffHours*3600000 && !withinBookingCorrectionWindow({startsAt:appt.starts_at,createdAt:appt.created_at}))) {
       throw new AppError(ERROR_CODES.PERMISSION_DENIED,{details:{reason:appt.status!=='booked'?'not_mutable':'cancel_cutoff_passed'}});
     }
   }
@@ -1225,8 +1225,8 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
     overbook?: 'warn' | 'block';
   };
 
-  const [appt] = await tx<{ id: string; status: string; party_size: number; starts_at: string; self_reschedule_count: number }[]>`
-    select id, status, party_size, starts_at::text as starts_at, self_reschedule_count from appointments
+  const [appt] = await tx<{ id: string; status: string; party_size: number; starts_at: string; created_at: string; self_reschedule_count: number }[]>`
+    select id, status, party_size, starts_at::text as starts_at, created_at::text, self_reschedule_count from appointments
     where id = ${input.appointmentId} and location_id = ${ctx.locationId} for update`;
   if (!appt) throw new AppError(ERROR_CODES.NOT_FOUND, { details: { entity: 'appointment' } });
   await assertBookingCaller(tx,ctx,appt.id);
@@ -1247,7 +1247,7 @@ registerHandler(AppointmentReschedule, async ({ input, ctx, tx, audit, emit }: H
   const publicGuest=ctx.actorKind==='api' && !ctx.userId && !ctx.membershipId;
   if(publicGuest) {
     const cfg=readOnlineBooking(loc.settings);
-    const reason=guestRescheduleBlockReason({status:appt.status,startsAt:appt.starts_at,
+    const reason=guestRescheduleBlockReason({status:appt.status,startsAt:appt.starts_at,createdAt:appt.created_at,
       cancelCutoffHours:cfg.cancelCutoffHours,rescheduleEnabled:cfg.rescheduleEnabled,
       rescheduleCutoffHours:cfg.rescheduleCutoffHours,selfRescheduleMax:cfg.selfRescheduleMax,
       selfRescheduleCount:appt.self_reschedule_count});

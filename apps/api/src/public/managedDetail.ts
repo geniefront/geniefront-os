@@ -19,6 +19,8 @@ export interface GuestActions {
 export interface GuestPolicyArgs {
   status: string;
   startsAt: string;
+  /** Original booking creation time; edits never restart this window. */
+  createdAt?: string;
   now?: Date;
   cancelCutoffHours: number;
   rescheduleEnabled: boolean;
@@ -27,6 +29,14 @@ export interface GuestPolicyArgs {
   selfRescheduleCount: number;
   /** When set, guest self-reschedule cannot evaluate this appointment safely. */
   shapeReason?: string | null;
+}
+
+/** A short correction window only waives the advance-notice cutoff. */
+export function withinBookingCorrectionWindow(args: Pick<GuestPolicyArgs, 'createdAt' | 'startsAt' | 'now'>): boolean {
+  const now = (args.now ?? new Date()).getTime();
+  const created = Date.parse(args.createdAt ?? '');
+  return Number.isFinite(created) && created <= now && now - created <= 15 * 60_000
+    && Date.parse(args.startsAt) > now;
 }
 
 /**
@@ -41,7 +51,7 @@ export function guestCancelBlockReason(args: GuestPolicyArgs): string | null {
   if (args.status !== 'booked') return 'not_mutable';
   const now = (args.now ?? new Date()).getTime();
   const start = new Date(args.startsAt).getTime();
-  if (start - now < args.cancelCutoffHours * 3600_000) return 'cancel_cutoff_passed';
+  if (start - now < args.cancelCutoffHours * 3600_000 && !withinBookingCorrectionWindow(args)) return 'cancel_cutoff_passed';
   return null;
 }
 
@@ -56,7 +66,7 @@ export function guestRescheduleBlockReason(args: GuestPolicyArgs): string | null
   if (!underLimit) return 'reschedule_limit_reached';
   const now = (args.now ?? new Date()).getTime();
   const start = new Date(args.startsAt).getTime();
-  if (start - now < args.rescheduleCutoffHours * 3600_000) {
+  if (start - now < args.rescheduleCutoffHours * 3600_000 && !withinBookingCorrectionWindow(args)) {
     return 'reschedule_cutoff_passed';
   }
   return null;
@@ -119,9 +129,9 @@ export async function loadManagedBookingDetail(
   const [appt] = await tx<{
     id: string; status: string;
     self_reschedule_count: number;
-    starts_at: string; ends_at: string;
+    starts_at: string; ends_at: string; created_at: string;
   }[]>`
-    select id, status, self_reschedule_count,
+    select id, status, self_reschedule_count, created_at::text,
            starts_at::text as starts_at, ends_at::text as ends_at
       from appointments
      where id = ${appointmentId} and location_id = ${shop.locationId}`;
@@ -129,7 +139,7 @@ export async function loadManagedBookingDetail(
 
   const items = await tx<{
     service_id: string; name: unknown; addon_ids: string[]; details: Record<string, unknown>;
-    starts_at: string; ends_at: string;
+    starts_at: string; ends_at: string; created_at: string;
     duration_min: number; price_cents_snapshot: number;
     specialist: unknown;
     membership_id: string | null;
@@ -157,6 +167,7 @@ export async function loadManagedBookingDetail(
   const actions = guestActions({
     status: appt.status,
     startsAt,
+    createdAt: appt.created_at,
     cancelCutoffHours: cfg.cancelCutoffHours,
     rescheduleEnabled: cfg.rescheduleEnabled,
     rescheduleCutoffHours: cfg.rescheduleCutoffHours,

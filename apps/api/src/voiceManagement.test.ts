@@ -294,6 +294,18 @@ it("moves all items atomically and replays without extra counts or notifications
   expect(after.sms.length - before.sms.length).toBe(2);
   expect(after.email.length - before.email.length).toBe(2);
 });
+it("lets a newly booked caller correct the booking inside the notice cutoff", async () => {
+  const b = await make();
+  await withTenant(tenant, tx => tx`update locations set settings=jsonb_set(settings,'{online_booking}',
+    (settings->'online_booking') || '{"cancel_cutoff_hours":2000,"reschedule_cutoff_hours":2000}'::jsonb) where id=${locationId}`);
+  const current = (await list()).find(x => tokenId(x.appointmentToken) === b.id);
+  expect(current.actions).toMatchObject({canCancel:true,canReschedule:true});
+  const slots = await availability(current.appointmentToken, addDays(b.day, 1));
+  const moved = await post("reschedule", {changeToken:slots[0].changeToken,confirmed:true});
+  expect(moved.statusCode,moved.body).toBe(200);
+  const fresh = (await list()).find(x => tokenId(x.appointmentToken) === b.id);
+  expect((await post("cancel", {appointmentToken:fresh.appointmentToken,confirmed:true})).statusCode).toBe(200);
+});
 it("honors the same cutoff and reschedule limit as public self-service", async () => {
   const b = await make();
   await withTenant(
@@ -315,6 +327,7 @@ it("honors the same cutoff and reschedule limit as public self-service", async (
     (tx) =>
       tx`update locations set settings=jsonb_set(settings,'{online_booking,cancel_cutoff_hours}','2000'::jsonb) where id=${locationId}`,
   );
+  await withTenant(tenant, tx => tx`update appointments set created_at=now()-interval '16 minutes' where id=${b.id}`);
   const cancelled = await post("cancel", {
     appointmentToken: current.appointmentToken,
     confirmed: true,
