@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useConfirmOwnershipPayment } from './api';
 import { quotaCopy } from './quotaCopy';
 import { useState } from 'react';
@@ -185,7 +186,7 @@ export function BillingPanel() {
       </CardHeader>
       <CardContent className="p-6">
         {billingQuery.isLoading ? (
-          <p className="text-xs text-slate-500">{t('settings.stBillingLoading')}</p>
+          <p className="text-xs text-slate-500"><LoadingSpinner label={t('settings.stBillingLoading')} /></p>
         ) : billingQuery.isError ? (
           /* 取不到与「没有订阅」是两回事：前者要重试，后者要去开通 */
           <SectionError error={billingQuery.error} onRetry={() => void billingQuery.refetch()} />
@@ -249,7 +250,7 @@ export function BillingPanel() {
                       onClick={() => void openPortal()}
                       className="text-xs font-bold bg-white/10 hover:bg-white/20 text-white border-white/20"
                     >
-                      {portalMutation.isPending ? t('settings.stBillingLoading') : t('settings.stManageSubscription')}
+                      {portalMutation.isPending ? <span className="sr-only">{t('settings.stBillingLoading')}</span> : t('settings.stManageSubscription')}
                     </Button>
                     {!hasPaymentMethod && (
                       <Button
@@ -261,7 +262,7 @@ export function BillingPanel() {
                         className="text-xs font-bold bg-white/10 hover:bg-white/20 text-white border-white/20"
                       >
                         {paymentMethodMutation.isPending
-                          ? t('settings.stBillingLoading')
+                          ? <span className="sr-only">{t('settings.stBillingLoading')}</span>
                           : t('settings.stAddPaymentMethod')}
                       </Button>
                     )}
@@ -364,7 +365,7 @@ export function BillingPanel() {
                 {t('settings.stInvoicesTitle')}
               </h4>
               {invoicesQuery.isLoading ? (
-                <p className="text-xs text-slate-500">{t('settings.stBillingLoading')}</p>
+                <p className="text-xs text-slate-500"><LoadingSpinner label={t('settings.stBillingLoading')} /></p>
               ) : invoicesQuery.isError ? (
                 <div className="border border-slate-200 rounded-2xl">
                   <SectionError error={invoicesQuery.error} onRetry={() => void invoicesQuery.refetch()} className="py-8" />
@@ -536,7 +537,7 @@ function RedeemCodeSection({ billing }: { billing: BillingView }) {
           onClick={() => void submit()}
           className="text-xs font-bold"
         >
-          {redeem.isPending ? t('settings.stBillingLoading') : t('settings.stRedeemButton')}
+          {redeem.isPending ? <span className="sr-only">{t('settings.stBillingLoading')}</span> : t('settings.stRedeemButton')}
         </Button>
       </div>
       {error ? (
@@ -589,7 +590,7 @@ function QuotaActions({
         onClick={onBuy}
         className="text-xs font-bold w-full"
       >
-        {topupPending && pending ? t('settings.stBillingLoading') : packLabel}
+        {topupPending && pending ? <LoadingSpinner label={t('settings.stBillingLoading')} /> : packLabel}
       </Button>
       <label className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
         <span>{t('settings.stAutoTopup', { p0: String(quota.autoTopup.thresholdUnits) })} · {packPrice}</span>

@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { StaffSettings } from '@/features/staff/StaffSettings';
 import { SaveLocationProfile } from '@gf/contracts';
 import { useSession } from '@/lib/session';
@@ -78,7 +79,7 @@ export function StoreStepForm({ onSaved, stepNumber = 1, settingsMode = false }:
   }, `setup-store:${membershipId}`, { autoSavePaused: editingEmail });
   const storeForm = useFieldErrors<'name'>();
   if (settingsQuery.isError) return <PageError title={t('genericFailure')} error={settingsQuery.error} onRetry={() => settingsQuery.refetch()} />;
-  if (!draft.value) return <p>{t('setupReadinessLoading')}</p>;
+  if (!draft.value) return <p><LoadingSpinner label={t('setupReadinessLoading')} /></p>;
   const { form, hours } = draft.value;
   const update = (key: keyof typeof form, value: string) => draft.set(old => ({ ...old, form: { ...old.form, [key]: value } }));
   const setHours = (next: typeof hours | ((old: typeof hours) => typeof hours)) => draft.set(old => ({ ...old,
@@ -202,7 +203,7 @@ export function CatalogStepForm({ onSaved, stepNumber = 4, settingsMode = false 
   };
 
   if (settingsQuery.isError) return <PageError title={t('genericFailure')} error={settingsQuery.error} onRetry={() => settingsQuery.refetch()} />;
-  if (!data) return <p>{t('setupReadinessLoading')}</p>;
+  if (!data) return <p><LoadingSpinner label={t('setupReadinessLoading')} /></p>;
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
@@ -262,7 +263,7 @@ export function TeamStepForm({ onSaved, stepNumber = 5, settingsMode = false }: 
     } catch (error) { toast.danger(t('setupAddFailed', { p0: error instanceof Error ? error.message : 'UNKNOWN' })); }
   };
   if (settingsQuery.isError) return <PageError title={t('genericFailure')} error={settingsQuery.error} onRetry={() => settingsQuery.refetch()} />;
-  if (!data) return <p>{t('setupReadinessLoading')}</p>;
+  if (!data) return <p><LoadingSpinner label={t('setupReadinessLoading')} /></p>;
   const staff = data?.staff ?? [];
   if(settingsMode)return <><StaffSettings staff={staff} voiceOnly={voiceOnly}/>{voiceOnly && <SetupBookingCapacity/>}</>;
   return (
@@ -325,7 +326,7 @@ export function LaunchStep({ onGoToStep, stepNumber = 7 }: {
   };
 
   if (isLoading) {
-    return <div className="py-10 text-center text-sm text-slate-500">{t('setupReadinessLoading')}</div>;
+    return <div className="py-10 text-center text-sm text-slate-500"><LoadingSpinner label={t('setupReadinessLoading')} /></div>;
   }
   if (isError || !readiness) {
     return (

@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { DeliveryHistory } from '@/features/voice-plan/DeliveryHistory';
 import { useEntitlements } from '@/features/billing/useEntitlements';
 import { formatPhoneDisplay } from '@gf/contracts';
@@ -54,7 +55,7 @@ export interface UnifiedCommLog {
 
 export function CommunicationLogs() {
   const plan = useEntitlements(); const { t } = useLanguage();
-  if (!plan.data) return <div className="p-6">{t(plan.isError ? 'genericFailure' : 'setupReadinessLoading')}</div>;
+  if (!plan.data) return <div className="p-6">{plan.isError ? t('genericFailure') : <LoadingSpinner />}</div>;
   return plan.data.plan === 'voice_booking' ? <DeliveryHistory /> : <FullCommunicationLogs />;
 }
 function FullCommunicationLogs() {

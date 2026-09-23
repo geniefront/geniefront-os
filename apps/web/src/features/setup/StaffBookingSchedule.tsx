@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { PageError } from '@/components/ui/QueryState';
 import {HoursPeriodsEditor, type DayHours} from './HoursPeriodsEditor';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -15,7 +16,7 @@ export function StaffBookingSchedule({id}:{id:string}) {
   await runCommand('staff.saveBookingSchedule',{membershipId:id,hours},membershipId!);await qc.invalidateQueries({queryKey:key});
  }, `setup-staff-schedule:${membershipId}:${id}`);
  if(query.isError)return <PageError error={query.error} onRetry={()=>query.refetch()}/>;
- if(!draft.value)return <p>{t('setupReadinessLoading')}</p>;
+ if(!draft.value)return <p><LoadingSpinner label={t('setupReadinessLoading')} /></p>;
  return <details className="rounded-xl border p-3"><summary className="cursor-pointer font-semibold">{t('voiceStaffSchedule')}</summary><p className="my-2 text-sm text-slate-500">{t('voiceStaffScheduleHint')}</p>
  {['mon','tue','wed','thu','fri','sat','sun'].map(day=>{const h=draft.value![day];return <div key={day} className="my-2 flex flex-wrap items-center gap-2"><label className="flex w-28 gap-2"><input type="checkbox" checked={!!h} onChange={e=>draft.set(old=>({...old,[day]:e.target.checked?(query.data?.hours[day]??{open:'09:00',close:'17:00'}):null}))}/>{t(`voiceDay_${day}`)}</label>{h&&<HoursPeriodsEditor label={t(`voiceDay_${day}`)} value={h} onChange={next=>draft.set(old=>({...old,[day]:next}))}/>}</div>})}<SaveStatus {...draft}/></details>;
 }

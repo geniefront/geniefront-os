@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useEntitlements } from '@/features/billing/useEntitlements';
 import React, { useState, useEffect, useMemo } from 'react';
 import { Modal } from '@/components/ui/Modal';
@@ -1321,7 +1322,7 @@ export function CreateAppointmentModal({
                   {t('bundle.pickerHeading')}
                 </label>
                 {bundleCatalog.isLoading ? (
-                  <p className="text-xs text-slate-400">{t('bundle.pickerLoadingQuote')}</p>
+                  <p className="text-xs text-slate-400"><LoadingSpinner label={t('bundle.pickerLoadingQuote')} /></p>
                 ) : bundleTemplates.length === 0 ? (
                   <p className="text-xs text-slate-500 p-3 bg-slate-50 border border-slate-200 rounded-xl">
                     {t('bundle.pickerNoTemplates')}
@@ -1370,7 +1371,7 @@ export function CreateAppointmentModal({
               )}
 
               {bundleQuote.status === 'loading' && (
-                <p className="text-xs text-slate-400">{t('bundle.pickerLoadingQuote')}</p>
+                <p className="text-xs text-slate-400"><LoadingSpinner label={t('bundle.pickerLoadingQuote')} /></p>
               )}
               {bundleQuote.status === 'error' && (
                 <p className="text-xs text-rose-600 font-medium">{t('bundle.pickerQuoteFailed')}</p>

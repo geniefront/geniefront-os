@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 /**
  * 外发通知的设置面板。
  *
@@ -85,7 +86,7 @@ export function NotificationSettingsPanel() {
   const [draft, setDraft] = useState({ subject: '', body: '' });
   const [newHoliday, setNewHoliday] = useState({ name: '', sendOn: '' });
 
-  if (q.isLoading) return <p className="text-sm text-slate-500">{t('loading')}</p>;
+  if (q.isLoading) return <p className="text-sm text-slate-500"><LoadingSpinner label={t('loading')} /></p>;
   const d = q.data;
   if (!d) return <p className="text-sm text-red-600">{t('settings.notifLoadFailed')}</p>;
 

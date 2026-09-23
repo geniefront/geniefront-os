@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import {VoiceActivityLabels} from '@/features/comms/VoiceActivityLabels';
 import { useEntitlements } from '@/features/billing/useEntitlements';
 import { CallConversation } from '@/features/comms/CallConversation';
@@ -604,9 +605,7 @@ export function Calls() {
         {/* 通话记录列表表格 */}
         {callsLoading ? (
           <div className="py-12 flex justify-center items-center text-xs text-slate-400">
-            <RefreshCw className="w-4 h-4 animate-spin text-teal-600 mr-2" />
-            
-            {t('crm.callLoadingRecords')}
+            <LoadingSpinner label={t('crm.callLoadingRecords')} />
           </div>
         ) : filteredCalls.length === 0 ? (
           <EmptyState

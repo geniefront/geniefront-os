@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ServiceCatalog } from '@/features/settings/ServiceCatalog';
 import { VoiceRoutingSettings } from './VoiceRoutingSettings';
 import { PageError } from '@/components/ui/QueryState';
@@ -91,7 +92,7 @@ function BookingRules() {
     await qc.invalidateQueries({queryKey:settingsKeys.desk(membershipId)});
   }, `setup-booking-rules:${membershipId}`);
   if (query.isError) return <PageError error={query.error} onRetry={() => query.refetch()} />;
-  if (!draft.value) return <p>{t('setupReadinessLoading')}</p>;
+  if (!draft.value) return <p><LoadingSpinner label={t('setupReadinessLoading')} /></p>;
   return <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6"><h2 className="font-semibold">{t('voiceBookingWindow')}</h2><div className="grid gap-4 sm:grid-cols-2">
     <Field label={t('voiceBookingMaxDays')}><Input type="number" min="1" max="365" value={draft.value.maxDaysAhead} onChange={e => draft.set(old=>({...old,maxDaysAhead:Number(e.target.value)}))} /></Field>
     <Field label={t('voiceBookingMinMinutes')}><Input type="number" min="0" max="1440" value={draft.value.minMinutesAhead} onChange={e => draft.set(old=>({...old,minMinutesAhead:Number(e.target.value)}))} /></Field>

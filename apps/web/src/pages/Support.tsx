@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useCan } from '@/lib/permissions';
 import { useRef, useState } from 'react';
 import { toast } from '@heroui/react';
@@ -171,7 +172,7 @@ export function Support() {
       <Card className="border-slate-200 p-6 space-y-3">
         <div className="text-sm font-medium text-slate-800">{t('support.history')}</div>
         {history.isError ? <div role="alert"><p>{errorMessage(history.error)}</p><Button variant="secondary" onClick={() => history.refetch()}>{t('retry')}</Button></div> : history.isLoading ? (
-          <p className="text-xs text-slate-500">{t('support.historyLoading')}</p>
+          <p className="text-xs text-slate-500"><LoadingSpinner label={t('support.historyLoading')} /></p>
         ) : (history.data?.requests.length ?? 0) === 0 ? (
           <p className="text-xs text-slate-500">{t('support.historyEmpty')}</p>
         ) : (

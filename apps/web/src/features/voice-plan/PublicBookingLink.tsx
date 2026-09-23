@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useLanguage } from '@/LanguageContext';
@@ -11,7 +12,7 @@ export function PublicBookingLink() {
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
   const url = hostedBookingUrl(bookingPageOrigin(), query.data?.location.slug ?? '');
-  if (query.isLoading) return <p>{t('setupReadinessLoading')}</p>;
+  if (query.isLoading) return <p><LoadingSpinner label={t('setupReadinessLoading')} /></p>;
   return <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
     <h2 className="font-bold">{t('settings.hostedTitle')}</h2>
     <p className="mt-1 text-sm text-slate-600">{t('settings.hostedDesc')}</p>

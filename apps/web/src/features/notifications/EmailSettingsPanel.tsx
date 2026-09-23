@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import {useState} from 'react';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {toast} from '@heroui/react';
@@ -17,7 +18,7 @@ export function EmailSettingsPanel(){
  const q=useQuery({queryKey:['email-settings',membershipId],queryFn:()=>apiGet<Panel>('/v1/desk/settings/email'),refetchInterval:15000,enabled:!!membershipId});
  async function action(command:string,input:unknown){setBusy(true);try{await runCommand(command,input,membershipId!);toast.success(t('email.saved'));await queryClient.invalidateQueries({queryKey:['email-settings',membershipId]});}catch(e){toast.danger(errorMessage(e));}finally{setBusy(false);}}
  const btn='min-h-14 rounded-lg border px-4 py-2 text-sm disabled:opacity-50';
- if(q.isLoading)return <p>{t('loading')}</p>;
+ if(q.isLoading)return <p><LoadingSpinner label={t('loading')} /></p>;
  if(q.error)return <p role="alert">{errorMessage(q.error)}</p>;
  const d=q.data;if(!d)return null;
  const sender=(requestId:string|null,useCustom:boolean)=>({requestId,useCustom,fromLocal:d.settings?.from_local??'booking',replyTo:replyTo.trim()||d.settings?.reply_to||null});

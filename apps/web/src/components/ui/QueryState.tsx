@@ -1,7 +1,8 @@
 import React from 'react';
 import { AlertCircle, RotateCcw, RefreshCw } from 'lucide-react';
 import { Button } from './Button';
-import { PageSkeleton, type SkeletonLayout } from './Skeleton';
+import type { SkeletonLayout } from './Skeleton';
+import { LoadingSpinner } from './LoadingSpinner';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/LanguageContext';
 
@@ -9,67 +10,14 @@ export interface PageLoadingProps {
   title?: string;
   description?: string;
   className?: string;
-  /**
-   * 该页面的版式。给了就渲染对应形状的骨架屏，不给则退回居中转圈。
-   *
-   * 骨架屏比转圈多说一件事：**将要出现什么**。结构提前占位之后，数据到达时
-   * 内容落进已有的格子里，而不是把整块界面重排一遍 —— 前台的手指往往已经
-   * 停在她预期按钮出现的位置上。
-   *
-   * ⚠️ 形状必须与该页真实版式大致对齐。对不上的骨架比转圈更糟：它承诺了一个
-   * 并不会出现的版式，数据到达时照样重排，中间还多骗了用户一次。
-   */
+  /** Retained for caller compatibility; loading uses one consistent spinner. */
   layout?: SkeletonLayout;
 }
 
-export function PageLoading({
-  title,
-  description,
-  className,
-  layout,
-}: PageLoadingProps) {
-  const { t } = useLanguage();
-  const loadingTitle = title || t('loading') || 'Loading data...';
-  const loadingDesc = description || 'Connecting to secure server and synchronizing data...';
-
-  if (layout) {
-    return (
-      <div className={cn('w-full space-y-3', className)}>
-        {/*
-          骨架本身对读屏用户无意义（它没有内容），因此整块 aria-hidden，
-          另起一行可见且可读的状态文案说明正在加载哪一块数据 ——
-          转圈版本原本就有这句话，换成骨架屏不能把它丢掉。
-        */}
-        <p role="status" aria-live="polite" className="flex items-center gap-2 text-xs font-medium text-slate-500">
-          <RefreshCw className="h-3.5 w-3.5 animate-spin text-teal-600" aria-hidden="true" />
-          {loadingTitle}
-        </p>
-        <PageSkeleton layout={layout} />
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className={cn(
-        'min-h-[420px] flex flex-col items-center justify-center p-8 text-center space-y-4 animate-fade-in',
-        className
-      )}
-    >
-      <div className="relative">
-        <div className="w-14 h-14 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center shadow-xs">
-          <RefreshCw className="w-7 h-7 text-teal-600 animate-spin" />
-        </div>
-        <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center">
-          <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-        </div>
-      </div>
-      <div className="space-y-1 max-w-sm">
-        <h3 className="text-sm sm:text-base font-bold text-slate-800 tracking-tight">{loadingTitle}</h3>
-        <p className="text-xs text-slate-500 leading-relaxed">{loadingDesc}</p>
-      </div>
-    </div>
-  );
+export function PageLoading({ title, className }: PageLoadingProps) {
+  return <div className={cn('flex min-h-48 w-full items-center justify-center p-8', className)}>
+    <LoadingSpinner label={title} />
+  </div>;
 }
 
 export interface PageErrorProps {

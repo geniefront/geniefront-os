@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useEntitlements } from '@/features/billing/useEntitlements';
 import { useBookingRealtime } from '@/features/schedule/useBookingRealtime';
 import { useSession } from '@/lib/session';
@@ -605,8 +606,7 @@ function ScheduleContent() {
           className="absolute inset-0 z-sticky flex items-start justify-center bg-white/80 backdrop-blur-[2px]"
         >
           <span className="mt-24 flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-lg">
-            <Loader2 className="h-4 w-4 animate-spin text-teal-600" />
-            {t('schedule.loadingTitle')}
+            <LoadingSpinner label={t('schedule.loadingTitle')} />
           </span>
         </div>
       )}
@@ -735,10 +735,13 @@ function ScheduleContent() {
 
             <div className="flex-1 overflow-auto bg-slate-50/50 relative" ref={scrollContainerRef}>
         {view === 'week' && incompleteWeekDays.length > 0 ? (
-          <div className="p-6 space-y-3">{incompleteWeekDays.map(day => <div key={day.date} role={day.error ? 'alert' : 'status'}>
-            <p>{day.date} · {t(day.error ? 'schedule.loadErrorTitle' : 'schedule.loadingTitle')}</p>
-            {day.error && <Button onClick={() => day.retry()}>{t('retry')}</Button>}
-          </div>)}</div>
+          <div className="p-6 space-y-3">
+            {incompleteWeekDays.some(day => day.isLoading) && <PageLoading title={t('schedule.loadingTitle')} />}
+            {incompleteWeekDays.filter(day => day.error).map(day => <div key={day.date} role="alert">
+              <p>{day.date} · {t('schedule.loadErrorTitle')}</p>
+              <Button onClick={() => day.retry()}>{t('retry')}</Button>
+            </div>)}
+          </div>
         ) : view === 'month' && monthSummary.isError ? (
           <PageError title={t('schedule.loadErrorTitle')} error={monthSummary.error} onRetry={() => monthSummary.refetch()} />
         ) : view === 'month' && (monthSummary.isPending || monthSummary.isPlaceholderData) ? (
@@ -794,7 +797,7 @@ function ScheduleContent() {
                     </div>
                   </div>
 
-                  {!summary ? <p>{t('schedule.loadingTitle')}</p> : itemCount > 0 ? (
+                  {!summary ? <p><LoadingSpinner label={t('schedule.loadingTitle')} /></p> : itemCount > 0 ? (
                     <div className="flex-1 flex flex-col gap-1.5 mt-1 px-1">
                       <div className="text-lg font-bold text-slate-800 tabular-nums leading-none">
                         {summary?.appointments ?? itemCount}

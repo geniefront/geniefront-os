@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { apiGet } from '@/lib/api';
 import { useEntitlements } from '@/features/billing/useEntitlements';
@@ -683,8 +684,7 @@ function CustomersContent() {
             ) : detail.isLoading && !currentDetail ? (
               <div className="h-full grid place-items-center">
                 <div className="flex flex-col items-center gap-2">
-                  <Spinner />
-                  <p className="text-xs text-slate-400 font-medium">{t('crm.custLoadingProfile')}</p>
+                  <p className="text-xs text-slate-400 font-medium"><LoadingSpinner label={t('crm.custLoadingProfile')} /></p>
                 </div>
               </div>
             ) : currentDetail ? (
@@ -1368,7 +1368,7 @@ function CustomersContent() {
               onClick={handleSmartMerge}
               disabled={!canMerge || !selectedSourceCustomer || mergeMutation.isPending}
             >
-              {mergeMutation.isPending ? t('loading') : (t('mergeCustomer') || t('crm.custConfirmMerge'))}
+              {mergeMutation.isPending ? <span className="sr-only">{t('loading')}</span> : (t('mergeCustomer') || t('crm.custConfirmMerge'))}
             </Button>
           </div>
         }

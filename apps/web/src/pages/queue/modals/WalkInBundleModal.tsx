@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 /**
  * 看板 walk-in 直接开单（组合套餐）——U10 / 计划 §7。
  *
@@ -234,7 +235,7 @@ export function WalkInBundleModal({
             {t('bundle.pickerHeading')}
           </label>
           {catalog.isLoading ? (
-            <p className="text-xs text-slate-400">{t('bundle.pickerLoadingQuote')}</p>
+            <p className="text-xs text-slate-400"><LoadingSpinner label={t('bundle.pickerLoadingQuote')} /></p>
           ) : catalog.isError ? (
             /*
               套餐目录取不到时，此前显示的是「本店暂无组合套餐」。前台据此
@@ -278,7 +279,7 @@ export function WalkInBundleModal({
         )}
 
         {quote.status === 'loading' && (
-          <p className="text-xs text-slate-400">{t('bundle.pickerLoadingQuote')}</p>
+          <p className="text-xs text-slate-400"><LoadingSpinner label={t('bundle.pickerLoadingQuote')} /></p>
         )}
         {quote.status === 'error' && (
           <p className="text-xs text-rose-600 font-medium">{t('bundle.pickerQuoteFailed')}</p>

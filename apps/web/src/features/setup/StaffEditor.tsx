@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { PageError } from '@/components/ui/QueryState';
 import { StaffBookingSchedule } from './StaffBookingSchedule';
 import { useLanguage } from '@/LanguageContext';
@@ -16,7 +17,7 @@ export function StaffEditor({ staff, voiceOnly }: { staff: StaffItem; voiceOnly:
     await save.mutateAsync({ ...v, membershipId: staff.membershipId, name: v.name.trim(), phone: v.phone.trim() || null, inRotation: !voiceOnly && v.inRotation });
   }, `setup-staff:${staff.membershipId}`);
   if (directory.isError) return <PageError title={t('genericFailure')} error={directory.error} onRetry={() => directory.refetch()} />;
-  if (!draft.value) return <p>{t(directory.isPending ? 'setupReadinessLoading' : 'noData')}</p>;
+  if (!draft.value) return <p>{directory.isPending ? <LoadingSpinner /> : t('noData')}</p>;
   const v = draft.value;
   return <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
     <Field label={t('setupFieldStaffName')}><Input value={v.name} onChange={e => draft.set(old => ({ ...old, name: e.target.value }))} /></Field>

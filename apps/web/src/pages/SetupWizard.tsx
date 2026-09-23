@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { SetupSaveProvider, useSetupSave } from '@/features/setup/autosave';
 import { useEntitlements } from '@/features/billing/useEntitlements';
 import { useEffect, useMemo, useState } from 'react';
@@ -75,7 +76,7 @@ function SetupWizardContent() {
     }
   };
 
-  if (!entitlements.data) return <div className="p-8">{t('setupReadinessLoading')}</div>;
+  if (!entitlements.data) return <div className="p-8"><LoadingSpinner label={t('setupReadinessLoading')} /></div>;
 
   return (
     <div className="min-h-screen bg-[#f3faf7] text-slate-900">

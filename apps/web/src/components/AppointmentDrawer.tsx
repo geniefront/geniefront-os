@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { PendingBookingAssignments } from '@/features/schedule/PendingBookingAssignments';
 import { useEntitlements } from '@/features/billing/useEntitlements';
 import { appointmentAllowsSchedulingChanges } from '@gf/contracts';
@@ -362,7 +363,7 @@ export function AppointmentDrawer({ onClose, appointmentId, initialStatus = 'boo
   );
 
   if (!appointmentId) return shell(<div className="m-auto p-8 text-center text-slate-500">{t('schedule.adNoAppointmentSelected')}</div>);
-  if (appointmentQ.isLoading) return shell(<div className="m-auto flex flex-col items-center gap-3"><Spinner />{t('schedule.adLoadingAll')}</div>);
+  if (appointmentQ.isLoading) return shell(<div className="m-auto flex flex-col items-center gap-3"><LoadingSpinner label={t('schedule.adLoadingAll')} /></div>);
   if (appointmentQ.isError || !appointment) return shell(<div className="m-auto flex max-w-sm flex-col items-center gap-3 p-8 text-center"><AlertCircle className="text-rose-500" /><p className="font-semibold">{t('schedule.adLoadFailed')}</p><p className="text-sm text-slate-500">{errorMessage(appointmentQ.error)}</p><Button variant="outline" onPress={() => void appointmentQ.refetch()}>{t('retry')}</Button></div>);
 
   const tabs: Array<[Tab, string, typeof FileText]> = [

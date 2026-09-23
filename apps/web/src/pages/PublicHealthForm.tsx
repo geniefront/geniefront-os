@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { formatPhoneDisplay } from '@gf/contracts';
 import { useState, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
@@ -332,7 +333,7 @@ export function PublicHealthForm() {
   }
 
   if (publicForms.isLoading) {
-    return <div className="min-h-screen grid place-items-center bg-slate-50 text-sm text-slate-500">{copy('loading')}</div>;
+    return <div className="min-h-screen grid place-items-center bg-slate-50 text-sm text-slate-500"><LoadingSpinner label={copy('loading')} /></div>;
   }
 
   if (publicForms.isError || !publicForms.data || !preset.templateId) {

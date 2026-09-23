@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useState, useMemo, useCallback } from 'react';
 import { useStoreTime } from '@/lib/time';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -31,7 +32,7 @@ import {
   ArrowUpRight,
   Copy,
 } from 'lucide-react';
-import { toast, Spinner } from '@heroui/react';
+import { toast } from '@heroui/react';
 import { useLanguage } from '@/LanguageContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -598,8 +599,7 @@ export function Notifications() {
         <div className="divide-y divide-slate-100">
           {isLoading ? (
             <div className="py-20 flex flex-col items-center justify-center gap-3">
-              <Spinner size="md" />
-              <p className="text-xs text-slate-400">{t('crm.loading')}</p>
+              <p className="text-xs text-slate-400"><LoadingSpinner label={t('crm.loading')} /></p>
             </div>
           ) : isError ? (
             /*

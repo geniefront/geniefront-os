@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { HealthSummary } from '@/features/forms/HealthSummary';
 /**
  * 顾客到店签到：健康问卷排查、身体禁忌标记、按摩偏好、到店现场加项。
@@ -234,7 +235,7 @@ export function CheckInModal(props: CheckInModalProps) {
                     {t('schedule.adAiHealthSummary')}
                     <Languages className="ml-auto h-3.5 w-3.5 text-teal-300" />
                   </div>
-                  {isSummaryLoading && <div className="mt-3 flex items-center gap-2 text-xs text-teal-100"><Spinner size="sm" />{t('queue.quAiSummaryLoading')}</div>}
+                  {isSummaryLoading && <div className="mt-3 flex items-center gap-2 text-xs text-teal-100"><LoadingSpinner label={t('queue.quAiSummaryLoading')} /></div>}
                   {isSummaryFailed && <p className="mt-3 text-xs text-rose-200">{t('queue.quAiSummaryFailed')}</p>}
                   {aiSummary && (
                     <HealthSummary summary={aiSummary} />

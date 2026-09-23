@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { VoiceRoutingSettings } from '@/features/voice-plan/VoiceRoutingSettings';
 import {BookingImagePicker} from '@/components/ui/BookingImagePicker';
 import {HoursPeriodsEditor,type DayHours} from '@/features/setup/HoursPeriodsEditor';
@@ -245,7 +246,7 @@ function SettingsCard({
 // ── 主设置组件 ─────────────────────────────────────────────────────────────
 export function Settings() {
   const plan = useEntitlements(); const { t } = useLanguage();
-  if (!plan.data) return <div className="p-6">{t(plan.isError ? 'genericFailure' : 'setupReadinessLoading')} {plan.isError && <Button onClick={() => void plan.refetch()}>{t('setupRetry')}</Button>}</div>;
+  if (!plan.data) return <div className="p-6">{plan.isError ? t('genericFailure') : <LoadingSpinner />} {plan.isError && <Button onClick={() => void plan.refetch()}>{t('setupRetry')}</Button>}</div>;
   return plan.data.plan === 'voice_booking' ? <VoiceSettings /> : <FullSettings />;
 }
 function FullSettings() {

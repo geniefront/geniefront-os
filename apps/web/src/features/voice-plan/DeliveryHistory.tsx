@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Segment } from '@heroui-pro/react/segment';
 import { Mail, MessageSquare, ChevronDown, RefreshCw } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -52,7 +53,7 @@ export function DeliveryHistory() {
         <Input className="w-full sm:max-w-xs" aria-label={t('search')} placeholder={t('search')} value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} />
       </div>
       {query.isError ? <div role="alert" className="p-6 text-sm">{t('genericFailure')}</div>
-        : query.isLoading ? <p role="status" className="p-6 text-sm text-slate-500">{t('setupReadinessLoading')}</p>
+        : query.isLoading ? <p className="p-6 text-sm text-slate-500"><LoadingSpinner label={t('setupReadinessLoading')} /></p>
         : !messages.length ? <EmptyState icon={<Mail />} title={t('voiceNoDeliveries')} />
         : <div className="divide-y divide-slate-100">{messages.map(m => {
           const status = deliveryStatusKey(m);

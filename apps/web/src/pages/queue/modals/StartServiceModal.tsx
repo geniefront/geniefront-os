@@ -1,3 +1,4 @@
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { roomNeedsCleaning } from '../RoomsQuickModal';
 import { useSession } from '@/lib/session';
 import { HealthSummary } from '@/features/forms/HealthSummary';
@@ -377,8 +378,8 @@ export function StartServiceModal(props: StartServiceModalProps) {
             </div>
           </div>
 
-{latest && can('customer.view_health_form') && healthQ.isLoading && <p role="status" className="text-xs text-slate-600">{t('queue.quAiSummaryLoading')}</p>}
-{latest && can('customer.view_health_form') && (healthQ.isError || (healthQ.data && !healthQ.data.aiSummary)) && <p role="status" className="text-xs text-amber-900">{t('queue.quAiSummaryFailed')}</p>}
+{latest && can('customer.view_health_form') && healthQ.isLoading && <p className="text-xs text-slate-600"><LoadingSpinner label={t('queue.quAiSummaryLoading')} /></p>}
+{latest && can('customer.view_health_form') && (healthQ.isError || (healthQ.data && !healthQ.data.aiSummary)) && <p className="text-xs text-amber-900">{t('queue.quAiSummaryFailed')}</p>}
 {healthQ.data?.aiSummary && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3"><HealthSummary summary={healthQ.data.aiSummary} /></div>}
 <details className="rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer font-semibold">{t('queue.quSeatAddOnsTitle')} {state.addedAddOns.length > 0 ? `(${state.addedAddOns.length})` : ''}</summary>          {/* 入座前加项目 */}
           <div className="rounded-2xl border-2 border-violet-200 bg-violet-50/70 p-3.5 shadow-sm">
