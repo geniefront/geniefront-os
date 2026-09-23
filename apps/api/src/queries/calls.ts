@@ -34,6 +34,7 @@ export interface CallView {
   fromE164: string | null;
   startedAt: string | null;
   durationSeconds: number | null;
+  aiDurationSeconds: number | null;
   outcome: string | null;
   /** Tools attempted during the call; not evidence of a committed booking. */
   toolsUsed: string[];
@@ -67,11 +68,14 @@ export async function loadCalls(
 
   const rows = await tx<{
     total: number; appointment_ids: string[]; appointment_actions: CallView["appointmentActions"]; id: string; from_e164: string | null; started_at: string | Date | null;
-    duration_seconds: number | null; outcome: string | null;
+    ai_duration: unknown; duration_seconds: number | null; outcome: string | null;
     recording_id: string | null; voice_billing_status: string; billable_seconds: number | null;
     tools_used: string[] | null; recording_url: string | null; transcript: unknown; summary: string | null;
   }[]>`
     select count(*) over()::int as total, id, from_e164, started_at, duration_seconds, outcome,
+           coalesce(billing_analysis->'aiDurationSeconds',
+             (select j.payload->'aiDurationSeconds' from voice_processing_jobs j
+              where j.location_id=phone_calls.location_id and j.provider_call_id=phone_calls.provider_call_id limit 1)) as ai_duration,
            array(select a.id::text from appointments a where a.location_id=phone_calls.location_id
              and (a.provider_call_id=phone_calls.provider_call_id or exists (
                select 1 from call_drafts d where d.call_id=phone_calls.id and d.appointment_id=a.id and d.status='confirmed'
@@ -95,6 +99,9 @@ export async function loadCalls(
       fromE164: maskPhone(r.from_e164, canSeeContact),
       startedAt: r.started_at ? new Date(r.started_at).toISOString() : null,
       durationSeconds: r.duration_seconds,
+      aiDurationSeconds: typeof r.ai_duration === 'number' && Number.isFinite(r.ai_duration) && r.ai_duration >= 0
+        ? Math.min(Math.ceil(r.ai_duration), r.duration_seconds ?? Infinity)
+        : r.outcome === 'transferred_to_human' || tools.includes('telephony.forwardToHuman') ? null : r.duration_seconds,
       outcome: r.outcome,
       toolsUsed: tools,
       booked: r.appointment_ids.length > 0,
@@ -117,6 +124,6 @@ export async function loadCalls(
     /** 这段时间有几通真的订上了单 —— 老板问「这东西值不值」问的就是它 */
     bookedCount: calls.filter((c) => c.booked).length,
     /** 计费口径：每通向上取整到分钟（和 `call.record` 一致） */
-    totalMinutes: calls.reduce((n, c) => n + Math.ceil((c.durationSeconds ?? 0) / 60), 0),
+    totalMinutes: calls.reduce((n, c) => n + Math.ceil((c.aiDurationSeconds ?? 0) / 60), 0),
   };
 }

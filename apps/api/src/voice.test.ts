@@ -246,6 +246,8 @@ describe('xAI scoped booking tools', () => {
     expect((await dispatch<{completed:boolean}>('call.completeRecording', payload, ctx, opts)).result.completed).toBe(false);
     const [call] = await withTenant(tenant, tx => tx`select id,outcome,duration_seconds,billable_seconds,recording_id from phone_calls where provider_call_id=${providerCallId}`);
     expect(call).toMatchObject({ outcome: 'transferred_to_human', duration_seconds: 180, billable_seconds: 13, recording_id: 'direct-sip-audio' });
+    const displayed = await withTenant(tenant, tx => loadCalls(tx, ctx, { callId: call!.id }));
+    expect(displayed.calls[0]).toMatchObject({ durationSeconds: 180, aiDurationSeconds: 13, outcome: 'transferred_to_human' });
     expect(await withTenant(tenant, tx => tx`select id from sms_outbox where entity_type='phone_call' and entity_id=${call!.id}`)).toHaveLength(0);
     expect(await withTenant(tenant, tx => tx`select qty from usage_events where meta->>'providerCallId'=${providerCallId}`)).toEqual([{ qty: 1 }]);
     expect(await withTenant(tenant, tx => tx`select id from email_outbox where entity_type='phone_call' and entity_id=${call!.id}`)).toHaveLength(1);

@@ -1,6 +1,7 @@
 import { catalog } from './catalog';
 import { voiceRouting } from './voiceRouting';
 export const voiceSettings = {
+  voiceAiDuration: {"zh-Hans":"AI 通话时长","en":"AI call time","ko":"AI 통화 시간","vi":"Thời gian gọi AI","es":"Duración con IA"},
   capacityPlainTitle: {"zh-Hans": "接客人数", "en": "Booking limit", "ko": "예약 인원", "es": "Límite de reservas", "vi": "Giới hạn khách"},
   capacityAuto: {"zh-Hans": "按上班人数", "en": "Match staff on duty", "ko": "근무 인원에 맞춤", "es": "Según el personal de turno", "vi": "Theo nhân viên đang làm"},
   capacityAutoHint: {"zh-Hans": "1 位技师接 1 位客人", "en": "1 guest per staff member", "ko": "직원 1명당 고객 1명", "es": "1 cliente por profesional", "vi": "1 khách mỗi nhân viên"},

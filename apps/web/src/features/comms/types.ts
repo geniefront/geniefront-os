@@ -13,6 +13,7 @@ export interface CallView {
   fromE164: string | null;
   startedAt: string | null;
   durationSeconds: number | null;
+  aiDurationSeconds?: number | null;
   outcome: string | null;
   toolsUsed: string[];
   booked: boolean;

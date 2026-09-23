@@ -1,3 +1,4 @@
+import { useCallAudio } from '@/features/comms/useCallAudio';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import {VoiceActivityLabels} from '@/features/comms/VoiceActivityLabels';
 import { useEntitlements } from '@/features/billing/useEntitlements';
@@ -82,11 +83,11 @@ export function Calls() {
   useEffect(() => { setSelectedCall(current => current ? callData?.calls.find(c=>c.callId===current.callId) ?? current : null); }, [callData]);
   useEffect(() => { if (linkedCall.data?.call) setSelectedCall(linkedCall.data.call); }, [linkedCall.data]);
   useEffect(() => { if (linkedCall.isError) toast.danger(t('bookingCallError')); }, [linkedCall.isError, t]);
-  const [playingCallId, setPlayingCallId] = useState<string | null>(null);
-  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
-  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
-  const [playbackCurrentTime, setPlaybackCurrentTime] = useState<number>(0);
-  const [playbackTotalDuration, setPlaybackTotalDuration] = useState<number>(0);
+  const player = useCallAudio(selectedCall?.callId ?? null, async call => {
+    if (call.recordingId) return (await apiGet<{ url: string }>(`/v1/desk/calls/${call.callId}/recording`)).url;
+    return call.recordingUrl;
+  }, () => toast.danger(t('crm.callNoRecording')));
+  const { playingCallId, currentTime: playbackCurrentTime, duration: playbackTotalDuration, speed: playbackSpeed } = player;
   const [dismissingDraft, setDismissingDraft] = useState<CallDraftView | null>(null);
   const [dismissReason, setDismissReason] = useState<DraftDismissReason>("wrong_service");
 
@@ -116,8 +117,8 @@ export function Calls() {
 
       if (!matchQuery) return false;
       if (outcomeFilter === "booked") return c.booked;
-      if (outcomeFilter === "inquiry") return !c.booked && !c.toolsUsed.includes("telephony.forwardToHuman");
-      if (outcomeFilter === "forwarded") return c.toolsUsed.includes("telephony.forwardToHuman");
+      if (outcomeFilter === "inquiry") return !c.booked && !(c.outcome === "transferred_to_human" || c.toolsUsed.includes("telephony.forwardToHuman"));
+      if (outcomeFilter === "forwarded") return (c.outcome === "transferred_to_human" || c.toolsUsed.includes("telephony.forwardToHuman"));
       return true;
     });
   }, [calls, searchQuery, outcomeFilter]);
@@ -129,81 +130,12 @@ export function Calls() {
     return `${m.toString().padStart(2, "0")}:${rem.toString().padStart(2, "0")}`;
   };
 
-  useEffect(() => () => { audioElement?.pause(); }, [audioElement]);
-  const handleTogglePlay = async (call: CallView) => {
-    if (playingCallId === call.callId) { audioElement?.pause(); setPlayingCallId(null); return; }
-    if (!call.recordingUrl && !call.recordingId) {
-      toast.danger(t('crm.callNoRecording'));
-      return;
-    }
-    let audioSrc = call.recordingUrl;
-    if (call.recordingId) {
-      try { audioSrc = (await apiGet<{ url: string }>(`/v1/desk/calls/${call.callId}/recording`)).url; }
-      catch { toast.danger(t('crm.callNoRecording')); return; }
-    }
-    if (!audioSrc) return;
-    const dur = call.durationSeconds || 0;
-    setPlaybackTotalDuration(dur);
-
-    if (playingCallId === call.callId) {
-      audioElement?.pause();
-      setPlayingCallId(null);
-    } else {
-      if (audioElement) {
-        audioElement.pause();
-      }
-      const audio = new Audio(audioSrc);
-      audio.playbackRate = playbackSpeed;
-
-      audio.ontimeupdate = () => {
-        setPlaybackCurrentTime(audio.currentTime);
-        if (audio.duration && !isNaN(audio.duration)) {
-          setPlaybackTotalDuration(audio.duration);
-        }
-      };
-
-      audio.onloadedmetadata = () => {
-        if (audio.duration && !isNaN(audio.duration)) {
-          setPlaybackTotalDuration(audio.duration);
-        }
-      };
-
-      audio.onended = () => {
-        setPlayingCallId(null);
-        setPlaybackCurrentTime(0);
-      };
-
-      audio.onerror = () => { setPlayingCallId(null); toast.danger(t('crm.callNoRecording')); };
-
-      audio
-        .play()
-        .then(() => {
-          setPlayingCallId(call.callId);
-          setAudioElement(audio);
-
-        })
-        .catch(() => {
-          setPlayingCallId(null);
-          toast.danger(t('crm.callNoRecording'));
-        });
-    }
+  const handleTogglePlay = (call: CallView) => {
+    setSelectedCall(call);
+    void player.toggle(call);
   };
-
-  const handleSeek = (time: number) => {
-    const target = Math.max(0, Math.min(time, playbackTotalDuration || 0));
-    setPlaybackCurrentTime(target);
-    if (audioElement) {
-      audioElement.currentTime = target;
-    }
-  };
-
-  const handleSpeedChange = (speed: number) => {
-    setPlaybackSpeed(speed);
-    if (audioElement) {
-      audioElement.playbackRate = speed;
-    }
-  };
-
+  const handleSeek = player.seek;
+  const handleSpeedChange = player.changeSpeed;
 
   const handleDirectApproveDraft = (d: CallDraftView) => {
     const cust = d.customer?.displayName || d.callerNameHeard || "";
@@ -268,16 +200,16 @@ export function Calls() {
               <h2 className="text-base font-semibold tracking-tight">{t('crm.callSwitchboardTitle')}</h2>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                
+
                 {t('crm.callAlwaysOn')}
               </span>
               <span className="text-xs text-teal-200/80 font-mono">
-                
+
                 {callData?.voiceNumber ? `${t('crm.callDedicatedLine')} ${formatPhoneDisplay(callData.voiceNumber)}` : ''}
               </span>
             </div>
             <p className="text-xs text-teal-100/80 mt-1">
-              
+
               {t('crm.callSwitchboardDesc')}
             </p>
           </div>
@@ -299,7 +231,7 @@ export function Calls() {
             onClick={() => navigate("/settings")}
           >
             <Settings2 className="w-3.5 h-3.5" />
-            
+
             {t('crm.callScriptConfig')}
           </Button>
         </div>
@@ -332,7 +264,7 @@ export function Calls() {
               disabled={refreshing || callsLoading || draftsLoading}
             >
               <RefreshCw className={"w-3.5 h-3.5 " + (callsLoading || draftsLoading ? "animate-spin" : "")} />
-              
+
               {t('crm.callRefresh')}
             </Button>
           </div>
@@ -390,7 +322,7 @@ export function Calls() {
               {drafts.length} <span className="text-xs font-semibold text-slate-400">{t('crm.callDraftUnit')}</span>
             </div>
             <p className="text-[11px] text-amber-700 font-medium mt-1">
-              
+
               {t('crm.callDraftsHint')}
             </p>
           </CardContent>
@@ -408,7 +340,7 @@ export function Calls() {
               {metrics.hoursSaved} <span className="text-xs font-semibold text-slate-400">{t('crm.callHoursUnit')}</span>
             </div>
             <p className="text-[11px] text-slate-500 mt-1">
-              
+
               {t('crm.callHoursDesc')}
             </p>
           </CardContent>
@@ -425,17 +357,17 @@ export function Calls() {
               </div>
               <div>
                 <h3 className="font-semibold text-amber-950 text-sm">
-                  
+
                   {t('crm.callDraftsTitle')}
                 </h3>
                 <p className="text-xs text-amber-800">
-                  
+
                   {t('crm.callDraftsDesc')}
                 </p>
               </div>
             </div>
             <Badge className="bg-amber-100 text-amber-900 border-amber-300 text-xs self-start sm:self-auto">
-              
+
               {t('crm.callHandleWithin15')}
             </Badge>
           </div>
@@ -453,18 +385,18 @@ export function Calls() {
                     </span>
                     {d.customer ? (
                       <span className="text-[10px] font-semibold bg-teal-50 text-teal-700 px-2 py-0.5 rounded-full border border-teal-200">
-                        
+
                         {t('crm.callCrmMatched')}
                       </span>
                     ) : (
                       <span className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                        
+
                         {t('crm.callPotentialNew')}
                       </span>
                     )}
                   </div>
                   <Badge variant={d.lowConfidence ? "warning" : "success"} className="text-[10px]">
-                    
+
                     {t('crm.callConfidence')} {Math.round(d.confidenceBp / 100)}%
                   </Badge>
                 </div>
@@ -516,7 +448,7 @@ export function Calls() {
                       className="text-xs text-slate-600 h-8 px-2.5"
                       onClick={() => setDismissingDraft(d)}
                     >
-                      
+
                       {t('crm.callIgnore')}
                     </Button>
                     <Button
@@ -525,7 +457,7 @@ export function Calls() {
                       onClick={() => handleDirectApproveDraft(d)}
                     >
                       <Calendar className="w-3 h-3" />
-                      
+
                       {t('crm.callConfirmBooking')}
                     </Button>
                   </div>
@@ -542,11 +474,11 @@ export function Calls() {
           <div>
             <h3 className="font-semibold text-slate-900 text-base flex items-center gap-2 whitespace-nowrap">
               <Phone className="w-4 h-4 text-teal-600" />
-              
+
               {t('voiceCallHistory')} <span className="text-sm font-normal tabular-nums text-slate-400">{filteredCalls.length}</span>
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              
+
               {voiceOnly ? callData?.voiceNumber && formatPhoneDisplay(callData.voiceNumber) : t('crm.callLogDesc')}
             </p>
           </div>
@@ -621,7 +553,7 @@ export function Calls() {
                   <TableHead className="w-20 text-center">{t('crm.callColStatus')}</TableHead>
                   <TableHead>{t('crm.callColNumber')}</TableHead>
                   <TableHead>{t('crm.callColTime')}</TableHead>
-                  <TableHead>{t('crm.callColDuration')}</TableHead>
+                  <TableHead>{t('voiceAiDuration')}</TableHead>
                   <TableHead>{t('crm.callColOutcome')}</TableHead>
                   <TableHead className="text-right">{t('crm.callColActions')}</TableHead>
                 </TableRow>
@@ -640,7 +572,7 @@ export function Calls() {
                           <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto" title={t('crm.callTagBooked')}>
                             <CalendarCheck className="w-3.5 h-3.5" />
                           </div>
-                        ) : call.toolsUsed.includes("telephony.forwardToHuman") ? (
+                        ) : (call.outcome === "transferred_to_human" || call.toolsUsed.includes("telephony.forwardToHuman")) ? (
                           <div className="w-6 h-6 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto" title={t('crm.callTagTransferred')}>
                             <PhoneForwarded className="w-3.5 h-3.5" />
                           </div>
@@ -672,8 +604,8 @@ export function Calls() {
                       <TableCell className="text-xs text-slate-600 font-mono">
                         <span className="inline-flex items-center gap-1">
                           <Clock className="w-3 h-3 text-slate-400" />
-                          {Math.floor((call.durationSeconds ?? 0) / 60)}{t('crm.callMinuteUnit')}{" "}
-                          {(call.durationSeconds ?? 0) % 60}{t('crm.callSecondUnit')}
+                          {call.aiDurationSeconds == null ? '—' : <>{Math.floor(call.aiDurationSeconds / 60)}{t('crm.callMinuteUnit')}{" "}
+                          {call.aiDurationSeconds % 60}{t('crm.callSecondUnit')}</>}
                         </span>
 
                       </TableCell>
@@ -683,7 +615,7 @@ export function Calls() {
                           <Badge variant="success" className="text-[11px]">
                             {t('crm.callResultBooked')}
                           </Badge>
-                        ) : call.toolsUsed.includes("telephony.forwardToHuman") ? (
+                        ) : (call.outcome === "transferred_to_human" || call.toolsUsed.includes("telephony.forwardToHuman")) ? (
                           <Badge variant="warning" className="text-[11px]">
                             {t('crm.callResultTransferred')}
                           </Badge>
@@ -701,7 +633,7 @@ export function Calls() {
                           </Button>
                           <Button size="sm" variant="secondary" className="text-xs gap-1 h-7 px-2.5 text-slate-700" onClick={() => setSelectedCall(call)}>
                             <FileText className="w-3 h-3 text-slate-500" />
-                            
+
                             {t('crm.callTranscript')}
                           </Button>
                         </div>
@@ -722,13 +654,9 @@ export function Calls() {
           onOpenChange={(open) => {
             if (!open) {
               setSelectedCall(null);
-              audioElement?.pause();
-              setPlayingCallId(null);
+              player.reset();
+
               if (linkedCallId) setSearchParams({}, { replace: true });
-              if (playingCallId) {
-                audioElement?.pause();
-                setPlayingCallId(null);
-              }
             }
           }}
           size="lg"
@@ -740,7 +668,7 @@ export function Calls() {
                 </div>
                 <div className="min-w-0 flex items-center gap-2 flex-wrap">
                   <h3 className="text-sm sm:text-base font-semibold text-slate-900 whitespace-nowrap">
-                    
+
                     {t('crm.callDetailTitle')}
                   </h3>
                   <span className="font-mono text-xs font-semibold text-teal-900 bg-teal-50 border border-teal-200/80 px-2 py-0.5 rounded-md whitespace-nowrap">
@@ -751,12 +679,14 @@ export function Calls() {
               <VoiceActivityLabels actions={selectedCall.appointmentActions??[]}/>
               {selectedCall.booked ? (
                 <Badge variant="success" className="text-xs shrink-0 whitespace-nowrap">
-                  
+
                   {t('crm.callDetailBooked')}
                 </Badge>
+              ) : selectedCall.outcome === 'transferred_to_human' || selectedCall.toolsUsed.includes('telephony.forwardToHuman') ? (
+                <Badge variant="warning" className="text-xs shrink-0 whitespace-nowrap">{t('crm.callResultTransferred')}</Badge>
               ) : (
                 <Badge variant="outline" className="text-xs text-slate-600 shrink-0 whitespace-nowrap">
-                  
+
                   {t('crm.callDetailAnswered')}
                 </Badge>
               )}
@@ -785,12 +715,12 @@ export function Calls() {
                   size="sm"
                   onClick={() => {
                     setSelectedCall(null);
-              audioElement?.pause();
-              setPlayingCallId(null);
+              player.reset();
+
               if (linkedCallId) setSearchParams({}, { replace: true });
                   }}
                 >
-                  
+
                   {t('crm.callDetailClose')}
                 </Button>
                 <Button
@@ -801,14 +731,14 @@ export function Calls() {
                       defaultPhone: selectedCall.fromE164 ? formatPhoneDisplay(selectedCall.fromE164) : "",
                     });
                     setSelectedCall(null);
-              audioElement?.pause();
-              setPlayingCallId(null);
+              player.reset();
+
               if (linkedCallId) setSearchParams({}, { replace: true });
                     toast.success(t('crm.callNumberCarried'));
                   }}
                 >
                   <Calendar className="w-3.5 h-3.5" />
-                  
+
                   {t('crm.callGoToSchedule')}
                 </Button>
               </div>
@@ -838,7 +768,7 @@ export function Calls() {
                       {playingCallId === selectedCall.callId ? t('crm.callPlayingNow') : t('crm.callClickToPlay')}
                     </p>
                     <p className="text-[11px] text-slate-400 font-mono">
-                      
+
                       {selectedCall.startedAt ? storeTime.dateTime(selectedCall.startedAt) : ''}
                     </p>
                   </div>
@@ -873,6 +803,7 @@ export function Calls() {
                     type="range"
                     min={0}
                     max={playbackTotalDuration || 0}
+                    disabled={!playbackTotalDuration}
                     step={0.5}
                     value={playbackCurrentTime || 0}
                     onChange={(e) => handleSeek(parseFloat(e.target.value))}
@@ -881,7 +812,7 @@ export function Calls() {
                   <div className="font-mono text-[11px] text-slate-300 font-semibold shrink-0">
                     <span className="text-teal-300">{formatAudioTime(playbackCurrentTime)}</span>
                     <span className="text-slate-500 mx-1">/</span>
-                    <span>{formatAudioTime(playbackTotalDuration || selectedCall.durationSeconds || 0)}</span>
+                    <span>{formatAudioTime(playbackTotalDuration)}</span>
                   </div>
                 </div>
               </div>
@@ -919,7 +850,7 @@ export function Calls() {
           footer={
             <div className="flex justify-end gap-2 w-full">
               <Button variant="secondary" size="sm" onClick={() => setDismissingDraft(null)}>
-                
+
                 {t('crm.callIgnoreCancel')}
               </Button>
               <Button
@@ -936,7 +867,7 @@ export function Calls() {
         >
           <div className="space-y-3 text-xs py-2">
             <p className="text-slate-600">
-              
+
               {t('crm.callIgnoreIntro')}
             </p>
             <select
@@ -970,7 +901,7 @@ export function Calls() {
               className="bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs px-5"
               onClick={() => setSimulatorOpen(false)}
             >
-              
+
               {t('crm.callSandboxOk')}
             </Button>
           </div>
@@ -997,7 +928,7 @@ export function Calls() {
                 }}
               >
                 <Copy className="w-3.5 h-3.5" />
-                
+
                 {t('crm.callCopyNumber')}
               </Button>
             </div>
@@ -1006,7 +937,7 @@ export function Calls() {
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 text-xs space-y-2 text-slate-600 leading-relaxed">
             <div className="flex items-center gap-1.5 font-semibold text-slate-800">
               <Sparkles className="w-4 h-4 text-teal-600 shrink-0" />
-              
+
               {t('crm.callTestGuide')}
             </div>
             <p>
