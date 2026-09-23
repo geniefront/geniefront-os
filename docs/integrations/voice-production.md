@@ -1,5 +1,13 @@
 # Zhi Zi Massage production voice binding
 
+## SIP transfer continuation — 2026-09-22
+
+The 20:47 EDT call (`f9abc5a0-36d7-4d2b-a972-5b29989a1131` in xAI; Telnyx session `50865776-b6e8-11f1-98d5-d2eea46c7961`) invoked `transfer_to_staff`, but Telnyx logged only the inbound and AI SIP legs, then the original caller was hung up. The published staff destination and active production `transfer_target` both held `+17574388097` (superseding the original transfer number below).
+
+The AI `<Dial>` now supplies `referUrl` and `referMethod="POST"`. Telnyx uses this callback to fetch replacement TeXML for the original caller after the AI SIP leg ends due to REFER, instead of falling through to `<Hangup/>`. The callback verifies the raw Telnyx signature, resolves the store from the signed original `To`, requires `CallSid`, and dials only the store's active configured `transfer_target`. It ignores arbitrary requested destinations and query-string store overrides, rejects unknown phone bindings, and gives an unavailable message for absent/disabled/self-loop targets. The store's owned AI number supplies caller ID; the staff leg has a 30-second ring timeout and 600-second limit without AI recording or metering.
+
+Provider contract: [Telnyx Dial referUrl](https://developers.telnyx.com/docs/voice/programmable-voice/texml-verbs/dial). Signed callback regression coverage does not replace a live PSTN transfer check after deployment.
+
 Cut over on 2026-09-20 at the user's request. The production shop is `va-zhi-zi-massage` (location `1c708a61-b467-4062-af96-2cd6392e20e5`).
 
 - Inbound voice number: **+1 757 731 7358**.

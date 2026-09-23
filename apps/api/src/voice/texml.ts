@@ -19,7 +19,8 @@ export function xaiDialXml(phone: string, sipHost: string, callbackBase: string)
   const callback = new URL('/v1/telnyx/xai/recording', callbackBase);
   if (callback.protocol !== 'https:') throw new Error('HTTPS callback required');
   callback.searchParams.set('number', phone);
-  return response(`<Dial timeLimit="600" timeout="20" record="record-from-answer-dual" recordingStatusCallback="${escapeXml(callback.href)}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed"><Sip>sip:${phone}@${escapeXml(sipHost)};transport=tls</Sip></Dial><Hangup/>`);
+  const refer = new URL('/v1/telnyx/xai/transfer', callbackBase);
+  return response(`<Dial timeLimit="600" timeout="20" referUrl="${escapeXml(refer.href)}" referMethod="POST" record="record-from-answer-dual" recordingStatusCallback="${escapeXml(callback.href)}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed"><Sip>sip:${phone}@${escapeXml(sipHost)};transport=tls</Sip></Dial><Hangup/>`);
 }
 
 export function registerXaiTexmlRoutes(app: FastifyInstance) {
@@ -57,6 +58,28 @@ export function registerXaiTexmlRoutes(app: FastifyInstance) {
       void refreshVoiceSnapshot(ctx,tenant.toolTokenDigest).catch(()=>app.log.warn('Voice context prewarm failed; tool will retry'));
     }
     return reply.type('application/xml').send(xaiDialXml(phone, sipHost, base));
+  });
+  // SIP REFER ends the AI leg. Telnyx asks this URL for replacement instructions
+  // for the original caller; without it, the original Dial falls through to Hangup.
+  app.post('/v1/telnyx/xai/transfer', async (req, reply) => {
+    const body = verified(req);
+    // Resolve the original called number from the signed body, never the query
+    // string or the model/provider's requested transfer destination.
+    const phone = body.To ?? '';
+    if (!e164.test(phone) || !body.CallSid) throw new AppError(ERROR_CODES.VALIDATION_FAILED);
+    const tenant = await tenantForPhoneNumber(phone);
+    if (!tenant?.assistantId?.startsWith('agent_')) throw new AppError(ERROR_CODES.NOT_FOUND);
+    const [transfer] = await withTenant({ ...tenant, membershipId: null }, tx => tx<{ e164: string }[]>`
+      select e164 from phone_lines
+      where location_id=${tenant.locationId} and purpose='transfer_target' and active limit 1`);
+    if (!transfer || !e164.test(transfer.e164) || transfer.e164 === phone) {
+      req.log.warn({ callSid: body.CallSid, locationId: tenant.locationId }, 'Voice transfer unavailable');
+      return reply.type('application/xml').send(response('<Say>Sorry, we cannot connect you to the staff right now. Please call again later.</Say><Hangup/>'));
+    }
+    req.log.info({ callSid: body.CallSid, locationId: tenant.locationId }, 'Voice transfer dialing staff');
+    // Use the store's owned number as caller ID, not an unverified caller number.
+    // No recording here: the completed AI recording remains the billing boundary.
+    return reply.type('application/xml').send(response(`<Dial callerId="${phone}" timeLimit="600" timeout="30"><Number>${transfer.e164}</Number></Dial><Hangup/>`));
   });
   app.post('/v1/telnyx/xai/recording', async (req, reply) => {
     const body = verified(req);

@@ -68,7 +68,42 @@ describe('xAI scoped booking tools', () => {
     const r = await app.inject({method:'POST',url:'/v1/telnyx/xai/inbound',headers,payload:body});
     expect(r.statusCode).toBe(200); expect(r.body).toContain('timeLimit="600"');
     expect(r.body).toContain('sip:+15125550199@voice.example.com:5060;transport=tls</Sip>');
+    expect(r.body).toContain('referUrl="https://api.example.com/v1/telnyx/xai/transfer" referMethod="POST"');
     expect((await app.inject({method:'POST',url:'/v1/telnyx/xai/inbound',headers,payload:body+'&tampered=1'})).statusCode).toBe(401);
+  });
+  it('continues a signed SIP transfer only to the active store staff number', async () => {
+    const keys = generateKeyPairSync('ed25519');
+    vi.stubEnv('TELNYX_PUBLIC_KEY', keys.publicKey.export({type:'spki',format:'der'}).subarray(-32).toString('base64'));
+    const staffPhone = '+12025550188';
+    await dispatch('location.savePhoneLine', { e164: staffPhone, purpose: 'transfer_target', active: true }, ctx, { systemOrigin: 'test_voice' });
+    const transfer = (fields: Record<string, string> = {}, tamper = false) => {
+      const body = new URLSearchParams({ To: phone, CallSid: 'original-inbound-call',
+        From: '+12025550123', ReferTransferTarget: '+19005550199', ...fields }).toString();
+      const timestamp = String(Math.floor(Date.now()/1000));
+      const signature = sign(null, Buffer.from(`${timestamp}|${body}`), keys.privateKey).toString('base64');
+      return app.inject({ method: 'POST', url: '/v1/telnyx/xai/transfer?number=%2B19005550199',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', 'telnyx-timestamp': timestamp,
+          'telnyx-signature-ed25519': signature }, payload: body + (tamper ? '&To=%2B19005550199' : '') });
+    };
+    const result = await transfer();
+    expect(result.statusCode).toBe(200);
+    expect(result.headers['content-type']).toContain('application/xml');
+    expect(result.body).toContain(`<Number>${staffPhone}</Number>`);
+    expect(result.body).toContain(`callerId="${phone}"`);
+    expect(result.body).not.toContain('+19005550199');
+    expect(result.body).not.toContain('record=');
+    expect((await transfer({}, true)).statusCode).toBe(401);
+    expect((await transfer({ To: '+15125550198' })).statusCode).toBe(404);
+    expect((await transfer({ CallSid: '' })).statusCode).toBe(400);
+    expect((await transfer({ To: 'invalid' })).statusCode).toBe(400);
+    await withTenant(tenant, tx => tx`update phone_lines set active=false where location_id=${locationId} and purpose='transfer_target'`);
+    const unavailable = await transfer();
+    expect(unavailable.statusCode).toBe(200);
+    expect(unavailable.body).toContain('<Say>');
+    expect(unavailable.body).not.toContain('<Dial');
+    await withTenant(tenant, tx => tx`update phone_lines set active=true, e164=${phone} where location_id=${locationId} and purpose='transfer_target'`);
+    expect((await transfer()).body).not.toContain('<Dial');
+    await withTenant(tenant, tx => tx`update phone_lines set e164=${staffPhone} where location_id=${locationId} and purpose='transfer_target'`);
   });
   it('returns store information without leaking customer records', async () => {
     const r = await app.inject({ method: 'GET', url: `${path}/context`, headers: headers() });
