@@ -195,6 +195,8 @@ export const RecordCall = defineCommand({
   system: true,
   input: z.object({
     deferBilling: z.boolean().default(false),
+    /** Verified provider evidence that the AI never answered (forwarded or missed call). */
+    aiBypassed: z.boolean().default(false),
     providerCallId: z.string().max(120),
     fromE164: z.string().max(24).optional(),
     toE164: z.string().max(24).optional(),

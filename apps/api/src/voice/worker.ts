@@ -5,6 +5,8 @@ import type { CommandContext } from '@gf/contracts';
 import { sql, withTenant, tenantForPhoneNumber } from '@gf/db';
 import { dispatch } from '../bus';
 import { getRecording, transcribeRecording, classifyRecording, recentRecordings } from './provider';
+import { recordingBoundary, reconcileDirectSipCalls } from './directSip';
+import { billingSystemContext, maybeAutoTopup } from '../billing/autoTopup';
 import { flushEmails } from '../email/flush';
 import { flushSms } from '../sms/flush';
 import '../handlers/voiceProcessing';
@@ -13,7 +15,8 @@ import '../handlers/voiceProcessing';
 export async function reconcileVoiceRecordings() {
   for (const r of await recentRecordings()) {
     const at = new Date(r.recording_started_at);
-    if (!Number.isFinite(at.getTime()) || at.getTime() < Date.now() - 60 * 60_000
+    const ended = Date.parse(r.recording_ended_at ?? r.created_at);
+    if (!Number.isFinite(at.getTime()) || !Number.isFinite(ended) || ended < Date.now() - 24 * 3600_000
       || !r.call_session_id || !/^\+[1-9]\d{7,14}$/.test(r.to ?? '')) continue;
     const t = await tenantForPhoneNumber(r.to);
     if (!t?.assistantId?.startsWith('agent_')) continue;
@@ -21,9 +24,11 @@ export async function reconcileVoiceRecordings() {
       actorKind: 'api', locale: 'en', permissions: new Set(['call.draft']) };
     const known = await withTenant(ctx, tx => tx`select id from voice_processing_jobs where location_id=${t.locationId} and provider_call_id=${r.call_session_id}`);
     if (known.length) continue;
+    const boundary = await recordingBoundary(r as import('./directSip').RecordingIdentity);
+    if (boundary === null) continue;
     await dispatch('call.queueRecording', { providerCallId: r.call_session_id, recordingId: r.id, to: r.to,
       ...(typeof r.from === 'string' && /^\+[1-9]\d{7,14}$/.test(r.from) ? { from: r.from } : {}),
-      startedAt: at.toISOString(), durationSeconds: Math.ceil(Number(r.duration_millis) / 1000) }, ctx,
+      startedAt: at.toISOString(), durationSeconds: Math.ceil(Number(r.duration_millis) / 1000), ...boundary }, ctx,
     { systemOrigin: 'voice_recording_reconcile' });
   }
 }
@@ -49,6 +54,7 @@ export async function processVoiceRecordings(app: Pick<FastifyInstance, 'log'>) 
       await dispatch('call.completeRecording', { jobId: job.id, leaseId: job.leaseId, durationSeconds,
         transcript: transcript.text, turns: labelDiarizedTurns(transcript.turns, analysis.speakers), analysis, recordingUrl: recording.url }, ctx, opts);
       await flushEmails(ctx, app.log); await flushSms(ctx, app.log);
+      void maybeAutoTopup(billingSystemContext(ctx), 'voice_minute', app.log);
     } catch (error) {
       const reason = error instanceof Error ? error.message.slice(0, 200) : 'Voice processing failed';
       await dispatch('call.failRecording', { jobId: job.id, leaseId: job.leaseId, reason }, ctx, opts);
@@ -62,8 +68,8 @@ export function startVoiceProcessing(app: FastifyInstance) {
   let reconciledAt = 0;
   const run = async () => { if (busy) return; busy = true;
     try {
-      if (Date.now() - reconciledAt > 5 * 60_000) {
-        try { await reconcileVoiceRecordings(); reconciledAt = Date.now(); }
+      if (Date.now() - reconciledAt > 30_000) {
+        try { await reconcileDirectSipCalls(); await reconcileVoiceRecordings(); reconciledAt = Date.now(); }
         catch { app.log.warn('Voice recording reconciliation will retry'); }
       }
       await processVoiceRecordings(app);
@@ -71,5 +77,6 @@ export function startVoiceProcessing(app: FastifyInstance) {
     finally { busy = false; }
   };
   const timer = setInterval(() => void run(), 30_000); timer.unref();
+  app.addHook('onListen', async () => { void run(); });
   app.addHook('onClose', async () => clearInterval(timer));
 }

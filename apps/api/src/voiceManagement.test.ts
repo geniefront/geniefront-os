@@ -201,7 +201,7 @@ it("requires authenticated system caller metadata, never a model-supplied phone"
         url: `${path}/appointments`,
         headers: headers(
           caller,
-          new Date(Date.now() - 16 * 60000).toISOString(),
+          new Date(Date.now() - 25 * 60 * 60000).toISOString(),
         ),
       })
     ).statusCode,
@@ -361,7 +361,7 @@ it("missing email still sends a normal SMS and an independent shop email", async
   ).toBe(200);
   const n = await noticeCounts(b.id);
   expect(n.email.length - before.email.length).toBe(1);
-  expect(n.sms.find((s) => s.to_e164 === caller)!.body).toContain("Call store");
+  expect(n.sms.find((s) => s.to_e164 === caller)!.body).toContain("Call 617-555-0199");
 });
 it("also manages same-phone web and manual bookings, preserving an explicit SMS opt-out", async () => {
   const b = await make();

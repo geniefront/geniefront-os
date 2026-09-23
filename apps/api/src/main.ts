@@ -1,4 +1,5 @@
 import {startVoiceSnapshots} from './voice/snapshotWorker';
+import { startDirectSipRouting } from './voice/directSip';
 /**
  * 生产入口。
  *
@@ -47,6 +48,7 @@ const app = buildServer();
 startCallReconciler(app);
 startVoiceProcessing(app);
 startVoiceSnapshots(app);
+startDirectSipRouting(app);
 
 // 幂等表保留期清理（AUD-09）。同上：只在真正的入口挂定时器。
 startRetentionJob(app);

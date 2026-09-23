@@ -1,5 +1,6 @@
 import { recordSmsDelivery } from '../sms/delivery';
 import { getRecordingMetadata } from '../voice/provider';
+import { recordingBoundary } from '../voice/directSip';
 /**
  * Telnyx 的入口：三个 AI 工具 + 一个通话事件 webhook（09-TELNYX §4.2）
  *
@@ -1260,10 +1261,13 @@ export function registerTelnyxRoutes(app: FastifyInstance): void {
       if (!t.assistantId?.startsWith('agent_')) return { ok: true, ignored: 'not_xai_line' };
       const callId = str(payload['call_session_id']) ?? metadata.call_session_id;
       if (!callId) return { ok: true, ignored: 'missing_call_id' };
+      const boundary = await recordingBoundary(metadata);
+      if (boundary === null) return { ok: true, pending: 'waiting_for_sip_records' };
       await dispatch('call.queueRecording', { providerCallId: callId, recordingId, to,
         from: str(payload['from']) ?? metadata.from,
         startedAt: metadata.recording_started_at,
         durationSeconds: Math.max(0, Math.round(Number(metadata.duration_millis ?? 0) / 1000)),
+        ...boundary,
       }, systemContext(t), { systemOrigin: 'telnyx_recording', idempotencyKey: `recording-${recordingId}` });
       return { ok: true, queued: true };
     }

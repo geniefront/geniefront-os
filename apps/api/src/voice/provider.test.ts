@@ -1,6 +1,14 @@
 import {it,expect,vi,afterEach} from 'vitest';
-import {transcribeRecording} from './provider';
+import {transcribeRecording, recentRecordings} from './provider';
 afterEach(()=>{vi.unstubAllGlobals();vi.unstubAllEnvs();});
+it('reconciles all recent recording pages instead of dropping calls after the first page', async () => {
+ const mock=vi.fn().mockResolvedValueOnce({ok:true,json:async()=>({data:[{id:'first'}],meta:{total_pages:2}})})
+ .mockResolvedValueOnce({ok:true,json:async()=>({data:[{id:'second'}],meta:{total_pages:2}})});
+ vi.stubGlobal('fetch',mock);
+ expect(await recentRecordings()).toEqual([{id:'first'},{id:'second'}]);
+ expect(new URL(mock.mock.calls[1]![0]).searchParams.get('page[number]')).toBe('2');
+ expect(new URL(mock.mock.calls[0]![0]).searchParams.has('filter[created_at][gte]')).toBe(true);
+});
 it('retries broken multichannel word timing once using diarization',async()=>{
  vi.stubEnv('XAI_API_KEY','test');
  const mock=vi.fn().mockResolvedValueOnce({ok:true,json:async()=>({text:'Hello',channels:[{index:0,words:[{text:'Hello',start:0,end:30}]}]})})

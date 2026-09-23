@@ -13,14 +13,14 @@ const escapeXml = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<'
 const response = (s: string) => `<?xml version="1.0" encoding="UTF-8"?><Response>${s}</Response>`;
 const e164 = /^\+[1-9]\d{7,14}$/;
 
-/** Telnyx, rather than the model or an in-memory timer, owns the 600-second cutoff. */
+/** Legacy TeXML compatibility; production xAI calls use direct SIP without this bridge. */
 export function xaiDialXml(phone: string, sipHost: string, callbackBase: string): string {
   if (!e164.test(phone) || !/^[a-zA-Z0-9.-]+(?::\d{1,5})?$/.test(sipHost)) throw new Error('Invalid SIP route');
   const callback = new URL('/v1/telnyx/xai/recording', callbackBase);
   if (callback.protocol !== 'https:') throw new Error('HTTPS callback required');
   callback.searchParams.set('number', phone);
   const refer = new URL('/v1/telnyx/xai/transfer', callbackBase);
-  return response(`<Dial timeLimit="600" timeout="20" referUrl="${escapeXml(refer.href)}" referMethod="POST" record="record-from-answer-dual" recordingStatusCallback="${escapeXml(callback.href)}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed"><Sip>sip:${phone}@${escapeXml(sipHost)};transport=tls</Sip></Dial><Hangup/>`);
+  return response(`<Dial timeout="20" referUrl="${escapeXml(refer.href)}" referMethod="POST" record="record-from-answer-dual" recordingStatusCallback="${escapeXml(callback.href)}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed"><Sip>sip:${phone}@${escapeXml(sipHost)};transport=tls</Sip></Dial><Hangup/>`);
 }
 
 export function registerXaiTexmlRoutes(app: FastifyInstance) {
@@ -47,7 +47,7 @@ export function registerXaiTexmlRoutes(app: FastifyInstance) {
       const [transfer] = await withTenant({ ...tenant, membershipId: null }, tx => tx<{ e164: string }[]>`
         select e164 from phone_lines where location_id=${tenant.locationId} and purpose='transfer_target' and active limit 1`);
       const dial = transfer && e164.test(transfer.e164) && transfer.e164 !== phone
-        ? `<Dial timeLimit="600" timeout="20"><Number>${transfer.e164}</Number></Dial><Hangup/>` : '<Reject/>';
+        ? `<Dial timeout="20"><Number>${transfer.e164}</Number></Dial><Hangup/>` : '<Reject/>';
       return reply.type('application/xml').send(response(dial));
     }
     const sipHost = process.env.XAI_SIP_HOST;
@@ -79,7 +79,7 @@ export function registerXaiTexmlRoutes(app: FastifyInstance) {
     req.log.info({ callSid: body.CallSid, locationId: tenant.locationId }, 'Voice transfer dialing staff');
     // Use the store's owned number as caller ID, not an unverified caller number.
     // No recording here: the completed AI recording remains the billing boundary.
-    return reply.type('application/xml').send(response(`<Dial callerId="${phone}" timeLimit="600" timeout="30"><Number>${transfer.e164}</Number></Dial><Hangup/>`));
+    return reply.type('application/xml').send(response(`<Dial callerId="${phone}" timeout="30"><Number>${transfer.e164}</Number></Dial><Hangup/>`));
   });
   app.post('/v1/telnyx/xai/recording', async (req, reply) => {
     const body = verified(req);

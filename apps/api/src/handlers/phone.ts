@@ -545,6 +545,13 @@ registerHandler(RecordCall, async ({ input, ctx, tx, audit }: HandlerArgs<
       recording_url    = coalesce(excluded.recording_url, phone_calls.recording_url)
     returning id`;
 
+  if (input.aiBypassed) {
+    await tx`update phone_calls set voice_billing_status='settled',billable_seconds=0,
+      billing_analysis=${jsonb({ aiBypassed: true, ruleVersion: 3 })}::jsonb
+      where id=${row!.id} and voice_billing_status in ('legacy','pending','review')`;
+    audit({ entityType: 'phone_call', entityId: row!.id, after: { aiBypassed: true, billedMinutes: 0 } });
+    return { callId: row!.id, billedMinutes: 0, fromIncluded: 0, fromBalance: 0 };
+  }
   if (input.deferBilling) {
     await tx`update phone_calls set voice_billing_status='pending'
       where id=${row!.id} and voice_billing_status='legacy'`;

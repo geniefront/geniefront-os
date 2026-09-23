@@ -16,9 +16,17 @@ export async function getRecordingMetadata(recordingId: string) {
   return body.data;
 }
 export async function recentRecordings() {
-  const body = await jsonRequest('https://api.telnyx.com/v2/recordings?page[size]=100',
-    { headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` } });
-  return Array.isArray(body.data) ? body.data as Array<Record<string, any>> : [];
+  const records: Array<Record<string, any>> = [];
+  for (let page = 1; page <= 20; page++) {
+    const query = new URLSearchParams({ 'page[size]': '100', 'page[number]': String(page),
+      'filter[created_at][gte]': new Date(Date.now() - 24 * 3600_000).toISOString() });
+    const body = await jsonRequest(`https://api.telnyx.com/v2/recordings?${query}`,
+      { headers: { Authorization: `Bearer ${process.env.TELNYX_API_KEY}` } });
+    if (!Array.isArray(body.data)) throw new Error('Invalid recording list');
+    records.push(...body.data);
+    if (page >= parseInt(String(body.meta?.total_pages ?? 1), 10)) return records;
+  }
+  throw new Error('Recording reconciliation page limit exceeded');
 }
 export async function getRecording(recordingId: string) {
   const recording = await getRecordingMetadata(recordingId);

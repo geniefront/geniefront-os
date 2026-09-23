@@ -56,7 +56,7 @@ describe('xAI scoped booking tools', () => {
     expect((await app.inject({ method: 'GET', url: '/v1/voice/%2B17579999968/context', headers: headers() })).statusCode).toBe(401);
   });
 
-  it('verifies raw TeXML callbacks and returns the provider-side time limit', async () => {
+  it('verifies legacy TeXML callbacks without a 600-second call cutoff', async () => {
     const keys = generateKeyPairSync('ed25519');
     vi.stubEnv('TELNYX_PUBLIC_KEY', keys.publicKey.export({type:'spki',format:'der'}).subarray(-32).toString('base64'));
     vi.stubEnv('XAI_SIP_HOST', 'voice.example.com:5060');
@@ -66,7 +66,7 @@ describe('xAI scoped booking tools', () => {
     const signature = sign(null, Buffer.from(`${timestamp}|${body}`), keys.privateKey).toString('base64');
     const headers = { 'content-type': 'application/x-www-form-urlencoded', 'telnyx-timestamp': timestamp, 'telnyx-signature-ed25519': signature };
     const r = await app.inject({method:'POST',url:'/v1/telnyx/xai/inbound',headers,payload:body});
-    expect(r.statusCode).toBe(200); expect(r.body).toContain('timeLimit="600"');
+    expect(r.statusCode).toBe(200); expect(r.body).not.toContain('timeLimit=');
     expect(r.body).toContain('sip:+15125550199@voice.example.com:5060;transport=tls</Sip>');
     expect(r.body).toContain('referUrl="https://api.example.com/v1/telnyx/xai/transfer" referMethod="POST"');
     expect((await app.inject({method:'POST',url:'/v1/telnyx/xai/inbound',headers,payload:body+'&tampered=1'})).statusCode).toBe(401);
@@ -227,6 +227,36 @@ describe('xAI scoped booking tools', () => {
     expect(out.result.billableSeconds).toBe(0);
     const [usage]=await withTenant(tenant,tx=>tx`select qty from usage_events where meta->>'providerCallId'=${providerCallId}`);
     expect(usage?.qty).toBe(0);
+  });
+
+  it('keeps direct SIP recording and notifications while excluding staff time from AI billing', async () => {
+    const opts = { systemOrigin: 'test_direct_sip' }, providerCallId = 'direct-sip-transfer';
+    await withTenant(tenant, tx => tx`update locations set settings=jsonb_set(settings,'{voice_notifications}','{"email":"direct-sip@example.com","phone":null}'::jsonb,true) where id=${locationId}`);
+    await dispatch('call.queueRecording', { providerCallId, recordingId: 'direct-sip-audio', to: phone,
+      from: '+12025550777', startedAt: new Date().toISOString(), durationSeconds: 180,
+      aiDurationSeconds: 13, outcome: 'transferred_to_human' }, ctx, opts);
+    const claimed = await dispatch<{job:{id:string;leaseId:string}}>('call.claimRecording', {}, ctx, opts);
+    const payload = { jobId: claimed.result.job.id, leaseId: claimed.result.job.leaseId, durationSeconds: 180,
+      transcript: 'Please connect me to staff. Staff handled the rest of the call.',
+      recordingUrl: 'https://recordings.telnyx.com/direct.mp3',
+      analysis: { summary: 'Caller requested staff and was transferred.', segments: [{ start: 0, end: 180, category: 'business' }] } };
+    expect((await dispatch<{billableSeconds:number}>('call.completeRecording', payload, ctx, opts)).result.billableSeconds).toBe(13);
+    expect((await dispatch<{completed:boolean}>('call.completeRecording', payload, ctx, opts)).result.completed).toBe(false);
+    const [call] = await withTenant(tenant, tx => tx`select id,outcome,duration_seconds,billable_seconds,recording_id from phone_calls where provider_call_id=${providerCallId}`);
+    expect(call).toMatchObject({ outcome: 'transferred_to_human', duration_seconds: 180, billable_seconds: 13, recording_id: 'direct-sip-audio' });
+    expect(await withTenant(tenant, tx => tx`select qty from usage_events where meta->>'providerCallId'=${providerCallId}`)).toEqual([{ qty: 1 }]);
+    expect(await withTenant(tenant, tx => tx`select id from email_outbox where entity_type='phone_call' and entity_id=${call!.id}`)).toHaveLength(1);
+  });
+
+  it('shows human-only forwarded calls without pending AI minutes or quota charges', async () => {
+    const opts = { systemOrigin: 'test_direct_sip', idempotencyKey: 'direct-staff-only' };
+    const payload = { providerCallId: 'direct-staff-only', fromE164: '+12025550777', toE164: phone,
+      durationSeconds: 600, outcome: 'transferred_to_human', deferBilling: true, aiBypassed: true };
+    await dispatch('call.record', payload, ctx, opts);
+    await dispatch('call.record', payload, ctx, opts);
+    const [call] = await withTenant(tenant, tx => tx`select duration_seconds,billable_seconds,voice_billing_status from phone_calls where provider_call_id='direct-staff-only'`);
+    expect(call).toEqual({ duration_seconds: 600, billable_seconds: 0, voice_billing_status: 'settled' });
+    expect(await withTenant(tenant, tx => tx`select id from usage_events where meta->>'providerCallId'='direct-staff-only'`)).toHaveLength(0);
   });
 
   it('blocks disabled voice tools before creating any booking', async () => {

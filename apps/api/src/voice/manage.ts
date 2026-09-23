@@ -141,7 +141,9 @@ export function callerFromSystemHeaders(req: Pick<FastifyRequest, "headers">) {
     !caller?.success ||
     !Number.isFinite(time) ||
     time > Date.now() + 60000 ||
-    Date.now() - time > 15 * 60000
+    // This is metadata freshness, not a call duration cutoff. Direct SIP calls
+    // may continue past the old 15-minute bridge assumption; offer tokens still expire separately.
+    Date.now() - time > 24 * 60 * 60000
   )
     throw new AppError(ERROR_CODES.PERMISSION_DENIED, {
       details: { reason: "verified_caller_required" },
