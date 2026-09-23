@@ -1,5 +1,11 @@
 # Zhi Zi Massage production voice binding
 
+## Current route: direct SIP — 2026-09-22
+
+At the owner's explicit request after the 21:03 EDT retry still disconnected, production number `+17577317358` (Telnyx resource `3047677534805165608`) now uses FQDN connection `3053359378305386217`, `XAI-GenieFront-SPA`, instead of TeXML application `3053337047696672309`. Its primary FQDN is `3053364789158872336`, `sip.voice.x.ai:5061`, over TLS. Caller ANI is `+E.164`, DNIS remains `+e164`. Completed the previously empty outbound credential configuration and attached the existing `Default` outbound voice profile `3027497963891983504` (US/CA); credentials are not documented here. The xAI transfer tool retains `sip:+17574388097@sip.telnyx.com`.
+
+The production number binding and connection settings were read back successfully. Live PSTN answer/transfer confirmation remains pending. The TeXML 600-second limit is intentionally bypassed. Direct SIP also bypasses the inbound API admission/AI-answer switch and TeXML recording callback; number-level recording is disabled, so the existing backend recording/summary pipeline is not guaranteed for new direct calls. xAI business API tools remain authenticated and unchanged. This is a temporary connectivity-first configuration, not verified parity with the previous metering/recording behavior. The previous TeXML application remains available for rollback; the API callback code below is deployed but no longer in the active inbound route.
+
 ## SIP transfer continuation — 2026-09-22
 
 The 20:47 EDT call (`f9abc5a0-36d7-4d2b-a972-5b29989a1131` in xAI; Telnyx session `50865776-b6e8-11f1-98d5-d2eea46c7961`) invoked `transfer_to_staff`, but Telnyx logged only the inbound and AI SIP legs, then the original caller was hung up. The published staff destination and active production `transfer_target` both held `+17574388097` (superseding the original transfer number below).
