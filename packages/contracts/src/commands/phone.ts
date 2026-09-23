@@ -173,6 +173,8 @@ export const AttachCallTranscript = defineCommand({
       text: z.string().max(4000),
       at: z.string().optional(),
       tool: z.string().max(60).optional(),
+      startSeconds: z.number().nonnegative().optional(),
+      endSeconds: z.number().nonnegative().optional(),
     })).max(400).optional(),
     toolsUsed: z.array(z.string().max(60)).max(40).optional(),
     recordingUrl: z.string().url().max(1000).optional(),

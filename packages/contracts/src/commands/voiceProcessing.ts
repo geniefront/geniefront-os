@@ -14,6 +14,9 @@ export const QueueVoiceRecording = defineCommand({ ...system, name: 'call.queueR
     startedAt: z.string().datetime({ offset: true }).optional(), durationSeconds: z.number().int().min(0).max(86400),
     /** Provider-verified boundary; never supplied by a model or public caller. */
     aiDurationSeconds: z.number().int().min(0).max(86400).optional(),
+    callDurationSeconds: z.number().int().min(0).max(86400).optional(),
+    suppressNotification: z.boolean().optional(),
+    callerChannel: z.union([z.literal(0), z.literal(1)]).optional(),
     outcome: z.enum(['completed','transferred_to_human']).optional() }),
   output: z.object({ queued: z.boolean() }),
 });

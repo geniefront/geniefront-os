@@ -26,12 +26,18 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(
 afterAll(async () => { await closeDb(); });
 
 it('bills only the 13 AI seconds of an 85-second transferred call', () => {
-  expect(directRecordingBoundary(recording, [inbound, transferred], now)).toEqual({ aiDurationSeconds: 13, outcome: 'transferred_to_human' });
+  expect(directRecordingBoundary(recording, [inbound, transferred], now)).toEqual({ aiDurationSeconds: 13, callDurationSeconds: 85, callerChannel: 1, outcome: 'transferred_to_human' });
+});
+it('accepts a rotated recording leg with a corroborated session and preserves full call duration', () => {
+  const clip = { ...recording, call_leg_id: 'rotated-ai-leg', duration_millis: 13680 };
+  expect(directRecordingBoundary(clip, [inbound, transferred], now)).toEqual({ aiDurationSeconds: 13, callDurationSeconds: 85, callerChannel: 1, outcome: 'transferred_to_human' });
+  expect(directRecordingBoundary({ ...clip, recording_started_at: new Date(at - 30000).toISOString() }, [inbound, transferred], now)).toBeNull();
+  expect(directRecordingBoundary({ ...clip, recording_started_at: new Date(at + 80000).toISOString() }, [inbound, transferred], now)).toBeNull();
 });
 it('does not treat another session, caller or connection as a transfer', () => {
   expect(directRecordingBoundary(recording, [inbound, { ...transferred, telnyx_session_id: 'other' },
     { ...transferred, cli: '+12025550999' }, { ...transferred, connection_id: 'other' }], now))
-    .toEqual({ aiDurationSeconds: 85, outcome: 'completed' });
+    .toEqual({ aiDurationSeconds: 85, callDurationSeconds: 85, callerChannel: 1, outcome: 'completed' });
 });
 it('waits for missing, ambiguous or still-settling provider records', () => {
   expect(directRecordingBoundary(recording, [], now)).toBeNull();
@@ -67,7 +73,8 @@ it('requires provider corroboration even when a direct recording omits its conne
   vi.stubEnv('XAI_DIRECT_SIP_ROUTES', JSON.stringify([route]));
   vi.spyOn(Date, 'now').mockReturnValue(now);
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [inbound, transferred], meta: { total_pages: 1 } }) }));
-  expect(await recordingBoundary({ ...recording, connection_id: undefined })).toEqual({ aiDurationSeconds: 13, outcome: 'transferred_to_human' });
+  const { connection_id: _connection, ...withoutConnection } = recording;
+  expect(await recordingBoundary(withoutConnection)).toEqual({ aiDurationSeconds: 13, callDurationSeconds: 85, callerChannel: 1, outcome: 'transferred_to_human' });
 });
 
 function providerMock() {

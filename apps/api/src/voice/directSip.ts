@@ -54,8 +54,7 @@ export interface RecordingIdentity {
 export function directRecordingBoundary(recording: RecordingIdentity, records: SipRecord[], now = Date.now()) {
   const inbound = records.filter(r => r.telnyx_session_id === recording.call_session_id
     && r.connection_id === recording.connection_id && r.direction === 'inbound'
-    && r.is_callcontrol === false && r.cld === recording.to && r.cli === recording.from
-    && (!recording.call_leg_id || r.id === recording.call_leg_id));
+    && r.is_callcontrol === false && r.cld === recording.to && r.cli === recording.from);
   // Let CDRs settle before charging; missing/ambiguous records are retried, never
   // interpreted as proof that the whole recording was AI time.
   if (inbound.length !== 1 || !Number.isFinite(Date.parse(inbound[0]!.finished_at))
@@ -63,6 +62,13 @@ export function directRecordingBoundary(recording: RecordingIdentity, records: S
   const start = Date.parse(recording.recording_started_at);
   const duration = Math.ceil(Number(recording.duration_millis) / 1000);
   if (!Number.isFinite(start) || !Number.isFinite(duration) || duration < 0) return null;
+  // A SIP transfer can rotate the recording's leg ID. Corroborate the unique
+  // session/connection/number pair and recording window instead of equating legs.
+  const callStart = Date.parse(inbound[0]!.answered_at ?? inbound[0]!.started_at);
+  const callEnd = Date.parse(inbound[0]!.finished_at);
+  if (!Number.isFinite(callStart) || start < callStart - 2000
+    || start + Number(recording.duration_millis) > callEnd + 2000) return null;
+  const callDurationSeconds = Math.max(duration, Math.round((callEnd - callStart) / 1000));
   const transfers = records.filter(r => r.telnyx_session_id === recording.call_session_id
     && r.connection_id === recording.connection_id && r.direction === 'outbound'
     && r.is_callcontrol === false && r.cli === recording.from);
@@ -71,7 +77,7 @@ export function directRecordingBoundary(recording: RecordingIdentity, records: S
   const cutoff = forwarded ? 0 : transfers.length
     ? Math.max(0, Math.floor((Math.min(...transfers.map(r => Date.parse(r.started_at))) - start) / 1000))
     : duration;
-  return { aiDurationSeconds: Math.min(duration, cutoff),
+  return { aiDurationSeconds: Math.min(duration, cutoff), callDurationSeconds, callerChannel: 1 as const,
     outcome: (forwarded || transfers.length ? 'transferred_to_human' : 'completed') as 'transferred_to_human' | 'completed' };
 }
 

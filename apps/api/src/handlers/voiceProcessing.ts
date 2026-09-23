@@ -28,10 +28,10 @@ registerHandler(QueueVoiceRecording, async ({ input, tx, ctx, audit }) => {
     values(${ctx.orgId},${ctx.locationId},${input.providerCallId},${input.recordingId},${jsonb(input)}::jsonb)
     on conflict(location_id,provider_call_id) do nothing`;
   await tx`insert into phone_calls(org_id,location_id,provider_call_id,from_e164,to_e164,started_at,duration_seconds,outcome,recording_id,voice_billing_status)
-    values(${ctx.orgId},${ctx.locationId},${input.providerCallId},${input.from ?? null},${input.to},${input.startedAt}::timestamptz,${input.durationSeconds},${input.outcome ?? 'completed'},${input.recordingId},'pending')
+    values(${ctx.orgId},${ctx.locationId},${input.providerCallId},${input.from ?? null},${input.to},${input.startedAt}::timestamptz,${input.callDurationSeconds ?? input.durationSeconds},${input.outcome ?? 'completed'},${input.recordingId},'pending')
     on conflict(provider_call_id) do update set recording_id=coalesce(phone_calls.recording_id,excluded.recording_id),
       voice_billing_status=case when phone_calls.voice_billing_status='legacy' then 'pending' else phone_calls.voice_billing_status end,
-      duration_seconds=excluded.duration_seconds,outcome=excluded.outcome,started_at=coalesce(phone_calls.started_at,excluded.started_at),
+      duration_seconds=greatest(phone_calls.duration_seconds,excluded.duration_seconds),outcome=excluded.outcome,started_at=coalesce(phone_calls.started_at,excluded.started_at),
       from_e164=coalesce(nullif(excluded.from_e164,''),phone_calls.from_e164)
     where phone_calls.location_id=excluded.location_id`;
   await linkVoiceActivities(tx,ctx);
@@ -76,15 +76,16 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
   const unansweredGreeting = isUnansweredGreeting(input.durationSeconds,input.turns);
   const billableSeconds = unansweredGreeting ? 0 : Math.min(validatedSeconds, aiBusinessSeconds);
   const transcript = input.turns?.length ? input.turns : (input.transcript.match(/[\s\S]{1,4000}/g) ?? []).map(text => ({ role: 'system' as const, text }));
-  const [call] = await tx<{ id: string; voice_billing_status: string }[]>`
+  const callDurationSeconds = typeof job.payload.callDurationSeconds === 'number' ? Math.max(input.durationSeconds, job.payload.callDurationSeconds) : input.durationSeconds;
+  const [call] = await tx<{ id: string; voice_billing_status: string; duration_seconds: number }[]>`
     insert into phone_calls(org_id,location_id,provider_call_id,from_e164,to_e164,started_at,duration_seconds,
       outcome,transcript,recording_id,recording_url,summary,voice_billing_status)
     values(${ctx.orgId},${ctx.locationId},${job.provider_call_id},${String(job.payload.from ?? '')},${String(job.payload.to ?? '')},
-      ${job.payload.startedAt ? String(job.payload.startedAt) : null}::timestamptz,${input.durationSeconds},${job.payload.outcome === 'transferred_to_human' ? 'transferred_to_human' : 'completed'},
+      ${job.payload.startedAt ? String(job.payload.startedAt) : null}::timestamptz,${callDurationSeconds},${job.payload.outcome === 'transferred_to_human' ? 'transferred_to_human' : 'completed'},
       ${jsonb(transcript)}::jsonb,${job.recording_id},${input.recordingUrl},${input.analysis.summary},'pending')
     on conflict(provider_call_id) do update set transcript=excluded.transcript, recording_id=excluded.recording_id,
-      recording_url=excluded.recording_url,summary=excluded.summary,duration_seconds=excluded.duration_seconds,outcome=excluded.outcome
-    returning id,voice_billing_status`;
+      recording_url=excluded.recording_url,summary=excluded.summary,duration_seconds=greatest(phone_calls.duration_seconds,excluded.duration_seconds),outcome=excluded.outcome
+    returning id,voice_billing_status,duration_seconds`;
   await linkVoiceActivities(tx,ctx);
   if (call!.voice_billing_status === 'pending' || call!.voice_billing_status === 'review') {
     const minutes = Math.ceil(billableSeconds / 60);
@@ -117,7 +118,7 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
   if (targets.email && !linkedBooking && job.payload.suppressNotification !== true) {
     const email = renderVoiceCallEmail({ locale, shop: pickText(shop?.name, locale, notificationCopy(locale).shop),
       from: String(job.payload.from ?? ''), startedAt: job.payload.startedAt ? String(job.payload.startedAt) : undefined,
-      timezone: shop?.timezone ?? 'America/New_York', durationSeconds: input.durationSeconds,
+      timezone: shop?.timezone ?? 'America/New_York', durationSeconds: call!.duration_seconds,
       summary: input.analysis.summary, turns: transcript, detailUrl: detail });
     await tx`insert into email_outbox(org_id,location_id,kind,to_email,subject,body_html,body_text,entity_type,entity_id)
       values(${ctx.orgId},${ctx.locationId},'platform_notice',${targets.email},${email.subject},${email.html},${email.text},'phone_call',${call!.id})

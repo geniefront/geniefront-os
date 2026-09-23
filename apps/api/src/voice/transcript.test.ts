@@ -21,3 +21,9 @@ it('maps only known diarized speakers, preserving words and unknown identities',
  const turns=recordingTurns({text:'Hello Yes',words:[{text:'Hello',start:0,end:1,speaker:7},{text:'Yes',start:2,end:3,speaker:4}]});
  expect(labelDiarizedTurns(turns,[{id:7,role:'assistant'}]).map(t=>[t.role,t.text])).toEqual([['assistant','Hello'],['system','Yes']]);
 });
+
+it('maps direct SIP incoming recording channel 0 to receptionist and channel 1 to customer',()=>{
+ expect(recordingTurns({text:'Reception Customer',channels:[
+ {index:0,words:[{text:'Reception',start:0,end:1}]},
+ {index:1,words:[{text:'Customer',start:2,end:3}]}]},1).map(t=>[t.role,t.text])).toEqual([['assistant','Reception'],['user','Customer']]);
+});

@@ -13,13 +13,13 @@ function words(value: unknown): Word[] {
 function append(left: string, right: string) {
   return left + (/^[,.;:!?，。！？、；：]/u.test(right) || /[\u3400-\u9fff]$/u.test(left) && /^[\u3400-\u9fff]/u.test(right) ? '' : ' ') + right;
 }
-/** Telnyx inbound Dial dual recordings: channel 0 caller, channel 1 dialed AI.
+/** Telnyx Dial defaults to caller channel 0; direct SIP inbound recordings use caller channel 1.
  * Do not infer roles from diarization IDs: speaker 0 is not necessarily the caller. */
-export function recordingTurns(response: { text: string; words?: unknown; channels?: unknown }): VoiceTurn[] {
+export function recordingTurns(response: { text: string; words?: unknown; channels?: unknown }, callerChannel: 0 | 1 = 0): VoiceTurn[] {
   const channels = Array.isArray(response.channels) ? response.channels : [];
   const dual = channels.length === 2 && channels.some(c => c.index === 0) && channels.some(c => c.index === 1);
   const entries = dual ? channels.flatMap(c => words(c.words).map(w => ({ ...w,
-    role: (c.index === 0 ? 'user' : 'assistant') as VoiceTurn['role'], speaker: undefined })))
+    role: (c.index === callerChannel ? 'user' : 'assistant') as VoiceTurn['role'], speaker: undefined })))
     : words(response.words).map(w => ({ ...w, role: 'system' as const }));
   entries.sort((a,b) => a.start - b.start || a.end - b.end);
   const turns: VoiceTurn[] = [];

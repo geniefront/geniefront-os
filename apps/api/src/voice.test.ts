@@ -1,5 +1,5 @@
 import { loadCalls } from './queries/calls';
-import { generateKeyPairSync, sign } from 'node:crypto';
+import { generateKeyPairSync, sign, randomUUID } from 'node:crypto';
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
 import { withTenant, closeDb, PLATFORM_OPS_USER_ID } from '@gf/db';
 import { buildContext } from './actor';
@@ -233,23 +233,30 @@ describe('xAI scoped booking tools', () => {
     const opts = { systemOrigin: 'test_direct_sip' }, providerCallId = 'direct-sip-transfer';
     await withTenant(tenant, tx => tx`update locations set settings=jsonb_set(settings,'{voice_notifications}','{"email":"direct-sip@example.com","phone":null}'::jsonb,true) where id=${locationId}`);
     await dispatch('call.queueRecording', { providerCallId, recordingId: 'direct-sip-audio', to: phone,
-      from: '+12025550777', startedAt: new Date().toISOString(), durationSeconds: 180,
+      from: '+12025550777', startedAt: new Date().toISOString(), durationSeconds: 14, callDurationSeconds: 180,
       aiDurationSeconds: 13, outcome: 'transferred_to_human' }, ctx, opts);
     const claimed = await dispatch<{job:{id:string;leaseId:string}}>('call.claimRecording', {}, ctx, opts);
-    const payload = { jobId: claimed.result.job.id, leaseId: claimed.result.job.leaseId, durationSeconds: 180,
+    const payload = { jobId: claimed.result.job.id, leaseId: claimed.result.job.leaseId, durationSeconds: 14,
       transcript: 'Please connect me to staff. Staff handled the rest of the call.',
       recordingUrl: 'https://recordings.telnyx.com/direct.mp3',
-      analysis: { summary: 'Caller requested staff and was transferred.', segments: [{ start: 0, end: 180, category: 'business' }] } };
+      analysis: { summary: 'Caller requested staff and was transferred.', segments: [{ start: 0, end: 14, category: 'business' }] } };
     expect((await dispatch<{billableSeconds:number}>('call.completeRecording', payload, ctx, opts)).result.billableSeconds).toBe(13);
     expect((await dispatch<{completed:boolean}>('call.completeRecording', payload, ctx, opts)).result.completed).toBe(false);
     const [call] = await withTenant(tenant, tx => tx`select id,outcome,duration_seconds,billable_seconds,recording_id from phone_calls where provider_call_id=${providerCallId}`);
     expect(call).toMatchObject({ outcome: 'transferred_to_human', duration_seconds: 180, billable_seconds: 13, recording_id: 'direct-sip-audio' });
     expect(await withTenant(tenant, tx => tx`select qty from usage_events where meta->>'providerCallId'=${providerCallId}`)).toEqual([{ qty: 1 }]);
     expect(await withTenant(tenant, tx => tx`select id from email_outbox where entity_type='phone_call' and entity_id=${call!.id}`)).toHaveLength(1);
+    await dispatch('call.attachTranscript', { providerCallId, summary: 'Service inquiry; transferred to staff.',
+      transcript: [{ role: 'user', text: 'Please connect me to staff.', startSeconds: 2, endSeconds: 4 }] }, ctx, opts);
+    const [repaired] = await withTenant(tenant, tx => tx`select transcript,duration_seconds,billable_seconds from phone_calls where id=${call!.id}`);
+    expect(repaired).toMatchObject({ duration_seconds: 180, billable_seconds: 13,
+      transcript: [{ role: 'user', text: 'Please connect me to staff.', startSeconds: 2, endSeconds: 4 }] });
+    expect(await withTenant(tenant, tx => tx`select qty from usage_events where meta->>'providerCallId'=${providerCallId}`)).toEqual([{ qty: 1 }]);
+    expect(await withTenant(tenant, tx => tx`select id from email_outbox where entity_type='phone_call' and entity_id=${call!.id}`)).toHaveLength(1);
   });
 
   it('shows human-only forwarded calls without pending AI minutes or quota charges', async () => {
-    const opts = { systemOrigin: 'test_direct_sip', idempotencyKey: 'direct-staff-only' };
+    const opts = { systemOrigin: 'test_direct_sip', idempotencyKey: `direct-staff-only-${randomUUID()}` };
     const payload = { providerCallId: 'direct-staff-only', fromE164: '+12025550777', toE164: phone,
       durationSeconds: 600, outcome: 'transferred_to_human', deferBilling: true, aiBypassed: true };
     await dispatch('call.record', payload, ctx, opts);

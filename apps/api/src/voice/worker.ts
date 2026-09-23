@@ -28,7 +28,8 @@ export async function reconcileVoiceRecordings() {
     if (boundary === null) continue;
     await dispatch('call.queueRecording', { providerCallId: r.call_session_id, recordingId: r.id, to: r.to,
       ...(typeof r.from === 'string' && /^\+[1-9]\d{7,14}$/.test(r.from) ? { from: r.from } : {}),
-      startedAt: at.toISOString(), durationSeconds: Math.ceil(Number(r.duration_millis) / 1000), ...boundary }, ctx,
+      startedAt: at.toISOString(), durationSeconds: Math.ceil(Number(r.duration_millis) / 1000),
+      suppressNotification: Date.now() - ended > 15 * 60_000, ...boundary }, ctx,
     { systemOrigin: 'voice_recording_reconcile' });
   }
 }
@@ -45,7 +46,7 @@ export async function processVoiceRecordings(app: Pick<FastifyInstance, 'log'>) 
     const job = result.job; if (!job) continue;
     try {
       const recording = await getRecording(job.recordingId);
-      const transcript = await transcribeRecording(recording.bytes, recording.type, recording.channels);
+      const transcript = await transcribeRecording(recording.bytes, recording.type, recording.channels, false, job.payload.callerChannel === 1 ? 1 : 0);
       const durationSeconds = recording.durationSeconds || Number(job.payload.durationSeconds) || Math.ceil(Number(transcript.duration));
       if (!Number.isFinite(durationSeconds) || durationSeconds < 0 || durationSeconds > 86400) throw new Error('Invalid recording duration');
       const [org] = await withTenant(ctx, tx => tx<{default_locale:string|null}[]>`
