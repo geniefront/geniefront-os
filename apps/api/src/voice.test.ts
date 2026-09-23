@@ -156,6 +156,7 @@ describe('xAI scoped booking tools', () => {
     const opts = { systemOrigin: 'voice_test' };
     ctx = { ...ctx, permissions: new Set([...ctx.permissions, 'call.draft', 'billing.manage']) };
     const providerCallId = 'voice-test-classification';
+    await withTenant(tenant, tx => tx`update locations set settings=jsonb_set(settings,'{voice_notifications}','{"email":"calls@example.com","phone":"+12025550999"}'::jsonb,true) where id=${locationId}`);
     await withTenant(tenant,tx=>tx`insert into phone_calls(org_id,location_id,provider_call_id) values(${tenant.orgId},${locationId},${providerCallId})`);
     await dispatch('call.queueRecording', { providerCallId, recordingId: 'recording-test',
       to: phone, from: '+12025550123', startedAt: new Date().toISOString(), durationSeconds: 180 }, ctx, opts);
@@ -181,6 +182,7 @@ describe('xAI scoped booking tools', () => {
     const loaded = await withTenant(tenant, tx => loadCalls(tx, ctx));
     const stored = loaded.calls.find(c=>c.transcript[0]?.text==='Hello');
     expect(stored?.summary).toBe(payload.analysis.summary);
+    expect(await withTenant(tenant, tx => tx`select id from sms_outbox where entity_type='phone_call' and entity_id=${stored!.callId}`)).toHaveLength(1);
     expect(stored?.appointmentIds).toHaveLength(2);
     expect(stored?.booked).toBe(false);
     expect(stored?.transcript).toEqual(payload.turns);
@@ -229,9 +231,9 @@ describe('xAI scoped booking tools', () => {
     expect(usage?.qty).toBe(0);
   });
 
-  it('keeps direct SIP recording and notifications while excluding staff time from AI billing', async () => {
+  it('keeps direct SIP recording and email but suppresses owner SMS after transfer', async () => {
     const opts = { systemOrigin: 'test_direct_sip' }, providerCallId = 'direct-sip-transfer';
-    await withTenant(tenant, tx => tx`update locations set settings=jsonb_set(settings,'{voice_notifications}','{"email":"direct-sip@example.com","phone":null}'::jsonb,true) where id=${locationId}`);
+    await withTenant(tenant, tx => tx`update locations set settings=jsonb_set(settings,'{voice_notifications}','{"email":"direct-sip@example.com","phone":"+12025550999"}'::jsonb,true) where id=${locationId}`);
     await dispatch('call.queueRecording', { providerCallId, recordingId: 'direct-sip-audio', to: phone,
       from: '+12025550777', startedAt: new Date().toISOString(), durationSeconds: 14, callDurationSeconds: 180,
       aiDurationSeconds: 13, outcome: 'transferred_to_human' }, ctx, opts);
@@ -244,6 +246,7 @@ describe('xAI scoped booking tools', () => {
     expect((await dispatch<{completed:boolean}>('call.completeRecording', payload, ctx, opts)).result.completed).toBe(false);
     const [call] = await withTenant(tenant, tx => tx`select id,outcome,duration_seconds,billable_seconds,recording_id from phone_calls where provider_call_id=${providerCallId}`);
     expect(call).toMatchObject({ outcome: 'transferred_to_human', duration_seconds: 180, billable_seconds: 13, recording_id: 'direct-sip-audio' });
+    expect(await withTenant(tenant, tx => tx`select id from sms_outbox where entity_type='phone_call' and entity_id=${call!.id}`)).toHaveLength(0);
     expect(await withTenant(tenant, tx => tx`select qty from usage_events where meta->>'providerCallId'=${providerCallId}`)).toEqual([{ qty: 1 }]);
     expect(await withTenant(tenant, tx => tx`select id from email_outbox where entity_type='phone_call' and entity_id=${call!.id}`)).toHaveLength(1);
     await dispatch('call.attachTranscript', { providerCallId, summary: 'Service inquiry; transferred to staff.',

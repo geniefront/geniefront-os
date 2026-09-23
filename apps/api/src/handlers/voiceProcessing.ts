@@ -124,7 +124,8 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
       values(${ctx.orgId},${ctx.locationId},'platform_notice',${targets.email},${email.subject},${email.html},${email.text},'phone_call',${call!.id})
       on conflict(entity_type,entity_id,kind) do nothing`;
   }
-  if (targets.phone && smsConfigured() && !linkedBooking && job.payload.suppressNotification !== true) {
+  if (targets.phone && smsConfigured() && !linkedBooking && job.payload.suppressNotification !== true
+    && job.payload.outcome !== 'transferred_to_human') {
     const body = shopCallSms(locale, String(job.payload.from ?? ''));
     await tx`insert into sms_outbox(org_id,location_id,kind,to_e164,from_e164,body,segments,entity_type,entity_id)
       values(${ctx.orgId},${ctx.locationId},'direct_message',${targets.phone},${smsFrom()},${body},${segmentsOf(body)},'phone_call',${call!.id})
