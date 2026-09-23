@@ -1,6 +1,18 @@
 import { catalog } from './catalog';
 import { voiceRouting } from './voiceRouting';
 export const voiceSettings = {
+  capacityPlainTitle: {"zh-Hans": "接客人数", "en": "Booking limit", "ko": "예약 인원", "es": "Límite de reservas", "vi": "Giới hạn khách"},
+  capacityAuto: {"zh-Hans": "按上班人数", "en": "Match staff on duty", "ko": "근무 인원에 맞춤", "es": "Según el personal de turno", "vi": "Theo nhân viên đang làm"},
+  capacityAutoHint: {"zh-Hans": "1 位技师接 1 位客人", "en": "1 guest per staff member", "ko": "직원 1명당 고객 1명", "es": "1 cliente por profesional", "vi": "1 khách mỗi nhân viên"},
+  capacityCustom: {"zh-Hans": "自己设人数", "en": "Set my own limit", "ko": "직접 설정", "es": "Elegir un límite", "vi": "Tự đặt giới hạn"},
+  capacityCustomHint: {"zh-Hans": "每天使用固定人数", "en": "Same limit every day", "ko": "매일 같은 한도", "es": "El mismo límite cada día", "vi": "Cùng giới hạn mỗi ngày"},
+  capacityBaseLabel: {"zh-Hans": "同时最多接几位", "en": "Guests at one time", "ko": "동시 최대 인원", "es": "Clientes a la vez", "vi": "Số khách cùng lúc"},
+  capacityExtraLabel: {"zh-Hans": "满了也可以多接", "en": "Allow extra guests when full", "ko": "정원이 차도 추가 허용", "es": "Admitir más cuando esté lleno", "vi": "Nhận thêm khi đã đầy"},
+  capacityExtraCount: {"zh-Hans": "最多多接", "en": "Extra guests", "ko": "추가 인원", "es": "Clientes extra", "vi": "Khách nhận thêm"},
+  capacityExtraHelp: {"zh-Hans": "仅限不指定技师的客人，由店里安排。", "en": "For guests with no staff preference. You assign staff.", "ko": "직원 미지정 고객만. 매장에서 직원을 배정합니다.", "es": "Solo sin preferencia de profesional. Tú asignas al personal.", "vi": "Chỉ khách không chọn nhân viên. Cửa hàng tự bố trí."},
+  capacitySummaryAuto: {"zh-Hans": "例如：2 位技师上班，最多同时接 {total} 位客人。", "en": "Example: 2 staff on duty → up to {total} guests at once.", "ko": "예: 직원 2명 근무 → 동시에 최대 {total}명.", "es": "Ejemplo: 2 profesionales → hasta {total} clientes a la vez.", "vi": "Ví dụ: 2 nhân viên → tối đa {total} khách cùng lúc."},
+  capacitySummaryFixed: {"zh-Hans": "现在最多同时接 {total} 位客人。", "en": "Up to {total} guests at once.", "ko": "동시에 최대 {total}명.", "es": "Hasta {total} clientes a la vez.", "vi": "Tối đa {total} khách cùng lúc."},
+
 bookingCallEmpty:{"zh-Hans": "暂无关联通话。", "en": "No linked calls yet.", "ko": "연결된 통화가 없습니다.", "vi": "Chưa có cuộc gọi liên quan.", "es": "No hay llamadas vinculadas."},
 voiceActionCreated:{"zh-Hans": "创建预约", "en": "Booking created", "ko": "예약 생성", "vi": "Đã tạo lịch hẹn", "es": "Reserva creada"},
 voiceActionLookup:{"zh-Hans": "查询预约", "en": "Appointment inquiry", "ko": "예약 조회", "vi": "Tra cứu lịch hẹn", "es": "Consulta de reserva"},

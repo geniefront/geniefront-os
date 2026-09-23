@@ -440,8 +440,10 @@ function SessionGate() {
   );
 }
 
+const BookingCapacityPreview = import.meta.env.DEV ? lazy(()=>import('./dev/BookingCapacityPreview')) : null;
 const StaffSettingsPreview = import.meta.env.DEV ? lazy(()=>import('./dev/StaffSettingsPreview')) : null;
 export default function App() {
+  if(BookingCapacityPreview && window.location.pathname === '/__preview/booking-capacity') return <Suspense fallback={null}><BookingCapacityPreview/></Suspense>;
   if(StaffSettingsPreview && window.location.pathname === '/__preview/staff-settings') return <Suspense fallback={null}><StaffSettingsPreview/></Suspense>;
   return (
     <QueryClientProvider client={queryClient}>
