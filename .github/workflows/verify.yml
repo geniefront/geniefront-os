@@ -70,7 +70,7 @@ jobs:
       - name: 宪法检查（service_role / 裸 SET / 排他约束 / 浮点金额）
         run: pnpm lint:guards
 
-      - run: pnpm typecheck
+      - run: pnpm exec turbo run typecheck --concurrency=2
 
       - name: 初始化隔离测试库的 Supabase 基础对象
         run: psql "$TEST_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f packages/db/test/bootstrap-postgres.sql
