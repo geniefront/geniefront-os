@@ -81,7 +81,7 @@ jobs:
           pnpm db:seed
 
       - name: 测试
-        run: pnpm test
+        run: pnpm --filter @gf/db test && pnpm --workspace-concurrency=1 --filter '!@gf/db' test
 
       # ── 迁移必须是可重复执行的 ────────────────────────────────────────────
       # 生产环境会反复跑同一批迁移（滚动部署、回滚重来），
