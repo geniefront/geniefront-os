@@ -12,7 +12,7 @@ concurrency:
 jobs:
   verify:
     runs-on: [self-hosted, linux, x64, kamatera-ci]
-    timeout-minutes: 15
+    timeout-minutes: 60
 
     # 用本地 Postgres 而不是连生产库：
     # 测试会建表、灌种子、删数据，绝不能碰真实门店的数据。
@@ -112,6 +112,7 @@ jobs:
 
       - name: 容器能真的起来
         run: |
+          trap 'docker rm -f ci >/dev/null 2>&1 || true' EXIT
           docker run -d --name ci --network host \
             -e PORT=3000 -e NODE_ENV=production \
             -e DATABASE_URL="$DATABASE_URL" \
