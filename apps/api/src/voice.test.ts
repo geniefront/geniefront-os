@@ -223,12 +223,20 @@ describe('xAI scoped booking tools', () => {
 
   it('does not charge an unanswered opening greeting even if the classifier calls it business',async()=>{
     const opts={systemOrigin:'voice_test'},providerCallId='greeting-only';
+    await withTenant(tenant, tx => tx`update locations set settings=jsonb_set(settings,'{voice_notifications}','{"email":"silent@example.com","phone":"+12025550999"}'::jsonb,true) where id=${locationId}`);
     await dispatch('call.queueRecording',{providerCallId,recordingId:'greeting-audio',to:phone,startedAt:new Date().toISOString(),durationSeconds:5},ctx,opts);
     const claimed=await dispatch<{job:{id:string;leaseId:string}}>('call.claimRecording',{},ctx,opts);
     const out=await dispatch<{billableSeconds:number}>('call.completeRecording',{jobId:claimed.result.job.id,leaseId:claimed.result.job.leaseId,durationSeconds:5,transcript:'ZZ Massage, how can I help?',turns:[{role:'assistant',text:'ZZ Massage, how can I help?'}],recordingUrl:'https://recordings.telnyx.com/greeting.wav',analysis:{summary:'Greeting only.',segments:[{start:0,end:5,category:'business'}]}},ctx,opts);
     expect(out.result.billableSeconds).toBe(0);
     const [usage]=await withTenant(tenant,tx=>tx`select qty from usage_events where meta->>'providerCallId'=${providerCallId}`);
     expect(usage?.qty).toBe(0);
+    const data = await withTenant(tenant,tx=>loadCalls(tx,ctx));
+    const call = data.calls.find(c=>c.recordingId==='greeting-audio')!;
+    expect(call.unansweredGreeting).toBe(true);
+    expect(await withTenant(tenant,tx=>tx`select id from sms_outbox where entity_type='phone_call' and entity_id=${call.callId}`)).toHaveLength(0);
+    expect(await withTenant(tenant,tx=>tx`select id from email_outbox where entity_type='phone_call' and entity_id=${call.callId}`)).toHaveLength(1);
+    const single = await withTenant(tenant,tx=>loadCalls(tx,ctx,{callId:call.callId}));
+    expect(single.totalMinutes).toBe(0);
   });
 
   it('keeps direct SIP recording and email but suppresses owner SMS after transfer', async () => {

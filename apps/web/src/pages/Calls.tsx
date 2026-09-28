@@ -621,7 +621,7 @@ export function Calls() {
                           </Badge>
                         ) : (
                           <Badge variant="outline" className="text-[11px] text-slate-600">
-                            {t('crm.callResultAnswered')}
+                            {t(call.unansweredGreeting ? 'crm.callUnansweredRecorded' : 'crm.callResultAnswered')}
                           </Badge>
                         )}
                       </TableCell>
@@ -687,7 +687,7 @@ export function Calls() {
               ) : (
                 <Badge variant="outline" className="text-xs text-slate-600 shrink-0 whitespace-nowrap">
 
-                  {t('crm.callDetailAnswered')}
+                  {t(selectedCall.unansweredGreeting ? 'crm.callUnansweredRecorded' : 'crm.callDetailAnswered')}
                 </Badge>
               )}
             </div>

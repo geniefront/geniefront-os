@@ -328,6 +328,7 @@ export const crm = {
   'crm.callAnonymous': { 'zh-Hans': '匿名来电', en: 'Anonymous call', ko: '익명 발신', es: 'Llamada anónima', vi: 'Cuộc gọi ẩn danh' },
   'crm.callResultBooked': { 'zh-Hans': 'AI 智能自动落单', en: 'Booked automatically by AI', ko: 'AI 자동 예약 완료', es: 'Reservada automáticamente por la IA', vi: 'AI tự động chốt lịch' },
   'crm.callResultTransferred': { 'zh-Hans': '转接前台专线', en: 'Transferred to the front desk', ko: '프런트 전용선으로 전환', es: 'Transferida a recepción', vi: 'Chuyển tới đường dây lễ tân' },
+  'crm.callUnansweredRecorded': { 'zh-Hans': '对方未发言 · 仅记录', en: 'No caller speech · Recorded', ko: '발신자 발화 없음 · 기록됨', es: 'Sin voz del cliente · Registrada', vi: 'Khách không nói · Đã ghi nhận' },
   'crm.callResultAnswered': { 'zh-Hans': '咨询完成', en: 'Enquiry completed', ko: '문의 완료', es: 'Consulta completada', vi: 'Đã tư vấn xong' },
   'crm.callPause': { 'zh-Hans': '暂停', en: 'Pause', ko: '일시정지', es: 'Pausar', vi: 'Tạm dừng' },
   'crm.callListen': { 'zh-Hans': '听录音', en: 'Play recording', ko: '녹음 듣기', es: 'Escuchar grabación', vi: 'Nghe ghi âm' },

@@ -74,6 +74,7 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
   const aiBusinessSeconds = Math.ceil(input.analysis.segments.filter(s => s.category === 'business')
     .reduce((total, s) => total + Math.max(0, Math.min(s.end, aiDurationSeconds) - Math.min(s.start, aiDurationSeconds)), 0));
   const unansweredGreeting = isUnansweredGreeting(input.durationSeconds,input.turns);
+  const summary = unansweredGreeting ? '对方未发言，仅播放 AI 开场白，保留通话记录。' : input.analysis.summary;
   const billableSeconds = unansweredGreeting ? 0 : Math.min(validatedSeconds, aiBusinessSeconds);
   const transcript = input.turns?.length ? input.turns : (input.transcript.match(/[\s\S]{1,4000}/g) ?? []).map(text => ({ role: 'system' as const, text }));
   const callDurationSeconds = typeof job.payload.callDurationSeconds === 'number' ? Math.max(input.durationSeconds, job.payload.callDurationSeconds) : input.durationSeconds;
@@ -82,7 +83,7 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
       outcome,transcript,recording_id,recording_url,summary,voice_billing_status)
     values(${ctx.orgId},${ctx.locationId},${job.provider_call_id},${String(job.payload.from ?? '')},${String(job.payload.to ?? '')},
       ${job.payload.startedAt ? String(job.payload.startedAt) : null}::timestamptz,${callDurationSeconds},${job.payload.outcome === 'transferred_to_human' ? 'transferred_to_human' : 'completed'},
-      ${jsonb(transcript)}::jsonb,${job.recording_id},${input.recordingUrl},${input.analysis.summary},'pending')
+      ${jsonb(transcript)}::jsonb,${job.recording_id},${input.recordingUrl},${summary},'pending')
     on conflict(provider_call_id) do update set transcript=excluded.transcript, recording_id=excluded.recording_id,
       recording_url=excluded.recording_url,summary=excluded.summary,duration_seconds=greatest(phone_calls.duration_seconds,excluded.duration_seconds),outcome=excluded.outcome
     returning id,voice_billing_status,duration_seconds`;
@@ -95,7 +96,7 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
           billableSeconds, aiDurationSeconds, exemptSeconds: input.durationSeconds - billableSeconds, costPending: true, ruleVersion: 3 })}::jsonb) returning id`;
     await chargeQuota(tx, ctx, { unit: 'voice_minute', amount: minutes, usageEventId: usage!.id, source: 'ai_call_min' });
     await tx`update phone_calls set voice_billing_status='settled',billable_seconds=${billableSeconds},
-      billing_analysis=${jsonb({ ...input.analysis, unansweredGreeting, aiDurationSeconds, ruleVersion: 3 })}::jsonb where id=${call!.id}`;
+      billing_analysis=${jsonb({ ...input.analysis, summary, unansweredGreeting, aiDurationSeconds, ruleVersion: 3 })}::jsonb where id=${call!.id}`;
   }
   // Exact provider IDs are preferred. Older voice clients can be linked only when
   // caller + recording window identifies a call unambiguously inside this tenant.
@@ -119,13 +120,13 @@ registerHandler(CompleteVoiceJob, async ({ input, tx, ctx, audit }) => {
     const email = renderVoiceCallEmail({ locale, shop: pickText(shop?.name, locale, notificationCopy(locale).shop),
       from: String(job.payload.from ?? ''), startedAt: job.payload.startedAt ? String(job.payload.startedAt) : undefined,
       timezone: shop?.timezone ?? 'America/New_York', durationSeconds: call!.duration_seconds,
-      summary: input.analysis.summary, turns: transcript, detailUrl: detail });
+      summary, turns: transcript, detailUrl: detail });
     await tx`insert into email_outbox(org_id,location_id,kind,to_email,subject,body_html,body_text,entity_type,entity_id)
       values(${ctx.orgId},${ctx.locationId},'platform_notice',${targets.email},${email.subject},${email.html},${email.text},'phone_call',${call!.id})
       on conflict(entity_type,entity_id,kind) do nothing`;
   }
   if (targets.phone && smsConfigured() && !linkedBooking && job.payload.suppressNotification !== true
-    && job.payload.outcome !== 'transferred_to_human') {
+    && !unansweredGreeting && job.payload.outcome !== 'transferred_to_human') {
     const body = shopCallSms(locale, String(job.payload.from ?? ''));
     await tx`insert into sms_outbox(org_id,location_id,kind,to_e164,from_e164,body,segments,entity_type,entity_id)
       values(${ctx.orgId},${ctx.locationId},'direct_message',${targets.phone},${smsFrom()},${body},${segmentsOf(body)},'phone_call',${call!.id})
