@@ -324,7 +324,7 @@ export const crm = {
   'crm.callNoRecording': { 'zh-Hans': '这通电话没有可播放的录音', en: 'No recording is available for this call', ko: '이 통화에는 재생 가능한 녹음이 없습니다', es: 'No hay grabación disponible para esta llamada', vi: 'Cuộc gọi này không có bản ghi âm để phát' },
   'crm.callTagBooked': { 'zh-Hans': '成功自动落单', en: 'Booked automatically', ko: '자동 예약 성공', es: 'Reservada automáticamente', vi: 'Tự động chốt lịch' },
   'crm.callTagTransferred': { 'zh-Hans': '转接人工', en: 'Transferred to an agent', ko: '상담원 전환', es: 'Transferida a un agente', vi: 'Chuyển cho nhân viên' },
-  'crm.callTagAnswered': { 'zh-Hans': '常规咨询已解答', en: 'Enquiry resolved', ko: '일반 문의 해결', es: 'Consulta resuelta', vi: 'Đã giải đáp tư vấn' },
+  'crm.callTagAnswered': { 'zh-Hans': '通话已结束', en: 'Call ended', ko: '통화 종료', es: 'Llamada finalizada', vi: 'Cuộc gọi đã kết thúc' },
   'crm.callAnonymous': { 'zh-Hans': '匿名来电', en: 'Anonymous call', ko: '익명 발신', es: 'Llamada anónima', vi: 'Cuộc gọi ẩn danh' },
   'crm.callResultBooked': { 'zh-Hans': 'AI 智能自动落单', en: 'Booked automatically by AI', ko: 'AI 자동 예약 완료', es: 'Reservada automáticamente por la IA', vi: 'AI tự động chốt lịch' },
   'crm.callResultTransferred': { 'zh-Hans': '转接前台专线', en: 'Transferred to the front desk', ko: '프런트 전용선으로 전환', es: 'Transferida a recepción', vi: 'Chuyển tới đường dây lễ tân' },
