@@ -100,6 +100,7 @@ export async function voiceCatalog(
         maxPartySize: profile.maxPartySize,
         maxDaysAhead: shop.onlineBooking.maxDaysAhead,
         minMinutesAhead: shop.onlineBooking.minMinutesAhead,
+        slotIntervalMinutes: shop.onlineBooking.slotIntervalMinutes ?? 30,
         allowClientPickStaff: shop.onlineBooking.allowClientPickStaff,
       },
     },

@@ -509,9 +509,9 @@ export const SaveVoiceNotifications = defineCommand({
 
 export const SaveVoiceBookingRules = defineCommand({
   name: 'settings.saveVoiceBookingRules',
-  input: z.object({ maxDaysAhead:z.number().int().min(1).max(365), minMinutesAhead:z.number().int().min(0).max(1440) }),
+  input: z.object({ maxDaysAhead:z.number().int().min(1).max(365), minMinutesAhead:z.number().int().min(0).max(1440), slotIntervalMinutes:z.union([z.literal(5),z.literal(10),z.literal(15),z.literal(30),z.literal(60)]).optional() }),
   output:z.object({ saved:z.boolean() }), permission:'settings.manage', reversible:true, idempotency:'optional',
-  ai:{ description:'设置电话预约最远可约天数和最短提前时间。', confirm:'always' },
+  ai:{ description:'设置电话预约最远可约天数、最短提前时间和可选时间间隔。', confirm:'always' },
 });
 
 const weeklyHours = weeklyHoursSchema;

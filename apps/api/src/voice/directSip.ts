@@ -26,7 +26,7 @@ async function telnyx(path: string, body?: unknown) {
 
 export interface SipRecord {
   id: string; telnyx_session_id: string; connection_id: string;
-  cli: string; cld: string; direction: string; is_callcontrol: boolean;
+  cli: string | null; cld: string; direction: string; is_callcontrol: boolean;
   started_at: string; answered_at?: string; finished_at: string;
   connected?: number; hangup_cause?: string; cf_number?: string;
 }
@@ -49,12 +49,18 @@ export async function sipRecords(sessionId?: string): Promise<SipRecord[]> {
 
 export interface RecordingIdentity {
   connection_id?: string; call_session_id: string; call_leg_id?: string;
-  to: string; from: string; recording_started_at: string; duration_millis: number;
+  to: string; from: string | null; recording_started_at: string; duration_millis: number;
+}
+/** Providers represent withheld caller ID as null in CDRs and "Anonymous" in recordings.
+ * Only explicit withheld markers are equivalent; never equate different real callers. */
+export function sipCallerIdentity(value: string | null | undefined): string | null {
+  if (value == null || /^(?:anonymous|restricted|unavailable|private)?$/i.test(value.trim())) return null;
+  return value.trim();
 }
 export function directRecordingBoundary(recording: RecordingIdentity, records: SipRecord[], now = Date.now()) {
   const inbound = records.filter(r => r.telnyx_session_id === recording.call_session_id
     && r.connection_id === recording.connection_id && r.direction === 'inbound'
-    && r.is_callcontrol === false && r.cld === recording.to && r.cli === recording.from);
+    && r.is_callcontrol === false && r.cld === recording.to && sipCallerIdentity(r.cli) === sipCallerIdentity(recording.from));
   // Let CDRs settle before charging; missing/ambiguous records are retried, never
   // interpreted as proof that the whole recording was AI time.
   if (inbound.length !== 1 || !Number.isFinite(Date.parse(inbound[0]!.finished_at))
@@ -71,7 +77,7 @@ export function directRecordingBoundary(recording: RecordingIdentity, records: S
   const callDurationSeconds = Math.max(duration, Math.round((callEnd - callStart) / 1000));
   const transfers = records.filter(r => r.telnyx_session_id === recording.call_session_id
     && r.connection_id === recording.connection_id && r.direction === 'outbound'
-    && r.is_callcontrol === false && r.cli === recording.from);
+    && r.is_callcontrol === false && sipCallerIdentity(r.cli) === sipCallerIdentity(recording.from));
   if (transfers.some(r => !Number.isFinite(Date.parse(r.started_at)))) return null;
   const forwarded = Boolean(inbound[0]!.cf_number);
   const cutoff = forwarded ? 0 : transfers.length
@@ -155,24 +161,32 @@ export async function reconcileDirectSipCalls() {
   const routes = directSipRoutes();
   if (!routes.length) return;
   const records = await sipRecords();
+  const failed: string[] = [];
   for (const r of records) {
-    const route = routes.find(route => route.connectionId === r.connection_id && route.number === r.cld);
-    if (!route || r.direction !== 'inbound' || r.is_callcontrol !== false || !r.telnyx_session_id
-      || !Number.isFinite(Date.parse(r.finished_at)) || Date.now() - Date.parse(r.finished_at) < 90_000) continue;
-    const t = await tenantForPhoneNumber(route.number);
-    if (!t?.assistantId?.startsWith('agent_')) continue;
-    const ctx = context(t);
-    const [line] = await withTenant(ctx, tx => tx<{ created_at: string }[]>`
-      select created_at::text from phone_lines where location_id=${t.locationId} and e164=${route.number} and purpose='ai_voice' and active`);
-    const start = r.answered_at ?? r.started_at;
-    if (!line || !Number.isFinite(Date.parse(start)) || Date.parse(start) < Date.parse(line.created_at)) continue;
-    const existing = await withTenant(ctx, tx => tx`select id from phone_calls where location_id=${t.locationId} and provider_call_id=${r.telnyx_session_id}`);
-    if (existing.length) continue;
-    const transferred = Boolean(r.cf_number) || records.some(other => other.telnyx_session_id === r.telnyx_session_id && other.direction === 'outbound');
-    await dispatch('call.record', { providerCallId: r.telnyx_session_id, fromE164: r.cli, toE164: r.cld,
-      startedAt: start, endedAt: r.finished_at, durationSeconds: Math.max(0, Math.floor((Date.parse(r.finished_at) - Date.parse(start)) / 1000)),
-      deferBilling: true, aiBypassed: Boolean(r.cf_number) || r.connected === 0,
-      outcome: transferred ? 'transferred_to_human' : r.connected === 1 ? 'completed' : 'no_answer',
-    }, ctx, { systemOrigin: 'direct_sip_reconcile', idempotencyKey: `telnyx-hangup-${r.telnyx_session_id}` });
+    try {
+      const route = routes.find(route => route.connectionId === r.connection_id && route.number === r.cld);
+      if (!route || r.direction !== 'inbound' || r.is_callcontrol !== false || !r.telnyx_session_id
+        || !Number.isFinite(Date.parse(r.finished_at)) || Date.now() - Date.parse(r.finished_at) < 90_000) continue;
+      const t = await tenantForPhoneNumber(route.number);
+      if (!t?.assistantId?.startsWith('agent_')) continue;
+      const ctx = context(t);
+      const [line] = await withTenant(ctx, tx => tx<{ created_at: string }[]>`
+        select created_at::text from phone_lines where location_id=${t.locationId} and e164=${route.number} and purpose='ai_voice' and active`);
+      const start = r.answered_at ?? r.started_at;
+      if (!line || !Number.isFinite(Date.parse(start)) || Date.parse(start) < Date.parse(line.created_at)) continue;
+      const existing = await withTenant(ctx, tx => tx`select id from phone_calls where location_id=${t.locationId} and provider_call_id=${r.telnyx_session_id}`);
+      if (existing.length) continue;
+      const transferred = Boolean(r.cf_number) || records.some(other => other.telnyx_session_id === r.telnyx_session_id && other.direction === 'outbound');
+      await dispatch('call.record', { providerCallId: r.telnyx_session_id,
+        ...(r.cli && e164.test(r.cli) ? { fromE164: r.cli } : {}), toE164: r.cld,
+        startedAt: start, endedAt: r.finished_at, durationSeconds: Math.max(0, Math.floor((Date.parse(r.finished_at) - Date.parse(start)) / 1000)),
+        deferBilling: true, aiBypassed: Boolean(r.cf_number) || r.connected === 0,
+        outcome: transferred ? 'transferred_to_human' : r.connected === 1 ? 'completed' : 'no_answer',
+      }, ctx, { systemOrigin: 'direct_sip_reconcile', idempotencyKey: `telnyx-hangup-${r.telnyx_session_id}` });
+    } catch {
+      // A malformed provider record must not starve later calls in the batch.
+      failed.push(r.telnyx_session_id);
+    }
   }
+  if (failed.length) throw new Error(`Direct SIP reconciliation failed for ${failed.length} call(s): ${failed.join(', ')}`);
 }

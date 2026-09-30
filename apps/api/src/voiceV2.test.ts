@@ -634,3 +634,32 @@ it('books one couples session for $120 and rejects duplicate groups including pr
   expect(row).toMatchObject({party_size:2,total:12000,staff_items:2});
   expect(Number(row!.minutes)).toBe(60);
 });
+
+it('saves a five-minute lead time with ten-minute offers and answers the exact requested slot', async () => {
+  const [m] = await withTenant(tenant, tx => tx`select id,user_id from memberships where location_id=${locationId} and status='active' order by created_at limit 1`);
+  const ctx = await buildContext({ userId: m!.user_id, membershipId: m!.id });
+  const [before] = await withTenant(tenant, tx => tx`select settings->'online_booking' as rules from locations where id=${locationId}`);
+  try {
+    await dispatch('settings.saveVoiceBookingRules', { maxDaysAhead:60, minMinutesAhead:5, slotIntervalMinutes:10 }, ctx);
+    const [saved] = await withTenant(tenant, tx => tx`select settings->'online_booking' as rules from locations where id=${locationId}`);
+    expect(saved!.rules).toMatchObject({ min_minutes_ahead:5, slot_interval_minutes:10 });
+    const query = new URLSearchParams({ date:addDays(date,9), serviceId:services[0]!, time:'09:10' });
+    const result = await get(query.toString());
+    expect(result.statusCode, result.body).toBe(200);
+    expect(result.json().requestedTime).toMatchObject({ time:'09:10', available:true, reason:null });
+    expect(result.json().offers[0].times.join(',')).toContain('/10');
+    query.set('time', '09:15');
+    expect((await get(query.toString())).json().requestedTime).toMatchObject({ available:false, reason:'not_offered', alternatives:['09:10','09:20'] });
+    query.set('time', '25:70');
+    expect((await get(query.toString())).statusCode).toBe(400);
+    expect((await get('time=09:10')).statusCode).toBe(400);
+    const booked = await book(result.json().offers[0], 'Ten-minute grid', '09:10');
+    expect(booked.statusCode, booked.body).toBe(200);
+    // Existing clients that omit the optional interval must preserve it.
+    await dispatch('settings.saveVoiceBookingRules', { maxDaysAhead:60, minMinutesAhead:5 }, ctx);
+    const [preserved] = await withTenant(tenant, tx => tx`select settings->'online_booking'->>'slot_interval_minutes' as step from locations where id=${locationId}`);
+    expect(preserved!.step).toBe('10');
+  } finally {
+    await withTenant(tenant, tx => tx`update locations set settings=jsonb_set(settings,'{online_booking}',${JSON.stringify(before!.rules)}::jsonb) where id=${locationId}`);
+  }
+});

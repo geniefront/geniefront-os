@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { closeDb, withTenant } from '@gf/db';
 import { buildContext } from '../actor';
 import { dispatch } from '../bus';
-import { directRecordingBoundary, directSipRoutes, recordingBoundary, sipRecords, syncDirectSipRouting, type SipRecord } from './directSip';
+import { directRecordingBoundary, directSipRoutes, reconcileDirectSipCalls, recordingBoundary, sipRecords, syncDirectSipRouting, type SipRecord } from './directSip';
 import { callerFromSystemHeaders } from './manage';
 
 const tenant = { orgId: '11111111-1111-4111-8111-111111111111', locationId: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', membershipId: null };
@@ -138,4 +138,32 @@ it('stops AI routing if disabled without a staff fallback, without changing othe
     await withTenant(tenant, tx => tx`update phone_lines set ai_answer=true where e164=${route.number} and location_id=${tenant.locationId}`);
     await withTenant(tenant, tx => tx`update phone_lines set active=true where purpose='transfer_target' and location_id=${tenant.locationId}`);
   }
+});
+
+
+it('corroborates Anonymous recording metadata with a withheld CDR caller but never a known caller', () => {
+  const anonymous = { ...recording, from: 'Anonymous' };
+  expect(directRecordingBoundary(anonymous, [{ ...inbound, cli: null }], now)?.aiDurationSeconds).toBe(85);
+  expect(directRecordingBoundary(anonymous, [inbound], now)).toBeNull();
+  expect(directRecordingBoundary(recording, [{ ...inbound, cli: null }], now)).toBeNull();
+  expect(directRecordingBoundary(anonymous, [{ ...inbound, cli: null }, { ...inbound, cli: null }], now)).toBeNull();
+});
+it('imports withheld caller ID and continues after a malformed CDR instead of starving later calls', async () => {
+  vi.stubEnv('TELNYX_API_KEY', 'test');
+  vi.stubEnv('XAI_DIRECT_SIP_ROUTES', JSON.stringify([route]));
+  const start = new Date(Date.now() - 600000).toISOString();
+  await withTenant(tenant, tx => tx`update phone_lines set created_at=now()-interval '1 day' where location_id=${tenant.locationId} and e164=${route.number}`);
+  const base = { ...inbound, started_at: start, answered_at: start, finished_at: new Date(Date.now() - 500000).toISOString(), connected: 1 };
+  const rows = [
+    { ...base, telnyx_session_id: 'anonymous-regression', cli: null },
+    { ...base, telnyx_session_id: 'invalid-time-regression', finished_at: 'not-a-date' },
+    { ...base, telnyx_session_id: 'x'.repeat(121) },
+    { ...base, telnyx_session_id: 'after-anonymous-regression' },
+  ];
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: rows, meta: { total_pages: 1 } }) }));
+  await expect(reconcileDirectSipCalls()).rejects.toThrow('failed for 1 call(s)');
+  const saved = await withTenant(tenant, tx => tx`select provider_call_id,from_e164,voice_billing_status from phone_calls where location_id=${tenant.locationId} and provider_call_id in ('anonymous-regression','after-anonymous-regression') order by provider_call_id`);
+  expect(saved).toHaveLength(2);
+  expect(saved.find(row => row.provider_call_id === 'anonymous-regression')?.from_e164).toBeNull();
+  expect(saved.every(row => row.voice_billing_status === 'pending')).toBe(true);
 });

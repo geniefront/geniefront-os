@@ -36,6 +36,7 @@ const day = z
 const search = z
   .object({
     date: day.optional(),
+    time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).optional(),
     serviceId: z.string().uuid().optional(),
     membershipId: z.string().uuid().optional(),
     partySize: z.coerce.number().int().min(1).max(10).optional(),
@@ -105,7 +106,7 @@ export function registerVoiceV2Routes(
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, { details: {
         reason: "conflicting_selection_fields", guidance: "Use date and itemsJson, or simple serviceId/partySize fields, not both.",
       } });
-    if ((q.date || q.membershipId || q.partySize !== undefined) && !selections && !q.serviceId)
+    if ((q.date || q.time || q.membershipId || q.partySize !== undefined) && !selections && !q.serviceId)
       throw new AppError(ERROR_CODES.VALIDATION_FAILED, {
         details: { reason: "service_selection_required" },
       });

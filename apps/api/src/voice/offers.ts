@@ -4,6 +4,7 @@ import { addDays } from "@gf/scheduling";
 import { voiceCatalog } from "./catalog";
 import { compactTimes, simpleVoiceItems, assertSharedVoiceSelection, type VoiceItems } from "./selection";
 import { saveReference, referenceScope } from "./references";
+import { requestedTimeResult } from "./requestedTime";
 import { loadPartyAvailability } from "../public/partyAvailability";
 import { loadPartyAvailabilityData } from "../public/partyAvailabilityData";
 type Group = {
@@ -17,7 +18,7 @@ type Group = {
 export async function loadVoiceOffers(
   ctx: CommandContext,
   secret: string,
-  q: { date?: string | undefined; serviceId?: string | undefined; partySize?: number | undefined; membershipId?: string | undefined } = {},
+  q: { date?: string | undefined; time?: string | undefined; serviceId?: string | undefined; partySize?: number | undefined; membershipId?: string | undefined } = {},
   selections?: VoiceItems,
 ) {
   return withTenant(ctx, async (tx) => {
@@ -183,6 +184,11 @@ export async function loadVoiceOffers(
         timeFormat:
           "HH:mm local; start-end/step means inclusive returned times every step minutes",
       },
+      ...(q.time && selections ? { requestedTime: requestedTimeResult({
+        date: dates[0]!, time: q.time, timezone: cat.shop.timezone,
+        minMinutesAhead: cat.shop.onlineBooking.minMinutesAhead,
+        times: groups.flatMap(group => group.times),
+      }) } : {}),
       offers,
       unavailable,
     };
