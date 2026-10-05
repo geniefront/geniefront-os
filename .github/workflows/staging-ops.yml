@@ -1,0 +1,34 @@
+name: staging operations
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-operations
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, linux, x64, kamatera-ci]
+    timeout-minutes: 3
+    steps:
+      - name: Inspect staging host availability
+        shell: bash
+        run: |
+          set -euo pipefail
+          hostname
+          hostname -I
+          id
+          if test -d /opt/geniefront-staging; then
+            echo 'staging_directory=present'
+            stat -c '%U:%G %a %n' /opt/geniefront-staging
+            grep '^GF_ENV=' /opt/geniefront-staging/.env || true
+          else
+            echo 'staging_directory=absent'
+          fi
+          docker ps --format '{{.Names}} {{.Image}} {{.Status}}'
+          systemctl is-active ssh || true
+          ss -ltn '( sport = :22 )'
