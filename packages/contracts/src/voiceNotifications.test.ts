@@ -16,3 +16,8 @@ it("validates actual phone booking window limits", () => {
  expect(SaveVoiceBookingRules.input.safeParse({maxDaysAhead:60,minMinutesAhead:0}).success).toBe(true);
  for (const value of [{maxDaysAhead:0,minMinutesAhead:30},{maxDaysAhead:366,minMinutesAhead:30},{maxDaysAhead:60,minMinutesAhead:-1}]) expect(SaveVoiceBookingRules.input.safeParse(value).success).toBe(false);
 });
+
+it('accepts a ten-minute slot interval without changing the legacy optional contract', () => {
+  expect(SaveVoiceBookingRules.input.parse({maxDaysAhead:30,minMinutesAhead:5,slotIntervalMinutes:10})).toEqual({maxDaysAhead:30,minMinutesAhead:5,slotIntervalMinutes:10});
+  for (const slotIntervalMinutes of [0,7,1440]) expect(SaveVoiceBookingRules.input.safeParse({maxDaysAhead:30,minMinutesAhead:5,slotIntervalMinutes}).success).toBe(false);
+});

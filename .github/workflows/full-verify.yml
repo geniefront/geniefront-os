@@ -10,8 +10,8 @@ concurrency:
 
 jobs:
   full-verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: [self-hosted, linux, x64, kamatera-ci]
+    timeout-minutes: 60
 
     # 用本地 Postgres 而不是连生产库：
     # 测试会建表、灌种子、删数据，绝不能碰真实门店的数据。
@@ -20,27 +20,28 @@ jobs:
         image: postgres:17
         env:
           POSTGRES_PASSWORD: ci
-          POSTGRES_DB: postgres
+          POSTGRES_DB: gf_commerce_stage_ci
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 10
-        ports: ['5432:5432']
+        ports: ['58332:5432']
 
     env:
       # 迁移用超级用户，应用用受限角色 —— 和生产同一套分工（宪法第 5 条）
-      MIGRATION_DATABASE_URL: postgresql://postgres:ci@localhost:5432/postgres
-      DATABASE_URL: postgresql://app_user:ci_app_pw@localhost:5432/postgres
+      MIGRATION_DATABASE_URL: postgresql://postgres:ci@localhost:58332/gf_commerce_stage_ci
+      DATABASE_URL: postgresql://app_user:ci_app_pw@localhost:58332/gf_commerce_stage_ci
       APP_DB_PASSWORD: ci_app_pw
       # 数据库测试只认这组显式隔离变量；即使普通连接串被误配，也不会写 dev/prod。
       GF_TEST_NO_DOTENV: '1'
       DATABASE_TEST_TARGET: isolated
-      TEST_MIGRATION_DATABASE_URL: postgresql://postgres:ci@localhost:5432/postgres
-      TEST_DATABASE_URL: postgresql://app_user:ci_app_pw@localhost:5432/postgres
+      TEST_MIGRATION_DATABASE_URL: postgresql://postgres:ci@localhost:58332/gf_commerce_stage_ci
+      TEST_DATABASE_URL: postgresql://app_user:ci_app_pw@localhost:58332/gf_commerce_stage_ci
       TEST_APP_DB_PASSWORD: ci_app_pw
       APP_JWT_SECRET: ci-only-not-a-real-secret-000000000000
       FORM_ENCRYPTION_KEY: 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
       TELNYX_API_KEY: ci-only-not-a-real-key
       TELNYX_SMS_FROM: '+18005550199'
+      COMMUNICATION_DELIVERY_MODE: capture
       NODE_ENV: test
       SEED_SKIP_AUTH: '1'
       # 不是密钥：SUPABASE_URL 和 anon key 本来就会打进前端包。
@@ -69,7 +70,7 @@ jobs:
       - name: 宪法检查（service_role / 裸 SET / 排他约束 / 浮点金额）
         run: pnpm lint:guards
 
-      - run: pnpm typecheck
+      - run: pnpm exec turbo run typecheck --concurrency=2
 
       - name: 初始化隔离测试库的 Supabase 基础对象
         run: psql "$TEST_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f packages/db/test/bootstrap-postgres.sql
@@ -80,7 +81,7 @@ jobs:
           pnpm db:seed
 
       - name: 测试
-        run: pnpm test
+        run: pnpm --filter @gf/db test && pnpm --workspace-concurrency=1 --filter '!@gf/db' test
 
       # ── 迁移必须是可重复执行的 ────────────────────────────────────────────
       # 生产环境会反复跑同一批迁移（滚动部署、回滚重来），
@@ -111,6 +112,7 @@ jobs:
 
       - name: 容器能真的起来
         run: |
+          trap 'docker rm -f ci >/dev/null 2>&1 || true' EXIT
           docker run -d --name ci --network host \
             -e PORT=3000 -e NODE_ENV=production \
             -e DATABASE_URL="$DATABASE_URL" \

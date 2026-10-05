@@ -11,8 +11,8 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: [self-hosted, linux, x64, kamatera-ci]
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -34,4 +34,4 @@ jobs:
         run: pnpm lint:guards
 
       - name: 类型检查
-        run: pnpm typecheck
+        run: pnpm exec turbo run typecheck --concurrency=2
